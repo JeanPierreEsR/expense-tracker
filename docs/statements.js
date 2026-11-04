@@ -859,8 +859,10 @@
     return /^\d{1,4}$/.test(last) ? ("0000" + last).slice(-4) : "ACCT-" + pm.id;
   }
 
+  // Accounts a file's lines can go to. Import data also offers Cash (another app's "Cash" wallet, 2026-11-04); a bank statement never.
   function tableAccounts() {
-    return ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).filter((pm) => (pm.type === "debit" || pm.type === "credit" || pm.type === "wallet") && !pmHidden_(pm));
+    const cashOk = screenMode === "import";
+    return ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).filter((pm) => (pm.type === "debit" || pm.type === "credit" || pm.type === "wallet" || (cashOk && pm.type === "cash")) && !pmHidden_(pm));
   }
 
   function columnLetter(i) { let s = "", n = i + 1; while (n > 0) { s = String.fromCharCode(65 + ((n - 1) % 26)) + s; n = Math.floor((n - 1) / 26); } return s; }
@@ -919,7 +921,8 @@
     state.m.source = screenMode === "import" ? "app" : "";   // the screen decides: an import is always an app's export, a statement never
     if (!state.accountId) {
       const fileDigits = (file.name.match(/\d{4}/g) || []);
-      const hit = accounts.find((a) => fileDigits.includes(String(a.last_4 || "").padStart(4, "0"))) || (accounts.length === 1 ? accounts[0] : null);
+      const banks = accounts.filter((a) => a.type !== "cash");   // Cash is offered, never picked by itself (a file without accounts stays with none)
+      const hit = banks.find((a) => fileDigits.includes(String(a.last_4 || "").padStart(4, "0"))) || (banks.length === 1 ? banks[0] : null);
       if (hit) state.accountId = hit.id;
     }
 
@@ -1199,7 +1202,7 @@
       const needCategory = screenMode === "import" && state.m.category < 0;   // another app's export names a category for every line
       use.disabled = needCategory || (multi() ? (undecided > 0 || !lines.length) : (!noneOk && !pm()));
       // Not blocking, only a heads-up: with accounts set up, a person usually wants the entries on one of them.
-      const noAccountNote = noneOk && !needCategory && !multi() && !pm() ? `<p class="stmt-note info">${escapeHtml(tr(accounts.length ? "imp.noAccountWarn" : "imp.noAccountsInfo"))}</p>` : "";
+      const noAccountNote = noneOk && !needCategory && !multi() && !pm() ? `<p class="stmt-note info">${escapeHtml(tr(accounts.some((a) => a.type !== "cash") ? "imp.noAccountWarn" : "imp.noAccountsInfo"))}</p>` : "";
       const totals = {};
       lines.forEach((l) => { const t = totals[l.currency] || (totals[l.currency] = { out: 0, in: 0 }); if (l.amount < 0) t.out += -l.amount; else t.in += l.amount; });
       const sum = (key) => Object.keys(totals).sort().filter((c) => totals[c][key] > 0).map((c) => fmtMoney(c, totals[c][key])).join(" + ") || "—";

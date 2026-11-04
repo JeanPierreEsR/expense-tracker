@@ -76,3 +76,10 @@ test("a forged or odd choice is cleaned: a bad scope drops it, bad characters in
   assert.equal(SigninLink.parse(forge({ o: 1, l: "x".repeat(31), v: 3 })).share.label, "");
   assert.equal(SigninLink.parse(forge({ o: 1, l: "María-José", v: 3 })).share.label, "María-José");
 });
+
+test("the setup page's language travels with the sign-in; anything else is dropped", () => {
+  assert.equal(SigninLink.parse(SigninLink.make(URL1, CODE, null, "es")).lang, "es");
+  assert.equal(SigninLink.parse(SigninLink.make(URL1, CODE, null, "en")).lang, "en");
+  assert.equal(SigninLink.parse(SigninLink.make(URL1, CODE, null, "fr")).lang, undefined);
+  assert.equal(SigninLink.parse(SigninLink.make(URL1, CODE)).lang, undefined, "an older setup page carries none: the phone's language decides");
+});

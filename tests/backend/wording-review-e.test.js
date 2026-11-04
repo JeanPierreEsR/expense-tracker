@@ -30,7 +30,7 @@ test("B1: the thing you copy and paste is the 'access code' / 'código de acceso
   assert.equal(get("link.pasteBtn").es, JSON.stringify("Pegar mi código de acceso"));
   assert.match(setupEn, /Copy my access code again/);
   assert.match(setupEs, /Copiar mi código de acceso otra vez/);
-  assert.match(get("privacy.signin").en, /Your access code is kept only on your phone/);
+  assert.match(get("privacy.signin").en, /Your access code is kept on your phone and in your own Google account/);   // 2026-11-04: it is also in the person's Google project
 });
 
 test("B2: the place for detected entries is always “Needs review” / “Por revisar” (no 'review queue', 'review list', 'lista por revisar')", () => {

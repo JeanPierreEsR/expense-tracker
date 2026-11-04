@@ -29,7 +29,7 @@ test("Feedback & privacy: one row (friends' copies only) opens one screen whose 
   assert.match(app, /fp-extras-btn"\)\.addEventListener\("click"/);
   assert.match(app, /document\.getElementById\("fp-back-btn"\)\.addEventListener\("click", \(\) => showScreen\("more"\)\)/);
   // the status line is refreshed right after the person saves their choice, and each time the screen opens
-  assert.match(app, /perf-share-save"\)\.addEventListener\("click"[\s\S]*?refreshPrivacyStatus_\(\);/);
+  assert.match(app, /function perfShareAnswer_\(on\) \{[\s\S]*?refreshPrivacyStatus_\(\);/);
   assert.match(app, /function showFeedbackPrivacyScreen\(\) \{[\s\S]*?refreshPrivacyStatus_\(\);/);
   assert.ok(app.match(/const MORE_SUBSCREENS = \[([^\]]*)\]/)[1].includes('"feedback-privacy"'));
 });

@@ -50,6 +50,44 @@ function bringModalToFront_(backdropEl) {
   backdropEl.style.zIndex = topModalZIndex;
 }
 
+// An account as it reads in a list to pick from: its name, the last 4 digits, and the wallets that ride on it ("BCP soles · Yape"),
+// so a person who pays with Yape or Plin finds it without knowing that the app records the bank account behind it (2026-11-04).
+function pmPickLabel_(pm) {
+  const settings = (meta && meta.settings) || {};
+  const wallets = [];
+  if (String(settings.yape_pen || "") === String(pm.id) || String(settings.yape_usd || "") === String(pm.id)) wallets.push("Yape");
+  if (String(settings.plin_pen || "") === String(pm.id) || String(settings.plin_usd || "") === String(pm.id)) wallets.push("Plin");
+  const shown = wallets.filter((w) => !String(pm.nickname || "").toLowerCase().includes(w.toLowerCase()));
+  return pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "") + (shown.length ? " · " + shown.join(" · ") : "");
+}
+
+// Asks for one name in the app's own small window (owner, 2026-11-04: the phone's plain "prompt" box looked out of place). Resolves
+// with the trimmed text, or null when the person cancels, taps ✕ or taps outside. Sits above the practices' dimmed screen (100000).
+let nameAskDone_ = null;
+function askName_(title) {
+  const backdrop = document.getElementById("name-ask-backdrop");
+  if (nameAskDone_) nameAskDone_(null);
+  I18n.applyStatic(backdrop);
+  document.getElementById("name-ask-title").textContent = String(title || "").replace(/:\s*$/, "");
+  const input = document.getElementById("name-ask-input");
+  input.value = "";
+  document.getElementById("name-ask-error").textContent = "";
+  backdrop.style.zIndex = 100002;   // above the practices (100000) and a window lifted above them (100001), e.g. "+ Add bank" in Add account
+  backdrop.hidden = false;
+  setTimeout(() => input.focus(), 50);
+  return new Promise((resolve) => {
+    nameAskDone_ = (value) => { nameAskDone_ = null; backdrop.hidden = true; resolve(value); };
+  });
+}
+function nameAskOk_() {
+  const v = document.getElementById("name-ask-input").value.replace(/\s+/g, " ").trim();
+  if (!v) { document.getElementById("name-ask-error").textContent = tr("accounts.errName"); return; }
+  if (nameAskDone_) nameAskDone_(v);
+}
+document.getElementById("name-ask-ok").addEventListener("click", nameAskOk_);
+document.getElementById("name-ask-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); nameAskOk_(); } });
+["name-ask-cancel", "name-ask-close"].forEach((id) => document.getElementById(id).addEventListener("click", () => { if (nameAskDone_) nameAskDone_(null); }));
+
 let meta = null;
 let selectedType = "expense";
 // Business pack: the expected payment an income settles (declared up here because selectCurrency can run before the business code below).
@@ -165,19 +203,25 @@ function findCurrency(code) {
   return CURRENCIES.find((c) => c.code === code) || { code, flag: "💱", name: code };
 }
 
+// The quick currency buttons, in a FIXED order: the main currency first, then the others (owner, 2026-11-04: buttons that moved
+// under the thumb when tapped caused wrong picks).
 function getRecentCurrencies() {
+  let stored = null;
   try {
-    const stored = JSON.parse(localStorage.getItem("recentCurrencies"));
-    if (Array.isArray(stored) && stored.length) return stored;
+    stored = JSON.parse(localStorage.getItem("recentCurrencies"));
   } catch (err) {
     // fall through to defaults
   }
-  return [homeCur(), ...DEFAULT_RECENT_CURRENCIES.filter((c) => c !== homeCur())].slice(0, 5);
+  const list = Array.isArray(stored) && stored.length ? stored : DEFAULT_RECENT_CURRENCIES;
+  return [homeCur(), ...list.filter((c) => c !== homeCur())].slice(0, 5);
 }
 
+// A currency picked from "More…" joins the buttons right after the main currency (the last one drops off);
+// tapping a button that is already there changes nothing.
 function bumpRecentCurrency(code) {
-  let recent = getRecentCurrencies().filter((c) => c !== code);
-  recent.unshift(code);
+  let recent = getRecentCurrencies();
+  if (recent.includes(code)) return recent;
+  recent.splice(1, 0, code);
   recent = recent.slice(0, 5);
   localStorage.setItem("recentCurrencies", JSON.stringify(recent));
   return recent;
@@ -199,8 +243,11 @@ function currencyFieldIds(target) {
   return { input: "currency", chips: "currency-chips" };
 }
 
-function selectCurrency(code, target) {
+// True once the person tapped a currency for the entry being typed (then picking an account never changes it).
+let entryCurrencyTouched_ = false;
+function selectCurrency(code, target, byPerson) {
   const resolvedTarget = target || currencyPickerTarget;
+  if (resolvedTarget === "entry") entryCurrencyTouched_ = !!byPerson;
   if (resolvedTarget === "main-change") { closeCurrencyModal(); startMainCurrencyChange_(code); return; }
   const ids = currencyFieldIds(resolvedTarget);
   document.getElementById(ids.input).value = code;
@@ -236,7 +283,7 @@ function renderCurrencyChips(target) {
     chip.type = "button";
     chip.className = "currency-chip" + (code === current ? " active" : "");
     chip.innerHTML = `<span>${cur.flag}</span><span>${cur.code}</span>`;
-    chip.addEventListener("click", () => selectCurrency(code, target));
+    chip.addEventListener("click", () => selectCurrency(code, target, true));
     container.appendChild(chip);
   });
 
@@ -252,6 +299,7 @@ function openCurrencyModal(target) {
   currencyPickerTarget = target || "entry";
   const backdrop = document.getElementById("currency-modal-backdrop");
   bringModalToFront_(backdrop);
+  guidedLift_(backdrop);
   backdrop.hidden = false;
   document.getElementById("currency-search").value = "";
   renderCurrencyOptionList("");
@@ -277,7 +325,7 @@ function renderCurrencyOptionList(filterText) {
       <span class="currency-option-code">${c.code}</span>
       <span class="currency-option-name">${escapeHtml(c.name)}</span>
     `;
-    row.addEventListener("click", () => selectCurrency(c.code, currencyPickerTarget));
+    row.addEventListener("click", () => selectCurrency(c.code, currencyPickerTarget, true));
     list.appendChild(row);
   });
 }
@@ -903,6 +951,10 @@ async function useSigninText_(text) {
     if (carried) perfShareSave_(carried);
     // Best effort: the sign-in text should not stay on the clipboard once it has done its job.
     if (isStandaloneApp_()) { try { await navigator.clipboard.writeText(""); } catch (err) { /* not allowed: harmless */ } }
+    // The language the person read the setup page in comes along too (2026-11-04): the app, the welcome included, starts in it,
+    // unless a language was already chosen on this phone. A reload draws every screen in it from the first moment.
+    if (link.lang && !I18n.hasChosenLang() && link.lang !== I18n.getLang()) { I18n.saveLang(link.lang); location.reload(); return; }
+    if (link.lang && !I18n.hasChosenLang()) I18n.saveLang(link.lang);
     await init();
   } catch (err) {
     if (previous) setApiUrl(previous); else localStorage.removeItem("apiUrl");
@@ -972,7 +1024,11 @@ let languageSynced_ = false;
 function syncLanguageSetting_() {
   if (languageSynced_ || !meta || !meta.settings || !I18n.hasChosenLang()) return;
   languageSynced_ = true;
-  if (meta.settings.language !== I18n.getLang()) callApi("setLanguage", { lang: I18n.getLang() }).catch(() => {});
+  if (meta.settings.language !== I18n.getLang()) callApi("setLanguage", { lang: I18n.getLang() }).then((res) => {
+    // The built-in Cash was renamed into this language (2026-11-04): the lists on screen still show the old name.
+    const pm = res && res.cash && (meta.paymentMethods || []).find((p) => String(p.id) === String(res.cash.id));
+    if (pm) { pm.nickname = res.cash.nickname; refreshAccountPickers_(); }
+  }).catch(() => {});
 }
 
 let homeCurFormDone_ = false;
@@ -1210,6 +1266,13 @@ function populatePaidByOptions() {
 
   if (selectedType === "income") {
     label.textContent = tr("field.receivedFrom");
+    // With no payers yet, start on an empty choice: "+ Add payer…" must never be the one selected (it was saved as the payer, 2026-11-04).
+    if (!meta.payors.length) {
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = "—";
+      select.appendChild(none);
+    }
     meta.payors.forEach((p) => {
       const opt = document.createElement("option");
       opt.value = p.id;
@@ -1252,7 +1315,7 @@ function keepHiddenAccountOption_(selectId, pmId) {
   if (!pm || !pmHidden_(pm) || Array.from(select.options).some((o) => o.value === pmId)) return;
   const opt = document.createElement("option");
   opt.value = pm.id;
-  opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+  opt.textContent = pmPickLabel_(pm);
   select.appendChild(opt);
 }
 
@@ -1272,7 +1335,7 @@ function populatePaymentMethodOptions() {
   meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm)).forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
-    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
 
@@ -1300,12 +1363,27 @@ function populateToPaymentMethodOptions() {
   meta.paymentMethods.filter((pm) => (pm.type === "investment") === wantPlatforms && !pmHidden_(pm)).forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
-    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
+  // A platform can be added right here (2026-11-04: a new person who chose Investment had no way on from the form).
+  if (wantPlatforms) {
+    const add = document.createElement("option");
+    add.value = "__add__";
+    add.textContent = tr("form.addPlatform");
+    select.appendChild(add);
+  }
   select.value = previous;
   if (select.value !== previous) select.value = "";
 }
+document.getElementById("to_payment_method").addEventListener("change", (e) => {
+  if (e.target.value !== "__add__") return;
+  e.target.value = "";
+  openPmModal_(null);
+  pmModalState.selectIn = "to_payment_method";
+  document.getElementById("pm-type").value = "investment";
+  document.getElementById("pm-type").dispatchEvent(new Event("change"));
+});
 
 function populateTags() {
   const container = document.getElementById("tags-list");
@@ -1598,7 +1676,7 @@ document.getElementById("date").addEventListener("change", autoPickRepaymentGrou
 document.getElementById("repayment-friend").addEventListener("change", async (e) => {
   repaymentFriendTouched_ = true;
   if (e.target.value !== "__add__") { updateAutoTransferDescription_(); return; }   // a loan's / repayment's automatic description follows the person
-  const name = prompt(tr("prompt.friendName"));
+  const name = await askName_(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
@@ -2163,7 +2241,7 @@ document.querySelectorAll("#split-mode-tabs .type-tab").forEach((tab) => {
 });
 
 document.getElementById("split-add-friend-btn").addEventListener("click", async () => {
-  const name = prompt(tr("prompt.friendName"));
+  const name = await askName_(tr("prompt.friendName"));
   if (!name || !name.trim()) return;
   const friend = await callApi("addFriend", { name: name.trim() });
   rememberPerson_(friend);   // a hidden friend with this name comes back instead of a second one being made
@@ -2228,7 +2306,7 @@ document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
 
 document.getElementById("paid_by").addEventListener("change", async (e) => {
   if (e.target.value === "__add__") {
-    const name = prompt(tr("prompt.friendName"));
+    const name = await askName_(tr("prompt.friendName"));
     e.target.value = "me";
     if (name && name.trim()) {
       const friend = await callApi("addFriend", { name: name.trim() });
@@ -2238,7 +2316,7 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
       document.getElementById("paid_by").value = friend.id;
     }
   } else if (e.target.value === "__add_payor__") {
-    const name = prompt(tr("prompt.payorName"));
+    const name = await askName_(tr("prompt.payorName"));
     e.target.value = meta.payors.length ? meta.payors[0].id : "";
     if (name && name.trim()) {
       const payor = await callApi("addPayor", { name: name.trim() });
@@ -2250,49 +2328,18 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
   togglePaymentMethodVisibility();
 });
 
-// The type is stored in English in the Sheet (credit, debit, cash, transfer,
-// wallet); the owner may type it in either language.
-const PAYMENT_METHOD_TYPE_WORDS = {
-  credit: "credit", "crédito": "credit", credito: "credit", "tarjeta de crédito": "credit",
-  debit: "debit", "débito": "debit", debito: "debit", "tarjeta de débito": "debit",
-  cash: "cash", efectivo: "cash",
-  transfer: "transfer", transferencia: "transfer",
-  wallet: "wallet", billetera: "wallet"
-};
-function paymentMethodTypeFromAnswer_(answer) {
-  const word = String(answer || "").trim().toLowerCase();
-  return PAYMENT_METHOD_TYPE_WORDS[word] || (word ? word : "credit");
-}
-
 document.getElementById("payment_method").addEventListener("change", async (e) => {
   if (e.target.value === "__add__") {
-    const nickname = prompt(tr("prompt.paymentMethodName"));
-    if (!nickname || !nickname.trim()) {
-      e.target.value = "";
-      return;
-    }
-    const trimmed = nickname.trim();
-
-    // Reuse an existing one instead of creating a duplicate (e.g. picking
-    // "+ Add payment method…" again and typing "Cash" a second time).
-    const existing = meta.paymentMethods.find((pm) => pm.nickname.trim().toLowerCase() === trimmed.toLowerCase());
-    if (existing) {
-      document.getElementById("payment_method").value = existing.id;
-      return;
-    }
-
-    const type = paymentMethodTypeFromAnswer_(prompt(tr("prompt.paymentMethodType"), "credit"));
-    const last4 = prompt(tr("prompt.last4")) || "";
-    const pm = await callApi("addPaymentMethod", { nickname: trimmed, type: type.trim(), last_4: last4.trim() });
-    meta.paymentMethods.push(pm);
-    populatePaymentMethodOptions();
-    populateToPaymentMethodOptions();
-    document.getElementById("payment_method").value = pm.id;
+    // The real Add account window (type, bank, currency…) instead of three plain questions in a row (2026-11-04); the new account is
+    // picked here once it is saved.
+    e.target.value = "";
+    openPmModal_(null);
+    pmModalState.selectIn = "payment_method";
   }
 });
 
 document.getElementById("add-tag-btn").addEventListener("click", async () => {
-  const name = prompt(tr("prompt.tagName"));
+  const name = await askName_(tr("prompt.tagName"));
   if (name && name.trim()) {
     const tag = await callApi("addTag", { name: name.trim() });
     meta.tags.push(tag);
@@ -2577,7 +2624,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const isRepayment = repaymentActive_();
     const categoryId = isRepayment ? "" : getCategoryId();
     const description = document.getElementById("description").value.trim();
-    const paidBy = document.getElementById("paid_by").value;
+    const paidByRaw = document.getElementById("paid_by").value;
+    const paidBy = paidByRaw === "__add_payor__" || paidByRaw === "__add__" ? "" : paidByRaw;
     const paymentMethodId = document.getElementById("payment_method").value;
     // Same condition togglePaymentMethodVisibility() uses to show the
     // field — income always carries a payment method (which account
@@ -3091,6 +3139,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
     document.getElementById("to_payment_method").value = "";
+    // The next entry starts in the main currency again (owner, 2026-11-04: a USD expense made the next grocery entry USD too, unnoticed).
+    if (document.getElementById("currency").value !== homeCur()) selectCurrency(homeCur(), "entry");
     lastAutoDescription = "";
     updateAutoTransferDescription_();
     setInvestmentDirection("deposit");
@@ -3312,14 +3362,20 @@ function categoryName(id) {
   return c ? c.name : tr(id ? "entry.unknownCategory" : "entry.uncategorized");
 }
 
+// A date in a list ("4 nov 2026" / "Nov 4, 2026"), as the welcome promises; anything that is not a plain YYYY-MM-DD is shown as it is.
+function listDate_(iso) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(iso || "")) ? I18n.fmtDateMedium(new Date(iso + "T00:00:00")) : (iso || "");
+}
+
 function paidByLabel(entryOrPaidBy) {
   // Accepts either a full entry (so income can look up Payors instead of
   // Friends) or a bare paid_by string for older call sites.
   const isEntry = entryOrPaidBy && typeof entryOrPaidBy === "object";
   const paidBy = isEntry ? entryOrPaidBy.paid_by : entryOrPaidBy;
   if (isEntry && entryOrPaidBy.type === "income") {
+    // No payer chosen (or the old "+ Add payer…" placeholder saved by mistake): nothing to show.
     const p = meta.payors.find((payor) => payor.id === paidBy);
-    return p ? p.name : paidBy;
+    return p ? p.name : "";
   }
   if (paidBy === "me") return tr("common.me");
   const f = meta.friends.find((fr) => fr.id === paidBy);
@@ -3336,7 +3392,7 @@ function entryMetaHtml_(entry, headline) {
     .filter(Boolean)
     .map((t) => `<span class="entry-tag">${escapeHtml(t.name)}</span>`)
     .join("");
-  return `${entry.date} · ${headline.meta}${pills ? ` <span class="entry-tags">${pills}</span>` : ""}`;
+  return `${listDate_(entry.date)}${headline.meta ? " · " + headline.meta : ""}${pills ? ` <span class="entry-tags">${pills}</span>` : ""}`;
 }
 
 // How many rows the Entries tab shows. Grows by ENTRY_PAGE_SIZE each time
@@ -4450,7 +4506,7 @@ function applyEntryDraft_(d) {
   }
   document.getElementById("amount").value = d.amount;
   document.getElementById("description").value = d.description;
-  selectCurrency(d.currency || homeCur(), "entry");
+  selectCurrency(d.currency || homeCur(), "entry", !!d.currency && d.currency !== homeCur());
   // A draft's own date counts only if it was typed a moment ago; otherwise today.
   if (d.date && Date.now() - d.savedAt < RECENT_ENTRY_DATE_MS && d.savedAt >= appResumedAt_) { document.getElementById("date").value = d.date; entryDateTouched_ = true; }
   if (d.paidBy) document.getElementById("paid_by").value = d.paidBy;
@@ -4708,7 +4764,7 @@ function exitEditMode() {
 // form that otherwise looked exactly like it was still being edited —
 // caught live by the owner after deleting a transfer. NOT used after a
 // successful save of a brand-NEW entry, which deliberately leaves date/
-// currency/account as they were, to make logging several in a row from
+// account as they were (the currency goes back to the main one, 2026-11-04), to make logging several in a row from
 // the same account the same day faster — see resetToFreshEntryScreen_
 // below for the "finishing an edit" case, which also resets these.
 function resetEntryFormFields_() {
@@ -5791,7 +5847,7 @@ function compactReviewRow_(entry) {
     ${practice ? `<span class="friends-check-spacer"></span>` : `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${reviewSelected_.has(entry.id) ? " checked" : ""}>`}
     <div style="flex:1;min-width:0;">
       <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
-      <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
+      <div class="review-item-meta">${listDate_(entry.date)} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
       <div>${chip}${part}</div>
     </div>
     <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−" }[entryFlowDirection_(entry)] || "")}</div>`;
@@ -5945,7 +6001,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       <div class="review-item-top">
         <div>
           <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
-          <div class="review-item-meta">${entry.date} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
+          <div class="review-item-meta">${listDate_(entry.date)} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
           ${entry.maybe_own ? `<div class="review-maybe-own">${escapeHtml(tr("review.maybeYours"))}</div>` : ""}
           ${reviewLoanHintText_(entry) ? `<div class="review-loan-hint">${escapeHtml(reviewLoanHintText_(entry))}</div>` : ""}
         </div>
@@ -6408,6 +6464,8 @@ function openNewEntrySheet_() {
   newEntrySheetOpen_ = true;
   applyNewEntryDate_();   // today, unless an older-dated entry was saved moments ago
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
+  // A new person's first "+": the guided practice starts by itself (owner, 2026-11-04). Never during another practice or "Mark as paid".
+  if (!payingRecurringId_ && guidedEntryWanted_()) setTimeout(startGuidedEntry_, 350);
 }
 
 function closeNewEntrySheet_() {
@@ -6637,7 +6695,7 @@ function homeMainCard_(g) {
       <div class="home-four-box"><span>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${homeShort_(m.expense)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${homeShort_(m.investment)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.net"))}</span><b class="${net < 0 ? "expense" : ""}">${net < 0 ? "−" : ""}${homeShort_(net)}</b></div>
-    </div>`;
+    </div>${Math.abs(m.loans || 0) >= 0.005 ? `<p class="hint home-loans-note">${escapeHtml(tr("home.loansIncluded", { amount: formatPenSigned_(m.loans) }))}</p>` : ""}`;
 
   const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
   const bars = months.map((x, i) => {
@@ -9321,8 +9379,14 @@ function renderFirstSteps_() {
   const info = meta.emailInfo || {};
   const since = Number(info.since) || 0;
   const days = since ? Math.floor((Date.now() - since) / 86400000) : 0;
-  const steps = [{ done: (meta.paymentMethods || []).length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() }];
+  // Only accounts the person added count: the built-in Cash (and the practice's account) is in every copy from the start.
+  const ownAccounts = (meta.paymentMethods || []).filter((p) => String(p.id) !== String((meta.settings || {}).cash_account_id || "") && p.type !== "cash" && !isPracticeAccountName_(p.nickname));
+  const steps = [{ done: ownAccounts.length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() }];
   if (caps.bankEmails) {
+    // Which inbox is read and how other banks' e-mails get there (the Bank emails sheet): a step here instead of a sheet that opened
+    // by itself right after the welcome (owner, 2026-11-04: one thing at a time). Done once the person opened it.
+    steps.push({ done: fsFlag_("etBankMailIntro"), text: tr("firstSteps.bankMail"), hint: tr("firstSteps.bankMailHint"),
+      go: () => { fsSetFlag_("etBankMailIntro"); openBankMailModal_({ onClose: renderFirstSteps_ }); } });
     const got = Object.keys(info.seen || {}).length > 0;
     // "No e-mail yet, check your bank alerts" is only fair when the check itself works: a failing check has its own warning (mailHealth).
     const late = days >= 3 && !(info.health && info.health.problem);
@@ -9364,9 +9428,11 @@ function openPerfShareModal_(onDone) {
   const backdrop = document.getElementById("perf-share-modal-backdrop");
   perfShareDone_ = onDone || null;
   I18n.applyStatic(backdrop);
-  document.getElementById("perf-share-on").checked = s.asked ? !!s.on : true;
+  // The current answer is the highlighted button once there is one (More → Feedback & privacy → Change what I share).
+  document.getElementById("perf-share-yes").className = !s.asked || s.on ? "primary" : "cancel-edit-btn";
+  document.getElementById("perf-share-no").className = s.asked && !s.on ? "primary" : "cancel-edit-btn";
   document.getElementById("perf-share-name").value = s.label || "";
-  document.getElementById("perf-share-close").hidden = !s.asked;   // the first time, the answer is the Save button
+  document.getElementById("perf-share-close").hidden = !s.asked;   // the first time, the answer is one of the two buttons
   // Someone who agreed to an older version sees what is new, and ✕ means "not now" (asked again later, three times at most).
   perfShareReask_ = !!(s.asked && s.on && (s.scope || 1) < PerfShare.SCOPE);
   document.getElementById("perf-share-new").hidden = !perfShareReask_;
@@ -9660,9 +9726,11 @@ function maybeAskPerfShare_() {
   if (!document.getElementById("welcome-overlay").hidden || !document.getElementById("perf-share-modal-backdrop").hidden) return;
   openPerfShareModal_(null);
 }
-document.getElementById("perf-share-save").addEventListener("click", () => {
+// Two answers instead of a box to tick (owner, 2026-11-04): "Yes, share" and "No, thanks" are both a complete answer.
+document.getElementById("perf-share-yes").addEventListener("click", () => perfShareAnswer_(true));
+document.getElementById("perf-share-no").addEventListener("click", () => perfShareAnswer_(false));
+function perfShareAnswer_(on) {
   if (welcome_ && welcome_.preview) { closePerfShareModal_(); return; }   // welcome preview: keep the real sharing choice untouched
-  const on = document.getElementById("perf-share-on").checked;
   perfShareSave_({ on, label: PerfShare.cleanLabel(document.getElementById("perf-share-name").value), asked: true, owner: false, scope: PerfShare.SCOPE });
   if (!on) { perfOutbox_.clear(); betaOutbox_.clear(); }
   refreshPerfShareRow_();
@@ -9670,7 +9738,7 @@ document.getElementById("perf-share-save").addEventListener("click", () => {
   try { localStorage.removeItem(PERF_LOG_KEY); } catch (e) { /* nothing to remove */ }   // a friend keeps no on-phone log
   closePerfShareModal_();
   perfSchedule_(5000);
-});
+}
 document.getElementById("perf-share-close").addEventListener("click", () => {
   if (perfShareReask_) {   // "not now" on the new question: keep what they agreed to before, ask again at a later open (3 times at most)
     const s = perfShareState_();
@@ -10176,15 +10244,16 @@ document.querySelectorAll("[data-welcome-order]").forEach((b) => b.addEventListe
 // the rest, 'credit' for a card. An older backend (no accountCurrencies) is offered soles and dollars only.
 const WA_TYPES = ["debit", "sueldo", "credit"];
 function waKindOf_(type, cur) {
-  if (type === "credit") return "credit";
+  // A card is soles and dollars ("credit") unless it is in ONE currency only ("credit_usd", a foreign card; 2026-11-04).
+  if (type === "credit") return cur ? `credit_${String(cur).toLowerCase()}` : "credit";
   if (type === "sueldo") return cur === "PEN" ? "sueldo" : `sueldo_${String(cur).toLowerCase()}`;
   return `debit_${String(cur || "PEN").toLowerCase()}`;
 }
-const waTypeOf_ = (kind) => kind === "credit" ? "credit" : /^sueldo/.test(kind || "") ? "sueldo" : "debit";
+const waTypeOf_ = (kind) => /^credit/.test(kind || "") ? "credit" : /^sueldo/.test(kind || "") ? "sueldo" : "debit";
 // The currency a kind names ("" for a card, or an account made before kinds existed).
 function kindCurrency_(kind) {
   if (kind === "sueldo") return "PEN";
-  const m = /^(?:debit|sueldo)_([a-z]{3})$/.exec(kind || "");
+  const m = /^(?:debit|sueldo|credit)_([a-z]{3})$/.exec(kind || "");
   return m ? m[1].toUpperCase() : "";
 }
 const waAnyCurrency_ = () => !!((meta && meta.capabilities) || {}).accountCurrencies;
@@ -10324,8 +10393,68 @@ function renderWelcomeAccounts_() {
   fill("wa-main-banks", waBanksOfList_(cat.main));
   fill("wa-other-banks", waBanksOfList_(cat.other.concat(custom)));
   fillBankNote_(waEl_("wa-note"), welcome_.accounts.map((a) => a.bank), true);
+  renderWaWalletQuestion_();
   waEl_("wa-skip-btn").hidden = welcome_.accounts.length > 0;
   waEl_("wa-error").textContent = "";
+}
+
+// "Do you use Yape or Plin?" at the top of the accounts step (owner, 2026-11-04: Yape / Plin users could not find themselves in a
+// bank-by-bank list). Yape rides on a BCP account; Plin on another bank's. Ticking one makes (or reuses) that bank's soles account and
+// links the wallet to it, exactly as ticking the wallet box inside the account would; unticking only removes the link (and the
+// account, when it was made by this question and nothing was typed into it).
+function waWalletAccount_(bank) {
+  return welcome_.accounts.find((a) => a.bank.toLowerCase() === bank.toLowerCase() && (a.kind === "debit_pen" || a.kind === "sueldo"));
+}
+function waSetWallet_(rail, bank) {
+  const linked = welcome_.links[rail] && welcome_.accounts.find((a) => a.cid === welcome_.links[rail]);
+  if (linked && linked.fromWalletQ && !linked.alias && !linked.last4 && !WA_RAILS.some((k) => k !== rail && welcome_.links[k] === linked.cid)) {
+    welcome_.accounts = welcome_.accounts.filter((a) => a.cid !== linked.cid);
+  }
+  welcome_.links[rail] = "";
+  if (!bank) return;
+  let acct = waWalletAccount_(bank);
+  if (!acct) {
+    acct = { cid: "w" + Date.now() + Math.floor(Math.random() * 1000), bank, kind: "debit_pen", alias: "", last4: "", showLast4: false, fromWalletQ: true };
+    welcome_.accounts.push(acct);
+  }
+  welcome_.links[rail] = acct.cid;
+}
+function renderWaWalletQuestion_() {
+  const box = waEl_("wa-wallet-q");
+  if (!box) return;
+  box.innerHTML = "";
+  const yapeOn = !!welcome_.links.yape_pen, plinOn = !!welcome_.links.plin_pen;
+  const row = document.createElement("div");
+  row.className = "wa-wallet-row";
+  [["yape_pen", "Yape", yapeOn], ["plin_pen", "Plin", plinOn]].forEach(([rail, label, on]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "welcome-choice" + (on ? " active" : "");
+    b.textContent = (on ? "✓ " : "") + label;
+    b.addEventListener("click", () => {
+      if (rail === "yape_pen") waSetWallet_(rail, on ? "" : "BCP");
+      else if (on) waSetWallet_(rail, "");
+      else { welcome_.plinAsk = true; }
+      renderWelcomeAccounts_();
+    });
+    row.appendChild(b);
+  });
+  box.appendChild(row);
+  // Plin: which bank it is on (any bank but BCP).
+  if (welcome_.plinAsk && !plinOn) {
+    const lab = document.createElement("label");
+    lab.textContent = tr("wa.plinWhich");
+    const sel = document.createElement("select");
+    const cat = waCatalog_();
+    const first = document.createElement("option"); first.value = ""; first.textContent = tr("wa.plinPick"); sel.appendChild(first);
+    cat.main.concat(cat.other).filter((bk) => !isBcp_(bk.name)).forEach((bk) => { const o = document.createElement("option"); o.value = bk.name; o.textContent = bk.name; sel.appendChild(o); });
+    sel.addEventListener("change", () => { if (!sel.value) return; welcome_.plinAsk = false; waSetWallet_("plin_pen", sel.value); renderWelcomeAccounts_(); });
+    box.appendChild(lab);
+    box.appendChild(sel);
+  }
+  const names = waDisplayNames_();
+  const lines = [["yape_pen", "Yape"], ["plin_pen", "Plin"]].filter(([k]) => welcome_.links[k]).map(([k, w]) => tr("wa.walletOn", { wallet: w, account: names[welcome_.links[k]] || "" }));
+  if (lines.length) { const p = document.createElement("p"); p.className = "hint"; p.textContent = lines.join(" "); box.appendChild(p); }
 }
 
 // Yape works only with BCP accounts; Plin works with other banks, never BCP. Soles accounts for the _pen links, dollar accounts for _usd.
@@ -10334,7 +10463,10 @@ const isBcp_ = (bankName) => String(bankName || "").trim().toLowerCase() === "bc
 // Plin only in soles, on another bank's debit account or on an Interbank credit card (no other card offers a wallet). `kind` is the welcome kind (debit_pen, debit_usd, sueldo,
 // credit) or, in the More window for an account made before kinds existed, empty - then a BCP debit account offers both Yape slots.
 function walletSlots_(bankName, type, kind) {
-  if (type === "credit") return String(bankName || "").trim().toLowerCase() === "interbank" ? ["plin_pen"] : [];
+  if (type === "credit") {
+    const cardCur = kindCurrency_(kind);
+    return String(bankName || "").trim().toLowerCase() === "interbank" && (!cardCur || cardCur === "PEN") ? ["plin_pen"] : [];
+  }
   if (type !== "debit") return [];
   const cur = kindCurrency_(kind), usd = cur === "USD", pen = cur === "PEN";
   if (cur && !usd && !pen) return [];   // Yape and Plin move only soles and dollars
@@ -10355,7 +10487,7 @@ function renderWalletBoxes_(box, slots, ticked, onToggle) {
     box.appendChild(row);
   });
 }
-const isWelcomeCredit_ = (kind) => kind === "credit";
+const isWelcomeCredit_ = (kind) => /^credit/.test(kind || "");   // "credit" or a card in one currency only ("credit_usd")
 function waSlots_(bank, kind) { return walletSlots_(bank, isWelcomeCredit_(kind) ? "credit" : "debit", kind); }
 
 function renderWaBank_() {
@@ -10391,9 +10523,13 @@ function renderWaBank_() {
   typeSel.value = waTypeOf_(f.kind);
   const curSel = waEl_("wa-cur");
   curSel.innerHTML = "";
+  const isCard = waTypeOf_(f.kind) === "credit";
+  // A card is in soles and dollars unless it is in one currency only (a foreign card); that needs a backend that knows 'credit_usd'.
+  const cardCurrencies = isCard && !!((meta && meta.capabilities) || {}).accountCurrencyEdit;
+  if (cardCurrencies) { const o = document.createElement("option"); o.value = ""; o.textContent = tr("accounts.curTwo"); curSel.appendChild(o); }
   waCurrencyChoices_().forEach((c) => { const o = document.createElement("option"); o.value = c; o.textContent = `${findCurrency(c).flag} ${c} — ${tr("currency." + c)}`; curSel.appendChild(o); });
-  curSel.value = kindCurrency_(f.kind) || f.cur || waCurrencyChoices_()[0];
-  waEl_("wa-cur-box").hidden = f.kind === "credit";
+  curSel.value = isCard ? kindCurrency_(f.kind) : (kindCurrency_(f.kind) || f.cur || waCurrencyChoices_()[0]);
+  waEl_("wa-cur-box").hidden = isCard && !cardCurrencies;
   renderWaWallets_();
   waEl_("wa-alias").value = f.alias;
   waEl_("wa-alias").placeholder = waNameFor_(bank, { kind: f.kind, alias: "", last4: f.last4, showLast4: f.showLast4 });
@@ -10432,14 +10568,15 @@ waEl_("wa-add-account-btn").addEventListener("click", () => {
 // Type and currency: a card has no currency box; switching back from a card keeps the currency picked before.
 waEl_("wa-type").addEventListener("change", (e) => {
   const f = welcome_.form; if (!f) return;
-  f.cur = kindCurrency_(f.kind) || f.cur || waCurrencyChoices_()[0];
-  f.kind = waKindOf_(e.target.value, f.cur);
+  if (waTypeOf_(f.kind) !== "credit") f.cur = kindCurrency_(f.kind) || f.cur || waCurrencyChoices_()[0];
+  // A new card starts as soles and dollars; back from a card, the account keeps the currency picked before.
+  f.kind = e.target.value === "credit" ? "credit" : waKindOf_(e.target.value, f.cur || waCurrencyChoices_()[0]);
   renderWaBank_();
 });
 waEl_("wa-cur").addEventListener("change", (e) => {
   const f = welcome_.form; if (!f) return;
-  f.cur = e.target.value;
-  f.kind = waKindOf_(waTypeOf_(f.kind), f.cur);
+  if (waTypeOf_(f.kind) !== "credit") f.cur = e.target.value;
+  f.kind = waKindOf_(waTypeOf_(f.kind), e.target.value);
   renderWaBank_();
 });
 waEl_("wa-cancel-account-btn").addEventListener("click", () => { welcome_.form = null; renderWaBank_(); });
@@ -10459,8 +10596,8 @@ waEl_("wa-save-account-btn").addEventListener("click", () => {
   renderWaBank_();
 });
 waEl_("wa-bank-back").addEventListener("click", () => { welcome_.bankOpen = null; welcome_.form = null; renderWelcomeAccounts_(); });
-waEl_("wa-add-bank-btn").addEventListener("click", () => {
-  const name = (prompt(tr("accounts.bankPrompt")) || "").trim().slice(0, 60);
+waEl_("wa-add-bank-btn").addEventListener("click", async () => {
+  const name = ((await askName_(tr("accounts.bankPrompt"))) || "").trim().slice(0, 60);
   if (!name) return;
   const cat = waCatalog_();
   const existing = cat.main.concat(cat.other).map((b) => b.name).concat(welcome_.customBanks).find((n) => n.toLowerCase() === name.toLowerCase());
@@ -10554,8 +10691,7 @@ async function finishWelcome_() {
       if (perfShareState_().asked && !perfIsOwnerCopy_()) openTour_(true);
       else openPerfShareModal_(() => openTour_(true));
     };
-    if (meta && meta.capabilities && meta.capabilities.bankEmails) openBankMailModal_({ welcome: true, onClose: toTourPreview });
-    else toTourPreview();
+    toTourPreview();   // the Bank emails sheet is a "Getting started" step on Home now, not a sheet after the welcome
     return;
   }
   try {
@@ -10595,9 +10731,8 @@ async function finishWelcome_() {
     if (perfShareState_().asked) openTour_(reloadAfter);
     else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
   };
-  // Only when bank e-mail reading is on: tell the person which Google account's inbox is read, and how to get other banks' e-mails there.
-  if (meta && meta.capabilities && meta.capabilities.bankEmails) openBankMailModal_({ welcome: true, onClose: toTour });
-  else toTour();
+  // Which inbox is read, and how other banks' e-mails get there, is a "Getting started" step on Home (renderFirstSteps_), not a sheet here.
+  toTour();
 }
 waEl_("wa-name").addEventListener("input", () => { welcome_.ownName = waEl_("wa-name").value; waEl_("wa-error").textContent = ""; });   // survives a redraw of the screen
 waEl_("wa-next-btn").addEventListener("click", waNext_);
@@ -12542,13 +12677,15 @@ function openPmModal_(pm) {
     typeSel.appendChild(o);
   });
   typeSel.value = pm ? pm.type : "credit";
+  pmModalState.cur = kindCurrency_(pmModalState.kind);
   const basicCash = isBasicCashPm_(pm);
   typeSel.disabled = basicCash;
   document.getElementById("pm-cash-hint").hidden = !basicCash;
   // A wallet tied to a bank account must not be added as a wallet: the bank account behind it is the account (owner's rule, 2026-10-18).
   const walletWarn = () => { document.getElementById("pm-wallet-warning").hidden = typeSel.value !== "wallet"; };
-  typeSel.onchange = () => { walletWarn(); renderPmWallets_(); };
+  typeSel.onchange = () => { walletWarn(); renderPmCurrency_(); renderPmWallets_(); };
   walletWarn();
+  renderPmCurrency_();
   document.getElementById("pm-nickname").value = pm ? pm.nickname : "";
   document.getElementById("pm-last4").value = pm ? pm.last_4 || "" : "";
   fillPmBankOptions_(pmModalState.lastBank);
@@ -12566,9 +12703,40 @@ function openPmModal_(pm) {
   }
   const backdrop = document.getElementById("pm-modal-backdrop");
   bringModalToFront_(backdrop);
+  guidedLift_(backdrop);
   backdrop.hidden = false;
   if (!pm) document.getElementById("pm-nickname").focus();
 }
+
+// The account's currency (2026-11-04): a savings / debit / salary account names one (the main one by default); a card is soles and
+// dollars unless it is in one currency only. Only on a backend that stores it (capability accountCurrencyEdit).
+function renderPmCurrency_() {
+  if (!pmModalState) return;
+  const type = document.getElementById("pm-type").value;
+  const box = document.getElementById("pm-cur-box");
+  box.hidden = !((meta && meta.capabilities) || {}).accountCurrencyEdit || (type !== "debit" && type !== "credit");
+  if (box.hidden) return;
+  const sel = document.getElementById("pm-currency");
+  sel.innerHTML = "";
+  if (type === "credit") { const o = document.createElement("option"); o.value = ""; o.textContent = tr("accounts.curTwo"); sel.appendChild(o); }
+  const codes = [...new Set([homeCur(), ...getRecentCurrencies(), ...CURRENCIES.map((c) => c.code)])];
+  codes.forEach((c) => { const o = document.createElement("option"); o.value = c; o.textContent = `${findCurrency(c).flag} ${c} — ${tr("currency." + c)}`; sel.appendChild(o); });
+  const was = pmModalState.cur || "";
+  sel.value = type === "credit" ? (/^credit_/.test(pmModalState.kind || "") ? was : "") : (was || homeCur());
+}
+function pmKindNow_() {
+  const type = document.getElementById("pm-type").value;
+  const cur = document.getElementById("pm-cur-box").hidden ? "" : document.getElementById("pm-currency").value;
+  if (type === "credit") return cur ? `credit_${cur.toLowerCase()}` : "credit";
+  if (type === "debit") return /^sueldo/.test(pmModalState.kind || "") ? (cur === "PEN" ? "sueldo" : `sueldo_${cur.toLowerCase()}`) : `debit_${(cur || homeCur()).toLowerCase()}`;
+  return pmModalState.kind || "";
+}
+document.getElementById("pm-currency").addEventListener("change", (e) => {
+  if (!pmModalState) return;
+  pmModalState.cur = e.target.value;
+  pmModalState.kind = pmKindNow_();
+  renderPmWallets_();
+});
 
 // Wallet boxes of the account window: which of Yape / Plin ride on this account (Settings yape_pen, yape_usd, plin_pen).
 // Saved together with the account, so a new account can be ticked before it has an id.
@@ -12576,7 +12744,7 @@ function pmBankName_() {
   const b = (meta.banks || []).find((x) => x.id === document.getElementById("pm-bank").value);
   return b ? b.name : "";
 }
-function pmWalletSlots_() { return walletSlots_(pmBankName_(), document.getElementById("pm-type").value, pmModalState.kind); }
+function pmWalletSlots_() { return walletSlots_(pmBankName_(), document.getElementById("pm-type").value, document.getElementById("pm-cur-box").hidden ? pmModalState.kind : pmKindNow_()); }
 function renderPmWallets_() {
   if (!pmModalState) return;
   const slots = pmWalletSlots_();
@@ -12599,7 +12767,8 @@ function closePmModal_() {
 document.getElementById("pm-bank").addEventListener("change", async (e) => {
   if (!pmModalState) return;
   if (e.target.value !== "__add__") { pmModalState.lastBank = e.target.value; renderPmWallets_(); return; }
-  const name = prompt(tr("accounts.bankPrompt"));
+  const name = await askName_(tr("accounts.bankPrompt"));
+  if (!pmModalState) return;
   if (!name || !name.trim()) { e.target.value = pmModalState.lastBank; return; }
   try {
     const bank = await callApi("addBank", { name: name.trim() });
@@ -12633,10 +12802,11 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   if (renamed && plain(nickname) === "plin") { errorEl.textContent = tr("wallets.plinNotAccount"); return; }
   if (renamed && plain(nickname) === "yape" && !confirm(tr("wallets.yapeAlone"))) return;
   // Closes at once and saves behind the screen (a refusal, such as a repeated name, comes back as an alert).
-  const state = { id: pmModalState.id, wallets: pmModalState.wallets };
+  const state = { id: pmModalState.id, wallets: pmModalState.wallets, selectIn: pmModalState.selectIn || "" };
   const type = document.getElementById("pm-type").value;
   const bankId = document.getElementById("pm-bank").value === "__add__" ? "" : document.getElementById("pm-bank").value;
   const slotsNow = pmWalletSlots_();
+  const curField = document.getElementById("pm-cur-box").hidden ? {} : { currency: document.getElementById("pm-currency").value };
   closePmModal_();
   saveBehindScreen_(practiceATrack_(practiceITrack_(async () => {
     const saved = await callApi("savePaymentMethod", {
@@ -12644,7 +12814,8 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       nickname,
       type,
       bank_id: bankId,
-      last_4: last4
+      last_4: last4,
+      ...curField
     });
     const i = meta.paymentMethods.findIndex((p) => p.id === saved.id);
     if (i >= 0) meta.paymentMethods[i] = { ...meta.paymentMethods[i], ...saved };
@@ -12664,6 +12835,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       const sel = document.getElementById(id);
       if (keep[k] && Array.from(sel.options).some((o) => o.value === keep[k])) sel.value = keep[k];
     });
+    if (state.selectIn) { const sel = document.getElementById(state.selectIn); sel.value = saved.id; sel.dispatchEvent(new Event("change")); }
   }, { nickname, type }), nickname), () => renderAccountsList_());
 });
 
@@ -13648,7 +13820,7 @@ function renderTripDetail_(d) {
     </div>`).join("");
   const days = d.byDay.map((x) => `
     <div class="recurring-row trip-static-row">
-      <div class="recurring-row-name">${escapeHtml(x.date)}</div>
+      <div class="recurring-row-name">${escapeHtml(listDate_(x.date))}</div>
       <div class="recurring-row-amount">${cur} ${moneyFmt(x.amount_main)}</div>
     </div>`).join("");
 
@@ -13831,7 +14003,7 @@ function renderTripUnlinked_(d) {
     row.innerHTML = `
       <div>
         <div class="recurring-row-name">${escapeHtml(u.entry.description || u.item_description || "")}</div>
-        <div class="recurring-row-sub">${escapeHtml(u.entry.date)} · ${escapeHtml(formatAmount(u.entry.amount, u.entry.currency))}</div>
+        <div class="recurring-row-sub">${escapeHtml(listDate_(u.entry.date))} · ${escapeHtml(formatAmount(u.entry.amount, u.entry.currency))}</div>
       </div>
       <button type="button" class="add-inline">${escapeHtml(tr("trips.addToTrip"))}</button>`;
     row.querySelector("button").addEventListener("click", async (ev) => {
@@ -13859,7 +14031,7 @@ function renderTripEstimates_(d) {
     row.innerHTML = `
       <div>
         <div class="recurring-row-name">${e.category_icon ? escapeHtml(e.category_icon) + " " : ""}${escapeHtml(e.description || e.category_name)}</div>
-        <div class="recurring-row-sub">${escapeHtml(e.date)}${e.overdue ? " · " + escapeHtml(tr("trips.estimateOverdue")) : ""}</div>
+        <div class="recurring-row-sub">${escapeHtml(listDate_(e.date))}${e.overdue ? " · " + escapeHtml(tr("trips.estimateOverdue")) : ""}</div>
       </div>
       <div class="recurring-row-amount">≈ ${escapeHtml(formatAmount(e.amount, e.currency))}<button type="button" class="add-inline trip-covered-btn">${escapeHtml(tr("trips.covered"))}</button></div>`;
     // "Covered": a real expense has replaced this estimate, so the estimate is deleted.
@@ -13994,7 +14166,7 @@ async function loadTripFinder_(lookBack) {
         <input type="checkbox"${e.date < tripStart ? "" : " checked"}>
         <div class="trip-find-text">
           <div class="recurring-row-name">${e.category_icon ? escapeHtml(e.category_icon) + " " : ""}${escapeHtml(e.description || e.category_name)}</div>
-          <div class="recurring-row-sub">${escapeHtml(e.date)}${e.category_name && e.description ? " · " + escapeHtml(e.category_name) : ""}</div>
+          <div class="recurring-row-sub">${escapeHtml(listDate_(e.date))}${e.category_name && e.description ? " · " + escapeHtml(e.category_name) : ""}</div>
         </div>
         <div class="recurring-row-amount">${escapeHtml(formatAmount(e.own_share, e.currency))}</div>`;
       rows.push({ e, input: row.querySelector("input") });
@@ -15965,7 +16137,7 @@ document.getElementById("split-client-select").addEventListener("change", async 
   const value = e.target.value;
   if (!value) return;
   if (value !== "__new__") { applyClientRepays_(value); return; }
-  const name = prompt(tr("business.newClientPrompt"));
+  const name = await askName_(tr("business.newClientPrompt"));
   if (!name || !name.trim()) { e.target.value = ""; return; }
   try {
     const friend = await callApi("addFriend", { name: name.trim(), role: "client" });
@@ -16508,7 +16680,7 @@ document.querySelectorAll("#recurring-split-mode-tabs .type-tab").forEach((tab) 
 });
 
 document.getElementById("recurring-split-add-friend-btn").addEventListener("click", async () => {
-  const name = prompt(tr("prompt.friendName"));
+  const name = await askName_(tr("prompt.friendName"));
   if (!name || !name.trim()) return;
   const friend = await callApi("addFriend", { name: name.trim() });
   meta.friends.push(friend);
@@ -16776,7 +16948,7 @@ document.getElementById("recurring-find-matches-btn").addEventListener("click", 
       row.innerHTML = `
         <input type="checkbox" value="${c.id}" ${confident ? "checked" : ""}>
         <div class="link-candidate-text">
-          <div class="link-candidate-date">${c.date} · ${c.currency} ${moneyFmt(c.amount)}${confident ? "" : ` <span class="hint">${tr("recModal.lessCertain")}</span>`}</div>
+          <div class="link-candidate-date">${listDate_(c.date)} · ${c.currency} ${moneyFmt(c.amount)}${confident ? "" : ` <span class="hint">${tr("recModal.lessCertain")}</span>`}</div>
           <div class="link-candidate-desc">${escapeHtml(c.description || tr("review.noDescription"))}</div>
         </div>
       `;
@@ -17566,7 +17738,7 @@ async function openPaidPicker_(item, currency, isIncome) {
       row.style.cursor = "pointer";
       row.innerHTML = `
         <div class="link-candidate-text">
-          <div class="link-candidate-date">${e.date} · ${e.currency} ${moneyFmt(e.amount)}</div>
+          <div class="link-candidate-date">${listDate_(e.date)} · ${e.currency} ${moneyFmt(e.amount)}</div>
           <div class="link-candidate-desc">${escapeHtml(e.description || e.category_name || tr("review.noDescription"))}</div>
         </div>`;
       row.addEventListener("click", () => {
@@ -17730,6 +17902,12 @@ function renderProjectionsSummary_(p) {
   if (p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0) {
     breakdownLines.push(tr("projections.lineInvestments", { actual: formatPenSigned_(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
   }
+  // Loans (2026-11-04): money borrowed and repaid counts in What's left, like Overview; a bank loan's installments still to pay add
+  // their principal here (their interest + fees are in Expenses). Shown only when there is something (an older backend sends none).
+  const hasLoans = typeof p.loans === "number" && (Math.abs(p.loans) > 0.004 || p.loansProgrammed > 0.004);
+  if (hasLoans) {
+    breakdownLines.push(tr("projections.lineLoans", { actual: formatPenSigned_(p.loansActual || 0), programmed: formatPen(p.loansProgrammed || 0) }));
+  }
 
   body.innerHTML = `
     <div class="summary-grid">
@@ -17745,6 +17923,10 @@ function renderProjectionsSummary_(p) {
         <span class="summary-label">${tr("summary.investments")}</span>
         <span class="summary-value investment">${formatPenSigned_(p.investments)}</span>
       </div>
+      ${hasLoans ? `<div class="summary-item">
+        <span class="summary-label">${tr("summary.loans")}</span>
+        <span class="summary-value${p.loans > 0.004 ? " pos-green" : ""}">${formatPenSigned_(p.loans)}</span>
+      </div>` : ""}
       <div class="summary-item">
         <span class="summary-label">${tr("summary.net")}</span>
         <span class="summary-value">${formatPenSigned_(p.net)}</span>
@@ -18768,6 +18950,7 @@ function practiceSaveFailed_() {
 // Called from the new-entry save: the practice's own expense is the one with its name, saved while the practice is running.
 function tipNoteSavedEntry_(id, description) {
   practiceINoteSaved_(id, description);   // (the Investments practice's deposit / withdrawal)
+  guidedNoteSaved_(id);                   // (the guided practice's first real entry)
   if (!practice_ || practice_.entryId || !Spotlight.isRunning() || description !== tr("spot.p.name")) return;
   const friendId = [...splitFriendIds][0] || "";
   const friend = (meta.friends || []).find((f) => f.id === friendId);
@@ -19053,6 +19236,9 @@ function startPractice_() {
 // One card, three practices, in this order: shared expense -> standalone loan -> bank loan. The next one is offered only after the previous
 // was seen (Show me or Dismiss), and never two at once (they share the card). The last two need a backend that can clean them up.
 function offerLoansTip_() {
+  // The guided practice already had the person record a REAL shared expense (owner, 2026-11-04): the Loans practice then only shows
+  // where it went (nothing is recorded, so nothing is deleted: its usual cleanup would remove a real expense).
+  if (!tipSeen_("loans") && guidedSplit_()) { offerTip_("loans", "loans-tip-invite", tr("spot.g.loansInvite"), startGuidedLoansLook_); return; }
   if (!tipSeen_("loans")) { offerTip_("loans", "loans-tip-invite", tr("spot.p.invite"), startPractice_); return; }
   if (!((meta && meta.capabilities) || {}).practiceLoansMore) return;   // an older backend could not clean the practice up
   if (!tipSeen_("loans-standalone")) { offerTip_("loans-standalone", "loans-tip-invite", tr("spot.l.invite"), () => startLoansMorePractice_("standalone")); return; }
@@ -19062,9 +19248,135 @@ function offerLoansTip_() {
 // More → How to use the app → Practice tips: clears the "seen" list so each tip is offered again.
 document.getElementById("tour-choice-tips").addEventListener("click", () => {
   try { Spotlight.resetSeen(localStorage); } catch (e) { /* ignore */ }
+  try { localStorage.setItem(GUIDED_AGAIN_KEY_, "1"); } catch (e) { /* ignore */ }   // the guided "+" practice runs again, even with entries
   document.getElementById("tour-choice-backdrop").hidden = true;
   showToast_(tr("spot.tipsReset"));
 });
+
+// ---- Guided practice: the first new entry (owner's design, 2026-11-04; plan "Onboarding test fixes and guided practices") ----
+// Unlike a practice tutorial (made-up data, deleted at the end), a GUIDED practice has the person record something REAL, field by
+// field, and keeps it. The first time a new person taps "+", it starts by itself: what to record (the four types), then each field
+// with one sentence on what it is for, the optional parts with "Not now", Save, and where the entry landed. Exit leaves the form as it
+// is (the usual draft). Marked seen in tipsSeen ("guided-entry") when it starts; More → Practice tips runs it again.
+const GUIDED_ENTRY_KEY_ = "guided-entry";
+const GUIDED_AGAIN_KEY_ = "guidedEntryAgain";   // set by "Practice tips": run it again even though there are entries
+const GUIDED_SPLIT_KEY_ = "guidedSplit";        // { friendId, friendName } when the first entry was shared (the Loans tip then only shows it)
+let guided_ = null;                             // { savedId, split } while it runs
+
+// A window the person opens during the GUIDED practice (the currency list, Add account / platform) goes above its dimmed screen, or it
+// would open where nobody can reach it. Only the guided practice: the practice tutorials light up parts of these windows themselves.
+function guidedLift_(backdrop) {
+  if (guided_ && Spotlight.isRunning()) backdrop.style.zIndex = 100001;
+}
+
+function guidedEntryWanted_() {
+  if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || tipSeen_(GUIDED_ENTRY_KEY_)) return false;
+  if (editingViaPopup || editingEntryId || confirmingPendingId) return false;
+  let again = false;
+  try { again = localStorage.getItem(GUIDED_AGAIN_KEY_) === "1"; } catch (e) { /* storage blocked */ }
+  return again || !(lastRenderedEntries_ || []).length;   // people who already record entries are never interrupted
+}
+function guidedSplit_() {
+  try { const g = JSON.parse(localStorage.getItem(GUIDED_SPLIT_KEY_) || "null"); return g && g.friendId ? g : null; } catch (e) { return null; }
+}
+function guidedNoteSaved_(id) {
+  if (!guided_ || guided_.savedId || !Spotlight.isRunning()) return;
+  guided_.savedId = id;
+  if (selectedType === "expense" && document.getElementById("split-toggle").checked && splitFriendIds.size) {
+    const friendId = [...splitFriendIds][0];
+    const friend = (meta.friends || []).find((f) => f.id === friendId);
+    guided_.split = { friendId, friendName: friend ? friend.name : "" };
+  }
+}
+
+function startGuidedEntry_() {
+  if (!newEntrySheetOpen_ || Spotlight.isRunning()) return;
+  markTipSeen_(GUIDED_ENTRY_KEY_);
+  try { localStorage.removeItem(GUIDED_AGAIN_KEY_); } catch (e) { /* ignore */ }
+  guided_ = { savedId: "", split: null };
+  Spotlight.run(guidedEntrySteps_(), {
+    labels: { note: tr("spot.g.note"), exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
+    onFinish: async (how) => {
+      if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0);
+      if (guided_ && guided_.split) { try { localStorage.setItem(GUIDED_SPLIT_KEY_, JSON.stringify(guided_.split)); } catch (e) { /* ignore */ } }
+      guided_ = null;   // nothing to remove: what the person saved is theirs
+    },
+    busy: () => perfInflight_ > 0
+  });
+}
+
+function guidedEntrySteps_() {
+  const is = (t) => () => selectedType === t;
+  const shownNow = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && el.getClientRects().length > 0; };
+  const amountOk = () => parseFloat(document.getElementById("amount").value) > 0;
+  const next = () => tr("spot.g.next");
+  const splitOn = () => document.getElementById("split-toggle").checked;
+  const lastError = () => document.getElementById("form-error").textContent.trim();
+  // `available` (type only, never what is on screen yet) keeps "3 of 12" right once the type is chosen; `before` checks the screen.
+  const accountText = { expense: "spot.g.accExp", income: "spot.g.accInc", transfer: "spot.g.accFrom", investment: "spot.g.accInv" };
+  return [
+    { key: "intro", text: () => tr("spot.g.intro"), button: () => tr("spot.g.start") },
+    { key: "type", target: "#entry-type-tabs", text: () => tr("spot.g.type"), tap: "#entry-type-tabs", button: () => tr("spot.g.keepExpense") },
+    { key: "category", target: "#category-picker", text: () => tr(selectedType === "income" ? "spot.g.catIncome" : "spot.g.cat"),
+      until: () => !document.getElementById("entry-form").hidden, available: () => ICON_PICKER_TYPES.includes(selectedType), before: async () => shownNow("category-picker") },
+    { target: "#repayment-field", text: () => tr("spot.g.transferKind"), visit: "#transfer-kind", button: next,
+      available: is("transfer"), before: async () => is("transfer")() && shownNow("repayment-field") },
+    { target: "#investment-direction-tabs", text: () => tr("spot.g.invDir"), tap: "#investment-direction-tabs", button: next,
+      available: is("investment"), before: async () => is("investment")() && shownNow("investment-direction-tabs") },
+    { key: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
+      until: () => amountOk() && document.activeElement !== document.getElementById("amount"), ok: amountOk, holdsUntil: "save" },
+    { target: "#currency-chips", text: () => tr("spot.g.currency"), tap: "#currency-chips", button: next },
+    { target: "#description", text: () => tr("spot.g.desc"), blurTap: true, visit: "#description", button: next },
+    { target: "#date", text: () => tr("spot.g.date"), visit: "#date", button: next },
+    { target: "#paid_by", text: () => tr(selectedType === "income" ? "spot.g.payer" : "spot.g.paidBy"), visit: "#paid_by", button: next,
+      available: () => is("expense")() || is("income")(), before: async () => (is("expense")() || is("income")()) && shownNow("paid_by") },
+    { target: "#payment-method-field", text: () => tr(accountText[selectedType] || "spot.g.accExp"), visit: "#payment_method", button: next,
+      before: async () => shownNow("payment-method-field") },
+    { target: "#to-payment-method-field", text: () => tr("spot.g.accTo"), visit: "#to_payment_method", button: next,
+      available: is("transfer"), before: async () => is("transfer")() && shownNow("to-payment-method-field") },
+    { key: "platform", target: "#to-payment-method-field", text: () => tr("spot.g.platform"), visit: "#to_payment_method",
+      ok: () => !is("investment")() || !!document.getElementById("to_payment_method").value, holdsUntil: "save",
+      available: is("investment"), before: async () => is("investment")() && shownNow("to-payment-method-field") },
+    { target: "#split-field .checkbox-row", text: () => tr("spot.g.split"), until: splitOn, button: () => tr("spot.g.notNow"),
+      available: is("expense"), before: async () => is("expense")() && shownNow("split-field") },
+    { key: "splitFriend", target: () => [document.getElementById("split-friend-chips"), document.getElementById("split-add-friend-btn")],
+      text: () => tr("spot.g.splitFriend"), until: () => splitFriendIds.size > 0, wait: 8000,
+      ok: () => !splitOn() || splitFriendIds.size > 0, holdsUntil: "save", available: () => is("expense")() && splitOn(), before: async () => is("expense")() && splitOn() },
+    { target: () => [document.getElementById("split-mode-tabs"), document.getElementById("split-rows"), document.getElementById("split-summary")],
+      text: () => tr("spot.g.splitHow"), button: next, available: () => is("expense")() && splitOn() && splitFriendIds.size > 0, before: async () => is("expense")() && splitOn() && splitFriendIds.size > 0 },
+    { target: "#tags-field", text: () => tr("spot.g.tags"), tap: "#tags-list", button: next,
+      available: is("expense"), before: async () => is("expense")() && shownNow("tags-field") },
+    { target: "#trip-field", text: () => tr("spot.g.trip"), visit: "#entry-trip", button: next,
+      available: () => is("expense")() && document.getElementById("entry-trip").options.length > 1, before: async () => is("expense")() && shownNow("trip-field") },
+    { key: "save", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
+      text: () => { const err = lastError(); return err ? tr("spot.g.saveErr", { error: err }) : tr("spot.g.save"); },
+      before: async () => { document.getElementById("form-error").textContent = ""; },
+      until: () => !!(guided_ && guided_.savedId) },
+    { look: true, target: () => (guided_ && guided_.savedId ? document.querySelector(`#entry-list .entry[data-entry-id="${CSS.escape(guided_.savedId)}"]`) : null),
+      text: () => tr("spot.g.where"), button: () => tr("spot.g.done"), wait: 15000,
+      before: async () => { showScreen("entries"); await new Promise((r) => setTimeout(r, 600)); },
+      poke: () => { refreshEntryList().catch(() => {}); } }
+  ];
+}
+
+// The Loans tip after a guided practice that recorded a real shared expense: it only SHOWS where the friend's share went.
+function startGuidedLoansLook_() {
+  const g = guidedSplit_();
+  if (!g || Spotlight.isRunning()) return false;
+  const row = () => Array.from(document.querySelectorAll("#loans-owed-to-me-list .loan-row")).find((r) => r.dataset.friendId === g.friendId) || null;
+  Spotlight.run([
+    { target: row, text: () => tr("spot.g.loans2", { name: g.friendName }), tap: row, wait: 30000,
+      before: async () => { showScreen("loans"); }, poke: () => { refreshLoans().catch(() => {}); } },
+    { look: true, target: () => document.querySelector("#loan-detail-modal-backdrop .currency-modal"), text: () => tr("spot.p.s13a"), button: () => tr("spot.p.gotIt"), wait: 15000,
+      before: async () => { await new Promise((r) => setTimeout(r, 600)); } },
+    { look: true, target: "#record-repayment-btn", text: () => tr("spot.g.loans4"), button: () => tr("spot.g.done"), wait: 15000 }
+  ], {
+    labels: { note: tr("spot.g.lookNote"), exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
+    onFinish: async () => { try { localStorage.removeItem(GUIDED_SPLIT_KEY_); } catch (e) { /* ignore */ } },
+    busy: () => perfInflight_ > 0
+  });
+  return true;
+}
 
 // ---- First-use practice: Needs review ----
 // The person sees how an automatic capture waits in "Needs review": two made-up purchases arrive (one server call, createPracticePending),
@@ -20850,7 +21162,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
         <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
       </div>
-      <div class="loan-detail-row-meta">${l.date}${l.opening === "1" || l.opening === 1 ? " · " + escapeHtml(tr("loanDetail.fromBefore")) : ""}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
+      <div class="loan-detail-row-meta">${listDate_(l.date)}${l.opening === "1" || l.opening === 1 ? " · " + escapeHtml(tr("loanDetail.fromBefore")) : ""}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
     </div>
   `;
   const rowMain = row.querySelector(".loan-detail-row-main");
@@ -21056,7 +21368,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
     const where = r.is_offset
       ? [tr("history.offsetAgainst", { loan: escapeHtml(r.offset_loan_description) })]
       : r.parts.length > 1
-        ? r.parts.map((pt) => `${escapeHtml(pt.loan_description)} (${pt.loan_date}): ${money(r.currency, pt.amount)}`)
+        ? r.parts.map((pt) => `${escapeHtml(pt.loan_description)} (${listDate_(pt.loan_date)}): ${money(r.currency, pt.amount)}`)
         : [tr("history.on", { loan: escapeHtml(r.loan_description), date: r.loan_date })];
     // One total, split in what sits on loans and what is its own income/expense entry.
     const split = r.gap ? [tr("history.splitLoans", { amount: money(r.currency, r.applied) })] : [];
@@ -21067,7 +21379,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
     const unappliedHtml = r.unapplied > 0.004 ? `<div class="loan-detail-row-meta"><em>${tr("history.unapplied", { amount: money(r.currency, r.unapplied) })}</em></div>` : "";
     row.innerHTML = `
       <div class="loan-detail-row-top">
-        <span class="loan-detail-row-desc">${r.date} · ${kind}<span class="loan-detail-row-chevron">›</span></span>
+        <span class="loan-detail-row-desc">${listDate_(r.date)} · ${kind}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${r.is_offset ? "i-owe" : r.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${r.is_offset ? "" : r.direction === "they_owe_me" ? "+" : "−"}${money(r.currency, r.amount)}</span>
       </div>
       ${metaLines.map((m) => `<div class="loan-detail-row-meta">${m}</div>`).join("")}${whereHtml}${gapHtml}${unappliedHtml}`;
@@ -21089,7 +21401,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
         <span class="loan-detail-row-desc">${escapeHtml(l.description)}</span>
         <span class="loan-detail-row-amount ${l.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${tr("history.status." + l.status)}</span>
       </div>
-      <div class="loan-detail-row-meta">${l.date} · ${parts}</div>`;
+      <div class="loan-detail-row-meta">${listDate_(l.date)} · ${parts}</div>`;
     loanEl.appendChild(row);
   });
   loadingEl.hidden = true;
@@ -21628,7 +21940,7 @@ function bankPopulateAccounts_(selectId, keep) {
   meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
     const o = document.createElement("option");
     o.value = pm.id;
-    o.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    o.textContent = pmPickLabel_(pm);
     sel.appendChild(o);
   });
   sel.value = keep || "";
@@ -22121,7 +22433,7 @@ function populateLoanFriendOptions() {
 
 document.getElementById("loan-friend").addEventListener("change", async (e) => {
   if (e.target.value !== "__add__") return;
-  const name = prompt(tr("prompt.friendName"));
+  const name = await askName_(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
     loanFriendAdding_ = true;   // (the first-use loan practice waits for the new friend to be picked)
@@ -22149,7 +22461,7 @@ function populateLoanPaymentMethodOptions() {
   accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
-    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
 }
@@ -22197,6 +22509,14 @@ function watchCreditCardPick_(selectId, moneyComesIn) {
 watchCreditCardPick_("loan-payment-method", () => loanDirection === "i_owe_them");          // I borrowed: the money comes in
 watchCreditCardPick_("settlement-payment-method", () => repaymentDirection === "they_owe_me");   // they pay me: it comes in
 document.getElementById("payment_method").addEventListener("focus", (e) => { e.target.dataset.prev = e.target.value; });
+// An account in one currency (a dollar account, a card in dollars only) sets the entry's currency when it is picked, unless the person
+// already tapped a currency for this entry (2026-11-04). A card in soles and dollars, cash or a wallet changes nothing.
+document.getElementById("payment_method").addEventListener("change", (e) => {
+  if (entryCurrencyTouched_ || editingEntryId) return;
+  const pm = (meta.paymentMethods || []).find((p) => String(p.id) === e.target.value);
+  const cur = pm && (pm.type === "debit" || pm.type === "credit") ? kindCurrency_(pm.alias_kind) : "";
+  if (cur && cur !== document.getElementById("currency").value && CURRENCIES.some((c) => c.code === cur)) selectCurrency(cur, "entry");
+});
 document.getElementById("payment_method").addEventListener("change", (e) => {
   if (e.target.value === "__add__" || typeof repaymentActive_ !== "function" || !repaymentActive_()) return;
   warnCreditCardPick_(e.target, repaymentDirectionChoice !== "i_owe_them");   // "I paid them" = money goes out
@@ -22441,7 +22761,7 @@ function populateSettlementPaymentMethodOptions() {
   accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
-    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
 }
@@ -22665,7 +22985,7 @@ function renderSettlementList_(settlements) {
 
     const desc = isOffset
       ? tr("settle.offsetAgainst", { desc: escapeHtml(s.offset_loan_description) })
-      : `${s.date}${pm ? " · " + escapeHtml(pm.nickname) : ""}`;
+      : `${listDate_(s.date)}${pm ? " · " + escapeHtml(pm.nickname) : ""}`;
 
     row.innerHTML = `
       <div class="loan-detail-row-top">
@@ -23095,7 +23415,7 @@ function populateReviewTransferFriendOptions() {
 
 document.getElementById("review-transfer-friend").addEventListener("change", async (e) => {
   if (e.target.value !== "__add__") return;
-  const name = prompt(tr("prompt.friendName"));
+  const name = await askName_(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
@@ -23120,7 +23440,7 @@ function populateReviewTransferPaymentMethodOptions() {
   accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
-    opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "");
+    opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
 }
@@ -23358,7 +23678,7 @@ async function openBalanceModal(pmId) {
       const opt = document.createElement("option");
       opt.value = pm.id;
       const tracked = balancesCache.some((b) => b.id === pm.id);
-      opt.textContent = pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "") + (tracked ? " ✓" : "");
+      opt.textContent = pmPickLabel_(pm) + (tracked ? " ✓" : "");
       picker.appendChild(opt);
     });
     if (!meta.paymentMethods.length) {
@@ -23428,7 +23748,7 @@ async function loadBalanceMovements_(pmId) {
         <span class="loan-detail-row-desc">${escapeHtml(label)}</span>
         <span class="loan-detail-row-amount ${m.signed > 0 ? "owed-to-me" : "i-owe"}">${m.signed > 0 ? "+" : "−"}${m.currency} ${moneyFmt(Math.abs(m.signed))}</span>
       </div>
-      <div class="loan-detail-row-meta">${m.date} · ${m.type}${extra}</div>
+      <div class="loan-detail-row-meta">${listDate_(m.date)} · ${m.type}${extra}</div>
     `;
     list.appendChild(row);
   });
@@ -24084,7 +24404,7 @@ document.getElementById("bill-add-charge").addEventListener("click", () => {
   recomputeBill_();
 });
 document.getElementById("bill-add-friend").addEventListener("click", async () => {
-  const name = prompt(tr("prompt.friendName"));
+  const name = await askName_(tr("prompt.friendName"));
   if (!name || !name.trim()) return;
   const friend = await callApi("addFriend", { name: name.trim() });
   friend.last_used = todayLocalISO();

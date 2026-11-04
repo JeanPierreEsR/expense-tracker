@@ -394,7 +394,7 @@ const T = {
     c_api4: '4. Come back to this page. It continues by itself.',
     g_settings: 'Settings',
     c_acct: '1. Google asks you to sign in. Tap your account.',
-    c_unver: '2. Google says it hasn’t verified the app. That’s normal: tap the small “Continue” on the left. Never the big blue button.',
+    c_unver: '2. Google says it hasn’t verified the app. That’s normal: JP made this app, not Google. Tap the small “Continue” on the left. Never the big blue button.',
     c_all: '3. Check “Select all”.',
     c_scroll: '4. Scroll down to the end.',
     c_cont: '5. Tap “Continue”.',
@@ -457,7 +457,7 @@ const T = {
     shareTitle: 'Help me improve the app',
     // This card is the ONE place the person decides about sharing: the choice travels with the sign-in to the app (signin-link.js), which then does not ask again.
     // Its list of counts must say the same as the app's own pop-up (strings.js perfShare.body): tests/backend/signin-consent.test.js checks it.
-    shareBody: 'I’m JP, who made this app. It is in beta, and your help makes it better. If you leave the box below checked, your phone sends me only small counts: how fast each action ran; which action failed, with a short code; whether each bank email was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. While you set up, this page also tells me which step you reached and how many seconds it took. It never sends your Google account, email, expenses, amounts, names, accounts or anything you type, so it does not affect your privacy, and it does not slow the app down. You can change this at any time in the app, in the More tab, in the privacy section. It would be greatly appreciated. — JP',
+    shareBody: 'I’m JP, who made this app. It is in beta, and your help makes it better. If you leave the box below checked, your phone sends me only small counts: how fast each action ran; which action failed, with a short code; whether each bank email was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. While you set up, this page also tells me which step you reached and how many seconds it took. It never sends your Google account, email, expenses, amounts, names, accounts or anything you type, and it does not slow the app down. You can change this at any time in the app, in the More tab, in the privacy section. It would be greatly appreciated. — JP',
     shareShort: 'Share small counts (speed, problems) to help improve the app. Never your account, email or spending.',
     optShareLabel: '<b>Share how the app is doing</b> (speed, problems, screens I use)',
     shareNameLabel: 'Your first name (optional), so JP knows who to help',
@@ -596,7 +596,7 @@ const T = {
     c_api4: '4. Vuelve a esta página. Continúa sola.',
     g_settings: 'Configuración',
     c_acct: '1. Google te pide iniciar sesión. Toca tu cuenta.',
-    c_unver: '2. Google dice que no verificó la app. Es normal: toca el “Continuar” pequeño de la izquierda. Nunca el botón azul grande.',
+    c_unver: '2. Google dice que no verificó la app. Es normal: esta app la hizo JP, no Google. Toca el “Continuar” pequeño de la izquierda. Nunca el botón azul grande.',
     c_all: '3. Marca “Seleccionar todo”.',
     c_scroll: '4. Baja hasta el final.',
     c_cont: '5. Toca “Continuar”.',
@@ -629,7 +629,7 @@ const T = {
     stepAllow: 'Paso 2 de 2',
     stepOptional: 'Paso opcional',
     privateTitle: 'Consejo: usa una pestaña privada',
-    privateBody: '<p style="color:inherit">Es la forma más segura de configurar sin problemas. Muchos celulars tienen varias cuentas de Google con sesión iniciada, y la pantalla de aprobación de Google se confunde con eso. Una pestaña privada empieza sin cuentas, así que inicias sesión solo con la que elijas.</p><ol><li>Toca <b>Copiar la dirección de esta página</b> aquí abajo.</li><li>En Safari toca el ícono de pestañas (dos cuadrados), luego <b>Privada</b> y luego el <b>+</b>.</li><li>Pega la dirección en la barra y ábrela. Esta página aparece otra vez: sigue desde ahí.</li></ol><p style="color:inherit" class="small">¿Ya estás en una pestaña privada? Entonces todo listo: sigue con los pasos de abajo.</p>',
+    privateBody: '<p style="color:inherit">Es la forma más segura de configurar sin problemas. Muchos celulares tienen varias cuentas de Google con sesión iniciada, y la pantalla de aprobación de Google se confunde con eso. Una pestaña privada empieza sin cuentas, así que inicias sesión solo con la que elijas.</p><ol><li>Toca <b>Copiar la dirección de esta página</b> aquí abajo.</li><li>En Safari toca el ícono de pestañas (dos cuadrados), luego <b>Privada</b> y luego el <b>+</b>.</li><li>Pega la dirección en la barra y ábrela. Esta página aparece otra vez: sigue desde ahí.</li></ol><p style="color:inherit" class="small">¿Ya estás en una pestaña privada? Entonces todo listo: sigue con los pasos de abajo.</p>',
     accountTip: '<b>¿Con qué cuenta de Google?</b> El Gmail que <b>recibe los correos de tu banco</b>.',
     accountTipMore: '<b>¿Con qué cuenta de Google?</b> Inicia sesión con la cuenta de Gmail que <b>recibe los correos de tu banco</b>. Tu app lee tus movimientos del banco desde esa cuenta, así que usa esa. Si tus bancos escriben a varias direcciones, después puedes reenviarlos todos a esta (en la app: Más → Correos del banco). ¿No tienes Gmail porque tu banco escribe a Outlook, iCloud o Yahoo? Crea un Gmail gratis y reenvía a él; la app te explica cómo.',
     whatTitle: 'Qué va a pasar (unos 3 minutos)',
@@ -646,7 +646,7 @@ const T = {
     optAwakeLabel: '<b>Abrir más rápido</b> (recomendado)',
     optAwakeMore: '<b>Abrir más rápido (recomendado)</b> — tu app abre rápido siempre, en vez de hacerte esperar unos segundos la primera vez cada día.',
     optGmailLabel: '<b>Agregar movimientos del banco automáticamente</b> (recomendado)',
-    optGmailMore: '<b>Agregar mis movimientos del banco automáticamente (recomendado)</b> — tu app lee los correos que te envía tu banco y agrega cada pago por ti, así no los escribes. Nada cuenta hasta que lo confirmes. Solo puede leer correos, nunca enviar ni borrar.',
+    optGmailMore: '<b>Agregar movimientos del banco automáticamente (recomendado)</b> — tu app lee los correos que te envía tu banco y agrega cada pago por ti, así no los escribes. Nada cuenta hasta que lo confirmes. Solo puede leer correos, nunca enviar ni borrar.',
     choicesSummaryOne: 'Sin extras. Puedes continuar sin ellos.',
     choicesSummaryMany: 'Más adelante, Google te pedirá confirmar estos extras. Solo toma un momento.',
     choicesLocked: 'Tus elecciones: {list}.',
@@ -657,7 +657,7 @@ const T = {
     approveExtraAwake: 'mantenerse lista para abrir rápido: un pequeño temporizador corre cada 5 minutos, aunque no la estés usando, y solo contacta la dirección de la propia app',
     approveExtraGmail: '<b>leer</b> tu correo — nunca puede enviar, cambiar ni borrar uno; revisar con regularidad si hay correos nuevos del banco (un pequeño temporizador corre en segundo plano)',
     shareTitle: 'Ayúdame a mejorar la app',
-    shareBody: 'Soy JP, quien hizo esta app. Está en beta, y tu ayuda la mejora. Si dejas marcada la casilla de abajo, tu celular me envía solo conteos pequeños: qué tan rápido funcionó cada acción; qué acción falló, con un código corto; si cada correo del banco se confirmó tal como llegó, se cambió o se descartó, y qué campo cambiaste (nunca lo que dice); y cuántas veces abres cada pantalla. Mientras la configuras, esta página también me avisa a qué paso llegaste y cuántos segundos tomó. Nunca envía tu cuenta de Google, tu correo, tus gastos, montos, nombres, cuentas ni nada de lo que escribes, así que no afecta tu privacidad y no hace más lenta la app. Puedes cambiarlo cuando quieras en la pestaña Más de la app, en la parte de privacidad. Te lo voy a agradecer mucho. — JP',
+    shareBody: 'Soy JP, quien hizo esta app. Está en beta, y tu ayuda la mejora. Si dejas marcada la casilla de abajo, tu celular me envía solo conteos pequeños: qué tan rápido funcionó cada acción; qué acción falló, con un código corto; si cada correo del banco se confirmó tal como llegó, se cambió o se descartó, y qué campo cambiaste (nunca lo que dice); y cuántas veces abres cada pantalla. Mientras la configuras, esta página también me avisa a qué paso llegaste y cuántos segundos tomó. Nunca envía tu cuenta de Google, tu correo, tus gastos, montos, nombres, cuentas ni nada de lo que escribes, y no hace más lenta la app. Puedes cambiarlo cuando quieras en la pestaña Más de la app, en la parte de privacidad. Te lo voy a agradecer mucho. — JP',
     shareShort: 'Comparte conteos pequeños (velocidad, problemas) para mejorar la app. Nunca tu cuenta, correo ni gastos.',
     optShareLabel: '<b>Compartir cómo le va a la app</b> (velocidad, problemas, pantallas que uso)',
     shareNameLabel: 'Tu nombre (opcional), para que JP sepa a quién ayudar',
@@ -1551,7 +1551,7 @@ function handoff() {
 }
 // The sign-in text for the app, with the person's "Help me improve the app" choice from the card above inside it (the app then does not ask again).
 function signinText() {
-  return SigninLink.make(state.webAppUrl, state.accessCode, { on: !!beta.on, label: PerfShare.cleanLabel(beta.label || ''), scope: PerfShare.SCOPE });
+  return SigninLink.make(state.webAppUrl, state.accessCode, { on: !!beta.on, label: PerfShare.cleanLabel(beta.label || ''), scope: PerfShare.SCOPE }, LANG);
 }
 async function continueAfterApproval() {
   await restoreIfNeeded();

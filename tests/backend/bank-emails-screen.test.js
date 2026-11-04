@@ -22,9 +22,11 @@ test("tab memory: the screen is a More sub-screen and the old name is not", () =
   assert.ok(!list.includes('"notauto"'));
 });
 
-test("the More row opens the screen; the welcome keeps its short pop-up", () => {
+// Since 2026-11-04 the short pop-up no longer opens by itself after the welcome: it is a "Getting started" step on Home.
+test("the More row opens the screen; the short pop-up is a Getting started step", () => {
   assert.match(app, /more-bank-mail-btn"\)\.addEventListener\("click", \(\) => showBankEmailsScreen\(\)\)/);
-  assert.match(app, /openBankMailModal_\(\{ welcome: true/);
+  assert.match(app, /tr\("firstSteps\.bankMail"\)[\s\S]{0,200}openBankMailModal_\(/);
+  assert.ok(!/openBankMailModal_\(\{ welcome: true/.test(app), "not opened by itself at the end of the welcome");
   assert.match(app, /function openBankMailModal_\(/);
 });
 

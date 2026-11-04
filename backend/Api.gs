@@ -1769,6 +1769,8 @@ function savePaymentMethod(payload) {
   var headers = getHeaders(sheet);
   if (!id) {
     var pm = { id: Utilities.getUuid(), nickname: nickname, type: type, bank_id: bankId, last_4: '' };
+    var newKind = accountCurrencyKind_(payload, type, null);
+    if (newKind) { ensurePaymentMethodAliasColumns_(); headers = getHeaders(sheet); pm.alias_kind = newKind; pm.alias_auto = 'no'; }
     appendRowObject('Payment Methods', pm);
     if (last4) {
       setPaymentMethodLast4_(sheet, headers, findRowIndexById(sheet, headers, pm.id), last4);
@@ -1792,11 +1794,35 @@ function savePaymentMethod(payload) {
       nickname = uniqueAccountName_(autoAccountAlias_(bankShortName_(bank ? bank.name : ''), String(before.alias_kind), last4, !!last4, currentLang_()), last4, taken);
     }
   }
+  // The account's currency (More → Accounts, 2026-11-04): a savings / salary account names one; a card is soles and dollars ('') or one
+  // currency only. Stored in alias_kind, which the welcome already uses; an automatic name follows the new currency.
+  var kind = accountCurrencyKind_(payload, type, before);
+  if (kind && kind !== String(before.alias_kind || '')) {
+    ensurePaymentMethodAliasColumns_();
+    headers = getHeaders(sheet);
+    if (String(before.alias_auto) === 'yes' && String(before.nickname) === nickname && String(before.bank_id || '') === bankId) {
+      var bankK = getAllRows('Banks').find(function (b) { return String(b.id) === bankId; });
+      var takenK = {};
+      getAllRows('Payment Methods').forEach(function (p) { if (String(p.id) !== id) takenK[String(p.nickname).trim().toLowerCase()] = true; });
+      nickname = uniqueAccountName_(autoAccountAlias_(bankShortName_(bankK ? bankK.name : ''), kind, last4, String(before.alias_show_last4) === 'yes', currentLang_()), last4, takenK);
+    }
+    setCellByRow_(sheet, headers, rowIndex, 'alias_kind', kind);
+  }
   setCellByRow_(sheet, headers, rowIndex, 'nickname', nickname);
   setCellByRow_(sheet, headers, rowIndex, 'type', type);
   setCellByRow_(sheet, headers, rowIndex, 'bank_id', bankId);
   setPaymentMethodLast4_(sheet, headers, rowIndex, last4);
-  return { id: id, nickname: nickname, type: type, bank_id: bankId, last_4: last4 };
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
+  return { id: id, nickname: nickname, type: type, bank_id: bankId, last_4: last4, alias_kind: kind || String(before.alias_kind || '') };
+}
+
+// The alias_kind a save asks for, or '' when it says nothing about the currency (an older phone) or the type has none (cash, wallet,
+// platform). A salary account stays a salary account.
+function accountCurrencyKind_(payload, type, before) {
+  if (!payload || payload.currency === undefined || payload.currency === null) return '';
+  if (type !== 'debit' && type !== 'credit') return '';
+  var base = type === 'credit' ? 'credit' : (/^sueldo/.test(String((before && before.alias_kind) || '')) ? 'sueldo' : 'debit');
+  return accountKindFor_(base, payload.currency);
 }
 
 // How many records point at an account. Entries (either end), loans, settlements and the

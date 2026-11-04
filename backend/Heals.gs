@@ -22,7 +22,10 @@ var HEALS_ = [
   // Pause was removed from Programmed items (2026-10-31). A paused repeating item is turned into an ended one (end date = its last paid occurrence)
   // so every figure stays exactly the same and nobody has to decide. DELIBERATE EXCEPTION to "a heal never rewrites data" (owner's OK, 2026-11-01):
   // it changes two fields of those items (Active, End date) and loses nothing. See convertPausedProgrammed_ in RecurringExpenses.gs.
-  { id: 'paused-programmed-to-ended', run: function () { convertPausedProgrammed_(); } }
+  { id: 'paused-programmed-to-ended', run: function () { convertPausedProgrammed_(); } },
+  // The built-in cash account was named before the welcome chose the language, so Spanish copies show "Cash" (2026-11-04). It is renamed
+  // to the copy's language only while it still has the built-in name (relocalizeCashName_, Accounts.gs); a typed name stays.
+  { id: 'cash-name-language', run: function () { relocalizeCashName_(currentLang_()); } }
 ];
 
 function healSheetTimeZone_() {

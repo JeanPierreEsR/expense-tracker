@@ -74,6 +74,7 @@ var BACKEND_STRINGS_ = {
   "err.pmCashBasic": { en: "Cash is built in: everyone has it, so it can't be deleted or hidden. You can rename it.", es: "Efectivo viene incluido: todos lo tienen, así que no se puede eliminar ni ocultar. Puedes cambiarle el nombre." },
   "err.pmCashType": { en: "Cash is built in: its type stays Cash.", es: "Efectivo viene incluido: su tipo sigue siendo Efectivo." },
   "pm.cashName": { en: "Cash", es: "Efectivo" },
+  "proj.installmentItem": { en: "Loan installments: {what} (interest and fees)", es: "Cuotas del préstamo: {what} (intereses y comisiones)" },
   "err.pmInUse": { en: { one: "This account can't be deleted: {n} entry uses it. Hide it instead — it disappears from the lists you choose from, but past entries keep its name.", other: "This account can't be deleted: {n} entries use it. Hide it instead — it disappears from the lists you choose from, but past entries keep its name." }, es: { one: "No se puede eliminar esta cuenta: {n} movimiento la usa. Mejor ocúltala: desaparece de las listas pero los movimientos anteriores conservan su nombre.", other: "No se puede eliminar esta cuenta: {n} movimientos la usan. Mejor ocúltala: desaparece de las listas pero los movimientos anteriores conservan su nombre." } },
   "err.pmRailLinked": { en: "This account is linked to Yape or Plin. Change that link first (below), then delete it.", es: "Esta cuenta está vinculada a Yape o Plin. Cambia ese vínculo primero (en esta misma pantalla) y luego elimínala." },
   "err.pickCategoryFirst": { en: "Pick a category first.", es: "Primero elige una categoría." },
@@ -748,5 +749,8 @@ function setLanguage(payload) {
   setSetting_('language', lang);
   // Account names that were all made automatically follow the language (Accounts.gs).
   relocalizeAutoAliases_(lang);
-  return { language: lang };
+  var cashRenamed = relocalizeCashName_(lang);
+  // The phone's lists already hold the old name: say what it is now, so they can be fixed without a reload.
+  var cashId = cashRenamed ? cashAccountId_() : '';
+  return cashRenamed ? { language: lang, cash: { id: cashId, nickname: tr_('pm.cashName', null, lang) } } : { language: lang };
 }
