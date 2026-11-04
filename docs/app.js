@@ -15741,8 +15741,16 @@ const MONTH_NAMES_SHORT = Array.from({ length: 12 }, (_, i) => I18n.monthShort(i
 function populateRecurringCategoryChips() {
   const container = document.getElementById("recurring-category-chips");
   container.innerHTML = "";
-  sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" || c.type === "income"), selectedRecurringCategoryId))
-    .forEach((c) => {
+  const all = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" || c.type === "income"), selectedRecurringCategoryId));
+  // Expenses first, then income, each under its own small heading (owner's request, 2026-11-03).
+  [["expense", "recurring.expensesTitle"], ["income", "recurring.incomeTitle"]].forEach(([type, titleKey]) => {
+    const group = all.filter((c) => c.type === type);
+    if (!group.length) return;
+    const head = document.createElement("div");
+    head.className = "category-kind-title";
+    head.textContent = tr(titleKey);
+    container.appendChild(head);
+    group.forEach((c) => {
       const chip = document.createElement("div");
       chip.className = "tag-chip" + (selectedRecurringCategoryId === c.id ? " selected" : "");
       chip.textContent = (c.icon ? c.icon + " " : "") + c.name;
@@ -15753,6 +15761,7 @@ function populateRecurringCategoryChips() {
       });
       container.appendChild(chip);
     });
+  });
 }
 
 // A split only makes sense for an expense-type category (Entry Splits

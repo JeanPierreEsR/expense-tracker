@@ -3457,3 +3457,5 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .deleted-batch-actions { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
 .deleted-batch-actions button.primary { width: auto; margin: 0; padding: 10px 18px; }
 .deleted-forget { color: #d64545; }
+.category-kind-title { flex-basis: 100%; margin-top: 4px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #888); }
+.category-kind-title:not(:first-child) { margin-top: 10px; }
