@@ -18209,7 +18209,11 @@ function practicePickAccount_() {
 function runTip_(steps, afterFinish, note) {
   return Spotlight.run(steps, {
     labels: { note: note || "", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
-    onFinish: async (how) => { markPracticeDeleting_(); await afterFinish(how); },
+    onFinish: async (how) => {
+      markPracticeDeleting_();
+      if (how === "lost") setTimeout(() => alert(tr("spot.lost")), 0);   // the engine stopped it (see spotlight.js go()): say why, then clean up as usual
+      await afterFinish(how);
+    },
     busy: () => perfInflight_ > 0   // a call still on its way: a step's reload waits for it (no stacked reloads)
   });
 }
@@ -20083,9 +20087,15 @@ function practiceBLeftover_() {
   if (confirm(tr("spot.b.leftover"))) practiceBRemove_().then((ok) => { if (ok) showToast_(tr("spot.b.removed")); });
 }
 
+let loansRefreshSeq_ = 0;
 async function refreshLoans() {
   populateLoansScope_();
+  // Only the newest load draws. The server answers reads in parallel, so a load sent while a save was still writing can come back
+  // AFTER a newer one and redraw the list without the new debt (owner, 2026-11-03: the Loans practice's friend row vanished under
+  // its "Tap their name" step).
+  const seq = ++loansRefreshSeq_;
   const balances = await callApi("listLoanBalances", loansScopePayload_());
+  if (seq !== loansRefreshSeq_) return;
   if (!loansScope_) loansLastBalances_ = balances;
 
   // A friend can be owed in one currency and owe in another (e.g. they owe

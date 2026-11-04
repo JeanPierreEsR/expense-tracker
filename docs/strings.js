@@ -1744,6 +1744,7 @@
     "spot.step": { en: "{n} of {total}", es: "{n} de {total}" },
     "spot.stuck": { en: "Skip this step", es: "Omitir este paso" },
     "spot.waiting": { en: "One moment…", es: "Un momento…" },
+    "spot.lost": { en: "The practice stopped: a step it needed was skipped or a window was closed, so it could not go on. Everything from it is removed. To try again, go to More → How to use the app → 💡 Practice tips.", es: "La práctica se detuvo: se omitió un paso que necesitaba o se cerró una ventana, así que no podía seguir. Todo lo de la práctica se quita. Para intentarlo de nuevo, ve a Más → Cómo usar la app → 💡 Práctica guiada." },
     "spot.cleaning": { en: "Removing the practice data…", es: "Quitando los datos de práctica…" },
     "spot.showMe": { en: "Show me", es: "Muéstrame" },
     "spot.dismiss": { en: "Dismiss", es: "Descartar" },

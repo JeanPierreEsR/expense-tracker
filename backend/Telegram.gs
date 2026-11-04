@@ -1335,6 +1335,25 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
 // Returns the splits array to hand to saveEntrySplits, or null if
 // anything couldn't be resolved (an unrecognized friend name, a bad
 // amount, or an over-total).
+// Each part may give its number AFTER or BEFORE the name ("Ana 20" / "20 Ana"), and as an
+// amount or a percentage of the entry's amount ("Ana 50%" / "50% Ana"); parts are still
+// separated by commas (owner, 2026-11-03).
+function parseSplitPart_(part) {
+  var s = String(part).trim();
+  var m = s.match(/^([\d.,]+)\s*(%?)\s+(.+)$/);
+  if (m) return { name: m[3].trim(), num: m[1], pct: !!m[2] };
+  m = s.match(/^(.+?)\s+([\d.,]+)\s*(%?)$/);
+  if (m) return { name: m[1].trim(), num: m[2], pct: !!m[3] };
+  return null;
+}
+
+// The amount (in the entry's currency, to the cent) a split part stands for; null when the number is unreadable.
+function splitPartAmount_(p, entry) {
+  var n = parseFloat(p.num.replace(/,/g, ''));
+  if (isNaN(n)) return null;
+  return p.pct ? Math.round(Number(entry.amount) * n) / 100 : n;
+}
+
 function parseSplitCommand_(entry, text) {
   var trimmed = String(text).trim();
   if (/^(none|clear|off|ninguno|ninguna|borrar)$/i.test(trimmed)) return [];
@@ -1363,21 +1382,21 @@ function parseSplitCommand_(entry, text) {
   // several, leftover cents to the last one).
   var ownerIdx = -1, ownerAmt = 0;
   for (var k = 0; k < parts.length; k++) {
-    var om = parts[k].match(/^(?:me|jp|yo)\s+([\d.,]+)$/i);
-    if (om) { ownerIdx = k; ownerAmt = parseFloat(om[1].replace(/,/g, '')); break; }
+    var om = parseSplitPart_(parts[k]);
+    if (om && /^(?:me|jp|yo)$/i.test(om.name)) { ownerIdx = k; ownerAmt = splitPartAmount_(om, entry); break; }
   }
   if (ownerIdx !== -1) {
-    if (isNaN(ownerAmt) || ownerAmt < 0) return null;
+    if (ownerAmt === null || ownerAmt < 0) return null;
     var others = parts.filter(function (_, idx) { return idx !== ownerIdx; });
     if (!others.length) return null;
     var fixed = [], open = [], fixedTotal = 0;
     for (var p = 0; p < others.length; p++) {
-      var pm2 = others[p].match(/^(.+?)\s+([\d.,]+)$/);
-      var fr2 = fuzzyFindFriend_(pm2 ? pm2[1].trim() : others[p]);
+      var pm2 = parseSplitPart_(others[p]);
+      var fr2 = fuzzyFindFriend_(pm2 ? pm2.name : others[p]);
       if (!fr2) return null;
       if (pm2) {
-        var a2 = parseFloat(pm2[2].replace(/,/g, ''));
-        if (isNaN(a2) || a2 <= 0) return null;
+        var a2 = splitPartAmount_(pm2, entry);
+        if (a2 === null || a2 <= 0) return null;
         fixed.push({ friend_id: fr2.id, amount: a2 });
         fixedTotal += a2;
       } else {
@@ -1401,12 +1420,12 @@ function parseSplitCommand_(entry, text) {
   var splits = [];
   var assigned = 0;
   for (var j = 0; j < parts.length; j++) {
-    var m = parts[j].match(/^(.+?)\s+([\d.,]+)$/);
+    var m = parseSplitPart_(parts[j]);
     if (!m) return null;
-    var friend2 = fuzzyFindFriend_(m[1].trim());
+    var friend2 = fuzzyFindFriend_(m.name);
     if (!friend2) return null;
-    var amt = parseFloat(m[2].replace(/,/g, ''));
-    if (isNaN(amt) || amt <= 0) return null;
+    var amt = splitPartAmount_(m, entry);
+    if (amt === null || amt <= 0) return null;
     splits.push({ friend_id: friend2.id, amount: amt });
     assigned += amt;
   }
