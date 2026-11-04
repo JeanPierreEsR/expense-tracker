@@ -72,6 +72,8 @@ function getCapabilities_() {
     telegram: !!getTelegramToken_(),
     // A chat is actually linked (the token alone sends nothing): the app mentions Telegram in alert hints only then.
     telegramLinked: telegramLinked_(),
+    // setExtraOn: More → Feedback & privacy → Extra features turns an extra back on in the app; an older backend sends the person to the setup page
+    extrasOn: true,
     // This backend keeps in-app alerts (Notices.gs); an older one lacks it and the app then never asks for them.
     notices: true,
     // This backend checks alerts when asked (checkAlertsNow), so a copy without a timer still gets them; an older one lacks it.
@@ -136,8 +138,8 @@ function getCapabilities_() {
 // The two optional extras can be switched off without deleting anything: the app stops using the ability at once
 // (FEATURES loses it; the keep-awake timer is removed; the e-mail steps already check featureOn_). The name is also kept in
 // FEATURES_OFF so a later "Update my app" (installApplyCode_ in docs/setup/Install.gs, which rewrites FEATURES from what the
-// installer was built with) does not silently turn it back on. Turning one ON again goes through the setup page (the Google
-// approval cannot be given from here); its approval visit clears the name from FEATURES_OFF.
+// installer was built with) does not silently turn it back on. Turning one ON again: setExtraOn below while Google's permission is still
+// there; otherwise the setup page (only Google can ask for an approval), whose approval visit clears the name from FEATURES_OFF.
 var OPT_OUT_EXTRAS_ = ['keepawake', 'gmail'];
 
 function csvList_(raw) {
@@ -166,6 +168,49 @@ function setExtraOff(payload) {
   if (off.indexOf(name) === -1) off.push(name);
   props.setProperty('FEATURES_OFF', off.join(','));
   if (name === 'keepawake') removeKeepWarmPingTriggers_();
+  return { capabilities: getCapabilities_() };
+}
+
+// Turning an extra ON again from the app (2026-11-04). Switching one off never removes Google's permission, so most of the time it can
+// simply come back: first a harmless call proves Google still allows it (Gmail: the mailbox profile, no e-mail content; keep-awake: one
+// outside request), then FEATURES gets the name, FEATURES_OFF loses it and the timer is (re)created. If Google says no (never approved at
+// setup, or "Take back all permissions" was used), nothing changes and the answer says `needsApproval`: only Google's own page can ask,
+// so the app then sends the person to the setup page as before.
+function extraAllowedByGoogle_(name) {
+  try {
+    if (name === 'gmail') Gmail.Users.getProfile('me');
+    else UrlFetchApp.fetch('https://www.google.com/generate_204', { muteHttpExceptions: true });
+    return true;
+  } catch (err) {
+    Logger.log('extra ' + name + ' not allowed: ' + err);
+    return false;
+  }
+}
+
+function setExtraOn(payload) {
+  requireFriendCopy_();
+  var name = String((payload && payload.name) || '');
+  if (OPT_OUT_EXTRAS_.indexOf(name) === -1) {
+    var bad = new Error(tr_('extras.unknown'));
+    bad.code = 'bad_request';
+    throw bad;
+  }
+  if (!extraAllowedByGoogle_(name)) return { needsApproval: true, capabilities: getCapabilities_() };
+  try {
+    if (name === 'keepawake') {
+      removeKeepWarmPingTriggers_();
+      ScriptApp.newTrigger('pingWebApp_').timeBased().everyMinutes(5).create();
+    } else if (!ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'runAutomation'; })) {
+      ScriptApp.newTrigger('runAutomation').timeBased().everyMinutes(15).create();
+    }
+  } catch (err) {
+    Logger.log('extra ' + name + ' timer: ' + err);
+    return { needsApproval: true, capabilities: getCapabilities_() };
+  }
+  var props = PropertiesService.getScriptProperties();
+  var on = csvList_(props.getProperty('FEATURES')).filter(function (f) { return f !== name && f !== 'base'; });
+  props.setProperty('FEATURES', ['base'].concat(on, [name]).join(','));
+  props.setProperty('FEATURES_OFF', csvList_(props.getProperty('FEATURES_OFF')).filter(function (f) { return f !== name; }).join(','));
   return { capabilities: getCapabilities_() };
 }
 
