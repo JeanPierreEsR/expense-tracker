@@ -352,6 +352,7 @@ function deleteBusinessItems(payload) {
         });
       }
       deleteRowsWhere_('Project Budgets', function (row) { return goneProjects[String(row.project_id)] === true; });
+      clearLoanProjects_(goneProjects);
       out.projects.deleted.forEach(function (d) { deleteExpectedForProject_(d.id); });
       deleteRowsWhere_('Projects', function (row) { return goneProjects[String(row.id)] === true; });
     });
@@ -383,7 +384,7 @@ function deleteBusinessItems(payload) {
 
 // Several clients / suppliers / partners at once (More → Companies & projects → People → Edit). The single delete's rule for each: a person who has loans,
 // shares or paid entries is kept (nothing is deleted behind the owner's back), and so is a trip's group. Answers
-// { deleted: [{id,name}], kept: [{id,name,reason: inUse|group|notPerson|missing}] }.
+// { deleted: [{id,name}], kept: [{id,name,reason: inUse|client|group|notPerson|missing}] }.
 function deleteBusinessPeople(payload) {
   requireBusiness_();
   var ids = uniqueIds_(payload && payload.ids);
@@ -395,6 +396,9 @@ function deleteBusinessPeople(payload) {
   getAllRows('Loans').forEach(function (l) { used[String(l.friend_id)] = true; });
   getAllRows('Entry Splits').forEach(function (sp) { used[String(sp.friend_id)] = true; });
   getAllRows('Entries').forEach(function (e) { if (e.type !== 'income' && e.paid_by) used[String(e.paid_by)] = true; });
+  var progSplits = recurringSplitFriendIds_();
+  Object.keys(progSplits).forEach(function (id) { used[id] = true; });
+  var clients = businessClientIds_();
   var gone = {};
   ids.forEach(function (id) {
     var f = byId[id];
@@ -403,6 +407,7 @@ function deleteBusinessPeople(payload) {
     if (f.trip_id) { out.kept.push({ id: id, name: name, reason: 'group' }); return; }
     if (friendRoleOf_(f) === 'friend') { out.kept.push({ id: id, name: name, reason: 'notPerson' }); return; }   // a plain friend is deleted from More → Friends
     if (used[id]) { out.kept.push({ id: id, name: name, reason: 'inUse' }); return; }
+    if (clients[id]) { out.kept.push({ id: id, name: name, reason: 'client' }); return; }
     gone[id] = true;
     out.deleted.push({ id: id, name: name });
   });
@@ -481,6 +486,8 @@ function deleteProject(payload) {
       });
     }
     deleteRowsWhere_('Project Budgets', function (row) { return String(row.project_id) === id; });
+    var goneOne = {}; goneOne[id] = true;
+    clearLoanProjects_(goneOne);
     deleteExpectedForProject_(id);
     deleteRowsWhere_('Projects', function (row) { return String(row.id) === id; });
   });
@@ -819,6 +826,30 @@ function updateFriend(payload) {
 }
 
 // A person who has debts, shares or paid entries is kept (nothing is ever deleted behind the owner's back).
+// Ids of the friends a Programmed item still splits its amount with (tab Recurring Expense Splits; older copies may not have it yet).
+// A friend there is "in use": deleting the row would leave a split pointing at nobody, so the friend is hidden instead (QA round 1, 2026-11-03).
+function recurringSplitFriendIds_() {
+  var out = {};
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Recurring Expense Splits')) return out;
+  getAllRows('Recurring Expense Splits').forEach(function (s) { if (s.friend_id) out[String(s.friend_id)] = true; });
+  return out;
+}
+
+// Ids of the people that are a project's client or an expected payment's client (Business pack). Such a person is kept: deleting the row would leave
+// the project's / payment's client pointing at nobody and its name blank (QA round 1, 2026-11-03).
+function businessClientIds_() {
+  var out = {};
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName('Projects')) getAllRows('Projects').forEach(function (p) { if (p.client_id) out[String(p.client_id)] = true; });
+  if (ss.getSheetByName('Expected Payments')) getAllRows('Expected Payments').forEach(function (x) { if (x.client_id) out[String(x.client_id)] = true; });
+  return out;
+}
+
+// A deleted project's loans become plain loans: the project link is cleared, never left pointing at a project that no longer exists.
+function clearLoanProjects_(goneProjectIds) {
+  rewriteColumn_('Loans', 'project_id', function (v) { return goneProjectIds[String(v)] === true ? '' : v; }, false);
+}
+
 function deleteFriend(payload) {
   var id = String((payload && payload.id) || '');
   var friend = getAllRows('Friends').find(function (f) { return String(f.id) === id; });
@@ -826,8 +857,10 @@ function deleteFriend(payload) {
   if (friend.trip_id) throw new Error(tr_('business.errPersonGroup'));
   var used = getAllRows('Loans').some(function (l) { return String(l.friend_id) === id; }) ||
     getAllRows('Entry Splits').some(function (s) { return String(s.friend_id) === id; }) ||
+    recurringSplitFriendIds_()[id] === true ||
     getAllRows('Entries').some(function (e) { return e.type !== 'income' && String(e.paid_by) === id; });
   if (used) throw new Error(tr_('business.errPersonInUse'));
+  if (businessClientIds_()[id] === true) throw new Error(tr_('business.errPersonClient'));
   deleteRowsWhere_('Friends', function (row) { return String(row.id) === id; });
   return { done: true };
 }
@@ -911,6 +944,8 @@ function deleteFriends(payload) {
   var inUse = {};
   getAllRows('Loans').forEach(function (l) { inUse[String(l.friend_id)] = true; });
   getAllRows('Entry Splits').forEach(function (s) { inUse[String(s.friend_id)] = true; });
+  var progSplits = recurringSplitFriendIds_();
+  Object.keys(progSplits).forEach(function (id) { inUse[id] = true; });
   getAllRows('Entries').forEach(function (e) { if (e.type !== 'income' && e.paid_by) inUse[String(e.paid_by)] = true; });
   var open = friendOpenBalances_();
   var deleted = [], hidden = [], kept = [], seen = {};

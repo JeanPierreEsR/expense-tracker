@@ -16,10 +16,13 @@ const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css
 let rt, data;
 function boot() {
   rt = createRuntime();
-  data = seedData(rt, { entries: Number(process.env.SEED_ENTRIES || 7000), demoUnreadMail: true });
+  // EMPTY=1: a brand-new person's copy (only the installer's starter data: categories, banks; no accounts, friends or entries).
+  // (the starter seeding has already added the owner's three sample friends, which a copy made by the installer never has)
+  if (process.env.EMPTY) rt.sheet("Friends").rows.length = 1;
+  data = process.env.EMPTY ? { entries: [], friends: [] } : seedData(rt, { entries: Number(process.env.SEED_ENTRIES || 7000), demoUnreadMail: true });
   // Made-up demo scenarios to try the newest features by hand (friends to delete/hide, programmed items in every state, legacy paused items for the
   // heal). NO_DEMO=1 leaves them out. The automated tests never go through this file.
-  if (!process.env.NO_DEMO) require("./demo-data").seedDemo(rt, data);
+  if (!process.env.NO_DEMO && !process.env.EMPTY) require("./demo-data").seedDemo(rt, data);
   // Export data: mail goes nowhere here; GET /__mail lists what "would have been" sent.
   rt.api("admin_setExportEmail", { email: "owner@example.com" });
   // FRIEND_COPY=1 behaves like an app made by the installer (FEATURES set), e.g. to check what a new person does not see.
