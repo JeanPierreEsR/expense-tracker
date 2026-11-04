@@ -729,7 +729,7 @@
         <h2 style="margin-top:0;" data-i18n="recurring.title">Programmed income/expenses</h2>
         <p class="hint" data-i18n="recurring.intro">Known amounts you want accounted for ahead of time — Budgets and Projections use these to tell known, certain amounts apart from the rest.</p>
 
-        <button type="button" class="add-inline income-toggle-btn" id="recurring-income-toggle" hidden></button>
+        <h2 class="recurring-kind-title" id="recurring-expenses-title" data-i18n="recurring.expensesTitle">Expenses</h2>
 
         <div class="breakdown-section">
           <h3 data-i18n="recurring.recurring">🔁 Recurring</h3>
@@ -756,6 +756,29 @@
           <p class="hint" data-i18n="recurring.oneTimeHint">A single known future payment — stays out of "Recent entries" until it actually happens and gets confirmed for real.</p>
           <div id="recurring-onetime-list"></div>
           <p class="hint" id="recurring-onetime-empty-note" hidden data-i18n="recurring.oneTimeEmpty">No one-time programmed items yet.</p>
+        </div>
+
+        <div id="recurring-income-section" hidden>
+          <h2 class="recurring-kind-title" data-i18n="recurring.incomeTitle">Income</h2>
+          <button type="button" class="add-inline income-toggle-btn" id="recurring-income-toggle"></button>
+
+          <div class="breakdown-section">
+            <h3 data-i18n="recurring.recurring">🔁 Recurring</h3>
+            <p class="hint" data-i18n="recurring.recurringHint">Repeats on a schedule — rent, subscriptions, gym, salary.</p>
+            <div id="recurring-inc-list"></div>
+            <p class="hint" id="recurring-inc-empty-note" hidden data-i18n="recurring.noCurrentIncome">No current programmed income.</p>
+            <button type="button" class="add-inline" id="recurring-inc-past-toggle" hidden></button>
+            <div id="recurring-inc-past-section" hidden>
+              <p class="hint" data-i18n="recurring.pastHint">Ended or paused.</p>
+              <div id="recurring-inc-past-list"></div>
+            </div>
+          </div>
+
+          <div class="breakdown-section">
+            <h3 data-i18n="recurring.oneTime">📌 Programmed, one-time</h3>
+            <div id="recurring-inc-onetime-list"></div>
+            <p class="hint" id="recurring-inc-onetime-empty-note" hidden data-i18n="recurring.oneTimeEmpty">No one-time programmed items yet.</p>
+          </div>
         </div>
         <div class="friends-editbar" id="recurring-editbar" hidden>
           <button type="button" class="add-inline" id="recurring-selectall-btn" data-i18n="friends.selectAll">Select all</button>
