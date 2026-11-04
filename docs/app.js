@@ -10490,6 +10490,7 @@ function tourCards_(part) {
     const cards = ["invest", "loan", "repay", "bill", "programmed", "trips", "projections"];
     if (caps.bankEmails) cards.push("bank");
     cards.push("statements");
+    cards.push("mydata");   // one card for the whole My data hub; it gains a line for each screen that has a practice
     return cards;
   }
   return ["flow", "add", "transfer", "overview", "budgets", "more"];
@@ -10521,6 +10522,11 @@ function buildTourSlide_(key, n, total) {
   if (key === "more" && !perfIsOwnerCopy_()) body += tr("tour.more.feedback");   // friends' copies only: the owner's has no Feedback & privacy row
   if (key === "more" && extrasOff_().length) body += tr("tour.more.extras");
   if (key === "statements" && !perfIsOwnerCopy_()) body += tr("tour.statements.bankHelp");   // the owner's own banks are already built in
+  if (key === "mydata") {
+    if (((meta && meta.capabilities) || {}).entriesRestore) body += tr("tour.mydata.deleted");   // the row exists only where the backend can restore
+    body += tr("tour.mydata.export") + tr("tour.mydata.pIntro");
+    body += tr("tour.mydata.pExport");   // + one line for each My data screen that has a practice
+  }
   // Only a short lead (the first sentence or two, a couple of lines) goes above the animation; the rest of the explanation sits below it.
   let lead = "";
   while (body && lead.length < 60) {
@@ -10586,7 +10592,7 @@ function tourChrome_(i) {
   welcomeEl_("tour-hint").style.visibility = i === 0 ? "visible" : "hidden";
   welcomeEl_("tour-skip-btn").style.visibility = last ? "hidden" : "visible";
 }
-function tourSceneCtx_() { return { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label }; }
+function tourSceneCtx_() { return { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label, restore: !!((meta && meta.capabilities) || {}).entriesRestore }; }
 function previewTourSlide_(sl) {
   if (typeof TourScenes !== "undefined") TourScenes.preview(sl.key, sl.stage, tourSceneCtx_());
 }
@@ -11169,6 +11175,7 @@ function showExportScreen() {
   exportEl_("export-ready").hidden = true;
   exportEl_("export-ready").textContent = "";
   refreshExportScreen_();
+  offerExportTip_();   // nothing to fetch on this screen, so it is complete as soon as it is drawn (loading standard)
 }
 
 function refreshExportScreen_() {
@@ -11307,6 +11314,58 @@ document.getElementById("export-back-btn").addEventListener("click", showMyDataS
 });
 document.getElementById("export-get-btn").addEventListener("click", getExportFiles_);
 document.getElementById("export-send-btn").addEventListener("click", sendExport_);
+
+// ---- First-use practice: Export my data (owner's design, 2026-11-03) ----
+// Offered on More → My data → Export my data. The person really makes a file of their OWN entries and gets the Save button (the
+// phone's share sheet) for it. Nothing is recorded in the app (exporting only reads), so there is no server cleanup and no capability
+// flag: the only thing the practice touches is the screen's remembered choices (which boxes were ticked), put back at the end.
+let practiceE_ = null;   // { prefs }: the screen's remembered choices before the practice started
+
+function offerExportTip_() {
+  offerTip_("export", "export-tip-invite", tr("spot.e.invite"), startExportPractice_);
+}
+
+function practiceESteps_() {
+  const el = (id) => document.getElementById(id);
+  const ready = () => document.querySelector("#export-ready button");
+  const statusError = () => { const s = el("export-status"); return s.style.color ? (s.textContent || "").trim() : ""; };
+  return [
+    { key: "intro", text: () => tr("spot.e.intro"), button: () => tr("spot.e.start") },
+    { key: "entries", target: () => el("export-entries-check").closest(".checkbox-row"), text: () => tr("spot.e.s1"),
+      until: () => el("export-entries-check").checked, ok: () => el("export-entries-check").checked, holdsUntil: "get" },
+    { target: () => [el("export-range"), el("export-pending-check").closest(".checkbox-row")], text: () => tr("spot.e.s2"), visit: "#export-range" },
+    { look: true, target: () => el("export-backup-check").closest(".export-option"), text: () => tr("spot.e.s3"), button: () => tr("spot.e.gotIt") },
+    { key: "get", target: "#export-get-btn", text: () => { const e = statusError(); return e ? tr("spot.e.s4err", { error: e }) : tr("spot.e.s4"); },
+      until: () => !!ready() },
+    { target: "#export-ready button", text: () => tr("spot.e.s5"), tap: "#export-ready button", wait: 15000 },
+    { text: () => tr("spot.e.s6"), button: () => tr("spot.e.finish") }
+  ];
+}
+
+function startExportPractice_() {
+  const open = ["exchange-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop", "currency-modal-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
+  if (open || newEntrySheetOpen_) { showToast_(tr("spot.x.busy")); return false; }
+  practiceE_ = { prefs: loadExportPrefs_() };
+  // A clean start: nothing ticked, "This month", so the person ticks the real boxes themselves.
+  exportEl_("export-entries-check").checked = false;
+  exportEl_("export-backup-check").checked = false;
+  exportEl_("export-pending-check").checked = false;
+  exportEl_("export-range").value = "month";
+  exportEl_("export-status").textContent = "";
+  exportEl_("export-status").style.color = "";
+  exportEl_("export-ready").hidden = true;
+  exportEl_("export-ready").textContent = "";
+  refreshExportScreen_();
+  runTip_(practiceESteps_(), async (how) => {
+    const mine = practiceE_;
+    practiceE_ = null;
+    // Put the screen's remembered choices back the way the person had them.
+    try { localStorage.setItem(EXPORT_PREFS_KEY, JSON.stringify((mine && mine.prefs) || {})); } catch (err) { /* private mode: nothing was remembered anyway */ }
+    if (!document.getElementById("screen-export").hidden) showExportScreen();   // redraws the boxes from the restored choices (the tip is already marked as seen)
+    if (how === "done") showToast_(tr("spot.e.done"));
+  }, tr("spot.e.note"));
+  return true;
+}
 
 // ---- Categories that catch up later (backend/CategoryFollow.gs) ----
 
