@@ -104,6 +104,6 @@ test("the screens: pencils, checkboxes on companies and projects, one question, 
   assert.match(app, /name !== "business-people" && peopleEditing_/);
   for (const key of ["bizBulk.confirm", "bizBulk.projectsNote", "bizBulk.companiesNote", "bizBulk.resultProjects", "bizBulk.resultCompanies", "bizBulk.resultKeptProjects", "bizBulk.resultKeptEntries",
     "bizBulk.peopleConfirm", "bizBulk.resultPeople", "bizBulk.resultPeopleInUse", "bizBulk.resultPeopleGroup", "bizBulk.resultKept", "bizBulk.resultMissing"]) {
-    assert.match(strings, new RegExp(`"${key.replace(".", "\\.")}": \\{ en: ".+", es: ".+" \\}`), key);
+    assert.match(strings, new RegExp(`"${key.replace(".", "\\.")}": \\{ en: (".+"|\\{.+\\}), es: (".+"|\\{.+\\}) \\}`), key);
   }
 });

@@ -44,8 +44,8 @@ test("deleteTrips removes the chosen trips; their expenses and estimates stay, u
 test("an empty list does nothing", () => {
   const { rt } = setup();
   const n = rt.rows("Trips").length;
-  assert.deepEqual(rt.api("deleteTrips", { ids: [] }), { deleted: [], missing: [] });
-  assert.deepEqual(rt.api("deleteTrips", {}), { deleted: [], missing: [] });
+  assert.deepEqual(rt.api("deleteTrips", { ids: [] }), { deleted: [], missing: [], groupsKept: [] });
+  assert.deepEqual(rt.api("deleteTrips", {}), { deleted: [], missing: [], groupsKept: [] });
   assert.equal(rt.rows("Trips").length, n);
 });
 
@@ -59,7 +59,7 @@ test("the screen: pencil beside +, fixed bar with Done, one question with the ex
   assert.match(app, /busy: "common\.deletingToast"/);
   assert.match(app, /name !== "trips" && tripsEditing_/, "leaving the screen ends Edit mode");
   for (const key of ["trips.confirmDeleteMany", "trips.resultDeleted", "trips.resultMissing"]) {
-    assert.match(strings, new RegExp(`"${key.replace(".", "\\.")}": \\{ en: ".+", es: ".+" \\}`), key);
+    assert.match(strings, new RegExp(`"${key.replace(".", "\\.")}": \\{ en: (".+"|\\{.+\\}), es: (".+"|\\{.+\\}) \\}`), key);
   }
   assert.match(strings, /"trips\.confirmDeleteMany":[^\n]*Their expenses \(\{entries\}\) are not deleted/);
 });
