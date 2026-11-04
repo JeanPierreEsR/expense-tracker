@@ -74,7 +74,7 @@
       btn.disabled = true;
       // each step starts with the top of the animation on screen, so as much of it as possible shows (a tall one, e.g. Pro slide 7, would otherwise stay scrolled to its button)
       showTop();
-      timers.push(setTimeout(() => { btn.disabled = false; refresh(); }, ms));
+      timers.push(setTimeout(() => { btn.disabled = false; refresh(); if (i >= total && ctx.onEnd) ctx.onEnd(); }, ms));
     };
     btn.onclick = () => go(false);
     // Tapping the animation itself also goes to the next step (not while a step is still playing, and not to replay at the end).
@@ -98,8 +98,11 @@
       if (reduce) { steps.forEach((s) => s[1](true)); return; }
       let end = 0;
       steps.forEach((s) => { end = Math.max(end, s[0]); timers.push(setTimeout(() => s[1](false), s[0])); });
+      // ctx.onEnd: told once, when the first run has played to its end (the tour's first card then hints that swiping goes on)
+      if (ctx.onEnd && !ended) timers.push(setTimeout(() => { if (!ended) { ended = true; ctx.onEnd(); } }, end + 400));
       timers.push(setTimeout(run, end + (scene.hold || 1500)));
     };
+    let ended = false;
     run();
     stage.onclick = () => play(key, stage, ctx);   // tap to replay
     return true;
