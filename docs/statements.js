@@ -105,12 +105,10 @@
     document.querySelectorAll(".nav-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.screen === "more");
     });
-    refreshStatementCoverage();
-    refreshStatementGaps();
-    refreshStatementBatches();
-    refreshStatementInbox();
+    const loaded = [refreshStatementCoverage(), refreshStatementGaps(), refreshStatementBatches(), refreshStatementInbox()];
     renderSteps();
     if (next === "import") offerImportTip_();
+    else Promise.allSettled(loaded).then(() => { if (screenMode === "bank" && !$("screen-statements").hidden) offerBankTip_(); });   // loading standard: offered once the status line and the Inbox have arrived
   }
 
   // ---- the four steps: Upload > Check > Preview > Done ----
@@ -2239,8 +2237,11 @@
   // real Undo removes it (entries and the category it created), and one cleanup call (removePracticeImport) forgets the made-up file's
   // remembered layout and finishes an import left half-way (Exit, or the app closed): in the background, also on Exit and — asked first — the
   // next time the app opens. See backend/PracticeImport.gs.
+  // The BANK STATEMENTS practice (2026-11-04) runs on the same machinery with kind "bank": a bank statement is about one account, so it first adds an
+  // empty "Practice account" (createPracticeBankAccount; the real matchers skip it, isPracticeAccount_), picks it for the file by itself, and its
+  // cleanup (removePracticeBank) also deletes that account if the practice made it. See backend/PracticeBank.gs.
   const PRACTICE_I_KEY_ = "tipPracticeImport";
-  let practiceI_ = null;          // { touched, saved, undone, batchId, signature, startedOn }
+  let practiceI_ = null;          // { kind: "import" | "bank", touched, saved, undone, batchId, signature, accountId, accountMade, startedOn }
   let practiceIRemoving_ = false;
   let practiceILeftoverAsked_ = false;
 
@@ -2269,13 +2270,19 @@
     offerTip_("import", "import-tip-invite", tr("spot.f.invite"), startImportPractice_);
   }
 
-  function practiceISteps_() {
+  // What both kinds of practice use to find the real parts of the screens and to wait for the server.
+  function practiceTools_() {
     const root = () => document.querySelector("#statement-results .tm-root");
     const part = (sel) => () => { const r = root(); return r ? r.querySelector(sel) : null; };
     const top = () => { const r = root(); return r && r.querySelector(".tm-preview") ? [r.querySelector(".stmt-note"), r.querySelector(".tm-single")].filter(Boolean) : null; };   // (the layout note and the account list; the lines below are the next step)
-    const cats = () => { const c = part(".tm-cats")(); return c && c.querySelector(".tm-cat-summary") ? c : null; };   // (the category list arrives a moment after the columns)
     const waitFor = async (cond, ms) => { for (let i = 0; i < ms / 400 && !cond(); i++) await sleep(400); return cond(); };
     const failed = (key) => { alert(tr(key)); Spotlight.stop("skipped"); return false; };
+    return { root, part, top, waitFor, failed };
+  }
+
+  function practiceISteps_() {
+    const { part, top, waitFor, failed } = practiceTools_();
+    const cats = () => { const c = part(".tm-cats")(); return c && c.querySelector(".tm-cat-summary") ? c : null; };   // (the category list arrives a moment after the columns)
     return [
       { key: "intro", text: () => tr("spot.f.intro"), button: () => tr("spot.f.start") },
       { look: true, target: ".stmt-upload-btn", text: () => tr("spot.f.s1"), button: () => tr("spot.f.useFile"),
@@ -2295,10 +2302,67 @@
     ];
   }
 
+
+  // The Bank statements practice: the same real screens, on a made-up bank statement of ONE account (the empty Practice account, picked for the file by
+  // the practice itself so the person can never pick a real account here). No categories: a bank's purchases come in without one (Tidy my history).
+  function practiceBSteps_() {
+    const { part, top, waitFor, failed } = practiceTools_();
+    return [
+      { key: "intro", text: () => tr("spot.s.intro"), button: () => tr("spot.s.start") },
+      { look: true, target: "#stmt-upload-card", text: () => tr("spot.s.s1"), button: () => tr("spot.s.gotIt"),
+        before: async () => ((await practiceBMake_()) ? true : false) },
+      { look: true, target: ".stmt-upload-btn", text: () => tr("spot.s.s2"), button: () => tr("spot.s.useFile"),
+        after: () => { practiceIFeed_(); } },
+      { look: true, target: top, text: () => tr("spot.s.s3"), button: () => tr("spot.s.gotIt"), wait: 20000,
+        before: async () => {   // the account list: the practice picks its own account, like the person would
+          if (!(await waitFor(() => !!part(".tm-account")(), 20000))) return failed("spot.s.fileFailed2");
+          const sel = part(".tm-account")();
+          sel.value = practiceI_.accountId;
+          if (sel.value !== practiceI_.accountId) return failed("spot.s.accountFailed");
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+          return true;
+        } },
+      { look: true, target: part(".tm-preview"), text: () => tr("spot.s.s4"), button: () => tr("spot.s.gotIt") },
+      { target: part(".tm-use"), text: () => tr("spot.s.s5"), tap: "#statement-results .tm-use" },
+      { target: "#stmt-next-2", text: () => tr("spot.s.s6"), tap: "#stmt-next-2", wait: 20000 },
+      { look: true, target: () => ($("statement-history-save") ? $("statement-history") : null), text: () => tr("spot.s.s7"), button: () => tr("spot.s.gotIt"), wait: 45000 },
+      { target: "#statement-history-save", text: () => tr("spot.s.s8"), tap: "#statement-history-save" },
+      { look: true, target: "#statement-review-status", text: () => tr("spot.s.s9"), button: () => tr("spot.s.gotIt"), wait: 20000,
+        before: async () => (await waitFor(() => !!(practiceI_ && practiceI_.saved), 90000)) ? true : failed("spot.s.saveFailed") },
+      { target: "#stmt-undo-btn", text: () => tr("spot.s.s10"), tap: "#stmt-undo-btn", wait: 15000 },
+      { look: true, target: "#statement-review-status", text: () => tr("spot.s.s11"), button: () => tr("spot.s.finish"), wait: 20000,
+        before: async () => (await waitFor(() => !!(practiceI_ && practiceI_.undone), 90000)) ? true : failed("spot.s.undoFailed") }
+    ];
+  }
+
+  // Adds the empty Practice account (refuses to touch one that already exists) and refreshes the phone's lists so the file can be read for it.
+  async function practiceBMake_() {
+    practiceI_.accountMade = true;   // (marked BEFORE the call: if the app is closed in the middle, the cleanup removes the account)
+    practiceISave_();
+    try {
+      const res = await callApi("createPracticeBankAccount", { lang: I18n.getLang() });
+      if (res.existed) { practiceI_.accountMade = false; practiceISave_(); alert(tr("spot.s.accountExists")); Spotlight.stop("skipped"); return false; }
+      practiceI_.accountId = String(res.id);
+      practiceISave_();
+      if (typeof loadMeta === "function") await loadMeta();
+      return true;
+    } catch (err) {
+      alert(tr("spot.s.createFailed", { error: err.message || String(err) }));
+      Spotlight.stop("skipped");
+      return false;
+    }
+  }
+
+  function offerBankTip_() {
+    const caps = (typeof meta !== "undefined" && meta && meta.capabilities) || {};
+    if (!caps.practiceBank || screenMode !== "bank") return;   // an older backend could not make or clean up the practice account
+    offerTip_("bank", "bank-tip-invite", tr("spot.s.invite"), startBankPractice_);
+  }
+
   // Builds the made-up file and hands it to the real file handler. The file's layout key is stored FIRST, so a closed app can still forget it.
   async function practiceIFeed_() {
     try {
-      const f = StatementTable.practiceFile(I18n.getLang(), todayLocalISO());
+      const f = StatementTable.practiceFile(I18n.getLang(), todayLocalISO(), practiceI_.kind === "bank" ? "bank" : "import");
       try {
         const rows = await StatementTable.readTable(new TextEncoder().encode(f.text), f.name);
         practiceI_.signature = StatementTable.signature(StatementTable.guessMapping(rows, {}), rows);
@@ -2306,26 +2370,31 @@
       } catch (e) { /* no key: the cleanup just has no layout to forget */ }
       await handleStatementFiles([new File([f.text], f.name, { type: "text/csv" })]);
     } catch (err) {
-      alert(tr("spot.f.fileFailed", { error: err.message || String(err) }));
+      alert(tr(practiceI_ && practiceI_.kind === "bank" ? "spot.s.fileFailed" : "spot.f.fileFailed", { error: err.message || String(err) }));
       Spotlight.stop("skipped");
     }
   }
 
-  function startImportPractice_() {
-    if (practiceIRemoving_) { showToast_(tr("spot.f.stillRemoving")); return false; }
+  function startImportPractice_() { return startStatementsPractice_("import"); }
+  function startBankPractice_() { return startStatementsPractice_("bank"); }
+
+  function startStatementsPractice_(kind) {
+    const k = kind === "bank" ? "s" : "f";   // (the text prefix of each: spot.f.* Import, spot.s.* Bank statements)
+    if (practiceIRemoving_) { showToast_(tr(`spot.${k}.stillRemoving`)); return false; }
     const open = ["exchange-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop", "currency-modal-backdrop", "statement-added-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
     if (open || newEntrySheetOpen_) { showToast_(tr("spot.x.busy")); return false; }
-    if (usable.length || stmtCards().length || historyPlan || savedThisRun) { showToast_(tr("spot.f.busyRun")); return false; }   // the person's own import is in progress
-    practiceI_ = { touched: false, saved: false, undone: false, batchId: "", signature: "", startedOn: todayLocalISO() };
+    if (usable.length || stmtCards().length || historyPlan || savedThisRun) { showToast_(tr(`spot.${k}.busyRun`)); return false; }   // the person's own import is in progress
+    if (kind === "bank" && ((meta && meta.paymentMethods) || []).some((pm) => isPracticeAccountName_(pm.nickname))) { showToast_(tr("spot.s.accountExists")); return false; }   // an account with that name is already there: never touch it
+    practiceI_ = { kind: kind === "bank" ? "bank" : "import", touched: false, saved: false, undone: false, batchId: "", signature: "", accountId: "", accountMade: false, startedOn: todayLocalISO() };
     practiceISave_();
     stepNow = 1; renderSteps();
     window.scrollTo(0, 0);
-    runTip_(practiceISteps_(), async () => {
+    runTip_(kind === "bank" ? practiceBSteps_() : practiceISteps_(), async () => {
       clearRun();   // the practice file leaves the screen
       stepNow = 1; renderSteps();
-      showToast_(tr("spot.f.removing"));
-      practiceIRemove_().then((ok) => { if (ok) showToast_(tr("spot.f.removed")); });
-    }, tr("spot.f.note"));
+      showToast_(tr(`spot.${k}.removing`));
+      practiceIRemove_().then((ok) => { if (ok) showToast_(tr(`spot.${k}.removed`)); });
+    }, tr(`spot.${k}.note`));
     return true;
   }
 
@@ -2336,10 +2405,14 @@
     practiceIRemoving_ = true;
     try {
       let ok = true;
-      if (p.touched) {   // (nothing was remembered or saved before "Use these lines": nothing to remove)
+      const bank = p.kind === "bank";
+      if (p.touched || (bank && p.accountMade)) {   // (nothing was remembered, saved or made before "Use these lines" / the account: nothing to remove)
         for (let i = 0; i < 40 && perfInflight_ > 0; i++) await sleep(400);   // a save / undo still on its way lands first
-        try { await callApi("removePracticeImport", { signature: p.signature || "" }); }
-        catch (err) { ok = false; alert(tr("spot.f.removeFailed", { error: err.message })); }
+        try {
+          if (bank) await callApi("removePracticeBank", { signature: p.signature || "", account: !!p.accountMade });
+          else await callApi("removePracticeImport", { signature: p.signature || "" });
+          if (bank && p.accountMade && typeof loadMeta === "function") await loadMeta();   // the Practice account leaves every list
+        } catch (err) { ok = false; alert(tr(bank ? "spot.s.removeFailed" : "spot.f.removeFailed", { error: err.message })); }
       }
       if (ok) { practiceI_ = null; practiceISave_(); }
       coverage = null;
@@ -2351,8 +2424,10 @@
 
   // A practice left behind (the app was closed midway): offered once when the app opens.
   window.practiceILeftover_ = function () {
-    if (practiceILeftoverAsked_ || practiceIRemoving_ || Spotlight.isRunning() || !(practiceILoad_() || {}).touched) return;
+    const left = practiceILoad_() || {};
+    if (practiceILeftoverAsked_ || practiceIRemoving_ || Spotlight.isRunning() || !(left.touched || (left.kind === "bank" && left.accountMade))) return;
     practiceILeftoverAsked_ = true;
-    if (confirm(tr("spot.f.leftover"))) practiceIRemove_().then((ok) => { if (ok) showToast_(tr("spot.f.removed")); });
+    const k = left.kind === "bank" ? "s" : "f";
+    if (confirm(tr(`spot.${k}.leftover`))) practiceIRemove_().then((ok) => { if (ok) showToast_(tr(`spot.${k}.removed`)); });
   };
 })();

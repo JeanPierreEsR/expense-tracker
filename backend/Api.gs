@@ -460,6 +460,8 @@ function routeActionSwitch_(action, payload) {
     case 'createPracticeDeleted': return createPracticeDeleted(payload);
     case 'removePracticeDeleted': return removePracticeDeleted();
     case 'removePracticeImport': return removePracticeImport(payload);
+    case 'createPracticeBankAccount': return createPracticeBankAccount(payload);
+    case 'removePracticeBank': return removePracticeBank(payload);
     case 'removePracticeProgrammed': return removePracticeProgrammed(payload);
     case 'removePracticeBudgets': return removePracticeBudgets();
     case 'removePracticeInvestments': return removePracticeInvestments(payload);
