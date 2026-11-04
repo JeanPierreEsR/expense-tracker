@@ -10646,7 +10646,8 @@ function tourChrome_(i) {
   if (dots.children.length !== tour_.cards.length) dots.innerHTML = tour_.cards.map((_, n) => `<button type="button" class="welcome-dot" data-tour-dot="${n}" aria-label="${n + 1}"></button>`).join("");
   [...dots.children].forEach((d, n) => d.classList.toggle("active", n === i));
   welcomeEl_("tour-hint").style.visibility = i === 0 ? "visible" : "hidden";
-  welcomeEl_("tour-skip-btn").style.visibility = last ? "hidden" : "visible";
+  // "Skip all" from the second card on (owner, 2026-11-04): on the first one it read as the way forward, before the person had seen any card.
+  welcomeEl_("tour-skip-btn").style.visibility = last || i === 0 ? "hidden" : "visible";
 }
 function tourSceneCtx_() { return { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label, restore: !!((meta && meta.capabilities) || {}).entriesRestore }; }
 function previewTourSlide_(sl) {
