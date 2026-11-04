@@ -2531,6 +2531,7 @@
     "be.tip.must.yape_out": { en: "Yape sends no email under S/ 10. Add it by hand.", es: "Yape no envía correo por menos de S/ 10. Agrégalo a mano." },
     "be.tx.newest": { en: "Showing the newest {n} of {total}", es: "Mostrando los {n} más recientes de {total}" },
     "be.tx.fromStatement": { en: "found by a statement", es: "lo encontró un estado de cuenta" },
+    "bankNote.textWelcome": { en: "Your account at {banks} works fully: add its payments by hand. Later, in More → Bank emails, the app can learn to read your bank's emails.", es: "Tu cuenta en {banks} funciona completa: agrega sus movimientos a mano. Más adelante, en Más → Correos del banco, la app puede aprender a leer los correos de tu banco." },
     "bankNote.tell": { en: "Teach the app my bank's emails", es: "Enseñar a la app los correos de mi banco" },
     "more.signout": { en: "🚪 Sign out of this device", es: "🚪 Cerrar sesión en este dispositivo" },
     "more.erase": { en: "🗑️ Delete everything", es: "🗑️ Borrar todo" },

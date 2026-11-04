@@ -10256,7 +10256,7 @@ function renderWelcomeAccounts_() {
   const custom = welcome_.customBanks.filter((n) => !known.has(n.toLowerCase())).map((n) => ({ name: n, short: n }));
   fill("wa-main-banks", waBanksOfList_(cat.main));
   fill("wa-other-banks", waBanksOfList_(cat.other.concat(custom)));
-  fillBankNote_(waEl_("wa-note"), welcome_.accounts.map((a) => a.bank));
+  fillBankNote_(waEl_("wa-note"), welcome_.accounts.map((a) => a.bank), true);
   waEl_("wa-skip-btn").hidden = welcome_.accounts.length > 0;
   waEl_("wa-error").textContent = "";
 }
@@ -10293,7 +10293,7 @@ function waSlots_(bank, kind) { return walletSlots_(bank, isWelcomeCredit_(kind)
 function renderWaBank_() {
   const bank = welcome_.bankOpen;
   waEl_("wa-bank-name").textContent = bank;
-  fillBankNote_(waEl_("wa-bank-note"), [bank]);
+  fillBankNote_(waEl_("wa-bank-note"), [bank], true);
   const list = waEl_("wa-bank-accounts");
   list.innerHTML = "";
   const names = waDisplayNames_();
@@ -11169,7 +11169,9 @@ function bankTicks_(name) {
   if (bankStatementsReadable_(name)) out.push(tr("bankTick.statements"));
   return out.join(" · ");
 }
-function fillBankNote_(el, bankNames) {
+// inWelcome: the welcome's own bank screens say only that the account works and where e-mails can be taught LATER, with no button:
+// "teach the app my bank's emails" in the middle of setting up was confusing (owner, 2026-11-04).
+function fillBankNote_(el, bankNames, inWelcome) {
   el.innerHTML = "";
   const caps = (meta && meta.capabilities) || {};
   const names = [...new Set(bankNames.filter((n) => n && !bankReadable_(n) && !bankStatementsReadable_(n)))];
@@ -11178,13 +11180,14 @@ function fillBankNote_(el, bankNames) {
   const p = document.createElement("p");
   p.className = "hint";
   p.style.fontWeight = "600";
-  p.textContent = tr("bankNote.text", { banks: names.join(", ") });
+  p.textContent = tr(inWelcome ? "bankNote.textWelcome" : "bankNote.text", { banks: names.join(", ") });
+  el.appendChild(p);
+  if (inWelcome) return;
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "add-inline";
   btn.textContent = tr("bankNote.tell");
   btn.addEventListener("click", openBankSampleModal_);
-  el.appendChild(p);
   el.appendChild(btn);
 }
 document.getElementById("devices-modal-backdrop").addEventListener("click", (e) => {
