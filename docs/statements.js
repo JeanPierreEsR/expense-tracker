@@ -1042,9 +1042,10 @@
       if (choice === "") return "";
       const info = catInfo(choice);
       if (!info) return it.name;
-      // One of the person's categories keeps ITS name by default (owner, 2026-11-04, replacing "the file's name wins" of 2026-10-24):
-      // renaming it is still offered, but only when chosen.
-      return info.name;
+      // Which name by default (owner, 2026-11-04, replacing "the file's name wins" of 2026-10-24), in this order: (1) a category that
+      // already holds entries keeps the app's name; (2) otherwise the file's name. A category the app depends on never changes name.
+      if (info.protected || info.entries > 0) return info.name;
+      return info.names.indexOf(StatementTable.catNorm(it.name)) !== -1 ? info.name : it.name;
     }
     async function loadCategories() {
       const names = fileCategoryNames();
