@@ -20,5 +20,9 @@ or iPhone behaviour.
 **Demo data for trying features by hand (2026-11-01).** `node tests/harness/server.js` also adds made-up demo scenarios (`tests/harness/demo-data.js`): friends to delete / hide / keep,
 programmed items in every state, and legacy PAUSED items for the heal (`NO_DEMO=1` leaves them out; the automated tests never use them). `FRIEND_COPY=1` behaves like a friend's copy
 (the heal runs on its first open; on the default copy the app converts once for the owner). `EMPTY=1 FRIEND_COPY=1` starts like a brand-new
-person's copy: only the starter categories and banks, the built-in Cash account, no friends, no entries (the welcome questions show first). Open `http://<this computer>:<port>/login` once to sign a browser in (works from a phone on
+person's copy: only the starter categories and banks, the built-in Cash account, no friends, no entries (the welcome questions show first).
+**Categories (owner, 2026-11-04):** the blank copy (`EMPTY=1`) is built the way the installer builds one — the SHORT starter list (8 expense +
+5 income) and the bank catalogue — so the welcome's "What fits me" decides the rest. The everyday copies (no `EMPTY`) use the categories
+a person gets by ticking EVERY "What fits me" choice (starter list + one per pick; Settings `profile` = all picks), and the made-up entries
+are spread over those. `OWNER_CATEGORIES=1` brings back the owner's own long list. Open `http://<this computer>:<port>/login` once to sign a browser in (works from a phone on
 the same Wi-Fi). Restart the server to get the data back exactly as it was. **Friend-style copy and "owner's copy" (2026-11-04):** the server rewrites the owner's web address in `app.js` to `/api`, and the app treats a copy using exactly the owner's address as the owner's (`perfIsOwnerCopy_`), so friends-only rows (Feedback & privacy and others) stayed hidden even with `FRIEND_COPY=1`. With `FRIEND_COPY=1` the `/login` page now also stores a full address (`<origin>/api`), so the app sees a friend's phone; open `/login` again on a copy started before this change. In a desktop browser the same is `localStorage.setItem("apiUrl", location.origin + "/api")`.

@@ -15,7 +15,20 @@ const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css
 
 let rt, data;
 function boot() {
-  rt = createRuntime();
+  // EMPTY=1: a brand-new person's copy, built exactly like the installer builds one (the short starter categories and the bank
+  // catalogue; the welcome's "What fits me" adds the rest; no accounts, friends or entries).
+  rt = createRuntime(process.env.EMPTY ? { installerStart: true, keepFeatures: !!process.env.FRIEND_COPY } : {});
+  // The everyday test copies (owner, 2026-11-04): the categories a person gets by ticking EVERY "What fits me" choice (the starter
+  // list + one per pick), instead of the owner's own long list. The made-up entries are then spread over these.
+  if (!process.env.EMPTY && !process.env.OWNER_CATEGORIES) {
+    rt.run(`(function () {
+      var sh = getSheet('Categories'); var h = getHeaders(sh); var t = h.indexOf('type');
+      var v = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, h.length).getValues() : [];
+      for (var i = v.length - 1; i >= 0; i--) if (v[i][t] === 'expense' || v[i][t] === 'income') sh.deleteRow(i + 2);
+      ROWS_MEMO_ = null;
+      applyProfile({ answers: PROFILE_ORDER_, basics: true });
+    })()`);
+  }
   // EMPTY=1: a brand-new person's copy (only the installer's starter data: categories, banks; no accounts, friends or entries).
   // (the starter seeding has already added the owner's three sample friends, which a copy made by the installer never has)
   if (process.env.EMPTY) rt.sheet("Friends").rows.length = 1;
