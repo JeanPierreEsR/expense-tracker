@@ -11088,6 +11088,7 @@ function openBankMailModal_(opts) {
   const backdrop = bmEl_("bank-mail-modal-backdrop");
   I18n.applyStatic(backdrop);
   bmEl_("bm-address").textContent = info.address || tr("bankMail.noAddress");
+  bmEl_("bm-address2").textContent = info.address || tr("bankMail.noAddress");   // again inside "another address?", next to its Copy button
   bmEl_("bm-copy-btn").hidden = !info.address;
   bmEl_("bm-msg").textContent = "";
   const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails);
@@ -11728,6 +11729,7 @@ function renderBankEmails_() {
   const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails);
   beEl_("be-body").querySelectorAll(".bm-reading").forEach((el) => { el.hidden = !reading; });
   beEl_("be-address").textContent = info.address || tr("bankMail.noAddress");
+  beEl_("be-address2").textContent = info.address || tr("bankMail.noAddress");
   beEl_("be-copy-btn").hidden = !info.address;
   beEl_("be-msg").textContent = "";
   beEl_("be-teach").hidden = perfIsOwnerCopy_();   // the owner writes the e-mail rules himself

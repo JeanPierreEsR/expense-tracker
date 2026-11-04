@@ -2398,7 +2398,8 @@
     "bankMail.title": { en: "Bank emails", es: "Correos del banco" },
     "bankMail.intro": { en: "The app reads your bank's notification emails from this Google account:", es: "La app lee los correos de notificación de tu banco desde esta cuenta de Google:" },
     "bankMail.noAddress": { en: "The account you signed in with when you set up the app", es: "La cuenta con la que iniciaste sesión al configurar la app" },
-    "bankMail.copy": { en: "Copy address", es: "Copiar dirección" },
+    "bankMail.copyThis": { en: "Copy this address", es: "Copiar esta dirección" },
+    "bankMail.copyLead": { en: "This is the address to use in the steps below:", es: "Esta es la dirección que usas en los pasos de abajo:" },
     "bankMail.copied": { en: "Copied ✓", es: "Copiado ✓" },
     // ---- Is the e-mail check working? (Home warning + More → Bank emails; specs/review-telegram-email.md § E-mail health) ----
     "mailHealth.ago.now": { en: "just now", es: "ahora mismo" },

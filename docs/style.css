@@ -3467,3 +3467,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .deleted-forget { color: #d64545; }
 .category-kind-title { flex-basis: 100%; margin-top: 4px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #888); }
 .category-kind-title:not(:first-child) { margin-top: 10px; }
+
+/* Bank emails: "is it working?" in one card at the top (the account read, last check, Check now). The Copy button lives in
+   "Do your bank emails arrive at another address?", next to the steps that use the address (owner, 2026-11-03). */
+.bm-status { border: 1px solid var(--border, #d9d9d4); border-radius: 12px; padding: 10px 12px; margin: 4px 0 14px; }
+.bm-status .hint:first-child { margin-top: 0; }
+.bm-status-addr { font-weight: 700; word-break: break-all; margin: 4px 0; }
