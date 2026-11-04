@@ -366,6 +366,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 // Saving or changing any of these can cross a budget, a trip budget or a loan's due date: a few seconds later the app asks the server to
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
 const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "saveEntryAll", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
+  "confirmEntries", "discardEntries", "setEntriesCategory", "undoSetEntriesCategory", "setEntriesTrip", "undoSetEntriesTrip", "restoreDeletedEntries",   // the bulk ones (QA round 1)
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
   "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
 
@@ -3671,6 +3672,7 @@ function refreshEntriesInBackground_() {
 // status changes (see flushEntryEdit_), so the "Saving…"/"Couldn't save"
 // tag updates immediately.
 function renderEntryListFromCache_() {
+  if (typeof entriesDropStaleSelection_ === "function") entriesDropStaleSelection_();
   const list = document.getElementById("entry-list");
   const entries = applyQueuedEditOverlay_(lastRenderedEntries_);
   list.innerHTML = "";
@@ -3872,7 +3874,18 @@ function entriesPool_() {   // what "Select all" means: every loaded entry on Ho
   }
   return applyQueuedEditOverlay_(lastRenderedEntries_).filter(entrySelectable_);
 }
+// A selection belongs to what was on screen when it was made (Home, or the matches of one search). When the search text changes or is cleared the
+// selection is dropped: before, "Change (3)" / "Delete (3)" stayed on and acted on entries that were no longer in view (QA round 1, 2026-11-03).
+let entriesSelCtx_ = "home";
+const entriesCtxKey_ = () => (searchActive ? "q:" + document.getElementById("entry-search").value.trim().toLowerCase() : "home");
+function entriesDropStaleSelection_() {
+  if (!entriesEditing_) return;
+  const key = entriesCtxKey_();
+  if (entriesSelected_.size && entriesSelCtx_ !== key) { entriesSelected_ = new Set(); syncEntriesEditBar_(); }
+  entriesSelCtx_ = key;
+}
 function entriesToggle_(id, row) {
+  entriesSelCtx_ = entriesCtxKey_();
   if (entriesSelected_.has(id)) entriesSelected_.delete(id);
   else if (entriesSelected_.size >= ENTRIES_BULK_MAX_) { showToast_(tr("entriesBulk.limit", { n: ENTRIES_BULK_MAX_ })); return; }
   else entriesSelected_.add(id);
@@ -3919,6 +3932,7 @@ document.getElementById("entries-done-btn").addEventListener("click", () => setE
 document.getElementById("entries-selectall-btn").addEventListener("click", () => {
   const pool = entriesPool_().slice(0, ENTRIES_BULK_MAX_);
   const everyOn = pool.length > 0 && pool.every((e) => entriesSelected_.has(e.id));
+  entriesSelCtx_ = entriesCtxKey_();
   entriesSelected_ = everyOn ? new Set() : new Set(pool.map((e) => e.id));
   if (!everyOn && entriesPool_().length > ENTRIES_BULK_MAX_) showToast_(tr("entriesBulk.limit", { n: ENTRIES_BULK_MAX_ }));
   renderEntryListFromCache_();
@@ -4184,6 +4198,7 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
 
 function renderSearchResults_() {
   if (!searchActive) return;
+  entriesDropStaleSelection_();
   const input = document.getElementById("entry-search");
   const hint = document.getElementById("entry-search-hint");
   const box = document.getElementById("search-results");
@@ -4228,6 +4243,7 @@ function renderSearchResults_() {
 
 function setSearchActive_(on) {
   searchActive = on;
+  entriesDropStaleSelection_();
   document.getElementById("screen-entries").classList.toggle("searching", on);
   document.getElementById("search-results-card").hidden = !on;
   document.getElementById("entry-search-refresh").hidden = !on;
@@ -5781,6 +5797,7 @@ document.getElementById("review-done-btn").addEventListener("click", () => setRe
 document.getElementById("review-selectall-btn").addEventListener("click", () => {
   const all = reviewEntries_.filter((e) => !isPracticeReviewEntry_(e)).map((e) => e.id);
   reviewSelected_ = reviewSelected_.size === all.length ? new Set() : new Set(all);
+  syncReviewEditBar_();   // (the bar kept the old label and count, and Confirm / Discard stayed disabled after Select all)
   refreshReviewQueue(reviewEntries_, true).catch(() => {});
 });
 // After a bulk action the waiting list is shown at once without the handled entries (as the card's own buttons do), then everything refreshes.
@@ -5829,7 +5846,7 @@ document.getElementById("review-discard-selected-btn").addEventListener("click",
   if (!chosen.length) return;
   const parts = chosen.filter(reviewIsRepaymentPart_);
   const ready = chosen.filter((e) => !reviewIsRepaymentPart_(e));
-  if (!ready.length) { alert(tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") })); return; }
+  if (!ready.length) { alert(tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }).trim()); return; }
   const note = parts.length ? tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }) : "";
   if (!confirm(tr("reviewBulk.discardAsk", { n: ready.length, list: ready.map(reviewLabel_).join("\n"), note }))) return;
   ready.forEach((e) => { if (!isPracticeReviewEntry_(e)) betaRecordEvents_(PerfShare.queueEvents(e, null, betaEntryPlace_(e))); });
@@ -5863,6 +5880,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   reviewEntries_ = entries;
   const stillWaiting = new Set(entries.map((e) => e.id));
   reviewSelected_ = new Set([...reviewSelected_].filter((id) => stillWaiting.has(id)));
+  if (reviewEditing_) syncReviewEditBar_();
   document.getElementById("review-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.reviewBulk && entries.length);
 
   if (entries.length === 0) {
@@ -6420,6 +6438,9 @@ function saveBehindScreen_(work, after, opts) {
       alert(tr("common.notSaved", { error: err.message }));
     }
     try { if (after) await after(); } catch (e) { /* the list shows its own load error */ }
+    // A bulk delete greys every ticked row ("Deleting…"): the ones that really went are gone from the list by now, the ones that were kept / hidden / not
+    // deleted come back to normal (before this, a kept or hidden friend stayed grey and untappable until the app was reloaded).
+    if (opts && opts.release) { opts.release.forEach((k) => deletingKeys_.delete(k)); paintDeleting_(); }
     if (busyText) hideToast_(busyText);
     if (ok && opts && opts.done) {
       const text = typeof opts.done === "function" ? opts.done() : tr(opts.done);
@@ -6728,18 +6749,29 @@ let categoriesSelected_ = new Set();
 let tripsEditing_ = false;
 let tripsSelected_ = new Set();
 let accountsEditing_ = false;
+let friendsEditing_ = false;     // More → Friends / Programmed items → Edit (declared here: showScreen below ends them when another screen opens)
+let recurringEditing_ = false;
 let accountsSelected_ = new Set();
 let accountsHiddenBeforeEdit_ = false;
 let budgetsSelected_ = new Set();   // Budgets → Edit state (declared here so showScreen can end Edit mode when the tab is left)
+// Leaving a screen ends its Edit mode, and the list is drawn plain again (QA round 1, 2026-11-03): More remembers the sub-screen it was left on and
+// shows it again WITHOUT redrawing, so a list left with its checkboxes came back with ghost checkboxes, a ticked row and no bar. Redraws come from what
+// the phone already holds (no server call); Categories only strips the checkboxes, because its redraw would ask the server for the counts again.
+function stripEditMarks_(screenId) {
+  document.querySelectorAll(`#${screenId} .friends-check, #${screenId} .friends-check-spacer`).forEach((el) => el.remove());
+  document.querySelectorAll(`#${screenId} .friends-check-row`).forEach((el) => el.classList.remove("friends-check-row"));
+}
 function showScreen(name) {
   if (name !== "budgets" && budgetsEditing_) setBudgetsEditing_(false, false);
-  if (name !== "accounts" && accountsEditing_) setAccountsEditing_(false, false);
-  if (name !== "trips" && tripsEditing_) setTripsEditing_(false, false);
-  if (name !== "categories" && categoriesEditing_) setCategoriesEditing_(false, false);
+  if (name !== "accounts" && accountsEditing_) setAccountsEditing_(false);
+  if (name !== "trips" && tripsEditing_) setTripsEditing_(false);
+  if (name !== "friends" && friendsEditing_) setFriendsEditing_(false);
+  if (name !== "recurring" && recurringEditing_) setRecurringEditing_(false);
+  if (name !== "categories" && categoriesEditing_) { setCategoriesEditing_(false, false); stripEditMarks_("screen-categories"); }
   if (name !== "entries" && reviewEditing_) setReviewEditing_(false, false);
   if (name !== "entries" && entriesEditing_) setEntriesEditing_(false, false);
-  if (name !== "business" && businessEditing_) setBusinessEditing_(false, false);
-  if (name !== "business-people" && peopleEditing_) setPeopleEditing_(false, false);
+  if (name !== "business" && businessEditing_) setBusinessEditing_(false);
+  if (name !== "business-people" && peopleEditing_) setPeopleEditing_(false);
   document.querySelectorAll(".screen").forEach((el) => {
     el.hidden = el.id !== `screen-${name}`;
   });
@@ -8610,7 +8642,8 @@ document.getElementById("budgets-delete-selected-btn").addEventListener("click",
   const ids = chosen.map((b) => b.id);
   const nameOf = new Map(chosen.map((b) => [b.id, budgetPickLabel_(b)]));
   setBudgetsEditing_(false);
-  ids.forEach((id) => markDeleting_("budget:" + id));
+  const delKeys = ids.map((id) => "budget:" + id);
+  delKeys.forEach(markDeleting_);
   let result = null;
   saveBehindScreen_(async () => {
     result = await callApi("deleteBudgets", { ids });
@@ -8619,7 +8652,7 @@ document.getElementById("budgets-delete-selected-btn").addEventListener("click",
     catch (err) { document.getElementById("budgets-list").innerHTML = `<div class="status-msg">${escapeHtml(tr("budget.refreshFailed", { error: err.message }))}</div>`; }
     if (result && result.missing.length) alert(tr("budgets.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
   }, {
-    busy: "common.deletingToast",
+    busy: "common.deletingToast", release: delKeys,
     done: () => result && result.deleted.length ? tr("budgets.resultDeleted", { n: result.deleted.length, names: result.deleted.map((id) => nameOf.get(id)).join(", ") }) : "",
   });
 });
@@ -12259,7 +12292,8 @@ document.getElementById("accounts-delete-selected-btn").addEventListener("click"
   if (!confirm(tr(chosen.length === 1 ? "accounts.confirmRemove" : "accounts.confirmDeleteMany", { n: chosen.length, names, name: names }))) return;
   const ids = chosen.map((pm) => pm.id);
   setAccountsEditing_(false);
-  ids.forEach((id) => markDeleting_("pm:" + id));
+  const delKeys = ids.map((id) => "pm:" + id);
+  delKeys.forEach(markDeleting_);
   let result = null;
   saveBehindScreen_(async () => {
     result = await callApi("removePaymentMethods", { ids });
@@ -12294,7 +12328,7 @@ document.getElementById("accounts-delete-selected-btn").addEventListener("click"
       alertNotRestored_(back.skipped);
     });
   }, {
-    busy: "common.deletingToast",
+    busy: "common.deletingToast", release: delKeys,
     done: () => result && !result.hidden.length && !result.kept.length && result.deleted.length && !(bulkShowAgain_() && ((result.deletedRows || {}).accounts || []).length)
       ? tr("accounts.resultDeleted", { n: result.deleted.length, names: result.deleted.map((d) => d.name).join(", ") }) : "",
   });
@@ -12532,7 +12566,8 @@ function runCategoriesDelete_(chosen, opts) {
   closeCatBulkSheet_();
   setCategoriesEditing_(false);
   const ids = chosen.map((c) => c.id);
-  ids.forEach((id) => markDeleting_("cat:" + id));
+  const delKeys = ids.map((id) => "cat:" + id);
+  delKeys.forEach(markDeleting_);
   const bothTypes = categoryNamesInBothTypes_();
   let result = null;
   const namesOf = (list) => list.map((x) => x.name).join(", ");
@@ -12560,6 +12595,7 @@ function runCategoriesDelete_(chosen, opts) {
     result.deleted.filter((d) => d.to).forEach((d) => { byTarget.set(d.to, (byTarget.get(d.to) || []).concat(d)); });
     byTarget.forEach((list, to) => lines.push(tr("catBulk.resultMoved", { to, names: namesOf(list), entries: list.reduce((sum, d) => sum + (d.moved || 0), 0) })));
     if (result.hidden.length) lines.push(tr("catBulk.resultHidden", { names: namesOf(result.hidden) }));
+    if ((result.droppedBudgets || []).length) lines.push(tr("catBulk.resultBudgetDropped", { list: result.droppedBudgets.map((b) => `${b.currency} ${moneyFmt(b.amount)} ${tr(b.period_type === "yearly" ? "budgets.perYear" : "budgets.perMonth")}`).join(", ") }));
     const keptBy = (reason) => result.kept.filter((k) => k.reason === reason && k.name);
     if (keptBy("noTarget").length) lines.push(tr("catBulk.resultNoTarget", { names: namesOf(keptBy("noTarget")) }));
     if (keptBy("hiddenAlready").length) lines.push(tr("catBulk.resultHiddenAlready", { names: namesOf(keptBy("hiddenAlready")) }));
@@ -12568,7 +12604,7 @@ function runCategoriesDelete_(chosen, opts) {
     alert(lines.join("\n\n"));
     if (canUndo) offerCategoryUndo_();
   }, {
-    busy: "common.deletingToast",
+    busy: "common.deletingToast", release: delKeys,
     done: () => result && result.deleted.length && !result.hidden.length && !result.kept.length && !result.deleted.some((d) => d.to)
       ? tr("catBulk.doneDeleted", { n: result.deleted.length, names: namesOf(result.deleted) }) : "",
   });
@@ -13013,7 +13049,8 @@ document.getElementById("trips-delete-selected-btn").addEventListener("click", (
   const ids = chosen.map((t) => t.id);
   const nameOf = new Map(chosen.map((t) => [t.id, label(t)]));
   setTripsEditing_(false);
-  ids.forEach((id) => markDeleting_("trip:" + id));
+  const delKeys = ids.map((id) => "trip:" + id);
+  delKeys.forEach(markDeleting_);
   let result = null;
   saveBehindScreen_(async () => {
     result = await callApi("deleteTrips", { ids });
@@ -13024,7 +13061,7 @@ document.getElementById("trips-delete-selected-btn").addEventListener("click", (
     await refreshTripsList_();
     if (result && result.missing.length) alert(tr("trips.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
   }, {
-    busy: "common.deletingToast",
+    busy: "common.deletingToast", release: delKeys,
     done: () => result && result.deleted.length ? tr("trips.resultDeleted", { n: result.deleted.length, names: result.deleted.map((d) => nameOf.get(d.id)).join(", ") }) : "",
   });
 });
@@ -13911,8 +13948,8 @@ document.getElementById("business-delete-selected-btn").addEventListener("click"
   const company_ids = companies.map((c) => c.id), project_ids = projects.map((p) => p.id);
   const nameOf = new Map([...companies.map((c) => [c.id, companyLabel_(c)]), ...projects.map((p) => [p.id, projectLabel_(p)])]);
   setBusinessEditing_(false);
-  company_ids.forEach((id) => markDeleting_("company:" + id));
-  project_ids.forEach((id) => markDeleting_("project:" + id));
+  const delKeys = [...company_ids.map((id) => "company:" + id), ...project_ids.map((id) => "project:" + id)];
+  delKeys.forEach(markDeleting_);
   let result = null;
   const names = (list) => list.map((d) => nameOf.get(d.id) || d.name).join(", ");
   saveBehindScreen_(async () => {
@@ -13930,7 +13967,7 @@ document.getElementById("business-delete-selected-btn").addEventListener("click"
     if (result.projects.missing.length || keptBy("missing").length) lines.push(tr("bizBulk.resultMissing", { names: [...result.projects.missing, ...keptBy("missing").map((k) => k.id)].map((id) => nameOf.get(id) || id).join(", ") }));
     alert(lines.join("\n\n"));
   }, {
-    busy: "common.deletingToast",
+    busy: "common.deletingToast", release: delKeys,
     done: () => {
       if (!result || result.companies.kept.length || result.projects.missing.length) return "";
       const all = [...result.projects.deleted, ...result.companies.deleted];
@@ -14756,7 +14793,8 @@ document.getElementById("people-delete-selected-btn").addEventListener("click", 
   const ids = chosen.map((p) => p.id);
   const nameOf = new Map(chosen.map((p) => [p.id, p.name]));
   setPeopleEditing_(false);
-  ids.forEach((id) => markDeleting_("person:" + id));
+  const delKeys = ids.map((id) => "person:" + id);
+  delKeys.forEach(markDeleting_);
   let result = null;
   saveBehindScreen_(async () => {
     result = await callApi("deleteBusinessPeople", { ids });
@@ -14770,12 +14808,13 @@ document.getElementById("people-delete-selected-btn").addEventListener("click", 
     const lines = [];
     if (result.deleted.length) lines.push(tr("bizBulk.resultPeople", { n: result.deleted.length, names: result.deleted.map((d) => d.name).join(", ") }));
     if (keptBy("inUse").length) lines.push(tr("bizBulk.resultPeopleInUse", { names: keptBy("inUse").join(", ") }));
+    if (keptBy("client").length) lines.push(tr("bizBulk.resultPeopleClient", { names: keptBy("client").join(", ") }));
     if (keptBy("group").length) lines.push(tr("bizBulk.resultPeopleGroup", { names: keptBy("group").join(", ") }));
     const other = [...keptBy("notPerson"), ...result.kept.filter((k) => k.reason === "missing").map((k) => nameOf.get(k.id) || k.id)];
     if (other.length) lines.push(tr("bizBulk.resultKept", { names: other.join(", ") }));
     alert(lines.join("\n\n"));
   }, {
-    busy: "common.deletingToast",
+    busy: "common.deletingToast", release: delKeys,
     done: () => result && result.deleted.length && !result.kept.length ? tr("bizBulk.doneDeleted", { n: result.deleted.length, names: result.deleted.map((d) => d.name).join(", ") }) : "",
   });
 });
@@ -14783,7 +14822,6 @@ document.getElementById("people-delete-selected-btn").addEventListener("click", 
 // ---- More → Friends: the plain friends, to rename, add or delete (owner's request, 2026-10-30) ----
 // "Edit" puts a checkbox on every friend and a bar at the bottom to delete the ticked ones in one go (owner's request, 2026-10-30).
 let friends_ = [];
-let friendsEditing_ = false;
 let friendsSelected_ = new Set();
 function showFriendsScreen_() {
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-friends"; });
@@ -14917,7 +14955,8 @@ document.getElementById("friends-selectall-btn").addEventListener("click", () =>
 // still owed. The server decides per friend and says what it did.
 function deleteFriendsFlow_(chosen) {
   const ids = chosen.map((p) => p.id);
-  ids.forEach((id) => markDeleting_("friend:" + id));
+  const delKeys = ids.map((id) => "friend:" + id);
+  delKeys.forEach(markDeleting_);
   let result = null;
   // Saving standard: back to the list at once; the server works behind the screen and says if anyone was hidden or kept.
   saveBehindScreen_(async () => {
@@ -14952,7 +14991,7 @@ function deleteFriendsFlow_(chosen) {
       alertNotRestored_(back.skipped);
     });
   }, {
-    busy: "common.deletingToast",
+    busy: "common.deletingToast", release: delKeys,
     done: () => {
       if (!result || (result.hidden || []).length || (result.kept || []).length || (bulkShowAgain_() && (result.deletedRows || []).length)) return "";
       const goneIds = new Set(result.deleted);
@@ -15593,7 +15632,6 @@ document.getElementById("recurring-past-toggle").addEventListener("click", () =>
 // ---- Programmed items: Edit mode (tick several items, delete them at once; owner's request, 2026-10-30) ----
 // The same bar and checkboxes as More → Friends → Edit. Delete asks Stop them / Delete them all when the items have payments (see startRecurringBulkDelete_).
 let recurringItems_ = [];
-let recurringEditing_ = false;
 let recurringSelected_ = new Set();
 let recurringPastBeforeEdit_ = false;
 
@@ -16600,17 +16638,20 @@ async function startRecurringBulkDelete_(items) {
     body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
   }
-  const effectOf = {};
-  (preview.items || []).forEach((x) => { effectOf[x.id] = x.monthlyEffectPen || 0; });
+  const effectOf = {}, lastPaidOf = {};
+  (preview.items || []).forEach((x) => { effectOf[x.id] = x.monthlyEffectPen || 0; lastPaidOf[x.id] = x.lastPaid || ""; });
   const nameOf = (re) => re.description || re.category_name || "";
-  const effectful = items.filter((re) => effectOf[re.id] >= 0.5);
+  // "Has payments" = a payment on record (any age) or a figure that would change. It used to be the figure alone, which is 0 for income, so an income
+  // item with payments was counted as "no payments" and deleted by "Stop them" (QA round 1, 2026-11-03).
+  const effectful = items.filter((re) => effectOf[re.id] >= 0.5 || lastPaidOf[re.id]);
   const amount = `${homeCur()} ${moneyFmt(Math.round(preview.totalPen || 0))}`;
   // Closes the sheet and Edit mode at once and works behind the screen (saving standard).
   const finish = (work, after, opts) => { closeRecurringDeleteSheet_(); setRecurringEditing_(false); saveBehindScreen_(work, after, opts); };
   const deleteAll = () => {
-    ids.forEach((id) => markDeleting_("recurring:" + id));
+    const delKeys = ids.map((id) => "recurring:" + id);
+    delKeys.forEach(markDeleting_);
     finish(() => callApi("deleteRecurringExpenses", { ids }), afterRecurringChange_,
-      { busy: "common.deletingToast", done: () => tr("recBulk.resultDeleted", { n: items.length, names: items.map(nameOf).join(", ") }) });
+      { busy: "common.deletingToast", release: delKeys, done: () => tr("recBulk.resultDeleted", { n: items.length, names: items.map(nameOf).join(", ") }) });
   };
   if (!effectful.length) {   // nothing in the last 12 months depends on any of them: the plain question
     closeRecurringDeleteSheet_();
@@ -16626,7 +16667,7 @@ async function startRecurringBulkDelete_(items) {
     if (confirm(tr("recBulk.onlyFixed", { amount, n: items.length }))) deleteAll();
     return;
   }
-  const rest = items.filter((re) => !effectful.includes(re));   // no payments to protect: deleted either way
+  const rest = items.filter((re) => !effectful.includes(re));   // no payment on record: deleted either way
   body.innerHTML = `
     <p class="hint"><b>${escapeHtml(tr("recBulk.intro", { pay: effectful.length, n: items.length }))}</b></p>
     <p class="hint">${escapeHtml(tr("recDel.entriesStay"))}</p>
@@ -16634,7 +16675,7 @@ async function startRecurringBulkDelete_(items) {
     <p class="hint">${escapeHtml(tr("recBulk.stopHint", { k: stoppable.length })
       + (rest.length ? tr("recBulk.stopRest", { m: rest.length }) : "") + (fixed.length ? tr("recBulk.stopFixed", { f: fixed.length }) : "") + tr("recBulk.stopEditLater"))}</p>
     <button type="button" class="primary danger" id="recurring-bulk-delete">${escapeHtml(tr("recBulk.deleteBtn"))}</button>
-    <p class="hint">${escapeHtml(tr("recBulk.deleteHint", { n: items.length, amount }))}</p>`;
+    <p class="hint">${escapeHtml(tr((preview.totalPen || 0) < 0.5 ? "recBulk.deleteHintPlain" : "recBulk.deleteHint", { n: items.length, amount }))}</p>`;
   document.getElementById("recurring-bulk-delete").addEventListener("click", deleteAll);
   document.getElementById("recurring-bulk-stop").addEventListener("click", () => {
     let result = null;

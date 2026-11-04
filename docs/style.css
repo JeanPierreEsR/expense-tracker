@@ -3427,9 +3427,14 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .business-company-head.friends-check-row { justify-content: flex-start; gap: 12px; }
 .business-company-head.friends-check-row .business-mini { margin-left: auto; }
 /* Needs review → Edit: compact tick rows, and a bar with four buttons (Select all / Done / Discard / Confirm) that has to fit a narrow phone */
-#screen-entries.review-editing #review-queue-card { padding-bottom: 90px; }
-#review-editbar { gap: 4px; padding: 10px 12px; }
-#review-editbar button.primary { padding: 12px 12px; font-size: 0.9rem; }
+#screen-entries.review-editing #review-queue-card { padding-bottom: 130px; }
+/* Four buttons did not fit a 375px phone once the count had 3 digits ("Discard (204)"): two rows, always, so the bar never jumps in height:
+   Select all (left) and Done (right) above, Discard and Confirm side by side below. */
+#review-editbar { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; padding: 10px 12px; align-items: center; }
+#review-editbar button { white-space: nowrap; }
+#review-editbar button.add-inline:nth-child(1) { justify-self: start; }
+#review-editbar button.add-inline:nth-child(2) { justify-self: end; }
+#review-editbar button.primary { width: 100%; margin: 0; padding: 12px 8px; font-size: 0.9rem; }
 .review-item.review-compact { display: flex; flex-direction: row; align-items: center; gap: 12px; cursor: pointer; }
 .review-item.review-compact .review-item-amount { margin-left: auto; white-space: nowrap; text-align: right; }
 .review-compact-chip { display: inline-block; font-size: 0.75rem; border-radius: 10px; padding: 1px 8px; margin-top: 3px; background: #fff4e5; color: #8a5a00; }

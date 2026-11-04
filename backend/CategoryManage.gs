@@ -180,6 +180,33 @@ function setCategoryHidden(payload) {
 // deleted either way. The built-in "Other" and anything that is not an expense / income category are never touched.
 
 // For each id, how many entries use it and how many records of any kind (entries, programmed items, projection overrides, budgets, children) point at it.
+// After a Move, a budget that came along can land on a category (set) that already has a budget with the same period: two budgets on one thing would
+// alert and count twice, and addBudget refuses exactly that. The budget that was already there stays; the one that moved is dropped (with its alert
+// history) and reported, never silently (QA round 1, 2026-11-03). Answers [{ name, amount, currency, period_type }].
+function dropDuplicateMovedBudgets_(movedIds) {
+  var dropped = [];
+  if (!Object.keys(movedIds).length) return dropped;
+  var key = function (b) {
+    var ids = parseBudgetCategoryIds_(b.category_id);
+    return (b.period_type === 'yearly' ? 'yearly' : 'monthly') + '|' + (ids === null ? 'ALL' : ids.slice().sort().join(','));
+  };
+  var seen = {};
+  var rows = getAllRows('Budgets');
+  rows.forEach(function (b) { if (!movedIds[String(b.id)]) seen[key(b)] = true; });
+  var drop = {};
+  rows.forEach(function (b) {
+    if (!movedIds[String(b.id)]) return;
+    var k = key(b);
+    if (seen[k]) { drop[String(b.id)] = true; dropped.push({ name: String(b.name || ''), amount: Number(b.amount), currency: String(b.currency || ''), period_type: b.period_type === 'yearly' ? 'yearly' : 'monthly' }); }
+    else seen[k] = true;
+  });
+  if (Object.keys(drop).length) {
+    deleteRowsWhere_('Budget Alert Log', function (r) { return drop[String(r.budget_id)] === true; });
+    deleteRowsWhere_('Budgets', function (r) { return drop[String(r.id)] === true; });
+  }
+  return dropped;
+}
+
 // Bulk "Show again" and the Undo of a bulk hide (More → Categories → Edit): one pass, a category that no longer exists is skipped.
 function showCategories(payload) {
   var ids = uniqueIds_(payload && payload.ids);
@@ -251,7 +278,7 @@ function deleteCategories(payload) {
   var ids = uniqueIds_(payload.ids);
   var reassign = payload.reassign || {};
   var hideUsed = payload.hideUsed === true;
-  var out = { deleted: [], hidden: [], kept: [], movedEntries: 0 };
+  var out = { deleted: [], hidden: [], kept: [], movedEntries: 0, droppedBudgets: [] };
   if (!ids.length) return out;
   ensureCategoriesHiddenColumn_();
   var byId = {};
@@ -286,7 +313,8 @@ function deleteCategories(payload) {
     out.movedEntries = rewriteColumn_('Entries', 'category_id', swap, false).changed;
     rewriteColumn_('Recurring Expenses', 'category_id', swap, false);
     rewriteColumn_('Categories', 'parent_id', function (v) { return gone[String(v)] ? '' : v; }, false);
-    rewriteColumn_('Budgets', 'category_id', function (v) {
+    var movedBudgetIds = {};
+    rewriteColumn_('Budgets', 'category_id', function (v, row) {
       var bids = parseBudgetCategoryIds_(v);
       if (bids === null) return v;
       var changed = false, outIds = [];
@@ -294,8 +322,10 @@ function deleteCategories(payload) {
         if (Object.prototype.hasOwnProperty.call(swapMap, x)) { x = swapMap[x]; changed = true; }
         if (outIds.indexOf(x) === -1) outIds.push(x);
       });
+      if (changed) movedBudgetIds[String(row.id)] = true;
       return changed ? outIds.join(',') : v;
     }, false);
+    out.droppedBudgets = dropDuplicateMovedBudgets_(movedBudgetIds);
     deleteRowsWhere_('Projection Overrides', function (r) { return gone[String(r.category_id)] === true; });
     deleteRowsWhere_('Category Keywords', function (r) { return goneNames[String(r.category_name)] === true; });
     deleteRowsWhere_('Categories', function (r) { return gone[String(r.id)] === true; });
