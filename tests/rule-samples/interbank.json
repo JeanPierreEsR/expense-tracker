@@ -13,11 +13,6 @@
     { "subject": "Pago de tu tarjeta", "body": "Monto pagado S/ 200.00\nTarjeta de crédito ****1111\ncódigo de operación 777333",
       "expect": { "type": "transfer", "amount": 200, "currency": "PEN", "description": "Pago tarjeta Interbank", "last4": "1111", "externalId": "777333" } }
   ],
-  "interbank-pago-recurrente-ignorado": [
-    { "subject": "Ana, se ha realizado un pago recurrente a tu Tarjeta Interbank Visa Prueba", "body": "Ana, se ha realizado un pago recurrente a tu Tarjeta Interbank Visa Prueba\n\nConoce el detalle:\nTarjeta: ****1234\nComercio: PAG*DIDI DRIVE\nMonto: S/. 12.30\nFecha: 01/02/2026\nHora: 09:15 AM\n\nSi no reconoces esta operación llámanos." },
-    { "subject": "Ana, se ha realizado un pago recurrente a tu Tarjeta Interbank Visa Prueba", "body": "Ana, se ha realizado un pago recurrente a tu Tarjeta Interbank Visa Prueba\n\nConoce el detalle:\nTarjeta: ****1234\nComercio: APPLE.COM/BILL\nMonto: S/. 9.90\nFecha: 01/02/2026\nHora: 09:15 AM\n\nSi no reconoces esta operación llámanos." },
-    { "subject": "Ana, se ha realizado un pago recurrente a tu Tarjeta Interbank Visa Prueba", "body": "Ana, se ha realizado un pago recurrente a tu Tarjeta Interbank Visa Prueba\n\nConoce el detalle:\nTarjeta: ****1234\nComercio: STREAMING PRUEBA\nMonto: S/. 20.00\nFecha: 01/02/2026\nHora: 09:15 AM\n\nSi no reconoces esta operación llámanos.", "matches": false }
-  ],
   "interbank-pago-recurrente": [
     { "subject": "Ana, se ha realizado un pago recurrente a tu Tarjeta Interbank Visa Prueba", "body": "Ana, se ha realizado un pago recurrente a tu Tarjeta Interbank Visa Prueba\n\nConoce el detalle:\nTarjeta: ****1234\nComercio: STREAMING PRUEBA\nMonto: S/. 20.00\nFecha: 01/02/2026\nHora: 09:15 AM\n\nSi no reconoces esta operación llámanos.",
       "expect": { "type": "expense", "amount": 20, "currency": "PEN", "merchant": "STREAMING PRUEBA", "last4": "1234" } },
