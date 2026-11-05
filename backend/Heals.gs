@@ -4,7 +4,8 @@
  * A fresh install builds its Sheet with today's rules (time zone, formats, starter data); a copy installed earlier keeps whatever it was built
  * with — the update page replaces the files and nothing else (docs/setup/Install.gs builds the Sheet once, never again). Anything a fix needs to
  * change in an EXISTING Sheet or its settings therefore goes here, as an entry in HEALS_: each runs once per copy (the ids already done are kept in
- * the script property HEALS_DONE), on the first app open after the update (getMeta), on friends' copies only. Rules for a heal:
+ * the script property HEALS_DONE), on the first app open after the update (getMeta), on friends' copies only (a heal marked `owner: true`
+ * also runs on the owner's copy). Rules for a heal:
  *  - idempotent: running it twice must change nothing the second time;
  *  - it never loses or rewrites the person's data (it may fix a setting or add structure);
  *  - a failure is only logged and leaves the id undone, so the next open tries again; it never breaks the request;
@@ -25,8 +26,31 @@ var HEALS_ = [
   { id: 'paused-programmed-to-ended', run: function () { convertPausedProgrammed_(); } },
   // The built-in cash account was named before the welcome chose the language, so Spanish copies show "Cash" (2026-11-04). It is renamed
   // to the copy's language only while it still has the built-in name (relocalizeCashName_, Accounts.gs); a typed name stays.
-  { id: 'cash-name-language', run: function () { relocalizeCashName_(currentLang_()); } }
+  { id: 'cash-name-language', run: function () { relocalizeCashName_(currentLang_()); } },
+  // More -> Bank emails names the inbox the app reads. A copy that cannot ask Google for its own address (the owner's: full Gmail access,
+  // no "see your address" permission) showed "the account you signed in with" instead (2026-11-05). This heal reads the address once from
+  // the To line of a bank e-mail already in the inbox and keeps it (MAILBOX_ADDRESS). Runs on the owner's copy too (`owner: true`).
+  { id: 'mailbox-address-to-line', owner: true, run: healMailboxAddressFromToLine_ }
 ];
+
+function healMailboxAddressFromToLine_() {
+  var props = PropertiesService.getScriptProperties();
+  if (!featureOn_('gmail') || props.getProperty('MAILBOX_ADDRESS') || mailboxAddress_()) return;
+  var senders = uniqueSenders_();
+  for (var i = 0; i < senders.length; i++) {
+    var msgs = gmailSearchMessages_('from:' + senders[i] + ' newer_than:180d', { max: 3 });
+    for (var j = 0; j < msgs.length; j++) {
+      var address = firstAddressIn_(msgs[j].getTo());
+      if (address) { props.setProperty('MAILBOX_ADDRESS', address); return; }
+    }
+  }
+}
+
+/** Pure: the first e-mail address in a header such as 'Ana Lo <ana@example.com>, b@example.com' ('' when none). */
+function firstAddressIn_(header) {
+  var m = /[A-Z0-9._%+-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)+/i.exec(String(header || ''));
+  return m ? m[0].toLowerCase() : '';
+}
 
 function healSheetTimeZone_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -36,11 +60,12 @@ function healSheetTimeZone_() {
 }
 
 function runHealsOnce_() {
-  if (!isFriendCopy_()) return;   // the owner's own copy is looked after by hand
+  var friend = isFriendCopy_();   // the owner's own copy is looked after by hand, except for a heal marked `owner: true`
+  if (!friend && !HEALS_.some(function (h) { return h.owner; })) return;
   var props = PropertiesService.getScriptProperties();
   var done = String(props.getProperty(HEALS_DONE_PROPERTY_) || '').split(',').filter(function (id) { return id; });
   HEALS_.forEach(function (heal) {
-    if (done.indexOf(heal.id) !== -1) return;
+    if (done.indexOf(heal.id) !== -1 || (!friend && !heal.owner)) return;
     try {
       heal.run();
       done.push(heal.id);

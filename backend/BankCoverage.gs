@@ -49,6 +49,48 @@ function noteBankKindSeen_(rule, dateStr) {
   setSetting_('bank_mail_seen_kinds', JSON.stringify(map));
 }
 
+// One-time catch-up (2026-11-05): the per-kind days only started filling on 2026-11-03, so a kind that last arrived before that (or whose
+// e-mails are rare) read "Can arrive if this alert is on" although it does arrive. Once per copy, at the end of a normal scan, the last 90 days
+// of each bank sender are read again with the rules: an e-mail of a kind counts only when its entry is still in Entries (the same "really became
+// an entry" rule as noteBankKindSeen_). It writes the Setting once and never changes an entry. Script property BANK_KINDS_BACKFILLED marks it done.
+var BANK_KINDS_BACKFILL_PROPERTY_ = 'BANK_KINDS_BACKFILLED';
+var BANK_KINDS_BACKFILL_DAYS_ = 90;
+
+function backfillBankKindDaysOnce_(senders, existingExternalIds) {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty(BANK_KINDS_BACKFILL_PROPERTY_)) return;
+  var tz = Session.getScriptTimeZone();
+  var found = {};   // bank -> kind -> newest day
+  senders.forEach(function (sender) {
+    gmailSearchMessages_('from:' + sender + ' newer_than:' + BANK_KINDS_BACKFILL_DAYS_ + 'd', { max: 300 }).forEach(function (message) {
+      try {
+        var read = readEmailWithRules_(sender, message.getSubject(), message.getPlainBody());
+        if (!read.rule || !read.rule.bank || !read.fields) return;
+        var dateStr = Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd');
+        if (!existingExternalIds[computeEmailExternalId_(sender, dateStr, read.fields, message.getId())]) return;
+        var kind = bankKindOfRule_(read.rule);
+        var byBank = found[read.rule.bank] || (found[read.rule.bank] = {});
+        if (!byBank[kind] || byBank[kind] < dateStr) byBank[kind] = dateStr;
+      } catch (err) { /* one e-mail that cannot be read again changes nothing */ }
+    });
+  });
+  var map = mergeBankKindDays_(bankKindSeenMap_(), found);
+  if (JSON.stringify(map) !== JSON.stringify(bankKindSeenMap_())) setSetting_('bank_mail_seen_kinds', JSON.stringify(map));
+  props.setProperty(BANK_KINDS_BACKFILL_PROPERTY_, Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd'));
+}
+
+/** Pure: the per-kind days with the newer day of the two for every bank and kind. */
+function mergeBankKindDays_(map, found) {
+  var out = JSON.parse(JSON.stringify(map || {}));
+  Object.keys(found || {}).forEach(function (bank) {
+    var byBank = out[bank] && typeof out[bank] === 'object' ? out[bank] : (out[bank] = {});
+    Object.keys(found[bank]).forEach(function (kind) {
+      if (!byBank[kind] || String(byBank[kind]) < String(found[bank][kind])) byBank[kind] = String(found[bank][kind]);
+    });
+  });
+  return out;
+}
+
 /** { <bank>: { kinds: [{ key, seen }], none: [key] } } for every bank with a (non-ignored) rule. */
 function bankCoverage_(settings) {
   var kindSeen = bankKindSeenMap_(settings);

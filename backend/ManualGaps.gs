@@ -169,7 +169,38 @@ function getManualGaps(payload) {
   out.coverage = info.coverage;   // the Bank emails screen draws both of its views from this one answer
   out.seen = info.seen;
   if (owner) out.manualShare = { manual: manualEntries, total: totalEntries };
+  out.reasons = gapReasons_();
   return out;
+}
+
+// ---- "Why didn't an email come?" (owner, 2026-11-05) ----
+// The person says why a kind they added by hand had no e-mail. Kept in Settings `gap_reasons` = JSON {kind: {reason, note, at}}; the phone
+// uses it to name and place the group, and sends the same answer to the owner (reportFeedback, kind 'email_gap') so every case is collected.
+var GAP_REASONS_ = ['whatsapp', 'alert_off', 'under_min', 'dont_know', 'other'];
+var GAP_REASON_KINDS_ = ['yape_in', 'yape_out', 'plin_out', 'other_manual'];   // the kinds whose reason the app cannot know by itself
+var GAP_REASON_NOTE_MAX_ = 300;
+
+function gapReasons_() {
+  try {
+    var map = JSON.parse(String(getSettingsMap().gap_reasons || '{}'));
+    return (map && typeof map === 'object') ? map : {};
+  } catch (err) { return {}; }
+}
+
+function saveGapReason(p) {
+  p = p || {};
+  var kind = String(p.kind || ''), reason = String(p.reason || '');
+  if (GAP_REASON_KINDS_.indexOf(kind) === -1) throw new Error(tr_('err.gapReasonBad'));
+  var map = gapReasons_();
+  if (!reason) { delete map[kind]; }   // "change my answer": back to unanswered
+  else {
+    if (GAP_REASONS_.indexOf(reason) === -1 || (reason === 'whatsapp' && kind !== 'plin_out')) throw new Error(tr_('err.gapReasonBad'));
+    var note = reason === 'other' ? feedbackScrub_(p.note).substring(0, GAP_REASON_NOTE_MAX_) : '';
+    if (reason === 'other' && !note) throw new Error(tr_('err.gapReasonNote'));
+    map[kind] = { reason: reason, note: note, at: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd') };
+  }
+  setSetting_('gap_reasons', JSON.stringify(map));
+  return { reasons: map };
 }
 
 // ---- Bank emails the app could not read (tab "Unread Emails") ----
@@ -190,8 +221,24 @@ function unreadSubjectShape_(subject) {
   return String(subject || '').toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().slice(0, 60);
 }
 
+// Bank e-mails that are not a payment, so "couldn't read" would mislead (owner, 2026-11-05): a statement the Statements inbox already reads
+// (STATEMENT_LINK_SENDERS_, StatementInbox.gs: SIP's AhorraMás "movimientos") and plain notices listed here. Matched on the subject's wording.
+var UNREAD_NOT_PAYMENTS_ = [
+  { sender: 'notificaciones@notificacionesbcp.com.pe', subject: /configuraci[oó]n de clave/i }   // "your password was set" notice
+];
+
+/** Pure: true when an e-mail of this sender and subject is not a payment the app should have read. */
+function unreadIsNotPayment_(sender, subject) {
+  var from = String(sender || '').toLowerCase(), subj = String(subject || '');
+  var statement = (typeof STATEMENT_LINK_SENDERS_ !== 'undefined' ? STATEMENT_LINK_SENDERS_ : []).some(function (spec) {
+    return spec.address === from && spec.subject.test(subj);
+  });
+  return statement || UNREAD_NOT_PAYMENTS_.some(function (n) { return n.sender === from && n.subject.test(subj); });
+}
+
 function logUnreadEmail_(sender, subject, kind, dateStr) {
   if (!UNREAD_LOGGING_) return;
+  if (unreadIsNotPayment_(sender, subject)) return;
   try {
     ensureUnreadEmailsSheet_();
     var shape = unreadSubjectShape_(subject);
@@ -210,7 +257,7 @@ function logUnreadEmail_(sender, subject, kind, dateStr) {
 function listUnreadEmails_(fromIso) {
   ensureUnreadEmailsSheet_();
   return getAllRows('Unread Emails')
-    .filter(function (r) { return String(r.last_seen) >= fromIso; })
+    .filter(function (r) { return String(r.last_seen) >= fromIso && !unreadIsNotPayment_(r.sender, r.subject); })   // rows logged before the list above
     // Every sender + wording + kind is a row (owner's request, 2026-10-29), grouped by sender, the most frequent wording first.
     .sort(function (a, b) { return String(a.sender).localeCompare(String(b.sender)) || Number(b.count) - Number(a.count); })
     .slice(0, 200)

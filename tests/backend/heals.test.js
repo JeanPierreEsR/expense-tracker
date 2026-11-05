@@ -92,7 +92,7 @@ test("the owner's own copy is never healed by this (it has no installer FEATURES
     const { rt } = freshApp({ entries: 5 });
     rt.api("getMeta", {});
     assert.equal(rt.run(SHEET_TZ()), "UTC");
-    assert.ok(!rt.svc.props.get("HEALS_DONE"));
+    assert.ok(!String(rt.svc.props.get("HEALS_DONE") || "").split(",").includes("sheet-time-zone"), "only heals marked for the owner run on his copy");
   } finally { done(); }
 });
 
@@ -112,6 +112,6 @@ test("a server that still reads dates the OLD way (in the script's zone) shows t
 test("heals are listed once each, in order, with ids that are never reused", () => {
   const rt = freshApp({ small: true }).rt;
   const ids = JSON.parse(rt.run("JSON.stringify(HEALS_.map(function (h) { return h.id; }))"));
-  assert.deepEqual(ids, ["sheet-time-zone", "paused-programmed-to-ended", "cash-name-language"]);
+  assert.deepEqual(ids, ["sheet-time-zone", "paused-programmed-to-ended", "cash-name-language", "mailbox-address-to-line"]);
   assert.equal(new Set(ids).size, ids.length);
 });
