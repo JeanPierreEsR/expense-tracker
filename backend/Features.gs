@@ -97,6 +97,7 @@ function getCapabilities_() {
     practiceExchange: true,   // removePracticeExchange + the exchange-house / pairing / last-account memories skip the practice's legs: the Currency exchange practice is only offered where this exists
     pmRemove: true,   // removePaymentMethod (one Delete: unused = deleted, with history = hidden) + the built-in Cash account (settings.cash_account_id); an older backend keeps Delete + Hide
     thenReads: true,   // a save may carry payload._then (reads to answer in the same reply, runThenReads_ in Api.gs); an older backend never gets it
+    entryRepeat: true,    // saveEntryAll takes `repeat`: the entry form's "Repeat…" makes a Programmed item from the entry and links it
     entrySaveOne: true,   // saveEntryAll: a new / edited / confirmed entry with its split, tags and bill in ONE call (was 2-4 trips to Google); an older backend gets the separate calls
     practiceRemove: true,   // removePracticeData: the first-use practice's cleanup in one call; an older backend makes the phone do it step by step
     practiceTidy: true,   // createPracticeTidy + removePracticeTidy + listTidyGroups({pinPractice}): the Tidy my history practice is only offered where this exists

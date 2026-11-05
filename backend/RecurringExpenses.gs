@@ -1336,6 +1336,46 @@ function unskipRecurringOccurrence(payload) {
 // Manual override for the rare case automatic matching (same category and
 // currency, ~10% amount, within 5 days) misses a real payment: point one
 // entry at the item it paid ('' to unlink). Automatic matching stays on.
+// ---- "Repeat…" in the entry form (owner, 2026-11-05) ----
+// Saving an entry with a frequency also makes a Programmed item from it (same category, amount, currency, description and
+// split, starting on the entry's date) and links the entry as its first payment. Monthly, yearly or "Other" (every N days /
+// weeks / months / years); never one-time. A repeat of the same save finds the entry already linked and makes nothing new.
+function validateEntryRepeat_(rep) {
+  var freq = String(rep && rep.frequency || '');
+  if (freq !== 'monthly' && freq !== 'yearly' && freq !== 'custom') throw new Error(tr_('rec.repeatFrequency'));
+  if (freq === 'custom') validateCustomRecurring_(rep.interval, rep.interval_unit, '2000-01-01');
+  if (rep.end_date) validateRecurringWindow_('2000-01-01', rep.end_date);
+}
+
+function repeatEntryAsProgrammed_(entryId, rep) {
+  var e = getEntryById_(entryId);
+  if (!e) throw new Error(tr_('err.entryNotFound'));
+  if (e.recurring_expense_id) return { id: e.recurring_expense_id, existing: true };
+  if (e.type !== 'expense' && e.type !== 'income') throw new Error(tr_('rec.repeatType'));
+  if (!e.category_id) throw new Error(tr_('rec.repeatNeedsCategory'));
+  var item = addRecurringExpense({
+    category_id: e.category_id,
+    description: e.description || '',
+    amount: Math.abs(Number(e.amount)),
+    currency: e.currency,
+    frequency: rep.frequency,
+    interval: rep.interval,
+    interval_unit: rep.interval_unit,
+    start_date: String(e.date).substring(0, 10),
+    day: Number(String(e.date).substring(8, 10)),     // day and month come from the start date, as in the Programmed item form
+    month: Number(String(e.date).substring(5, 7)),
+    end_date: rep.end_date || '',
+    active: true
+  });
+  if (e.type === 'expense') {
+    var splits = getAllRows('Entry Splits').filter(function (s) { return s.entry_id === entryId; })
+      .map(function (s) { return { friend_id: s.friend_id, amount: Number(s.amount) }; });
+    if (splits.length) saveRecurringExpenseSplits({ recurringExpenseId: item.id, splits: splits });
+  }
+  linkEntryToRecurring({ entryId: entryId, recurringExpenseId: item.id });
+  return { id: item.id, frequency: item.frequency };
+}
+
 function linkEntryToRecurring(payload) {
   if (payload.recurringExpenseId) assertRecurringExists_(payload.recurringExpenseId);
   var result = adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);

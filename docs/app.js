@@ -1771,6 +1771,7 @@ function toggleSplitFieldVisibility() {
   document.getElementById("trip-field").hidden = !show || !(meta.trips || []).length;
   if (!show) document.getElementById("entry-trip").value = "";
   populateBusinessOptions_();   // an expense or an income may belong to a company / project
+  updateRepeatField_();
 }
 
 function resetSplitState() {
@@ -2718,6 +2719,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       (selectedType === "income" || paidBy === "me") && !splits && !payingRecurringId_;
     let programmedInstead = false;
     if (canProgram && !categoryId) throw new Error(tr("error.pickCategory"));   // a Programmed item needs its category
+    const repeat = repeatChoice_();
+    if (repeat && !categoryId) throw new Error(tr("error.pickCategory"));       // so does one made by "Repeat…"
 
     if (isRepayment) {
       const friendId = document.getElementById("repayment-friend").value;
@@ -3045,7 +3048,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         }
         return;
       }
-      queueEntryEdit_(id, fields, sendSplits ? (splits || []) : null, tagIds, billToSave);
+      queueEntryEdit_(id, fields, sendSplits ? (splits || []) : null, tagIds, billToSave, repeat ? { repeat } : undefined);
       exitEditMode();
       flushEntryEdit_(id); // not awaited — runs in the background
       // Re-rendered from what's already in hand (with the queued edit
@@ -3072,7 +3075,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // CLAUDE.md's Exchange Rates section), so it never needs one set
       // for a month that, being in the future, usually doesn't have one
       // yet — unlike a real Entry, which does require it at save time.
-      await callApi("addRecurringExpense", {
+      await callApi("addRecurringExpense", repeat ? {
+        // "Repeat…" on a future date: the repeating item itself, starting that day (no entry yet).
+        category_id: categoryId, description, amount, currency, active: true,
+        frequency: repeat.frequency, interval: repeat.interval, interval_unit: repeat.interval_unit,
+        start_date: date, day: Number(date.slice(8, 10)), month: Number(date.slice(5, 7))
+      } : {
         category_id: categoryId,
         description,
         amount,
@@ -3101,7 +3109,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         trip_id: tripId,
         ...businessLink
       }, splits || [], tagIds, billApplied && splits && splits.length ? billToJSON_() : undefined,
-      { kind: "create", linkRecurringId: payingRecurringId_ || "" });
+      { kind: "create", linkRecurringId: payingRecurringId_ || "", repeat });
       backgroundSaved = { kind: "create", id: newId };
       tipNoteSavedEntry_(newId, description);
     } else {
@@ -3182,6 +3190,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     setBusinessPick_("");                               // same for the company / project
     repaymentFriendTouched_ = false;
     resetSplitState();
+    resetRepeat_();
+    updateRepeatField_();
 
     if (!backgroundSaved) {
       await refreshEntryList();
@@ -4612,6 +4622,53 @@ function syncCancelNewEntryButton_() {
   });
 })();
 
+// ---- "Repeat…" (owner, 2026-11-05) ----
+// A collapsed button in the entry form (new AND edit, expense or income) that makes the entry repeat: saving creates a
+// Programmed item from it, starting on its date, and links the entry as its first payment (backend saveEntryAll `repeat`,
+// capability entryRepeat). A future-dated new entry becomes that Programmed item directly (no entry yet), as before with
+// One-time. An entry that already belongs to a Programmed item shows a line saying so instead of the button.
+let repeatFreq_ = null;              // null = closed (does not repeat)
+let editingEntryRecurringId_ = "";
+function resetRepeat_() {
+  repeatFreq_ = null;
+  document.getElementById("repeat-detail").hidden = true;
+  document.getElementById("repeat-open-btn").hidden = false;
+  document.getElementById("repeat-interval").value = "1";
+  document.getElementById("repeat-unit").value = "months";
+  setRepeatFreq_("monthly", true);
+}
+function setRepeatFreq_(freq, quiet) {
+  if (!quiet) repeatFreq_ = freq;
+  document.querySelectorAll("#repeat-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.frequency === freq));
+  document.getElementById("repeat-custom").hidden = freq !== "custom";
+}
+function updateRepeatField_() {
+  const field = document.getElementById("repeat-field");
+  const can = !!(meta && meta.capabilities && meta.capabilities.entryRepeat);
+  const typeOk = selectedType === "expense" || selectedType === "income";
+  const show = can && typeOk && !payingRecurringId_ && !confirmingPendingId;
+  field.hidden = !show;
+  if (!show) { if (repeatFreq_) resetRepeat_(); return; }
+  const linked = !!(editingEntryId && editingEntryRecurringId_);
+  document.getElementById("repeat-linked").hidden = !linked;
+  document.getElementById("repeat-open-btn").hidden = linked || !!repeatFreq_;
+  document.getElementById("repeat-detail").hidden = linked || !repeatFreq_;
+}
+// What the save sends: null, or { frequency, interval?, interval_unit? }. Throws a plain message the form shows.
+function repeatChoice_() {
+  if (!repeatFreq_ || document.getElementById("repeat-field").hidden) return null;
+  if (repeatFreq_ !== "custom") return { frequency: repeatFreq_ };
+  const n = String(document.getElementById("repeat-interval").value || "").trim();
+  if (!/^\d{1,3}$/.test(n) || Number(n) < 1) throw new Error(tr("repeat.errInterval"));
+  return { frequency: "custom", interval: n, interval_unit: document.getElementById("repeat-unit").value };
+}
+document.getElementById("repeat-open-btn").addEventListener("click", () => {
+  setRepeatFreq_(repeatFreq_ || "monthly");
+  updateRepeatField_();
+});
+document.getElementById("repeat-remove-btn").addEventListener("click", () => { resetRepeat_(); updateRepeatField_(); });
+document.querySelectorAll("#repeat-tabs .type-tab").forEach((tab) => tab.addEventListener("click", () => setRepeatFreq_(tab.dataset.frequency)));
+
 // ---- Editing a previously confirmed entry ----
 
 let editingEntrySummary_ = "";
@@ -4626,6 +4683,8 @@ async function startEditEntry(entry) {
   editingEntrySummary_ = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
   editingEntryWasSplittable = entry.type === "expense";
   editingEntryOriginalType = entry.type;
+  editingEntryRecurringId_ = entry.recurring_expense_id || "";
+  resetRepeat_();
   // A cash loan's own money movement: switching it to Expense / Income converts the loan (convertLoanToEntry).
   editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
   editingLoanFriendId_ = editingLoanMovement_ ? (entry.link.friend_id || "") : "";
@@ -4760,6 +4819,7 @@ async function startEditEntry(entry) {
   if (entry._queueStatus === "failed" && entry._queueError) document.getElementById("form-error").textContent = entry._queueError;
 
   document.getElementById("entry-form").scrollIntoView({ behavior: "smooth" });
+  updateRepeatField_();
 }
 
 function exitEditMode() {
@@ -4767,6 +4827,8 @@ function exitEditMode() {
   editingEntryOriginalDate_ = null;
   editingEntryWasSplittable = false;
   editingEntryOriginalType = null;
+  editingEntryRecurringId_ = "";
+  resetRepeat_();
   editingLoanMovement_ = "";
   editingLoanFriendId_ = "";
   editingExchangeLeg_ = "";
@@ -5210,6 +5272,7 @@ function queueEntryEdit_(id, fields, splits, tagIds, bill, extra) {
   edits.push({
     id, fields, splits, tagIds, bill, kind,
     linkRecurringId: (extra && extra.linkRecurringId) || (previous && previous.linkRecurringId) || "",
+    repeat: (extra && extra.repeat) || (previous && previous.repeat) || null,
     loan: !!(extra && extra.loan) || !!(previous && previous.loan),
     status: "saving", lastError: null, queuedAt: Date.now()
   });
@@ -5404,11 +5467,12 @@ async function flushEntryEdit_(id) {
             : edit.splits !== null;
           const out = await callApi("saveEntryAll", withThen_(isCreate
             ? { kind: "create", fields: Object.assign({}, edit.fields, { client_id: edit.id, tag_ids: edit.tagIds }), link_recurring_id: edit.linkRecurringId || "",
-                splits: withSplits ? (edit.splits || []) : undefined, bill: withSplits && edit.bill ? edit.bill : undefined }
-            : { kind: "update", id: edit.id, fields: edit.fields, splits: withSplits ? edit.splits : undefined, tag_ids: edit.tagIds || [], bill: edit.bill || undefined },
+                splits: withSplits ? (edit.splits || []) : undefined, bill: withSplits && edit.bill ? edit.bill : undefined, repeat: edit.repeat || undefined }
+            : { kind: "update", id: edit.id, fields: edit.fields, splits: withSplits ? edit.splits : undefined, tag_ids: edit.tagIds || [], bill: edit.bill || undefined, repeat: edit.repeat || undefined },
           entryThenReads_(edit, withSplits)));
           if (isCreate) { created = out; linkFailed = !!(out && out.link_failed); }
           else if (out && out.follow) followed = out.follow;
+          if (edit.repeat && out && out.repeat) { showToast_(tr("repeat.done")); refreshExpectedRecurring(); }
         } else if (edit.kind === "create") {
           // The same client_id answers a repeat with the entry it already made, so every step below is safe to send again.
           created = await callApi("createEntry", Object.assign({}, edit.fields, { client_id: edit.id, tag_ids: edit.tagIds }));
@@ -17801,6 +17865,7 @@ async function skipRecurringThisMonth_(item) {
 // currency, trip and description, today's date, and its saved split — so the person only chooses who paid and
 // the account. Saving it also links the entry to the item (payingRecurringId_, see the submit handler).
 function startPaymentEntryForItem_(item, currency, isIncome, fullAmount, savedSplits) {
+  setTimeout(updateRepeatField_, 0);   // a payment of an item never offers "Repeat…"
   openNewEntrySheet_();
   if (!newEntrySheetOpen_) return;   // another entry is being edited: nothing opened
   payingRecurringId_ = item.id;
