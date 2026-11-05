@@ -1786,6 +1786,7 @@ function resetSplitState() {
   customOwnAmount = "";
   splitFriendsExpanded = false;
   document.getElementById("split-toggle").checked = false;
+  paidByAutoSplit_ = null;
   document.getElementById("split-detail").hidden = true;
   document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => {
     t.classList.toggle("active", t.dataset.mode === "equal");
@@ -2326,7 +2327,38 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
     }
   }
   togglePaymentMethodVisibility();
+  applyPaidByDefaultSplit_();
 });
+
+// When someone other than the owner is picked under "Paid by" on an expense, "Split this expense" turns on by itself with that
+// person already shared in (owner, 2026-11-04). It is only a default: turning it off by hand, or picking "me" again (when nothing
+// else was changed), puts things back. Only runs on a pick, never while an existing entry is opened.
+let paidByAutoSplit_ = null; // the friend whose pick turned the split on
+function applyPaidByDefaultSplit_() {
+  const toggle = document.getElementById("split-toggle");
+  const paidBy = document.getElementById("paid_by").value;
+  if (paidByAutoSplit_ && !toggle.checked) paidByAutoSplit_ = null; // taken off by hand: leave it off
+  const friend = selectedType === "expense" && paidBy !== "me" && meta.friends.some((f) => f.id === paidBy);
+  if (document.getElementById("split-field").hidden) return;
+  const fire = () => toggle.dispatchEvent(new Event("change", { bubbles: true }));
+  if (friend) {
+    if (!toggle.checked) {
+      toggle.checked = true;
+      paidByAutoSplit_ = paidBy;
+      fire(); // the toggle's own handler adds that friend to "Shared with"
+    } else if (paidByAutoSplit_ && paidByAutoSplit_ !== paidBy && splitFriendIds.size === 1 && splitFriendIds.has(paidByAutoSplit_)) {
+      splitFriendIds.delete(paidByAutoSplit_);
+      splitFriendIds.add(paidBy);
+      paidByAutoSplit_ = paidBy;
+      renderSplitFriendChips(); renderSplitRows(); renderSplitSummary();
+    }
+  } else if (paidByAutoSplit_ && toggle.checked && splitFriendIds.size === 1 && splitFriendIds.has(paidByAutoSplit_)) {
+    splitFriendIds.delete(paidByAutoSplit_);
+    toggle.checked = false;
+    paidByAutoSplit_ = null;
+    fire();
+  }
+}
 
 document.getElementById("payment_method").addEventListener("change", async (e) => {
   if (e.target.value === "__add__") {
