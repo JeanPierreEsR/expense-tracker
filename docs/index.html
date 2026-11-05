@@ -209,6 +209,32 @@
 
           <label for="date" data-i18n="field.date">Date</label>
           <input type="date" id="date" required>
+          <div id="repeat-field" hidden>
+            <button type="button" class="add-inline" id="repeat-open-btn" data-i18n="repeat.add">🔁 Repeat…</button>
+            <div id="repeat-detail" hidden>
+              <label data-i18n="repeat.label">Repeats</label>
+              <div class="type-tabs budget-period-tabs" id="repeat-tabs">
+                <div class="type-tab active" data-frequency="monthly" data-i18n="period.monthly">Monthly</div>
+                <div class="type-tab" data-frequency="yearly" data-i18n="period.yearly">Yearly</div>
+                <div class="type-tab" data-frequency="custom" data-i18n="recModal.other">Other</div>
+              </div>
+              <div id="repeat-custom" hidden>
+                <label for="repeat-interval" data-i18n="recModal.repeatsEvery">Repeats every</label>
+                <div class="interval-row">
+                  <input type="number" inputmode="numeric" min="1" max="999" step="1" id="repeat-interval" value="1">
+                  <select id="repeat-unit">
+                    <option value="days" data-i18n="recModal.unitDays">days</option>
+                    <option value="weeks" data-i18n="recModal.unitWeeks">weeks</option>
+                    <option value="months" data-i18n="recModal.unitMonths" selected>months</option>
+                    <option value="years" data-i18n="recModal.unitYears">years</option>
+                  </select>
+                </div>
+              </div>
+              <p class="hint" data-i18n="repeat.hint">Saving also creates a Programmed item from this entry, starting on its date. You'll find it in More → Programmed income/expenses.</p>
+              <button type="button" class="add-inline" id="repeat-remove-btn" data-i18n="repeat.remove">Don't repeat</button>
+            </div>
+            <p class="hint" id="repeat-linked" hidden data-i18n="repeat.linked">This entry is a payment of a Programmed item. Change how it repeats in More → Programmed income/expenses.</p>
+          </div>
 
           <label data-i18n="field.currency">Currency</label>
           <input type="hidden" id="currency" value="PEN">
@@ -307,33 +333,6 @@
               <input type="text" inputmode="decimal" id="igv-amount" placeholder="0.00">
               <p class="hint" id="igv-hint"></p>
             </div>
-          </div>
-
-          <div id="repeat-field" hidden>
-            <button type="button" class="add-inline" id="repeat-open-btn" data-i18n="repeat.add">🔁 Repeat…</button>
-            <div id="repeat-detail" hidden>
-              <label data-i18n="repeat.label">Repeats</label>
-              <div class="type-tabs budget-period-tabs" id="repeat-tabs">
-                <div class="type-tab active" data-frequency="monthly" data-i18n="period.monthly">Monthly</div>
-                <div class="type-tab" data-frequency="yearly" data-i18n="period.yearly">Yearly</div>
-                <div class="type-tab" data-frequency="custom" data-i18n="recModal.other">Other</div>
-              </div>
-              <div id="repeat-custom" hidden>
-                <label for="repeat-interval" data-i18n="recModal.repeatsEvery">Repeats every</label>
-                <div class="interval-row">
-                  <input type="number" inputmode="numeric" min="1" max="999" step="1" id="repeat-interval" value="1">
-                  <select id="repeat-unit">
-                    <option value="days" data-i18n="recModal.unitDays">days</option>
-                    <option value="weeks" data-i18n="recModal.unitWeeks">weeks</option>
-                    <option value="months" data-i18n="recModal.unitMonths" selected>months</option>
-                    <option value="years" data-i18n="recModal.unitYears">years</option>
-                  </select>
-                </div>
-              </div>
-              <p class="hint" data-i18n="repeat.hint">Saving also creates a Programmed item from this entry, starting on its date. You'll find it in More → Programmed income/expenses.</p>
-              <button type="button" class="add-inline" id="repeat-remove-btn" data-i18n="repeat.remove">Don't repeat</button>
-            </div>
-            <p class="hint" id="repeat-linked" hidden data-i18n="repeat.linked">This entry is a payment of a Programmed item. Change how it repeats in More → Programmed income/expenses.</p>
           </div>
 
           </div>
@@ -3229,7 +3228,7 @@
         </label>
 
         <div id="recurring-link-section" hidden>
-          <button type="button" class="add-inline" id="recurring-pay-toggle" hidden data-i18n="recModal.pastShow">🧾 Past payments</button>
+          <button type="button" class="disclosure-row" id="recurring-pay-toggle" hidden aria-expanded="false"><span data-i18n="recModal.pastTitle">🧾 Past payments</span><span class="disclosure-chevron" aria-hidden="true">›</span></button>
           <div id="recurring-pay-body" hidden>
             <p class="hint" id="recurring-pay-status"></p>
             <div id="recurring-pay-list"></div>

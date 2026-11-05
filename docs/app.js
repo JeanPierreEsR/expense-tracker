@@ -17123,7 +17123,7 @@ function setupRecurringPast_(re) {
   recurringPastFor_ = re ? re.id : null;
   toggle.hidden = !re || !can;
   body.hidden = true;
-  toggle.textContent = tr("recModal.pastShow");
+  toggle.setAttribute("aria-expanded", "false");
   document.getElementById("recurring-pay-list").innerHTML = "";
   document.getElementById("recurring-pay-status").textContent = "";
   if (can && !body.dataset.holdsFind) {   // the Find button and its results move inside the group, at its end (once)
@@ -17159,7 +17159,7 @@ async function loadRecurringPast_() {
 document.getElementById("recurring-pay-toggle").addEventListener("click", () => {
   const body = document.getElementById("recurring-pay-body");
   body.hidden = !body.hidden;
-  document.getElementById("recurring-pay-toggle").textContent = tr(body.hidden ? "recModal.pastShow" : "recModal.pastHide");
+  document.getElementById("recurring-pay-toggle").setAttribute("aria-expanded", body.hidden ? "false" : "true");
   if (!body.hidden) loadRecurringPast_();
 });
 

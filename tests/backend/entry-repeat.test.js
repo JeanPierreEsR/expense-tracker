@@ -85,6 +85,16 @@ test("Past payments: linked and automatically matched entries of the item, newes
   assert.deepEqual(res.payments.map((p) => [p.id, p.linked]), [[auto.id, false], [linked.id, true]]);
 });
 
+test("Past payments: two entries fitting the same due date show once (the closest)", () => {
+  const { rt, cat } = setup();
+  const item = rt.api("addRecurringExpense", { category_id: cat.id, description: "Club fee", amount: 100, currency: "PEN", frequency: "monthly", start_date: "2026-01-05", day: 5, month: 1 });
+  const mk = (date, amount, desc) => rt.api("saveEntryAll", { kind: "create", fields: { type: "expense", date, amount, currency: "PEN", category_id: cat.id, description: desc, paid_by: "me", client_id: uuid() } });
+  const fee = mk("2026-08-05", 100, "club fee august");
+  mk("2026-08-03", 95, "something else that costs about the same");
+  const ids = rt.api("listRecurringPayments", { recurringExpenseId: item.id }).payments.filter((p) => p.date.startsWith("2026-08")).map((p) => p.id);
+  assert.deepEqual(ids, [fee.id]);
+});
+
 test("the backend says it can do this", () => {
   const { rt } = setup();
   assert.equal(rt.run("getCapabilities_().entryRepeat"), true);

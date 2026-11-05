@@ -952,13 +952,24 @@ function listRecurringPayments(payload) {
     var d = new Date(String(e.date).substring(0, 10) + 'T00:00:00');
     var from = formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() - RECURRING_MATCH_DAY_WINDOW));
     var to = formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() + RECURRING_MATCH_DAY_WINDOW));
+    var occDate = '';
     if (!linked) {
       var occ = recurringExpenseOccurrencesInRange_(re, from, to);
       if (!entryMatchesRecurringOccurrence_(e, re, occ, entrySplitSumByEntry, recurringSplitSums)) return;
+      occDate = occ.slice().sort(function (x, y) {
+        return Math.abs(daysBetweenDates_(e.date, x)) - Math.abs(daysBetweenDates_(e.date, y));
+      })[0] || '';
     }
     out.push({ id: e.id, date: String(e.date).substring(0, 10), amount: Number(e.amount), currency: e.currency,
-      description: e.description || '', linked: linked });
+      description: e.description || '', linked: linked, _occ: occDate,
+      _gap: Math.abs(Number(e.amount) - Number(re.amount)) * 1000 + (occDate ? Math.abs(daysBetweenDates_(e.date, occDate)) : 0) });
   });
+  // Several entries can fit the same due date (same category, ~10% amount, a few days): only the closest one is shown as
+  // that date's automatic payment, so the list reads as one payment per due date. Linked entries always show.
+  var bestByOcc = {};
+  out.forEach(function (p) { if (p._occ && (!bestByOcc[p._occ] || p._gap < bestByOcc[p._occ]._gap)) bestByOcc[p._occ] = p; });
+  out = out.filter(function (p) { return p.linked || bestByOcc[p._occ] === p; })
+    .map(function (p) { return { id: p.id, date: p.date, amount: p.amount, currency: p.currency, description: p.description, linked: p.linked }; });
   out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
   return { payments: out.slice(0, 60), total: out.length };
 }
