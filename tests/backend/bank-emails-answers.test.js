@@ -18,6 +18,7 @@ test("the first address of a To line is read, names and other addresses left out
 test("a copy that cannot ask Google for its address learns it once from a bank e-mail, on the owner's copy too", () => {
   const { rt } = freshApp({ small: true });   // the owner's copy: no installer FEATURES
   rt.run("Session.getEffectiveUser = function () { return { getEmail: function () { return ''; } }; };");   // what Google answers there
+  rt.run("gmailUsesReadonly_ = function () { return false; };");   // the owner's copy reads with GmailApp: no Gmail profile to ask (also under ship.sh's second e-mail reader)
   rt.svc.props.delete("MAILBOX_ADDRESS");
   rt.svc.gmail.addEmail({ from: BCP_SENDER, to: "Test Person <test.person@example.com>", subject: "Realizaste un consumo con tu tarjeta de débito BCP", body: "Total del consumo: S/ 1.00" });
   rt.api("getMeta", {});
