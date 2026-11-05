@@ -1252,7 +1252,11 @@
         <h2 style="margin-top:0;" data-i18n="prof.title">My profile</h2>
         <div id="my-profile-loading"></div>
         <div id="my-profile-body" hidden>
-          <h3 class="md-head" data-i18n="ownerNames.title">My names</h3>
+          <button type="button" class="more-list-item md-row fits-toggle" id="owner-names-toggle" aria-expanded="false" aria-controls="owner-names-body">
+            <span><span class="md-title" data-i18n="ownerNames.title">My names</span><span class="hint md-sub" id="owner-names-count"></span></span>
+            <span class="more-list-chevron" id="owner-names-chevron">›</span>
+          </button>
+          <div id="owner-names-body" hidden>
           <p class="hint" data-i18n="ownerNames.hint">The app learns your name from your bank statements and bank emails.</p>
           <div id="owner-names-list"></div>
           <p class="hint" id="owner-names-waiting"></p>
@@ -1261,6 +1265,7 @@
           <input type="text" id="owner-names-input" autocomplete="off" data-i18n-placeholder="ownerNames.placeholder" placeholder="First and last names">
           <p class="hint" id="owner-names-error" style="color:#d64545;"></p>
           <button type="button" class="primary" id="owner-names-add-btn" data-i18n="common.add">+ Add</button>
+          </div>
 
           <div id="my-profile-fits-card">
             <button type="button" class="more-list-item md-row fits-toggle" id="fits-toggle" aria-expanded="false" aria-controls="fits-body">

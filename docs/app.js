@@ -11154,7 +11154,15 @@ function renderOwnerNames_(res) {
   list.dataset.names = JSON.stringify(res.names);
   list.dataset.pending = JSON.stringify(res.pending || []);
   ownerNamesEl_("owner-names-waiting").textContent = (res.pending || []).length ? tr("ownerNames.waiting", { names: res.pending.join(", ") }) : "";
+  ownerNamesEl_("owner-names-count").textContent = res.names.length ? tr("ownerNames.count", { n: res.names.length }) : tr("ownerNames.countNone");
 }
+// The "My names" row opens and closes the list (closed each time the screen opens, like "What fits me"; owner, 2026-11-05).
+function ownerNamesOpenRow_(open) {
+  ownerNamesEl_("owner-names-body").hidden = !open;
+  ownerNamesEl_("owner-names-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  ownerNamesEl_("owner-names-chevron").textContent = open ? "⌄" : "›";
+}
+ownerNamesEl_("owner-names-toggle").addEventListener("click", () => ownerNamesOpenRow_(ownerNamesEl_("owner-names-body").hidden));
 // A name looks like a person's: 2–5 words of letters (the server checks the same rule; this only saves a round trip).
 function ownerNameLooksReal_(name) {
   const w = String(name).trim().split(/\s+/);
@@ -11199,6 +11207,7 @@ async function showMyProfileScreen() {
   ownerNamesEl_("owner-names-input").value = "";
   fitsSel_ = String((meta && meta.settings && meta.settings.profile) || "").split(",").filter((a) => FITS_ANSWERS_.includes(a));
   fitsEl_("fits-msg").textContent = "";
+  ownerNamesOpenRow_(false);
   fitsOpen_(false);   // closed every time the screen opens: it is for a one-off choice, and it is long
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this

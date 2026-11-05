@@ -2415,6 +2415,8 @@
     "prof.datesFailed": { en: "Could not save. Check your connection and try again.", es: "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo." },
     "ownerNames.hint": { en: "The app learns your name from your bank statements and bank emails, so it can tell a transfer to yourself from a payment to someone else. The first time it sees a new name it asks you once on the Home screen. You can correct the list here.", es: "La app aprende tu nombre de tus estados de cuenta y de los correos de tus bancos, para distinguir una transferencia a ti mismo de un pago a otra persona. La primera vez que ve un nombre nuevo te pregunta una vez en la pantalla de Inicio. Aquí puedes corregir la lista." },
     "ownerNames.none": { en: "No names yet. Upload a statement and the app will ask whether the name on it is yours, or add it below.", es: "Aún no hay nombres. Sube un estado de cuenta y la app te preguntará si el nombre que aparece es el tuyo, o agrégalo abajo." },
+    "ownerNames.count": { en: { one: "{n} name", other: "{n} names" }, es: { one: "{n} nombre", other: "{n} nombres" } },
+    "ownerNames.countNone": { en: "No names yet", es: "Aún no hay nombres" },
     "ownerNames.waiting": { en: "Seen in your documents, not confirmed yet: {names}", es: "Visto en tus documentos, aún sin confirmar: {names}" },
     "ownName.title": { en: "Is this you?", es: "¿Eres tú?" },
     "ownName.hint": { en: "We saw this name on your bank statements or emails. If it is you, the app can tell your own transfers apart from payments to other people.", es: "Vimos este nombre en tus estados de cuenta o correos del banco. Si eres tú, la app podrá distinguir tus propias transferencias de los pagos a otras personas." },
