@@ -136,7 +136,7 @@
     "field.currency": { en: "Currency", es: "Moneda" },
     "field.description": { en: "Description", es: "Descripción" },
     "field.paidBy": { en: "Paid by", es: "Pagado por" },
-    "paidBy.friendHint": { en: "{friend} paid. You'll owe them the full amount. Turn on “Split this expense” only if someone else shared it.", es: "Pagó {friend}. Le deberás el monto completo. Activa “Repartir este gasto” solo si alguien más lo compartió." },
+    "paidBy.friendHint": { en: "{friend} paid, so “Split this expense” is on, shared equally with them. Change the shares, or turn it off if the whole amount is yours.", es: "Pagó {friend}, así que “Repartir este gasto” está activado, a partes iguales con esa persona. Cambia las partes, o desactívalo si el monto completo es tuyo." },
     "field.paymentMethod": { en: "Account or card", es: "Cuenta o tarjeta" },
     "field.toAccount": { en: "To (account)", es: "Hacia (cuenta)" },
     "field.tags": { en: "Tags", es: "Etiquetas" },
