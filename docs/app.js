@@ -17042,6 +17042,7 @@ async function openRecurringModal(re, prefill) {
   document.getElementById("recurring-link-results").hidden = true;
   document.getElementById("recurring-link-list").innerHTML = "";
   document.getElementById("recurring-link-selected-btn").hidden = true;
+  setupRecurringPast_(re);
 
   // Start clean, same as the entry form: an expense category shows the
   // field; anything else hides it.
@@ -17110,6 +17111,57 @@ function renderRecurringSkips_(re) {
     list.appendChild(row);
   });
 }
+
+// "Past payments" (owner, 2026-11-05): a collapsed group in the item's window listing the entries this item already counts
+// as its payments (linked or matched automatically), newest first, with "Find past entries for this" at its END. Loaded
+// when opened (loading standard: "Loading…" until the list is in). Older backends keep the plain Find button.
+let recurringPastFor_ = null;
+function setupRecurringPast_(re) {
+  const can = !!(meta.capabilities || {}).recurringPayments;
+  const toggle = document.getElementById("recurring-pay-toggle");
+  const body = document.getElementById("recurring-pay-body");
+  recurringPastFor_ = re ? re.id : null;
+  toggle.hidden = !re || !can;
+  body.hidden = true;
+  toggle.textContent = tr("recModal.pastShow");
+  document.getElementById("recurring-pay-list").innerHTML = "";
+  document.getElementById("recurring-pay-status").textContent = "";
+  if (can && !body.dataset.holdsFind) {   // the Find button and its results move inside the group, at its end (once)
+    body.appendChild(document.getElementById("recurring-find-matches-btn"));
+    body.appendChild(document.getElementById("recurring-link-results"));
+    body.dataset.holdsFind = "1";
+  }
+}
+async function loadRecurringPast_() {
+  const id = recurringPastFor_;
+  const status = document.getElementById("recurring-pay-status");
+  const list = document.getElementById("recurring-pay-list");
+  list.innerHTML = "";
+  status.textContent = tr("common.loading");
+  try {
+    const res = await callApi("listRecurringPayments", { recurringExpenseId: id });
+    if (recurringPastFor_ !== id) return;   // another item was opened meanwhile
+    const pays = Array.from(res.payments || []);
+    status.textContent = pays.length ? (res.total > pays.length ? tr("recModal.pastNewest", { n: pays.length, total: res.total }) : "") : tr("recModal.pastNone");
+    pays.forEach((p) => {
+      const row = document.createElement("div");
+      row.className = "link-candidate-row";
+      row.innerHTML = `<div class="link-candidate-text">
+          <div class="link-candidate-date">${listDate_(p.date)} · ${escapeHtml(p.currency)} ${moneyFmt(p.amount)}${p.linked ? "" : ` <span class="hint">${escapeHtml(tr("recModal.pastAuto"))}</span>`}</div>
+          <div class="link-candidate-desc">${escapeHtml(p.description || tr("review.noDescription"))}</div>
+        </div>`;
+      list.appendChild(row);
+    });
+  } catch (err) {
+    if (recurringPastFor_ === id) status.textContent = err.message;
+  }
+}
+document.getElementById("recurring-pay-toggle").addEventListener("click", () => {
+  const body = document.getElementById("recurring-pay-body");
+  body.hidden = !body.hidden;
+  document.getElementById("recurring-pay-toggle").textContent = tr(body.hidden ? "recModal.pastShow" : "recModal.pastHide");
+  if (!body.hidden) loadRecurringPast_();
+});
 
 function closeRecurringModal() {
   document.getElementById("recurring-modal-backdrop").hidden = true;

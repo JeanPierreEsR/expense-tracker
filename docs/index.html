@@ -3229,6 +3229,11 @@
         </label>
 
         <div id="recurring-link-section" hidden>
+          <button type="button" class="add-inline" id="recurring-pay-toggle" hidden data-i18n="recModal.pastShow">🧾 Past payments</button>
+          <div id="recurring-pay-body" hidden>
+            <p class="hint" id="recurring-pay-status"></p>
+            <div id="recurring-pay-list"></div>
+          </div>
           <button type="button" class="add-inline" id="recurring-find-matches-btn" data-i18n="recModal.findMatches">🔎 Find past entries for this</button>
           <div id="recurring-link-results" hidden>
             <p class="hint" data-i18n="recModal.linkHint">Not linked automatically — review and adjust, then link. Sorted by how likely a match, best first; confident matches start checked, "less certain" ones don't.</p>

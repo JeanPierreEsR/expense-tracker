@@ -224,6 +224,7 @@ function routeActionSwitch_(action, payload) {
     case 'admin_setCategoryPeriodType': return adminSetCategoryPeriodType(payload.categoryId, payload.periodType);
     case 'admin_linkEntryToRecurring': return adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);
     case 'findRecurringLinkCandidates': return findRecurringLinkCandidates(payload);
+    case 'listRecurringPayments': return listRecurringPayments(payload);
     case 'linkEntriesToRecurring': return linkEntriesToRecurring(payload);
     case 'addTag': return addTag(payload);
     case 'getManualGaps': return getManualGaps(payload);

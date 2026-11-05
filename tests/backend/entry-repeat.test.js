@@ -73,6 +73,18 @@ test("an entry already linked to an item makes no second item", () => {
   assert.equal(itemsNamed(rt, fields.description).length, 1);
 });
 
+test("Past payments: linked and automatically matched entries of the item, newest first", () => {
+  const { rt, cat } = setup();
+  const item = rt.api("addRecurringExpense", { category_id: cat.id, description: "Ring app yearly", amount: 79.99, currency: "USD", frequency: "yearly", start_date: "2025-06-27", day: 27, month: 6 });
+  const mk = (date, amount, desc) => rt.api("saveEntryAll", { kind: "create", fields: { type: "expense", date, amount, currency: "USD", category_id: cat.id, description: desc, paid_by: "me", client_id: uuid() } });
+  const auto = mk("2026-06-28", 79.99, "ring renewal");      // one day after the due date: counted automatically
+  const linked = mk("2025-07-15", 70, "ring first year");      // too far for the automatic rule: linked by hand
+  rt.api("linkEntryToRecurring", { entryId: linked.id, recurringExpenseId: item.id });
+  mk("2026-03-10", 79.99, "unrelated");                        // nowhere near a due date
+  const res = rt.api("listRecurringPayments", { recurringExpenseId: item.id });
+  assert.deepEqual(res.payments.map((p) => [p.id, p.linked]), [[auto.id, false], [linked.id, true]]);
+});
+
 test("the backend says it can do this", () => {
   const { rt } = setup();
   assert.equal(rt.run("getCapabilities_().entryRepeat"), true);
