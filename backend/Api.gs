@@ -1379,11 +1379,18 @@ function entryTwinWho_(e) {
 
 function findSameDayTwins_(entry, allEntries) {
   var who = entryTwinWho_(entry);
-  if (!who) return [];
   var amount = Math.abs(Number(entry.amount)).toFixed(2);
+  // Wider for an entry read from a bank e-mail (2026-11-05, the double-count map): the same money already recorded by HAND, from a
+  // photo or from a statement/import usually carries another name and often another day (a subscription typed in, a statement
+  // line). So: same currency and amount within 2 days, whatever the name, when the other entry did not come from an e-mail.
+  // E-mail vs e-mail keeps the same-day, same-name rule (bank operation numbers already stop real repeats there). Warn only.
+  var fromEmail = entry.source === 'email';
+  if (!who && !fromEmail) return [];
   return allEntries.filter(function (o) {
-    return o.id !== entry.id && o.date === entry.date && o.currency === entry.currency &&
-      Math.abs(Number(o.amount)).toFixed(2) === amount && entryTwinWho_(o) === who;
+    if (o.id === entry.id || o.currency !== entry.currency || Math.abs(Number(o.amount)).toFixed(2) !== amount) return false;
+    if (who && o.date === entry.date && entryTwinWho_(o) === who) return true;
+    return fromEmail && o.source !== 'email' && (o.status === 'confirmed' || o.status === 'pending') &&
+      Math.abs(daysBetweenDates_(String(o.date).substring(0, 10), String(entry.date).substring(0, 10))) <= 2;
   }).map(function (o) {
     return { id: o.id, status: o.status, description: o.description || '' };
   });

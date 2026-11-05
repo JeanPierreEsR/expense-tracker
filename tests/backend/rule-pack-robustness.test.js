@@ -116,6 +116,8 @@ test("the code rules still read their own e-mails exactly as before: no code rul
     const twinRules = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "rules", "email-rules.json"), "utf8")).rules;
     for (const id of Object.keys(map)) {
       const twin = twinRules.find((r) => r.id === id);
+      // Only twins have a code rule; a pack-only rule (e.g. the Interbank recurring payment, 2026-11-05) has none by design.
+      if (!twin || !twin.replaces) continue;
       for (const s of map[id]) if (s.matches !== false) samples.push({ sender: twin.sender, subject: s.subject, body: s.body, id });
     }
   }
