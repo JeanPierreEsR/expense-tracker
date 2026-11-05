@@ -777,6 +777,8 @@ function processEmails(opts) {
   } finally {
     BACKCHECK_OVERLAPS_ = null;
   }
+  // Once per copy: fill in which kinds of bank e-mail already arrived before the per-kind days existed (BankCoverage.gs).
+  if (tracking && !opts.senders) { try { backfillBankKindDaysOnce_(senders, existingExternalIds); } catch (err) { console.error('backfillBankKindDaysOnce_: ' + err); } }
 
   Logger.log('processEmails: ' + JSON.stringify(results));
   return results;

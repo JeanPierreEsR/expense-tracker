@@ -227,6 +227,7 @@ function routeActionSwitch_(action, payload) {
     case 'linkEntriesToRecurring': return linkEntriesToRecurring(payload);
     case 'addTag': return addTag(payload);
     case 'getManualGaps': return getManualGaps(payload);
+    case 'saveGapReason': return saveGapReason(payload);
     case 'listTrips': return listTrips();
     case 'getTripDetail': return getTripDetail(payload);
     case 'addTrip': return addTrip(payload);

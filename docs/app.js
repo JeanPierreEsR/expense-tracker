@@ -11154,7 +11154,15 @@ function renderOwnerNames_(res) {
   list.dataset.names = JSON.stringify(res.names);
   list.dataset.pending = JSON.stringify(res.pending || []);
   ownerNamesEl_("owner-names-waiting").textContent = (res.pending || []).length ? tr("ownerNames.waiting", { names: res.pending.join(", ") }) : "";
+  ownerNamesEl_("owner-names-count").textContent = res.names.length ? tr("ownerNames.count", { n: res.names.length }) : tr("ownerNames.countNone");
 }
+// The "My names" row opens and closes the list (closed each time the screen opens, like "What fits me"; owner, 2026-11-05).
+function ownerNamesOpenRow_(open) {
+  ownerNamesEl_("owner-names-body").hidden = !open;
+  ownerNamesEl_("owner-names-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  ownerNamesEl_("owner-names-chevron").textContent = open ? "⌄" : "›";
+}
+ownerNamesEl_("owner-names-toggle").addEventListener("click", () => ownerNamesOpenRow_(ownerNamesEl_("owner-names-body").hidden));
 // A name looks like a person's: 2–5 words of letters (the server checks the same rule; this only saves a round trip).
 function ownerNameLooksReal_(name) {
   const w = String(name).trim().split(/\s+/);
@@ -11199,6 +11207,7 @@ async function showMyProfileScreen() {
   ownerNamesEl_("owner-names-input").value = "";
   fitsSel_ = String((meta && meta.settings && meta.settings.profile) || "").split(",").filter((a) => FITS_ANSWERS_.includes(a));
   fitsEl_("fits-msg").textContent = "";
+  ownerNamesOpenRow_(false);
   fitsOpen_(false);   // closed every time the screen opens: it is for a one-off choice, and it is long
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
@@ -12255,6 +12264,8 @@ async function showBankEmailsScreen() {
   try {
     const data = await callApi("getManualGaps", {});
     be_.data = data;
+    beEl_("be-groups").innerHTML = "";   // a new visit starts with every group closed
+    beWhySendQueued_();   // an answer that could not reach JP last time
     // The same answer carries the freshest coverage (which kinds arrived and when), so the bank view is never older than the list beside it.
     if (meta && data.coverage) meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { coverage: data.coverage, seen: data.seen || (meta.emailInfo || {}).seen });
     renderBankEmails_();
@@ -12363,16 +12374,16 @@ function renderBeBanks_() {
       const hasYape = yapeLinked && key === yapeBank, hasPlin = key === plinBank;
       const own = mine.kinds.filter((k) => !(hasYape && k.key === "yape_in") && !(hasPlin && k.key === "plin_out"));
       if (own.length || mine.none.length) row.appendChild(beKindList_(own, mine.none));
-      const wallet = (titleKey, kinds, tipKey) => {
+      const wallet = (titleKey, kinds, tipKey, none) => {
         const h = document.createElement("h4");
         h.className = "be-wallet";
         h.textContent = tr(titleKey);
         row.appendChild(h);
-        row.appendChild(beKindList_(kinds, []));
+        row.appendChild(beKindList_(kinds, none || []));
         if (tipKey) { const t = document.createElement("p"); t.className = "hint"; t.textContent = tr(tipKey); row.appendChild(t); }
       };
       if (hasYape) wallet("be.wallet.yape", mine.kinds.filter((k) => k.key === "yape_in").concat((cov.Yape && cov.Yape.kinds) || []), "be.tip.yape");
-      if (hasPlin) wallet("be.wallet.plin", mine.kinds.filter((k) => k.key === "plin_out"));
+      if (hasPlin) wallet("be.wallet.plin", mine.kinds.filter((k) => k.key === "plin_out"), null, ["plin_whatsapp"]);   // owner, 2026-11-05: a Plin made from WhatsApp sends no email
     }
     const tip = document.createElement("p");
     tip.className = "hint";
@@ -12394,7 +12405,108 @@ function renderBeBanks_() {
 // ---- By transaction ----
 const BE_NEEDS_ = ["must", "check", "optional"];
 
+// ---- "Why didn't an email come?" (owner, 2026-11-05) ----
+// For the kinds whose reason the app cannot know (GAP_REASON_KINDS_ in ManualGaps.gs), the person picks one. The answer is kept on their copy
+// (saveGapReason), names and places the group (a WhatsApp Plin or one under the alert's minimum must be added by hand), and goes to JP as a
+// feedback note (kind 'email_gap'), so every case can be gathered and revised. A note that could not be sent waits in localStorage.
+const BE_WHY_KINDS_ = ["yape_in", "yape_out", "plin_out", "other_manual"];
+const BE_WHY_OUTBOX_ = "gapReasonOutbox";
+// Asked only where the app cannot know the reason: a kind in "Add these for now" (an email exists but none came), or a Yape received / Plin
+// sent with no email at all. Not where it is known: money received at a bank, a Yape under S/ 10 (both "must" for a stated reason).
+function beWhyApplies_(k) {
+  return !!(meta && meta.capabilities && meta.capabilities.gapReasons) && BE_WHY_KINDS_.includes(k.key)
+    && (k.need === "check" || (k.need === "must" && (k.key === "yape_in" || k.key === "plin_out")));
+}
+function beWhyReasons_(key) { return (key === "plin_out" ? ["whatsapp"] : []).concat(["alert_off", "under_min", "dont_know", "other"]); }
+// The kinds as the person explained them: a WhatsApp Plin joins "Plin sent from WhatsApp"; WhatsApp and "under the minimum" are must-add.
+function beApplyReasons_(kinds, reasons) {
+  const out = kinds.map((k) => {
+    if (!beWhyApplies_(k)) return k;
+    const r = reasons && reasons[k.key];
+    if (!r) return Object.assign({}, k, { why: true });
+    return Object.assign({}, k, { why: true, reason: r.reason, note: r.note || "", need: r.reason === "whatsapp" || r.reason === "under_min" ? "must" : k.need });
+  });
+  const wa = out.find((k) => k.key === "plin_out" && k.reason === "whatsapp");
+  const own = out.find((k) => k.key === "plin_out_whatsapp");
+  if (!wa || !own) return out;
+  const merged = Object.assign({}, own, {
+    count: own.count + wa.count, last: [own.last, wa.last].filter(Boolean).sort().pop() || "",
+    items: own.items && wa.items ? own.items.concat(wa.items).sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 20) : own.items,
+    totals: own.totals && wa.totals ? Object.keys(Object.assign({}, own.totals, wa.totals)).reduce((t, c) => { t[c] = (own.totals[c] || 0) + (wa.totals[c] || 0); return t; }, {}) : own.totals,
+    why: true, reason: "whatsapp", note: "", whyKey: "plin_out"
+  });
+  return out.filter((k) => k !== wa && k !== own).concat([merged]);
+}
+function beWhyHtml_(k) {
+  const key = k.whyKey || k.key;
+  const chips = beWhyReasons_(key).map((r) => `<button type="button" class="be-why-opt${k.reason === r ? " on" : ""}" data-why-kind="${escapeHtml(key)}" data-why="${r}" aria-pressed="${k.reason === r ? "true" : "false"}">${escapeHtml(tr("be.why." + r))}</button>`).join("");
+  const other = `<div class="be-why-other"${k.reason === "other" ? "" : " hidden"}><textarea rows="2" maxlength="300" data-why-note="${escapeHtml(key)}" placeholder="${escapeHtml(tr("be.why.otherPh"))}">${escapeHtml(k.note || "")}</textarea><button type="button" class="add-inline" data-why-save="${escapeHtml(key)}">${escapeHtml(tr("common.save"))}</button></div>`;
+  const sent = perfIsOwnerCopy_() ? "" : `<p class="hint">${escapeHtml(tr("be.why.sent"))}</p>`;
+  return `<div class="be-why"><p class="be-why-q">${escapeHtml(tr("be.why.q"))}</p><div class="be-why-opts">${chips}</div>${other}${sent}</div>`;
+}
+function beWhySendQueued_() {
+  let box;
+  try { box = JSON.parse(localStorage.getItem(BE_WHY_OUTBOX_)) || []; } catch (e) { box = []; }
+  if (!box.length) return;
+  const standalone = navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+  const note = box[0];
+  fetch(perfReportUrl_(), {
+    method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action: "reportFeedback", payload: {
+      install: perfInstallId_(), label: perfShareState_().label || "", kind: "email_gap", screen: "bank_emails", language: I18n.getLang(),
+      app: appRelease_(), device: PerfShare.deviceKind(navigator.userAgent, standalone), text: note } })
+  }).then((res) => res.json()).then((json) => {
+    if (!(json && json.ok)) return;
+    let now;
+    try { now = JSON.parse(localStorage.getItem(BE_WHY_OUTBOX_)) || []; } catch (e) { now = []; }
+    localStorage.setItem(BE_WHY_OUTBOX_, JSON.stringify(now.filter((x) => x !== note)));
+    beWhySendQueued_();   // the next one, if any
+  }).catch(() => { /* tried again the next time the screen opens */ });
+}
+function beWhySave_(kind, reason, note) {
+  const data = be_.data || {};
+  const before = Object.assign({}, data.reasons || {});
+  data.reasons = Object.assign({}, before, { [kind]: { reason, note: note || "" } });
+  renderBeTx_(data);
+  callApi("saveGapReason", { kind, reason, note: note || "" }).then((res) => {
+    if (res && res.reasons) { data.reasons = res.reasons; renderBeTx_(data); }
+    // The kind, the answer and its words, in English, so JP can gather the same case from every copy.
+    const text = PerfShare.cleanFeedback(`[${kind}] ${reason}${note ? ": " + note : ""}`);
+    let box;
+    try { box = JSON.parse(localStorage.getItem(BE_WHY_OUTBOX_)) || []; } catch (e) { box = []; }
+    box.push(text);
+    localStorage.setItem(BE_WHY_OUTBOX_, JSON.stringify(box.slice(-20)));
+    beWhySendQueued_();
+  }).catch((err) => {
+    data.reasons = before;
+    renderBeTx_(data);
+    alert(tr("common.notSaved", { error: err.message || String(err) }));
+  });
+}
+beEl_("be-groups").addEventListener("click", (ev) => {
+  const opt = ev.target.closest(".be-why-opt");
+  if (opt) {
+    ev.preventDefault();
+    if (opt.dataset.why === "other") {
+      const box = opt.closest(".be-why").querySelector(".be-why-other");
+      box.hidden = false;
+      box.querySelector("textarea").focus();
+      return;
+    }
+    beWhySave_(opt.dataset.whyKind, opt.dataset.why, "");
+    return;
+  }
+  const save = ev.target.closest("[data-why-save]");
+  if (save) {
+    const kind = save.dataset.whySave;
+    const note = save.closest(".be-why-other").querySelector("textarea").value.trim();
+    if (!note) { alert(tr("be.why.needNote")); return; }
+    beWhySave_(kind, "other", note);
+  }
+});
+
 function beKindName_(k) {
+  if (k.reason === "whatsapp") return tr("notauto.kind.plin_out_whatsapp");
   if (k.need === "must") return k.key === "yape_out" ? tr("be.kind.must.yape_out") : tr("notauto.kind." + k.key);
   return tr(k.need ? "be.kind." + k.key : "notauto.kind." + k.key);
 }
@@ -12416,16 +12528,22 @@ function beKindHtml_(k, owner) {
     : "";
   const meta_ = tr("notauto.count", { n: k.count }) + (k.last ? " · " + tr("notauto.last", { date: I18n.fmtDateMedium(new Date(k.last + "T00:00:00")) }) : "")
     + (totals ? " · " + totals : "");
-  // "must" kinds say how to add them; "check" / "optional" are explained once by their group's heading.
-  const tip = !k.need || k.need === "must" ? (k.need === "must" && k.key === "yape_out" ? tr("be.tip.must.yape_out") : notAutoTip_(k.key)) : "";
+  // "must" kinds say how to add them; "check" / "optional" are explained once by their group's heading. An answer to "Why didn't an
+  // email come?" says what to do about it instead.
+  const tip = k.reason === "whatsapp" ? notAutoTip_("plin_out_whatsapp")
+    : (k.reason === "under_min" || k.reason === "alert_off") ? tr("be.why.tip." + k.reason)
+    : !k.need || k.need === "must" ? (k.need === "must" && k.key === "yape_out" ? tr("be.tip.must.yape_out") : notAutoTip_(k.key)) : "";
   const head = `<strong>${escapeHtml(beKindName_(k))}</strong><div class="hint" style="margin:2px 0;">${escapeHtml(meta_)}</div>`;
   const tipHtml = tip ? `<div class="hint" style="margin:2px 0;">${escapeHtml(tip)}</div>` : "";
   if (!k.items) return `<div class="more-list-item" style="display:block;">${head}${tipHtml}</div>`;   // an older backend: the plain list
-  return `<details class="be-kind"><summary>${head}</summary>${tipHtml}${beItemsHtml_(k)}</details>`;
+  const why = k.why ? beWhyHtml_(k) : "";
+  return `<details class="be-kind"${be_.openKinds && be_.openKinds.has(k.whyKey || k.key) ? " open" : ""} data-kind="${escapeHtml(k.whyKey || k.key)}"><summary>${head}</summary>${tipHtml}${why}${beItemsHtml_(k)}</details>`;
 }
 
 function renderBeTx_(data) {
-  const kinds = data.kinds || [];
+  // A redraw after an answer keeps the groups that were open (the answer moves a group; it must not snap shut under the finger).
+  be_.openKinds = new Set([...beEl_("be-groups").querySelectorAll("details.be-kind[open]")].map((d) => d.dataset.kind));
+  const kinds = beApplyReasons_(data.kinds || [], data.reasons);
   const unread = data.unread || [];
   beEl_("be-empty").hidden = kinds.length > 0 || unread.length > 0;
   beEl_("be-unread").hidden = !unread.length;
