@@ -1,7 +1,7 @@
 // Interbank "pago recurrente" notices (2026-11-05), read by two rule-pack rules: DiDi / Apple are ignored quietly (their own receipts
 // already make the entry; never listed as "couldn't read"); any other merchant becomes a waiting expense on the card it names. A waiting
-// entry from an e-mail is flagged "possible duplicate" when the same money was already recorded by hand / photo / statement within 2
-// days, whatever its name. Made-up text in the bank's layout; no real amount, name or number.
+// entry from an e-mail is flagged "possible duplicate" when the same money was already recorded by hand / photo / statement within 1
+// day either side, whatever its name. Made-up text in the bank's layout; no real amount, name or number.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("fs");
@@ -60,6 +60,18 @@ test("the same money typed by hand a day earlier, under another name, flags the 
   const row = rt.api("listPendingEntries").find((e) => e.description === "STREAMING PRUEBA");
   assert.ok(row);
   assert.ok(row.twins.some((t) => t.description === "music app"), "flagged next to the hand-typed entry");
+});
+
+test("the same money typed by hand TWO days earlier is not flagged (the window is 1 day either side)", () => {
+  const { rt, data } = setup();
+  const cat = data.cats.find((c) => c.type === "expense");
+  const d = new Date(); d.setDate(d.getDate() - 2);
+  rt.api("createEntry", { type: "expense", date: d.toISOString().slice(0, 10), amount: 21.7, currency: "PEN", category_id: cat.id, description: "music app", paid_by: "me", payment_method_id: data.pms[0].id });
+  rt.svc.gmail.addEmail({ from: SENDER, subject: SUBJECT, body: body("STREAMING PRUEBA", "S/. 21.70") });
+  run(rt);
+  const row = rt.api("listPendingEntries").find((e) => e.description === "STREAMING PRUEBA");
+  assert.ok(row);
+  assert.equal(row.twins.length, 0);
 });
 
 test("two e-mail entries a day apart with different names are NOT flagged (e-mail vs e-mail keeps the same-day rule)", () => {
