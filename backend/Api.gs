@@ -224,6 +224,7 @@ function routeActionSwitch_(action, payload) {
     case 'admin_setCategoryPeriodType': return adminSetCategoryPeriodType(payload.categoryId, payload.periodType);
     case 'admin_linkEntryToRecurring': return adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);
     case 'findRecurringLinkCandidates': return findRecurringLinkCandidates(payload);
+    case 'listRecurringPayments': return listRecurringPayments(payload);
     case 'linkEntriesToRecurring': return linkEntriesToRecurring(payload);
     case 'addTag': return addTag(payload);
     case 'getManualGaps': return getManualGaps(payload);
@@ -1028,6 +1029,8 @@ function discardEntries(payload) {
 function saveEntryAll(payload) {
   var kind = payload.kind;
   var id, out;
+  // "Repeat…" in the entry form (owner, 2026-11-05): checked BEFORE anything is written, so a bad choice saves nothing.
+  if (payload.repeat) validateEntryRepeat_(payload.repeat);
   if (kind === 'create') {
     out = createEntry(payload.fields || {});
     id = out.id;
@@ -1045,6 +1048,7 @@ function saveEntryAll(payload) {
   if (payload.splits) saveEntrySplits(id, payload.splits);
   if (kind !== 'create' && payload.tag_ids) saveEntryTags({ entryId: id, tagIds: payload.tag_ids });
   if (payload.bill) saveEntryBill({ entryId: id, bill: payload.bill });
+  if (payload.repeat) out = Object.assign({}, out, { repeat: repeatEntryAsProgrammed_(id, payload.repeat) });
   return out;
 }
 

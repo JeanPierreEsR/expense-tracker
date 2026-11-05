@@ -933,6 +933,47 @@ function significantWords_(text) {
 // linked to some recurring item, or one the heuristic already matches
 // against any active item in this category, is left out — nothing to
 // fix there.
+// "Past payments" in the Programmed item window (owner, 2026-11-05): the confirmed entries this item already counts as its
+// payments — linked to it, or matched automatically (same rule as everywhere: category, ~10% amount, a few days from a due
+// date) and not linked to another item. Newest first, at most 60. Only looks (a list… action).
+function listRecurringPayments(payload) {
+  var re = getRecurringExpenseRows_().filter(function (r) { return r.id === payload.recurringExpenseId; })[0];
+  if (!re) throw new Error(tr_('err.recurringItemNotFound'));
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSumByEntry = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    entrySplitSumByEntry[s.entry_id] = (entrySplitSumByEntry[s.entry_id] || 0) + Number(s.amount);
+  });
+  var out = [];
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed') return;
+    var linked = e.recurring_expense_id === re.id;
+    if (!linked && (e.recurring_expense_id || e.category_id !== re.category_id)) return;
+    var d = new Date(String(e.date).substring(0, 10) + 'T00:00:00');
+    var from = formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() - RECURRING_MATCH_DAY_WINDOW));
+    var to = formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() + RECURRING_MATCH_DAY_WINDOW));
+    var occDate = '';
+    if (!linked) {
+      var occ = recurringExpenseOccurrencesInRange_(re, from, to);
+      if (!entryMatchesRecurringOccurrence_(e, re, occ, entrySplitSumByEntry, recurringSplitSums)) return;
+      occDate = occ.slice().sort(function (x, y) {
+        return Math.abs(daysBetweenDates_(e.date, x)) - Math.abs(daysBetweenDates_(e.date, y));
+      })[0] || '';
+    }
+    out.push({ id: e.id, date: String(e.date).substring(0, 10), amount: Number(e.amount), currency: e.currency,
+      description: e.description || '', linked: linked, _occ: occDate,
+      _gap: Math.abs(Number(e.amount) - Number(re.amount)) * 1000 + (occDate ? Math.abs(daysBetweenDates_(e.date, occDate)) : 0) });
+  });
+  // Several entries can fit the same due date (same category, ~10% amount, a few days): only the closest one is shown as
+  // that date's automatic payment, so the list reads as one payment per due date. Linked entries always show.
+  var bestByOcc = {};
+  out.forEach(function (p) { if (p._occ && (!bestByOcc[p._occ] || p._gap < bestByOcc[p._occ]._gap)) bestByOcc[p._occ] = p; });
+  out = out.filter(function (p) { return p.linked || bestByOcc[p._occ] === p; })
+    .map(function (p) { return { id: p.id, date: p.date, amount: p.amount, currency: p.currency, description: p.description, linked: p.linked }; });
+  out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+  return { payments: out.slice(0, 60), total: out.length };
+}
+
 function findRecurringLinkCandidates(payload) {
   var re = getRecurringExpenseRows_().filter(function (r) { return r.id === payload.recurringExpenseId; })[0];
   if (!re) throw new Error(tr_('err.recurringItemNotFound'));
@@ -1336,6 +1377,46 @@ function unskipRecurringOccurrence(payload) {
 // Manual override for the rare case automatic matching (same category and
 // currency, ~10% amount, within 5 days) misses a real payment: point one
 // entry at the item it paid ('' to unlink). Automatic matching stays on.
+// ---- "Repeat…" in the entry form (owner, 2026-11-05) ----
+// Saving an entry with a frequency also makes a Programmed item from it (same category, amount, currency, description and
+// split, starting on the entry's date) and links the entry as its first payment. Monthly, yearly or "Other" (every N days /
+// weeks / months / years); never one-time. A repeat of the same save finds the entry already linked and makes nothing new.
+function validateEntryRepeat_(rep) {
+  var freq = String(rep && rep.frequency || '');
+  if (freq !== 'monthly' && freq !== 'yearly' && freq !== 'custom') throw new Error(tr_('rec.repeatFrequency'));
+  if (freq === 'custom') validateCustomRecurring_(rep.interval, rep.interval_unit, '2000-01-01');
+  if (rep.end_date) validateRecurringWindow_('2000-01-01', rep.end_date);
+}
+
+function repeatEntryAsProgrammed_(entryId, rep) {
+  var e = getEntryById_(entryId);
+  if (!e) throw new Error(tr_('err.entryNotFound'));
+  if (e.recurring_expense_id) return { id: e.recurring_expense_id, existing: true };
+  if (e.type !== 'expense' && e.type !== 'income') throw new Error(tr_('rec.repeatType'));
+  if (!e.category_id) throw new Error(tr_('rec.repeatNeedsCategory'));
+  var item = addRecurringExpense({
+    category_id: e.category_id,
+    description: e.description || '',
+    amount: Math.abs(Number(e.amount)),
+    currency: e.currency,
+    frequency: rep.frequency,
+    interval: rep.interval,
+    interval_unit: rep.interval_unit,
+    start_date: String(e.date).substring(0, 10),
+    day: Number(String(e.date).substring(8, 10)),     // day and month come from the start date, as in the Programmed item form
+    month: Number(String(e.date).substring(5, 7)),
+    end_date: rep.end_date || '',
+    active: true
+  });
+  if (e.type === 'expense') {
+    var splits = getAllRows('Entry Splits').filter(function (s) { return s.entry_id === entryId; })
+      .map(function (s) { return { friend_id: s.friend_id, amount: Number(s.amount) }; });
+    if (splits.length) saveRecurringExpenseSplits({ recurringExpenseId: item.id, splits: splits });
+  }
+  linkEntryToRecurring({ entryId: entryId, recurringExpenseId: item.id });
+  return { id: item.id, frequency: item.frequency };
+}
+
 function linkEntryToRecurring(payload) {
   if (payload.recurringExpenseId) assertRecurringExists_(payload.recurringExpenseId);
   var result = adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);

@@ -3505,3 +3505,14 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .ios-switch:checked::after { transform: translateX(20px); }
 .ios-switch:disabled { opacity: 0.5; cursor: default; }
 .ios-switch:focus-visible { outline: 2px solid #1f5fbf; outline-offset: 2px; }
+
+/* A collapsible group header (owner, 2026-11-05): looks like a row you open, not like a blue link, so it never reads as
+   the same thing as an action link ("Find past entries for this") sitting inside it. */
+.disclosure-row {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  min-height: 44px; margin: 12px 0 4px; padding: 10px 12px;
+  background: var(--card-bg, #f4f4f6); color: var(--text, #1c1c1e); border: 1px solid var(--border, #e2e2e6); border-radius: 10px;
+  font: inherit; font-weight: 600; text-align: left; cursor: pointer;
+}
+.disclosure-chevron { color: var(--muted, #8e8e93); font-size: 1.2rem; transition: transform .15s ease; }
+.disclosure-row[aria-expanded="true"] .disclosure-chevron { transform: rotate(90deg); }
