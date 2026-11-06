@@ -20279,8 +20279,6 @@ function practiceISteps_() {
     if (fix && !accountSet()) return tr("spot.i.d3fix");
     return tr(key);
   };
-  const maxWithdrawal = () => (practiceI_ && practiceI_.deposit) || 0;
-  const withdrawalOk = () => { const v = amountVal(), m = maxWithdrawal(); return v > 0 && (!(m > 0) || v < m); };
   return [
     { key: "intro", text: () => tr("spot.i.intro"), button: () => tr("spot.i.start") },
     { key: "add", target: "#accounts-add-btn", text: () => tr("spot.i.s1"), tap: "#accounts-add-btn",
@@ -20292,7 +20290,9 @@ function practiceISteps_() {
       text: () => { const err = lastError("#pm-form-error"); return err ? tr("spot.i.s3err", { error: err }) : tr("spot.i.s3"); },
       before: async () => { nameIt(); document.getElementById("pm-form-error").textContent = ""; },
       until: () => !modalOpen() && !!(practiceI_ && practiceI_.platformSent) },
-    // ---- a deposit ----
+    // ---- a deposit (the person taps Home: the screen no longer changes by itself, owner's plan 2026-11-05) ----
+    { target: '.nav-btn[data-screen="entries"]', text: () => tr("spot.i.home"), tap: '.nav-btn[data-screen="entries"]',
+      poke: () => { if (practiceIFailed_) Spotlight.stop("skipped"); } },
     { target: "#fab-new-entry", text: () => tr("spot.i.d1"), tap: "#fab-new-entry", before: waitForPlatform },
     { target: typeTab, text: () => tr("spot.i.d2"), tap: typeTab, before: async () => { if (onInvestmentForm()) return false; } },
     { key: "dfp", target: accountAndPlatform, text: (fix) => accountAndPlatformText(fix, "spot.i.d3"), until: accountAndPlatformOk,
@@ -20304,34 +20304,19 @@ function practiceISteps_() {
       text: () => { const err = lastError("#form-error"); return err ? tr("spot.i.d6err", { error: err }) : tr("spot.i.d6"); },
       before: async () => { document.getElementById("form-error").textContent = ""; describe("spot.i.deposit")(); },
       until: () => !!(practiceI_ && practiceI_.depositId) },
-    // ---- a withdrawal ----
-    { target: "#fab-new-entry", text: () => tr("spot.i.w1"), tap: "#fab-new-entry",
-      before: async () => { if (practiceISaveFailed_()) return false; if (document.getElementById("screen-entries").hidden) showScreen("entries"); syncFab_(); } },
-    { target: typeTab, text: () => tr("spot.i.d2"), tap: typeTab, before: async () => { if (onInvestmentForm()) return false; },
-      available: () => !!(practiceI_ && practiceI_.depositId) && selectedType !== "investment" },   // (the form normally stays on Investment after the deposit: not counted unless it really shows)
-    { target: "#investment-direction-tabs", text: () => tr("spot.i.w3"), tap: '#investment-direction-tabs .type-tab[data-direction="withdrawal"]' },
-    { key: "wfp", target: accountAndPlatform, text: (fix) => accountAndPlatformText(fix, "spot.i.w3b"), until: accountAndPlatformOk,
-      ok: accountAndPlatformOk, holdsUntil: "wsave" },
-    { key: "wamount", target: "#amount", text: (fix) => tr(fix || (maxWithdrawal() > 0 && amountVal() >= maxWithdrawal()) ? "spot.i.w5fix" : "spot.i.w5", { cur, max: moneyFmt(maxWithdrawal()) }), blurTap: true,
-      until: () => withdrawalOk() && document.activeElement !== amountEl(), ok: withdrawalOk, holdsUntil: "wsave",
-      before: async () => { describe("spot.i.withdrawal")(); } },
-    { key: "wsave", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
-      text: () => { const err = lastError("#form-error"); return err ? tr("spot.i.d6err", { error: err }) : tr("spot.i.d6"); },
-      before: async () => { document.getElementById("form-error").textContent = ""; describe("spot.i.withdrawal")(); },
-      until: () => !!(practiceI_ && practiceI_.withdrawalId) },
-    // ---- where the flows show ----
-    { look: true, target: "#investments-card", text: () => tr("spot.i.o1"), button: () => tr("spot.i.gotIt"), wait: 30000,
+    // ---- where the flows show (the withdrawal and hide parts went: owner's plan 2026-11-05; the cleanup removes everything) ----
+    { target: '.nav-btn[data-screen="overview"]', text: () => tr("spot.i.ov"), tap: '.nav-btn[data-screen="overview"]',
       before: async () => {
         if (practiceISaveFailed_()) return false;
-        await tipWaitIdle_(40000);   // the two entries save behind the screen: Overview must read them from the server
-        showScreen("overview");
+        tipWaitIdle_(40000).then(() => preloadOverview_());   // Overview's data is fetched once the deposit has landed, before the tap if possible
+      } },
+    { target: "#investments-card", text: () => tr("spot.i.o1"), button: () => tr("spot.i.finish"), wait: 30000,
+      before: async () => {
+        if (practiceISaveFailed_()) return false;
+        await tipWaitIdle_(40000);   // the deposit saves behind the screen: Overview must read it from the server
         await refreshOverview().catch(() => {});
       },
-      poke: () => { if (!practiceISaveFailed_() && !document.getElementById("screen-overview").hidden) refreshOverview().catch(() => {}); } },
-    // ---- hide the platform (delete is refused for a platform with entries: Hide is the real way) ----
-    { target: practiceIRow_, text: () => tr("spot.i.h1"), tap: practiceIRow_, wait: 15000, before: async () => { showAccountsScreen(); } },
-    { target: "#pm-hide-btn", text: () => tr("spot.i.h2"), tap: "#pm-hide-btn", wait: 10000 },
-    { text: () => tr("spot.i.done"), button: () => tr("spot.i.finish") }
+      poke: () => { if (!practiceISaveFailed_() && !document.getElementById("screen-overview").hidden) refreshOverview().catch(() => {}); } }
   ];
 }
 
