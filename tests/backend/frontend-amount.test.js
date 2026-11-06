@@ -58,7 +58,8 @@ test("the exchange-rate and other non-money boxes are marked, and every save but
 });
 
 test("the second tap of a double tap on Save cannot pick an amount in the window that opens under the finger", () => {
-  assert.match(src, /performance\.now\(\) - openedAt >= 500\) amountAskDone_\(c\.value\)/);
+  assert.match(src, /if \(!amountAskTooSoon_\(\)\) amountAskDone_\(c\.value\)/);
+  assert.match(src, /amountAskDone_ && !amountAskTooSoon_\(\)\) amountAskDone_\(null\)/, "nor close it");
 });
 
 test("with no problem found, the guard writes the clean number into every box, so a form with no clean-up of its own reads it right", () => {

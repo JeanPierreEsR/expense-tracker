@@ -2463,6 +2463,9 @@ function firstAmountProblem_(scope) {
 }
 
 let amountAskDone_ = null;
+let amountAskOpenedAt_ = 0;
+// The window opens under the finger: the second tap of a double tap on Save must neither pick an amount nor close it.
+const amountAskTooSoon_ = () => performance.now() - amountAskOpenedAt_ < 500;
 function amountAskOpen_(title, text, choices) {
   const backdrop = document.getElementById("amount-ask-backdrop");
   if (amountAskDone_) amountAskDone_(null);
@@ -2472,7 +2475,7 @@ function amountAskOpen_(title, text, choices) {
   box.innerHTML = "";
   backdrop.style.zIndex = 100002;   // above the practices, like askName_
   backdrop.hidden = false;
-  const openedAt = performance.now();
+  amountAskOpenedAt_ = performance.now();
   return new Promise((resolve) => {
     amountAskDone_ = (value) => { amountAskDone_ = null; backdrop.hidden = true; resolve(value); };
     choices.forEach((c) => {
@@ -2480,13 +2483,12 @@ function amountAskOpen_(title, text, choices) {
       b.type = "button";
       b.className = "primary";
       b.textContent = c.label;
-      // The window opens under the finger: the second tap of a double tap on Save must not pick an amount.
-      b.addEventListener("click", () => { if (performance.now() - openedAt >= 500) amountAskDone_(c.value); });
+      b.addEventListener("click", () => { if (!amountAskTooSoon_()) amountAskDone_(c.value); });
       box.appendChild(b);
     });
   });
 }
-document.getElementById("amount-ask-close").addEventListener("click", () => { if (amountAskDone_) amountAskDone_(null); });
+document.getElementById("amount-ask-close").addEventListener("click", () => { if (amountAskDone_ && !amountAskTooSoon_()) amountAskDone_(null); });
 
 // Settles one problem. True = the box now holds a clean number, so the save can go on.
 async function settleAmountProblem_(p, scope) {
