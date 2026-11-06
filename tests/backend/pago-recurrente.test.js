@@ -21,6 +21,8 @@ const didiBody = (amt, t1) => ["Thanks for riding with Express", "Fare breakdown
   (t1 || "3:40am") + " Calle Prueba", "3:55am Calle Ejemplo", "Total S/ " + amt, "Credit / Debit Card"].join("\n");
 const appleBody = (amt) => ["Recibo de Apple", "Cuenta de Apple", "ana@example.com", "iCloud+ Prueba", "Mensual",
   "Visa •••• 9999", "", "S/ " + amt, "ID del pedido: MPRUEBA" + amt.replace(".", "")].join("\n");
+// A day counted in the app's own time zone (Lima), like the e-mails' dates: UTC would be a day ahead every evening.
+const daysBefore = (n) => { const d = new Date(today() + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
 const run = (rt) => JSON.parse(JSON.stringify(rt.run("processEmails()")));
 
 function setup() {
@@ -163,8 +165,7 @@ test("another merchant becomes a waiting expense with the amount, currency and m
 test("the same money typed by hand a day earlier, under another name, flags the waiting entry as a possible duplicate", () => {
   const { rt, data } = setup();
   const cat = data.cats.find((c) => c.type === "expense");
-  const d = new Date(); d.setDate(d.getDate() - 1);
-  const yesterday = d.toISOString().slice(0, 10);
+  const yesterday = daysBefore(1);
   rt.api("createEntry", { type: "expense", date: yesterday, amount: 20.9, currency: "PEN", category_id: cat.id, description: "music app", paid_by: "me", payment_method_id: data.pms[0].id });
   rt.svc.gmail.addEmail({ from: SENDER, subject: SUBJECT, body: body("STREAMING PRUEBA", "S/. 20.90") });
   run(rt);
@@ -176,8 +177,7 @@ test("the same money typed by hand a day earlier, under another name, flags the 
 test("the same money typed by hand TWO days earlier is not flagged (the window is 1 day either side)", () => {
   const { rt, data } = setup();
   const cat = data.cats.find((c) => c.type === "expense");
-  const d = new Date(); d.setDate(d.getDate() - 2);
-  rt.api("createEntry", { type: "expense", date: d.toISOString().slice(0, 10), amount: 21.7, currency: "PEN", category_id: cat.id, description: "music app", paid_by: "me", payment_method_id: data.pms[0].id });
+  rt.api("createEntry", { type: "expense", date: daysBefore(2), amount: 21.7, currency: "PEN", category_id: cat.id, description: "music app", paid_by: "me", payment_method_id: data.pms[0].id });
   rt.svc.gmail.addEmail({ from: SENDER, subject: SUBJECT, body: body("STREAMING PRUEBA", "S/. 21.70") });
   run(rt);
   const row = rt.api("listPendingEntries").find((e) => e.description === "STREAMING PRUEBA");
