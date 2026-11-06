@@ -29,3 +29,10 @@ test("turning an automatic split off forgets its friend, and the next payer is a
   assert.match(fn, /splitFriendIds\.size === 1 && splitFriendIds\.has\(paidByAutoSplit_\)\) splitFriendIds\.delete\(paidByAutoSplit_\)/);
   assert.match(fn, /splitFriendIds\.add\(paidBy\);\s*\/\/ whoever paid/);
 });
+
+test("the Transfer form's overpayment category starts on Decide later, and a conversion may leave it there", () => {
+  const app = require("fs").readFileSync(require("path").join(__dirname, "..", "..", "docs", "app.js"), "utf8");
+  const block = /const overpaySel = [\s\S]*?overpaySel\.value = "";/.exec(app)[0];
+  assert.ok(block.includes('tr("reassign.limitLater")') && block.includes("overpaySel.prepend(overpayLater)"));
+  assert.ok(app.includes("overpay_pending_ok: !overpayCategoryId"), "without it the server refuses a conversion with no category");
+});

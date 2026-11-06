@@ -1724,7 +1724,16 @@ function updateRepaymentUi_() {
   document.getElementById("repayment-overpay-block").hidden = isLoan;
   document.getElementById("loan-due-block").hidden = !isLoan;
   if (!isLoan) {
+    // "Decide later" comes first and is the default: an extra beyond the debt waits in Needs review unless a category was really picked.
+    const overpaySel = document.getElementById("repayment-overpay-category");
+    const overpayKept = overpaySel.value;
     populateCategoryOptionsForSelect_("repayment-overpay-category", iPaid ? "expense" : "income");
+    const overpayLater = document.createElement("option");
+    overpayLater.value = "";
+    overpayLater.textContent = tr("reassign.limitLater");
+    overpaySel.prepend(overpayLater);
+    overpaySel.value = overpayKept;
+    if (overpaySel.selectedIndex < 0) overpaySel.value = "";
     document.getElementById("repayment-overpay-category-label").textContent = iPaid ? tr("transfer.overpayCategoryIPaid") : tr("transfer.overpayCategoryTheyPaid");
   }
   document.getElementById("repayment-hint").textContent = isLoan
@@ -2581,6 +2590,20 @@ function renderRateModalLabels_() {
   // save handler flips it back on the way in.
   const displayValue = existingRate == null ? "" : (inverted ? 1 / existingRate : existingRate);
   document.getElementById("rate-value-input").value = displayValue === "" ? "" : String(displayValue);
+  renderRateMeaning_();
+}
+
+// A first-ever rate has nothing to compare with, so the "far off" question cannot catch a typo: the window spells out what the number
+// means instead, for 10 units so a wrong size is easy to see. Only when the server says there is no earlier rate.
+function renderRateMeaning_() {
+  const el = document.getElementById("rate-meaning");
+  const st = rateModalState;
+  const raw = parseFloat(document.getElementById("rate-value-input").value);
+  if (!st || !st.firstEver || !(raw > 0)) { el.hidden = true; return; }
+  const from = st.inverted ? homeCur() : st.currency;
+  const to = st.inverted ? st.currency : homeCur();
+  el.textContent = tr("rateModal.meaning", { left: `10 ${from}`, right: `${to} ${moneyFmt(raw * 10)}` });
+  el.hidden = false;
 }
 
 // existingRate (optional) pre-fills the input for editing an already-set
@@ -2592,7 +2615,11 @@ function openRateModal(currency, month, required, existingRate) {
     // so Save has nothing to wait for before it can close.
     const [yy, mm] = month.split("-").map(Number);
     const prevMonth = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
-    rateModalState.prevRate = callApi("getLatestRateOnOrBefore", { currency, month: prevMonth }).then((r) => r.rate).catch(() => null);
+    const opening = rateModalState;
+    opening.prevRate = callApi("getLatestRateOnOrBefore", { currency, month: prevMonth }).then((r) => {
+      if (r.rate == null) { opening.firstEver = true; if (rateModalState === opening) renderRateMeaning_(); }
+      return r.rate;
+    }).catch(() => null);
     document.getElementById("rate-modal-title").textContent = tr("rateModal.titleWithCurrency", { currency });
     document.getElementById("rate-modal-subtitle").textContent = existingRate != null
       ? tr("rateModal.editing", { currency, month })
@@ -2623,6 +2650,7 @@ document.getElementById("rate-invert-btn").addEventListener("click", () => {
 document.getElementById("rate-value-input").addEventListener("input", (e) => {
   const sanitized = sanitizeAmountInputValue(e.target.value);
   if (sanitized !== e.target.value) e.target.value = sanitized;
+  renderRateMeaning_();
 });
 
 document.getElementById("rate-modal-close").addEventListener("click", () => closeRateModal_(null));
@@ -2950,7 +2978,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           ...fields,
           repayments: repaymentsChoice,
           entry_id: editingEntryId,
-          ...(isLoanKind ? {} : { overpay_category_id: overpayCategoryId })
+          ...(isLoanKind ? {} : { overpay_category_id: overpayCategoryId, overpay_pending_ok: !overpayCategoryId })
         });
         exitEditMode();
       } else if (isLoanKind) {
