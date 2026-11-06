@@ -104,3 +104,16 @@ test("Import practice: Practice rides starts on create and the person sends it i
   assert.match(steps, /filter\(\(c\) => c\.id !== "statement-history-save"\)/);
   for (const k of ["s4", "s4other"]) { assert.match(STRINGS[`spot.f.${k}`].en, /\{category\}/); assert.match(STRINGS[`spot.f.${k}`].es, /\{category\}/); }
 });
+
+test("the preview offers Currency exchange only when two lines can really be linked", () => {
+  const StatementTable = require(path.join(DOCS, "statement-table.js"));
+  const out = (currency) => ({ amount: -10, currency }), inn = (currency) => ({ amount: 10, currency });
+  assert.equal(StatementTable.canLinkExchange([]), false);
+  assert.equal(StatementTable.canLinkExchange([out("PEN"), out("PEN"), out("PEN")]), false, "the practice file: three expenses");
+  assert.equal(StatementTable.canLinkExchange([out("PEN"), inn("PEN")]), false, "one currency");
+  assert.equal(StatementTable.canLinkExchange([out("PEN"), out("USD")]), false, "two currencies, nothing arriving");
+  assert.equal(StatementTable.canLinkExchange([out("PEN"), inn("USD")]), true);
+  assert.equal(StatementTable.canLinkExchange([inn("PEN"), out("USD")]), true);
+  const stm = fs.readFileSync(path.join(DOCS, "statements.js"), "utf8");
+  assert.match(stm, /StatementTable\.canLinkExchange\(summary\.candidates\) \? exchangeHtml\(\)/);
+});

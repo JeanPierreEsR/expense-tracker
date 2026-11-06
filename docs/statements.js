@@ -1837,7 +1837,7 @@
     if (left.noAccount && stillUnknown.length) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: stillUnknown.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
     const pre = newAccountsHtml(proposals) + addedAccountsHtml();
-    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + peopleHtml() + incomeHtml() + asideHtml() + (summary.candidates.length ? exchangeHtml() : "") + balancesHtml();
+    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + peopleHtml() + incomeHtml() + asideHtml() + (StatementTable.canLinkExchange(summary.candidates) ? exchangeHtml() : "") + balancesHtml();
     if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(historyPlan.checks || []).length) {
       out.innerHTML = pre + (proposals.length ? "" : `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>`) + noteHtml;
       return;

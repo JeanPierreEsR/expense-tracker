@@ -736,6 +736,12 @@
   var PRACTICE_FILE_NAMES = ['Practice import.csv', 'Importación de práctica.csv', 'Practice statement.csv', 'Estado de cuenta de práctica.csv'];
   // kind 'import' (default): another app's export, with a category column. kind 'bank': a bank-style statement of ONE account (Date, Description,
   // Amount; no categories), for the Bank statements practice. Bank descriptions are written in capitals, like a bank's, and come out cleaned.
+  // Can two of these lines be linked as a currency exchange? Only money out in one currency with money in on another: the same test as the picker's two steps.
+  function canLinkExchange(lines) {
+    var list = lines || [];
+    return list.some(function (o) { return o.amount < 0 && list.some(function (n) { return n.amount > 0 && n.currency !== o.currency; }); });
+  }
+
   function practiceFile(lang, todayISO, kind) {
     var es = String(lang || '').toLowerCase().indexOf('es') === 0;
     var parts = String(todayISO).split('-').map(Number);
@@ -761,7 +767,7 @@
   return {
     decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readXls: readXls, parseHtmlTable: parseHtmlTable, readTable: readTable,
     findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature, recognize: recognize, distinctValues: distinctValues, KNOWN_FORMATS: KNOWN_FORMATS,
-    practiceFile: practiceFile, PRACTICE_FILE_NAMES: PRACTICE_FILE_NAMES,
+    practiceFile: practiceFile, PRACTICE_FILE_NAMES: PRACTICE_FILE_NAMES, canLinkExchange: canLinkExchange,
     roundCents: roundCents, catNorm: catNorm, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
   };
 });
