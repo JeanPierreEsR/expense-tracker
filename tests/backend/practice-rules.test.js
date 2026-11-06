@@ -101,7 +101,8 @@ test("Import practice: Practice rides starts on create and the person sends it i
   assert.match(steps, /\^\(transport\|transporte\)\$/i);
   assert.ok(steps.indexOf("transport|transporte") < steps.indexOf("taxis?") && steps.indexOf("taxis?") < steps.indexOf("other|others"), "fallback order");
   assert.match(steps, /return !!rideInto\(\);/, "with no category to pick the step is skipped");
-  assert.match(steps, /filter\(\(c\) => c\.id !== "statement-history-save"\)/);
+  assert.match(stm, /filter\(\(c\) => c\.id !== "statement-history-save"\)/);
+  assert.match(steps, /target: preview, text: \(\) => tr\("spot\.f\.s7"\)/);
   for (const k of ["s4", "s4other"]) { assert.match(STRINGS[`spot.f.${k}`].en, /\{category\}/); assert.match(STRINGS[`spot.f.${k}`].es, /\{category\}/); }
 });
 
@@ -116,4 +117,14 @@ test("the preview offers Currency exchange only when two lines can really be lin
   assert.equal(StatementTable.canLinkExchange([inn("PEN"), out("USD")]), true);
   const stm = fs.readFileSync(path.join(DOCS, "statements.js"), "utf8");
   assert.match(stm, /StatementTable\.canLinkExchange\(summary\.candidates\) \? exchangeHtml\(\)/);
+});
+
+test("Bank statements practice: 11 steps, the Inbox closed so the card's heading shows, and the preview step leaves out the save button", () => {
+  const stm = fs.readFileSync(path.join(DOCS, "statements.js"), "utf8");
+  const steps = stm.slice(stm.indexOf("function practiceBSteps_()"), stm.indexOf("// Adds the empty Practice account"));
+  assert.equal((steps.match(/^      \{ (key|look|target)/gm) || []).length, 11);
+  assert.match(steps, /inboxOpen = false; setInboxOpen\(false\);/);
+  assert.match(steps, /target: preview, text: \(\) => tr\("spot\.s\.s7"\)/);
+  assert.match(stm, /c\.id !== "statement-history-save"/);
+  assert.ok(!STRINGS["spot.s.s2"], "the two first looks are one step now");
 });
