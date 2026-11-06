@@ -48,7 +48,7 @@
     "repeat.add": { en: "🔁 Repeat…", es: "🔁 Repetir…" },
     "repeat.label": { en: "Repeats", es: "Se repite" },
     "repeat.hint": { en: "Saving also creates a Programmed item from this entry, starting on its date. You'll find it in More → Programmed income/expenses.", es: "Al guardar también se crea un programado a partir de este movimiento, desde su fecha. Lo encontrarás en Más → Ingresos y gastos programados." },
-    "repeat.remove": { en: "Don't repeat", es: "No repetir" },
+    "repeat.remove": { en: "🚫 Don't repeat", es: "🚫 No repetir" },
     "repeat.linked": { en: "This entry is a payment of a Programmed item. Change how it repeats in More → Programmed income/expenses.", es: "Este movimiento es un pago de un programado. Cambia cómo se repite en Más → Ingresos y gastos programados." },
     "repeat.done": { en: "Saved. It now repeats: see More → Programmed income/expenses.", es: "Guardado. Ahora se repite: míralo en Más → Ingresos y gastos programados." },
     "repeat.failed": { en: "The entry was saved, but it could not be made to repeat: {error}", es: "El movimiento se guardó, pero no se pudo hacer que se repita: {error}" },

@@ -319,11 +319,15 @@ var EMAIL_RULES = [
       var service = body.match(/thanks for riding with ([^\n*]+)/i);
       var dateLine = body.match(/[A-Za-z]{3}, \d{1,2} [A-Za-z]{3}, \d{4}/);
       var times = body.match(/\d{1,2}:\d{2}\s*[ap]m/gi) || [];
+      // The pinned card is the OWNER's. On a friend's copy no card is guessed (2026-11-05): the bank's own e-mail, when there is one, is
+      // joined to this receipt and names the card (EmailPairs.gs); otherwise the person picks it.
+      var friend = isFriendCopy_();
       return {
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: 'DiDi' + (service ? ' ' + cleanText_(service[1]) : ''),
         merchant: 'DiDi', defaultCategory: 'Transport',
-        last4: '3052', // Interbank Visa Infinite — pinned, see rule comment
+        last4: friend ? null : '3052', // Interbank Visa Infinite — pinned, see rule comment
+        cardUnknown: friend,
         externalId: fallbackExternalId_('didi', dateLine ? dateLine[0] : '', amt.amount, times.join('-'))
       };
     }
@@ -751,6 +755,8 @@ function processEmails(opts) {
   var existingExternalIds = {};
   getAllRows('Entries').forEach(function (e) {
     if (e.external_id) existingExternalIds[e.external_id] = true;
+    var joinedId = emailPairJoinedId_(e.email_pair);   // the second e-mail of a joined pair (EmailPairs.gs) is already in
+    if (joinedId) existingExternalIds[joinedId] = true;
   });
   var banks = getAllRows('Banks');
   var paymentMethods = withoutPracticeAccounts_(getAllRows('Payment Methods'));   // the first-use practice's account never receives an e-mail
@@ -940,7 +946,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
 
   var bank = banks.find(function (b) { return b.name === rule.bank; });
   var paymentMethod = null;
-  if (bank) {
+  if (bank && !fields.cardUnknown) {
     var pms = paymentMethods.filter(function (pm) { return pm.bank_id === bank.id; });
     paymentMethod = fields.last4
       ? pms.find(function (pm) { return String(pm.last_4) === String(fields.last4); })
@@ -986,6 +992,20 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
 
   var guess = guessCategoryForEmail_(fields, dateStr, guessCtx);
 
+  // A shop's receipt and a bank's e-mail for the same charge are ONE entry (EmailPairs.gs): the second to arrive joins the first, silently.
+  var pairRole = emailPairRole_(rule, fields);
+  if (pairRole) {
+    var pairPartner = findEmailPairPartner_(pairRole, fields, createdAt);
+    if (pairPartner) {
+      joinEmailPair_(pairPartner, pairRole, fields, externalId, dateStr, paymentMethod, guess.categoryId);
+      results.duplicates++;
+      results.joined = (results.joined || 0) + 1;
+      try { noteBankMailSeen_(rule.bank, dateStr); } catch (err) { console.error('noteBankMailSeen_: ' + err); }
+      try { noteBankKindSeen_(rule, dateStr); } catch (err) { console.error('noteBankKindSeen_: ' + err); }
+      return;
+    }
+  }
+
   var entry = {
     id: Utilities.getUuid(),
     type: fields.type,
@@ -1016,6 +1036,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   }
 
   if (fields.exchangeLeg) { ensureEntriesExchangeColumn_(); entry.exchange = '1'; }
+  if (pairRole) { ensureColumn_('Entries', EMAIL_PAIR_COLUMN_); entry[EMAIL_PAIR_COLUMN_] = pairRole.pair.id + '|' + pairRole.role; }   // waits for its partner
   // Same place, same treatment (PayeeGuess.gs): a place the person always files as an investment, or under one category,
   // arrives that way. A rule's own fixed category is certain and is left alone. The entry stays pending either way.
   var payeeGuess = (guessCtx.payee && !fields.defaultCategory && !fields.exchangeLeg)

@@ -154,7 +154,8 @@ function rulePackValidate_(text, opts) {
   if (!pack || typeof pack !== 'object' || Array.isArray(pack)) return { ok: false, errors: ['not a pack'] };
   var scan = rulePackScan_(pack, '', 0);
   if (scan) return { ok: false, errors: [scan] };
-  if (strict) Object.keys(pack).forEach(function (k) { if (k !== 'version' && k !== 'rules') errors.push('unknown field ' + k); });
+  if (strict) Object.keys(pack).forEach(function (k) { if (k !== 'version' && k !== 'rules' && k !== 'pairs') errors.push('unknown field ' + k); });
+  var pairs = rulePackCheckPairs_(pack.pairs, errors, strict);
   if (typeof pack.version !== 'number' || Math.floor(pack.version) !== pack.version || pack.version < 1 || pack.version > 1000000) errors.push('version: a whole number');
   var kept = [], skipped = [];
   if (!Array.isArray(pack.rules)) errors.push('rules: a list is needed');
@@ -172,7 +173,32 @@ function rulePackValidate_(text, opts) {
       kept.push(r);
     });
   }
-  return errors.length ? { ok: false, errors: errors.slice(0, 8) } : { ok: true, pack: { version: pack.version, rules: kept }, skipped: skipped };
+  return errors.length ? { ok: false, errors: errors.slice(0, 8) } : { ok: true, pack: { version: pack.version, rules: kept, pairs: pairs }, skipped: skipped };
+}
+
+// Pairs (2026-11-05, owner's design): a shop that e-mails its own receipt AND a bank that e-mails the same charge. Both e-mails are read, and the
+// scan joins them into ONE entry (EmailPairs.gs). A pair names the shop's sender and the words a bank e-mail's merchant contains for that shop:
+//   { "id": "didi", "sender": "didi@pe.didiglobal.com", "merchantHas": ["didi"] }
+// No pairs = nothing is joined. A pair with an unknown field (written for a newer backend) is left out on its own, like a rule.
+var RULE_PACK_MAX_PAIRS_ = 20;
+var RULE_PACK_PAIR_KEYS_ = ['id', 'sender', 'merchantHas'];
+
+function rulePackCheckPairs_(list, errors, strict) {
+  if (list === undefined) return [];
+  if (!Array.isArray(list) || list.length > RULE_PACK_MAX_PAIRS_) { errors.push('pairs: a short list is needed'); return []; }
+  var kept = [], ids = {};
+  list.forEach(function (p, i) {
+    var where = 'pair ' + (i + 1);
+    if (!p || typeof p !== 'object' || Array.isArray(p)) { errors.push(where + ': not a pair'); return; }
+    var unknown = Object.keys(p).filter(function (k) { return RULE_PACK_PAIR_KEYS_.indexOf(k) === -1; });
+    if (unknown.length) { if (strict) errors.push(where + ': unknown field ' + unknown[0]); return; }
+    rulePackText_(p.id, where + '.id', errors);
+    if (rulePackText_(p.sender, where + '.sender', errors, { address: true }) && !RULE_PACK_ADDRESS_.test(String(p.sender))) errors.push(where + '.sender: not an e-mail address in lower case');
+    rulePackWords_(p.merchantHas, where + '.merchantHas', errors);
+    if (typeof p.id === 'string') { if (ids[p.id]) errors.push(where + ': id used twice'); ids[p.id] = true; }
+    kept.push({ id: p.id, sender: p.sender, merchantHas: p.merchantHas });
+  });
+  return kept;
 }
 
 // ---- compiling a rule into the shape the code rules have: { bank, sender, label, match(subject, body), extract(subject, body), ... } ----
@@ -241,20 +267,23 @@ function rulePackCompile_(r) {
 
 // ---- storage ----
 
-var rulePackCache_ = { raw: null, rules: [] };
+var rulePackCache_ = { raw: null, rules: [], pairs: [] };
 
-function rulePackRules_() {
+function rulePackLoad_() {
   var raw = '';
   try { raw = String(getSettingsMap()[RULE_PACK_SETTING_] || ''); } catch (err) { raw = ''; }
-  if (rulePackCache_.raw === raw) return rulePackCache_.rules;
-  var rules = [];
+  if (rulePackCache_.raw === raw) return rulePackCache_;
+  var rules = [], pairs = [];
   if (raw) {
     var v = rulePackValidate_(raw);   // checked again on every read: a hand-edited Settings cell can never reach the reader unchecked
-    if (v.ok) rules = v.pack.rules.map(rulePackCompile_);
+    if (v.ok) { rules = v.pack.rules.map(rulePackCompile_); pairs = v.pack.pairs || []; }
   }
-  rulePackCache_ = { raw: raw, rules: rules };
-  return rules;
+  rulePackCache_ = { raw: raw, rules: rules, pairs: pairs };
+  return rulePackCache_;
 }
+
+function rulePackRules_() { return rulePackLoad_().rules; }
+function rulePackPairs_() { return rulePackLoad_().pairs; }
 
 // Every rule the app can read an e-mail with: the ones written in code first (they keep winning), then the pack's.
 // A pack rule marked `first` (a twin whose code rule has been proven identical) goes in front of the code rules, which stay behind it as the fallback.
