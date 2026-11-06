@@ -2465,7 +2465,7 @@ function firstAmountProblem_(scope) {
 let amountAskDone_ = null;
 let amountAskOpenedAt_ = 0;
 // The window opens under the finger: the second tap of a double tap on Save must neither pick an amount nor close it.
-const amountAskTooSoon_ = () => performance.now() - amountAskOpenedAt_ < 500;
+const amountAskTooSoon_ = () => performance.now() - amountAskOpenedAt_ < 800;   // nobody reads two amounts and chooses that fast
 function amountAskOpen_(title, text, choices) {
   const backdrop = document.getElementById("amount-ask-backdrop");
   if (amountAskDone_) amountAskDone_(null);
