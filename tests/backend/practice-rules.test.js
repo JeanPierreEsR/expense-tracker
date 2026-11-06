@@ -78,3 +78,11 @@ test("Budgets practice: 7 steps, ends on the new budget's row and deletes it by 
   assert.ok(/Practice \(budget\|/.test(app) && /\(Presupuesto\|/.test(app), "the usual Deleting… sweep knows the budget's name in both languages");
   for (const k of ["s4b", "s5", "s8", "s9", "s10", "gotIt"]) assert.ok(!STRINGS[`spot.b.${k}`], k);
 });
+
+test("Needs review practice: 5 steps, the look-only ones merged, ending on the confirmed entry", () => {
+  const steps = app.slice(app.indexOf("function practiceNSteps_()"), app.indexOf("function startReviewPractice_()"));
+  assert.equal((steps.match(/^    \{ (look: true, )?(key|target)/gm) || []).length, 5, "intro, category, confirm, discard, done");
+  assert.ok(steps.indexOf('key: "discard"') < steps.indexOf('target: practiceNEntryRow_'), "the last step lights the confirmed entry");
+  assert.match(steps, /target: practiceNEntryRow_, text: \(\) => tr\("spot\.n\.s8"\), button: \(\) => tr\("spot\.n\.finish"\)/);
+  for (const k of ["s1", "s2", "s4", "s6", "gotIt"]) { assert.ok(!STRINGS[`spot.n.${k}`], k); assert.ok(!app.includes(`spot.n.${k}"`), k); }
+});

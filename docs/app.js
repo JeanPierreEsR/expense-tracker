@@ -19899,7 +19899,6 @@ function startGuidedLoansLook_() {
 // suggested trip and statement matching (backend/PracticeReview.gs). Cleanup = one call (removePracticeReview), in the background like the
 // others; it first waits until the practice's own confirm / discard have reached the server (they travel through the review-action queue).
 const PRACTICE_N_KEY_ = "tipPracticeReview";
-const PRACTICE_N_AMOUNT_ = 38.5;   // the made-up purchase (backend/PracticeReview.gs makes it the same)
 let practiceN_ = null;             // { created, startedOn, purchaseId, chargeId }
 let practiceNCreating_ = null;     // the creation call (never rejects)
 let practiceNFailed_ = "";
@@ -19963,21 +19962,15 @@ function practiceNSteps_() {
   const fieldOf = (sel) => () => { const el = part(sel)(); return el ? el.closest(".review-field") : null; };
   return [
     { key: "intro", text: () => tr("spot.n.intro"), button: () => tr("spot.n.start") },
-    { look: true, wait: 30000,
-      target: () => { const c = document.getElementById("review-queue-card"); return c && !c.hidden && purchase() ? [c.querySelector("h2"), c.querySelector(".hint")] : null; },
-      text: () => tr("spot.n.s1"), button: () => tr("spot.n.gotIt"),
-      before: async () => practiceNReady_() },
-    { look: true, target: part(".review-item-top"), text: () => tr("spot.n.s2", { cur: homeCur(), amount: moneyFmt(PRACTICE_N_AMOUNT_) }), button: () => tr("spot.n.gotIt"), wait: 10000 },
-    { key: "category", target: fieldOf(".review-category"), text: (fix) => tr(fix ? "spot.n.s3fix" : "spot.n.s3"), until: () => !!category(),
-      ok: () => !!category(), holdsUntil: "confirm", wait: 10000 },
-    { look: true, target: () => [fieldOf(".review-description")(), fieldOf(".review-amount")()].filter(Boolean), text: () => tr("spot.n.s4"), button: () => tr("spot.n.gotIt"), wait: 10000 },
+    // The look-only steps are merged into the next tap (owner's walk, 2026-11-05).
+    { key: "category", target: () => (purchase() ? [part(".review-item-top")(), fieldOf(".review-category")()].filter(Boolean) : null), text: (fix) => tr(fix ? "spot.n.s3fix" : "spot.n.s3"), until: () => !!category(),
+      ok: () => !!category(), holdsUntil: "confirm", wait: 30000, before: async () => practiceNReady_() },
     { key: "confirm", target: part(".review-confirm-btn"), text: () => tr(category() ? "spot.n.s5" : "spot.n.s5err"), until: () => !purchase(), wait: 10000,
       after: () => { if (practiceN_) { practiceN_.confirmed = true; practiceNSave_(); } } },
-    { look: true, target: practiceNEntryRow_, text: () => tr("spot.n.s6"), button: () => tr("spot.n.gotIt"), wait: 60000,
-      before: async () => { if (document.getElementById("screen-entries").hidden) showScreen("entries"); },
-      poke: () => { refreshEntryList().catch(() => {}); } },
     { key: "discard", target: () => { const r = charge(); return r ? r.querySelector(".review-discard-btn") : null; }, text: () => tr("spot.n.s7"), until: () => !charge(), wait: 15000 },
-    { text: () => tr("spot.n.s8"), button: () => tr("spot.n.finish") }
+    { look: true, target: practiceNEntryRow_, text: () => tr("spot.n.s8"), button: () => tr("spot.n.finish"), wait: 60000,
+      before: async () => { if (document.getElementById("screen-entries").hidden) showScreen("entries"); },
+      poke: () => { refreshEntryList().catch(() => {}); } }
   ];
 }
 
