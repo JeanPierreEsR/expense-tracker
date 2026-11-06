@@ -5988,6 +5988,8 @@ function reopenMoneyItem_(item) {
     document.getElementById("exchange-in-amount").value = p.in.amount;
     document.getElementById("exchange-house").value = p.house || "";
     updateExchangeRateLine_();
+    exchangeCurTouched_ = { out: true, in: true };   // (what the person had chosen stays)
+    updateExchangeChecks_();
     document.getElementById("exchange-form-error").textContent = reason;
     moneyReopen_ = { id: item.id, kind: "exchange" };
   }
@@ -6612,6 +6614,44 @@ function updateExchangeRateLine_() {
   el.hidden = false;
 }
 
+// The safeguards while the form is filled in (owner's walk, 2026-11-05). The same currency on both sides is said at once (Save refuses it too).
+// An account whose kind names one currency sets its side's currency when picked, unless the person already chose one for that side; if the
+// two still differ, a warning says so and Save stays allowed (an account can hold any currency). Accounts with no known currency (a card in
+// soles and dollars, cash, any account made before kinds existed) never warn. Not during the practice, which needs its own two currencies.
+let exchangeCurTouched_ = { out: false, in: false };
+const exchangeAccountCurrency_ = (side) => {
+  const pm = (meta.paymentMethods || []).find((p) => String(p.id) === document.getElementById(`exchange-${side}-account`).value);
+  return { pm, cur: pm && (pm.type === "debit" || pm.type === "credit") ? kindCurrency_(pm.alias_kind) : "" };
+};
+function updateExchangeChecks_() {
+  const same = document.getElementById("exchange-out-currency").value === document.getElementById("exchange-in-currency").value;
+  const errorEl = document.getElementById("exchange-form-error");
+  if (same) errorEl.textContent = tr("xch.sameCurrency");
+  else if (errorEl.textContent === tr("xch.sameCurrency")) errorEl.textContent = "";
+  const notes = Spotlight.isRunning() ? [] : ["out", "in"].map((side) => {
+    const { pm, cur } = exchangeAccountCurrency_(side);
+    const shown = document.getElementById(`exchange-${side}-currency`).value;
+    return cur && cur !== shown ? tr("xch.accountMismatch", { account: pm.nickname, accountCur: cur, cur: shown }) : "";
+  }).filter(Boolean);
+  const note = document.getElementById("exchange-account-note");
+  note.textContent = notes.join(" ");
+  note.hidden = !notes.length;
+}
+["out", "in"].forEach((side) => {
+  document.getElementById(`exchange-${side}-currency`).addEventListener("change", () => { exchangeCurTouched_[side] = true; updateExchangeChecks_(); });
+  document.getElementById(`exchange-${side}-account`).addEventListener("change", () => {
+    const { cur } = exchangeAccountCurrency_(side);
+    if (cur && !exchangeCurTouched_[side] && !Spotlight.isRunning() && CURRENCIES.some((c) => c.code === cur)) {
+      document.getElementById(`exchange-${side}-currency`).value = cur;
+      // The other side, still on its starting currency, moves out of the way (no false "two different currencies" before it is filled in).
+      const other = side === "out" ? "in" : "out", otherEl = document.getElementById(`exchange-${other}-currency`);
+      if (!exchangeCurTouched_[other] && otherEl.value === cur) otherEl.value = cur !== "USD" ? "USD" : homeCur() !== "USD" ? homeCur() : "EUR";
+      updateExchangeRateLine_();
+    }
+    updateExchangeChecks_();
+  });
+});
+
 // "Currency exchange" is the last choice of Type of transfer, only for a NEW entry (an existing one cannot become an exchange).
 var exchangeKindOption_;   // var, not let: updateRepaymentUi_ may run before this line is reached
 // "Not a loan: my own transfer" — offered only while editing a loan's own money entry (the loan is deleted and the entry
@@ -6703,7 +6743,9 @@ function fillExchangeForm_(opts) {
   ctx.hidden = !entry;
   if (entry) ctx.textContent = tr(leg === "out" ? "xch.context" : "xch.contextIn", { what: `${entry.description || tr("review.transactionFallback")} · ${entry.currency} ${moneyFmt(entry.amount)}` });
   document.getElementById("exchange-form-error").textContent = "";
+  exchangeCurTouched_ = { out: leg === "out" && !!entry, in: leg === "in" && !!entry };   // (a waiting entry's own side keeps its currency)
   updateExchangeRateLine_();
+  updateExchangeChecks_();
 }
 
 function closeExchangeModal_() {

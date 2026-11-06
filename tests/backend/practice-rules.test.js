@@ -162,3 +162,15 @@ test("Projections practice: offered only with 6 complete months of data, 7 steps
   assert.match(code, /closeProjectionMethodModal_\(\);/);
   for (const k of new Set([...code.matchAll(/tr\("(spot\.j\.[A-Za-z0-9]+)"/g)].map((m) => m[1]))) assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
 });
+
+test("exchange form: same currency said at once, an account's known currency sets its side, a mismatch only warns, and neither runs in the practice", () => {
+  const code = app.slice(app.indexOf("let exchangeCurTouched_"), app.indexOf('// "Currency exchange" is the last choice of Type of transfer'));
+  assert.match(code, /errorEl\.textContent = tr\("xch\.sameCurrency"\)/);
+  assert.match(code, /Spotlight\.isRunning\(\) \? \[\]/);
+  assert.match(code, /!exchangeCurTouched_\[side\] && !Spotlight\.isRunning\(\)/);
+  assert.match(html, /id="exchange-account-note"/);
+  const save = app.slice(app.indexOf('document.getElementById("exchange-save-btn").addEventListener'), app.indexOf("// ---- New-entry sheet + the round"));
+  assert.match(save, /if \(out\.currency === inn\.currency\) \{ errorEl\.textContent = tr\("xch\.sameCurrency"\); return; \}/);
+  assert.ok(!/accountMismatch/.test(save), "a mismatch never blocks Save");
+  assert.ok(STRINGS["xch.accountMismatch"].en && STRINGS["xch.accountMismatch"].es);
+});
