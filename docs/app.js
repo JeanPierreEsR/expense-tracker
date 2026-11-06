@@ -19494,11 +19494,6 @@ function practiceSteps_() {
     const el = document.querySelector(sel);
     return !!el && parseFloat(el.value) > 0 && document.activeElement !== el;
   };
-  // The friend's own % box in the split (the practice has exactly one friend).
-  const pctInput = () => splitInputEls[[...splitFriendIds][0]] || null;
-  const pctOf = () => { const el = pctInput(); return el ? parseFloat(el.value) : NaN; };
-  const pctValid = () => { const v = pctOf(); return splitMode === "percent" && v > 0 && v <= 100; };
-  const pctDone = () => pctValid() && document.activeElement !== pctInput();
   const hasAccounts = () => Array.from(document.querySelectorAll("#payment_method option")).some((o) => o.value && o.value !== "__add__");
   const lastError = (sel) => { const el = document.querySelector(sel); return el ? el.textContent.trim() : ""; };
   return [
@@ -19526,25 +19521,9 @@ function practiceSteps_() {
     { key: "toggle", target: "#split-field .checkbox-row", text: () => tr("spot.p.s7"), until: () => document.getElementById("split-toggle").checked,
       ok: () => document.getElementById("split-toggle").checked, holdsUntil: "save" },
     { key: "friend", target: () => [document.getElementById("split-friend-chips"), document.getElementById("split-add-friend-btn")], text: () => practiceHint_ || tr("spot.p.s8"),
-      until: practiceFriendOk_, wait: 8000, ok: () => splitFriendIds.size > 0, holdsUntil: "save" },
-    { key: "mode", target: "#split-mode-tabs", text: () => tr("spot.p.s9"), tap: '#split-mode-tabs .type-tab[data-mode="percent"]',
-      ok: () => splitMode === "percent", holdsUntil: "save" },
-    { key: "percent", target: "#split-rows", text: (fix) => tr(fix ? "spot.p.s9bfix" : "spot.p.s9b"), blurTap: true, until: pctDone,
-      ok: pctValid, holdsUntil: "save", wait: 8000,
-      before: async () => {
-        // Only the friend's box can be typed in: a number in "Me" too made the total pass 100% and blocked Save.
-        const me = splitInputEls.me;
-        if (me) {
-          splitPercents.me = "";
-          me.value = "";
-          me.readOnly = true;
-          me.tabIndex = -1;
-          me.style.opacity = "0.45";
-          me.style.pointerEvents = "none";
-          renderSplitSummary();
-        }
-      },
-      after: () => { practice_.percent = pctOf(); practiceSave_(); } },
+      until: practiceFriendOk_, wait: 8000, ok: () => splitFriendIds.size > 0, holdsUntil: "save",
+      // The bill is split equally (owner, 2026-11-05: the % split was two more steps; % and Custom stay in the form for real use).
+      after: () => { if (splitMode !== "equal") { const t = document.querySelector('#split-mode-tabs .type-tab[data-mode="equal"]'); if (t) t.click(); } } },
     { key: "save", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
       text: () => { const err = lastError("#form-error"); return err ? tr("spot.p.s10err", { error: err }) : tr("spot.p.s10"); },
       before: async () => { document.getElementById("form-error").textContent = ""; },   // an old message from before the fix
