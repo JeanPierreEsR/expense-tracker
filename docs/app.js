@@ -12033,8 +12033,10 @@ document.getElementById("export-send-btn").addEventListener("click", sendExport_
 // ---- First-use practice: Export my data (owner's design, 2026-11-03) ----
 // Offered on More → My data → Export my data. The person really makes a file of their OWN entries and gets the Save button (the
 // phone's share sheet) for it. Nothing is recorded in the app (exporting only reads), so there is no server cleanup and no capability
-// flag: the only thing the practice touches is the screen's remembered choices (which boxes were ticked), put back at the end.
-let practiceE_ = null;   // { prefs }: the screen's remembered choices before the practice started
+// flag. It starts from the person's own choices (owner's walk, 2026-11-05: wiping them and restoring them looked like the app changing
+// its mind): only "Entries spreadsheet" is checked if it was not, because that is the file it makes, and it stays checked. The person
+// changes only the period, and that alone is put back at the end.
+let practiceE_ = null;   // { range }: the period before the practice started
 
 function offerExportTip_() {
   offerTip_("export", "export-tip-invite", tr("spot.e.invite"), startExportPractice_);
@@ -12046,10 +12048,9 @@ function practiceESteps_() {
   const statusError = () => { const s = el("export-status"); return s.style.color ? (s.textContent || "").trim() : ""; };
   return [
     { key: "intro", text: () => tr("spot.e.intro"), button: () => tr("spot.e.start") },
-    { key: "entries", target: () => el("export-entries-check").closest(".checkbox-row"), text: () => tr("spot.e.s1"),
-      until: () => el("export-entries-check").checked, ok: () => el("export-entries-check").checked, holdsUntil: "get" },
-    { target: () => [el("export-range"), el("export-pending-check").closest(".checkbox-row")], text: () => tr("spot.e.s2"), visit: "#export-range" },
-    { key: "get", target: "#export-get-btn", text: () => { const e = statusError(); return e ? tr("spot.e.s4err", { error: e }) : tr("spot.e.s4"); },
+    { target: "#export-range", text: () => tr("spot.e.s2"), visit: "#export-range" },
+    // (While the file is being prepared the button is disabled, so it looks pale: the text says what is happening instead of "Tap".)
+    { key: "get", target: "#export-get-btn", text: () => { const e = statusError(); if (e) return tr("spot.e.s4err", { error: e }); return el("export-get-btn").disabled ? tr("export.preparing") : tr("spot.e.s4"); },
       until: () => !!ready() },
     { target: "#export-ready button", text: () => tr("spot.e.s5"), tap: "#export-ready button", wait: 15000 },
     { text: () => tr("spot.e.s6"), button: () => tr("spot.e.finish") }
@@ -12059,12 +12060,8 @@ function practiceESteps_() {
 function startExportPractice_() {
   const open = ["exchange-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop", "currency-modal-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
   if (open || newEntrySheetOpen_) { showToast_(tr("spot.x.busy")); return false; }
-  practiceE_ = { prefs: loadExportPrefs_() };
-  // A clean start: nothing ticked, "This month", so the person ticks the real boxes themselves.
-  exportEl_("export-entries-check").checked = false;
-  exportEl_("export-backup-check").checked = false;
-  exportEl_("export-pending-check").checked = false;
-  exportEl_("export-range").value = "month";
+  practiceE_ = { range: exportEl_("export-range").value };
+  exportEl_("export-entries-check").checked = true;
   exportEl_("export-status").textContent = "";
   exportEl_("export-status").style.color = "";
   exportEl_("export-ready").hidden = true;
@@ -12073,9 +12070,10 @@ function startExportPractice_() {
   runTip_(practiceESteps_(), async (how) => {
     const mine = practiceE_;
     practiceE_ = null;
-    // Put the screen's remembered choices back the way the person had them.
-    try { localStorage.setItem(EXPORT_PREFS_KEY, JSON.stringify((mine && mine.prefs) || {})); } catch (err) { /* private mode: nothing was remembered anyway */ }
-    if (!document.getElementById("screen-export").hidden) showExportScreen();   // redraws the boxes from the restored choices (the tip is already marked as seen)
+    // Only the period goes back; every other choice is as the person sees it.
+    if (mine) exportEl_("export-range").value = mine.range;
+    saveExportPrefs_();
+    if (!document.getElementById("screen-export").hidden) showExportScreen();   // redraws the boxes (the tip is already marked as seen)
     if (how === "done") showToast_(tr("spot.e.done"));
   }, tr("spot.e.note"));
   return true;
@@ -12529,11 +12527,10 @@ function practiceYSteps_() {
   const picked = () => { const s = practiceYBox_() && practiceYBox_().querySelector(".tidy-select"); return !!s && !!s.value; };
   return [
     { key: "intro", text: () => tr("spot.y.intro"), button: () => tr("spot.y.start") },
-    { look: true, target: () => practiceYBox_(), text: () => tr("spot.y.s1"), button: () => tr("spot.y.gotIt"), wait: 30000,
+    { target: part(".tidy-lines"), text: () => tr("spot.y.s2"), wait: 30000,
       before: async () => {
         if (!(await practiceYMake_())) return false;
-      } },
-    { target: part(".tidy-lines"), text: () => tr("spot.y.s2"),
+      },
       until: () => { const b = practiceYBox_(); return !!b && !b.querySelector(".tidy-samples").hidden; } },
     { key: "pick", target: part(".tidy-select"), text: (fix) => tr(fix ? "spot.y.s3fix" : "spot.y.s3"), until: picked, ok: picked, holdsUntil: "apply" },
     { key: "apply", target: part(".tidy-apply"), text: () => tr("spot.y.s4"), until: () => !!(practiceY_ && practiceY_.applied) },

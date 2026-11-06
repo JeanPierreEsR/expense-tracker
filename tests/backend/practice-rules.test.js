@@ -128,3 +128,22 @@ test("Bank statements practice: 11 steps, the Inbox closed so the card's heading
   assert.match(stm, /c\.id !== "statement-history-save"/);
   assert.ok(!STRINGS["spot.s.s2"], "the two first looks are one step now");
 });
+
+test("Export practice: 5 steps, and while the file is being prepared the step says so instead of Tap", () => {
+  const steps = app.slice(app.indexOf("function practiceESteps_()"), app.indexOf("function startExportPractice_()"));
+  assert.equal((steps.match(/^    \{ (key|target|text)/gm) || []).length, 5);
+  assert.match(steps, /el\("export-get-btn"\)\.disabled \? tr\("export\.preparing"\)/);
+  assert.ok(!STRINGS["spot.e.s1"]);
+  assert.ok(STRINGS["export.preparing"].en && STRINGS["export.preparing"].es);
+});
+
+test("Tidy my history: 5 steps, the button says the same word as the group's count, the row on two lines", () => {
+  const steps = app.slice(app.indexOf("function practiceYSteps_()"), app.indexOf("// Adds the three practice entries"));
+  assert.equal((steps.match(/^    \{ (key|target|text)/gm) || []).length, 5);
+  assert.equal(STRINGS["tidy.showLines"].en, "Show the entries");
+  assert.equal(STRINGS["tidy.showLines"].es, "Ver los movimientos");
+  assert.ok(STRINGS["spot.y.s2"].en.includes("“Show the entries”") && STRINGS["spot.y.s2"].es.includes("“Ver los movimientos”"));
+  const css = fs.readFileSync(path.join(DOCS, "style.css"), "utf8");
+  assert.match(css, /\.tidy-group-row \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto;/);
+  for (const k of ["s1", "gotIt"]) assert.ok(!STRINGS[`spot.y.${k}`], k);
+});

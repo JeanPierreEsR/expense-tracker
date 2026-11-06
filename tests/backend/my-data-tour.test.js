@@ -66,18 +66,20 @@ test("the Export practice: invitation box on the screen, offered when the screen
   assert.match(app, /offerTip_\("export", "export-tip-invite", tr\("spot\.e\.invite"\), startExportPractice_\)/);
   const practice = app.slice(app.indexOf("function practiceESteps_()"), app.indexOf("// ---- Categories that catch up later"));
   const keys = new Set([...practice.matchAll(/tr\("(spot\.e\.[A-Za-z0-9]+)"/g)].map((m) => m[1]));
-  for (const k of ["spot.e.invite", "spot.e.note", "spot.e.intro", "spot.e.start", "spot.e.s1", "spot.e.s2", "spot.e.s4", "spot.e.s4err", "spot.e.s5", "spot.e.s6", "spot.e.finish", "spot.e.done"]) {
+  for (const k of ["spot.e.invite", "spot.e.note", "spot.e.intro", "spot.e.start", "spot.e.s2", "spot.e.s4", "spot.e.s4err", "spot.e.s5", "spot.e.s6", "spot.e.finish", "spot.e.done"]) {
     assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
   }
   for (const k of keys) assert.ok(STRINGS[k], k + " is asked for but missing");
 });
 
-test("the Export practice records nothing and calls no extra server action: it only reads, then puts the screen's choices back", () => {
+test("the Export practice records nothing and calls no extra server action: it starts from the person's choices and puts back only the period", () => {
   const practice = app.slice(app.indexOf("function practiceESteps_()"), app.indexOf("// ---- Categories that catch up later"));
   assert.ok(!/callApi\(/.test(practice), "the practice itself makes no server call (the screen's own Get my files does)");
-  assert.match(practice, /localStorage\.setItem\(EXPORT_PREFS_KEY/);
+  assert.match(practice, /practiceE_ = \{ range: exportEl_\("export-range"\)\.value \}/);
+  assert.match(practice, /exportEl_\("export-range"\)\.value = mine\.range;\s*saveExportPrefs_\(\);/);
+  assert.ok(!/export-(pending|backup)-check/.test(practice), "the other choices are never touched");
   // the steps use the REAL controls of the screen
-  for (const id of ["export-entries-check", "export-range", "export-pending-check", "export-backup-check", "export-get-btn", "export-ready"]) {
+  for (const id of ["export-entries-check", "export-range", "export-get-btn", "export-ready"]) {
     assert.ok(practice.includes(id), id);
     assert.ok(html.includes(`id="${id}"`), id + " is not in the page");
   }
@@ -92,7 +94,7 @@ test("the Tidy practice: invitation box, offered after the list loads, flag-gate
   assert.match(app, /if \(!caps\.practiceTidy\) return;/);
   const practice = app.slice(app.indexOf("function practiceYSteps_()"), app.indexOf("// ---- More → My data: one row for everything"));
   for (const k of new Set([...practice.matchAll(/tr\("(spot\.y\.[A-Za-z0-9]+)"/g)].map((m) => m[1]))) assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
-  for (const k of ["spot.y.invite", "spot.y.note", "spot.y.intro", "spot.y.start", "spot.y.s1", "spot.y.s2", "spot.y.s3", "spot.y.s3fix", "spot.y.s4", "spot.y.s5", "spot.y.removing", "spot.y.removed", "spot.y.leftover", "spot.y.removeFailed", "spot.y.createFailed", "spot.y.stillRemoving"]) {
+  for (const k of ["spot.y.invite", "spot.y.note", "spot.y.intro", "spot.y.start", "spot.y.s2", "spot.y.s3", "spot.y.s3fix", "spot.y.s4", "spot.y.s5", "spot.y.removing", "spot.y.removed", "spot.y.leftover", "spot.y.removeFailed", "spot.y.createFailed", "spot.y.stillRemoving"]) {
     assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
   }
   assert.equal((app.match(/callApi\("removePracticeTidy"/g) || []).length, 1, "one cleanup call");
