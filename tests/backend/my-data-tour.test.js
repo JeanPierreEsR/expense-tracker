@@ -121,7 +121,7 @@ test("the Recently deleted practice: invitation box, offered after the list load
   for (const k of ["spot.d.invite", "spot.d.note", "spot.d.intro", "spot.d.start", "spot.d.finish", "spot.d.removing", "spot.d.removed", "spot.d.leftover", "spot.d.removeFailed", "spot.d.createFailed", "spot.d.stillRemoving", "spot.d.deleteFailed"]) {
     assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
   }
-  for (let i = 1; i <= 14; i++) assert.ok(STRINGS["spot.d.s" + i] && STRINGS["spot.d.s" + i].es, "step " + i);
+  for (const i of [1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 13, 14]) assert.ok(STRINGS["spot.d.s" + i] && STRINGS["spot.d.s" + i].es, "step " + i);   // (s7 and s11 were merged into s8 and s12, owner's plan 2026-11-05)
   assert.equal((app.match(/callApi\("removePracticeDeleted"/g) || []).length, 1, "one cleanup call");
   assert.equal((app.match(/callApi\("createPracticeDeleted"/g) || []).length, 1, "one call makes the entries");
   assert.match(app, /setTimeout\(practiceDLeftover_, 22000\)/, "a practice left by a closed app is offered for removal");
