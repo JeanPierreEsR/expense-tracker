@@ -18311,6 +18311,7 @@ async function refreshProjectionsScreen() {
   // had happened at all.
   renderPeriodSelector();
   await Promise.all([refreshProjections(), refreshProjectionCategories()]);
+  offerProjectionsTip_();
 }
 
 // The last projections shown are kept on this phone (per period) and painted at
@@ -18559,6 +18560,7 @@ function renderProjectionCategories_(result) {
     const isIncome = c.category_type === "income";
     const row = document.createElement("div");
     row.className = "recurring-row projection-row-expanded";
+    row.dataset.type = c.category_type;
     row.innerHTML = `
       <div class="projection-row-top">
         <div class="recurring-row-name">${c.category_icon ? c.category_icon + " " : ""}${escapeHtml(c.category_name)}</div>
@@ -19033,6 +19035,54 @@ document.getElementById("pmm-apply-best").addEventListener("click", async () => 
     resultEl.textContent = err.message;
   }
 });
+
+// ---- First-use practice: Projections (owner's design, 2026-11-06) ----
+// How to read the screen and how to choose a method. It only looks and tries: Save and the "use for every category / best for each" buttons
+// are never lit, and the method window closes by itself at the end, so the person's method never changes. No server writes, no cleanup, no
+// capability flag. Offered only with at least 6 complete months of data, the same bar the method comparison needs.
+const PROJECTIONS_MIN_MONTHS_ = 6;
+
+// Complete months (not the current one) with anything recorded.
+async function completeMonthsWithData_() {
+  const data = monthsHist_ || await callApi("getMonthlyHistory", {});
+  const cur = todayLocalISO().slice(0, 7);
+  return ((data && data.months) || []).filter((m) => m.month < cur && (m.income || m.expense || m.investment)).length;
+}
+
+async function offerProjectionsTip_() {
+  if (tipSeen_("projections") || document.getElementById("screen-projections").hidden) return;
+  let months = 0;
+  try { months = await completeMonthsWithData_(); } catch (err) { return; }   // (offered another time)
+  if (months >= PROJECTIONS_MIN_MONTHS_ && !document.getElementById("screen-projections").hidden) offerTip_("projections", "projections-tip-invite", tr("spot.j.invite"), startProjectionsPractice_);
+}
+
+function practiceJSteps_() {
+  const el = (id) => document.getElementById(id);
+  const windowOpen = () => !el("pm-modal-backdrop-method").hidden;
+  let firstMethod = "";
+  const row = () => document.querySelector('#projections-categories-list .projection-row-expanded[data-type="expense"]') || document.querySelector("#projections-categories-list .projection-row-expanded");
+  const compared = () => (windowOpen() && !el("pmm-compare-results").hidden && !el("pmm-compare-btn").disabled ? el("pmm-compare-table") : null);
+  return [
+    { key: "intro", text: () => tr("spot.j.intro"), button: () => tr("spot.j.start") },
+    { look: true, target: "#projections-body", text: () => tr("spot.j.s1"), button: () => tr("spot.j.gotIt"), wait: 20000 },
+    { look: true, target: row, text: () => tr("spot.j.s2"), button: () => tr("spot.j.gotIt"), wait: 20000 },
+    { target: "#projections-method-btn", text: () => tr("spot.j.s3"), tap: "#projections-method-btn" },
+    { target: () => (windowOpen() && pmmState ? Array.from(el("pmm-options").children).slice(0, 4) : null), text: () => tr("spot.j.s4"), wait: 20000,   // (the first four: the whole list is taller than the screen and pushed Balanced off the top)
+      until: () => { if (!pmmState) return false; if (!firstMethod) firstMethod = pmmState.selected || "-"; return (pmmState.selected || "-") !== firstMethod; } },
+    { target: "#pmm-compare-btn", text: () => tr("spot.j.s5"), tap: "#pmm-compare-btn" },
+    { look: true, target: compared, text: () => tr(document.querySelector("#pmm-compare-table .pmm-table-row") ? "spot.j.s6" : "spot.j.s6none"), button: () => tr("spot.j.finish"), wait: 60000 }
+  ];
+}
+
+function startProjectionsPractice_() {
+  const open = ["edit-entry-modal-backdrop", "drilldown-modal-backdrop", "pm-modal-backdrop-method", "projection-override-modal-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
+  if (open || newEntrySheetOpen_) { showToast_(tr("spot.x.busy")); return false; }
+  runTip_(practiceJSteps_(), async (how) => {
+    closeProjectionMethodModal_();   // (never saved: this window only saves through its own Save, which the practice does not light)
+    if (how === "done") showToast_(tr("spot.j.done"));
+  }, tr("spot.j.note"));
+  return true;
+}
 
 // Draws actual cumulative spend for the category (solid, through today —
 // same truncation rule as the budget chart) against a straight
