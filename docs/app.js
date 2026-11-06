@@ -8419,7 +8419,6 @@ document.getElementById("drilldown-menu-delete").addEventListener("click", async
   if (!practiceNoConfirm_(isPracticeBudgetName_(drilldownBudget.name)) && !confirm(tr(drilldownBudget.period_type === "yearly" ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what: describeForConfirm_(drilldownBudget.name || drilldownBudget.category_name || "", drilldownBudget.currency ? `${drilldownBudget.currency} ${moneyFmt(drilldownBudget.amount)}` : "") }))) return;
   const id = drilldownBudget.id;
   markDeleting_("budget:" + id);
-  if (practiceB_ && isPracticeBudgetName_(drilldownBudget.name)) { practiceB_.deleted = true; practiceBSave_(); }   // (the first-use practice's last real step)
   closeDrilldown();
   try {
     await callApi("deleteBudget", { id });
@@ -21086,7 +21085,7 @@ function practiceRLeftover_() {
 // delete). The practice budget never alerts (the server's alert check skips a budget with its name), so any amount is safe.
 // Cleanup = one backend call that deletes every budget with that name (removePracticeBudgets), in the background like the Loans one.
 const PRACTICE_B_KEY_ = "tipPracticeBudgets";
-let practiceB_ = null;          // { saved, deleted }: what the Budgets practice has done so far
+let practiceB_ = null;          // { saved }: what the Budgets practice has done so far
 let practiceBSaving_ = 0;       // saves of the practice budget still on their way to the server
 let practiceBFailed_ = "";      // the server's refusal of one of them
 let practiceBRemoving_ = false;
@@ -21147,21 +21146,15 @@ function practiceBSteps_() {
     { key: "amount", target: "#budget-amount", text: (fix) => tr(fix ? "spot.b.s3fix" : "spot.b.s3", { cur }), blurTap: true, until: amountDone,
       ok: () => amountVal() > 0, holdsUntil: "save", before: async () => { nameIt(); } },
     { target: "#budget-period-tabs", text: () => tr("spot.b.s4"), until: () => budgetPeriodTouched_, before: async () => { budgetPeriodTouched_ = false; } },
-    // (The alert boxes only exist on a copy with Telegram connected: without it this step is simply not there.)
-    { look: true, target: "#budget-period-tabs", text: () => tr("spot.b.s4b"), button: () => tr("spot.b.gotIt") },
-    { look: true, target: "#budget-alert-fields", text: () => tr("spot.b.s5"), button: () => tr("spot.b.gotIt"), available: () => !document.getElementById("budget-alert-fields").hidden },
     { key: "save", target: () => [document.getElementById("budget-save-btn"), document.getElementById("budget-form-error")],
       text: () => { const err = (document.getElementById("budget-form-error").textContent || "").trim(); return err ? tr("spot.b.s6err", { error: err }) : tr("spot.b.s6"); },
       before: async () => { nameIt(); document.getElementById("budget-form-error").textContent = ""; },
       until: () => document.getElementById("budget-modal-backdrop").hidden },
-    { target: practiceBRow_, text: () => tr("spot.b.s7"), tap: practiceBRow_, wait: 45000,
+    { target: practiceBRow_, text: () => tr("spot.b.s7"), button: () => tr("spot.b.finish"), wait: 45000,
       poke: () => {
         if (practiceBFailed_) { Spotlight.stop("skipped"); return; }   // the server refused it (an alert already said why): clean up and stop
         if (!document.getElementById("screen-budgets").hidden) refreshBudgets().catch(() => {});
-      } },
-    { target: "#drilldown-menu-btn", text: () => tr("spot.b.s8"), tap: "#drilldown-menu-btn", wait: 20000 },
-    { target: "#drilldown-menu-delete", text: () => tr("spot.b.s9"), until: () => !!(practiceB_ && practiceB_.deleted), wait: 10000 },
-    { text: () => tr("spot.b.s10"), button: () => tr("spot.b.finish") }
+      } }
   ];
 }
 
@@ -21169,7 +21162,7 @@ function startBudgetPractice_() {
   if (practiceBRemoving_) { showToast_(tr("spot.b.stillRemoving")); return false; }
   const open = ["budget-modal-backdrop", "drilldown-modal-backdrop", "edit-entry-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
   if (open || newEntrySheetOpen_) { showToast_(tr("spot.b.busy")); return false; }
-  practiceB_ = { saved: false, deleted: false };
+  practiceB_ = { saved: false };
   practiceBSave_();
   practiceBFailed_ = "";
   runTip_(practiceBSteps_(), async () => {
