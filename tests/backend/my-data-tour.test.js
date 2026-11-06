@@ -94,7 +94,7 @@ test("the Tidy practice: invitation box, offered after the list loads, flag-gate
   assert.match(app, /if \(!caps\.practiceTidy\) return;/);
   const practice = app.slice(app.indexOf("function practiceYSteps_()"), app.indexOf("// ---- More → My data: one row for everything"));
   for (const k of new Set([...practice.matchAll(/tr\("(spot\.y\.[A-Za-z0-9]+)"/g)].map((m) => m[1]))) assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
-  for (const k of ["spot.y.invite", "spot.y.note", "spot.y.intro", "spot.y.start", "spot.y.s1", "spot.y.s2", "spot.y.s3", "spot.y.s3fix", "spot.y.s4", "spot.y.s5", "spot.y.removing", "spot.y.removed", "spot.y.leftover", "spot.y.removeFailed", "spot.y.createFailed", "spot.y.stillRemoving"]) {
+  for (const k of ["spot.y.invite", "spot.y.note", "spot.y.intro", "spot.y.start", "spot.y.s2", "spot.y.s3", "spot.y.s3fix", "spot.y.s4", "spot.y.s5", "spot.y.removing", "spot.y.removed", "spot.y.leftover", "spot.y.removeFailed", "spot.y.createFailed", "spot.y.stillRemoving"]) {
     assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
   }
   assert.equal((app.match(/callApi\("removePracticeTidy"/g) || []).length, 1, "one cleanup call");
