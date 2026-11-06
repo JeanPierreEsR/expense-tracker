@@ -69,3 +69,12 @@ test("loan form: a new loan starts on the top account, no account is a named las
   assert.ok(!/^Optional|^Opcional/.test(STRINGS["loanModal.pmHint"].en) && !/^Opcional/.test(STRINGS["loanModal.pmHint"].es));
   assert.ok(STRINGS["loanModal.noAccount"].en && STRINGS["loanModal.noAccount"].es);
 });
+
+test("Budgets practice: 7 steps, ends on the new budget's row and deletes it by itself, its row saying Deleting…", () => {
+  const steps = app.slice(app.indexOf("function practiceBSteps_()"), app.indexOf("function startBudgetPractice_()"));
+  assert.ok(!/spot\.b\.(s4b|s5|s8|s9|s10|gotIt)/.test(steps + app), "the Annual, alerts, detail and delete steps are gone");
+  assert.match(steps, /target: practiceBRow_, text: \(\) => tr\("spot\.b\.s7"\), button: \(\) => tr\("spot\.b\.finish"\)/);
+  assert.equal((steps.match(/^    \{ (key|target)/gm) || []).length, 7, "intro, +, category, amount, period, save, row");
+  assert.ok(/Practice \(budget\|/.test(app) && /\(Presupuesto\|/.test(app), "the usual Deleting… sweep knows the budget's name in both languages");
+  for (const k of ["s4b", "s5", "s8", "s9", "s10", "gotIt"]) assert.ok(!STRINGS[`spot.b.${k}`], k);
+});
