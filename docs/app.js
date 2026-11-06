@@ -20003,7 +20003,7 @@ function startGuidedLoansLook_() {
 // ---- First-use practice: Needs review ----
 // The person sees how an automatic capture waits in "Needs review": two made-up purchases arrive (one server call, createPracticePending),
 // they pick a category and confirm one (it shows up in the day's list and counts) and discard the other. The practice entries carry the
-// source "practice" and no account / merchant / category, and the server ignores them for every kind of learning, guessing, name question,
+// source "practice" and no merchant / category (the top account is filled in on Confirm), and the server ignores them for every kind of learning, guessing, name question,
 // suggested trip and statement matching (backend/PracticeReview.gs). Cleanup = one call (removePracticeReview), in the background like the
 // others; it first waits until the practice's own confirm / discard have reached the server (they travel through the review-action queue).
 const PRACTICE_N_KEY_ = "tipPracticeReview";
@@ -20068,12 +20068,19 @@ function practiceNSteps_() {
   const part = (sel) => () => { const r = purchase(); return r ? r.querySelector(sel) : null; };
   const category = () => { const el = part(".review-category")(); return el && el.value ? el.value : ""; };
   const fieldOf = (sel) => () => { const el = part(sel)(); return el ? el.closest(".review-field") : null; };
+  // "Paid from": the practice fills in the top account, as the other practices do when picking one adds nothing to learn (owner, 2026-11-06:
+  // it looked unfinished left empty). In the step's target, so it is back at once if a late answer redraws the row.
+  const fillAccount = () => {
+    const el = part(".review-account")();
+    const top = ((meta && meta.paymentMethods) || []).find((pm) => pm.type !== "investment" && !pmHidden_(pm));
+    if (el && !el.value && top) el.value = top.id;
+  };
   return [
     { key: "intro", text: () => tr("spot.n.intro"), button: () => tr("spot.n.start") },
     // The look-only steps are merged into the next tap (owner's walk, 2026-11-05).
     { key: "category", target: () => (purchase() ? [part(".review-item-top")(), fieldOf(".review-category")()].filter(Boolean) : null), text: (fix) => tr(fix ? "spot.n.s3fix" : "spot.n.s3"), until: () => !!category(),
       ok: () => !!category(), holdsUntil: "confirm", wait: 30000, before: async () => practiceNReady_() },
-    { key: "confirm", target: part(".review-confirm-btn"), text: () => tr(category() ? "spot.n.s5" : "spot.n.s5err"), until: () => !purchase(), wait: 10000,
+    { key: "confirm", target: () => { fillAccount(); return part(".review-confirm-btn")(); }, text: () => tr(category() ? "spot.n.s5" : "spot.n.s5err"), until: () => !purchase(), wait: 10000,
       after: () => { if (practiceN_) { practiceN_.confirmed = true; practiceNSave_(); } } },
     { key: "discard", target: () => { const r = charge(); return r ? r.querySelector(".review-discard-btn") : null; }, text: () => tr("spot.n.s7"), until: () => !charge(), wait: 15000 },
     { look: true, target: practiceNEntryRow_, text: () => tr("spot.n.s8"), button: () => tr("spot.n.finish"), wait: 60000,
