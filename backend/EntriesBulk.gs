@@ -241,7 +241,7 @@ function appendObjectsBatch_(sheetName, objs) {
   }
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
-  var rows = objs.map(function (o) { return headers.map(function (h) { return o[h] !== undefined ? o[h] : ''; }); });
+  var rows = objs.map(function (o) { return headers.map(function (h) { return o[h] !== undefined ? (sheetName === 'Entries' ? sheetSafeText_(o[h]) : o[h]) : ''; }); });
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
   if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
   if (sheetName === 'Entries') bumpVersion_('ENTRIES_VERSION');

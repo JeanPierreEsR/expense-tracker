@@ -665,7 +665,7 @@ function readAllRows_(sheetName) {
   var values = all.slice(1);
   var tz = ROWS_MEMO_ ? (ROWS_MEMO_['@tz'] || (ROWS_MEMO_['@tz'] = sheetDateTz_())) : sheetDateTz_();
   var dates = {};
-  return values.map(function (row) { return rowToObject_(headers, row, tz, dates); });
+  return values.map(function (row, i) { return cleanSheetRow_(sheetName, rowToObject_(headers, row, tz, dates), headers, i + 2); });
 }
 
 // One sheet row as the object getAllRows gives (dates back to text, ids as text). `dates` remembers converted dates.
@@ -702,7 +702,7 @@ function findRowById_(sheetName, id) {
     var asText = (v !== '' && v != null) ? String(v) : v;   // as getAllRows hands it back
     if (asText === id) {
       var row = sheet.getRange(i + 2, 1, 1, lastCol).getValues()[0];
-      return rowToObject_(headers, row, sheetDateTz_(), {});
+      return cleanSheetRow_(sheetName, rowToObject_(headers, row, sheetDateTz_(), {}), headers, i + 2);
     }
   }
   return undefined;
@@ -716,7 +716,7 @@ function appendRowObject(sheetName, obj) {
   }
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
-  var row = headers.map(function (h) { return obj[h] !== undefined ? obj[h] : ''; });
+  var row = headers.map(function (h) { return obj[h] !== undefined ? (sheetName === 'Entries' ? sheetSafeText_(obj[h]) : obj[h]) : ''; });
   sheet.appendRow(row);
   if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
   noteRowAppended_(sheetName, obj);
@@ -2089,7 +2089,7 @@ function mergeDuplicatePaymentMethods() {
     }
   });
   if (entriesReassigned > 0) {
-    entrySheet.getRange(2, 1, entryValues.length, entryHeaders.length).setValues(entryValues);
+    entrySheet.getRange(2, 1, entryValues.length, entryHeaders.length).setValues(sheetSafeRows_(entryValues));
   }
 
   // Delete duplicate Payment Methods rows, bottom-up so row indices stay valid.

@@ -1553,7 +1553,7 @@ function getEntryById_(entryId) {
 function setCellByRow_(sheet, headers, rowIndex, fieldName, value) {
   var col = headers.indexOf(fieldName);
   if (col === -1) return;
-  sheet.getRange(rowIndex, col + 1).setValue(value);
+  sheet.getRange(rowIndex, col + 1).setValue(sheet.getName() === 'Entries' ? sheetSafeText_(value) : value);
   noteCellWrite_(sheet, rowIndex, fieldName);
 }
 

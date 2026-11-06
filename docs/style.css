@@ -3528,3 +3528,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #entry-card.entry-loading #entry-form,
 #entry-card.entry-loading #entry-type-tabs,
 #entry-card.entry-loading #category-picker { display: none; }
+
+/* Rows in the Sheet the app can't read: named on Home (backend/SheetCells.gs). */
+.home-unreadable { border-left: 4px solid #d64545; }
+.home-unreadable-title { font-weight: 600; margin-bottom: 4px; }
+.home-unreadable ul { margin: 6px 0; padding-left: 18px; font-size: 0.9em; overflow-wrap: anywhere; }

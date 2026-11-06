@@ -166,7 +166,11 @@ class FakeSheet {
   clear() { this.rows = []; this.lastCol = 0; }
   _norm(v, col) {
     if (v === undefined || v === null) return "";
-    if (this.textCols.has(col)) return v;
+    if (this.textCols.has(col)) return v;   // a plain-text column takes everything as typed, an apostrophe too
+    // As a real Sheet: a leading apostrophe means "this is text" and is not part of the value; without it, text starting with = + - @ is
+    // read as a formula (the marker shows up in the cell, so a test sees it).
+    if (typeof v === "string" && v[0] === "'") return v.slice(1);
+    if (typeof v === "string" && /^[=+\-@]/.test(v) && (v.trim().length === 1 || isNaN(Number(v)))) return "#FORMULA#" + v;
     return maybeDate(v);
   }
   _write(row, col, vals) {

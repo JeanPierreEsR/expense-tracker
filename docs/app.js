@@ -7089,7 +7089,26 @@ function homeTripCard_(t) {
   return el;
 }
 
+// Rows in the Sheet the server cannot read (backend/SheetCells.gs): named here, because they are left out of every total. Not a swipeable
+// card, so it can't be missed. Goes away by itself once the cells are fixed; the app never changes the Sheet.
+function renderHomeUnreadable_() {
+  const box = document.getElementById("home-unreadable");
+  const u = homeGlance_ && homeGlance_.unreadable;
+  if (!u || !u.count) { box.hidden = true; box.replaceChildren(); return; }
+  const lines = u.rows.map((r) => {
+    const what = tr("home.unreadableField." + r.field);
+    const text = tr(r.description ? "home.unreadableLine" : "home.unreadableLineNoName", { sheet: r.sheet, cell: r.cell, name: r.description, field: what, value: r.value });
+    return `<li>${escapeHtml(text)}</li>`;
+  }).join("");
+  const more = u.count > u.rows.length ? `<p class="hint">${escapeHtml(tr("home.unreadableMore", { n: u.count - u.rows.length }))}</p>` : "";
+  box.innerHTML = `<div class="home-unreadable-title">${escapeHtml(tr(u.count === 1 ? "home.unreadableTitleOne" : "home.unreadableTitle", { n: u.count }))}</div>`
+    + `<p class="hint">${escapeHtml(tr(u.count === 1 ? "home.unreadableTextOne" : "home.unreadableText"))}</p><ul>${lines}</ul>${more}`
+    + `<p class="hint">${escapeHtml(tr("home.unreadableHow"))}</p>`;
+  box.hidden = false;
+}
+
 function renderHomeGlance_() {
+  renderHomeUnreadable_();
   const box = document.getElementById("home-glance");
   const track = document.getElementById("home-glance-track");
   const dots = document.getElementById("home-glance-dots");
