@@ -106,7 +106,7 @@ function getHomeGlance() {
     if (totalPen > 0) budget = { totalPen: totalPen, spentPen: budgetSpent, daysLeft: pace.curDays - curDay };
   }
 
-  return { months: months, pace: pace, budget: budget, trips: homeActiveTrips_(today) };
+  return { months: months, pace: pace, budget: budget, trips: homeActiveTrips_(today), unreadable: unreadableSheetRows_() };
 }
 
 // Every month from the first confirmed entry to today: the totals (the Overview's month-by-month bars)

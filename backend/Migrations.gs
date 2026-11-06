@@ -246,7 +246,7 @@ function rewriteColumn_(sheetName, col, fn, dryRun) {
     else out.push([before]);
   });
   if (!dryRun && ids.length) {
-    sheet.getRange(2, ci + 1, out.length, 1).setValues(out);
+    sheet.getRange(2, ci + 1, out.length, 1).setValues(sheetName === 'Entries' ? sheetSafeRows_(out) : out);
     if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
   }
   return { changed: ids.length, ids: ids };

@@ -29,3 +29,22 @@ test("turning an automatic split off forgets its friend, and the next payer is a
   assert.match(fn, /splitFriendIds\.size === 1 && splitFriendIds\.has\(paidByAutoSplit_\)\) splitFriendIds\.delete\(paidByAutoSplit_\)/);
   assert.match(fn, /splitFriendIds\.add\(paidBy\);\s*\/\/ whoever paid/);
 });
+
+test("the Transfer form's overpayment category starts on Decide later, and a conversion may leave it there", () => {
+  const app = require("fs").readFileSync(require("path").join(__dirname, "..", "..", "docs", "app.js"), "utf8");
+  const block = /const overpaySel = [\s\S]*?overpaySel\.value = "";/.exec(app)[0];
+  assert.ok(block.includes('tr("reassign.limitLater")') && block.includes("overpaySel.prepend(overpayLater)"));
+  assert.ok(app.includes("overpay_pending_ok: !overpayCategoryId"), "without it the server refuses a conversion with no category");
+});
+
+test("every practice's failed cleanup goes through the one place that tells a lost connection from a refusal", () => {
+  const root = require("path").join(__dirname, "..", "..", "docs");
+  const app = require("fs").readFileSync(require("path").join(root, "app.js"), "utf8");
+  const stm = require("fs").readFileSync(require("path").join(root, "statements.js"), "utf8");
+  assert.equal((app + stm).match(/alert\(tr\("[^)]*removeFailed/g), null, "no cleanup alerts by itself any more");
+  const keys = new Set([...app.matchAll(/practiceCleanupFailed_\("([a-z])"/g)].map((m) => m[1]));
+  ["s", "f"].forEach((k) => keys.add(k));
+  const retry = /const PRACTICE_RETRY_ = \{[\s\S]*?\n\};/.exec(app)[0];
+  keys.forEach((k) => assert.ok(new RegExp("\\n  " + k + ": ").test(retry), "retry for " + k));
+  [...app.matchAll(/function practice[A-Z]?Leftover_\(\) \{\n(.*)/g)].forEach((m) => assert.ok(m[1].includes("practiceDue_("), m[0]));
+});

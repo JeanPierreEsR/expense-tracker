@@ -78,9 +78,9 @@ test("'Nothing was kept' is only said when every friend the practice added is re
   for (const k of ["spot.p.removedFriend"]) assert.ok(STRINGS[k].en.includes("{name}") && STRINGS[k].es.includes("{name}"));
 });
 
-test("both Loans cleanups record what is left and all four 'removed' messages go through the honest check", () => {
+test("both Loans cleanups record what is left and all six 'removed' messages (two are the retry after a lost connection) go through the honest check", () => {
   assert.equal((app.match(/practiceFriendsKept_ = practiceNewFriendNames_\(p\)/g) || []).length, 2);
-  assert.equal((app.match(/practiceRemovedToast_\("spot\.[pl]\.removed"\)/g) || []).length, 4);
+  assert.equal((app.match(/practiceRemovedToast_\("spot\.[pl]\.removed"\)/g) || []).length, 6);
   assert.ok(!/showToast_\(tr\("spot\.[pl]\.removed"\)\)/.test(app), "no plain 'removed' toast is left for Loans");
 });
 

@@ -570,7 +570,7 @@ async function callApiOnce_(action, payload, attempt, startedAt) {
     }
     perfRecordCall_(action, performance.now() - startedAt, attempt, null, null, false);
     betaRecordError_(action, "network");
-    throw new Error(tr("error.unreachable"));
+    throw Object.assign(new Error(tr("error.unreachable")), { code: "unreachable" });
   }
   perfRecordCall_(action, performance.now() - startedAt, attempt, json.serverMs, json.coldInstance, !!json.ok);
   if (!json.ok && (json.code === "invalid_access_code" || json.error === "Invalid access code") && getSessionToken()) {
@@ -1724,7 +1724,16 @@ function updateRepaymentUi_() {
   document.getElementById("repayment-overpay-block").hidden = isLoan;
   document.getElementById("loan-due-block").hidden = !isLoan;
   if (!isLoan) {
+    // "Decide later" comes first and is the default: an extra beyond the debt waits in Needs review unless a category was really picked.
+    const overpaySel = document.getElementById("repayment-overpay-category");
+    const overpayKept = overpaySel.value;
     populateCategoryOptionsForSelect_("repayment-overpay-category", iPaid ? "expense" : "income");
+    const overpayLater = document.createElement("option");
+    overpayLater.value = "";
+    overpayLater.textContent = tr("reassign.limitLater");
+    overpaySel.prepend(overpayLater);
+    overpaySel.value = overpayKept;
+    if (overpaySel.selectedIndex < 0) overpaySel.value = "";
     document.getElementById("repayment-overpay-category-label").textContent = iPaid ? tr("transfer.overpayCategoryIPaid") : tr("transfer.overpayCategoryTheyPaid");
   }
   document.getElementById("repayment-hint").textContent = isLoan
@@ -2581,6 +2590,20 @@ function renderRateModalLabels_() {
   // save handler flips it back on the way in.
   const displayValue = existingRate == null ? "" : (inverted ? 1 / existingRate : existingRate);
   document.getElementById("rate-value-input").value = displayValue === "" ? "" : String(displayValue);
+  renderRateMeaning_();
+}
+
+// A first-ever rate has nothing to compare with, so the "far off" question cannot catch a typo: the window spells out what the number
+// means instead, for 10 units so a wrong size is easy to see. Only when the server says there is no earlier rate.
+function renderRateMeaning_() {
+  const el = document.getElementById("rate-meaning");
+  const st = rateModalState;
+  const raw = parseFloat(document.getElementById("rate-value-input").value);
+  if (!st || !st.firstEver || !(raw > 0)) { el.hidden = true; return; }
+  const from = st.inverted ? homeCur() : st.currency;
+  const to = st.inverted ? st.currency : homeCur();
+  el.textContent = tr("rateModal.meaning", { left: `10 ${from}`, right: `${to} ${moneyFmt(raw * 10)}` });
+  el.hidden = false;
 }
 
 // existingRate (optional) pre-fills the input for editing an already-set
@@ -2592,7 +2615,11 @@ function openRateModal(currency, month, required, existingRate) {
     // so Save has nothing to wait for before it can close.
     const [yy, mm] = month.split("-").map(Number);
     const prevMonth = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
-    rateModalState.prevRate = callApi("getLatestRateOnOrBefore", { currency, month: prevMonth }).then((r) => r.rate).catch(() => null);
+    const opening = rateModalState;
+    opening.prevRate = callApi("getLatestRateOnOrBefore", { currency, month: prevMonth }).then((r) => {
+      if (r.rate == null) { opening.firstEver = true; if (rateModalState === opening) renderRateMeaning_(); }
+      return r.rate;
+    }).catch(() => null);
     document.getElementById("rate-modal-title").textContent = tr("rateModal.titleWithCurrency", { currency });
     document.getElementById("rate-modal-subtitle").textContent = existingRate != null
       ? tr("rateModal.editing", { currency, month })
@@ -2623,6 +2650,7 @@ document.getElementById("rate-invert-btn").addEventListener("click", () => {
 document.getElementById("rate-value-input").addEventListener("input", (e) => {
   const sanitized = sanitizeAmountInputValue(e.target.value);
   if (sanitized !== e.target.value) e.target.value = sanitized;
+  renderRateMeaning_();
 });
 
 document.getElementById("rate-modal-close").addEventListener("click", () => closeRateModal_(null));
@@ -2950,7 +2978,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           ...fields,
           repayments: repaymentsChoice,
           entry_id: editingEntryId,
-          ...(isLoanKind ? {} : { overpay_category_id: overpayCategoryId })
+          ...(isLoanKind ? {} : { overpay_category_id: overpayCategoryId, overpay_pending_ok: !overpayCategoryId })
         });
         exitEditMode();
       } else if (isLoanKind) {
@@ -6891,6 +6919,7 @@ function kickHomeGlance_() {
 }
 
 function refreshHomeGlance_(force) {
+  setTimeout(practiceRetryDue_, 1000);   // a cleanup that lost the connection comes first: it needs no question
   setTimeout(practiceLeftover_, 2000);   // a practice left behind by an app closed midway (first-use tips); asks once per opening
   setTimeout(practiceBLeftover_, 4000);
   setTimeout(practiceRLeftover_, 6000);
@@ -7061,7 +7090,26 @@ function homeTripCard_(t) {
   return el;
 }
 
+// Rows in the Sheet the server cannot read (backend/SheetCells.gs): named here, because they are left out of every total. Not a swipeable
+// card, so it can't be missed. Goes away by itself once the cells are fixed; the app never changes the Sheet.
+function renderHomeUnreadable_() {
+  const box = document.getElementById("home-unreadable");
+  const u = homeGlance_ && homeGlance_.unreadable;
+  if (!u || !u.count) { box.hidden = true; box.replaceChildren(); return; }
+  const lines = u.rows.map((r) => {
+    const what = tr("home.unreadableField." + r.field);
+    const text = tr(r.description ? "home.unreadableLine" : "home.unreadableLineNoName", { sheet: r.sheet, cell: r.cell, name: r.description, field: what, value: r.value });
+    return `<li>${escapeHtml(text)}</li>`;
+  }).join("");
+  const more = u.count > u.rows.length ? `<p class="hint">${escapeHtml(tr("home.unreadableMore", { n: u.count - u.rows.length }))}</p>` : "";
+  box.innerHTML = `<div class="home-unreadable-title">${escapeHtml(tr(u.count === 1 ? "home.unreadableTitleOne" : "home.unreadableTitle", { n: u.count }))}</div>`
+    + `<p class="hint">${escapeHtml(tr(u.count === 1 ? "home.unreadableTextOne" : "home.unreadableText"))}</p><ul>${lines}</ul>${more}`
+    + `<p class="hint">${escapeHtml(tr("home.unreadableHow"))}</p>`;
+  box.hidden = false;
+}
+
 function renderHomeGlance_() {
+  renderHomeUnreadable_();
   const box = document.getElementById("home-glance");
   const track = document.getElementById("home-glance-track");
   const dots = document.getElementById("home-glance-dots");
@@ -12250,7 +12298,7 @@ async function practiceDRemove_() {
     if (p.made) {
       for (let i = 0; i < 40 && perfInflight_ > 0; i++) await sleep(400);   // a delete / restore still on its way lands first
       try { await callApi("removePracticeDeleted", {}); }
-      catch (err) { ok = false; alert(tr("spot.d.removeFailed", { error: err.message })); }
+      catch (err) { ok = false; practiceCleanupFailed_("d", err); }
     }
     if (ok) { practiceD_ = null; practiceDSave_(); }
     if (!document.getElementById("screen-deleted-entries").hidden) refreshDeletedScreen_().catch(() => {});   // the practice batch leaves the list
@@ -12262,6 +12310,7 @@ async function practiceDRemove_() {
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
 function practiceDLeftover_() {
+  if (practiceDue_("d")) return;   // already being retried, nothing to ask
   if (practiceDLeftoverAsked_ || practiceDRemoving_ || Spotlight.isRunning() || !(practiceDLoad_() || {}).made) return;
   practiceDLeftoverAsked_ = true;
   if (confirm(tr("spot.d.leftover"))) practiceDRemove_().then((ok) => { if (ok) showToast_(tr("spot.d.removed")); });
@@ -12477,7 +12526,7 @@ async function practiceYRemove_() {
     let ok = true;
     if (p.made) {
       try { await callApi("removePracticeTidy", {}); }
-      catch (err) { ok = false; alert(tr("spot.y.removeFailed", { error: err.message })); }
+      catch (err) { ok = false; practiceCleanupFailed_("y", err); }
     }
     if (ok) { practiceY_ = null; practiceYSave_(); }
     if (!document.getElementById("screen-tidy").hidden) loadTidy_().catch(() => {});   // the practice group leaves the list
@@ -12489,6 +12538,7 @@ async function practiceYRemove_() {
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
 function practiceYLeftover_() {
+  if (practiceDue_("y")) return;   // already being retried, nothing to ask
   if (practiceYLeftoverAsked_ || practiceYRemoving_ || Spotlight.isRunning() || !(practiceYLoad_() || {}).made) return;   // (a practice closed before it made anything has nothing to remove)
   practiceYLeftoverAsked_ = true;
   if (confirm(tr("spot.y.leftover"))) practiceYRemove_().then((ok) => { if (ok) showToast_(tr("spot.y.removed")); });
@@ -19398,6 +19448,7 @@ function offerTip_(key, boxId, inviteText, start, after) {
     if (after) after();
   });
   box.querySelector(".tip-invite-go").addEventListener("click", () => {
+    if (practiceDueList_().length) { showToast_(tr("spot.p.stillRemoving")); practiceRetryDue_(); return; }   // starting now could overwrite what it still has to remove
     if (!start()) return;   // not possible right now (something half-typed): stays on offer, nothing marked
     markTipSeen_(key);
     box.hidden = true;
@@ -19515,7 +19566,7 @@ async function practiceRemoveNow_(p) {
       }
     } catch (err) {
       ok = false;
-      alert(tr("spot.p.removeFailed", { error: err.message }));
+      practiceCleanupFailed_("p", err);
     }
   } else {
     // An older backend (a friend not yet updated): the same cleanup, step by step.
@@ -19527,7 +19578,7 @@ async function practiceRemoveNow_(p) {
         // An expense that never reached the server is simply not there: nothing to remove.
         if (!/not found|no se encontr/i.test(String(err.message))) {
           ok = false;
-          alert(tr("spot.p.removeFailed", { error: err.message }));
+          practiceCleanupFailed_("p", err);
         }
       }
     }
@@ -19586,9 +19637,66 @@ async function practiceDeleteNewFriends_(p) {
   if (created.length) { try { refreshFriendChips_(); populatePaidByOptions(); } catch (e) { /* the pickers refresh on the next load */ } }
 }
 
+// A practice cleanup that lost the connection (owner's plan, 2026-11-06). What it still has to remove stays on this phone (each practice keeps its
+// own state until its cleanup succeeded); it is remembered as "due" and retried by itself, with no question, when the connection comes back, when
+// the app comes back to the front, and when Home opens. One message only. A refusal by the server is not a connection problem: that one is said
+// plainly, once, and the next opening asks as usual.
+const PRACTICE_DUE_KEY_ = "practiceCleanupDue";
+function practiceDueList_() {
+  try { return JSON.parse(localStorage.getItem(PRACTICE_DUE_KEY_) || "[]"); } catch (e) { return []; }
+}
+function practiceDue_(key) { return practiceDueList_().includes(key); }
+function practiceDueSet_(key, on) {
+  const rest = practiceDueList_().filter((k) => k !== key);
+  if (on) rest.push(key);
+  try { localStorage.setItem(PRACTICE_DUE_KEY_, JSON.stringify(rest)); } catch (e) { /* retried at least while the app stays open */ }
+}
+function practiceCleanupFailed_(key, err) {
+  if (err && err.code === "unreachable") {
+    if (!practiceDue_(key)) showToast_(tr("spot.cleanupLater"));
+    practiceDueSet_(key, true);
+    return;
+  }
+  practiceDueSet_(key, false);
+  alert(tr(`spot.${key}.removeFailed`, { error: err.message }));
+}
+const PRACTICE_RETRY_ = {
+  p: () => practiceRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.p.removed"); return ok; }),
+  l: () => practiceMRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.l.removed"); return ok; }),
+  n: () => practiceNRemove_().then((ok) => { if (ok) showToast_(tr("spot.n.removed")); return ok; }),
+  b: () => practiceBRemove_().then((ok) => { if (ok) showToast_(tr("spot.b.removed")); return ok; }),
+  r: () => practiceRRemove_().then((ok) => { if (ok) showToast_(tr("spot.r.removed")); return ok; }),
+  a: () => practiceARemove_().then((ok) => { if (ok) showToast_(tr("spot.a.removed")); return ok; }),
+  i: () => practiceIRemove_().then((ok) => { if (ok) showToast_(tr("spot.i.removed")); return ok; }),
+  t: () => practiceTRemove_().then((ok) => { if (ok) showToast_(tr("spot.t.removed")); return ok; }),
+  x: () => practiceXRemove_().then((ok) => { if (ok) showToast_(tr("spot.x.removed")); return ok; }),
+  y: () => practiceYRemove_().then((ok) => { if (ok) showToast_(tr("spot.y.removed")); return ok; }),
+  d: () => practiceDRemove_().then((ok) => { if (ok) showToast_(tr("spot.d.removed")); return ok; }),
+  s: () => window.statementsPracticeRetry_(),
+  f: () => window.statementsPracticeRetry_()
+};
+let practiceRetryBusy_ = false;
+async function practiceRetryDue_() {
+  if (practiceRetryBusy_ || Spotlight.isRunning() || navigator.onLine === false) return;
+  const due = practiceDueList_();
+  if (!due.length) return;
+  practiceRetryBusy_ = true;
+  try {
+    for (const key of due) {
+      const run = PRACTICE_RETRY_[key];
+      let ok = true;
+      try { if (run) ok = await run(); } catch (e) { ok = false; }
+      if (ok) practiceDueSet_(key, false);
+    }
+  } finally { practiceRetryBusy_ = false; }
+}
+window.addEventListener("online", () => { practiceRetryDue_(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) practiceRetryDue_(); });
+
 // A practice left behind (the app was closed midway): offered once when Home opens.
 let practiceLeftoverAsked_ = false;
 function practiceLeftover_() {
+  if (practiceDue_("p")) return;   // already being retried, nothing to ask
   if (practiceLeftoverAsked_ || practiceRemoving_ || Spotlight.isRunning() || !practiceLoad_()) return;
   practiceLeftoverAsked_ = true;
   if (confirm(tr("spot.p.leftover"))) practiceRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.p.removed"); });
@@ -20023,7 +20131,7 @@ async function practiceNRemove_() {
     let ok = true;
     if (p.created) {
       try { await callApi("removePracticeReview", { started_on: p.startedOn || "" }); }
-      catch (err) { ok = false; alert(tr("spot.n.removeFailed", { error: err.message })); }
+      catch (err) { ok = false; practiceCleanupFailed_("n", err); }
     }
     if (ok) { practiceN_ = null; practiceNSave_(); }
     practiceNFailed_ = "";
@@ -20037,6 +20145,7 @@ async function practiceNRemove_() {
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
 function practiceNLeftover_() {
+  if (practiceDue_("n")) return;   // already being retried, nothing to ask
   if (practiceNLeftoverAsked_ || practiceNRemoving_ || Spotlight.isRunning() || !practiceNLoad_()) return;
   practiceNLeftoverAsked_ = true;
   if (confirm(tr("spot.n.leftover"))) practiceNRemove_().then((ok) => { if (ok) showToast_(tr("spot.n.removed")); });
@@ -20302,7 +20411,7 @@ async function practiceMRemove_() {
         }
       } catch (err) {
         ok = false;
-        alert(tr("spot.l.removeFailed", { error: err.message }));
+        practiceCleanupFailed_("l", err);
       }
     }
     if (ok) { practiceFriendsKept_ = practiceNewFriendNames_(p); practiceM_ = null; practiceMSave_(); }
@@ -20317,6 +20426,7 @@ async function practiceMRemove_() {
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
 function practiceMLeftover_() {
+  if (practiceDue_("l")) return;   // already being retried, nothing to ask
   if (practiceMLeftoverAsked_ || practiceMRemoving_ || Spotlight.isRunning() || !practiceMLoad_()) return;
   practiceMLeftoverAsked_ = true;
   if (confirm(tr("spot.l.leftover"))) practiceMRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.l.removed"); });
@@ -20530,7 +20640,7 @@ async function practiceIRemove_(force) {
     let ok = true;
     if (p.saved) {
       try { await callApi("removePracticeInvestments", { started_on: p.startedOn || "" }); }
-      catch (err) { ok = false; alert(tr("spot.i.removeFailed", { error: err.message })); }
+      catch (err) { ok = false; practiceCleanupFailed_("i", err); }
     }
     if (ok) {
       practiceI_ = null; practiceISave_();
@@ -20549,6 +20659,7 @@ async function practiceIRemove_(force) {
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
 function practiceILeftover_() {
+  if (practiceDue_("i")) return;   // already being retried, nothing to ask
   if (practiceILeftoverAsked_ || practiceIRemoving_ || Spotlight.isRunning() || !practiceILoad_()) return;
   practiceILeftoverAsked_ = true;
   if (confirm(tr("spot.i.leftover"))) practiceIRemove_().then((ok) => { if (ok) showToast_(tr("spot.i.removed")); });
@@ -20715,7 +20826,7 @@ async function practiceARemove_(force) {
     let ok = true;
     if (p.saved) {
       try { await callApi("removePracticeAccounts", { started_on: p.startedOn || "" }); }
-      catch (err) { ok = false; alert(tr("spot.a.removeFailed", { error: err.message })); }
+      catch (err) { ok = false; practiceCleanupFailed_("a", err); }
     }
     if (ok) {
       practiceA_ = null; practiceASave_();
@@ -20731,6 +20842,7 @@ async function practiceARemove_(force) {
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
 function practiceALeftover_() {
+  if (practiceDue_("a")) return;   // already being retried, nothing to ask
   if (practiceALeftoverAsked_ || practiceARemoving_ || Spotlight.isRunning() || !practiceALoad_()) return;
   practiceALeftoverAsked_ = true;
   if (confirm(tr("spot.a.leftover"))) practiceARemove_().then((ok) => { if (ok) showToast_(tr("spot.a.removed")); });
@@ -20889,7 +21001,7 @@ async function practiceTRemove_() {
     if (p.saved || p.made) {
       if (practiceTMaking_) await practiceTMaking_;   // the two past expenses are on the server before the cleanup looks
       try { await callApi("removePracticeTrips", { started_on: p.startedOn || "" }); }
-      catch (err) { ok = false; alert(tr("spot.t.removeFailed", { error: err.message })); }
+      catch (err) { ok = false; practiceCleanupFailed_("t", err); }
     }
     if (ok) { practiceT_ = null; practiceTSave_(); }
     practiceTFailed_ = "";
@@ -20904,6 +21016,7 @@ async function practiceTRemove_() {
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
 function practiceTLeftover_() {
+  if (practiceDue_("t")) return;   // already being retried, nothing to ask
   if (practiceTLeftoverAsked_ || practiceTRemoving_ || Spotlight.isRunning() || !practiceTLoad_()) return;
   practiceTLeftoverAsked_ = true;
   if (confirm(tr("spot.t.leftover"))) practiceTRemove_().then((ok) => { if (ok) showToast_(tr("spot.t.removed")); });
@@ -21046,7 +21159,7 @@ async function practiceXRemove_() {
     let ok = true;
     if (p.saved) {
       try { await callApi("removePracticeExchange", { started_on: p.startedOn || "" }); }
-      catch (err) { ok = false; alert(tr("spot.x.removeFailed", { error: err.message })); }
+      catch (err) { ok = false; practiceCleanupFailed_("x", err); }
     }
     if (ok) { practiceX_ = null; practiceXSave_(); }
     refreshEntryList().catch(() => {});
@@ -21058,6 +21171,7 @@ async function practiceXRemove_() {
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
 function practiceXLeftover_() {
+  if (practiceDue_("x")) return;   // already being retried, nothing to ask
   if (practiceXLeftoverAsked_ || practiceXRemoving_ || Spotlight.isRunning() || !practiceXLoad_()) return;
   practiceXLeftoverAsked_ = true;
   if (confirm(tr("spot.x.leftover"))) practiceXRemove_().then((ok) => { if (ok) showToast_(tr("spot.x.removed")); });
@@ -21200,7 +21314,7 @@ async function practiceRRemove_() {
     let ok = true;
     if (p.saved) {
       try { await callApi("removePracticeProgrammed", { started_on: p.startedOn || "" }); }
-      catch (err) { ok = false; alert(tr("spot.r.removeFailed", { error: err.message })); }
+      catch (err) { ok = false; practiceCleanupFailed_("r", err); }
     }
     if (ok) { practiceR_ = null; practiceRSave_(); }
     practiceRFailed_ = "";
@@ -21214,6 +21328,7 @@ async function practiceRRemove_() {
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
 function practiceRLeftover_() {
+  if (practiceDue_("r")) return;   // already being retried, nothing to ask
   if (practiceRLeftoverAsked_ || practiceRRemoving_ || Spotlight.isRunning() || !practiceRLoad_()) return;
   practiceRLeftoverAsked_ = true;
   if (confirm(tr("spot.r.leftover"))) practiceRRemove_().then((ok) => { if (ok) showToast_(tr("spot.r.removed")); });
@@ -21327,7 +21442,7 @@ async function practiceBRemove_() {
     let ok = true;
     if (p.saved) {
       try { await callApi("removePracticeBudgets", {}); }
-      catch (err) { ok = false; alert(tr("spot.b.removeFailed", { error: err.message })); }
+      catch (err) { ok = false; practiceCleanupFailed_("b", err); }
     }
     if (ok) { practiceB_ = null; practiceBSave_(); }
     practiceBFailed_ = "";
@@ -21338,6 +21453,7 @@ async function practiceBRemove_() {
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
 function practiceBLeftover_() {
+  if (practiceDue_("b")) return;   // already being retried, nothing to ask
   if (practiceBLeftoverAsked_ || practiceBRemoving_ || Spotlight.isRunning() || !practiceBLoad_()) return;
   practiceBLeftoverAsked_ = true;
   if (confirm(tr("spot.b.leftover"))) practiceBRemove_().then((ok) => { if (ok) showToast_(tr("spot.b.removed")); });

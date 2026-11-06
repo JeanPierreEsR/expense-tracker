@@ -2444,7 +2444,7 @@
           if (bank) await callApi("removePracticeBank", { signature: p.signature || "", account: !!p.accountMade });
           else await callApi("removePracticeImport", { signature: p.signature || "" });
           if (bank && p.accountMade && typeof loadMeta === "function") await loadMeta();   // the Practice account leaves every list
-        } catch (err) { ok = false; alert(tr(bank ? "spot.s.removeFailed" : "spot.f.removeFailed", { error: err.message })); }
+        } catch (err) { ok = false; practiceCleanupFailed_(bank ? "s" : "f", err); }
       }
       if (ok) { practiceI_ = null; practiceISave_(); }
       coverage = null;
@@ -2454,8 +2454,15 @@
     } finally { practiceIRemoving_ = false; }
   }
 
+  // A cleanup that lost the connection, retried by itself (practiceRetryDue_ in app.js).
+  window.statementsPracticeRetry_ = function () {
+    const k = (practiceILoad_() || {}).kind === "bank" ? "s" : "f";
+    return practiceIRemove_().then((ok) => { if (ok) showToast_(tr(`spot.${k}.removed`)); return ok; });
+  };
+
   // A practice left behind (the app was closed midway): offered once when the app opens.
   window.statementsPracticeLeftover_ = function () {
+    if (practiceDue_("s") || practiceDue_("f")) return;
     const left = practiceILoad_() || {};
     if (practiceILeftoverAsked_ || practiceIRemoving_ || Spotlight.isRunning() || !(left.touched || (left.kind === "bank" && left.accountMade))) return;
     practiceILeftoverAsked_ = true;
