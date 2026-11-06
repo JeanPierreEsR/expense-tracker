@@ -12045,22 +12045,20 @@ function practiceDSteps_() {
       after: () => { const t = [...entriesSelected_]; if (t.slice().sort().join(",") !== practiceDIds_().slice().sort().join(",")) prefetchEntriesDeletePreview_(t); } },
     { key: "del", target: "#entries-delete-selected-btn", text: (fix) => tr(fix ? "spot.d.s5fix" : "spot.d.s5"), tap: "#entries-delete-selected-btn" },
     { target: "#entries-bulk-go", text: () => tr("spot.d.s6"), tap: "#entries-bulk-go", wait: 20000 },
-    // No wait here any more: the rows already show "Deleting…"; the server's answer is awaited only where it is needed, at the batch.
-    { text: () => tr("spot.d.s7"), button: () => tr("spot.d.gotIt") },
+    // (The note about the 10-second Undo is part of the next step's text. The rows already show "Deleting…"; the server's answer is awaited only where it is needed, at the batch.)
     { target: '.nav-btn[data-screen="more"]', text: () => tr("spot.d.s8"), tap: '.nav-btn[data-screen="more"]' },
     // More remembers the sub-screen it was left on, so usually this already shows Recently deleted and the next two steps drop out.
     { target: "#more-my-data-btn", text: () => tr("spot.d.s9"), tap: "#more-my-data-btn",
       before: async () => { await sleep(500); return !deletedShown() && el("screen-my-data").hidden; } },
     { target: "#more-deleted-btn", text: () => tr("spot.d.s10"), tap: "#more-deleted-btn",
       before: async () => { await sleep(150); return !deletedShown(); } },
-    { look: true, target: batch, text: () => tr("spot.d.s11"), button: () => tr("spot.d.gotIt"), wait: 20000, poke: pokeDeleted,
+    { target: restoreBtn, text: () => tr("spot.d.s12"), until: () => !!(practiceD_ && (practiceD_.restored || practiceD_.restoreTapped)), wait: 20000, poke: pokeDeleted,
       before: async () => {
         for (let i = 0; i < 100 && !(practiceD_ && practiceD_.deleted); i++) await sleep(400);   // up to 40 s for the server (usually long done)
         if (!(practiceD_ && practiceD_.deleted)) { alert(tr("spot.d.deleteFailed")); Spotlight.stop("skipped"); return false; }
         if (!batch()) pokeDeleted();   // the screen opened before the delete landed
         return true;
       } },
-    { target: restoreBtn, text: () => tr("spot.d.s12"), until: () => !!(practiceD_ && (practiceD_.restored || practiceD_.restoreTapped)), wait: 15000, poke: pokeDeleted },
     { target: forgetBtn, text: () => tr("spot.d.s13"), until: () => !!(practiceD_ && (practiceD_.forgot || practiceD_.forgetTapped)), wait: 15000, poke: pokeDeleted },
     { text: () => tr("spot.d.s14"), button: () => tr("spot.d.finish") }
   ];
