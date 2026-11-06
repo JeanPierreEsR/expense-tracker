@@ -128,3 +128,11 @@ test("Bank statements practice: 11 steps, the Inbox closed so the card's heading
   assert.match(stm, /c\.id !== "statement-history-save"/);
   assert.ok(!STRINGS["spot.s.s2"], "the two first looks are one step now");
 });
+
+test("Export practice: 5 steps, and while the file is being prepared the step says so instead of Tap", () => {
+  const steps = app.slice(app.indexOf("function practiceESteps_()"), app.indexOf("function startExportPractice_()"));
+  assert.equal((steps.match(/^    \{ (key|target|text)/gm) || []).length, 5);
+  assert.match(steps, /el\("export-get-btn"\)\.disabled \? tr\("export\.preparing"\)/);
+  assert.ok(!STRINGS["spot.e.s1"]);
+  assert.ok(STRINGS["export.preparing"].en && STRINGS["export.preparing"].es);
+});
