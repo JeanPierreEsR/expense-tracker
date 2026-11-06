@@ -20018,9 +20018,10 @@ const practiceMSetValue_ = (id, value) => { const el = document.getElementById(i
 
 function practiceLSteps_() {
   const cur = homeCur();
-  const hasAccounts = () => Array.from(document.querySelectorAll("#loan-payment-method option")).some((o) => o.value);
   const nameIt = () => practiceMSetValue_("loan-description", tr("spot.l.name"));
   const formOpen = () => practiceMOpen_("loan-modal-backdrop");
+  // 7 steps (owner's plan 2026-11-05, was 13): the account starts on the top one; the "from before the app" switch and the friend's page are
+  // not explained here; no delete steps (the cleanup removes the loan and a friend added here).
   return [
     { key: "intro", text: () => tr("spot.l.intro"), button: () => tr("spot.l.start") },
     { key: "add", target: "#add-loan-btn", text: () => tr("spot.l.s1"), tap: "#add-loan-btn",
@@ -20031,29 +20032,19 @@ function practiceLSteps_() {
       until: () => loanFriendTouched_ && practiceMFriendOk_(), ok: () => loanFriendAdding_ || practiceMFriendOk_(), holdsUntil: "save" },
     { target: () => document.getElementById("loan-direction-tabs"), text: () => tr("spot.l.s3"), tap: () => document.getElementById("loan-direction-tabs") },
     { key: "amount", target: "#loan-amount", text: (fix) => tr(fix ? "spot.l.s4fix" : "spot.l.s4", { cur }), blurTap: true,
-      until: practiceMAmountDone_("#loan-amount"), ok: practiceMAmountOk_("#loan-amount"), holdsUntil: "save", before: async () => { nameIt(); } },
-    { look: true, target: "#loan-opening-row", text: () => tr("spot.l.s5"), button: () => tr("spot.l.gotIt"),
-      available: () => !!((meta && meta.capabilities) || {}).openingLoan,
+      until: practiceMAmountDone_("#loan-amount"), ok: practiceMAmountOk_("#loan-amount"), holdsUntil: "save",
       before: async () => {
-        if (!((meta && meta.capabilities) || {}).openingLoan) return false;
+        nameIt();
         const box = document.getElementById("loan-opening");
         if (box.checked) { box.checked = false; updateLoanOpeningUi_(true); }   // the practice is a loan that moves money now
       } },
-    { key: "account", target: "#loan-pm-field", text: (fix) => tr(fix ? "spot.l.s6fix" : "spot.l.s6"), visit: "#loan-payment-method",
-      available: hasAccounts, before: async () => hasAccounts(),
-      ok: () => !hasAccounts() || !!document.getElementById("loan-payment-method").value, holdsUntil: "save" },
     { key: "save", target: () => [document.getElementById("loan-save-btn"), document.getElementById("loan-form-error")],
       text: () => { const err = practiceMErr_("#loan-form-error"); return err ? tr("spot.l.s7err", { error: err }) : tr("spot.l.s7"); },
       before: async () => { nameIt(); document.getElementById("loan-form-error").textContent = ""; },
       until: () => !formOpen() && !!(practiceM_ && practiceM_.saved) },
-    { key: "row", target: practiceMRow_, text: () => tr("spot.l.s8"), tap: practiceMRow_, wait: 45000,
-      poke: () => { if (practiceMSaveFailed_()) return; if (!document.getElementById("screen-loans").hidden) refreshLoans().catch(() => {}); } },
-    { look: true, target: () => document.querySelector("#loan-detail-modal-backdrop .currency-modal"), text: () => tr("spot.l.s9"), button: () => tr("spot.l.gotIt"), wait: 15000,
-      before: async () => { await practiceMSleep_(600); } },
-    { target: practiceMLoanRow_, text: () => tr("spot.l.s10"), tap: practiceMLoanRow_, wait: 15000,
-      ok: () => formOpen() || !!(practiceM_ && practiceM_.deleted), holdsUntil: "del" },
-    { key: "del", target: "#loan-delete-btn", text: () => tr("spot.l.s11"), until: () => !!(practiceM_ && practiceM_.deleted), wait: 10000 },
-    { text: () => tr("spot.l.s12"), button: () => tr("spot.l.finish"), before: async () => { if (practiceMSaveFailed_()) return false; } }
+    { target: practiceMRow_, text: () => tr("spot.l.s12"), button: () => tr("spot.l.finish"), wait: 45000,
+      before: async () => { if (practiceMSaveFailed_()) return false; },
+      poke: () => { if (practiceMSaveFailed_()) return; if (!document.getElementById("screen-loans").hidden) refreshLoans().catch(() => {}); } }
   ];
 }
 
@@ -22778,20 +22769,19 @@ document.getElementById("loan-friend").addEventListener("change", async (e) => {
 function populateLoanPaymentMethodOptions() {
   const select = document.getElementById("loan-payment-method");
   select.innerHTML = "";
-  // Like the new-entry form: just the accounts (no platforms), no "None" row. Only with no account at all does it say so.
+  // Just the accounts (no platforms). A new loan starts on the top one (owner, 2026-11-05: an empty box with "Optional" was confusing); the
+  // rare loan that moved through none of them says so with a named LAST choice, never an empty box.
   const accounts = meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm));
-  if (!accounts.length) {
-    const noneOpt = document.createElement("option");
-    noneOpt.value = "";
-    noneOpt.textContent = tr("form.noneAccount");
-    select.appendChild(noneOpt);
-  }
   accounts.forEach((pm) => {
     const opt = document.createElement("option");
     opt.value = pm.id;
     opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
+  const noneOpt = document.createElement("option");
+  noneOpt.value = "";
+  noneOpt.textContent = tr(accounts.length ? "loanModal.noAccount" : "form.noneAccount");
+  select.appendChild(noneOpt);
 }
 
 // The "from before the app" choice: no account (nothing moved now), no automatic due date, and the date is a rough "since when".
@@ -22873,7 +22863,8 @@ function openLoanModal(loan, returnFriend, opts) {
   const entryDate = loan ? loan.date : todayLocalISO();
   document.getElementById("loan-date").value = entryDate;
   document.getElementById("loan-due-date").value = loan ? (loan.due_date || "") : defaultDueDate_(entryDate);
-  document.getElementById("loan-payment-method").value = loan ? (loan.payment_method_id || "") : "";
+  const loanPmSelect = document.getElementById("loan-payment-method");
+  loanPmSelect.value = loan ? (loan.payment_method_id || "") : (loanPmSelect.options.length ? loanPmSelect.options[0].value : "");
   document.getElementById("loan-description").value = loan ? (loan.description || "") : "";
   populateLoanProjectOptions_(loan ? (loan.project_id || "") : "");
   // "From before the app": a choice for a NEW loan; an existing one shows what it is and cannot be switched.
@@ -22960,11 +22951,7 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     if (!date) throw new Error(tr("error.dateRequired"));
     const opening = document.getElementById("loan-opening").checked;
-    // Same as an entry: an account is not mandatory, but when the person HAS accounts and picked none, ask once.
-    // (A debt from before the app moves no money, so it has no account to ask about.)
-    if (!opening && !paymentMethodId && meta.paymentMethods.some((pm) => !pmHidden_(pm)) && !confirm(tr("loanModal.confirmNoAccount"))) {
-      throw new Error(tr("error.pickPaymentMethod"));
-    }
+    // (No account is now a choice the person picks by name, "Not through my accounts": no second question.)
 
     const fields = {
       friend_id: friendId,
