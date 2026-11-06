@@ -12473,11 +12473,10 @@ function practiceYSteps_() {
   const picked = () => { const s = practiceYBox_() && practiceYBox_().querySelector(".tidy-select"); return !!s && !!s.value; };
   return [
     { key: "intro", text: () => tr("spot.y.intro"), button: () => tr("spot.y.start") },
-    { look: true, target: () => practiceYBox_(), text: () => tr("spot.y.s1"), button: () => tr("spot.y.gotIt"), wait: 30000,
+    { target: part(".tidy-lines"), text: () => tr("spot.y.s2"), wait: 30000,
       before: async () => {
         if (!(await practiceYMake_())) return false;
-      } },
-    { target: part(".tidy-lines"), text: () => tr("spot.y.s2"),
+      },
       until: () => { const b = practiceYBox_(); return !!b && !b.querySelector(".tidy-samples").hidden; } },
     { key: "pick", target: part(".tidy-select"), text: (fix) => tr(fix ? "spot.y.s3fix" : "spot.y.s3"), until: picked, ok: picked, holdsUntil: "apply" },
     { key: "apply", target: part(".tidy-apply"), text: () => tr("spot.y.s4"), until: () => !!(practiceY_ && practiceY_.applied) },
