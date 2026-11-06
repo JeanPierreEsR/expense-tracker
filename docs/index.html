@@ -140,6 +140,7 @@
         <div id="category-picker" class="category-grid" hidden></div>
 
         <div id="edit-mode-banner" class="edit-mode-banner" hidden data-i18n="entry.editing">✏️ Editing entry</div>
+        <p id="entry-load-msg" class="status-msg" hidden></p>
 
         <form id="entry-form" hidden>
           <div id="selected-category-banner" class="category-banner" hidden>
@@ -1675,7 +1676,7 @@
           <div class="type-tab" data-v="amount" data-i18n="bill.tipAmountTab">Fixed amount</div>
         </div>
         <label for="bill-tip-value" id="bill-tip-label" data-i18n="bill.tipPercentLabel">Tip percent (%)</label>
-        <input type="text" id="bill-tip-value" class="bill-tip-input" inputmode="decimal" placeholder="e.g. 10" autocomplete="off">
+        <input type="text" id="bill-tip-value" data-amount-kind="rate" class="bill-tip-input" inputmode="decimal" placeholder="e.g. 10" autocomplete="off">
         <p class="hint" id="bill-tip-preview"></p>
         <div class="type-tabs budget-period-tabs bill-tabs" id="bill-tip-mode-tabs">
           <div class="type-tab active" data-v="proportional" data-i18n="bill.byOrdered">By what each ordered</div>
@@ -1800,7 +1801,7 @@
           </div>
           <div id="bank-gen-rate-block">
             <label for="bank-gen-rate" data-i18n="bank.rate">Interest rate %</label>
-            <input type="text" inputmode="decimal" id="bank-gen-rate" placeholder="0.00">
+            <input type="text" inputmode="decimal" id="bank-gen-rate" data-amount-kind="rate" placeholder="0.00">
             <label for="bank-gen-rate-type" data-i18n="bank.rateType">How the rate is stated</label>
             <select id="bank-gen-rate-type">
               <option value="tea" selected data-i18n="bank.rateTea">Annual effective rate (TEA, actual days / 360)</option>
@@ -2021,7 +2022,7 @@
         <div id="inproc-totals"></div>
         <div id="inproc-balance-box" hidden>
           <label for="inproc-balance"><span data-i18n="inproc.balance">Optional: the balance your bank app shows now</span> (<span id="inproc-balance-cur">PEN</span>)</label>
-          <input type="text" id="inproc-balance" inputmode="decimal" placeholder="0.00" autocomplete="off">
+          <input type="text" id="inproc-balance" data-amount-kind="signed" inputmode="decimal" placeholder="0.00" autocomplete="off">
           <label class="checkbox-row"><input type="checkbox" id="inproc-negative"><span data-i18n="balance.negative">Negative — I owe this (e.g. a credit card)</span></label>
           <p class="hint" data-i18n="inproc.balanceHint">Type the number exactly as your bank app shows it. That number does not include the payments above yet, so the app takes them off for you.</p>
           <p class="hint" id="inproc-after"></p>
@@ -2238,7 +2239,7 @@
           <p id="main-currency-confirm-text" style="font-weight:600;"></p>
           <div id="main-currency-rate-row" hidden>
             <label for="main-currency-rate" id="main-currency-rate-label"></label>
-            <input type="number" id="main-currency-rate" inputmode="decimal" step="any" min="0">
+            <input type="number" id="main-currency-rate" data-amount-kind="rate" inputmode="decimal" step="any" min="0">
           </div>
           <p class="hint" id="main-currency-estimate"></p>
           <p class="hint" id="main-currency-error" style="color:#d64545;"></p>
@@ -2429,6 +2430,19 @@
 
   <!-- One small window that asks for a name (a friend, a payer, a bank, a tag) in the app's own style; replaces the phone's plain
        "prompt" box (2026-11-04). askName_ in app.js. Its layer is above the practices' dimmed screen, so a practice can use it. -->
+  <div id="amount-ask-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="amount-ask-title"></span>
+        <button type="button" id="amount-ask-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p id="amount-ask-text"></p>
+        <div id="amount-ask-choices"></div>
+      </div>
+    </div>
+  </div>
+
   <div id="name-ask-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -3395,7 +3409,7 @@
       <div class="rate-equation">
         <span class="rate-equation-label" id="rate-left-label">1 USD</span>
         <span class="rate-equation-eq">=</span>
-        <input type="text" inputmode="decimal" id="rate-value-input" placeholder="0.00">
+        <input type="text" inputmode="decimal" id="rate-value-input" data-amount-kind="rate" placeholder="0.00">
         <span class="rate-equation-label" id="rate-right-label">PEN</span>
       </div>
       <button type="button" class="add-inline" id="rate-invert-btn" data-i18n="rateModal.invert">⇅ Enter it the other way around</button>

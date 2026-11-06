@@ -250,6 +250,12 @@ else
     fi
   fi
   say "DONE. Shipped:"
+  # Every 5th minor release (x.5.0, x.10.0, ...): the chat asks the owner whether to run the small testers team (Testers.md in the private folder).
+  case "${REL:-}" in
+    *.0) m="${REL#*.}"; m="${m%.0}"; if [ "$m" != "0" ] && [ $((m % 5)) -eq 0 ]; then
+      echo "🧪 REMINDER: release $REL is a 5th minor release. ASK the owner whether to run the small testers team; nothing runs by itself (Testers.md)."
+    fi ;;
+  esac
   echo "$CHANGED" | sed 's/^/     /'
   echo "Other chats still open: they should run 'git merge main' in their own folder before their next ship."
 fi
