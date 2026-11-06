@@ -2695,6 +2695,8 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
   try {
     await callApi("setExchangeRate", { currency, month, rate });
     resolve(rate);
+    refreshHomeGlance_(true);   // foreign amounts are worth something else in the main currency now
+    refreshEntryList().catch(() => {});
   } catch (err) {
     alert(tr("common.notSaved", { error: err.message }));
     resolve(null);
@@ -5116,7 +5118,7 @@ document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdi
 // onConfirmed runs right after the owner says OK, before the (slow) delete call.
 async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
   // A new entry whose background save failed has no row on the server: deleting it just drops it from this phone.
-  const unsaved = getQueuedEdits_().find((e) => e.id === id && e.kind === "create" && e.status === "failed");
+  const unsaved = getQueuedEdits_().find((e) => e.id === id && e.kind === "create" && (e.status === "failed" || e.waitingNet));
   if (unsaved) {
     if (!confirm(tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") }))) return false;
     unqueueEntryEdit_(id);
@@ -5179,6 +5181,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
     catch (err) { alert(tr("delete.exchangeBothFailed", { error: err.message })); }
   }
   refreshLoans().catch(() => {});
+  refreshHomeGlance_(true);   // the totals at the top of Home no longer include it
   return true;
 }
 
@@ -5398,6 +5401,7 @@ async function flushQueuedReviewActions_() {
     try {
       const followed = await applyReviewAction_(a);
       if (followed) onCategoryFollowed_(followed);
+      if (a.action === "confirm") refreshHomeGlance_(true);   // landed late, after a lost connection
     } catch (err) {
       practiceNActionFailed_(a.id, err);
       // Unreachable — leave it queued, the next flush retries it. A REFUSAL (the server said no) would never pass on a
@@ -5490,12 +5494,13 @@ function unqueueEntryEdit_(id) {
   renderSaveFailedBanner_();
 }
 
-function markQueuedEditStatus_(id, status, error) {
+function markQueuedEditStatus_(id, status, error, waitingNet) {
   const edits = getQueuedEdits_();
   const edit = edits.find((e) => e.id === id);
   if (!edit) return;
   edit.status = status;
   edit.lastError = error || null;
+  edit.waitingNet = !!waitingNet;   // nothing is on its way: it waits for a connection (see retryWaitingSaves_)
   setQueuedEdits_(edits);
   renderSaveFailedBanner_();
 }
@@ -5506,7 +5511,7 @@ function markQueuedEditStatus_(id, status, error) {
 // useful: it's how a failed save gets retried).
 function blockedWhileSavingEdit_(id) {
   const q = findQueuedEdit_(id);
-  if (q && q.status === "saving") {
+  if (q && q.status === "saving" && !q.waitingNet) {
     alert(tr("entry.stillSaving"));
     return true;
   }
@@ -5698,7 +5703,12 @@ async function flushEntryEdit_(id) {
           if (edit.bill) await callApi("saveEntryBill", { entryId: edit.id, bill: edit.bill });
         }
       } catch (err) {
-        markQueuedEditStatus_(id, "failed", err.message);
+        if (saveMayWait_(err)) {
+          markQueuedEditStatus_(id, "saving", null, true);
+          noteSaveWaiting_();
+        } else {
+          markQueuedEditStatus_(id, "failed", err.message);
+        }
         redrawEntriesSafely_();
         break;
       }
@@ -5744,6 +5754,30 @@ async function flushEntryEdit_(id) {
     }
   }
 }
+
+// A lost connection is not a failed save (found in the Home test, 2026-11-06): the save stays "Saving…" on this phone and goes out again by
+// itself when the connection or the app comes back, when Home opens, and every 30 s meanwhile (an iPhone doesn't always announce the connection
+// coming back). One message only. "Couldn't save" is kept for a real refusal. Repeats are safe: new saves carry client_id, edits are the same edit.
+// During a practice it still fails at once: a practice can't wait, and stops plainly (practiceSaveFailed_).
+let saveWaitingSaid_ = false;
+let saveRetryTimer_ = null;
+function saveMayWait_(err) { return isUnreachable_(err) && !Spotlight.isRunning(); }
+function noteSaveWaiting_() {
+  if (!saveWaitingSaid_) showToast_(tr("entry.savingOffline"));
+  saveWaitingSaid_ = true;
+  if (!saveRetryTimer_) saveRetryTimer_ = setTimeout(() => { saveRetryTimer_ = null; retryWaitingSaves_(); }, 30000);
+}
+function retryWaitingSaves_() {
+  if (!(meta && meta.categories)) return;
+  const edits = getQueuedEdits_().filter((e) => e.waitingNet);
+  const money = getMoneyQueue_().some((q) => q.status === "saving");
+  if (!edits.length && !money) { saveWaitingSaid_ = false; return; }
+  if (navigator.onLine === false) { noteSaveWaiting_(); return; }
+  edits.forEach((e) => flushEntryEdit_(e.id));
+  flushMoneyQueue_();
+}
+window.addEventListener("online", retryWaitingSaves_);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) retryWaitingSaves_(); });
 
 // Called once at app startup (see init()) so an edit that didn't finish
 // landing before the app was last closed gets retried now, instead of
@@ -5889,6 +5923,7 @@ async function flushMoneyQueue_() {
       try {
         result = await callApi(item.action, withThen_(item.payload, moneyThenReads_(item)));
       } catch (err) {
+        if (saveMayWait_(err)) { noteSaveWaiting_(); break; }   // stays in line, in its order
         setMoneyItemStatus_(item.id, "failed", err.message || String(err));
         continue;
       }
@@ -6415,6 +6450,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (accountEl && accountEl.value !== (entry.payment_method_id || "")) fields.payment_method_id = accountEl.value;
       if (!isPracticeReviewEntry_(entry)) betaRecordEvents_(PerfShare.queueEvents(entry, fields, betaEntryPlace_(entry)));   // (the practice's entries are not counted)
       queueReviewAction_(entry.id, "confirm", fields);
+      holdTaps_();
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
       if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
@@ -6423,6 +6459,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const followed = await applyReviewAction_({ id: entry.id, action: "confirm", fields });
         refreshEntryList();
         refreshExpectedRecurring();
+        refreshHomeGlance_(true);   // a confirmed entry now counts in the totals at the top of Home
         if (followed) onCategoryFollowed_(followed);
       } catch (err) {
         // Stays queued — the next refreshReviewQueue (including on the
@@ -6448,6 +6485,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
 
       if (!isPracticeReviewEntry_(entry)) betaRecordEvents_(PerfShare.queueEvents(entry, null, betaEntryPlace_(entry)));
       queueReviewAction_(entry.id, "discard", null);
+      holdTaps_();
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
       if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
@@ -6825,7 +6863,17 @@ document.addEventListener("click", (e) => {
 
 // `opts.busy` (a string key, e.g. "common.deletingToast") replaces "Saving…" with a message that stays until the work AND the refresh are done;
 // `opts.done` (a function returning the text, or a string key) is shown briefly when the work succeeded. Stopping and deleting use these.
+// A tap that removes a row or closes a sheet moves something else under the finger, and the second tap of a double tap would press it: the next
+// row's Confirm, seen by nobody (Home test, 2026-11-06). Real taps in that short moment are ignored. 0.8 s, as for the amount question: 0.5 s still
+// let a slow double tap through there.
+let tapHoldUntil_ = 0;
+function holdTaps_() { tapHoldUntil_ = Date.now() + 800; }
+document.addEventListener("click", (e) => {
+  if (e.isTrusted && Date.now() < tapHoldUntil_) { e.preventDefault(); e.stopImmediatePropagation(); }
+}, true);
+
 function saveBehindScreen_(work, after, opts) {
+  holdTaps_();
   const busyText = opts && opts.busy ? tr(opts.busy) : "";
   showToast_(busyText || tr("common.savingToast"), !!busyText);
   (async () => {
@@ -6899,6 +6947,7 @@ const HOME_GLANCE_FRESH_MS = 60 * 1000;
 let homeGlance_ = null;
 let homeGlanceAt_ = 0;
 let homeGlanceBusy_ = null;
+let homeGlanceAgain_ = false;
 let homeSelectedMonth_ = null;   // 'yyyy-mm' picked by tapping a bar; null = this month
 
 function paintHomeGlanceFromCache_() {
@@ -6932,7 +6981,9 @@ function refreshHomeGlance_(force) {
   setTimeout(practiceYLeftover_, 20000);
   setTimeout(practiceDLeftover_, 22000);
   setTimeout(() => { if (typeof window.statementsPracticeLeftover_ === "function") window.statementsPracticeLeftover_(); }, 24000);
-  if (homeGlanceBusy_) return homeGlanceBusy_;
+  setTimeout(retryWaitingSaves_, 500);   // saves waiting for a connection
+  // One already on its way may have left before the change this refresh is for: when it lands, ask once more.
+  if (homeGlanceBusy_) { if (force) homeGlanceAgain_ = true; return homeGlanceBusy_; }
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
   homeGlanceBusy_ = callApi("getHomeGlance", {})
     .then((data) => {
@@ -6942,7 +6993,10 @@ function refreshHomeGlance_(force) {
       renderHomeGlance_();
     })
     .catch(() => { /* a bonus, never an error: keep whatever is showing */ })
-    .finally(() => { homeGlanceBusy_ = null; });
+    .finally(() => {
+      homeGlanceBusy_ = null;
+      if (homeGlanceAgain_) { homeGlanceAgain_ = false; refreshHomeGlance_(true); }
+    });
   return homeGlanceBusy_;
 }
 
@@ -9250,7 +9304,7 @@ function renderNotices_() {
     x.className = "notice-x";
     x.textContent = "✕";
     x.setAttribute("aria-label", tr("notices.dismiss"));
-    x.addEventListener("click", () => dismissNotices_({ ids: [n.id] }));
+    x.addEventListener("click", () => { holdTaps_(); dismissNotices_({ ids: [n.id] }); });
     li.appendChild(body);
     li.appendChild(x);
     list.appendChild(li);
