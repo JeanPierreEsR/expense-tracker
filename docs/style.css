@@ -3396,6 +3396,12 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .tip-invite p { margin: 0; line-height: 1.35; }
 .tip-invite-buttons { display: flex; gap: 8px; justify-content: flex-end; }
 .tip-invite-buttons button { min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--muted); font: inherit; }
+.loans-more-practice { display: flex; flex-direction: column; margin: 0 0 12px; padding: 0 4px; }
+.loans-more-head { display: flex; align-items: center; justify-content: space-between; }
+.loans-more-links { display: flex; flex-wrap: wrap; gap: 0 16px; }
+.loans-more-practice[hidden] { display: none; }
+.loans-more-practice .add-inline, .loans-more-practice .add-inline + .add-inline { margin: 0; padding: 12px 4px; font-size: inherit; }   /* one line: no stacked-button margin (Buttons line up rule) */
+.loans-more-close { min-width: 44px; min-height: 44px; border: 0; background: none; color: var(--muted); font: inherit; }
 .tip-invite-buttons .tip-invite-go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 
 /* ---- More → Friends: Edit mode (tick several friends, delete them at once) ---- */

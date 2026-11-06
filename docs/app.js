@@ -3476,10 +3476,21 @@ const PRACTICE_ENTRY_NAMES_APP_ = ["Practice expense", "Gasto de práctica", "Pr
   "Practice coffee shop", "Cafetería de práctica", "Practice snack", "Lonche de práctica", "Merienda de práctica", "Practice Lunch", "Almuerzo De Práctica", "Practice Dinner", "Cena De Práctica", "Practice Ride", "Paseo De Práctica",
   "Practice Bakery", "Panadería De Práctica", "Practice Bookstore", "Librería De Práctica", "Practice Pharmacy", "Farmacia De Práctica"];
 const PRACTICE_OBJECT_RE_ = /Practice (budget|item|trip|account|platform|loan|bank loan|exchange|expense)|(Presupuesto|Elemento|Viaje|Cuenta|Plataforma|Préstamo|Préstamo bancario|Cambio|Gasto) de práctica|Practice Bank|Banco de práctica/;
+// What the cleanup that is running will remove. Kept for a while after the practice ends, because Home may draw some rows only
+// later (the Loans practice's repayment arrives after the practice closed: owner's walk 2026-11-05, it showed without "Deleting…").
+let practiceDelCtx_ = null;   // { friendId, startedOn, until }
+function isPracticeCleanupEntry_(e) {
+  if (!practiceDelCtx_ || Date.now() > practiceDelCtx_.until || !e) return false;
+  const d = String(e.description || "").trim();
+  // The Loans practice's repayment has no practice name (it reads like any repayment): the repayment with the practice friend, made today.
+  const repay = !!(practiceDelCtx_.friendId && e.type === "transfer" && e.link && e.link.kind === "repayment"
+    && String(e.link.friend_id || "") === practiceDelCtx_.friendId && String(e.date || "").slice(0, 10) >= practiceDelCtx_.startedOn);
+  return repay || e.source === "practice" || PRACTICE_ENTRY_NAMES_APP_.includes(d) || /\((Practice exchange|Cambio de práctica)\)$/.test(d) || /: (Practice bank loan|Préstamo bancario de práctica)$/.test(d);
+}
 function markPracticeDeleting_() {
+  practiceDelCtx_ = { friendId: (practice_ && practice_.friendId) || "", startedOn: (practice_ && practice_.startedOn) || todayLocalISO(), until: Date.now() + 3 * 60 * 1000 };
   (lastRenderedEntries_ || []).forEach((e) => {
-    const d = String(e.description || "").trim();
-    if (e.source === "practice" || PRACTICE_ENTRY_NAMES_APP_.includes(d) || /\((Practice exchange|Cambio de práctica)\)$/.test(d) || /: (Practice bank loan|Préstamo bancario de práctica)$/.test(d)) {
+    if (isPracticeCleanupEntry_(e)) {
       deletingEntryIds_.add(e.id);
       markEntryRowsDeleting_(e.id);
     }
@@ -3511,6 +3522,7 @@ function buildEntryRow_(entry) {
   // still saving in the background, or failed and is waiting to be
   // retried. Shown right under the description so it's never mistaken
   // for an already-landed change.
+  if (isPracticeCleanupEntry_(entry)) deletingEntryIds_.add(entry.id);   // a practice row drawn after its cleanup started
   const statusLine = deletingEntryIds_.has(entry.id)
     ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>`
     : entry._queueStatus === "saving"
@@ -4248,6 +4260,15 @@ function entriesBulkKeptText_(keptItems, infoOf) {
 }
 const entriesBulkLabel_ = (e) => describeForConfirm_(e.description || (meta.categories.find((c) => c.id === e.category_id) || {}).name || tr("review.noDescription"), formatAmount(e.amount, e.currency), e.date);
 
+// A practice asks for the delete preview as soon as its entries are ticked, so the sheet opens with its choices instead of a
+// "Loading…" wait (owner's walk 2026-11-05). Used once, only for exactly the same ticks, within a minute.
+let entriesDeletePreviewAhead_ = null;   // { key, at, promise }
+function prefetchEntriesDeletePreview_(ids) {
+  if (!ids || !ids.length) return;
+  const promise = callApi("previewEntriesDelete", { ids });
+  promise.catch(() => { if (entriesDeletePreviewAhead_ && entriesDeletePreviewAhead_.promise === promise) entriesDeletePreviewAhead_ = null; });
+  entriesDeletePreviewAhead_ = { key: ids.slice().sort().join(","), at: Date.now(), promise };
+}
 document.getElementById("entries-delete-selected-btn").addEventListener("click", async () => {
   const ids = [...entriesSelected_];
   if (!ids.length) return;
@@ -4261,7 +4282,10 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
   backdrop.hidden = false;
   let preview;
   try {
-    preview = await callApi("previewEntriesDelete", { ids });
+    const key = ids.slice().sort().join(",");
+    const ahead = entriesDeletePreviewAhead_;
+    entriesDeletePreviewAhead_ = null;
+    preview = ahead && ahead.key === key && Date.now() - ahead.at < 60000 ? await ahead.promise : await callApi("previewEntriesDelete", { ids });
   } catch (err) {
     body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
@@ -11873,6 +11897,7 @@ async function showDeletedScreen_() {
   await refreshDeletedScreen_();
   if (!document.getElementById("deleted-error").textContent) offerDeletedTip_();   // loading standard: offered once everything has arrived
 }
+const deletedBatchBusy_ = {};   // batch id -> the restore still on its way for that batch
 async function refreshDeletedScreen_() {
   const errorEl = document.getElementById("deleted-error");
   errorEl.textContent = "";
@@ -11902,7 +11927,15 @@ async function refreshDeletedScreen_() {
         </div>
         <div class="recurring-row-amount"><span class="primary-amt${entryFlowDirection_(e) === "in" ? " review-amt-in" : ""}">${formatAmount(Math.abs(Number(e.amount) || 0), e.currency, { in: "+", out: "−" }[entryFlowDirection_(e)] || "")}</span><button type="button" class="add-inline deleted-one">${escapeHtml(tr("deleted.restoreOne"))}</button></div>`;
       row.querySelector(".deleted-one").addEventListener("click", () => {
-        saveBehindScreen_(() => restoreDeletedBatch_({ batch_id: b.batch_id, ids: [e.entry_id] }), null, { busy: "deleted.restoring" });
+        // The row leaves at once (the screen shows the change, the server catches up: owner's walk 2026-11-05, the practice waited here).
+        // "Delete for good" on the same batch waits for this restore first, so it can never forget the entry being brought back.
+        const ownPractice = practiceDOwns_([e.entry_id]);
+        const work = (deletedBatchBusy_[b.batch_id] || Promise.resolve()).catch(() => {})
+          .then(() => restoreDeletedBatch_({ batch_id: b.batch_id, ids: [e.entry_id] }));
+        deletedBatchBusy_[b.batch_id] = work;
+        saveBehindScreen_(() => work, null, { busy: "deleted.restoring" });
+        row.remove();
+        if (ownPractice && practiceD_) { practiceD_.restoreTapped = true; practiceDSave_(); }
       });
       box.appendChild(row);
     });
@@ -11915,7 +11948,9 @@ async function refreshDeletedScreen_() {
     actions.querySelector(".deleted-forget").addEventListener("click", () => {
       const ownPractice = practiceDOwns_(b.entries.map((e) => e.entry_id));
       if (!practiceNoConfirm_(ownPractice) && !confirm(tr("deleted.confirmForget", { n: b.entries.length }))) return;   // (the practice's own batch asks nothing while the walkthrough runs)
+      if (ownPractice && practiceD_) { practiceD_.forgetTapped = true; practiceDSave_(); }   // the practice moves on at once; the cleanup waits for the call
       saveBehindScreen_(async () => {
+        await (deletedBatchBusy_[b.batch_id] || Promise.resolve()).catch(() => {});   // a restore from this batch lands first
         await callApi("forgetDeletedEntries", { batch_id: b.batch_id });
         if (ownPractice) practiceDNote_("forgot");
       }, () => refreshDeletedScreen_().catch(() => {}), { busy: "common.deletingToast" });
@@ -11938,6 +11973,7 @@ const PRACTICE_D_KEY_ = "tipPracticeDeleted";
 let practiceD_ = null;          // { made, ids, deleted, restored, forgot, startedOn }
 let practiceDRemoving_ = false;
 let practiceDLeftoverAsked_ = false;
+let practiceDMaking_ = null;    // the creation call started while the person taps Home
 
 function practiceDLoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_D_KEY_) || "null"); } catch (e) { return null; } }
 function practiceDSave_() {
@@ -11953,7 +11989,10 @@ function practiceDOwns_(ids) {
 function practiceDNote_(what, ids) {
   if (!practiceD_ || !practiceD_.ids.length) return;
   const mine = practiceD_.ids;
-  if (what === "deleted" && mine.every((id) => (ids || []).map(String).includes(id))) practiceD_.deleted = true;
+  if (what === "deleted" && mine.every((id) => (ids || []).map(String).includes(id))) {
+    practiceD_.deleted = true;
+    if (!document.getElementById("screen-deleted-entries").hidden) refreshDeletedScreen_().catch(() => {});   // already open: show the batch now
+  }
   else if (what === "restored" && (ids || []).some((id) => mine.includes(String(id)))) practiceD_.restored = true;
   else if (what === "forgot") practiceD_.forgot = true;
   else return;
@@ -11978,30 +12017,34 @@ function practiceDSteps_() {
   const forgetBtn = () => { const b = batch(); return b && b.querySelectorAll(".recurring-row").length === 1 ? b.querySelector(".deleted-forget") : null; };   // (once one is restored, the batch holds the other alone)
   return [
     { key: "intro", text: () => tr("spot.d.intro"), button: () => tr("spot.d.start") },
+    // The two entries are made while the person reads the intro and taps Home (started in startDeletedPractice_; it used to start only
+    // after the Home tap, a wait of several seconds on a phone).
     { target: '.nav-btn[data-screen="entries"]', text: () => tr("spot.d.s1"), tap: '.nav-btn[data-screen="entries"]' },
     { key: "edit", target: "#entries-edit-btn", text: () => tr("spot.d.s2"), until: () => entriesEditing_, wait: 20000, poke: pokeHome,
-      before: async () => { if (!(await practiceDMake_())) return false; } },
+      before: async () => { if (!(await (practiceDMaking_ || practiceDMake_()))) return false; },
+      after: () => { prefetchEntriesDeletePreview_(practiceDIds_()); } },   // the delete sheet then opens with its choices ready
     { key: "tick1", target: homeRow(0), text: () => tr("spot.d.s3"), until: picked(0), ok: picked(0), holdsUntil: "del", wait: 20000, poke: pokeHome },
-    { key: "tick2", target: homeRow(1), text: () => tr("spot.d.s4"), until: picked(1), ok: picked(1), holdsUntil: "del", wait: 20000, poke: pokeHome },
+    { key: "tick2", target: homeRow(1), text: () => tr("spot.d.s4"), until: picked(1), ok: picked(1), holdsUntil: "del", wait: 20000, poke: pokeHome,
+      after: () => { const t = [...entriesSelected_]; if (t.slice().sort().join(",") !== practiceDIds_().slice().sort().join(",")) prefetchEntriesDeletePreview_(t); } },
     { key: "del", target: "#entries-delete-selected-btn", text: (fix) => tr(fix ? "spot.d.s5fix" : "spot.d.s5"), tap: "#entries-delete-selected-btn" },
     { target: "#entries-bulk-go", text: () => tr("spot.d.s6"), tap: "#entries-bulk-go", wait: 20000 },
-    { text: () => tr("spot.d.s7"), button: () => tr("spot.d.gotIt"),
-      before: async () => {
-        for (let i = 0; i < 100 && !(practiceD_ && practiceD_.deleted); i++) await sleep(400);   // up to 40 s for the server
-        if (practiceD_ && practiceD_.deleted) return true;
-        alert(tr("spot.d.deleteFailed"));
-        Spotlight.stop("skipped");
-        return false;
-      } },
+    // No wait here any more: the rows already show "Deleting…"; the server's answer is awaited only where it is needed, at the batch.
+    { text: () => tr("spot.d.s7"), button: () => tr("spot.d.gotIt") },
     { target: '.nav-btn[data-screen="more"]', text: () => tr("spot.d.s8"), tap: '.nav-btn[data-screen="more"]' },
     // More remembers the sub-screen it was left on, so usually this already shows Recently deleted and the next two steps drop out.
     { target: "#more-my-data-btn", text: () => tr("spot.d.s9"), tap: "#more-my-data-btn",
       before: async () => { await sleep(500); return !deletedShown() && el("screen-my-data").hidden; } },
     { target: "#more-deleted-btn", text: () => tr("spot.d.s10"), tap: "#more-deleted-btn",
       before: async () => { await sleep(150); return !deletedShown(); } },
-    { look: true, target: batch, text: () => tr("spot.d.s11"), button: () => tr("spot.d.gotIt"), wait: 20000, poke: pokeDeleted },
-    { target: restoreBtn, text: () => tr("spot.d.s12"), until: () => !!(practiceD_ && practiceD_.restored), wait: 15000, poke: pokeDeleted },
-    { target: forgetBtn, text: () => tr("spot.d.s13"), until: () => !!(practiceD_ && practiceD_.forgot), wait: 15000, poke: pokeDeleted },
+    { look: true, target: batch, text: () => tr("spot.d.s11"), button: () => tr("spot.d.gotIt"), wait: 20000, poke: pokeDeleted,
+      before: async () => {
+        for (let i = 0; i < 100 && !(practiceD_ && practiceD_.deleted); i++) await sleep(400);   // up to 40 s for the server (usually long done)
+        if (!(practiceD_ && practiceD_.deleted)) { alert(tr("spot.d.deleteFailed")); Spotlight.stop("skipped"); return false; }
+        if (!batch()) pokeDeleted();   // the screen opened before the delete landed
+        return true;
+      } },
+    { target: restoreBtn, text: () => tr("spot.d.s12"), until: () => !!(practiceD_ && (practiceD_.restored || practiceD_.restoreTapped)), wait: 15000, poke: pokeDeleted },
+    { target: forgetBtn, text: () => tr("spot.d.s13"), until: () => !!(practiceD_ && (practiceD_.forgot || practiceD_.forgetTapped)), wait: 15000, poke: pokeDeleted },
     { text: () => tr("spot.d.s14"), button: () => tr("spot.d.finish") }
   ];
 }
@@ -12030,6 +12073,7 @@ function startDeletedPractice_() {
   if (open || newEntrySheetOpen_ || entriesEditing_) { showToast_(tr("spot.x.busy")); return false; }
   practiceD_ = { made: false, ids: [], deleted: false, restored: false, forgot: false, startedOn: todayLocalISO() };
   practiceDSave_();
+  practiceDMaking_ = practiceDMake_();
   runTip_(practiceDSteps_(), async () => {
     closeEntriesBulkSheet_();
     setEntriesEditing_(false);
@@ -19132,7 +19176,16 @@ function practicePickAccount_() {
   if (first) { sel.value = first.value; sel.dispatchEvent(new Event("change", { bubbles: true })); }
 }
 
+// A search typed earlier on Home hides every entry that does not match, including the practice's own (Recently deleted waited forever
+// on "One moment…" behind an old search, owner's walk 2026-11-05): every practice starts with Home's search box empty.
+function clearHomeSearchForPractice_() {
+  const input = document.getElementById("entry-search");
+  if (!input || !input.value) return;
+  input.value = "";
+  input.dispatchEvent(new Event("input"));
+}
 function runTip_(steps, afterFinish, note) {
+  clearHomeSearchForPractice_();
   return Spotlight.run(steps, {
     labels: { note: note || "", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
     onFinish: async (how) => {
@@ -19144,21 +19197,44 @@ function runTip_(steps, afterFinish, note) {
   });
 }
 
-function offerTip_(key, boxId, inviteText, start) {
+// At most TWO yellow practice cards a day (owner's decision, 2026-11-05): a new person meeting a card on every screen of a first day
+// is too much. A card counts once it is shown (the same card shown again the same day is free). After More → How to use the app →
+// Practice tips the person asked for them on purpose: no limit for the rest of that day.
+const TIP_DAY_KEY_ = "tipCardsToday";
+const TIP_CARDS_PER_DAY_ = 2;
+function tipDayAllows_(key) {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(TIP_DAY_KEY_) || "null"); } catch (e) { d = null; }
+  const today = todayLocalISO();
+  if (!d || d.day !== today) d = { day: today, keys: [], open: false };
+  if (d.open || d.keys.includes(key)) return true;
+  if (d.keys.length >= TIP_CARDS_PER_DAY_) return false;
+  d.keys.push(key);
+  try { localStorage.setItem(TIP_DAY_KEY_, JSON.stringify(d)); } catch (e) { /* no storage: no limit */ }
+  return true;
+}
+function tipDayOpen_() {
+  try { localStorage.setItem(TIP_DAY_KEY_, JSON.stringify({ day: todayLocalISO(), keys: [], open: true })); } catch (e) { /* ignore */ }
+}
+// after(): runs once the card was answered (Not now, or the practice started), e.g. the Loans line offering the other two loan practices.
+function offerTip_(key, boxId, inviteText, start, after) {
   const box = document.getElementById(boxId);
   if (!box || tipSeen_(key) || Spotlight.isRunning()) return;
   if (!box.hidden) return;   // already on offer
+  if (!tipDayAllows_(key)) return;
   box.innerHTML = `<p>${escapeHtml(inviteText)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-no">${escapeHtml(tr("spot.dismiss"))}</button><button type="button" class="tip-invite-go">${escapeHtml(tr("spot.showMe"))}</button></div>`;
   box.hidden = false;
   box.querySelector(".tip-invite-no").addEventListener("click", () => {
     markTipSeen_(key);
     box.hidden = true;
     alert(tr("spot.dismissed"));   // say once how to bring the practice back
+    if (after) after();
   });
   box.querySelector(".tip-invite-go").addEventListener("click", () => {
     if (!start()) return;   // not possible right now (something half-typed): stays on offer, nothing marked
     markTipSeen_(key);
     box.hidden = true;
+    if (after) after();
   });
 }
 
@@ -19506,15 +19582,39 @@ function offerLoansTip_() {
   // The guided practice already had the person record a REAL shared expense (owner, 2026-11-04): the Loans practice then only shows
   // where it went (nothing is recorded, so nothing is deleted: its usual cleanup would remove a real expense).
   if (!tipSeen_("loans") && guidedSplit_()) { offerTip_("loans", "loans-tip-invite", tr("spot.g.loansInvite"), startGuidedLoansLook_); return; }
-  if (!tipSeen_("loans")) { offerTip_("loans", "loans-tip-invite", tr("spot.p.invite"), startPractice_); return; }
-  if (!((meta && meta.capabilities) || {}).practiceLoansMore) return;   // an older backend could not clean the practice up
-  if (!tipSeen_("loans-standalone")) { offerTip_("loans-standalone", "loans-tip-invite", tr("spot.l.invite"), () => startLoansMorePractice_("standalone")); return; }
-  if (!tipSeen_("loans-bank")) offerTip_("loans-bank", "loans-tip-invite", tr("spot.k.invite"), () => startLoansMorePractice_("bank"));
+  if (!tipSeen_("loans")) { offerTip_("loans", "loans-tip-invite", tr("spot.p.invite"), startPractice_, offerLoansMoreLine_); return; }
+  offerLoansMoreLine_();
+}
+// The loan-with-a-friend and bank-loan practices no longer follow the Loans card one after the other (owner, 2026-11-05: after "Not now"
+// the next one only showed once Loans reloaded, it looked like nothing was there). Once the Loans card was answered, ONE small line offers
+// both, each a link; ✕ puts the line away. It is not a yellow card, so it does not count toward the two cards a day.
+function offerLoansMoreLine_() {
+  const box = document.getElementById("loans-more-practice");
+  if (!box) return;
+  const left = ((meta && meta.capabilities) || {}).practiceLoansMore   // an older backend could not clean these practices up
+    ? [["loans-standalone", "spot.lm.loan", "standalone"], ["loans-bank", "spot.lm.bank", "bank"]].filter(([k]) => !tipSeen_(k)) : [];
+  if (!left.length || !tipSeen_("loans") || Spotlight.isRunning()) { box.hidden = true; return; }
+  box.innerHTML = `<span class="loans-more-head"><span>${escapeHtml(tr("spot.lm.title"))}</span>`
+    + `<button type="button" class="loans-more-close" aria-label="${escapeHtml(tr("spot.lm.hide"))}">✕</button></span>`
+    + `<span class="loans-more-links">${left.map(([k, label]) => `<button type="button" class="add-inline" data-tip="${k}">${escapeHtml(tr(label))}</button>`).join("")}</span>`;
+  box.hidden = false;
+  box.querySelectorAll("[data-tip]").forEach((b) => b.addEventListener("click", () => {
+    const k = b.dataset.tip;
+    if (!startLoansMorePractice_(k === "loans-bank" ? "bank" : "standalone")) return;
+    markTipSeen_(k);
+    box.hidden = true;
+  }));
+  box.querySelector(".loans-more-close").addEventListener("click", () => {
+    left.forEach(([k]) => markTipSeen_(k));
+    box.hidden = true;
+    alert(tr("spot.dismissed"));
+  });
 }
 
 // More → How to use the app → Practice tips: clears the "seen" list so each tip is offered again.
 document.getElementById("tour-choice-tips").addEventListener("click", () => {
   try { Spotlight.resetSeen(localStorage); } catch (e) { /* ignore */ }
+  tipDayOpen_();   // asked for on purpose: today every card may show
   try { localStorage.setItem(GUIDED_AGAIN_KEY_, "1"); } catch (e) { /* ignore */ }   // the guided "+" practice runs again, even with entries
   document.getElementById("tour-choice-backdrop").hidden = true;
   showToast_(tr("spot.tipsReset"));
