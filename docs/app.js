@@ -21033,6 +21033,9 @@ function practiceRSteps_() {
     if (el.value !== tr("spot.r.name")) { el.value = tr("spot.r.name"); el.dispatchEvent(new Event("input", { bubbles: true })); }
   };
   const itemOpen = () => !document.getElementById("recurring-modal-backdrop").hidden;
+  // 12 steps (owner's plan 2026-11-05, was 18): no look-only steps, no delete steps (the cleanup removes the item and its payment),
+  // and the person taps Home themselves.
+  const sheetUp = async () => { const t0 = Date.now(); while (!newEntrySheetOpen_ && Date.now() - t0 < 10000) await new Promise((r) => setTimeout(r, 200)); return newEntrySheetOpen_; };
   return [
     { key: "intro", text: () => tr("spot.r.intro"), button: () => tr("spot.r.start") },
     { target: "#add-recurring-btn", text: () => tr("spot.r.s1"), tap: "#add-recurring-btn", before: async () => { if (document.getElementById("screen-recurring").hidden) showRecurringScreen(); } },
@@ -21042,45 +21045,33 @@ function practiceRSteps_() {
       ok: () => amountVal() > 0, holdsUntil: "save" },
     { target: "#recurring-frequency-tabs", text: () => tr(recurringFrequency === "once" ? "spot.r.s4once" : "spot.r.s4"),
       until: () => recurringFreqTouched_ && recurringFrequency !== "once", before: async () => { recurringFreqTouched_ = false; } },
-    { look: true, target: "#recurring-window-fields", text: () => tr("spot.r.s5"), button: () => tr("spot.r.gotIt"), available: () => !document.getElementById("recurring-window-fields").hidden },
     { key: "save", target: () => [document.getElementById("recurring-save-btn"), document.getElementById("recurring-form-error")],
       text: () => { const err = (document.getElementById("recurring-form-error").textContent || "").trim(); return err ? tr("spot.r.s6err", { error: err }) : tr("spot.r.s6"); },
       before: async () => { nameIt(); document.getElementById("recurring-form-error").textContent = ""; },
       until: () => !itemOpen() },
-    { look: true, target: practiceRRow_, text: () => tr("spot.r.s7"), button: () => tr("spot.r.gotIt"), wait: 45000,
-      poke: () => {
-        if (practiceRFailed_) { Spotlight.stop("skipped"); return; }   // the server refused it (an alert already said why): clean up and stop
-        if (!document.getElementById("screen-recurring").hidden) refreshRecurringExpenses().catch(() => {});
-      } },
+    { target: '.nav-btn[data-screen="entries"]', text: () => tr("spot.r.s7"), tap: '.nav-btn[data-screen="entries"]',
+      poke: () => { if (practiceRFailed_) Spotlight.stop("skipped"); } },   // the server refused it (an alert already said why): clean up and stop
     { target: practiceRCardSummary_, text: () => tr("spot.r.s8"), wait: 45000,
       tap: practiceRCardSummary_,
-      before: async () => { showScreen("entries"); try { await refreshExpectedRecurring(); } catch (e) { /* the card keeps what it shows */ } },
-      poke: () => { refreshExpectedRecurring().catch(() => {}); } },
+      before: async () => {
+        if (practiceRFailed_) { Spotlight.stop("skipped"); return false; }
+        try { await refreshExpectedRecurring(); } catch (e) { /* the card keeps what it shows */ }
+      },
+      poke: () => { if (practiceRFailed_) { Spotlight.stop("skipped"); return; } refreshExpectedRecurring().catch(() => {}); } },
     { target: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; }, text: () => tr("spot.r.s9"), wait: 15000,
       tap: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; } },
-    { look: true, target: () => document.querySelector("#paid-picker-modal-backdrop .currency-modal"), text: () => tr("spot.r.s10"), button: () => tr("spot.r.gotIt"), wait: 15000 },
-    { target: "#paid-new-save", text: () => tr("spot.r.s11"), tap: "#paid-new-save", wait: 10000 },
-    { look: true, target: "#amount", text: () => tr("spot.r.s12"), button: () => tr("spot.r.gotIt"), wait: 15000,
-      before: async () => {   // the sheet opens a moment after the tap (the item's saved split is fetched first)
-        const t0 = Date.now();
-        while (!newEntrySheetOpen_ && Date.now() - t0 < 10000) await new Promise((r) => setTimeout(r, 200));
-        return newEntrySheetOpen_;
-      } },
-    { target: "#paid_by", text: () => tr("spot.p.s5"), visit: "#paid_by",
-      after: () => { const el = document.getElementById("paid_by"); if (el.value !== "me") { el.value = "me"; el.dispatchEvent(new Event("change", { bubbles: true })); } } },
+    { target: "#paid-new-save", text: () => tr("spot.r.s11"), tap: "#paid-new-save", wait: 15000 },
     { key: "pay", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
-      text: () => { const err = (document.getElementById("form-error").textContent || "").trim(); return err ? tr("spot.p.s10err", { error: err }) : tr("spot.p.s10"); },
-      before: async () => {
+      text: () => { const err = (document.getElementById("form-error").textContent || "").trim(); return err ? tr("spot.p.s10err", { error: err }) : tr("spot.r.s12"); },
+      before: async () => {   // the sheet opens a moment after the tap (the item's saved split is fetched first)
+        if (!(await sheetUp())) return false;
         document.getElementById("form-error").textContent = "";
         const d = document.getElementById("description");
         if (d.value !== tr("spot.r.name")) { d.value = tr("spot.r.name"); d.dispatchEvent(new Event("input", { bubbles: true })); }   // the cleanup finds the payment by this name
+        const pb = document.getElementById("paid_by"); if (pb.value !== "me") { pb.value = "me"; pb.dispatchEvent(new Event("change", { bubbles: true })); }   // "Paid by" stays "Me"
         practicePickAccount_();
       },
       until: () => !newEntrySheetOpen_ },
-    { target: practiceRRow_, text: () => tr("spot.r.s13"), tap: practiceRRow_, wait: 30000,
-      before: async () => { showRecurringScreen(); } },
-    { target: "#recurring-delete-btn", text: () => tr("spot.r.s14"), tap: "#recurring-delete-btn", wait: 10000 },
-    { text: () => tr("spot.r.s15"), button: () => tr("spot.r.gotIt"), available: () => !!(practiceR_ && practiceR_.deleted) },
     { text: () => tr("spot.r.s16"), button: () => tr("spot.r.finish") }
   ];
 }
