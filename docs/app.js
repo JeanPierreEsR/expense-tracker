@@ -20065,26 +20065,46 @@ function practiceKSteps_() {
   const rowsOk = () => !!bankDraft_ && bankDraft_.rows.length > 0 && !document.getElementById("bank-save").disabled;
   let fillBase = 0;
   const recordOpen = () => practiceMOpen_("bank-record-modal-backdrop");
+  const num = (id) => bankNum_(document.getElementById(id).value);
+  const countOk = () => { const n = num("bank-gen-count"); return n >= 1 && n <= 480 && Math.round(n) === n; };
+  // An installment that fits: a little more than the loan / months, so a rate can be worked out (the text suggests it).
+  const suggested = () => { const n = countOk() ? num("bank-gen-count") : 3; const a = num("bank-amount"); return a > 0 ? Math.ceil((a * 1.02) / n) : 0; };
+  // A sensible installment: together they must come to more than the loan (or no rate fits) and at most twice it (or the form's
+  // rate search runs off: 2000% and a schedule that cannot be saved — found with silly numbers on the test copy).
+  const payOk = () => {
+    const a = num("bank-amount"), n = countOk() ? num("bank-gen-count") : 0, pay = num("bank-gen-payment");
+    return pay > 0 && (!(a > 0 && n > 0) || (pay * n > a && pay * n <= a * 2));
+  };
+  const blurDone = (id, ok) => () => ok() && document.activeElement !== document.getElementById(id);
+  // 13 steps (owner's plan 2026-11-05, was 16): the loan is entered the way a bank app shows it — installment and number of months, the app
+  // works out the rate (owner's choice); no look-only steps, no delete steps (the cleanup removes the loan and the installment's expense).
   return [
     { key: "intro", text: () => tr("spot.k.intro"), button: () => tr("spot.k.start") },
     { key: "add", target: "#add-bank-loan-btn", text: () => tr("spot.k.s1"), tap: "#add-bank-loan-btn",
       before: async () => { if (document.getElementById("screen-loans").hidden) showScreen("loans"); },
       ok: () => formOpen() || !!(practiceM_ && practiceM_.saved), holdsUntil: "save" },
-    { look: true, target: () => [document.getElementById("bank-lender"), document.getElementById("bank-description")], text: () => tr("spot.k.s2"), button: () => tr("spot.l.gotIt"),
-      before: async () => { nameIt(); } },
     { key: "amount", target: "#bank-amount", text: (fix) => tr(fix ? "spot.k.s3fix" : "spot.k.s3", { cur }), blurTap: true,
+      before: async () => { nameIt(); },
       until: practiceMAmountDone_("#bank-amount"), ok: practiceMAmountOk_("#bank-amount"), holdsUntil: "save" },
-    { key: "account", target: () => [document.getElementById("bank-date"), document.getElementById("bank-account")], text: (fix) => tr(fix ? "spot.k.s4fix" : "spot.k.s4"),
+    { key: "account", target: "#bank-account", text: (fix) => tr(fix ? "spot.k.s4fix" : "spot.k.s4"),
       visit: "#bank-account", available: hasAccounts, before: async () => hasAccounts(),
       ok: () => !hasAccounts() || !!document.getElementById("bank-account").value, holdsUntil: "save" },
-    { key: "fill", target: "#bank-gen-btn",
+    { key: "mode", target: () => document.querySelector('input[name="bank-mode"][value="installment"]').closest("label"), text: () => tr("spot.k.mode"),
+      until: () => bankMode_() === "installment", ok: () => bankMode_() === "installment", holdsUntil: "fill",
+      before: async () => {   // what the practice decides for the person: monthly, no grace, no fees, first installment one month after the loan
+        const start = document.getElementById("bank-date").value || todayLocalISO();
+        practiceMSetValue_("bank-gen-first", bankAddPeriod_(start, "monthly", 1));
+        const freq = document.getElementById("bank-gen-freq"); if (freq.value !== "monthly") { freq.value = "monthly"; freq.dispatchEvent(new Event("change", { bubbles: true })); }
+        practiceMSetValue_("bank-gen-grace", "0"); practiceMSetValue_("bank-gen-fee", "");
+      } },
+    { key: "count", target: "#bank-gen-count", text: (fix) => tr(fix ? "spot.k.countFix" : "spot.k.count"), blurTap: true,
+      until: blurDone("bank-gen-count", countOk), ok: countOk, holdsUntil: "fill" },
+    { key: "pay", target: "#bank-gen-payment", text: (fix) => tr(fix || (num("bank-gen-payment") > 0 && !payOk()) ? "spot.k.payFix" : "spot.k.pay", { cur, amount: suggested() }), blurTap: true,
+      until: blurDone("bank-gen-payment", payOk), ok: payOk, holdsUntil: "fill" },
+    { key: "fill", target: () => [document.getElementById("bank-gen-btn"), document.getElementById("bank-gen-implied")],
       text: (fix) => { const err = practiceMErr_("#bank-error"); return err ? tr("spot.k.s5err", { error: err }) : tr(fix ? "spot.k.s5fix" : "spot.k.s5"); },
-      before: async () => {
-        practiceMSetValue_("bank-gen-count", "3"); practiceMSetValue_("bank-gen-rate", "12"); practiceMSetValue_("bank-gen-fee", "1");
-        fillBase = bankFillClicks_;
-      },
+      before: async () => { fillBase = bankFillClicks_; },
       until: () => bankFillClicks_ > fillBase && rowsOk(), ok: rowsOk, holdsUntil: "save" },
-    { look: true, target: () => [document.getElementById("bank-rows"), document.getElementById("bank-totals")], text: () => tr("spot.k.s6"), button: () => tr("spot.l.gotIt") },
     { key: "save", target: () => [document.getElementById("bank-save"), document.getElementById("bank-error")],
       text: () => { const err = practiceMErr_("#bank-error"); return err ? tr("spot.k.s7err", { error: err }) : tr("spot.k.s7"); },
       before: async () => { nameIt(); document.getElementById("bank-error").textContent = ""; },
@@ -20097,17 +20117,6 @@ function practiceKSteps_() {
     { key: "record", target: () => [document.getElementById("bank-record-save"), document.getElementById("bank-record-error")],
       text: () => { const err = practiceMErr_("#bank-record-error"); return err ? tr("spot.k.s10err", { error: err }) : tr("spot.k.s10"); },
       until: () => !recordOpen() && !!(practiceM_ && practiceM_.recorded) },
-    { target: "#bank-schedule-close", text: () => tr("spot.k.s11"), tap: "#bank-schedule-close",
-      // the installment is still being saved, and the schedule refreshes itself when it lands: wait for that first
-      before: async () => {
-        const t0 = Date.now();
-        while (practiceMSaving_ > 0 && Date.now() - t0 < 60000) await practiceMSleep_(200);
-        if (practiceMSaveFailed_()) return false;
-      } },
-    { target: practiceMLoanRow_, text: () => tr("spot.k.s12"), tap: practiceMLoanRow_, wait: 15000,
-      ok: () => practiceMOpen_("loan-modal-backdrop") || !!(practiceM_ && practiceM_.deleted), holdsUntil: "choice" },
-    { target: "#loan-delete-btn", text: () => tr("spot.k.s13"), tap: "#loan-delete-btn", wait: 10000 },
-    { key: "choice", target: "#repay-choice-cancel", text: () => tr("spot.k.s14"), until: () => !!(practiceM_ && practiceM_.deleted), wait: 15000 },
     { text: () => tr("spot.k.s15"), button: () => tr("spot.l.finish"), before: async () => { if (practiceMSaveFailed_()) return false; } }
   ];
 }
