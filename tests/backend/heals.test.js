@@ -112,6 +112,60 @@ test("a server that still reads dates the OLD way (in the script's zone) shows t
 test("heals are listed once each, in order, with ids that are never reused", () => {
   const rt = freshApp({ small: true }).rt;
   const ids = JSON.parse(rt.run("JSON.stringify(HEALS_.map(function (h) { return h.id; }))"));
-  assert.deepEqual(ids, ["sheet-time-zone", "paused-programmed-to-ended", "cash-name-language", "mailbox-address-to-line"]);
+  assert.deepEqual(ids, ["sheet-time-zone", "paused-programmed-to-ended", "cash-name-language", "mailbox-address-to-line", "owner-account-currencies"]);
   assert.equal(new Set(ids).size, ids.length);
+});
+
+// ---- The owner's accounts get a currency (2026-11-06) ----
+const owner = (opts) => require("./helpers").freshApp(Object.assign({ small: true }, opts));
+const jsv = (rt, code) => JSON.parse(rt.run("JSON.stringify(" + code + ")"));
+
+test("an account's name states its currency, in either language, or says nothing", () => {
+  const { rt } = owner();
+  for (const [name, want] of [["BCP soles", "PEN"], ["Ahorros Sol", "PEN"], ["IBK dolares", "USD"], ["Cuenta dólares", "USD"], ["Savings USD", "USD"], ["Ahorro euros", "EUR"],
+    ["Interbank", ""], ["Soldado", ""], ["Soles y dolares", ""], ["Autos", ""]]) {
+    assert.equal(jsv(rt, "accountNameCurrency_(" + JSON.stringify(name) + ")"), want, name);
+  }
+});
+
+test("entries decide only with 5 or more, 90% in one currency", () => {
+  const { rt } = owner();
+  const t = (list) => jsv(rt, "accountEntriesCurrency_(" + JSON.stringify(list) + ")");
+  assert.equal(t(["PEN", "PEN", "PEN", "PEN"]), "");
+  assert.equal(t(["PEN", "PEN", "PEN", "PEN", "PEN"]), "PEN");
+  assert.equal(t(["USD", "USD", "USD", "USD", "PEN"]), "");
+  assert.equal(t([...Array(9).fill("USD"), "PEN"]), "USD");
+});
+
+test("the heal fills empty kinds on the owner's savings accounts only: never a name, a card, or a kind already there", () => {
+  const { rt } = owner();
+  const add = (o) => rt.run("appendRowObject('Payment Methods', " + JSON.stringify(Object.assign({ last_4: "", bank_id: "" }, o)) + ")");
+  rt.run("ensurePaymentMethodAliasColumns_()");
+  add({ id: "h1", nickname: "Banco soles", type: "debit" });
+  add({ id: "h2", nickname: "Banco dolares", type: "debit" });
+  add({ id: "h3", nickname: "Banco sin nada", type: "debit" });
+  add({ id: "h4", nickname: "Tarjeta soles", type: "credit" });
+  add({ id: "h5", nickname: "Banco soles dos", type: "debit", alias_kind: "debit_usd" });
+  add({ id: "h6", nickname: "Sueldo dolares", type: "debit" });
+  rt.run("getAllRows('Payment Methods'); healAccountCurrencies_()");
+  const rows = jsv(rt, "getAllRows('Payment Methods').map(function (p) { return { id: p.id, kind: String(p.alias_kind || ''), name: p.nickname, auto: String(p.alias_auto || '') }; })");
+  const of = (id) => rows.find((r) => r.id === id);
+  assert.equal(of("h1").kind, "debit_pen");
+  assert.equal(of("h2").kind, "debit_usd");
+  assert.equal(of("h3").kind, "", "nothing to go on: left empty");
+  assert.equal(of("h4").kind, "", "a card is left alone");
+  assert.equal(of("h5").kind, "debit_usd", "a kind already there stays");
+  assert.equal(of("h6").kind, "sueldo_usd");
+  assert.equal(of("h1").name, "Banco soles", "names never change");
+  assert.equal(of("h1").auto, "");
+});
+
+test("it runs on the owner's copy once and never on a friend's", () => {
+  const { rt } = owner();
+  rt.api("getMeta", {});
+  assert.ok(rt.svc.props.get("HEALS_DONE").split(",").includes("owner-account-currencies"));
+  const friend = owner().rt;
+  friend.svc.props.set("FEATURES", "base");   // what the installer writes: this is a friend's copy
+  friend.api("getMeta", {});
+  assert.ok(!String(friend.svc.props.get("HEALS_DONE") || "").split(",").includes("owner-account-currencies"));
 });

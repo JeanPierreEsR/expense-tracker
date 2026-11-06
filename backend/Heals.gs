@@ -30,8 +30,54 @@ var HEALS_ = [
   // More -> Bank emails names the inbox the app reads. A copy that cannot ask Google for its own address (the owner's: full Gmail access,
   // no "see your address" permission) showed "the account you signed in with" instead (2026-11-05). This heal reads the address once from
   // the To line of a bank e-mail already in the inbox and keeps it (MAILBOX_ADDRESS). Runs on the owner's copy too (`owner: true`).
-  { id: 'mailbox-address-to-line', owner: true, run: healMailboxAddressFromToLine_ }
+  { id: 'mailbox-address-to-line', owner: true, run: healMailboxAddressFromToLine_ },
+  // The owner's accounts are older than account kinds, so the app knows no currency for them and the exchange form cannot warn (owner's request,
+  // 2026-11-06). Fills in only an empty kind, on savings / salary accounts, from the account's name or else its entries; a name is never changed
+  // (alias_auto stays as it is). DELIBERATE EXCEPTION to "a heal never rewrites data", on the owner's request. `ownerOnly`: friends' accounts stay.
+  { id: 'owner-account-currencies', owner: true, ownerOnly: true, run: healAccountCurrencies_ }
 ];
+
+/** Pure: the currency an account's name states ('' when none, or more than one). 'BCP soles' -> 'PEN', 'IBK dolares' -> 'USD'. */
+function accountNameCurrency_(name) {
+  var n = ' ' + String(name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9$\/]+/g, ' ') + ' ';
+  var found = [];
+  if (/ (sol|soles|pen) | s\/ /.test(n)) found.push('PEN');
+  if (/ (dolar|dolares|dollar|dollars|usd) | us\$ /.test(n)) found.push('USD');
+  if (/ (euro|euros|eur) /.test(n)) found.push('EUR');
+  return found.length === 1 ? found[0] : '';
+}
+
+/** Pure: the one currency nearly all of an account's entries are in: at least 5 entries and 90% of them, or ''. */
+function accountEntriesCurrency_(currencies) {
+  var counts = {};
+  currencies.forEach(function (c) { counts[c] = (counts[c] || 0) + 1; });
+  var best = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; })[0];
+  return best && currencies.length >= 5 && counts[best] / currencies.length >= 0.9 ? best : '';
+}
+
+function healAccountCurrencies_() {
+  var accounts = getAllRows('Payment Methods').filter(function (pm) { return pm.type === 'debit' && !String(pm.alias_kind || '') && !isPracticeAccount_(pm); });
+  if (!accounts.length) return;
+  var byAccount = {};
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed' || !e.currency) return;
+    [e.payment_method_id, e.to_payment_method_id].forEach(function (id) {
+      if (id) (byAccount[String(id)] = byAccount[String(id)] || []).push(String(e.currency));
+    });
+  });
+  ensurePaymentMethodAliasColumns_();
+  var sheet = getSheet('Payment Methods');
+  var headers = getHeaders(sheet);
+  var changed = 0;
+  accounts.forEach(function (pm) {
+    var cur = accountNameCurrency_(pm.nickname) || accountEntriesCurrency_(byAccount[String(pm.id)] || []);
+    if (!cur) return;
+    var type = /sueldo|salary/i.test(String(pm.nickname)) ? 'sueldo' : 'debit';
+    setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, pm.id), 'alias_kind', accountKindFor_(type, cur));
+    changed++;
+  });
+  if (changed) { if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods']; bumpStructureVersion_(); }
+}
 
 function healMailboxAddressFromToLine_() {
   var props = PropertiesService.getScriptProperties();
@@ -65,7 +111,7 @@ function runHealsOnce_() {
   var props = PropertiesService.getScriptProperties();
   var done = String(props.getProperty(HEALS_DONE_PROPERTY_) || '').split(',').filter(function (id) { return id; });
   HEALS_.forEach(function (heal) {
-    if (done.indexOf(heal.id) !== -1 || (!friend && !heal.owner)) return;
+    if (done.indexOf(heal.id) !== -1 || (!friend && !heal.owner) || (friend && heal.ownerOnly)) return;
     try {
       heal.run();
       done.push(heal.id);

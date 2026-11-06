@@ -169,6 +169,7 @@ test("exchange form: same currency said at once, an account's known currency set
   assert.match(code, /Spotlight\.isRunning\(\) \? \[\]/);
   assert.match(code, /!exchangeCurTouched_\[side\] && !Spotlight\.isRunning\(\)/);
   assert.match(html, /id="exchange-account-note"/);
+  assert.match(code, /there\.value === here\.value && exchangeCurPrev_\[side\]/, "picking the other side's currency swaps them");
   const save = app.slice(app.indexOf('document.getElementById("exchange-save-btn").addEventListener'), app.indexOf("// ---- New-entry sheet + the round"));
   assert.match(save, /if \(out\.currency === inn\.currency\) \{ errorEl\.textContent = tr\("xch\.sameCurrency"\); return; \}/);
   assert.ok(!/accountMismatch/.test(save), "a mismatch never blocks Save");
