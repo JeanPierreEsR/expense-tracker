@@ -14444,6 +14444,14 @@ async function loadTripFinder_(lookBack) {
           <div class="recurring-row-sub">${escapeHtml(listDate_(e.date))}${e.category_name && e.description ? " · " + escapeHtml(e.category_name) : ""}</div>
         </div>
         <div class="recurring-row-amount">${escapeHtml(formatAmount(e.own_share, e.currency))}</div>`;
+      row.dataset.entryId = e.id;
+      // During the Trips practice only its own two made-up expenses are listed (and ticked): a real expense must never join the practice trip,
+      // and a long list of real ones made the lit area cover them (taps landed on their boxes instead of Add).
+      if (Spotlight.isRunning() && practiceT_ && (practiceT_.pastIds || []).length) {
+        const mine = practiceT_.pastIds.includes(String(e.id));
+        row.querySelector("input").checked = mine;
+        if (!mine) row.hidden = true;
+      }
       rows.push({ e, input: row.querySelector("input") });
       box.appendChild(row);
     });
@@ -14466,7 +14474,9 @@ async function loadTripFinder_(lookBack) {
     addBtn.addEventListener("click", async () => {
       addBtn.disabled = true;
       try {
-        await callApi("linkEntriesToTrip", { id, entryIds: rows.filter((r) => r.input.checked).map((r) => r.e.id) });
+        const ticked = rows.filter((r) => r.input.checked).map((r) => r.e.id);
+        await callApi("linkEntriesToTrip", { id, entryIds: ticked });
+        if (practiceT_ && (practiceT_.pastIds || []).some((pid) => ticked.includes(pid))) { practiceT_.linked = true; practiceTSave_(); }
         box.hidden = true;
         await refreshTripDetail_();
       } catch (err) {
@@ -20617,7 +20627,7 @@ function practiceTTrack_(work, fields) {
 }
 
 function offerTripsTip_() {
-  if (!((meta && meta.capabilities) || {}).practiceTrips) return;   // an older backend could not keep the practice trip silent or clean it up
+  if (!((meta && meta.capabilities) || {}).practiceTripsFind) return;   // an older backend could not make (or clean up) the practice's past expenses
   offerTip_("trips", "trips-tip-invite", tr("spot.t.invite"), startTripsPractice_);
 }
 
@@ -20640,12 +20650,13 @@ function practiceTSteps_() {
   const hasAccounts = () => Array.from(document.querySelectorAll("#payment_method option")).some((o) => o.value && o.value !== "__add__");
   const lastError = (id) => (document.getElementById(id).textContent || "").trim();
   const setValue = (el, v) => { if (el.value !== v) { el.value = v; el.dispatchEvent(new Event("input", { bubbles: true })); } };
-  // The trip form: the practice's name and three days from today (so an expense paid today is "during" the trip).
+  // The trip form: the practice's name and the last four days, today included (the two made-up expenses of yesterday and the day before
+  // are "in these dates": the practice teaches "Find expenses in these dates", owner 2026-11-05).
   const fillTrip = () => {
     setValue(document.getElementById("trip-name"), tr("spot.t.name"));
-    const d = new Date(); d.setDate(d.getDate() + 2);
-    const end = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const start = todayLocalISO();
+    const d = new Date(); d.setDate(d.getDate() - 3);
+    const start = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const end = todayLocalISO();
     const s = document.getElementById("trip-start"), e = document.getElementById("trip-end");
     if (s.value !== start || e.value !== end) { s.value = start; e.value = end; s.dispatchEvent(new Event("change", { bubbles: true })); }
   };
@@ -20662,11 +20673,17 @@ function practiceTSteps_() {
     const total = document.querySelector("#trip-detail-body .trip-total"), phases = document.querySelector("#trip-detail-body .trip-phases");
     return total && phases ? [total, phases] : null;
   };
+  const findRows = () => {   // the practice's own rows in the finder, and the Add button
+    const ids = (practiceT_ && practiceT_.pastIds) || [];
+    const rows = Array.from(document.querySelectorAll("#trip-find-box .trip-find-row")).filter((r) => ids.includes(r.dataset.entryId));
+    const add = document.querySelector("#trip-find-box button.primary");
+    return rows.length && add ? [...rows, add] : null;
+  };
+  // 8 steps (owner's plan 2026-11-05, was 17): the trip, then "Find expenses in these dates" with two made-up past expenses. Linking a NEW
+  // expense to a trip moved to the pop-up tips; no delete steps (the cleanup removes the trip and the two expenses).
   return [
     { key: "intro", text: () => tr("spot.t.intro"), button: () => tr("spot.t.start") },
     { target: "#trips-add-btn", text: () => tr("spot.t.s1"), tap: "#trips-add-btn", before: async () => { if (document.getElementById("screen-trips").hidden) await showTripsScreen(); } },
-    { look: true, target: () => [document.getElementById("trip-kind-tabs"), document.getElementById("trip-name"), document.querySelector("#trip-modal-backdrop .range-field")], text: () => tr("spot.t.s2"),
-      button: () => tr("spot.t.gotIt"), before: async () => { fillTrip(); } },
     { key: "budget", target: () => [budgetEl(), document.getElementById("trip-alert-fields")], text: (fix) => tr(fix ? "spot.t.s3fix" : "spot.t.s3", { cur }), blurTap: true, until: budgetDone,
       ok: () => budgetVal() > 0, holdsUntil: "save", before: async () => { fillTrip(); } },
     { key: "save", target: () => [document.getElementById("trip-save-btn"), document.getElementById("trip-form-error")],
@@ -20678,55 +20695,28 @@ function practiceTSteps_() {
         if (practiceTFailed_) { Spotlight.stop("skipped"); return; }   // the server refused it (an alert already said why): clean up and stop
         if (!document.getElementById("screen-trips").hidden) refreshTripsList_().catch(() => {});
       } },
-    { look: true, target: detailParts, text: () => tr("spot.t.s6"), button: () => tr("spot.t.gotIt"), wait: 20000 },
-    { target: "#fab-new-entry", text: () => tr("spot.t.s7"), tap: "#fab-new-entry",
-      before: async () => { showScreen("entries"); syncFab_(); } },
-    { target: "#category-picker", text: () => tr("spot.t.s8"), until: () => !document.getElementById("entry-form").hidden,
-      before: async () => {   // the picker is for an Expense
-        const tab = document.querySelector('#entry-type-tabs .type-tab[data-type="expense"]');
-        if (selectedType !== "expense" && tab) tab.click();
-      } },
-    { key: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.p.s4fix" : "spot.p.s4", { cur }), blurTap: true, until: amountDone,
-      ok: () => amountVal() > 0, holdsUntil: "saveEntry", before: async () => { nameExpense(); mainCurrencyOnForm(); } },
-    // (A change in the picker ends a visit step by itself, so a wrong pick cannot hold the walkthrough here: it is put right at once, and the
-    // next step says so. The practice expense must never join a REAL trip.)
-    { key: "trip", target: "#trip-field", visit: "#entry-trip", ok: pickedPractice, holdsUntil: "saveEntry",
-      text: (fix) => tr(fix ? "spot.t.s9fix" : pickedPractice() ? "spot.t.s9" : "spot.t.s9pick"),
-      after: () => { const mine = practiceTrip(); if (mine && tripSel().value !== mine.id) { setTripPick_(mine.id); practiceTSwitched_ = true; } } },
-    { key: "saveEntry", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
-      text: () => { const err = lastError("form-error"); return err ? tr("spot.p.s10err", { error: err }) : (practiceTSwitched_ ? tr("spot.t.s9switched") + " " : "") + tr("spot.p.s10"); },
-      before: async () => {
-        document.getElementById("form-error").textContent = "";
-        nameExpense();   // the cleanup finds the expense by this name
-        mainCurrencyOnForm();
-        practicePickAccount_();
-        // SAFETY: the practice expense must never land in a REAL trip (it would count toward that trip's budget and could set off its alert
-        // before the cleanup): whatever the picker shows now, it is the practice trip at Save.
-        const mine = practiceTrip();
-        if (mine && tripSel().value !== mine.id) setTripPick_(mine.id);
-        const pb = document.getElementById("paid_by");
-        if (pb.value !== "me") { pb.value = "me"; pb.dispatchEvent(new Event("change", { bubbles: true })); }   // the practice is about the owner's own money
-      },
-      until: () => !newEntrySheetOpen_ },
-    { target: () => practiceTRow_(true), text: () => tr("spot.t.s10"), tap: () => practiceTRow_(true), wait: 45000,
-      before: async () => { await showTripsScreen(); },
-      poke: () => { if (!document.getElementById("screen-trips").hidden) refreshTripsList_().catch(() => {}); } },
-    { look: true, target: () => { const p = detailParts(), c = document.getElementById("trip-detail-entries"); return p && c && c.children.length ? [...p, c] : null; },
-      text: () => tr("spot.t.s11"), button: () => tr("spot.t.gotIt"), wait: 20000 },
-    { target: "#trip-detail-edit-btn", text: () => tr("spot.t.s12"), tap: "#trip-detail-edit-btn", wait: 10000 },
-    { target: "#trip-delete-btn", text: () => tr("spot.t.s13"), until: () => !!(practiceT_ && practiceT_.deleted), wait: 10000 },
-    { text: () => tr("spot.t.s14"), button: () => tr("spot.t.finish") }
+    { target: "#trip-find-btn", text: () => tr("spot.t.find"), tap: "#trip-find-btn", wait: 20000,
+      before: async () => { if (!(await (practiceTMaking_ || Promise.resolve(false)))) { Spotlight.stop("skipped"); return false; } } },
+    // Required: the closing text says the trip now counts both expenses (a skip comes back here).
+    { key: "add", target: findRows, text: () => tr("spot.t.add"), wait: 30000, until: () => !!(practiceT_ && practiceT_.linked),
+      ok: () => !!(practiceT_ && practiceT_.linked), holdsUntil: "done" },
+    { key: "done", target: detailParts, text: () => tr("spot.t.done"), button: () => tr("spot.t.finish"), wait: 20000 }
   ];
 }
 
+let practiceTMaking_ = null;   // the call making the two past expenses
 function startTripsPractice_() {
   if (practiceTRemoving_) { showToast_(tr("spot.t.stillRemoving")); return false; }
   const open = ["trip-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
   if (open || !tipPrepareForm_()) { if (open) showToast_(tr("spot.t.busy")); return false; }
-  practiceT_ = { saved: false, deleted: false, startedOn: todayLocalISO() };
+  practiceT_ = { saved: false, deleted: false, startedOn: todayLocalISO(), made: true, pastIds: [], linked: false };   // (made: marked BEFORE the call)
   practiceTSave_();
   practiceTFailed_ = "";
   practiceTSwitched_ = false;
+  // The two made-up past expenses the person will find, made while they read and fill in the trip.
+  practiceTMaking_ = callApi("createPracticeTripExpenses", { lang: I18n.getLang() })
+    .then((res) => { if (practiceT_) { practiceT_.pastIds = (res.ids || []).map(String); practiceTSave_(); } return true; })
+    .catch((err) => { alert(tr("spot.t.createFailed", { error: err.message })); return false; });
   runTip_(practiceTSteps_(), async () => {
     if (document.getElementById("screen-trips").hidden) showTripsScreen().catch(() => {});
     showToast_(tr("spot.t.removing"));
@@ -20756,7 +20746,8 @@ async function practiceTRemove_() {
     while (practiceTSaving_ > 0 && Date.now() - t0 < 60000) await new Promise((r) => setTimeout(r, 300));
     await tipWaitIdle_(90000);
     let ok = true;
-    if (p.saved) {
+    if (p.saved || p.made) {
+      if (practiceTMaking_) await practiceTMaking_;   // the two past expenses are on the server before the cleanup looks
       try { await callApi("removePracticeTrips", { started_on: p.startedOn || "" }); }
       catch (err) { ok = false; alert(tr("spot.t.removeFailed", { error: err.message })); }
     }

@@ -107,3 +107,24 @@ test("the practice trip is never suggested for a real entry, and does not make a
   const listed = rt.api("listPendingEntries", {}).find((e) => e.id === pending.id);
   assert.equal(listed.suggested_trip_id, real.id, "the review queue suggests the real trip too");
 });
+
+test("Find expenses practice (2026-11-05): two made-up past expenses, found in the practice trip's dates, removed by marker", () => {
+  const { rt, spend, mkTrip } = setup();
+  assert.equal(rt.api("getMeta").capabilities.practiceTripsFind, true);
+  const made = rt.api("createPracticeTripExpenses", { lang: "es" });
+  assert.equal(made.ids.length, 2);
+  assert.deepEqual(made.dates, [plusDays(-1), plusDays(-2)]);
+  const rows = rt.rows("Entries").filter((e) => made.ids.includes(e.id));
+  assert.ok(rows.every((e) => e.description === "Gasto de viaje de práctica" && e.status === "confirmed" && !e.trip_id && e.external_id.startsWith("practice-trip-")));
+  // a real expense in the same days, named like the practice's, must stay
+  const realSame = spend("Gasto de viaje de práctica", 12, "", plusDays(-1));
+  const trip = mkTrip("Viaje de práctica", { start_date: plusDays(-3), end_date: today() });
+  const found = rt.api("findTripCandidates", { id: trip.id }).entries.map((e) => e.id);
+  for (const id of made.ids) assert.ok(found.includes(id), "the finder lists the practice expenses");
+  rt.api("linkEntriesToTrip", { id: trip.id, entryIds: made.ids });
+  const out = rt.api("removePracticeTrips", { started_on: today() });
+  assert.equal(out.trips, 1);
+  const left = rt.rows("Entries").map((e) => e.id);
+  for (const id of made.ids) assert.ok(!left.includes(id), "made-up past expense removed even though it is dated before the practice");
+  assert.ok(left.includes(realSame.id), "a real entry dated before the practice and named alike is never deleted");
+});

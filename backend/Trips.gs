@@ -517,6 +517,37 @@ function linkEntriesToTrip(payload) {
   return { linked: linked };
 }
 
+// First-use Trips practice, since 2026-11-05 (owner): it teaches "🔎 Find expenses in these dates", so it first makes TWO made-up expenses in
+// the practice trip's past days (yesterday and the day before), confirmed, no trip, no account, the first visible expense category, named like
+// the practice's expense. They are dated BEFORE the practice started, so the cleanup finds them by the marker in their external_id (the person
+// cannot edit it), not by date. A budget alert skips them by name (PRACTICE_ENTRY_NAMES_); nothing sends a message for a manual expense.
+//   payload: { lang }  -> { ids: [two ids], dates: [two YYYY-MM-DD] }
+var PRACTICE_TRIP_MARK_ = 'practice-trip-';
+function createPracticeTripExpenses(payload) {
+  return withScriptLockOnce_(function () {
+    ensureEntriesMerchantColumn_();
+    var es = String((payload && payload.lang) || '').toLowerCase().indexOf('es') === 0;
+    var name = es ? 'Gasto de viaje de pr\u00e1ctica' : 'Practice trip expense';
+    var cat = '';
+    getAllRows('Categories').some(function (c) {
+      if (c.type === 'expense' && String(c.hidden || '') !== 'yes') { cat = String(c.id); return true; }
+      return false;
+    });
+    var ids = [], dates = [];
+    [[1, 23.7], [2, 41.3]].forEach(function (d) {   // odd cents: they never look like a real entry the matchers could pair
+      var id = Utilities.getUuid();
+      var date = formatCalendarDate_(new Date(Date.now() - d[0] * 24 * 3600 * 1000));
+      appendRowObject('Entries', {
+        id: id, type: 'expense', date: date, amount: d[1], currency: homeCurrency_(), category_id: cat, description: name,
+        payment_method_id: '', paid_by: 'me', status: 'confirmed', source: 'manual', external_id: PRACTICE_TRIP_MARK_ + id,
+        import_batch_id: '', created_at: nowTimestamp_(), merchant: ''
+      });
+      ids.push(id); dates.push(date);
+    });
+    return { ids: ids, dates: dates };
+  });
+}
+
 // First-use Trips practice cleanup in ONE call: deletes every trip named like the practice's (with its hidden group friend and alert
 // history, through deleteTrip) and the expense the practice recorded for it (named like it, dated since the practice started). A REAL
 // entry the person linked to the practice trip is never deleted, only unlinked (deleteTrip does that).
@@ -528,7 +559,8 @@ function removePracticeTrips(payload) {
     var ids = getTripRows_().filter(isPracticeTrip_).map(function (t) { return String(t.id); });
     var startedOn = String((payload && payload.started_on) || '');
     getAllRows('Entries').forEach(function (e) {
-      if (e.type === 'expense' && isPracticeTripExpense_(e) && (!startedOn || String(e.date) >= startedOn)) {
+      var marked = String(e.external_id || '').indexOf(PRACTICE_TRIP_MARK_) === 0;   // the two made-up past expenses
+      if (e.type === 'expense' && (marked || (isPracticeTripExpense_(e) && (!startedOn || String(e.date) >= startedOn)))) {
         try { discardEntryWithRepayments_(e.id, 'cancel'); out.entries++; } catch (err) { /* it stays: the person can delete it by hand */ }
       } else if (ids.indexOf(String(e.trip_id)) !== -1) {
         out.unlinked++;
