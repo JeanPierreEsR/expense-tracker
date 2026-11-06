@@ -428,6 +428,7 @@
     // ---- Home tab: the quick glance at the top, and the entries grouped by day ----
     "home.spentThisMonth": { en: "Spent this month", es: "Gastado este mes" },
     "home.spentIn": { en: "Spent in {month}", es: "Gastado en {month}" },
+    "home.vsSameDay": { en: "{arrow} {pct}% vs same day last month", es: "{arrow} {pct}% vs. el mismo día del mes pasado" },
     "home.vsLast": { en: "{arrow} {pct}% vs last month", es: "{arrow} {pct}% vs. el mes pasado" },
     "home.last6": { en: "Last 6 months", es: "Últimos 6 meses" },
     "monthsHist.title": { en: "Month by month", es: "Mes a mes" },
@@ -2579,7 +2580,7 @@
     "firstSteps.firstMailLate": { en: "No bank email has arrived in {n} days. Tap to check that your alerts are on, with the lowest minimum amount.", es: "No ha llegado ningún correo del banco en {n} días. Toca para revisar que tus avisos estén activados, con el monto mínimo más bajo." },
     "firstSteps.statement": { en: "Load a statement to catch what emails miss", es: "Carga un estado de cuenta para encontrar lo que los correos no captan" },
     "firstSteps.statementHint": { en: "Optional. Once a month is enough.", es: "Opcional. Una vez al mes basta." },
-    "review.learns": { en: "Confirm a category once and the app suggests it next time for the same store.", es: "Confirma una categoría una vez y la app te la sugiere la próxima vez en la misma tienda." },
+    "review.learns": { en: "Confirm the same category twice for a store and the app suggests it from then on.", es: "Confirma la misma categoría dos veces en una tienda y desde entonces la app te la sugiere." },
     "bankMail.animLabel": { en: "A bank email arrives and shows up in Needs review", es: "Llega un correo del banco y aparece en Por revisar" },
     "bankMail.alertsTitle": { en: "Turn on every alert in your bank's app", es: "Activa todos los avisos en la app de tu banco" },
     "bankMail.alertsLead": { en: "The app can only see the payments your bank tells you about by email. In each bank's app, turn on email alerts for every kind of operation and set the minimum amount as low as it allows (0 if you can). Anything under the minimum never reaches the app.", es: "La app solo se entera de los pagos que tu banco te avisa por correo. En la app de cada banco, activa los avisos por correo de todos los tipos de operación y pon el monto mínimo lo más bajo que permita (0 si se puede). Lo que esté por debajo del mínimo nunca llega a la app." },
