@@ -77,6 +77,7 @@
     "entry.noAccount": { en: "no account set", es: "sin cuenta asignada" },
     "entry.unknownCategory": { en: "(unknown category)", es: "(categoría desconocida)" },
     "entry.uncategorized": { en: "Uncategorized", es: "Sin categoría" },
+    "entry.savingOffline": { en: "No connection. It's kept on this phone and will save by itself when you're back online.", es: "Sin conexión. Queda guardado en este celular y se guardará solo cuando vuelvas a tener conexión." },
     "entry.saving": { en: "💾 Saving…", es: "💾 Guardando…" },
     "review.retryToast": { en: "Couldn't save it yet — it will keep trying.", es: "Aún no se pudo guardar; seguirá intentando." },
     "entry.deleting": { en: "🗑️ Deleting…", es: "🗑️ Eliminando…" },
