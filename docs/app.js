@@ -473,6 +473,16 @@ function withThen_(payload, reads) {
   return ok && list.length ? Object.assign({}, payload, { _then: list }) : payload;
 }
 
+// Asks the server for some lists AHEAD of the screen that needs them (a practice sends the person to Overview next): the screen's own
+// calls then join the call still on its way, or take its answer if it already came back (kept up to a minute, dropped by any save).
+function preloadReads_(calls, ttl) {
+  calls.forEach(([action, payload]) => {
+    const gen = apiWriteGen_;
+    callApi(action, payload).then((data) => {
+      if (gen === apiWriteGen_) apiPrefill_.set(apiReadKey_(action, payload), { gen, at: Date.now(), data, ttl: ttl || 60000 });
+    }).catch(() => { /* the screen asks again by itself */ });
+  });
+}
 async function callApi(action, payload, attempt = 1, startedAt = performance.now()) {
   if (attempt > 1 || API_NEUTRAL_.has(action)) return callApiCounted_(action, payload, attempt, startedAt);
   if (API_READ_RE_.test(action)) {
@@ -480,7 +490,7 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
     const pre = apiPrefill_.get(key);
     if (pre) {
       apiPrefill_.delete(key);
-      if (pre.gen === apiWriteGen_ && Date.now() - pre.at < 15000) return pre.data;
+      if (pre.gen === apiWriteGen_ && Date.now() - pre.at < (pre.ttl || 15000)) return pre.data;
     }
     const flying = apiInflight_.get(key);
     if (flying && flying.gen === apiWriteGen_) return flying.promise.then(apiCopy_);
@@ -7443,6 +7453,13 @@ function trackOverviewLoad_(promise) {
 }
 
 function refreshOverview() { return trackOverviewLoad_(refreshOverviewInner_()); }
+// The data Overview asks for when its tab is tapped, fetched ahead (practices that send the person there: owner's walk 2026-11-05, it was slow).
+function preloadOverview_() {
+  const bounds = getPeriodBounds();
+  if (!bounds.startDate || !bounds.endDate) return;
+  const range = { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() };
+  preloadReads_([["getPeriodSummary", range], ["listEntries", range], ["listPaymentMethodBalances", {}], ["getMonthlyHistory", {}]]);
+}
 
 // What Overview does while it loads: the screen NEVER blanks or waits. A small spinner by the period picker
 // says "fetching"; the last figures stay readable. Only when the figures on screen belong to ANOTHER period
@@ -20448,7 +20465,8 @@ function practiceATrack_(work, nickname) {
   practiceASave_();
   return async () => {
     practiceASaving_++;
-    try { return await work(); } catch (err) { practiceAFailed_ = err.message || String(err); throw err; } finally { practiceASaving_--; }
+    try { const out = await work(); preloadOverview_(); return out; }   // Overview is the next screen: its data is on its way before the tap
+    catch (err) { practiceAFailed_ = err.message || String(err); throw err; } finally { practiceASaving_--; }
   };
 }
 // The same for the practice account's starting balance (it must reach the server before the account is deleted).
@@ -20494,47 +20512,42 @@ function practiceASteps_() {
   const pmOpen = () => !document.getElementById("pm-modal-backdrop").hidden;
   const balOpen = () => !document.getElementById("balance-modal-backdrop").hidden;
   const unfocus = () => { try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) { /* ignore */ } };
+  // 9 steps (owner's plan 2026-11-05, was 20): no look-only steps, no delete steps (the cleanup deletes the account), the person taps Overview.
   return [
     { key: "intro", text: () => tr("spot.a.intro"), button: () => tr("spot.a.start") },
     { target: "#accounts-add-btn", text: () => tr("spot.a.s1"), tap: "#accounts-add-btn", before: async () => { if (document.getElementById("screen-accounts").hidden) showAccountsScreen(); } },
-    { look: true, target: "#pm-nickname", text: () => tr("spot.a.s2"), button: () => tr("spot.a.gotIt"), before: async () => { fillForm(); await new Promise((r) => setTimeout(r, 150)); unfocus(); } },
     // The practice account is a CREDIT CARD (owner, 2026-11-02): that is what shows the "Negative — I owe this" box at work.
     { key: "type", target: "#pm-type", visit: "#pm-type", ok: () => document.getElementById("pm-type").value === "credit", holdsUntil: "save",
+      before: async () => { fillForm(); await new Promise((r) => setTimeout(r, 150)); unfocus(); },
       text: (fix) => tr(fix || document.getElementById("pm-type").value !== "credit" ? "spot.a.s3fix" : "spot.a.s3") },
-    { look: true, target: () => [bankEl(), digitsEl()], text: () => tr("spot.a.s4"), button: () => tr("spot.a.gotIt") },
     { key: "save", target: () => [document.getElementById("pm-save-btn"), document.getElementById("pm-form-error")],
       text: () => { const err = (document.getElementById("pm-form-error").textContent || "").trim(); return err ? tr("spot.a.s5err", { error: err }) : tr("spot.a.s5"); },
       before: async () => { fillForm(); document.getElementById("pm-form-error").textContent = ""; },
       until: () => !pmOpen() },
-    { look: true, target: practiceARow_, text: () => tr("spot.a.s6"), button: () => tr("spot.a.gotIt"), wait: 45000,
-      poke: () => { if (practiceAFailed_) Spotlight.stop("skipped"); } },   // the server refused it (an alert already said why): clean up and stop
-    { target: '.nav-btn[data-screen="overview"]', text: () => tr("spot.a.s7"), tap: '.nav-btn[data-screen="overview"]' },
-    { target: "#add-balance-btn", text: () => tr("spot.a.s8"), tap: "#add-balance-btn", wait: 15000,
-      before: async () => {   // Overview is still drawing (its cards grow and move the button): light the button up only once it has settled
+    { target: '.nav-btn[data-screen="overview"]', text: () => tr("spot.a.s7"), tap: '.nav-btn[data-screen="overview"]',
+      poke: () => { if (practiceAFailed_) Spotlight.stop("skipped"); } },   // the server refused the account (an alert already said why): clean up and stop
+    { target: "#add-balance-btn", text: () => tr("spot.a.s8"), tap: "#add-balance-btn", wait: 45000,
+      before: async () => {   // the account must have reached the server (it is picked next), and Overview must have settled (its cards move the button)
         const t0 = Date.now();
-        while (overviewBusyCount_ > 0 && Date.now() - t0 < 15000) await new Promise((r) => setTimeout(r, 150));
+        while ((!practiceAPm_() || practiceASaving_ > 0 || overviewBusyCount_ > 0) && !practiceAFailed_ && Date.now() - t0 < 45000) await new Promise((r) => setTimeout(r, 150));
+        if (practiceAFailed_) { Spotlight.stop("skipped"); return false; }
         await new Promise((r) => setTimeout(r, 200));
       } },
-    { look: true, target: "#balance-account-picker-wrap", text: () => tr("spot.a.s9"), button: () => tr("spot.a.gotIt"), wait: 10000,
-      before: async () => {   // the practice account is chosen for the person (their other accounts are never offered as the practice's)
+    { key: "amount", target: amountEl, text: (fix) => tr(fix ? "spot.a.s10fix" : "spot.a.s10", { cur }), blurTap: true, until: amountDone,
+      ok: () => amountVal() > 0, holdsUntil: "balsave",
+      before: async () => {   // the practice account is chosen for the person and, as a card, its row is checked "Negative — I owe this"
         const pm = practiceAPm_();
         const picker = document.getElementById("balance-account-picker");
         if (pm && picker && picker.value !== pm.id && Array.from(picker.options).some((o) => o.value === pm.id)) { picker.value = pm.id; picker.dispatchEvent(new Event("change", { bubbles: true })); }
-      } },
-    { key: "amount", target: amountEl, text: (fix) => tr(fix ? "spot.a.s10fix" : "spot.a.s10", { cur }), blurTap: true, until: amountDone,
-      ok: () => amountVal() > 0, holdsUntil: "balsave" },
-    { look: true, target: () => { const b = document.querySelector("#balance-rows .balance-row-negative"); return b ? b.closest("label") : null; },
-      text: () => tr("spot.a.s10neg", { cur }), button: () => tr("spot.a.gotIt"),
-      before: async () => {   // a credit card's row starts ticked; the practice makes sure of it
+        await new Promise((r) => setTimeout(r, 150));
         const b = document.querySelector("#balance-rows .balance-row-negative");
         if (b && !b.checked) { b.checked = true; b.dispatchEvent(new Event("change", { bubbles: true })); }
       } },
-    { look: true, target: () => document.querySelector("#balance-rows .balance-form-row"), text: () => tr("spot.a.s11", { cur }), button: () => tr("spot.a.gotIt") },
     { key: "balsave", target: () => [document.getElementById("balance-save-btn"), document.getElementById("balance-form-error")],
       text: () => { const err = (document.getElementById("balance-form-error").textContent || "").trim(); return err ? tr("spot.a.s12err", { error: err }) : tr("spot.a.s12"); },
       before: async () => { document.getElementById("balance-form-error").textContent = ""; },
       until: () => !balOpen() },
-    { look: true, target: practiceABalanceRow_, text: () => tr("spot.a.s13"), button: () => tr("spot.a.gotIt"), wait: 45000,
+    { target: practiceABalanceRow_, text: () => tr("spot.a.done"), button: () => tr("spot.a.finish"), wait: 45000,
       before: async () => {   // the account rows are folded away by default: open them for the practice (put back at the end)
         if (practiceABalancesWere_ === null) practiceABalancesWere_ = balancesExpanded_;
         balancesExpanded_ = true; applyBalancesExpanded_();
@@ -20542,15 +20555,7 @@ function practiceASteps_() {
       poke: () => {
         if (practiceAFailed_) { Spotlight.stop("skipped"); return; }
         refreshBalances().catch(() => {});
-      } },
-    { target: '.nav-btn[data-screen="more"]', text: () => tr("spot.a.s14"), tap: '.nav-btn[data-screen="more"]' },
-    { target: practiceARow_, text: () => tr("spot.a.s15"), tap: practiceARow_, wait: 15000,
-      before: async () => { if (document.getElementById("screen-accounts").hidden) showAccountsScreen(); } },
-    { look: true, target: "#pm-manage", text: () => tr("spot.a.s16"), button: () => tr("spot.a.gotIt"), wait: 10000 },
-    { target: () => [document.getElementById("pm-delete-btn"), document.getElementById("pm-form-error")],
-      text: () => { const err = (document.getElementById("pm-form-error").textContent || "").trim(); return err ? tr("spot.a.s17err", { error: err }) : tr("spot.a.s17"); },
-      until: () => !!(practiceA_ && practiceA_.deleted), wait: 10000 },
-    { text: () => tr("spot.a.s18"), button: () => tr("spot.a.finish") }
+      } }
   ];
 }
 
