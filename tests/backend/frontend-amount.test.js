@@ -47,6 +47,10 @@ test("rates and percentages keep their decimals; balances may be negative", () =
   assert.equal(problem(box("-3", "rate")).kind, "negative", "a negative rate is refused");
   assert.equal(problem(box("1.2.3", "rate")).kind, "invalid");
   assert.equal(problem(box("-50", "signed")), null);
+  const p = problem(box("-1,234", "signed"));
+  assert.equal(p.kind, "ambiguous", "a balance can be misread too");
+  assert.equal(p.sign, "-");
+  assert.equal(problem(box("1,234", "signed")).kind, "ambiguous");
 });
 
 test("the exchange-rate and other non-money boxes are marked, and every save button family is guarded", () => {
@@ -67,4 +71,9 @@ test("with no problem found, the guard writes the clean number into every box, s
   assert.match(fn, /const clean = sanitizeAmountInputValue\(input\.value\.trim\(\)\);\s*if \(clean !== input\.value\) \{ input\.value = clean;/);
   assert.equal(sanitize("12,50"), "12.50");
   assert.equal(sanitize("1,234.50"), "1234.50");
+});
+
+test("currencies with no cents never offer a decimal reading", () => {
+  assert.match(src, /AMOUNT_NO_CENTS_ = \["CLP"/);
+  assert.match(src, /AMOUNT_NO_CENTS_\.includes\(cur\)\) \{ setValue\(thousand\); return true; \}/);
 });

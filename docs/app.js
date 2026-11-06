@@ -2427,19 +2427,20 @@ function sanitizeAmountInputValue(value) {
 // What a money box holds, checked when a save button is pressed (one guard, so every form gets it). A lone comma or dot
 // followed by exactly three digits can mean a thousand or a decimal ("1,234"): the person is asked, never guessed for
 // (owner, 2026-11-06). data-amount-kind="rate" (exchange rates, percentages: 3.755 is normal) skips that question;
-// "signed" (statement balances) may also be negative.
+// "signed" (starting and statement balances) may be negative.
 function amountProblem_(input) {
   const v = sanitizeAmountInputValue(input.value.trim());
   if (!v) return null;
   const kind = input.dataset.amountKind || "";
   if (v[0] === "-" && kind !== "signed") return { kind: "negative", input };
   const digits = v.replace(/^-/, "");
+  const sign = v[0] === "-" ? "-" : "";
   if ((digits.match(/\./g) || []).length > 1) {
     // Typed key by key, 1,234.50 and 1.234.567 reach here as 1.234.50 and 1.234.567, and 1,234,567.89 as 1234.567.89: groups of three can only be thousands.
     const grouped = /^(\d+(?:\.\d{3})+)(\.\d{1,2})?$/.exec(digits);
-    return grouped && !kind ? { kind: "grouped", input, value: grouped[1].replace(/\./g, "") + (grouped[2] || "") } : { kind: "invalid", input, typed: v };
+    return grouped && kind !== "rate" ? { kind: "grouped", input, value: sign + grouped[1].replace(/\./g, "") + (grouped[2] || "") } : { kind: "invalid", input, typed: v };
   }
-  if (!kind && /^[1-9]\d*\.\d{3}$/.test(digits)) return { kind: "ambiguous", input, typed: digits };
+  if (kind !== "rate" && /^[1-9]\d*\.\d{3}$/.test(digits)) return { kind: "ambiguous", input, typed: digits, sign };
   return null;
 }
 
@@ -2462,6 +2463,7 @@ function firstAmountProblem_(scope) {
   return null;
 }
 
+const AMOUNT_NO_CENTS_ = ["CLP", "JPY", "KRW", "PYG"];
 let amountAskDone_ = null;
 let amountAskOpenedAt_ = 0;
 // The window opens under the finger: the second tap of a double tap on Save must neither pick an amount nor close it.
@@ -2495,10 +2497,12 @@ async function settleAmountProblem_(p, scope) {
   const setValue = (v) => { p.input.value = v; p.input.dispatchEvent(new Event("input", { bubbles: true })); };
   if (p.kind === "grouped") { setValue(p.value); return true; }
   if (p.kind === "ambiguous") {
-    const thousand = p.typed.replace(".", "");
-    const decimal = (Math.round(Number(p.typed) * 100) / 100).toFixed(2);
-    const curEl = scope.querySelector("#currency");
-    const cur = curEl && curEl.value ? curEl.value.toUpperCase() : "";
+    const thousand = p.sign + p.typed.replace(".", "");
+    const decimal = p.sign + (Math.round(Number(p.typed) * 100) / 100).toFixed(2);
+    // The form's one currency, when it has exactly one (the exchange form has two, one per side).
+    const curs = [...scope.querySelectorAll('[id$="currency"]')].filter((el) => "value" in el && /^[A-Za-z]{3}$/.test(el.value));
+    const cur = curs.length === 1 ? curs[0].value.toUpperCase() : "";
+    if (AMOUNT_NO_CENTS_.includes(cur)) { setValue(thousand); return true; }   // no cents to mean: it can only be thousands
     const show = (n) => cur ? formatAmount(Number(n), cur) : Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const pick = await amountAskOpen_(tr("amountAsk.title"), tr("amountAsk.text", { typed: p.typed }),
       [{ label: show(thousand), value: thousand }, { label: show(decimal), value: decimal }]);
