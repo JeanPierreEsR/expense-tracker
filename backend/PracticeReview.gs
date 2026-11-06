@@ -50,20 +50,16 @@ function createPracticePending(payload) {
 }
 
 /**
- * Cleanup: deletes every practice entry (waiting or confirmed), with whatever hangs on it (tags, splits). payload: { started_on }.
- * An entry made by the practice has source 'practice'; an entry that only carries one of the practice names counts when it is dated
- * on or after the day the practice started (the person may rename a practice entry in the review row, but not its source).
+ * Cleanup: deletes every practice entry (waiting or confirmed), with whatever hangs on it (tags, splits).
+ * An entry made by the practice has source 'practice', which a rename or a confirm does not change. Only that counts: a real entry the
+ * person happens to call "Practice purchase" is theirs (matching by name used to delete those too).
  * Returns { entries }.
  */
 function removePracticeReview(payload) {
   return withScriptLockOnce_(function () {
-    var startedOn = String((payload && payload.started_on) || '');
     var removed = 0;
     getAllRows('Entries').forEach(function (e) {
-      var bySource = String(e.source || '') === PRACTICE_REVIEW_SOURCE_;
-      var byName = PRACTICE_REVIEW_NAME_RE_.test(String(e.description || '').trim()) && !!startedOn && String(e.date) >= startedOn;
-      if (!bySource && !byName) return;
-      if (e.type === 'transfer' && !bySource) return;
+      if (String(e.source || '') !== PRACTICE_REVIEW_SOURCE_) return;
       try { discardEntryWithRepayments_(e.id, 'cancel'); removed++; } catch (err) { /* it stays: the person can delete it by hand */ }
     });
     return { entries: removed };

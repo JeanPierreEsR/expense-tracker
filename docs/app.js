@@ -1981,6 +1981,7 @@ function renderSplitRows() {
     const input = document.createElement("input");
     input.type = "text";
     input.inputMode = "decimal";
+    if (splitMode === "percent") input.dataset.amountKind = "rate";
     input.placeholder = "0.00";
     input.value = getValue() || "";
     input.addEventListener("input", (e) => {
@@ -2348,7 +2349,10 @@ let paidByAutoSplit_ = null; // the friend whose pick turned the split on
 function applyPaidByDefaultSplit_() {
   const toggle = document.getElementById("split-toggle");
   const paidBy = document.getElementById("paid_by").value;
-  if (paidByAutoSplit_ && !toggle.checked) paidByAutoSplit_ = null; // taken off by hand: leave it off
+  if (paidByAutoSplit_ && !toggle.checked) {   // taken off by hand: leave it off, and forget the friend it added (else the next payer's split keeps them)
+    if (splitFriendIds.size === 1 && splitFriendIds.has(paidByAutoSplit_)) splitFriendIds.delete(paidByAutoSplit_);
+    paidByAutoSplit_ = null;
+  }
   const friend = selectedType === "expense" && paidBy !== "me" && meta.friends.some((f) => f.id === paidBy);
   if (document.getElementById("split-field").hidden) return;
   const fire = () => toggle.dispatchEvent(new Event("change", { bubbles: true }));
@@ -2356,7 +2360,8 @@ function applyPaidByDefaultSplit_() {
     if (!toggle.checked) {
       toggle.checked = true;
       paidByAutoSplit_ = paidBy;
-      fire(); // the toggle's own handler adds that friend to "Shared with"
+      splitFriendIds.add(paidBy);   // whoever paid is always in; friends picked by hand earlier stay beside them
+      fire();
     } else if (paidByAutoSplit_ && paidByAutoSplit_ !== paidBy && splitFriendIds.size === 1 && splitFriendIds.has(paidByAutoSplit_)) {
       splitFriendIds.delete(paidByAutoSplit_);
       splitFriendIds.add(paidBy);
@@ -2412,14 +2417,107 @@ function sanitizeAmountInputValue(value) {
       ? value.replace(/\./g, "")
       : value.replace(/,/g, "");
   }
-  let v = value.replace(/,/g, ".");
-  v = v.replace(/[^\d.]/g, "");
-  const firstDot = v.indexOf(".");
-  if (firstDot !== -1) {
-    v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, "");
-  }
-  return v;
+  // A leading minus and a second dot stay in the box: dropping them while typing is what turned -5 into 5 and 12.5.3 into
+  // 12.53 with no message. The check below (amountProblem_, on Save) refuses them.
+  const negative = /^\s*[-−–]/.test(value);
+  const v = value.replace(/,/g, ".").replace(/[^\d.]/g, "");
+  return (negative ? "-" : "") + v;
 }
+
+// What a money box holds, checked when a save button is pressed (one guard, so every form gets it). A lone comma or dot
+// followed by exactly three digits can mean a thousand or a decimal ("1,234"): the person is asked, never guessed for
+// (owner, 2026-11-06). data-amount-kind="rate" (exchange rates, percentages: 3.755 is normal) skips that question;
+// "signed" (statement balances) may also be negative.
+function amountProblem_(input) {
+  const v = sanitizeAmountInputValue(input.value.trim());
+  if (!v) return null;
+  const kind = input.dataset.amountKind || "";
+  if (v[0] === "-" && kind !== "signed") return { kind: "negative", input };
+  const digits = v.replace(/^-/, "");
+  if ((digits.match(/\./g) || []).length > 1) {
+    // Typed key by key, 1,234.50 and 1.234.567 reach here as 1.234.50 and 1.234.567, and 1,234,567.89 as 1234.567.89: groups of three can only be thousands.
+    const grouped = /^(\d+(?:\.\d{3})+)(\.\d{1,2})?$/.exec(digits);
+    return grouped && !kind ? { kind: "grouped", input, value: grouped[1].replace(/\./g, "") + (grouped[2] || "") } : { kind: "invalid", input, typed: v };
+  }
+  if (!kind && /^[1-9]\d*\.\d{3}$/.test(digits)) return { kind: "ambiguous", input, typed: digits };
+  return null;
+}
+
+const isAmountSaveBtn_ = (b) => /(-save(-btn)?|-record(-btn)?|-apply(-btn)?)$/.test(b.id) || b.id === "submit-btn" || b.id === "record-repayment-btn" || b.classList.contains("review-confirm-btn");
+
+function firstAmountProblem_(scope) {
+  if (!scope) return null;
+  for (const input of scope.querySelectorAll('input[inputmode="decimal"]')) {
+    if (input.offsetParent === null) continue;
+    const problem = amountProblem_(input);
+    if (problem) return problem;
+  }
+  return null;
+}
+
+let amountAskDone_ = null;
+function amountAskOpen_(title, text, choices) {
+  const backdrop = document.getElementById("amount-ask-backdrop");
+  if (amountAskDone_) amountAskDone_(null);
+  document.getElementById("amount-ask-title").textContent = title;
+  document.getElementById("amount-ask-text").textContent = text;
+  const box = document.getElementById("amount-ask-choices");
+  box.innerHTML = "";
+  backdrop.style.zIndex = 100002;   // above the practices, like askName_
+  backdrop.hidden = false;
+  return new Promise((resolve) => {
+    amountAskDone_ = (value) => { amountAskDone_ = null; backdrop.hidden = true; resolve(value); };
+    choices.forEach((c) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "primary";
+      b.textContent = c.label;
+      b.addEventListener("click", () => amountAskDone_(c.value));
+      box.appendChild(b);
+    });
+  });
+}
+document.getElementById("amount-ask-close").addEventListener("click", () => { if (amountAskDone_) amountAskDone_(null); });
+
+// Settles one problem. True = the box now holds a clean number, so the save can go on.
+async function settleAmountProblem_(p, scope) {
+  const setValue = (v) => { p.input.value = v; p.input.dispatchEvent(new Event("input", { bubbles: true })); };
+  if (p.kind === "grouped") { setValue(p.value); return true; }
+  if (p.kind === "ambiguous") {
+    const thousand = p.typed.replace(".", "");
+    const decimal = (Math.round(Number(p.typed) * 100) / 100).toFixed(2);
+    const curEl = scope.querySelector("#currency");
+    const cur = curEl && curEl.value ? curEl.value.toUpperCase() : "";
+    const show = (n) => cur ? formatAmount(Number(n), cur) : Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const pick = await amountAskOpen_(tr("amountAsk.title"), tr("amountAsk.text", { typed: p.typed }),
+      [{ label: show(thousand), value: thousand }, { label: show(decimal), value: decimal }]);
+    if (pick === null) return false;
+    setValue(pick);
+    return true;
+  }
+  await amountAskOpen_(tr("amountBad.title"), p.kind === "negative" ? tr("amountBad.negative") : tr("amountBad.invalid", { typed: p.typed }), [{ label: tr("amountBad.ok"), value: true }]);
+  p.input.focus();
+  return false;
+}
+
+const amountScope_ = (b) => b.closest(".review-item, form, #trip-group-form, .currency-modal-backdrop");
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest ? e.target.closest("button") : null;
+  if (!b || !isAmountSaveBtn_(b) || b.closest("[hidden]")) return;
+  const scope = amountScope_(b);
+  const problem = firstAmountProblem_(scope);
+  if (!problem) return;
+  e.stopImmediatePropagation();
+  e.preventDefault();
+  settleAmountProblem_(problem, scope).then((ok) => { if (ok) b.click(); });
+}, true);
+document.addEventListener("submit", (e) => {   // the keyboard's Go key saves without a tap on the button
+  const problem = firstAmountProblem_(e.target);
+  if (!problem) return;
+  e.stopImmediatePropagation();
+  e.preventDefault();
+  settleAmountProblem_(problem, e.target).then((ok) => { if (ok) e.target.requestSubmit(); });
+}, true);
 
 document.getElementById("amount").addEventListener("input", (e) => {
   const sanitized = sanitizeAmountInputValue(e.target.value);
@@ -2633,6 +2731,7 @@ async function reopenRefusedConfirm_(id, action, reason) {
 // ---- Submit ----
 
 document.getElementById("entry-form").addEventListener("submit", async (e) => {
+  if (document.getElementById("entry-card").classList.contains("entry-loading")) { e.preventDefault(); return; }
   e.preventDefault();
   const submitBtn = document.getElementById("submit-btn");
   const errorEl = document.getElementById("form-error");
@@ -4710,6 +4809,15 @@ document.querySelectorAll("#repeat-tabs .type-tab").forEach((tab) => tab.addEven
 // ---- Editing a previously confirmed entry ----
 
 let editingEntrySummary_ = "";
+let entryLoadSeq_ = 0;
+
+// The form of an entry whose details are still on their way: "loading" shows Loading…, "failed" says so, "" shows the form.
+function setEntryLoading_(state) {
+  document.getElementById("entry-card").classList.toggle("entry-loading", !!state);
+  const msg = document.getElementById("entry-load-msg");
+  msg.hidden = !state;
+  msg.textContent = state === "failed" ? tr("entry.loadFailed") : state ? tr("common.loading") : "";
+}
 
 async function startEditEntry(entry) {
   // A plain edit always starts as a plain edit: the "type of transfer" and the person must not carry over from a previous
@@ -4816,16 +4924,29 @@ async function startEditEntry(entry) {
   // showDetailForm (above) already showed/hid #split-field via
   // toggleSplitFieldVisibility; for a non-expense entry that also cleared
   // the split state, so there's nothing more to do. For an expense, start
-  // from a clean slate and pull in whatever's actually on file — always
-  // loaded as "custom" regardless of how it was originally entered, since
-  // that's the one mode that can represent exactly what's stored without
-  // having to guess whether it started as an equal split.
+  // from a clean slate and pull in whatever's actually on file.
   resetSplitState();
+  // Nothing can be saved until splits and tags are here: Save would send them as empty, as if the person had removed them
+  // (a friend's share and the trip link were lost that way). Rows from Home carry them and open at once.
+  const loadSeq = ++entryLoadSeq_;
+  setEntryLoading_(!Array.isArray(entry.tagIds) || (entry.type === "expense" && !Array.isArray(entry.splits)) ? "loading" : "");
+  let splits = [];
+  let entryTagIds = [];
+  try {
+    [splits, entryTagIds] = await Promise.all([splitsPromise || [], tagsPromise]);
+  } catch (err) {
+    if (loadSeq === entryLoadSeq_) setEntryLoading_("failed");
+    return;
+  }
+  if (loadSeq !== entryLoadSeq_) return;   // closed, or another entry opened, while this one was loading
+  setEntryLoading_("");
   if (splitsPromise) {
-    const splits = await splitsPromise;
     if (splits.length) {
-      splitMode = "custom";
-      document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "custom"));
+      // Amounts that are exactly an equal split reopen as Equal, so a new total re-divides them (as Custom the friends' shares
+      // stayed fixed and the person silently took on the difference).
+      const { shareEach } = computeEqualShares(Number(entry.amount), splits.map((s) => s.friend_id));
+      splitMode = splits.every((s) => Math.abs(Number(s.amount) - shareEach) < 0.005) ? "equal" : "custom";
+      document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === splitMode));
       splits.forEach((s) => {
         splitFriendIds.add(s.friend_id);
         customSplitAmounts[s.friend_id] = String(s.amount);
@@ -4841,7 +4962,6 @@ async function startEditEntry(entry) {
     }
   }
 
-  const entryTagIds = await tagsPromise;
   entryTagIds.forEach((id) => selectedTagIds.add(id));
   populateTags();
   setTripPick_(entry.trip_id);
@@ -4861,6 +4981,8 @@ async function startEditEntry(entry) {
 }
 
 function exitEditMode() {
+  entryLoadSeq_++;
+  setEntryLoading_("");
   editingEntryId = null;
   editingEntryOriginalDate_ = null;
   editingEntryWasSplittable = false;
@@ -5068,6 +5190,8 @@ function openEditPopup(entry) {
 }
 
 function closeEditPopup() {
+  entryLoadSeq_++;
+  setEntryLoading_("");
   document.getElementById("edit-entry-modal-backdrop").hidden = true;
   document.getElementById("entry-card-home").appendChild(document.getElementById("entry-card"));
   editingViaPopup = false;
@@ -24118,7 +24242,7 @@ function renderBalanceRows_() {
     const currencyOpts = CURRENCIES.map((c) => `<option value="${c.code}"${c.code === row.currency ? " selected" : ""}>${c.flag} ${c.code}</option>`).join("");
     el.innerHTML = `
       <div class="balance-form-row-main">
-        <input type="text" inputmode="decimal" class="balance-row-amount-input" placeholder="0.00" value="${escapeHtml(row.amount)}">
+        <input type="text" inputmode="decimal" class="balance-row-amount-input" data-amount-kind="signed" placeholder="0.00" value="${escapeHtml(row.amount)}">
         <select class="balance-row-currency-select">${currencyOpts}</select>
         ${balanceFormRows.length > 1 ? `<button type="button" class="balance-row-remove" aria-label="${escapeHtml(tr("balance.remove"))}">✕</button>` : ""}
       </div>

@@ -84,6 +84,16 @@ test("a practice entry never counts as a statement candidate or as an e-mail ove
   assert.equal(rt.run(`Object.keys(buildEntryOverlapIndex_()).indexOf('PEN|38.50') === -1 || buildEntryOverlapIndex_()['PEN|38.50'].every(function (x) { return x.source !== 'practice'; })`), true);
 });
 
+test("removePracticeReview leaves a real entry the person named like a practice one, even dated today", () => {
+  const { rt, cat } = setup();
+  rt.api("createPracticePending", { lang: "en" });
+  const ids = ["Practice purchase", "Practice charge", "Compra de práctica", "Cargo de práctica"].map((description) =>
+    rt.api("createEntry", { type: "expense", date: today(), amount: 7, currency: "PEN", category_id: cat.id, description, paid_by: "me" }).id);
+  assert.equal(rt.api("removePracticeReview", { started_on: today() }).entries, 2, "only the practice's own two");
+  const left = rt.rows("Entries").map((e) => e.id);
+  ids.forEach((id) => assert.ok(left.includes(id), "a real namesake stays"));
+});
+
 test("removePracticeReview deletes waiting and confirmed practice entries (even renamed), and nothing else", () => {
   const { rt, cat } = setup();
   const a = rt.api("createPracticePending", { lang: "en" });

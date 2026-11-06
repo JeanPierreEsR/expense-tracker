@@ -3523,3 +3523,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 }
 .disclosure-chevron { color: var(--muted, #8e8e93); font-size: 1.2rem; transition: transform .15s ease; }
 .disclosure-row[aria-expanded="true"] .disclosure-chevron { transform: rotate(90deg); }
+
+/* An entry whose details are still loading shows only "Loading…": nothing can be edited or saved yet. */
+#entry-card.entry-loading #entry-form,
+#entry-card.entry-loading #entry-type-tabs,
+#entry-card.entry-loading #category-picker { display: none; }
