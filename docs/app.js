@@ -2447,11 +2447,18 @@ const isAmountSaveBtn_ = (b) => /(-save(-btn)?|-record(-btn)?|-apply(-btn)?)$/.t
 
 function firstAmountProblem_(scope) {
   if (!scope) return null;
-  for (const input of scope.querySelectorAll('input[inputmode="decimal"]')) {
-    if (input.offsetParent === null) continue;
+  const boxes = [...scope.querySelectorAll('input[inputmode="decimal"]')].filter((input) => input.offsetParent !== null);
+  for (const input of boxes) {
     const problem = amountProblem_(input);
     if (problem) return problem;
   }
+  // All clear: every box hands its form a clean number. Some forms read theirs with no clean-up of their own, so the loan form
+  // took 12,50 as 12 and 1,234.50 as 1.
+  boxes.forEach((input) => {
+    if (input.type === "number") return;
+    const clean = sanitizeAmountInputValue(input.value.trim());
+    if (clean !== input.value) { input.value = clean; input.dispatchEvent(new Event("input", { bubbles: true })); }
+  });
   return null;
 }
 
@@ -2465,6 +2472,7 @@ function amountAskOpen_(title, text, choices) {
   box.innerHTML = "";
   backdrop.style.zIndex = 100002;   // above the practices, like askName_
   backdrop.hidden = false;
+  const openedAt = performance.now();
   return new Promise((resolve) => {
     amountAskDone_ = (value) => { amountAskDone_ = null; backdrop.hidden = true; resolve(value); };
     choices.forEach((c) => {
@@ -2472,7 +2480,8 @@ function amountAskOpen_(title, text, choices) {
       b.type = "button";
       b.className = "primary";
       b.textContent = c.label;
-      b.addEventListener("click", () => amountAskDone_(c.value));
+      // The window opens under the finger: the second tap of a double tap on Save must not pick an amount.
+      b.addEventListener("click", () => { if (performance.now() - openedAt >= 500) amountAskDone_(c.value); });
       box.appendChild(b);
     });
   });

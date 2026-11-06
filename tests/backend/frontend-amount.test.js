@@ -56,3 +56,14 @@ test("the exchange-rate and other non-money boxes are marked, and every save but
   assert.match(src, /b\.id === "submit-btn"/);
   assert.match(src, /review-confirm-btn/);
 });
+
+test("the second tap of a double tap on Save cannot pick an amount in the window that opens under the finger", () => {
+  assert.match(src, /performance\.now\(\) - openedAt >= 500\) amountAskDone_\(c\.value\)/);
+});
+
+test("with no problem found, the guard writes the clean number into every box, so a form with no clean-up of its own reads it right", () => {
+  const fn = /function firstAmountProblem_[\s\S]*?\n}\n/.exec(src)[0];
+  assert.match(fn, /const clean = sanitizeAmountInputValue\(input\.value\.trim\(\)\);\s*if \(clean !== input\.value\) \{ input\.value = clean;/);
+  assert.equal(sanitize("12,50"), "12.50");
+  assert.equal(sanitize("1,234.50"), "1234.50");
+});
