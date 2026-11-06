@@ -23,6 +23,7 @@ test("every practice intro is two short sentences: what you will do, then that e
   // the exceptions, as the owner approved them
   assert.match(STRINGS["spot.n.intro"].en, /^“Needs review” is where purchases from your bank emails wait\. Nothing counts in your totals until you confirm it\. When you finish, or tap Exit, everything is deleted\.$/);
   assert.match(STRINGS["spot.e.intro"].en, /Nothing is recorded in the app\.$/);
+  assert.match(STRINGS["spot.j.intro"].en, /Nothing changes in the app\.$/);
   for (const k of PRACTICES.concat(["n", "e"])) {
     const t = STRINGS[`spot.${k}.intro`];
     assert.ok(!/real buttons|botones (reales|de verdad)|never touched|nunca se tocan/.test(t.en + t.es), k + ": the old long wording is gone");
@@ -146,4 +147,18 @@ test("Tidy my history: 5 steps, the button says the same word as the group's cou
   const css = fs.readFileSync(path.join(DOCS, "style.css"), "utf8");
   assert.match(css, /\.tidy-group-row \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto;/);
   for (const k of ["s1", "gotIt"]) assert.ok(!STRINGS[`spot.y.${k}`], k);
+});
+
+test("Projections practice: offered only with 6 complete months of data, 7 steps, it never saves a method", () => {
+  assert.match(app, /const PROJECTIONS_MIN_MONTHS_ = 6;/);
+  assert.match(app, /await Promise\.all\(\[refreshProjections\(\), refreshProjectionCategories\(\)\]\);\s*offerProjectionsTip_\(\);/);
+  assert.match(html, /id="projections-tip-invite"/);
+  const offer = app.slice(app.indexOf("async function offerProjectionsTip_()"), app.indexOf("function practiceJSteps_()"));
+  assert.match(offer, /months >= PROJECTIONS_MIN_MONTHS_/);
+  const code = app.slice(app.indexOf("function practiceJSteps_()"), app.indexOf("// Draws actual cumulative spend for the category"));
+  assert.equal((code.match(/^    \{ (key|look|target)/gm) || []).length, 7);
+  for (const off of ["pmm-save", "pmm-apply-all", "pmm-apply-best", "pmm-compare-cats"]) assert.ok(!code.includes(off), off + " is never lit");
+  assert.ok(!/callApi\(/.test(code), "the practice itself makes no server call");
+  assert.match(code, /closeProjectionMethodModal_\(\);/);
+  for (const k of new Set([...code.matchAll(/tr\("(spot\.j\.[A-Za-z0-9]+)"/g)].map((m) => m[1]))) assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
 });
