@@ -6633,13 +6633,13 @@ function updateExchangeRateLine_() {
 }
 
 // The safeguards while the form is filled in (owner's walk, 2026-11-05). The same currency on both sides is said at once if it ever shows (Save refuses it too).
-// An account whose kind names one currency sets its side's currency when picked, unless the person already chose one for that side; if the
+// An account with one known currency sets its side's currency when picked, unless the person already chose one for that side; if the
 // two still differ, a warning says so and Save stays allowed (an account can hold any currency). Accounts with no known currency (a card in
 // soles and dollars, cash, any account made before kinds existed) never warn. Not during the practice, which needs its own two currencies.
 let exchangeCurTouched_ = { out: false, in: false };
 const exchangeAccountCurrency_ = (side) => {
   const pm = (meta.paymentMethods || []).find((p) => String(p.id) === document.getElementById(`exchange-${side}-account`).value);
-  return { pm, cur: pm && (pm.type === "debit" || pm.type === "credit") ? kindCurrency_(pm.alias_kind) : "" };
+  return { pm, list: accountCurrencyList_(pm) };
 };
 function updateExchangeChecks_() {
   const same = document.getElementById("exchange-out-currency").value === document.getElementById("exchange-in-currency").value;
@@ -6647,9 +6647,9 @@ function updateExchangeChecks_() {
   if (same) errorEl.textContent = tr("xch.sameCurrency");
   else if (errorEl.textContent === tr("xch.sameCurrency")) errorEl.textContent = "";
   const notes = Spotlight.isRunning() ? [] : ["out", "in"].map((side) => {
-    const { pm, cur } = exchangeAccountCurrency_(side);
+    const { pm, list } = exchangeAccountCurrency_(side);
     const shown = document.getElementById(`exchange-${side}-currency`).value;
-    return cur && cur !== shown ? tr("xch.accountMismatch", { account: pm.nickname, accountCur: cur, cur: shown }) : "";
+    return list.length && !list.includes(shown) ? tr("xch.accountMismatch", { account: pm.nickname, accountCur: list.join(" / "), cur: shown }) : "";
   }).filter(Boolean);
   const note = document.getElementById("exchange-account-note");
   note.textContent = notes.join(" ");
@@ -6670,7 +6670,8 @@ function exchangeSwapIfSame_(side) {
 ["out", "in"].forEach((side) => {
   document.getElementById(`exchange-${side}-currency`).addEventListener("change", () => { exchangeCurTouched_[side] = true; exchangeSwapIfSame_(side); updateExchangeChecks_(); });
   document.getElementById(`exchange-${side}-account`).addEventListener("change", () => {
-    const { cur } = exchangeAccountCurrency_(side);
+    const { list } = exchangeAccountCurrency_(side);
+    const cur = list.length === 1 ? list[0] : "";
     if (cur && !exchangeCurTouched_[side] && !Spotlight.isRunning() && CURRENCIES.some((c) => c.code === cur)) {
       document.getElementById(`exchange-${side}-currency`).value = cur;
       exchangeSwapIfSame_(side);
@@ -10713,6 +10714,57 @@ function kindCurrency_(kind) {
   const m = /^(?:debit|sueldo|credit)_([a-z]{3})$/.exec(kind || "");
   return m ? m[1].toUpperCase() : "";
 }
+// The currencies an account has (owner, 2026-11-06): its own list, else what its kind names. [] = not known (cash, a wallet, an account made
+// before kinds existed, or a list cleared on purpose): never used to switch or warn. A plain "credit" card reads as soles and dollars.
+function accountCurrencyList_(pm) {
+  if (!pm || (pm.type !== "debit" && pm.type !== "credit")) return [];
+  const own = String(pm.currencies || "");
+  if (own === "none") return [];
+  if (own) return own.split(",");
+  if (pm.alias_kind === "credit") return ["PEN", "USD"];
+  const one = kindCurrency_(pm.alias_kind);
+  return one ? [one] : [];
+}
+const accountListOn_ = () => !!((meta && meta.capabilities) || {}).accountCurrencyList;
+// A list with several choices: what is ticked and the first five, then "More…" for every currency. onChange(codes) gets the new list.
+function renderCurrencyChecks_(box, codes, selected, onChange) {
+  const first = codes.slice(0, 5);
+  const draw = (all) => {
+    box.innerHTML = "";
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = tr("accounts.curHint");
+    box.appendChild(hint);
+    const shown = all ? codes : codes.filter((c) => first.includes(c) || selected.includes(c));
+    shown.forEach((c) => {
+      const row = document.createElement("label");
+      row.className = "checkbox-row";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = c;
+      input.checked = selected.includes(c);
+      input.addEventListener("change", () => {
+        selected = input.checked ? [...selected, c] : selected.filter((x) => x !== c);
+        onChange(selected);
+      });
+      const text = document.createElement("span");
+      text.textContent = `${findCurrency(c).flag} ${c} — ${tr("currency." + c)}`;
+      row.appendChild(input);
+      row.appendChild(text);
+      box.appendChild(row);
+    });
+    if (shown.length < codes.length) {
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "add-inline";
+      more.textContent = tr("accounts.curMore");
+      more.addEventListener("click", () => draw(true));
+      box.appendChild(more);
+    }
+  };
+  draw(false);
+  box.hidden = false;
+}
 const waAnyCurrency_ = () => !!((meta && meta.capabilities) || {}).accountCurrencies;
 function waCurrencyChoices_() {
   if (!waAnyCurrency_()) return ["PEN", "USD"];
@@ -10720,7 +10772,8 @@ function waCurrencyChoices_() {
   return [...new Set(first.concat(CURRENCIES.map((c) => c.code)))];
 }
 // "Savings or debit account · EUR" under an account in the list.
-function waKindLabel_(kind) {
+function waKindLabel_(kind, currencies) {
+  if (currencies && currencies.length > 1) return tr(`wa.type.${waTypeOf_(kind)}`) + " · " + currencies.join(", ");
   const cur = kindCurrency_(kind);
   return tr(`wa.type.${waTypeOf_(kind)}`) + (cur ? ` · ${findCurrency(cur).flag} ${cur}` : "");
 }
@@ -10961,10 +11014,10 @@ function renderWaBank_() {
     row.className = "wa-account";
     const left = document.createElement("div");
     const nm = document.createElement("div"); nm.className = "wa-account-name"; nm.textContent = names[a.cid];
-    const sub = document.createElement("div"); sub.className = "wa-account-sub"; sub.textContent = waKindLabel_(a.kind);
+    const sub = document.createElement("div"); sub.className = "wa-account-sub"; sub.textContent = waKindLabel_(a.kind, a.currencies);
     left.appendChild(nm); left.appendChild(sub);
     left.style.cursor = "pointer";
-    left.addEventListener("click", () => { welcome_.form = { cid: a.cid, kind: a.kind, alias: a.alias, last4: a.last4, showLast4: a.showLast4, wallets: WA_RAILS.filter((k) => welcome_.links[k] === a.cid) }; renderWaBank_(); });
+    left.addEventListener("click", () => { welcome_.form = { cid: a.cid, kind: a.kind, currencies: a.currencies, alias: a.alias, last4: a.last4, showLast4: a.showLast4, wallets: WA_RAILS.filter((k) => welcome_.links[k] === a.cid) }; renderWaBank_(); });
     const rm = document.createElement("button"); rm.type = "button"; rm.className = "wa-link"; rm.textContent = tr("wa.remove");
     rm.addEventListener("click", () => { welcome_.accounts = welcome_.accounts.filter((x) => x.cid !== a.cid); welcome_.form = null; renderWaBank_(); });
     row.appendChild(left); row.appendChild(rm);
@@ -10987,6 +11040,21 @@ function renderWaBank_() {
   waCurrencyChoices_().forEach((c) => { const o = document.createElement("option"); o.value = c; o.textContent = `${findCurrency(c).flag} ${c} — ${tr("currency." + c)}`; curSel.appendChild(o); });
   curSel.value = isCard ? kindCurrency_(f.kind) : (kindCurrency_(f.kind) || f.cur || waCurrencyChoices_()[0]);
   waEl_("wa-cur-box").hidden = isCard && !cardCurrencies;
+  if (accountListOn_()) {
+    if (!f.currencies) f.currencies = waDefaultCurrencies_(f.kind);
+    curSel.hidden = true;
+    waEl_("wa-cur-box").hidden = false;
+    waEl_("wa-cur-title").textContent = tr("accounts.currencies");
+    renderCurrencyChecks_(waEl_("wa-cur-checks"), waCurrencyChoices_(), f.currencies, (list) => {
+      f.currencies = list;
+      const type = waTypeOf_(f.kind);
+      if (list.length) f.cur = list[0];
+      // One currency names the account as before; a card with several is a plain card; a savings account keeps a name from its first one.
+      f.kind = type === "credit" ? waKindOf_("credit", list.length === 1 ? list[0] : "") : waKindOf_(type, list[0] || f.cur || waCurrencyChoices_()[0]);
+      renderWaWallets_();
+      waUpdatePreview_();
+    });
+  }
   renderWaWallets_();
   waEl_("wa-alias").value = f.alias;
   waEl_("wa-alias").placeholder = waNameFor_(bank, { kind: f.kind, alias: "", last4: f.last4, showLast4: f.showLast4 });
@@ -10995,9 +11063,14 @@ function renderWaBank_() {
   waEl_("wa-form-error").textContent = "";
   waUpdatePreview_();
 }
+// What a new account starts with: its one currency, or for a card soles and dollars (main currency and dollars outside Peru).
+function waDefaultCurrencies_(kind) {
+  if (waTypeOf_(kind) !== "credit" || kindCurrency_(kind)) return [kindCurrency_(kind) || waCurrencyChoices_()[0]];
+  return [...new Set([welcome_.home || homeCur(), "USD"])];
+}
 function renderWaWallets_() {
   const f = welcome_.form;
-  const slots = waSlots_(welcome_.bankOpen, f.kind);
+  const slots = waSlots_(welcome_.bankOpen, f.currencies && f.currencies.length > 1 ? waTypeOf_(f.kind) : f.kind);
   f.wallets = (f.wallets || []).filter((k) => slots.includes(k));
   waEl_("wa-wallets").hidden = !slots.length;
   const names = waDisplayNames_();
@@ -11028,6 +11101,7 @@ waEl_("wa-type").addEventListener("change", (e) => {
   if (waTypeOf_(f.kind) !== "credit") f.cur = kindCurrency_(f.kind) || f.cur || waCurrencyChoices_()[0];
   // A new card starts as soles and dollars; back from a card, the account keeps the currency picked before.
   f.kind = e.target.value === "credit" ? "credit" : waKindOf_(e.target.value, f.cur || waCurrencyChoices_()[0]);
+  f.currencies = null;   // (each type starts on its own default)
   renderWaBank_();
 });
 waEl_("wa-cur").addEventListener("change", (e) => {
@@ -11040,7 +11114,7 @@ waEl_("wa-cancel-account-btn").addEventListener("click", () => { welcome_.form =
 waEl_("wa-save-account-btn").addEventListener("click", () => {
   const f = welcome_.form;
   if (f.last4 && !/^\d{4}$/.test(f.last4)) { waEl_("wa-form-error").textContent = tr("wa.errLast4"); return; }
-  const data = { bank: welcome_.bankOpen, kind: f.kind, alias: (f.alias || "").trim(), last4: f.last4 || "", showLast4: !!f.showLast4 && !!f.last4 };
+  const data = { bank: welcome_.bankOpen, kind: f.kind, currencies: f.currencies, alias: (f.alias || "").trim(), last4: f.last4 || "", showLast4: !!f.showLast4 && !!f.last4 };
   let cid = f.cid;
   if (cid) Object.assign(welcome_.accounts.find((a) => a.cid === cid), data);
   else { cid = "a" + Date.now() + Math.floor(Math.random() * 1000); welcome_.accounts.push({ cid, ...data }); }
@@ -11154,7 +11228,7 @@ async function finishWelcome_() {
   try {
     if (welcome_.accounts.length) {
       await callApi("saveOnboardingAccounts", { batch: welcome_.batch, lang: welcome_.lang, links: welcome_.links,
-        accounts: welcome_.accounts.map((a) => ({ cid: a.cid, bank: a.bank, kind: a.kind, alias: a.alias, last4: a.last4, showLast4: a.showLast4 })) });
+        accounts: welcome_.accounts.map((a) => ({ cid: a.cid, bank: a.bank, kind: a.kind, currencies: a.currencies || undefined, alias: a.alias, last4: a.last4, showLast4: a.showLast4 })) });
     }
     if (welcome_.platforms.length) await callApi("saveOnboardingPlatforms", { batch: welcome_.platformsBatch, names: welcome_.platforms });
     if (welcome_.ownName && meta && meta.capabilities && meta.capabilities.ownName) await callApi("saveOwnerNames", { names: [welcome_.ownName] });   // a typed name is confirmed at once
@@ -13277,12 +13351,13 @@ function openPmModal_(pm) {
   });
   typeSel.value = pm ? pm.type : "credit";
   pmModalState.cur = kindCurrency_(pmModalState.kind);
+  pmModalState.currencies = pm ? accountCurrencyList_(pm) : null;   // (an existing account shows what it has, even nothing; a new one starts on a default)
   const basicCash = isBasicCashPm_(pm);
   typeSel.disabled = basicCash;
   document.getElementById("pm-cash-hint").hidden = !basicCash;
   // A wallet tied to a bank account must not be added as a wallet: the bank account behind it is the account (owner's rule, 2026-10-18).
   const walletWarn = () => { document.getElementById("pm-wallet-warning").hidden = typeSel.value !== "wallet"; };
-  typeSel.onchange = () => { walletWarn(); renderPmCurrency_(); renderPmWallets_(); };
+  typeSel.onchange = () => { if (!pmModalState.id) pmModalState.currencies = null; walletWarn(); renderPmCurrency_(); renderPmWallets_(); };
   walletWarn();
   renderPmCurrency_();
   document.getElementById("pm-nickname").value = pm ? pm.nickname : "";
@@ -13316,6 +13391,16 @@ function renderPmCurrency_() {
   box.hidden = !((meta && meta.capabilities) || {}).accountCurrencyEdit || (type !== "debit" && type !== "credit");
   if (box.hidden) return;
   const sel = document.getElementById("pm-currency");
+  if (accountListOn_()) {
+    sel.hidden = true;
+    const label = document.getElementById("pm-cur-label");
+    label.textContent = tr("accounts.currencies");
+    label.removeAttribute("for");
+    if (!pmModalState.currencies) pmModalState.currencies = type === "credit" ? [...new Set([homeCur(), "USD"])] : [homeCur()];
+    const codes = [...new Set([homeCur(), ...getRecentCurrencies(), ...CURRENCIES.map((c) => c.code)])];
+    renderCurrencyChecks_(document.getElementById("pm-cur-checks"), codes, pmModalState.currencies, (list) => { pmModalState.currencies = list; renderPmWallets_(); });
+    return;
+  }
   sel.innerHTML = "";
   if (type === "credit") { const o = document.createElement("option"); o.value = ""; o.textContent = tr("accounts.curTwo"); sel.appendChild(o); }
   const codes = [...new Set([homeCur(), ...getRecentCurrencies(), ...CURRENCIES.map((c) => c.code)])];
@@ -13325,6 +13410,10 @@ function renderPmCurrency_() {
 }
 function pmKindNow_() {
   const type = document.getElementById("pm-type").value;
+  if (accountListOn_()) {   // (only chooses the wallet boxes now: several or none offer what the account's type allows)
+    const list = pmModalState.currencies || [];
+    return list.length === 1 ? (type === "credit" ? `credit_${list[0].toLowerCase()}` : `debit_${list[0].toLowerCase()}`) : type;
+  }
   const cur = document.getElementById("pm-cur-box").hidden ? "" : document.getElementById("pm-currency").value;
   if (type === "credit") return cur ? `credit_${cur.toLowerCase()}` : "credit";
   if (type === "debit") return /^sueldo/.test(pmModalState.kind || "") ? (cur === "PEN" ? "sueldo" : `sueldo_${cur.toLowerCase()}`) : `debit_${(cur || homeCur()).toLowerCase()}`;
@@ -13405,7 +13494,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   const type = document.getElementById("pm-type").value;
   const bankId = document.getElementById("pm-bank").value === "__add__" ? "" : document.getElementById("pm-bank").value;
   const slotsNow = pmWalletSlots_();
-  const curField = document.getElementById("pm-cur-box").hidden ? {} : { currency: document.getElementById("pm-currency").value };
+  const curField = document.getElementById("pm-cur-box").hidden ? {} : accountListOn_() ? { currencies: pmModalState.currencies || [] } : { currency: document.getElementById("pm-currency").value };
   closePmModal_();
   saveBehindScreen_(practiceATrack_(practiceITrack_(async () => {
     const saved = await callApi("savePaymentMethod", {
@@ -23261,7 +23350,7 @@ document.getElementById("payment_method").addEventListener("focus", (e) => { e.t
 document.getElementById("payment_method").addEventListener("change", (e) => {
   if (entryCurrencyTouched_ || editingEntryId) return;
   const pm = (meta.paymentMethods || []).find((p) => String(p.id) === e.target.value);
-  const cur = pm && (pm.type === "debit" || pm.type === "credit") ? kindCurrency_(pm.alias_kind) : "";
+  const list = accountCurrencyList_(pm), cur = list.length === 1 ? list[0] : "";
   if (cur && cur !== document.getElementById("currency").value && CURRENCIES.some((c) => c.code === cur)) selectCurrency(cur, "entry");
 });
 document.getElementById("payment_method").addEventListener("change", (e) => {

@@ -559,6 +559,8 @@ input[type="date"] {
   margin-top: 6px;
 }
 
+.currency-checks .checkbox-row { margin-top: 0; }
+.currency-checks .add-inline { margin-top: 4px; }
 .checkbox-row {
   display: flex;
   align-items: center;
