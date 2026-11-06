@@ -86,3 +86,9 @@ test("Needs review practice: 5 steps, the look-only ones merged, ending on the c
   assert.match(steps, /target: practiceNEntryRow_, text: \(\) => tr\("spot\.n\.s8"\), button: \(\) => tr\("spot\.n\.finish"\)/);
   for (const k of ["s1", "s2", "s4", "s6", "gotIt"]) { assert.ok(!STRINGS[`spot.n.${k}`], k); assert.ok(!app.includes(`spot.n.${k}"`), k); }
 });
+
+test("Needs review practice: Paid from is filled with the top account before Confirm", () => {
+  const steps = app.slice(app.indexOf("function practiceNSteps_()"), app.indexOf("function startReviewPractice_()"));
+  assert.match(steps, /pm\.type !== "investment" && !pmHidden_\(pm\)/);
+  assert.match(steps, /key: "confirm", target: \(\) => \{ fillAccount\(\);/);
+});
