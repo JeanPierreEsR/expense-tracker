@@ -385,7 +385,9 @@
         // "Skip this step" only where skipping is harmless (owner, 2026-11-03). Never on a step whose answer is needed later
         // (ok + holdsUntil: skipping it only brought the person back), nor when the NEXT step's target is not there yet: that is
         // a "Tap +" or a Save the rest depends on, and skipping it left the practice with nothing to show. Exit stays the way out.
+        // A step with its own button ("Start the practice", "Got it") never shows it either: that button already moves on (owner, 2026-11-05).
         function canSkip() {
+          if (step.button) return false;
           if (step.ok && step.holdsUntil) return false;
           for (var n = i + 1; n < steps.length; n++) {
             if (!shown(steps[n])) continue;
