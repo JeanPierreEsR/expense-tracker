@@ -60,3 +60,12 @@ test("practice rows drawn after the cleanup started still say Deleting… (the L
   const pred = app.slice(app.indexOf("function isPracticeCleanupEntry_("), app.indexOf("function markPracticeDeleting_()"));
   assert.match(pred, /e\.link\.kind === "repayment"/);
 });
+
+test("loan form: a new loan starts on the top account, no account is a named last choice, the hint no longer says Optional", () => {
+  const pop = app.slice(app.indexOf("function populateLoanPaymentMethodOptions()"), app.indexOf("function updateLoanOpeningUi_("));
+  assert.match(pop, /tr\(accounts\.length \? "loanModal\.noAccount" : "form\.noneAccount"\)/);
+  assert.ok(pop.indexOf("accounts.forEach") < pop.indexOf("noneOpt"), "the named choice comes last");
+  assert.match(app, /loanPmSelect\.value = loan \? \(loan\.payment_method_id \|\| ""\) : \(loanPmSelect\.options\.length \? loanPmSelect\.options\[0\]\.value : ""\)/);
+  assert.ok(!/^Optional|^Opcional/.test(STRINGS["loanModal.pmHint"].en) && !/^Opcional/.test(STRINGS["loanModal.pmHint"].es));
+  assert.ok(STRINGS["loanModal.noAccount"].en && STRINGS["loanModal.noAccount"].es);
+});
