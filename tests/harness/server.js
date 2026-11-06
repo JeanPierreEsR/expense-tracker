@@ -86,6 +86,17 @@ http.createServer((req, res) => {
     req.on("end", () => { rt.svc.gmail.addEmail(JSON.parse(body)); res.end("added"); });
     return;
   }
+  if (req.method === "POST" && url === "/__typerow") {   // a row typed by hand in the fake Sheet: {sheet, fields}
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const { sheet, fields } = JSON.parse(body);
+      const tab = rt.svc.ss.getSheetByName(sheet);
+      tab.rows.push(tab.rows[0].map((h) => (fields[h] !== undefined ? fields[h] : "")));
+      res.end("typed");
+    });
+    return;
+  }
   if (url === "/__samples") {   // the rows the owner's Sheet would hold in its "Bank Samples" tab
     res.writeHead(200, { "Content-Type": "application/json" });
     let rows = [];

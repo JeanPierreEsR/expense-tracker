@@ -2039,6 +2039,7 @@
     "spot.p.draftEmpty": { en: "nothing typed in it", es: "no tiene nada escrito" },
     "spot.p.removed": { en: "Practice removed. Nothing was kept.", es: "Práctica borrada. No se conservó nada." },
     "spot.p.removedFriend": { en: "The practice was removed, but the friend “{name}” you added is still in your friends list: it could not be deleted because it is used somewhere else. You can delete it from there.", es: "La práctica se borró, pero el amigo “{name}” que agregaste sigue en tu lista de amigos: no se pudo borrar porque se usa en otro lugar. Puedes borrarlo desde ahí." },
+    "spot.cleanupLater": { en: "No connection. The practice will be removed as soon as you're back online.", es: "Sin conexión. La práctica se eliminará apenas vuelvas a tener conexión." },
     "spot.p.removeFailed": { en: "I could not remove all of the practice data ({error}). Your own data is not affected. Please delete the “Practice expense” entry yourself, and its repayment if you made one.", es: "No pude borrar todos los datos de práctica ({error}). Tus datos de verdad no se vieron afectados. Por favor borra tú el movimiento “Gasto de práctica” y su repago, si lo hiciste." },
     "spot.p.leftover": { en: "A practice expense from the tutorial is still in your account. Remove it now?", es: "Quedó un gasto de práctica del tutorial en tu cuenta. ¿Borrarlo ahora?" },
     "spot.p.s1": { en: "First, tap the + button.", es: "Primero, toca el botón +." },
