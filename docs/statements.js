@@ -2304,11 +2304,12 @@
     const top = () => { const r = root(); return r && r.querySelector(".tm-preview") ? [r.querySelector(".stmt-note"), r.querySelector(".tm-single")].filter(Boolean) : null; };   // (the layout note and the account list; the lines below are the next step)
     const waitFor = async (cond, ms) => { for (let i = 0; i < ms / 400 && !cond(); i++) await sleep(400); return cond(); };
     const failed = (key) => { alert(tr(key)); Spotlight.stop("skipped"); return false; };
-    return { root, part, top, waitFor, failed };
+    const preview = () => ($("statement-history-save") ? Array.from($("statement-history").children).filter((c) => c.id !== "statement-history-save") : null);   // (not its button: the next step taps that)
+    return { root, part, top, waitFor, failed, preview };
   }
 
   function practiceISteps_() {
-    const { part, top, waitFor, failed } = practiceTools_();
+    const { part, top, waitFor, failed, preview } = practiceTools_();
     // The file's "Practice rides" matches none of the person's categories: its row is opened and the person sends it into one (owner, 2026-11-05).
     const rideRow = () => {
       const box = part(".tm-cats")();
@@ -2349,7 +2350,7 @@
         } },
       { target: part(".tm-use"), text: () => tr("spot.f.s5"), tap: "#statement-results .tm-use" },
       { target: "#stmt-next-2", text: () => tr("spot.f.s6"), tap: "#stmt-next-2", wait: 20000 },
-      { look: true, target: () => ($("statement-history-save") ? Array.from($("statement-history").children).filter((c) => c.id !== "statement-history-save") : null), text: () => tr("spot.f.s7"), button: () => tr("spot.f.gotIt"), wait: 45000 },
+      { look: true, target: preview, text: () => tr("spot.f.s7"), button: () => tr("spot.f.gotIt"), wait: 45000 },
       { target: "#statement-history-save", text: () => tr("spot.f.s8"), tap: "#statement-history-save" },
       { look: true, target: "#statement-review-status", text: () => tr("spot.f.s9"), button: () => tr("spot.f.gotIt"), wait: 20000,
         before: async () => (await waitFor(() => !!(practiceI_ && practiceI_.saved), 90000)) ? true : failed("spot.f.saveFailed") },
@@ -2363,12 +2364,16 @@
   // The Bank statements practice: the same real screens, on a made-up bank statement of ONE account (the empty Practice account, picked for the file by
   // the practice itself so the person can never pick a real account here). No categories: a bank's purchases come in without one (Tidy my history).
   function practiceBSteps_() {
-    const { part, top, waitFor, failed } = practiceTools_();
+    const { part, top, waitFor, failed, preview } = practiceTools_();
     return [
       { key: "intro", text: () => tr("spot.s.intro"), button: () => tr("spot.s.start") },
-      { look: true, target: "#stmt-upload-card", text: () => tr("spot.s.s1"), button: () => tr("spot.s.gotIt"),
-        before: async () => ((await practiceBMake_()) ? true : false) },
-      { look: true, target: ".stmt-upload-btn", text: () => tr("spot.s.s2"), button: () => tr("spot.s.useFile"),
+      { look: true, target: "#stmt-upload-card", text: () => tr("spot.s.s1"), button: () => tr("spot.s.useFile"),
+        before: async () => {
+          // A long Inbox opens by itself and pushed the card's heading off the screen (owner's walk, 2026-11-05): closed for the practice, so the three ways fit.
+          inboxOpen = false; setInboxOpen(false);
+          window.scrollTo(0, 0);
+          return (await practiceBMake_()) ? true : false;
+        },
         after: () => { practiceIFeed_(); } },
       { look: true, target: top, text: () => tr("spot.s.s3"), button: () => tr("spot.s.gotIt"), wait: 20000,
         before: async () => {   // the account list: the practice picks its own account, like the person would
@@ -2382,7 +2387,7 @@
       { look: true, target: part(".tm-preview"), text: () => tr("spot.s.s4"), button: () => tr("spot.s.gotIt") },
       { target: part(".tm-use"), text: () => tr("spot.s.s5"), tap: "#statement-results .tm-use" },
       { target: "#stmt-next-2", text: () => tr("spot.s.s6"), tap: "#stmt-next-2", wait: 20000 },
-      { look: true, target: () => ($("statement-history-save") ? $("statement-history") : null), text: () => tr("spot.s.s7"), button: () => tr("spot.s.gotIt"), wait: 45000 },
+      { look: true, target: preview, text: () => tr("spot.s.s7"), button: () => tr("spot.s.gotIt"), wait: 45000 },
       { target: "#statement-history-save", text: () => tr("spot.s.s8"), tap: "#statement-history-save" },
       { look: true, target: "#statement-review-status", text: () => tr("spot.s.s9"), button: () => tr("spot.s.gotIt"), wait: 20000,
         before: async () => (await waitFor(() => !!(practiceI_ && practiceI_.saved), 90000)) ? true : failed("spot.s.saveFailed") },
@@ -2454,6 +2459,7 @@
     runTip_(kind === "bank" ? practiceBSteps_() : practiceISteps_(), async () => {
       clearRun();   // the practice file leaves the screen
       stepNow = 1; renderSteps();
+      if (kind === "bank") { inboxOpen = null; renderInbox(); }   // the Inbox decides again from what is in it
       showToast_(tr(`spot.${k}.removing`));
       practiceIRemove_().then((ok) => { if (ok) showToast_(tr(`spot.${k}.removed`)); });
     }, tr(`spot.${k}.note`));
