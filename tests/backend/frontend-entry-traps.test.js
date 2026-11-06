@@ -34,7 +34,7 @@ test("a friend added inside a split can be chosen in Paid by at once", () => {
 });
 
 test("the first tour card nudges with no limit, without waiting for the animation's last step, and the hint moves too", () => {
-  assert.match(app, /tourNudgeLater_\(15000\)/);
+  assert.match(app, /tourNudgeLater_\(25000\)/);
   assert.match(app, /tourNudge_\(\);\s*tourNudgeLater_\(8000\);/);
   assert.match(/function tourNudge_\(\) \{[\s\S]*?\n\}/.exec(app)[0], /welcomeEl_\("tour-hint"\)/);
 });

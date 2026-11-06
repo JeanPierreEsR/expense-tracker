@@ -11296,15 +11296,16 @@ function showTourCard_(i, scroll) {
   const ctx = tourSceneCtx_();
   if (i === 0 && !tourSwipeKnown_()) {
     ctx.onEnd = () => tourNudgeLater_(7000);
-    tourNudgeLater_(15000);
-    tour_.slides[0].stage.addEventListener("click", () => { if (tour_ && tour_.i === 0) tourNudgeLater_(12000); });
+    tourNudgeLater_(25000);
+    tour_.slides[0].stage.addEventListener("click", () => { if (tour_ && tour_.i === 0) tourNudgeLater_(15000); });
   }
   if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, ctx);
 }
 // "Swipe to go on" (owner, 2026-11-03; 2026-11-06: no limit, and not only after the animation's last step): while the person stays on the first card
 // the card slides a little to the left, the next one peeks in, the "Swipe to continue" line moves along, and it springs back. No button, because
 // "Next step" already belongs to the animation (owner). It waited for that animation's last step, so someone who never tapped it got no nudge at all.
-// First 15 s after the card appears, 12 s after a tap on the animation, 7 s after its last step, then every 8 s. Never again once they have reached
+// Timed so that it never interrupts someone reading: reading the card and its 4 steps takes about 45 s, 13.6 s of it the animation itself. First 25 s
+// after the card appears, 15 s after a tap on the animation, 7 s after its last step, then every 8 s. Never again once they have reached
 // another card (TOUR_SWIPE_KNOWN_KEY_), and never with reduced motion.
 const TOUR_SWIPE_KNOWN_KEY_ = "tourSwipeKnown";
 function tourSwipeKnown_() { try { return localStorage.getItem(TOUR_SWIPE_KNOWN_KEY_) === "1"; } catch (e) { return false; } }
