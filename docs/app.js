@@ -3591,6 +3591,7 @@ function exchangeSideOf_(e) {
   if (!!e.payment_method_id === !!e.to_payment_method_id) return "";
   return e.payment_method_id ? "out" : "in";
 }
+const exchangeOnItsWay_ = (date) => getMoneyQueue_().some((i) => i.action === "recordCurrencyExchange" && i.status !== "failed" && i.payload && i.payload.date === date);
 function pairExchangeLegs_(dayEntries) {
   const used = new Set();
   const out = [];
@@ -3612,6 +3613,9 @@ function pairExchangeLegs_(dayEntries) {
     if (used.has(e.id)) return;
     const side = exchangeSideOf_(e);
     const mate = side ? partnerOf(e) : null;
+    // A refresh can catch the moment the server has written only one side of an exchange still on its way: that side would show for a moment as
+    // a plain row, "Currency exchange (…)" with one amount (owner's walk 2026-11-05). It waits until its partner is there.
+    if (!mate && side && exchangeOnItsWay_(e.date)) return;
     if (!mate) { out.push(e); return; }
     used.add(e.id); used.add(mate.id);
     const legOut = side === "out" ? e : mate, legIn = side === "out" ? mate : e;
@@ -20854,20 +20858,15 @@ function practiceXSteps_() {
       ok: () => ownAccount("exchange-in-account"), holdsUntil: "save" },
     { key: "inAmt", target: rowOf("exchange-in-amount"), text: (fix) => tr(fix || (amt("exchange-in-amount") > 0 && curOf("out") === curOf("in")) ? "spot.x.s7fix" : "spot.x.s7", { cur: curOf("in") }), blurTap: true,
       until: () => amtDone("exchange-in-amount")() && bothAmounts(), ok: bothAmounts, holdsUntil: "save" },
-    { look: true, target: "#exchange-rate-line", text: () => tr("spot.x.s8"), button: () => tr("spot.x.gotIt"), available: () => !el("exchange-rate-line").hidden },
-    { look: true, target: "#exchange-house", text: () => tr("spot.x.s9"), button: () => tr("spot.x.gotIt"), before: async () => { nameIt(); } },
     { key: "save", target: () => [el("exchange-save-btn"), el("exchange-form-error")],
       text: () => { const e = err(); return e ? tr("spot.x.s10err", { error: e }) : tr("spot.x.s10"); },
       before: async () => { nameIt(); el("exchange-date").value = todayLocalISO(); el("exchange-form-error").textContent = ""; },   // the cleanup finds it by name and day
       until: () => !!(practiceX_ && practiceX_.saved) },
-    { look: true, target: () => { const r = practiceXRows_(); return r.length ? r : null; }, text: () => tr("spot.x.s11"), button: () => tr("spot.x.gotIt"), wait: 45000,
-      before: async () => { goHome(); },
-      poke: () => { if (practiceXSaveFailed_()) return; refreshEntryList().catch(() => {}); } },
-    // (Owner, 2026-11-02: no detour to the balances.) Deleting one side now offers to delete the other; the practice explains it
-    // and removes both itself at the end.
-    { look: true, target: () => { const r = practiceXRows_(); return r.length ? r : null; }, text: () => tr("spot.x.s15"), button: () => tr("spot.x.gotIt"), wait: 15000,
-      before: async () => { goHome(); } },
-    { text: () => tr("spot.x.s17"), button: () => tr("spot.x.finish"), before: async () => { if (practiceXSaveFailed_()) return false; } }
+    // The last step: the exchange's own row (the two sides together), with the closing text. No detour to the balances and no delete step:
+    // the cleanup removes both sides (owner's plan 2026-11-05: 10 steps, was 14).
+    { target: () => { const r = practiceXRows_().filter((x) => x.classList.contains("entry-exchange")); return r.length ? r : null; }, text: () => tr("spot.x.s17"), button: () => tr("spot.x.finish"), wait: 45000,
+      before: async () => { if (practiceXSaveFailed_()) return false; goHome(); },
+      poke: () => { if (practiceXSaveFailed_()) return; if (!getMoneyQueue_().some((i) => i.action === "recordCurrencyExchange" && i.status !== "failed")) refreshEntryList().catch(() => {}); } }
   ];
 }
 
