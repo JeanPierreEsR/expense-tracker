@@ -2268,6 +2268,9 @@ document.getElementById("split-add-friend-btn").addEventListener("click", async 
   const friend = await callApi("addFriend", { name: name.trim() });
   rememberPerson_(friend);   // a hidden friend with this name comes back instead of a second one being made
   refreshFriendChips_();
+  const paidBy = document.getElementById("paid_by").value;
+  populatePaidByOptions();   // the new friend can be the one who paid, without saving first
+  document.getElementById("paid_by").value = paidBy;
   splitFriendIds.add(friend.id);
   renderSplitFriendChips();
   renderSplitRows();
@@ -2389,7 +2392,7 @@ document.getElementById("payment_method").addEventListener("change", async (e) =
   if (e.target.value === "__add__") {
     // The real Add account window (type, bank, currency…) instead of three plain questions in a row (2026-11-04); the new account is
     // picked here once it is saved.
-    e.target.value = "";
+    pickDefaultAccount_();
     openPmModal_(null);
     pmModalState.selectIn = "payment_method";
   }
@@ -3368,6 +3371,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // A Programmed item is not a real entry yet, so it can't belong to a trip
       // or event: say so instead of silently dropping the pick.
       showFormNotice_(tr(tripId ? "entry.programmedTripNotice" : "entry.programmedNotice", { date }));
+      entryFormLeftOpen_ = true;
     } else if (wasEditingExistingEntry) {
       // Finishing an edit (as opposed to creating a brand-new entry)
       // returns the screen to exactly what a fresh app open looks like,
@@ -4637,7 +4641,8 @@ let recentEntryDate_ = null;     // { date, at } of the last new entry saved on 
 
 function rememberRecentEntryDate_(date, isNewEntry) {
   entryDateTouched_ = false;
-  recentEntryDate_ = isNewEntry && date && date !== todayLocalISO() ? { date, at: Date.now() } : null;
+  // Only an EARLIER date carries over (several old receipts in a row). A future one would quietly make the next plain purchase a Programmed item.
+  recentEntryDate_ = isNewEntry && date && date < todayLocalISO() ? { date, at: Date.now() } : null;
 }
 
 function defaultNewEntryDate_() {
@@ -4663,7 +4668,8 @@ function captureEntryDraft_() {
   if (typeof repaymentActive_ === "function" && repaymentActive_()) return undefined;
   const amount = document.getElementById("amount").value.trim();
   const description = document.getElementById("description").value.trim();
-  if (!amount && !description) return null;
+  // The transfer's automatic "from Cash" is not something typed: on its own it is no draft.
+  if (!amount && (!description || description === lastAutoDescription.trim())) return null;
   return {
     v: 1, savedAt: Date.now(), type: selectedType, categoryId: getCategoryId() || "",
     amount, description,
@@ -5066,6 +5072,12 @@ function exitEditMode() {
 // account as they were (the currency goes back to the main one, 2026-11-04), to make logging several in a row from
 // the same account the same day faster — see resetToFreshEntryScreen_
 // below for the "finishing an edit" case, which also resets these.
+function pickDefaultAccount_() {
+  const select = document.getElementById("payment_method");
+  const first = Array.from(select.options).find((o) => o.value && o.value !== "__add__");
+  select.value = first ? first.value : "";
+}
+
 function resetEntryFormFields_() {
   clearEntryDraft_();
   hiddenFriendsShown_ = new Set();
@@ -5075,11 +5087,8 @@ function resetEntryFormFields_() {
   document.getElementById("date").value = todayLocalISO();
   selectCurrency(homeCur(), "entry");
   document.getElementById("to_payment_method").value = "";
-  // payment_method (the "From"/"Paid from" account) has no blank option
-  // to reset to — whatever the browser falls back to (its first real
-  // option) is still a real improvement over showing the specific
-  // deleted/cancelled entry's own account.
-  document.getElementById("payment_method").value = "";
+  // Back to the first real account, as on a fresh open. An entry with no account, opened and cancelled, must not make "No account" the next default.
+  pickDefaultAccount_();
   setInvestmentDirection("deposit");
 }
 
@@ -6039,16 +6048,24 @@ document.getElementById("save-failed-banner").addEventListener("click", () => {
     handleMoneyFailure_();
     return;
   }
-  // Jumps to the Entries tab and opens the first failed one for editing,
-  // pre-filled with the queued (attempted) values — so saving again, even
-  // completely unchanged, naturally retries it.
+  // The reason, then: open the first failed one for editing, pre-filled with the queued (attempted) values, so saving again, even completely
+  // unchanged, retries it; or throw it away. Nothing is dropped silently, and an entry that no longer exists is no dead end.
+  const f = failed[0];
+  const what = (f.fields && f.fields.description) || tr("confirm.thisEntry");
   showScreen("entries");
-  const entry = applyQueuedEditOverlay_(lastRenderedEntries_).find((e) => e.id === failed[0].id);
+  const entry = applyQueuedEditOverlay_(lastRenderedEntries_).find((e) => e.id === f.id);
   if (entry) {
-    currentDrilldown = null;
-    openEditPopup(entry);
+    if (confirm(tr("money.failedOpen", { what, error: f.lastError || "" }))) {
+      currentDrilldown = null;
+      openEditPopup(entry);
+      return;
+    }
   } else {
-    alert(tr("entry.notInList"));
+    alert(tr("entry.notInListFailed", { what, error: f.lastError || "" }));
+  }
+  if (confirm(tr("money.failedDiscard", { what }))) {
+    unqueueEntryEdit_(f.id);
+    renderEntryListFromCache_();
   }
 });
 
@@ -6792,6 +6809,7 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
 
 let newEntrySheetOpen_ = false;
 
+let entryFormLeftOpen_ = false;
 function openNewEntrySheet_() {
   if (newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId) return;
   const backdrop = document.getElementById("edit-entry-modal-backdrop");
@@ -6802,6 +6820,11 @@ function openNewEntrySheet_() {
   backdrop.hidden = false;
   newEntrySheetOpen_ = true;
   applyNewEntryDate_();   // today, unless an older-dated entry was saved moments ago
+  if (entryFormLeftOpen_) {   // after a Programmed item the form stayed open to show its note: the next entry starts clean
+    entryFormLeftOpen_ = false;
+    document.getElementById("form-error").textContent = "";
+    if (ICON_PICKER_TYPES.includes(selectedType)) showCategoryPicker();
+  }
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
   // A new person's first "+": the guided practice starts by itself (owner, 2026-11-04). Never during another practice or "Mark as paid".
   if (!payingRecurringId_ && guidedEntryWanted_()) setTimeout(startGuidedEntry_, 350);
@@ -11271,26 +11294,32 @@ function showTourCard_(i, scroll) {
   clearTimeout(tour_.nudgeTimer);
   if (i > 0) { try { localStorage.setItem(TOUR_SWIPE_KNOWN_KEY_, "1"); } catch (e) { /* storage blocked: it may nudge again next time */ } }
   const ctx = tourSceneCtx_();
-  if (i === 0 && !tourSwipeKnown_()) ctx.onEnd = () => tourNudgeLater_(0);
+  if (i === 0 && !tourSwipeKnown_()) {
+    ctx.onEnd = () => tourNudgeLater_(7000);
+    tourNudgeLater_(15000);
+    tour_.slides[0].stage.addEventListener("click", () => { if (tour_ && tour_.i === 0) tourNudgeLater_(12000); });
+  }
   if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, ctx);
 }
-// "Swipe to go on" (owner, 2026-11-03): once the first card's animation has played to its end, if the person is still there 7 s later
-// (they have not found the swipe on their own), the card slides a little to the left, the next one peeks in, and it springs back.
-// Up to 3 times, 8 s apart. Never again once they have reached another card (TOUR_SWIPE_KNOWN_KEY_), and never with reduced motion.
+// "Swipe to go on" (owner, 2026-11-03; 2026-11-06: no limit, and not only after the animation's last step): while the person stays on the first card
+// the card slides a little to the left, the next one peeks in, the "Swipe to continue" line moves along, and it springs back. No button, because
+// "Next step" already belongs to the animation (owner). It waited for that animation's last step, so someone who never tapped it got no nudge at all.
+// First 15 s after the card appears, 12 s after a tap on the animation, 7 s after its last step, then every 8 s. Never again once they have reached
+// another card (TOUR_SWIPE_KNOWN_KEY_), and never with reduced motion.
 const TOUR_SWIPE_KNOWN_KEY_ = "tourSwipeKnown";
 function tourSwipeKnown_() { try { return localStorage.getItem(TOUR_SWIPE_KNOWN_KEY_) === "1"; } catch (e) { return false; } }
-function tourNudgeLater_(times) {
-  if (!tour_ || times >= 3) return;
+function tourNudgeLater_(ms) {
+  if (!tour_) return;
   clearTimeout(tour_.nudgeTimer);
   tour_.nudgeTimer = setTimeout(() => {
     if (!tour_ || tour_.i !== 0 || tour_.holding || tourSwipeKnown_() || welcomeEl_("welcome-overlay").hidden) return;
     tourNudge_();
-    tourNudgeLater_(times + 1);
-  }, times === 0 ? 7000 : 8000);
+    tourNudgeLater_(8000);
+  }, ms);
 }
 function tourNudge_() {
   if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  const els = tour_.slides.slice(0, 2).map((sl) => sl.el).filter((el) => el && el.animate);
+  const els = tour_.slides.slice(0, 2).map((sl) => sl.el).concat(welcomeEl_("tour-hint")).filter((el) => el && el.animate);
   const frames = [
     { transform: "translateX(0)" }, { transform: "translateX(-64px)", offset: 0.3 }, { transform: "translateX(0)", offset: 0.55 },
     { transform: "translateX(-28px)", offset: 0.75 }, { transform: "translateX(0)" }

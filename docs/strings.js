@@ -89,7 +89,7 @@
     "entry.confirmTitle": { en: "Confirm entry", es: "Confirmar movimiento" },
     "entry.confirmingBanner": { en: "✏️ Confirming entry", es: "✏️ Confirmando movimiento" },
     "entry.stillSaving": { en: "Still saving your last change to this entry — try again in a moment.", es: "Todavía se está guardando tu último cambio en este movimiento: inténtalo de nuevo en un momento." },
-    "entry.notInList": { en: "That entry isn't in the currently loaded list — scroll Recent entries to find it, or pull down to refresh.", es: "Ese movimiento no está en la lista cargada: desplázate por Movimientos recientes para encontrarlo, o desliza hacia abajo para actualizar." },
+    "entry.notInListFailed": { en: "“{what}” was NOT saved.\n\n{error}\n\nIt isn't in the list loaded now: if it's an older entry, scroll Recent entries to find it.", es: "“{what}” NO se guardó.\n\n{error}\n\nNo está en la lista cargada ahora: si es un movimiento antiguo, desplázate por Movimientos recientes para encontrarlo." },
 
     // ---- common ----
     "common.change": { en: "Change", es: "Cambiar" },
@@ -343,8 +343,8 @@
     "entriesBulk.why.repayment": { en: "Part of a repayment (delete the repayment in Loans)", es: "Parte de un pago (elimina el pago en Préstamos)" },
     "entriesBulk.why.repaymentExtra": { en: "The extra of a repayment (delete the repayment in Loans)", es: "El extra de un pago (elimina el pago en Préstamos)" },
     "entriesBulk.why.forgiveness": { en: "A loan that was forgiven", es: "Un préstamo que se perdonó" },
-    "entriesBulk.why.repaidLoans": { en: "Shared and already repaid, so the repayments need a choice", es: "Compartido y ya pagado, así que los pagos necesitan una decisión" },
-    "entriesBulk.why.exchange": { en: "One side of a currency exchange", es: "Un lado de un cambio de moneda" },
+    "entriesBulk.why.repaidLoans": { en: "Shared and already repaid. Open it and delete it on its own: the app asks what to do with the repayments", es: "Compartido y ya pagado. Ábrelo y elimínalo por separado: la app pregunta qué hacer con los pagos" },
+    "entriesBulk.why.exchange": { en: "One side of a currency exchange. Open it and delete it on its own: the app offers to delete both sides", es: "Un lado de un cambio de moneda. Ábrelo y elimínalo por separado: la app ofrece eliminar los dos lados" },
     "entriesBulk.why.missing": { en: "No longer exists", es: "Ya no existe" },
     "entriesBulk.category": { en: "Category", es: "Categoría" },
     "entriesBulk.categoryN": { en: "Category ({n})", es: "Categoría ({n})" },
