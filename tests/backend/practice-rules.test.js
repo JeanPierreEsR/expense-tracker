@@ -92,3 +92,15 @@ test("Needs review practice: Paid from is filled with the top account before Con
   assert.match(steps, /pm\.type !== "investment" && !pmHidden_\(pm\)/);
   assert.match(steps, /key: "confirm", target: \(\) => \{ fillAccount\(\);/);
 });
+
+test("Import practice: Practice rides starts on create and the person sends it into a category; the preview step leaves out the save button", () => {
+  const stm = fs.readFileSync(path.join(DOCS, "statements.js"), "utf8");
+  const steps = stm.slice(stm.indexOf("function practiceISteps_()"), stm.indexOf("// The Bank statements practice:"));
+  assert.match(steps, /sel\.value !== "create"/, "it always starts on create");
+  assert.match(steps, /option\[value\^="ren:"\]/, "the rename choices are taken away: the practice never renames a real category");
+  assert.match(steps, /\^\(transport\|transporte\)\$/i);
+  assert.ok(steps.indexOf("transport|transporte") < steps.indexOf("taxis?") && steps.indexOf("taxis?") < steps.indexOf("other|others"), "fallback order");
+  assert.match(steps, /return !!rideInto\(\);/, "with no category to pick the step is skipped");
+  assert.match(steps, /filter\(\(c\) => c\.id !== "statement-history-save"\)/);
+  for (const k of ["s4", "s4other"]) { assert.match(STRINGS[`spot.f.${k}`].en, /\{category\}/); assert.match(STRINGS[`spot.f.${k}`].es, /\{category\}/); }
+});

@@ -2309,17 +2309,47 @@
 
   function practiceISteps_() {
     const { part, top, waitFor, failed } = practiceTools_();
-    const cats = () => { const c = part(".tm-cats")(); return c && c.querySelector(".tm-cat-summary") ? c : null; };   // (the category list arrives a moment after the columns)
+    // The file's "Practice rides" matches none of the person's categories: its row is opened and the person sends it into one (owner, 2026-11-05).
+    const rideRow = () => {
+      const box = part(".tm-cats")();
+      const row = box && Array.from(box.querySelectorAll(".tm-cat-row")).find((r) => /^(Practice rides|Paseos de práctica)/i.test((r.querySelector("strong") || {}).textContent || ""));
+      if (!row) return null;
+      const details = row.closest("details");
+      if (details && !details.open) details.open = true;
+      row.querySelectorAll('option[value^="ren:"]').forEach((o) => o.remove());   // (renaming a real category is never part of the practice)
+      return row;
+    };
+    const rideSelect = () => { const r = rideRow(); return r ? r.querySelector(".tm-cchoice") : null; };
+    // Which category the text names. First that works: Transport, a transport-like category, Other, the first one. Only categories the list
+    // offers (visible ones): a hidden or deleted Transport is never brought back. named: the text can say "pick X" rather than "for example X".
+    const rideInto = () => {
+      const sel = rideSelect();
+      if (!sel) return null;
+      const ids = Array.from(sel.querySelectorAll("optgroup option")).map((o) => o.value);
+      const mine = ((typeof meta !== "undefined" && meta && meta.categories) || []).filter((c) => ids.includes(String(c.id)));
+      const first = (re) => mine.find((c) => re.test(String(c.name || "").trim()));
+      const named = first(/^(transport|transporte)$/i) || first(/\b(taxis?|uber|cabify|movilidad|bus|buses|cars?|autos?|carros?|coches?|gasolina|combustible|fuel|moto|motos|motorbike)\b/i);
+      if (named) return { name: named.name, named: true };
+      const other = first(/^(other|others|otro|otros)$/i) || mine.find((c) => ids[0] === String(c.id));
+      return other ? { name: other.name, named: false } : null;
+    };
     return [
       { key: "intro", text: () => tr("spot.f.intro"), button: () => tr("spot.f.start") },
       { look: true, target: ".stmt-upload-btn", text: () => tr("spot.f.s1"), button: () => tr("spot.f.useFile"),
         after: () => { practiceIFeed_(); } },
       { look: true, target: top, text: () => tr("spot.f.s2"), button: () => tr("spot.f.gotIt"), wait: 20000 },
       { look: true, target: part(".tm-preview"), text: () => tr("spot.f.s3"), button: () => tr("spot.f.gotIt") },
-      { look: true, target: cats, text: () => tr("spot.f.s4"), button: () => tr("spot.f.gotIt"), wait: 20000 },
+      { target: rideRow, text: () => { const t = rideInto(); return tr(t && t.named ? "spot.f.s4" : "spot.f.s4other", { category: t ? t.name : "" }); },
+        until: () => { const sel = rideSelect(); return !!sel && !!sel.value && !["create", "custom", "skip"].includes(sel.value); }, wait: 20000,
+        before: async () => {
+          if (!(await waitFor(() => !!rideRow(), 20000))) return true;   // (the step's own wait then says "One moment…" and stops the practice if it never comes)
+          const sel = rideSelect();
+          if (sel.value !== "create") { sel.value = "create"; sel.dispatchEvent(new Event("change", { bubbles: true })); }   // it always starts on "create" (owner)
+          return !!rideInto();   // no category of the person's own to send it into: it stays "create", no step
+        } },
       { target: part(".tm-use"), text: () => tr("spot.f.s5"), tap: "#statement-results .tm-use" },
       { target: "#stmt-next-2", text: () => tr("spot.f.s6"), tap: "#stmt-next-2", wait: 20000 },
-      { look: true, target: () => ($("statement-history-save") ? $("statement-history") : null), text: () => tr("spot.f.s7"), button: () => tr("spot.f.gotIt"), wait: 45000 },
+      { look: true, target: () => ($("statement-history-save") ? Array.from($("statement-history").children).filter((c) => c.id !== "statement-history-save") : null), text: () => tr("spot.f.s7"), button: () => tr("spot.f.gotIt"), wait: 45000 },
       { target: "#statement-history-save", text: () => tr("spot.f.s8"), tap: "#statement-history-save" },
       { look: true, target: "#statement-review-status", text: () => tr("spot.f.s9"), button: () => tr("spot.f.gotIt"), wait: 20000,
         before: async () => (await waitFor(() => !!(practiceI_ && practiceI_.saved), 90000)) ? true : failed("spot.f.saveFailed") },
