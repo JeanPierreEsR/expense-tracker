@@ -1483,6 +1483,8 @@ function listEntriesForRecurringMonth(payload) {
   });
   var candidates = getAllRows('Entries')
     .filter(function (e) {
+      // An entry that already paid another item is not offered: linking it here would leave that item unpaid.
+      if (e.recurring_expense_id && e.recurring_expense_id !== re.id) return false;
       return e.status === 'confirmed' && e.type === type && e.date >= win.lo && e.date <= win.hi;
     })
     .map(function (e) {
