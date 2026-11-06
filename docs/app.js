@@ -19516,9 +19516,11 @@ function practiceSteps_() {
           d.dispatchEvent(new Event("input", { bubbles: true }));
         }
       },
-      after: () => { practice_.amount = amountOf("#amount") || 0; practiceSave_(); } },
-    { target: "#paid_by", text: () => tr("spot.p.s5"), visit: "#paid_by",
-      after: () => { const el = document.getElementById("paid_by"); if (el.value !== "me") { el.value = "me"; el.dispatchEvent(new Event("change", { bubbles: true })); } } },
+      after: () => {
+        practice_.amount = amountOf("#amount") || 0; practiceSave_();
+        // "Paid by" stays "Me" (the person paid the bill): no step of its own any more (owner's plan 2026-11-05).
+        const el = document.getElementById("paid_by"); if (el.value !== "me") { el.value = "me"; el.dispatchEvent(new Event("change", { bubbles: true })); }
+      } },
     { key: "account", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.p.s6fix" : "spot.p.s6"), visit: "#payment_method",
       ok: () => !hasAccounts() || !!document.getElementById("payment_method").value, holdsUntil: "save" },
     { key: "toggle", target: "#split-field .checkbox-row", text: () => tr("spot.p.s7"), until: () => document.getElementById("split-toggle").checked,
@@ -19550,23 +19552,22 @@ function practiceSteps_() {
     { target: '.nav-btn[data-screen="loans"]', text: () => tr("spot.p.s11"), tap: '.nav-btn[data-screen="loans"]', wait: 15000 },
     { target: practiceFriendRow_, text: () => tr("spot.p.s12"), tap: practiceFriendRow_, wait: 45000,
       poke: () => { if (practiceSaveFailed_()) return; if (!document.getElementById("screen-loans").hidden) refreshLoans().catch(() => {}); } },
-    { look: true, target: () => document.querySelector("#loan-detail-modal-backdrop .currency-modal"), text: () => tr("spot.p.s13a"), button: () => tr("spot.p.gotIt"), wait: 15000,
+    // The friend's page is explained in this step's own sentence (it was a look-only step before).
+    { target: "#record-repayment-btn", text: () => tr("spot.p.s13"), tap: "#record-repayment-btn", wait: 15000,
       before: async () => { await new Promise((r) => setTimeout(r, 600)); } },
-    { target: "#record-repayment-btn", text: () => tr("spot.p.s13"), tap: "#record-repayment-btn", wait: 15000 },
-    { key: "repayAmount", target: "#settlement-amount",
-      text: (fix) => {
-        const c = (practice_ && practice_.currency) || cur, owed = practiceShare_(), typed = amountOf("#settlement-amount");
-        if (owed > 0 && typed > owed + 0.004) return tr("spot.p.s14over", { cur: c, amount: moneyFmt(owed) });   // more than owed would leave an extra "overpayment" entry behind
-        return tr(fix ? "spot.p.s14fix" : "spot.p.s14", { cur: c, amount: moneyFmt(owed) });
-      },
-      blurTap: true, visit: "#settlement-amount", ok: () => { const v = amountOf("#settlement-amount"), owed = practiceShare_(); return v > 0 && (!(owed > 0) || v <= owed + 0.004); },
-      holdsUntil: "saveRepayment", wait: 15000,
-      after: () => { practice_.repaid = amountOf("#settlement-amount") || 0; practice_.share = practiceShare_(); practiceSave_(); } },
-    { target: "#settlement-payment-method", text: () => tr("spot.p.s15"), visit: "#settlement-payment-method" },
+    // The amount (what they owe) and the account come filled in: no "check it" steps (owner's plan 2026-11-05). What is saved is recorded
+    // for the closing text, which says whether the debt is fully or partly paid.
     { key: "saveRepayment", target: () => [document.getElementById("settlement-save-btn"), document.getElementById("settlement-form-error")],
       text: () => { const err = lastError("#settlement-form-error"); return err ? tr("spot.p.s16err", { error: err }) : tr("spot.p.s16"); },
       before: async () => { document.getElementById("settlement-form-error").textContent = ""; },
-      until: () => document.getElementById("settlement-modal-backdrop").hidden },
+      until: () => {   // what is about to be saved is noted while the sheet is still open (the closing text says fully / partly paid)
+        if (!document.getElementById("settlement-modal-backdrop").hidden) {
+          const v = amountOf("#settlement-amount") || 0;
+          if (practice_ && v !== practice_.repaid) { practice_.repaid = v; practice_.share = practiceShare_(); practiceSave_(); }
+          return false;
+        }
+        return true;
+      } },
     // No target and no waiting for the server: the repayment keeps saving behind this screen, and the cleanup below waits for it
     // (a screen that said "Saving… one moment" for as long as the server took felt like the practice had hung).
     { button: () => tr("spot.p.finish"),
