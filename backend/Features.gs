@@ -93,6 +93,7 @@ function getCapabilities_() {
     practiceLoansMore: true,   // removePracticeLoans + the overdue check skips the practice's loans: the standalone-loan and bank-loan practices are only offered where this exists
     practiceInvestments: true,   // removePracticeInvestments: the Investments practice is only offered where this exists
     practiceAccounts: true,   // removePracticeAccounts + the automatic matchers (e-mail, statements, Telegram, Yape/Plin) skip the practice's account: the Accounts practice is only offered where this exists
+    practiceTripsFind: true,   // createPracticeTripExpenses + removePracticeTrips finds them by marker: the Trips practice teaches "Find expenses in these dates"; an older backend gets no Trips practice offered
     practiceTrips: true,   // removePracticeTrips + suggestions/alerts skip the practice trip: the Trips & events practice is only offered where this exists
     practiceExchange: true,   // removePracticeExchange + the exchange-house / pairing / last-account memories skip the practice's legs: the Currency exchange practice is only offered where this exists
     pmRemove: true,   // removePaymentMethod (one Delete: unused = deleted, with history = hidden) + the built-in Cash account (settings.cash_account_id); an older backend keeps Delete + Hide

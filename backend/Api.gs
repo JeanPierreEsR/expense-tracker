@@ -469,6 +469,7 @@ function routeActionSwitch_(action, payload) {
     case 'removePracticeInvestments': return removePracticeInvestments(payload);
     case 'removePracticeAccounts': return removePracticeAccounts(payload);
     case 'removePracticeTrips': return removePracticeTrips(payload);
+    case 'createPracticeTripExpenses': return createPracticeTripExpenses(payload);
     case 'removePracticeExchange': return removePracticeExchange(payload);
     case 'removePracticeData': return removePracticeData(payload);
     case 'removePracticeLoans': return removePracticeLoans(payload);
