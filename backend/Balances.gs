@@ -251,6 +251,9 @@ function listPaymentMethodBalances() {
       totals[cur] = (totals[cur] || 0) + m.signed;
     });
 
+    // What this account still waits to know the charge of (Charges.gs): shown apart, because it is not this currency's real money yet.
+    var waiting = {};
+    entries.forEach(function (e) { if (e.payment_method_id === pm.id && isChargePending_(e)) waiting[e.currency] = true; });
     var balancePen = 0;
     var balances = Object.keys(totals).map(function (cur) {
       var amount = Math.round(totals[cur] * 100) / 100;
@@ -258,7 +261,7 @@ function listPaymentMethodBalances() {
       var amountPen = rate != null ? amount * rate : null;
       if (amountPen == null || balancePen == null) balancePen = null;
       else balancePen += amountPen;
-      return { currency: cur, amount: amount, amount_pen: amountPen };
+      return waiting[cur] ? { currency: cur, amount: amount, amount_pen: amountPen, waiting: true } : { currency: cur, amount: amount, amount_pen: amountPen };
     }).sort(function (a, b) {
       // The account's first-entered currency first, others after.
       if (a.currency === baseCurrency) return -1;
