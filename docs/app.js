@@ -3069,6 +3069,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const charge = chargeForSave_(amount, currency, splits, selectedType, paidByForCharge_());
     const tagIds = Array.from(selectedTagIds);
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
+    // Shared with friends inside a trip that has a group (owner, 2026-11-07): when the friends' shares are kept in another app, the group is
+    // the right choice. Asked before saving; Cancel goes back to the split with nothing changed.
+    const tripGroup = tripId && splits && splits.length && !Spotlight.isRunning() ? (meta.friends || []).find((f) => f.trip_id === tripId) : null;
+    if (tripGroup && !splits.some((s) => s.friend_id === tripGroup.id)) {
+      const trip = (meta.trips || []).find((t) => t.id === tripId);
+      if (!confirm(tr("split.groupAsk", { trip: trip ? trip.name : "", group: tripGroup.name }))) throw new Error(tr("split.groupPick", { group: tripGroup.name }));
+    }
     const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
     if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
     // A Programmed item cannot belong to a project yet (step 3 brings expected payments), so a future date is refused here
