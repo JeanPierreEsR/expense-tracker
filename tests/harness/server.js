@@ -11,6 +11,7 @@ const { seedData } = require("./seed");
 
 const PORT = Number(process.env.PORT || 4180);
 const DOCS = path.join(__dirname, "..", "..", "docs");
+const VERSION_AT_START = fs.readFileSync(path.join(DOCS, "version.json"), "utf8");
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml" };
 
 let rt, data;
@@ -95,6 +96,32 @@ http.createServer((req, res) => {
       tab.rows.push(tab.rows[0].map((h) => (fields[h] !== undefined ? fields[h] : "")));
       res.end("typed");
     });
+    return;
+  }
+  // An entry waiting in Needs review, as if a bank e-mail had brought it (the app's own saves are always confirmed):
+  // {description, amount, currency?, category? (name or id), date? (YYYY-MM-DD, default today), type? (default expense)}.
+  if (req.method === "POST" && url === "/__pending") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const f = JSON.parse(body || "{}");
+      const cat = rt.rows("Categories").find((c) => c.id === f.category || c.name === f.category);
+      const pm = rt.rows("Payment Methods")[0];
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
+      const row = { id: "pending-" + Date.now() + "-" + Math.floor(Math.random() * 1e6), type: f.type || "expense", date: f.date || today,
+        amount: Number(f.amount || 10), currency: f.currency || "PEN", category_id: cat ? cat.id : "", description: f.description || "Test pending",
+        paid_by: "me", payment_method_id: pm ? pm.id : "", status: "pending", source: "email" };
+      rt.run(`appendRowObject('Entries', ${JSON.stringify(row)});`);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(row));
+    });
+    return;
+  }
+  // version.json is frozen at start-up: a ship by another chat while a test copy is open used to show the "tap to reload" banner
+  // on it (seen by the testers, 2026-11-07), though the fake backend here keeps the code it started with. LIVE_VERSION=1 serves the real file.
+  if (url === "/version.json" && !process.env.LIVE_VERSION) {
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    res.end(VERSION_AT_START);
     return;
   }
   if (url === "/__samples") {   // the rows the owner's Sheet would hold in its "Bank Samples" tab

@@ -9,7 +9,7 @@
 //   Friends ........ delete (no records) / hide (history, nothing owed) / kept (money owed) / already hidden (Unhide, re-add the same name)
 //   Programmed ..... Stop it / Delete it (items with payments), plain delete (no payments), ended items (Start again), one-time paid / unpaid,
 //                    an income item, a shared item (split), a variable item, and LEGACY PAUSED items to try the heal:
-//                    two are converted silently, four are left for the "decide now" sheet.
+//                    two are converted silently, four are left for the "decide now" sheet (all six only with PAUSE_DEMO=1).
 const { TZ } = require("./fake-google");
 
 const lima = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -61,8 +61,9 @@ function seedDemo(rt, data) {
   // Shared with a friend (try Stop it, then Start again: the split comes along).
   const rentCategory = cat(3);
   for (let k = 10; k >= 0; k--) {   // the whole bill is paid and 600 of it is the friend's share, like the item says
+    // Through the real save, so the friend's share is also a debt in Loans (a split row written by hand had none, 2026-11-07).
     const id = pay(rentCategory, "Demo Shared rent", 1800, ago(k, 1));
-    rt.run(`appendRowObject('Entry Splits', ${JSON.stringify({ id: "demo-split-" + id, entry_id: id, friend_id: owes.id, amount: 600 })});`);
+    rt.api("saveEntrySplits", { entryId: id, splits: [{ friend_id: owes.id, amount: 600 }] });
   }
   const rent = item({ category_id: rentCategory, description: "Demo Shared rent", amount: 1800, day: 1, start_date: ago(10, 1) });
   rt.api("saveRecurringExpenseSplits", { recurringExpenseId: rent.id, splits: [{ friend_id: owes.id, amount: 600 }] });
@@ -87,21 +88,25 @@ function seedDemo(rt, data) {
   item({ category_id: cat(9), description: "Demo Concert tickets (future)", amount: 420, frequency: "once", date: inMonths(2, 14) });
 
   // ---------------- LEGACY PAUSED items (try the heal) ----------------
-  // 1. Converted silently: every occurrence paid, nothing changes.
-  months("Demo Paused clean A", cat(10), 59, 9, 8, 3);
-  pause(item({ category_id: cat(10), description: "Demo Paused clean A", amount: 59, day: 9 }));
-  // 2. Converted silently: it already had an end date; only the pause is switched off.
-  months("Demo Paused clean B", cat(11), 33, 20, 8, 4);
-  pause(item({ category_id: cat(11), description: "Demo Paused clean B", amount: 33, day: 20, end_date: ago(4, 28) }));
-  // 3. Left for the decide-now sheet: never paid.
-  pause(item({ category_id: cat(12), description: "Demo Paused never paid", amount: 18, day: 6 }));
-  // 4. Left for the sheet: a month was missed in the middle.
-  months("Demo Paused with a gap", cat(13), 71, 14, 6, 2, [4]);
-  pause(item({ category_id: cat(13), description: "Demo Paused with a gap", amount: 71, day: 14 }));
-  // 5. Left for the sheet: one-time items have no end date.
-  pause(item({ category_id: cat(14), description: "Demo Paused one-time", amount: 90, frequency: "once", date: ago(0, 2) }));
-  // 6. Left for the sheet: starts in the future.
-  pause(item({ category_id: cat(15), description: "Demo Paused not started", amount: 25, day: 3, start_date: inMonths(3, 3) }));
+  // They open the forced "Pause has been replaced" sheet at every start, which blocks every tab until each is answered (all six
+  // showed there on 2026-11-07, the "silent" two too): only with PAUSE_DEMO=1, since testers lost time to it.
+  if (process.env.PAUSE_DEMO) {
+    // 1. Converted silently: every occurrence paid, nothing changes.
+    months("Demo Paused clean A", cat(10), 59, 9, 8, 3);
+    pause(item({ category_id: cat(10), description: "Demo Paused clean A", amount: 59, day: 9 }));
+    // 2. Converted silently: it already had an end date; only the pause is switched off.
+    months("Demo Paused clean B", cat(11), 33, 20, 8, 4);
+    pause(item({ category_id: cat(11), description: "Demo Paused clean B", amount: 33, day: 20, end_date: ago(4, 28) }));
+    // 3. Left for the decide-now sheet: never paid.
+    pause(item({ category_id: cat(12), description: "Demo Paused never paid", amount: 18, day: 6 }));
+    // 4. Left for the sheet: a month was missed in the middle.
+    months("Demo Paused with a gap", cat(13), 71, 14, 6, 2, [4]);
+    pause(item({ category_id: cat(13), description: "Demo Paused with a gap", amount: 71, day: 14 }));
+    // 5. Left for the sheet: one-time items have no end date.
+    pause(item({ category_id: cat(14), description: "Demo Paused one-time", amount: 90, frequency: "once", date: ago(0, 2) }));
+    // 6. Left for the sheet: starts in the future.
+    pause(item({ category_id: cat(15), description: "Demo Paused not started", amount: 25, day: 3, start_date: inMonths(3, 3) }));
+  }
 
   // ---------------- Trips & events (try More → Trips & events → Edit: expenses are only unlinked) ----------------
   const dayOffset = (n) => { const d = new Date(Date.UTC(Y, M - 1, D + n)); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`; };
