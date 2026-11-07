@@ -599,9 +599,11 @@ function checkTripBudgets() {
 
 function checkTripBudgetsLocked_() {
   var cutoff = formatCalendarDate_(new Date(Date.now() - TRIP_ALERT_GRACE_DAYS_ * 24 * 3600 * 1000));
-  var trips = listTrips().filter(function (t) {
+  var allTrips = listTrips();
+  var trips = allTrips.filter(function (t) {
     return Number(t.budget_amount) > 0 && t.budgetSpent != null && t.end_date >= cutoff && !isPracticeTrip_(t);   // (the first-use practice's trip never alerts)
   });
+  syncTripNotices_(allTrips);
   // The first run on an existing copy only writes down what is already over a limit, without alerting (Notices.gs § Alerts only from now on).
   var baseline = alertBaselinePending_('trips');
   if (!trips.length) {
@@ -653,6 +655,19 @@ function checkTripBudgetsLocked_() {
   }
   if (baseline) markAlertBaselineDone_('trips');
   return { checked: trips.length, alertsSent: alertsSent };
+}
+
+// The same rule as a budget's alert (syncBudgetNotices_): trip deleted, budget taken off or spending under the lowest alert level = the alert goes; still over = today's figures.
+function syncTripNotices_(allTrips) {
+  var tripById = rowsById_(allTrips);
+  syncOpenNotices_('trip', function (notice) {
+    var t = tripById[String(notice.key).split('|')[1]];   // trip|<id>
+    if (!t || !(Number(t.budget_amount) > 0)) return CLOSE_NOTICE_;
+    if (t.budgetSpent == null) return '';
+    var percent = Number(t.budgetSpent) / Number(t.budget_amount) * 100;
+    var lowest = Math.min.apply(null, String(t.alert_thresholds || DEFAULT_BUDGET_THRESHOLDS).split(',').map(function (x) { return Number(String(x).trim()); }).filter(function (x) { return !isNaN(x); }));
+    return percent >= lowest ? tripBudgetAlertText_(t, percent) : CLOSE_NOTICE_;
+  });
 }
 
 // ---- Telegram's Confirm links the suggested trip by default ----

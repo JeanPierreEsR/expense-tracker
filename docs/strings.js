@@ -429,6 +429,7 @@
     // ---- Home tab: the quick glance at the top, and the entries grouped by day ----
     "home.spentThisMonth": { en: "Spent this month", es: "Gastado este mes" },
     "home.spentIn": { en: "Spent in {month}", es: "Gastado en {month}" },
+    "home.vsSameDay": { en: "{arrow} {pct}% vs last month so far", es: "{arrow} {pct}% vs. el mes pasado a esta fecha" },
     "home.vsLast": { en: "{arrow} {pct}% vs last month", es: "{arrow} {pct}% vs. el mes pasado" },
     "home.last6": { en: "Last 6 months", es: "Últimos 6 meses" },
     "monthsHist.title": { en: "Month by month", es: "Mes a mes" },
@@ -2096,6 +2097,7 @@
     "spot.cleaning": { en: "Removing the practice data…", es: "Quitando los datos de práctica…" },
     "spot.showMe": { en: "Show me", es: "Muéstrame" },
     "spot.dismiss": { en: "Not now", es: "Ahora no" },
+    "spot.editOn": { en: "Turn off Edit first (tap the pencil), then try again.", es: "Primero apaga Editar (toca el lápiz) y vuelve a intentarlo." },
     "spot.dismissed": { en: "If you want to do this practice later, go to More → How to use the app → 💡 Practice tips.", es: "Si quieres hacer esta práctica más adelante, ve a Más → Cómo usar la app → 💡 Práctica guiada." },
     "spot.tipsReset": { en: "Done. Each tip will be offered again the next time you open its screen.", es: "Listo. Cada consejo se ofrecerá de nuevo la próxima vez que abras su pantalla." },
     "spot.p.invite": { en: "💡 Practice recording an expense you shared with a friend, step by step. It is only a practice: what you record is deleted when you finish.", es: "💡 Practica cómo registrar un gasto que compartiste con un amigo, paso a paso. Es solo práctica: lo que registres se borra al terminar." },
