@@ -12575,7 +12575,7 @@ function startExportPractice_() {
 
 // ---- Categories that catch up later (backend/CategoryFollow.gs) ----
 
-let appUndoTimer_ = null;
+let appUndoTimer_ = null, appUndoLeaving_ = null;
 // A message with an Undo button, for something the app did for the person beyond what they tapped. Undos STACK (QA round 2, 2026-11-03): a second
 // action used to replace the first one's Undo, which made the first change permanent without a word. Now the button undoes the newest, then offers
 // the one before it (if it is under a minute old); the toast says how many earlier ones wait. When the toast times out (10 s) all of them go.
@@ -12589,9 +12589,85 @@ function paintUndoToast_() {
   if (!top) { box.hidden = true; return; }
   const earlier = appUndoStack_.length - 1;
   document.getElementById("app-undo-text").textContent = top.text + (earlier ? " " + tr("tidy.undoEarlier", { n: earlier }) : "");
+  clearTimeout(appUndoLeaving_);   // a new Undo arriving while the old one slides away stays
+  box.classList.remove("is-dragging", "is-leaving");
+  box.style.removeProperty("--drag-y");
+  box.style.removeProperty("opacity");
   box.hidden = false;
-  appUndoTimer_ = setTimeout(() => { box.hidden = true; appUndoStack_ = []; }, 10000);
+  startUndoTimer_();
 }
+function startUndoTimer_() {
+  clearTimeout(appUndoTimer_);
+  appUndoTimer_ = setTimeout(dismissUndoToast_, 10000);
+}
+// Closing it by hand (a tap, or a swipe down) is the same as letting it time out: every waiting Undo goes.
+function dismissUndoToast_() {
+  clearTimeout(appUndoTimer_);
+  appUndoStack_ = [];
+  document.getElementById("app-undo-toast").hidden = true;
+}
+// Owner's request 2026-11-07: the Undo message follows the finger. Held, it moves with it; let go, it springs back to its place unless it was
+// pulled clearly downwards (far enough, or flicked fast), then it slides away. Upwards it only gives a little (it stays anchored). A tap on the
+// message (not on Undo) closes it too. While held it does not time out.
+(function wireUndoToastDrag_() {
+  const box = document.getElementById("app-undo-toast");
+  const DISMISS_PX = 60, FLICK_PX = 20, FLICK_SPEED = 0.5, TAP_PX = 8;   // speed in px per ms
+  let drag = null, swallowClick = false;
+  box.addEventListener("pointerdown", (e) => {
+    if (e.button > 0) return;
+    swallowClick = false;
+    const onUndo = !!(e.target && e.target.closest && e.target.closest("#app-undo-btn"));
+    drag = { id: e.pointerId, y0: e.clientY, t0: e.timeStamp, dy: 0, moved: false, onUndo, lastY: e.clientY, lastT: e.timeStamp, v: 0 };
+    clearTimeout(appUndoTimer_);
+    box.classList.add("is-dragging");
+  });
+  box.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const raw = e.clientY - drag.y0;
+    if (!drag.moved && Math.abs(raw) > TAP_PX) {
+      drag.moved = true;
+      // Held only once it moves: a plain tap must still reach the Undo button as a normal click.
+      try { box.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+    const dt = e.timeStamp - drag.lastT;
+    if (dt > 0) drag.v = (e.clientY - drag.lastY) / dt;
+    drag.lastY = e.clientY;
+    drag.lastT = e.timeStamp;
+    drag.dy = raw > 0 ? raw : raw * 0.25;   // upwards: a little give, it stays where it belongs
+    box.style.setProperty("--drag-y", drag.dy + "px");
+    box.style.opacity = raw > 0 ? String(Math.max(0.3, 1 - raw / 200)) : "";
+  });
+  function release(e, cancelled) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag;
+    drag = null;
+    box.classList.remove("is-dragging");
+    if (!cancelled && !d.moved) {   // a tap
+      if (!d.onUndo) dismissUndoToast_();
+      else startUndoTimer_();   // the button's own click does the Undo
+      return;
+    }
+    swallowClick = d.onUndo;   // a drag that began on the Undo button is not a press of it (the click comes right after the release)
+    if (swallowClick) setTimeout(() => { swallowClick = false; }, 400);
+    const down = d.dy > 0 ? d.dy : 0;
+    const speed = Math.max(d.v, down / Math.max(1, e.timeStamp - d.t0));   // the last movement, or the whole gesture's average
+    if (!cancelled && (down >= DISMISS_PX || (down >= FLICK_PX && speed >= FLICK_SPEED))) {
+      box.classList.add("is-leaving");
+      box.style.setProperty("--drag-y", (down + 160) + "px");
+      box.style.opacity = "0";
+      appUndoLeaving_ = setTimeout(dismissUndoToast_, 200);
+      return;
+    }
+    box.style.removeProperty("--drag-y");   // springs back (CSS transition)
+    box.style.removeProperty("opacity");
+    startUndoTimer_();
+  }
+  box.addEventListener("pointerup", (e) => release(e, false));
+  box.addEventListener("pointercancel", (e) => release(e, true));
+  box.addEventListener("click", (e) => {
+    if (swallowClick) { swallowClick = false; e.stopImmediatePropagation(); e.preventDefault(); }
+  }, true);
+})();
 function showUndoToast_(text, onUndo, kind) {
   appUndoStack_.unshift({ text, action: onUndo, kind: kind || "", at: Date.now() });
   if (appUndoStack_.length > UNDO_STACK_MAX_) appUndoStack_.length = UNDO_STACK_MAX_;
