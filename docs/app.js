@@ -3683,7 +3683,7 @@ function entryFlowDirection_(entry) {
 function renderEntryAmountHtml(entry) {
   const html = renderEntryAmountPlainHtml_(entry);
   if (String(entry.charge_pending || "") === "1") return html.replace(/<span class="primary-amt">/, `<span class="primary-amt">≈ `);
-  if (Number(entry.paid_amount) > 0 && entry.paid_currency) return `${html}<span class="original-amt">${escapeHtml(tr("charge.paid", { amount: formatAmount(entry.paid_amount, entry.paid_currency) }))}</span>`;
+  if (Number(entry.paid_amount) > 0 && entry.paid_currency) return `${html}<span class="original-amt charge-paid-line">${escapeHtml(tr("charge.paid", { amount: formatAmount(entry.paid_amount, entry.paid_currency) }))}</span>`;
   return html;
 }
 function renderEntryAmountPlainHtml_(entry) {

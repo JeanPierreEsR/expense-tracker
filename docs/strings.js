@@ -791,7 +791,7 @@
     "charge.paidHint": { en: "Optional. The amount above stays what counts for your balance. A friend's share stays in what you paid.", es: "Opcional. El monto de arriba sigue siendo el que cuenta para tu saldo. La parte de un amigo se queda en lo que pagaste." },
     "charge.rate": { en: "Rate: 1 {strong} = {rate} {weak}", es: "Tipo de cambio: 1 {strong} = {rate} {weak}" },
     "charge.pending": { en: "charge pending", es: "cargo pendiente" },
-    "charge.paid": { en: "paid {amount}", es: "pagado {amount}" },
+    "charge.paid": { en: "Paid {amount}", es: "Pagado {amount}" },
     "charge.waiting": { en: "waiting for the charge", es: "esperando el cargo" },
     "charges.titlePlain": { en: "Charges to fill in", es: "Cargos por completar" },
     "charges.title": { en: "💳 Charges to fill in ({n})", es: "💳 Cargos por completar ({n})" },

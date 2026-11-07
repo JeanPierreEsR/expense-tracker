@@ -3588,6 +3588,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .charge-line-row .add-inline, .charge-line-row .add-inline + .add-inline { margin: 0; flex: 0 0 auto; }
 .charge-line-actions { justify-content: space-between; margin-top: 8px; }
 .charge-line-actions .charge-delete { color: #d64545; }
+.charge-paid-line { white-space: nowrap; }
 .charge-rate { margin: 4px 0 0; color: var(--text); }
 .charge-line-error { color: #d64545; margin: 4px 0 0; font-size: 0.85rem; }
 .home-unreadable-title { font-weight: 600; margin-bottom: 4px; }
