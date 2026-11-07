@@ -2982,7 +2982,9 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
   text-align: center;
 }
 .app-toast[hidden] { display: none; }
-.app-undo-toast { display: flex; align-items: center; gap: 12px; text-align: left; width: max-content; }
+.app-undo-toast { display: flex; align-items: center; gap: 12px; text-align: left; width: max-content; transform: translateX(-50%) translateY(var(--drag-y, 0px)); transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 0.25s ease; touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer; }
+.app-undo-toast.is-dragging { transition: none; }
+.app-undo-toast.is-leaving { transition: transform 0.2s ease-in, opacity 0.2s ease-in; }
 .app-undo-btn { background: none; border: 0; color: #9ec5ff; font: inherit; font-weight: 600; padding: 4px 2px; cursor: pointer; white-space: nowrap; }
 .tidy-group { padding: 12px 0; border-top: 1px solid var(--border); }
 .tidy-group:first-child { border-top: 0; }
