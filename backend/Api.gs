@@ -276,6 +276,7 @@ function routeActionSwitch_(action, payload) {
     case 'listPendingCharges': return listPendingCharges();
     case 'fillEntryCharge': return fillEntryCharge(payload);
     case 'keepEntryCharge': return keepEntryCharge(payload);
+    case 'fillChargeFromReview': return fillChargeFromReview(payload);
     case 'applyAccountCurrencySuggestions': return applyAccountCurrencySuggestions(payload);
     case 'removePaymentMethod': return removePaymentMethod(payload);
     case 'removePaymentMethods': return removePaymentMethods(payload);
@@ -1426,6 +1427,8 @@ function listPendingEntries() {
     // "Looks like a loan to Ana again" (a place the person turned into a loan / repayment before): a suggestion only.
     var loanHint = entry.source === 'email' ? payeeLoanHint_(entry, payeeHist) : null;
     if (loanHint) entry.loan_hint = loanHint;
+    var chargeMatch = chargeMatchForReview_(entry, all);   // "Is this the charge of …?" (Charges.gs)
+    if (chargeMatch) entry.charge_match = chargeMatch;
   });
   entries.sort(compareEntriesRecency_);
   return entries;

@@ -6422,6 +6422,15 @@ function setBundleCheckStatuses_(state) {
   setRecurringCheckStatus_(state);
 }
 
+// A bank e-mail that is the charge of a purchase left pending on the same card (backend chargeMatchForReview_): asked on its card.
+function reviewChargeMatchHtml_(entry) {
+  const m = entry.charge_match;
+  const rate = chargeRateText_(m.amount, m.currency, Math.abs(Number(entry.amount)), entry.currency);
+  return `<div class="review-charge-match"><div>${escapeHtml(tr("review.chargeMatch", { name: m.description || tr("confirm.thisEntry"), amount: formatAmount(m.amount, m.currency), date: listDate_(m.date) }))}</div>
+    ${rate ? `<div class="hint" style="margin:2px 0 0">${escapeHtml(rate)}</div>` : ""}<div class="hint" style="margin:2px 0 0">${escapeHtml(tr("review.chargeHint"))}</div>
+    <button type="button" class="stmt-choice review-charge-btn">${escapeHtml(tr("review.chargeYes"))}</button></div>`;
+}
+
 // "Looks like a loan to Ana again": what the backend's loan_hint says, in words (or "" when there is none / the friend is gone).
 function reviewLoanHintText_(entry) {
   const h = entry.loan_hint;
@@ -6637,6 +6646,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         </div>
         <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−", "": "" }[entryFlowDirection_(entry)])}</div>
       </div>
+      ${entry.charge_match ? reviewChargeMatchHtml_(entry) : ""}
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
         ${entry.type === "investment" ? "" : `<div class="review-field review-field-wide">
@@ -6692,6 +6702,12 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
 
     const confirmBtn = item.querySelector(".review-confirm-btn");
     const discardBtn = item.querySelector(".review-discard-btn");
+    const chargeBtn = item.querySelector(".review-charge-btn");
+    if (chargeBtn) chargeBtn.addEventListener("click", () => {
+      item.remove();
+      saveBehindScreen_(() => callApi("fillChargeFromReview", { pendingId: entry.id, entryId: entry.charge_match.entryId }),
+        () => { refreshReviewQueue(); refreshHomeGlance_(true); refreshEntryList(); });
+    });
 
     confirmBtn.addEventListener("click", async () => {
       const categoryEl = item.querySelector(".review-category");
