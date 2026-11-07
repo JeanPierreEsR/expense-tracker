@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="1.63.4"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="1.64.1"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-07T15:44:25Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-07T20:29:16Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -240,6 +240,16 @@
           <label data-i18n="field.currency">Currency</label>
           <input type="hidden" id="currency" value="PEN">
           <div class="currency-chips" id="currency-chips"></div>
+          <button type="button" class="add-inline" id="charge-open" hidden data-i18n="charge.paidLink">Paid in another currency?</button>
+          <div id="charge-box" hidden>
+            <label id="charge-label"></label>
+            <div class="exchange-amount-row">
+              <input type="text" inputmode="decimal" id="charge-amount" placeholder="0.00">
+              <select id="charge-currency"></select>
+            </div>
+            <p class="hint charge-rate" id="charge-rate" hidden></p>
+            <p class="hint" id="charge-hint"></p>
+          </div>
 
           <label for="description" data-i18n="field.description">Description</label>
           <input type="text" id="description" data-i18n-placeholder="common.optional" placeholder="Optional">
@@ -348,6 +358,7 @@
       </div>
 
       <div class="card home-unreadable" id="home-unreadable" hidden></div>
+      <button type="button" class="card home-charges" id="home-charges" hidden></button>
       <div class="home-glance" id="home-glance" hidden>
         <div class="home-glance-track" id="home-glance-track"></div>
         <div class="home-glance-dots" id="home-glance-dots" hidden></div>
@@ -1563,6 +1574,17 @@
       <p class="hint" id="currency-screen-note" hidden></p>
       <div class="currency-option-list" id="currency-option-list"></div>
       <button type="button" class="primary" id="currency-screen-done" hidden data-i18n="currency.done">Done</button>
+    </div>
+  </div>
+
+  <div id="charges-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="charges-modal-title" data-i18n="charges.titlePlain">Charges to fill in</span>
+        <button type="button" id="charges-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <p class="hint" data-i18n="charges.sub">Purchases where the card's charge isn't known yet.</p>
+      <div id="charges-list"></div>
     </div>
   </div>
 
@@ -3525,24 +3547,24 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="i18n.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="tour-scenes.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="signin-link.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="country-guess.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="rate-quotes.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="bank-sample.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="perf-share.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="spotlight.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="receipt-parse.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="receipt-fields.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="in-process.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="bill-split.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="loan-reminder.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="app.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="statement-sample.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="statement-table.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="statement-parsers.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="statements.js?v=2026-11-07T15:44:25Z"></script>
+  <script src="strings.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="i18n.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="tour-scenes.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="signin-link.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="country-guess.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="rate-quotes.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="bank-sample.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="perf-share.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="spotlight.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="receipt-parse.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="receipt-fields.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="in-process.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="bill-split.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="loan-reminder.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="app.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="statement-sample.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="statement-table.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="statement-parsers.js?v=2026-11-07T20:29:16Z"></script>
+  <script src="statements.js?v=2026-11-07T20:29:16Z"></script>
 </body>
 </html>

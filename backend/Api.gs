@@ -273,6 +273,9 @@ function routeActionSwitch_(action, payload) {
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'savePaymentMethod': return savePaymentMethod(payload);
     case 'getAccountCurrencySuggestions': return getAccountCurrencySuggestions();
+    case 'listPendingCharges': return listPendingCharges();
+    case 'fillEntryCharge': return fillEntryCharge(payload);
+    case 'keepEntryCharge': return keepEntryCharge(payload);
     case 'applyAccountCurrencySuggestions': return applyAccountCurrencySuggestions(payload);
     case 'removePaymentMethod': return removePaymentMethod(payload);
     case 'removePaymentMethods': return removePaymentMethods(payload);
@@ -933,6 +936,11 @@ function createEntry(payload) {
     guessedCategory = guessCategoryForNewEntry_(entry);
     if (guessedCategory) entry.category_id = guessedCategory;
   }
+  if (entry.type === 'expense' && entry.paid_by === 'me' && (payload.charge_pending || payload.paid_amount)) {
+    ensureEntriesChargeColumns_();
+    if (payload.charge_pending) entry.charge_pending = '1';
+    if (Number(payload.paid_amount) > 0 && payload.paid_currency) { entry.paid_amount = Number(payload.paid_amount); entry.paid_currency = String(payload.paid_currency).toUpperCase(); }
+  }
   appendRowObject('Entries', entry);
   if (guessedCategory) entry.guessed_category_name = categoryNameForMessage_(guessedCategory);
 
@@ -1426,6 +1434,7 @@ function listPendingEntries() {
 function updateEntryFields(entryId, fields) {
   fields = businessFieldsForUpdate_(entryId, fields);   // Business pack link cleaned (Business.gs); untouched when it is not involved
   if (fields && fields.to_payment_method_id !== undefined) ensureEntriesToPaymentMethodColumn_();
+  if (fields && (fields.paid_amount !== undefined || fields.charge_pending !== undefined)) ensureEntriesChargeColumns_();
   if (fields && fields.trip_id !== undefined) {
     fields = Object.assign({}, fields, { trip_id: validTripIdOrBlank_(fields.trip_id) });
     if (fields.trip_id) ensureEntriesTripColumn_();

@@ -58,6 +58,10 @@ function saveEntrySplits(entryId, splits) {
 
   var splitTotal = splits.reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
   var ownShare = Number(entry.amount) - splitTotal;
+  // Charged in another currency than what was paid (Charges.gs): the split follows the charge, the debt stays in what was paid.
+  var paidTotal = Number(entry.paid_amount) > 0 && entry.paid_currency ? Number(entry.paid_amount) : 0;
+  var debtAmount = function (amount) { return paidTotal ? Math.round(Number(amount) * paidTotal / Number(entry.amount) * 100) / 100 : Number(amount); };
+  var debtCurrency = paidTotal ? String(entry.paid_currency) : entry.currency;
   var projectId = businessOn_() ? String(entry.project_id || '') : '';   // Business pack: the debt belongs to the entry's project
 
   if (entry.paid_by === 'me') {
@@ -71,8 +75,8 @@ function saveEntrySplits(entryId, splits) {
         origin: 'entry',
         project_id: projectId,
         entry_id: entryId,
-        amount: Number(s.amount),
-        currency: entry.currency,
+        amount: debtAmount(s.amount),
+        currency: debtCurrency,
         date: entry.date,
         due_date: dueFor(s.friend_id, 'they_owe_me'),
         description: entry.description || ''

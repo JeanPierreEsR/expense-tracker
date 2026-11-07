@@ -39,7 +39,7 @@ var EXPORT_MAX_BYTES_ = 20 * 1024 * 1024;   // Gmail's limit is 25 MB per messag
 // The CELLS stay as stored (type / status / source values are not translated).
 var EXPORT_CSV_HEADERS_ = [
   'id', 'date', 'type', 'description', 'merchant', 'category',
-  'amount', 'currency', 'amountPen', 'share', 'sharePen', 'splitWith',
+  'amount', 'currency', 'amountPen', 'share', 'sharePen', 'splitWith', 'paidAmount', 'paidCurrency',
   'method', 'toAccount', 'paidBy', 'friend', 'linkedAs',
   'tags', 'trip', 'status', 'source', 'created'
 ];
@@ -221,7 +221,7 @@ function buildEntriesCsv_(opts) {
     var row = [
       csvCell_(e.id), csvCell_(e.date), csvCell_(e.type), csvCell_(e.description), csvCell_(e.merchant), csvCell_(category),
       amount, csvCell_(e.currency), amountPen == null ? '' : exportMoney_(amountPen), exportMoney_(share), sharePen == null ? '' : exportMoney_(sharePen),
-      csvCell_(splitWith),
+      csvCell_(splitWith), Number(e.paid_amount) > 0 ? exportMoney_(Number(e.paid_amount)) : '', csvCell_(e.paid_currency || ''),
       csvCell_(method ? method.nickname : ''), csvCell_(toMethod ? toMethod.nickname : ''), csvCell_(paidBy),
       csvCell_(link ? link.friend : ''), csvCell_(linkedAs),
       csvCell_((lk.tagNamesByEntry[e.id] || []).join('; ')),
