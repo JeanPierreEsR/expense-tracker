@@ -119,6 +119,7 @@ function getPeriodSummary(payload) {
     excludedCount: excludedCount,
     investmentsByPlatform: investmentFlowsToList_(investmentFlows, pmById),
     loans: { people: loanFlows.people, totals: loanFlows.totals },
+    owed: owedNow_(payload && payload.scope),
     breakdowns: {
       expense: {
         byCategory: expenseByCategory,
@@ -132,6 +133,21 @@ function getPeriodSummary(payload) {
       }
     }
   };
+}
+
+// What friends owe the owner and what he owes them TODAY, per currency (never converted), for the line under Overview's Loans card
+// (owner, 2026-11-07: the card shows the period's flows, not what is tied up). Same balances as the Loans tab; only on "Everything".
+function owedNow_(scope) {
+  if (scope) return null;
+  var toMe = {}, iOwe = {};
+  listLoanBalances({}).forEach(function (f) {
+    f.balances.forEach(function (b) {
+      if (b.net > 0) toMe[b.currency] = (toMe[b.currency] || 0) + b.net;
+      else iOwe[b.currency] = (iOwe[b.currency] || 0) - b.net;
+    });
+  });
+  var list = function (o) { return Object.keys(o).sort(function (a, b) { return a === homeCurrency_() ? -1 : (b === homeCurrency_() ? 1 : (a < b ? -1 : 1)); }).map(function (c) { return { currency: c, amount: o[c] }; }); };
+  return { toMe: list(toMe), iOwe: list(iOwe) };
 }
 
 // Overview's Loans card (owner's request, 2026-10-29): debts with friends AND banks, as FLOWS in the period, each in the loan's own

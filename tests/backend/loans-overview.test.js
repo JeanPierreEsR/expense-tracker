@@ -79,3 +79,17 @@ test("What's left is exactly income + loans - expenses - investments, loans in a
   assert.ok(Math.abs(t.loans - 100 * rate) < 0.01, "100 USD borrowed counts at the month's rate");
   assert.ok(Math.abs(t.net - (t.income - t.expense - t.investment + t.loans)) < 0.001, "the four blocks add up");
 });
+
+test("Overview also says what is owed TODAY, per currency, whatever the period (the line under the Loans card)", () => {
+  const { rt } = freshApp({ entries: 5 });
+  const owedOf = () => rt.api("getPeriodSummary", range).owed;
+  const base = owedOf();
+  const sum = (arr, cur) => (arr.find((x) => x.currency === cur) || { amount: 0 }).amount;
+  const ana = rt.api("addFriend", { name: "Owed Ana" }), bea = rt.api("addFriend", { name: "Owed Bea" });
+  rt.api("addLoan", { friend_id: ana.id, direction: "they_owe_me", amount: 200, currency: "PEN", date: "2025-03-05" });   // long before the period
+  rt.api("recordRepayment", { friend_id: ana.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: "2025-04-01" });
+  rt.api("addLoan", { friend_id: bea.id, direction: "i_owe_them", amount: 30, currency: "USD", date: "2026-10-03" });
+  const o = owedOf();
+  assert.equal(Math.round((sum(o.toMe, "PEN") - sum(base.toMe, "PEN")) * 100) / 100, 150);
+  assert.equal(Math.round((sum(o.iOwe, "USD") - sum(base.iOwe, "USD")) * 100) / 100, 30, "kept in its own currency, never converted");
+});

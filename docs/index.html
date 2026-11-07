@@ -471,6 +471,7 @@
           <p class="hint" id="custom-range-needs" data-i18n="period.pickDates">Pick a start and end date to see the totals.</p>
         </div>
       </div>
+      <button type="button" class="period-pending-line" id="period-pending-line" hidden></button>
 
       <div class="card ov-period">
         <div class="ov-sum-grid">
@@ -501,6 +502,9 @@
           <span class="ov-sum-net-value" id="summary-net">0.00</span>
           <span class="ov-sum-net-eq" id="summary-net-eq"></span>
         </div>
+        <p class="hint ov-sum-zero-line" id="summary-zero-line" hidden></p>
+        <p class="hint" id="overview-noincome-note" hidden data-i18n="overview.noIncome">No income recorded in this period yet: What's left only counts what went out.</p>
+        <p class="hint" id="overview-year-compare" hidden></p>
         <p class="hint" id="overview-excluded-note" hidden></p>
         <p class="hint" id="overview-empty-note" hidden data-i18n="overview.empty">No entries in this period yet.</p>
       </div>
@@ -515,6 +519,10 @@
       <div class="card" id="pace-card" hidden>
         <h2 data-i18n="home.paceTitle">Spending pace</h2>
         <div id="pace-ref-label" class="pace-ref-label"></div>
+        <div class="pace-ref-switch" id="pace-ref-switch" role="group">
+          <button type="button" class="period-type-chip-like" data-pace-ref="last" data-i18n="pace.refLast">Last month</button>
+          <button type="button" class="period-type-chip-like" data-pace-ref="year" data-i18n="pace.refYear">Same month last year</button>
+        </div>
         <svg class="home-line-svg pace-big" id="pace-svg" viewBox="0 0 300 150" preserveAspectRatio="none" aria-hidden="true"></svg>
         <div class="home-pace-lines" id="pace-lines"></div>
       </div>
@@ -544,6 +552,8 @@
         <h2 data-i18n="loans.ov.title">Loans</h2>
         <p class="hint" data-i18n="loans.ov.hint">Money borrowed, lent and repaid in this period, per currency. Includes friends' shares of bills and bank loans. Not income or expenses, so it stays out of the totals above.</p>
         <div id="loans-ov-list"></div>
+        <button type="button" class="add-inline" id="loans-ov-people-btn" hidden></button>
+        <button type="button" class="loans-ov-owed" id="loans-ov-owed" hidden></button>
       </div>
 
       <div class="card ov-period">

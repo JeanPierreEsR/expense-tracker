@@ -3614,3 +3614,17 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #custom-range-needs { display: none; }
 #screen-overview.overview-needs-dates #custom-range-needs { display: block; }
 #screen-overview.overview-needs-dates > .card:not(#period-selector-card) { display: none; }
+
+/* ---- Overview clarity (testers, 2026-11-07) ---- */
+.period-pending-line { display: block; width: 100%; margin: 0 0 12px; padding: 10px 12px; min-height: 44px; border: none; border-radius: 10px;
+  background: #fff6e0; color: #8a5a00; font: inherit; font-size: 0.85rem; text-align: left; cursor: pointer; }
+.period-pending-line[hidden] { display: none; }
+.ov-sum-grid.folded .ov-sum-tile.investment, .ov-sum-grid.folded .ov-sum-tile.loans { display: none; }
+.ov-sum-zero-line { text-align: center; margin: 6px 0 0; }
+.pace-ref-switch { display: flex; gap: 8px; margin: 6px 0 4px; }
+.pace-ref-switch button { flex: 1 1 0; min-height: 44px; border: 1px solid var(--border); background: white; border-radius: 999px; padding: 8px 10px;
+  font: inherit; font-size: 0.8rem; cursor: pointer; }
+.pace-ref-switch button.active { background: var(--accent); color: white; border-color: var(--accent); }
+.loans-ov-owed { display: block; width: 100%; margin-top: 10px; padding: 10px 0 0; min-height: 44px; border: none; border-top: 1px solid var(--border);
+  background: none; font: inherit; font-size: 0.85rem; color: var(--accent); text-align: left; cursor: pointer; }
+.loans-ov-owed[hidden] { display: none; }

@@ -6596,6 +6596,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   const list = document.getElementById("review-list");
   document.getElementById("review-count").textContent = entries.length;
   reviewEntries_ = entries;
+  updatePeriodPendingLine_();
   const stillWaiting = new Set(entries.map((e) => e.id));
   reviewSelected_ = new Set([...reviewSelected_].filter((id) => stillWaiting.has(id)));
   if (reviewEditing_) syncReviewEditBar_();
@@ -7586,6 +7587,9 @@ function ensurePeriodSelectorIn(screenName) {
   if (card.parentElement !== target) {
     target.insertBefore(card, target.firstChild);
   }
+  // The Needs review line travels with it, just below (outside the card, which stays pinned at the top while scrolling).
+  const pending = document.getElementById("period-pending-line");
+  if (pending && card.nextElementSibling !== pending) card.after(pending);
   populateOverviewScope_(screenName === "overview");   // the "Showing" filter belongs to Overview only
 }
 
@@ -7793,7 +7797,26 @@ function renderPeriodSelector() {
   document.getElementById("period-prev").hidden = !navVisible;
   document.getElementById("period-next").hidden = !navVisible;
   document.getElementById("custom-range-fields").hidden = periodType !== "custom";
+  updatePeriodPendingLine_();
 }
+
+// Overview and Budgets don't count entries waiting in Needs review (principle 6), and nothing said so: a person who leaves the queue
+// for weeks read final-looking totals (Valeria, 2026-11-07). One line under the period, only for waiting entries dated in the period
+// shown, from the queue Home already holds (no extra call); a tap goes to it.
+function updatePeriodPendingLine_() {
+  const btn = document.getElementById("period-pending-line");
+  if (!btn) return;
+  const b = getPeriodBounds();
+  const n = (typeof reviewEntries_ !== "undefined" && reviewEntries_ ? reviewEntries_ : [])
+    .filter((e) => (!b.startDate || e.date >= b.startDate) && (!b.endDate || e.date <= b.endDate)).length;
+  const needsDates = periodType === "custom" && !b.startDate && !b.endDate;
+  btn.hidden = !n || needsDates;
+  if (n) btn.textContent = tr("period.pending", { n });
+}
+document.getElementById("period-pending-line").addEventListener("click", () => {
+  showScreen("entries");
+  setTimeout(() => { const card = document.getElementById("review-queue-card"); if (card && !card.hidden) card.scrollIntoView({ behavior: "smooth", block: "start" }); }, 150);
+});
 
 function movePeriod(delta) {
   if (periodType === "month") {
@@ -7944,7 +7967,7 @@ function refreshMonthsHistory_() {
     return Promise.resolve();
   }
   monthsHistBusy_ = callApi("getMonthlyHistory", {})
-    .then((data) => { monthsHist_ = data; monthsHistAt_ = Date.now(); renderMonthsHistory_(); })
+    .then((data) => { monthsHist_ = data; monthsHistAt_ = Date.now(); renderMonthsHistory_(); renderYearCompare_(); })
     .catch(() => { /* a bonus: the rest of Overview works without it */ })
     .finally(() => { monthsHistBusy_ = null; });
   return monthsHistBusy_;
@@ -7987,6 +8010,11 @@ function renderMonthsBars_() {
   box.scrollLeft = keep || box.scrollWidth;   // first paint lands on the newest months
 }
 
+document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.addEventListener("click", () => {
+  localStorage.setItem("paceRef", b.dataset.paceRef);
+  if (monthsHist_) renderPaceBig_();
+}));
+
 function paceRefList_() {
   return monthsHist_ ? monthsHist_.months.slice(0, -1) : [];
 }
@@ -7996,20 +8024,26 @@ function renderPaceBig_() {
   const months = monthsHist_.months;
   const cur = months[months.length - 1];
   const list = paceRefList_();
-  // The grey reference line follows Overview's pinned period picker: the month picked there (when it is an
-  // earlier month than this one), otherwise last month. The card has no picker of its own.
-  const picked = periodType === "month" ? `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` : null;
-  const ref = list.length ? (list.find((m) => m.month === picked) || list[list.length - 1]) : null;
+  // The grey line is last month, or the same month last year, by the card's own two-way switch (owner, 2026-11-07; it replaced
+  // "the month picked in the period picker", which made the card follow a picked month it was not about).
+  const mode = localStorage.getItem("paceRef") === "year" ? "year" : "last";
+  const [cy0, cm0] = cur.month.split("-").map(Number);
+  const yearAgo = `${cy0 - 1}-${String(cm0).padStart(2, "0")}`;
+  const ref = mode === "year" ? (list.find((m) => m.month === yearAgo) || null) : (list.length ? list[list.length - 1] : null);
+  document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.classList.toggle("active", b.dataset.paceRef === mode));
   const nowTotal = cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
-  // Only in Month view (testers, 2026-11-07): it is about THIS month, so under a year, All time or a custom range it read as part of that period.
-  card.hidden = periodType !== "month" || (!nowTotal && !(ref && ref.expense > 0));
+  // Only when the month in view IS this month (testers, 2026-11-07): the card is about this month, so under another month, a year,
+  // All time or a custom range it read as part of that period.
+  const showingThisMonth = periodType === "month" && `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` === cur.month;
+  card.hidden = !showingThisMonth || (!nowTotal && !list.some((m) => m.expense > 0));
   if (card.hidden) return;
   const [ry, rmo] = ref ? ref.month.split("-").map(Number) : [0, 0];
   const refName = ref ? I18n.fmtMonthYear(new Date(ry, rmo - 1, 1), true) : "";
   const [cy, cmo] = cur.month.split("-").map(Number);
   // Says which month is measured and which one it is held against (it used to show only the reference month's name, read as "this card is October").
   document.getElementById("pace-ref-label").textContent = ref
-    ? tr("pace.vs", { cur: I18n.fmtMonthYear(new Date(cy, cmo - 1, 1)), ref: refName }) : I18n.fmtMonthYear(new Date(cy, cmo - 1, 1));
+    ? tr("pace.vs", { cur: I18n.fmtMonthYear(new Date(cy, cmo - 1, 1)), ref: refName })
+    : `${I18n.fmtMonthYear(new Date(cy, cmo - 1, 1))} · ${tr("pace.noRef", { month: I18n.fmtMonthYear(new Date(cy0 - 1, cm0 - 1, 1), true) })}`;
 
   const W = 300, H = 150, pad = 6;
   const days = Math.max(cur.days, ref ? ref.days : 0);
@@ -8153,11 +8187,21 @@ function paintOverviewSummary_(data) {
 
   const hasAny = data.totals.income !== 0 || data.totals.expense !== 0 || data.totals.investment !== 0 || !!(data.loans && data.loans.people.length);
   document.getElementById("overview-empty-note").hidden = hasAny;
+  // Investments and Loans both zero: one small line instead of two empty boxes (never hidden: a person who has not used them yet
+  // must still see they exist — owner, 2026-11-07).
+  const folded = Math.abs(data.totals.investment) < 0.004 && Math.abs(data.totals.loans || 0) < 0.004;
+  document.querySelector("#screen-overview .ov-sum-grid").classList.toggle("folded", folded);
+  const zeroLine = document.getElementById("summary-zero-line");
+  zeroLine.hidden = !folded;
+  if (folded) zeroLine.textContent = tr("overview.zeroLine", { inv: formatPen(0), loans: formatPen(0) });
+  // Money went out but nothing came in: say so, or a big negative What's left reads as bad news (Marta, 2026-11-07).
+  document.getElementById("overview-noincome-note").hidden = !(data.totals.income < 0.004 && (data.totals.expense > 0.004 || data.totals.investment > 0.004));
+  renderYearCompare_();
 
   renderBreakdowns(data.breakdowns[overviewType]);
-  if (monthsHist_) renderPaceBig_();   // the grey line follows the picked period
+  if (monthsHist_) renderPaceBig_();   // shown only while the month in view is this month
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
-  renderLoansPeriod_(data.loans || { people: [], totals: [] });
+  renderLoansPeriod_(data.loans || { people: [], totals: [] }, data.owed);
   fitOverviewSummary_();
 }
 
@@ -8197,7 +8241,7 @@ async function refreshOverviewInner_() {
 
 // The list at the end of Overview: every entry of the selected period (all
 // types), newest first, shown 50 at a time.
-const OVERVIEW_ENTRIES_PAGE = 50;
+const OVERVIEW_ENTRIES_PAGE = 20;   // was 50: a shorter Overview (owner, 2026-11-07); "Load more" adds 20 at a time
 let overviewEntriesToken_ = 0;
 function loadOverviewEntries_(bounds) { return trackOverviewLoad_(loadOverviewEntriesInner_(bounds)); }
 async function loadOverviewEntriesInner_(bounds) {
@@ -8288,11 +8332,25 @@ function loansOvLineHtml_(l) {
     <div class="loans-ov-net ${l.net > 0 ? "pos-green" : ""}">${signedMoney_(l.net, l.currency)}</div>
   </div>`;
 }
-function renderLoansPeriod_(loans) {
+let loansOvPeopleOpen_ = false;
+function renderLoansPeriod_(loans, owed) {
   const list = document.getElementById("loans-ov-list");
-  document.getElementById("loans-ov-card").hidden = loans.people.length === 0;
+  const owedBtn = document.getElementById("loans-ov-owed");
+  const hasOwed = !!(owed && (owed.toMe.length || owed.iOwe.length));
+  document.getElementById("loans-ov-card").hidden = loans.people.length === 0 && !hasOwed;
+  // What is tied up in loans today (not this period's flows): one tap away from the Loans tab (owner, 2026-11-07).
+  owedBtn.hidden = !hasOwed;
+  if (hasOwed) {
+    const fmt = (arr) => (arr.length ? arr.map((x) => formatAmount(x.amount, x.currency)).join(" + ") : formatPen(0));
+    owedBtn.textContent = tr("loans.ov.owed", { toMe: fmt(owed.toMe), iOwe: fmt(owed.iOwe) });
+  }
   list.innerHTML = "";
-  loans.people.forEach((p) => {
+  // Shorter page: with several people the card starts on its total line; "Show the n people" opens the list (owner, 2026-11-07).
+  const peopleBtn = document.getElementById("loans-ov-people-btn");
+  const fold = loans.people.length > 1;
+  peopleBtn.hidden = !fold;
+  if (fold) peopleBtn.textContent = loansOvPeopleOpen_ ? tr("loans.ov.hidePeople") : tr("loans.ov.showPeople", { n: loans.people.length });
+  (fold && !loansOvPeopleOpen_ ? [] : loans.people).forEach((p) => {
     const row = document.createElement("div");
     row.className = "loans-ov-row";
     row.innerHTML = `<div class="balance-row-name">${escapeHtml(p.name)}<span class="loan-detail-row-chevron">›</span></div>${p.lines.map(loansOvLineHtml_).join("")}`;
@@ -8303,8 +8361,35 @@ function renderLoansPeriod_(loans) {
     const total = document.createElement("div");
     total.className = "loans-ov-row loans-ov-total";
     total.innerHTML = `<div class="balance-row-name"><strong>${escapeHtml(tr("loans.ov.total"))}</strong></div>${loans.totals.map(loansOvLineHtml_).join("")}`;
-    list.appendChild(total);
+    if (loansOvPeopleOpen_) list.appendChild(total); else list.prepend(total);
   }
+}
+document.getElementById("loans-ov-people-btn").addEventListener("click", () => {
+  loansOvPeopleOpen_ = !loansOvPeopleOpen_;
+  if (lastOverviewData) renderLoansPeriod_(lastOverviewData.loans || { people: [], totals: [] }, lastOverviewData.owed);
+});
+document.getElementById("loans-ov-owed").addEventListener("click", () => showScreen("loans"));
+
+// Year view: the year against the one before, from the month-by-month history already on the phone (no extra call). The current year
+// compares only its complete months with the same months of last year — a part year against a whole one would always look like a saving.
+function renderYearCompare_() {
+  const el = document.getElementById("overview-year-compare");
+  el.hidden = true;
+  if (periodType !== "year" || !monthsHist_) return;
+  const y = periodAnchor.getFullYear(), now = new Date();
+  const lastMonth = y < now.getFullYear() ? 12 : y === now.getFullYear() ? now.getMonth() : 0;   // complete months of that year
+  if (lastMonth < 1) return;
+  const sum = (year) => {
+    const ms = monthsHist_.months.filter((m) => +m.month.slice(0, 4) === year && +m.month.slice(5, 7) <= lastMonth);
+    return { n: ms.length, exp: ms.reduce((t, m) => t + m.expense, 0), inc: ms.reduce((t, m) => t + m.income, 0) };
+  };
+  const cur = sum(y), prev = sum(y - 1);
+  if (cur.n < lastMonth || prev.n < lastMonth) return;   // the history does not reach that far back
+  const pct = (a, b) => (b > 0.004 ? `${a >= b ? "+" : "−"}${Math.round(Math.abs(a - b) / b * 100)}%` : "—");
+  const params = { prev: y - 1, exp: pct(cur.exp, prev.exp), inc: pct(cur.inc, prev.inc) };
+  if (lastMonth === 12) el.textContent = tr("overview.vsYearFull", params);
+  else el.textContent = tr("overview.vsYearPart", Object.assign(params, { range: `${I18n.monthShort(0, true)}–${I18n.monthShort(lastMonth - 1)}` }));
+  el.hidden = false;
 }
 
 function renderBreakdowns(breakdown) {
