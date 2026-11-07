@@ -105,7 +105,8 @@ function ensureStatementInboxSheet_() {
 /** Only real statement PDFs: not promos, brochures, logos, or other file types. */
 function stmtIsStatementAttachment_(name) {
   var n = String(name || '');
-  return /\.pdf$/i.test(n) && !/promo|retira|logo|folleto|brochure|cartilla/i.test(n);
+  // Interbank's "Constancia de pago" (date_time_number_code.pdf) is a payment received, read by PaymentNotice.gs, never a statement.
+  return /\.pdf$/i.test(n) && !/promo|retira|logo|folleto|brochure|cartilla/i.test(n) && !PAYMENT_NOTICE_FILE_.test(n);
 }
 
 // Statements the owner mails to himself (banks that send nothing automatically).
