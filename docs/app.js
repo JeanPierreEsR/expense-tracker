@@ -8015,35 +8015,31 @@ document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.addEventLi
   if (monthsHist_) renderPaceBig_();
 }));
 
-function paceRefList_() {
-  return monthsHist_ ? monthsHist_.months.slice(0, -1) : [];
-}
 
 function renderPaceBig_() {
   const card = document.getElementById("pace-card");
   const months = monthsHist_.months;
-  const cur = months[months.length - 1];
-  const list = paceRefList_();
-  // The grey line is last month, or the same month last year, by the card's own two-way switch (owner, 2026-11-07; it replaced
-  // "the month picked in the period picker", which made the card follow a picked month it was not about).
+  // Owner, 2026-11-07: the card shows for EVERY month in Month view. The blue line is the month in view (this month so far, or a
+  // past month in full); the two-way switch only changes the grey one: the month before it, or the same month a year earlier.
+  const key = (y, m) => `${y}-${String(m).padStart(2, "0")}`;
+  const selKey = key(periodAnchor.getFullYear(), periodAnchor.getMonth() + 1);
+  const cur = periodType === "month" ? months.find((m) => m.month === selKey) : null;   // null: a future month, or older than the history
   const mode = localStorage.getItem("paceRef") === "year" ? "year" : "last";
-  const [cy0, cm0] = cur.month.split("-").map(Number);
-  const yearAgo = `${cy0 - 1}-${String(cm0).padStart(2, "0")}`;
-  const ref = mode === "year" ? (list.find((m) => m.month === yearAgo) || null) : (list.length ? list[list.length - 1] : null);
   document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.classList.toggle("active", b.dataset.paceRef === mode));
-  const nowTotal = cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
-  // Only when the month in view IS this month (testers, 2026-11-07): the card is about this month, so under another month, a year,
-  // All time or a custom range it read as part of that period.
-  const showingThisMonth = periodType === "month" && `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` === cur.month;
-  card.hidden = !showingThisMonth || (!nowTotal && !list.some((m) => m.expense > 0));
+  const [cy, cmo] = selKey.split("-").map(Number);
+  const refKey = mode === "year" ? key(cy - 1, cmo) : (cmo === 1 ? key(cy - 1, 12) : key(cy, cmo - 1));
+  const ref = months.find((m) => m.month === refKey) || null;
+  const isThisMonth = !!cur && cur === months[months.length - 1];
+  const nowTotal = cur && cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
+  card.hidden = !cur || (!nowTotal && !(ref && ref.expense > 0));
   if (card.hidden) return;
-  const [ry, rmo] = ref ? ref.month.split("-").map(Number) : [0, 0];
-  const refName = ref ? I18n.fmtMonthYear(new Date(ry, rmo - 1, 1), true) : "";
-  const [cy, cmo] = cur.month.split("-").map(Number);
-  // Says which month is measured and which one it is held against (it used to show only the reference month's name, read as "this card is October").
-  document.getElementById("pace-ref-label").textContent = ref
-    ? tr("pace.vs", { cur: I18n.fmtMonthYear(new Date(cy, cmo - 1, 1)), ref: refName })
-    : `${I18n.fmtMonthYear(new Date(cy, cmo - 1, 1))} · ${tr("pace.noRef", { month: I18n.fmtMonthYear(new Date(cy0 - 1, cm0 - 1, 1), true) })}`;
+  const [ry, rmo] = refKey.split("-").map(Number);
+  const refName = I18n.fmtMonthYear(new Date(ry, rmo - 1, 1), true);
+  const curName = I18n.fmtMonthYear(new Date(cy, cmo - 1, 1));
+  // Says which month is measured and which one it is held against.
+  document.getElementById("pace-ref-label").textContent = !ref
+    ? `${curName} · ${tr("pace.noRef", { month: refName })}`
+    : tr(isThisMonth ? "pace.vs" : "pace.vsPast", { cur: curName, ref: refName });
 
   const W = 300, H = 150, pad = 6;
   const days = Math.max(cur.days, ref ? ref.days : 0);
@@ -8055,14 +8051,18 @@ function renderPaceBig_() {
   document.getElementById("pace-svg").innerHTML = `
     ${ref ? `<polyline class="prev" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${line(ref.cum)}"/>` : ""}
     <polyline class="cur" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${line(cur.cum)}"/>
-    ${last >= 0 ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}`;
+    ${last >= 0 && isThisMonth ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}`;
 
+  // This month: so far, against the grey month on the same day (and its whole total). A past month: both months in full.
   const curDay = monthsHist_.curDay;
   const sameDay = ref ? ref.cum[Math.min(curDay, ref.cum.length) - 1] || 0 : 0;
+  const curLabel = isThisMonth ? tr("home.paceNow") : tr("pace.monthWhole", { month: I18n.fmtMonthYear(new Date(cy, cmo - 1, 1), true) });
+  const refLine = !ref ? "" : isThisMonth
+    ? `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.refAtDay", { month: refName }))}<b>${escapeHtml(formatPen(sameDay))}</b>
+      <span class="hint">${escapeHtml(tr("pace.refWholeDone", { month: refName }))}: ${escapeHtml(formatPen(ref.expense))}</span></div>`
+    : `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.monthWhole", { month: refName }))}<b>${escapeHtml(formatPen(ref.expense))}</b></div>`;
   document.getElementById("pace-lines").innerHTML = `
-    <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(formatPen(nowTotal))}</b></div>
-    ${ref ? `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.refAtDay", { month: refName }))}<b>${escapeHtml(formatPen(sameDay))}</b>
-      <span class="hint">${escapeHtml(tr("pace.refWholeDone", { month: refName }))}: ${escapeHtml(formatPen(ref.expense))}</span></div>` : ""}`;
+    <div><span style="color:var(--accent)">●</span> ${escapeHtml(curLabel)}<b>${escapeHtml(formatPen(nowTotal))}</b></div>${refLine}`;
 }
 
 (function wirePaceBig_() {
@@ -8199,7 +8199,7 @@ function paintOverviewSummary_(data) {
   renderYearCompare_();
 
   renderBreakdowns(data.breakdowns[overviewType]);
-  if (monthsHist_) renderPaceBig_();   // shown only while the month in view is this month
+  if (monthsHist_) renderPaceBig_();   // the blue line is the month in view
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
   renderLoansPeriod_(data.loans || { people: [], totals: [] }, data.owed);
   fitOverviewSummary_();

@@ -441,6 +441,8 @@
     "pace.refLast": { en: "Last month", es: "Mes pasado" },
     "pace.refYear": { en: "Same month last year", es: "Mismo mes del año pasado" },
     "pace.noRef": { en: "No entries for {month}.", es: "No hay movimientos de {month}." },
+    "pace.vsPast": { en: "{cur} against {ref}", es: "{cur} frente a {ref}" },
+    "pace.monthWhole": { en: "All of {month}", es: "Todo {month}" },
     "pace.vs": { en: "{cur} so far, against {ref}", es: "{cur} hasta hoy, frente a {ref}" },
     "home.allMonths": { en: "All months", es: "Todos los meses" },
     "home.paceTitle": { en: "Spending pace", es: "Ritmo de gasto" },
