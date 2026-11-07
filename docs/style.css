@@ -1735,8 +1735,17 @@ body.income-revealed .sens-mask { display: none; }
   background: var(--bg);
   border-radius: 999px;
   height: 8px;
-  overflow: hidden;
+  position: relative;   /* the Year view's "today" mark sits on it, a little taller than the bar (the fill keeps its own rounded ends) */
 }
+.budget-today-mark { position: absolute; top: -4px; width: 2px; height: 16px; margin-left: -1px; background: var(--text, #1c1c1e); border-radius: 1px; }
+.budgets-status-line { font-weight: 600; margin: 0 0 10px; }
+#budgets-today-hint { margin: -4px 0 10px; }
+.budgets-status-line .over { color: var(--expense); }
+.budgets-status-line .warn { color: #b8741a; }
+.budget-row-annual { margin-top: 2px; font-size: 0.75rem; }
+.legend-annual { font-size: 0.75rem; margin-top: 1px; }
+.drilldown-annual-link { padding-left: 0; text-align: left; }
+#forgive-budget-note.over { color: var(--expense); font-weight: 600; }
 
 .budget-progress-fill {
   height: 100%;

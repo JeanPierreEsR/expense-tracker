@@ -148,3 +148,23 @@ test("Telegram: the Annual tag is found by either name and shown translated", ()
   assert.equal(rt.run("fuzzyFindTag_('anual').id"), "system-annual");
   assert.equal(rt.run("fuzzyFindTag_('annual').id"), "system-annual");
 });
+
+test("a monthly budget says what the Annual tag left out; the entries list can show only those; Overview's category row carries the Annual part", () => {
+  const rt = setup();
+  post(rt, "getMeta", {});
+  addEntry(rt, "e-plain-1", today(), 80, false);
+  addEntry(rt, "e-year-1", today(), 500, true);
+  rt.api("addBudget", { category_id: "cat-annual-test", amount: 300, currency: "PEN", period_type: "monthly" });
+  rt.api("addBudget", { category_id: "cat-annual-test", amount: 3000, currency: "PEN", period_type: "yearly" });
+  const budgets = rt.api("listBudgets", {}).budgets.filter((b) => b.category_id === "cat-annual-test");
+  const monthly = budgets.find((b) => b.period_type === "monthly"), yearly = budgets.find((b) => b.period_type === "yearly");
+  assert.equal(monthly.progress.spent, 80);
+  assert.equal(monthly.progress.annualLeftOut, 500);
+  assert.equal(yearly.progress.annualLeftOut, 0, "a yearly budget counts Annual entries, so nothing is left out");
+  const month = today().slice(0, 7);
+  const only = rt.api("listEntries", { startDate: month + "-01", endDate: today(), categoryIds: ["cat-annual-test"], onlyAnnual: true }).map((e) => e.id);
+  assert.deepEqual(only, ["e-year-1"]);
+  const row = rt.api("getPeriodSummary", { startDate: month + "-01", endDate: today() }).breakdowns.expense.byCategory.find((c) => c.id === "cat-annual-test");
+  assert.equal(row.amount_pen, 580);
+  assert.equal(row.annual_pen, 500);
+});

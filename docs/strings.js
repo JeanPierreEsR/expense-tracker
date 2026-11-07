@@ -914,6 +914,8 @@
     "overview.nothingYet": { en: "Nothing here yet.", es: "Aún no hay nada aquí." },
     "overview.entriesTitle": { en: "Entries in this period", es: "Movimientos de este periodo" },
     "overview.others": { en: "Others ({n})", es: "Otros ({n})" },
+    "overview.inclAnnual": { en: "incl. {amount} tagged Annual", es: "incluye {amount} con la etiqueta Anual" },
+    "overview.allAnnual": { en: "all tagged Annual", es: "todo con la etiqueta Anual" },
 
     // ---- balances ----
     "balances.title": { en: "Balances", es: "Saldos" },
@@ -1399,6 +1401,7 @@
     "forgive.context": { en: "{name} · {cur} {amount} remaining", es: "{name} · quedan {cur} {amount}" },
     "forgive.convertIncome": { en: "Convert remaining balance to income", es: "Convertir el saldo restante en ingreso" },
     "forgive.recordedExpense": { en: " — this will be recorded as an expense in the category below.", es: " — se registrará como gasto en la categoría de abajo." },
+    "forgive.budgetAfter": { en: "Counts in the {name} budget: {pct}% after this ({cur} {spent} of {cur} {amount}).", es: "Se cuenta en el presupuesto {name}: {pct}% después de esto ({cur} {spent} de {cur} {amount})." },
     "forgive.recordedIncome": { en: " — this will be recorded as income in the category below.", es: " — se registrará como ingreso en la categoría de abajo." },
 
     // ---- one calendar for a start and an end date ----
@@ -1689,6 +1692,14 @@
     "budget.refreshFailed": { en: "Couldn't refresh: {error}", es: "No se pudo actualizar: {error}" },
     "budget.needsRate": { en: "Needs an exchange rate for {cur}", es: "Necesita un tipo de cambio para {cur}" },
     "budget.thisYear": { en: "this year", es: "este año" },
+    "budgets.statusOver": { en: { one: "{n} over budget", other: "{n} over budget" }, es: { one: "Te pasaste en {n}", other: "Te pasaste en {n}" } },
+    "budgets.statusClose": { en: { one: "{n} close to the limit", other: "{n} close to the limit" }, es: { one: "{n} cerca del límite", other: "{n} cerca del límite" } },
+    "budgets.statusFine": { en: "All budgets within their limit", es: "Todos los presupuestos dentro de su límite" },
+    "budgets.todayHint": { en: "The small mark on each bar is today's place in the year: a bar that goes past it is spending faster than an even pace.", es: "La marca en cada barra es el lugar de hoy en el año: si la barra la pasa, el gasto va más rápido que a un ritmo parejo." },
+    "budgets.todayMarkAria": { en: "Today: about {cur} {amount} at an even pace", es: "Hoy: unos {cur} {amount} a un ritmo parejo" },
+    "budget.annualLeftOut": { en: "{cur} {amount} tagged Annual, not counted", es: "{cur} {amount} con la etiqueta Anual, no se cuenta" },
+    "budget.annualLeftOutTap": { en: "{cur} {amount} tagged Annual, not counted ›", es: "{cur} {amount} con la etiqueta Anual, no se cuenta ›" },
+    "budget.annualListSubtitle": { en: "Tagged Annual: a monthly budget leaves these out", es: "Con la etiqueta Anual: un presupuesto mensual no los cuenta" },
     "budget.thisMonth": { en: "this month", es: "este mes" },
     "budget.annualized": { en: " (monthly × 12)", es: " (mensual × 12)" },
     "budget.excluded": { en: { one: "{n} budget excluded — missing an exchange rate.", other: "{n} budgets excluded — missing an exchange rate." }, es: { one: "{n} presupuesto excluido: falta un tipo de cambio.", other: "{n} presupuestos excluidos: falta un tipo de cambio." } },

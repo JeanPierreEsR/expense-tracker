@@ -591,6 +591,8 @@
             <button type="button" class="icon-btn" id="add-budget-btn" data-i18n-aria-label="budgets.addAria" aria-label="Add budget"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
+        <p class="budgets-status-line" id="budgets-status-line" hidden></p>
+        <p class="hint" id="budgets-today-hint" hidden data-i18n="budgets.todayHint">The small mark on each bar is today's place in the year: a bar that goes past it is spending faster than an even pace.</p>
         <div id="budgets-list"></div>
         <p class="hint" id="budgets-empty-note" hidden data-i18n="budgets.empty">No budgets yet — add one to start tracking a category.</p>
         <div class="friends-editbar" id="budgets-editbar" hidden>
@@ -2822,6 +2824,7 @@
           <label for="forgive-date" data-i18n="field.date">Date</label>
           <input type="date" id="forgive-date">
         </div>
+        <p class="hint" id="forgive-budget-note" hidden></p>
 
         <p class="hint" id="forgive-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="forgive-save-btn" data-i18n="forgive.title">Forgive loan</button>

@@ -8448,6 +8448,8 @@ function appendLegendRow_(listEl, key, item) {
         <span class="legend-amount">${formatPen(item.amount_pen)}</span>
         <span class="legend-percent">${item.percent.toFixed(1)}%</span>
       </div>
+      ${item.annual_pen > 0.005 ? `<div class="legend-annual hint">${escapeHtml(Math.abs(item.annual_pen - item.amount_pen) < 0.01
+        ? tr("overview.allAnnual") : tr("overview.inclAnnual", { amount: formatPen(item.annual_pen) }))}</div>` : ""}
     </div>
   `;
   row.addEventListener("click", () => openBreakdownDrilldown(key, item));
@@ -8591,6 +8593,23 @@ async function openBudgetDrilldown(budget) {
     `${budget.category_icon ? budget.category_icon + " " : ""}${budget.category_name}`,
     tr(p.effectivePeriodType === "yearly" ? "drill.budgetYear" : "drill.budgetMonth", { cur: budget.currency, amount: moneyFmt(p.effectiveAmount) })
   );
+
+  // What the Annual tag kept out of this monthly budget, with a tap that lists those entries (owner, 2026-11-07).
+  const annualNoteEl = document.getElementById("drilldown-projection-annual-note");
+  if (p.annualLeftOut > 0.005 && drilldownBudget === budget) {
+    annualNoteEl.hidden = false;
+    annualNoteEl.innerHTML = `<button type="button" class="add-inline drilldown-annual-link">${escapeHtml(tr("budget.annualLeftOutTap", { cur: budget.currency, amount: moneyFmt(p.annualLeftOut) }))}</button>`;
+    annualNoteEl.querySelector("button").addEventListener("click", () => {
+      const annualPayload = Object.assign({}, payload, { onlyAnnual: true });
+      delete annualPayload.excludeAnnual;
+      drilldownBudget = null;
+      document.getElementById("drilldown-menu-btn").hidden = true;
+      document.getElementById("drilldown-chart").hidden = true;
+      annualNoteEl.hidden = true;
+      currentDrilldown = { refetch: () => openBudgetDrilldown(budget) };
+      openDrilldownWithPayload_(annualPayload, `${budget.category_icon ? budget.category_icon + " " : ""}${budget.category_name}`, tr("budget.annualListSubtitle"));
+    });
+  }
 
   loadAndRenderBudgetChart_(budget);
 }
@@ -9332,6 +9351,7 @@ async function refreshBudgets() {
   if (budgetsLoadedKey_ === null && !document.getElementById("budgets-list").children.length) {
     document.getElementById("budgets-list").innerHTML = loadingHtml_();
     document.getElementById("budgets-empty-note").hidden = true;
+    document.getElementById("budgets-status-line").hidden = true;
   }
   let data;
   try { data = await callApi("listBudgets", projectionPeriodPayload_()); }
@@ -9360,6 +9380,8 @@ function drawBudgets_() {
   if (budgets.length === 0) {
     emptyNote.hidden = false;
     summaryCard.hidden = true;
+    document.getElementById("budgets-status-line").hidden = true;
+    document.getElementById("budgets-today-hint").hidden = true;
     return;
   }
   emptyNote.hidden = true;
@@ -9371,7 +9393,27 @@ function drawBudgets_() {
   // computed.
   const fxNotes = [];
 
-  budgets.forEach((b) => {
+  // Over-budget rows first (the highest % on top), then the usual order; and one line on top saying how many are over or close
+  // (owner, 2026-11-07: an anxious person had to scroll 13 rows to find the red ones). "Close" = the amber bar, 75 % and up.
+  const pctOf = (b) => (b.progress && b.progress.percent != null ? b.progress.percent : -1);
+  const ordered = budgets.slice().sort((x, y) => {
+    const ox = pctOf(x) >= 100, oy = pctOf(y) >= 100;
+    if (ox !== oy) return ox ? -1 : 1;
+    return ox ? pctOf(y) - pctOf(x) : 0;
+  });
+  const overN = budgets.filter((b) => pctOf(b) >= 100).length;
+  const closeN = budgets.filter((b) => pctOf(b) >= 75 && pctOf(b) < 100).length;
+  const statusLine = document.getElementById("budgets-status-line");
+  const statusParts = [];
+  if (overN) statusParts.push(`<span class="over">${escapeHtml(tr("budgets.statusOver", { n: overN }))}</span>`);
+  if (closeN) statusParts.push(`<span class="warn">${escapeHtml(tr("budgets.statusClose", { n: closeN }))}</span>`);
+  statusLine.innerHTML = statusParts.length ? statusParts.join(" · ") : escapeHtml(tr("budgets.statusFine"));
+  statusLine.hidden = false;
+  // Year view: a small mark on each bar where today falls in its year ("expected by now", owner 2026-11-07), and one line explaining it.
+  const todayIso = todayLocalISO();
+  let anyTodayMark = false;
+
+  ordered.forEach((b) => {
     const p = b.progress;
     const pct = p.percent;
     let statusClass = "";
@@ -9380,6 +9422,16 @@ function drawBudgets_() {
       else if (pct >= 75) statusClass = "warn";
     }
     const barPct = pct == null ? 0 : Math.min(100, Math.max(0, pct));
+    let todayMark = "";
+    if (pct != null && p.effectivePeriodType === "yearly" && p.startDate <= todayIso && todayIso <= p.endDate) {
+      const day = (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+      const frac = (day(todayIso) - day(p.startDate) + 86400000) / (day(p.endDate) - day(p.startDate) + 86400000);
+      const expected = p.effectiveAmount * frac;
+      todayMark = `<span class="budget-today-mark" style="left:${(frac * 100).toFixed(1)}%" role="img" aria-label="${escapeHtml(tr("budgets.todayMarkAria", { cur: b.currency, amount: moneyFmt(expected) }))}"></span>`;
+      anyTodayMark = true;
+    }
+    const annualNote = p.annualLeftOut > 0.005
+      ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: b.currency, amount: moneyFmt(p.annualLeftOut) }))}</div>` : "";
 
     const amountLabel = `${b.currency} ${moneyFmt(p.effectiveAmount)}`;
     const subLabel = pct == null
@@ -9407,11 +9459,13 @@ function drawBudgets_() {
       </div>
       <div class="budget-progress-track">
         <div class="budget-progress-fill ${statusClass}" style="width:${barPct}%"></div>
+        ${todayMark}
       </div>
       <div class="budget-row-sub">
         <span>${subLabel}</span>
         <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
       </div>
+      ${annualNote}
     `;
     // Editing/deleting now lives behind the drill-down's ⋮ menu (see
     // openBudgetDrilldown) rather than a second tap target on the row.
@@ -9424,6 +9478,7 @@ function drawBudgets_() {
     list.appendChild(row);
   });
 
+  document.getElementById("budgets-today-hint").hidden = !anyTodayMark;
   summaryCard.hidden = false;
   document.getElementById("budgets-summary-monthly").textContent = formatPen(summary.monthlyPen);
   document.getElementById("budgets-summary-yearly").textContent = formatPen(summary.yearlyPen);
@@ -24717,11 +24772,51 @@ function openForgiveModal(loan, returnFriend) {
   populateCategoryOptionsForSelect_("forgive-category", entryType);
   document.getElementById("forgive-date").value = todayLocalISO();
   document.getElementById("forgive-convert-fields").hidden = !hasBalance || !checkbox.checked;
+  // Which budget the forgiven amount will count in, and where that leaves it (owner, 2026-11-07: forgiving silently pushed Restaurants
+  // to 117%). Fetched behind the open form; the line shows once it has arrived and follows the amount, category and date.
+  forgiveBudgets_ = null;
+  document.getElementById("forgive-budget-note").hidden = true;
+  if (hasBalance && entryType === "expense") {
+    const forLoan = loan;
+    callApi("listBudgets", {}).then((data) => {
+      if (forgiveLoanTarget !== forLoan) return;
+      forgiveBudgets_ = data.budgets || [];
+      updateForgiveBudgetNote_();
+    }).catch(() => {});
+  }
 
   const backdrop = document.getElementById("forgive-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
 }
+
+let forgiveBudgets_ = null;
+function updateForgiveBudgetNote_() {
+  const note = document.getElementById("forgive-budget-note");
+  const loan = forgiveLoanTarget;
+  const categoryId = document.getElementById("forgive-category").value;
+  const date = document.getElementById("forgive-date").value;
+  const amount = parseFloat(document.getElementById("forgive-amount").value.replace(",", "."));
+  note.hidden = true;
+  if (!loan || !forgiveBudgets_ || !categoryId || !date || !(amount > 0)) return;
+  // Budgets covering this category whose current period holds the date, in the loan's own currency (no conversion guessed here).
+  const hits = forgiveBudgets_.filter((b) => {
+    const p = b.progress;
+    return p && p.spent != null && p.effectiveAmount > 0 && b.currency === loan.currency &&
+      (!b.category_ids || b.category_ids.includes(categoryId)) && p.startDate <= date && date <= p.endDate;
+  }).map((b) => ({ b, after: b.progress.spent + amount, pct: (b.progress.spent + amount) / b.progress.effectiveAmount * 100 }));
+  if (!hits.length) return;
+  hits.sort((x, y) => y.pct - x.pct);
+  const h = hits[0];
+  note.textContent = tr("forgive.budgetAfter", { name: h.b.category_name, pct: Math.round(h.pct), cur: h.b.currency,
+    spent: moneyFmt(h.after), amount: moneyFmt(h.b.progress.effectiveAmount) });
+  note.classList.toggle("over", h.pct >= 100);
+  note.hidden = false;
+}
+["forgive-amount", "forgive-category", "forgive-date"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", updateForgiveBudgetNote_);
+  document.getElementById(id).addEventListener("change", updateForgiveBudgetNote_);
+});
 
 function closeForgiveModal() {
   document.getElementById("forgive-modal-backdrop").hidden = true;

@@ -1158,6 +1158,11 @@ function listEntries(payload) {
     var annualIds = annualEntryIdSet_();
     entries = entries.filter(function (e) { return !annualIds[e.id]; });
   }
+  // The other way round: only the Annual-tagged ones (a monthly budget's "… tagged Annual, not counted ›", 2026-11-07).
+  if (payload && payload.onlyAnnual) {
+    var annualOnly = annualEntryIdSet_();
+    entries = entries.filter(function (e) { return !!annualOnly[e.id]; });
+  }
   if (payload && payload.tripId) {
     entries = entries.filter(function (e) { return e.trip_id === payload.tripId; });
   }

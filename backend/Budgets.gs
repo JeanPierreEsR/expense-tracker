@@ -232,6 +232,13 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
   var currency = budget.currency || homeCurrency_();
   var cutoffMonth = bounds.endDate.substring(0, 7);
   var spent = categorySpendInCurrencyFromContext_(ctx, categoryIds, bounds.startDate, bounds.endDate, currency, cutoffMonth, excludeAnnual);
+  // What the Annual tag kept out of a monthly budget, in the budget's currency, so the row can say so: Overview's category total
+  // counts those entries and the two numbers looked like a mismatch (testers, 2026-11-07). 0 for a yearly budget.
+  var annualLeftOut = 0;
+  if (excludeAnnual && spent != null) {
+    var withAnnual = categorySpendInCurrencyFromContext_(ctx, categoryIds, bounds.startDate, bounds.endDate, currency, cutoffMonth, false);
+    if (withAnnual != null && withAnnual - spent > 0.005) annualLeftOut = withAnnual - spent;
+  }
   var percent = (spent != null && effectiveAmount > 0) ? (spent / effectiveAmount) * 100 : null;
 
   // The actual rate behind spent/percent above, surfaced so a foreign-
@@ -250,6 +257,7 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
     spent: spent,
     effectiveAmount: effectiveAmount,
     percent: percent,
+    annualLeftOut: annualLeftOut,
     rateAvailable: spent != null,
     rate: rate
   };

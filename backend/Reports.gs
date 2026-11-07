@@ -41,6 +41,8 @@ function getPeriodSummary(payload) {
 
   var totals = { income: 0, expense: 0, investment: 0 };
   var excludedCount = 0;
+  var annualIds = annualEntryIdSet_();
+  var annualByCategory = {};
   // Investments are flows per platform in each entry's OWN currency (no conversion).
   var investmentFlows = {};
 
@@ -80,6 +82,8 @@ function getPeriodSummary(payload) {
     if (!bucket) return;
 
     addToBucket_(bucket.category, e.category_id, ownAmountPen, categoryById);
+    // The Annual-tagged part of each expense category: a monthly budget leaves it out, so the category row says "incl. … annual" (2026-11-07).
+    if (e.type === 'expense' && annualIds[e.id]) annualByCategory[e.category_id || ''] = (annualByCategory[e.category_id || ''] || 0) + ownAmountPen;
     // An entry with no tag / no account of the owner's still counts, in its
     // own "no tag" / "no account" slice, so each pie covers the whole total.
     var tagIds = tagIdsByEntry[e.id] || [];
@@ -101,6 +105,8 @@ function getPeriodSummary(payload) {
   totals.loans = loanFlows.netPen;
   excludedCount += loanFlows.excluded;
   var net = totals.income - totals.expense - totals.investment + totals.loans;
+  var expenseByCategory = bucketToList_(acc.expense.category, totals.expense, tr_('report.uncategorized'));
+  expenseByCategory.forEach(function (item) { if (annualByCategory[item.id] > 0.005) item.annual_pen = annualByCategory[item.id]; });
 
   return {
     totals: {
@@ -115,7 +121,7 @@ function getPeriodSummary(payload) {
     loans: { people: loanFlows.people, totals: loanFlows.totals },
     breakdowns: {
       expense: {
-        byCategory: bucketToList_(acc.expense.category, totals.expense, tr_('report.uncategorized')),
+        byCategory: expenseByCategory,
         byTag: bucketToList_(acc.expense.tag, totals.expense, tr_('report.untagged')),
         byPaymentMethod: bucketToList_(acc.expense.paymentMethod, totals.expense, tr_('report.noAccount'))
       },
