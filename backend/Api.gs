@@ -1781,10 +1781,23 @@ function savePaymentMethod(payload) {
 
   var sheet = getSheet('Payment Methods');
   var headers = getHeaders(sheet);
+  // A list of currencies (2026-11-06). One names the account's kind as `currency` always did; several or none leave a savings account's kind as it
+  // is, and make a card plain 'credit'.
+  var hasList = Array.isArray(payload.currencies) && (type === 'debit' || type === 'credit');
+  var listValue = hasList ? accountCurrenciesValue_(payload.currencies) : '';
+  if (hasList) {
+    payload = Object.assign({}, payload);
+    delete payload.currency;
+    if (/^[A-Z]{3}$/.test(listValue)) payload.currency = listValue;
+    else if (type === 'credit') payload.currency = '';
+    ensurePaymentMethodCurrenciesColumn_();
+    headers = getHeaders(sheet);
+  }
   if (!id) {
     var pm = { id: Utilities.getUuid(), nickname: nickname, type: type, bank_id: bankId, last_4: '' };
     var newKind = accountCurrencyKind_(payload, type, null);
     if (newKind) { ensurePaymentMethodAliasColumns_(); headers = getHeaders(sheet); pm.alias_kind = newKind; pm.alias_auto = 'no'; }
+    if (hasList) pm.currencies = listValue;
     appendRowObject('Payment Methods', pm);
     if (last4) {
       setPaymentMethodLast4_(sheet, headers, findRowIndexById(sheet, headers, pm.id), last4);
@@ -1822,12 +1835,15 @@ function savePaymentMethod(payload) {
     }
     setCellByRow_(sheet, headers, rowIndex, 'alias_kind', kind);
   }
+  // An older phone that sends one `currency` replaces the list too.
+  var currencies = hasList ? listValue : (kind ? '' : String(before.currencies || ''));
+  if (headers.indexOf('currencies') !== -1 && currencies !== String(before.currencies || '')) setCellByRow_(sheet, headers, rowIndex, 'currencies', currencies);
   setCellByRow_(sheet, headers, rowIndex, 'nickname', nickname);
   setCellByRow_(sheet, headers, rowIndex, 'type', type);
   setCellByRow_(sheet, headers, rowIndex, 'bank_id', bankId);
   setPaymentMethodLast4_(sheet, headers, rowIndex, last4);
   if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
-  return { id: id, nickname: nickname, type: type, bank_id: bankId, last_4: last4, alias_kind: kind || String(before.alias_kind || '') };
+  return { id: id, nickname: nickname, type: type, bank_id: bankId, last_4: last4, alias_kind: kind || String(before.alias_kind || ''), currencies: currencies };
 }
 
 // The alias_kind a save asks for, or '' when it says nothing about the currency (an older phone) or the type has none (cash, wallet,

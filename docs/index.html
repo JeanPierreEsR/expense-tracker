@@ -2348,6 +2348,7 @@
             <div id="wa-cur-box">
               <h3 id="wa-cur-title" data-i18n="wa.currency">Currency</h3>
               <select id="wa-cur" aria-labelledby="wa-cur-title"></select>
+              <div class="currency-checks" id="wa-cur-checks" hidden></div>
             </div>
             <h3 data-i18n="wa.alias">Alias (optional)</h3>
             <input type="text" id="wa-alias" maxlength="40" autocomplete="off">
@@ -3324,8 +3325,9 @@
       <select id="pm-type"></select>
       <p class="hint" id="pm-cash-hint" hidden data-i18n="accounts.cashHint">Cash is built in: everyone has it, it holds any currency (soles and dollars together) and it can't be deleted. You can rename it.</p>
       <div id="pm-cur-box" hidden>
-        <label for="pm-currency" data-i18n="accounts.currency">Currency</label>
+        <label for="pm-currency" id="pm-cur-label" data-i18n="accounts.currency">Currency</label>
         <select id="pm-currency"></select>
+        <div class="currency-checks" id="pm-cur-checks" hidden></div>
       </div>
       <p class="hint" id="pm-wallet-warning" hidden style="font-weight:600;" data-i18n="accounts.walletWarning">Only for wallets that stand on their own, like Starbucks or other loyalty programs. If a wallet is tied to a bank account, don't add the wallet: add that bank account instead.</p>
 
