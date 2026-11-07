@@ -3459,7 +3459,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 }
 .friends-editbar[hidden] { display: none; }
 .friends-editbar button.add-inline { white-space: nowrap; margin: 0; }   /* margin: the stacked-button rule (.add-inline + .add-inline) must not push "Done" below "Select all" */
-.friends-editbar button.primary { width: auto; white-space: nowrap; margin-top: 0; padding: 12px 22px; }
+.friends-editbar button.primary { width: auto; white-space: nowrap; margin-top: 0; padding: 12px 22px; min-height: 44px; box-sizing: border-box; }   /* min-height: Delete was 42 px next to the 44 px Select all / Done (testers, 2026-11-07) */
 /* room under the last friend so the fixed bar never covers it */
 #screen-friends.friends-editing .card { padding-bottom: 90px; }
 .friends-hidden-box { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 4px; }
@@ -3599,3 +3599,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .screen-load-failed { margin: 0 0 12px; }
 #screen-overview.load-failed > .card:not(#period-selector-card),
 #screen-budgets.load-failed > .card:not(#period-selector-card) { display: none; }
+/* Overview, Custom with no dates chosen: only the date choice and its line, no figures (testers, 2026-11-07) */
+#custom-range-needs { display: none; }
+#screen-overview.overview-needs-dates #custom-range-needs { display: block; }
+#screen-overview.overview-needs-dates > .card:not(#period-selector-card) { display: none; }

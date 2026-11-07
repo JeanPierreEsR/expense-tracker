@@ -7480,6 +7480,7 @@ function homeBudgetCard_(g) {
     tr("home.budgetDays", { n: daysLeft })
   ];
   if (left > 0 && daysLeft > 0) facts.push(tr("home.budgetPerDay", { amount: formatPen(left / daysLeft) }));
+  if (b.overCount > 0) facts.push(tr("home.budgetsOver", { n: b.overCount }));   // the overruns are inside "left": say so (owner, 2026-11-07)
   const budgetEl = homeCardEl_("home-card-budget home-card-tap", `
     <div class="home-card-label">${escapeHtml(tr("home.budgetTitle"))} ›</div>
     <div class="home-big">${escapeHtml(formatPen(b.spentPen))}</div>
@@ -7771,7 +7772,8 @@ function getPeriodBounds() {
   if (periodType === "custom") {
     const start = document.getElementById("custom-start").value;
     const end = document.getElementById("custom-end").value;
-    return { startDate: start || null, endDate: end || null, label: tr("period.customRange") };
+    // The header names the chosen dates ("Oct 3, 2026 – Nov 15, 2026", "From Oct 3, 2026"), not just "Custom range".
+    return { startDate: start || null, endDate: end || null, label: rangeSummary_("open", start, end) || tr("period.customRange") };
   }
   return { startDate: null, endDate: null, label: "" };
 }
@@ -7892,6 +7894,8 @@ document.querySelectorAll(".period-type-chip").forEach((chip) => {
     periodType = chip.dataset.periodType;
     renderPeriodSelector();
     if (periodType !== "custom") refreshCurrentPeriodScreen();
+    // Custom: Overview redraws at once (its dates if any were kept, otherwise "Pick a start and end date…"), instead of keeping the last period's figures.
+    else if (!document.getElementById("screen-overview").hidden) refreshOverview();
   });
 });
 
@@ -7997,11 +8001,15 @@ function renderPaceBig_() {
   const picked = periodType === "month" ? `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` : null;
   const ref = list.length ? (list.find((m) => m.month === picked) || list[list.length - 1]) : null;
   const nowTotal = cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
-  card.hidden = !nowTotal && !(ref && ref.expense > 0);
+  // Only in Month view (testers, 2026-11-07): it is about THIS month, so under a year, All time or a custom range it read as part of that period.
+  card.hidden = periodType !== "month" || (!nowTotal && !(ref && ref.expense > 0));
   if (card.hidden) return;
   const [ry, rmo] = ref ? ref.month.split("-").map(Number) : [0, 0];
   const refName = ref ? I18n.fmtMonthYear(new Date(ry, rmo - 1, 1), true) : "";
-  document.getElementById("pace-ref-label").textContent = refName;
+  const [cy, cmo] = cur.month.split("-").map(Number);
+  // Says which month is measured and which one it is held against (it used to show only the reference month's name, read as "this card is October").
+  document.getElementById("pace-ref-label").textContent = ref
+    ? tr("pace.vs", { cur: I18n.fmtMonthYear(new Date(cy, cmo - 1, 1)), ref: refName }) : I18n.fmtMonthYear(new Date(cy, cmo - 1, 1));
 
   const W = 300, H = 150, pad = 6;
   const days = Math.max(cur.days, ref ? ref.days : 0);
@@ -8020,7 +8028,7 @@ function renderPaceBig_() {
   document.getElementById("pace-lines").innerHTML = `
     <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(formatPen(nowTotal))}</b></div>
     ${ref ? `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.refAtDay", { month: refName }))}<b>${escapeHtml(formatPen(sameDay))}</b>
-      <span class="hint">${escapeHtml(tr("pace.refWhole"))}: ${escapeHtml(formatPen(ref.expense))}</span></div>` : ""}`;
+      <span class="hint">${escapeHtml(tr("pace.refWholeDone", { month: refName }))}: ${escapeHtml(formatPen(ref.expense))}</span></div>` : ""}`;
 }
 
 (function wirePaceBig_() {
@@ -8156,9 +8164,13 @@ function paintOverviewSummary_(data) {
 async function refreshOverviewInner_() {
   renderPeriodSelector();
   const bounds = getPeriodBounds();
-  if (periodType === "custom" && (!bounds.startDate || !bounds.endDate)) return;
-
   const screen = document.getElementById("screen-overview");
+  // Custom with no dates at all: only the date choice and "Pick a start and end date…" (it used to leave the previous period's figures,
+  // e.g. All time's, under "Choose dates"). A range open at one end ("From Oct 3") is a real period: the server takes a missing date as open.
+  const needsDates = periodType === "custom" && !bounds.startDate && !bounds.endDate;
+  screen.classList.toggle("overview-needs-dates", needsDates);
+  if (needsDates) { ++overviewReqToken_; screen.classList.remove("overview-stale"); setLoadFailed_("overview", null); return; }
+
   const key = overviewKey_(bounds);
   const token = ++overviewReqToken_;
   if (overviewCache_[key]) { paintOverviewSummary_(overviewCache_[key]); overviewShownKey_ = key; screen.classList.remove("overview-stale"); setLoadFailed_("overview", null); }
@@ -9315,6 +9327,12 @@ async function refreshBudgets() {
   // and Custom don't carry a month/year size, so budgets just show their
   // own current period in those views (anchorDate is ignored server-side).
   const budgetsKey = JSON.stringify(projectionPeriodPayload_());
+  // First load: "Loading…" under the heading, never an empty card (loading standard; testers saw 4-5 s of a bare "Budgets", 2026-11-07).
+  // Later refreshes keep the rows on screen until the new ones replace them.
+  if (budgetsLoadedKey_ === null && !document.getElementById("budgets-list").children.length) {
+    document.getElementById("budgets-list").innerHTML = loadingHtml_();
+    document.getElementById("budgets-empty-note").hidden = true;
+  }
   let data;
   try { data = await callApi("listBudgets", projectionPeriodPayload_()); }
   catch (err) { if (budgetsLoadedKey_ !== budgetsKey) setLoadFailed_("budgets", err); throw err; }

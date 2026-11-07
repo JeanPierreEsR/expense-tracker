@@ -89,6 +89,22 @@ test("budget: no monthly budget = no card; otherwise the total against spend ins
   assert.ok(b.daysLeft >= 0);
 });
 
+test("budget: the card counts the monthly budgets already over; 'left' still adds them together", () => {
+  const rt = setup();
+  rt.api("addBudget", { category_id: "cat-a", amount: 100, currency: "PEN", period_type: "monthly" });
+  rt.api("addBudget", { category_id: "cat-b", amount: 500, currency: "PEN", period_type: "monthly" });
+  entry(rt, { amount: 100, category_id: "cat-a" });   // exactly at the limit: not over
+  let b = rt.api("getHomeGlance", {}).budget;
+  assert.equal(b.overCount, 0);
+  entry(rt, { amount: 60, category_id: "cat-a" });    // 160 of 100: over
+  b = rt.api("getHomeGlance", {}).budget;
+  assert.equal(b.overCount, 1);
+  assert.equal(b.totalPen - b.spentPen, 440, "600 in all minus 160 spent: the overrun eats the other budget's room, on purpose");
+  rt.api("addBudget", { category_id: "cat-b", amount: 10, currency: "PEN", period_type: "yearly" });
+  entry(rt, { amount: 50, category_id: "cat-b" });    // over the yearly 10, but a yearly budget is not part of the monthly card
+  assert.equal(rt.api("getHomeGlance", {}).budget.overCount, 1);
+});
+
 test("trips: only those running today, with their cost so far and budget", () => {
   const rt = setup();
   const t = rt.api("addTrip", { name: "Now trip", kind: "trip", start_date: monthsAgo(0) + "-01", end_date: "2099-12-31", budget_amount: 1000, emoji: "🏔️" });
