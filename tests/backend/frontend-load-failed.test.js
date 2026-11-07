@@ -26,7 +26,7 @@ test("the open screen tries again when the connection returns", () => {
   assert.match(app, /addEventListener\("online", \(\) => \{\s*const open = document\.querySelector\("\.screen\.load-failed:not\(\[hidden\]\)"\)/);
 });
 
-test("Home: only this month says 'this day of last month', in both languages", () => {
+test("Home: only this month says 'last month so far', in both languages", () => {
   assert.ok(app.includes('tr(isCurrent ? "home.vsSameDay" : "home.vsLast"'));
-  assert.match(strings, /"home\.vsSameDay": \{ en: "[^"]*this day of last month", es: "[^"]*este día del mes pasado" \}/);
+  assert.match(strings, /"home\.vsSameDay": \{ en: "[^"]*last month so far", es: "[^"]*el mes pasado a esta fecha" \}/);
 });
