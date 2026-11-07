@@ -290,6 +290,7 @@
     "xch.rate": { en: "1 {from} = {rate} {to}", es: "1 {from} = {rate} {to}" },
     "xch.save": { en: "Save exchange", es: "Guardar cambio" },
     "xch.saved": { en: "Currency exchange saved", es: "Cambio de moneda guardado" },
+    "xch.accountMismatch": { en: "“{account}” is a {accountCur} account, but this amount is in {cur}. Check the account or the currency.", es: "“{account}” es una cuenta en {accountCur}, pero este monto está en {cur}. Revisa la cuenta o la moneda." },
     "xch.sameCurrency": { en: "An exchange needs two different currencies", es: "Un cambio de moneda necesita dos monedas distintas" },
     "xch.needAccount": { en: "Pick at least one of your own accounts", es: "Elige al menos una de tus cuentas" },
     "xch.needOwnSide": { en: "This entry needs one of your accounts on its side", es: "Este movimiento necesita una de tus cuentas en su lado" },
