@@ -67,6 +67,17 @@ var ACCOUNT_ALIAS_WORDS_ = {
 };
 // Plin exists only in soles (owner, 2026-10-23); an old `plin_usd` setting is still read by railAccount_ but never written.
 var RAIL_LINK_KEYS_ = ['yape_pen', 'yape_usd', 'plin_pen'];
+// Plin can ride on several accounts (owner, 2026-11-06: a savings account and an Interbank card). `plin_pen` stays the main one, which a
+// Plin with no account named (a photo) goes to; an e-mail names its account by the last digits. The others are listed in this setting.
+var PLIN_MORE_KEY_ = 'plin_pen_more';
+function plinMoreIds_(settings) {
+  return String((settings || getSettingsMap())[PLIN_MORE_KEY_] || '').split(',').filter(function (id) { return !!id; });
+}
+// True when the account carries Yape or Plin (those cannot be deleted or hidden without moving the link first).
+function accountHasRailLink_(id, settings) {
+  id = String(id);
+  return RAIL_LINK_KEYS_.some(function (k) { return String(settings[k] || '') === id; }) || plinMoreIds_(settings).indexOf(id) !== -1;
+}
 
 function sortedBankList_(list) {
   return list.slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'es'); });
@@ -338,9 +349,26 @@ function saveRailLinks(payload) {
     }
     setSetting_(key, id);
   });
+  if (payload[PLIN_MORE_KEY_] !== undefined) {
+    var more = [];
+    String(payload[PLIN_MORE_KEY_] || '').split(',').forEach(function (raw) {
+      var moreId = String(raw).trim();
+      if (!moreId || more.indexOf(moreId) !== -1) return;
+      var morePm = pms.find(function (p) { return String(p.id) === moreId && p.type !== 'investment'; });
+      if (!morePm) throw new Error(tr_('err.pmNotFound'));
+      if (!railAllowsAccount_('plin', morePm)) throw new Error(tr_('err.railPlin'));
+      more.push(moreId);
+    });
+    setSetting_(PLIN_MORE_KEY_, more.join(','));
+  }
+  // The main account is never left empty while another one has Plin, and is not listed twice.
+  var now = getSettingsMap(), rest = plinMoreIds_(now).filter(function (id) { return id !== String(now.plin_pen || ''); });
+  if (!now.plin_pen && rest.length) setSetting_('plin_pen', rest.shift());
+  if (rest.join(',') !== String(now[PLIN_MORE_KEY_] || '')) setSetting_(PLIN_MORE_KEY_, rest.join(','));
   var out = {};
   var s = getSettingsMap();
   RAIL_LINK_KEYS_.forEach(function (k) { out[k] = String(s[k] || ''); });
+  out[PLIN_MORE_KEY_] = String(s[PLIN_MORE_KEY_] || '');
   return out;
 }
 
@@ -475,6 +503,7 @@ function removePracticeAccounts(payload) {
     });
     var settings = getSettingsMap();
     RAIL_LINK_KEYS_.forEach(function (k) { if (ids[String(settings[k] || '')]) setSetting_(k, ''); });
+    if (plinMoreIds_(settings).length) setSetting_(PLIN_MORE_KEY_, plinMoreIds_(settings).filter(function (id) { return !ids[id]; }).join(','));
     ensureAccountOpeningBalancesSheet_();
     out.balances = getAllRows('Account Opening Balances').filter(function (row) { return !!ids[String(row.payment_method_id)]; }).length;
     deleteRowsWhere_('Account Opening Balances', function (row) { return !!ids[String(row.payment_method_id)]; });

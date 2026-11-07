@@ -1886,7 +1886,7 @@ function deletePaymentMethod(payload) {
   var used = paymentMethodUsage_(id);
   if (used > 0) throw new Error(tr_('err.pmInUse', { n: used }));
   var settings = getSettingsMap();
-  if (RAIL_LINK_KEYS_.some(function (k) { return String(settings[k] || '') === id; })) throw new Error(tr_('err.pmRailLinked'));
+  if (accountHasRailLink_(id, settings)) throw new Error(tr_('err.pmRailLinked'));
   deleteRowsWhere_('Account Opening Balances', function (row) { return String(row.payment_method_id) === id; });
   deleteSheetRows_(sheet, rowIndex, 1);
   if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
@@ -1903,7 +1903,7 @@ function removePaymentMethod(payload) {
   if (isBasicCashAccount_(id)) throw new Error(tr_('err.pmCashBasic'));
   if (!getAllRows('Payment Methods').some(function (p) { return String(p.id) === id; })) throw new Error(tr_('err.pmNotFound'));
   var settings = getSettingsMap();
-  if (RAIL_LINK_KEYS_.some(function (k) { return String(settings[k] || '') === id; })) throw new Error(tr_('err.pmRailLinked'));
+  if (accountHasRailLink_(id, settings)) throw new Error(tr_('err.pmRailLinked'));
   var used = paymentMethodUsage_(id);
   if (used > 0) {
     setPaymentMethodHidden({ id: id, hidden: true });
@@ -1946,6 +1946,7 @@ function removePaymentMethods(payload) {
   var settings = getSettingsMap();
   var linked = {};
   RAIL_LINK_KEYS_.forEach(function (k) { if (settings[k]) linked[String(settings[k])] = true; });
+  plinMoreIds_(settings).forEach(function (id) { linked[id] = true; });
   var usage = paymentMethodUsageMap_(ids);
   var gone = {}, toHide = [];
   ids.forEach(function (id) {
