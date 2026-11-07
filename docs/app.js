@@ -643,7 +643,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 
 // Saving or changing any of these can cross a budget, a trip budget or a loan's due date: a few seconds later the app asks the server to
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
-const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "saveEntryAll", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
+const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "saveEntryAll", "updateEntry", "deleteEntries", "deleteBudget", "deleteBudgets", "deleteTrip", "deleteTrips", "deleteLoan", "deleteRepayment", "deleteSettlement", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "confirmEntries", "discardEntries", "setEntriesCategory", "undoSetEntriesCategory", "setEntriesTrip", "undoSetEntriesTrip", "restoreDeletedEntries",   // the bulk ones (QA round 1)
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
   "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
@@ -9576,6 +9576,8 @@ async function loadNotices_(check) {
     const out = await callApi(asking ? "checkAlertsNow" : "listNotices", check === "change" && asking ? { after_change: true } : {});
     notices_ = (out && out.notices) || [];
     noticesMore_ = (out && out.more) || 0;
+    // The server looked a moment ago, before this save: look again once it allows it, or an alert this save ended would stay until the next visit.
+    if (check === "change" && out && out.ran === false) { clearTimeout(alertCheckTimer_); alertCheckTimer_ = setTimeout(() => loadNotices_("change"), 31000); }
   } catch (err) { return; }   // a background extra: the card just stays as it was
   finally { if (asking) alertCheckBusy_ = false; }
   renderNotices_();
@@ -18493,7 +18495,7 @@ async function maybeAskPausedProgrammed_() {
   await pausedConvertPromise_;
   const list = (meta && meta.pausedProgrammed) || [];
   if (!list.length || pausedAskOpen_) return;
-  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])")) {   // not on top of another question
+  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning()) {   // not on top of another question or a practice (its cut-out would light up this sheet's real buttons)
     if (pausedAskRetries_++ < 40) setTimeout(maybeAskPausedProgrammed_, 4000);
     return;
   }
@@ -20002,6 +20004,10 @@ function tipDayAllows_(key) {
 function tipDayOpen_() {
   try { localStorage.setItem(TIP_DAY_KEY_, JSON.stringify({ day: todayLocalISO(), keys: [], open: true })); } catch (e) { /* ignore */ }
 }
+// Any screen's Edit mode (leaving a screen turns its own off, see showScreen).
+function editModeOn_() {
+  return reviewEditing_ || entriesEditing_ || budgetsEditing_ || businessEditing_ || peopleEditing_ || categoriesEditing_ || tripsEditing_ || accountsEditing_ || friendsEditing_ || recurringEditing_;
+}
 // after(): runs once the card was answered (Not now, or the practice started), e.g. the Loans line offering the other two loan practices.
 function offerTip_(key, boxId, inviteText, start, after) {
   const box = document.getElementById(boxId);
@@ -20017,6 +20023,7 @@ function offerTip_(key, boxId, inviteText, start, after) {
     if (after) after();
   });
   box.querySelector(".tip-invite-go").addEventListener("click", () => {
+    if (editModeOn_()) { showToast_(tr("spot.editOn")); return; }   // a practice needs the normal screen: stays on offer, nothing marked
     if (practiceDueList_().length) { showToast_(tr("spot.p.stillRemoving")); practiceRetryDue_(); return; }   // starting now could overwrite what it still has to remove
     if (!start()) return;   // not possible right now (something half-typed): stays on offer, nothing marked
     markTipSeen_(key);

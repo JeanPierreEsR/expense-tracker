@@ -728,6 +728,7 @@ function checkBudgetsLocked_() {
   // The first run on an existing copy only writes down what is already over a limit, without alerting (Notices.gs § Alerts only from now on).
   var baseline = alertBaselinePending_('budgets');
   if (!budgets.length) {
+    syncBudgetNotices_({});   // the last budget was deleted: its alert goes with it
     if (baseline) markAlertBaselineDone_('budgets');
     return { checked: 0, alertsSent: 0 };
   }
@@ -741,7 +742,9 @@ function checkBudgetsLocked_() {
 
   var alertsSent = 0;
   var staleKeys = {};
+  var nowByBudget = {};   // what each budget's open alert should say (syncBudgetNotices_)
   budgets.forEach(function (budget) {
+    nowByBudget[budget.id] = { unknown: true };
     if (isPracticeBudget_(budget)) return; // the first-use practice's own budget (any amount typed): never alerts, it is deleted minutes later
     var progress = computeBudgetProgressWithContext_(budget, ctx);
     if (progress.percent == null) return; // no exchange rate on file yet for this budget's currency
@@ -751,6 +754,11 @@ function checkBudgetsLocked_() {
       .map(function (t) { return Number(String(t).trim()); })
       .filter(function (t) { return !isNaN(t); })
       .sort(function (a, b) { return a - b; });
+    nowByBudget[budget.id] = {
+      periodKey: progress.periodKey,
+      over: thresholds.length > 0 && progress.percent >= thresholds[0],
+      text: budgetAlertText_(budget, resolveBudgetDisplayName_(budget, resolveBudgetCategoryDisplay_(parseBudgetCategoryIds_(budget.category_id), categoryById).name), progress)
+    };
 
     // Spend fell back below a threshold already alerted this period (an
     // expense was discarded/deleted/edited down) -> forget that alert, so
@@ -794,8 +802,21 @@ function checkBudgetsLocked_() {
       return staleKeys[r.budget_id + '|' + r.period + '|' + r.threshold] === true;
     });
   }
+  syncBudgetNotices_(nowByBudget);
   if (baseline) markAlertBaselineDone_('budgets');
   return { checked: budgets.length, alertsSent: alertsSent };
+}
+
+// Spending under the lowest alert level (the expense deleted or edited down, the budget raised), or the budget deleted: the alert goes, as if it
+// had never been crossed. Still over: it shows today's figures. A notice of an earlier period, or a budget that cannot be worked out now, stays.
+function syncBudgetNotices_(nowByBudget) {
+  syncOpenNotices_('budget', function (notice) {
+    var parts = String(notice.key).split('|');   // budget|<id>|<period>
+    var now = nowByBudget[parts[1]];
+    if (!now) return CLOSE_NOTICE_;
+    if (now.unknown || now.periodKey !== parts[2]) return '';
+    return now.over ? now.text : CLOSE_NOTICE_;
+  });
 }
 
 // One-off convenience: seed monthly budgets for the owner's biggest expense

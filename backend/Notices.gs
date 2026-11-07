@@ -86,6 +86,22 @@ function deliverNotice_(kind, key, text) {
   return sendTelegramText_(text);
 }
 
+// ---- An open alert follows what is true now (owner, 2026-11-06) ----
+// The checks only ever ADDED notices, so one stayed after the spending was deleted or the loan repaid. Now each check also goes through the open
+// notices of its kind: judge(row) answers '' to leave the notice alone, CLOSE_NOTICE_ when it is no longer true, or the text it should read now.
+// A closed notice is marked seen, like a dismissed one, so a new crossing adds a new line. Telegram gets nothing here: a sent message cannot be
+// taken back, and a correction is not a new alert. Reads nothing before a first notice exists.
+var CLOSE_NOTICE_ = '__close__';
+function syncOpenNotices_(kind, judge) {
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Notices')) return;
+  getAllRows('Notices').forEach(function (r) {
+    if (String(r.kind) !== kind || String(r.seen) === 'yes') return;
+    var verdict = judge(r);
+    if (verdict === CLOSE_NOTICE_) updateRowFields_('Notices', r.id, { seen: 'yes' });
+    else if (verdict && verdict !== String(r.text)) updateRowFields_('Notices', r.id, { text: verdict });
+  });
+}
+
 // ---- Checking alerts when the app is used (and by the "open faster" timer) ----
 // The three alert checks (budgets, trip budgets, overdue loans) used to run only inside the bank-e-mail job (runAutomation, about once an
 // hour for these steps), which a copy gets only if its person took the bank-e-mail extra. Without it nothing ever looked, so a friend's Alerts
