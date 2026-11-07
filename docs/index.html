@@ -1554,13 +1554,15 @@
   </div>
 
   <div id="currency-modal-backdrop" class="currency-modal-backdrop" hidden>
-    <div class="currency-modal">
+    <div class="currency-modal currency-screen">
       <div class="currency-modal-header">
-        <span data-i18n="currency.choose">Choose a currency</span>
+        <span id="currency-modal-title" data-i18n="currency.choose">Choose a currency</span>
         <button type="button" id="currency-modal-close" class="currency-modal-close">✕</button>
       </div>
-      <input type="text" id="currency-search" data-i18n-placeholder="currency.search" placeholder="Search code or name…" autocomplete="off">
+      <input type="text" id="currency-search" data-i18n-placeholder="currency.search" placeholder="Search country or code…" autocomplete="off">
+      <p class="hint" id="currency-screen-note" hidden></p>
       <div class="currency-option-list" id="currency-option-list"></div>
+      <button type="button" class="primary" id="currency-screen-done" hidden data-i18n="currency.done">Done</button>
     </div>
   </div>
 

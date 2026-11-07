@@ -297,38 +297,132 @@ function renderCurrencyChips(target) {
 
 function openCurrencyModal(target) {
   currencyPickerTarget = target || "entry";
+  const code = currencyPickerTarget === "main-change" ? homeCur() : document.getElementById(currencyFieldIds(currencyPickerTarget).input).value;
+  openCurrencyScreen_({ current: code, top: currencyPickerTarget === "main-change", onPick: (c) => selectCurrency(c, currencyPickerTarget, true) });
+}
+
+// The one currency screen (owner, 2026-11-06): every place that chooses a currency ends here, with every currency sorted by country and a
+// search by country or code. opts: { current, top, onPick(code) } chooses one (a tap closes it; top = no quick buttons where it opened from,
+// so the most-used five come first). { many: true, selected, locked, max, onDone(codes) } chooses several; closing it brings them back.
+let currencyScreen_ = null;
+function openCurrencyScreen_(opts) {
+  currencyScreen_ = Object.assign({}, opts, opts.many ? { selected: [...(opts.selected || [])] } : {});
   const backdrop = document.getElementById("currency-modal-backdrop");
+  // Above whatever opened it, even a sheet that only has its first-paint height from the style sheet.
+  document.querySelectorAll(".currency-modal-backdrop:not([hidden])").forEach((b) => { topModalZIndex = Math.max(topModalZIndex, Number(getComputedStyle(b).zIndex) || 0); });
   bringModalToFront_(backdrop);
   guidedLift_(backdrop);
   backdrop.hidden = false;
+  document.getElementById("currency-modal-title").textContent = tr(opts.many ? "currency.chooseMany" : "currency.choose");
+  document.getElementById("currency-screen-done").hidden = !opts.many;
+  document.getElementById("currency-screen-note").hidden = true;
   document.getElementById("currency-search").value = "";
   renderCurrencyOptionList("");
-  document.getElementById("currency-search").focus();
+  document.getElementById("currency-option-list").scrollTop = 0;
 }
 
 function closeCurrencyModal() {
   document.getElementById("currency-modal-backdrop").hidden = true;
+  const screen = currencyScreen_;
+  currencyScreen_ = null;
+  if (screen && screen.many && screen.onDone) screen.onDone(screen.selected);
 }
 
+const CURRENCY_ALSO_WHERE_ = ["USD", "EUR", "GBP", "CHF", "AED"];   // (more country names the search also finds)
+const currencySearchText_ = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+function currencyRow_(code) {
+  const screen = currencyScreen_, c = findCurrency(code);
+  const row = document.createElement(screen.many ? "label" : "div");
+  row.className = "currency-option" + (screen.many ? " checkbox-row" : "");
+  const on = screen.many ? screen.selected.includes(code) : code === screen.current;
+  row.innerHTML = `
+    <span class="currency-option-flag">${c.flag}</span>
+    <span class="currency-option-text">
+      <span class="currency-option-country">${escapeHtml(tr("currency.country." + code))}</span>
+      <span class="currency-option-name"><b>${code}</b> · ${escapeHtml(tr("currency." + code))}</span>
+    </span>
+    ${!screen.many && on ? `<span class="currency-option-check">✓</span>` : ""}
+  `;
+  if (!screen.many) {
+    row.addEventListener("click", () => screen.onPick(code));
+    return row;
+  }
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.value = code;
+  input.checked = on;
+  input.disabled = (screen.locked || []).includes(code);
+  input.addEventListener("change", () => {
+    const note = document.getElementById("currency-screen-note");
+    note.hidden = true;
+    if (input.checked && screen.max && screen.selected.length >= screen.max) {
+      input.checked = false;
+      note.textContent = tr("currency.max", { n: screen.max });
+      note.hidden = false;
+      return;
+    }
+    screen.selected = input.checked ? [...screen.selected, code] : screen.selected.filter((x) => x !== code);
+  });
+  row.insertBefore(input, row.firstChild);
+  return row;
+}
 function renderCurrencyOptionList(filterText) {
+  if (!currencyScreen_) return;
   const list = document.getElementById("currency-option-list");
   list.innerHTML = "";
-  const q = filterText.trim().toLowerCase();
-  const filtered = CURRENCIES.filter(
-    (c) => !q || c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
-  );
-  filtered.forEach((c) => {
-    const row = document.createElement("div");
-    row.className = "currency-option";
-    row.innerHTML = `
-      <span class="currency-option-flag">${c.flag}</span>
-      <span class="currency-option-code">${c.code}</span>
-      <span class="currency-option-name">${escapeHtml(c.name)}</span>
-    `;
-    row.addEventListener("click", () => selectCurrency(c.code, currencyPickerTarget, true));
-    list.appendChild(row);
-  });
+  const q = currencySearchText_(filterText.trim());
+  const where = (code) => (CURRENCY_ALSO_WHERE_.includes(code) ? tr("currency.where." + code) : "");
+  const country = (code) => tr("currency.country." + code);
+  const found = CURRENCIES.map((c) => c.code)
+    .filter((code) => !q || currencySearchText_([code, tr("currency." + code), country(code), where(code)].join(" ")).includes(q))
+    .sort((a, b) => country(a).localeCompare(country(b), I18n.getLang()));
+  const title = (key) => { const h = document.createElement("div"); h.className = "currency-list-title"; h.textContent = tr(key); list.appendChild(h); };
+  if (currencyScreen_.top && !q) {
+    title("currency.frequent");
+    getRecentCurrencies().forEach((code) => list.appendChild(currencyRow_(code)));
+    title("currency.all");
+  }
+  found.forEach((code) => list.appendChild(currencyRow_(code)));
+  if (!found.length) {
+    const none = document.createElement("p");
+    none.className = "hint";
+    none.textContent = tr("currency.none");
+    list.appendChild(none);
+  }
 }
+
+// A box that holds a currency (a list, or a three-letter box) opens the currency screen instead of its own list. The box stays underneath,
+// so the code keeps reading and setting it as before, and each pick sends its usual "change".
+function currencyPickOn_(el) {
+  if (!el || el.dataset.curPick) return;
+  el.dataset.curPick = "1";
+  if (el.id) document.querySelectorAll(`label[for="${el.id}"]`).forEach((l) => l.removeAttribute("for"));   // (a tap on the label would open the box's own list)
+  const wrap = document.createElement("span");
+  wrap.className = "cur-pick";
+  el.parentNode.insertBefore(wrap, el);
+  wrap.appendChild(el);
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "cur-pick-btn";
+  btn.setAttribute("aria-label", tr("currency.choose"));
+  btn.addEventListener("click", () => {
+    if (el.disabled) return;
+    openCurrencyScreen_({ top: true, current: String(el.value || "").toUpperCase(), onPick: (code) => {
+      if (el.options && ![...el.options].some((o) => o.value === code)) {   // (a list that holds only a few)
+        const o = document.createElement("option");
+        o.value = code;
+        o.textContent = code;
+        el.appendChild(o);
+      }
+      el.value = code;
+      closeCurrencyModal();
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    } });
+  });
+  wrap.appendChild(btn);
+}
+["bank-currency", "exchange-out-currency", "exchange-in-currency", "welcome-main-select", "igv-payment-currency", "expected-currency"]
+  .forEach((id) => currencyPickOn_(document.getElementById(id)));
 
 // One rule for every pop-up sheet (owner, 2026-11-04): it closes with its ✕, and a tap on the dimmed area outside it does the same
 // (it presses that ✕, so each sheet's own closing logic runs). A ✕ with data-click presses that other button instead (a hidden
@@ -355,6 +449,7 @@ document.getElementById("currency-modal-backdrop").addEventListener("click", (e)
 document.getElementById("currency-search").addEventListener("input", (e) => {
   renderCurrencyOptionList(e.target.value);
 });
+document.getElementById("currency-screen-done").addEventListener("click", closeCurrencyModal);
 
 function getAccessCode() {
   return localStorage.getItem("accessCode") || "";
@@ -10605,17 +10700,10 @@ document.getElementById("extras-copy-btn").addEventListener("click", async () =>
 // The backend says `capabilities.onboarding` until the answers are saved (Onboarding.gs); the owner's own copy never asks.
 // Soles stay the home currency: the currency question only chooses the quick buttons.
 const WELCOME_FLAG_KEY = "etOnboarded";
-// Soles first (the default main currency), then the world's 10 most-traded currencies; "More…" shows every other
-// currency, alphabetically by name.
-const WELCOME_TOP_CURRENCIES = ["PEN", "USD", "EUR", "JPY", "GBP", "CNY", "AUD", "CAD", "CHF", "HKD", "SGD"];
+// The first five (the same as the quick buttons of a new entry), plus anything picked; "More…" opens the currency screen.
 function welcomeCurrencyCodes_() {
-  const shown = WELCOME_TOP_CURRENCIES.slice();
-  // anything already picked stays visible even if it lives in the long list
-  const picked = [welcome_.home].concat(welcome_.currencies).filter((c) => !shown.includes(c));
-  if (!welcome_.more) return shown.concat(picked);
-  const rest = CURRENCIES.map((c) => c.code).filter((c) => !shown.includes(c))
-    .sort((a, b) => findCurrency(a).name.localeCompare(findCurrency(b).name, I18n.getLang()));
-  return shown.concat(rest);
+  const shown = DEFAULT_RECENT_CURRENCIES.slice();
+  return [...new Set(shown.concat(welcome_.home, welcome_.currencies))];
 }
 let welcome_ = null;
 // The welcome always starts on soles and day-first (owner, 2026-11-04). It used to guess from the phone's language region
@@ -10633,7 +10721,7 @@ function startWelcome_(preview) {
   const lang = I18n.getLang();
   welcomeEl_("welcome-preview-exit").hidden = !preview;
   welcome_ = { preview: !!preview, appLang: lang, lang, order: "dmy", home: "PEN",
-    currencies: ["USD", "EUR"], more: false,
+    currencies: ["USD", "EUR"],
     platforms: [], platformsCustom: [], platformsBatch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()),
     accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null,
     business: false,   // the optional Business pack question (on the "What fits you?" screen, only where the pack is offered; off unless chosen)
@@ -10665,14 +10753,15 @@ function renderWelcomeQuestions_() {
     b.addEventListener("click", () => welcomeTapCurrency_(code));
     box.appendChild(b);
   });
-  if (!welcome_.more) {
-    const more = document.createElement("button");
-    more.type = "button";
-    more.className = "welcome-choice";
-    more.textContent = tr("common.more");
-    more.addEventListener("click", () => { welcome_.more = true; renderWelcomeQuestions_(); });
-    box.appendChild(more);
-  }
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "welcome-choice";
+  more.textContent = tr("common.more");
+  more.addEventListener("click", () => openCurrencyScreen_({ many: true, selected: [welcome_.home, ...welcome_.currencies], locked: [welcome_.home], max: 5, onDone: (list) => {
+    welcome_.currencies = list.filter((c) => c !== welcome_.home);
+    renderWelcomeQuestions_();
+  } }));
+  box.appendChild(more);
   welcomeEl_("welcome-error").textContent = "";
   welcomeEl_("wq-step").textContent = tr("welcome.step", { n: 1 });
 }
@@ -10748,17 +10837,16 @@ function accountCurrencyList_(pm) {
   return one ? [one] : [];
 }
 const accountListOn_ = () => !!((meta && meta.capabilities) || {}).accountCurrencyList;
-// A list with several choices: what is ticked and the first five, then "More…" for every currency. onChange(codes) gets the new list.
+// A list with several choices: what is checked and the first five, then "More…" opens the currency screen and brings its choices back here.
 function renderCurrencyChecks_(box, codes, selected, onChange) {
   const first = codes.slice(0, 5);
-  const draw = (all) => {
+  const draw = () => {
     box.innerHTML = "";
     const hint = document.createElement("p");
     hint.className = "hint";
     hint.textContent = tr("accounts.curHint");
     box.appendChild(hint);
-    const shown = all ? codes : codes.filter((c) => first.includes(c) || selected.includes(c));
-    shown.forEach((c) => {
+    codes.filter((c) => first.includes(c) || selected.includes(c)).forEach((c) => {
       const row = document.createElement("label");
       row.className = "checkbox-row";
       const input = document.createElement("input");
@@ -10775,16 +10863,18 @@ function renderCurrencyChecks_(box, codes, selected, onChange) {
       row.appendChild(text);
       box.appendChild(row);
     });
-    if (shown.length < codes.length) {
-      const more = document.createElement("button");
-      more.type = "button";
-      more.className = "add-inline";
-      more.textContent = tr("accounts.curMore");
-      more.addEventListener("click", () => draw(true));
-      box.appendChild(more);
-    }
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "add-inline";
+    more.textContent = tr("accounts.curMore");
+    more.addEventListener("click", () => openCurrencyScreen_({ many: true, selected, onDone: (list) => {
+      selected = list;
+      onChange(selected);
+      draw();
+    } }));
+    box.appendChild(more);
   };
-  draw(false);
+  draw();
   box.hidden = false;
 }
 const waAnyCurrency_ = () => !!((meta && meta.capabilities) || {}).accountCurrencies;
@@ -24732,6 +24822,7 @@ function renderBalanceRows_() {
     const showNote = () => { note.textContent = balanceRowAsOfNote_(row); };
     showNote();
     el.querySelector(".balance-row-amount-input").addEventListener("input", (e) => { row.amount = e.target.value; showNote(); });
+    currencyPickOn_(el.querySelector(".balance-row-currency-select"));
     el.querySelector(".balance-row-currency-select").addEventListener("change", (e) => { row.currency = e.target.value; showNote(); });
     el.querySelector(".balance-row-negative").addEventListener("change", (e) => { row.negative = e.target.checked; showNote(); });
     el.querySelector(".balance-row-date").addEventListener("change", (e) => { row.date = e.target.value; showNote(); });
