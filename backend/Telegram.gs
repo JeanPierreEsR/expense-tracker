@@ -1100,7 +1100,7 @@ var FORMAT_KEYWORD_RE_ = /^(?:date|fecha|currency|moneda|amount|monto)(?![a-zÃ¡Ã
 
 // The currencies the app's picker offers (docs/app.js CURRENCIES), plus any
 // already in the exchange-rate table.
-var KNOWN_CURRENCY_CODES_ = ['PEN', 'USD', 'EUR', 'ARS', 'MXN', 'BRL', 'CLP', 'COP', 'BOB', 'UYU', 'PYG', 'VES', 'GTQ', 'CRC', 'PAB', 'DOP', 'HNL', 'NIO', 'CUP', 'GBP', 'CAD', 'CHF', 'JPY', 'CNY', 'KRW', 'INR', 'AUD', 'NZD', 'SGD', 'HKD', 'SEK', 'NOK', 'DKK', 'PLN', 'TRY', 'ZAR', 'AED', 'THB', 'RUB', 'ILS'];
+var KNOWN_CURRENCY_CODES_ = ['PEN', 'USD', 'EUR', 'ARS', 'MXN', 'BRL', 'CLP', 'COP', 'BOB', 'UYU', 'PYG', 'VES', 'GTQ', 'CRC', 'PAB', 'DOP', 'HNL', 'NIO', 'CUP', 'GBP', 'CAD', 'CHF', 'JPY', 'CNY', 'KRW', 'INR', 'AUD', 'NZD', 'SGD', 'HKD', 'SEK', 'NOK', 'DKK', 'PLN', 'TRY', 'ZAR', 'AED', 'THB', 'RUB', 'ILS', 'AFN', 'ALL', 'DZD', 'AOA', 'AMD', 'AWG', 'AZN', 'BSD', 'BHD', 'BDT', 'BBD', 'BYN', 'BZD', 'BMD', 'BTN', 'BAM', 'BWP', 'BND', 'BIF', 'KHR', 'CVE', 'KYD', 'XAF', 'KMF', 'CDF', 'XCG', 'CZK', 'DJF', 'XCD', 'EGP', 'SVC', 'ERN', 'SZL', 'ETB', 'FKP', 'FJD', 'XPF', 'GMD', 'GEL', 'GHS', 'GIP', 'GNF', 'GYD', 'HTG', 'HUF', 'ISK', 'IDR', 'IRR', 'IQD', 'JMD', 'JOD', 'KZT', 'KES', 'KWD', 'KGS', 'LAK', 'LBP', 'LSL', 'LRD', 'LYD', 'MOP', 'MGA', 'MWK', 'MYR', 'MVR', 'MRU', 'MUR', 'MDL', 'MNT', 'MAD', 'MZN', 'MMK', 'NAD', 'NPR', 'NGN', 'KPW', 'MKD', 'OMR', 'PKR', 'PGK', 'PHP', 'QAR', 'RON', 'RWF', 'SHP', 'WST', 'STN', 'SAR', 'RSD', 'SCR', 'SLE', 'SBD', 'SOS', 'SSP', 'LKR', 'SDG', 'SRD', 'SYP', 'TWD', 'TJS', 'TZS', 'TOP', 'TTD', 'TND', 'TMT', 'UGX', 'UAH', 'UZS', 'VUV', 'VND', 'XOF', 'YER', 'ZMW', 'ZWG'];
 
 function isKnownCurrencyCode_(code) {
   if (KNOWN_CURRENCY_CODES_.indexOf(code) >= 0) return true;

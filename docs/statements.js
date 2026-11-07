@@ -971,6 +971,7 @@
     const multi = () => state.m.account >= 0;
     const pm = () => accounts.find((a) => a.id === state.accountId) || null;
     const pmById = (id) => accounts.find((a) => a.id === id) || null;
+    currencyPickOn_($q("fixed"));
     const currentMapping = () => ({ ...state.m, currencyFixed: $q("fixed").value });
 
     // A guessed account for a name in the file: the app account whose nickname equals it or contains it (or the other way round).

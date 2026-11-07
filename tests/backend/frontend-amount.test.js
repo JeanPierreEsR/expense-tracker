@@ -74,6 +74,6 @@ test("with no problem found, the guard writes the clean number into every box, s
 });
 
 test("currencies with no cents never offer a decimal reading", () => {
-  assert.match(src, /AMOUNT_NO_CENTS_ = \["CLP"/);
+  for (const c of ["CLP", "JPY", "KRW", "PYG", "VND", "XOF"]) assert.match(src, new RegExp(`AMOUNT_NO_CENTS_ = \\[[^\\]]*"${c}"`));
   assert.match(src, /AMOUNT_NO_CENTS_\.includes\(cur\)\) \{ setValue\(thousand\); return true; \}/);
 });

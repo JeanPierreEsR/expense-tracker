@@ -1214,6 +1214,35 @@ body.sheet-open {
   font-size: 0.85rem;
 }
 
+/* The one currency screen (owner, 2026-11-06): the whole screen, every currency by country; each row shows the country, then code and name. */
+.currency-modal.currency-screen {
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  border-radius: 0;
+  overflow: hidden;
+  padding-top: calc(16px + env(safe-area-inset-top));
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+.currency-screen .currency-modal-header::before { display: none; }
+.currency-screen .currency-option-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.currency-screen .currency-option-country { font-weight: 600; overflow-wrap: anywhere; }
+.currency-screen .currency-option-name b { color: var(--text); font-weight: 600; }
+.currency-screen .currency-option-check { color: var(--accent, #0a66c2); font-weight: 700; }
+.currency-screen .currency-option.checkbox-row { margin: 0; min-height: 44px; }
+.currency-screen .currency-list-title { margin: 12px 0 2px; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+.currency-screen .currency-list-title:first-child { margin-top: 0; }
+.currency-screen #currency-screen-note { margin: 8px 0 0; }
+.currency-screen #currency-screen-done { flex: 0 0 auto; margin-top: 12px; }
+/* A currency box that opens the currency screen: the box stays what the code reads; a clear button on top of it takes the tap. */
+.cur-pick { position: relative; display: block; min-width: 0; }
+.cur-pick > select, .cur-pick > input { width: 100%; pointer-events: none; }
+.cur-pick-btn { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; background: none; border: none; cursor: pointer; }
+.exchange-amount-row .cur-pick { flex: 0 0 34%; width: 34%; }
+.exchange-amount-row .cur-pick > select { flex: none; width: 100%; }
+.balance-form-row-main .cur-pick { flex: 0 0 auto; }
+.balance-form-row-main .cur-pick > select { width: auto; }
+
 .entry-list h2,
 .review-queue h2 {
   font-size: 1rem;
