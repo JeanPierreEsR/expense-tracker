@@ -6909,10 +6909,10 @@ let reviewEditing_ = false;   // Home → Needs review → Edit (declared here: 
 let entriesEditing_ = false;   // Home list / search → Edit (same reason)
 let entriesSelected_ = new Set();
 let reviewSelected_ = new Set();
-// A long Needs review must not push Recent entries away (Home test: about 100 screens at 206 items): 20 rows, then "Show more". The other rows stay in
+// A long Needs review must not push Recent entries away (Home test: about 100 screens at 206 items): 10 rows (owner), then "Show more". The other rows stay in
 // the list, only hidden, so its count and every action keep working, and when a row is confirmed the next one comes up. All of them show in Edit mode
 // (what Select all ticks must be visible) and during a practice (its own rows must be reachable).
-const REVIEW_STEP_ = 20;
+const REVIEW_STEP_ = 10;
 let reviewShown_ = REVIEW_STEP_;
 function applyReviewLimit_() {
   const rows = document.getElementById("review-list").children;
@@ -18304,7 +18304,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     const summary = document.createElement("div");
     summary.className = "expected-recurring-summary";
     summary.innerHTML = `
-      <span class="expected-recurring-summary-label">${tr("expected.count", { n: g.items.length })}</span>
+      <span class="expected-recurring-summary-label">${tr("expected.count", { n: g.items.length, kind: tr(isIncome ? "summary.income" : g.type === "investment" ? "summary.investments" : "summary.expenses") })}</span>
       <span class="expected-recurring-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(amountHtml) : amountHtml}</span>
     `;
     summary.addEventListener("click", () => { detail.hidden = !detail.hidden; });
