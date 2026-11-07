@@ -10,6 +10,8 @@
 
 var STMT_WINDOW_DAYS = { savings: 2, visa: 5, diners: 5 };
 var STMT_PAIR_WINDOW_DAYS = 3;
+var STMT_CHARGE_WINDOW_DAYS = 5;      // a statement line fills a pending charge 5 days before or after the purchase (owner, 2026-11-07)
+var STMT_CHARGE_RATE_SLACK = 0.10;    // a pair whose rate is within 10% of the rate table is clear enough to be filled in by default
 // The bank's small transaction tax (ITF) is real money leaving the account
 // and must be recorded for a balance to match to the cent. Anything labeled
 // "ITF" but larger than this is a mislabeled transfer, not the tax.
@@ -196,6 +198,43 @@ function matchStatements_(statements, entries, opts) {
         viaRepayment: !!p.viaRepayment,
         guess: res[p.li].guess
       };
+    });
+  });
+
+  // A purchase the person recorded only in what was paid (ARS on a USD card; Charges.gs) and this statement's line in another
+  // currency on the same card, up to 5 days apart either way: the line is that purchase's charge (owner, 2026-11-07). A pair is CLEAR
+  // when exactly one nearby purchase fits the rate table (within 10%) and that purchase fits no other line; when the table cannot
+  // tell, when the line has only that purchase and the purchase only that line. Clear pairs are filled in by default; else the person picks.
+  statements.forEach(function (st) {
+    if (String(st.pmId).indexOf('unknown:') === 0) return;
+    var cands = {}, perEntry = {}, perEntryOk = {};
+    st.lines.forEach(function (l, li) {
+      var r = perLine[st.key][li];
+      if (r.status !== 'unregistered' || l.handled || l.stored || l.appLine || !(l.amount < 0)) return;
+      var ld = stmtDayNumber_(l.date), list = [];
+      near(ld, STMT_CHARGE_WINDOW_DAYS).forEach(function (ei) {
+        var e = entries[ei];
+        if (e.status !== 'confirmed' || e.type !== 'expense' || String(e.charge_pending || '') !== '1' || e.payment_method_id !== st.pmId) return;
+        if (e.currency === l.currency || used[e.id] || !(Number(e.amount) > 0)) return;
+        var dd = Math.abs(index.days[ei] - ld);
+        if (dd > STMT_CHARGE_WINDOW_DAYS) return;
+        var expected = opts.chargeRatio ? opts.chargeRatio(e.currency, l.currency, e.date) : null;   // the line's currency per 1 of the entry's
+        var ratio = Math.abs(l.amount) / Number(e.amount);
+        var rateOk = expected ? Math.abs(ratio / expected - 1) <= STMT_CHARGE_RATE_SLACK : null;
+        list.push({ entryId: e.id, dd: dd, rateOk: rateOk });
+        perEntry[e.id] = (perEntry[e.id] || 0) + 1;
+        if (rateOk === true) perEntryOk[e.id] = (perEntryOk[e.id] || 0) + 1;
+      });
+      if (list.length) cands[li] = list.sort(function (a, b) { return ((b.rateOk === true) - (a.rateOk === true)) || ((a.rateOk === false) - (b.rateOk === false)) || (a.dd - b.dd); });
+    });
+    Object.keys(cands).forEach(function (li) {
+      var list = cands[li], best = list[0];
+      // Several purchases near each other (a trip): the rate tells them apart when only one fits it, both ways.
+      var fitting = list.filter(function (c) { return c.rateOk === true; });
+      var clear = fitting.length === 1 ? perEntryOk[fitting[0].entryId] === 1
+        : (list.length === 1 && perEntry[best.entryId] === 1 && best.rateOk === null);
+      if (clear) used[best.entryId] = true;
+      perLine[st.key][li] = { status: 'fills', fillsCharge: { entryId: clear ? best.entryId : '', clear: clear, options: list }, guess: 'expense' };
     });
   });
 
