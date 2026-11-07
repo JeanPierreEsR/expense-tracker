@@ -23726,10 +23726,29 @@ function updateChargeBox_() {
   }
   document.getElementById("charge-label").textContent = tr(mode.off ? (mode.pm.type === "credit" ? "charge.card" : "charge.account") : "charge.paidLabel");
   document.getElementById("charge-hint").textContent = tr(mode.off ? "charge.hint" : "charge.paidHint");
+  updateChargeRate_();
 }
 document.getElementById("charge-open").addEventListener("click", () => { chargeOpen_ = true; updateChargeBox_(); });
 currencyPickOn_(document.getElementById("charge-currency"));
 ["change", "click"].forEach((ev) => document.getElementById("entry-form").addEventListener(ev, () => setTimeout(updateChargeBox_, 0)));
+
+// The rate the two amounts imply, the stronger currency as 1 (owner, 2026-11-07: a check that the charge was typed right).
+function chargeRateText_(amountA, curA, amountB, curB) {
+  const a = Number(amountA), b = Number(amountB);
+  if (!(a > 0) || !(b > 0) || !curA || !curB || curA === curB) return "";
+  const [strong, weak, rate] = b / a >= 1 ? [curA, curB, b / a] : [curB, curA, a / b];
+  const shown = rate.toLocaleString("en-US", { maximumFractionDigits: rate >= 100 ? 2 : 4 });
+  return tr("charge.rate", { strong, weak, rate: shown });
+}
+function updateChargeRate_() {
+  const el = document.getElementById("charge-rate");
+  const text = document.getElementById("charge-box").hidden ? "" : chargeRateText_(document.getElementById("amount").value, document.getElementById("currency").value,
+    document.getElementById("charge-amount").value, document.getElementById("charge-currency").value);
+  el.textContent = text;
+  el.hidden = !text;
+}
+["charge-amount", "amount"].forEach((id) => document.getElementById(id).addEventListener("input", updateChargeRate_));
+document.getElementById("charge-currency").addEventListener("change", updateChargeRate_);
 
 // What a save sends. `amount`, `currency` and `splits` become what was charged when that is known; `fields` holds the rest.
 function chargeForSave_(amount, currency, splits, type, paidBy) {
@@ -23792,10 +23811,15 @@ function renderChargesList_() {
       <p class="hint">${escapeHtml(listDate_(c.date))}${c.account ? " · " + escapeHtml(c.account) : ""}</p>
       <label>${escapeHtml(tr(pm && pm.type !== "credit" ? "charge.account" : "charge.card"))}</label>
       <div class="charge-line-row"><select class="charge-line-cur">${exchangeCurrencyOptions_(list[0] || homeCur())}</select><input type="text" inputmode="decimal" class="charge-line-input" placeholder="0.00"><button type="button" class="add-inline charge-save">${escapeHtml(tr("charges.save"))}</button></div>
+      <p class="hint charge-rate" hidden></p>
       <p class="charge-line-error" hidden></p>
       <div class="charge-line-row charge-line-actions"><button type="button" class="add-inline charge-keep">${escapeHtml(tr("charges.keep", { currency: c.currency }))}</button><button type="button" class="add-inline charge-delete">${escapeHtml(tr("charges.delete"))}</button></div>`;
     const curSel = line.querySelector(".charge-line-cur");
     currencyPickOn_(curSel);
+    const rateEl = line.querySelector(".charge-rate");
+    const showRate = () => { const t = chargeRateText_(c.amount, c.currency, line.querySelector(".charge-line-input").value, curSel.value); rateEl.textContent = t; rateEl.hidden = !t; };
+    line.querySelector(".charge-line-input").addEventListener("input", showRate);
+    curSel.addEventListener("change", showRate);
     const drop = () => { chargesList_ = chargesList_.filter((x) => x.id !== c.id); };
     line.querySelector(".charge-save").addEventListener("click", async () => {
       const amount = parseFloat(line.querySelector(".charge-line-input").value);

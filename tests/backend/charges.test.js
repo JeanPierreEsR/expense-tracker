@@ -81,6 +81,20 @@ test("money already repaid keeps counting after the charge is filled in, and a b
   assert.ok(!lines.some((b) => b.waiting));
 });
 
+test("split with a friend AND the trip's group: each debt stays in ARS", () => {
+  const { rt, card } = setup();
+  const friend = rt.api("addFriend", { name: "Ana Lo" });
+  const trip = rt.api("addTrip", { name: "Argentina", start_date: daysAgo(10), end_date: daysAgo(2), currency: "ARS" });
+  const group = rt.rows("Friends").find((f) => f.trip_id === trip.id);
+  assert.ok(group, "the trip has its group");
+  const e = addPending(rt, card, { trip_id: trip.id, splits: [{ friend_id: friend.id, amount: 10000 }, { friend_id: group.id, amount: 5000 }] });
+  rt.api("fillEntryCharge", { id: e.id, amount: 21, currency: "USD" });
+  const loans = rt.rows("Loans").filter((l) => l.entry_id === e.id).map((l) => [l.friend_id === group.id ? "group" : "friend", l.currency, Number(l.amount)]).sort();
+  assert.deepEqual(loans, [["friend", "ARS", 10000], ["group", "ARS", 5000]]);
+  const own = 21 - rt.rows("Entry Splits").filter((s) => s.entry_id === e.id).reduce((t, s) => t + Number(s.amount), 0);
+  assert.ok(Math.abs(own - 10.5) < 0.0001, "my part is half of the charge");
+});
+
 test("Keep in ARS stops asking; the entry stays as it is", () => {
   const { rt, card } = setup();
   const e = addPending(rt, card);
