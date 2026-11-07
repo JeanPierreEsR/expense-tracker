@@ -7351,6 +7351,16 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !document.getElementById("screen-entries").hidden && homeGlance_) refreshHomeGlance_(false);
 });
 
+// Home's summary cards show whole amounts only (owner, 2026-11-07: cents there add nothing meaningful).
+function homeWhole_(n, cur) {
+  const c = cur || homeCur();
+  return `${c === homeCur() ? "" : findCurrency(c).flag + " "}${c} ${homeShort_(n)}`;
+}
+function homeWholeSigned_(n) {
+  const r = Math.round(Number(n));
+  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${homeCur()} ${homeShort_(r)}`;
+}
+
 // Whole numbers with thousands separators, for the four small boxes.
 function homeShort_(n) {
   const v = Math.round(Math.abs(Number(n)));
@@ -7398,7 +7408,7 @@ function homeMainCard_(g) {
       <div class="home-four-box"><span>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${homeShort_(m.expense)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${homeShort_(m.investment)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.net"))}</span><b class="${net < 0 ? "expense" : ""}">${net < 0 ? "−" : ""}${homeShort_(net)}</b></div>
-    </div>${Math.abs(m.loans || 0) >= 0.005 ? `<p class="hint home-loans-note">${escapeHtml(tr("home.loansIncluded", { amount: formatPenSigned_(m.loans) }))}</p>` : ""}`;
+    </div>${Math.abs(m.loans || 0) >= 0.005 ? `<p class="hint home-loans-note">${escapeHtml(tr("home.loansIncluded", { amount: homeWholeSigned_(m.loans) }))}</p>` : ""}`;
 
   const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
   const bars = months.map((x, i) => {
@@ -7411,7 +7421,7 @@ function homeMainCard_(g) {
 
   const el = homeCardEl_("home-card-main", `
     <div class="home-card-label">${escapeHtml(label)}</div>
-    <div class="home-big">${escapeHtml(formatPen(m.expense))}</div>
+    <div class="home-big">${escapeHtml(homeWhole_(m.expense))}</div>
     ${delta}
     ${four}
     <div class="home-bars">${bars}</div>
@@ -7445,8 +7455,8 @@ function homePaceCard_(g) {
       ${last >= 0 ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}
     </svg>
     <div class="home-pace-lines">
-      <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(formatPen(nowTotal))}</b></div>
-      <div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("home.paceThen"))}<b>${escapeHtml(formatPen(thenTotal))}</b></div>
+      <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(homeWhole_(nowTotal))}</b></div>
+      <div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("home.paceThen"))}<b>${escapeHtml(homeWhole_(thenTotal))}</b></div>
     </div>`);
   paceEl.addEventListener("click", () => openOverviewAt_("pace-card"));
   return paceEl;
@@ -7456,18 +7466,18 @@ function homeBudgetCard_(g) {
   const b = g.budget;
   if (!b || !(b.totalPen > 0)) return null;
   const pct = (b.spentPen / b.totalPen) * 100;
-  const left = b.totalPen - b.spentPen;
+  const left = Math.round(b.totalPen) - Math.round(b.spentPen);   // (whole amounts, so the three figures add up as shown)
   const daysLeft = g.pace.curDays - g.pace.curDay + 1;   // today still counts
   const cls = pct >= 100 ? "over" : pct >= 85 ? "warn" : "";
   const facts = [
-    left >= 0 ? tr("home.budgetLeft", { amount: formatPen(left) }) : tr("home.budgetOver", { amount: formatPen(-left) }),
+    left >= 0 ? tr("home.budgetLeft", { amount: homeWhole_(left) }) : tr("home.budgetOver", { amount: homeWhole_(-left) }),
     tr("home.budgetDays", { n: daysLeft })
   ];
-  if (left > 0 && daysLeft > 0) facts.push(tr("home.budgetPerDay", { amount: formatPen(left / daysLeft) }));
+  if (left > 0 && daysLeft > 0) facts.push(tr("home.budgetPerDay", { amount: homeWhole_(left / daysLeft) }));
   const budgetEl = homeCardEl_("home-card-budget home-card-tap", `
     <div class="home-card-label">${escapeHtml(tr("home.budgetTitle"))} ›</div>
-    <div class="home-big">${escapeHtml(formatPen(b.spentPen))}</div>
-    <div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: formatPen(b.totalPen) }))}</div>
+    <div class="home-big">${escapeHtml(homeWhole_(b.spentPen))}</div>
+    <div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: homeWhole_(b.totalPen) }))}</div>
     <div class="home-meter"><div class="home-meter-fill ${cls}" style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></div></div>
     <div class="home-meter-facts">${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join("")}</div>`);
   budgetEl.addEventListener("click", () => showScreen("budgets"));
@@ -7484,8 +7494,8 @@ function homeTripCard_(t) {
       <div class="home-card-label">${escapeHtml(tr("home.tripDay", { day: t.day, days: t.days }))}</div></div>
     </div>
     <div class="home-card-label" style="margin-top:12px">${escapeHtml(tr("home.tripSpent"))}</div>
-    <div class="home-big">${escapeHtml(formatAmount(t.spent, t.currency))}</div>
-    ${t.budget ? `<div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: formatAmount(t.budget, t.currency) }))}</div>` : ""}
+    <div class="home-big">${escapeHtml(homeWhole_(t.spent, t.currency))}</div>
+    ${t.budget ? `<div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: homeWhole_(t.budget, t.currency) }))}</div>` : ""}
     ${pct == null ? "" : `<div class="home-meter"><div class="home-meter-fill ${pct >= 100 ? "over" : pct >= 85 ? "warn" : ""}" style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></div></div>`}`);
   el.addEventListener("click", () => showTripDetail_(t.id));
   return el;
