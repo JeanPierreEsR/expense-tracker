@@ -207,7 +207,7 @@ function matchStatements_(statements, entries, opts) {
   // tell, when the line has only that purchase and the purchase only that line. Clear pairs are filled in by default; else the person picks.
   statements.forEach(function (st) {
     if (String(st.pmId).indexOf('unknown:') === 0) return;
-    var cands = {}, perEntry = {}, perEntryOk = {};
+    var cands = {}, perEntry = {}, perEntryOk = {}, sameDayOk = {};
     st.lines.forEach(function (l, li) {
       var r = perLine[st.key][li];
       if (r.status !== 'unregistered' || l.handled || l.stored || l.appLine || !(l.amount < 0)) return;
@@ -224,13 +224,19 @@ function matchStatements_(statements, entries, opts) {
         list.push({ entryId: e.id, dd: dd, rateOk: rateOk });
         perEntry[e.id] = (perEntry[e.id] || 0) + 1;
         if (rateOk === true) perEntryOk[e.id] = (perEntryOk[e.id] || 0) + 1;
+        if (rateOk === true && dd === 0) sameDayOk[e.id] = (sameDayOk[e.id] || 0) + 1;
       });
       if (list.length) cands[li] = list.sort(function (a, b) { return ((b.rateOk === true) - (a.rateOk === true)) || ((a.rateOk === false) - (b.rateOk === false)) || (a.dd - b.dd); });
     });
     Object.keys(cands).forEach(function (li) {
       var list = cands[li], best = list[0];
-      // Several purchases near each other (a trip): the rate tells them apart when only one fits it, both ways.
+      // Several purchases near each other (a trip): the rate tells them apart when only one fits it, both ways; when several fit,
+      // one recorded the same day as the line wins (owner, 2026-11-07: most purchases are recorded and charged the same day).
       var fitting = list.filter(function (c) { return c.rateOk === true; });
+      if (fitting.length > 1) {
+        var sameDay = fitting.filter(function (c) { return c.dd === 0; });
+        if (sameDay.length === 1 && sameDayOk[sameDay[0].entryId] === 1) { fitting = sameDay; perEntryOk[sameDay[0].entryId] = 1; }
+      }
       var clear = fitting.length === 1 ? perEntryOk[fitting[0].entryId] === 1
         : (list.length === 1 && perEntry[best.entryId] === 1 && best.rateOk === null);
       if (clear) used[best.entryId] = true;

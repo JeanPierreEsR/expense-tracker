@@ -76,13 +76,24 @@ test("unclear: two purchases that both fit one line, or a rate far from the tabl
   const { rt, stmt } = setup();
   rt.api("saveEntryAll", { kind: "create", fields: { type: "expense", date: "2019-03-11", amount: 30500, currency: "ARS", description: "Hotel 2", paid_by: "me",
     payment_method_id: rt.rows("Payment Methods").find((p) => p.nickname === "Tarjeta en dólares").id, charge_pending: "1" } });
-  const p = plan(rt, [stmt([{ date: "2019-03-11", description: "COMPRA", amount: -21.37, currency: "USD" }])]);   // both hotels fit that rate
+  const p = plan(rt, [stmt([{ date: "2019-03-12", description: "COMPRA", amount: -21.37, currency: "USD" }])]);   // both hotels fit that rate, neither on that day
   assert.equal(p.summary.charges.length, 1);
   assert.equal(p.summary.charges[0].clear, false);
   assert.equal(p.summary.charges[0].options.length, 3, "hotel, hotel 2 and the cena are all within 5 days");
   assert.equal(p.actions.filter((a) => a.type === "fill_charge" || (a.stmt === 0 && a.line === 0)).length, 0, "no action until the person picks");
   const far = plan(rt, [stmt([{ date: "2019-03-15", description: "LA CABRERA", amount: -80, currency: "USD" }])]);   // 12,500 ARS for USD 80: far off
   assert.equal(far.summary.charges[0].clear, false);
+});
+
+test("several purchases fit the rate: the one on the same day as the line is pre-checked", () => {
+  const { rt, card, stmt } = setup();
+  const add = (date, amount, description) => rt.api("saveEntryAll", { kind: "create", fields: { type: "expense", date, amount, currency: "ARS", description,
+    paid_by: "me", payment_method_id: card.id, charge_pending: "1" } }).id;
+  const taxi1 = add("2019-03-20", 6000, "Taxi 1");
+  add("2019-03-21", 6100, "Taxi 2");
+  const p = plan(rt, [stmt([{ date: "2019-03-20", description: "UBER", amount: -4.2, currency: "USD" }])]);
+  assert.equal(p.summary.charges[0].clear, true);
+  assert.equal(p.summary.charges[0].entryId, taxi1);
 });
 
 test("two lines given to the same purchase are refused", () => {

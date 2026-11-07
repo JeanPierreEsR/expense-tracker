@@ -3593,7 +3593,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .stmt-charge-rate { margin: 2px 0 0; }
 .stmt-charge-option { padding: 6px 0; border-top: 1px dashed var(--border); }
 .review-charge-match { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: #eef5ff; font-size: 0.9rem; }
-.review-charge-match .add-inline { margin: 6px 0 0; }
+.review-charge-match .review-charge-btn { margin: 8px 0 0; background: #fff; }
 .charge-paid-line { white-space: nowrap; }
 .charge-rate { margin: 4px 0 0; color: var(--text); }
 .charge-line-error { color: #d64545; margin: 4px 0 0; font-size: 0.85rem; }

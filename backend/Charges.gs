@@ -71,7 +71,7 @@ function chargeExpectedRatio_(from, to, date) {
 }
 
 // A bank e-mail waiting in Needs review that is the charge of a purchase left pending on the same card, 5 days apart at most:
-// the review card asks "Is this the charge of …?" (owner, 2026-11-07). The best one only: rate closest to the table, then the nearest date.
+// the review card asks "Is this the charge of …?" (owner, 2026-11-07). The best one only: one that fits the rate table, then the same day, then the closest rate.
 function chargeMatchForReview_(pending, all) {
   if (pending.type !== 'expense' || !pending.payment_method_id || !(Number(pending.amount) > 0) || isPracticeReview_(pending)) return null;
   var day = function (d) { return Math.round(new Date(String(d).slice(0, 10) + 'T00:00:00Z') / 86400000); };
@@ -82,7 +82,8 @@ function chargeMatchForReview_(pending, all) {
     if (dd > STMT_CHARGE_WINDOW_DAYS) return;
     var expected = chargeExpectedRatio_(e.currency, pending.currency, e.date);
     var off = expected ? Math.abs(Number(pending.amount) / Number(e.amount) / expected - 1) : 1;
-    if (!best || off < best.off - 1e-9 || (Math.abs(off - best.off) < 1e-9 && dd < best.dd)) best = { e: e, dd: dd, off: off };
+    var fits = off <= STMT_CHARGE_RATE_SLACK ? 1 : 0;   // fits the rate table first, then the same day, then the closest rate
+    if (!best || fits > best.fits || (fits === best.fits && (dd < best.dd || (dd === best.dd && off < best.off)))) best = { e: e, dd: dd, off: off, fits: fits };
   });
   return best ? { entryId: best.e.id, description: best.e.description || '', amount: Number(best.e.amount), currency: best.e.currency, date: best.e.date } : null;
 }

@@ -6428,7 +6428,7 @@ function reviewChargeMatchHtml_(entry) {
   const rate = chargeRateText_(m.amount, m.currency, Math.abs(Number(entry.amount)), entry.currency);
   return `<div class="review-charge-match"><div>${escapeHtml(tr("review.chargeMatch", { name: m.description || tr("confirm.thisEntry"), amount: formatAmount(m.amount, m.currency), date: listDate_(m.date) }))}</div>
     ${rate ? `<div class="hint" style="margin:2px 0 0">${escapeHtml(rate)}</div>` : ""}<div class="hint" style="margin:2px 0 0">${escapeHtml(tr("review.chargeHint"))}</div>
-    <button type="button" class="add-inline review-charge-btn">${escapeHtml(tr("review.chargeYes"))}</button></div>`;
+    <button type="button" class="stmt-choice review-charge-btn">${escapeHtml(tr("review.chargeYes"))}</button></div>`;
 }
 
 // "Looks like a loan to Ana again": what the backend's loan_hint says, in words (or "" when there is none / the friend is gone).
