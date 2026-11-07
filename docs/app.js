@@ -7351,7 +7351,7 @@ function homeMainCard_(g) {
   if (base != null && base > 0.005) {
     const pct = Math.round(((m.expense - base) / base) * 100);
     const arrow = pct > 0 ? "↑" : pct < 0 ? "↓" : "→";
-    delta = `<div class="home-delta ${pct > 0 ? "bad" : pct < 0 ? "good" : ""}">${escapeHtml(tr("home.vsLast", { arrow, pct: Math.abs(pct) }))}</div>`;
+    delta = `<div class="home-delta ${pct > 0 ? "bad" : pct < 0 ? "good" : ""}">${escapeHtml(tr(isCurrent ? "home.vsSameDay" : "home.vsLast", { arrow, pct: Math.abs(pct) }))}</div>`;
   }
 
   const net = m.net;
@@ -7613,6 +7613,27 @@ function showExchangeRatesScreen() {
   renderCurrenciesMain_();
   refreshExchangeRates();
 }
+
+// A tab whose first load failed (no connection, usually) says so instead of looking empty: Overview's zeros and Budgets' blank read as real
+// information (owner, 2026-11-07). A failed refresh of something already on screen stays quiet, as before. err = null takes the message away.
+function setLoadFailed_(name, err) {
+  const screen = document.getElementById("screen-" + name);
+  let note = screen.querySelector(":scope > .screen-load-failed");
+  screen.classList.toggle("load-failed", !!err);
+  if (!err) { if (note) note.remove(); return; }
+  if (!note) {
+    note = document.createElement("div");
+    note.className = "status-msg screen-load-failed";
+    const selector = document.getElementById("period-selector-card");
+    if (selector.parentElement === screen) selector.after(note); else screen.prepend(note);
+  }
+  note.textContent = tr("business.loadFailed", { error: err.message || String(err) });
+}
+// The connection is back: the open screen tries again by itself.
+window.addEventListener("online", () => {
+  const open = document.querySelector(".screen.load-failed:not([hidden])");
+  if (open) showScreen(open.id.replace(/^screen-/, ""));
+});
 
 // Whichever of Overview/Budgets is currently visible re-fetches with the
 // new period — the other picks it up on its own next time it's shown
@@ -8076,19 +8097,23 @@ async function refreshOverviewInner_() {
   const screen = document.getElementById("screen-overview");
   const key = overviewKey_(bounds);
   const token = ++overviewReqToken_;
-  if (overviewCache_[key]) { paintOverviewSummary_(overviewCache_[key]); overviewShownKey_ = key; screen.classList.remove("overview-stale"); }
+  if (overviewCache_[key]) { paintOverviewSummary_(overviewCache_[key]); overviewShownKey_ = key; screen.classList.remove("overview-stale"); setLoadFailed_("overview", null); }
   else if (overviewShownKey_ !== key) screen.classList.add("overview-stale");
 
   let data;
   try {
     data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
   } catch (err) {
-    if (token === overviewReqToken_) screen.classList.remove("overview-stale");
+    if (token === overviewReqToken_) {
+      screen.classList.remove("overview-stale");
+      if (overviewShownKey_ !== key) setLoadFailed_("overview", err);
+    }
     throw err;
   }
   overviewCache_[key] = data;
   if (token !== overviewReqToken_) return;   // the person already moved on to another period
   screen.classList.remove("overview-stale");
+  setLoadFailed_("overview", null);
   overviewShownKey_ = key;
   paintOverviewSummary_(data);
   loadOverviewEntries_(bounds);
@@ -9210,6 +9235,7 @@ function refreshBudgetsInBackground_() {
   });
 }
 
+let budgetsLoadedKey_ = null;   // the period the rows on screen belong to
 async function refreshBudgets() {
   // renderPeriodSelector() keeps the shared selector's own label/arrows in
   // sync — refreshOverview() already does this for itself, but movePeriod()
@@ -9224,7 +9250,12 @@ async function refreshBudgets() {
   // year), but never narrows a yearly budget down to a month. All-time
   // and Custom don't carry a month/year size, so budgets just show their
   // own current period in those views (anchorDate is ignored server-side).
-  const data = await callApi("listBudgets", projectionPeriodPayload_());
+  const budgetsKey = JSON.stringify(projectionPeriodPayload_());
+  let data;
+  try { data = await callApi("listBudgets", projectionPeriodPayload_()); }
+  catch (err) { if (budgetsLoadedKey_ !== budgetsKey) setLoadFailed_("budgets", err); throw err; }
+  budgetsLoadedKey_ = budgetsKey;
+  setLoadFailed_("budgets", null);
   budgetsLoaded_ = data.budgets;   // (the first-use practice checks it for a budget the person already has)
   budgetsSummary_ = data.summary;
   const still = new Set(data.budgets.map((b) => b.id));
@@ -9904,6 +9935,9 @@ async function init() {
       }
       if (!document.getElementById("screen-budgets").hidden) {
         await refreshBudgets();
+      }
+      if (!document.getElementById("screen-loans").hidden) {
+        await refreshLoans();
       }
     } catch (err) {
       // Data just doesn't refresh this time — the user can pull again.
@@ -18669,7 +18703,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     const summary = document.createElement("div");
     summary.className = "expected-recurring-summary";
     summary.innerHTML = `
-      <span class="expected-recurring-summary-label">${tr("expected.count", { n: g.items.length, kind: tr(isIncome ? "summary.income" : g.type === "investment" ? "summary.investments" : "summary.expenses") })}</span>
+      <span class="expected-recurring-summary-label">${tr("expected.count", { n: g.items.length, kind: tr(isIncome ? "summary.income" : g.type === "investment" ? "summary.investments" : "summary.expenses") + (g.currency !== homeCur() ? " " + g.currency : "") })}</span>
       <span class="expected-recurring-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(amountHtml) : amountHtml}</span>
     `;
     summary.addEventListener("click", () => { detail.hidden = !detail.hidden; });
@@ -22037,14 +22071,19 @@ function practiceBLeftover_() {
 }
 
 let loansRefreshSeq_ = 0;
+let loansLoadedOnce_ = false;
 async function refreshLoans() {
   populateLoansScope_();
   // Only the newest load draws. The server answers reads in parallel, so a load sent while a save was still writing can come back
   // AFTER a newer one and redraw the list without the new debt (owner, 2026-11-03: the Loans practice's friend row vanished under
   // its "Tap their name" step).
   const seq = ++loansRefreshSeq_;
-  const balances = await callApi("listLoanBalances", loansScopePayload_());
+  let balances;
+  try { balances = await callApi("listLoanBalances", loansScopePayload_()); }
+  catch (err) { if (seq === loansRefreshSeq_ && !loansLoadedOnce_) setLoadFailed_("loans", err); throw err; }
   if (seq !== loansRefreshSeq_) return;
+  loansLoadedOnce_ = true;
+  setLoadFailed_("loans", null);
   if (!loansScope_) loansLastBalances_ = balances;
 
   // A friend can be owed in one currency and owe in another (e.g. they owe

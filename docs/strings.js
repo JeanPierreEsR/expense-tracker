@@ -429,6 +429,7 @@
     // ---- Home tab: the quick glance at the top, and the entries grouped by day ----
     "home.spentThisMonth": { en: "Spent this month", es: "Gastado este mes" },
     "home.spentIn": { en: "Spent in {month}", es: "Gastado en {month}" },
+    "home.vsSameDay": { en: "{arrow} {pct}% vs this day of last month", es: "{arrow} {pct}% vs. este día del mes pasado" },
     "home.vsLast": { en: "{arrow} {pct}% vs last month", es: "{arrow} {pct}% vs. el mes pasado" },
     "home.last6": { en: "Last 6 months", es: "Últimos 6 meses" },
     "monthsHist.title": { en: "Month by month", es: "Mes a mes" },
