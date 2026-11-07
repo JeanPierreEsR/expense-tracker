@@ -149,3 +149,18 @@ test("monthly history: every month from the first entry to today, with each mont
   assert.deepEqual([h.months[9].expense, h.months[9].income], [80, 500]);
   assert.equal(h.months[4].expense, 0, "a quiet month is still there");
 });
+
+test("month-by-month history for some categories only (the Spending pace screen's 'Which expenses')", () => {
+  const rt = setup();
+  entry(rt, { amount: 40, category_id: "cat-a" });
+  entry(rt, { amount: 90, category_id: "cat-b" });
+  entry(rt, { amount: 500, type: "income", category_id: "cat-i" });
+  const last = (h) => h.months[h.months.length - 1];
+  const all = last(rt.api("getMonthlyHistory", {}));
+  const onlyA = last(rt.api("getMonthlyHistory", { categoryIds: ["cat-a"] }));
+  assert.equal(all.expense, 130);
+  assert.equal(onlyA.expense, 40);
+  assert.equal(onlyA.income, 0, "only those categories' expenses");
+  assert.equal(onlyA.cum[onlyA.cum.length - 1], 40);
+  assert.equal(rt.api("getMeta", {}).capabilities.paceCategories, true);
+});

@@ -8010,65 +8010,235 @@ function renderMonthsBars_() {
   box.scrollLeft = keep || box.scrollWidth;   // first paint lands on the newest months
 }
 
-document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.addEventListener("click", () => {
+document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.addEventListener("click", (e) => {
+  e.stopPropagation();   // the card itself opens the Spending pace screen
   localStorage.setItem("paceRef", b.dataset.paceRef);
+  setPaceView_(null);    // the quick switch is the usual view: it ends a custom one
   if (monthsHist_) renderPaceBig_();
 }));
 
-
-function renderPaceBig_() {
-  const card = document.getElementById("pace-card");
-  const months = monthsHist_.months;
-  // Owner, 2026-11-07 — the card shows for every month in Month view, and the two-way switch decides what the months mean:
-  //  "Last month": the blue line is always THIS month; a picked earlier month becomes the grey one (October against August);
-  //                with this month (or a later one) picked, the grey one is the month before this one.
-  //  "Same month last year": the blue line is the picked month, the grey one the same month a year earlier.
-  const key = (y, m) => `${y}-${String(m).padStart(2, "0")}`;
-  const prevKey = (k) => { const [y, m] = k.split("-").map(Number); return m === 1 ? key(y - 1, 12) : key(y, m - 1); };
-  const selKey = key(periodAnchor.getFullYear(), periodAnchor.getMonth() + 1);
-  const thisKey = months[months.length - 1].month;
-  const mode = localStorage.getItem("paceRef") === "year" ? "year" : "last";
-  document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.classList.toggle("active", b.dataset.paceRef === mode));
-  const curKey = mode === "year" ? selKey : thisKey;
-  const [cy, cmo] = curKey.split("-").map(Number);
-  const refKey = mode === "year" ? key(cy - 1, cmo) : (selKey < thisKey ? selKey : prevKey(thisKey));
-  const cur = periodType === "month" ? months.find((m) => m.month === curKey) : null;   // null: a future month, or older than the history
-  const ref = months.find((m) => m.month === refKey) || null;
-  const isThisMonth = !!cur && cur === months[months.length - 1];
-  const nowTotal = cur && cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
-  card.hidden = !cur || (!nowTotal && !(ref && ref.expense > 0));
-  if (card.hidden) return;
-  const [ry, rmo] = refKey.split("-").map(Number);
-  const refName = I18n.fmtMonthYear(new Date(ry, rmo - 1, 1), true);
-  const curName = I18n.fmtMonthYear(new Date(cy, cmo - 1, 1));
-  // Says which month is measured and which one it is held against.
-  document.getElementById("pace-ref-label").textContent = !ref
-    ? `${curName} · ${tr("pace.noRef", { month: refName })}`
-    : tr(isThisMonth ? "pace.vs" : "pace.vsPast", { cur: curName, ref: refName });
-
-  const W = 300, H = 150, pad = 6;
+// ---- Spending pace: the card's comparison and the screen that customises it (owner, 2026-11-07) ----
+// The usual view follows the card's two-way switch. The screen (a tap on the card) can pick any blue month, what the grey line is (the
+// month before, the same month last year, the average of the 3 / 6 / 12 months before, or another month) and which expenses count (all,
+// one category, or one budget's categories). That custom view is kept on this phone until changed or reset, and the card shows it too.
+const paceKey_ = (y, m) => `${y}-${String(m).padStart(2, "0")}`;
+function paceShift_(k, n) { const [y, m] = k.split("-").map(Number); const d = new Date(y, m - 1 + n, 1); return paceKey_(d.getFullYear(), d.getMonth() + 1); }
+function paceMonthName_(k, mid) { const [y, m] = k.split("-").map(Number); return I18n.fmtMonthYear(new Date(y, m - 1, 1), mid); }
+function paceView_() { try { return JSON.parse(localStorage.getItem("paceView") || "null"); } catch (e) { return null; } }
+function setPaceView_(v) { if (v) localStorage.setItem("paceView", JSON.stringify(v)); else localStorage.removeItem("paceView"); }
+const paceCanFilter_ = () => !!(meta && meta.capabilities && meta.capabilities.paceCategories);
+const paceCatHist_ = {};   // "id,id" -> the month-by-month history of those categories only
+function paceCatIds_(view) { return view && view.cats && view.cats.ids && view.cats.ids.length && paceCanFilter_() ? view.cats.ids : null; }
+// The history a view needs: the usual one, or (for some categories) one fetched once and kept for 10 minutes.
+function paceHistFor_(view) {
+  const ids = paceCatIds_(view);
+  if (!ids) return monthsHist_ ? Promise.resolve(monthsHist_) : refreshMonthsHistory_().then(() => monthsHist_);
+  const k = ids.join(",");
+  const hit = paceCatHist_[k];
+  if (hit && Date.now() - hit.at < HOME_GLANCE_FRESH_MS) return Promise.resolve(hit.data);
+  return callApi("getMonthlyHistory", { categoryIds: ids }).then((data) => { paceCatHist_[k] = { data, at: Date.now() }; return data; });
+}
+// A day-by-day average of several months (each month's running total, the shorter ones held at their last day).
+function paceAverage_(ms) {
+  const days = Math.max(...ms.map((m) => m.days));
+  const cum = [];
+  for (let d = 0; d < days; d++) cum.push(ms.reduce((t, m) => t + (m.cum.length ? m.cum[Math.min(d, m.cum.length - 1)] : 0), 0) / ms.length);
+  return { month: null, days, cum, expense: ms.reduce((t, m) => t + m.expense, 0) / ms.length };
+}
+// Which month is blue and what the grey line is, for the custom view or (none) the card's two-way switch.
+function paceResolve_(hist, view) {
+  const months = hist.months, thisKey = months[months.length - 1].month;
+  const find = (k) => months.find((m) => m.month === k) || null;
+  let curKey, ref = null, refName = "", refStart = "", refBare = "", isAvg = false;
+  if (!view) {
+    if (periodType !== "month") return null;
+    const selKey = paceKey_(periodAnchor.getFullYear(), periodAnchor.getMonth() + 1);
+    const yearMode = localStorage.getItem("paceRef") === "year";
+    // "Against earlier months": this month is blue, a picked earlier month grey (else the month before); "Against last year": the picked month against a year earlier.
+    curKey = yearMode ? selKey : thisKey;
+    const rk = yearMode ? paceShift_(curKey, -12) : (selKey < thisKey ? selKey : paceShift_(thisKey, -1));
+    ref = find(rk); refName = paceMonthName_(rk, true); refStart = paceMonthName_(rk);   // refStart begins a line: capital letter
+  } else {
+    curKey = view.blue && view.blue !== "this" ? view.blue : thisKey;
+    const g = view.grey || { kind: "auto" };
+    if (g.kind === "avg") {
+      const ms = []; for (let i = 1; i <= g.n; i++) { const m = find(paceShift_(curKey, -i)); if (m) ms.push(m); }
+      if (ms.length) ref = paceAverage_(ms);
+      isAvg = true; refName = tr("pace.avgName", { n: g.n }); refStart = tr("pace.avgNameStart", { n: g.n }); refBare = tr("pace.avgBare", { n: g.n });
+    } else {
+      const rk = g.kind === "month" && g.month ? g.month : g.kind === "lastYear" ? paceShift_(curKey, -12) : paceShift_(curKey, -1);
+      ref = find(rk); refName = paceMonthName_(rk, true); refStart = paceMonthName_(rk);
+    }
+  }
+  return { cur: find(curKey), curKey, thisKey, ref, refName, refStart, refBare, isAvg, isThisMonth: curKey === thisKey, curDay: hist.curDay };
+}
+// Draws one comparison into a card or the screen: { label, svg, lines, days? } elements.
+function drawPace_(els, r, view) {
+  const { cur, ref } = r;
+  const curName = paceMonthName_(r.curKey);
+  const catName = view && view.cats && paceCatIds_(view) ? ` · ${view.cats.name}` : "";
+  const vsKey = (r.isThisMonth ? "pace.vs" : "pace.vsPast") + (r.isAvg ? "Avg" : "");   // Spanish: "frente AL promedio", not "frente a el"
+  els.label.textContent = (!ref ? `${curName} · ${tr("pace.noRef", { month: r.refName })}` : tr(vsKey, { cur: curName, ref: r.isAvg ? r.refBare : r.refName })) + catName;
+  const W = 300, H = Number(els.svg.getAttribute("viewBox").split(" ")[3]) || 150, pad = 6;
   const days = Math.max(cur.days, ref ? ref.days : 0);
+  const nowTotal = cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
   const top = Math.max(1, nowTotal, ref ? ref.cum[ref.cum.length - 1] || 0 : 0);
   const pt = (i, v) => `${(pad + (i / Math.max(1, days - 1)) * (W - 2 * pad)).toFixed(1)},${(H - pad - (v / top) * (H - 2 * pad)).toFixed(1)}`;
   const line = (arr) => arr.map((v, i) => pt(i, v)).join(" ");
   const last = cur.cum.length - 1;
   const [dx, dy] = last >= 0 ? pt(last, cur.cum[last]).split(",") : [0, 0];
-  document.getElementById("pace-svg").innerHTML = `
+  els.svg.innerHTML = `
     ${ref ? `<polyline class="prev" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${line(ref.cum)}"/>` : ""}
     <polyline class="cur" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${line(cur.cum)}"/>
-    ${last >= 0 && isThisMonth ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}`;
-
-  // This month: so far, against the grey month on the same day (and its whole total). A past month: both months in full.
-  const curDay = monthsHist_.curDay;
-  const sameDay = ref ? ref.cum[Math.min(curDay, ref.cum.length) - 1] || 0 : 0;
-  const curLabel = isThisMonth ? tr("home.paceNow") : tr("pace.monthWhole", { month: I18n.fmtMonthYear(new Date(cy, cmo - 1, 1), true) });
-  const refLine = !ref ? "" : isThisMonth
-    ? `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.refAtDay", { month: refName }))}<b>${escapeHtml(formatPen(sameDay))}</b>
-      <span class="hint">${escapeHtml(tr("pace.refWholeDone", { month: refName }))}: ${escapeHtml(formatPen(ref.expense))}</span></div>`
-    : `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.monthWhole", { month: refName }))}<b>${escapeHtml(formatPen(ref.expense))}</b></div>`;
-  document.getElementById("pace-lines").innerHTML = `
-    <div><span style="color:var(--accent)">●</span> ${escapeHtml(curLabel)}<b>${escapeHtml(formatPen(nowTotal))}</b></div>${refLine}`;
+    ${last >= 0 && r.isThisMonth ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}`;
+  if (els.days) els.days.innerHTML = [1, 8, 15, 22, 29].filter((d) => d <= days)
+    .map((d) => `<span style="left:${(((d - 1) / Math.max(1, days - 1)) * (W - 2 * pad) + pad) / W * 100}%">${d}</span>`).join("");
+  // This month: so far, against the grey line on the same day (and its whole total). A past month: both in full.
+  const sameDay = ref ? ref.cum[Math.min(r.curDay, ref.cum.length) - 1] || 0 : 0;
+  const against = ref ? (r.isThisMonth ? sameDay : ref.expense) : null;
+  const curLabel = r.isThisMonth ? tr("home.paceNow") : tr("pace.monthWhole", { month: paceMonthName_(r.curKey, true) });
+  const refLine = !ref ? "" : r.isThisMonth
+    ? `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.refAtDay", { month: r.refStart }))}<b>${escapeHtml(formatPen(sameDay))}</b>
+      <span class="hint">${escapeHtml(r.isAvg ? tr("pace.avgWhole") : tr("pace.refWholeDone", { month: r.refName }))}: ${escapeHtml(formatPen(ref.expense))}</span></div>`
+    : `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(r.isAvg ? r.refStart : tr("pace.monthWhole", { month: r.refName }))}<b>${escapeHtml(formatPen(ref.expense))}</b></div>`;
+  const diff = els.diff && against != null && against > 0.004
+    ? `<div class="pace-diff">${escapeHtml(tr("pace.diff", { amount: formatPenSigned_(nowTotal - against), pct: `${nowTotal >= against ? "+" : "−"}${Math.round(Math.abs(nowTotal - against) / against * 100)}%` }))}</div>` : "";
+  els.lines.innerHTML = `
+    <div><span style="color:var(--accent)">●</span> ${escapeHtml(curLabel)}<b>${escapeHtml(formatPen(nowTotal))}</b></div>${refLine}${diff}`;
 }
+
+function renderPaceBig_() {
+  const card = document.getElementById("pace-card");
+  const view = paceView_();
+  document.getElementById("pace-ref-switch").hidden = !!view;
+  document.getElementById("pace-custom-row").hidden = !view;
+  const yearMode = localStorage.getItem("paceRef") === "year";
+  document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.classList.toggle("active", b.dataset.paceRef === (yearMode ? "year" : "last")));
+  if (periodType !== "month") { card.hidden = true; return; }   // Year / All time / Custom: not about one month
+  const draw = (hist) => {
+    const r = hist && paceResolve_(hist, view);
+    const nowTotal = r && r.cur && r.cur.cum.length ? r.cur.cum[r.cur.cum.length - 1] : 0;
+    card.hidden = !r || !r.cur || (!nowTotal && !(r.ref && r.ref.expense > 0));
+    if (!card.hidden) drawPace_({ label: document.getElementById("pace-ref-label"), svg: document.getElementById("pace-svg"), lines: document.getElementById("pace-lines") }, r, view);
+  };
+  if (!paceCatIds_(view)) { draw(monthsHist_); return; }
+  // A custom view on some categories: drawn once their history has arrived (never all expenses under a category's name).
+  const k = paceCatIds_(view).join(",");
+  if (paceCatHist_[k]) draw(paceCatHist_[k].data); else { card.hidden = true; paceHistFor_(view).then(draw).catch(() => {}); }
+}
+
+document.getElementById("pace-card").addEventListener("click", (e) => {
+  if (e.target.closest("#pace-ref-switch, #pace-custom-row")) return;
+  openPaceScreen_();
+});
+document.getElementById("pace-custom-reset").addEventListener("click", (e) => {
+  e.stopPropagation();
+  setPaceView_(null);
+  if (monthsHist_) renderPaceBig_();
+});
+
+// The screen. It opens at once with "Loading…" and shows the chart only when everything it needs has arrived (loading standard).
+let paceScreenSeq_ = 0;
+function openPaceScreen_() {
+  const backdrop = document.getElementById("pace-screen-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  renderPaceScreen_();
+}
+function closePaceScreen_() { document.getElementById("pace-screen-backdrop").hidden = true; }
+document.getElementById("pace-screen-close").addEventListener("click", closePaceScreen_);
+
+async function renderPaceScreen_() {
+  const seq = ++paceScreenSeq_;
+  const view = paceView_();
+  const body = document.getElementById("pace-s-content"), loading = document.getElementById("pace-s-loading");
+  body.hidden = true; loading.hidden = false; loading.innerHTML = loadingHtml_();
+  let hist, baseHist;
+  try {
+    const wants = [paceHistFor_(view), paceHistFor_(null)];
+    if (paceCanFilter_() && !budgetsLoaded_) wants.push(callApi("listBudgets", {}).then((d) => { budgetsLoaded_ = budgetsLoaded_ || d.budgets; }).catch(() => {}));
+    [hist, baseHist] = await Promise.all(wants);
+  } catch (err) {
+    if (seq === paceScreenSeq_) loading.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
+    return;
+  }
+  if (seq !== paceScreenSeq_ || document.getElementById("pace-screen-backdrop").hidden) return;
+  // The screen always shows a full comparison: with no custom view it starts from what the card shows (or this month against the one before).
+  const r = paceResolve_(hist, view) || paceResolve_(hist, { blue: "this", grey: { kind: "auto" } });
+  fillPaceControls_(baseHist, view, r);
+  loading.hidden = true; body.hidden = false;
+  document.getElementById("pace-s-reset").hidden = !view;
+  if (!r.cur) { document.getElementById("pace-s-lines").innerHTML = `<p class="hint">${escapeHtml(tr("pace.noData"))}</p>`; document.getElementById("pace-s-svg").innerHTML = ""; return; }
+  drawPace_({ label: document.getElementById("pace-s-label"), svg: document.getElementById("pace-s-svg"), lines: document.getElementById("pace-s-lines"),
+    days: document.getElementById("pace-s-days"), diff: true }, r, view);
+}
+
+function fillPaceControls_(hist, view, r) {
+  const months = hist.months.slice().reverse();   // newest first
+  const thisKey = r.thisKey;
+  const opt = (v, t, sel) => `<option value="${v}"${sel ? " selected" : ""}>${escapeHtml(t)}</option>`;
+  const blueVal = view ? (view.blue || "this") : (r.curKey === thisKey ? "this" : r.curKey);
+  document.getElementById("pace-s-blue").innerHTML = opt("this", tr("pace.thisMonthOpt", { month: paceMonthName_(thisKey, true) }), blueVal === "this") +
+    months.filter((m) => m.month !== thisKey).map((m) => opt(m.month, paceMonthName_(m.month), blueVal === m.month)).join("");
+  // Grey: what the view says, or what the card's switch currently means.
+  let g = view && view.grey ? view.grey : null;
+  if (!g) {
+    if (r.ref && r.ref.month === paceShift_(r.curKey, -12)) g = { kind: "lastYear" };
+    else if (r.ref && r.ref.month && r.ref.month !== paceShift_(r.curKey, -1)) g = { kind: "month", month: r.ref.month };
+    else g = { kind: "auto" };
+  }
+  const greyVal = g.kind === "avg" ? "avg" + g.n : g.kind;
+  document.getElementById("pace-s-grey").innerHTML = [["auto", tr("pace.greyBefore")], ["lastYear", tr("pace.greyLastYear")],
+    ["avg3", tr("pace.greyAvg", { n: 3 })], ["avg6", tr("pace.greyAvg", { n: 6 })], ["avg12", tr("pace.greyAvg", { n: 12 })], ["month", tr("pace.greyOther")]]
+    .map(([v, t]) => opt(v, t, v === greyVal)).join("");
+  const other = document.getElementById("pace-s-other");
+  other.hidden = g.kind !== "month";
+  // Every month but the blue one (a month against itself says nothing); it starts on the month before the blue one.
+  const otherSel = g.month && g.month !== r.curKey ? g.month : paceShift_(r.curKey, -1);
+  other.innerHTML = months.filter((m) => m.month !== r.curKey).map((m) => opt(m.month, paceMonthName_(m.month), otherSel === m.month)).join("");
+  // Which expenses (only where the server can filter).
+  const field = document.getElementById("pace-s-cats-field");
+  field.hidden = !paceCanFilter_();
+  if (paceCanFilter_()) {
+    const cv = view && view.cats ? `${view.cats.kind}:${view.cats.id}` : "all";
+    const cats = sortedCategories_(meta.categories.filter((c) => c.type === "expense" && !c.hidden));
+    const buds = (budgetsLoaded_ || []).filter((b) => b.category_ids && b.category_ids.length);
+    document.getElementById("pace-s-cats").innerHTML = opt("all", tr("pace.catsAll"), cv === "all") +
+      `<optgroup label="${escapeHtml(tr("pace.catsCategories"))}">${cats.map((c) => opt("category:" + c.id, `${c.icon ? c.icon + " " : ""}${c.name}`, cv === "category:" + c.id)).join("")}</optgroup>` +
+      (buds.length ? `<optgroup label="${escapeHtml(tr("pace.catsBudgets"))}">${buds.map((b) => opt("budget:" + b.id, `${b.category_icon ? b.category_icon + " " : ""}${b.category_name}`, cv === "budget:" + b.id)).join("")}</optgroup>` : "");
+  }
+}
+
+// Any change on the screen makes (or updates) the custom view, kept on this phone until changed or reset.
+function paceViewFromControls_() {
+  const blue = document.getElementById("pace-s-blue").value;
+  const gv = document.getElementById("pace-s-grey").value;
+  const grey = gv.startsWith("avg") ? { kind: "avg", n: Number(gv.slice(3)) } : gv === "month" ? { kind: "month", month: document.getElementById("pace-s-other").value } : { kind: gv };
+  let cats = null;
+  const cv = paceCanFilter_() ? document.getElementById("pace-s-cats").value : "all";
+  if (cv.startsWith("category:")) {
+    const c = meta.categories.find((x) => x.id === cv.slice(9));
+    if (c) cats = { kind: "category", id: c.id, ids: [c.id], name: c.name };
+  } else if (cv.startsWith("budget:")) {
+    const b = (budgetsLoaded_ || []).find((x) => x.id === cv.slice(7));
+    if (b) cats = { kind: "budget", id: b.id, ids: b.category_ids || [], name: b.category_name };
+  }
+  return { blue, grey, cats };
+}
+["pace-s-blue", "pace-s-grey", "pace-s-other", "pace-s-cats"].forEach((id) => document.getElementById(id).addEventListener("change", () => {
+  const v = paceViewFromControls_();
+  // "Another month…" just chosen, or the blue month moved onto the grey one: the grey one becomes the month before the blue one.
+  const blueKey = v.blue === "this" ? (monthsHist_ ? monthsHist_.months[monthsHist_.months.length - 1].month : null) : v.blue;
+  if (v.grey.kind === "month" && blueKey && (id === "pace-s-grey" || v.grey.month === blueKey)) v.grey.month = paceShift_(blueKey, -1);
+  setPaceView_(v);
+  renderPaceScreen_();
+  if (monthsHist_) renderPaceBig_();
+}));
+document.getElementById("pace-s-reset").addEventListener("click", () => {
+  setPaceView_(null);
+  renderPaceScreen_();
+  if (monthsHist_) renderPaceBig_();
+});
 
 (function wirePaceBig_() {
   // The graph and the bars scroll/swipe without triggering Overview's own month-to-month swipe.

@@ -3628,3 +3628,18 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .loans-ov-owed { display: block; width: 100%; margin-top: 10px; padding: 10px 0 0; min-height: 44px; border: none; border-top: 1px solid var(--border);
   background: none; font: inherit; font-size: 0.85rem; color: var(--accent); text-align: left; cursor: pointer; }
 .loans-ov-owed[hidden] { display: none; }
+/* Spending pace screen (owner, 2026-11-07) */
+.pace-screen { display: flex; flex-direction: column; }
+.pace-screen-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.pace-screen-body label { display: block; margin-top: 14px; }
+.pace-screen-body select { width: 100%; }
+#pace-s-other { margin-top: 8px; }
+.home-line-svg.pace-screen-svg { height: 200px; }
+.pace-days { position: relative; height: 16px; font-size: 0.7rem; color: var(--muted); }
+.pace-days span { position: absolute; transform: translateX(-50%); }
+#pace-s-lines { flex-wrap: wrap; }
+.pace-diff { flex: 1 0 100%; margin-top: 6px; font-size: 0.85rem; color: var(--muted); }
+.pace-custom-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 4px; font-size: 0.85rem; color: var(--muted); }
+.pace-custom-row .add-inline { margin: 0; }
+#pace-card { cursor: pointer; }
+#pace-s-reset { margin-top: 8px; padding-left: 0; }

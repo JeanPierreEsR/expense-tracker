@@ -523,6 +523,10 @@
           <button type="button" class="period-type-chip-like" data-pace-ref="last" data-i18n="pace.refLast">Against earlier months</button>
           <button type="button" class="period-type-chip-like" data-pace-ref="year" data-i18n="pace.refYear">Against last year</button>
         </div>
+        <div class="pace-custom-row" id="pace-custom-row" hidden>
+          <span data-i18n="pace.customView">Custom view</span>
+          <button type="button" class="add-inline" id="pace-custom-reset" data-i18n="pace.reset">Reset</button>
+        </div>
         <svg class="home-line-svg pace-big" id="pace-svg" viewBox="0 0 300 150" preserveAspectRatio="none" aria-hidden="true"></svg>
         <div class="home-pace-lines" id="pace-lines"></div>
       </div>
@@ -1575,6 +1579,36 @@
   <div id="app-undo-toast" class="app-toast app-undo-toast" role="status" hidden>
     <span id="app-undo-text"></span>
     <button type="button" id="app-undo-btn" class="app-undo-btn" data-i18n="tidy.undo">Undo</button>
+  </div>
+
+  <!-- Spending pace screen (owner, 2026-11-07): a tap on Overview's Spending pace card; customises what the graph compares. -->
+  <div id="pace-screen-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal currency-screen pace-screen">
+      <div class="currency-modal-header">
+        <span data-i18n="home.paceTitle">Spending pace</span>
+        <button type="button" id="pace-screen-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="pace-screen-body">
+        <div id="pace-s-loading"></div>
+        <div id="pace-s-content" hidden>
+          <div id="pace-s-label" class="pace-ref-label"></div>
+          <svg class="home-line-svg pace-big pace-screen-svg" id="pace-s-svg" viewBox="0 0 300 200" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="pace-days" id="pace-s-days" aria-hidden="true"></div>
+          <div class="home-pace-lines" id="pace-s-lines"></div>
+          <label for="pace-s-blue" data-i18n="pace.blueLabel">Blue line</label>
+          <select id="pace-s-blue"></select>
+          <label for="pace-s-grey" data-i18n="pace.greyLabel">Compare with (grey line)</label>
+          <select id="pace-s-grey"></select>
+          <select id="pace-s-other" hidden data-i18n-aria-label="pace.greyOther" aria-label="Another month"></select>
+          <div id="pace-s-cats-field">
+            <label for="pace-s-cats" data-i18n="pace.catsLabel">Which expenses</label>
+            <select id="pace-s-cats"></select>
+          </div>
+          <p class="hint" data-i18n="pace.keptHint">Your choice stays on this phone, and the Overview card shows it too, until you change it or reset it.</p>
+          <button type="button" class="add-inline" id="pace-s-reset" hidden data-i18n="pace.resetLong">Reset to the usual view</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="currency-modal-backdrop" class="currency-modal-backdrop" hidden>

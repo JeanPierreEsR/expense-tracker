@@ -122,7 +122,9 @@ function getHomeGlance() {
 // the Overview asks for it, so Home's single glance request stays light.
 var HOME_HISTORY_MAX_MONTHS_ = 120;
 
-function getMonthlyHistory() {
+function getMonthlyHistory(payload) {
+  // The Spending pace screen (owner, 2026-11-07) can follow only some categories (one category, or one budget's): their expenses only.
+  var onlyCats = payload && payload.categoryIds && payload.categoryIds.length ? payload.categoryIds.map(String) : null;
   var today = formatCalendarDate_(new Date());
   var curKey = today.substring(0, 7);
   var curDay = Number(today.substring(8, 10));
@@ -137,6 +139,7 @@ function getMonthlyHistory() {
   var firstKey = curKey;
   getAllRows('Entries').forEach(function (e) {
     if (e.status !== 'confirmed' || e.type === 'transfer') return;
+    if (onlyCats && (e.type !== 'expense' || onlyCats.indexOf(String(e.category_id)) < 0)) return;
     var key = String(e.date).substring(0, 7);
     if (key > curKey) return;
     var rate = getRateForEntryCurrency_(e.currency, e.date);
