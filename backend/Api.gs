@@ -272,6 +272,8 @@ function routeActionSwitch_(action, payload) {
     case 'getCompanyDetail': return getCompanyDetail(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'savePaymentMethod': return savePaymentMethod(payload);
+    case 'getAccountCurrencySuggestions': return getAccountCurrencySuggestions();
+    case 'applyAccountCurrencySuggestions': return applyAccountCurrencySuggestions(payload);
     case 'removePaymentMethod': return removePaymentMethod(payload);
     case 'removePaymentMethods': return removePaymentMethods(payload);
     case 'deletePaymentMethod': return deletePaymentMethod(payload);

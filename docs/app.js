@@ -13243,6 +13243,63 @@ function showAccountsScreen() {
   // (Investments is offered only once the Accounts one was seen, so the two cards never show together).
   offerAccountsTip_();
   offerInvestmentsTip_();
+  refreshAccountSuggestions_();
+}
+
+// Suggested currencies for older accounts (owner, 2026-11-06): shown once they have arrived, editable, and nothing is saved until Apply.
+// "Not now" hides it until the screen is next opened. Only the owner's copy gets any rows.
+async function refreshAccountSuggestions_() {
+  const card = document.getElementById("accounts-suggest-card");
+  let finished = false;
+  try { finished = localStorage.getItem("accountCurSuggestDone") === "1"; } catch (err) { /* private mode */ }
+  if (finished || !((meta && meta.capabilities) || {}).accountCurrencySuggest || Spotlight.isRunning()) { card.hidden = true; return; }
+  let res;
+  try { res = await callApi("getAccountCurrencySuggestions", {}); } catch (err) { card.hidden = true; return; }
+  if (!res.accounts.length || document.getElementById("screen-accounts").hidden) { card.hidden = true; return; }
+  const picked = {};
+  card.innerHTML = `<h2 style="margin-top:0;">${escapeHtml(tr("acur.title"))}</h2><p class="hint">${escapeHtml(tr("acur.hint"))}</p>`;
+  res.accounts.forEach((a) => {
+    picked[a.id] = a.proposed.slice();
+    const row = document.createElement("div");
+    row.className = "acur-row";
+    const share = Object.keys(a.counts).sort((x, y) => a.counts[y] - a.counts[x]).map((c) => `${c} ${Math.round(a.counts[c] / a.total * 100)}%`).join(", ");
+    const why = a.source === "name" ? tr("acur.fromName") : a.source === "entries" ? tr("acur.fromEntries", { n: a.total, list: share }) : tr("acur.none", { n: a.total });
+    row.innerHTML = `<div class="acur-name">${escapeHtml(a.nickname)}</div><div class="hint">${escapeHtml(why)}</div><div class="acur-ticks"></div>`;
+    const codes = [...new Set([...a.proposed, ...Object.keys(a.counts), homeCur(), "USD"])];
+    codes.forEach((c) => {
+      const label = document.createElement("label");
+      label.className = "checkbox-row";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = a.proposed.includes(c);
+      input.addEventListener("change", () => { picked[a.id] = input.checked ? [...picked[a.id], c] : picked[a.id].filter((x) => x !== c); });
+      const text = document.createElement("span");
+      text.textContent = `${findCurrency(c).flag} ${c}`;
+      label.appendChild(input);
+      label.appendChild(text);
+      row.querySelector(".acur-ticks").appendChild(label);
+    });
+    card.appendChild(row);
+  });
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.className = "primary";
+  apply.id = "accounts-suggest-apply";
+  apply.textContent = tr("acur.apply");
+  apply.addEventListener("click", () => {
+    card.hidden = true;
+    try { localStorage.setItem("accountCurSuggestDone", "1"); } catch (err) { /* private mode */ }   // (accounts left empty are not asked about again)
+    const items = Object.keys(picked).filter((id) => picked[id].length).map((id) => ({ id, currencies: picked[id] }));
+    saveBehindScreen_(() => callApi("applyAccountCurrencySuggestions", { items }), async () => { await loadMeta(); renderAccountsList_(); });
+  });
+  const later = document.createElement("button");
+  later.type = "button";
+  later.className = "add-inline";
+  later.textContent = tr("acur.notNow");
+  later.addEventListener("click", () => { card.hidden = true; });
+  card.appendChild(apply);
+  card.appendChild(later);
+  card.hidden = false;
 }
 
 function renderAccountsList_() {

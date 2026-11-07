@@ -163,6 +163,72 @@ function accountCurrenciesValue_(list) {
   return codes.length ? codes.join(',') : 'none';
 }
 
+// ---- Suggested currencies for older accounts (owner, 2026-11-06) ----
+// Accounts made before kinds existed have no known currency. The app proposes one from the name or the entries, the person sees it in More →
+// Accounts and nothing is written until they tap Apply (the owner asked to see it first, so this is not a heal). Only on the owner's copy.
+/** Pure: the currency an account's name states ('' when none, or more than one). 'BCP soles' -> 'PEN', 'IBK dolares' -> 'USD'. */
+function accountNameCurrency_(name) {
+  var n = ' ' + String(name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9$\/]+/g, ' ') + ' ';
+  var found = [];
+  if (/ (sol|soles|pen) | s\/ /.test(n)) found.push('PEN');
+  if (/ (dolar|dolares|dollar|dollars|usd) | us\$ /.test(n)) found.push('USD');
+  if (/ (euro|euros|eur) /.test(n)) found.push('EUR');
+  return found.length === 1 ? found[0] : '';
+}
+
+/** Pure: every currency with at least 10% of an account's entries (5 entries or more), most used first, or []. */
+function accountEntriesCurrencies_(currencies) {
+  if (currencies.length < 5) return [];
+  var counts = {};
+  currencies.forEach(function (c) { counts[c] = (counts[c] || 0) + 1; });
+  return Object.keys(counts).filter(function (c) { return counts[c] / currencies.length >= 0.1; }).sort(function (a, b) { return counts[b] - counts[a]; });
+}
+
+// The app knows nothing about this account's currency yet (the same reading as the phone's accountCurrencyList_).
+function accountCurrencyUnknown_(pm) {
+  var kind = String(pm.alias_kind || '');
+  return (pm.type === 'debit' || pm.type === 'credit') && !String(pm.currencies || '') && kind !== 'credit' && kind !== 'sueldo' && !/_[a-z]{3}$/.test(kind) && !isPracticeAccount_(pm);
+}
+
+function getAccountCurrencySuggestions() {
+  if (isFriendCopy_()) return { accounts: [] };
+  var accounts = getAllRows('Payment Methods').filter(accountCurrencyUnknown_);
+  var byAccount = {};
+  if (accounts.length) getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed' || !e.currency) return;
+    [e.payment_method_id, e.to_payment_method_id].forEach(function (id) {
+      if (id) (byAccount[String(id)] = byAccount[String(id)] || []).push(String(e.currency));
+    });
+  });
+  return { accounts: accounts.map(function (pm) {
+    var list = byAccount[String(pm.id)] || [];
+    var counts = {};
+    list.forEach(function (c) { counts[c] = (counts[c] || 0) + 1; });
+    var named = accountNameCurrency_(pm.nickname);
+    var fromEntries = accountEntriesCurrencies_(list);
+    return { id: pm.id, nickname: pm.nickname, type: pm.type, source: named ? 'name' : fromEntries.length ? 'entries' : 'none',
+      proposed: named ? [named] : fromEntries, counts: counts, total: list.length };
+  }) };
+}
+
+/** payload: { items: [{ id, currencies }] }. Writes only the list, only on an account the app still knows nothing about. */
+function applyAccountCurrencySuggestions(payload) {
+  if (isFriendCopy_()) throw new Error(tr_('err.pmNotFound'));
+  ensurePaymentMethodCurrenciesColumn_();
+  var sheet = getSheet('Payment Methods');
+  var headers = getHeaders(sheet);
+  var rows = getAllRows('Payment Methods');
+  var changed = 0;
+  ((payload && payload.items) || []).forEach(function (item) {
+    var pm = rows.find(function (p) { return String(p.id) === String(item.id); });
+    if (!pm || !accountCurrencyUnknown_(pm) || !(item.currencies || []).length) return;
+    setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, pm.id), 'currencies', accountCurrenciesValue_(item.currencies));
+    changed++;
+  });
+  if (changed) { if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods']; bumpStructureVersion_(); }
+  return { changed: changed };
+}
+
 function cleanLast4_(v) {
   var s = String(v == null ? '' : v).trim();
   if (s && !/^\d{4}$/.test(s)) throw new Error(tr_('err.pmLast4'));
