@@ -627,7 +627,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
 const ONCE_ACTIONS = new Set([
-  "createEntry", "saveEntryAll", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
+  "fillEntryCharge", "createEntry", "saveEntryAll", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
@@ -643,7 +643,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 
 // Saving or changing any of these can cross a budget, a trip budget or a loan's due date: a few seconds later the app asks the server to
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
-const ALERT_CHANGING_ACTIONS = new Set(["createEntry", "saveEntryAll", "updateEntry", "deleteEntries", "deleteBudget", "deleteBudgets", "deleteTrip", "deleteTrips", "deleteLoan", "deleteRepayment", "deleteSettlement", "confirmEntry", "discardEntry", "convertPendingToTransfer",
+const ALERT_CHANGING_ACTIONS = new Set(["fillEntryCharge", "createEntry", "saveEntryAll", "updateEntry", "deleteEntries", "deleteBudget", "deleteBudgets", "deleteTrip", "deleteTrips", "deleteLoan", "deleteRepayment", "deleteSettlement", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "confirmEntries", "discardEntries", "setEntriesCategory", "undoSetEntriesCategory", "setEntriesTrip", "undoSetEntriesTrip", "restoreDeletedEntries",   // the bulk ones (QA round 1)
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
   "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
@@ -1436,6 +1436,7 @@ function showDetailForm(category) {
   document.getElementById("category-picker").hidden = true;
   document.getElementById("entry-form").hidden = false;
   toggleSplitFieldVisibility();
+  setTimeout(updateChargeBox_, 0);
   tripPickLocked_ = false;   // a fresh form: suggest again
   repaymentFriendTouched_ = false;
   autoPickTripForDate_();
@@ -3100,6 +3101,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       throw new Error(tr("error.pickPaymentMethod"));
     }
     const splits = validateSplitIfEnabled();
+    const charge = chargeForSave_(amount, currency, splits, selectedType, paidByForCharge_());
     const tagIds = Array.from(selectedTagIds);
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
     const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
@@ -3260,23 +3262,24 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // can't reach.
       // The server refuses to confirm an expense / income without a category; say so here, while the form is still open.
       if ((selectedType === "expense" || selectedType === "income") && !categoryId) throw new Error(tr("error.pickCategory"));
-      await ensureExchangeRate(currency, date);
+      await ensureExchangeRate(charge.currency, date);
       // Sent in the background (2026-10-28), through the same queue as a plain Confirm tap: it is written to this phone first
       // and retried until the server has it (see sendPendingConfirmInBackground_).
       queueReviewAction_(confirmingPendingId, "confirm", withoutUnchangedDate_({
         type: selectedType,
         date,
-        amount: isWithdrawal ? -amount : amount,
-        currency,
+        amount: isWithdrawal ? -charge.amount : charge.amount,
+        currency: charge.currency,
         ...categoryField,
         description,
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         to_payment_method_id: toPaymentMethodId,
         trip_id: tripId,
+        ...charge.fields,
         ...businessLink
       }, confirmingPendingId), {
-        splits: selectedType === "expense" && (paidBy !== "me" || (splits && splits.length)) ? (splits || []) : null,
+        splits: selectedType === "expense" && (paidBy !== "me" || (splits && splits.length)) ? (charge.splits || []) : null,
         tagIds
       });
       backgroundSaved = { kind: "confirm", id: confirmingPendingId };
@@ -3377,7 +3380,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // (handled above, under isRepayment) or confirming a pending entry
       // (below, under confirmingPendingId) — both stay blocking, being
       // less frequent and already more involved than a plain edit.
-      await ensureExchangeRate(currency, date);
+      await ensureExchangeRate(charge.currency, date);
       // Switching the type of an entry other records hang on (a repayment's or loan's money movement, a forgiveness
       // entry, one side of a currency exchange) is refused: asked HERE so the reason shows before the form closes,
       // and again by the server on the queued save.
@@ -3413,14 +3416,15 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       const fields = withoutUnchangedDate_({
         type: selectedType,
         date,
-        amount: isWithdrawal ? -amount : amount,
-        currency,
+        amount: isWithdrawal ? -charge.amount : charge.amount,
+        currency: charge.currency,
         ...categoryField,
         description,
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         to_payment_method_id: toPaymentMethodId,
         trip_id: tripId,
+        ...charge.fields,
         ...businessLink
       }, id);
       // null (not an expense, never was) means "don't touch splits" — see
@@ -3453,7 +3457,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         }
         return;
       }
-      queueEntryEdit_(id, fields, sendSplits ? (splits || []) : null, tagIds, billToSave, repeat ? { repeat } : undefined);
+      queueEntryEdit_(id, fields, sendSplits ? (charge.splits || []) : null, tagIds, billToSave, repeat ? { repeat } : undefined);
       exitEditMode();
       flushEntryEdit_(id); // not awaited — runs in the background
       // Re-rendered from what's already in hand (with the queued edit
@@ -3499,21 +3503,22 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     } else if ((meta.capabilities || {}).clientEntryId) {
       // Saved in the background (2026-10-28): the sheet closes at once and the row says "Saving…". The entry gets its id here
       // (sent as client_id), so a repeat of the save never makes a second one; failures come back as a "couldn't save" row.
-      await ensureExchangeRate(currency, date);
+      await ensureExchangeRate(charge.currency, date);
       const newId = newClientEntryId_();
       queueEntryEdit_(newId, {
         type: selectedType,
         date,
-        amount: isWithdrawal ? -amount : amount,
-        currency,
+        amount: isWithdrawal ? -charge.amount : charge.amount,
+        currency: charge.currency,
         ...categoryField,
         description,
         paid_by: paidBy,
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         to_payment_method_id: toPaymentMethodId,
         trip_id: tripId,
+        ...charge.fields,
         ...businessLink
-      }, splits || [], tagIds, billApplied && splits && splits.length ? billToJSON_() : undefined,
+      }, charge.splits || [], tagIds, billApplied && splits && splits.length ? billToJSON_() : undefined,
       { kind: "create", linkRecurringId: payingRecurringId_ || "", repeat });
       backgroundSaved = { kind: "create", id: newId };
       tipNoteSavedEntry_(newId, description);
@@ -3584,6 +3589,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
     document.getElementById("to_payment_method").value = "";
+    resetChargeBox_();
     // The next entry starts in the main currency again (owner, 2026-11-04: a USD expense made the next grocery entry USD too, unnoticed).
     if (document.getElementById("currency").value !== homeCur()) selectCurrency(homeCur(), "entry");
     lastAutoDescription = "";
@@ -3710,6 +3716,12 @@ function entryFlowDirection_(entry) {
 }
 
 function renderEntryAmountHtml(entry) {
+  const html = renderEntryAmountPlainHtml_(entry);
+  if (String(entry.charge_pending || "") === "1") return html.replace(/<span class="primary-amt">/, `<span class="primary-amt">≈ `);
+  if (Number(entry.paid_amount) > 0 && entry.paid_currency) return `${html}<span class="original-amt charge-paid-line">${escapeHtml(tr("charge.paid", { amount: formatAmount(entry.paid_amount, entry.paid_currency) }))}</span>`;
+  return html;
+}
+function renderEntryAmountPlainHtml_(entry) {
   const dir = entryFlowDirection_(entry);
   // A withdrawal is stored negative: show its size, the sign comes from the direction.
   const shown = entry.type === "investment" && Number(entry.amount) < 0
@@ -3840,7 +3852,8 @@ function entryMetaHtml_(entry, headline) {
     .filter(Boolean)
     .map((t) => `<span class="entry-tag">${escapeHtml(t.name)}</span>`)
     .join("");
-  return `${listDate_(entry.date)}${headline.meta ? " · " + headline.meta : ""}${pills ? ` <span class="entry-tags">${pills}</span>` : ""}`;
+  const pendingNote = String(entry.charge_pending || "") === "1" ? " · " + escapeHtml(tr("charge.pending")) : "";
+  return `${listDate_(entry.date)}${headline.meta ? " · " + headline.meta : ""}${pendingNote}${pills ? ` <span class="entry-tags">${pills}</span>` : ""}`;
 }
 
 // How many rows the Entries tab shows. Grows by ENTRY_PAGE_SIZE each time
@@ -5119,6 +5132,8 @@ function setEntryLoading_(state) {
 }
 
 async function startEditEntry(entry) {
+  resetChargeBox_(entry);
+  setTimeout(updateChargeBox_, 300);   // (once the form below shows this entry)
   // A plain edit always starts as a plain edit: the "type of transfer" and the person must not carry over from a previous
   // form that was cancelled half-way (it would silently start a loan / repayment conversion).
   document.getElementById("transfer-kind").value = "between";
@@ -5281,6 +5296,7 @@ async function startEditEntry(entry) {
 }
 
 function exitEditMode() {
+  resetChargeBox_();
   entryLoadSeq_++;
   setEntryLoading_("");
   editingEntryId = null;
@@ -7509,8 +7525,19 @@ function renderHomeUnreadable_() {
   box.hidden = false;
 }
 
+function renderHomeCharges_() {
+  const box = document.getElementById("home-charges");
+  const c = homeGlance_ && homeGlance_.charges;
+  if (!c || !c.count) { box.hidden = true; return; }
+  const sub = c.old ? (c.old === 1 ? tr("charges.lateOne") : tr("charges.late", { n: c.old })) : tr("charges.sub");
+  box.classList.toggle("late", !!c.old);
+  box.innerHTML = `<span><div class="home-charges-title">${escapeHtml(tr("charges.title", { n: c.count }))}</div><p class="hint">${escapeHtml(sub)}</p></span><span class="home-charges-chevron">›</span>`;
+  box.hidden = false;
+}
+
 function renderHomeGlance_() {
   renderHomeUnreadable_();
+  renderHomeCharges_();
   const box = document.getElementById("home-glance");
   const track = document.getElementById("home-glance-track");
   const dots = document.getElementById("home-glance-dots");
@@ -23738,6 +23765,170 @@ document.getElementById("payment_method").addEventListener("change", (e) => {
   warnCreditCardPick_(e.target, repaymentDirectionChoice !== "i_owe_them");   // "I paid them" = money goes out
 });
 
+// ---- What the account really charged (owner, 2026-11-06; backend/Charges.gs) ----
+// The form's box. In a currency the account does not have (ARS on a USD card) it asks what was charged; empty = the charge is pending.
+// In a currency it has, a small link offers what was paid, optional. Only for an expense the person paid from a card or account with a
+// known list, never during a practice.
+let chargeEntry_ = null, chargeOpen_ = false, chargeLastCur_ = "";
+const chargeOn_ = () => !!((meta && meta.capabilities) || {}).chargeFill;
+const paidByForCharge_ = () => { const el = document.getElementById("paid_by"); return el ? el.value : "me"; };
+function resetChargeBox_(entry) {
+  chargeEntry_ = entry && entry.type === "expense" ? entry : null;
+  chargeOpen_ = false;
+  chargeLastCur_ = "";
+  document.getElementById("charge-amount").value = chargeEntry_ && Number(chargeEntry_.paid_amount) > 0 ? chargeEntry_.paid_amount : "";
+  document.getElementById("charge-open").hidden = true;
+  document.getElementById("charge-box").hidden = true;
+}
+function chargeMode_() {
+  if (!chargeOn_() || typeof selectedType === "undefined" || selectedType !== "expense" || Spotlight.isRunning()) return "";
+  if (paidByForCharge_() !== "me") return "";
+  const sel = document.getElementById("payment_method");
+  const pm = sel && (meta.paymentMethods || []).find((p) => String(p.id) === String(sel.value));
+  const list = accountCurrencyList_(pm);
+  if (!list.length) return "";
+  return { pm, list, off: !list.includes(document.getElementById("currency").value) };
+}
+function updateChargeBox_() {
+  const mode = chargeMode_();
+  const open = document.getElementById("charge-open"), box = document.getElementById("charge-box");
+  if (!mode) { open.hidden = true; box.hidden = true; return; }
+  const cur = document.getElementById("currency").value;
+  const hasPaid = !mode.off && chargeEntry_ && Number(chargeEntry_.paid_amount) > 0;
+  const showBox = mode.off || chargeOpen_ || hasPaid;
+  open.hidden = showBox;
+  box.hidden = !showBox;
+  if (!showBox) return;
+  const sel = document.getElementById("charge-currency");
+  const kind = mode.off ? "off:" + mode.list.join(",") : "paid";
+  if (chargeLastCur_ !== kind) {
+    chargeLastCur_ = kind;
+    sel.innerHTML = exchangeCurrencyOptions_("");
+    const paidCur = chargeEntry_ && chargeEntry_.paid_currency;
+    sel.value = mode.off ? mode.list[0] : (paidCur || (cur === homeCur() ? "USD" : homeCur()));
+  }
+  document.getElementById("charge-label").textContent = tr(mode.off ? (mode.pm.type === "credit" ? "charge.card" : "charge.account") : "charge.paidLabel");
+  document.getElementById("charge-hint").textContent = tr(mode.off ? "charge.hint" : "charge.paidHint");
+  updateChargeRate_();
+}
+document.getElementById("charge-open").addEventListener("click", () => { chargeOpen_ = true; updateChargeBox_(); });
+currencyPickOn_(document.getElementById("charge-currency"));
+["change", "click"].forEach((ev) => document.getElementById("entry-form").addEventListener(ev, () => setTimeout(updateChargeBox_, 0)));
+
+// The rate the two amounts imply, the stronger currency as 1 (owner, 2026-11-07: a check that the charge was typed right).
+function chargeRateText_(amountA, curA, amountB, curB) {
+  const a = Number(amountA), b = Number(amountB);
+  if (!(a > 0) || !(b > 0) || !curA || !curB || curA === curB) return "";
+  const [strong, weak, rate] = b / a >= 1 ? [curA, curB, b / a] : [curB, curA, a / b];
+  const shown = rate.toLocaleString("en-US", { maximumFractionDigits: rate >= 100 ? 2 : 4 });
+  return tr("charge.rate", { strong, weak, rate: shown });
+}
+function updateChargeRate_() {
+  const el = document.getElementById("charge-rate");
+  const text = document.getElementById("charge-box").hidden ? "" : chargeRateText_(document.getElementById("amount").value, document.getElementById("currency").value,
+    document.getElementById("charge-amount").value, document.getElementById("charge-currency").value);
+  el.textContent = text;
+  el.hidden = !text;
+}
+["charge-amount", "amount"].forEach((id) => document.getElementById(id).addEventListener("input", updateChargeRate_));
+document.getElementById("charge-currency").addEventListener("change", updateChargeRate_);
+
+// What a save sends. `amount`, `currency` and `splits` become what was charged when that is known; `fields` holds the rest.
+function chargeForSave_(amount, currency, splits, type, paidBy) {
+  const plain = { amount, currency, splits, fields: {} };
+  const had = chargeEntry_ && (Number(chargeEntry_.paid_amount) > 0 || String(chargeEntry_.charge_pending || "") === "1");
+  const cleared = had ? { paid_amount: "", paid_currency: "", charge_pending: "" } : {};
+  const mode = chargeMode_();
+  if (!mode || type !== "expense" || paidBy !== "me") return { ...plain, fields: cleared };
+  const box = document.getElementById("charge-box");
+  const typed = box.hidden ? 0 : parseFloat(document.getElementById("charge-amount").value);
+  const other = document.getElementById("charge-currency").value;
+  if (mode.off) {
+    if (typed > 0) {
+      const ratio = typed / amount;
+      return { amount: typed, currency: other, fields: { paid_amount: amount, paid_currency: currency, charge_pending: "" },
+        splits: splits ? splits.map((s) => ({ ...s, amount: Math.round(Number(s.amount) * ratio * 1e6) / 1e6 })) : splits };
+    }
+    // An older entry that is only being corrected stays as it was; only a new purchase, or a changed account or currency, starts waiting.
+    const same = chargeEntry_ && !confirmingPendingId && chargeEntry_.currency === currency && String(chargeEntry_.payment_method_id) === String(mode.pm.id);
+    if (same && String(chargeEntry_.charge_pending || "") !== "1") return { ...plain, fields: cleared };
+    return { ...plain, fields: { paid_amount: "", paid_currency: "", charge_pending: "1" } };
+  }
+  if (typed > 0 && other !== currency) return { ...plain, fields: { paid_amount: typed, paid_currency: other, charge_pending: "" } };
+  return { ...plain, fields: cleared };
+}
+
+// Home's list of charges to fill in. One line each; it opens at once, and shows its lines when they have arrived.
+let chargesList_ = [];
+function chargesModalClose_() { document.getElementById("charges-modal-backdrop").hidden = true; }
+document.getElementById("charges-modal-close").addEventListener("click", chargesModalClose_);
+async function openChargesModal_() {
+  const backdrop = document.getElementById("charges-modal-backdrop"), box = document.getElementById("charges-list");
+  box.innerHTML = loadingHtml_();
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  try {
+    chargesList_ = await callApi("listPendingCharges", {});
+    renderChargesList_();
+  } catch (err) {
+    box.innerHTML = `<p class="charge-line-error">${escapeHtml(err.message)}</p>`;
+  }
+}
+function chargeDoneRefresh_() {
+  renderChargesList_();
+  refreshHomeGlance_(true);
+  refreshEntryList();
+}
+function renderChargesList_() {
+  const box = document.getElementById("charges-list");
+  box.innerHTML = "";
+  if (!chargesList_.length) { box.innerHTML = `<p class="hint">${escapeHtml(tr("charges.none"))}</p>`; return; }
+  chargesList_.forEach((c) => {
+    const pm = (meta.paymentMethods || []).find((p) => String(p.id) === String(c.payment_method_id));
+    const list = accountCurrencyList_(pm);
+    const line = document.createElement("div");
+    line.className = "charge-line";
+    const name = c.description || (findCategory(c.category_id) ? categoryName(c.category_id) : tr("confirm.thisEntry"));
+    line.innerHTML = `
+      <div class="charge-line-top"><span class="charge-line-name">${c.old ? "⏰ " : ""}${escapeHtml(name)}</span><span class="charge-line-amount">${escapeHtml(formatAmount(c.amount, c.currency))}</span></div>
+      <p class="hint">${escapeHtml(listDate_(c.date))}${c.account ? " · " + escapeHtml(c.account) : ""}</p>
+      <label>${escapeHtml(tr(pm && pm.type !== "credit" ? "charge.account" : "charge.card"))}</label>
+      <div class="charge-line-row"><select class="charge-line-cur">${exchangeCurrencyOptions_(list[0] || homeCur())}</select><input type="text" inputmode="decimal" class="charge-line-input" placeholder="0.00"><button type="button" class="add-inline charge-save">${escapeHtml(tr("charges.save"))}</button></div>
+      <p class="hint charge-rate" hidden></p>
+      <p class="charge-line-error" hidden></p>
+      <div class="charge-line-row charge-line-actions"><button type="button" class="add-inline charge-keep">${escapeHtml(tr("charges.keep", { currency: c.currency }))}</button><button type="button" class="add-inline charge-delete">${escapeHtml(tr("charges.delete"))}</button></div>`;
+    const curSel = line.querySelector(".charge-line-cur");
+    currencyPickOn_(curSel);
+    const rateEl = line.querySelector(".charge-rate");
+    const showRate = () => { const t = chargeRateText_(c.amount, c.currency, line.querySelector(".charge-line-input").value, curSel.value); rateEl.textContent = t; rateEl.hidden = !t; };
+    line.querySelector(".charge-line-input").addEventListener("input", showRate);
+    curSel.addEventListener("change", showRate);
+    const drop = () => { chargesList_ = chargesList_.filter((x) => x.id !== c.id); };
+    line.querySelector(".charge-save").addEventListener("click", async () => {
+      const amount = parseFloat(line.querySelector(".charge-line-input").value);
+      const error = line.querySelector(".charge-line-error");
+      if (!(amount > 0)) { error.textContent = tr("charges.needAmount"); error.hidden = false; return; }
+      const currency = curSel.value;
+      await ensureExchangeRate(currency, c.date);
+      drop();
+      renderChargesList_();
+      saveBehindScreen_(() => callApi("fillEntryCharge", { id: c.id, amount, currency }), chargeDoneRefresh_);
+    });
+    line.querySelector(".charge-keep").addEventListener("click", () => {
+      drop();
+      renderChargesList_();
+      saveBehindScreen_(() => callApi("keepEntryCharge", { id: c.id }), chargeDoneRefresh_);
+    });
+    line.querySelector(".charge-delete").addEventListener("click", async () => {
+      const summary = describeForConfirm_(c.description || "", formatAmount(c.amount, c.currency), c.date);
+      const done = await confirmAndDiscardEntry_(c.id, "expense", summary, () => { drop(); renderChargesList_(); });
+      if (done) chargeDoneRefresh_();
+    });
+    box.appendChild(line);
+  });
+}
+document.getElementById("home-charges").addEventListener("click", openChargesModal_);
+
 // `loan` is null to add a new one, or an existing loan (from
 // getFriendLoanDetail) to edit it. `returnFriend` is {id, name} when
 // opened from that friend's detail sheet, so it can be refreshed after.
@@ -24821,7 +25012,7 @@ async function refreshBalancesInner_() {
     const row = document.createElement("div");
     row.className = "balance-row";
     const [main, ...others] = r.balances;
-    const otherText = others.filter((b) => Math.abs(b.amount) > 0.004).map((b) => formatSignedBalance_(b.amount, b.currency)).join(" · ");
+    const otherText = others.filter((b) => Math.abs(b.amount) > 0.004).map((b) => formatSignedBalance_(b.amount, b.currency) + (b.waiting ? ` (${tr("charge.waiting")})` : "")).join(" · ");
     row.innerHTML = `
       <div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span>${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}</div>
       <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>
@@ -24931,7 +25122,7 @@ function renderBalanceCurrentLines_() {
     if (i > 0 && Math.abs(b.amount) <= 0.004) return;
     const line = document.createElement("div");
     line.className = "balance-current-line" + (b.amount < 0 ? " negative" : "");
-    line.textContent = formatSignedBalance_(b.amount, b.currency);
+    line.textContent = formatSignedBalance_(b.amount, b.currency) + (b.waiting ? ` · ${tr("charge.waiting")}` : "");
     el.appendChild(line);
   });
   const sel = document.getElementById("balance-check-currency");
