@@ -3074,7 +3074,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const tripGroup = tripId && splits && splits.length && !Spotlight.isRunning() ? (meta.friends || []).find((f) => f.trip_id === tripId) : null;
     if (tripGroup && !splits.some((s) => s.friend_id === tripGroup.id)) {
       const trip = (meta.trips || []).find((t) => t.id === tripId);
-      if (!confirm(tr("split.groupAsk", { trip: trip ? trip.name : "", group: tripGroup.name }))) throw new Error(tr("split.groupPick", { group: tripGroup.name }));
+      if (!confirm(tr("split.groupAsk", { trip: trip ? trip.name : "", kind: tr(trip && trip.kind === "event" ? "split.groupKind.event" : "split.groupKind.trip"), group: tripGroup.name }))) throw new Error(tr("split.groupPick", { group: tripGroup.name }));
     }
     const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
     if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
