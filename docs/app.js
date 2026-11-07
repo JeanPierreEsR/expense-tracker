@@ -8019,15 +8019,20 @@ document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.addEventLi
 function renderPaceBig_() {
   const card = document.getElementById("pace-card");
   const months = monthsHist_.months;
-  // Owner, 2026-11-07: the card shows for EVERY month in Month view. The blue line is the month in view (this month so far, or a
-  // past month in full); the two-way switch only changes the grey one: the month before it, or the same month a year earlier.
+  // Owner, 2026-11-07 — the card shows for every month in Month view, and the two-way switch decides what the months mean:
+  //  "Last month": the blue line is always THIS month; a picked earlier month becomes the grey one (October against August);
+  //                with this month (or a later one) picked, the grey one is the month before this one.
+  //  "Same month last year": the blue line is the picked month, the grey one the same month a year earlier.
   const key = (y, m) => `${y}-${String(m).padStart(2, "0")}`;
+  const prevKey = (k) => { const [y, m] = k.split("-").map(Number); return m === 1 ? key(y - 1, 12) : key(y, m - 1); };
   const selKey = key(periodAnchor.getFullYear(), periodAnchor.getMonth() + 1);
-  const cur = periodType === "month" ? months.find((m) => m.month === selKey) : null;   // null: a future month, or older than the history
+  const thisKey = months[months.length - 1].month;
   const mode = localStorage.getItem("paceRef") === "year" ? "year" : "last";
   document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.classList.toggle("active", b.dataset.paceRef === mode));
-  const [cy, cmo] = selKey.split("-").map(Number);
-  const refKey = mode === "year" ? key(cy - 1, cmo) : (cmo === 1 ? key(cy - 1, 12) : key(cy, cmo - 1));
+  const curKey = mode === "year" ? selKey : thisKey;
+  const [cy, cmo] = curKey.split("-").map(Number);
+  const refKey = mode === "year" ? key(cy - 1, cmo) : (selKey < thisKey ? selKey : prevKey(thisKey));
+  const cur = periodType === "month" ? months.find((m) => m.month === curKey) : null;   // null: a future month, or older than the history
   const ref = months.find((m) => m.month === refKey) || null;
   const isThisMonth = !!cur && cur === months[months.length - 1];
   const nowTotal = cur && cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
