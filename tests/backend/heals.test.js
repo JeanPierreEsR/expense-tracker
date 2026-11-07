@@ -112,6 +112,68 @@ test("a server that still reads dates the OLD way (in the script's zone) shows t
 test("heals are listed once each, in order, with ids that are never reused", () => {
   const rt = freshApp({ small: true }).rt;
   const ids = JSON.parse(rt.run("JSON.stringify(HEALS_.map(function (h) { return h.id; }))"));
-  assert.deepEqual(ids, ["sheet-time-zone", "paused-programmed-to-ended", "cash-name-language", "mailbox-address-to-line"]);
+  assert.deepEqual(ids, ["sheet-time-zone", "paused-programmed-to-ended", "cash-name-language", "mailbox-address-to-line", "owner-account-currencies"]);
   assert.equal(new Set(ids).size, ids.length);
+});
+
+// ---- The owner's accounts get a currency (2026-11-06) ----
+const owner = (opts) => require("./helpers").freshApp(Object.assign({ small: true }, opts));
+const jsv = (rt, code) => JSON.parse(rt.run("JSON.stringify(" + code + ")"));
+
+test("an account's name states its currency, in either language, or says nothing", () => {
+  const { rt } = owner();
+  for (const [name, want] of [["BCP soles", "PEN"], ["Ahorros Sol", "PEN"], ["IBK dolares", "USD"], ["Cuenta dólares", "USD"], ["Savings USD", "USD"], ["Ahorro euros", "EUR"],
+    ["Interbank", ""], ["Soldado", ""], ["Soles y dolares", ""], ["Autos", ""]]) {
+    assert.equal(jsv(rt, "accountNameCurrency_(" + JSON.stringify(name) + ")"), want, name);
+  }
+});
+
+test("entries decide only with 5 or more, listing every currency with 10% of them", () => {
+  const { rt } = owner();
+  const t = (list) => jsv(rt, "accountEntriesCurrencies_(" + JSON.stringify(list) + ")");
+  assert.deepEqual(t(["PEN", "PEN", "PEN", "PEN"]), []);
+  assert.deepEqual(t(["PEN", "PEN", "PEN", "PEN", "PEN"]), ["PEN"]);
+  assert.deepEqual(t(["USD", "USD", "USD", "USD", "PEN"]), ["USD", "PEN"]);
+  assert.deepEqual(t([...Array(19).fill("PEN"), "USD"]), ["PEN"], "5% is left out");
+});
+
+test("the heal fills the list where the app knows nothing: never a name, a kind, or a list already there", () => {
+  const { rt } = owner();
+  const add = (o) => rt.run("appendRowObject('Payment Methods', " + JSON.stringify(Object.assign({ last_4: "", bank_id: "" }, o)) + ")");
+  rt.run("ensurePaymentMethodAliasColumns_(); ensurePaymentMethodCurrenciesColumn_()");
+  add({ id: "h1", nickname: "Banco soles", type: "debit" });
+  add({ id: "h2", nickname: "Banco dolares", type: "debit" });
+  add({ id: "h3", nickname: "Banco sin nada", type: "debit" });
+  add({ id: "h4", nickname: "Tarjeta soles", type: "credit" });
+  add({ id: "h5", nickname: "Banco soles dos", type: "debit", alias_kind: "debit_usd" });
+  add({ id: "h6", nickname: "Mezcla", type: "debit" });
+  add({ id: "h7", nickname: "Banco soles tres", type: "debit", currencies: "EUR" });
+  add({ id: "h8", nickname: "Plain card", type: "credit", alias_kind: "credit" });
+  add({ id: "h9", nickname: "Efectivo soles", type: "cash" });
+  const cat = rt.rows("Categories").find((c) => c.type === "expense").id;
+  ["PEN", "PEN", "PEN", "USD", "USD"].forEach((currency, i) => rt.run("appendRowObject('Entries', " + JSON.stringify({ id: "he" + i, type: "expense", date: "2026-01-0" + (i + 1), amount: 5, currency, category_id: cat, payment_method_id: "h6", paid_by: "me", status: "confirmed" }) + ")"));
+  rt.run("healAccountCurrencies_()");
+  const of = (id) => rt.rows("Payment Methods").find((r) => r.id === id);
+  const cur = (id) => String(of(id).currencies || "");
+  assert.equal(cur("h1"), "PEN");
+  assert.equal(cur("h2"), "USD");
+  assert.equal(cur("h3"), "", "nothing to go on: left empty");
+  assert.equal(cur("h4"), "PEN", "an older card too");
+  assert.equal(cur("h5"), "", "a kind that names a currency already says");
+  assert.equal(cur("h6"), "PEN,USD", "mixed entries: both");
+  assert.equal(cur("h7"), "EUR", "a list already there stays");
+  assert.equal(cur("h8"), "", "a plain card already reads as both");
+  assert.equal(cur("h9"), "", "cash is left alone");
+  assert.equal(of("h1").nickname, "Banco soles", "names never change");
+  assert.equal(String(of("h1").alias_kind || ""), "", "kinds never change");
+});
+
+test("it runs on the owner's copy once and never on a friend's", () => {
+  const { rt } = owner();
+  rt.api("getMeta", {});
+  assert.ok(rt.svc.props.get("HEALS_DONE").split(",").includes("owner-account-currencies"));
+  const friend = owner().rt;
+  friend.svc.props.set("FEATURES", "base");   // what the installer writes: this is a friend's copy
+  friend.api("getMeta", {});
+  assert.ok(!String(friend.svc.props.get("HEALS_DONE") || "").split(",").includes("owner-account-currencies"));
 });
