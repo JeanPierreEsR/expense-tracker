@@ -3572,3 +3572,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .home-unreadable ul { margin: 6px 0; padding-left: 18px; font-size: 0.9em; overflow-wrap: anywhere; }
 
 #review-list > [hidden] { display: none; }
+/* A tab whose first load failed: the message instead of zeros or stale rows (setLoadFailed_). */
+.screen-load-failed { margin: 0 0 12px; }
+#screen-overview.load-failed > .card:not(#period-selector-card),
+#screen-budgets.load-failed > .card:not(#period-selector-card) { display: none; }
