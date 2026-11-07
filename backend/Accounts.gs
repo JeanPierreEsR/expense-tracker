@@ -140,6 +140,29 @@ function ensurePaymentMethodAliasColumns_() {
   if (added) { if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods']; bumpStructureVersion_(); }
 }
 
+// The currencies an account has (owner, 2026-11-06): a column of its own, "PEN,USD". Empty = nothing said, so the account's kind decides;
+// "none" = the person cleared the list on purpose. alias_kind keeps naming the account and choosing its Yape / Plin boxes.
+function ensurePaymentMethodCurrenciesColumn_() {
+  if (memoHasColumns_('Payment Methods', ['currencies'])) return;
+  var sheet = getSheet('Payment Methods');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('currencies') !== -1) return;
+  sheet.getRange(1, headers.length + 1).setValue('currencies');
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
+  bumpStructureVersion_();
+}
+
+/** Pure: a clean list of currency codes, as stored. ['pen', 'USD', 'PEN'] -> 'PEN,USD'; [] -> 'none'. */
+function accountCurrenciesValue_(list) {
+  var seen = {};
+  var codes = (list || []).map(function (c) { return String(c || '').trim().toUpperCase(); }).filter(function (c) {
+    if (!/^[A-Z]{3}$/.test(c) || seen[c]) return false;
+    seen[c] = true;
+    return true;
+  });
+  return codes.length ? codes.join(',') : 'none';
+}
+
 function cleanLast4_(v) {
   var s = String(v == null ? '' : v).trim();
   if (s && !/^\d{4}$/.test(s)) throw new Error(tr_('err.pmLast4'));
@@ -181,6 +204,7 @@ function saveOnboardingAccounts(payload) {
     nickname = uniqueAccountName_(nickname, last4, taken);
     var pm = { id: Utilities.getUuid(), nickname: nickname, type: accountKindType_(kind), bank_id: bank.id, last_4: '',
       alias_kind: kind, alias_auto: auto ? 'yes' : 'no', alias_show_last4: show ? 'yes' : 'no' };
+    if (Array.isArray(a.currencies)) { ensurePaymentMethodCurrenciesColumn_(); pm.currencies = accountCurrenciesValue_(a.currencies); }
     appendRowObject('Payment Methods', pm);
     if (last4) setPaymentMethodLast4_(sheet, getHeaders(sheet), findRowIndexById(sheet, getHeaders(sheet), pm.id), last4);
     pm.last_4 = last4;

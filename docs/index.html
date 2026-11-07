@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="1.62.8"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="1.62.9"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-06T22:52:38Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-07T00:35:15Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -2349,6 +2349,7 @@
             <div id="wa-cur-box">
               <h3 id="wa-cur-title" data-i18n="wa.currency">Currency</h3>
               <select id="wa-cur" aria-labelledby="wa-cur-title"></select>
+              <div class="currency-checks" id="wa-cur-checks" hidden></div>
             </div>
             <h3 data-i18n="wa.alias">Alias (optional)</h3>
             <input type="text" id="wa-alias" maxlength="40" autocomplete="off">
@@ -3325,8 +3326,9 @@
       <select id="pm-type"></select>
       <p class="hint" id="pm-cash-hint" hidden data-i18n="accounts.cashHint">Cash is built in: everyone has it, it holds any currency (soles and dollars together) and it can't be deleted. You can rename it.</p>
       <div id="pm-cur-box" hidden>
-        <label for="pm-currency" data-i18n="accounts.currency">Currency</label>
+        <label for="pm-currency" id="pm-cur-label" data-i18n="accounts.currency">Currency</label>
         <select id="pm-currency"></select>
+        <div class="currency-checks" id="pm-cur-checks" hidden></div>
       </div>
       <p class="hint" id="pm-wallet-warning" hidden style="font-weight:600;" data-i18n="accounts.walletWarning">Only for wallets that stand on their own, like Starbucks or other loyalty programs. If a wallet is tied to a bank account, don't add the wallet: add that bank account instead.</p>
 
@@ -3520,24 +3522,24 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="i18n.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="tour-scenes.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="signin-link.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="country-guess.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="rate-quotes.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="bank-sample.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="perf-share.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="spotlight.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="receipt-parse.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="receipt-fields.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="in-process.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="bill-split.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="loan-reminder.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="app.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="statement-sample.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="statement-table.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="statement-parsers.js?v=2026-11-06T22:52:38Z"></script>
-  <script src="statements.js?v=2026-11-06T22:52:38Z"></script>
+  <script src="strings.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="i18n.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="tour-scenes.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="signin-link.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="country-guess.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="rate-quotes.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="bank-sample.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="perf-share.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="spotlight.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="receipt-parse.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="receipt-fields.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="in-process.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="bill-split.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="loan-reminder.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="app.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="statement-sample.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="statement-table.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="statement-parsers.js?v=2026-11-07T00:35:15Z"></script>
+  <script src="statements.js?v=2026-11-07T00:35:15Z"></script>
 </body>
 </html>

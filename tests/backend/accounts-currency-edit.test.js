@@ -39,3 +39,55 @@ test("a welcome card in dollars only is accepted and never offers Plin", () => {
   assert.equal(card.alias_kind, "credit_usd");
   assert.equal(card.nickname, "Interbank crédito");
 });
+
+// ---- A list of currencies (owner, 2026-11-06) ----
+test("the stored list is clean: upper case, once each, 'none' when empty", () => {
+  const { rt } = freshApp({ small: true });
+  const v = (l) => JSON.parse(rt.run("JSON.stringify(accountCurrenciesValue_(" + JSON.stringify(l) + "))"));
+  assert.equal(v(["pen", "USD", "PEN", "bad!"]), "PEN,USD");
+  assert.equal(v([]), "none");
+});
+
+test("a savings account can hold several currencies: its kind and name stay, one chosen later names it again", () => {
+  const { rt } = freshApp({ small: true });
+  const a = rt.api("savePaymentMethod", { nickname: "Ahorros", type: "debit", currency: "PEN" });
+  assert.equal(row(rt, a.id).alias_kind, "debit_pen");
+  const two = rt.api("savePaymentMethod", { id: a.id, nickname: "Ahorros", type: "debit", currencies: ["PEN", "USD"] });
+  assert.equal(two.currencies, "PEN,USD");
+  assert.equal(row(rt, a.id).currencies, "PEN,USD");
+  assert.equal(row(rt, a.id).alias_kind, "debit_pen", "several leave the kind alone");
+  assert.equal(row(rt, a.id).nickname, "Ahorros");
+  rt.api("savePaymentMethod", { id: a.id, nickname: "Ahorros", type: "debit", currencies: ["USD"] });
+  assert.equal(row(rt, a.id).alias_kind, "debit_usd");
+  assert.equal(row(rt, a.id).currencies, "USD");
+  rt.api("savePaymentMethod", { id: a.id, nickname: "Ahorros", type: "debit", currencies: [] });
+  assert.equal(row(rt, a.id).currencies, "none", "cleared on purpose");
+});
+
+test("an older account with no currency stays empty when saved with an empty list, never given the main currency", () => {
+  const { rt } = freshApp({ small: true });
+  const a = rt.api("savePaymentMethod", { nickname: "Vieja", type: "debit" });
+  assert.equal(String(row(rt, a.id).alias_kind || ""), "");
+  rt.api("savePaymentMethod", { id: a.id, nickname: "Vieja", type: "debit", currencies: [] });
+  assert.equal(String(row(rt, a.id).alias_kind || ""), "", "no currency slips in");
+});
+
+test("a card with several is a plain card; one makes it one-currency; an older phone's single currency replaces the list", () => {
+  const { rt } = freshApp({ small: true });
+  const c = rt.api("savePaymentMethod", { nickname: "Tarjeta", type: "credit", currencies: ["PEN"] });
+  assert.equal(row(rt, c.id).alias_kind, "credit_pen");
+  rt.api("savePaymentMethod", { id: c.id, nickname: "Tarjeta", type: "credit", currencies: ["PEN", "USD"] });
+  assert.equal(row(rt, c.id).alias_kind, "credit");
+  rt.api("savePaymentMethod", { id: c.id, nickname: "Tarjeta", type: "credit", currency: "USD" });
+  assert.equal(row(rt, c.id).alias_kind, "credit_usd");
+  assert.equal(String(row(rt, c.id).currencies || ""), "");
+});
+
+test("cash and wallets take no list; the welcome stores one", () => {
+  const { rt } = freshApp({ small: true });
+  const w = rt.api("savePaymentMethod", { nickname: "Billetera", type: "wallet", currencies: ["PEN"] });
+  assert.equal(String(row(rt, w.id).currencies || ""), "");
+  const res = rt.api("saveOnboardingAccounts", { batch: "b-1", lang: "es", links: {}, accounts: [{ cid: "c1", bank: "BBVA", kind: "debit_pen", currencies: ["PEN", "USD"], alias: "Mi cuenta", last4: "", showLast4: false }] });
+  const made = (res.created || res.accounts || []).find((x) => x.cid === "c1");
+  assert.equal(row(rt, made.id).currencies, "PEN,USD");
+});
