@@ -9,11 +9,15 @@ const STRINGS = require(path.join(__dirname, "..", "..", "docs", "strings.js"));
 test("every currency has a country in both languages, and the extra search words exist", () => {
   const app = docs("app.js");
   const codes = [...app.slice(app.indexOf("const CURRENCIES = ["), app.indexOf("const DEFAULT_RECENT_CURRENCIES")).matchAll(/code: "([A-Z]{3})"/g)].map((m) => m[1]);
-  assert.equal(codes.length, 40);
+  assert.equal(new Set(codes).size, codes.length, "no currency twice");
+  assert.ok(codes.length >= 150, "every currency in use in the world");
+  const telegram = fs.readFileSync(path.join(__dirname, "..", "..", "backend", "Telegram.gs"), "utf8");
+  for (const c of codes) assert.match(telegram, new RegExp(`KNOWN_CURRENCY_CODES_ = \\[[^\\]]*'${c}'`), "Telegram knows " + c);
   const all = STRINGS.strings || STRINGS.STRINGS || STRINGS;
   for (const c of codes) {
     const s = all["currency.country." + c];
     assert.ok(s && s.en && s.es, "country of " + c);
+    assert.ok(all["currency." + c] && all["currency." + c].en && all["currency." + c].es, "name of " + c);
   }
   for (const c of /CURRENCY_ALSO_WHERE_ = \[([^\]]*)\]/.exec(app)[1].match(/[A-Z]{3}/g)) {
     assert.ok(all["currency.where." + c].en && all["currency.where." + c].es, "search words of " + c);
