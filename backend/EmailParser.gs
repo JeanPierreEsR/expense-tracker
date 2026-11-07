@@ -780,6 +780,10 @@ function processEmails(opts) {
 
   try {
     processSenders_(senders, opts, tracking, handled, results, existingExternalIds, banks, paymentMethods, guessCtx);
+    // Interbank "Constancia de pago" PDFs (money received), from the bank or sent to himself (PaymentNotice.gs).
+    if (!opts.senders || opts.senders.indexOf(PAYMENT_NOTICE_SENDER_) >= 0) {
+      processPaymentNotices_(opts.days || emailLookbackDays_(), tracking, handled, results, existingExternalIds, banks, paymentMethods);
+    }
   } finally {
     BACKCHECK_OVERLAPS_ = null;
   }

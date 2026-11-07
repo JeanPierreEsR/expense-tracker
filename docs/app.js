@@ -643,7 +643,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 
 // Saving or changing any of these can cross a budget, a trip budget or a loan's due date: a few seconds later the app asks the server to
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
-const ALERT_CHANGING_ACTIONS = new Set(["fillEntryCharge", "createEntry", "saveEntryAll", "updateEntry", "confirmEntry", "discardEntry", "convertPendingToTransfer",
+const ALERT_CHANGING_ACTIONS = new Set(["fillEntryCharge", "createEntry", "saveEntryAll", "updateEntry", "deleteEntries", "deleteBudget", "deleteBudgets", "deleteTrip", "deleteTrips", "deleteLoan", "deleteRepayment", "deleteSettlement", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "confirmEntries", "discardEntries", "setEntriesCategory", "undoSetEntriesCategory", "setEntriesTrip", "undoSetEntriesTrip", "restoreDeletedEntries",   // the bulk ones (QA round 1)
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
   "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
@@ -1849,6 +1849,39 @@ function repaymentActive_() {
   return kind === "repayment" || kind === "loan";   // "exchange" is its own form (below), not a debt
 }
 
+// A repayment's / loan's own money entry opens AS what it is (2026-11-07): Type of transfer = Repayments / New loan, its person,
+// its direction, the account labelled the way the money moved ("Received into" for money that arrived). Saving it with the SAME
+// person and direction (and, for a loan, the same amount and currency) is a plain edit of the entry — date, account,
+// description — exactly what "Between my accounts" used to do here; only a different person / direction (or a loan's amount)
+// re-records it through the conversions below. `editingDebtOriginal_` = what it was when the form opened, or null.
+let editingDebtOriginal_ = null;
+
+function keptDebtEdit_() {
+  const o = editingDebtOriginal_;
+  if (!o || !editingEntryId || selectedType !== "transfer" || transferKind_() !== o.kind) return false;
+  if (document.getElementById("repayment-friend").value !== o.friendId || debtDirection_() !== o.direction) return false;
+  if (o.kind === "loan") {
+    const amount = parseFloat(document.getElementById("amount").value);
+    if (Math.abs(amount - o.amount) > 0.004 || document.getElementById("currency").value.toUpperCase() !== o.currency) return false;
+  }
+  return true;
+}
+
+// Called by startEditEntry: show the entry as its repayment / loan when its person can be picked here (else as before).
+function presetDebtKind_(entry) {
+  editingDebtOriginal_ = null;
+  const kind = editingRepayment_ ? "repayment" : editingLoanMovement_ ? "loan" : "";
+  const friendId = editingRepayment_ ? editingRepayment_.friend_id : editingLoanFriendId_;
+  if (!kind || !friendId) return;
+  populateRepaymentFriendOptions_();
+  const select = document.getElementById("repayment-friend");
+  if (!Array.from(select.options).some((o) => o.value === friendId)) return;   // a hidden person: stays "Between my accounts", as before
+  select.value = friendId;
+  document.getElementById("transfer-kind").value = kind;
+  editingDebtOriginal_ = { kind, friendId, direction: kind === "repayment" ? editingRepayment_.direction : editingLoanMovement_,
+    amount: Number(entry.amount), currency: String(entry.currency || "").toUpperCase() };
+}
+
 // The debt's direction (Loans.direction) for what's being saved.
 function debtDirection_() {
   const iPaid = repaymentDirectionChoice === "i_owe_them";
@@ -1898,7 +1931,7 @@ document.getElementById("date").addEventListener("change", autoPickRepaymentGrou
 
 document.getElementById("repayment-friend").addEventListener("change", async (e) => {
   repaymentFriendTouched_ = true;
-  if (e.target.value !== "__add__") { updateAutoTransferDescription_(); return; }   // a loan's / repayment's automatic description follows the person
+  if (e.target.value !== "__add__") { updateRepaymentUi_(); updateAutoTransferDescription_(); syncConversionAmount_(); return; }   // a loan's / repayment's automatic description follows the person
   const name = await askName_(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
@@ -1934,7 +1967,7 @@ function updateRepaymentUi_() {
   if (!document.getElementById("repayment-friend").options.length) populateRepaymentFriendOptions_();
   autoPickRepaymentGroup_();
 
-  document.getElementById("repayment-overpay-block").hidden = isLoan;
+  document.getElementById("repayment-overpay-block").hidden = isLoan || keptDebtEdit_();   // only a re-recorded repayment can have a new extra
   document.getElementById("loan-due-block").hidden = !isLoan;
   if (!isLoan) {
     // "Decide later" comes first and is the default: an extra beyond the debt waits in Needs review unless a category was really picked.
@@ -1986,6 +2019,7 @@ document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((tab) =
   tab.addEventListener("click", () => {
     repaymentDirectionChoice = tab.dataset.direction;
     updateRepaymentUi_();
+    syncConversionAmount_();   // a repayment kept as it is shows its own amount; re-recorded, the whole one
     updateAutoTransferDescription_();   // ...and the direction
   });
 });
@@ -3025,7 +3059,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const date = document.getElementById("date").value;
     const amount = parseFloat(document.getElementById("amount").value);
     const currency = document.getElementById("currency").value.toUpperCase();
-    const isRepayment = repaymentActive_();
+    // A repayment's / loan's own entry saved as the same repayment / loan is a plain edit (keptDebtEdit_), not a conversion.
+    const isRepayment = repaymentActive_() && !keptDebtEdit_();
     const categoryId = isRepayment ? "" : getCategoryId();
     const description = document.getElementById("description").value.trim();
     const paidByRaw = document.getElementById("paid_by").value;
@@ -5182,6 +5217,7 @@ async function startEditEntry(entry) {
   selectCurrency(entry.currency, "entry");
 
   document.getElementById("paid_by").value = entry.paid_by;
+  presetDebtKind_(entry);   // a repayment / loan opens as one (its person, its direction), not as "Between my accounts"
   togglePaymentMethodVisibility();
   if (entry.type === "income" || entry.paid_by === "me") {
     keepHiddenAccountOption_("payment_method", entry.payment_method_id);
@@ -5282,6 +5318,7 @@ function exitEditMode() {
   editingForgiveness_ = null;
   editingInvestmentLeft_ = null;
   editingRepayment_ = null;
+  editingDebtOriginal_ = null;
   editingRepaymentExtra_ = null;
   confirmingPendingId = null;
   updateRepaymentUi_();
@@ -7374,7 +7411,7 @@ function homeMainCard_(g) {
   if (base != null && base > 0.005) {
     const pct = Math.round(((m.expense - base) / base) * 100);
     const arrow = pct > 0 ? "↑" : pct < 0 ? "↓" : "→";
-    delta = `<div class="home-delta ${pct > 0 ? "bad" : pct < 0 ? "good" : ""}">${escapeHtml(tr("home.vsLast", { arrow, pct: Math.abs(pct) }))}</div>`;
+    delta = `<div class="home-delta ${pct > 0 ? "bad" : pct < 0 ? "good" : ""}">${escapeHtml(tr(isCurrent ? "home.vsSameDay" : "home.vsLast", { arrow, pct: Math.abs(pct) }))}</div>`;
   }
 
   const net = m.net;
@@ -7647,6 +7684,27 @@ function showExchangeRatesScreen() {
   renderCurrenciesMain_();
   refreshExchangeRates();
 }
+
+// A tab whose first load failed (no connection, usually) says so instead of looking empty: Overview's zeros and Budgets' blank read as real
+// information (owner, 2026-11-07). A failed refresh of something already on screen stays quiet, as before. err = null takes the message away.
+function setLoadFailed_(name, err) {
+  const screen = document.getElementById("screen-" + name);
+  let note = screen.querySelector(":scope > .screen-load-failed");
+  screen.classList.toggle("load-failed", !!err);
+  if (!err) { if (note) note.remove(); return; }
+  if (!note) {
+    note = document.createElement("div");
+    note.className = "status-msg screen-load-failed";
+    const selector = document.getElementById("period-selector-card");
+    if (selector.parentElement === screen) selector.after(note); else screen.prepend(note);
+  }
+  note.textContent = tr("business.loadFailed", { error: err.message || String(err) });
+}
+// The connection is back: the open screen tries again by itself.
+window.addEventListener("online", () => {
+  const open = document.querySelector(".screen.load-failed:not([hidden])");
+  if (open) showScreen(open.id.replace(/^screen-/, ""));
+});
 
 // Whichever of Overview/Budgets is currently visible re-fetches with the
 // new period — the other picks it up on its own next time it's shown
@@ -8110,19 +8168,23 @@ async function refreshOverviewInner_() {
   const screen = document.getElementById("screen-overview");
   const key = overviewKey_(bounds);
   const token = ++overviewReqToken_;
-  if (overviewCache_[key]) { paintOverviewSummary_(overviewCache_[key]); overviewShownKey_ = key; screen.classList.remove("overview-stale"); }
+  if (overviewCache_[key]) { paintOverviewSummary_(overviewCache_[key]); overviewShownKey_ = key; screen.classList.remove("overview-stale"); setLoadFailed_("overview", null); }
   else if (overviewShownKey_ !== key) screen.classList.add("overview-stale");
 
   let data;
   try {
     data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
   } catch (err) {
-    if (token === overviewReqToken_) screen.classList.remove("overview-stale");
+    if (token === overviewReqToken_) {
+      screen.classList.remove("overview-stale");
+      if (overviewShownKey_ !== key) setLoadFailed_("overview", err);
+    }
     throw err;
   }
   overviewCache_[key] = data;
   if (token !== overviewReqToken_) return;   // the person already moved on to another period
   screen.classList.remove("overview-stale");
+  setLoadFailed_("overview", null);
   overviewShownKey_ = key;
   paintOverviewSummary_(data);
   loadOverviewEntries_(bounds);
@@ -9244,6 +9306,7 @@ function refreshBudgetsInBackground_() {
   });
 }
 
+let budgetsLoadedKey_ = null;   // the period the rows on screen belong to
 async function refreshBudgets() {
   // renderPeriodSelector() keeps the shared selector's own label/arrows in
   // sync — refreshOverview() already does this for itself, but movePeriod()
@@ -9258,7 +9321,12 @@ async function refreshBudgets() {
   // year), but never narrows a yearly budget down to a month. All-time
   // and Custom don't carry a month/year size, so budgets just show their
   // own current period in those views (anchorDate is ignored server-side).
-  const data = await callApi("listBudgets", projectionPeriodPayload_());
+  const budgetsKey = JSON.stringify(projectionPeriodPayload_());
+  let data;
+  try { data = await callApi("listBudgets", projectionPeriodPayload_()); }
+  catch (err) { if (budgetsLoadedKey_ !== budgetsKey) setLoadFailed_("budgets", err); throw err; }
+  budgetsLoadedKey_ = budgetsKey;
+  setLoadFailed_("budgets", null);
   budgetsLoaded_ = data.budgets;   // (the first-use practice checks it for a budget the person already has)
   budgetsSummary_ = data.summary;
   const still = new Set(data.budgets.map((b) => b.id));
@@ -9610,6 +9678,8 @@ async function loadNotices_(check) {
     const out = await callApi(asking ? "checkAlertsNow" : "listNotices", check === "change" && asking ? { after_change: true } : {});
     notices_ = (out && out.notices) || [];
     noticesMore_ = (out && out.more) || 0;
+    // The server looked a moment ago, before this save: look again once it allows it, or an alert this save ended would stay until the next visit.
+    if (check === "change" && out && out.ran === false) { clearTimeout(alertCheckTimer_); alertCheckTimer_ = setTimeout(() => loadNotices_("change"), 31000); }
   } catch (err) { return; }   // a background extra: the card just stays as it was
   finally { if (asking) alertCheckBusy_ = false; }
   renderNotices_();
@@ -9936,6 +10006,9 @@ async function init() {
       }
       if (!document.getElementById("screen-budgets").hidden) {
         await refreshBudgets();
+      }
+      if (!document.getElementById("screen-loans").hidden) {
+        await refreshLoans();
       }
     } catch (err) {
       // Data just doesn't refresh this time — the user can pull again.
@@ -18527,7 +18600,7 @@ async function maybeAskPausedProgrammed_() {
   await pausedConvertPromise_;
   const list = (meta && meta.pausedProgrammed) || [];
   if (!list.length || pausedAskOpen_) return;
-  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])")) {   // not on top of another question
+  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning()) {   // not on top of another question or a practice (its cut-out would light up this sheet's real buttons)
     if (pausedAskRetries_++ < 40) setTimeout(maybeAskPausedProgrammed_, 4000);
     return;
   }
@@ -18701,7 +18774,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     const summary = document.createElement("div");
     summary.className = "expected-recurring-summary";
     summary.innerHTML = `
-      <span class="expected-recurring-summary-label">${tr("expected.count", { n: g.items.length, kind: tr(isIncome ? "summary.income" : g.type === "investment" ? "summary.investments" : "summary.expenses") })}</span>
+      <span class="expected-recurring-summary-label">${tr("expected.count", { n: g.items.length, kind: tr(isIncome ? "summary.income" : g.type === "investment" ? "summary.investments" : "summary.expenses") + (g.currency !== homeCur() ? " " + g.currency : "") })}</span>
       <span class="expected-recurring-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(amountHtml) : amountHtml}</span>
     `;
     summary.addEventListener("click", () => { detail.hidden = !detail.hidden; });
@@ -20036,6 +20109,10 @@ function tipDayAllows_(key) {
 function tipDayOpen_() {
   try { localStorage.setItem(TIP_DAY_KEY_, JSON.stringify({ day: todayLocalISO(), keys: [], open: true })); } catch (e) { /* ignore */ }
 }
+// Any screen's Edit mode (leaving a screen turns its own off, see showScreen).
+function editModeOn_() {
+  return reviewEditing_ || entriesEditing_ || budgetsEditing_ || businessEditing_ || peopleEditing_ || categoriesEditing_ || tripsEditing_ || accountsEditing_ || friendsEditing_ || recurringEditing_;
+}
 // after(): runs once the card was answered (Not now, or the practice started), e.g. the Loans line offering the other two loan practices.
 function offerTip_(key, boxId, inviteText, start, after) {
   const box = document.getElementById(boxId);
@@ -20051,6 +20128,7 @@ function offerTip_(key, boxId, inviteText, start, after) {
     if (after) after();
   });
   box.querySelector(".tip-invite-go").addEventListener("click", () => {
+    if (editModeOn_()) { showToast_(tr("spot.editOn")); return; }   // a practice needs the normal screen: stays on offer, nothing marked
     if (practiceDueList_().length) { showToast_(tr("spot.p.stillRemoving")); practiceRetryDue_(); return; }   // starting now could overwrite what it still has to remove
     if (!start()) return;   // not possible right now (something half-typed): stays on offer, nothing marked
     markTipSeen_(key);
@@ -22064,14 +22142,19 @@ function practiceBLeftover_() {
 }
 
 let loansRefreshSeq_ = 0;
+let loansLoadedOnce_ = false;
 async function refreshLoans() {
   populateLoansScope_();
   // Only the newest load draws. The server answers reads in parallel, so a load sent while a save was still writing can come back
   // AFTER a newer one and redraw the list without the new debt (owner, 2026-11-03: the Loans practice's friend row vanished under
   // its "Tap their name" step).
   const seq = ++loansRefreshSeq_;
-  const balances = await callApi("listLoanBalances", loansScopePayload_());
+  let balances;
+  try { balances = await callApi("listLoanBalances", loansScopePayload_()); }
+  catch (err) { if (seq === loansRefreshSeq_ && !loansLoadedOnce_) setLoadFailed_("loans", err); throw err; }
   if (seq !== loansRefreshSeq_) return;
+  loansLoadedOnce_ = true;
+  setLoadFailed_("loans", null);
   if (!loansScope_) loansLastBalances_ = balances;
 
   // A friend can be owed in one currency and owe in another (e.g. they owe
@@ -22434,7 +22517,7 @@ function syncConversionAmount_() {
   const r = editingRepayment_;
   if (!r || !r.extra || !(Number(r.extra.amount) > 0)) return;
   const kind = document.getElementById("transfer-kind").value;
-  const converting = selectedType !== "transfer" || kind === "repayment" || kind === "loan";
+  const converting = selectedType !== "transfer" || ((kind === "repayment" || kind === "loan") && !keptDebtEdit_());
   const own = String(Number(r.total));
   const whole = String(Math.round((Number(r.total) + Number(r.extra.amount)) * 100) / 100);
   const field = document.getElementById("amount");

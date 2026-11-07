@@ -3128,16 +3128,36 @@ function checkOverdueLoans() {
   return withScriptLockOnce_(checkOverdueLoansLocked_);
 }
 
+// A loan repaid, forgiven, deleted or given a new due date: its overdue alert goes, and is forgotten, so the loan alerts again if it ever falls
+// overdue again (a repayment taken back). Partly repaid: the alert shows what is still owed.
+function syncLoanNotices_(allLoans) {
+  var loanById = rowsById_(allLoans), friendById = null, forget = {}, anyForgotten = false;
+  syncOpenNotices_('loan', function (notice) {
+    var parts = String(notice.key).split('|');   // loan|<id>|<due date>
+    var loan = loanById[parts[1]];
+    if (!loan || String(loan.due_date) !== parts[2] || !isLoanOverdue_(loan, loan.remaining)) {
+      forget[parts[1] + '|' + parts[2]] = true;
+      anyForgotten = true;
+      return CLOSE_NOTICE_;
+    }
+    if (!friendById) friendById = rowsById_(getAllRows('Friends'));
+    var friend = friendById[loan.friend_id];
+    return loanOverdueAlertText_(loan, friend ? friend.name : tr_('label.unknownFriend'));
+  });
+  if (anyForgotten) deleteRowsWhere_('Loan Alert Log', function (r) { return forget[r.loan_id + '|' + r.due_date] === true; });
+}
+
 function checkOverdueLoansLocked_() {
   ensureLoanAlertLogSheet_();
 
   var settledByLoan = buildSettlementTotalsByLoan_();
-  var overdueLoans = getAllRows('Loans')
+  var allLoans = getAllRows('Loans')
     .map(function (l) {
       l.remaining = Number(l.amount) - (settledByLoan[l.id] || 0);
       return l;
-    })
-    .filter(function (l) { return isLoanOverdue_(l, l.remaining); });
+    });
+  syncLoanNotices_(allLoans);
+  var overdueLoans = allLoans.filter(function (l) { return isLoanOverdue_(l, l.remaining); });
 
   // The first run on an existing copy only writes down what is already overdue, without alerting (Notices.gs § Alerts only from now on).
   var baseline = alertBaselinePending_('loans');
