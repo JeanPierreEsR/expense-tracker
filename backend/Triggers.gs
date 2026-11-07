@@ -27,6 +27,7 @@ function runAutomation() {
     runAutomationStep_('budgets', failures, checkBudgets);
     runAutomationStep_('trip budgets', failures, checkTripBudgets);
     runAutomationStep_('loan reminders', failures, checkOverdueLoans);
+    runAutomationStep_('pending charges', failures, notifyOldPendingCharges_);
     runAutomationStep_('investment categories', failures, backfillInvestmentCategories_);
   }
   if (featureOn_('gmail')) runAutomationStep_('statement inbox', failures, function () { scanStatementInbox_(); retryStatementInboxNudges_(); });

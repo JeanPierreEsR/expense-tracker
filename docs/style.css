@@ -3568,6 +3568,29 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 
 /* Rows in the Sheet the app can't read: named on Home (backend/SheetCells.gs). */
 .home-unreadable { border-left: 4px solid #d64545; }
+/* Charges to fill in: a quiet card on Home, yellow once one has waited 45 days. */
+.home-charges { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; font: inherit; color: inherit; border: none; cursor: pointer; }
+.home-charges.late { background: #fff8e1; border-left: 4px solid #f5c518; }
+.home-charges-title { font-weight: 600; }
+.home-charges-chevron { color: var(--muted); font-size: 1.2rem; }
+.home-charges .hint { margin: 2px 0 0; }
+.home-charges.late .hint { color: #7a5c00; }
+.charge-line { padding: 12px 0; border-top: 1px solid var(--border); }
+.charge-line-top { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
+.charge-line-name { overflow-wrap: anywhere; min-width: 0; }
+.charge-line-amount { flex: 0 0 auto; }
+.charge-line .hint { margin: 2px 0 6px; }
+.charge-line label { margin-top: 6px; }
+.charge-line-row { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.charge-line-row .cur-pick { flex: 0 0 34%; width: 34%; }
+.charge-line-row input { flex: 1 1 0; min-width: 0; width: auto; margin: 0; }
+.charge-line-row .cur-pick > select { margin: 0; }
+.charge-line-row .add-inline, .charge-line-row .add-inline + .add-inline { margin: 0; flex: 0 0 auto; }
+.charge-line-actions { justify-content: space-between; margin-top: 8px; }
+.charge-line-actions .charge-delete { color: #d64545; }
+.charge-paid-line { white-space: nowrap; }
+.charge-rate { margin: 4px 0 0; color: var(--text); }
+.charge-line-error { color: #d64545; margin: 4px 0 0; font-size: 0.85rem; }
 .home-unreadable-title { font-weight: 600; margin-bottom: 4px; }
 .home-unreadable ul { margin: 6px 0; padding-left: 18px; font-size: 0.9em; overflow-wrap: anywhere; }
 
