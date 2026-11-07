@@ -1740,6 +1740,8 @@ body.income-revealed .sens-mask { display: none; }
 .budget-today-mark { position: absolute; top: -4px; width: 2px; height: 16px; margin-left: -1px; background: var(--text, #1c1c1e); border-radius: 1px; }
 .budgets-status-line { font-weight: 600; margin: 0 0 10px; }
 #budgets-today-hint { margin: -4px 0 10px; }
+.budgets-group-head { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted, #8e8e93); margin: 14px 0 4px; }
+.budgets-group-head:first-child { margin-top: 0; }
 .budgets-status-line .over { color: var(--expense); }
 .budgets-status-line .warn { color: #b8741a; }
 .budget-row-annual { margin-top: 2px; font-size: 0.75rem; }

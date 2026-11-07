@@ -1694,6 +1694,8 @@
     "budget.thisYear": { en: "this year", es: "este año" },
     "budgets.statusOver": { en: { one: "{n} over budget", other: "{n} over budget" }, es: { one: "Te pasaste en {n}", other: "Te pasaste en {n}" } },
     "budgets.statusClose": { en: { one: "{n} close to the limit", other: "{n} close to the limit" }, es: { one: "{n} cerca del límite", other: "{n} cerca del límite" } },
+    "budgets.groupAttention": { en: "Over or close to the limit", es: "Pasados o cerca del límite" },
+    "budgets.groupOthers": { en: "Within the limit", es: "Dentro del límite" },
     "budgets.statusFine": { en: "All budgets within their limit", es: "Todos los presupuestos dentro de su límite" },
     "budgets.todayHint": { en: "The small mark on each bar is today's place in the year: a bar that goes past it is spending faster than an even pace.", es: "La marca en cada barra es el lugar de hoy en el año: si la barra la pasa, el gasto va más rápido que a un ritmo parejo." },
     "budgets.todayMarkAria": { en: "Today: about {cur} {amount} at an even pace", es: "Hoy: unos {cur} {amount} a un ritmo parejo" },

@@ -9395,12 +9395,14 @@ function drawBudgets_() {
 
   // Over-budget rows first (the highest % on top), then the usual order; and one line on top saying how many are over or close
   // (owner, 2026-11-07: an anxious person had to scroll 13 rows to find the red ones). "Close" = the amber bar, 75 % and up.
+  // Owner, 2026-11-07: two visible groups. First "over or close" (75 % and up), the most used first; then the rest, the biggest budget
+  // first — compared in the main currency over the period shown (a monthly budget in a Year view counts 12 months).
   const pctOf = (b) => (b.progress && b.progress.percent != null ? b.progress.percent : -1);
-  const ordered = budgets.slice().sort((x, y) => {
-    const ox = pctOf(x) >= 100, oy = pctOf(y) >= 100;
-    if (ox !== oy) return ox ? -1 : 1;
-    return ox ? pctOf(y) - pctOf(x) : 0;
-  });
+  const sizeOf = (b) => (b.amount_pen != null && b.amount ? b.amount_pen / b.amount : 0) * (b.progress ? b.progress.effectiveAmount : 0);
+  const attention = budgets.filter((b) => pctOf(b) >= 75).sort((x, y) => pctOf(y) - pctOf(x));
+  const others = budgets.filter((b) => pctOf(b) < 75).sort((x, y) => sizeOf(y) - sizeOf(x));
+  const ordered = attention.concat(others);
+  const groupHead = (key) => { const h = document.createElement("div"); h.className = "budgets-group-head"; h.textContent = tr(key); list.appendChild(h); };
   const overN = budgets.filter((b) => pctOf(b) >= 100).length;
   const closeN = budgets.filter((b) => pctOf(b) >= 75 && pctOf(b) < 100).length;
   const statusLine = document.getElementById("budgets-status-line");
@@ -9413,7 +9415,9 @@ function drawBudgets_() {
   const todayIso = todayLocalISO();
   let anyTodayMark = false;
 
-  ordered.forEach((b) => {
+  ordered.forEach((b, i) => {
+    if (i === 0 && attention.length) groupHead("budgets.groupAttention");
+    if (i === attention.length && attention.length) groupHead("budgets.groupOthers");
     const p = b.progress;
     const pct = p.percent;
     let statusClass = "";
