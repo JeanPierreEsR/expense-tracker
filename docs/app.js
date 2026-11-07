@@ -2624,9 +2624,10 @@ function openRateModal(currency, month, required, existingRate) {
       return r.rate;
     }).catch(() => null);
     document.getElementById("rate-modal-title").textContent = tr("rateModal.titleWithCurrency", { currency });
+    const monthWords = I18n.fmtMonthYear(new Date(yy, mm - 1, 1), true);
     document.getElementById("rate-modal-subtitle").textContent = existingRate != null
-      ? tr("rateModal.editing", { currency, month })
-      : tr("rateModal.none", { currency, month });
+      ? tr("rateModal.editing", { currency, month: monthWords })
+      : tr("rateModal.none", { currency, month: monthWords });
     document.getElementById("rate-cancel-btn").hidden = !!required;
     document.getElementById("rate-form-error").textContent = "";
     renderRateModalLabels_();
@@ -3146,7 +3147,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         exchangePartnerToOpen_ = null;
         if (check.exchangePartner) {
           const p = check.exchangePartner;
-          if (confirm(tr("exchangeConv.askPartner", { amount: formatAmount(p.amount, p.currency), date: p.date }))) exchangePartnerToOpen_ = p;
+          if (confirm(tr("exchangeConv.askPartner", { amount: formatAmount(p.amount, p.currency), date: listDate_(p.date) }))) exchangePartnerToOpen_ = p;
         }
         // A shared expense whose debts friends already (partly) repaid: the person decides what happens to those
         // repayments, as when deleting the expense; its splits and debts are cleared before the new type is saved.
@@ -3370,7 +3371,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // item instead of a real entry, before the owner ever saw it.
       // A Programmed item is not a real entry yet, so it can't belong to a trip
       // or event: say so instead of silently dropping the pick.
-      showFormNotice_(tr(tripId ? "entry.programmedTripNotice" : "entry.programmedNotice", { date }));
+      showFormNotice_(tr(tripId ? "entry.programmedTripNotice" : "entry.programmedNotice", { date: listDate_(date) }));
       entryFormLeftOpen_ = true;
     } else if (wasEditingExistingEntry) {
       // Finishing an edit (as opposed to creating a brand-new entry)
@@ -3835,7 +3836,7 @@ function openExchangePairSheet_(p) {
   exchangePairOpen_ = p;
   const pmName = (id) => { const pm = meta.paymentMethods.find((x) => x.id === id); return pm ? pm.nickname : tr("xch.outside"); };
   document.getElementById("xpair-title").textContent = tr("transfer.kind.exchange");
-  document.getElementById("xpair-summary").textContent = [exchangeHouseOf_(p), p.date, exchangeRateText_(p)].filter(Boolean).join(" · ");
+  document.getElementById("xpair-summary").textContent = [exchangeHouseOf_(p), listDate_(p.date), exchangeRateText_(p)].filter(Boolean).join(" · ");
   const sides = document.getElementById("xpair-sides");
   sides.innerHTML = "";
   [["out", p.out, p.out.payment_method_id, "xch.left"], ["in", p.in, p.in.to_payment_method_id, "xch.arrived"]].forEach(([side, leg, pmId, label]) => {
@@ -5181,7 +5182,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
   // (and a balance that is off) is never left behind (owner, 2026-11-02). OK = both, Cancel = only this one.
   let partner = null;
   if (originalType === "transfer" && exchangePartner) {
-    if (confirm(tr("delete.exchangeBoth", { amount: formatAmount(exchangePartner.amount, exchangePartner.currency), date: exchangePartner.date }))) partner = exchangePartner;
+    if (confirm(tr("delete.exchangeBoth", { amount: formatAmount(exchangePartner.amount, exchangePartner.currency), date: listDate_(exchangePartner.date) }))) partner = exchangePartner;
   }
   if (onConfirmed) onConfirmed();
   await callApi("discardEntry", { id, repayments: repaymentsChoice });
@@ -5313,7 +5314,7 @@ document.getElementById("edit-entry-modal-backdrop").addEventListener("click", (
 // blank are left out.
 function describeForConfirm_(label, amountText, extra) {
   const head = label ? tr("confirm.label", { label }) : tr("confirm.thisItem");
-  const detail = [amountText, extra].filter(Boolean).join(", ");
+  const detail = [amountText, listDate_(extra)].filter(Boolean).join(", ");
   return detail ? `${head} (${detail})` : head;
 }
 
@@ -6341,6 +6342,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     return;
   }
   card.hidden = false;
+  if (homeTipsReady_ && !document.getElementById("screen-entries").hidden) offerReviewTip_();   // the first entry to wait may arrive long after opening
   list.innerHTML = "";
 
   entries.forEach((entry) => {
@@ -6908,6 +6910,25 @@ let reviewEditing_ = false;   // Home → Needs review → Edit (declared here: 
 let entriesEditing_ = false;   // Home list / search → Edit (same reason)
 let entriesSelected_ = new Set();
 let reviewSelected_ = new Set();
+// A long Needs review must not push Recent entries away (Home test: about 100 screens at 206 items): 10 rows (owner), then "Show more". The other rows stay in
+// the list, only hidden, so its count and every action keep working, and when a row is confirmed the next one comes up. All of them show in Edit mode
+// (what Select all ticks must be visible) and during a practice (its own rows must be reachable).
+const REVIEW_STEP_ = 10;
+let reviewShown_ = REVIEW_STEP_;
+function applyReviewLimit_() {
+  const rows = document.getElementById("review-list").children;
+  const showAll = reviewEditing_ || Spotlight.isRunning();
+  for (let i = 0; i < rows.length; i++) rows[i].hidden = !showAll && i >= reviewShown_;
+  const more = document.getElementById("review-show-more");
+  const left = rows.length - reviewShown_;
+  more.hidden = showAll || left <= 0;
+  if (!more.hidden) more.textContent = tr("review.showMore", { n: left });
+}
+new MutationObserver(applyReviewLimit_).observe(document.getElementById("review-list"), { childList: true });
+document.getElementById("review-show-more").addEventListener("click", () => {
+  reviewShown_ += REVIEW_STEP_;
+  applyReviewLimit_();
+});
 let reviewEntries_ = [];
 let appToastTimer_ = null;
 // `sticky` keeps the toast on screen until hideToast_ (a "Deleting…" that must last as long as the work does); `ms` lengthens a toast that names people or items.
@@ -9367,7 +9388,8 @@ function renderNotices_() {
     body.className = "notice-body";
     const text = document.createElement("span");
     text.className = "notice-text";
-    text.textContent = n.text;   // already written by the server; may hold a person's or a category's name
+    // Already written by the server; may hold a person's or a category's name. A date in it is shown in words here, old alerts included.
+    text.textContent = String(n.text).replace(/\b\d{4}-\d{2}-\d{2}\b/g, listDate_);
     body.appendChild(text);
     const day = String(n.created_at || "").slice(0, 10);
     if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
@@ -10420,7 +10442,7 @@ bsEl_("bs-find").addEventListener("click", async () => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "more-list-item";
-      b.textContent = m.date + " · " + (m.subject || "-");
+      b.textContent = listDate_(m.date) + " · " + (m.subject || "-");
       b.addEventListener("click", () => pick(m));
       box.appendChild(b);
     });
@@ -12339,7 +12361,7 @@ async function refreshDeletedScreen_() {
       row.innerHTML = `
         <div>
           <div class="recurring-row-name">${escapeHtml(e.description || catName || tr("review.noDescription"))}</div>
-          <div class="recurring-row-sub">${escapeHtml([e.date, catName, e.shared ? tr("deleted.sharedTag") : "", e.status === "pending" ? tr("deleted.pendingTag") : ""].filter(Boolean).join(" · "))}</div>
+          <div class="recurring-row-sub">${escapeHtml([listDate_(e.date), catName, e.shared ? tr("deleted.sharedTag") : "", e.status === "pending" ? tr("deleted.pendingTag") : ""].filter(Boolean).join(" · "))}</div>
         </div>
         <div class="recurring-row-amount"><span class="primary-amt${entryFlowDirection_(e) === "in" ? " review-amt-in" : ""}">${formatAmount(Math.abs(Number(e.amount) || 0), e.currency, { in: "+", out: "−" }[entryFlowDirection_(e)] || "")}</span><button type="button" class="add-inline deleted-one">${escapeHtml(tr("deleted.restoreOne"))}</button></div>`;
       row.querySelector(".deleted-one").addEventListener("click", () => {
@@ -14292,7 +14314,7 @@ function tripGroupOf_(trip, today) {
 function tripDatesText_(trip) {
   return trip.start_date === trip.end_date
     ? trip.start_date
-    : tr("trips.dateRange", { start: trip.start_date, end: trip.end_date });
+    : tr("trips.dateRange", { start: listDate_(trip.start_date), end: listDate_(trip.end_date) });
 }
 
 async function showTripsScreen() {
@@ -18371,7 +18393,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     const summary = document.createElement("div");
     summary.className = "expected-recurring-summary";
     summary.innerHTML = `
-      <span class="expected-recurring-summary-label">${tr("expected.count", { n: g.items.length })}</span>
+      <span class="expected-recurring-summary-label">${tr("expected.count", { n: g.items.length, kind: tr(isIncome ? "summary.income" : g.type === "investment" ? "summary.investments" : "summary.expenses") })}</span>
       <span class="expected-recurring-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(amountHtml) : amountHtml}</span>
     `;
     summary.addEventListener("click", () => { detail.hidden = !detail.hidden; });
@@ -20297,6 +20319,7 @@ function isPracticeReviewEntry_(e) {
 
 function offerReviewTip_() {
   if (!((meta && meta.capabilities) || {}).practiceReview) return;   // an older backend would let the practice entries teach the app
+  if (!reviewEntries_.length) return;   // nothing waiting yet: a person with no bank e-mails has no use for it (owner, 2026-11-06)
   offerTip_("review", "home-tip-invite", tr("spot.n.invite"), startReviewPractice_);
 }
 
@@ -21974,7 +21997,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
     : l.remaining <= 0.004
       ? tr("loanDetail.fullyRepaid")
       : [
-          l.overdue ? tr("loanDetail.overdueSince", { date: l.due_date }) : "",
+          l.overdue ? tr("loanDetail.overdueSince", { date: listDate_(l.due_date) }) : "",
           l.settled - (l.forgiven_so_far || 0) > 0.004 ? tr("loanDetail.repaidSoFar", { cur: l.currency, amount: moneyFmt(l.settled - (l.forgiven_so_far || 0)) }) : "",
           l.forgiven_so_far > 0.004 ? tr("loanDetail.forgivenSoFar", { cur: l.currency, amount: moneyFmt(l.forgiven_so_far) }) : ""
         ].filter(Boolean).join(" · ");
@@ -22148,7 +22171,7 @@ async function deleteOrphanLoan_(l, friend) {
     if (info.hasRepayments) {
       repayments = await askRepaymentChoice_("repayChoice.loanTitle", [{ friend: friend.name, currency: info.currency, total: info.paid }]);
       if (!repayments) return;
-    } else if (!confirm(tr("loanDetail.confirmDeleteOrphan", { amount: `${l.currency} ${moneyFmt(l.amount)}`, date: l.date }))) {
+    } else if (!confirm(tr("loanDetail.confirmDeleteOrphan", { amount: `${l.currency} ${moneyFmt(l.amount)}`, date: listDate_(l.date) }))) {
       return;
     }
     markDeleting_("loan:" + l.id);
@@ -22206,7 +22229,7 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
       ? [tr("history.offsetAgainst", { loan: escapeHtml(r.offset_loan_description) })]
       : r.parts.length > 1
         ? r.parts.map((pt) => `${escapeHtml(pt.loan_description)} (${listDate_(pt.loan_date)}): ${money(r.currency, pt.amount)}`)
-        : [tr("history.on", { loan: escapeHtml(r.loan_description), date: r.loan_date })];
+        : [tr("history.on", { loan: escapeHtml(r.loan_description), date: listDate_(r.loan_date) })];
     // One total, split in what sits on loans and what is its own income/expense entry.
     const split = r.gap ? [tr("history.splitLoans", { amount: money(r.currency, r.applied) })] : [];
     const metaLines = (acct ? [acct] : []).concat(split);
@@ -22400,7 +22423,7 @@ function openReassignRepayment_(r) {
   document.getElementById("reassign-modal-backdrop").classList.remove("reassign-loading");
   document.getElementById("reassign-title").textContent = tr("reassign.title");
   document.getElementById("reassign-hint").textContent = tr("reassign.hint");
-  document.getElementById("reassign-info").textContent = tr("reassign.info", { amount: `${r.currency} ${moneyFmt(r.applied + (r.gap ? r.gap.amount : 0))}`, date: r.date });
+  document.getElementById("reassign-info").textContent = tr("reassign.info", { amount: `${r.currency} ${moneyFmt(r.applied + (r.gap ? r.gap.amount : 0))}`, date: listDate_(r.date) });
   const list = document.getElementById("reassign-list");
   list.innerHTML = "";
   candidates.forEach((c) => {
@@ -22973,17 +22996,17 @@ async function openBankSchedule_(loanId, friend) {
   document.getElementById("bank-schedule-title").textContent = `${sched.loan.friend_name} · ${tr("bank.scheduleTitle")}`;
   document.getElementById("bank-schedule-summary").textContent = [
     tr("bank.remainingPrincipal", { amount: m(sched.remaining_principal) }),
-    next ? tr("bank.nextDue", { date: next.due_date, amount: m(next.total) }) : ""
+    next ? tr("bank.nextDue", { date: listDate_(next.due_date), amount: m(next.total) }) : ""
   ].filter(Boolean).join(" · ");
   const list = document.getElementById("bank-schedule-list");
   list.innerHTML = "";
   sched.installments.forEach((r) => {
     const el = document.createElement("div");
     el.className = "bank-inst" + (r.paid ? "" : " tappable");
-    const status = r.paid ? tr("bank.statusPaid", { date: r.paid_date }) : tr(r.status === "overdue" ? "bank.statusOverdue" : "bank.statusDue");
+    const status = r.paid ? tr("bank.statusPaid", { date: listDate_(r.paid_date) }) : tr(r.status === "overdue" ? "bank.statusOverdue" : "bank.statusDue");
     el.innerHTML = `
       <div class="loan-detail-row-top">
-        <span class="loan-detail-row-desc">${escapeHtml(tr("bank.rowLine", { n: r.number, count: sched.installments.length, date: r.due_date }))}${r.paid ? "" : '<span class="loan-detail-row-chevron">›</span>'}</span>
+        <span class="loan-detail-row-desc">${escapeHtml(tr("bank.rowLine", { n: r.number, count: sched.installments.length, date: listDate_(r.due_date) }))}${r.paid ? "" : '<span class="loan-detail-row-chevron">›</span>'}</span>
         <span class="loan-detail-row-amount i-owe">${escapeHtml(m(r.total))}</span>
       </div>
       <div class="loan-detail-row-meta">${escapeHtml(tr("bank.rowAmounts", { p: moneyFmt(r.principal), i: moneyFmt(r.interest), f: moneyFmt(r.fees) }))} · <span class="bank-inst-status ${r.paid ? "paid" : r.status}">${escapeHtml(status)}</span></div>`;
