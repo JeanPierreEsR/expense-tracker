@@ -240,6 +240,15 @@
           <label data-i18n="field.currency">Currency</label>
           <input type="hidden" id="currency" value="PEN">
           <div class="currency-chips" id="currency-chips"></div>
+          <button type="button" class="add-inline" id="charge-open" hidden data-i18n="charge.paidLink">Paid in another currency?</button>
+          <div id="charge-box" hidden>
+            <label id="charge-label"></label>
+            <div class="exchange-amount-row">
+              <input type="text" inputmode="decimal" id="charge-amount" placeholder="0.00">
+              <select id="charge-currency"></select>
+            </div>
+            <p class="hint" id="charge-hint"></p>
+          </div>
 
           <label for="description" data-i18n="field.description">Description</label>
           <input type="text" id="description" data-i18n-placeholder="common.optional" placeholder="Optional">
@@ -348,6 +357,7 @@
       </div>
 
       <div class="card home-unreadable" id="home-unreadable" hidden></div>
+      <button type="button" class="card home-charges" id="home-charges" hidden></button>
       <div class="home-glance" id="home-glance" hidden>
         <div class="home-glance-track" id="home-glance-track"></div>
         <div class="home-glance-dots" id="home-glance-dots" hidden></div>
@@ -1563,6 +1573,17 @@
       <p class="hint" id="currency-screen-note" hidden></p>
       <div class="currency-option-list" id="currency-option-list"></div>
       <button type="button" class="primary" id="currency-screen-done" hidden data-i18n="currency.done">Done</button>
+    </div>
+  </div>
+
+  <div id="charges-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="charges-modal-title" data-i18n="charges.titlePlain">Charges to fill in</span>
+        <button type="button" id="charges-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <p class="hint" data-i18n="charges.sub">Purchases where the card's charge isn't known yet.</p>
+      <div id="charges-list"></div>
     </div>
   </div>
 

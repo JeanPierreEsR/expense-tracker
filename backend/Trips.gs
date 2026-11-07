@@ -218,6 +218,8 @@ function tripExpenseRows_(onlyTripId) {
     var rate = getRateForEntryCurrency_(e.currency, e.date);
     rows.push({
       entry: e, own: own, currency: e.currency,
+      paidCurrency: Number(e.paid_amount) > 0 ? String(e.paid_currency || '') : '',   // a trip in what was paid uses that figure (Charges.gs)
+      paidOwn: Number(e.paid_amount) > 0 ? Number(e.paid_amount) * own / Number(e.amount) : 0,
       ownMain: rate == null ? null : own * rate,
       full: Number(e.amount), fullMain: rate == null ? null : Number(e.amount) * rate
     });
@@ -280,6 +282,7 @@ function tripCurrency_(t) {
 // needed rate is missing (the row is then counted in `missingRate`, never silently dropped).
 function tripAmountIn_(cur, r) {
   if (r.currency === cur) return r.own;
+  if (r.paidCurrency === cur) return r.paidOwn;
   if (r.ownMain == null) return null;
   if (cur === homeCurrency_()) return r.ownMain;
   var rate = rateToMain_(buildRatesByCurrency_(), cur, String(tripRowDate_(r)).substring(0, 7));
