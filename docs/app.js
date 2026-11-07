@@ -1848,6 +1848,39 @@ function repaymentActive_() {
   return kind === "repayment" || kind === "loan";   // "exchange" is its own form (below), not a debt
 }
 
+// A repayment's / loan's own money entry opens AS what it is (2026-11-07): Type of transfer = Repayments / New loan, its person,
+// its direction, the account labelled the way the money moved ("Received into" for money that arrived). Saving it with the SAME
+// person and direction (and, for a loan, the same amount and currency) is a plain edit of the entry — date, account,
+// description — exactly what "Between my accounts" used to do here; only a different person / direction (or a loan's amount)
+// re-records it through the conversions below. `editingDebtOriginal_` = what it was when the form opened, or null.
+let editingDebtOriginal_ = null;
+
+function keptDebtEdit_() {
+  const o = editingDebtOriginal_;
+  if (!o || !editingEntryId || selectedType !== "transfer" || transferKind_() !== o.kind) return false;
+  if (document.getElementById("repayment-friend").value !== o.friendId || debtDirection_() !== o.direction) return false;
+  if (o.kind === "loan") {
+    const amount = parseFloat(document.getElementById("amount").value);
+    if (Math.abs(amount - o.amount) > 0.004 || document.getElementById("currency").value.toUpperCase() !== o.currency) return false;
+  }
+  return true;
+}
+
+// Called by startEditEntry: show the entry as its repayment / loan when its person can be picked here (else as before).
+function presetDebtKind_(entry) {
+  editingDebtOriginal_ = null;
+  const kind = editingRepayment_ ? "repayment" : editingLoanMovement_ ? "loan" : "";
+  const friendId = editingRepayment_ ? editingRepayment_.friend_id : editingLoanFriendId_;
+  if (!kind || !friendId) return;
+  populateRepaymentFriendOptions_();
+  const select = document.getElementById("repayment-friend");
+  if (!Array.from(select.options).some((o) => o.value === friendId)) return;   // a hidden person: stays "Between my accounts", as before
+  select.value = friendId;
+  document.getElementById("transfer-kind").value = kind;
+  editingDebtOriginal_ = { kind, friendId, direction: kind === "repayment" ? editingRepayment_.direction : editingLoanMovement_,
+    amount: Number(entry.amount), currency: String(entry.currency || "").toUpperCase() };
+}
+
 // The debt's direction (Loans.direction) for what's being saved.
 function debtDirection_() {
   const iPaid = repaymentDirectionChoice === "i_owe_them";
@@ -1897,7 +1930,7 @@ document.getElementById("date").addEventListener("change", autoPickRepaymentGrou
 
 document.getElementById("repayment-friend").addEventListener("change", async (e) => {
   repaymentFriendTouched_ = true;
-  if (e.target.value !== "__add__") { updateAutoTransferDescription_(); return; }   // a loan's / repayment's automatic description follows the person
+  if (e.target.value !== "__add__") { updateRepaymentUi_(); updateAutoTransferDescription_(); syncConversionAmount_(); return; }   // a loan's / repayment's automatic description follows the person
   const name = await askName_(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
   if (name && name.trim()) {
@@ -1933,7 +1966,7 @@ function updateRepaymentUi_() {
   if (!document.getElementById("repayment-friend").options.length) populateRepaymentFriendOptions_();
   autoPickRepaymentGroup_();
 
-  document.getElementById("repayment-overpay-block").hidden = isLoan;
+  document.getElementById("repayment-overpay-block").hidden = isLoan || keptDebtEdit_();   // only a re-recorded repayment can have a new extra
   document.getElementById("loan-due-block").hidden = !isLoan;
   if (!isLoan) {
     // "Decide later" comes first and is the default: an extra beyond the debt waits in Needs review unless a category was really picked.
@@ -1985,6 +2018,7 @@ document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((tab) =
   tab.addEventListener("click", () => {
     repaymentDirectionChoice = tab.dataset.direction;
     updateRepaymentUi_();
+    syncConversionAmount_();   // a repayment kept as it is shows its own amount; re-recorded, the whole one
     updateAutoTransferDescription_();   // ...and the direction
   });
 });
@@ -3024,7 +3058,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const date = document.getElementById("date").value;
     const amount = parseFloat(document.getElementById("amount").value);
     const currency = document.getElementById("currency").value.toUpperCase();
-    const isRepayment = repaymentActive_();
+    // A repayment's / loan's own entry saved as the same repayment / loan is a plain edit (keptDebtEdit_), not a conversion.
+    const isRepayment = repaymentActive_() && !keptDebtEdit_();
     const categoryId = isRepayment ? "" : getCategoryId();
     const description = document.getElementById("description").value.trim();
     const paidByRaw = document.getElementById("paid_by").value;
@@ -5160,6 +5195,7 @@ async function startEditEntry(entry) {
   selectCurrency(entry.currency, "entry");
 
   document.getElementById("paid_by").value = entry.paid_by;
+  presetDebtKind_(entry);   // a repayment / loan opens as one (its person, its direction), not as "Between my accounts"
   togglePaymentMethodVisibility();
   if (entry.type === "income" || entry.paid_by === "me") {
     keepHiddenAccountOption_("payment_method", entry.payment_method_id);
@@ -5259,6 +5295,7 @@ function exitEditMode() {
   editingForgiveness_ = null;
   editingInvestmentLeft_ = null;
   editingRepayment_ = null;
+  editingDebtOriginal_ = null;
   editingRepaymentExtra_ = null;
   confirmingPendingId = null;
   updateRepaymentUi_();
@@ -22446,7 +22483,7 @@ function syncConversionAmount_() {
   const r = editingRepayment_;
   if (!r || !r.extra || !(Number(r.extra.amount) > 0)) return;
   const kind = document.getElementById("transfer-kind").value;
-  const converting = selectedType !== "transfer" || kind === "repayment" || kind === "loan";
+  const converting = selectedType !== "transfer" || ((kind === "repayment" || kind === "loan") && !keptDebtEdit_());
   const own = String(Number(r.total));
   const whole = String(Math.round((Number(r.total) + Number(r.extra.amount)) * 100) / 100);
   const field = document.getElementById("amount");
