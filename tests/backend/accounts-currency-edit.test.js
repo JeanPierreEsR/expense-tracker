@@ -91,3 +91,77 @@ test("cash and wallets take no list; the welcome stores one", () => {
   const made = (res.created || res.accounts || []).find((x) => x.cid === "c1");
   assert.equal(row(rt, made.id).currencies, "PEN,USD");
 });
+
+// ---- Suggested currencies for older accounts (owner, 2026-11-06: see it first, nothing applied until Apply) ----
+const jsv = (rt, code) => JSON.parse(rt.run("JSON.stringify(" + code + ")"));
+test("an account's name states its currency, in either language, or says nothing", () => {
+  const { rt } = freshApp({ small: true });
+  for (const [name, want] of [["BCP soles", "PEN"], ["Ahorros Sol", "PEN"], ["IBK dolares", "USD"], ["Cuenta dólares", "USD"], ["Savings USD", "USD"], ["Ahorro euros", "EUR"],
+    ["Interbank", ""], ["Soldado", ""], ["Soles y dolares", ""], ["Autos", ""]]) {
+    assert.equal(jsv(rt, "accountNameCurrency_(" + JSON.stringify(name) + ")"), want, name);
+  }
+});
+
+test("entries decide only with 5 or more, listing every currency with 10% of them", () => {
+  const { rt } = freshApp({ small: true });
+  const t = (list) => jsv(rt, "accountEntriesCurrencies_(" + JSON.stringify(list) + ")");
+  assert.deepEqual(t(["PEN", "PEN", "PEN", "PEN"]), []);
+  assert.deepEqual(t(["PEN", "PEN", "PEN", "PEN", "PEN"]), ["PEN"]);
+  assert.deepEqual(t(["USD", "USD", "USD", "USD", "PEN"]), ["USD", "PEN"]);
+  assert.deepEqual(t([...Array(19).fill("PEN"), "USD"]), ["PEN"], "5% is left out");
+});
+
+function seededOld() {
+  const { rt } = freshApp({ small: true });
+  const add = (o) => rt.run("appendRowObject('Payment Methods', " + JSON.stringify(Object.assign({ last_4: "", bank_id: "" }, o)) + ")");
+  rt.run("ensurePaymentMethodAliasColumns_(); ensurePaymentMethodCurrenciesColumn_()");
+  add({ id: "h1", nickname: "Banco soles", type: "debit" });
+  add({ id: "h3", nickname: "Banco sin nada", type: "debit" });
+  add({ id: "h4", nickname: "Tarjeta soles", type: "credit" });
+  add({ id: "h5", nickname: "Banco soles dos", type: "debit", alias_kind: "debit_usd" });
+  add({ id: "h6", nickname: "Mezcla", type: "debit" });
+  add({ id: "h7", nickname: "Banco soles tres", type: "debit", currencies: "EUR" });
+  add({ id: "h8", nickname: "Plain card", type: "credit", alias_kind: "credit" });
+  add({ id: "h9", nickname: "Efectivo soles", type: "cash" });
+  const cat = rt.rows("Categories").find((c) => c.type === "expense").id;
+  ["PEN", "PEN", "PEN", "USD", "USD"].forEach((currency, i) => rt.run("appendRowObject('Entries', " + JSON.stringify({ id: "he" + i, type: "expense", date: "2026-01-0" + (i + 1), amount: 5, currency, category_id: cat, payment_method_id: "h6", paid_by: "me", status: "confirmed" }) + ")"));
+  return rt;
+}
+
+test("the suggestions change nothing and list only accounts the app knows nothing about", () => {
+  const rt = seededOld();
+  const before = JSON.stringify(rt.rows("Payment Methods"));
+  const res = rt.api("getAccountCurrencySuggestions", {});
+  assert.equal(JSON.stringify(rt.rows("Payment Methods")), before, "looking writes nothing");
+  const of = (id) => res.accounts.find((a) => a.id === id);
+  assert.deepEqual(of("h1").proposed, ["PEN"]);
+  assert.equal(of("h1").source, "name");
+  assert.deepEqual(of("h3").proposed, []);
+  assert.equal(of("h3").source, "none");
+  assert.deepEqual(of("h4").proposed, ["PEN"], "an older card too");
+  assert.deepEqual(of("h6").proposed, ["PEN", "USD"]);
+  assert.equal(of("h6").source, "entries");
+  assert.deepEqual(of("h6").counts, { PEN: 3, USD: 2 });
+  for (const id of ["h5", "h7", "h8", "h9"]) assert.ok(!of(id), id + " already says, or is cash");
+});
+
+test("Apply writes only the list, only what was sent, and never over something already known; names and kinds stay", () => {
+  const rt = seededOld();
+  rt.api("applyAccountCurrencySuggestions", { items: [{ id: "h1", currencies: ["PEN"] }, { id: "h6", currencies: ["PEN", "USD"] }, { id: "h5", currencies: ["EUR"] }, { id: "h3", currencies: [] }] });
+  const of = (id) => rt.rows("Payment Methods").find((r) => r.id === id);
+  assert.equal(of("h1").currencies, "PEN");
+  assert.equal(of("h6").currencies, "PEN,USD");
+  assert.equal(String(of("h5").currencies || ""), "", "known already: left alone");
+  assert.equal(String(of("h3").currencies || ""), "", "nothing ticked: stays empty");
+  assert.equal(String(of("h4").currencies || ""), "", "not sent: stays empty");
+  assert.equal(of("h1").nickname, "Banco soles");
+  assert.equal(String(of("h1").alias_kind || ""), "");
+  assert.equal(rt.api("getAccountCurrencySuggestions", {}).accounts.find((a) => a.id === "h1"), undefined, "applied: no longer suggested");
+});
+
+test("a friend's copy gets no suggestions and cannot apply them", () => {
+  const rt = seededOld();
+  rt.svc.props.set("FEATURES", "base");
+  assert.deepEqual(rt.api("getAccountCurrencySuggestions", {}).accounts, []);
+  assert.throws(() => rt.api("applyAccountCurrencySuggestions", { items: [{ id: "h1", currencies: ["PEN"] }] }));
+});
