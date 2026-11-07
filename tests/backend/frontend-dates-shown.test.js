@@ -24,3 +24,10 @@ test("the text about learning a category says twice, as the code does", () => {
 test("a date inside an alert from the server is shown in words", () => {
   assert.match(app, /String\(n\.text\)\.replace\(\/\\b\\d\{4\}-\\d\{2\}-\\d\{2\}\\b\/g, listDate_\)/);
 });
+
+test("Needs review: the practice waits for something waiting, and a long list shows 20 at a time", () => {
+  assert.match(/function offerReviewTip_\(\) \{[\s\S]*?\n\}/.exec(app)[0], /if \(!reviewEntries_\.length\) return;/);
+  const limit = /function applyReviewLimit_\(\) \{[\s\S]*?\n\}/.exec(app)[0];
+  assert.match(limit, /reviewEditing_ \|\| Spotlight\.isRunning\(\)/);
+  assert.match(app, /new MutationObserver\(applyReviewLimit_\)/);
+});

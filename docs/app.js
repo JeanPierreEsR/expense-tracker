@@ -6339,6 +6339,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     return;
   }
   card.hidden = false;
+  if (homeTipsReady_ && !document.getElementById("screen-entries").hidden) offerReviewTip_();   // the first entry to wait may arrive long after opening
   list.innerHTML = "";
 
   entries.forEach((entry) => {
@@ -6855,6 +6856,25 @@ let reviewEditing_ = false;   // Home → Needs review → Edit (declared here: 
 let entriesEditing_ = false;   // Home list / search → Edit (same reason)
 let entriesSelected_ = new Set();
 let reviewSelected_ = new Set();
+// A long Needs review must not push Recent entries away (Home test: about 100 screens at 206 items): 20 rows, then "Show more". The other rows stay in
+// the list, only hidden, so its count and every action keep working, and when a row is confirmed the next one comes up. All of them show in Edit mode
+// (what Select all ticks must be visible) and during a practice (its own rows must be reachable).
+const REVIEW_STEP_ = 20;
+let reviewShown_ = REVIEW_STEP_;
+function applyReviewLimit_() {
+  const rows = document.getElementById("review-list").children;
+  const showAll = reviewEditing_ || Spotlight.isRunning();
+  for (let i = 0; i < rows.length; i++) rows[i].hidden = !showAll && i >= reviewShown_;
+  const more = document.getElementById("review-show-more");
+  const left = rows.length - reviewShown_;
+  more.hidden = showAll || left <= 0;
+  if (!more.hidden) more.textContent = tr("review.showMore", { n: left });
+}
+new MutationObserver(applyReviewLimit_).observe(document.getElementById("review-list"), { childList: true });
+document.getElementById("review-show-more").addEventListener("click", () => {
+  reviewShown_ += REVIEW_STEP_;
+  applyReviewLimit_();
+});
 let reviewEntries_ = [];
 let appToastTimer_ = null;
 // `sticky` keeps the toast on screen until hideToast_ (a "Deleting…" that must last as long as the work does); `ms` lengthens a toast that names people or items.
@@ -7065,7 +7085,7 @@ function homeMainCard_(g) {
   if (base != null && base > 0.005) {
     const pct = Math.round(((m.expense - base) / base) * 100);
     const arrow = pct > 0 ? "↑" : pct < 0 ? "↓" : "→";
-    delta = `<div class="home-delta ${pct > 0 ? "bad" : pct < 0 ? "good" : ""}">${escapeHtml(tr(isCurrent ? "home.vsSameDay" : "home.vsLast", { arrow, pct: Math.abs(pct) }))}</div>`;
+    delta = `<div class="home-delta ${pct > 0 ? "bad" : pct < 0 ? "good" : ""}">${escapeHtml(tr("home.vsLast", { arrow, pct: Math.abs(pct) }))}</div>`;
   }
 
   const net = m.net;
@@ -20157,6 +20177,7 @@ function isPracticeReviewEntry_(e) {
 
 function offerReviewTip_() {
   if (!((meta && meta.capabilities) || {}).practiceReview) return;   // an older backend would let the practice entries teach the app
+  if (!reviewEntries_.length) return;   // nothing waiting yet: a person with no bank e-mails has no use for it (owner, 2026-11-06)
   offerTip_("review", "home-tip-invite", tr("spot.n.invite"), startReviewPractice_);
 }
 
