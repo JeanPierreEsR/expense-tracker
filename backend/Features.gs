@@ -128,6 +128,7 @@ function getCapabilities_() {
     gapReasons: true,   // saveGapReason + `reasons` in getManualGaps: More → Bank emails → By transaction asks why no email came; an older backend lacks them, so the question is not shown
     accountCurrencyEdit: true,   // savePaymentMethod takes `currency` (More → Accounts); a card may be in one currency only ('credit_usd'); 2026-11-04
     accountCurrencyList: true,   // savePaymentMethod and saveOnboardingAccounts take `currencies`, a list: an account can have several (2026-11-06)
+    plinMany: true,   // Plin on several accounts (saveRailLinks plin_pen_more)
     accountCurrencySuggest: true,   // getAccountCurrencySuggestions + apply: older accounts, shown in More → Accounts on the owner's copy (2026-11-06)
     accountCurrencies: true,   // saveOnboardingAccounts takes any currency for a debit / salary account ('debit_eur', 'sueldo_usd'); an older backend gets only soles / dollars offered in the welcome
     profileState: true,   // getProfileState (which saved picks still have their category) + applyProfile brings a hidden / deleted pick's category back: More → My profile → What fits me; an older backend shows the saved picks as they are

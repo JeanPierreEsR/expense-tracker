@@ -50,13 +50,16 @@ function bringModalToFront_(backdropEl) {
   backdropEl.style.zIndex = topModalZIndex;
 }
 
+// Plin can ride on several accounts (owner, 2026-11-06): `plin_pen` is the main one, these are the others.
+const plinManyOn_ = () => !!((meta && meta.capabilities) || {}).plinMany;
+const plinMoreIds_ = () => String(((meta && meta.settings) || {}).plin_pen_more || "").split(",").filter(Boolean);
 // An account as it reads in a list to pick from: its name, the last 4 digits, and the wallets that ride on it ("BCP soles · Yape"),
 // so a person who pays with Yape or Plin finds it without knowing that the app records the bank account behind it (2026-11-04).
 function pmPickLabel_(pm) {
   const settings = (meta && meta.settings) || {};
   const wallets = [];
   if (String(settings.yape_pen || "") === String(pm.id) || String(settings.yape_usd || "") === String(pm.id)) wallets.push("Yape");
-  if (String(settings.plin_pen || "") === String(pm.id) || String(settings.plin_usd || "") === String(pm.id)) wallets.push("Plin");
+  if (String(settings.plin_pen || "") === String(pm.id) || String(settings.plin_usd || "") === String(pm.id) || plinMoreIds_().includes(String(pm.id))) wallets.push("Plin");
   const shown = wallets.filter((w) => !String(pm.nickname || "").toLowerCase().includes(w.toLowerCase()));
   return pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "") + (shown.length ? " · " + shown.join(" · ") : "");
 }
@@ -10997,7 +11000,8 @@ const isBcp_ = (bankName) => String(bankName || "").trim().toLowerCase() === "bc
 function walletSlots_(bankName, type, kind) {
   if (type === "credit") {
     const cardCur = kindCurrency_(kind);
-    return String(bankName || "").trim().toLowerCase() === "interbank" && (!cardCur || cardCur === "PEN") ? ["plin_pen"] : [];
+    if (String(bankName || "").trim().toLowerCase() !== "interbank") return [];
+    return !cardCur || cardCur === "PEN" || plinManyOn_() ? ["plin_pen"] : [];   // (owner, 2026-11-06: Plin works from his Interbank card whatever its list says)
   }
   if (type !== "debit") return [];
   const cur = kindCurrency_(kind), usd = cur === "USD", pen = cur === "PEN";
@@ -13416,7 +13420,7 @@ function fillPmBankOptions_(selectedId) {
 function openPmModal_(pm) {
   const linked = (meta && meta.settings) || {};
   pmModalState = { id: pm ? pm.id : null, lastBank: pm ? pm.bank_id || "" : "",
-    wallets: pm ? ["yape_pen", "yape_usd", "plin_pen"].filter((k) => String(linked[k] || "") === String(pm.id)) : [], kind: pm ? pm.alias_kind || "" : "" };
+    wallets: pm ? ["yape_pen", "yape_usd", "plin_pen"].filter((k) => String(linked[k] || "") === String(pm.id) || (k === "plin_pen" && plinMoreIds_().includes(String(pm.id)))) : [], kind: pm ? pm.alias_kind || "" : "" };
   document.getElementById("pm-modal-title").textContent = tr(pm ? "accounts.editTitle" : "accounts.addTitle");
   const typeSel = document.getElementById("pm-type");
   typeSel.innerHTML = "";
@@ -13519,7 +13523,7 @@ function renderPmWallets_() {
   const settings = (meta && meta.settings) || {};
   renderWalletBoxes_(document.getElementById("pm-wallet-boxes"), slots, pmModalState.wallets, (key, on) => {
     if (!on) { pmModalState.wallets = pmModalState.wallets.filter((k) => k !== key); return; }
-    const holder = String(settings[key] || "");
+    const holder = key === "plin_pen" && plinManyOn_() ? "" : String(settings[key] || "");   // (several accounts can have Plin: nothing to move)
     const other = holder && holder !== String(pmModalState.id) && meta.paymentMethods.find((p) => String(p.id) === holder);
     if (other && !confirm(tr("wallets.replace", { wallet: tr(`wa.rail.${key}`), name: other.nickname }))) return false;
     pmModalState.wallets.push(key);
@@ -13589,7 +13593,16 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
     else meta.paymentMethods.push(saved);
     // Wallet links: ticked slots point at this account; slots it no longer offers (or that were unticked) are released.
     const slots = slotsNow, settings = meta.settings || (meta.settings = {}), links = {};
+    const id = String(saved.id), plinMany = plinManyOn_(), more = plinMoreIds_();
     ["yape_pen", "yape_usd", "plin_pen"].forEach((k) => {
+      if (k === "plin_pen" && plinMany) {
+        const main = String(settings.plin_pen || ""), want = slots.includes(k) && state.wallets.includes(k);
+        if (want && !main) links.plin_pen = id;
+        else if (want && main !== id && !more.includes(id)) links.plin_pen_more = [...more, id].join(",");
+        else if (!want && main === id) { links.plin_pen = more[0] || ""; links.plin_pen_more = more.slice(1).join(","); }   // the next one becomes the main one
+        else if (!want && more.includes(id)) links.plin_pen_more = more.filter((x) => x !== id).join(",");
+        return;
+      }
       if (slots.includes(k) && state.wallets.includes(k)) { if (String(settings[k] || "") !== String(saved.id)) links[k] = saved.id; }
       else if (String(settings[k] || "") === String(saved.id)) links[k] = "";
     });

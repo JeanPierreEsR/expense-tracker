@@ -288,3 +288,25 @@ test("the names follow a language switch for the new kinds too", () => {
   rt.run("relocalizeAutoAliases_('en')");
   assert.deepEqual(rt.rows("Payment Methods").map((p) => p.nickname).sort(), ["BBVA euros", "Interbank salary"]);
 });
+
+test("Plin rides on several accounts: a savings account and an Interbank card; photos go to the main one", () => {
+  const rt = friendCopy();
+  const r = save(rt, [acct("s", "Interbank", "debit_pen"), acct("c", "Interbank", "credit"), acct("o", "Scotiabank", "credit"), acct("b", "BCP", "debit_pen")], {}, "es");
+  const id = Object.fromEntries(r.accounts.map((a) => [a.cid, a.id]));
+  assert.ok(rt.api("getMeta").capabilities.plinMany);
+  rt.api("saveRailLinks", { plin_pen: id.s });
+  const out = rt.api("saveRailLinks", { plin_pen_more: id.c });
+  assert.equal(out.plin_pen, id.s);
+  assert.equal(out.plin_pen_more, id.c);
+  assert.equal(rt.run(`railAccount_('plin', 'PEN', getAllRows('Payment Methods')).id`), id.s);
+  // the same rules as the main link
+  assert.throws(() => rt.api("saveRailLinks", { plin_pen_more: id.c + "," + id.o }));
+  assert.throws(() => rt.api("saveRailLinks", { plin_pen_more: id.b }), /no funciona con cuentas BCP|doesn't work with BCP/);
+  assert.equal(rt.api("getMeta").settings.plin_pen_more, id.c);
+  // an account with Plin is not deleted while it is linked, also when it is not the main one
+  assert.throws(() => rt.api("deletePaymentMethod", { id: id.c }));
+  // the main link released: the other one takes over, and is not listed twice
+  const out2 = rt.api("saveRailLinks", { plin_pen: "" });
+  assert.equal(out2.plin_pen, id.c);
+  assert.equal(out2.plin_pen_more, "");
+});
