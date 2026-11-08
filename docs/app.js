@@ -9848,10 +9848,12 @@ function setBudgetStart_(value) {
   btn.dataset.value = value;
   btn.textContent = budgetStartLabel_(budgetPeriodType, value);
   const cur = budgetPeriodKey_(budgetPeriodType, 0);
-  btn.classList.toggle("changed", value !== cur);
+  // What it is compared with: this period for a new budget; the budget's own start when editing (untouched = nothing to point out).
+  const base = editingBudgetId && budgetEditingStart_ && budgetPeriodType === budgetEditingType_ ? budgetEditingStart_ : cur;
+  btn.classList.toggle("changed", value !== base);
   const note = document.getElementById("budget-start-note");
   const when = value === "always" ? "" : budgetPeriodName_(budgetPeriodType, value, true);
-  note.hidden = value === cur || value === "always";
+  note.hidden = value === base || value === cur || value === "always";
   if (!note.hidden) note.textContent = tr(value > cur ? "budget.startNoteLater" : "budget.startNoteEarlier", { when, now: budgetPeriodName_(budgetPeriodType, cur, true) });
 }
 let budgetEditingStart_ = "";   // the start of the budget being edited (its planned start, or where it started; "always" when it always counted)
@@ -10132,7 +10134,15 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
         const keep = start === "always" ? tr(keepAll)
           : start === prev ? tr("budget.keepOne", { p: budgetPeriodName_(budgetPeriodType, prev) })
           : tr("budget.keepRange", { from: budgetPeriodName_(budgetPeriodType, start, true), to: budgetPeriodName_(budgetPeriodType, prev, true) });
-        if (!confirm(`${ask}\n\n${keep}`)) return;
+        const SK = budgetPeriodType === "yearly" ? { since: "budget.scopeAllYear", always: "budget.scopeAllAlwaysYear", hint: "budget.scopeAllHintYear" }
+          : budgetPeriodType === "weekly" ? { since: "budget.scopeAllWeek", always: "budget.scopeAllAlwaysWeek", hint: "budget.scopeAllHintWeek" }
+          : { since: "budget.scopeAll", always: "budget.scopeAllAlways", hint: "budget.scopeAllHint" };
+        const scope = await askBudgetScope_({ title: ask,
+          forward: tr("budget.scopeForward", { now }), forwardHint: keep,
+          all: start === "always" ? tr(SK.always) : tr(SK.since, { from: budgetPeriodName_(budgetPeriodType, start, true) }),
+          allHint: tr(SK.hint, { amount: formatAmount(amount, currency) }) });
+        if (!scope) return;
+        if (scope === "all") fields.apply_all = true;
       }
     }
     if (!budgetId && budgetHistoryOn_()) {
@@ -23854,6 +23864,26 @@ function syncConversionAmount_() {
   const field = document.getElementById("amount");
   const from = converting ? own : whole;
   if (field.value === from || field.value === "") field.value = converting ? whole : own;   // never over what the person typed
+}
+
+// From this period on, or for all the budget's periods? Resolves "forward", "all" or null (backed out).
+function askBudgetScope_(t) {
+  return new Promise((resolve) => {
+    const backdrop = document.getElementById("budget-scope-backdrop");
+    document.getElementById("budget-scope-title").textContent = t.title;
+    document.getElementById("budget-scope-forward").textContent = t.forward;
+    document.getElementById("budget-scope-forward-hint").textContent = t.forwardHint;
+    document.getElementById("budget-scope-all").textContent = t.all;
+    document.getElementById("budget-scope-all-hint").textContent = t.allHint;
+    const ids = ["budget-scope-forward", "budget-scope-all", "budget-scope-back", "budget-scope-close"];
+    const done = (value) => { backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); resolve(value); };
+    document.getElementById("budget-scope-forward").onclick = () => done("forward");
+    document.getElementById("budget-scope-all").onclick = () => done("all");
+    document.getElementById("budget-scope-back").onclick = () => done(null);
+    document.getElementById("budget-scope-close").onclick = () => done(null);
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+  });
 }
 
 // Asks what happens to a deleted loan's / expense's repayments. Resolves to "keep" (they stay on record as a loan the

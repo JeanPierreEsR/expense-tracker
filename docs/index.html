@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="1.70.5"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="1.70.6"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-08T19:11:47Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-08T19:38:21Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -2325,6 +2325,24 @@
     </div>
   </div>
 
+  <!-- A budget change that could count from this period on or for all its periods (owner, 2026-11-08); an app window, not the
+       iPhone's own dialog (that one speaks the phone's language: "Annuler"). -->
+  <div id="budget-scope-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="budget-scope-title"></span>
+        <button type="button" id="budget-scope-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <button type="button" class="primary" id="budget-scope-forward"></button>
+        <p class="hint" id="budget-scope-forward-hint"></p>
+        <button type="button" class="secondary-choice" id="budget-scope-all"></button>
+        <p class="hint" id="budget-scope-all-hint"></p>
+        <button type="button" class="cancel-edit-btn" id="budget-scope-back" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="settlement-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -3707,24 +3725,24 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="i18n.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="tour-scenes.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="signin-link.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="country-guess.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="rate-quotes.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="bank-sample.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="perf-share.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="spotlight.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="receipt-parse.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="receipt-fields.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="in-process.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="bill-split.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="loan-reminder.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="app.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="statement-sample.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="statement-table.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="statement-parsers.js?v=2026-11-08T19:11:47Z"></script>
-  <script src="statements.js?v=2026-11-08T19:11:47Z"></script>
+  <script src="strings.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="i18n.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="tour-scenes.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="signin-link.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="country-guess.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="rate-quotes.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="bank-sample.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="perf-share.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="spotlight.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="receipt-parse.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="receipt-fields.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="in-process.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="bill-split.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="loan-reminder.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="app.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="statement-sample.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="statement-table.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="statement-parsers.js?v=2026-11-08T19:38:21Z"></script>
+  <script src="statements.js?v=2026-11-08T19:38:21Z"></script>
 </body>
 </html>

@@ -3757,3 +3757,7 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 .select-like.changed { border-color: var(--accent); border-width: 2px; }
 .budget-start-note { color: var(--accent); }
 .budget-dup-open { margin-top: 6px; }
+
+/* The second choice of a choice window (budget scope): outlined, not red (nothing is deleted). */
+.secondary-choice { display: block; width: 100%; min-height: 44px; margin-top: 6px; padding: 10px 14px; border: 1px solid var(--accent);
+  border-radius: 10px; background: white; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
