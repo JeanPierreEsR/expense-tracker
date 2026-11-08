@@ -596,6 +596,7 @@ var DATE_FIELD_FORMATS = {
   last_seen: 'yyyy-MM-dd',
   month: 'yyyy-MM',
   period: 'yyyy-MM',
+  from_period: 'yyyy-MM-dd',   // Budget History: a start Sheets turned into a date (budgetFromKey_ cuts it to the budget's kind)
   // Full timestamp (not date-only) — lets same-day entries sort by the
   // exact moment they were captured, not just insertion order.
   created_at: "yyyy-MM-dd'T'HH:mm:ss"

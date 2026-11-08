@@ -3741,11 +3741,18 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 #bank-opening-how { margin-top: 8px; }
 .bank-opening-summary { font-weight: 600; color: var(--text); }
 
-/* Budgets that start in a later period, under the list (owner, 2026-11-08). */
-.budgets-later { margin-top: 10px; }
+/* Budgets that start in a later period, under the list: a closed group (owner, 2026-11-08). */
+.budgets-later { margin-top: 10px; border-top: 1px solid var(--border); }
 .budgets-later[hidden] { display: none; }
-.budgets-later-row { display: block; width: 100%; min-height: 44px; padding: 10px 0; border: none; border-top: 1px solid var(--border);
-  background: none; font: inherit; font-size: 0.9rem; color: var(--accent); text-align: left; cursor: pointer; }
+.budgets-later-head, .budgets-later-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%;
+  min-height: 44px; padding: 10px 0; border: none; background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.budgets-later-head { font-weight: 600; }
+.budgets-later-count { display: inline-block; min-width: 22px; padding: 1px 7px; margin-left: 4px; border-radius: 999px; background: #efeff2;
+  color: var(--muted); font-size: 0.8rem; font-weight: 600; text-align: center; }
+.budgets-later-chev { color: var(--muted); }
+.budgets-later-row { border-top: 1px solid var(--border); padding-left: 4px; }
+.budgets-later-name { min-width: 0; overflow-wrap: anywhere; }
+.budgets-later-when { color: var(--muted); font-size: 0.9rem; white-space: nowrap; }
 /* The Starts box when it is not the current period: outlined in blue, with a line saying what it means. */
 .select-like.changed { border-color: var(--accent); border-width: 2px; }
 .budget-start-note { color: var(--accent); }
