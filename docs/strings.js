@@ -1243,6 +1243,8 @@
     "budget.scopeAllHintWeek": { en: "Earlier weeks change too, as if it had always been so.", es: "Las semanas anteriores también cambian, como si siempre hubiera sido así." },
     "budget.dupOpen": { en: "Open that budget", es: "Abrir ese presupuesto" },
     "budget.confirmEndNotStarted": { en: "End {what}? It hasn't started yet (it starts in {when}), so it is deleted completely.", es: "¿Terminar {what}? Todavía no empieza (empieza en {when}), así que se elimina por completo." },
+    "budget.programmedLine": { en: "+ {cur} {amount} programmed · {pct}% with them", es: "+ {cur} {amount} programado · {pct}% con eso" },
+    "budgets.statusProg": { en: "{n} over or close once programmed items are paid", es: "{n} pasados o cerca cuando se paguen los programados" },
     "budget.endedNote": { en: "This budget has ended. Earlier periods still show it.", es: "Este presupuesto terminó. Los periodos anteriores todavía lo muestran." },
     "budget.annualizedN": { en: " (monthly, {n} months)", es: " (mensual, {n} meses)" },
     "budget.weeksWidened": { en: " (weekly, {n} weeks)", es: " (semanal, {n} semanas)" },

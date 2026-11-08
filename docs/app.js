@@ -10326,9 +10326,12 @@ function drawBudgets_() {
   // Owner, 2026-11-07: two visible groups. First "over or close" (75 % and up), the most used first; then the rest, the biggest budget
   // first — compared in the main currency over the period shown (a monthly budget in a Year view counts 12 months).
   const pctOf = (b) => (b.progress && b.progress.percent != null ? b.progress.percent : -1);
+  // With the Programmed items still to come (the dotted part, owner 2026-11-08): a budget that will be over or close once they are
+  // paid joins the first group too.
+  const pctAll = (b) => { const p = b.progress; return p && p.percent != null && p.programmed > 0 && p.effectiveAmount > 0 ? (p.spent + p.programmed) / p.effectiveAmount * 100 : pctOf(b); };
   const sizeOf = (b) => (b.amount_pen != null && b.amount ? b.amount_pen / b.amount : 0) * (b.progress ? b.progress.effectiveAmount : 0);
-  const attention = budgets.filter((b) => pctOf(b) >= 75).sort((x, y) => pctOf(y) - pctOf(x));
-  const others = budgets.filter((b) => pctOf(b) < 75).sort((x, y) => sizeOf(y) - sizeOf(x));
+  const attention = budgets.filter((b) => pctAll(b) >= 75).sort((x, y) => pctAll(y) - pctAll(x));
+  const others = budgets.filter((b) => pctAll(b) < 75).sort((x, y) => sizeOf(y) - sizeOf(x));
   const ordered = attention.concat(others);
   const groupHead = (key) => { const h = document.createElement("div"); h.className = "budgets-group-head"; h.textContent = tr(key); list.appendChild(h); };
   const overN = budgets.filter((b) => pctOf(b) >= 100).length;
@@ -10337,6 +10340,8 @@ function drawBudgets_() {
   const statusParts = [];
   if (overN) statusParts.push(`<span class="over">${escapeHtml(tr("budgets.statusOver", { n: overN }))}</span>`);
   if (closeN) statusParts.push(`<span class="warn">${escapeHtml(tr("budgets.statusClose", { n: closeN }))}</span>`);
+  const progN = budgets.filter((b) => pctOf(b) < 75 && pctAll(b) >= 75).length;
+  if (progN) statusParts.push(`<span class="warn">${escapeHtml(tr("budgets.statusProg", { n: progN }))}</span>`);
   statusLine.innerHTML = statusParts.length ? statusParts.join(" · ") : escapeHtml(tr("budgets.statusFine"));
   statusLine.hidden = false;
   // Year view: a small mark on each bar where today falls in its year ("expected by now", owner 2026-11-07), and one line explaining it.
@@ -10362,6 +10367,14 @@ function drawBudgets_() {
       const expected = p.effectiveAmount * frac;
       todayMark = `<span class="budget-today-mark" style="left:${(frac * 100).toFixed(1)}%" role="img" aria-label="${escapeHtml(tr("budgets.todayMarkAria", { cur: pc, amount: moneyFmt(expected) }))}"></span>`;
       anyTodayMark = true;
+    }
+    // The dotted part: Programmed items still to come in this period, after what is spent; a line names them and the % with them.
+    let progBar = "", progLine = "";
+    if (pct != null && p.programmed > 0.004) {
+      const all = pctAll(b), end = Math.min(100, Math.max(0, all));
+      const progClass = all >= 100 ? "over" : all >= 75 ? "warn" : "";
+      if (end > barPct) progBar = `<div class="budget-progress-prog ${progClass}" style="left:${barPct}%;width:${(end - barPct).toFixed(2)}%"></div>`;
+      progLine = `<div class="budget-row-prog ${pct < 75 && all >= 75 ? progClass : ""}">${escapeHtml(tr("budget.programmedLine", { cur: pc, amount: moneyFmt(p.programmed), pct: all.toFixed(0) }))}</div>`;
     }
     const annualNote = p.annualLeftOut > 0.005
       ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: pc, amount: moneyFmt(p.annualLeftOut) }))}</div>` : "";
@@ -10398,12 +10411,14 @@ function drawBudgets_() {
       </div>
       <div class="budget-progress-track">
         <div class="budget-progress-fill ${statusClass}" style="width:${barPct}%"></div>
+        ${progBar}
         ${todayMark}
       </div>
       <div class="budget-row-sub">
         <span>${subLabel}</span>
         <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
       </div>
+      ${progLine}
       ${annualNote}
     `;
     // Editing/deleting now lives behind the drill-down's ⋮ menu (see

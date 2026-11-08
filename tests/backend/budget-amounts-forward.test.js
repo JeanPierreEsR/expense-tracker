@@ -232,3 +232,18 @@ test("'For all its months': a change replaces every earlier amount of the budget
   rt.api("updateBudget", { id: b.id, amount: 1500, apply_all: true });
   assert.deepEqual([-3, -2, -1, 0, 1].map((n) => amt(b.id, n)), [null, 1500, 1500, 1500, 1500]);
 });
+
+test("the dotted part of a budget: Programmed items still to come this period, not yet recorded; none in a past month", () => {
+  const { rt } = freshApp({ small: true });
+  rt.run("deleteRowsWhere_('Budgets', function () { return true; })");
+  rt.run(`appendRowObject('Categories', { id: 'cat-prog', name: 'Prog test', type: 'expense', icon: '', color: '#ccc', parent_id: '' });`);
+  const b = rt.api("addBudget", { category_id: "cat-prog", amount: 1000, currency: "PEN", period_type: "monthly" });
+  const lastDay = new Date(+today().slice(0, 4), +today().slice(5, 7), 0).getDate();
+  rt.api("addRecurringExpense", { category_id: "cat-prog", description: "Demo rent", amount: 120, currency: "PEN", frequency: "monthly", day: lastDay });
+  const p = rt.api("listBudgets", { displayPeriodType: "month" }).budgets.find((x) => x.id === b.id).progress;
+  assert.equal(p.programmed, today().slice(8, 10) === String(lastDay) ? 120 : 120);
+  const [y, m] = today().split("-").map(Number);
+  const prev = new Date(y, m - 2, 1);
+  const past = rt.api("listBudgets", { displayPeriodType: "month", anchorDate: `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}-01` }).budgets.find((x) => x.id === b.id);
+  assert.ok(!past || !past.progress.programmed, "a past month has nothing still to come");
+});
