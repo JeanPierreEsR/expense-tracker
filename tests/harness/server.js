@@ -37,6 +37,11 @@ function boot() {
   // Made-up demo scenarios to try the newest features by hand (friends to delete/hide, programmed items in every state, legacy paused items for the
   // heal). NO_DEMO=1 leaves them out. The automated tests never go through this file.
   if (!process.env.NO_DEMO && !process.env.EMPTY) require("./demo-data").seedDemo(rt, data);
+  // USD_RATES_ONLY=1: the owner-style copy keeps only its dollar rates (a copy whose move to the dollar changes nothing visible).
+  if (process.env.USD_RATES_ONLY) {
+    const rates = rt.sheet("Exchange Rates").rows, col = rates[0].indexOf("currency");
+    rates.splice(0, rates.length, ...rates.filter((r, i) => i === 0 || String(r[col]).toUpperCase() === "USD"));
+  }
   // Export data: mail goes nowhere here; GET /__mail lists what "would have been" sent.
   rt.api("admin_setExportEmail", { email: "owner@example.com" });
   // FRIEND_COPY=1 behaves like an app made by the installer (FEATURES set), e.g. to check what a new person does not see.
