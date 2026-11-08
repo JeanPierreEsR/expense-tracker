@@ -2839,7 +2839,7 @@ function renderRateModalLabels_() {
   // the owner has toggled to the "1 PEN = __ currency" view, same as the
   // save handler flips it back on the way in.
   const displayValue = existingRate == null ? "" : (inverted ? 1 / existingRate : existingRate);
-  document.getElementById("rate-value-input").value = displayValue === "" ? "" : String(displayValue);
+  document.getElementById("rate-value-input").value = displayValue === "" ? "" : String(Number(displayValue.toFixed(displayValue >= 100 ? 4 : 6)));   // (no endless decimals once turned around)
   renderRateMeaning_();
 }
 
@@ -2860,13 +2860,19 @@ function renderRateMeaning_() {
 // rate — omitted, the field just starts blank (a brand-new rate).
 function openRateModal(currency, month, required, existingRate) {
   return new Promise((resolve) => {
-    rateModalState = { currency, month, inverted: false, resolve, existingRate: existingRate != null ? existingRate : null };
+    // Asked the way it is spoken: the stronger currency as 1 (owner, 2026-11-07); the person can still switch it.
+    rateModalState = { currency, month, inverted: weakerThanMain_(currency, existingRate), resolve, existingRate: existingRate != null ? existingRate : null };
     // The previous month's rate (for the "that looks far off" check) is fetched while the person types,
     // so Save has nothing to wait for before it can close.
     const [yy, mm] = month.split("-").map(Number);
     const prevMonth = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
     const opening = rateModalState;
     opening.prevRate = callApi("getLatestRateOnOrBefore", { currency, month: prevMonth }).then((r) => {
+      // A new rate follows the way the earlier one reads, unless the person already switched it or typed.
+      if (r.rate != null && existingRate == null && rateModalState === opening && !opening.switched && !document.getElementById("rate-value-input").value) {
+        opening.inverted = weakerThanMain_(currency, r.rate);
+        renderRateModalLabels_();
+      }
       if (r.rate == null) { opening.firstEver = true; if (rateModalState === opening) renderRateMeaning_(); }
       return r.rate;
     }).catch(() => null);
@@ -2895,6 +2901,7 @@ function closeRateModal_(result) {
 document.getElementById("rate-invert-btn").addEventListener("click", () => {
   if (!rateModalState) return;
   rateModalState.inverted = !rateModalState.inverted;
+  rateModalState.switched = true;
   renderRateModalLabels_();
 });
 
@@ -2931,8 +2938,10 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     // confirmed (rule from specs/entries-and-categories.md, Exchange Rates).
     const prev = await prevRate;
     if (prev && Math.abs(rate / prev - 1) > 0.10) {
-      const pct = Math.round(Math.abs(rate / prev - 1) * 100);
-      if (!confirm(tr(rate > prev ? "rateModal.confirmHigher" : "rateModal.confirmLower", { rate, pct, prev }))) return;
+      // Said in the window's own direction, so the numbers are the ones the person typed and reads.
+      const shownPrev = inverted ? 1 / prev : prev;
+      const pct = Math.round(Math.abs(raw / shownPrev - 1) * 100);
+      if (!confirm(tr(raw > shownPrev ? "rateModal.confirmHigher" : "rateModal.confirmLower", { rate: strongRateFmt_(raw), pct, prev: strongRateFmt_(shownPrev) }))) return;
     }
   } finally {
     saveBtn.disabled = false;
@@ -4061,9 +4070,8 @@ function exchangeHouseOf_(p) {
 function exchangeRateText_(p) {
   const home = homeCur(), a = Number(p.out.amount), b = Number(p.in.amount);
   if (!(a > 0 && b > 0)) return "";
-  if (p.out.currency === home) return tr("xch.rowRate", { cur: p.in.currency, rate: (a / b).toFixed(2), home });
-  if (p.in.currency === home) return tr("xch.rowRate", { cur: p.out.currency, rate: (b / a).toFixed(2), home });
-  return tr("xch.rowRate", { cur: p.out.currency, rate: (b / a).toFixed(4), home: p.in.currency });
+  const s = strongRate_(p.out.currency, p.in.currency, b / a);   // the stronger currency as 1, whichever side it is on
+  return tr("xch.rowRate", { cur: s.one, rate: strongRateFmt_(s.rate), home: s.other });
 }
 function buildExchangePairRow_(p) {
   const row = document.createElement("div");
@@ -8095,6 +8103,24 @@ function moneyFmt(n) {
 }
 
 // A quote like 0.9174 or 3.7512: at least 2 decimals, up to 4 (moneyFmt's 2 would turn 0.9174 into 0.92).
+// Rates are read the way they are spoken (owner, 2026-11-07): the stronger currency as 1 ("1 PEN = 384.62 ARS", never "1 ARS = 0.00 PEN").
+// `per` = units of b for one a. Returns { one, other, rate } with rate >= 1, or null.
+function strongRate_(a, b, per) {
+  if (!(Number(per) > 0)) return null;
+  return per >= 1 ? { one: a, other: b, rate: Number(per) } : { one: b, other: a, rate: 1 / Number(per) };
+}
+function strongRateFmt_(n) {
+  return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: n >= 100 ? 2 : 4 });
+}
+// Rough units per US dollar, ONLY to choose which way a brand-new rate is asked (the person types the real one); never used for money.
+const CURRENCY_PER_USD_ = { PEN: 3.7, USD: 1, EUR: 0.92, ARS: 1400, MXN: 18, BRL: 5.5, CLP: 950, COP: 4000, BOB: 6.9, UYU: 40, PYG: 7500, VES: 100, GTQ: 7.7, CRC: 510, PAB: 1, DOP: 60, HNL: 25, NIO: 37, CUP: 24, GBP: 0.78, CAD: 1.37, CHF: 0.85, JPY: 150, CNY: 7.2, KRW: 1400, INR: 85, AUD: 1.5, NZD: 1.7, SGD: 1.33, HKD: 7.8, SEK: 10.5, NOK: 10.8, DKK: 6.8, PLN: 3.9, TRY: 40, ZAR: 18, AED: 3.67, THB: 34, RUB: 90, ILS: 3.7, AFN: 70, ALL: 92, DZD: 135, AOA: 900, AMD: 390, AWG: 1.79, AZN: 1.7, BSD: 1, BHD: 0.376, BDT: 120, BBD: 2, BYN: 3.3, BZD: 2, BMD: 1, BTN: 85, BAM: 1.8, BWP: 13.5, BND: 1.33, BIF: 2900, KHR: 4000, CVE: 101, KYD: 0.83, XAF: 600, KMF: 450, CDF: 2800, XCG: 1.79, CZK: 23, DJF: 178, XCD: 2.7, EGP: 49, SVC: 8.75, ERN: 15, SZL: 18, ETB: 130, FKP: 0.78, FJD: 2.25, XPF: 109, GMD: 71, GEL: 2.7, GHS: 12, GIP: 0.78, GNF: 8600, GYD: 209, HTG: 131, HUF: 360, ISK: 137, IDR: 16000, IRR: 42000, IQD: 1310, JMD: 157, JOD: 0.709, KZT: 500, KES: 129, KWD: 0.307, KGS: 87, LAK: 21600, LBP: 89500, LSL: 18, LRD: 190, LYD: 5.4, MOP: 8, MGA: 4500, MWK: 1730, MYR: 4.4, MVR: 15.4, MRU: 40, MUR: 46, MDL: 17.5, MNT: 3400, MAD: 9.5, MZN: 64, MMK: 2100, NAD: 18, NPR: 136, NGN: 1550, KPW: 900, MKD: 56, OMR: 0.385, PKR: 280, PGK: 4, PHP: 57, QAR: 3.64, RON: 4.6, RWF: 1400, SHP: 0.78, WST: 2.7, STN: 22.5, SAR: 3.75, RSD: 108, SCR: 14, SLE: 22.5, SBD: 8.4, SOS: 571, SSP: 4500, LKR: 300, SDG: 600, SRD: 36, SYP: 13000, TWD: 32, TJS: 10.9, TZS: 2600, TOP: 2.35, TTD: 6.8, TND: 3.1, TMT: 3.5, UGX: 3700, UAH: 41, UZS: 12700, VUV: 120, VND: 25500, XOF: 600, YER: 250, ZMW: 27, ZWG: 27 };
+// True when 1 <currency> is worth less than 1 of the main currency, so the window asks "1 <main> = ? <currency>". A rate already known decides.
+function weakerThanMain_(currency, knownRate) {
+  if (Number(knownRate) > 0) return Number(knownRate) < 1;
+  const a = CURRENCY_PER_USD_[currency], m = CURRENCY_PER_USD_[homeCur()];
+  return !!(a && m) && a > m;
+}
+
 function rateFmt_(n) {
   return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 }
@@ -9404,7 +9430,8 @@ function drawBudgets_() {
       (p.annualized ? tr("budget.annualized") : "");
 
     if (b.currency !== homeCur() && p.rate != null) {
-      fxNotes.push(`1 ${b.currency} = ${moneyFmt(p.rate)} ${homeCur()} — ${b.category_name}`);
+      const s = strongRate_(b.currency, homeCur(), p.rate);
+      if (s) fxNotes.push(`1 ${s.one} = ${strongRateFmt_(s.rate)} ${s.other} — ${b.category_name}`);
     }
 
     const row = document.createElement("div");
@@ -13646,7 +13673,7 @@ async function refreshExchangeRates() {
         <div class="recurring-row-name">${findCurrency(r.currency).flag} ${r.currency}</div>
         <div class="recurring-row-sub">${r.month}</div>
       </div>
-      <div class="recurring-row-amount">${q ? `1 USD = ${rateFmt_(q.per)} ${q.target}` : `1 ${r.currency} = ${homeCur()} ${moneyFmt(r.rate)}`}</div>
+      <div class="recurring-row-amount">${q ? `1 USD = ${rateFmt_(q.per)} ${q.target}` : ((s) => `1 ${s.one} = ${s.other} ${strongRateFmt_(s.rate)}`)(strongRate_(r.currency, homeCur(), r.rate))}</div>
     `;
     row.addEventListener("click", async () => {
       const newRate = await openRateModal(r.currency, r.month, /* required */ false, r.rate);
