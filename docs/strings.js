@@ -1324,6 +1324,7 @@
     "bank.interest": { en: "Interest", es: "Interés" },
     "bank.fees": { en: "Fees", es: "Comisiones" },
     "bank.totals": { en: "Principal {p} of {a} · Interest {i} · Fees {f} · Total to pay {t}", es: "Capital {p} de {a} · Interés {i} · Comisiones {f} · Total a pagar {t}" },
+    "bank.highRate": { en: "This works out to {tea}% a year, far above what banks charge (about 100% a year at most). Is that right?", es: "Esto equivale a {tea}% al año, muy por encima de lo que cobran los bancos (alrededor de 100% al año como máximo). ¿Es correcto?" },
     "bank.installmentTooHigh": { en: "{n} installments of {pay} are far more than a loan of {amount} can cost (over 2,000% a year). Check the installment and the number of installments.", es: "{n} cuotas de {pay} son mucho más de lo que puede costar un préstamo de {amount} (más de 2,000% al año). Revisa la cuota y el número de cuotas." },
     "bank.totalsOff": { en: "Principal {p} of {a}: the principal must add up to the loan.", es: "Capital {p} de {a}: el capital debe sumar el monto del préstamo." },
     "bank.save": { en: "Save bank loan", es: "Guardar préstamo bancario" },

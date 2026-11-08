@@ -23474,6 +23474,14 @@ function bankSolveTea_(amount, count, net, start, dates, grace, graceType) {
   return (lo + hi) / 2;
 }
 
+// The softer check before the impossible one (owner, 2026-11-08): over 200% a year is asked about (a typo such as an extra zero
+// or a wrong number of installments); banks' consumer credit in Peru is around 100–110% at most. `tea` is a fraction.
+const BANK_RATE_ASK_ = 2;
+function bankRateLooksRight_(tea) {
+  if (!(tea > BANK_RATE_ASK_) || Spotlight.isRunning()) return true;   // (a practice's made-up numbers are not asked about)
+  return confirm(tr("bank.highRate", { tea: (tea * 100).toLocaleString("en-US", { maximumFractionDigits: 0 }) }));
+}
+
 // The rows a quick generator makes: equal principal when there is no rate; otherwise a fixed installment (typed, or worked out as
 // an annuity) whose interest is the monthly rate on what is still owed. The last row closes the balance exactly.
 function bankGenerateRows_(amount, count, firstDue, payment, ratePct, feePer, freq, grace, graceType) {
@@ -23731,11 +23739,16 @@ document.getElementById("bank-gen-btn").addEventListener("click", () => {
       errEl.textContent = tr("bank.installmentTooHigh", { n: count, pay: `${cur} ${moneyFmt(payment)}`, amount: `${cur} ${moneyFmt(amount)}` });
       return;
     }
+    if (!bankRateLooksRight_(t)) return;
     impliedEl.textContent = tr("bank.impliedRate", { tea: (t * 100).toFixed(2) });
     bankDraft_.rows = bankGenerateRowsDays_(amount, count, startDate, first, t, payment - fee, fee, freq, grace, graceType);
   } else if (byDays) {
+    if (!bankRateLooksRight_(typedRate / 100)) return;
     bankDraft_.rows = bankGenerateRowsDays_(amount, count, startDate, first, typedRate / 100, 0, fee, freq, grace, graceType);
   } else {
+    // a rate per payment period, as a yearly rate for the check: compounded over the periods in a year
+    const perYear = { weekly: 52, biweekly: 26, monthly: 12, bimonthly: 6, quarterly: 4, semiannual: 2, yearly: 1 }[freq] || 12;
+    if (!bankRateLooksRight_(Math.pow(1 + typedRate / 100, perYear) - 1)) return;
     // a rate per payment period: the same rate every period, no day count
     bankDraft_.rows = bankGenerateRows_(amount, count, first, 0, typedRate, fee, freq, grace, graceType);
   }
