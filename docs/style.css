@@ -3605,3 +3605,15 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .screen-load-failed { margin: 0 0 12px; }
 #screen-overview.load-failed > .card:not(#period-selector-card),
 #screen-budgets.load-failed > .card:not(#period-selector-card) { display: none; }
+
+/* Rates against the US dollar (RatesUsd.gs): the offer on More → Currencies and its preview sheet. */
+.rates-usd-offer { border: 1px solid var(--border, #e3e3e3); border-radius: 12px; padding: 10px 12px; margin: 8px 0 12px; }
+.rates-usd-offer-title { font-weight: 600; margin: 0 0 4px; }
+.rates-usd-row { padding: 8px 0; border-bottom: 1px solid var(--border, #eee); }
+.rates-usd-row-name { font-weight: 600; }
+.rates-usd-row-was { color: var(--muted, #888); text-decoration: line-through; font-size: 0.9em; }
+.rates-usd-row-now { font-size: 0.95em; }
+.rates-usd-month { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.95em; }
+#rates-usd-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+#rates-usd-actions .add-inline { margin-top: 0; }
+.usd-share-amt { white-space: nowrap; }

@@ -25,6 +25,7 @@ function doPost(e) {
   RATES_MEMO_ = null;   // never carry rates over from a previous request
   HOME_CURRENCY_MEMO_ = null;   // nor the main currency (HomeCurrency.gs)
   RATE_BASE_MEMO_ = null;       // nor the rates' base currency
+  RATE_FORM_MEMO_ = null;       // nor how its rows read (RatesUsd.gs)
   STMT_COVERAGE_MEMO_ = null;   // nor statement coverage (see Balances.gs)
   REQUEST_LANG_ = null;         // nor the previous request's language (see Strings.gs)
   var response;
@@ -207,9 +208,11 @@ function routeActionSwitch_(action, payload) {
     case 'getHomeGlance': return getHomeGlance();
     case 'getMonthlyHistory': return getMonthlyHistory();
     case 'getExchangeRate': return getExchangeRate(payload.currency, payload.month);
-    case 'getLatestRateOnOrBefore': return { rate: getLatestRateOnOrBefore_(payload.currency, payload.month) };
+    case 'getLatestRateOnOrBefore': return { rate: getLatestRateOnOrBefore_(payload.currency, payload.month), per_usd: perUsdAt_(payload.currency, payload.month) };
     case 'listExchangeRates': return listExchangeRates();
-    case 'setExchangeRate': return setExchangeRate(payload.currency, payload.month, payload.rate);
+    case 'setExchangeRate': return payload.per_usd != null ? setUsdRate(payload.currency, payload.month, payload.per_usd) : setExchangeRate(payload.currency, payload.month, payload.rate);
+    case 'previewRatesToUsd': return previewRatesToUsd();
+    case 'convertRatesToUsd': return convertRatesToUsd();
     case 'previewMainCurrencyChange': return previewMainCurrencyChange(payload);
     case 'changeMainCurrency': return changeMainCurrency(payload);
     case 'addFriend': return addFriend(payload);
@@ -1249,6 +1252,8 @@ function listEntries(payload) {
     // edit form reuses them instead of a separate getEntryTags call.
     entry.tagIds = tagIdsByEntry[entry.id] || [];
     entry.own_share_pen = computeAmountPen(ownShare, entry.currency, entry.date);
+    var usdShare = usdLineAmount_(buildRatesByCurrency_(), ownShare, entry.currency, entry.date);
+    if (usdShare != null) entry.own_share_usd = usdShare;   // third currency: the share in dollars, under the main amount (RatesUsd.gs)
   });
   return entries;
 }
@@ -1372,6 +1377,8 @@ function buildSearchIndexRows_(entries) {
       exchange_pair: e.exchange_pair || '',
       _s: entrySearchText_(e, lk)
     };
+    var usdShare = usdLineAmount_(ratesByCurrency, ownShare, e.currency, e.date);
+    if (usdShare != null) row.own_share_usd = usdShare;   // third currency: the share in dollars (RatesUsd.gs)
     // Only while the Business pack is on, so a personal-only copy's search data is exactly what it was.
     if (business) { row.company_id = e.company_id || ''; row.project_id = e.project_id || ''; row.expected_payment_id = e.expected_payment_id || ''; row.igv_amount = e.igv_amount || ''; }
     return row;
@@ -1517,18 +1524,23 @@ function computeAmountPen(amount, currency, dateStr) {
 function listExchangeRates() {
   var by = buildRatesByCurrency_();
   var main = homeCurrency_(), base = rateBase_();
+  var usd = ratesThroughUsd_();   // each row also says "1 USD = per_usd <currency>" (RatesUsd.gs)
   var out = [];
   getAllRows('Exchange Rates').forEach(function (r) {
     var cur = String(r.currency).toUpperCase();
-    var rate = Number(r.rate);
+    var rate = rowRateToBase_(r.rate);
     if (cur === base) return;   // the base has no rate of its own (it is 1)
+    var row;
     if (cur === main) {
       // The main currency's own row, shown from the other side: 1 BASE = 1/rate MAIN.
-      out.push({ id: r.id, currency: base, month: r.month, rate: 1 / rate });
+      row = { id: r.id, currency: base, month: r.month, rate: 1 / rate };
     } else {
       var m = mainBaseRateAt_(by, r.month);
-      if (m != null) out.push({ id: r.id, currency: cur, month: r.month, rate: rate / m });
+      if (m != null) row = { id: r.id, currency: cur, month: r.month, rate: rate / m };
     }
+    if (!row) return;
+    if (usd) row.per_usd = Number(r.rate);
+    out.push(row);
   });
   return out.sort(function (a, b) {
     if (a.month !== b.month) return a.month < b.month ? 1 : -1;
@@ -1552,12 +1564,12 @@ function getExchangeRate(currency, month) {
   if (currency === main) return null;
   if (currency === base) {
     var mainRow = getRateRow_(main, month);
-    return mainRow ? { id: mainRow.id, month: month, currency: base, rate: 1 / Number(mainRow.rate) } : null;
+    return mainRow ? { id: mainRow.id, month: month, currency: base, rate: 1 / rowRateToBase_(mainRow.rate) } : null;
   }
   var row = getRateRow_(currency, month);
   if (!row) return null;
   var m = mainBaseRateAt_(buildRatesByCurrency_(), month);
-  return m == null ? null : { id: row.id, month: month, currency: currency, rate: Number(row.rate) / m };
+  return m == null ? null : { id: row.id, month: month, currency: currency, rate: rowRateToBase_(row.rate) / m };
 }
 
 // Every rate on file, grouped by currency and sorted ascending by month —
@@ -1577,7 +1589,7 @@ function buildRatesByCurrency_() {
   var map = {};
   getAllRows('Exchange Rates').forEach(function (r) {
     if (!map[r.currency]) map[r.currency] = [];
-    map[r.currency].push({ month: r.month, rate: Number(r.rate) });
+    map[r.currency].push({ month: r.month, rate: rowRateToBase_(r.rate) });   // "1 USD = r X" rows turned around (RatesUsd.gs)
   });
   Object.keys(map).forEach(function (c) {
     map[c].sort(function (a, b) { return a.month < b.month ? -1 : 1; });
@@ -1636,6 +1648,24 @@ function setExchangeRate(currency, month, rate) {
   return { id: (getRateRow_(storeCurrency, month) || {}).id, month: month, currency: currency, rate: rate };
 }
 
+// Once rates go through the dollar (RatesUsd.gs): `perUsd` is what the person typed, 1 USD = perUsd <currency> (for USD
+// itself, 1 USD = perUsd <MAIN>). Answers like setExchangeRate (rate = 1 <currency> = rate <MAIN>), plus per_usd.
+function setUsdRate(currency, month, perUsd) {
+  currency = String(currency || '').trim().toUpperCase();
+  month = String(month || '').trim();
+  if (!ratesThroughUsd_()) throw new Error(tr_('rates.usdNotYet'));
+  if (!/^[A-Z]{3}$/.test(currency)) throw new Error(tr_('err.currencyCode'));
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error(tr_('err.monthFormat'));
+  perUsd = Number(perUsd);
+  if (!isFinite(perUsd) || perUsd <= 0) throw new Error(tr_('err.rateGreater'));
+  var main = homeCurrency_();
+  if (currency === main) throw new Error(tr_('err.rateMain'));
+  var code = currency === 'USD' ? main : currency;   // the row that holds it: 1 USD = perUsd <code>
+  upsertBaseRate_(code, month, 1 / perUsd);
+  var rate = getLatestRateOnOrBefore_(currency, month);
+  return { id: (getRateRow_(code, month) || {}).id, month: month, currency: currency, rate: rate, per_usd: perUsd };
+}
+
 // Writes one row of the Exchange Rates table (rate in BASE terms), replacing the month's row if there is one.
 function upsertBaseRate_(currency, month, baseRate) {
   var existing = getRateRow_(currency, month);
@@ -1643,10 +1673,10 @@ function upsertBaseRate_(currency, month, baseRate) {
     var sheet = getSheet('Exchange Rates');
     var headers = getHeaders(sheet);
     var rowIndex = findRowIndexById(sheet, headers, existing.id);
-    sheet.getRange(rowIndex, headers.indexOf('rate') + 1).setValue(baseRate);
+    sheet.getRange(rowIndex, headers.indexOf('rate') + 1).setValue(baseRateToRow_(baseRate));
     bumpStructureVersion_();
   } else {
-    appendRowObject('Exchange Rates', { id: Utilities.getUuid(), month: month, currency: currency, rate: baseRate });
+    appendRowObject('Exchange Rates', { id: Utilities.getUuid(), month: month, currency: currency, rate: baseRateToRow_(baseRate) });
   }
   RATES_MEMO_ = null;
 }

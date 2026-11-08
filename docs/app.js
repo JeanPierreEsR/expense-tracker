@@ -2831,7 +2831,15 @@ async function ensureExchangeRate(currency, dateStr) {
 let rateModalState = null; // { currency, month, inverted, resolve, existingRate }
 
 function renderRateModalLabels_() {
-  const { currency, inverted, existingRate } = rateModalState;
+  const { currency, inverted, existingRate, usd } = rateModalState;
+  document.getElementById("rate-invert-btn").hidden = !!usd;   // through the dollar it is always asked "1 USD = ? X" (owner, 2026-11-07)
+  if (usd) {
+    document.getElementById("rate-left-label").textContent = "1 USD";
+    document.getElementById("rate-right-label").textContent = usdRateTarget_(currency);
+    document.getElementById("rate-value-input").value = existingRate == null ? "" : String(Number(Number(existingRate).toFixed(existingRate >= 100 ? 4 : 6)));
+    renderRateMeaning_();
+    return;
+  }
   document.getElementById("rate-left-label").textContent = inverted ? `1 ${homeCur()}` : `1 ${currency}`;
   document.getElementById("rate-right-label").textContent = inverted ? currency : homeCur();
   // existingRate is always in the canonical "1 currency = rate PEN"
@@ -2850,8 +2858,8 @@ function renderRateMeaning_() {
   const st = rateModalState;
   const raw = parseFloat(document.getElementById("rate-value-input").value);
   if (!st || !st.firstEver || !(raw > 0)) { el.hidden = true; return; }
-  const from = st.inverted ? homeCur() : st.currency;
-  const to = st.inverted ? st.currency : homeCur();
+  const from = st.usd ? "USD" : st.inverted ? homeCur() : st.currency;
+  const to = st.usd ? usdRateTarget_(st.currency) : st.inverted ? st.currency : homeCur();
   el.textContent = tr("rateModal.meaning", { left: `10 ${from}`, right: `${to} ${moneyFmt(raw * 10)}` });
   el.hidden = false;
 }
@@ -2861,7 +2869,9 @@ function renderRateMeaning_() {
 function openRateModal(currency, month, required, existingRate) {
   return new Promise((resolve) => {
     // Asked the way it is spoken: the stronger currency as 1 (owner, 2026-11-07); the person can still switch it.
-    rateModalState = { currency, month, inverted: weakerThanMain_(currency, existingRate), resolve, existingRate: existingRate != null ? existingRate : null };
+    // Once rates go through the dollar, `existingRate` is "1 USD = ? <currency>" and the window asks it that way.
+    const usd = ratesUsdOn_();
+    rateModalState = { currency, month, usd, inverted: !usd && weakerThanMain_(currency, existingRate), resolve, existingRate: existingRate != null ? existingRate : null };
     // The previous month's rate (for the "that looks far off" check) is fetched while the person types,
     // so Save has nothing to wait for before it can close.
     const [yy, mm] = month.split("-").map(Number);
@@ -2869,12 +2879,13 @@ function openRateModal(currency, month, required, existingRate) {
     const opening = rateModalState;
     opening.prevRate = callApi("getLatestRateOnOrBefore", { currency, month: prevMonth }).then((r) => {
       // A new rate follows the way the earlier one reads, unless the person already switched it or typed.
-      if (r.rate != null && existingRate == null && rateModalState === opening && !opening.switched && !document.getElementById("rate-value-input").value) {
+      if (!usd && r.rate != null && existingRate == null && rateModalState === opening && !opening.switched && !document.getElementById("rate-value-input").value) {
         opening.inverted = weakerThanMain_(currency, r.rate);
         renderRateModalLabels_();
       }
-      if (r.rate == null) { opening.firstEver = true; if (rateModalState === opening) renderRateMeaning_(); }
-      return r.rate;
+      const prev = usd ? r.per_usd : r.rate;
+      if (prev == null) { opening.firstEver = true; if (rateModalState === opening) renderRateMeaning_(); }
+      return prev;
     }).catch(() => null);
     document.getElementById("rate-modal-title").textContent = tr("rateModal.titleWithCurrency", { currency });
     const monthWords = I18n.fmtMonthYear(new Date(yy, mm - 1, 1), true);
@@ -2928,8 +2939,8 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     return;
   }
 
-  const { currency, month, inverted, prevRate } = rateModalState;
-  const rate = inverted ? 1 / raw : raw;
+  const { currency, month, inverted, prevRate, usd } = rateModalState;
+  const rate = usd ? raw : inverted ? 1 / raw : raw;   // through the dollar: compared and sent as "1 USD = raw X"
   const saveBtn = document.getElementById("rate-save-btn");
   saveBtn.disabled = true;
   try {
@@ -2939,7 +2950,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     const prev = await prevRate;
     if (prev && Math.abs(rate / prev - 1) > 0.10) {
       // Said in the window's own direction, so the numbers are the ones the person typed and reads.
-      const shownPrev = inverted ? 1 / prev : prev;
+      const shownPrev = !usd && inverted ? 1 / prev : prev;
       const pct = Math.round(Math.abs(raw / shownPrev - 1) * 100);
       if (!confirm(tr(raw > shownPrev ? "rateModal.confirmHigher" : "rateModal.confirmLower", { rate: strongRateFmt_(raw), pct, prev: strongRateFmt_(shownPrev) }))) return;
     }
@@ -2953,8 +2964,8 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
   closeRateModal_(undefined);
   showToast_(tr("common.savingToast"));
   try {
-    await callApi("setExchangeRate", { currency, month, rate });
-    resolve(rate);
+    const saved = await callApi("setExchangeRate", usd ? { currency, month, per_usd: raw } : { currency, month, rate });
+    resolve(usd ? saved.rate : rate);   // the opener always gets "1 <currency> = rate <main>"
     refreshHomeGlance_(true);   // foreign amounts are worth something else in the main currency now
     refreshEntryList().catch(() => {});
   } catch (err) {
@@ -3745,7 +3756,7 @@ function renderEntryAmountPlainHtml_(entry) {
         const abs = (v) => (v == null ? v : Math.abs(Number(v)));
         return Object.assign({}, entry, {
           amount: abs(entry.amount), amount_pen: abs(entry.amount_pen),
-          own_share: abs(entry.own_share), own_share_pen: abs(entry.own_share_pen)
+          own_share: abs(entry.own_share), own_share_pen: abs(entry.own_share_pen), own_share_usd: abs(entry.own_share_usd)
         });
       })()
     : entry;
@@ -3776,15 +3787,18 @@ function renderEntryAmountPlain_(entry) {
     return `<span class="primary-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
   }
 
+  // A third currency (not USD, not the main one), once rates go through the dollar: my share in dollars under the main amount
+  // (owner, 2026-11-07: "−PEN 32.50 / 🇺🇸 ≈ USD 8.67 / 🇦🇷 ARS 12,500.00"). The server sends it only then.
+  const usdLine = entry.own_share_usd != null ? `<span class="original-amt usd-share-amt">${formatAmount(entry.own_share_usd, "USD", "≈ ")}</span>` : "";
   if (!hasSplit) {
     const originalLine = `<span class="original-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
-    return `<span class="primary-amt">${homeCur()} ${moneyFmt(entry.amount_pen)}</span>${originalLine}`;
+    return `<span class="primary-amt">${homeCur()} ${moneyFmt(entry.amount_pen)}</span>${usdLine}${originalLine}`;
   }
 
   const primaryPen = entry.own_share_pen != null ? entry.own_share_pen : entry.amount_pen;
   const ownShareLine = `<span class="original-amt">${formatAmount(entry.own_share, entry.currency)}</span>`;
   const totalLine = `<span class="original-amt">${tr("common.total")} ${formatAmount(entry.amount, entry.currency)}</span>`;
-  return `<span class="primary-amt">${homeCur()} ${moneyFmt(primaryPen)}</span>${ownShareLine}${totalLine}`;
+  return `<span class="primary-amt">${homeCur()} ${moneyFmt(primaryPen)}</span>${usdLine}${ownShareLine}${totalLine}`;
 }
 
 function findCategory(id) {
@@ -8120,6 +8134,11 @@ function weakerThanMain_(currency, knownRate) {
   const a = CURRENCY_PER_USD_[currency], m = CURRENCY_PER_USD_[homeCur()];
   return !!(a && m) && a > m;
 }
+
+// Rates stored against the US dollar (backend RatesUsd.gs, owner 2026-11-07): every rate is asked and listed "1 USD = ? <currency>".
+function ratesUsdOn_() { const s = (meta && meta.settings) || {}; return s.rate_base === "USD" && s.rate_form === "per_base"; }
+// What a "1 USD = ? x" rate is counted in: the dollar's own rate is the main currency's.
+function usdRateTarget_(currency) { return currency === "USD" ? homeCur() : currency; }
 
 function rateFmt_(n) {
   return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
@@ -13663,7 +13682,9 @@ async function refreshExchangeRates() {
 
   // Friends' copies read every rate against the US dollar, the way banks and the news quote them ("1 USD = 0.92 EUR"); the
   // owner's own copy keeps "1 X = main". Only the reading changes: what is stored, and the window a tap opens, are the same.
-  const quotes = perfIsOwnerCopy_() ? [] : RateQuotes.usdQuotes(rates, homeCur());
+  const usd = ratesUsdOn_() && rates.every((r) => r.per_usd > 0);   // stored "1 USD = x": the server says each row's x
+  const quotes = usd || perfIsOwnerCopy_() ? [] : RateQuotes.usdQuotes(rates, homeCur());
+  renderRatesUsdOffer_(rates);
   rates.forEach((r, i) => {
     const q = quotes[i];
     const row = document.createElement("div");
@@ -13673,16 +13694,75 @@ async function refreshExchangeRates() {
         <div class="recurring-row-name">${findCurrency(r.currency).flag} ${r.currency}</div>
         <div class="recurring-row-sub">${r.month}</div>
       </div>
-      <div class="recurring-row-amount">${q ? `1 USD = ${rateFmt_(q.per)} ${q.target}` : ((s) => `1 ${s.one} = ${s.other} ${strongRateFmt_(s.rate)}`)(strongRate_(r.currency, homeCur(), r.rate))}</div>
+      <div class="recurring-row-amount">${usd && r.per_usd > 0 ? `1 USD = ${usdRateTarget_(r.currency)} ${strongRateFmt_(r.per_usd)}` : q ? `1 USD = ${rateFmt_(q.per)} ${q.target}` : ((s) => `1 ${s.one} = ${s.other} ${strongRateFmt_(s.rate)}`)(strongRate_(r.currency, homeCur(), r.rate))}</div>
     `;
     row.addEventListener("click", async () => {
-      const newRate = await openRateModal(r.currency, r.month, /* required */ false, r.rate);
+      const newRate = await openRateModal(r.currency, r.month, /* required */ false, usd && r.per_usd > 0 ? r.per_usd : r.rate);
       if (newRate != null) refreshExchangeRates();
     });
     list.appendChild(row);
   });
   offerExchangeTip_();   // only now that everything has arrived (loading standard)
 }
+
+// ---- Rates against the US dollar (backend RatesUsd.gs, release B of the rates plan) ----
+// The owner's copy is offered the conversion until it is done; the preview lists every rate before → after and every month whose
+// expenses would read differently, and nothing is saved before "Store them against the dollar".
+function renderRatesUsdOffer_(rates) {
+  const box = document.getElementById("rates-usd-offer");
+  box.hidden = !(((meta && meta.capabilities) || {}).ratesUsdConvert && !ratesUsdOn_() && rates.length);
+}
+function ratesUsdClose_() { document.getElementById("rates-usd-modal-backdrop").hidden = true; }
+async function openRatesUsdPreview_() {
+  const backdrop = document.getElementById("rates-usd-modal-backdrop"), body = document.getElementById("rates-usd-body");
+  const actions = document.getElementById("rates-usd-actions");
+  body.innerHTML = loadingHtml_();
+  document.getElementById("rates-usd-rows").innerHTML = "";
+  actions.hidden = true;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  let p;
+  try { p = await callApi("previewRatesToUsd", {}); } catch (err) { body.innerHTML = `<p class="charge-line-error">${escapeHtml(err.message)}</p>`; return; }
+  if (backdrop.hidden) return;
+  if (p.done) { meta.settings.rate_base = "USD"; meta.settings.rate_form = "per_base"; ratesUsdClose_(); refreshExchangeRates(); return; }
+  if (p.needsUsd) { body.innerHTML = `<p class="hint">${escapeHtml(tr("ratesUsd.needsUsd"))}</p>`; return; }
+  const before = (b) => { const s = b && strongRate_(b.currency, homeCur(), b.rate); return s ? `1 ${s.one} = ${s.other} ${strongRateFmt_(s.rate)}` : "—"; };
+  const rows = p.rows.map((r) => `
+    <div class="rates-usd-row">
+      <div class="rates-usd-row-name">${findCurrency(r.currency).flag} ${escapeHtml(r.currency)} <span class="hint">${escapeHtml(r.month)}</span></div>
+      <div class="rates-usd-row-was">${escapeHtml(before(r.before))}</div>
+      <div class="rates-usd-row-now">→ 1 USD = ${escapeHtml(r.currency)} ${strongRateFmt_(r.per_usd)}</div>
+    </div>`).join("");
+  const months = p.months.length
+    ? p.months.map((m) => {
+        const [y, mo] = m.month.split("-").map(Number);
+        return `<div class="rates-usd-month"><span>${escapeHtml(I18n.fmtMonthYear(new Date(y, mo - 1, 1), true))}</span><span>${escapeHtml(tr("ratesUsd.monthLine", { cur: p.main, before: moneyFmt(m.before), after: moneyFmt(m.after), n: m.entries }))}</span></div>`;
+      }).join("")
+    : `<p class="hint">${escapeHtml(tr("ratesUsd.noMonths"))}</p>`;
+  // The buttons come before the (long) list of rates, so the choice never needs a scroll to the bottom.
+  body.innerHTML = `
+    <p class="hint">${escapeHtml(tr("ratesUsd.previewIntro"))}</p>
+    <h3>${escapeHtml(tr("ratesUsd.monthsTitle"))}</h3>${months}
+    <p class="hint">${escapeHtml(tr("ratesUsd.backupNote"))}</p>`;
+  document.getElementById("rates-usd-rows").innerHTML = `<h3>${escapeHtml(tr("ratesUsd.rowsTitle", { n: p.rows.length }))}</h3>${rows}`;
+  actions.hidden = false;
+}
+document.getElementById("rates-usd-preview-btn").addEventListener("click", openRatesUsdPreview_);
+document.getElementById("rates-usd-modal-close").addEventListener("click", ratesUsdClose_);
+document.getElementById("rates-usd-cancel").addEventListener("click", ratesUsdClose_);
+document.getElementById("rates-usd-apply").addEventListener("click", () => {
+  ratesUsdClose_();
+  saveBehindScreen_(async () => {
+    await callApi("convertRatesToUsd", {});
+    meta.settings.rate_base = "USD";
+    meta.settings.rate_form = "per_base";
+    knownRateMonths_.clear();
+  }, async () => {
+    refreshExchangeRates();
+    refreshHomeGlance_(true);   // amounts in a third currency now go through the dollar
+    refreshEntryList().catch(() => {});
+  });
+});
 
 // ---- Accounts & cards (More tab) ----
 // The list reads meta.paymentMethods (already loaded for the entry form), and a
