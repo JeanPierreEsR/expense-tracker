@@ -6772,15 +6772,15 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           <input class="review-amount" type="text" inputmode="decimal" value="${Math.abs(Number(entry.amount))}" placeholder="${escapeHtml(tr("field.amount"))}"></div>
         ${reviewHasAccountBox_(entry) ? `
         <label class="review-transfer-label">${tr(entry.type === "income" ? "review.receivedAtLabel" : "field.paidFromAccount")}</label>
-        <select class="review-account">${transferAccountOptions_(entry.payment_method_id, tr(entry.type === "income" ? "review.pickAccountEntered" : "review.pickAccountLeft"))}</select>` : ""}
+        <select class="review-account">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>` : ""}
         ${entry.type === "expense" && (meta.trips || []).length ? `
         <label class="review-transfer-label">${tr("field.trip")}</label>
         <select class="review-trip">${reviewTripOptions_(entry.trip_id || entry.suggested_trip_id || "")}</select>` : ""}
         ${entry.type === "transfer" ? `
         <label class="review-transfer-label">${tr("review.fromLabel")}</label>
-        <select class="review-from">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccountLeft"))}</select>
+        <select class="review-from">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>
         <label class="review-transfer-label">${tr("review.toLabel")}</label>
-        <select class="review-to">${transferAccountOptions_(entry.to_payment_method_id, tr("review.pickAccountEntered"))}</select>` : ""}
+        <select class="review-to">${transferAccountOptions_(entry.to_payment_method_id, tr("review.pickAccount"))}</select>` : ""}
         ${entry.type === "investment" ? `
         <label class="review-transfer-label">${tr("review.platformLabel")}${Number(entry.amount) < 0 ? tr("review.platformWithdrawal") : ""}</label>
         <select class="review-platform">${investmentPlatformOptions_(entry.to_payment_method_id)}</select>
@@ -14775,8 +14775,25 @@ async function refreshExchangeRates(cached) {
 // expenses would read differently, and nothing is saved before "Store them against the dollar".
 function renderRatesUsdOffer_(rates) {
   const box = document.getElementById("rates-usd-offer");
-  box.hidden = !(((meta && meta.capabilities) || {}).ratesUsdConvert && !ratesUsdOn_() && rates.length);
+  const offer = ((meta && meta.capabilities) || {}).ratesUsdConvert && !ratesUsdOn_() && rates.length > 0;
+  // Only dollar rates, against the main currency they were stored in: the conversion changes nothing anyone can see
+  // (USD 1 = PEN 3.75 reads the same before and after), so it is done quietly, with no offer and no button (owner, 2026-11-08).
+  const base = String(((meta && meta.settings) || {}).rate_base || "PEN").toUpperCase();
+  if (offer && base === homeCur() && rates.every((r) => r.currency === "USD")) {
+    box.hidden = true;
+    if (ratesUsdQuiet_) return;
+    ratesUsdQuiet_ = true;
+    callApi("convertRatesToUsd", {}).then(() => {
+      meta.settings.rate_base = "USD";
+      meta.settings.rate_form = "per_base";
+      knownRateMonths_.clear();
+      refreshExchangeRates();
+    }).catch(() => { ratesUsdQuiet_ = false; });   // tried again the next time Currencies opens
+    return;
+  }
+  box.hidden = !offer;
 }
+let ratesUsdQuiet_ = false;
 function ratesUsdClose_() { document.getElementById("rates-usd-modal-backdrop").hidden = true; }
 async function openRatesUsdPreview_() {
   const backdrop = document.getElementById("rates-usd-modal-backdrop"), body = document.getElementById("rates-usd-body");
@@ -14792,7 +14809,12 @@ async function openRatesUsdPreview_() {
   if (p.done) { meta.settings.rate_base = "USD"; meta.settings.rate_form = "per_base"; ratesUsdClose_(); refreshExchangeRates(); return; }
   if (p.needsUsd) { body.innerHTML = `<p class="hint">${escapeHtml(tr("ratesUsd.needsUsd"))}</p>`; return; }
   const before = (b) => (b && strongRateLine_(b.currency, homeCur(), b.rate)) || "—";
-  const rows = p.rows.map((r) => `
+  // A rate that already reads against the dollar (USD 1 = PEN 3.75) is only stored the other way round inside: it reads exactly the
+  // same before and after, so it is not listed as a change (owner, 2026-11-08: "makes no sense") — one line says those stay.
+  const changes = p.rows.filter((r) => before(r.before) !== strongRateLine_("USD", r.currency, r.per_usd));
+  const same = p.rows.filter((r) => !changes.includes(r));
+  const sameCodes = [...new Set(same.map((r) => r.currency))].map((c) => `USD 1 = ${c}`).join(", ");
+  const rows = changes.map((r) => `
     <div class="rates-usd-row">
       <div class="rates-usd-row-name">${findCurrency(r.currency).flag} ${escapeHtml(r.currency)} <span class="hint">${escapeHtml(r.month)}</span></div>
       <div class="rates-usd-row-was">${escapeHtml(before(r.before))}</div>
@@ -14809,7 +14831,8 @@ async function openRatesUsdPreview_() {
     <p class="hint">${escapeHtml(tr("ratesUsd.previewIntro"))}</p>
     <h3>${escapeHtml(tr("ratesUsd.monthsTitle"))}</h3>${months}
     <p class="hint">${escapeHtml(tr("ratesUsd.backupNote"))}</p>`;
-  document.getElementById("rates-usd-rows").innerHTML = `<h3>${escapeHtml(tr("ratesUsd.rowsTitle", { n: p.rows.length }))}</h3>${rows}`;
+  document.getElementById("rates-usd-rows").innerHTML = (same.length ? `<p class="hint">${escapeHtml(tr(same.length === 1 ? "ratesUsd.sameOne" : "ratesUsd.same", { n: same.length, pair: sameCodes }))}</p>` : "")
+    + (changes.length ? `<h3>${escapeHtml(tr("ratesUsd.rowsTitle", { n: changes.length }))}</h3>${rows}` : "");
   actions.hidden = false;
 }
 document.getElementById("rates-usd-preview-btn").addEventListener("click", openRatesUsdPreview_);
