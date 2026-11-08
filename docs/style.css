@@ -1798,6 +1798,7 @@ body.income-revealed .sens-mask { display: none; }
 }
 
 .budget-period-tabs { grid-template-columns: repeat(2, 1fr); margin-bottom: 0; }
+#budget-period-tabs { grid-template-columns: repeat(3, 1fr); }   /* Weekly · Monthly · Yearly on one row */
 
 .budget-period-tabs .type-tab.active {
   background: var(--accent);
@@ -3661,3 +3662,5 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #rates-usd-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 #rates-usd-actions .add-inline { margin-top: 0; }
 .usd-share-amt { white-space: nowrap; }
+/* Projections works by month or year: no Week choice there (owner, 2026-11-07) */
+#screen-projections .period-type-chip[data-period-type="week"] { display: none; }

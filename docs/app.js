@@ -7704,6 +7704,8 @@ function showScreen(name) {
     refreshBudgets();
   }
   if (name === "projections") {
+    // Projections works by month or year: a Week shown elsewhere becomes the month holding the week's Thursday.
+    if (periodType === "week") { periodAnchor = anchorForPeriodSwitch_("week", "month"); periodType = "month"; renderPeriodSelector(); }
     ensurePeriodSelectorIn("projections");
     refreshProjectionsScreen();
   }
@@ -7819,12 +7821,30 @@ function monthBounds(d) {
   };
 }
 
+// A week runs Monday to Sunday (owner, 2026-11-07). "Nov 2 – 8, 2026" / "2 – 8 nov 2026"; across months or years both ends say so.
+function mondayDate_(d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+function isoOf_(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function weekLabel_(mon, sun) {
+  const es = I18n.getLang() === "es";
+  const mo = (d) => { const t = I18n.monthShort(d.getMonth(), true).replace(/\.$/, ""); return es ? t.toLowerCase() : t; };
+  const sameY = mon.getFullYear() === sun.getFullYear(), sameM = sameY && mon.getMonth() === sun.getMonth();
+  if (es) return sameM ? `${mon.getDate()} – ${sun.getDate()} ${mo(sun)} ${sun.getFullYear()}`
+    : `${mon.getDate()} ${mo(mon)}${sameY ? "" : " " + mon.getFullYear()} – ${sun.getDate()} ${mo(sun)} ${sun.getFullYear()}`;
+  return sameM ? `${mo(mon)} ${mon.getDate()} – ${sun.getDate()}, ${sun.getFullYear()}`
+    : `${mo(mon)} ${mon.getDate()}${sameY ? "" : ", " + mon.getFullYear()} – ${mo(sun)} ${sun.getDate()}, ${sun.getFullYear()}`;
+}
+function weekBounds(d) {
+  const mon = mondayDate_(d), sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+  return { startDate: isoOf_(mon), endDate: isoOf_(sun), label: weekLabel_(mon, sun) };
+}
+
 function yearBounds(d) {
   const y = d.getFullYear();
   return { startDate: `${y}-01-01`, endDate: `${y}-12-31`, label: String(y) };
 }
 
 function getPeriodBounds() {
+  if (periodType === "week") return weekBounds(periodAnchor);
   if (periodType === "month") return monthBounds(periodAnchor);
   if (periodType === "year") return yearBounds(periodAnchor);
   if (periodType === "alltime") return { startDate: null, endDate: null, label: tr("period.alltime") };
@@ -7848,7 +7868,7 @@ function renderPeriodSelector() {
     chip.classList.toggle("active", chip.dataset.periodType === periodType);
   });
 
-  const navVisible = periodType === "month" || periodType === "year";
+  const navVisible = periodType === "week" || periodType === "month" || periodType === "year";
   document.getElementById("period-prev").hidden = !navVisible;
   document.getElementById("period-next").hidden = !navVisible;
   document.getElementById("custom-range-fields").hidden = periodType !== "custom";
@@ -7874,7 +7894,9 @@ document.getElementById("period-pending-line").addEventListener("click", () => {
 });
 
 function movePeriod(delta) {
-  if (periodType === "month") {
+  if (periodType === "week") {
+    periodAnchor = new Date(periodAnchor.getFullYear(), periodAnchor.getMonth(), periodAnchor.getDate() + 7 * delta);
+  } else if (periodType === "month") {
     periodAnchor = new Date(periodAnchor.getFullYear(), periodAnchor.getMonth() + delta, 1);
   } else if (periodType === "year") {
     periodAnchor = new Date(periodAnchor.getFullYear() + delta, periodAnchor.getMonth(), 1);
@@ -7967,8 +7989,22 @@ document.getElementById("period-picker-backdrop").addEventListener("click", (e) 
 document.getElementById("period-picker-prev").addEventListener("click", () => { periodPickerYear -= 1; renderPeriodPicker_(); });
 document.getElementById("period-picker-next").addEventListener("click", () => { periodPickerYear += 1; renderPeriodPicker_(); });
 
+// Switching between Week and Month/Year keeps the place: into Week, the week of today when the period shown holds today, else its
+// first week; out of Week, the month (year) holding the week's Thursday.
+function anchorForPeriodSwitch_(from, to) {
+  if (from === to) return periodAnchor;
+  if (to === "week" && (from === "month" || from === "year")) {
+    const b = getPeriodBounds(), t = todayLocalISO();
+    if (t >= b.startDate && t <= b.endDate) return mondayDate_(new Date());
+    const [y, m, d] = b.startDate.split("-").map(Number);
+    return mondayDate_(new Date(y, m - 1, d + 3));   // the week holding most of the period's first days
+  }
+  if (from === "week") { const mon = mondayDate_(periodAnchor); return new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 3); }
+  return periodAnchor;
+}
 document.querySelectorAll(".period-type-chip").forEach((chip) => {
   chip.addEventListener("click", () => {
+    periodAnchor = anchorForPeriodSwitch_(periodType, chip.dataset.periodType);
     periodType = chip.dataset.periodType;
     renderPeriodSelector();
     if (periodType !== "custom") refreshCurrentPeriodScreen();
@@ -8499,9 +8535,10 @@ async function refreshOverviewInner_() {
 // fetched fresh as usual and replaced, so a preloaded period never hides a later change.
 const overviewPreloads_ = {};
 function preloadOverviewNeighbour_() {
-  if (periodType !== "month" && periodType !== "year") return;
-  const prev = periodType === "month" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth() - 1, 1) : new Date(periodAnchor.getFullYear() - 1, periodAnchor.getMonth(), 1);
-  const b = periodType === "month" ? monthBounds(prev) : yearBounds(prev);
+  if (periodType !== "week" && periodType !== "month" && periodType !== "year") return;
+  const prev = periodType === "week" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth(), periodAnchor.getDate() - 7)
+    : periodType === "month" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth() - 1, 1) : new Date(periodAnchor.getFullYear() - 1, periodAnchor.getMonth(), 1);
+  const b = periodType === "week" ? weekBounds(prev) : periodType === "month" ? monthBounds(prev) : yearBounds(prev);
   const key = overviewKey_(b);
   if (overviewCache_[key] || overviewPreloads_[key]) return;
   overviewPreloads_[key] = callApi("getPeriodSummary", { startDate: b.startDate, endDate: b.endDate, scope: overviewScopeParam_() })
@@ -8952,7 +8989,7 @@ async function openBudgetDrilldown(budget) {
   await openDrilldownWithPayload_(
     payload,
     `${(p.category_name ? p.category_icon : budget.category_icon) ? (p.category_name ? p.category_icon : budget.category_icon) + " " : ""}${p.category_name || budget.category_name}`,
-    tr(p.effectivePeriodType === "yearly" ? "drill.budgetYear" : "drill.budgetMonth", { cur: p.currency || budget.currency, amount: moneyFmt(p.effectiveAmount) })
+    tr(p.effectivePeriodType === "yearly" ? "drill.budgetYear" : p.effectivePeriodType === "weekly" ? "drill.budgetWeek" : "drill.budgetMonth", { cur: p.currency || budget.currency, amount: moneyFmt(p.effectiveAmount) })
   );
 
   // What the Annual tag kept out of this monthly budget, with a tap that lists those entries (owner, 2026-11-07).
@@ -9041,7 +9078,7 @@ function buildChartAxesSvg_(days, n, maxY, effectivePeriodType, marginLeft, marg
       .filter((i) => i !== -1);
   } else {
     xTickIndices = [];
-    for (let i = 0; i < n; i += 7) xTickIndices.push(i);
+    for (let i = 0; i < n; i += n <= 10 ? 1 : 7) xTickIndices.push(i);   // a week: every day
   }
   const xTicksSvg = xTickIndices.map((i) => {
     const x = xFor(i).toFixed(1);
@@ -9050,8 +9087,8 @@ function buildChartAxesSvg_(days, n, maxY, effectivePeriodType, marginLeft, marg
       : String(parseInt(days[i].slice(8, 10), 10));
     return `
       <line x1="${x}" y1="${plotBottom}" x2="${x}" y2="${plotBottom + 3}" style="stroke:var(--border);stroke-width:1" />
-      <text x="${x}" y="${plotBottom + 11}" text-anchor="middle" style="font-size:7.5px;fill:var(--muted)">${label}</text>
-    `;
+      <text x="${x}" y="${plotBottom + 11}" text-anchor="${i === n - 1 ? "end" : "middle"}" style="font-size:7.5px;fill:var(--muted)">${label}</text>
+    `;   // the last day sits on the right edge: its number ends there instead of being cut
   }).join("");
 
   const axisBordersSvg = `
@@ -9180,10 +9217,11 @@ function renderBudgetPaceNote_(budget, recurringByDate, days) {
   days.forEach((d) => { if (d > today && recurringByDate[d]) upcomingRecurring += recurringByDate[d]; });
 
   const remaining = p.effectiveAmount - p.spent;
-  const periodWord = tr(p.effectivePeriodType === "yearly" ? "period.wordYear" : "period.wordMonth");
+  // "this week" / "esta semana": the whole phrase, since Spanish changes "este" / "esta" with the word.
+  const thisPeriod = tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : p.effectivePeriodType === "weekly" ? "budget.thisWeek" : "budget.thisMonth");
 
   if (remaining <= 0) {
-    note.textContent = tr("pace.over", { period: periodWord });
+    note.textContent = tr("pace.over", { thisPeriod });
     return;
   }
 
@@ -9191,7 +9229,7 @@ function renderBudgetPaceNote_(budget, recurringByDate, days) {
   const daysLeft = days.filter((d) => d >= today).length;
 
   if (discretionary <= 0) {
-    note.textContent = tr("pace.recurringUsesUp", { cur: budget.currency, amount: moneyFmt(upcomingRecurring), period: periodWord });
+    note.textContent = tr("pace.recurringUsesUp", { cur: budget.currency, amount: moneyFmt(upcomingRecurring), thisPeriod });
     return;
   }
 
@@ -9467,23 +9505,34 @@ const budgetHistoryOn_ = () => !!(meta && meta.capabilities && meta.capabilities
 // earlier month too. A yearly budget: the same in years. Options are rebuilt when monthly/yearly is switched.
 function budgetPeriodKey_(type, step) {
   const t = todayLocalISO();
+  if (type === "weekly") { const m = mondayDate_(new Date()); return isoOf_(new Date(m.getFullYear(), m.getMonth(), m.getDate() + 7 * step)); }
   if (type === "yearly") return String(Number(t.slice(0, 4)) + step);
   const d = new Date(Number(t.slice(0, 4)), Number(t.slice(5, 7)) - 1 + step, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
-const budgetPeriodName_ = (type, key, mid) => type === "yearly" ? key : paceMonthName_(key, mid);
+const budgetPeriodName_ = (type, key, mid) => {
+  if (type === "yearly") return key;
+  if (type === "weekly") { const [y, m, d] = key.split("-").map(Number); return weekBounds(new Date(y, m - 1, d)).label; }
+  return paceMonthName_(key, mid);
+};
+// The word sets for a budget's kind: [this…, next…, every earlier…, restart, end, end-deletes, forward].
+const budgetKindKeys_ = (type) => type === "yearly"
+  ? { cur: "budget.startThisYear", next: "budget.startNextYear", always: "budget.startAlwaysYear", restart: "budgetModal.restartYear", end: "budget.confirmEndYearly", endDel: "budget.confirmEndDeletesYearly", fwd: "budget.forwardYear", per: "budgets.perYear", word: "period.wordYear", back: 3 }
+  : type === "weekly"
+  ? { cur: "budget.startThisWeek", next: "budget.startNextWeek", always: "budget.startAlwaysWeek", restart: "budgetModal.restartWeek", end: "budget.confirmEndWeekly", endDel: "budget.confirmEndDeletesWeekly", fwd: "budget.forwardWeek", per: "budgets.perWeek", word: "period.wordWeek", back: 8 }
+  : { cur: "budget.startThisMonth", next: "budget.startNextMonth", always: "budget.startAlwaysMonth", restart: "budgetModal.restartMonth", end: "budget.confirmEndMonthly", endDel: "budget.confirmEndDeletesMonthly", fwd: "budget.forwardMonth", per: "budgets.perMonth", word: "period.wordMonth", back: 12 };
 function fillBudgetStart_() {
   const wrap = document.getElementById("budget-start-wrap");
   wrap.hidden = !!editingBudgetId || !budgetHistoryOn_();
   if (wrap.hidden) return;
   const sel = document.getElementById("budget-start");
-  const y = budgetPeriodType === "yearly";
+  const y = budgetPeriodType === "yearly", K = budgetKindKeys_(budgetPeriodType);
   const opts = [
-    [budgetPeriodKey_(budgetPeriodType, 0), tr(y ? "budget.startThisYear" : "budget.startThisMonth", { name: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 0), true) })],
-    ["next", tr(y ? "budget.startNextYear" : "budget.startNextMonth", { name: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 1), true) })]
+    [budgetPeriodKey_(budgetPeriodType, 0), tr(K.cur, { name: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 0), true) })],
+    ["next", tr(K.next, { name: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 1), true) })]
   ];
-  for (let k = 1; k <= (y ? 3 : 12); k++) { const key = budgetPeriodKey_(budgetPeriodType, -k); opts.push([key, budgetPeriodName_(budgetPeriodType, key)]); }
-  opts.push(["always", tr(y ? "budget.startAlwaysYear" : "budget.startAlwaysMonth")]);
+  for (let k = 1; k <= K.back; k++) { const key = budgetPeriodKey_(budgetPeriodType, -k); opts.push([key, budgetPeriodName_(budgetPeriodType, key)]); }
+  opts.push(["always", tr(K.always)]);
   sel.innerHTML = opts.map(([v, label]) => `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`).join("");
   const hint = document.getElementById("budget-start-hint");
   hint.hidden = !y;
@@ -9496,7 +9545,7 @@ function updateBudgetForwardHint_(budget) {
   if (budget !== undefined) budgetForwardType_ = budget ? budget.period_type : null;
   const el = document.getElementById("budget-forward-hint");
   el.hidden = !budgetForwardType_ || budgetPeriodType !== budgetForwardType_ || budgetEditingEnded_;
-  if (!el.hidden) el.textContent = tr(budgetForwardType_ === "yearly" ? "budget.forwardYear" : "budget.forwardMonth");
+  if (!el.hidden) el.textContent = tr(budgetKindKeys_(budgetForwardType_).fwd);
 }
 const DEFAULT_BUDGET_THRESHOLDS_DISPLAY = "50, 75, 100, 110, 125, 150";
 
@@ -9643,7 +9692,7 @@ function openBudgetModal(budget) {
   endedNote.hidden = !budgetEditingEnded_;
   endedNote.textContent = budgetEditingEnded_ ? tr("budget.endedNote") : "";
   document.getElementById("budget-save-btn").textContent = budgetEditingEnded_
-    ? tr(budget.period_type === "yearly" ? "budgetModal.restartYear" : "budgetModal.restartMonth") : tr("budgetModal.save");
+    ? tr(budgetKindKeys_(budget.period_type).restart) : tr("budgetModal.save");
 
   const backdrop = document.getElementById("budget-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -9705,14 +9754,16 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     let startsLater = "";
     if (!budgetId && budgetHistoryOn_()) {
       fields.start = document.getElementById("budget-start").value || undefined;
-      if (fields.start === "next") startsLater = budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 1), true);
+      if (fields.start === "next") startsLater = budgetPeriodType === "weekly"
+        ? tr("budget.startsLaterWeek", { when: rangeFmt_(budgetPeriodKey_("weekly", 1)) })
+        : tr("budget.startsLater", { when: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 1), true) });
     }
     closeBudgetModal();
     closeDrilldown();
     saveBehindScreen_(
       practiceBTrack_(() => budgetId ? callApi("updateBudget", withThen_(Object.assign({ id: budgetId }, fields), [["listBudgets", projectionPeriodPayload_()]])) : callApi("addBudget", withThen_(fields, [["listBudgets", projectionPeriodPayload_()]])), fields),
       async () => { refreshBudgetsInBackground_(); },
-      startsLater ? { done: () => tr("budget.startsLater", { when: startsLater }) } : undefined);
+      startsLater ? { done: () => startsLater } : undefined);
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -9733,9 +9784,9 @@ async function removeBudget_(b, full, name) {
   const what = describeForConfirm_(budgetLabel, b.currency ? `${b.currency} ${moneyFmt(b.amount)}` : "");
   const practice = isPracticeBudgetName_(name || "");
   const end = !full && !practice && budgetHistoryOn_();
-  const yearly = b.period_type === "yearly";
-  const question = end && b.end_deletes ? tr(yearly ? "budget.confirmEndDeletesYearly" : "budget.confirmEndDeletesMonthly", { what })
-    : end ? tr(yearly ? "budget.confirmEndYearly" : "budget.confirmEndMonthly", { what })
+  const yearly = b.period_type === "yearly", K = budgetKindKeys_(b.period_type);
+  const question = end && b.end_deletes ? tr(K.endDel, { what })
+    : end ? tr(K.end, { what })
     : budgetHistoryOn_() ? tr("budget.confirmDeleteFull", { what })
     : tr(yearly ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what });
   if (!practiceNoConfirm_(practice) && !confirm(question)) return;
@@ -9807,9 +9858,10 @@ async function refreshBudgets() {
 // The period before the one shown, fetched in the background once the shown one has arrived (one call; see preloadOverviewNeighbour_).
 const budgetsCache_ = {}, budgetsPreloads_ = {};
 function preloadBudgetsNeighbour_() {
-  if (periodType !== "month" && periodType !== "year") return;
-  const prev = periodType === "month" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth() - 1, 1) : new Date(periodAnchor.getFullYear() - 1, periodAnchor.getMonth(), 1);
-  const payload = { displayPeriodType: periodType, anchorDate: `${prev.getFullYear()}-${pad2(prev.getMonth() + 1)}-01` };
+  if (periodType !== "week" && periodType !== "month" && periodType !== "year") return;
+  const prev = periodType === "week" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth(), periodAnchor.getDate() - 7)
+    : periodType === "month" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth() - 1, 1) : new Date(periodAnchor.getFullYear() - 1, periodAnchor.getMonth(), 1);
+  const payload = { displayPeriodType: periodType, anchorDate: periodType === "week" ? isoOf_(mondayDate_(prev)) : `${prev.getFullYear()}-${pad2(prev.getMonth() + 1)}-01` };
   const key = JSON.stringify(payload);
   if (budgetsCache_[key] || budgetsPreloads_[key]) return;
   budgetsPreloads_[key] = callApi("listBudgets", payload).then((d) => { budgetsCache_[key] = d; return d; }).finally(() => { delete budgetsPreloads_[key]; });
@@ -9894,8 +9946,9 @@ function drawBudgets_() {
       : `${pc} ${moneyFmt(p.spent)} / ${amountLabel}`;
     // "this month" / "this year" only for the period that holds today; a past or future one is named (its amount may differ, batch 6).
     const holdsToday = p.startDate <= todayIso && todayIso <= p.endDate;
-    const periodLabel = (holdsToday ? tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : "budget.thisMonth")
-      : p.effectivePeriodType === "yearly" ? p.startDate.slice(0, 4) : paceMonthName_(p.startDate.slice(0, 7), true)) +
+    const periodLabel = (holdsToday ? tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : p.effectivePeriodType === "weekly" ? "budget.thisWeek" : "budget.thisMonth")
+      : p.effectivePeriodType === "yearly" ? p.startDate.slice(0, 4) : p.effectivePeriodType === "weekly" ? budgetPeriodName_("weekly", p.startDate) : paceMonthName_(p.startDate.slice(0, 7), true)) +
+      (p.weeksWidened && p.weeksCounted ? tr("budget.weeksWidened", { n: String(p.weeksCounted).replace(".", I18n.getLang() === "es" ? "," : ".") }) : "") +
       (p.annualized ? (p.monthsCounted && p.monthsCounted < 12 ? tr("budget.annualizedN", { n: p.monthsCounted }) : tr("budget.annualized")) : "");
 
     if (pc !== homeCur() && p.rate != null) {
@@ -10047,7 +10100,7 @@ function syncBudgetsEditBar_() {
   document.getElementById("budgets-selectall-btn").textContent = tr(n && n === budgetsLoaded_.length ? "friends.selectNone" : "friends.selectAll");
 }
 // "Groceries (PEN 300 per month)": a category can have a monthly and a yearly budget, so the period is part of the name.
-const budgetPickLabel_ = (b) => `${b.name || b.category_name} (${b.currency} ${moneyFmt(b.amount)} ${tr(b.period_type === "yearly" ? "budgets.perYear" : "budgets.perMonth")})`;
+const budgetPickLabel_ = (b) => `${b.name || b.category_name} (${b.currency} ${moneyFmt(b.amount)} ${tr(budgetKindKeys_(b.period_type).per)})`;
 document.getElementById("budgets-edit-btn").addEventListener("click", () => setBudgetsEditing_(!budgetsEditing_));
 document.getElementById("budgets-done-btn").addEventListener("click", () => setBudgetsEditing_(false));
 document.getElementById("recurring-done-btn").addEventListener("click", () => setRecurringEditing_(false));
@@ -15021,7 +15074,7 @@ function runCategoriesDelete_(chosen, opts) {
     result.deleted.filter((d) => d.to).forEach((d) => { byTarget.set(d.to, (byTarget.get(d.to) || []).concat(d)); });
     byTarget.forEach((list, to) => lines.push(tr("catBulk.resultMoved", { to, names: namesOf(list), n: list.reduce((sum, d) => sum + (d.moved || 0), 0) })));
     if (result.hidden.length) lines.push(tr("catBulk.resultHidden", { names: namesOf(result.hidden) }));
-    if ((result.droppedBudgets || []).length) lines.push(tr("catBulk.resultBudgetDropped", { list: result.droppedBudgets.map((b) => `${b.currency} ${moneyFmt(b.amount)} ${tr(b.period_type === "yearly" ? "budgets.perYear" : "budgets.perMonth")}`).join(", ") }));
+    if ((result.droppedBudgets || []).length) lines.push(tr("catBulk.resultBudgetDropped", { list: result.droppedBudgets.map((b) => `${b.currency} ${moneyFmt(b.amount)} ${tr(budgetKindKeys_(b.period_type).per)}`).join(", ") }));
     const keptBy = (reason) => result.kept.filter((k) => k.reason === reason && k.name);
     if (keptBy("noTarget").length) lines.push(tr("catBulk.resultNoTarget", { names: namesOf(keptBy("noTarget")) }));
     if (keptBy("hiddenAlready").length) lines.push(tr("catBulk.resultHiddenAlready", { names: namesOf(keptBy("hiddenAlready")) }));
@@ -19769,7 +19822,8 @@ function renderProjectionsSummary_(p) {
 // to the current month server-side, since neither means anything for a
 // forward-looking projection.
 function projectionPeriodPayload_() {
-  const anchorDate = `${periodAnchor.getFullYear()}-${pad2(periodAnchor.getMonth() + 1)}-01`;
+  // A week sends its Monday (Budgets shows weekly budgets for that week; Projections has no Week: showScreen turns it into the month).
+  const anchorDate = periodType === "week" ? isoOf_(mondayDate_(periodAnchor)) : `${periodAnchor.getFullYear()}-${pad2(periodAnchor.getMonth() + 1)}-01`;
   return { displayPeriodType: periodType, anchorDate };
 }
 
@@ -22730,14 +22784,14 @@ function practiceBSteps_() {
   const amountEl = () => document.getElementById("budget-amount");
   const amountVal = () => parseFloat(amountEl().value);
   const amountDone = () => amountVal() > 0 && document.activeElement !== amountEl();
-  const periodWord = () => tr(budgetPeriodType === "yearly" ? "period.yearly" : "period.monthly").toLowerCase();
+  const periodWord = () => tr(budgetPeriodType === "yearly" ? "period.yearly" : budgetPeriodType === "weekly" ? "period.weekly" : "period.monthly").toLowerCase();
   // A budget on the same categories and period already exists (the server refuses a second one): the walkthrough goes back to the category.
   const duplicate = () => {
     if (!selectedBudgetCategoryIds.size) return false;
     const allIds = allExpenseCategoryIds_();
     const every = allIds.length > 0 && allIds.every((id) => selectedBudgetCategoryIds.has(id));
     const mine = every ? "ALL" : Array.from(selectedBudgetCategoryIds).sort().join(",");
-    return budgetsLoaded_.some((b) => (b.period_type === "yearly" ? "yearly" : "monthly") === budgetPeriodType &&
+    return budgetsLoaded_.some((b) => b.period_type === budgetPeriodType &&
       (b.all_categories ? "ALL" : (b.category_ids || []).slice().sort().join(",")) === mine);
   };
   const nameIt = () => {
