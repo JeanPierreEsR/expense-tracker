@@ -147,6 +147,7 @@ test("ending a budget: gone from this month, earlier months keep it, the totals 
 test("ending a budget that never ran before this month deletes it completely", () => {
   const rt = setup();
   const b = add(rt);
+  assert.equal(shown(rt, b.id, "month").end_deletes, true, "the app can say so before asking");
   assert.equal(rt.api("endBudget", { id: b.id }).deleted, true);
   assert.equal(rt.rows("Budgets").length, 0);
 });

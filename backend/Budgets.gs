@@ -263,6 +263,8 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
     category_id: plan.categoryRaw,
     amountChanged: plan.changed,
     monthsCounted: plan.monthsCounted,    // a monthly budget shown by year: the months it existed in (12 = the whole year)
+    countFrom: plan.firstMonth || null,   // …and the first and last of them ('YYYY-MM'), for the drill-down's list
+    countTo: plan.lastMonth || null,
     percent: percent,
     annualLeftOut: annualLeftOut,
     rateAvailable: spent != null,
@@ -308,7 +310,8 @@ function listBudgets(payload) {
       thresholds: b.thresholds || DEFAULT_BUDGET_THRESHOLDS,
       progress: computeBudgetProgressWithContext_(b, ctx, displayPeriodType, anchorDate),
       active_now: budgetActiveNow_(b, ctx),   // running this month (year): counts in the totals below
-      ended: budgetEndedNow_(b, ctx.budgetHistory[String(b.id)])
+      ended: budgetEndedNow_(b, ctx.budgetHistory[String(b.id)]),
+      end_deletes: !budgetRanBefore_(b, ctx.budgetHistory[String(b.id)])   // ending it would delete it completely (endBudget)
     };
   });
   // The period's own categories name the row when they were different then (a change of categories counts forward only).
@@ -1025,6 +1028,12 @@ function budgetEndedNow_(budget, rows) {
   return !rows.some(function (r) { return r.from > key && !r.ended; });
 }
 
+// Did the budget run in some period before this one (so ending it leaves something to show)?
+function budgetRanBefore_(budget, rows) {
+  var key = budgetCurrentPeriodKey_(budget.period_type === 'yearly' ? 'yearly' : 'monthly', 0);
+  return !rows || !rows.length || rows.some(function (r) { return r.from < key && !r.ended; });
+}
+
 function budgetActiveNow_(budget, ctx) {
   var rows = ctx && ctx.budgetHistory ? ctx.budgetHistory[String(budget.id)] : budgetHistory_()[String(budget.id)];
   return budgetStateAt_(budget, rows, budgetCurrentPeriodKey_(budget.period_type === 'yearly' ? 'yearly' : 'monthly', 0)).exists;
@@ -1070,6 +1079,7 @@ function budgetPlan_(budget, ctx, yearOfMonthly, key) {
     return !!at && categoryIdMatches_(at.ids, e.category_id);
   };
   return { exists: true, amount: total, currency: last.currency, categoryIds: last.ids, categoryRaw: last.category_id, match: match,
+    firstMonth: months[0], lastMonth: months[months.length - 1],
     changed: Math.abs(total - Number(budget.amount) * 12) > 0.005 || last.currency !== (budget.currency || homeCurrency_()) || last.category_id !== todayCats,
     monthsCounted: months.length };
 }
@@ -1127,8 +1137,7 @@ function endBudget(payload) {
   var type = b.period_type === 'yearly' ? 'yearly' : 'monthly';
   var key = budgetCurrentPeriodKey_(type, 0);
   var rows = budgetRows_(id);
-  var ranBefore = !rows.length || rows.some(function (r) { return r.from < key && !r.ended; });
-  if (!ranBefore) { deleteBudget(id); return { done: true, deleted: true }; }
+  if (!budgetRanBefore_(b, rows)) { deleteBudget(id); return { done: true, deleted: true }; }
   if (!rows.length) writeBudgetHistoryRow_(b, '', b, false);
   deleteRowsWhere_('Budget History', function (r) { return String(r.budget_id) === id && String(r.from_period) > key; });   // a planned change after now
   writeBudgetHistoryRow_(b, key, null, true);

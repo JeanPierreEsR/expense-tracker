@@ -2973,6 +2973,11 @@
           <div class="type-tab active" data-period="monthly" data-i18n="period.monthly">Monthly</div>
           <div class="type-tab" data-period="yearly" data-i18n="period.yearly">Yearly</div>
         </div>
+        <div id="budget-start-wrap" hidden>
+          <label for="budget-start" data-i18n="budgetModal.starts">Starts</label>
+          <select id="budget-start"></select>
+          <p class="hint" id="budget-start-hint" hidden></p>
+        </div>
 
 <div id="budget-alert-fields">
         <label for="budget-thresholds" data-i18n="budgetModal.alertAt">Alert at (%)</label>
@@ -2980,9 +2985,11 @@
         <p class="hint" data-alert-hint="budgetModal.alertHint">Comma-separated percentages of the budget. You'll get an alert the first time spending crosses each one, once per period.</p>
         </div>
 
+        <p class="hint" id="budget-ended-note" hidden></p>
         <p class="hint" id="budget-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="budget-save-btn" data-i18n="budgetModal.save">Save budget</button>
         <button type="button" class="delete-entry-btn" id="budget-delete-btn" hidden data-i18n="budgetModal.delete">Delete this budget</button>
+        <button type="button" class="delete-entry-btn" id="budget-delete-full-btn" hidden data-i18n="budgetModal.deleteFull">Delete completely</button>
       </div>
     </div>
   </div>

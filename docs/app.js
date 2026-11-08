@@ -643,7 +643,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 
 // Saving or changing any of these can cross a budget, a trip budget or a loan's due date: a few seconds later the app asks the server to
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
-const ALERT_CHANGING_ACTIONS = new Set(["fillEntryCharge", "createEntry", "saveEntryAll", "updateEntry", "deleteEntries", "deleteBudget", "deleteBudgets", "deleteTrip", "deleteTrips", "deleteLoan", "deleteRepayment", "deleteSettlement", "confirmEntry", "discardEntry", "convertPendingToTransfer",
+const ALERT_CHANGING_ACTIONS = new Set(["fillEntryCharge", "createEntry", "saveEntryAll", "updateEntry", "deleteEntries", "deleteBudget", "deleteBudgets", "endBudget", "endBudgets", "deleteTrip", "deleteTrips", "deleteLoan", "deleteRepayment", "deleteSettlement", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "confirmEntries", "discardEntries", "setEntriesCategory", "undoSetEntriesCategory", "setEntriesTrip", "undoSetEntriesTrip", "restoreDeletedEntries",   // the bulk ones (QA round 1)
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
   "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
@@ -8924,9 +8924,11 @@ async function openBudgetDrilldown(budget) {
   // Was previously always visible on the budget's own row, which got
   // unreadably packed for a budget spanning many categories.
   const categoriesEl = document.getElementById("drilldown-categories");
-  if (budget.category_ids && budget.category_ids.length > 1) {
+  // The categories the budget had in the period shown (a change of categories counts forward only, 2026-11-07).
+  const periodCats = budget.progress && "category_ids" in budget.progress ? budget.progress.category_ids : budget.category_ids;
+  if (periodCats && periodCats.length > 1) {
     categoriesEl.hidden = false;
-    const budgetCats = budget.category_ids
+    const budgetCats = periodCats
       .map((id) => meta.categories.find((c) => c.id === id)).filter(Boolean);
     categoriesEl.textContent = sortedCategories_(budgetCats)
       .map((cat) => `${cat.icon ? cat.icon + " " : ""}${cat.name}`).join(", ");
@@ -8940,13 +8942,16 @@ async function openBudgetDrilldown(budget) {
   // omitting categoryIds entirely then matches every category, same as
   // no filter at all.
   const payload = { startDate: p.startDate, endDate: p.endDate, type: "expense" };
-  if (budget.category_ids) payload.categoryIds = budget.category_ids;
+  // A monthly budget shown by year lists only the months it existed in (it started or ended inside that year).
+  if (p.countFrom && p.countFrom + "-01" > payload.startDate) payload.startDate = p.countFrom + "-01";
+  if (p.countTo && p.monthsCounted < 12) { const [cy, cm] = p.countTo.split("-").map(Number); const last = `${p.countTo}-${String(new Date(cy, cm, 0).getDate()).padStart(2, "0")}`; if (last < payload.endDate) payload.endDate = last; }
+  if (periodCats) payload.categoryIds = periodCats;
   // A monthly budget doesn't count Annual-tagged expenses (a yearly one does).
   if (budget.period_type !== "yearly") payload.excludeAnnual = true;
 
   await openDrilldownWithPayload_(
     payload,
-    `${budget.category_icon ? budget.category_icon + " " : ""}${budget.category_name}`,
+    `${(p.category_name ? p.category_icon : budget.category_icon) ? (p.category_name ? p.category_icon : budget.category_icon) + " " : ""}${p.category_name || budget.category_name}`,
     tr(p.effectivePeriodType === "yearly" ? "drill.budgetYear" : "drill.budgetMonth", { cur: p.currency || budget.currency, amount: moneyFmt(p.effectiveAmount) })
   );
 
@@ -9426,6 +9431,11 @@ function syncSheetScrollLock_() {
 document.getElementById("drilldown-menu-btn").addEventListener("click", (e) => {
   e.stopPropagation();
   const menu = document.getElementById("drilldown-menu");
+  // "End budget" where the backend knows budget history (forward only); an ended budget has nothing to end.
+  const del = document.getElementById("drilldown-menu-delete");
+  const hist = budgetHistoryOn_();
+  del.textContent = tr(hist ? "drill.endBudget" : "drill.deleteBudget");
+  del.hidden = !!(hist && drilldownBudget && drilldownBudget.ended);
   menu.hidden = !menu.hidden;
 });
 document.addEventListener("click", (e) => {
@@ -9440,21 +9450,9 @@ document.getElementById("drilldown-menu-edit").addEventListener("click", () => {
   if (drilldownBudget) openBudgetModal(drilldownBudget);
 });
 
-document.getElementById("drilldown-menu-delete").addEventListener("click", async () => {
+document.getElementById("drilldown-menu-delete").addEventListener("click", () => {
   document.getElementById("drilldown-menu").hidden = true;
-  if (!drilldownBudget) return;
-  if (!practiceNoConfirm_(isPracticeBudgetName_(drilldownBudget.name)) && !confirm(tr(drilldownBudget.period_type === "yearly" ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what: describeForConfirm_(drilldownBudget.name || drilldownBudget.category_name || "", drilldownBudget.currency ? `${drilldownBudget.currency} ${moneyFmt(drilldownBudget.amount)}` : "") }))) return;
-  const id = drilldownBudget.id;
-  markDeleting_("budget:" + id);
-  closeDrilldown();
-  try {
-    await callApi("deleteBudget", { id });
-  } catch (err) {
-    // The dialog is already closed — without this the failure (offline, slow
-    // network) was invisible and the budget just reappeared on next refresh.
-    alert(tr("budget.deleteFailed", { error: err.message }));
-  }
-  refreshBudgetsInBackground_();
+  if (drilldownBudget) removeBudget_(drilldownBudget, false, drilldownBudget.name);
 });
 
 // ---- Budgets ----
@@ -9462,13 +9460,42 @@ document.getElementById("drilldown-menu-delete").addEventListener("click", async
 let budgetPeriodType = "monthly";
 let editingBudgetId = null;
 let budgetForwardType_ = null;   // the saved budget's own monthly/yearly, for the "counts from now on" line
+let budgetEditingEnded_ = false;   // the budget open in the window has ended: Save starts it again (Budgets.gs § Budget history)
+const budgetHistoryOn_ = () => !!(meta && meta.capabilities && meta.capabilities.budgetHistory);
+
+// When a NEW budget starts (owner, 2026-11-07): this month by default, next month, an earlier month (to look back), or every
+// earlier month too. A yearly budget: the same in years. Options are rebuilt when monthly/yearly is switched.
+function budgetPeriodKey_(type, step) {
+  const t = todayLocalISO();
+  if (type === "yearly") return String(Number(t.slice(0, 4)) + step);
+  const d = new Date(Number(t.slice(0, 4)), Number(t.slice(5, 7)) - 1 + step, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+const budgetPeriodName_ = (type, key, mid) => type === "yearly" ? key : paceMonthName_(key, mid);
+function fillBudgetStart_() {
+  const wrap = document.getElementById("budget-start-wrap");
+  wrap.hidden = !!editingBudgetId || !budgetHistoryOn_();
+  if (wrap.hidden) return;
+  const sel = document.getElementById("budget-start");
+  const y = budgetPeriodType === "yearly";
+  const opts = [
+    [budgetPeriodKey_(budgetPeriodType, 0), tr(y ? "budget.startThisYear" : "budget.startThisMonth", { name: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 0), true) })],
+    ["next", tr(y ? "budget.startNextYear" : "budget.startNextMonth", { name: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 1), true) })]
+  ];
+  for (let k = 1; k <= (y ? 3 : 12); k++) { const key = budgetPeriodKey_(budgetPeriodType, -k); opts.push([key, budgetPeriodName_(budgetPeriodType, key)]); }
+  opts.push(["always", tr(y ? "budget.startAlwaysYear" : "budget.startAlwaysMonth")]);
+  sel.innerHTML = opts.map(([v, label]) => `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`).join("");
+  const hint = document.getElementById("budget-start-hint");
+  hint.hidden = !y;
+  hint.textContent = y ? tr("budget.startYearlyHint") : "";
+}
 
 // Editing a budget: a new amount counts from this month (year) on, earlier ones keep theirs (owner, 2026-11-07; Budgets.gs).
 // Not shown for a new budget, nor once monthly/yearly is switched (that change forgets the old amounts).
 function updateBudgetForwardHint_(budget) {
   if (budget !== undefined) budgetForwardType_ = budget ? budget.period_type : null;
   const el = document.getElementById("budget-forward-hint");
-  el.hidden = !budgetForwardType_ || budgetPeriodType !== budgetForwardType_;
+  el.hidden = !budgetForwardType_ || budgetPeriodType !== budgetForwardType_ || budgetEditingEnded_;
   if (!el.hidden) el.textContent = tr(budgetForwardType_ === "yearly" ? "budget.forwardYear" : "budget.forwardMonth");
 }
 const DEFAULT_BUDGET_THRESHOLDS_DISPLAY = "50, 75, 100, 110, 125, 150";
@@ -9479,6 +9506,7 @@ document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
     budgetPeriodTouched_ = true;   // (the first-use practice waits for this)
     document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
     updateBudgetForwardHint_();
+    fillBudgetStart_();
   });
 });
 
@@ -9602,9 +9630,20 @@ function openBudgetModal(budget) {
   budgetPeriodType = budget ? budget.period_type : "monthly";
   document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.period === budgetPeriodType));
   updateBudgetForwardHint_(budget);
+  fillBudgetStart_();
 
   document.getElementById("budget-thresholds").value = budget ? budget.thresholds : DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
-  document.getElementById("budget-delete-btn").hidden = !budget;
+  // Ending (forward only) or deleting completely, where the backend knows budget history; an ended budget can be started again.
+  const hist = budgetHistoryOn_();
+  budgetEditingEnded_ = !!(budget && budget.ended && hist);
+  document.getElementById("budget-delete-btn").hidden = !budget || budgetEditingEnded_;
+  document.getElementById("budget-delete-btn").textContent = tr(hist ? "budgetModal.end" : "budgetModal.delete");
+  document.getElementById("budget-delete-full-btn").hidden = !budget || !hist;
+  const endedNote = document.getElementById("budget-ended-note");
+  endedNote.hidden = !budgetEditingEnded_;
+  endedNote.textContent = budgetEditingEnded_ ? tr("budget.endedNote") : "";
+  document.getElementById("budget-save-btn").textContent = budgetEditingEnded_
+    ? tr(budget.period_type === "yearly" ? "budgetModal.restartYear" : "budgetModal.restartMonth") : tr("budgetModal.save");
 
   const backdrop = document.getElementById("budget-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -9662,11 +9701,18 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     // budget against the full Entries sheet, ~4s) run behind the screen, and
     // any refresh failure surfaces in the list itself.
     const budgetId = editingBudgetId;
+    if (budgetId && budgetEditingEnded_) fields.restart = true;   // an ended budget: Save starts it again from this period
+    let startsLater = "";
+    if (!budgetId && budgetHistoryOn_()) {
+      fields.start = document.getElementById("budget-start").value || undefined;
+      if (fields.start === "next") startsLater = budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 1), true);
+    }
     closeBudgetModal();
     closeDrilldown();
     saveBehindScreen_(
       practiceBTrack_(() => budgetId ? callApi("updateBudget", withThen_(Object.assign({ id: budgetId }, fields), [["listBudgets", projectionPeriodPayload_()]])) : callApi("addBudget", withThen_(fields, [["listBudgets", projectionPeriodPayload_()]])), fields),
-      async () => { refreshBudgetsInBackground_(); });
+      async () => { refreshBudgetsInBackground_(); },
+      startsLater ? { done: () => tr("budget.startsLater", { when: startsLater }) } : undefined);
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -9674,19 +9720,35 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
   }
 });
 
-document.getElementById("budget-delete-btn").addEventListener("click", async () => {
+// "End this budget" (forward only: earlier periods keep it) where the backend knows budget history; otherwise, and for
+// "Delete completely" and the practice's own budget, the old full delete (owner, 2026-11-07).
+function removeBudgetFromForm_(full) {
   if (!editingBudgetId) return;
-  const b = drilldownBudget && drilldownBudget.id === editingBudgetId ? drilldownBudget : null;
-  const budgetLabel = document.getElementById("budget-name").value.trim() || (b && b.category_name) || "";
-  if (!practiceNoConfirm_(isPracticeBudgetName_(document.getElementById("budget-name").value)) && !confirm(tr(budgetPeriodType === "yearly" ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what: describeForConfirm_(budgetLabel, b && b.currency ? `${b.currency} ${moneyFmt(b.amount)}` : "") }))) return;
-  const id = editingBudgetId;
+  const b = drilldownBudget && drilldownBudget.id === editingBudgetId ? drilldownBudget : (budgetsLoaded_ || []).find((x) => x.id === editingBudgetId) || { id: editingBudgetId, period_type: budgetPeriodType };
+  return removeBudget_(b, full, document.getElementById("budget-name").value);
+}
+// The budget window's two buttons and the drill-down's ⋮ menu. name: the budget's own name as typed (the practice's is deleted outright).
+async function removeBudget_(b, full, name) {
+  const budgetLabel = String(name || "").trim() || b.category_name || "";
+  const what = describeForConfirm_(budgetLabel, b.currency ? `${b.currency} ${moneyFmt(b.amount)}` : "");
+  const practice = isPracticeBudgetName_(name || "");
+  const end = !full && !practice && budgetHistoryOn_();
+  const yearly = b.period_type === "yearly";
+  const question = end && b.end_deletes ? tr(yearly ? "budget.confirmEndDeletesYearly" : "budget.confirmEndDeletesMonthly", { what })
+    : end ? tr(yearly ? "budget.confirmEndYearly" : "budget.confirmEndMonthly", { what })
+    : budgetHistoryOn_() ? tr("budget.confirmDeleteFull", { what })
+    : tr(yearly ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what });
+  if (!practiceNoConfirm_(practice) && !confirm(question)) return;
+  const id = b.id;
   markDeleting_("budget:" + id);
   closeBudgetModal();
   closeDrilldown();
-  try { await callApi("deleteBudget", { id }); }
+  try { await callApi(end ? "endBudget" : "deleteBudget", { id }); }
   catch (err) { unmarkDeleting_("budget:" + id); alert(tr("budget.deleteFailed", { error: err.message })); }
   refreshBudgetsInBackground_();
-});
+}
+document.getElementById("budget-delete-btn").addEventListener("click", () => removeBudgetFromForm_(false));
+document.getElementById("budget-delete-full-btn").addEventListener("click", () => removeBudgetFromForm_(true));
 
 // Fire-and-forget refresh used after a save/delete already closed its
 // modal(s) — a failure here shows up in the budgets list itself (the one
@@ -9834,7 +9896,7 @@ function drawBudgets_() {
     const holdsToday = p.startDate <= todayIso && todayIso <= p.endDate;
     const periodLabel = (holdsToday ? tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : "budget.thisMonth")
       : p.effectivePeriodType === "yearly" ? p.startDate.slice(0, 4) : paceMonthName_(p.startDate.slice(0, 7), true)) +
-      (p.annualized ? tr("budget.annualized") : "");
+      (p.annualized ? (p.monthsCounted && p.monthsCounted < 12 ? tr("budget.annualizedN", { n: p.monthsCounted }) : tr("budget.annualized")) : "");
 
     if (pc !== homeCur() && p.rate != null) {
       const s = strongRate_(pc, homeCur(), p.rate);
@@ -9845,7 +9907,8 @@ function drawBudgets_() {
     row.className = "budget-row";
     delKey_(row, "budget:" + b.id);
     row.dataset.budgetName = b.name || "";
-    const nameHtml = `<div class="budget-row-name">${b.category_icon ? b.category_icon + " " : ""}${escapeHtml(b.category_name)}</div>`;
+    const rowName = p.category_name || b.category_name, rowIcon = p.category_name ? p.category_icon : b.category_icon;   // categories then
+    const nameHtml = `<div class="budget-row-name">${rowIcon ? rowIcon + " " : ""}${escapeHtml(rowName)}</div>`;
     const leadHtml = budgetsEditing_
       ? `<span class="budget-row-lead"><input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${budgetsSelected_.has(b.id) ? " checked" : ""}>${nameHtml}</span>`
       : nameHtml;
@@ -9979,7 +10042,8 @@ function syncBudgetsEditBar_() {
   const n = budgetsSelected_.size;
   const del = document.getElementById("budgets-delete-selected-btn");
   del.disabled = n === 0;
-  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  const ends = budgetHistoryOn_();   // ending, forward only (owner, 2026-11-07)
+  del.textContent = n ? tr(ends ? "budgets.endN" : "friends.deleteN", { n }) : tr(ends ? "budgets.endPick" : "friends.deletePick");
   document.getElementById("budgets-selectall-btn").textContent = tr(n && n === budgetsLoaded_.length ? "friends.selectNone" : "friends.selectAll");
 }
 // "Groceries (PEN 300 per month)": a category can have a monthly and a yearly budget, so the period is part of the name.
@@ -9997,7 +10061,8 @@ document.getElementById("budgets-delete-selected-btn").addEventListener("click",
   const chosen = budgetsLoaded_.filter((b) => budgetsSelected_.has(b.id));
   if (!chosen.length) return;
   const names = chosen.map(budgetPickLabel_).join(", ");
-  if (!confirm(tr(chosen.length === 1 ? "budgets.confirmDeleteOne" : "budgets.confirmDeleteMany", { n: chosen.length, names }))) return;
+  const ends = budgetHistoryOn_();
+  if (!confirm(tr(chosen.length === 1 ? (ends ? "budgets.confirmEndOne" : "budgets.confirmDeleteOne") : (ends ? "budgets.confirmEndMany" : "budgets.confirmDeleteMany"), { n: chosen.length, names }))) return;
   const ids = chosen.map((b) => b.id);
   const nameOf = new Map(chosen.map((b) => [b.id, budgetPickLabel_(b)]));
   setBudgetsEditing_(false);
@@ -10005,14 +10070,19 @@ document.getElementById("budgets-delete-selected-btn").addEventListener("click",
   delKeys.forEach(markDeleting_);
   let result = null;
   saveBehindScreen_(async () => {
-    result = await callApi("deleteBudgets", { ids });
+    if (ends) {
+      const r = await callApi("endBudgets", { ids });
+      result = { deleted: r.deleted.concat(r.ended), ended: r.ended, missing: r.missing };
+    } else result = await callApi("deleteBudgets", { ids });
   }, async () => {
     try { await refreshBudgets(); }
     catch (err) { document.getElementById("budgets-list").innerHTML = `<div class="status-msg">${escapeHtml(tr("budget.refreshFailed", { error: err.message }))}</div>`; }
     if (result && result.missing.length) alert(tr("budgets.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
   }, {
     busy: "common.deletingToast", release: delKeys,
-    done: () => result && result.deleted.length ? tr("budgets.resultDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((id) => nameOf.get(id))) }) : "",
+    done: () => !result || !result.deleted.length ? ""
+      : result.ended ? tr("budgets.resultEnded", { n: result.deleted.length, names: shortNames_(result.deleted.map((id) => nameOf.get(id))) })
+      : tr("budgets.resultDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((id) => nameOf.get(id))) }),
   });
 });
 
