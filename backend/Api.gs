@@ -207,6 +207,7 @@ function routeActionSwitch_(action, payload) {
     case 'getPeriodSummary': return getPeriodSummary(payload);
     case 'getHomeGlance': return getHomeGlance();
     case 'getMonthlyHistory': return getMonthlyHistory(payload);
+    case 'getSpendingPace': return getSpendingPace(payload);
     case 'getExchangeRate': return getExchangeRate(payload.currency, payload.month);
     case 'getLatestRateOnOrBefore': return { rate: getLatestRateOnOrBefore_(payload.currency, payload.month), per_usd: perUsdAt_(payload.currency, payload.month) };
     case 'listExchangeRates': return listExchangeRates();
@@ -1147,12 +1148,15 @@ function listEntries(payload) {
     payload.categoryIds.forEach(function (id) { wantedCategoryIds[id] = true; });
     entries = entries.filter(function (e) { return wantedCategoryIds[e.category_id]; });
   }
-  if (payload && payload.paymentMethodId) {
+  // Overview "Paid by a friend" slice (its id is PAID_BY_FRIEND_KEY_, sent like an account's id).
+  if (payload && payload.paymentMethodId === PAID_BY_FRIEND_KEY_) {
+    entries = entries.filter(entryPaidByFriend_);
+  } else if (payload && payload.paymentMethodId) {
     entries = entries.filter(function (e) { return e.payment_method_id === payload.paymentMethodId; });
   }
-  // Overview "No account" slice: same test the report uses (not paid with one of the owner's accounts).
+  // Overview "No account" slice: same test the report uses (neither one of the owner's accounts nor a friend paying for him).
   if (payload && payload.noAccount) {
-    entries = entries.filter(function (e) { return !(e.paid_by === 'me' && e.payment_method_id); });
+    entries = entries.filter(function (e) { return !(e.paid_by === 'me' && e.payment_method_id) && !entryPaidByFriend_(e); });
   }
   // Overview Investments card: deposits into / withdrawals from one platform.
   if (payload && payload.toPaymentMethodId !== undefined && payload.toPaymentMethodId !== null) {

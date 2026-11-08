@@ -510,11 +510,16 @@
         <p class="hint" id="overview-empty-note" hidden data-i18n="overview.empty">No entries in this period yet.</p>
       </div>
 
-      <div class="card" id="overview-varies-card" hidden>
+      <div class="card ov-period" id="overview-varies-card" hidden>
         <h2 data-i18n="varies.title">💵 Income that varies</h2>
+        <p class="hint" data-i18n="varies.intro">Money that changes from month to month (sales, freelance, daily work).</p>
+        <p class="ov-varies-line" id="ov-varies-got"></p>
         <p class="hint" id="ov-varies-split" hidden></p>
-        <p class="ov-varies-line" id="ov-varies-perday" hidden></p>
         <button type="button" class="ov-varies-avg" id="ov-varies-avg" hidden></button>
+        <div class="ov-varies-bar-wrap" id="ov-varies-bar-wrap" hidden>
+          <div class="ov-varies-bar"><span id="ov-varies-bar-fill"></span></div>
+          <span class="hint" id="ov-varies-bar-text"></span>
+        </div>
         <div id="ov-varies-payers-wrap" hidden>
           <h3 data-i18n="varies.whoPaid">Who paid me</h3>
           <div id="ov-varies-payers"></div>
@@ -528,7 +533,7 @@
         <div class="home-legend"><span><i style="background:var(--income)"></i><span data-i18n="summary.income">Income</span></span><span><i style="background:var(--expense)"></i><span data-i18n="summary.expenses">Expenses</span></span></div>
       </div>
 
-      <div class="card" id="pace-card" hidden>
+      <div class="card ov-period" id="pace-card" hidden>
         <h2 data-i18n="home.paceTitle">Spending pace</h2>
         <div id="pace-ref-label" class="pace-ref-label"></div>
         <div class="pace-ref-switch" id="pace-ref-switch" role="group">
@@ -548,7 +553,7 @@
           <h2 data-i18n="balances.title">Balances</h2>
           <button type="button" class="icon-btn" id="add-balance-btn" data-i18n-aria-label="balances.addAria" aria-label="Add balance"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
-        <p class="hint" data-i18n="balances.hint">What each account should hold right now, from its starting balance plus every entry since. Not affected by the period above.</p>
+        <p class="hint" id="balances-hint"></p>
         <div id="balances-totals" class="balances-totals" hidden>
           <div class="balances-totals-title" data-i18n="balances.netByCurrency">What's left by currency</div>
           <div id="balances-totals-lines"></div>
@@ -565,14 +570,15 @@
       </div>
 
       <div class="card ov-period" id="loans-ov-card" hidden>
-        <h2 data-i18n="loans.ov.title">Loans</h2>
-        <p class="hint" data-i18n="loans.ov.hint">Money borrowed, lent and repaid in this period, per currency. Includes friends' shares of bills and bank loans. Not income or expenses, so it stays out of the totals above.</p>
+        <h2><span data-i18n="loans.ov.title">Loans</span> <span class="ov-card-chevron" aria-hidden="true">›</span></h2>
+        <p class="hint" data-i18n="loans.ov.hint">Money borrowed, lent and repaid in this period, per currency.</p>
+        <div class="loans-ov-owed" id="loans-ov-owed" hidden></div>
         <div id="loans-ov-list"></div>
         <button type="button" class="add-inline" id="loans-ov-people-btn" hidden></button>
-        <button type="button" class="loans-ov-owed" id="loans-ov-owed" hidden></button>
       </div>
 
       <div class="card ov-period">
+        <h2 data-i18n="overview.breakdownTitle">Breakdown</h2>
         <div class="type-tabs overview-type-tabs" id="overview-type-tabs">
           <div class="type-tab active" data-type="expense" data-i18n="type.expense">Expense</div>
           <div class="type-tab" data-type="income" data-i18n="type.income">Income</div>

@@ -84,3 +84,18 @@ test("How do you get paid? — 'It varies' adds ONE varying category of that kin
   assert.equal(rt.rows("Categories").filter((c) => c.key === "freelance").length, 1, "never twice");
   assert.equal(rt.api("getMeta", {}).settings.pay, "varies:freelance");
 });
+
+test("a week: the 8 complete weeks before it; a whole year: its complete months (Overview's 'usual' line)", () => {
+  const rt = setup();
+  const addD = (iso, k) => { const d = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10) + k)); return d.toISOString().slice(0, 10); };
+  const mon = addD(today(), -((new Date(today() + "T00:00:00Z").getUTCDay() + 6) % 7));
+  income(rt, addD(mon, -60), 1, "inc-sal");   // the first entry: far enough back for 8 weeks
+  income(rt, addD(mon, -7), 70, "inc-biz");    // last week
+  income(rt, addD(mon, -13), 20, "inc-biz");   // the week before
+  const v = rt.api("getPeriodSummary", { startDate: mon, endDate: addD(mon, 6) }).incomeVaries;
+  assert.equal(v.weeks.length, 8);
+  assert.deepEqual(v.weeks.slice(0, 2).map((w) => [w.week, w.amount]), [[addD(mon, -7), 70], [addD(mon, -14), 20]]);
+  const y = today().slice(0, 4);
+  const yv = rt.api("getPeriodSummary", { startDate: `${y}-01-01`, endDate: `${y}-12-31` }).incomeVaries;
+  assert.ok(yv.yearMonths.every((m) => m.month < today().slice(0, 7)), "only complete months");
+});

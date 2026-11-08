@@ -136,5 +136,46 @@ function incomeVariesSummary_(entries, allEntries, categoryById, startDate, endD
     });
     months = keys.map(function (k) { return { month: k, amount: sum[k] }; });
   }
-  return { regular: regular, varies: varies, daysWithIncome: Object.keys(days).length, byPayer: byPayer, months: months };
+  // A week (Monday to Sunday): the 8 complete weeks before it, newest first (owner, 2026-11-08: "a usual week", 4 or 8). A whole
+  // year: its complete months (up to last month for the current year), for "a usual month this year". Same rules as the months above.
+  var first2 = null;
+  var firstDate = function () { if (first2 === null) first2 = allEntries.reduce(function (m, e) { return !m || e.date < m ? e.date : m; }, ''); return first2; };
+  var sumVaries = function (buckets, keyOf) {
+    allEntries.forEach(function (e) {
+      if (e.type !== 'income' || kindOf[e.category_id] !== 'varies') return;
+      var k = keyOf(String(e.date).substring(0, 10));
+      if (k == null || buckets[k] === undefined) return;
+      var rate = getRateForEntryCurrency_(e.currency, e.date);
+      if (rate != null) buckets[k] += Number(e.amount) * rate;
+    });
+  };
+  var weeks = null;
+  if (startDate && endDate && isoDayCount_(startDate, endDate) === 7 && mondayOf_(startDate) === startDate) {
+    var wkeys = [];
+    for (var w = 1; w <= 8; w++) {
+      var mon = isoAddDays_(startDate, -7 * w);
+      if (!firstDate() || isoAddDays_(mon, 6) < firstDate()) break;
+      wkeys.push(mon);
+    }
+    var wsum = {};
+    wkeys.forEach(function (k) { wsum[k] = 0; });
+    sumVaries(wsum, function (d) { return mondayOf_(d); });
+    weeks = wkeys.map(function (k) { return { week: k, amount: wsum[k] }; });
+  }
+  var yearMonths = null;
+  if (startDate && endDate && /-01-01$/.test(startDate) && endDate === startDate.substring(0, 4) + '-12-31') {
+    var yr = startDate.substring(0, 4), nowKey = formatCalendarDate_(new Date()).substring(0, 7);
+    var ykeys = [];
+    for (var m = 1; m <= 12; m++) {
+      var yk = yr + '-' + pad2_(m);
+      if (yk >= nowKey) break;
+      if (firstDate() && yk < firstDate().substring(0, 7)) continue;
+      if (firstDate()) ykeys.push(yk);
+    }
+    var ysum = {};
+    ykeys.forEach(function (k) { ysum[k] = 0; });
+    sumVaries(ysum, function (d) { return d.substring(0, 7); });
+    yearMonths = ykeys.map(function (k) { return { month: k, amount: ysum[k] }; });
+  }
+  return { regular: regular, varies: varies, daysWithIncome: Object.keys(days).length, byPayer: byPayer, months: months, weeks: weeks, yearMonths: yearMonths };
 }

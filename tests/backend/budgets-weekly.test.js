@@ -104,3 +104,17 @@ test("the chart of one week uses that week's spending", () => {
   assert.equal(c.currency, "PEN");
   assert.equal(JSON.stringify(c).includes("25"), true);
 });
+
+test("the Spending pace card in Week / Year / Custom views: each range's running spend, day by day, up to today", () => {
+  const rt = setup();
+  spend(rt, thisMonday(), 12);
+  spend(rt, addDays(thisMonday(), -7), 5);
+  const r = rt.api("getSpendingPace", { ranges: [{ start: thisMonday(), end: addDays(thisMonday(), 6) }, { start: addDays(thisMonday(), -7), end: addDays(thisMonday(), -1) }] });
+  const [cur, ref] = r.ranges;
+  assert.equal(cur.days, 7);
+  assert.equal(cur.cum.length, Math.round((Date.parse(today()) - Date.parse(thisMonday())) / 86400000) + 1, "this week stops at today");
+  assert.ok(cur.cum[0] >= 12);
+  assert.equal(ref.cum.length, 7, "last week is whole");
+  assert.ok(ref.expense >= 5);
+  assert.equal(rt.api("getMeta", {}).capabilities.paceRanges, true);
+});

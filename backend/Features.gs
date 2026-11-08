@@ -116,6 +116,7 @@ function getCapabilities_() {
     incomeVaries: true,     // income categories regular / varies (saveCategory income_kind), setPay, getPeriodSummary.incomeVaries (IncomeVaries.gs)
     budgetHistory: true,    // budgets change forward only: addBudget({start}), endBudget(s), updateBudget({restart}) (Budgets.gs § Budget history)
     paceCategories: true,   // getMonthlyHistory({categoryIds}): the Spending pace screen's 'Which expenses' (an older backend would ignore it and draw all expenses)
+    paceRanges: true,       // getSpendingPace({ranges}): the Spending pace card in the Week, Year and Custom views
     budgetsBulkDelete: true,   // deleteBudgets (several at once, Budgets → Edit); an older backend lacks it, so the app hides the Edit button
     bulkShowAgain: true,   // restoreFriends / restorePaymentMethods / showCategories + `deletedRows` in deleteFriends / removePaymentMethods (Undo after a bulk delete or hide, and a bulk "Show again" in Edit mode); an older backend lacks them, so the app shows no Undo and no Show again button
     pmBulkRemove: true,   // removePaymentMethods (several accounts at once, More → Accounts → Edit); an older backend lacks it, so the app hides the Edit button
