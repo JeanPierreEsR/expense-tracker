@@ -10,7 +10,7 @@ const between = (from, to) => app.slice(app.indexOf(from), app.indexOf(to, app.i
 test("deleting one entry, a plain Confirm and a new rate each ask for fresh numbers", () => {
   assert.match(between("async function confirmAndDiscardEntry_", 'document.getElementById("delete-entry-btn")'), /refreshHomeGlance_\(true\);\s*\/\/[^\n]*\n\s*return true;/);
   assert.match(between('confirmBtn.addEventListener("click"', 'discardBtn.addEventListener("click"'), /applyReviewAction_[\s\S]*refreshHomeGlance_\(true\)/);
-  assert.match(between('callApi("setExchangeRate", usd ? { currency, month, per_usd: raw } : { currency, month, rate })', "catch (err)"), /refreshHomeGlance_\(true\)/);
+  assert.match(between('callApi("setExchangeRate", usd ? { currency, month, per_usd: rate } : { currency, month, rate })', "catch (err)"), /refreshHomeGlance_\(true\)/);
 });
 
 test("a forced refresh during one on its way runs again when that one lands", () => {

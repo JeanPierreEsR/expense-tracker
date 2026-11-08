@@ -3675,3 +3675,24 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .ov-varies-payer:last-child { border-bottom: none; }
 .ov-varies-payer-name { min-width: 0; overflow-wrap: anywhere; }
 .pay-kinds { margin-top: 4px; }
+
+/* More → Currencies: one row per currency, its history opens in place (owner, 2026-11-07). */
+.rates-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.rates-card-header h3 { margin: 0; }
+.rates-group-head { cursor: pointer; }
+.rates-chevron { color: var(--muted); margin-left: 6px; display: inline-block; width: 12px; text-align: center; }
+.rates-history { padding: 0 0 8px 12px; border-bottom: 1px solid var(--border); }
+.rates-month-row { display: grid; grid-template-columns: 5.5em 1fr 4em; align-items: center; gap: 8px; padding: 8px 0; font-size: 0.95em; cursor: pointer; border-top: 1px solid var(--border); }
+.rates-month-rate { text-align: right; }
+.rates-num { font-variant-numeric: tabular-nums; white-space: nowrap; }   /* same-width digits: the decimals line up */
+.rates-month-name { color: var(--muted); }
+.rates-change { text-align: right; color: var(--muted); font-size: 0.85em; }
+.rates-change.rates-jump { color: #c46a00; font-weight: 600; }
+.rates-older-btn { margin-top: 6px; }
+#rates-add-modal-backdrop label { display: block; margin-top: 10px; font-weight: 600; }
+#rates-add-modal-backdrop select, #rates-add-modal-backdrop input[type="month"] { width: 100%; margin-top: 4px; }
+#rates-add-next { margin-top: 12px; width: 100%; }
+
+/* Sheets sit above the iPhone keyboard (keepSheetsAboveKeyboard_ in app.js sets --kb-gap / --vv-h while it is open). */
+html.kb-open .currency-modal-backdrop { padding-bottom: var(--kb-gap, 0px); box-sizing: border-box; }
+html.kb-open .currency-modal-backdrop .currency-modal { max-height: calc(var(--vv-h, 100dvh) - 16px) !important; }
