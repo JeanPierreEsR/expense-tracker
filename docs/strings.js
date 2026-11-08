@@ -1154,6 +1154,8 @@
     "drill.loadFailed": { en: "Couldn't load: {error}", es: "No se pudo cargar: {error}" },
     "drill.projectedLegend": { en: "Projected", es: "Proyección" },
     "drill.budgetYear": { en: "Year · Budget {cur} {amount}", es: "Año · Presupuesto {cur} {amount}" },
+    "budget.forwardMonth": { en: "A new amount counts from this month on. Earlier months keep the amount they had.", es: "Un monto nuevo cuenta desde este mes. Los meses anteriores mantienen el monto que tenían." },
+    "budget.forwardYear": { en: "A new amount counts from this year on. Earlier years keep the amount they had.", es: "Un monto nuevo cuenta desde este año. Los años anteriores mantienen el monto que tenían." },
     "drill.budgetMonth": { en: "Month · Budget {cur} {amount}", es: "Mes · Presupuesto {cur} {amount}" },
     "drill.noEntries": { en: "No entries in this period.", es: "No hay movimientos en este periodo." },
 

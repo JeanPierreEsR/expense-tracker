@@ -8947,14 +8947,14 @@ async function openBudgetDrilldown(budget) {
   await openDrilldownWithPayload_(
     payload,
     `${budget.category_icon ? budget.category_icon + " " : ""}${budget.category_name}`,
-    tr(p.effectivePeriodType === "yearly" ? "drill.budgetYear" : "drill.budgetMonth", { cur: budget.currency, amount: moneyFmt(p.effectiveAmount) })
+    tr(p.effectivePeriodType === "yearly" ? "drill.budgetYear" : "drill.budgetMonth", { cur: p.currency || budget.currency, amount: moneyFmt(p.effectiveAmount) })
   );
 
   // What the Annual tag kept out of this monthly budget, with a tap that lists those entries (owner, 2026-11-07).
   const annualNoteEl = document.getElementById("drilldown-projection-annual-note");
   if (p.annualLeftOut > 0.005 && drilldownBudget === budget) {
     annualNoteEl.hidden = false;
-    annualNoteEl.innerHTML = `<button type="button" class="add-inline drilldown-annual-link">${escapeHtml(tr("budget.annualLeftOutTap", { cur: budget.currency, amount: moneyFmt(p.annualLeftOut) }))}</button>`;
+    annualNoteEl.innerHTML = `<button type="button" class="add-inline drilldown-annual-link">${escapeHtml(tr("budget.annualLeftOutTap", { cur: p.currency || budget.currency, amount: moneyFmt(p.annualLeftOut) }))}</button>`;
     annualNoteEl.querySelector("button").addEventListener("click", () => {
       const annualPayload = Object.assign({}, payload, { onlyAnnual: true });
       delete annualPayload.excludeAnnual;
@@ -9461,6 +9461,16 @@ document.getElementById("drilldown-menu-delete").addEventListener("click", async
 
 let budgetPeriodType = "monthly";
 let editingBudgetId = null;
+let budgetForwardType_ = null;   // the saved budget's own monthly/yearly, for the "counts from now on" line
+
+// Editing a budget: a new amount counts from this month (year) on, earlier ones keep theirs (owner, 2026-11-07; Budgets.gs).
+// Not shown for a new budget, nor once monthly/yearly is switched (that change forgets the old amounts).
+function updateBudgetForwardHint_(budget) {
+  if (budget !== undefined) budgetForwardType_ = budget ? budget.period_type : null;
+  const el = document.getElementById("budget-forward-hint");
+  el.hidden = !budgetForwardType_ || budgetPeriodType !== budgetForwardType_;
+  if (!el.hidden) el.textContent = tr(budgetForwardType_ === "yearly" ? "budget.forwardYear" : "budget.forwardMonth");
+}
 const DEFAULT_BUDGET_THRESHOLDS_DISPLAY = "50, 75, 100, 110, 125, 150";
 
 document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
@@ -9468,6 +9478,7 @@ document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
     budgetPeriodType = tab.dataset.period;
     budgetPeriodTouched_ = true;   // (the first-use practice waits for this)
     document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    updateBudgetForwardHint_();
   });
 });
 
@@ -9590,6 +9601,7 @@ function openBudgetModal(budget) {
 
   budgetPeriodType = budget ? budget.period_type : "monthly";
   document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.period === budgetPeriodType));
+  updateBudgetForwardHint_(budget);
 
   document.getElementById("budget-thresholds").value = budget ? budget.thresholds : DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
   document.getElementById("budget-delete-btn").hidden = !budget;
@@ -9795,6 +9807,7 @@ function drawBudgets_() {
     if (i === 0 && attention.length) groupHead("budgets.groupAttention");
     if (i === attention.length && attention.length) groupHead("budgets.groupOthers");
     const p = b.progress;
+    const pc = p.currency || b.currency;   // the currency the budget had in the period shown (an edit counts forward only)
     const pct = p.percent;
     let statusClass = "";
     if (pct != null) {
@@ -9807,21 +9820,24 @@ function drawBudgets_() {
       const day = (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
       const frac = (day(todayIso) - day(p.startDate) + 86400000) / (day(p.endDate) - day(p.startDate) + 86400000);
       const expected = p.effectiveAmount * frac;
-      todayMark = `<span class="budget-today-mark" style="left:${(frac * 100).toFixed(1)}%" role="img" aria-label="${escapeHtml(tr("budgets.todayMarkAria", { cur: b.currency, amount: moneyFmt(expected) }))}"></span>`;
+      todayMark = `<span class="budget-today-mark" style="left:${(frac * 100).toFixed(1)}%" role="img" aria-label="${escapeHtml(tr("budgets.todayMarkAria", { cur: pc, amount: moneyFmt(expected) }))}"></span>`;
       anyTodayMark = true;
     }
     const annualNote = p.annualLeftOut > 0.005
-      ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: b.currency, amount: moneyFmt(p.annualLeftOut) }))}</div>` : "";
+      ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: pc, amount: moneyFmt(p.annualLeftOut) }))}</div>` : "";
 
-    const amountLabel = `${b.currency} ${moneyFmt(p.effectiveAmount)}`;
+    const amountLabel = `${pc} ${moneyFmt(p.effectiveAmount)}`;
     const subLabel = pct == null
-      ? tr("budget.needsRate", { cur: b.currency })
-      : `${b.currency} ${moneyFmt(p.spent)} / ${amountLabel}`;
-    const periodLabel = tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : "budget.thisMonth") +
+      ? tr("budget.needsRate", { cur: pc })
+      : `${pc} ${moneyFmt(p.spent)} / ${amountLabel}`;
+    // "this month" / "this year" only for the period that holds today; a past or future one is named (its amount may differ, batch 6).
+    const holdsToday = p.startDate <= todayIso && todayIso <= p.endDate;
+    const periodLabel = (holdsToday ? tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : "budget.thisMonth")
+      : p.effectivePeriodType === "yearly" ? p.startDate.slice(0, 4) : paceMonthName_(p.startDate.slice(0, 7), true)) +
       (p.annualized ? tr("budget.annualized") : "");
 
-    if (b.currency !== homeCur() && p.rate != null) {
-      const s = strongRate_(b.currency, homeCur(), p.rate);
+    if (pc !== homeCur() && p.rate != null) {
+      const s = strongRate_(pc, homeCur(), p.rate);
       if (s) fxNotes.push(`1 ${s.one} = ${strongRateFmt_(s.rate)} ${s.other} — ${b.category_name}`);
     }
 

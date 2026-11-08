@@ -76,7 +76,7 @@ function buildBudgetContext_(opts) {
     };
   });
 
-  return { spendEntries: spendEntries, ratesByCurrency: ratesByCurrency };
+  return { spendEntries: spendEntries, ratesByCurrency: ratesByCurrency, amountHistory: budgetAmountHistory_() };
 }
 
 // A budget's `category_id` column holds either a single id, a
@@ -220,10 +220,11 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
   // year's figure, so it's never divided down for a monthly view — see
   // resolveEffectivePeriodType_.)
   var annualized = effectivePeriodType === 'yearly' && budget.period_type === 'monthly';
-  var effectiveAmount = Number(budget.amount) * (annualized ? 12 : 1);
-
-  var currency = budget.currency || homeCurrency_();
+  // The amount (and currency) the budget had in the period shown: an edit counts from its own period on (owner, 2026-11-07).
   var cutoffMonth = bounds.endDate.substring(0, 7);
+  var held = budgetAmountForPeriod_(budget, ctx, annualized ? bounds.periodKey : null, annualized ? null : bounds.periodKey);
+  var effectiveAmount = held.amount;
+  var currency = held.currency;
   var spent = categorySpendInCurrencyFromContext_(ctx, categoryIds, bounds.startDate, bounds.endDate, currency, cutoffMonth, excludeAnnual);
   // What the Annual tag kept out of a monthly budget, in the budget's currency, so the row can say so: Overview's category total
   // counts those entries and the two numbers looked like a mismatch (testers, 2026-11-07). 0 for a yearly budget.
@@ -249,6 +250,8 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
     spentPen: spentPen,
     spent: spent,
     effectiveAmount: effectiveAmount,
+    currency: currency,
+    amountChanged: held.changed,
     percent: percent,
     annualLeftOut: annualLeftOut,
     rateAvailable: spent != null,
@@ -419,8 +422,12 @@ function getBudgetChartSeries(payload) {
   if (!rawBudget) throw new Error(tr_('err.budgetNotFound'));
 
   var categoryIds = parseBudgetCategoryIds_(rawBudget.category_id);
-  var currency = rawBudget.currency || homeCurrency_();
   var ctx = buildBudgetContext_();
+  // The currency the budget had in the period shown (an amount edit can change it from its own period on).
+  var spansYear = startDate.substring(0, 7) !== endDate.substring(0, 7);
+  var currency = budgetAmountForPeriod_(rawBudget, ctx,
+    spansYear && rawBudget.period_type !== 'yearly' ? endDate.substring(0, 4) : null,
+    rawBudget.period_type === 'yearly' ? endDate.substring(0, 4) : endDate.substring(0, 7)).currency;
   var cutoffMonth = endDate.substring(0, 7);
   var rate = latestRateAtOrBefore_(ctx, currency, cutoffMonth);
 
@@ -611,6 +618,7 @@ function updateBudget(payload) {
     );
   }
   if (payload.thresholds !== undefined) payload.thresholds = normalizeBudgetThresholds_(payload.thresholds);
+  recordBudgetAmountChange_(getAllRows('Budgets').find(function (b) { return b.id === payload.id; }), payload);
 
   ['category_id', 'amount', 'currency', 'period_type', 'thresholds', 'name'].forEach(function (field) {
     if (payload[field] !== undefined) {
@@ -646,6 +654,7 @@ function deleteBudget(id) {
       if (data[i][budgetIdCol] === id) deleteSheetRows_(logSheet, i + 2, 1);
     }
   }
+  if (budgetAmountsSheetExists_()) deleteRowsWhere_('Budget Amounts', function (r) { return String(r.budget_id) === String(id); });
   return { done: true };
 }
 
@@ -664,6 +673,7 @@ function deleteBudgets(payload) {
   if (deleted.length) {
     deleteRowsWhere_('Budgets', function (r) { return want[String(r.id)] === true; });
     deleteRowsWhere_('Budget Alert Log', function (r) { return want[String(r.budget_id)] === true; });
+    if (budgetAmountsSheetExists_()) deleteRowsWhere_('Budget Amounts', function (r) { return want[String(r.budget_id)] === true; });
   }
   return { deleted: deleted, missing: missing };
 }
@@ -894,4 +904,112 @@ function generateTopCategoryBudgets(payload) {
   });
 
   return { startDate: startDate, endDate: endDate, monthCount: monthCount, created: created };
+}
+
+// ---- Budget amounts go forward only (owner, 2026-11-07) ----
+// Changing a budget's amount (or currency) counts from the CURRENT period on — this month for a monthly budget, this year for a
+// yearly one; a past period keeps the amount it had. The Budgets row always holds today's amount; the tab "Budget Amounts" holds
+// one row per change: from_period ('' = from the very start, else 'YYYY-MM' / 'YYYY'), amount and currency from that period on.
+// The tab is made on the first change (an older copy has none: every period then uses today's amount, as before). A budget never
+// edited since this update has no rows. Changing monthly ↔ yearly drops its rows: the old amounts were for another length of period.
+
+function ensureBudgetAmountsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName('Budget Amounts')) return;
+  var sheet = ss.insertSheet('Budget Amounts');
+  var headers = TABLE_DEFINITIONS['Budget Amounts'];
+  var headerRange = sheet.getRange(1, 1, 1, headers.length);
+  headerRange.setValues([headers]);
+  headerRange.setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  // "2026-11" / "2026" would be turned into a date or a number by Sheets (same as Projection Overrides' period_key).
+  DATE_LIKE_COLUMNS['Budget Amounts'].forEach(function (name) {
+    var col = headers.indexOf(name) + 1;
+    if (col > 0) sheet.getRange(1, col, sheet.getMaxRows(), 1).setNumberFormat('@');
+  });
+}
+
+function budgetAmountsSheetExists_() {
+  return !!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Budget Amounts');
+}
+
+// { budgetId: [rows sorted by from_period] } — read once per request with the rest of the budget context.
+function budgetAmountHistory_() {
+  var out = {};
+  if (!budgetAmountsSheetExists_()) return out;
+  getAllRows('Budget Amounts').forEach(function (r) {
+    var id = String(r.budget_id);
+    (out[id] = out[id] || []).push({ from: String(r.from_period || ''), amount: Number(r.amount), currency: r.currency || homeCurrency_() });
+  });
+  Object.keys(out).forEach(function (id) { out[id].sort(function (a, b) { return a.from < b.from ? -1 : a.from > b.from ? 1 : 0; }); });
+  return out;
+}
+
+// This period's key for a budget of this kind, today.
+function budgetCurrentPeriodKey_(periodType) {
+  var tz = Session.getScriptTimeZone();
+  return Utilities.formatDate(new Date(), tz, periodType === 'yearly' ? 'yyyy' : 'yyyy-MM');
+}
+
+// The amount and currency the budget had in one of its own periods ('YYYY-MM' for monthly, 'YYYY' for yearly).
+// The current period and later always use the Budgets row itself (today's amount).
+function budgetAmountAtKey_(budget, rows, key) {
+  var own = { amount: Number(budget.amount), currency: budget.currency || homeCurrency_() };
+  if (!rows || !rows.length || key >= budgetCurrentPeriodKey_(budget.period_type)) return own;
+  var hit = null;
+  rows.forEach(function (r) { if (r.from <= key) hit = r; });
+  return hit ? { amount: hit.amount, currency: hit.currency } : own;
+}
+
+// What the budget is measured against in the period shown. monthKey: a monthly budget's month or a yearly budget's year.
+// yearOfMonthly: a monthly budget shown across a whole year ('YYYY') — the twelve months' own amounts added up, each one
+// turned into December's currency through the main currency when a change of currency happened inside that year.
+// { amount, currency, changed: true when that period's amount is not today's }
+function budgetAmountForPeriod_(budget, ctx, yearOfMonthly, monthKey) {
+  var rows = (ctx && ctx.amountHistory && ctx.amountHistory[String(budget.id)]) || null;
+  var today = { amount: Number(budget.amount) * (yearOfMonthly ? 12 : 1), currency: budget.currency || homeCurrency_() };
+  if (!yearOfMonthly) {
+    var one = budgetAmountAtKey_(budget, rows, monthKey);
+    return { amount: one.amount, currency: one.currency, changed: one.amount !== Number(budget.amount) || one.currency !== today.currency };
+  }
+  var last = budgetAmountAtKey_(budget, rows, yearOfMonthly + '-12');
+  var total = 0;
+  for (var m = 1; m <= 12; m++) {
+    var key = yearOfMonthly + '-' + pad2_(m);
+    var at = budgetAmountAtKey_(budget, rows, key);
+    var amt = at.amount;
+    if (at.currency !== last.currency) {
+      var from = latestRateAtOrBefore_(ctx, at.currency, key), to = latestRateAtOrBefore_(ctx, last.currency, key);
+      amt = (from != null && to) ? at.amount * from / to : last.amount;   // no rate on file: that month counts at December's amount
+    }
+    total += amt;
+  }
+  total = Math.round(total * 100) / 100;
+  return { amount: total, currency: last.currency, changed: Math.abs(total - today.amount) > 0.005 || last.currency !== today.currency };
+}
+
+// Called by updateBudget BEFORE the row changes: when the amount or currency really changes, the old amount is kept for every
+// period before this one (a first change also writes the '' row) and the new one is written from this period on.
+function recordBudgetAmountChange_(current, payload) {
+  if (!current) return;
+  var oldType = current.period_type === 'yearly' ? 'yearly' : 'monthly';
+  var newType = payload.period_type !== undefined ? (payload.period_type === 'yearly' ? 'yearly' : 'monthly') : oldType;
+  if (newType !== oldType) {   // another length of period: the old amounts no longer mean anything
+    if (budgetAmountsSheetExists_()) deleteRowsWhere_('Budget Amounts', function (r) { return String(r.budget_id) === String(current.id); });
+    return;
+  }
+  var oldAmount = Number(current.amount), oldCurrency = current.currency || homeCurrency_();
+  var newAmount = payload.amount !== undefined ? Number(payload.amount) : oldAmount;
+  var newCurrency = payload.currency !== undefined && payload.currency ? payload.currency : oldCurrency;
+  if (Math.abs(newAmount - oldAmount) < 0.005 && newCurrency === oldCurrency) return;
+  ensureBudgetAmountsSheet_();
+  var key = budgetCurrentPeriodKey_(oldType);
+  var id = String(current.id);
+  var rows = getAllRows('Budget Amounts').filter(function (r) { return String(r.budget_id) === id; });
+  var now = new Date().toISOString();
+  if (!rows.length) {
+    appendRowObject('Budget Amounts', { id: Utilities.getUuid(), budget_id: id, from_period: '', amount: oldAmount, currency: oldCurrency, changed_at: now });
+  }
+  deleteRowsWhere_('Budget Amounts', function (r) { return String(r.budget_id) === id && String(r.from_period) === key; });
+  appendRowObject('Budget Amounts', { id: Utilities.getUuid(), budget_id: id, from_period: key, amount: newAmount, currency: newCurrency, changed_at: now });
 }
