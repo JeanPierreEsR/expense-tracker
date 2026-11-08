@@ -6772,15 +6772,15 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           <input class="review-amount" type="text" inputmode="decimal" value="${Math.abs(Number(entry.amount))}" placeholder="${escapeHtml(tr("field.amount"))}"></div>
         ${reviewHasAccountBox_(entry) ? `
         <label class="review-transfer-label">${tr(entry.type === "income" ? "review.receivedAtLabel" : "field.paidFromAccount")}</label>
-        <select class="review-account">${transferAccountOptions_(entry.payment_method_id, tr(entry.type === "income" ? "review.pickAccountEntered" : "review.pickAccountLeft"))}</select>` : ""}
+        <select class="review-account">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>` : ""}
         ${entry.type === "expense" && (meta.trips || []).length ? `
         <label class="review-transfer-label">${tr("field.trip")}</label>
         <select class="review-trip">${reviewTripOptions_(entry.trip_id || entry.suggested_trip_id || "")}</select>` : ""}
         ${entry.type === "transfer" ? `
         <label class="review-transfer-label">${tr("review.fromLabel")}</label>
-        <select class="review-from">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccountLeft"))}</select>
+        <select class="review-from">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>
         <label class="review-transfer-label">${tr("review.toLabel")}</label>
-        <select class="review-to">${transferAccountOptions_(entry.to_payment_method_id, tr("review.pickAccountEntered"))}</select>` : ""}
+        <select class="review-to">${transferAccountOptions_(entry.to_payment_method_id, tr("review.pickAccount"))}</select>` : ""}
         ${entry.type === "investment" ? `
         <label class="review-transfer-label">${tr("review.platformLabel")}${Number(entry.amount) < 0 ? tr("review.platformWithdrawal") : ""}</label>
         <select class="review-platform">${investmentPlatformOptions_(entry.to_payment_method_id)}</select>
