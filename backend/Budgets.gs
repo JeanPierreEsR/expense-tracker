@@ -349,6 +349,14 @@ function listBudgets(payload) {
       start_key: budgetFirstStart_(ctx.budgetHistory[String(b.id)])   // where it starts ('' = it has always counted)
     };
   });
+  // The dotted part of the bar: Programmed items still to come in the period shown (owner, 2026-11-08).
+  var programmedPre = budgetProgrammedPrep_();
+  var todayIso = formatCalendarDate_(new Date());
+  budgets.forEach(function (x) {
+    var p = x.progress;
+    if (!p.exists) return;
+    p.programmed = budgetProgrammedLeft_(programmedPre, ctx, p.category_ids !== undefined ? p.category_ids : x.category_ids, p.currency || x.currency, p.startDate, p.endDate, todayIso);
+  });
   // The period's own categories name the row when they were different then (a change of categories counts forward only).
   budgets.forEach(function (x) {
     var p = x.progress;
@@ -470,6 +478,45 @@ function listBudgets(payload) {
       overlapNotes: overlapNotes
     }
   };
+}
+
+// ---- Programmed items still to come (owner, 2026-11-08): the dotted part of each budget's bar ----
+// The same rule as the drill-down's chart (getBudgetChartSeries below): an occurrence of an active Programmed item in the budget's
+// categories, in its period, from today on, with no confirmed entry matching it yet. In the budget's own currency. Read once per list.
+function budgetProgrammedPrep_() {
+  var pre = { recurring: [], splitSums: getRecurringExpenseSplitSums_(), entrySplit: {}, entriesByCat: {} };
+  pre.recurring = getRecurringExpenseRows_().filter(function (r) { return String(r.active) !== 'false'; });
+  if (!pre.recurring.length) return pre;
+  getAllRows('Entry Splits').forEach(function (sp) { pre.entrySplit[sp.entry_id] = (pre.entrySplit[sp.entry_id] || 0) + Number(sp.amount); });
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed') return;
+    (pre.entriesByCat[e.category_id] = pre.entriesByCat[e.category_id] || []).push(e);
+  });
+  return pre;
+}
+function budgetProgrammedLeft_(pre, ctx, categoryIds, currency, startDate, endDate, today) {
+  if (!pre.recurring.length || !startDate || !endDate || endDate < today) return 0;
+  var from = startDate < today ? today : startDate;
+  var rate = latestRateAtOrBefore_(ctx, currency, endDate.substring(0, 7));
+  var total = 0;
+  pre.recurring.forEach(function (r) {
+    if (!categoryIdMatches_(categoryIds, r.category_id)) return;
+    var reCurrency = r.currency || homeCurrency_();
+    var own = recurringOwnAmount_(r, pre.splitSums);
+    var amt = null;
+    if (reCurrency === currency) amt = own;
+    else {
+      var rePen = reCurrency === homeCurrency_() ? own : (function () { var x = latestRateAtOrBefore_(ctx, reCurrency, endDate.substring(0, 7)); return x != null ? own * x : null; })();
+      if (rePen != null) amt = currency === homeCurrency_() ? rePen : (rate != null ? rePen / rate : null);
+    }
+    if (amt == null) return;
+    var entries = pre.entriesByCat[r.category_id] || [];
+    recurringExpenseOccurrencesInRange_(r, from, endDate).forEach(function (date) {
+      var paid = entries.some(function (e) { return entryMatchesRecurringOccurrence_(e, r, [date], pre.entrySplit, pre.splitSums); });
+      if (!paid) total += amt;
+    });
+  });
+  return Math.round(total * 100) / 100;
 }
 
 // Feeds the drill-down's line chart: actual spend per day, still-outstanding

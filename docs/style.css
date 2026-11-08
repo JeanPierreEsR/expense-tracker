@@ -3761,3 +3761,14 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 /* The second choice of a choice window (budget scope): outlined, not red (nothing is deleted). */
 .secondary-choice { display: block; width: 100%; min-height: 44px; margin-top: 6px; padding: 10px 14px; border: 1px solid var(--accent);
   border-radius: 10px; background: white; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.app-confirm-text { white-space: pre-line; font-size: 1rem; line-height: 1.4; margin: 0 0 14px; }
+
+/* The dotted part of a budget bar: Programmed items still to come this period (owner, 2026-11-08). */
+.budget-progress-track { position: relative; }
+.budget-progress-prog { position: absolute; top: 0; bottom: 0; border-radius: 0 999px 999px 0;
+  background: repeating-linear-gradient(90deg, var(--accent) 0 3px, transparent 3px 7px); opacity: 0.55; }
+.budget-progress-prog.warn { background: repeating-linear-gradient(90deg, #e0952c 0 3px, transparent 3px 7px); opacity: 0.8; }
+.budget-progress-prog.over { background: repeating-linear-gradient(90deg, #d64545 0 3px, transparent 3px 7px); opacity: 0.8; }
+.budget-row-prog { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+.budget-row-prog.warn { color: #b8741a; }
+.budget-row-prog.over { color: #d64545; }

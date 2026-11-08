@@ -10169,7 +10169,9 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
 // "Delete completely" and the practice's own budget, the old full delete (owner, 2026-11-07).
 function removeBudgetFromForm_(full) {
   if (!editingBudgetId) return;
-  const b = drilldownBudget && drilldownBudget.id === editingBudgetId ? drilldownBudget : (budgetsLoaded_ || []).find((x) => x.id === editingBudgetId) || { id: editingBudgetId, period_type: budgetPeriodType };
+  // A budget that starts later is not in the main list (owner, 2026-11-08: ending one asked "End this item?" and the wrong question).
+  const b = drilldownBudget && drilldownBudget.id === editingBudgetId ? drilldownBudget
+    : (budgetsLoaded_ || []).concat(budgetsLater_ || []).find((x) => x.id === editingBudgetId) || budgetEditingObj_ || { id: editingBudgetId, period_type: budgetPeriodType };
   return removeBudget_(b, full, document.getElementById("budget-name").value);
 }
 // The budget window's two buttons and the drill-down's ⋮ menu. name: the budget's own name as typed (the practice's is deleted outright).
@@ -10179,11 +10181,12 @@ async function removeBudget_(b, full, name) {
   const practice = isPracticeBudgetName_(name || "");
   const end = !full && !practice && budgetHistoryOn_();
   const yearly = b.period_type === "yearly", K = budgetKindKeys_(b.period_type);
-  const question = end && b.end_deletes ? tr(K.endDel, { what })
+  const question = end && b.start_later ? tr("budget.confirmEndNotStarted", { what, when: budgetPeriodName_(b.period_type, b.start_later, true) })
+    : end && b.end_deletes ? tr(K.endDel, { what })
     : end ? tr(K.end, { what })
     : budgetHistoryOn_() ? tr("budget.confirmDeleteFull", { what })
     : tr(yearly ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what });
-  if (!practiceNoConfirm_(practice) && !confirm(question)) return;
+  if (!practiceNoConfirm_(practice) && !(await askConfirmApp_(question, tr(end && !b.end_deletes ? "budgetModal.end" : "budgetModal.deleteFull")))) return;
   const id = b.id;
   markDeleting_("budget:" + id);
   closeBudgetModal();
@@ -10323,9 +10326,12 @@ function drawBudgets_() {
   // Owner, 2026-11-07: two visible groups. First "over or close" (75 % and up), the most used first; then the rest, the biggest budget
   // first — compared in the main currency over the period shown (a monthly budget in a Year view counts 12 months).
   const pctOf = (b) => (b.progress && b.progress.percent != null ? b.progress.percent : -1);
+  // With the Programmed items still to come (the dotted part, owner 2026-11-08): a budget that will be over or close once they are
+  // paid joins the first group too.
+  const pctAll = (b) => { const p = b.progress; return p && p.percent != null && p.programmed > 0 && p.effectiveAmount > 0 ? (p.spent + p.programmed) / p.effectiveAmount * 100 : pctOf(b); };
   const sizeOf = (b) => (b.amount_pen != null && b.amount ? b.amount_pen / b.amount : 0) * (b.progress ? b.progress.effectiveAmount : 0);
-  const attention = budgets.filter((b) => pctOf(b) >= 75).sort((x, y) => pctOf(y) - pctOf(x));
-  const others = budgets.filter((b) => pctOf(b) < 75).sort((x, y) => sizeOf(y) - sizeOf(x));
+  const attention = budgets.filter((b) => pctAll(b) >= 75).sort((x, y) => pctAll(y) - pctAll(x));
+  const others = budgets.filter((b) => pctAll(b) < 75).sort((x, y) => sizeOf(y) - sizeOf(x));
   const ordered = attention.concat(others);
   const groupHead = (key) => { const h = document.createElement("div"); h.className = "budgets-group-head"; h.textContent = tr(key); list.appendChild(h); };
   const overN = budgets.filter((b) => pctOf(b) >= 100).length;
@@ -10334,6 +10340,8 @@ function drawBudgets_() {
   const statusParts = [];
   if (overN) statusParts.push(`<span class="over">${escapeHtml(tr("budgets.statusOver", { n: overN }))}</span>`);
   if (closeN) statusParts.push(`<span class="warn">${escapeHtml(tr("budgets.statusClose", { n: closeN }))}</span>`);
+  const progN = budgets.filter((b) => pctOf(b) < 75 && pctAll(b) >= 75).length;
+  if (progN) statusParts.push(`<span class="warn">${escapeHtml(tr("budgets.statusProg", { n: progN }))}</span>`);
   statusLine.innerHTML = statusParts.length ? statusParts.join(" · ") : escapeHtml(tr("budgets.statusFine"));
   statusLine.hidden = false;
   // Year view: a small mark on each bar where today falls in its year ("expected by now", owner 2026-11-07), and one line explaining it.
@@ -10359,6 +10367,14 @@ function drawBudgets_() {
       const expected = p.effectiveAmount * frac;
       todayMark = `<span class="budget-today-mark" style="left:${(frac * 100).toFixed(1)}%" role="img" aria-label="${escapeHtml(tr("budgets.todayMarkAria", { cur: pc, amount: moneyFmt(expected) }))}"></span>`;
       anyTodayMark = true;
+    }
+    // The dotted part: Programmed items still to come in this period, after what is spent; a line names them and the % with them.
+    let progBar = "", progLine = "";
+    if (pct != null && p.programmed > 0.004) {
+      const all = pctAll(b), end = Math.min(100, Math.max(0, all));
+      const progClass = all >= 100 ? "over" : all >= 75 ? "warn" : "";
+      if (end > barPct) progBar = `<div class="budget-progress-prog ${progClass}" style="left:${barPct}%;width:${(end - barPct).toFixed(2)}%"></div>`;
+      progLine = `<div class="budget-row-prog ${pct < 75 && all >= 75 ? progClass : ""}">${escapeHtml(tr("budget.programmedLine", { cur: pc, amount: moneyFmt(p.programmed), pct: all.toFixed(0) }))}</div>`;
     }
     const annualNote = p.annualLeftOut > 0.005
       ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: pc, amount: moneyFmt(p.annualLeftOut) }))}</div>` : "";
@@ -10395,12 +10411,14 @@ function drawBudgets_() {
       </div>
       <div class="budget-progress-track">
         <div class="budget-progress-fill ${statusClass}" style="width:${barPct}%"></div>
+        ${progBar}
         ${todayMark}
       </div>
       <div class="budget-row-sub">
         <span>${subLabel}</span>
         <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
       </div>
+      ${progLine}
       ${annualNote}
     `;
     // Editing/deleting now lives behind the drill-down's ⋮ menu (see
@@ -10533,12 +10551,13 @@ document.getElementById("budgets-selectall-btn").addEventListener("click", () =>
   budgetsSelected_ = budgetsSelected_.size === budgetsLoaded_.length ? new Set() : new Set(budgetsLoaded_.map((b) => b.id));
   drawBudgets_();
 });
-document.getElementById("budgets-delete-selected-btn").addEventListener("click", () => {
+document.getElementById("budgets-delete-selected-btn").addEventListener("click", async () => {
   const chosen = budgetsLoaded_.filter((b) => budgetsSelected_.has(b.id));
   if (!chosen.length) return;
   const names = chosen.map(budgetPickLabel_).join(", ");
   const ends = budgetHistoryOn_();
-  if (!confirm(tr(chosen.length === 1 ? (ends ? "budgets.confirmEndOne" : "budgets.confirmDeleteOne") : (ends ? "budgets.confirmEndMany" : "budgets.confirmDeleteMany"), { n: chosen.length, names }))) return;
+  if (!(await askConfirmApp_(tr(chosen.length === 1 ? (ends ? "budgets.confirmEndOne" : "budgets.confirmDeleteOne") : (ends ? "budgets.confirmEndMany" : "budgets.confirmDeleteMany"), { n: chosen.length, names }),
+    ends ? tr("budgets.endN", { n: chosen.length }) : tr("friends.deleteN", { n: chosen.length })))) return;
   const ids = chosen.map((b) => b.id);
   const nameOf = new Map(chosen.map((b) => [b.id, budgetPickLabel_(b)]));
   setBudgetsEditing_(false);
@@ -23864,6 +23883,23 @@ function syncConversionAmount_() {
   const field = document.getElementById("amount");
   const from = converting ? own : whole;
   if (field.value === from || field.value === "") field.value = converting ? whole : own;   // never over what the person typed
+}
+
+// A yes/no question in an app window (owner, 2026-11-08): the iPhone's own dialog speaks the phone's language ("Annuler"), not the
+// app's. okLabel names what happens ("End this budget"); it is red, since it removes something. Resolves true / false.
+function askConfirmApp_(text, okLabel) {
+  return new Promise((resolve) => {
+    const backdrop = document.getElementById("app-confirm-backdrop");
+    document.getElementById("app-confirm-text").textContent = text;
+    document.getElementById("app-confirm-ok").textContent = okLabel || tr("common.ok");
+    const ids = ["app-confirm-ok", "app-confirm-back", "app-confirm-close"];
+    const done = (v) => { backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); resolve(v); };
+    document.getElementById("app-confirm-ok").onclick = () => done(true);
+    document.getElementById("app-confirm-back").onclick = () => done(false);
+    document.getElementById("app-confirm-close").onclick = () => done(false);
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+  });
 }
 
 // From this period on, or for all the budget's periods? Resolves "forward", "all" or null (backed out).
