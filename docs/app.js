@@ -50,6 +50,26 @@ function bringModalToFront_(backdropEl) {
   backdropEl.style.zIndex = topModalZIndex;
 }
 
+// The iPhone keyboard slides over the bottom of the screen without making the page smaller, so a sheet that sits at the bottom
+// (every .currency-modal-backdrop) ended up behind it: the owner tapped a month in More → Currencies and saw only the keyboard
+// (2026-11-07). The part of the screen the keyboard hides is measured from the visible area (visualViewport) and the sheets are
+// lifted by that much (--kb-gap in style.css); --vv-h keeps a lifted sheet no taller than what is still visible.
+(function keepSheetsAboveKeyboard_() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const root = document.documentElement;
+  const update = () => {
+    const hidden = Math.max(0, Math.round(window.innerHeight - (vv.offsetTop + vv.height)));
+    const open = hidden > 60;   // (small gaps are the browser bars, not a keyboard)
+    root.classList.toggle("kb-open", open);
+    root.style.setProperty("--kb-gap", open ? `${hidden}px` : "0px");
+    root.style.setProperty("--vv-h", `${Math.round(vv.height)}px`);
+  };
+  vv.addEventListener("resize", update);
+  vv.addEventListener("scroll", update);
+  update();
+})();
+
 // Plin can ride on several accounts (owner, 2026-11-06): `plin_pen` is the main one, these are the others.
 const plinManyOn_ = () => !!((meta && meta.capabilities) || {}).plinMany;
 const plinMoreIds_ = () => String(((meta && meta.settings) || {}).plin_pen_more || "").split(",").filter(Boolean);
@@ -8204,6 +8224,8 @@ function weakerThanMain_(currency, knownRate) {
 // "USD 1 = ARS 1,511.54", "EUR 1 = USD 1.0811", never "1 USD = 0.925 EUR".
 function rateLine_(one, other, rate) { return `${one} 1 = ${other} ${strongRateFmt_(rate)}`; }
 // `per` = units of b for one a; written with whichever of the two is stronger as 1. "" when there is no rate.
+// The Currencies list rounds to two decimals so the rows line up (owner, 2026-11-07); the rate window keeps the full number.
+function rateLine2_(one, other, rate) { return `${one} 1 = ${other} ${moneyFmt(rate)}`; }
 function strongRateLine_(a, b, per) { const s = strongRate_(a, b, per); return s ? rateLine_(s.one, s.other, s.rate) : ""; }
 // Rates stored against the US dollar (backend RatesUsd.gs, owner 2026-11-07): every rate is stored "1 USD = x <currency>" and asked
 // against the dollar — "USD 1 = ARS ?", or "EUR 1 = USD ?" for a currency worth more than a dollar.
@@ -13828,7 +13850,7 @@ async function refreshExchangeRates(cached) {
         <div class="recurring-row-name">${findCurrency(code).flag} ${escapeHtml(code)}</div>
         <div class="recurring-row-sub">${escapeHtml(tr(items.length === 1 ? "rates.groupSubOne" : "rates.groupSub", { month: monthWords(latest.r.month), n: items.length }))}</div>
       </div>
-      <div class="recurring-row-amount">${escapeHtml(s ? rateLine_(s.one, s.other, s.rate) : "")} <span class="rates-chevron" aria-hidden="true">${open ? "⌄" : "›"}</span></div>`;
+      <div class="recurring-row-amount"><span class="rates-num">${escapeHtml(s ? rateLine2_(s.one, s.other, s.rate) : "")}</span> <span class="rates-chevron" aria-hidden="true">${open ? "⌄" : "›"}</span></div>`;
     head.addEventListener("click", () => {
       if (ratesOpen_.has(code)) ratesOpen_.delete(code); else ratesOpen_.add(code);
       refreshExchangeRatesFromCache_();
@@ -13850,7 +13872,7 @@ async function refreshExchangeRates(cached) {
         const row = document.createElement("div");
         row.className = "rates-month-row";
         row.innerHTML = `<span class="rates-month-name">${escapeHtml(monthWords(it.r.month))}</span>
-          <span class="rates-month-rate">${escapeHtml(s ? rateLine_(s.one, s.other, v) : "")}</span>${change}`;
+          <span class="rates-month-rate rates-num">${escapeHtml(s ? rateLine2_(s.one, s.other, v) : "")}</span>${change || "<span></span>"}`;
         row.addEventListener("click", async () => {
           const newRate = await openRateModal(it.r.currency, it.r.month, /* required */ false, usd && it.r.per_usd > 0 ? it.r.per_usd : it.r.rate);
           if (newRate != null) refreshExchangeRates();
