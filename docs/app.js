@@ -4192,7 +4192,8 @@ function buildExchangePairRow_(p) {
   const amount = document.createElement("div");
   amount.className = "entry-amount";
   const rate = exchangeRateText_(p);
-  amount.innerHTML = `<span class="primary-amt">${formatAmount(p.out.amount, p.out.currency)} → ${formatAmount(p.in.amount, p.in.currency)}</span>${rate ? `<span class="original-amt">${escapeHtml(rate)}</span>` : ""}`;
+  // What left on top, what arrived under it (owner, 2026-11-05: on one line the name and accounts wrapped over 4–5 lines).
+  amount.innerHTML = `<span class="primary-amt xch-amt">${formatAmount(p.out.amount, p.out.currency)}</span><span class="primary-amt xch-amt">→ ${formatAmount(p.in.amount, p.in.currency)}</span>${rate ? `<span class="original-amt">${escapeHtml(rate)}</span>` : ""}`;
   if (entriesEditing_) {   // a currency exchange is two entries: it is handled one by one, so it has no tick
     row.classList.add("entry-check");
     row.insertAdjacentHTML("afterbegin", `<span class="friends-check-spacer"></span>`);
@@ -23453,7 +23454,7 @@ function bankDueDates_(firstDue, freq, n) {
 
 // The TEA (a fraction) that makes `count` installments of `net` (the installment without its fee), paid after `grace` periods of
 // grace, pay off `amount` lent on `start`. null when the installments add up to less than the loan. Bisection: the value of the
-// installments falls as the rate rises.
+// installments falls as the rate rises. Infinity when the installments are worth more than the loan even at 2,000% a year.
 function bankSolveTea_(amount, count, net, start, dates, grace, graceType) {
   // with interest-only grace the balance is still `amount` at the last grace date; otherwise discount from the loan date
   const origin = grace > 0 && graceType === "partial" ? dates[grace - 1] : start;
@@ -23465,6 +23466,7 @@ function bankSolveTea_(amount, count, net, start, dates, grace, graceType) {
   if (f(0) < -0.005) return null;
   if (Math.abs(f(0)) <= 0.005) return 0;
   let lo = 0, hi = 20;
+  if (f(hi) > 0.005) return Infinity;   // even 2,000% a year would not use up these installments: the installment cannot be right
   for (let i = 0; i < 200; i++) {
     const mid = (lo + hi) / 2;
     if (f(mid) > 0) lo = mid; else hi = mid;
@@ -23722,6 +23724,13 @@ document.getElementById("bank-gen-btn").addEventListener("click", () => {
     if (!(payment > 0)) { errEl.textContent = tr("bank.needPayment"); return; }
     const t = bankSolveTea_(amount, count, payment - fee, startDate, bankDueDates_(first, freq, grace + count), grace, graceType);
     if (t === null) { errEl.textContent = tr("bank.noRateFits"); return; }
+    if (t === Infinity) {   // e.g. 50 installments of 50 for a loan of 50: say so instead of a broken schedule (owner, 2026-11-05)
+      const cur = bankDraft_.currency || homeCur();
+      bankDraft_.rows = [];
+      bankRenderRows_();
+      errEl.textContent = tr("bank.installmentTooHigh", { n: count, pay: `${cur} ${moneyFmt(payment)}`, amount: `${cur} ${moneyFmt(amount)}` });
+      return;
+    }
     impliedEl.textContent = tr("bank.impliedRate", { tea: (t * 100).toFixed(2) });
     bankDraft_.rows = bankGenerateRowsDays_(amount, count, startDate, first, t, payment - fee, fee, freq, grace, graceType);
   } else if (byDays) {
