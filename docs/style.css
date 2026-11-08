@@ -3763,12 +3763,12 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
   border-radius: 10px; background: white; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
 .app-confirm-text { white-space: pre-line; font-size: 1rem; line-height: 1.4; margin: 0 0 14px; }
 
-/* The dotted part of a budget bar: Programmed items still to come this period (owner, 2026-11-08). */
+/* The part of a budget bar still to come (Programmed items this period): a lighter shade of the same colour, continuing the bar
+   (owner, 2026-11-08: option A of four; the first dotted version looked busy). Blue, amber (75 %+) or red (100 %+) by the total. */
 .budget-progress-track { position: relative; }
-.budget-progress-prog { position: absolute; top: 0; bottom: 0; border-radius: 0 999px 999px 0;
-  background: repeating-linear-gradient(90deg, var(--accent) 0 3px, transparent 3px 7px); opacity: 0.55; }
-.budget-progress-prog.warn { background: repeating-linear-gradient(90deg, #e0952c 0 3px, transparent 3px 7px); opacity: 0.8; }
-.budget-progress-prog.over { background: repeating-linear-gradient(90deg, #d64545 0 3px, transparent 3px 7px); opacity: 0.8; }
+.budget-progress-prog { position: absolute; top: 0; bottom: 0; border-radius: 0 999px 999px 0; background: var(--accent); opacity: 0.28; }
+.budget-progress-prog.warn { background: #e0952c; opacity: 0.35; }
+.budget-progress-prog.over { background: #d64545; opacity: 0.3; }
 .budget-row-prog { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
 .budget-row-prog.warn { color: #b8741a; }
 .budget-row-prog.over { color: #d64545; }
