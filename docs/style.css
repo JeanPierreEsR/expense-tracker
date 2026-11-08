@@ -3617,3 +3617,18 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #rates-usd-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 #rates-usd-actions .add-inline { margin-top: 0; }
 .usd-share-amt { white-space: nowrap; }
+
+/* More → Currencies: one row per currency, its history opens in place (owner, 2026-11-07). */
+.rates-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.rates-card-header h3 { margin: 0; }
+.rates-group-head { cursor: pointer; }
+.rates-chevron { color: var(--muted); margin-left: 6px; display: inline-block; width: 12px; text-align: center; }
+.rates-history { padding: 0 0 8px 12px; border-bottom: 1px solid var(--border); }
+.rates-month-row { display: grid; grid-template-columns: 1fr auto 64px; align-items: center; gap: 8px; padding: 8px 0; font-size: 0.95em; cursor: pointer; border-top: 1px solid var(--border); }
+.rates-month-name { color: var(--muted); }
+.rates-change { text-align: right; color: var(--muted); font-size: 0.85em; }
+.rates-change.rates-jump { color: #c46a00; font-weight: 600; }
+.rates-older-btn { margin-top: 6px; }
+#rates-add-modal-backdrop label { display: block; margin-top: 10px; font-weight: 600; }
+#rates-add-modal-backdrop select, #rates-add-modal-backdrop input[type="month"] { width: 100%; margin-top: 4px; }
+#rates-add-next { margin-top: 12px; width: 100%; }

@@ -1067,8 +1067,11 @@
         <button type="button" class="add-inline" id="currencies-main-change-btn" data-i18n="mainCur.change">Change main currency…</button>
       </div>
       <div class="card">
-        <h3 style="margin-top:0;" data-i18n="rates.title">Exchange rates</h3>
-        <p class="hint" data-i18n="rates.hint">Every currency/month you've set a rate for. Tap one to change it — every entry that used it updates automatically, since PEN amounts are always calculated fresh, never stored.</p>
+        <div class="rates-card-header">
+          <h3 data-i18n="rates.title">Exchange rates</h3>
+          <button type="button" class="icon-btn" id="rates-add-btn" data-i18n-aria-label="rates.addAria" aria-label="Add an exchange rate"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+        </div>
+        <p class="hint" data-i18n="rates.hint">Tap a currency to see its months, and a month to change its rate. Everything that used it updates automatically.</p>
         <!-- Store every rate as "1 USD = x" (RatesUsd.gs): offered on the owner's copy until done; the preview comes first. -->
         <div id="rates-usd-offer" class="rates-usd-offer" hidden>
           <p class="rates-usd-offer-title" data-i18n="ratesUsd.offerTitle">Store rates against the US dollar</p>
@@ -1580,6 +1583,22 @@
       <p class="hint" id="currency-screen-note" hidden></p>
       <div class="currency-option-list" id="currency-option-list"></div>
       <button type="button" class="primary" id="currency-screen-done" hidden data-i18n="currency.done">Done</button>
+    </div>
+  </div>
+
+  <!-- Add an exchange rate (More → Currencies, +): currency and month first, then the usual rate window. -->
+  <div id="rates-add-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="rates.addTitle">Add an exchange rate</span>
+        <button type="button" id="rates-add-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <label for="rates-add-currency" data-i18n="rates.addCurrency">Currency</label>
+      <select id="rates-add-currency"></select>
+      <label for="rates-add-month" data-i18n="rates.addMonth">Month</label>
+      <input type="month" id="rates-add-month">
+      <p class="hint" id="rates-add-error" style="color:#d64545;"></p>
+      <button type="button" class="primary" id="rates-add-next" data-i18n="rates.addNext">Next: type the rate</button>
     </div>
   </div>
 
