@@ -24300,12 +24300,15 @@ function bankGenerateRowsDays_(amount, count, start, firstDue, t, payNet, feePer
 function bankRenderRows_() {
   const list = document.getElementById("bank-rows");
   list.innerHTML = "";
+  const firstNo = bankOpeningToday_() ? bankNextNumber_() : 1;   // the bank's own numbering
+  const today = todayLocalISO();
   bankDraft_.rows.forEach((row, i) => {
     const el = document.createElement("div");
-    el.className = "bank-row";
+    const past = bankOpeningStart_() && row.due_date && row.due_date < today;   // left out on save: paid before the app
+    el.className = "bank-row" + (past ? " bank-row-past" : "");
     el.innerHTML = `
       <div class="bank-row-top">
-        <span class="bank-row-num">${i + 1}</span>
+        <span class="bank-row-num">${firstNo + i}</span>
         <input type="date" data-f="due_date" value="${escapeHtml(row.due_date || "")}">
         <button type="button" class="bank-row-remove" aria-label="remove">✕</button>
       </div>
@@ -24313,11 +24316,13 @@ function bankRenderRows_() {
         <input type="text" inputmode="decimal" data-f="principal" placeholder="${escapeHtml(tr("bank.principal"))}" value="${row.principal || ""}">
         <input type="text" inputmode="decimal" data-f="interest" placeholder="${escapeHtml(tr("bank.interest"))}" value="${row.interest || ""}">
         <input type="text" inputmode="decimal" data-f="fees" placeholder="${escapeHtml(tr("bank.fees"))}" value="${row.fees || ""}">
-      </div>`;
+      </div>${past ? `<span class="bank-row-tag">${escapeHtml(tr("bank.paidBefore"))}</span>` : ""}`;
     el.querySelectorAll("input").forEach((input) => input.addEventListener("input", () => {
       row[input.dataset.f] = input.dataset.f === "due_date" ? input.value : bankNum_(input.value);
       bankRenderTotals_();
     }));
+    // a date moved across today changes whether the row is kept: redraw once the box is left
+    el.querySelector('input[data-f="due_date"]').addEventListener("change", () => { if (bankOpeningStart_()) bankRenderRows_(); });
     el.querySelector(".bank-row-remove").addEventListener("click", () => { bankDraft_.rows.splice(i, 1); bankRenderRows_(); });
     list.appendChild(el);
   });
@@ -24338,24 +24343,81 @@ function bankRenderTotals_() {
   document.getElementById("bank-totals").textContent = ok
     ? tr("bank.totals", { p: m(t.principal), a: m(target), i: m(t.interest), f: m(t.fees), t: m(t.principal + t.interest + t.fees) })
     : tr("bank.totalsOff", { p: m(t.principal), a: m(target) });
-  document.getElementById("bank-save").disabled = !ok || (bankDraft_.mode === "new" && !document.getElementById("bank-lender").value.trim());
+  // From before the app: say what a save keeps (and refuse one that would keep nothing).
+  const sumEl = document.getElementById("bank-opening-summary");
+  let keepsNothing = false;
+  if (bankOpening_() && bankDraft_.rows.length) {
+    const { kept, firstNumber, left } = bankOpeningKept_();
+    const owed = bankR2_(kept.reduce((n, r) => n + (Number(r.principal) || 0), 0));
+    const leftTxt = tr(kept.length === 1 ? "bank.oneLeft" : "bank.nLeft", { n: kept.length });
+    keepsNothing = !kept.length;
+    sumEl.textContent = !kept.length ? tr("bank.openingAllBefore")
+      : bankOpeningToday_() ? tr("bank.openingSavedToday", { owed: m(owed), left: leftTxt, from: firstNumber, to: firstNumber + kept.length - 1 })
+      : left === 0 ? tr("bank.openingNoneBefore")
+      : tr(left === 1 ? "bank.openingSavedOne" : "bank.openingSaved", { owed: m(owed), left: leftTxt, k: left });
+    sumEl.hidden = !ok && !keepsNothing;
+  } else sumEl.hidden = true;
+  document.getElementById("bank-save").disabled = !ok || keepsNothing || (bankDraft_.mode === "new" && !document.getElementById("bank-lender").value.trim());
 }
 
+function bankLoanAccount_(sched) {
+  const id = String((sched && sched.loan && sched.loan.payment_method_id) || "");
+  return id && meta.paymentMethods.some((pm) => String(pm.id) === id && pm.type !== "investment" && !pmHidden_(pm)) ? id : "";
+}
+// Like the friends' loan form (owner, 2026-11-08): the accounts first, the top one picked to start, and a named LAST choice for money
+// that moved through none of them — never an empty "None" box. Investment platforms are not offered.
 function bankPopulateAccounts_(selectId, keep) {
   const sel = document.getElementById(selectId);
   sel.innerHTML = "";
-  const none = document.createElement("option");
-  none.value = "";
-  none.textContent = tr("form.noneAccount");
-  sel.appendChild(none);
-  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
+  const accounts = meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm));
+  accounts.forEach((pm) => {
     const o = document.createElement("option");
     o.value = pm.id;
     o.textContent = pmPickLabel_(pm);
     sel.appendChild(o);
   });
-  sel.value = keep || "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr(accounts.length ? "loanModal.noAccount" : "form.noneAccount");
+  sel.appendChild(none);
+  sel.value = keep !== undefined && keep !== null && keep !== "" ? keep : (accounts.length ? accounts[0].id : "");
 }
+
+// ---- A bank loan from before the app (owner, 2026-11-08) ----
+// Ticked, nothing arrives in an account today and only what is still owed is saved. Entered "as the bank gave it at the start", the
+// installments dated before today are left out as already paid (the bank's numbering stays: the first one kept may be number 7);
+// "as it stands today" (after an early repayment, or with the bank's new schedule) asks what is still owed, the date of the last
+// installment paid (interest counts from there), the installments left and the number of the next one.
+function bankOpening_() { return !document.getElementById("bank-opening-row").hidden && document.getElementById("bank-opening").checked && !!bankDraft_ && bankDraft_.mode === "new"; }
+function bankOpeningHow_() { const r = document.querySelector('input[name="bank-opening-how"]:checked'); return r ? r.value : "start"; }
+function bankOpeningStart_() { return bankOpening_() && bankOpeningHow_() === "start"; }
+function bankOpeningToday_() { return bankOpening_() && bankOpeningHow_() === "today"; }
+function bankNextNumber_() { const n = Math.round(bankNum_(document.getElementById("bank-next-number").value)); return n >= 1 ? n : 1; }
+// Which rows a save keeps, and the bank's number of the first one.
+function bankOpeningKept_() {
+  const rows = bankDraft_.rows;
+  if (bankOpeningStart_()) {
+    const today = todayLocalISO();
+    const kept = rows.filter((r) => !(r.due_date && r.due_date < today));
+    return { kept, firstNumber: rows.length - kept.length + 1, left: rows.length - kept.length };
+  }
+  return { kept: rows, firstNumber: bankOpeningToday_() ? bankNextNumber_() : 1, left: 0 };
+}
+function bankApplyOpening_() {
+  const on = bankOpening_(), today = bankOpeningToday_();
+  document.getElementById("bank-opening-hint").hidden = !on;
+  document.getElementById("bank-opening-how").hidden = !on;
+  document.getElementById("bank-account-field").hidden = on;   // nothing arrives in an account today
+  document.getElementById("bank-next-number-field").hidden = !today;
+  document.getElementById("bank-opening-how-hint").textContent = on && !today ? tr("bank.openingStartHint") : "";
+  document.getElementById("bank-amount-label").textContent = tr(today ? "bank.openingTodayAmount" : "field.amount");
+  document.getElementById("bank-date-label").textContent = tr(today ? "bank.openingTodayDate" : on ? "bank.openingDate" : "bank.receivedOn");
+  document.getElementById("bank-gen-count-label").textContent = tr(today ? "bank.openingTodayCount" : "bank.count");
+  bankRenderRows_();
+}
+document.getElementById("bank-opening").addEventListener("change", bankApplyOpening_);
+document.querySelectorAll('input[name="bank-opening-how"]').forEach((r) => r.addEventListener("change", bankApplyOpening_));
+document.getElementById("bank-next-number").addEventListener("input", () => bankDraft_ && bankRenderRows_());
 
 function openBankLoanForm_() {
   bankDraft_ = { mode: "new", rows: [], currency: homeCur() };
@@ -24382,6 +24444,11 @@ function openBankLoanForm_() {
   [...new Set([homeCur(), ...getRecentCurrencies()])].forEach((code) => { const o = document.createElement("option"); o.value = code; o.textContent = code; curSel.appendChild(o); });
   curSel.value = homeCur();
   bankPopulateAccounts_("bank-account", "");
+  document.getElementById("bank-opening-row").hidden = !((meta && meta.capabilities) || {}).bankOpening;   // an older backend would make a normal loan
+  document.getElementById("bank-opening").checked = false;
+  document.querySelector('input[name="bank-opening-how"][value="start"]').checked = true;
+  document.getElementById("bank-next-number").value = "";
+  bankApplyOpening_();
   bankRenderRows_();
   bankApplyMode_();
   const backdrop = document.getElementById("bank-loan-modal-backdrop");
@@ -24402,6 +24469,8 @@ function openBankScheduleEditor_(sched, friend) {
   document.getElementById("bank-mode-box").hidden = true;
   document.getElementById("bank-save").textContent = tr("bank.saveSchedule");
   document.getElementById("bank-error").textContent = "";
+  document.getElementById("bank-opening").checked = false;   // (the "from before the app" labels belong to a NEW loan only)
+  bankApplyOpening_();
   bankRenderRows_();
   const backdrop = document.getElementById("bank-loan-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -24509,6 +24578,16 @@ document.getElementById("bank-save").addEventListener("click", () => {
     payment_method_id: document.getElementById("bank-account").value,
     installments: rows
   } : null;
+  if (newLoan && bankOpening_()) {
+    // From before the app: only the installments still to pay, what they still owe, no account, and the bank's numbering.
+    const { firstNumber } = bankOpeningKept_();
+    const today = todayLocalISO();
+    const kept = bankOpeningStart_() ? rows.filter((r) => !(r.due_date && r.due_date < today)) : rows;
+    Object.assign(newLoan, {
+      installments: kept, amount: bankR2_(kept.reduce((n, r) => n + r.principal, 0)),
+      payment_method_id: "", opening: true, first_number: firstNumber
+    });
+  }
   closeBankLoanForm_();
   let friend;
   const bankWork_ = async () => {
@@ -24557,9 +24636,12 @@ async function openBankSchedule_(loanId, friend) {
   const m = (n) => `${cur} ${moneyFmt(n)}`;
   const next = sched.installments.find((r) => !r.paid);
   document.getElementById("bank-schedule-title").textContent = `${sched.loan.friend_name} · ${tr("bank.scheduleTitle")}`;
+  const firstNo = sched.installments.reduce((n, r) => Math.min(n, r.number), Infinity);
   document.getElementById("bank-schedule-summary").textContent = [
     tr("bank.remainingPrincipal", { amount: m(sched.remaining_principal) }),
-    next ? tr("bank.nextDue", { date: listDate_(next.due_date), amount: m(next.total) }) : ""
+    next ? tr("bank.nextDue", { date: listDate_(next.due_date), amount: m(next.total) }) : "",
+    // a loan from before the app that starts at installment 7: say where 1–6 went
+    sched.loan.opening && firstNo > 1 && firstNo !== Infinity ? tr(firstNo === 2 ? "bank.openingEarlierOne" : "bank.openingEarlier", { to: firstNo - 1 }) : ""
   ].filter(Boolean).join(" · ");
   const list = document.getElementById("bank-schedule-list");
   list.innerHTML = "";
@@ -24569,7 +24651,7 @@ async function openBankSchedule_(loanId, friend) {
     const status = r.paid ? tr("bank.statusPaid", { date: listDate_(r.paid_date) }) : tr(r.status === "overdue" ? "bank.statusOverdue" : "bank.statusDue");
     el.innerHTML = `
       <div class="loan-detail-row-top">
-        <span class="loan-detail-row-desc">${escapeHtml(tr("bank.rowLine", { n: r.number, count: sched.installments.length, date: listDate_(r.due_date) }))}${r.paid ? "" : '<span class="loan-detail-row-chevron">›</span>'}</span>
+        <span class="loan-detail-row-desc">${escapeHtml(tr("bank.rowLine", { n: r.number, count: bankCountOf_(sched), date: listDate_(r.due_date) }))}${r.paid ? "" : '<span class="loan-detail-row-chevron">›</span>'}</span>
         <span class="loan-detail-row-amount i-owe">${escapeHtml(m(r.total))}</span>
       </div>
       <div class="loan-detail-row-meta">${escapeHtml(tr("bank.rowAmounts", { p: moneyFmt(r.principal), i: moneyFmt(r.interest), f: moneyFmt(r.fees) }))} · <span class="bank-inst-status ${r.paid ? "paid" : r.status}">${escapeHtml(status)}</span></div>`;
@@ -24642,7 +24724,7 @@ function bankEarlyPreview_() {
 function openBankEarly_(sched) {
   bankEarlyCtx_ = { sched };
   document.getElementById("bank-early-date").value = todayLocalISO();
-  bankPopulateAccounts_("bank-early-account", "");
+  bankPopulateAccounts_("bank-early-account", bankLoanAccount_(sched));   // the account the loan arrived in, when it still exists; else the top one
   document.getElementById("bank-early-principal").value = "";
   document.getElementById("bank-early-fee").value = "0";
   populateCategoryOptionsForSelect_("bank-early-category", "expense");
@@ -24690,6 +24772,9 @@ document.getElementById("bank-early-save").addEventListener("click", () => {
   });
 });
 
+// How many installments the bank's schedule has: the last one's own number ("7 of 24" for a loan from before the app that starts at 7).
+function bankCountOf_(sched) { return sched.installments.reduce((n, r) => Math.max(n, Number(r.number) || 0), 0); }
+
 // Recording one installment.
 let bankRecordCtx_ = null;
 function bankRecordTotal_() {
@@ -24700,9 +24785,9 @@ function bankRecordTotal_() {
 
 function openBankRecord_(inst, sched) {
   bankRecordCtx_ = { inst, sched };
-  document.getElementById("bank-record-title").textContent = tr("bank.recordTitle", { n: inst.number, count: sched.installments.length });
+  document.getElementById("bank-record-title").textContent = tr("bank.recordTitle", { n: inst.number, count: bankCountOf_(sched) });
   document.getElementById("bank-record-date").value = todayLocalISO();
-  bankPopulateAccounts_("bank-record-account", "");
+  bankPopulateAccounts_("bank-record-account", bankLoanAccount_(sched));   // the account the loan arrived in, when it still exists; else the top one
   document.getElementById("bank-record-principal").value = inst.principal;
   document.getElementById("bank-record-interest").value = inst.interest || "";
   document.getElementById("bank-record-fees").value = inst.fees || "";
@@ -25124,7 +25209,7 @@ function openLoanModal(loan, returnFriend, opts) {
   populateLoanFriendOptions();
   populateLoanPaymentMethodOptions();
   document.getElementById("loan-friend").value = loan ? loan.friend_id : ((opts && opts.friendId) || (meta.friends.length ? meta.friends[0].id : ""));
-  setLoanDirection_(loan ? loan.direction : "they_owe_me");
+  setLoanDirection_(loan ? loan.direction : ((opts && opts.direction) || "they_owe_me"));   // the "You owe" card's + starts on "I owe them"
   document.getElementById("loan-amount").value = loan ? loan.amount : "";
   document.getElementById("loan-currency").value = loan ? loan.currency : homeCur();
   renderCurrencyChips("loan");
@@ -25196,6 +25281,7 @@ document.getElementById("loan-apply-btn").addEventListener("click", () => {
   openApplyUnapplied_(loan, friend);
 });
 document.getElementById("add-loan-btn").addEventListener("click", () => openLoanModal(null, null));
+document.getElementById("add-loan-owe-btn").addEventListener("click", () => openLoanModal(null, null, { direction: "i_owe_them" }));
 document.getElementById("loan-modal-close").addEventListener("click", closeLoanModal);
 document.getElementById("loan-modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "loan-modal-backdrop") closeLoanModal();
