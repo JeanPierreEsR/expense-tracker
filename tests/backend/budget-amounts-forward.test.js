@@ -195,3 +195,27 @@ test("the chart of a past month uses the currency that month had", () => {
   assert.equal(rt.api("getBudgetChartSeries", { budgetId: b.id, startDate: m + "-01", endDate: `${m}-${last}` }).currency, "PEN");
   assert.equal(rt.api("getBudgetChartSeries", { budgetId: b.id, startDate: thisMonth() + "-01", endDate: thisMonth() + "-28" }).currency, "USD");
 });
+
+test("moving the start of a running budget (owner, 2026-11-08): earlier adds months at its first amount; later drops months and folds earlier changes in", () => {
+  const { rt } = freshApp({ small: true });
+  rt.run("deleteRowsWhere_('Budgets', function () { return true; })");
+  const [y, m] = today().split("-").map(Number);
+  const k = (n) => { const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+  const cat = rt.api("getMeta").categories.find((c) => c.type === "expense").id;
+  const amt = (id, n) => { const x = rt.api("listBudgets", { displayPeriodType: "month", anchorDate: k(n) + "-01" }).budgets.find((z) => z.id === id); return x ? x.progress.effectiveAmount : null; };
+  // Sports: from 2 months ago at 500, changed to 1000 this month.
+  const b = rt.api("addBudget", { category_id: cat, amount: 500, currency: "PEN", period_type: "monthly", start: k(-2) });
+  rt.api("updateBudget", { id: b.id, amount: 1000 });
+  assert.deepEqual([-4, -3, -2, -1, 0].map((n) => amt(b.id, n)), [null, null, 500, 500, 1000]);
+  rt.api("updateBudget", { id: b.id, start: k(-4) });   // earlier
+  assert.deepEqual([-4, -3, -2, -1, 0].map((n) => amt(b.id, n)), [500, 500, 500, 500, 1000]);
+  rt.api("updateBudget", { id: b.id, start: k(-1) });   // later
+  assert.deepEqual([-4, -3, -2, -1, 0].map((n) => amt(b.id, n)), [null, null, null, 500, 1000]);
+  assert.equal(rt.api("listBudgets", { displayPeriodType: "month" }).budgets.find((z) => z.id === b.id).start_key, k(-1));
+  // Moving the start past this month's change folds it in: it runs at 1000 from then.
+  rt.api("updateBudget", { id: b.id, start: k(1) });
+  const l = rt.api("listBudgets", { displayPeriodType: "month" });
+  assert.equal(l.budgets.some((z) => z.id === b.id), false);
+  assert.equal(l.later.find((z) => z.id === b.id).start_later, k(1));
+  assert.equal(amt(b.id, 1), 1000);
+});

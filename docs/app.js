@@ -9854,10 +9854,11 @@ function setBudgetStart_(value) {
   note.hidden = value === cur || value === "always";
   if (!note.hidden) note.textContent = tr(value > cur ? "budget.startNoteLater" : "budget.startNoteEarlier", { when, now: budgetPeriodName_(budgetPeriodType, cur, true) });
 }
-let budgetEditingStart_ = "";   // the planned start of a budget being edited that has not started yet ('' otherwise)
+let budgetEditingStart_ = "";   // the start of the budget being edited (its planned start, or where it started; "always" when it always counted)
 function fillBudgetStart_() {
   const wrap = document.getElementById("budget-start-wrap");
-  wrap.hidden = (!!editingBudgetId && !budgetEditingStart_) || !budgetHistoryOn_();
+  // Editing: any budget's start can move (owner, 2026-11-08), except an ended one (its window starts it again instead).
+  wrap.hidden = (!!editingBudgetId && (!budgetEditingStart_ || budgetEditingEnded_)) || !budgetHistoryOn_();
   if (wrap.hidden) return;
   const own = budgetEditingStart_ && budgetPeriodType === budgetEditingType_ ? budgetEditingStart_ : budgetPeriodKey_(budgetPeriodType, 0);
   setBudgetStart_(own);
@@ -9867,6 +9868,7 @@ function fillBudgetStart_() {
   hint.textContent = y ? tr("budget.startYearlyHint") : "";
 }
 let budgetEditingType_ = "";
+let budgetEditingObj_ = null;
 document.getElementById("budget-start").addEventListener("click", () => {
   const type = budgetPeriodType, value = document.getElementById("budget-start").dataset.value || budgetPeriodKey_(type, 0);
   const keyOf = (d) => type === "yearly" ? String(d.getFullYear()) : type === "weekly" ? isoOf_(mondayDate_(d)) : `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
@@ -9998,8 +10000,9 @@ document.getElementById("budget-rate-warning-link").addEventListener("click", as
 function openBudgetModal(budget) {
   refreshAlertHints_();
   editingBudgetId = budget ? budget.id : null;
-  budgetEditingStart_ = budget && budget.start_later ? budget.start_later : "";
+  budgetEditingStart_ = !budget ? "" : budget.start_later || budget.start_key || (budget.start_key === "" ? "always" : "");
   budgetEditingType_ = budget ? budget.period_type : "";
+  budgetEditingObj_ = budget || null;
   document.getElementById("budget-modal-title").textContent = budget ? tr("budgetModal.edit") : tr("budgetModal.add");
   document.getElementById("budget-form-error").textContent = "";
   document.getElementById("budget-name").value = budget ? (budget.name || "") : "";
@@ -10108,8 +10111,29 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
       errorEl.appendChild(open);
       return;
     }
-    if (budgetId && budgetEditingStart_ && budgetHistoryOn_() && budgetPeriodType === budgetEditingType_) {
-      fields.start = document.getElementById("budget-start").dataset.value || undefined;   // a budget that has not started: its start can move
+    if (budgetId && budgetEditingStart_ && budgetHistoryOn_() && budgetPeriodType === budgetEditingType_ && !budgetEditingEnded_) {
+      const v = document.getElementById("budget-start").dataset.value;
+      if (v && v !== budgetEditingStart_) fields.start = v;   // its start moves (Budgets.gs moveRunningBudgetStart_ / moveBudgetStart_)
+    }
+    // A running budget that already counted in earlier periods: a new amount, currency or set of categories counts from this period
+    // on — asked before saving, naming the periods that keep what they had (owner, 2026-11-08, choice B).
+    const ob = budgetEditingObj_;
+    if (budgetId && ob && budgetHistoryOn_() && !budgetEditingEnded_ && !ob.start_later && budgetPeriodType === ob.period_type) {
+      const cur = budgetPeriodKey_(budgetPeriodType, 0), prev = budgetPeriodKey_(budgetPeriodType, -1);
+      const start = fields.start || budgetEditingStart_;
+      const amountCh = Math.abs(amount - Number(ob.amount)) > 0.004 || currency !== ob.currency;
+      const setOf = (raw) => String(raw || "") === "ALL" ? "ALL" : String(raw || "").split(",").filter(Boolean).sort().join(",");
+      const catsCh = setOf(categoryId) !== setOf(ob.category_id);
+      if ((amountCh || catsCh) && (start === "always" || start < cur)) {
+        const name = ob.category_name, now = budgetPeriodName_(budgetPeriodType, cur, true);
+        const ask = tr(amountCh && catsCh ? "budget.askBoth" : amountCh ? "budget.askAmount" : "budget.askCats",
+          { name, amount: formatAmount(amount, currency), now });
+        const keepAll = budgetPeriodType === "yearly" ? "budget.keepAllYear" : budgetPeriodType === "weekly" ? "budget.keepAllWeek" : "budget.keepAllMonth";
+        const keep = start === "always" ? tr(keepAll)
+          : start === prev ? tr("budget.keepOne", { p: budgetPeriodName_(budgetPeriodType, prev) })
+          : tr("budget.keepRange", { from: budgetPeriodName_(budgetPeriodType, start, true), to: budgetPeriodName_(budgetPeriodType, prev, true) });
+        if (!confirm(`${ask}\n\n${keep}`)) return;
+      }
     }
     if (!budgetId && budgetHistoryOn_()) {
       fields.start = document.getElementById("budget-start").dataset.value || undefined;
