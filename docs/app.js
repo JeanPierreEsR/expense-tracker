@@ -8397,7 +8397,9 @@ async function refreshOverviewInner_() {
 
   let data;
   try {
-    data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
+    // A neighbour still being fetched in the background (preloadOverviewNeighbour_) is waited for, never asked twice.
+    const inFlight = !overviewCache_[key] && overviewPreloads_[key];
+    data = await (inFlight || callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() }));
   } catch (err) {
     if (token === overviewReqToken_) {
       screen.classList.remove("overview-stale");
@@ -8411,7 +8413,23 @@ async function refreshOverviewInner_() {
   setLoadFailed_("overview", null);
   overviewShownKey_ = key;
   paintOverviewSummary_(data);
-  loadOverviewEntries_(bounds);
+  loadOverviewEntries_(bounds).then(() => { if (token === overviewReqToken_) preloadOverviewNeighbour_(); });
+}
+
+// Speed (owner, 2026-11-07): once the shown month or year has fully loaded (figures AND entry list), the one before it is fetched in the
+// background (figures only, ONE call, never at the same time as the period being shown), so tapping ‹ shows it at once; it is then
+// fetched fresh as usual and replaced, so a preloaded period never hides a later change.
+const overviewPreloads_ = {};
+function preloadOverviewNeighbour_() {
+  if (periodType !== "month" && periodType !== "year") return;
+  const prev = periodType === "month" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth() - 1, 1) : new Date(periodAnchor.getFullYear() - 1, periodAnchor.getMonth(), 1);
+  const b = periodType === "month" ? monthBounds(prev) : yearBounds(prev);
+  const key = overviewKey_(b);
+  if (overviewCache_[key] || overviewPreloads_[key]) return;
+  overviewPreloads_[key] = callApi("getPeriodSummary", { startDate: b.startDate, endDate: b.endDate, scope: overviewScopeParam_() })
+    .then((d) => { overviewCache_[key] = d; return d; })
+    .finally(() => { delete overviewPreloads_[key]; });
+  overviewPreloads_[key].catch(() => {});
 }
 
 // The list at the end of Overview: every entry of the selected period (all
@@ -9584,6 +9602,7 @@ document.getElementById("budget-delete-btn").addEventListener("click", async () 
 // modal(s) — a failure here shows up in the budgets list itself (the one
 // place still on screen) instead of blocking the close that triggered it.
 function refreshBudgetsInBackground_() {
+  Object.keys(budgetsCache_).forEach((k) => delete budgetsCache_[k]);   // a budget changed: no remembered period may come back with old figures
   refreshBudgets().catch((err) => {
     document.getElementById("budgets-list").innerHTML =
       `<div class="status-msg">${escapeHtml(tr("budget.refreshFailed", { error: err.message }))}</div>`;
@@ -9606,6 +9625,11 @@ async function refreshBudgets() {
   // and Custom don't carry a month/year size, so budgets just show their
   // own current period in those views (anchorDate is ignored server-side).
   const budgetsKey = JSON.stringify(projectionPeriodPayload_());
+  // A period already fetched (shown before, or preloaded) is drawn at once, then fetched fresh and replaced (same as Overview).
+  if (budgetsLoadedKey_ !== budgetsKey && budgetsCache_[budgetsKey]) {
+    budgetsLoaded_ = budgetsCache_[budgetsKey].budgets; budgetsSummary_ = budgetsCache_[budgetsKey].summary;
+    budgetsLoadedKey_ = budgetsKey; setLoadFailed_("budgets", null); drawBudgets_();
+  }
   // First load: "Loading…" under the heading, never an empty card (loading standard; testers saw 4-5 s of a bare "Budgets", 2026-11-07).
   // Later refreshes keep the rows on screen until the new ones replace them.
   if (budgetsLoadedKey_ === null && !document.getElementById("budgets-list").children.length) {
@@ -9614,7 +9638,7 @@ async function refreshBudgets() {
     document.getElementById("budgets-status-line").hidden = true;
   }
   let data;
-  try { data = await callApi("listBudgets", projectionPeriodPayload_()); }
+  try { data = await (budgetsPreloads_[budgetsKey] || callApi("listBudgets", projectionPeriodPayload_())); }
   catch (err) { if (budgetsLoadedKey_ !== budgetsKey) setLoadFailed_("budgets", err); throw err; }
   budgetsLoadedKey_ = budgetsKey;
   setLoadFailed_("budgets", null);
@@ -9622,8 +9646,22 @@ async function refreshBudgets() {
   budgetsSummary_ = data.summary;
   const still = new Set(data.budgets.map((b) => b.id));
   budgetsSelected_ = new Set([...budgetsSelected_].filter((id) => still.has(id)));
+  budgetsCache_[budgetsKey] = data;
   drawBudgets_();
   offerBudgetsTip_();   // only now that everything has arrived (loading standard)
+  if (budgetsKey === JSON.stringify(projectionPeriodPayload_())) preloadBudgetsNeighbour_();
+}
+
+// The period before the one shown, fetched in the background once the shown one has arrived (one call; see preloadOverviewNeighbour_).
+const budgetsCache_ = {}, budgetsPreloads_ = {};
+function preloadBudgetsNeighbour_() {
+  if (periodType !== "month" && periodType !== "year") return;
+  const prev = periodType === "month" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth() - 1, 1) : new Date(periodAnchor.getFullYear() - 1, periodAnchor.getMonth(), 1);
+  const payload = { displayPeriodType: periodType, anchorDate: `${prev.getFullYear()}-${pad2(prev.getMonth() + 1)}-01` };
+  const key = JSON.stringify(payload);
+  if (budgetsCache_[key] || budgetsPreloads_[key]) return;
+  budgetsPreloads_[key] = callApi("listBudgets", payload).then((d) => { budgetsCache_[key] = d; return d; }).finally(() => { delete budgetsPreloads_[key]; });
+  budgetsPreloads_[key].catch(() => {});
 }
 
 // Draws the budget rows and the totals from what refreshBudgets last fetched (no server call): also used by Edit mode.
