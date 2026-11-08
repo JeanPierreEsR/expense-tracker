@@ -14792,7 +14792,12 @@ async function openRatesUsdPreview_() {
   if (p.done) { meta.settings.rate_base = "USD"; meta.settings.rate_form = "per_base"; ratesUsdClose_(); refreshExchangeRates(); return; }
   if (p.needsUsd) { body.innerHTML = `<p class="hint">${escapeHtml(tr("ratesUsd.needsUsd"))}</p>`; return; }
   const before = (b) => (b && strongRateLine_(b.currency, homeCur(), b.rate)) || "—";
-  const rows = p.rows.map((r) => `
+  // A rate that already reads against the dollar (USD 1 = PEN 3.75) is only stored the other way round inside: it reads exactly the
+  // same before and after, so it is not listed as a change (owner, 2026-11-08: "makes no sense") — one line says those stay.
+  const changes = p.rows.filter((r) => before(r.before) !== strongRateLine_("USD", r.currency, r.per_usd));
+  const same = p.rows.filter((r) => !changes.includes(r));
+  const sameCodes = [...new Set(same.map((r) => r.currency))].map((c) => `USD 1 = ${c}`).join(", ");
+  const rows = changes.map((r) => `
     <div class="rates-usd-row">
       <div class="rates-usd-row-name">${findCurrency(r.currency).flag} ${escapeHtml(r.currency)} <span class="hint">${escapeHtml(r.month)}</span></div>
       <div class="rates-usd-row-was">${escapeHtml(before(r.before))}</div>
@@ -14809,7 +14814,8 @@ async function openRatesUsdPreview_() {
     <p class="hint">${escapeHtml(tr("ratesUsd.previewIntro"))}</p>
     <h3>${escapeHtml(tr("ratesUsd.monthsTitle"))}</h3>${months}
     <p class="hint">${escapeHtml(tr("ratesUsd.backupNote"))}</p>`;
-  document.getElementById("rates-usd-rows").innerHTML = `<h3>${escapeHtml(tr("ratesUsd.rowsTitle", { n: p.rows.length }))}</h3>${rows}`;
+  document.getElementById("rates-usd-rows").innerHTML = (same.length ? `<p class="hint">${escapeHtml(tr(same.length === 1 ? "ratesUsd.sameOne" : "ratesUsd.same", { n: same.length, pair: sameCodes }))}</p>` : "")
+    + (changes.length ? `<h3>${escapeHtml(tr("ratesUsd.rowsTitle", { n: changes.length }))}</h3>${rows}` : "");
   actions.hidden = false;
 }
 document.getElementById("rates-usd-preview-btn").addEventListener("click", openRatesUsdPreview_);
