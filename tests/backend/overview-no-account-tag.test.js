@@ -15,17 +15,22 @@ test("by-account and by-tag pies add up to the total (No account / Untagged slic
   const mk = (o) => rt.api("createEntry", Object.assign({ type: "expense", date: today(), category_id: cat.id, status: "confirmed", paid_by: "me", amount: 10, currency: "PEN", description: "x" }, o));
   mk({ payment_method_id: pm.id });
   mk({});                       // no account
-  mk({ paid_by: "friend" });    // a friend paid: not one of my accounts
+  mk({ paid_by: "friend" });    // a friend paid for me: its own "Paid by a friend" slice (owner, 2026-11-08)
   const total = rt.api("getPeriodSummary", range).totals.expense;
   assert.ok(total >= 30);
   assert.equal(Math.round(sum(pie("expense", "byPaymentMethod")) * 100), Math.round(total * 100));
   assert.equal(Math.round(sum(pie("expense", "byTag")) * 100), Math.round(total * 100), "no tags used: all of it is Untagged");
   const none = pie("expense", "byPaymentMethod").find((i) => i.id === "");
   assert.equal(none.name, "No account");
-  assert.ok(none.amount_pen >= 20);
-  // the drill-down lists exactly those entries
+  assert.ok(none.amount_pen >= 10);
+  const friend = pie("expense", "byPaymentMethod").find((i) => i.id === "__friend__");
+  assert.equal(friend.name, "Paid by a friend");
+  assert.ok(friend.amount_pen >= 10);
+  // each drill-down lists exactly its entries
   const listed = rt.api("listEntries", Object.assign({ type: "expense", noAccount: true }, range));
-  assert.ok(listed.every((e) => !(e.paid_by === "me" && e.payment_method_id)));
+  assert.ok(listed.length >= 1 && listed.every((e) => !(e.paid_by === "me" && e.payment_method_id) && !(e.paid_by && e.paid_by !== "me")));
+  const byFriend = rt.api("listEntries", Object.assign({ type: "expense", paymentMethodId: "__friend__" }, range));
+  assert.ok(byFriend.length >= 1 && byFriend.every((e) => e.paid_by && e.paid_by !== "me"));
   const untagged = rt.api("listEntries", Object.assign({ type: "expense", noTag: true }, range));
   assert.ok(untagged.length >= 3);
 });

@@ -94,6 +94,10 @@ function getPeriodSummary(payload) {
     });
     if (e.paid_by === 'me' && e.payment_method_id) {
       addToBucket_(bucket.paymentMethod, e.payment_method_id, ownAmountPen, pmById);
+    } else if (e.paid_by && e.paid_by !== 'me') {
+      // Paid by a friend on the owner's behalf (owner, 2026-11-08): its own slice, not "No account". Never the repayment's account:
+      // the expense counts the day the friend paid; the repayment is a loan movement (principle 3).
+      addToBucket_(bucket.paymentMethod, PAID_BY_FRIEND_KEY_, ownAmountPen, paidByFriendRef_());
     } else {
       addToBucket_(bucket.paymentMethod, '', ownAmountPen, pmById);
     }
@@ -243,6 +247,11 @@ function rowsById_(rows) {
   rows.forEach(function (r) { map[r.id] = r; });
   return map;
 }
+
+var PAID_BY_FRIEND_KEY_ = '__friend__';
+function paidByFriendRef_() { var o = {}; o[PAID_BY_FRIEND_KEY_] = { name: tr_('report.paidByFriend') }; return o; }
+// The breakdown's slices by account: paid with one of my accounts / paid by a friend for me / neither ("No account").
+function entryPaidByFriend_(e) { return !!(e.paid_by && e.paid_by !== 'me'); }
 
 function addToBucket_(bucket, key, amountPen, lookup) {
   var k = key || '__none__';

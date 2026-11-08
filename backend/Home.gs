@@ -180,6 +180,44 @@ function getMonthlyHistory(payload) {
   return { months: months, curDay: curDay };
 }
 
+// The Spending pace card in the Week, Year and Custom views (owner, 2026-11-08): each range's running expenses, day by day, up to
+// today (a range still running) or to its end; plus its whole total. Same rules as getMonthlyHistory (own share, confirmed, in PEN).
+var PACE_RANGE_MAX_DAYS_ = 400;
+function getSpendingPace(payload) {
+  var ranges = ((payload && payload.ranges) || []).filter(function (r) {
+    return r && /^\d{4}-\d{2}-\d{2}$/.test(r.start) && /^\d{4}-\d{2}-\d{2}$/.test(r.end) && r.start <= r.end && isoDayCount_(r.start, r.end) <= PACE_RANGE_MAX_DAYS_;
+  }).slice(0, 2);
+  var today = formatCalendarDate_(new Date());
+  var lo = null, hi = null;
+  ranges.forEach(function (r) { if (!lo || r.start < lo) lo = r.start; if (!hi || r.end > hi) hi = r.end; });
+  var splitSum = {};
+  var dayExpense = {};
+  if (ranges.length) {
+    getAllRows('Entry Splits').forEach(function (s) { splitSum[s.entry_id] = (splitSum[s.entry_id] || 0) + Number(s.amount); });
+    getAllRows('Entries').forEach(function (e) {
+      if (e.status !== 'confirmed' || e.type !== 'expense') return;
+      var d = String(e.date).substring(0, 10);
+      if (d < lo || d > hi) return;
+      var rate = getRateForEntryCurrency_(e.currency, e.date);
+      if (rate == null) return;
+      dayExpense[d] = (dayExpense[d] || 0) + (Number(e.amount) - (splitSum[e.id] || 0)) * rate;
+    });
+  }
+  return {
+    today: today,
+    ranges: ranges.map(function (r) {
+      var days = isoDayCount_(r.start, r.end);
+      var upTo = today < r.start ? 0 : today >= r.end ? days : isoDayCount_(r.start, today);
+      var cum = [], running = 0, whole = 0;
+      for (var i = 0; i < days; i++) {
+        whole += dayExpense[isoAddDays_(r.start, i)] || 0;
+        if (i < upTo) { running = whole; cum.push(Math.round(running * 100) / 100); }
+      }
+      return { start: r.start, end: r.end, days: days, cum: cum, expense: Math.round(whole * 100) / 100 };
+    })
+  };
+}
+
 // Trips and events whose dates include today, newest start first, each with what it has cost so far
 // (real payments plus estimates nothing has paid yet — the same total the Trips screen shows).
 function homeActiveTrips_(today) {

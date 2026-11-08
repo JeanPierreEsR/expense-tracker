@@ -260,7 +260,8 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
 #drilldown-subtitle.tappable {
   cursor: pointer;
 }
-#period-label.tappable::after,
+/* The period's name is a light outlined button, like the ‹ › beside it, so it reads as "tap to change" (owner, 2026-11-08: no ▾, no icon). */
+#period-label.tappable { border: 1px solid var(--border); border-radius: 999px; background: white; padding: 0 16px; }
 #drilldown-subtitle.tappable::after {
   content: " ▾";
   font-size: 0.8em;
@@ -1623,6 +1624,8 @@ body.income-revealed .sens-mask { display: none; }
   margin: 0;
   font-size: 1rem;
 }
+/* Overview's Balances block: the same title size as the other Overview blocks (owner, 2026-11-08). */
+#balances-card .budgets-header h2 { font-size: revert; }
 
 /* "Owes you" sits inside .budgets-header (for the "+ Add loan" button)
    and inherits its 1rem h2 size above — "You owe" and "Needs an exchange
@@ -3075,7 +3078,10 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-line-svg .prev { stroke: #c4c4cc; }
 .home-line-svg .cur { stroke: var(--accent); }
 .home-line-svg .dot { fill: var(--accent); }
-.home-pace-lines { display: flex; justify-content: space-between; gap: 10px; font-size: 0.8rem; margin-top: 6px; }
+/* Two equal columns, both starting at their left edge: the blue line's figure, then the grey line's (owner, 2026-11-08: the grey one
+   used to be pushed to the right and wrap under the blue one on the Spending pace screen). */
+.home-pace-lines { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; align-items: start; font-size: 0.8rem; margin-top: 6px; }
+.home-pace-lines .pace-whole { display: block; margin-top: 2px; }
 .home-pace-lines div { min-width: 0; }
 .home-pace-lines b { display: block; font-size: 0.95rem; }
 
@@ -3299,13 +3305,11 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
    show nothing); the period cards are dimmed ONLY while the figures on screen belong to another period. */
 #period-selector-card { position: relative; }
 #screen-overview > .card { transition: opacity 0.2s; }
-/* Each block of figures that belongs to another period shows its own turning ring (like Home's per-block loading) instead of old numbers. */
-.overview-stale > .card.ov-period { position: relative; pointer-events: none; min-height: 64px; }
-.overview-stale > .card.ov-period > * { opacity: 0.18; }
-.overview-stale > .card.ov-period:not(#overview-entries-card)::after {
-  content: ""; position: absolute; top: calc(50% - 9px); left: calc(50% - 9px); width: 18px; height: 18px;
-  border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: stmt-spin 0.8s linear infinite;
-}
+/* Each block of figures that belongs to another period says "Loading…" in its place until its own figures arrive (owner, 2026-11-08:
+   the faded old numbers with a small ring did not read as loading). The text comes from data-loading (set in app.js, both languages). */
+.overview-stale > .card.ov-period { pointer-events: none; }
+.overview-stale > .card.ov-period > *, #pace-card.ov-loading > * { display: none !important; }
+.overview-stale > .card.ov-period::before, #pace-card.ov-loading::before { content: attr(data-loading); display: block; padding: 6px 0; color: var(--muted); font-size: 0.95rem; }
 @keyframes ov-appear { from { opacity: 0; } to { opacity: 1; } }
 
 /* Overview: the period picker stays at the top while the screen scrolls. */
@@ -3634,8 +3638,11 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .pace-ref-switch button { flex: 1 1 0; min-height: 44px; border: 1px solid var(--border); background: white; border-radius: 999px; padding: 8px 10px;
   font: inherit; font-size: 0.8rem; cursor: pointer; }
 .pace-ref-switch button.active { background: var(--accent); color: white; border-color: var(--accent); }
-.loans-ov-owed { display: block; width: 100%; margin-top: 10px; padding: 10px 0 0; min-height: 44px; border: none; border-top: 1px solid var(--border);
-  background: none; font: inherit; font-size: 0.85rem; color: var(--accent); text-align: left; cursor: pointer; }
+#loans-ov-card { cursor: pointer; }
+.ov-card-chevron { color: var(--muted); font-weight: 400; }
+.loans-ov-owed { margin: 8px 0 4px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.loans-ov-owed-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 4px 0; }
+.loans-ov-owed-row b { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; }
 .loans-ov-owed[hidden] { display: none; }
 /* Spending pace screen (owner, 2026-11-07) */
 .pace-screen { display: flex; flex-direction: column; }
@@ -3646,8 +3653,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .home-line-svg.pace-screen-svg { height: 200px; }
 .pace-days { position: relative; height: 16px; font-size: 0.7rem; color: var(--muted); }
 .pace-days span { position: absolute; transform: translateX(-50%); }
-#pace-s-lines { flex-wrap: wrap; }
-.pace-diff { flex: 1 0 100%; margin-top: 6px; font-size: 0.85rem; color: var(--muted); }
+.pace-diff { grid-column: 1 / -1; margin-top: 6px; font-size: 0.85rem; color: var(--muted); }
 .pace-custom-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 4px; font-size: 0.85rem; color: var(--muted); }
 .pace-custom-row .add-inline { margin: 0; }
 #pace-card { cursor: pointer; }
@@ -3672,6 +3678,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .ov-varies-avg { display: block; width: 100%; min-height: 44px; margin: 8px 0 0; padding: 8px 0; border: none; border-top: 1px solid var(--border);
   background: none; font: inherit; font-size: 0.9rem; color: inherit; text-align: left; cursor: pointer; }
 .ov-varies-avg:disabled { cursor: default; }
+.ov-varies-bar-wrap { margin: 4px 0 6px; }
+.ov-varies-bar { height: 8px; border-radius: 4px; background: #e9e9ee; overflow: hidden; margin-bottom: 4px; }
+.ov-varies-bar span { display: block; height: 100%; background: var(--income); border-radius: 4px; }
 .ov-varies-switch { display: block; color: var(--accent); font-size: 0.8rem; margin-top: 2px; }
 .ov-varies-payer { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 .ov-varies-payer:last-child { border-bottom: none; }

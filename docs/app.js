@@ -8191,6 +8191,7 @@ function renderMonthsBars_() {
 document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.addEventListener("click", (e) => {
   e.stopPropagation();   // the card itself opens the Spending pace screen
   localStorage.setItem("paceRef", b.dataset.paceRef);
+  if (periodType !== "month") { renderPaceBig_(); return; }   // Week: the week before / the same week last year
   setPaceView_(null);    // the quick switch is the usual view: it ends a custom one
   if (monthsHist_) renderPaceBig_();
 }));
@@ -8253,7 +8254,7 @@ function paceResolve_(hist, view) {
 // Draws one comparison into a card or the screen: { label, svg, lines, days? } elements.
 function drawPace_(els, r, view) {
   const { cur, ref } = r;
-  const curName = paceMonthName_(r.curKey);
+  const curName = r.curName || paceMonthName_(r.curKey);
   const catName = view && view.cats && paceCatIds_(view) ? ` · ${view.cats.name}` : "";
   const vsKey = (r.isThisMonth ? "pace.vs" : "pace.vsPast") + (r.isAvg ? "Avg" : "");   // Spanish: "frente AL promedio", not "frente a el"
   els.label.textContent = (!ref ? `${curName} · ${tr("pace.noRef", { month: r.refName })}` : tr(vsKey, { cur: curName, ref: r.isAvg ? r.refBare : r.refName })) + catName;
@@ -8269,20 +8270,21 @@ function drawPace_(els, r, view) {
     ${ref ? `<polyline class="prev" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${line(ref.cum)}"/>` : ""}
     <polyline class="cur" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${line(cur.cum)}"/>
     ${last >= 0 && r.isThisMonth ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}`;
-  if (els.days) els.days.innerHTML = [1, 8, 15, 22, 29].filter((d) => d <= days)
-    .map((d) => `<span style="left:${(((d - 1) / Math.max(1, days - 1)) * (W - 2 * pad) + pad) / W * 100}%">${d}</span>`).join("");
+  const ticks = r.ticks || [1, 8, 15, 22, 29].filter((d) => d <= days).map((d) => ({ i: d - 1, label: d }));
+  if (els.days) els.days.innerHTML = ticks
+    .map((t) => `<span style="left:${((t.i / Math.max(1, days - 1)) * (W - 2 * pad) + pad) / W * 100}%">${escapeHtml(String(t.label))}</span>`).join("");
   // This month: so far, against the grey line on the same day (and its whole total). A past month: both in full.
   const sameDay = ref ? ref.cum[Math.min(r.curDay, ref.cum.length) - 1] || 0 : 0;
   const against = ref ? (r.isThisMonth ? sameDay : ref.expense) : null;
-  const curLabel = r.isThisMonth ? tr("home.paceNow") : tr("pace.monthWhole", { month: paceMonthName_(r.curKey, true) });
+  const curLabel = r.isThisMonth ? (r.nowLabel || tr("home.paceNow")) : tr("pace.monthWhole", { month: r.curNameMid || paceMonthName_(r.curKey, true) });
   const refLine = !ref ? "" : r.isThisMonth
-    ? `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.refAtDay", { month: r.refStart }))}<b>${escapeHtml(formatPen(sameDay))}</b>
-      <span class="hint">${escapeHtml(r.isAvg ? tr("pace.avgWhole") : tr("pace.refWholeDone", { month: r.refName }))}: ${escapeHtml(formatPen(ref.expense))}</span></div>`
-    : `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(r.isAvg ? r.refStart : tr("pace.monthWhole", { month: r.refName }))}<b>${escapeHtml(formatPen(ref.expense))}</b></div>`;
+    ? `<div class="pace-col"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.refAtDay", { month: r.refStart }))}<b>${escapeHtml(formatPen(sameDay))}</b>
+      <span class="hint pace-whole">${escapeHtml(r.isAvg ? tr("pace.avgWhole") : tr("pace.refWholeDone", { month: r.refName }))}: ${escapeHtml(formatPen(ref.expense))}</span></div>`
+    : `<div class="pace-col"><span style="color:#c4c4cc">●</span> ${escapeHtml(r.isAvg ? r.refStart : tr("pace.monthWhole", { month: r.refName }))}<b>${escapeHtml(formatPen(ref.expense))}</b></div>`;
   const diff = els.diff && against != null && against > 0.004
     ? `<div class="pace-diff">${escapeHtml(tr("pace.diff", { amount: formatPenSigned_(nowTotal - against), pct: `${nowTotal >= against ? "+" : "−"}${Math.round(Math.abs(nowTotal - against) / against * 100)}%` }))}</div>` : "";
   els.lines.innerHTML = `
-    <div><span style="color:var(--accent)">●</span> ${escapeHtml(curLabel)}<b>${escapeHtml(formatPen(nowTotal))}</b></div>${refLine}${diff}`;
+    <div class="pace-col"><span style="color:var(--accent)">●</span> ${escapeHtml(curLabel)}<b>${escapeHtml(formatPen(nowTotal))}</b></div>${refLine}${diff}`;
 }
 
 function renderPaceBig_() {
@@ -8292,7 +8294,9 @@ function renderPaceBig_() {
   document.getElementById("pace-custom-row").hidden = !view;
   const yearMode = localStorage.getItem("paceRef") === "year";
   document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.classList.toggle("active", b.dataset.paceRef === (yearMode ? "year" : "last")));
-  if (periodType !== "month") { card.hidden = true; return; }   // Year / All time / Custom: not about one month
+  if (periodType !== "month") { renderPaceRange_(); return; }   // Week / Year / Custom: their own ranges; All time: no card
+  card.classList.remove("pace-range");
+  document.querySelectorAll("#pace-ref-switch button").forEach((b) => { b.textContent = tr(b.dataset.paceRef === "year" ? "pace.refYear" : "pace.refLast"); });
   const draw = (hist) => {
     const r = hist && paceResolve_(hist, view);
     const nowTotal = r && r.cur && r.cur.cum.length ? r.cur.cum[r.cur.cum.length - 1] : 0;
@@ -8305,8 +8309,83 @@ function renderPaceBig_() {
   if (paceCatHist_[k]) draw(paceCatHist_[k].data); else { card.hidden = true; paceHistFor_(view).then(draw).catch(() => {}); }
 }
 
+// ---- The card in the Week, Year and Custom views (owner, 2026-11-08: "Spending pace should exist for any view"; hidden in All time,
+// which has nothing before it). Week: the week before or the same week last year (the card's switch); Year: last year; Custom: the same
+// number of days just before. The day-by-day totals come from getSpendingPace; the screen that customises the graph stays monthly.
+const paceRangeCache_ = {};
+let paceRangeSeq_ = 0;
+function isoShift_(iso, n) { const [y, m, d] = iso.split("-").map(Number); return isoOf_(new Date(y, m - 1, d + n)); }
+function isoDate_(iso) { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d); }
+function paceRangeSpec_() {
+  const b = getPeriodBounds();
+  if (!b.startDate || !b.endDate || periodType === "alltime") return null;
+  const n = Math.round((isoDate_(b.endDate) - isoDate_(b.startDate)) / 86400000) + 1;
+  if (n > 400) return null;
+  const es = I18n.getLang() === "es";
+  const shortDay = (iso) => { const d = isoDate_(iso); const mo = I18n.monthShort(d.getMonth(), true).replace(/\.$/, ""); return es ? `${d.getDate()} ${mo.toLowerCase()}` : `${mo} ${d.getDate()}`; };
+  if (periodType === "week") {
+    const yearMode = localStorage.getItem("paceRef") === "year";
+    const rs = isoShift_(b.startDate, yearMode ? -364 : -7), re = isoShift_(rs, 6);
+    const refName = weekLabel_(isoDate_(rs), isoDate_(re));
+    const wd = new Intl.DateTimeFormat(es ? "es-PE" : "en-US", { weekday: "short" });
+    const days = [0, 1, 2, 3, 4, 5, 6].map((i) => ({ i, label: wd.format(isoDate_(isoShift_(b.startDate, i))).replace(/\.$/, "") }));
+    return { cur: { start: b.startDate, end: b.endDate }, ref: { start: rs, end: re }, curName: b.label, refName, nowLabel: tr("pace.nowWeek"), ticks: days, switchable: true };
+  }
+  if (periodType === "year") {
+    const y = Number(b.startDate.slice(0, 4));
+    const ticks = [0, 3, 6, 9].map((m) => ({ i: Math.round((new Date(y, m, 1) - new Date(y, 0, 1)) / 86400000), label: I18n.monthShort(m, true).replace(/\.$/, "") }));
+    return { cur: { start: b.startDate, end: b.endDate }, ref: { start: `${y - 1}-01-01`, end: `${y - 1}-12-31` }, curName: String(y), refName: String(y - 1), nowLabel: tr("pace.nowYear"), ticks };
+  }
+  // Custom: the same number of days just before.
+  const rs = isoShift_(b.startDate, -n), re = isoShift_(b.startDate, -1);
+  const ticks = [0, Math.floor((n - 1) / 2), n - 1].filter((v, i, a) => a.indexOf(v) === i).map((i) => ({ i, label: shortDay(isoShift_(b.startDate, i)) }));
+  return { cur: { start: b.startDate, end: b.endDate }, ref: { start: rs, end: re }, curName: b.label, refName: rangeSummary_("open", rs, re) || `${rs} – ${re}`, nowLabel: tr("pace.nowRange"), ticks };
+}
+function renderPaceRange_() {
+  const card = document.getElementById("pace-card");
+  card.classList.add("pace-range");
+  document.getElementById("pace-custom-row").hidden = true;
+  const spec = paceRangeSpec_();
+  if (!spec || !(meta && meta.capabilities && meta.capabilities.paceRanges)) { card.hidden = true; return; }
+  const sw = document.getElementById("pace-ref-switch");
+  sw.hidden = !spec.switchable;
+  if (spec.switchable) {
+    const yearMode = localStorage.getItem("paceRef") === "year";
+    sw.querySelectorAll("button").forEach((b) => {
+      b.textContent = tr(b.dataset.paceRef === "year" ? "pace.refYear" : "pace.refWeekBefore");
+      b.classList.toggle("active", b.dataset.paceRef === (yearMode ? "year" : "last"));
+    });
+  }
+  const key = JSON.stringify([spec.cur, spec.ref]);
+  const draw = (data) => {
+    const [c, f] = data.ranges;
+    if (!c) { card.hidden = true; return; }
+    const today = data.today || localTodayISO_();
+    const running = today >= spec.cur.start && today <= spec.cur.end;
+    const nowTotal = c.cum.length ? c.cum[c.cum.length - 1] : 0;
+    card.hidden = !nowTotal && !(f && f.expense > 0);
+    card.classList.remove("ov-loading");
+    if (card.hidden) return;
+    const ref = f && (f.expense > 0 || f.cum.some((v) => v > 0)) ? { days: f.days, cum: f.cum.length ? f.cum : [0], expense: f.expense } : null;
+    // A full reference line: getSpendingPace stops a range at today, but a reference range is always in the past.
+    const r = { cur: { days: c.days, cum: c.cum, expense: c.expense }, ref, curKey: spec.cur.start, curName: spec.curName, curNameMid: spec.curName,
+      refName: spec.refName, refStart: spec.refName, refBare: spec.refName, isAvg: false, isThisMonth: running, nowLabel: spec.nowLabel,
+      curDay: running ? c.cum.length : c.days, ticks: spec.ticks };
+    drawPace_({ label: document.getElementById("pace-ref-label"), svg: document.getElementById("pace-svg"), lines: document.getElementById("pace-lines") }, r, null);
+  };
+  if (paceRangeCache_[key]) { draw(paceRangeCache_[key]); return; }
+  const seq = ++paceRangeSeq_;
+  card.dataset.loading = tr("common.loading");
+  card.hidden = false;
+  card.classList.add("ov-loading");
+  callApi("getSpendingPace", { ranges: [spec.cur, spec.ref] })
+    .then((data) => { paceRangeCache_[key] = data; if (seq === paceRangeSeq_ && periodType !== "month") draw(data); })
+    .catch(() => { if (seq === paceRangeSeq_) { card.classList.remove("ov-loading"); card.hidden = true; } });
+}
+
 document.getElementById("pace-card").addEventListener("click", (e) => {
   if (e.target.closest("#pace-ref-switch, #pace-custom-row")) return;
+  if (periodType !== "month") return;   // the screen that customises the graph is about months
   openPaceScreen_();
 });
 document.getElementById("pace-custom-reset").addEventListener("click", (e) => {
@@ -8585,20 +8664,15 @@ function paintOverviewSummary_(data) {
 
   const hasAny = data.totals.income !== 0 || data.totals.expense !== 0 || data.totals.investment !== 0 || !!(data.loans && data.loans.people.length);
   document.getElementById("overview-empty-note").hidden = hasAny;
-  // Investments and Loans both zero: one small line instead of two empty boxes (never hidden: a person who has not used them yet
-  // must still see they exist — owner, 2026-11-07).
-  const folded = Math.abs(data.totals.investment) < 0.004 && Math.abs(data.totals.loans || 0) < 0.004;
-  document.querySelector("#screen-overview .ov-sum-grid").classList.toggle("folded", folded);
-  const zeroLine = document.getElementById("summary-zero-line");
-  zeroLine.hidden = !folded;
-  if (folded) zeroLine.textContent = tr("overview.zeroLine", { inv: formatPen(0), loans: formatPen(0) });
+  // Investments and Loans always keep their own boxes, even at zero (owner, 2026-11-08: never folded).
   // Money went out but nothing came in: say so, or a big negative What's left reads as bad news (Marta, 2026-11-07).
   document.getElementById("overview-noincome-note").hidden = !(data.totals.income < 0.004 && (data.totals.expense > 0.004 || data.totals.investment > 0.004));
   renderYearCompare_();
   renderIncomeVaries_(data.incomeVaries);
 
   renderBreakdowns(data.breakdowns[overviewType]);
-  if (monthsHist_) renderPaceBig_();   // the blue line is the month in view
+  if (periodType === "month") { if (monthsHist_) renderPaceBig_(); }   // the blue line is the month in view
+  else renderPaceBig_();   // Week / Year / Custom: their own day-by-day ranges (All time: no card)
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
   renderLoansPeriod_(data.loans || { people: [], totals: [] }, data.owed);
   fitOverviewSummary_();
@@ -8617,7 +8691,10 @@ async function refreshOverviewInner_() {
   const key = overviewKey_(bounds);
   const token = ++overviewReqToken_;
   if (overviewCache_[key]) { paintOverviewSummary_(overviewCache_[key]); overviewShownKey_ = key; screen.classList.remove("overview-stale"); setLoadFailed_("overview", null); }
-  else if (overviewShownKey_ !== key) screen.classList.add("overview-stale");
+  else if (overviewShownKey_ !== key) {
+    screen.querySelectorAll(".card.ov-period").forEach((c) => { c.dataset.loading = tr("common.loading"); });
+    screen.classList.add("overview-stale");
+  }
 
   let data;
   try {
@@ -8644,33 +8721,39 @@ async function refreshOverviewInner_() {
 // varies — the split with regular pay, the average per day (Week and Month), the last 3 / 6 complete months (Month; a tap switches,
 // remembered on this phone) and who paid. Hidden when the period has none of it and there is no average to show.
 function renderIncomeVaries_(v) {
+  // Owner's redesign (2026-11-08): what came in (so far) and from how many payments; in Month view, what a usual month brings (the
+  // last 3 or 6 complete months, tap to switch) and a bar of this month against it; who paid. No per-day average.
   const card = document.getElementById("overview-varies-card");
   const months = v && v.months ? v.months : [];
   const withAvg = periodType === "month" && months.length > 0 && months.some((m) => m.amount > 0.004);
   card.hidden = !v || (!(v.varies > 0.004) && !withAvg);
   if (card.hidden) return;
+  const b = getPeriodBounds(), t = todayLocalISO();
+  const running = !!(b.startDate && b.endDate && t >= b.startDate && t <= b.endDate);
+  const nowKey = { week: "pace.nowWeek", month: "home.paceNow", year: "pace.nowYear" }[periodType] || "pace.nowRange";
+  const payments = (v.byPayer || []).reduce((n, p) => n + p.count, 0);
+  document.getElementById("ov-varies-got").textContent = tr("varies.got", { label: running ? tr(nowKey) : b.label, amount: formatPen(v.varies), n: payments });
   const split = document.getElementById("ov-varies-split");
   split.hidden = !(v.regular > 0.004 && v.varies > 0.004);
   if (!split.hidden) split.textContent = tr("varies.split", { regular: formatPen(v.regular), varies: formatPen(v.varies) });
-  const perDay = document.getElementById("ov-varies-perday");
-  const b = getPeriodBounds();
-  perDay.hidden = !(v.varies > 0.004 && (periodType === "week" || periodType === "month"));
-  if (!perDay.hidden) {
-    const t = todayLocalISO(), end = t >= b.startDate && t <= b.endDate ? t : b.endDate;
-    const day = (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
-    const days = Math.max(1, Math.round((day(end) - day(b.startDate)) / 86400000) + 1);
-    perDay.textContent = tr("varies.perDay", { amount: formatPen(v.varies / days), n: v.daysWithIncome });
-  }
   const avg = document.getElementById("ov-varies-avg");
+  const barWrap = document.getElementById("ov-varies-bar-wrap");
   avg.hidden = !withAvg;
+  barWrap.hidden = true;
   if (withAvg) {
     const want = localStorage.getItem("variesAvgN") === "6" ? 6 : 3;
     const used = months.slice(0, want), amounts = used.map((m) => m.amount);
-    avg.textContent = tr("varies.avg", { n: used.length, amount: formatPen(amounts.reduce((a, x) => a + x, 0) / used.length),
-      low: formatPen(Math.min(...amounts)), high: formatPen(Math.max(...amounts)) });
+    const usual = amounts.reduce((a, x) => a + x, 0) / used.length;
+    avg.textContent = tr("varies.usual", { n: used.length, amount: formatPen(usual), low: formatPen(Math.min(...amounts)), high: formatPen(Math.max(...amounts)) });
     const other = want === 3 ? 6 : 3;
     if (months.length > 3) { const sw = document.createElement("span"); sw.className = "ov-varies-switch"; sw.textContent = tr("varies.avgSwitch", { n: other }); avg.appendChild(sw); }
     avg.disabled = months.length <= 3;
+    if (usual > 0.004) {
+      const pct = Math.round(v.varies / usual * 100);
+      barWrap.hidden = false;
+      document.getElementById("ov-varies-bar-fill").style.width = `${Math.min(100, pct)}%`;
+      document.getElementById("ov-varies-bar-text").textContent = tr("varies.ofUsual", { pct });
+    }
   }
   const wrap = document.getElementById("ov-varies-payers-wrap");
   const list = document.getElementById("ov-varies-payers");
@@ -8805,11 +8888,13 @@ function renderLoansPeriod_(loans, owed) {
   const owedBtn = document.getElementById("loans-ov-owed");
   const hasOwed = !!(owed && (owed.toMe.length || owed.iOwe.length));
   document.getElementById("loans-ov-card").hidden = loans.people.length === 0 && !hasOwed;
-  // What is tied up in loans today (not this period's flows): one tap away from the Loans tab (owner, 2026-11-07).
+  // What is tied up in loans today (not this period's flows), at the top of the card: one row for what I'm owed, one for what I owe,
+  // each currency on its own line (owner, 2026-11-08).
   owedBtn.hidden = !hasOwed;
   if (hasOwed) {
-    const fmt = (arr) => (arr.length ? arr.map((x) => formatAmount(x.amount, x.currency)).join(" + ") : formatPen(0));
-    owedBtn.textContent = tr("loans.ov.owed", { toMe: fmt(owed.toMe), iOwe: fmt(owed.iOwe) });
+    const amounts = (arr) => (arr.length ? arr : [{ amount: 0, currency: homeCur() }]).map((x) => `<span>${escapeHtml(formatAmount(x.amount, x.currency))}</span>`).join("");
+    owedBtn.innerHTML = `<div class="loans-ov-owed-row"><span>${escapeHtml(tr("loans.ov.owedToMe"))}</span><b>${amounts(owed.toMe)}</b></div>` +
+      `<div class="loans-ov-owed-row"><span>${escapeHtml(tr("loans.ov.iOwe"))}</span><b>${amounts(owed.iOwe)}</b></div>`;
   }
   list.innerHTML = "";
   // Shorter page: with several people the card starts on its total line; "Show the n people" opens the list (owner, 2026-11-07).
@@ -8835,7 +8920,11 @@ document.getElementById("loans-ov-people-btn").addEventListener("click", () => {
   loansOvPeopleOpen_ = !loansOvPeopleOpen_;
   if (lastOverviewData) renderLoansPeriod_(lastOverviewData.loans || { people: [], totals: [] }, lastOverviewData.owed);
 });
-document.getElementById("loans-ov-owed").addEventListener("click", () => showScreen("loans"));
+// The whole card opens the Loans tab, except its own buttons and the people's rows, which open that person (owner, 2026-11-08).
+document.getElementById("loans-ov-card").addEventListener("click", (e) => {
+  if (e.target.closest("button, a, select, input, .loans-ov-row:not(.loans-ov-total)")) return;
+  showScreen("loans");
+});
 
 // Year view: the year against the one before, from the month-by-month history already on the phone (no extra call). The current year
 // compares only its complete months with the same months of last year — a part year against a whole one would always look like a saving.
@@ -26124,6 +26213,8 @@ let balanceModalData = null;
 function refreshBalances() { return trackOverviewLoad_(refreshBalancesInner_()); }
 
 async function refreshBalancesInner_() {
+  // "right now (Nov 8, 2026)": the date the balances are worked out for (owner, 2026-11-08).
+  document.getElementById("balances-hint").textContent = tr("balances.hint", { date: I18n.fmtDateMedium(new Date()) });
   const list = document.getElementById("balances-list");
   const emptyNote = document.getElementById("balances-empty-note");
   const rows = await callApi("listPaymentMethodBalances", {});
@@ -26159,7 +26250,7 @@ async function refreshBalancesInner_() {
     const amount = Math.round(totals[code] * 100) / 100;
     const line = document.createElement("div");
     line.className = "balances-totals-line" + (amount < 0 ? " negative" : "");
-    line.innerHTML = `<span>${code === homeCur() ? "" : findCurrency(code).flag + " "}${code}</span><span>${formatSignedBalance_(amount, code)}</span>`;
+    line.innerHTML = `<span>${findCurrency(code).flag} ${code}</span><span>${formatSignedBalance_(amount, code)}</span>`;   // every row with its flag, so they line up
     totalsLines.appendChild(line);
   });
 }
