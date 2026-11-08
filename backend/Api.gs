@@ -423,6 +423,8 @@ function routeActionSwitch_(action, payload) {
     case 'addBudget': return addBudget(payload);
     case 'updateBudget': return updateBudget(payload);
     case 'deleteBudget': return deleteBudget(payload.id);
+    case 'endBudget': return endBudget(payload);
+    case 'endBudgets': return endBudgets(payload);
     case 'deleteBudgets': return deleteBudgets(payload);
     case 'getBudgetChartSeries': return getBudgetChartSeries(payload);
     case 'listRecurringExpenses': return listRecurringExpenses();

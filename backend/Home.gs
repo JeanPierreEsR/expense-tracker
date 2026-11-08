@@ -48,7 +48,11 @@ function getHomeGlance() {
   keys.forEach(function (k) { perMonth[k] = { month: k, income: 0, expense: 0, investment: 0 }; });
 
   // Budgets: only the monthly ones count toward "this month" (a yearly one is a different promise).
-  var monthlyBudgets = getAllRows('Budgets').filter(function (b) { return b.period_type !== 'yearly'; });
+  // Only those running this month: an ended budget, or one that starts later, is not part of it (Budgets.gs § Budget history).
+  var budgetHist = budgetHistory_();
+  var monthlyBudgets = getAllRows('Budgets').filter(function (b) {
+    return b.period_type !== 'yearly' && budgetActiveNow_(b, { budgetHistory: budgetHist });
+  });
   var budgetIds = monthlyBudgets.map(function (b) { return parseBudgetCategoryIds_(b.category_id); });
   function insideBudgets_(categoryId) {
     return budgetIds.some(function (ids) { return categoryIdMatches_(ids, categoryId); });
