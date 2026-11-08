@@ -8725,7 +8725,12 @@ function renderIncomeVaries_(v) {
   // last 3 or 6 complete months, tap to switch) and a bar of this month against it; who paid. No per-day average.
   const card = document.getElementById("overview-varies-card");
   const months = v && v.months ? v.months : [];
-  const withAvg = periodType === "month" && months.length > 0 && months.some((m) => m.amount > 0.004);
+  // The "usual" figure: Month view, the months before (3 or 6); Week view, the weeks before (4 or 8); Year view, the year's own
+  // complete months (no bar: a year against one month says nothing). Custom / All time: none.
+  const usualSet = periodType === "month" ? { list: months, n: [3, 6], key: "variesAvgN", text: "varies.usual", bar: "varies.ofUsual" }
+    : periodType === "week" ? { list: (v && v.weeks) || [], n: [4, 8], key: "variesWeekN", text: "varies.usualWeek", bar: "varies.ofUsualWeek" }
+    : periodType === "year" ? { list: (v && v.yearMonths) || [], n: null, text: "varies.usualYear", bar: null } : null;
+  const withAvg = !!(usualSet && usualSet.list.length > 0 && usualSet.list.some((m) => m.amount > 0.004));
   card.hidden = !v || (!(v.varies > 0.004) && !withAvg);
   if (card.hidden) return;
   const b = getPeriodBounds(), t = todayLocalISO();
@@ -8741,18 +8746,20 @@ function renderIncomeVaries_(v) {
   avg.hidden = !withAvg;
   barWrap.hidden = true;
   if (withAvg) {
-    const want = localStorage.getItem("variesAvgN") === "6" ? 6 : 3;
-    const used = months.slice(0, want), amounts = used.map((m) => m.amount);
+    const list = usualSet.list;
+    const [few, many] = usualSet.n || [list.length, list.length];
+    const want = usualSet.n && localStorage.getItem(usualSet.key) === String(many) ? many : few;
+    const used = list.slice(0, want), amounts = used.map((m) => m.amount);
     const usual = amounts.reduce((a, x) => a + x, 0) / used.length;
-    avg.textContent = tr("varies.usual", { n: used.length, amount: formatPen(usual), low: formatPen(Math.min(...amounts)), high: formatPen(Math.max(...amounts)) });
-    const other = want === 3 ? 6 : 3;
-    if (months.length > 3) { const sw = document.createElement("span"); sw.className = "ov-varies-switch"; sw.textContent = tr("varies.avgSwitch", { n: other }); avg.appendChild(sw); }
-    avg.disabled = months.length <= 3;
-    if (usual > 0.004) {
+    avg.textContent = tr(usualSet.text, { year: periodAnchor.getFullYear(), n: used.length, amount: formatPen(usual), low: formatPen(Math.min(...amounts)), high: formatPen(Math.max(...amounts)) });
+    const canSwitch = !!usualSet.n && list.length > few;
+    if (canSwitch) { const sw = document.createElement("span"); sw.className = "ov-varies-switch"; sw.textContent = tr(periodType === "week" ? "varies.avgSwitchWeeks" : "varies.avgSwitch", { n: want === few ? many : few }); avg.appendChild(sw); }
+    avg.disabled = !canSwitch;
+    if (usualSet.bar && usual > 0.004) {
       const pct = Math.round(v.varies / usual * 100);
       barWrap.hidden = false;
       document.getElementById("ov-varies-bar-fill").style.width = `${Math.min(100, pct)}%`;
-      document.getElementById("ov-varies-bar-text").textContent = tr("varies.ofUsual", { pct });
+      document.getElementById("ov-varies-bar-text").textContent = tr(usualSet.bar, { pct });
     }
   }
   const wrap = document.getElementById("ov-varies-payers-wrap");
@@ -8767,7 +8774,8 @@ function renderIncomeVaries_(v) {
   });
 }
 document.getElementById("ov-varies-avg").addEventListener("click", () => {
-  localStorage.setItem("variesAvgN", localStorage.getItem("variesAvgN") === "6" ? "3" : "6");
+  if (periodType === "week") localStorage.setItem("variesWeekN", localStorage.getItem("variesWeekN") === "8" ? "4" : "8");
+  else localStorage.setItem("variesAvgN", localStorage.getItem("variesAvgN") === "6" ? "3" : "6");
   const d = overviewCache_[overviewKey_(getPeriodBounds())];
   if (d) renderIncomeVaries_(d.incomeVaries);
 });
