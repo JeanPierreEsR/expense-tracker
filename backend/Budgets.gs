@@ -345,7 +345,8 @@ function listBudgets(payload) {
       active_now: budgetActiveNow_(b, ctx),   // running this month (year): counts in the totals below
       ended: budgetEndedNow_(b, ctx.budgetHistory[String(b.id)]),
       end_deletes: !budgetRanBefore_(b, ctx.budgetHistory[String(b.id)]),   // ending it would delete it completely (endBudget)
-      start_later: budgetPlannedStart_(b, ctx.budgetHistory[String(b.id)])   // starts in a later period: '2027-02', '2027', a Monday
+      start_later: budgetPlannedStart_(b, ctx.budgetHistory[String(b.id)]),   // starts in a later period: '2027-02', '2027', a Monday
+      start_key: budgetFirstStart_(ctx.budgetHistory[String(b.id)])   // where it starts ('' = it has always counted)
     };
   });
   // The period's own categories name the row when they were different then (a change of categories counts forward only).
@@ -693,7 +694,12 @@ function updateBudget(payload) {
   var before = getAllRows('Budgets').find(function (b) { return b.id === payload.id; });
   if (payload.restart) restartBudget_(before, payload);
   else if (payload.start !== undefined && budgetPlannedStart_(before, budgetRows_(before.id))) moveBudgetStart_(before, payload);
-  else recordBudgetChange_(before, payload);
+  else {
+    // A running budget whose start moves (same kind): the start first, then the other changes count from this period as usual.
+    var sameKind = payload.period_type === undefined || budgetKind_(payload.period_type) === budgetKind_(before.period_type);
+    if (payload.start !== undefined && sameKind && !budgetEndedNow_(before, budgetRows_(before.id))) moveRunningBudgetStart_(before, payload.start);
+    recordBudgetChange_(before, payload);
+  }
 
   ['category_id', 'amount', 'currency', 'period_type', 'thresholds', 'name'].forEach(function (field) {
     if (payload[field] !== undefined) {
@@ -1133,6 +1139,38 @@ function moveBudgetStart_(current, payload) {
   };
   if (budgetHistorySheetExists_()) deleteRowsWhere_('Budget History', function (r) { return String(r.budget_id) === String(current.id); });
   writeBudgetHistoryRow_(current, budgetStartKey_(type, payload.start), after, false);
+}
+
+// Where a budget starts: its first row ('' = it has always counted: a budget made before Budget History, or "every earlier month").
+function budgetFirstStart_(rows) {
+  var first = (rows || []).filter(function (r) { return !r.ended; })[0];
+  return first ? first.from : '';
+}
+
+// Moves the start of a budget that is already running (owner, 2026-11-08). Earlier: the budget also counts in the extra periods,
+// with its first amount. Later: the periods before the new start lose it, and a change recorded before then is folded into the new
+// start. Changes after the new start stay as they are.
+function moveRunningBudgetStart_(current, newStart) {
+  var type = budgetKind_(current.period_type);
+  var key = budgetStartKey_(type, newStart);
+  var rows = budgetRows_(current.id);
+  var first = rows.length ? rows[0].from : '';
+  if (key === first) return;
+  // The values the budget has at its new start: the first row's when moved earlier, else what it had in that period.
+  var at = rows.length && (key === '' || key < first) ? budgetStateAt_(current, rows, first) : budgetStateAt_(current, rows, key);
+  if (!at.exists) {   // an end recorded before the new start: keep the last values it ran with
+    var lastRun = rows.filter(function (r) { return !r.ended && r.from <= key; }).pop();
+    at = lastRun ? { amount: lastRun.amount, currency: lastRun.currency, category_id: lastRun.category_id } : budgetStateAt_(current, [], key);
+  }
+  var keep = rows.filter(function (r) { return r.from > key; });
+  var lastKept = keep.length ? keep[keep.length - 1] : null;
+  if (budgetHistorySheetExists_()) deleteRowsWhere_('Budget History', function (r) { return String(r.budget_id) === String(current.id); });
+  writeBudgetHistoryRow_(current, key, at, false);
+  keep.forEach(function (r) {
+    // The latest row stands for the Budgets row itself (budgetStateAt_): written with today's values.
+    var v = r === lastKept && !r.ended ? { amount: Number(current.amount), currency: current.currency || homeCurrency_(), category_id: String(current.category_id || '') } : r;
+    writeBudgetHistoryRow_(current, r.from, r.ended ? null : v, !!r.ended);
+  });
 }
 
 function budgetActiveNow_(budget, ctx) {
