@@ -57,6 +57,7 @@ function saveCategory(payload) {
     var clean = cleanCategoryInput_(payload, null);
     var row = { id: Utilities.getUuid(), name: clean.name, type: clean.type, icon: clean.icon, color: clean.color, parent_id: '', key: '', hidden: '' };
     appendRowObject('Categories', row);
+    if (row.type === 'income' && payload.income_kind) { setCategoryIncomeKind_(row.id, payload.income_kind); row.income_kind = payload.income_kind; }   // IncomeVaries.gs
     bumpStructureVersion_();
     return row;
   }
@@ -71,6 +72,7 @@ function saveCategory(payload) {
   withWriteBatch_(function () {
     ['name', 'icon', 'color'].forEach(function (k) { setCellByRow_(sheet, headers, rowIndex, k, edited[k]); });
   });
+  if (existing.type === 'income' && payload.income_kind) setCategoryIncomeKind_(id, payload.income_kind);   // regular / varies / none
   // Learned e-mail keywords point at a category by its stored name: follow a rename.
   if (edited.name !== existing.name) {
     rewriteColumn_('Category Keywords', 'category_name', function (v) {

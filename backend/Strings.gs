@@ -649,6 +649,9 @@ var CATEGORY_TRANSLATIONS_ = {
   bank_fees: { en: 'Bank fees', es: 'Comisiones bancarias' },
   business: { en: 'Business', es: 'Negocio' },
   salary: { en: 'Salary', es: 'Sueldo' },
+  sales: { en: 'Sales', es: 'Ventas' },
+  freelance: { en: 'Freelance', es: 'Trabajo independiente' },
+  daily_work: { en: 'Daily work', es: 'Trabajo diario' },
   insurance_payout: { en: 'Insurance Payout', es: 'Pago de seguro' },
   parental_leave: { en: 'Parental Leave', es: 'Licencia parental' },
   extra_income: { en: 'Extra Income', es: 'Ingreso extra' },
@@ -730,6 +733,7 @@ function localizeCategories_(rows, langOverride) {
     var copy = {};
     Object.keys(c).forEach(function (k) { copy[k] = c[k]; });
     copy.name = categoryLabel_(c, langOverride);
+    if (c.type === 'income') copy.earning = incomeKindOf_(c);   // 'regular' / 'varies' / '' (IncomeVaries.gs)
     return copy;
   });
 }

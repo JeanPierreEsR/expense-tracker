@@ -16,6 +16,7 @@ function getPeriodSummary(payload) {
   var endDate = payload && payload.endDate;
 
   var entries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; });
+  var everyConfirmed = filterEntriesByScope_(entries.filter(function (e) { return e.type !== 'transfer'; }), payload && payload.scope);   // income that varies: the months before
   if (startDate) entries = entries.filter(function (e) { return e.date >= startDate; });
   if (endDate) entries = entries.filter(function (e) { return e.date <= endDate; });
   // Transfers between the owner's own accounts are never income/expense —
@@ -120,6 +121,7 @@ function getPeriodSummary(payload) {
     investmentsByPlatform: investmentFlowsToList_(investmentFlows, pmById),
     loans: { people: loanFlows.people, totals: loanFlows.totals },
     owed: owedNow_(payload && payload.scope),
+    incomeVaries: incomeVariesSummary_(entries, everyConfirmed, categoryById, startDate, endDate),   // null when no income category varies
     breakdowns: {
       expense: {
         byCategory: expenseByCategory,

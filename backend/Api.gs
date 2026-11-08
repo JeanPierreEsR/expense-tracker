@@ -409,6 +409,7 @@ function routeActionSwitch_(action, payload) {
     case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);
     case 'admin_mergeDuplicatePaymentMethods': return mergeDuplicatePaymentMethods();
     case 'saveCategory': return saveCategory(payload);
+    case 'setPay': return setPay(payload);
     case 'deleteCategory': return deleteCategory(payload);
     case 'previewCategoryDelete': return previewCategoryDelete(payload);
     case 'deleteCategories': return deleteCategories(payload);
