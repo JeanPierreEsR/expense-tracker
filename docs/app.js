@@ -7948,7 +7948,7 @@ function renderPeriodSelector() {
   const bounds = getPeriodBounds();
   const labelEl = document.getElementById("period-label");
   labelEl.textContent = bounds.label;
-  labelEl.classList.toggle("tappable", periodType === "month" || periodType === "year");
+  labelEl.classList.toggle("tappable", periodType === "month" || periodType === "year" || periodType === "week");
   labelEl.title = periodType === "month" || periodType === "year" ? tr("period.tapToChoose") : "";
 
   document.querySelectorAll(".period-type-chip").forEach((chip) => {
@@ -7996,22 +7996,36 @@ function movePeriod(delta) {
 document.getElementById("period-prev").addEventListener("click", () => movePeriod(-1));
 document.getElementById("period-next").addEventListener("click", () => movePeriod(1));
 
-// ---- Quick month/year picker ----
+// ---- Quick month/year/week picker ----
 // Tapping the period name (Overview, Budgets, Projections and the Projections
 // category detail) opens a grid instead of stepping with ‹ › one period at a
 // time. Month: a year header (‹ ›) over 12 months. Year: a grid of years.
-// Future months/years are allowed (projections look ahead).
+// Week (owner, 2026-11-08): a month calendar, Monday to Sunday; a tap on any day picks its whole week.
+// Past and future periods are allowed. The same sheet picks when a new budget starts (openPeriodGrid_ with a chip).
 let periodPickerYear = null;   // the year shown in the month grid
+let periodPickerMonth = null;  // the month shown in the week calendar (a Date on its 1st)
+let periodGrid_ = null;        // { kind: "month" | "year" | "week", selected: Date, onPick(Date), chip?: { label, selected, onPick() } }
 
-function periodPickerAvailable_() { return periodType === "month" || periodType === "year"; }
+function periodPickerAvailable_() { return periodType === "month" || periodType === "year" || periodType === "week"; }
 
-function openPeriodPicker_() {
-  if (!periodPickerAvailable_()) return;
-  periodPickerYear = periodAnchor.getFullYear();
+function openPeriodGrid_(opts) {
+  periodGrid_ = opts;
+  periodPickerYear = opts.selected.getFullYear();
+  periodPickerMonth = new Date(opts.selected.getFullYear(), opts.selected.getMonth(), 1);
+  if (opts.kind === "week") {   // a week is shown in the month holding its Thursday
+    const thu = new Date(opts.selected.getFullYear(), opts.selected.getMonth(), opts.selected.getDate() + 3);
+    periodPickerMonth = new Date(thu.getFullYear(), thu.getMonth(), 1);
+  }
   const backdrop = document.getElementById("period-picker-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
   renderPeriodPicker_();
+}
+
+function openPeriodPicker_() {
+  if (!periodPickerAvailable_()) return;
+  openPeriodGrid_({ kind: periodType, selected: periodType === "week" ? mondayDate_(periodAnchor) : periodAnchor,
+    onPick: (d) => choosePeriodAnchor_(periodType === "year" ? new Date(d.getFullYear(), periodAnchor.getMonth(), 1) : d) });
 }
 
 function closePeriodPicker_() {
@@ -8019,9 +8033,14 @@ function closePeriodPicker_() {
 }
 
 function renderPeriodPicker_() {
+  const g = periodGrid_;
   const grid = document.getElementById("period-picker-grid");
   const now = new Date();
   grid.innerHTML = "";
+  grid.classList.toggle("week-cal", g.kind === "week");
+  const chipEl = document.getElementById("period-picker-chip");
+  chipEl.hidden = !g.chip;
+  if (g.chip) { chipEl.textContent = g.chip.label; chipEl.classList.toggle("selected", !!g.chip.selected); }
   const addCell = (label, isSelected, isNow, onPick) => {
     const b = document.createElement("button");
     b.type = "button";
@@ -8030,25 +8049,53 @@ function renderPeriodPicker_() {
     b.addEventListener("click", onPick);
     grid.appendChild(b);
   };
-  if (periodType === "year") {
+  const sel = g.chip && g.chip.selected ? null : g.selected;
+  if (g.kind === "year") {
     document.getElementById("period-picker-title").textContent = tr("period.pickYear");
     document.getElementById("period-picker-year-row").hidden = true;
-    const selectedYear = periodAnchor.getFullYear();
-    const first = Math.min(now.getFullYear() - 9, selectedYear), last = Math.max(now.getFullYear() + 2, selectedYear);
-    for (let y = first; y <= last; y++) {
-      addCell(String(y), y === selectedYear, y === now.getFullYear(), () => choosePeriodAnchor_(new Date(y, periodAnchor.getMonth(), 1)));
+    const selectedYear = sel ? sel.getFullYear() : now.getFullYear();
+    const first = Math.min(now.getFullYear() - 9, selectedYear), last = Math.max(now.getFullYear() + 5, selectedYear);
+    for (let y = first; y <= last; y++) addCell(String(y), !!sel && y === selectedYear, y === now.getFullYear(), () => g.onPick(new Date(y, 0, 1)));
+    return;
+  }
+  document.getElementById("period-picker-year-row").hidden = false;
+  document.getElementById("period-picker-prev").setAttribute("aria-label", tr(g.kind === "week" ? "period.prevMonthAria" : "period.prevYear"));
+  document.getElementById("period-picker-next").setAttribute("aria-label", tr(g.kind === "week" ? "period.nextMonthAria" : "period.nextYear"));
+  if (g.kind === "week") {
+    document.getElementById("period-picker-title").textContent = tr("period.pickWeek");
+    document.getElementById("period-picker-year").textContent = I18n.fmtMonthYear(periodPickerMonth);
+    const es = I18n.getLang() === "es";
+    const wd = new Intl.DateTimeFormat(es ? "es-PE" : "en-US", { weekday: "narrow" });
+    const head = document.createElement("div");
+    head.className = "week-cal-head";
+    let mon = mondayDate_(periodPickerMonth);
+    head.innerHTML = [0, 1, 2, 3, 4, 5, 6].map((i) => `<span>${escapeHtml(wd.format(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i)))}</span>`).join("");
+    grid.appendChild(head);
+    const selKey = sel ? isoOf_(mondayDate_(sel)) : "", nowKey = isoOf_(mondayDate_(now));
+    while (mon.getFullYear() * 12 + mon.getMonth() <= periodPickerMonth.getFullYear() * 12 + periodPickerMonth.getMonth()) {
+      const m = new Date(mon), key = isoOf_(m);
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "week-cal-row" + (key === selKey ? " selected" : "") + (key === nowKey ? " now" : "");
+      row.setAttribute("aria-label", weekBounds(m).label);
+      row.innerHTML = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+        const d = new Date(m.getFullYear(), m.getMonth(), m.getDate() + i);
+        return `<span class="${d.getMonth() === periodPickerMonth.getMonth() ? "" : "out"}">${d.getDate()}</span>`;
+      }).join("");
+      row.addEventListener("click", () => g.onPick(m));
+      grid.appendChild(row);
+      mon = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 7);
     }
     return;
   }
   document.getElementById("period-picker-title").textContent = tr("period.pickMonth");
-  document.getElementById("period-picker-year-row").hidden = false;
   document.getElementById("period-picker-year").textContent = String(periodPickerYear);
   for (let m = 0; m < 12; m++) {
     addCell(
       I18n.monthShort(m, true),
-      periodPickerYear === periodAnchor.getFullYear() && m === periodAnchor.getMonth(),
+      !!sel && periodPickerYear === sel.getFullYear() && m === sel.getMonth(),
       periodPickerYear === now.getFullYear() && m === now.getMonth(),
-      () => choosePeriodAnchor_(new Date(periodPickerYear, m, 1))
+      () => g.onPick(new Date(periodPickerYear, m, 1))
     );
   }
 }
@@ -8073,8 +8120,14 @@ document.getElementById("period-picker-close").addEventListener("click", closePe
 document.getElementById("period-picker-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "period-picker-backdrop") closePeriodPicker_();
 });
-document.getElementById("period-picker-prev").addEventListener("click", () => { periodPickerYear -= 1; renderPeriodPicker_(); });
-document.getElementById("period-picker-next").addEventListener("click", () => { periodPickerYear += 1; renderPeriodPicker_(); });
+const stepPeriodPicker_ = (n) => {
+  if (periodGrid_ && periodGrid_.kind === "week") periodPickerMonth = new Date(periodPickerMonth.getFullYear(), periodPickerMonth.getMonth() + n, 1);
+  else periodPickerYear += n;
+  renderPeriodPicker_();
+};
+document.getElementById("period-picker-prev").addEventListener("click", () => stepPeriodPicker_(-1));
+document.getElementById("period-picker-next").addEventListener("click", () => stepPeriodPicker_(1));
+document.getElementById("period-picker-chip").addEventListener("click", () => { if (periodGrid_ && periodGrid_.chip) periodGrid_.chip.onPick(); });
 
 // Switching between Week and Month/Year keeps the place: into Week, the week of today when the period shown holds today, else its
 // first week; out of Week, the month (year) holding the week's Thursday.
@@ -9777,23 +9830,42 @@ const budgetKindKeys_ = (type) => type === "yearly"
   : type === "weekly"
   ? { cur: "budget.startThisWeek", next: "budget.startNextWeek", always: "budget.startAlwaysWeek", restart: "budgetModal.restartWeek", end: "budget.confirmEndWeekly", endDel: "budget.confirmEndDeletesWeekly", fwd: "budget.forwardWeek", per: "budgets.perWeek", word: "period.wordWeek", back: 8 }
   : { cur: "budget.startThisMonth", next: "budget.startNextMonth", always: "budget.startAlwaysMonth", restart: "budgetModal.restartMonth", end: "budget.confirmEndMonthly", endDel: "budget.confirmEndDeletesMonthly", fwd: "budget.forwardMonth", per: "budgets.perMonth", word: "period.wordMonth", back: 12 };
+// The Starts field (owner, 2026-11-08): a button showing the chosen period that opens the same sheet as Overview's period name —
+// months / years / a week calendar, past and future allowed — with a chip "Every earlier month too" above it. The value is kept in
+// data-value: a period key ("2026-11", "2026", a Monday "2026-11-09") or "always".
+function budgetStartLabel_(type, value) {
+  const K = budgetKindKeys_(type);
+  if (value === "always") return tr(K.always);
+  const name = budgetPeriodName_(type, value, true);
+  if (value === budgetPeriodKey_(type, 0)) return tr(K.cur, { name });
+  if (value === budgetPeriodKey_(type, 1)) return tr(K.next, { name });
+  return budgetPeriodName_(type, value);
+}
+function setBudgetStart_(value) {
+  const btn = document.getElementById("budget-start");
+  btn.dataset.value = value;
+  btn.textContent = budgetStartLabel_(budgetPeriodType, value);
+}
 function fillBudgetStart_() {
   const wrap = document.getElementById("budget-start-wrap");
   wrap.hidden = !!editingBudgetId || !budgetHistoryOn_();
   if (wrap.hidden) return;
-  const sel = document.getElementById("budget-start");
-  const y = budgetPeriodType === "yearly", K = budgetKindKeys_(budgetPeriodType);
-  const opts = [
-    [budgetPeriodKey_(budgetPeriodType, 0), tr(K.cur, { name: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 0), true) })],
-    ["next", tr(K.next, { name: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 1), true) })]
-  ];
-  for (let k = 1; k <= K.back; k++) { const key = budgetPeriodKey_(budgetPeriodType, -k); opts.push([key, budgetPeriodName_(budgetPeriodType, key)]); }
-  opts.push(["always", tr(K.always)]);
-  sel.innerHTML = opts.map(([v, label]) => `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`).join("");
+  setBudgetStart_(budgetPeriodKey_(budgetPeriodType, 0));
+  const y = budgetPeriodType === "yearly";
   const hint = document.getElementById("budget-start-hint");
   hint.hidden = !y;
   hint.textContent = y ? tr("budget.startYearlyHint") : "";
 }
+document.getElementById("budget-start").addEventListener("click", () => {
+  const type = budgetPeriodType, value = document.getElementById("budget-start").dataset.value || budgetPeriodKey_(type, 0);
+  const keyOf = (d) => type === "yearly" ? String(d.getFullYear()) : type === "weekly" ? isoOf_(mondayDate_(d)) : `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+  const dateOf = (k) => { const [a, b, c] = k.split("-").map(Number); return new Date(a, (b || 1) - 1, c || 1); };
+  const pick = (v) => { setBudgetStart_(v); closePeriodPicker_(); };
+  openPeriodGrid_({ kind: type === "yearly" ? "year" : type === "weekly" ? "week" : "month",
+    selected: dateOf(value === "always" ? budgetPeriodKey_(type, 0) : value),
+    onPick: (d) => pick(keyOf(d)),
+    chip: { label: tr(budgetKindKeys_(type).always), selected: value === "always", onPick: () => pick("always") } });
+});
 
 // Editing a budget: a new amount counts from this month (year) on, earlier ones keep theirs (owner, 2026-11-07; Budgets.gs).
 // Not shown for a new budget, nor once monthly/yearly is switched (that change forgets the old amounts).
@@ -10009,10 +10081,11 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     if (budgetId && budgetEditingEnded_) fields.restart = true;   // an ended budget: Save starts it again from this period
     let startsLater = "";
     if (!budgetId && budgetHistoryOn_()) {
-      fields.start = document.getElementById("budget-start").value || undefined;
-      if (fields.start === "next") startsLater = budgetPeriodType === "weekly"
-        ? tr("budget.startsLaterWeek", { when: rangeFmt_(budgetPeriodKey_("weekly", 1)) })
-        : tr("budget.startsLater", { when: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 1), true) });
+      fields.start = document.getElementById("budget-start").dataset.value || undefined;
+      // A later period (next month, or any one after it): say when it starts, since it is not listed in the period shown now.
+      if (fields.start && fields.start !== "always" && fields.start > budgetPeriodKey_(budgetPeriodType, 0)) startsLater = budgetPeriodType === "weekly"
+        ? tr("budget.startsLaterWeek", { when: rangeFmt_(fields.start) })
+        : tr("budget.startsLater", { when: budgetPeriodName_(budgetPeriodType, fields.start, true) });
     }
     closeBudgetModal();
     closeDrilldown();
