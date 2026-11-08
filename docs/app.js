@@ -10128,8 +10128,8 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
         const name = ob.category_name, now = budgetPeriodName_(budgetPeriodType, cur, true);
         const ask = tr(amountCh && catsCh ? "budget.askBoth" : amountCh ? "budget.askAmount" : "budget.askCats",
           { name, amount: formatAmount(amount, currency), now });
-        const kindWord = budgetPeriodType === "yearly" ? "Year" : budgetPeriodType === "weekly" ? "Week" : "Month";
-        const keep = start === "always" ? tr("budget.keepAll" + kindWord)
+        const keepAll = budgetPeriodType === "yearly" ? "budget.keepAllYear" : budgetPeriodType === "weekly" ? "budget.keepAllWeek" : "budget.keepAllMonth";
+        const keep = start === "always" ? tr(keepAll)
           : start === prev ? tr("budget.keepOne", { p: budgetPeriodName_(budgetPeriodType, prev) })
           : tr("budget.keepRange", { from: budgetPeriodName_(budgetPeriodType, start, true), to: budgetPeriodName_(budgetPeriodType, prev, true) });
         if (!confirm(`${ask}\n\n${keep}`)) return;
