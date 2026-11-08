@@ -10230,17 +10230,29 @@ function preloadBudgetsNeighbour_() {
 }
 
 // Draws the budget rows and the totals from what refreshBudgets last fetched (no server call): also used by Edit mode.
-// "Starts later: ⚽ Sports (February 2027) ›" under the list: budgets planned for a later period never vanish (owner, 2026-11-08).
+// Budgets planned for a later period, under the list, as a closed group "Starts later (n)" (owner, 2026-11-08: they must never vanish;
+// a group, not a link-looking line). Open: one row each — name on the left, when it starts on the right — that opens the budget.
 let budgetsLater_ = [];
+let budgetsLaterOpen_ = false;
 function drawBudgetsLater_() {
   const box = document.getElementById("budgets-later");
   box.innerHTML = "";
   box.hidden = !budgetsLater_.length;
+  if (!budgetsLater_.length) return;
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "budgets-later-head";
+  head.setAttribute("aria-expanded", String(budgetsLaterOpen_));
+  head.innerHTML = `<span>${escapeHtml(tr("budgets.startsLaterTitle"))} <span class="budgets-later-count">${budgetsLater_.length}</span></span><span class="budgets-later-chev" aria-hidden="true">${budgetsLaterOpen_ ? "▾" : "▸"}</span>`;
+  head.addEventListener("click", () => { budgetsLaterOpen_ = !budgetsLaterOpen_; drawBudgetsLater_(); });
+  box.appendChild(head);
+  if (!budgetsLaterOpen_) return;
   budgetsLater_.forEach((b) => {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "budgets-later-row";
-    row.textContent = tr("budgets.startsLaterRow", { name: `${b.category_icon ? b.category_icon + " " : ""}${b.category_name}`, when: budgetPeriodName_(b.period_type, b.start_later, true) });
+    row.innerHTML = `<span class="budgets-later-name">${escapeHtml(`${b.category_icon ? b.category_icon + " " : ""}${b.category_name}`)}</span>` +
+      `<span class="budgets-later-when">${escapeHtml(tr("budgets.startsOn", { when: budgetPeriodName_(b.period_type, b.start_later, true) }))} ›</span>`;
     row.addEventListener("click", () => openBudgetModal(b));
     box.appendChild(row);
   });

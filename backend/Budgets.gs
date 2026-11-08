@@ -1009,18 +1009,56 @@ function ensureBudgetHistorySheet_() {
   });
 }
 
+// The from_period column stays plain text on every write (a tab made some other way, or rows past the formatted ones, would let
+// Sheets turn "2026-11" into a date again). Once per request.
+var budgetHistoryTextKept_ = false;
+function keepBudgetHistoryText_() {
+  if (budgetHistoryTextKept_) return;
+  budgetHistoryTextKept_ = true;
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Budget History');
+  if (!sheet) return;
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  DATE_LIKE_COLUMNS['Budget History'].forEach(function (name) {
+    var col = headers.indexOf(name) + 1;
+    if (col > 0) sheet.getRange(1, col, sheet.getMaxRows(), 1).setNumberFormat('@');
+  });
+}
+
 function budgetHistorySheetExists_() {
   return !!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Budget History');
 }
 
 // { budgetId: [rows sorted by from_period] } — read once per request with the rest of the budget context.
+// A row's from_period as the key its budget compares with: 'YYYY-MM' (monthly), 'YYYY' (yearly), a Monday 'YYYY-MM-DD' (weekly).
+// On the owner's real Sheet (2026-11-08) Google Sheets had turned the written "2026-11" into a date, read back as "2026-11-01"
+// (DATE_FIELD_FORMATS) or, before that fix, as a long date text: the budget was compared as "not started" — hidden from the list,
+// yet blocking a new one, and its start read "Invalid Date". Cut to the budget's own kind, whatever Sheets stored.
+function budgetFromKey_(raw, kind) {
+  if (raw instanceof Date) raw = Utilities.formatDate(raw, sheetDateTz_(), 'yyyy-MM-dd');
+  var s = String(raw == null ? '' : raw).trim();
+  if (!s) return '';
+  if (/^\d{4}(\.0+)?$/.test(s)) return s.substring(0, 4);   // a year Sheets kept as a number
+  if (kind === 'yearly') return s.substring(0, 4);
+  if (kind === 'monthly') return s.substring(0, 7);
+  return s.substring(0, 10);
+}
+var BUDGET_KIND_BY_ID_ = null;
+function budgetKindById_(id) {
+  if (!BUDGET_KIND_BY_ID_) {   // built once per budgetHistory_ read (it is reset there)
+    BUDGET_KIND_BY_ID_ = {};
+    getAllRows('Budgets').forEach(function (b) { BUDGET_KIND_BY_ID_[String(b.id)] = budgetKind_(b.period_type); });
+  }
+  return BUDGET_KIND_BY_ID_[String(id)] || 'monthly';
+}
+
 function budgetHistory_() {
   var out = {};
   if (!budgetHistorySheetExists_()) return out;
+  BUDGET_KIND_BY_ID_ = null;
   getAllRows('Budget History').forEach(function (r) {
     var id = String(r.budget_id);
     (out[id] = out[id] || []).push({
-      from: String(r.from_period || ''), amount: Number(r.amount), currency: r.currency || homeCurrency_(),
+      from: budgetFromKey_(r.from_period, budgetKindById_(id)), amount: Number(r.amount), currency: r.currency || homeCurrency_(),
       category_id: String(r.category_id || ''), ended: r.ended === true || String(r.ended).toLowerCase() === 'yes' || String(r.ended).toLowerCase() === 'true'
     });
   });
@@ -1149,8 +1187,10 @@ function budgetPlan_(budget, ctx, yearOfMonthly, key) {
 
 function writeBudgetHistoryRow_(budget, fromKey, values, ended) {
   ensureBudgetHistorySheet_();
+  keepBudgetHistoryText_();
   var id = String(budget.id);
-  deleteRowsWhere_('Budget History', function (r) { return String(r.budget_id) === id && String(r.from_period) === fromKey; });
+  var kind = budgetKind_(budget.period_type);
+  deleteRowsWhere_('Budget History', function (r) { return String(r.budget_id) === id && budgetFromKey_(r.from_period, kind) === fromKey; });
   appendRowObject('Budget History', { id: Utilities.getUuid(), budget_id: id, from_period: fromKey,
     amount: ended ? '' : Number(values.amount), currency: ended ? '' : (values.currency || homeCurrency_()),
     category_id: ended ? '' : String(values.category_id || ''), ended: ended ? 'yes' : '', changed_at: new Date().toISOString() });
@@ -1202,7 +1242,7 @@ function endBudget(payload) {
   var rows = budgetRows_(id);
   if (!budgetRanBefore_(b, rows)) { deleteBudget(id); return { done: true, deleted: true }; }
   if (!rows.length) writeBudgetHistoryRow_(b, '', b, false);
-  deleteRowsWhere_('Budget History', function (r) { return String(r.budget_id) === id && String(r.from_period) > key; });   // a planned change after now
+  deleteRowsWhere_('Budget History', function (r) { return String(r.budget_id) === id && budgetFromKey_(r.from_period, type) > key; });   // a planned change after now
   writeBudgetHistoryRow_(b, key, null, true);
   deleteRowsWhere_('Budget Alert Log', function (r) { return String(r.budget_id) === id; });
   return { done: true, ended: key };

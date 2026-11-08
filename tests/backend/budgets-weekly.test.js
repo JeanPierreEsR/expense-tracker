@@ -136,3 +136,20 @@ test("a budget that starts later is listed apart (never invisible), and its star
   assert.equal(started.budgets.find((x) => x.id === b.id).progress.effectiveAmount, 90, "it runs from this month, with the amount saved");
   assert.equal(started.later.length, 0);
 });
+
+test("a start Google Sheets turned into a date still counts (owner's real Sheet, 2026-11-08: 'Invalid Date', budget hidden)", () => {
+  const rt = setup();
+  const b = rt.api("addBudget", { category_id: "cat-wk", amount: 60, currency: "PEN", period_type: "monthly" });
+  // What Sheets did: the text "2026-11" became a date cell (the 1st of that month).
+  const [y, m] = today().split("-").map(Number);
+  rt.run(`(function () {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Budget History');
+    var data = sheet.getDataRange().getValues(); var col = data[0].indexOf('from_period');
+    for (var i = 1; i < data.length; i++) if (String(data[i][data[0].indexOf('budget_id')]) === '${b.id}') sheet.getRange(i + 1, col + 1).setValue(new Date(${y}, ${m - 1}, 1));
+  })()`);
+  const list = rt.api("listBudgets", { displayPeriodType: "month" });
+  assert.ok(list.budgets.some((x) => x.id === b.id), "listed this month");
+  assert.equal(list.later.length, 0, "not 'starts later'");
+  rt.api("updateBudget", { id: b.id, amount: 75 });
+  assert.equal(rt.api("listBudgets", { displayPeriodType: "month" }).budgets.find((x) => x.id === b.id).progress.effectiveAmount, 75);
+});
