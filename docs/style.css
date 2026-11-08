@@ -291,6 +291,25 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
   cursor: pointer;
 }
 .period-picker-cell.now { border-color: var(--accent); }
+/* "Every earlier month too" above the grid when it picks a budget's start (owner, 2026-11-08). */
+.period-picker-chip { display: block; width: 100%; min-height: 44px; margin-bottom: 12px; border-radius: 10px; border: 1px solid var(--border);
+  background: white; color: var(--text); font: inherit; cursor: pointer; }
+.period-picker-chip[hidden] { display: none; }
+.period-picker-chip.selected { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+/* Week calendar: one button per week (Monday to Sunday), a tap on any day picks the whole row. */
+.period-picker-grid.week-cal { display: flex; flex-direction: column; gap: 6px; }
+.week-cal-head, .week-cal-row { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; }
+.week-cal-head { font-size: 0.8rem; color: var(--muted); }
+.week-cal-row { min-height: 44px; align-items: center; border-radius: 10px; border: 1px solid var(--border); background: white;
+  color: var(--text); font: inherit; cursor: pointer; padding: 0; }
+.week-cal-row .out { color: var(--muted); }
+.week-cal-row.now { border-color: var(--accent); }
+.week-cal-row.selected { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+.week-cal-row.selected .out { color: rgba(255, 255, 255, 0.75); }
+/* A button that reads like a picker box (the budget's Starts field). */
+.select-like { display: block; width: 100%; min-height: 44px; padding: 10px 14px; text-align: left; border: 1px solid var(--border);
+  border-radius: 10px; background: white; color: var(--text); font: inherit; cursor: pointer; }
+.select-like::after { content: " ›"; color: var(--muted); }
 .period-picker-cell.selected {
   background: var(--accent);
   border-color: var(--accent);

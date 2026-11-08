@@ -3043,8 +3043,8 @@
           <div class="type-tab" data-period="yearly" data-i18n="period.yearly">Yearly</div>
         </div>
         <div id="budget-start-wrap" hidden>
-          <label for="budget-start" data-i18n="budgetModal.starts">Starts</label>
-          <select id="budget-start"></select>
+          <label data-i18n="budgetModal.starts">Starts</label>
+          <button type="button" class="select-like" id="budget-start"></button>
           <p class="hint" id="budget-start-hint" hidden></p>
         </div>
 
@@ -3275,6 +3275,7 @@
           <span id="period-picker-year"></span>
           <button type="button" class="period-nav-btn" id="period-picker-next" data-i18n-aria-label="period.nextYear" aria-label="Next year">›</button>
         </div>
+        <button type="button" class="period-picker-chip" id="period-picker-chip" hidden></button>
         <div class="period-picker-grid" id="period-picker-grid"></div>
       </div>
     </div>
