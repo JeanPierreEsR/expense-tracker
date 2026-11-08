@@ -510,6 +510,17 @@
         <p class="hint" id="overview-empty-note" hidden data-i18n="overview.empty">No entries in this period yet.</p>
       </div>
 
+      <div class="card" id="overview-varies-card" hidden>
+        <h2 data-i18n="varies.title">💵 Income that varies</h2>
+        <p class="hint" id="ov-varies-split" hidden></p>
+        <p class="ov-varies-line" id="ov-varies-perday" hidden></p>
+        <button type="button" class="ov-varies-avg" id="ov-varies-avg" hidden></button>
+        <div id="ov-varies-payers-wrap" hidden>
+          <h3 data-i18n="varies.whoPaid">Who paid me</h3>
+          <div id="ov-varies-payers"></div>
+        </div>
+      </div>
+
       <div class="card" id="months-card" hidden>
         <h2 data-i18n="monthsHist.title">Month by month</h2>
         <p class="hint" data-i18n="monthsHist.hint">Income and expenses for every month with entries. Tap a month to see it below.</p>
@@ -1337,6 +1348,13 @@
               <p class="hint" id="fits-msg" role="status"></p>
               <button type="button" class="primary" id="fits-add-btn" data-i18n="fits.add">Add categories</button>
             </div>
+          </div>
+
+          <div id="my-profile-pay-card" hidden>
+            <h3 class="md-head" data-i18n="prof.payHead">How I get paid</h3>
+            <p class="hint" data-i18n="prof.payHint">Each income category can also be marked as regular pay or as income that varies, in More → Categories.</p>
+            <div id="my-profile-pay"></div>
+            <p class="hint" id="my-profile-pay-msg" role="status"></p>
           </div>
 
           <div id="my-profile-dates-card">
@@ -2388,6 +2406,11 @@
         <p class="hint" data-i18n="wf.intro">Tap any that apply. Each one adds a few categories you will probably use. This step is optional, and you can add more any time in More → Categories.</p>
         <div id="wf-chips"></div>
         <p class="hint" data-i18n="wf.basics">Always included: Groceries, Restaurants, Home (with your household bills), Transport, Travel, Sports, Bank fees and Other.</p>
+        <div id="wpay-block" hidden>
+          <h3 data-i18n="pay.title">How do you get paid?</h3>
+          <p class="hint" data-i18n="pay.hint">Optional. It helps the app show what matters for your kind of income.</p>
+          <div id="wpay-box"></div>
+        </div>
         <div id="wb-block" hidden>
           <h3 data-i18n="wb.title">Do you also have a business or projects?</h3>
           <p class="hint" data-i18n="wb.intro">Optional. You can turn this on or off any time in More → Business features.</p>
@@ -3479,6 +3502,16 @@
           <div class="type-tab active" data-type="expense" data-i18n="categories.type.expense">Expense</div>
           <div class="type-tab" data-type="income" data-i18n="categories.type.income">Income</div>
         </div>
+      </div>
+
+      <div id="cat-earning-wrap" hidden>
+        <label for="cat-earning" data-i18n="categories.earning">Counts as</label>
+        <select id="cat-earning">
+          <option value="regular" data-i18n="categories.earning.regular">Regular pay (a salary)</option>
+          <option value="varies" data-i18n="categories.earning.varies">Income that varies (sales, jobs)</option>
+          <option value="none" data-i18n="categories.earning.none">Not earnings (gifts, refunds…)</option>
+        </select>
+        <p class="hint" data-i18n="categories.earningHint">Income that varies gets its own figures in Overview: per day, who paid you, and the last months' average.</p>
       </div>
 
       <label for="cat-name" data-i18n="categories.name">Name</label>

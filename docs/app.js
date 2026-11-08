@@ -7398,6 +7398,7 @@ function refreshHomeGlance_(force) {
     .then((data) => {
       homeGlance_ = data;
       homeGlanceAt_ = Date.now();
+      renderFirstSteps_();   // "Record your first income or expense" is ticked from these figures
       try { localStorage.setItem(HOME_GLANCE_CACHE_KEY, JSON.stringify({ today: todayLocalISO(), data })); } catch (err) { /* only a convenience */ }
       renderHomeGlance_();
     })
@@ -8486,6 +8487,7 @@ function paintOverviewSummary_(data) {
   // Money went out but nothing came in: say so, or a big negative What's left reads as bad news (Marta, 2026-11-07).
   document.getElementById("overview-noincome-note").hidden = !(data.totals.income < 0.004 && (data.totals.expense > 0.004 || data.totals.investment > 0.004));
   renderYearCompare_();
+  renderIncomeVaries_(data.incomeVaries);
 
   renderBreakdowns(data.breakdowns[overviewType]);
   if (monthsHist_) renderPaceBig_();   // the blue line is the month in view
@@ -8529,6 +8531,55 @@ async function refreshOverviewInner_() {
   paintOverviewSummary_(data);
   loadOverviewEntries_(bounds).then(() => { if (token === overviewReqToken_) preloadOverviewNeighbour_(); });
 }
+
+// Income that varies (owner, 2026-11-07; IncomeVaries.gs): one card under the summary, for anyone with an income category that
+// varies — the split with regular pay, the average per day (Week and Month), the last 3 / 6 complete months (Month; a tap switches,
+// remembered on this phone) and who paid. Hidden when the period has none of it and there is no average to show.
+function renderIncomeVaries_(v) {
+  const card = document.getElementById("overview-varies-card");
+  const months = v && v.months ? v.months : [];
+  const withAvg = periodType === "month" && months.length > 0 && months.some((m) => m.amount > 0.004);
+  card.hidden = !v || (!(v.varies > 0.004) && !withAvg);
+  if (card.hidden) return;
+  const split = document.getElementById("ov-varies-split");
+  split.hidden = !(v.regular > 0.004 && v.varies > 0.004);
+  if (!split.hidden) split.textContent = tr("varies.split", { regular: formatPen(v.regular), varies: formatPen(v.varies) });
+  const perDay = document.getElementById("ov-varies-perday");
+  const b = getPeriodBounds();
+  perDay.hidden = !(v.varies > 0.004 && (periodType === "week" || periodType === "month"));
+  if (!perDay.hidden) {
+    const t = todayLocalISO(), end = t >= b.startDate && t <= b.endDate ? t : b.endDate;
+    const day = (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+    const days = Math.max(1, Math.round((day(end) - day(b.startDate)) / 86400000) + 1);
+    perDay.textContent = tr("varies.perDay", { amount: formatPen(v.varies / days), n: v.daysWithIncome });
+  }
+  const avg = document.getElementById("ov-varies-avg");
+  avg.hidden = !withAvg;
+  if (withAvg) {
+    const want = localStorage.getItem("variesAvgN") === "6" ? 6 : 3;
+    const used = months.slice(0, want), amounts = used.map((m) => m.amount);
+    avg.textContent = tr("varies.avg", { n: used.length, amount: formatPen(amounts.reduce((a, x) => a + x, 0) / used.length),
+      low: formatPen(Math.min(...amounts)), high: formatPen(Math.max(...amounts)) });
+    const other = want === 3 ? 6 : 3;
+    if (months.length > 3) { const sw = document.createElement("span"); sw.className = "ov-varies-switch"; sw.textContent = tr("varies.avgSwitch", { n: other }); avg.appendChild(sw); }
+    avg.disabled = months.length <= 3;
+  }
+  const wrap = document.getElementById("ov-varies-payers-wrap");
+  const list = document.getElementById("ov-varies-payers");
+  wrap.hidden = !(v.byPayer && v.byPayer.length && v.varies > 0.004);
+  list.innerHTML = "";
+  if (!wrap.hidden) v.byPayer.slice(0, 5).forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "ov-varies-payer";
+    row.innerHTML = `<span class="ov-varies-payer-name">${escapeHtml(p.name || tr("varies.noPayer"))}<span class="hint"> · ${escapeHtml(tr("varies.times", { n: p.count }))}</span></span><span class="income">${escapeHtml(formatPen(p.amount))}</span>`;
+    list.appendChild(row);
+  });
+}
+document.getElementById("ov-varies-avg").addEventListener("click", () => {
+  localStorage.setItem("variesAvgN", localStorage.getItem("variesAvgN") === "6" ? "3" : "6");
+  const d = overviewCache_[overviewKey_(getPeriodBounds())];
+  if (d) renderIncomeVaries_(d.incomeVaries);
+});
 
 // Speed (owner, 2026-11-07): once the shown month or year has fully loaded (figures AND entry list), the one before it is fetched in the
 // background (figures only, ONE call, never at the same time as the period being shown), so tapping ‹ shows it at once; it is then
@@ -10766,8 +10817,16 @@ function renderFirstSteps_() {
   const days = since ? Math.floor((Date.now() - since) / 86400000) : 0;
   // Only accounts the person added count: the built-in Cash (and the practice's account) is in every copy from the start.
   const ownAccounts = (meta.paymentMethods || []).filter((p) => String(p.id) !== String((meta.settings || {}).cash_account_id || "") && p.type !== "cash" && !isPracticeAccountName_(p.nickname));
-  const steps = [{ done: ownAccounts.length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() }];
-  if (caps.bankEmails) {
+  // Income that varies (owner, 2026-11-07): the first income or expense comes first, and the bank steps only once a bank account exists.
+  const varies = !!caps.incomeVaries && payVaries_();
+  const hasBank = ownAccounts.some((p) => p.bank_id && !["cash", "wallet", "investment"].includes(p.type));
+  const steps = [];
+  if (varies) {
+    const anyEntry = !!(homeGlance_ && (homeGlance_.months || []).some((m) => m.income > 0 || m.expense > 0));
+    steps.push({ done: anyEntry, text: tr("firstSteps.firstEntry"), hint: tr("firstSteps.firstEntryHint"), go: () => openNewEntrySheet_() });
+  }
+  steps.push({ done: ownAccounts.length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() });
+  if (caps.bankEmails && (!varies || hasBank)) {
     // Which inbox is read and how other banks' e-mails get there (the Bank emails sheet): a step here instead of a sheet that opened
     // by itself right after the welcome (owner, 2026-11-04: one thing at a time). Done once the person opened it.
     steps.push({ done: fsFlag_("etBankMailIntro"), text: tr("firstSteps.bankMail"), hint: tr("firstSteps.bankMailHint"),
@@ -10777,7 +10836,7 @@ function renderFirstSteps_() {
     const late = days >= 3 && !(info.health && info.health.problem);
     steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => showBankEmailsScreen() });
   }
-  steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("data-statements-btn").click(); renderFirstSteps_(); } });
+  if (!varies || hasBank) steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("data-statements-btn").click(); renderFirstSteps_(); } });
   if (steps.every((st) => st.done)) { card.hidden = true; return; }
   const list = document.getElementById("first-steps-list");
   list.innerHTML = "";
@@ -11777,9 +11836,46 @@ function fillFitsChips_(box, selected, onToggle, compact) {
   });
 }
 const fitsToggled_ = (list, a) => (list.includes(a) ? list.filter((x) => x !== a) : list.concat(a));
+// "How do you get paid?" (owner, 2026-11-07): a fixed salary, or it varies — then ONE kind (sales, freelance, daily work), which adds
+// that income category. The same choices on the welcome and in My profile. sel = { pay: "salary"|"varies"|"", kind }.
+function fillPayChoices_(box, sel, onPick) {
+  box.innerHTML = "";
+  const row = document.createElement("div");
+  row.className = "welcome-choices";
+  [["salary", "pay.salary"], ["varies", "pay.varies"]].forEach(([v, key]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "welcome-choice" + (sel.pay === v ? " active" : "");
+    b.textContent = tr(key);
+    b.addEventListener("click", () => onPick({ pay: v, kind: v === "varies" ? sel.kind || "" : "" }));
+    row.appendChild(b);
+  });
+  box.appendChild(row);
+  if (sel.pay !== "varies") return;
+  const q = document.createElement("p");
+  q.className = "hint";
+  q.textContent = tr("pay.kindQ");
+  box.appendChild(q);
+  const kinds = document.createElement("div");
+  kinds.className = "welcome-choices pay-kinds";
+  ["sales", "freelance", "daily"].forEach((k) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "welcome-choice" + (sel.kind === k ? " active" : "");
+    b.textContent = tr("pay.kind." + k);
+    b.addEventListener("click", () => onPick({ pay: "varies", kind: k }));
+    kinds.appendChild(b);
+  });
+  box.appendChild(kinds);
+}
+const payFromSetting_ = (v) => { const [pay, kind] = String(v || "").split(":"); return { pay: pay === "salary" || pay === "varies" ? pay : "", kind: kind || "" }; };
+const payVaries_ = () => payFromSetting_(meta && meta.settings && meta.settings.pay).pay === "varies";
 function renderWelcomeFits_() {
   I18n.applyStatic(welcomeEl_("welcome-fits"));
   welcomeEl_("wf-step").textContent = tr("welcome.step", { n: 2 });
+  const payOn = !!(meta && meta.capabilities && meta.capabilities.incomeVaries);
+  welcomeEl_("wpay-block").hidden = !payOn;
+  if (payOn) fillPayChoices_(welcomeEl_("wpay-box"), welcome_.payChoice || { pay: "", kind: "" }, (c) => { welcome_.payChoice = c; renderWelcomeFits_(); });
   fillFitsChips_(welcomeEl_("wf-chips"), welcome_.fits, (a) => { welcome_.fits = fitsToggled_(welcome_.fits, a); renderWelcomeFits_(); });
   waEl_("wb-block").hidden = !businessOffered();   // the business question is only asked where the pack is offered
   if (!businessOffered()) welcome_.business = false;
@@ -12158,6 +12254,10 @@ async function finishWelcome_() {
     if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
     // The category packs. An older backend lacks the action (the app only asks one that says it has it), and a failure here never blocks the
     // welcome: the same packs can be added later from More → My profile → What fits me.
+    // How do you get paid? (after the picks: its category is one more income category)
+    if (welcome_.payChoice && welcome_.payChoice.pay && meta && meta.capabilities && meta.capabilities.incomeVaries) {
+      try { await callApi("setPay", welcome_.payChoice); } catch (e) { /* can be answered again in My profile */ }
+    }
     if (welcome_.fits.length && meta && meta.capabilities && meta.capabilities.profile) {
       try { await callApi("applyProfile", { answers: welcome_.fits }); } catch (e) { /* see above */ }
     }
@@ -12180,7 +12280,7 @@ async function finishWelcome_() {
   welcomeEl_("welcome-accounts").hidden = true;
   welcomeEl_("welcome-platforms").hidden = true;
   // The new accounts, platforms and categories must show up in the app right away (entry form, Accounts & cards): reload on the way out.
-  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName;
+  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName || !!(welcome_.payChoice && welcome_.payChoice.pay);
   const toTour = () => {
     if (perfShareState_().asked) openTour_(reloadAfter);
     else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
@@ -12640,6 +12740,9 @@ async function showMyProfileScreen() {
   fitsOpen_(false);   // closed every time the screen opens: it is for a one-off choice, and it is long
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
+  document.getElementById("my-profile-pay-card").hidden = !caps.incomeVaries;
+  document.getElementById("my-profile-pay-msg").textContent = "";
+  if (caps.incomeVaries) drawProfilePay_(payFromSetting_(meta.settings && meta.settings.pay));
   try {
     const [names, state] = await Promise.all([
       callApi("getOwnerNames", {}),
@@ -12655,6 +12758,20 @@ async function showMyProfileScreen() {
   } catch (e) {
     loading.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(e.message)}</p>`;
   }
+}
+// How I get paid: a tap on "A fixed salary" or on a kind saves at once; "It varies" alone only opens the kinds.
+function drawProfilePay_(sel) {
+  fillPayChoices_(document.getElementById("my-profile-pay"), sel, (c) => {
+    drawProfilePay_(c);
+    if (c.pay === "varies" && !c.kind) return;
+    const msg = document.getElementById("my-profile-pay-msg");
+    msg.textContent = tr("common.savingToast");
+    callApi("setPay", c).then((r) => {
+      if (meta && meta.settings) meta.settings.pay = r.pay;
+      msg.textContent = r.added ? tr("prof.payAdded", { name: r.added.name }) : tr("prof.paySaved");
+      if (r.added) loadMeta && loadMeta().catch(() => {});
+    }).catch(() => { msg.textContent = tr("prof.payFailed"); });
+  });
 }
 document.getElementById("more-my-profile-btn").addEventListener("click", showMyProfileScreen);
 document.getElementById("my-profile-back-btn").addEventListener("click", () => showScreen("more"));
@@ -15152,6 +15269,8 @@ function openCatModal_(cat) {
   document.querySelectorAll("#cat-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === catModalState.type));
   document.getElementById("cat-name").value = cat ? cat.name : "";
   document.getElementById("cat-emoji").value = cat ? (cat.icon || "") : "";
+  document.getElementById("cat-earning").value = cat && cat.earning ? cat.earning : (cat ? "none" : "varies");
+  syncCatEarning_();
   document.getElementById("cat-form-error").textContent = "";
   document.getElementById("cat-reassign").hidden = true;
   const manageable = !!cat && cat.key !== "other";
@@ -15183,8 +15302,14 @@ document.querySelectorAll("#cat-type-tabs .type-tab").forEach((tab) => {
     if (!catModalState) return;
     catModalState.type = tab.dataset.type;
     document.querySelectorAll("#cat-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    syncCatEarning_();
   });
 });
+// Income categories: regular pay, income that varies, or not earnings (owner, 2026-11-07; IncomeVaries.gs). Where the backend knows it.
+function syncCatEarning_() {
+  const on = !!(catModalState && catModalState.type === "income" && meta && meta.capabilities && meta.capabilities.incomeVaries);
+  document.getElementById("cat-earning-wrap").hidden = !on;
+}
 document.getElementById("cat-name").addEventListener("input", () => catModalState && updateCatPreview_());
 document.getElementById("cat-emoji").addEventListener("input", () => catModalState && updateCatPreview_());
 
@@ -15203,6 +15328,7 @@ document.getElementById("cat-save-btn").addEventListener("click", async () => {
       icon: document.getElementById("cat-emoji").value.trim(),
       color: catModalState.color
     };
+    if (!document.getElementById("cat-earning-wrap").hidden) payload.income_kind = document.getElementById("cat-earning").value;
     closeCatModal_();
     saveBehindScreen_(() => callApi("saveCategory", payload), refreshCategoriesAfterChange_);
   } catch (err) { errorEl.textContent = err.message; }
@@ -21343,7 +21469,7 @@ function guidedEntrySteps_() {
   const accountText = { expense: "spot.g.accExp", income: "spot.g.accInc", transfer: "spot.g.accFrom", investment: "spot.g.accInv" };
   return [
     { key: "intro", text: () => tr("spot.g.intro"), button: () => tr("spot.g.start") },
-    { key: "type", target: "#entry-type-tabs", text: () => tr("spot.g.type"), tap: "#entry-type-tabs", button: () => tr("spot.g.keepExpense") },
+    { key: "type", target: "#entry-type-tabs", text: () => tr(payVaries_() ? "spot.g.typeVaries" : "spot.g.type"), tap: "#entry-type-tabs", button: () => tr("spot.g.keepExpense") },
     { key: "category", target: "#category-picker", text: () => tr(selectedType === "income" ? "spot.g.catIncome" : "spot.g.cat"),
       until: () => !document.getElementById("entry-form").hidden, available: () => ICON_PICKER_TYPES.includes(selectedType), before: async () => shownNow("category-picker") },
     { target: "#repayment-field", text: () => tr("spot.g.transferKind"), visit: "#transfer-kind", button: next,
