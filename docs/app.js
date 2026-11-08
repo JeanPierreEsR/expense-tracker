@@ -9841,30 +9841,41 @@ function budgetStartLabel_(type, value) {
   if (value === budgetPeriodKey_(type, 1)) return tr(K.next, { name });
   return budgetPeriodName_(type, value);
 }
+// A period other than the current one is made obvious (owner, 2026-11-08: a tap by mistake while looking around saved a budget that
+// starts later): the box is outlined in blue and a line says what it means.
 function setBudgetStart_(value) {
   const btn = document.getElementById("budget-start");
   btn.dataset.value = value;
   btn.textContent = budgetStartLabel_(budgetPeriodType, value);
+  const cur = budgetPeriodKey_(budgetPeriodType, 0);
+  btn.classList.toggle("changed", value !== cur);
+  const note = document.getElementById("budget-start-note");
+  const when = value === "always" ? "" : budgetPeriodName_(budgetPeriodType, value, true);
+  note.hidden = value === cur || value === "always";
+  if (!note.hidden) note.textContent = tr(value > cur ? "budget.startNoteLater" : "budget.startNoteEarlier", { when, now: budgetPeriodName_(budgetPeriodType, cur, true) });
 }
+let budgetEditingStart_ = "";   // the planned start of a budget being edited that has not started yet ('' otherwise)
 function fillBudgetStart_() {
   const wrap = document.getElementById("budget-start-wrap");
-  wrap.hidden = !!editingBudgetId || !budgetHistoryOn_();
+  wrap.hidden = (!!editingBudgetId && !budgetEditingStart_) || !budgetHistoryOn_();
   if (wrap.hidden) return;
-  setBudgetStart_(budgetPeriodKey_(budgetPeriodType, 0));
+  const own = budgetEditingStart_ && budgetPeriodType === budgetEditingType_ ? budgetEditingStart_ : budgetPeriodKey_(budgetPeriodType, 0);
+  setBudgetStart_(own);
   const y = budgetPeriodType === "yearly";
   const hint = document.getElementById("budget-start-hint");
   hint.hidden = !y;
   hint.textContent = y ? tr("budget.startYearlyHint") : "";
 }
+let budgetEditingType_ = "";
 document.getElementById("budget-start").addEventListener("click", () => {
   const type = budgetPeriodType, value = document.getElementById("budget-start").dataset.value || budgetPeriodKey_(type, 0);
   const keyOf = (d) => type === "yearly" ? String(d.getFullYear()) : type === "weekly" ? isoOf_(mondayDate_(d)) : `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
   const dateOf = (k) => { const [a, b, c] = k.split("-").map(Number); return new Date(a, (b || 1) - 1, c || 1); };
   const pick = (v) => { setBudgetStart_(v); closePeriodPicker_(); };
+  // No "Every earlier month too" here (owner, 2026-11-08: confusing next to the months; to look back, pick an early month).
   openPeriodGrid_({ kind: type === "yearly" ? "year" : type === "weekly" ? "week" : "month",
     selected: dateOf(value === "always" ? budgetPeriodKey_(type, 0) : value),
-    onPick: (d) => pick(keyOf(d)),
-    chip: { label: tr(budgetKindKeys_(type).always), selected: value === "always", onPick: () => pick("always") } });
+    onPick: (d) => pick(keyOf(d)) });
 });
 
 // Editing a budget: a new amount counts from this month (year) on, earlier ones keep theirs (owner, 2026-11-07; Budgets.gs).
@@ -9987,6 +9998,8 @@ document.getElementById("budget-rate-warning-link").addEventListener("click", as
 function openBudgetModal(budget) {
   refreshAlertHints_();
   editingBudgetId = budget ? budget.id : null;
+  budgetEditingStart_ = budget && budget.start_later ? budget.start_later : "";
+  budgetEditingType_ = budget ? budget.period_type : "";
   document.getElementById("budget-modal-title").textContent = budget ? tr("budgetModal.edit") : tr("budgetModal.add");
   document.getElementById("budget-form-error").textContent = "";
   document.getElementById("budget-name").value = budget ? (budget.name || "") : "";
@@ -10080,6 +10093,24 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     const budgetId = editingBudgetId;
     if (budgetId && budgetEditingEnded_) fields.restart = true;   // an ended budget: Save starts it again from this period
     let startsLater = "";
+    // Already a budget of this kind for exactly these categories (one shown now, or one that starts later): say which, and offer to
+    // open it, while the form is still open (owner, 2026-11-08). The server checks again.
+    const sameSet = (b) => (b.all_categories ? "ALL" : (b.category_ids || []).slice().sort().join(",")) === (isEveryCategory ? "ALL" : Array.from(selectedBudgetCategoryIds).sort().join(","));
+    const twin = budgetsLoaded_.concat(budgetsLater_).find((b) => b.id !== budgetId && !b.ended && b.period_type === budgetPeriodType && sameSet(b));
+    if (twin) {
+      errorEl.textContent = tr(twin.start_later ? "budget.dupLater" : "budget.dupNow", { kind: tr("budget.adj." + budgetPeriodType), name: twin.category_name, when: twin.start_later ? budgetPeriodName_(twin.period_type, twin.start_later, true) : "" });
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "add-inline budget-dup-open";
+      open.textContent = tr("budget.dupOpen");
+      open.addEventListener("click", () => { closeBudgetModal(); openBudgetModal(twin); });
+      errorEl.appendChild(document.createElement("br"));
+      errorEl.appendChild(open);
+      return;
+    }
+    if (budgetId && budgetEditingStart_ && budgetHistoryOn_() && budgetPeriodType === budgetEditingType_) {
+      fields.start = document.getElementById("budget-start").dataset.value || undefined;   // a budget that has not started: its start can move
+    }
     if (!budgetId && budgetHistoryOn_()) {
       fields.start = document.getElementById("budget-start").dataset.value || undefined;
       // A later period (next month, or any one after it): say when it starts, since it is not listed in the period shown now.
@@ -10159,7 +10190,7 @@ async function refreshBudgets() {
   const budgetsKey = JSON.stringify(projectionPeriodPayload_());
   // A period already fetched (shown before, or preloaded) is drawn at once, then fetched fresh and replaced (same as Overview).
   if (budgetsLoadedKey_ !== budgetsKey && budgetsCache_[budgetsKey]) {
-    budgetsLoaded_ = budgetsCache_[budgetsKey].budgets; budgetsSummary_ = budgetsCache_[budgetsKey].summary;
+    budgetsLoaded_ = budgetsCache_[budgetsKey].budgets; budgetsSummary_ = budgetsCache_[budgetsKey].summary; budgetsLater_ = budgetsCache_[budgetsKey].later || [];
     budgetsLoadedKey_ = budgetsKey; setLoadFailed_("budgets", null); drawBudgets_();
   }
   // First load: "Loading…" under the heading, never an empty card (loading standard; testers saw 4-5 s of a bare "Budgets", 2026-11-07).
@@ -10176,6 +10207,7 @@ async function refreshBudgets() {
   setLoadFailed_("budgets", null);
   budgetsLoaded_ = data.budgets;   // (the first-use practice checks it for a budget the person already has)
   budgetsSummary_ = data.summary;
+  budgetsLater_ = data.later || [];
   const still = new Set(data.budgets.map((b) => b.id));
   budgetsSelected_ = new Set([...budgetsSelected_].filter((id) => still.has(id)));
   budgetsCache_[budgetsKey] = data;
@@ -10198,7 +10230,23 @@ function preloadBudgetsNeighbour_() {
 }
 
 // Draws the budget rows and the totals from what refreshBudgets last fetched (no server call): also used by Edit mode.
+// "Starts later: ⚽ Sports (February 2027) ›" under the list: budgets planned for a later period never vanish (owner, 2026-11-08).
+let budgetsLater_ = [];
+function drawBudgetsLater_() {
+  const box = document.getElementById("budgets-later");
+  box.innerHTML = "";
+  box.hidden = !budgetsLater_.length;
+  budgetsLater_.forEach((b) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "budgets-later-row";
+    row.textContent = tr("budgets.startsLaterRow", { name: `${b.category_icon ? b.category_icon + " " : ""}${b.category_name}`, when: budgetPeriodName_(b.period_type, b.start_later, true) });
+    row.addEventListener("click", () => openBudgetModal(b));
+    box.appendChild(row);
+  });
+}
 function drawBudgets_() {
+  drawBudgetsLater_();
   const budgets = budgetsLoaded_, summary = budgetsSummary_;
   const canEdit = !!(meta && meta.capabilities && meta.capabilities.budgetsBulkDelete);
   document.getElementById("budgets-edit-btn").hidden = !(canEdit && budgets.length);

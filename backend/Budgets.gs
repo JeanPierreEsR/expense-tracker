@@ -344,7 +344,8 @@ function listBudgets(payload) {
       progress: computeBudgetProgressWithContext_(b, ctx, displayPeriodType, anchorDate),
       active_now: budgetActiveNow_(b, ctx),   // running this month (year): counts in the totals below
       ended: budgetEndedNow_(b, ctx.budgetHistory[String(b.id)]),
-      end_deletes: !budgetRanBefore_(b, ctx.budgetHistory[String(b.id)])   // ending it would delete it completely (endBudget)
+      end_deletes: !budgetRanBefore_(b, ctx.budgetHistory[String(b.id)]),   // ending it would delete it completely (endBudget)
+      start_later: budgetPlannedStart_(b, ctx.budgetHistory[String(b.id)])   // starts in a later period: '2027-02', '2027', a Monday
     };
   });
   // The period's own categories name the row when they were different then (a change of categories counts forward only).
@@ -380,6 +381,9 @@ function listBudgets(payload) {
   // a yearly budget on the very same category are the same case (two caps
   // on one spend pool), not two independent amounts to add together.
   var shown = budgets.filter(function (x) { return x.progress.exists; });
+  // Budgets that start later are listed apart, so they never vanish (owner, 2026-11-08: a budget saved to start later was invisible,
+  // yet blocked making it again).
+  var later = budgets.filter(function (x) { return x.start_later && !x.progress.exists; });
   budgets = budgets.filter(function (x) { return x.active_now; });   // the totals card: standing budgets, whatever period is shown
   var allExpenseCategoryIds = Object.keys(categoryById).filter(function (id) {
     return categoryById[id].type === 'expense';
@@ -457,6 +461,7 @@ function listBudgets(payload) {
 
   return {
     budgets: shown,
+    later: later,
     summary: {
       monthlyPen: monthlyPen,
       yearlyPen: yearlyPen,
@@ -687,6 +692,7 @@ function updateBudget(payload) {
   if (payload.thresholds !== undefined) payload.thresholds = normalizeBudgetThresholds_(payload.thresholds);
   var before = getAllRows('Budgets').find(function (b) { return b.id === payload.id; });
   if (payload.restart) restartBudget_(before, payload);
+  else if (payload.start !== undefined && budgetPlannedStart_(before, budgetRows_(before.id))) moveBudgetStart_(before, payload);
   else recordBudgetChange_(before, payload);
 
   ['category_id', 'amount', 'currency', 'period_type', 'thresholds', 'name'].forEach(function (field) {
@@ -1067,6 +1073,28 @@ function budgetEndedNow_(budget, rows) {
 function budgetRanBefore_(budget, rows) {
   var key = budgetCurrentPeriodKey_(budgetKind_(budget.period_type), 0);
   return !rows || !rows.length || rows.some(function (r) { return r.from < key && !r.ended; });
+}
+
+// A budget that starts in a later period (planned, not running now, not ended): its start key, else ''.
+function budgetPlannedStart_(budget, rows) {
+  if (!rows || !rows.length) return '';
+  var key = budgetCurrentPeriodKey_(budgetKind_(budget.period_type), 0);
+  if (budgetStateAt_(budget, rows, key).exists) return '';
+  var planned = rows.filter(function (r) { return r.from > key && !r.ended; });
+  return planned.length ? planned[0].from : '';
+}
+
+// Moves a budget that has not started yet to another start (owner, 2026-11-08): its rows are replaced by one row at the new start,
+// with the values saved now. A start in the past simply makes it count from then.
+function moveBudgetStart_(current, payload) {
+  var type = budgetKind_(payload.period_type !== undefined ? payload.period_type : current.period_type);
+  var after = {
+    amount: payload.amount !== undefined ? Number(payload.amount) : Number(current.amount),
+    currency: payload.currency !== undefined && payload.currency ? payload.currency : (current.currency || homeCurrency_()),
+    category_id: payload.category_id !== undefined ? String(payload.category_id) : String(current.category_id || '')
+  };
+  if (budgetHistorySheetExists_()) deleteRowsWhere_('Budget History', function (r) { return String(r.budget_id) === String(current.id); });
+  writeBudgetHistoryRow_(current, budgetStartKey_(type, payload.start), after, false);
 }
 
 function budgetActiveNow_(budget, ctx) {

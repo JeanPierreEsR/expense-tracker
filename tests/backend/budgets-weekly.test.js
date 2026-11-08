@@ -118,3 +118,21 @@ test("the Spending pace card in Week / Year / Custom views: each range's running
   assert.ok(ref.expense >= 5);
   assert.equal(rt.api("getMeta", {}).capabilities.paceRanges, true);
 });
+
+test("a budget that starts later is listed apart (never invisible), and its start can still be moved", () => {
+  const rt = setup();
+  const [y, m] = today().split("-").map(Number);
+  const k = (n) => { const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+  const b = rt.api("addBudget", { category_id: "cat-wk", amount: 80, currency: "PEN", period_type: "monthly", start: k(3) });
+  const now = rt.api("listBudgets", { displayPeriodType: "month" });
+  assert.equal(now.budgets.some((x) => x.id === b.id), false, "not in this month");
+  const later = now.later.find((x) => x.id === b.id);
+  assert.equal(later.start_later, k(3));
+  rt.api("updateBudget", { id: b.id, amount: 90, start: k(1) });
+  const moved = rt.api("listBudgets", { displayPeriodType: "month" }).later.find((x) => x.id === b.id);
+  assert.equal(moved.start_later, k(1));
+  rt.api("updateBudget", { id: b.id, start: k(0) });
+  const started = rt.api("listBudgets", { displayPeriodType: "month" });
+  assert.equal(started.budgets.find((x) => x.id === b.id).progress.effectiveAmount, 90, "it runs from this month, with the amount saved");
+  assert.equal(started.later.length, 0);
+});
