@@ -48,7 +48,11 @@ function getHomeGlance() {
   keys.forEach(function (k) { perMonth[k] = { month: k, income: 0, expense: 0, investment: 0 }; });
 
   // Budgets: only the monthly ones count toward "this month" (a yearly one is a different promise).
-  var monthlyBudgets = getAllRows('Budgets').filter(function (b) { return b.period_type !== 'yearly'; });
+  // Only those running this month: an ended budget, or one that starts later, is not part of it (Budgets.gs § Budget history).
+  var budgetHist = budgetHistory_();
+  var monthlyBudgets = getAllRows('Budgets').filter(function (b) {
+    return budgetKind_(b.period_type) === 'monthly' && budgetActiveNow_(b, { budgetHistory: budgetHist });
+  });
   var budgetIds = monthlyBudgets.map(function (b) { return parseBudgetCategoryIds_(b.category_id); });
   function insideBudgets_(categoryId) {
     return budgetIds.some(function (ids) { return categoryIdMatches_(ids, categoryId); });
@@ -102,8 +106,15 @@ function getHomeGlance() {
 
   var budget = null;
   if (monthlyBudgets.length) {
-    var totalPen = listBudgets({}).summary.monthlyPen;
-    if (totalPen > 0) budget = { totalPen: totalPen, spentPen: budgetSpent, daysLeft: pace.curDays - curDay };
+    var listed = listBudgets({});
+    var totalPen = listed.summary.monthlyPen;
+    // How many monthly budgets are already over (owner, 2026-11-07): "left" adds the budgets together on purpose (overspending in one
+    // leaves less for the others), so the card says it in words instead of letting the overruns disappear into the total.
+    var overCount = listed.budgets.filter(function (b) {
+      var p = b.progress;
+      return b.period_type === 'monthly' && p && p.spent != null && p.spent > p.effectiveAmount + 0.005;
+    }).length;
+    if (totalPen > 0) budget = { totalPen: totalPen, spentPen: budgetSpent, daysLeft: pace.curDays - curDay, overCount: overCount };
   }
 
   return { months: months, pace: pace, budget: budget, trips: homeActiveTrips_(today), unreadable: unreadableSheetRows_(), charges: pendingChargesSummary_() };
@@ -115,7 +126,9 @@ function getHomeGlance() {
 // the Overview asks for it, so Home's single glance request stays light.
 var HOME_HISTORY_MAX_MONTHS_ = 120;
 
-function getMonthlyHistory() {
+function getMonthlyHistory(payload) {
+  // The Spending pace screen (owner, 2026-11-07) can follow only some categories (one category, or one budget's): their expenses only.
+  var onlyCats = payload && payload.categoryIds && payload.categoryIds.length ? payload.categoryIds.map(String) : null;
   var today = formatCalendarDate_(new Date());
   var curKey = today.substring(0, 7);
   var curDay = Number(today.substring(8, 10));
@@ -130,6 +143,7 @@ function getMonthlyHistory() {
   var firstKey = curKey;
   getAllRows('Entries').forEach(function (e) {
     if (e.status !== 'confirmed' || e.type === 'transfer') return;
+    if (onlyCats && (e.type !== 'expense' || onlyCats.indexOf(String(e.category_id)) < 0)) return;
     var key = String(e.date).substring(0, 7);
     if (key > curKey) return;
     var rate = getRateForEntryCurrency_(e.currency, e.date);

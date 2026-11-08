@@ -89,6 +89,22 @@ test("budget: no monthly budget = no card; otherwise the total against spend ins
   assert.ok(b.daysLeft >= 0);
 });
 
+test("budget: the card counts the monthly budgets already over; 'left' still adds them together", () => {
+  const rt = setup();
+  rt.api("addBudget", { category_id: "cat-a", amount: 100, currency: "PEN", period_type: "monthly" });
+  rt.api("addBudget", { category_id: "cat-b", amount: 500, currency: "PEN", period_type: "monthly" });
+  entry(rt, { amount: 100, category_id: "cat-a" });   // exactly at the limit: not over
+  let b = rt.api("getHomeGlance", {}).budget;
+  assert.equal(b.overCount, 0);
+  entry(rt, { amount: 60, category_id: "cat-a" });    // 160 of 100: over
+  b = rt.api("getHomeGlance", {}).budget;
+  assert.equal(b.overCount, 1);
+  assert.equal(b.totalPen - b.spentPen, 440, "600 in all minus 160 spent: the overrun eats the other budget's room, on purpose");
+  rt.api("addBudget", { category_id: "cat-b", amount: 10, currency: "PEN", period_type: "yearly" });
+  entry(rt, { amount: 50, category_id: "cat-b" });    // over the yearly 10, but a yearly budget is not part of the monthly card
+  assert.equal(rt.api("getHomeGlance", {}).budget.overCount, 1);
+});
+
 test("trips: only those running today, with their cost so far and budget", () => {
   const rt = setup();
   const t = rt.api("addTrip", { name: "Now trip", kind: "trip", start_date: monthsAgo(0) + "-01", end_date: "2099-12-31", budget_amount: 1000, emoji: "🏔️" });
@@ -132,4 +148,19 @@ test("monthly history: every month from the first entry to today, with each mont
   assert.equal(h.months[9].cum.length, h.curDay, "this month stops at today");
   assert.deepEqual([h.months[9].expense, h.months[9].income], [80, 500]);
   assert.equal(h.months[4].expense, 0, "a quiet month is still there");
+});
+
+test("month-by-month history for some categories only (the Spending pace screen's 'Which expenses')", () => {
+  const rt = setup();
+  entry(rt, { amount: 40, category_id: "cat-a" });
+  entry(rt, { amount: 90, category_id: "cat-b" });
+  entry(rt, { amount: 500, type: "income", category_id: "cat-i" });
+  const last = (h) => h.months[h.months.length - 1];
+  const all = last(rt.api("getMonthlyHistory", {}));
+  const onlyA = last(rt.api("getMonthlyHistory", { categoryIds: ["cat-a"] }));
+  assert.equal(all.expense, 130);
+  assert.equal(onlyA.expense, 40);
+  assert.equal(onlyA.income, 0, "only those categories' expenses");
+  assert.equal(onlyA.cum[onlyA.cum.length - 1], 40);
+  assert.equal(rt.api("getMeta", {}).capabilities.paceCategories, true);
 });

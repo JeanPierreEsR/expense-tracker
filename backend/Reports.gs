@@ -16,6 +16,7 @@ function getPeriodSummary(payload) {
   var endDate = payload && payload.endDate;
 
   var entries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; });
+  var everyConfirmed = filterEntriesByScope_(entries.filter(function (e) { return e.type !== 'transfer'; }), payload && payload.scope);   // income that varies: the months before
   if (startDate) entries = entries.filter(function (e) { return e.date >= startDate; });
   if (endDate) entries = entries.filter(function (e) { return e.date <= endDate; });
   // Transfers between the owner's own accounts are never income/expense —
@@ -41,6 +42,8 @@ function getPeriodSummary(payload) {
 
   var totals = { income: 0, expense: 0, investment: 0 };
   var excludedCount = 0;
+  var annualIds = annualEntryIdSet_();
+  var annualByCategory = {};
   // Investments are flows per platform in each entry's OWN currency (no conversion).
   var investmentFlows = {};
 
@@ -80,6 +83,8 @@ function getPeriodSummary(payload) {
     if (!bucket) return;
 
     addToBucket_(bucket.category, e.category_id, ownAmountPen, categoryById);
+    // The Annual-tagged part of each expense category: a monthly budget leaves it out, so the category row says "incl. … annual" (2026-11-07).
+    if (e.type === 'expense' && annualIds[e.id]) annualByCategory[e.category_id || ''] = (annualByCategory[e.category_id || ''] || 0) + ownAmountPen;
     // An entry with no tag / no account of the owner's still counts, in its
     // own "no tag" / "no account" slice, so each pie covers the whole total.
     var tagIds = tagIdsByEntry[e.id] || [];
@@ -101,6 +106,8 @@ function getPeriodSummary(payload) {
   totals.loans = loanFlows.netPen;
   excludedCount += loanFlows.excluded;
   var net = totals.income - totals.expense - totals.investment + totals.loans;
+  var expenseByCategory = bucketToList_(acc.expense.category, totals.expense, tr_('report.uncategorized'));
+  expenseByCategory.forEach(function (item) { if (annualByCategory[item.id] > 0.005) item.annual_pen = annualByCategory[item.id]; });
 
   return {
     totals: {
@@ -113,9 +120,11 @@ function getPeriodSummary(payload) {
     excludedCount: excludedCount,
     investmentsByPlatform: investmentFlowsToList_(investmentFlows, pmById),
     loans: { people: loanFlows.people, totals: loanFlows.totals },
+    owed: owedNow_(payload && payload.scope),
+    incomeVaries: incomeVariesSummary_(entries, everyConfirmed, categoryById, startDate, endDate),   // null when no income category varies
     breakdowns: {
       expense: {
-        byCategory: bucketToList_(acc.expense.category, totals.expense, tr_('report.uncategorized')),
+        byCategory: expenseByCategory,
         byTag: bucketToList_(acc.expense.tag, totals.expense, tr_('report.untagged')),
         byPaymentMethod: bucketToList_(acc.expense.paymentMethod, totals.expense, tr_('report.noAccount'))
       },
@@ -126,6 +135,21 @@ function getPeriodSummary(payload) {
       }
     }
   };
+}
+
+// What friends owe the owner and what he owes them TODAY, per currency (never converted), for the line under Overview's Loans card
+// (owner, 2026-11-07: the card shows the period's flows, not what is tied up). Same balances as the Loans tab; only on "Everything".
+function owedNow_(scope) {
+  if (scope) return null;
+  var toMe = {}, iOwe = {};
+  listLoanBalances({}).forEach(function (f) {
+    f.balances.forEach(function (b) {
+      if (b.net > 0) toMe[b.currency] = (toMe[b.currency] || 0) + b.net;
+      else iOwe[b.currency] = (iOwe[b.currency] || 0) - b.net;
+    });
+  });
+  var list = function (o) { return Object.keys(o).sort(function (a, b) { return a === homeCurrency_() ? -1 : (b === homeCurrency_() ? 1 : (a < b ? -1 : 1)); }).map(function (c) { return { currency: c, amount: o[c] }; }); };
+  return { toMe: list(toMe), iOwe: list(iOwe) };
 }
 
 // Overview's Loans card (owner's request, 2026-10-29): debts with friends AND banks, as FLOWS in the period, each in the loan's own

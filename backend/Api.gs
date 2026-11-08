@@ -206,7 +206,7 @@ function routeActionSwitch_(action, payload) {
     case 'listEntries': return listEntries(payload);
     case 'getPeriodSummary': return getPeriodSummary(payload);
     case 'getHomeGlance': return getHomeGlance();
-    case 'getMonthlyHistory': return getMonthlyHistory();
+    case 'getMonthlyHistory': return getMonthlyHistory(payload);
     case 'getExchangeRate': return getExchangeRate(payload.currency, payload.month);
     case 'getLatestRateOnOrBefore': return { rate: getLatestRateOnOrBefore_(payload.currency, payload.month), per_usd: perUsdAt_(payload.currency, payload.month) };
     case 'listExchangeRates': return listExchangeRates();
@@ -409,6 +409,7 @@ function routeActionSwitch_(action, payload) {
     case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);
     case 'admin_mergeDuplicatePaymentMethods': return mergeDuplicatePaymentMethods();
     case 'saveCategory': return saveCategory(payload);
+    case 'setPay': return setPay(payload);
     case 'deleteCategory': return deleteCategory(payload);
     case 'previewCategoryDelete': return previewCategoryDelete(payload);
     case 'deleteCategories': return deleteCategories(payload);
@@ -423,6 +424,8 @@ function routeActionSwitch_(action, payload) {
     case 'addBudget': return addBudget(payload);
     case 'updateBudget': return updateBudget(payload);
     case 'deleteBudget': return deleteBudget(payload.id);
+    case 'endBudget': return endBudget(payload);
+    case 'endBudgets': return endBudgets(payload);
     case 'deleteBudgets': return deleteBudgets(payload);
     case 'getBudgetChartSeries': return getBudgetChartSeries(payload);
     case 'listRecurringExpenses': return listRecurringExpenses();
@@ -1161,6 +1164,11 @@ function listEntries(payload) {
   if (payload && payload.excludeAnnual) {
     var annualIds = annualEntryIdSet_();
     entries = entries.filter(function (e) { return !annualIds[e.id]; });
+  }
+  // The other way round: only the Annual-tagged ones (a monthly budget's "… tagged Annual, not counted ›", 2026-11-07).
+  if (payload && payload.onlyAnnual) {
+    var annualOnly = annualEntryIdSet_();
+    entries = entries.filter(function (e) { return !!annualOnly[e.id]; });
   }
   if (payload && payload.tripId) {
     entries = entries.filter(function (e) { return e.trip_id === payload.tripId; });

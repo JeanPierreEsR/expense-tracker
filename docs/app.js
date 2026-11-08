@@ -663,7 +663,7 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
 
 // Saving or changing any of these can cross a budget, a trip budget or a loan's due date: a few seconds later the app asks the server to
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
-const ALERT_CHANGING_ACTIONS = new Set(["fillEntryCharge", "createEntry", "saveEntryAll", "updateEntry", "deleteEntries", "deleteBudget", "deleteBudgets", "deleteTrip", "deleteTrips", "deleteLoan", "deleteRepayment", "deleteSettlement", "confirmEntry", "discardEntry", "convertPendingToTransfer",
+const ALERT_CHANGING_ACTIONS = new Set(["fillEntryCharge", "createEntry", "saveEntryAll", "updateEntry", "deleteEntries", "deleteBudget", "deleteBudgets", "endBudget", "endBudgets", "deleteTrip", "deleteTrips", "deleteLoan", "deleteRepayment", "deleteSettlement", "confirmEntry", "discardEntry", "convertPendingToTransfer",
   "confirmEntries", "discardEntries", "setEntriesCategory", "undoSetEntriesCategory", "setEntriesTrip", "undoSetEntriesTrip", "restoreDeletedEntries",   // the bulk ones (QA round 1)
   "saveEntrySplits", "linkEntriesToTrip", "applyStatementDecisions", "addBudget", "updateBudget", "addTrip", "updateTrip",
   "addLoan", "updateLoan", "recordRepayment", "forgiveLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment"]);
@@ -6720,6 +6720,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   const list = document.getElementById("review-list");
   document.getElementById("review-count").textContent = entries.length;
   reviewEntries_ = entries;
+  updatePeriodPendingLine_();
   const stillWaiting = new Set(entries.map((e) => e.id));
   reviewSelected_ = new Set([...reviewSelected_].filter((id) => stillWaiting.has(id)));
   if (reviewEditing_) syncReviewEditBar_();
@@ -7483,6 +7484,7 @@ function refreshHomeGlance_(force) {
     .then((data) => {
       homeGlance_ = data;
       homeGlanceAt_ = Date.now();
+      renderFirstSteps_();   // "Record your first income or expense" is ticked from these figures
       try { localStorage.setItem(HOME_GLANCE_CACHE_KEY, JSON.stringify({ today: todayLocalISO(), data })); } catch (err) { /* only a convenience */ }
       renderHomeGlance_();
     })
@@ -7621,6 +7623,7 @@ function homeBudgetCard_(g) {
     tr("home.budgetDays", { n: daysLeft })
   ];
   if (left > 0 && daysLeft > 0) facts.push(tr("home.budgetPerDay", { amount: homeWhole_(left / daysLeft) }));
+  if (b.overCount > 0) facts.push(tr("home.budgetsOver", { n: b.overCount }));   // the overruns are inside "left": say so (owner, 2026-11-07)
   const budgetEl = homeCardEl_("home-card-budget home-card-tap", `
     <div class="home-card-label">${escapeHtml(tr("home.budgetTitle"))} ›</div>
     <div class="home-big">${escapeHtml(homeWhole_(b.spentPen))}</div>
@@ -7726,6 +7729,9 @@ function ensurePeriodSelectorIn(screenName) {
   if (card.parentElement !== target) {
     target.insertBefore(card, target.firstChild);
   }
+  // The Needs review line travels with it, just below (outside the card, which stays pinned at the top while scrolling).
+  const pending = document.getElementById("period-pending-line");
+  if (pending && card.nextElementSibling !== pending) card.after(pending);
   populateOverviewScope_(screenName === "overview");   // the "Showing" filter belongs to Overview only
 }
 
@@ -7785,6 +7791,8 @@ function showScreen(name) {
     refreshBudgets();
   }
   if (name === "projections") {
+    // Projections works by month or year: a Week shown elsewhere becomes the month holding the week's Thursday.
+    if (periodType === "week") { periodAnchor = anchorForPeriodSwitch_("week", "month"); periodType = "month"; renderPeriodSelector(); }
     ensurePeriodSelectorIn("projections");
     refreshProjectionsScreen();
   }
@@ -7900,19 +7908,38 @@ function monthBounds(d) {
   };
 }
 
+// A week runs Monday to Sunday (owner, 2026-11-07). "Nov 2 – 8, 2026" / "2 – 8 nov 2026"; across months or years both ends say so.
+function mondayDate_(d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+function isoOf_(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function weekLabel_(mon, sun) {
+  const es = I18n.getLang() === "es";
+  const mo = (d) => { const t = I18n.monthShort(d.getMonth(), true).replace(/\.$/, ""); return es ? t.toLowerCase() : t; };
+  const sameY = mon.getFullYear() === sun.getFullYear(), sameM = sameY && mon.getMonth() === sun.getMonth();
+  if (es) return sameM ? `${mon.getDate()} – ${sun.getDate()} ${mo(sun)} ${sun.getFullYear()}`
+    : `${mon.getDate()} ${mo(mon)}${sameY ? "" : " " + mon.getFullYear()} – ${sun.getDate()} ${mo(sun)} ${sun.getFullYear()}`;
+  return sameM ? `${mo(mon)} ${mon.getDate()} – ${sun.getDate()}, ${sun.getFullYear()}`
+    : `${mo(mon)} ${mon.getDate()}${sameY ? "" : ", " + mon.getFullYear()} – ${mo(sun)} ${sun.getDate()}, ${sun.getFullYear()}`;
+}
+function weekBounds(d) {
+  const mon = mondayDate_(d), sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+  return { startDate: isoOf_(mon), endDate: isoOf_(sun), label: weekLabel_(mon, sun) };
+}
+
 function yearBounds(d) {
   const y = d.getFullYear();
   return { startDate: `${y}-01-01`, endDate: `${y}-12-31`, label: String(y) };
 }
 
 function getPeriodBounds() {
+  if (periodType === "week") return weekBounds(periodAnchor);
   if (periodType === "month") return monthBounds(periodAnchor);
   if (periodType === "year") return yearBounds(periodAnchor);
   if (periodType === "alltime") return { startDate: null, endDate: null, label: tr("period.alltime") };
   if (periodType === "custom") {
     const start = document.getElementById("custom-start").value;
     const end = document.getElementById("custom-end").value;
-    return { startDate: start || null, endDate: end || null, label: tr("period.customRange") };
+    // The header names the chosen dates ("Oct 3, 2026 – Nov 15, 2026", "From Oct 3, 2026"), not just "Custom range".
+    return { startDate: start || null, endDate: end || null, label: rangeSummary_("open", start, end) || tr("period.customRange") };
   }
   return { startDate: null, endDate: null, label: "" };
 }
@@ -7928,14 +7955,35 @@ function renderPeriodSelector() {
     chip.classList.toggle("active", chip.dataset.periodType === periodType);
   });
 
-  const navVisible = periodType === "month" || periodType === "year";
+  const navVisible = periodType === "week" || periodType === "month" || periodType === "year";
   document.getElementById("period-prev").hidden = !navVisible;
   document.getElementById("period-next").hidden = !navVisible;
   document.getElementById("custom-range-fields").hidden = periodType !== "custom";
+  updatePeriodPendingLine_();
 }
 
+// Overview and Budgets don't count entries waiting in Needs review (principle 6), and nothing said so: a person who leaves the queue
+// for weeks read final-looking totals (Valeria, 2026-11-07). One line under the period, only for waiting entries dated in the period
+// shown, from the queue Home already holds (no extra call); a tap goes to it.
+function updatePeriodPendingLine_() {
+  const btn = document.getElementById("period-pending-line");
+  if (!btn) return;
+  const b = getPeriodBounds();
+  const n = (typeof reviewEntries_ !== "undefined" && reviewEntries_ ? reviewEntries_ : [])
+    .filter((e) => (!b.startDate || e.date >= b.startDate) && (!b.endDate || e.date <= b.endDate)).length;
+  const needsDates = periodType === "custom" && !b.startDate && !b.endDate;
+  btn.hidden = !n || needsDates;
+  if (n) btn.textContent = tr("period.pending", { n });
+}
+document.getElementById("period-pending-line").addEventListener("click", () => {
+  showScreen("entries");
+  setTimeout(() => { const card = document.getElementById("review-queue-card"); if (card && !card.hidden) card.scrollIntoView({ behavior: "smooth", block: "start" }); }, 150);
+});
+
 function movePeriod(delta) {
-  if (periodType === "month") {
+  if (periodType === "week") {
+    periodAnchor = new Date(periodAnchor.getFullYear(), periodAnchor.getMonth(), periodAnchor.getDate() + 7 * delta);
+  } else if (periodType === "month") {
     periodAnchor = new Date(periodAnchor.getFullYear(), periodAnchor.getMonth() + delta, 1);
   } else if (periodType === "year") {
     periodAnchor = new Date(periodAnchor.getFullYear() + delta, periodAnchor.getMonth(), 1);
@@ -8028,11 +8076,27 @@ document.getElementById("period-picker-backdrop").addEventListener("click", (e) 
 document.getElementById("period-picker-prev").addEventListener("click", () => { periodPickerYear -= 1; renderPeriodPicker_(); });
 document.getElementById("period-picker-next").addEventListener("click", () => { periodPickerYear += 1; renderPeriodPicker_(); });
 
+// Switching between Week and Month/Year keeps the place: into Week, the week of today when the period shown holds today, else its
+// first week; out of Week, the month (year) holding the week's Thursday.
+function anchorForPeriodSwitch_(from, to) {
+  if (from === to) return periodAnchor;
+  if (to === "week" && (from === "month" || from === "year")) {
+    const b = getPeriodBounds(), t = todayLocalISO();
+    if (t >= b.startDate && t <= b.endDate) return mondayDate_(new Date());
+    const [y, m, d] = b.startDate.split("-").map(Number);
+    return mondayDate_(new Date(y, m - 1, d + 3));   // the week holding most of the period's first days
+  }
+  if (from === "week") { const mon = mondayDate_(periodAnchor); return new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 3); }
+  return periodAnchor;
+}
 document.querySelectorAll(".period-type-chip").forEach((chip) => {
   chip.addEventListener("click", () => {
+    periodAnchor = anchorForPeriodSwitch_(periodType, chip.dataset.periodType);
     periodType = chip.dataset.periodType;
     renderPeriodSelector();
     if (periodType !== "custom") refreshCurrentPeriodScreen();
+    // Custom: Overview redraws at once (its dates if any were kept, otherwise "Pick a start and end date…"), instead of keeping the last period's figures.
+    else if (!document.getElementById("screen-overview").hidden) refreshOverview();
   });
 });
 
@@ -8081,7 +8145,7 @@ function refreshMonthsHistory_() {
     return Promise.resolve();
   }
   monthsHistBusy_ = callApi("getMonthlyHistory", {})
-    .then((data) => { monthsHist_ = data; monthsHistAt_ = Date.now(); renderMonthsHistory_(); })
+    .then((data) => { monthsHist_ = data; monthsHistAt_ = Date.now(); renderMonthsHistory_(); renderYearCompare_(); })
     .catch(() => { /* a bonus: the rest of Overview works without it */ })
     .finally(() => { monthsHistBusy_ = null; });
   return monthsHistBusy_;
@@ -8124,45 +8188,235 @@ function renderMonthsBars_() {
   box.scrollLeft = keep || box.scrollWidth;   // first paint lands on the newest months
 }
 
-function paceRefList_() {
-  return monthsHist_ ? monthsHist_.months.slice(0, -1) : [];
+document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.addEventListener("click", (e) => {
+  e.stopPropagation();   // the card itself opens the Spending pace screen
+  localStorage.setItem("paceRef", b.dataset.paceRef);
+  setPaceView_(null);    // the quick switch is the usual view: it ends a custom one
+  if (monthsHist_) renderPaceBig_();
+}));
+
+// ---- Spending pace: the card's comparison and the screen that customises it (owner, 2026-11-07) ----
+// The usual view follows the card's two-way switch. The screen (a tap on the card) can pick any blue month, what the grey line is (the
+// month before, the same month last year, the average of the 3 / 6 / 12 months before, or another month) and which expenses count (all,
+// one category, or one budget's categories). That custom view is kept on this phone until changed or reset, and the card shows it too.
+const paceKey_ = (y, m) => `${y}-${String(m).padStart(2, "0")}`;
+function paceShift_(k, n) { const [y, m] = k.split("-").map(Number); const d = new Date(y, m - 1 + n, 1); return paceKey_(d.getFullYear(), d.getMonth() + 1); }
+function paceMonthName_(k, mid) { const [y, m] = k.split("-").map(Number); return I18n.fmtMonthYear(new Date(y, m - 1, 1), mid); }
+function paceView_() { try { return JSON.parse(localStorage.getItem("paceView") || "null"); } catch (e) { return null; } }
+function setPaceView_(v) { if (v) localStorage.setItem("paceView", JSON.stringify(v)); else localStorage.removeItem("paceView"); }
+const paceCanFilter_ = () => !!(meta && meta.capabilities && meta.capabilities.paceCategories);
+const paceCatHist_ = {};   // "id,id" -> the month-by-month history of those categories only
+function paceCatIds_(view) { return view && view.cats && view.cats.ids && view.cats.ids.length && paceCanFilter_() ? view.cats.ids : null; }
+// The history a view needs: the usual one, or (for some categories) one fetched once and kept for 10 minutes.
+function paceHistFor_(view) {
+  const ids = paceCatIds_(view);
+  if (!ids) return monthsHist_ ? Promise.resolve(monthsHist_) : refreshMonthsHistory_().then(() => monthsHist_);
+  const k = ids.join(",");
+  const hit = paceCatHist_[k];
+  if (hit && Date.now() - hit.at < HOME_GLANCE_FRESH_MS) return Promise.resolve(hit.data);
+  return callApi("getMonthlyHistory", { categoryIds: ids }).then((data) => { paceCatHist_[k] = { data, at: Date.now() }; return data; });
 }
-
-function renderPaceBig_() {
-  const card = document.getElementById("pace-card");
-  const months = monthsHist_.months;
-  const cur = months[months.length - 1];
-  const list = paceRefList_();
-  // The grey reference line follows Overview's pinned period picker: the month picked there (when it is an
-  // earlier month than this one), otherwise last month. The card has no picker of its own.
-  const picked = periodType === "month" ? `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` : null;
-  const ref = list.length ? (list.find((m) => m.month === picked) || list[list.length - 1]) : null;
-  const nowTotal = cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
-  card.hidden = !nowTotal && !(ref && ref.expense > 0);
-  if (card.hidden) return;
-  const [ry, rmo] = ref ? ref.month.split("-").map(Number) : [0, 0];
-  const refName = ref ? I18n.fmtMonthYear(new Date(ry, rmo - 1, 1), true) : "";
-  document.getElementById("pace-ref-label").textContent = refName;
-
-  const W = 300, H = 150, pad = 6;
+// A day-by-day average of several months (each month's running total, the shorter ones held at their last day).
+function paceAverage_(ms) {
+  const days = Math.max(...ms.map((m) => m.days));
+  const cum = [];
+  for (let d = 0; d < days; d++) cum.push(ms.reduce((t, m) => t + (m.cum.length ? m.cum[Math.min(d, m.cum.length - 1)] : 0), 0) / ms.length);
+  return { month: null, days, cum, expense: ms.reduce((t, m) => t + m.expense, 0) / ms.length };
+}
+// Which month is blue and what the grey line is, for the custom view or (none) the card's two-way switch.
+function paceResolve_(hist, view) {
+  const months = hist.months, thisKey = months[months.length - 1].month;
+  const find = (k) => months.find((m) => m.month === k) || null;
+  let curKey, ref = null, refName = "", refStart = "", refBare = "", isAvg = false;
+  if (!view) {
+    if (periodType !== "month") return null;
+    const selKey = paceKey_(periodAnchor.getFullYear(), periodAnchor.getMonth() + 1);
+    const yearMode = localStorage.getItem("paceRef") === "year";
+    // "Against earlier months": this month is blue, a picked earlier month grey (else the month before); "Against last year": the picked month against a year earlier.
+    curKey = yearMode ? selKey : thisKey;
+    const rk = yearMode ? paceShift_(curKey, -12) : (selKey < thisKey ? selKey : paceShift_(thisKey, -1));
+    ref = find(rk); refName = paceMonthName_(rk, true); refStart = paceMonthName_(rk);   // refStart begins a line: capital letter
+  } else {
+    curKey = view.blue && view.blue !== "this" ? view.blue : thisKey;
+    const g = view.grey || { kind: "auto" };
+    if (g.kind === "avg") {
+      const ms = []; for (let i = 1; i <= g.n; i++) { const m = find(paceShift_(curKey, -i)); if (m) ms.push(m); }
+      if (ms.length) ref = paceAverage_(ms);
+      isAvg = true; refName = tr("pace.avgName", { n: g.n }); refStart = tr("pace.avgNameStart", { n: g.n }); refBare = tr("pace.avgBare", { n: g.n });
+    } else {
+      const rk = g.kind === "month" && g.month ? g.month : g.kind === "lastYear" ? paceShift_(curKey, -12) : paceShift_(curKey, -1);
+      ref = find(rk); refName = paceMonthName_(rk, true); refStart = paceMonthName_(rk);
+    }
+  }
+  return { cur: find(curKey), curKey, thisKey, ref, refName, refStart, refBare, isAvg, isThisMonth: curKey === thisKey, curDay: hist.curDay };
+}
+// Draws one comparison into a card or the screen: { label, svg, lines, days? } elements.
+function drawPace_(els, r, view) {
+  const { cur, ref } = r;
+  const curName = paceMonthName_(r.curKey);
+  const catName = view && view.cats && paceCatIds_(view) ? ` · ${view.cats.name}` : "";
+  const vsKey = (r.isThisMonth ? "pace.vs" : "pace.vsPast") + (r.isAvg ? "Avg" : "");   // Spanish: "frente AL promedio", not "frente a el"
+  els.label.textContent = (!ref ? `${curName} · ${tr("pace.noRef", { month: r.refName })}` : tr(vsKey, { cur: curName, ref: r.isAvg ? r.refBare : r.refName })) + catName;
+  const W = 300, H = Number(els.svg.getAttribute("viewBox").split(" ")[3]) || 150, pad = 6;
   const days = Math.max(cur.days, ref ? ref.days : 0);
+  const nowTotal = cur.cum.length ? cur.cum[cur.cum.length - 1] : 0;
   const top = Math.max(1, nowTotal, ref ? ref.cum[ref.cum.length - 1] || 0 : 0);
   const pt = (i, v) => `${(pad + (i / Math.max(1, days - 1)) * (W - 2 * pad)).toFixed(1)},${(H - pad - (v / top) * (H - 2 * pad)).toFixed(1)}`;
   const line = (arr) => arr.map((v, i) => pt(i, v)).join(" ");
   const last = cur.cum.length - 1;
   const [dx, dy] = last >= 0 ? pt(last, cur.cum[last]).split(",") : [0, 0];
-  document.getElementById("pace-svg").innerHTML = `
+  els.svg.innerHTML = `
     ${ref ? `<polyline class="prev" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${line(ref.cum)}"/>` : ""}
     <polyline class="cur" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${line(cur.cum)}"/>
-    ${last >= 0 ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}`;
-
-  const curDay = monthsHist_.curDay;
-  const sameDay = ref ? ref.cum[Math.min(curDay, ref.cum.length) - 1] || 0 : 0;
-  document.getElementById("pace-lines").innerHTML = `
-    <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(formatPen(nowTotal))}</b></div>
-    ${ref ? `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.refAtDay", { month: refName }))}<b>${escapeHtml(formatPen(sameDay))}</b>
-      <span class="hint">${escapeHtml(tr("pace.refWhole"))}: ${escapeHtml(formatPen(ref.expense))}</span></div>` : ""}`;
+    ${last >= 0 && r.isThisMonth ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}`;
+  if (els.days) els.days.innerHTML = [1, 8, 15, 22, 29].filter((d) => d <= days)
+    .map((d) => `<span style="left:${(((d - 1) / Math.max(1, days - 1)) * (W - 2 * pad) + pad) / W * 100}%">${d}</span>`).join("");
+  // This month: so far, against the grey line on the same day (and its whole total). A past month: both in full.
+  const sameDay = ref ? ref.cum[Math.min(r.curDay, ref.cum.length) - 1] || 0 : 0;
+  const against = ref ? (r.isThisMonth ? sameDay : ref.expense) : null;
+  const curLabel = r.isThisMonth ? tr("home.paceNow") : tr("pace.monthWhole", { month: paceMonthName_(r.curKey, true) });
+  const refLine = !ref ? "" : r.isThisMonth
+    ? `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.refAtDay", { month: r.refStart }))}<b>${escapeHtml(formatPen(sameDay))}</b>
+      <span class="hint">${escapeHtml(r.isAvg ? tr("pace.avgWhole") : tr("pace.refWholeDone", { month: r.refName }))}: ${escapeHtml(formatPen(ref.expense))}</span></div>`
+    : `<div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(r.isAvg ? r.refStart : tr("pace.monthWhole", { month: r.refName }))}<b>${escapeHtml(formatPen(ref.expense))}</b></div>`;
+  const diff = els.diff && against != null && against > 0.004
+    ? `<div class="pace-diff">${escapeHtml(tr("pace.diff", { amount: formatPenSigned_(nowTotal - against), pct: `${nowTotal >= against ? "+" : "−"}${Math.round(Math.abs(nowTotal - against) / against * 100)}%` }))}</div>` : "";
+  els.lines.innerHTML = `
+    <div><span style="color:var(--accent)">●</span> ${escapeHtml(curLabel)}<b>${escapeHtml(formatPen(nowTotal))}</b></div>${refLine}${diff}`;
 }
+
+function renderPaceBig_() {
+  const card = document.getElementById("pace-card");
+  const view = paceView_();
+  document.getElementById("pace-ref-switch").hidden = !!view;
+  document.getElementById("pace-custom-row").hidden = !view;
+  const yearMode = localStorage.getItem("paceRef") === "year";
+  document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.classList.toggle("active", b.dataset.paceRef === (yearMode ? "year" : "last")));
+  if (periodType !== "month") { card.hidden = true; return; }   // Year / All time / Custom: not about one month
+  const draw = (hist) => {
+    const r = hist && paceResolve_(hist, view);
+    const nowTotal = r && r.cur && r.cur.cum.length ? r.cur.cum[r.cur.cum.length - 1] : 0;
+    card.hidden = !r || !r.cur || (!nowTotal && !(r.ref && r.ref.expense > 0));
+    if (!card.hidden) drawPace_({ label: document.getElementById("pace-ref-label"), svg: document.getElementById("pace-svg"), lines: document.getElementById("pace-lines") }, r, view);
+  };
+  if (!paceCatIds_(view)) { draw(monthsHist_); return; }
+  // A custom view on some categories: drawn once their history has arrived (never all expenses under a category's name).
+  const k = paceCatIds_(view).join(",");
+  if (paceCatHist_[k]) draw(paceCatHist_[k].data); else { card.hidden = true; paceHistFor_(view).then(draw).catch(() => {}); }
+}
+
+document.getElementById("pace-card").addEventListener("click", (e) => {
+  if (e.target.closest("#pace-ref-switch, #pace-custom-row")) return;
+  openPaceScreen_();
+});
+document.getElementById("pace-custom-reset").addEventListener("click", (e) => {
+  e.stopPropagation();
+  setPaceView_(null);
+  if (monthsHist_) renderPaceBig_();
+});
+
+// The screen. It opens at once with "Loading…" and shows the chart only when everything it needs has arrived (loading standard).
+let paceScreenSeq_ = 0;
+function openPaceScreen_() {
+  const backdrop = document.getElementById("pace-screen-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  renderPaceScreen_();
+}
+function closePaceScreen_() { document.getElementById("pace-screen-backdrop").hidden = true; }
+document.getElementById("pace-screen-close").addEventListener("click", closePaceScreen_);
+
+async function renderPaceScreen_() {
+  const seq = ++paceScreenSeq_;
+  const view = paceView_();
+  const body = document.getElementById("pace-s-content"), loading = document.getElementById("pace-s-loading");
+  body.hidden = true; loading.hidden = false; loading.innerHTML = loadingHtml_();
+  let hist, baseHist;
+  try {
+    const wants = [paceHistFor_(view), paceHistFor_(null)];
+    if (paceCanFilter_() && !budgetsLoaded_) wants.push(callApi("listBudgets", {}).then((d) => { budgetsLoaded_ = budgetsLoaded_ || d.budgets; }).catch(() => {}));
+    [hist, baseHist] = await Promise.all(wants);
+  } catch (err) {
+    if (seq === paceScreenSeq_) loading.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
+    return;
+  }
+  if (seq !== paceScreenSeq_ || document.getElementById("pace-screen-backdrop").hidden) return;
+  // The screen always shows a full comparison: with no custom view it starts from what the card shows (or this month against the one before).
+  const r = paceResolve_(hist, view) || paceResolve_(hist, { blue: "this", grey: { kind: "auto" } });
+  fillPaceControls_(baseHist, view, r);
+  loading.hidden = true; body.hidden = false;
+  document.getElementById("pace-s-reset").hidden = !view;
+  if (!r.cur) { document.getElementById("pace-s-lines").innerHTML = `<p class="hint">${escapeHtml(tr("pace.noData"))}</p>`; document.getElementById("pace-s-svg").innerHTML = ""; return; }
+  drawPace_({ label: document.getElementById("pace-s-label"), svg: document.getElementById("pace-s-svg"), lines: document.getElementById("pace-s-lines"),
+    days: document.getElementById("pace-s-days"), diff: true }, r, view);
+}
+
+function fillPaceControls_(hist, view, r) {
+  const months = hist.months.slice().reverse();   // newest first
+  const thisKey = r.thisKey;
+  const opt = (v, t, sel) => `<option value="${v}"${sel ? " selected" : ""}>${escapeHtml(t)}</option>`;
+  const blueVal = view ? (view.blue || "this") : (r.curKey === thisKey ? "this" : r.curKey);
+  document.getElementById("pace-s-blue").innerHTML = opt("this", tr("pace.thisMonthOpt", { month: paceMonthName_(thisKey, true) }), blueVal === "this") +
+    months.filter((m) => m.month !== thisKey).map((m) => opt(m.month, paceMonthName_(m.month), blueVal === m.month)).join("");
+  // Grey: what the view says, or what the card's switch currently means.
+  let g = view && view.grey ? view.grey : null;
+  if (!g) {
+    if (r.ref && r.ref.month === paceShift_(r.curKey, -12)) g = { kind: "lastYear" };
+    else if (r.ref && r.ref.month && r.ref.month !== paceShift_(r.curKey, -1)) g = { kind: "month", month: r.ref.month };
+    else g = { kind: "auto" };
+  }
+  const greyVal = g.kind === "avg" ? "avg" + g.n : g.kind;
+  document.getElementById("pace-s-grey").innerHTML = [["auto", tr("pace.greyBefore")], ["lastYear", tr("pace.greyLastYear")],
+    ["avg3", tr("pace.greyAvg", { n: 3 })], ["avg6", tr("pace.greyAvg", { n: 6 })], ["avg12", tr("pace.greyAvg", { n: 12 })], ["month", tr("pace.greyOther")]]
+    .map(([v, t]) => opt(v, t, v === greyVal)).join("");
+  const other = document.getElementById("pace-s-other");
+  other.hidden = g.kind !== "month";
+  // Every month but the blue one (a month against itself says nothing); it starts on the month before the blue one.
+  const otherSel = g.month && g.month !== r.curKey ? g.month : paceShift_(r.curKey, -1);
+  other.innerHTML = months.filter((m) => m.month !== r.curKey).map((m) => opt(m.month, paceMonthName_(m.month), otherSel === m.month)).join("");
+  // Which expenses (only where the server can filter).
+  const field = document.getElementById("pace-s-cats-field");
+  field.hidden = !paceCanFilter_();
+  if (paceCanFilter_()) {
+    const cv = view && view.cats ? `${view.cats.kind}:${view.cats.id}` : "all";
+    const cats = sortedCategories_(meta.categories.filter((c) => c.type === "expense" && !c.hidden));
+    const buds = (budgetsLoaded_ || []).filter((b) => b.category_ids && b.category_ids.length);
+    document.getElementById("pace-s-cats").innerHTML = opt("all", tr("pace.catsAll"), cv === "all") +
+      `<optgroup label="${escapeHtml(tr("pace.catsCategories"))}">${cats.map((c) => opt("category:" + c.id, `${c.icon ? c.icon + " " : ""}${c.name}`, cv === "category:" + c.id)).join("")}</optgroup>` +
+      (buds.length ? `<optgroup label="${escapeHtml(tr("pace.catsBudgets"))}">${buds.map((b) => opt("budget:" + b.id, `${b.category_icon ? b.category_icon + " " : ""}${b.category_name}`, cv === "budget:" + b.id)).join("")}</optgroup>` : "");
+  }
+}
+
+// Any change on the screen makes (or updates) the custom view, kept on this phone until changed or reset.
+function paceViewFromControls_() {
+  const blue = document.getElementById("pace-s-blue").value;
+  const gv = document.getElementById("pace-s-grey").value;
+  const grey = gv.startsWith("avg") ? { kind: "avg", n: Number(gv.slice(3)) } : gv === "month" ? { kind: "month", month: document.getElementById("pace-s-other").value } : { kind: gv };
+  let cats = null;
+  const cv = paceCanFilter_() ? document.getElementById("pace-s-cats").value : "all";
+  if (cv.startsWith("category:")) {
+    const c = meta.categories.find((x) => x.id === cv.slice(9));
+    if (c) cats = { kind: "category", id: c.id, ids: [c.id], name: c.name };
+  } else if (cv.startsWith("budget:")) {
+    const b = (budgetsLoaded_ || []).find((x) => x.id === cv.slice(7));
+    if (b) cats = { kind: "budget", id: b.id, ids: b.category_ids || [], name: b.category_name };
+  }
+  return { blue, grey, cats };
+}
+["pace-s-blue", "pace-s-grey", "pace-s-other", "pace-s-cats"].forEach((id) => document.getElementById(id).addEventListener("change", () => {
+  const v = paceViewFromControls_();
+  // "Another month…" just chosen, or the blue month moved onto the grey one: the grey one becomes the month before the blue one.
+  const blueKey = v.blue === "this" ? (monthsHist_ ? monthsHist_.months[monthsHist_.months.length - 1].month : null) : v.blue;
+  if (v.grey.kind === "month" && blueKey && (id === "pace-s-grey" || v.grey.month === blueKey)) v.grey.month = paceShift_(blueKey, -1);
+  setPaceView_(v);
+  renderPaceScreen_();
+  if (monthsHist_) renderPaceBig_();
+}));
+document.getElementById("pace-s-reset").addEventListener("click", () => {
+  setPaceView_(null);
+  renderPaceScreen_();
+  if (monthsHist_) renderPaceBig_();
+});
 
 (function wirePaceBig_() {
   // The graph and the bars scroll/swipe without triggering Overview's own month-to-month swipe.
@@ -8331,20 +8585,35 @@ function paintOverviewSummary_(data) {
 
   const hasAny = data.totals.income !== 0 || data.totals.expense !== 0 || data.totals.investment !== 0 || !!(data.loans && data.loans.people.length);
   document.getElementById("overview-empty-note").hidden = hasAny;
+  // Investments and Loans both zero: one small line instead of two empty boxes (never hidden: a person who has not used them yet
+  // must still see they exist — owner, 2026-11-07).
+  const folded = Math.abs(data.totals.investment) < 0.004 && Math.abs(data.totals.loans || 0) < 0.004;
+  document.querySelector("#screen-overview .ov-sum-grid").classList.toggle("folded", folded);
+  const zeroLine = document.getElementById("summary-zero-line");
+  zeroLine.hidden = !folded;
+  if (folded) zeroLine.textContent = tr("overview.zeroLine", { inv: formatPen(0), loans: formatPen(0) });
+  // Money went out but nothing came in: say so, or a big negative What's left reads as bad news (Marta, 2026-11-07).
+  document.getElementById("overview-noincome-note").hidden = !(data.totals.income < 0.004 && (data.totals.expense > 0.004 || data.totals.investment > 0.004));
+  renderYearCompare_();
+  renderIncomeVaries_(data.incomeVaries);
 
   renderBreakdowns(data.breakdowns[overviewType]);
-  if (monthsHist_) renderPaceBig_();   // the grey line follows the picked period
+  if (monthsHist_) renderPaceBig_();   // the blue line is the month in view
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
-  renderLoansPeriod_(data.loans || { people: [], totals: [] });
+  renderLoansPeriod_(data.loans || { people: [], totals: [] }, data.owed);
   fitOverviewSummary_();
 }
 
 async function refreshOverviewInner_() {
   renderPeriodSelector();
   const bounds = getPeriodBounds();
-  if (periodType === "custom" && (!bounds.startDate || !bounds.endDate)) return;
-
   const screen = document.getElementById("screen-overview");
+  // Custom with no dates at all: only the date choice and "Pick a start and end date…" (it used to leave the previous period's figures,
+  // e.g. All time's, under "Choose dates"). A range open at one end ("From Oct 3") is a real period: the server takes a missing date as open.
+  const needsDates = periodType === "custom" && !bounds.startDate && !bounds.endDate;
+  screen.classList.toggle("overview-needs-dates", needsDates);
+  if (needsDates) { ++overviewReqToken_; screen.classList.remove("overview-stale"); setLoadFailed_("overview", null); return; }
+
   const key = overviewKey_(bounds);
   const token = ++overviewReqToken_;
   if (overviewCache_[key]) { paintOverviewSummary_(overviewCache_[key]); overviewShownKey_ = key; screen.classList.remove("overview-stale"); setLoadFailed_("overview", null); }
@@ -8352,7 +8621,9 @@ async function refreshOverviewInner_() {
 
   let data;
   try {
-    data = await callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
+    // A neighbour still being fetched in the background (preloadOverviewNeighbour_) is waited for, never asked twice.
+    const inFlight = !overviewCache_[key] && overviewPreloads_[key];
+    data = await (inFlight || callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() }));
   } catch (err) {
     if (token === overviewReqToken_) {
       screen.classList.remove("overview-stale");
@@ -8366,12 +8637,78 @@ async function refreshOverviewInner_() {
   setLoadFailed_("overview", null);
   overviewShownKey_ = key;
   paintOverviewSummary_(data);
-  loadOverviewEntries_(bounds);
+  loadOverviewEntries_(bounds).then(() => { if (token === overviewReqToken_) preloadOverviewNeighbour_(); });
+}
+
+// Income that varies (owner, 2026-11-07; IncomeVaries.gs): one card under the summary, for anyone with an income category that
+// varies — the split with regular pay, the average per day (Week and Month), the last 3 / 6 complete months (Month; a tap switches,
+// remembered on this phone) and who paid. Hidden when the period has none of it and there is no average to show.
+function renderIncomeVaries_(v) {
+  const card = document.getElementById("overview-varies-card");
+  const months = v && v.months ? v.months : [];
+  const withAvg = periodType === "month" && months.length > 0 && months.some((m) => m.amount > 0.004);
+  card.hidden = !v || (!(v.varies > 0.004) && !withAvg);
+  if (card.hidden) return;
+  const split = document.getElementById("ov-varies-split");
+  split.hidden = !(v.regular > 0.004 && v.varies > 0.004);
+  if (!split.hidden) split.textContent = tr("varies.split", { regular: formatPen(v.regular), varies: formatPen(v.varies) });
+  const perDay = document.getElementById("ov-varies-perday");
+  const b = getPeriodBounds();
+  perDay.hidden = !(v.varies > 0.004 && (periodType === "week" || periodType === "month"));
+  if (!perDay.hidden) {
+    const t = todayLocalISO(), end = t >= b.startDate && t <= b.endDate ? t : b.endDate;
+    const day = (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+    const days = Math.max(1, Math.round((day(end) - day(b.startDate)) / 86400000) + 1);
+    perDay.textContent = tr("varies.perDay", { amount: formatPen(v.varies / days), n: v.daysWithIncome });
+  }
+  const avg = document.getElementById("ov-varies-avg");
+  avg.hidden = !withAvg;
+  if (withAvg) {
+    const want = localStorage.getItem("variesAvgN") === "6" ? 6 : 3;
+    const used = months.slice(0, want), amounts = used.map((m) => m.amount);
+    avg.textContent = tr("varies.avg", { n: used.length, amount: formatPen(amounts.reduce((a, x) => a + x, 0) / used.length),
+      low: formatPen(Math.min(...amounts)), high: formatPen(Math.max(...amounts)) });
+    const other = want === 3 ? 6 : 3;
+    if (months.length > 3) { const sw = document.createElement("span"); sw.className = "ov-varies-switch"; sw.textContent = tr("varies.avgSwitch", { n: other }); avg.appendChild(sw); }
+    avg.disabled = months.length <= 3;
+  }
+  const wrap = document.getElementById("ov-varies-payers-wrap");
+  const list = document.getElementById("ov-varies-payers");
+  wrap.hidden = !(v.byPayer && v.byPayer.length && v.varies > 0.004);
+  list.innerHTML = "";
+  if (!wrap.hidden) v.byPayer.slice(0, 5).forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "ov-varies-payer";
+    row.innerHTML = `<span class="ov-varies-payer-name">${escapeHtml(p.name || tr("varies.noPayer"))}<span class="hint"> · ${escapeHtml(tr("varies.times", { n: p.count }))}</span></span><span class="income">${escapeHtml(formatPen(p.amount))}</span>`;
+    list.appendChild(row);
+  });
+}
+document.getElementById("ov-varies-avg").addEventListener("click", () => {
+  localStorage.setItem("variesAvgN", localStorage.getItem("variesAvgN") === "6" ? "3" : "6");
+  const d = overviewCache_[overviewKey_(getPeriodBounds())];
+  if (d) renderIncomeVaries_(d.incomeVaries);
+});
+
+// Speed (owner, 2026-11-07): once the shown month or year has fully loaded (figures AND entry list), the one before it is fetched in the
+// background (figures only, ONE call, never at the same time as the period being shown), so tapping ‹ shows it at once; it is then
+// fetched fresh as usual and replaced, so a preloaded period never hides a later change.
+const overviewPreloads_ = {};
+function preloadOverviewNeighbour_() {
+  if (periodType !== "week" && periodType !== "month" && periodType !== "year") return;
+  const prev = periodType === "week" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth(), periodAnchor.getDate() - 7)
+    : periodType === "month" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth() - 1, 1) : new Date(periodAnchor.getFullYear() - 1, periodAnchor.getMonth(), 1);
+  const b = periodType === "week" ? weekBounds(prev) : periodType === "month" ? monthBounds(prev) : yearBounds(prev);
+  const key = overviewKey_(b);
+  if (overviewCache_[key] || overviewPreloads_[key]) return;
+  overviewPreloads_[key] = callApi("getPeriodSummary", { startDate: b.startDate, endDate: b.endDate, scope: overviewScopeParam_() })
+    .then((d) => { overviewCache_[key] = d; return d; })
+    .finally(() => { delete overviewPreloads_[key]; });
+  overviewPreloads_[key].catch(() => {});
 }
 
 // The list at the end of Overview: every entry of the selected period (all
 // types), newest first, shown 50 at a time.
-const OVERVIEW_ENTRIES_PAGE = 50;
+const OVERVIEW_ENTRIES_PAGE = 20;   // was 50: a shorter Overview (owner, 2026-11-07); "Load more" adds 20 at a time
 let overviewEntriesToken_ = 0;
 function loadOverviewEntries_(bounds) { return trackOverviewLoad_(loadOverviewEntriesInner_(bounds)); }
 async function loadOverviewEntriesInner_(bounds) {
@@ -8462,11 +8799,25 @@ function loansOvLineHtml_(l) {
     <div class="loans-ov-net ${l.net > 0 ? "pos-green" : ""}">${signedMoney_(l.net, l.currency)}</div>
   </div>`;
 }
-function renderLoansPeriod_(loans) {
+let loansOvPeopleOpen_ = false;
+function renderLoansPeriod_(loans, owed) {
   const list = document.getElementById("loans-ov-list");
-  document.getElementById("loans-ov-card").hidden = loans.people.length === 0;
+  const owedBtn = document.getElementById("loans-ov-owed");
+  const hasOwed = !!(owed && (owed.toMe.length || owed.iOwe.length));
+  document.getElementById("loans-ov-card").hidden = loans.people.length === 0 && !hasOwed;
+  // What is tied up in loans today (not this period's flows): one tap away from the Loans tab (owner, 2026-11-07).
+  owedBtn.hidden = !hasOwed;
+  if (hasOwed) {
+    const fmt = (arr) => (arr.length ? arr.map((x) => formatAmount(x.amount, x.currency)).join(" + ") : formatPen(0));
+    owedBtn.textContent = tr("loans.ov.owed", { toMe: fmt(owed.toMe), iOwe: fmt(owed.iOwe) });
+  }
   list.innerHTML = "";
-  loans.people.forEach((p) => {
+  // Shorter page: with several people the card starts on its total line; "Show the n people" opens the list (owner, 2026-11-07).
+  const peopleBtn = document.getElementById("loans-ov-people-btn");
+  const fold = loans.people.length > 1;
+  peopleBtn.hidden = !fold;
+  if (fold) peopleBtn.textContent = loansOvPeopleOpen_ ? tr("loans.ov.hidePeople") : tr("loans.ov.showPeople", { n: loans.people.length });
+  (fold && !loansOvPeopleOpen_ ? [] : loans.people).forEach((p) => {
     const row = document.createElement("div");
     row.className = "loans-ov-row";
     row.innerHTML = `<div class="balance-row-name">${escapeHtml(p.name)}<span class="loan-detail-row-chevron">›</span></div>${p.lines.map(loansOvLineHtml_).join("")}`;
@@ -8477,8 +8828,35 @@ function renderLoansPeriod_(loans) {
     const total = document.createElement("div");
     total.className = "loans-ov-row loans-ov-total";
     total.innerHTML = `<div class="balance-row-name"><strong>${escapeHtml(tr("loans.ov.total"))}</strong></div>${loans.totals.map(loansOvLineHtml_).join("")}`;
-    list.appendChild(total);
+    if (loansOvPeopleOpen_) list.appendChild(total); else list.prepend(total);
   }
+}
+document.getElementById("loans-ov-people-btn").addEventListener("click", () => {
+  loansOvPeopleOpen_ = !loansOvPeopleOpen_;
+  if (lastOverviewData) renderLoansPeriod_(lastOverviewData.loans || { people: [], totals: [] }, lastOverviewData.owed);
+});
+document.getElementById("loans-ov-owed").addEventListener("click", () => showScreen("loans"));
+
+// Year view: the year against the one before, from the month-by-month history already on the phone (no extra call). The current year
+// compares only its complete months with the same months of last year — a part year against a whole one would always look like a saving.
+function renderYearCompare_() {
+  const el = document.getElementById("overview-year-compare");
+  el.hidden = true;
+  if (periodType !== "year" || !monthsHist_) return;
+  const y = periodAnchor.getFullYear(), now = new Date();
+  const lastMonth = y < now.getFullYear() ? 12 : y === now.getFullYear() ? now.getMonth() : 0;   // complete months of that year
+  if (lastMonth < 1) return;
+  const sum = (year) => {
+    const ms = monthsHist_.months.filter((m) => +m.month.slice(0, 4) === year && +m.month.slice(5, 7) <= lastMonth);
+    return { n: ms.length, exp: ms.reduce((t, m) => t + m.expense, 0), inc: ms.reduce((t, m) => t + m.income, 0) };
+  };
+  const cur = sum(y), prev = sum(y - 1);
+  if (cur.n < lastMonth || prev.n < lastMonth) return;   // the history does not reach that far back
+  const pct = (a, b) => (b > 0.004 ? `${a >= b ? "+" : "−"}${Math.round(Math.abs(a - b) / b * 100)}%` : "—");
+  const params = { prev: y - 1, exp: pct(cur.exp, prev.exp), inc: pct(cur.inc, prev.inc) };
+  if (lastMonth === 12) el.textContent = tr("overview.vsYearFull", params);
+  else el.textContent = tr("overview.vsYearPart", Object.assign(params, { range: `${I18n.monthShort(0, true)}–${I18n.monthShort(lastMonth - 1)}` }));
+  el.hidden = false;
 }
 
 function renderBreakdowns(breakdown) {
@@ -8622,6 +9000,8 @@ function appendLegendRow_(listEl, key, item) {
         <span class="legend-amount">${formatPen(item.amount_pen)}</span>
         <span class="legend-percent">${item.percent.toFixed(1)}%</span>
       </div>
+      ${item.annual_pen > 0.005 ? `<div class="legend-annual hint">${escapeHtml(Math.abs(item.annual_pen - item.amount_pen) < 0.01
+        ? tr("overview.allAnnual") : tr("overview.inclAnnual", { amount: formatPen(item.annual_pen) }))}</div>` : ""}
     </div>
   `;
   row.addEventListener("click", () => openBreakdownDrilldown(key, item));
@@ -8740,9 +9120,11 @@ async function openBudgetDrilldown(budget) {
   // Was previously always visible on the budget's own row, which got
   // unreadably packed for a budget spanning many categories.
   const categoriesEl = document.getElementById("drilldown-categories");
-  if (budget.category_ids && budget.category_ids.length > 1) {
+  // The categories the budget had in the period shown (a change of categories counts forward only, 2026-11-07).
+  const periodCats = budget.progress && "category_ids" in budget.progress ? budget.progress.category_ids : budget.category_ids;
+  if (periodCats && periodCats.length > 1) {
     categoriesEl.hidden = false;
-    const budgetCats = budget.category_ids
+    const budgetCats = periodCats
       .map((id) => meta.categories.find((c) => c.id === id)).filter(Boolean);
     categoriesEl.textContent = sortedCategories_(budgetCats)
       .map((cat) => `${cat.icon ? cat.icon + " " : ""}${cat.name}`).join(", ");
@@ -8756,15 +9138,35 @@ async function openBudgetDrilldown(budget) {
   // omitting categoryIds entirely then matches every category, same as
   // no filter at all.
   const payload = { startDate: p.startDate, endDate: p.endDate, type: "expense" };
-  if (budget.category_ids) payload.categoryIds = budget.category_ids;
+  // A monthly budget shown by year lists only the months it existed in (it started or ended inside that year).
+  if (p.countFrom && p.countFrom + "-01" > payload.startDate) payload.startDate = p.countFrom + "-01";
+  if (p.countTo && p.monthsCounted < 12) { const [cy, cm] = p.countTo.split("-").map(Number); const last = `${p.countTo}-${String(new Date(cy, cm, 0).getDate()).padStart(2, "0")}`; if (last < payload.endDate) payload.endDate = last; }
+  if (periodCats) payload.categoryIds = periodCats;
   // A monthly budget doesn't count Annual-tagged expenses (a yearly one does).
   if (budget.period_type !== "yearly") payload.excludeAnnual = true;
 
   await openDrilldownWithPayload_(
     payload,
-    `${budget.category_icon ? budget.category_icon + " " : ""}${budget.category_name}`,
-    tr(p.effectivePeriodType === "yearly" ? "drill.budgetYear" : "drill.budgetMonth", { cur: budget.currency, amount: moneyFmt(p.effectiveAmount) })
+    `${(p.category_name ? p.category_icon : budget.category_icon) ? (p.category_name ? p.category_icon : budget.category_icon) + " " : ""}${p.category_name || budget.category_name}`,
+    tr(p.effectivePeriodType === "yearly" ? "drill.budgetYear" : p.effectivePeriodType === "weekly" ? "drill.budgetWeek" : "drill.budgetMonth", { cur: p.currency || budget.currency, amount: moneyFmt(p.effectiveAmount) })
   );
+
+  // What the Annual tag kept out of this monthly budget, with a tap that lists those entries (owner, 2026-11-07).
+  const annualNoteEl = document.getElementById("drilldown-projection-annual-note");
+  if (p.annualLeftOut > 0.005 && drilldownBudget === budget) {
+    annualNoteEl.hidden = false;
+    annualNoteEl.innerHTML = `<button type="button" class="add-inline drilldown-annual-link">${escapeHtml(tr("budget.annualLeftOutTap", { cur: p.currency || budget.currency, amount: moneyFmt(p.annualLeftOut) }))}</button>`;
+    annualNoteEl.querySelector("button").addEventListener("click", () => {
+      const annualPayload = Object.assign({}, payload, { onlyAnnual: true });
+      delete annualPayload.excludeAnnual;
+      drilldownBudget = null;
+      document.getElementById("drilldown-menu-btn").hidden = true;
+      document.getElementById("drilldown-chart").hidden = true;
+      annualNoteEl.hidden = true;
+      currentDrilldown = { refetch: () => openBudgetDrilldown(budget) };
+      openDrilldownWithPayload_(annualPayload, `${budget.category_icon ? budget.category_icon + " " : ""}${budget.category_name}`, tr("budget.annualListSubtitle"));
+    });
+  }
 
   loadAndRenderBudgetChart_(budget);
 }
@@ -8835,7 +9237,7 @@ function buildChartAxesSvg_(days, n, maxY, effectivePeriodType, marginLeft, marg
       .filter((i) => i !== -1);
   } else {
     xTickIndices = [];
-    for (let i = 0; i < n; i += 7) xTickIndices.push(i);
+    for (let i = 0; i < n; i += n <= 10 ? 1 : 7) xTickIndices.push(i);   // a week: every day
   }
   const xTicksSvg = xTickIndices.map((i) => {
     const x = xFor(i).toFixed(1);
@@ -8844,8 +9246,8 @@ function buildChartAxesSvg_(days, n, maxY, effectivePeriodType, marginLeft, marg
       : String(parseInt(days[i].slice(8, 10), 10));
     return `
       <line x1="${x}" y1="${plotBottom}" x2="${x}" y2="${plotBottom + 3}" style="stroke:var(--border);stroke-width:1" />
-      <text x="${x}" y="${plotBottom + 11}" text-anchor="middle" style="font-size:7.5px;fill:var(--muted)">${label}</text>
-    `;
+      <text x="${x}" y="${plotBottom + 11}" text-anchor="${i === n - 1 ? "end" : "middle"}" style="font-size:7.5px;fill:var(--muted)">${label}</text>
+    `;   // the last day sits on the right edge: its number ends there instead of being cut
   }).join("");
 
   const axisBordersSvg = `
@@ -8974,10 +9376,11 @@ function renderBudgetPaceNote_(budget, recurringByDate, days) {
   days.forEach((d) => { if (d > today && recurringByDate[d]) upcomingRecurring += recurringByDate[d]; });
 
   const remaining = p.effectiveAmount - p.spent;
-  const periodWord = tr(p.effectivePeriodType === "yearly" ? "period.wordYear" : "period.wordMonth");
+  // "this week" / "esta semana": the whole phrase, since Spanish changes "este" / "esta" with the word.
+  const thisPeriod = tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : p.effectivePeriodType === "weekly" ? "budget.thisWeek" : "budget.thisMonth");
 
   if (remaining <= 0) {
-    note.textContent = tr("pace.over", { period: periodWord });
+    note.textContent = tr("pace.over", { thisPeriod });
     return;
   }
 
@@ -8985,7 +9388,7 @@ function renderBudgetPaceNote_(budget, recurringByDate, days) {
   const daysLeft = days.filter((d) => d >= today).length;
 
   if (discretionary <= 0) {
-    note.textContent = tr("pace.recurringUsesUp", { cur: budget.currency, amount: moneyFmt(upcomingRecurring), period: periodWord });
+    note.textContent = tr("pace.recurringUsesUp", { cur: budget.currency, amount: moneyFmt(upcomingRecurring), thisPeriod });
     return;
   }
 
@@ -9225,6 +9628,11 @@ function syncSheetScrollLock_() {
 document.getElementById("drilldown-menu-btn").addEventListener("click", (e) => {
   e.stopPropagation();
   const menu = document.getElementById("drilldown-menu");
+  // "End budget" where the backend knows budget history (forward only); an ended budget has nothing to end.
+  const del = document.getElementById("drilldown-menu-delete");
+  const hist = budgetHistoryOn_();
+  del.textContent = tr(hist ? "drill.endBudget" : "drill.deleteBudget");
+  del.hidden = !!(hist && drilldownBudget && drilldownBudget.ended);
   menu.hidden = !menu.hidden;
 });
 document.addEventListener("click", (e) => {
@@ -9239,27 +9647,65 @@ document.getElementById("drilldown-menu-edit").addEventListener("click", () => {
   if (drilldownBudget) openBudgetModal(drilldownBudget);
 });
 
-document.getElementById("drilldown-menu-delete").addEventListener("click", async () => {
+document.getElementById("drilldown-menu-delete").addEventListener("click", () => {
   document.getElementById("drilldown-menu").hidden = true;
-  if (!drilldownBudget) return;
-  if (!practiceNoConfirm_(isPracticeBudgetName_(drilldownBudget.name)) && !confirm(tr(drilldownBudget.period_type === "yearly" ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what: describeForConfirm_(drilldownBudget.name || drilldownBudget.category_name || "", drilldownBudget.currency ? `${drilldownBudget.currency} ${moneyFmt(drilldownBudget.amount)}` : "") }))) return;
-  const id = drilldownBudget.id;
-  markDeleting_("budget:" + id);
-  closeDrilldown();
-  try {
-    await callApi("deleteBudget", { id });
-  } catch (err) {
-    // The dialog is already closed — without this the failure (offline, slow
-    // network) was invisible and the budget just reappeared on next refresh.
-    alert(tr("budget.deleteFailed", { error: err.message }));
-  }
-  refreshBudgetsInBackground_();
+  if (drilldownBudget) removeBudget_(drilldownBudget, false, drilldownBudget.name);
 });
 
 // ---- Budgets ----
 
 let budgetPeriodType = "monthly";
 let editingBudgetId = null;
+let budgetForwardType_ = null;   // the saved budget's own monthly/yearly, for the "counts from now on" line
+let budgetEditingEnded_ = false;   // the budget open in the window has ended: Save starts it again (Budgets.gs § Budget history)
+const budgetHistoryOn_ = () => !!(meta && meta.capabilities && meta.capabilities.budgetHistory);
+
+// When a NEW budget starts (owner, 2026-11-07): this month by default, next month, an earlier month (to look back), or every
+// earlier month too. A yearly budget: the same in years. Options are rebuilt when monthly/yearly is switched.
+function budgetPeriodKey_(type, step) {
+  const t = todayLocalISO();
+  if (type === "weekly") { const m = mondayDate_(new Date()); return isoOf_(new Date(m.getFullYear(), m.getMonth(), m.getDate() + 7 * step)); }
+  if (type === "yearly") return String(Number(t.slice(0, 4)) + step);
+  const d = new Date(Number(t.slice(0, 4)), Number(t.slice(5, 7)) - 1 + step, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+const budgetPeriodName_ = (type, key, mid) => {
+  if (type === "yearly") return key;
+  if (type === "weekly") { const [y, m, d] = key.split("-").map(Number); return weekBounds(new Date(y, m - 1, d)).label; }
+  return paceMonthName_(key, mid);
+};
+// The word sets for a budget's kind: [this…, next…, every earlier…, restart, end, end-deletes, forward].
+const budgetKindKeys_ = (type) => type === "yearly"
+  ? { cur: "budget.startThisYear", next: "budget.startNextYear", always: "budget.startAlwaysYear", restart: "budgetModal.restartYear", end: "budget.confirmEndYearly", endDel: "budget.confirmEndDeletesYearly", fwd: "budget.forwardYear", per: "budgets.perYear", word: "period.wordYear", back: 3 }
+  : type === "weekly"
+  ? { cur: "budget.startThisWeek", next: "budget.startNextWeek", always: "budget.startAlwaysWeek", restart: "budgetModal.restartWeek", end: "budget.confirmEndWeekly", endDel: "budget.confirmEndDeletesWeekly", fwd: "budget.forwardWeek", per: "budgets.perWeek", word: "period.wordWeek", back: 8 }
+  : { cur: "budget.startThisMonth", next: "budget.startNextMonth", always: "budget.startAlwaysMonth", restart: "budgetModal.restartMonth", end: "budget.confirmEndMonthly", endDel: "budget.confirmEndDeletesMonthly", fwd: "budget.forwardMonth", per: "budgets.perMonth", word: "period.wordMonth", back: 12 };
+function fillBudgetStart_() {
+  const wrap = document.getElementById("budget-start-wrap");
+  wrap.hidden = !!editingBudgetId || !budgetHistoryOn_();
+  if (wrap.hidden) return;
+  const sel = document.getElementById("budget-start");
+  const y = budgetPeriodType === "yearly", K = budgetKindKeys_(budgetPeriodType);
+  const opts = [
+    [budgetPeriodKey_(budgetPeriodType, 0), tr(K.cur, { name: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 0), true) })],
+    ["next", tr(K.next, { name: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 1), true) })]
+  ];
+  for (let k = 1; k <= K.back; k++) { const key = budgetPeriodKey_(budgetPeriodType, -k); opts.push([key, budgetPeriodName_(budgetPeriodType, key)]); }
+  opts.push(["always", tr(K.always)]);
+  sel.innerHTML = opts.map(([v, label]) => `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`).join("");
+  const hint = document.getElementById("budget-start-hint");
+  hint.hidden = !y;
+  hint.textContent = y ? tr("budget.startYearlyHint") : "";
+}
+
+// Editing a budget: a new amount counts from this month (year) on, earlier ones keep theirs (owner, 2026-11-07; Budgets.gs).
+// Not shown for a new budget, nor once monthly/yearly is switched (that change forgets the old amounts).
+function updateBudgetForwardHint_(budget) {
+  if (budget !== undefined) budgetForwardType_ = budget ? budget.period_type : null;
+  const el = document.getElementById("budget-forward-hint");
+  el.hidden = !budgetForwardType_ || budgetPeriodType !== budgetForwardType_ || budgetEditingEnded_;
+  if (!el.hidden) el.textContent = tr(budgetKindKeys_(budgetForwardType_).fwd);
+}
 const DEFAULT_BUDGET_THRESHOLDS_DISPLAY = "50, 75, 100, 110, 125, 150";
 
 document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
@@ -9267,6 +9713,8 @@ document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
     budgetPeriodType = tab.dataset.period;
     budgetPeriodTouched_ = true;   // (the first-use practice waits for this)
     document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    updateBudgetForwardHint_();
+    fillBudgetStart_();
   });
 });
 
@@ -9389,9 +9837,21 @@ function openBudgetModal(budget) {
 
   budgetPeriodType = budget ? budget.period_type : "monthly";
   document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.period === budgetPeriodType));
+  updateBudgetForwardHint_(budget);
+  fillBudgetStart_();
 
   document.getElementById("budget-thresholds").value = budget ? budget.thresholds : DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
-  document.getElementById("budget-delete-btn").hidden = !budget;
+  // Ending (forward only) or deleting completely, where the backend knows budget history; an ended budget can be started again.
+  const hist = budgetHistoryOn_();
+  budgetEditingEnded_ = !!(budget && budget.ended && hist);
+  document.getElementById("budget-delete-btn").hidden = !budget || budgetEditingEnded_;
+  document.getElementById("budget-delete-btn").textContent = tr(hist ? "budgetModal.end" : "budgetModal.delete");
+  document.getElementById("budget-delete-full-btn").hidden = !budget || !hist;
+  const endedNote = document.getElementById("budget-ended-note");
+  endedNote.hidden = !budgetEditingEnded_;
+  endedNote.textContent = budgetEditingEnded_ ? tr("budget.endedNote") : "";
+  document.getElementById("budget-save-btn").textContent = budgetEditingEnded_
+    ? tr(budgetKindKeys_(budget.period_type).restart) : tr("budgetModal.save");
 
   const backdrop = document.getElementById("budget-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -9449,11 +9909,20 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     // budget against the full Entries sheet, ~4s) run behind the screen, and
     // any refresh failure surfaces in the list itself.
     const budgetId = editingBudgetId;
+    if (budgetId && budgetEditingEnded_) fields.restart = true;   // an ended budget: Save starts it again from this period
+    let startsLater = "";
+    if (!budgetId && budgetHistoryOn_()) {
+      fields.start = document.getElementById("budget-start").value || undefined;
+      if (fields.start === "next") startsLater = budgetPeriodType === "weekly"
+        ? tr("budget.startsLaterWeek", { when: rangeFmt_(budgetPeriodKey_("weekly", 1)) })
+        : tr("budget.startsLater", { when: budgetPeriodName_(budgetPeriodType, budgetPeriodKey_(budgetPeriodType, 1), true) });
+    }
     closeBudgetModal();
     closeDrilldown();
     saveBehindScreen_(
       practiceBTrack_(() => budgetId ? callApi("updateBudget", withThen_(Object.assign({ id: budgetId }, fields), [["listBudgets", projectionPeriodPayload_()]])) : callApi("addBudget", withThen_(fields, [["listBudgets", projectionPeriodPayload_()]])), fields),
-      async () => { refreshBudgetsInBackground_(); });
+      async () => { refreshBudgetsInBackground_(); },
+      startsLater ? { done: () => startsLater } : undefined);
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
@@ -9461,24 +9930,41 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
   }
 });
 
-document.getElementById("budget-delete-btn").addEventListener("click", async () => {
+// "End this budget" (forward only: earlier periods keep it) where the backend knows budget history; otherwise, and for
+// "Delete completely" and the practice's own budget, the old full delete (owner, 2026-11-07).
+function removeBudgetFromForm_(full) {
   if (!editingBudgetId) return;
-  const b = drilldownBudget && drilldownBudget.id === editingBudgetId ? drilldownBudget : null;
-  const budgetLabel = document.getElementById("budget-name").value.trim() || (b && b.category_name) || "";
-  if (!practiceNoConfirm_(isPracticeBudgetName_(document.getElementById("budget-name").value)) && !confirm(tr(budgetPeriodType === "yearly" ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what: describeForConfirm_(budgetLabel, b && b.currency ? `${b.currency} ${moneyFmt(b.amount)}` : "") }))) return;
-  const id = editingBudgetId;
+  const b = drilldownBudget && drilldownBudget.id === editingBudgetId ? drilldownBudget : (budgetsLoaded_ || []).find((x) => x.id === editingBudgetId) || { id: editingBudgetId, period_type: budgetPeriodType };
+  return removeBudget_(b, full, document.getElementById("budget-name").value);
+}
+// The budget window's two buttons and the drill-down's ⋮ menu. name: the budget's own name as typed (the practice's is deleted outright).
+async function removeBudget_(b, full, name) {
+  const budgetLabel = String(name || "").trim() || b.category_name || "";
+  const what = describeForConfirm_(budgetLabel, b.currency ? `${b.currency} ${moneyFmt(b.amount)}` : "");
+  const practice = isPracticeBudgetName_(name || "");
+  const end = !full && !practice && budgetHistoryOn_();
+  const yearly = b.period_type === "yearly", K = budgetKindKeys_(b.period_type);
+  const question = end && b.end_deletes ? tr(K.endDel, { what })
+    : end ? tr(K.end, { what })
+    : budgetHistoryOn_() ? tr("budget.confirmDeleteFull", { what })
+    : tr(yearly ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what });
+  if (!practiceNoConfirm_(practice) && !confirm(question)) return;
+  const id = b.id;
   markDeleting_("budget:" + id);
   closeBudgetModal();
   closeDrilldown();
-  try { await callApi("deleteBudget", { id }); }
+  try { await callApi(end ? "endBudget" : "deleteBudget", { id }); }
   catch (err) { unmarkDeleting_("budget:" + id); alert(tr("budget.deleteFailed", { error: err.message })); }
   refreshBudgetsInBackground_();
-});
+}
+document.getElementById("budget-delete-btn").addEventListener("click", () => removeBudgetFromForm_(false));
+document.getElementById("budget-delete-full-btn").addEventListener("click", () => removeBudgetFromForm_(true));
 
 // Fire-and-forget refresh used after a save/delete already closed its
 // modal(s) — a failure here shows up in the budgets list itself (the one
 // place still on screen) instead of blocking the close that triggered it.
 function refreshBudgetsInBackground_() {
+  Object.keys(budgetsCache_).forEach((k) => delete budgetsCache_[k]);   // a budget changed: no remembered period may come back with old figures
   refreshBudgets().catch((err) => {
     document.getElementById("budgets-list").innerHTML =
       `<div class="status-msg">${escapeHtml(tr("budget.refreshFailed", { error: err.message }))}</div>`;
@@ -9501,8 +9987,20 @@ async function refreshBudgets() {
   // and Custom don't carry a month/year size, so budgets just show their
   // own current period in those views (anchorDate is ignored server-side).
   const budgetsKey = JSON.stringify(projectionPeriodPayload_());
+  // A period already fetched (shown before, or preloaded) is drawn at once, then fetched fresh and replaced (same as Overview).
+  if (budgetsLoadedKey_ !== budgetsKey && budgetsCache_[budgetsKey]) {
+    budgetsLoaded_ = budgetsCache_[budgetsKey].budgets; budgetsSummary_ = budgetsCache_[budgetsKey].summary;
+    budgetsLoadedKey_ = budgetsKey; setLoadFailed_("budgets", null); drawBudgets_();
+  }
+  // First load: "Loading…" under the heading, never an empty card (loading standard; testers saw 4-5 s of a bare "Budgets", 2026-11-07).
+  // Later refreshes keep the rows on screen until the new ones replace them.
+  if (budgetsLoadedKey_ === null && !document.getElementById("budgets-list").children.length) {
+    document.getElementById("budgets-list").innerHTML = loadingHtml_();
+    document.getElementById("budgets-empty-note").hidden = true;
+    document.getElementById("budgets-status-line").hidden = true;
+  }
   let data;
-  try { data = await callApi("listBudgets", projectionPeriodPayload_()); }
+  try { data = await (budgetsPreloads_[budgetsKey] || callApi("listBudgets", projectionPeriodPayload_())); }
   catch (err) { if (budgetsLoadedKey_ !== budgetsKey) setLoadFailed_("budgets", err); throw err; }
   budgetsLoadedKey_ = budgetsKey;
   setLoadFailed_("budgets", null);
@@ -9510,8 +10008,23 @@ async function refreshBudgets() {
   budgetsSummary_ = data.summary;
   const still = new Set(data.budgets.map((b) => b.id));
   budgetsSelected_ = new Set([...budgetsSelected_].filter((id) => still.has(id)));
+  budgetsCache_[budgetsKey] = data;
   drawBudgets_();
   offerBudgetsTip_();   // only now that everything has arrived (loading standard)
+  if (budgetsKey === JSON.stringify(projectionPeriodPayload_())) preloadBudgetsNeighbour_();
+}
+
+// The period before the one shown, fetched in the background once the shown one has arrived (one call; see preloadOverviewNeighbour_).
+const budgetsCache_ = {}, budgetsPreloads_ = {};
+function preloadBudgetsNeighbour_() {
+  if (periodType !== "week" && periodType !== "month" && periodType !== "year") return;
+  const prev = periodType === "week" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth(), periodAnchor.getDate() - 7)
+    : periodType === "month" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth() - 1, 1) : new Date(periodAnchor.getFullYear() - 1, periodAnchor.getMonth(), 1);
+  const payload = { displayPeriodType: periodType, anchorDate: periodType === "week" ? isoOf_(mondayDate_(prev)) : `${prev.getFullYear()}-${pad2(prev.getMonth() + 1)}-01` };
+  const key = JSON.stringify(payload);
+  if (budgetsCache_[key] || budgetsPreloads_[key]) return;
+  budgetsPreloads_[key] = callApi("listBudgets", payload).then((d) => { budgetsCache_[key] = d; return d; }).finally(() => { delete budgetsPreloads_[key]; });
+  budgetsPreloads_[key].catch(() => {});
 }
 
 // Draws the budget rows and the totals from what refreshBudgets last fetched (no server call): also used by Edit mode.
@@ -9528,6 +10041,8 @@ function drawBudgets_() {
   if (budgets.length === 0) {
     emptyNote.hidden = false;
     summaryCard.hidden = true;
+    document.getElementById("budgets-status-line").hidden = true;
+    document.getElementById("budgets-today-hint").hidden = true;
     return;
   }
   emptyNote.hidden = true;
@@ -9539,8 +10054,33 @@ function drawBudgets_() {
   // computed.
   const fxNotes = [];
 
-  budgets.forEach((b) => {
+  // Over-budget rows first (the highest % on top), then the usual order; and one line on top saying how many are over or close
+  // (owner, 2026-11-07: an anxious person had to scroll 13 rows to find the red ones). "Close" = the amber bar, 75 % and up.
+  // Owner, 2026-11-07: two visible groups. First "over or close" (75 % and up), the most used first; then the rest, the biggest budget
+  // first — compared in the main currency over the period shown (a monthly budget in a Year view counts 12 months).
+  const pctOf = (b) => (b.progress && b.progress.percent != null ? b.progress.percent : -1);
+  const sizeOf = (b) => (b.amount_pen != null && b.amount ? b.amount_pen / b.amount : 0) * (b.progress ? b.progress.effectiveAmount : 0);
+  const attention = budgets.filter((b) => pctOf(b) >= 75).sort((x, y) => pctOf(y) - pctOf(x));
+  const others = budgets.filter((b) => pctOf(b) < 75).sort((x, y) => sizeOf(y) - sizeOf(x));
+  const ordered = attention.concat(others);
+  const groupHead = (key) => { const h = document.createElement("div"); h.className = "budgets-group-head"; h.textContent = tr(key); list.appendChild(h); };
+  const overN = budgets.filter((b) => pctOf(b) >= 100).length;
+  const closeN = budgets.filter((b) => pctOf(b) >= 75 && pctOf(b) < 100).length;
+  const statusLine = document.getElementById("budgets-status-line");
+  const statusParts = [];
+  if (overN) statusParts.push(`<span class="over">${escapeHtml(tr("budgets.statusOver", { n: overN }))}</span>`);
+  if (closeN) statusParts.push(`<span class="warn">${escapeHtml(tr("budgets.statusClose", { n: closeN }))}</span>`);
+  statusLine.innerHTML = statusParts.length ? statusParts.join(" · ") : escapeHtml(tr("budgets.statusFine"));
+  statusLine.hidden = false;
+  // Year view: a small mark on each bar where today falls in its year ("expected by now", owner 2026-11-07), and one line explaining it.
+  const todayIso = todayLocalISO();
+  let anyTodayMark = false;
+
+  ordered.forEach((b, i) => {
+    if (i === 0 && attention.length) groupHead("budgets.groupAttention");
+    if (i === attention.length && attention.length) groupHead("budgets.groupOthers");
     const p = b.progress;
+    const pc = p.currency || b.currency;   // the currency the budget had in the period shown (an edit counts forward only)
     const pct = p.percent;
     let statusClass = "";
     if (pct != null) {
@@ -9548,16 +10088,30 @@ function drawBudgets_() {
       else if (pct >= 75) statusClass = "warn";
     }
     const barPct = pct == null ? 0 : Math.min(100, Math.max(0, pct));
+    let todayMark = "";
+    if (pct != null && p.effectivePeriodType === "yearly" && p.startDate <= todayIso && todayIso <= p.endDate) {
+      const day = (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+      const frac = (day(todayIso) - day(p.startDate) + 86400000) / (day(p.endDate) - day(p.startDate) + 86400000);
+      const expected = p.effectiveAmount * frac;
+      todayMark = `<span class="budget-today-mark" style="left:${(frac * 100).toFixed(1)}%" role="img" aria-label="${escapeHtml(tr("budgets.todayMarkAria", { cur: pc, amount: moneyFmt(expected) }))}"></span>`;
+      anyTodayMark = true;
+    }
+    const annualNote = p.annualLeftOut > 0.005
+      ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: pc, amount: moneyFmt(p.annualLeftOut) }))}</div>` : "";
 
-    const amountLabel = `${b.currency} ${moneyFmt(p.effectiveAmount)}`;
+    const amountLabel = `${pc} ${moneyFmt(p.effectiveAmount)}`;
     const subLabel = pct == null
-      ? tr("budget.needsRate", { cur: b.currency })
-      : `${b.currency} ${moneyFmt(p.spent)} / ${amountLabel}`;
-    const periodLabel = tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : "budget.thisMonth") +
-      (p.annualized ? tr("budget.annualized") : "");
+      ? tr("budget.needsRate", { cur: pc })
+      : `${pc} ${moneyFmt(p.spent)} / ${amountLabel}`;
+    // "this month" / "this year" only for the period that holds today; a past or future one is named (its amount may differ, batch 6).
+    const holdsToday = p.startDate <= todayIso && todayIso <= p.endDate;
+    const periodLabel = (holdsToday ? tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : p.effectivePeriodType === "weekly" ? "budget.thisWeek" : "budget.thisMonth")
+      : p.effectivePeriodType === "yearly" ? p.startDate.slice(0, 4) : p.effectivePeriodType === "weekly" ? budgetPeriodName_("weekly", p.startDate) : paceMonthName_(p.startDate.slice(0, 7), true)) +
+      (p.weeksWidened && p.weeksCounted ? tr("budget.weeksWidened", { n: String(p.weeksCounted).replace(".", I18n.getLang() === "es" ? "," : ".") }) : "") +
+      (p.annualized ? (p.monthsCounted && p.monthsCounted < 12 ? tr("budget.annualizedN", { n: p.monthsCounted }) : tr("budget.annualized")) : "");
 
-    if (b.currency !== homeCur() && p.rate != null) {
-      const s = strongRate_(b.currency, homeCur(), p.rate);
+    if (pc !== homeCur() && p.rate != null) {
+      const s = strongRate_(pc, homeCur(), p.rate);
       if (s) fxNotes.push(`${rateLine_(s.one, s.other, s.rate)} — ${b.category_name}`);
     }
 
@@ -9565,7 +10119,8 @@ function drawBudgets_() {
     row.className = "budget-row";
     delKey_(row, "budget:" + b.id);
     row.dataset.budgetName = b.name || "";
-    const nameHtml = `<div class="budget-row-name">${b.category_icon ? b.category_icon + " " : ""}${escapeHtml(b.category_name)}</div>`;
+    const rowName = p.category_name || b.category_name, rowIcon = p.category_name ? p.category_icon : b.category_icon;   // categories then
+    const nameHtml = `<div class="budget-row-name">${rowIcon ? rowIcon + " " : ""}${escapeHtml(rowName)}</div>`;
     const leadHtml = budgetsEditing_
       ? `<span class="budget-row-lead"><input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${budgetsSelected_.has(b.id) ? " checked" : ""}>${nameHtml}</span>`
       : nameHtml;
@@ -9576,11 +10131,13 @@ function drawBudgets_() {
       </div>
       <div class="budget-progress-track">
         <div class="budget-progress-fill ${statusClass}" style="width:${barPct}%"></div>
+        ${todayMark}
       </div>
       <div class="budget-row-sub">
         <span>${subLabel}</span>
         <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
       </div>
+      ${annualNote}
     `;
     // Editing/deleting now lives behind the drill-down's ⋮ menu (see
     // openBudgetDrilldown) rather than a second tap target on the row.
@@ -9593,6 +10150,7 @@ function drawBudgets_() {
     list.appendChild(row);
   });
 
+  document.getElementById("budgets-today-hint").hidden = !anyTodayMark;
   summaryCard.hidden = false;
   document.getElementById("budgets-summary-monthly").textContent = formatPen(summary.monthlyPen);
   document.getElementById("budgets-summary-yearly").textContent = formatPen(summary.yearlyPen);
@@ -9696,11 +10254,12 @@ function syncBudgetsEditBar_() {
   const n = budgetsSelected_.size;
   const del = document.getElementById("budgets-delete-selected-btn");
   del.disabled = n === 0;
-  del.textContent = n ? tr("friends.deleteN", { n }) : tr("friends.deletePick");
+  const ends = budgetHistoryOn_();   // ending, forward only (owner, 2026-11-07)
+  del.textContent = n ? tr(ends ? "budgets.endN" : "friends.deleteN", { n }) : tr(ends ? "budgets.endPick" : "friends.deletePick");
   document.getElementById("budgets-selectall-btn").textContent = tr(n && n === budgetsLoaded_.length ? "friends.selectNone" : "friends.selectAll");
 }
 // "Groceries (PEN 300 per month)": a category can have a monthly and a yearly budget, so the period is part of the name.
-const budgetPickLabel_ = (b) => `${b.name || b.category_name} (${b.currency} ${moneyFmt(b.amount)} ${tr(b.period_type === "yearly" ? "budgets.perYear" : "budgets.perMonth")})`;
+const budgetPickLabel_ = (b) => `${b.name || b.category_name} (${b.currency} ${moneyFmt(b.amount)} ${tr(budgetKindKeys_(b.period_type).per)})`;
 document.getElementById("budgets-edit-btn").addEventListener("click", () => setBudgetsEditing_(!budgetsEditing_));
 document.getElementById("budgets-done-btn").addEventListener("click", () => setBudgetsEditing_(false));
 document.getElementById("recurring-done-btn").addEventListener("click", () => setRecurringEditing_(false));
@@ -9714,7 +10273,8 @@ document.getElementById("budgets-delete-selected-btn").addEventListener("click",
   const chosen = budgetsLoaded_.filter((b) => budgetsSelected_.has(b.id));
   if (!chosen.length) return;
   const names = chosen.map(budgetPickLabel_).join(", ");
-  if (!confirm(tr(chosen.length === 1 ? "budgets.confirmDeleteOne" : "budgets.confirmDeleteMany", { n: chosen.length, names }))) return;
+  const ends = budgetHistoryOn_();
+  if (!confirm(tr(chosen.length === 1 ? (ends ? "budgets.confirmEndOne" : "budgets.confirmDeleteOne") : (ends ? "budgets.confirmEndMany" : "budgets.confirmDeleteMany"), { n: chosen.length, names }))) return;
   const ids = chosen.map((b) => b.id);
   const nameOf = new Map(chosen.map((b) => [b.id, budgetPickLabel_(b)]));
   setBudgetsEditing_(false);
@@ -9722,14 +10282,19 @@ document.getElementById("budgets-delete-selected-btn").addEventListener("click",
   delKeys.forEach(markDeleting_);
   let result = null;
   saveBehindScreen_(async () => {
-    result = await callApi("deleteBudgets", { ids });
+    if (ends) {
+      const r = await callApi("endBudgets", { ids });
+      result = { deleted: r.deleted.concat(r.ended), ended: r.ended, missing: r.missing };
+    } else result = await callApi("deleteBudgets", { ids });
   }, async () => {
     try { await refreshBudgets(); }
     catch (err) { document.getElementById("budgets-list").innerHTML = `<div class="status-msg">${escapeHtml(tr("budget.refreshFailed", { error: err.message }))}</div>`; }
     if (result && result.missing.length) alert(tr("budgets.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
   }, {
     busy: "common.deletingToast", release: delKeys,
-    done: () => result && result.deleted.length ? tr("budgets.resultDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((id) => nameOf.get(id))) }) : "",
+    done: () => !result || !result.deleted.length ? ""
+      : result.ended ? tr("budgets.resultEnded", { n: result.deleted.length, names: shortNames_(result.deleted.map((id) => nameOf.get(id))) })
+      : tr("budgets.resultDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((id) => nameOf.get(id))) }),
   });
 });
 
@@ -10360,8 +10925,16 @@ function renderFirstSteps_() {
   const days = since ? Math.floor((Date.now() - since) / 86400000) : 0;
   // Only accounts the person added count: the built-in Cash (and the practice's account) is in every copy from the start.
   const ownAccounts = (meta.paymentMethods || []).filter((p) => String(p.id) !== String((meta.settings || {}).cash_account_id || "") && p.type !== "cash" && !isPracticeAccountName_(p.nickname));
-  const steps = [{ done: ownAccounts.length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() }];
-  if (caps.bankEmails) {
+  // Income that varies (owner, 2026-11-07): the first income or expense comes first, and the bank steps only once a bank account exists.
+  const varies = !!caps.incomeVaries && payVaries_();
+  const hasBank = ownAccounts.some((p) => p.bank_id && !["cash", "wallet", "investment"].includes(p.type));
+  const steps = [];
+  if (varies) {
+    const anyEntry = !!(homeGlance_ && (homeGlance_.months || []).some((m) => m.income > 0 || m.expense > 0));
+    steps.push({ done: anyEntry, text: tr("firstSteps.firstEntry"), hint: tr("firstSteps.firstEntryHint"), go: () => openNewEntrySheet_() });
+  }
+  steps.push({ done: ownAccounts.length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() });
+  if (caps.bankEmails && (!varies || hasBank)) {
     // Which inbox is read and how other banks' e-mails get there (the Bank emails sheet): a step here instead of a sheet that opened
     // by itself right after the welcome (owner, 2026-11-04: one thing at a time). Done once the person opened it.
     steps.push({ done: fsFlag_("etBankMailIntro"), text: tr("firstSteps.bankMail"), hint: tr("firstSteps.bankMailHint"),
@@ -10371,7 +10944,7 @@ function renderFirstSteps_() {
     const late = days >= 3 && !(info.health && info.health.problem);
     steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => showBankEmailsScreen() });
   }
-  steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("data-statements-btn").click(); renderFirstSteps_(); } });
+  if (!varies || hasBank) steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("data-statements-btn").click(); renderFirstSteps_(); } });
   if (steps.every((st) => st.done)) { card.hidden = true; return; }
   const list = document.getElementById("first-steps-list");
   list.innerHTML = "";
@@ -11371,9 +11944,46 @@ function fillFitsChips_(box, selected, onToggle, compact) {
   });
 }
 const fitsToggled_ = (list, a) => (list.includes(a) ? list.filter((x) => x !== a) : list.concat(a));
+// "How do you get paid?" (owner, 2026-11-07): a fixed salary, or it varies — then ONE kind (sales, freelance, daily work), which adds
+// that income category. The same choices on the welcome and in My profile. sel = { pay: "salary"|"varies"|"", kind }.
+function fillPayChoices_(box, sel, onPick) {
+  box.innerHTML = "";
+  const row = document.createElement("div");
+  row.className = "welcome-choices";
+  [["salary", "pay.salary"], ["varies", "pay.varies"]].forEach(([v, key]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "welcome-choice" + (sel.pay === v ? " active" : "");
+    b.textContent = tr(key);
+    b.addEventListener("click", () => onPick({ pay: v, kind: v === "varies" ? sel.kind || "" : "" }));
+    row.appendChild(b);
+  });
+  box.appendChild(row);
+  if (sel.pay !== "varies") return;
+  const q = document.createElement("p");
+  q.className = "hint";
+  q.textContent = tr("pay.kindQ");
+  box.appendChild(q);
+  const kinds = document.createElement("div");
+  kinds.className = "welcome-choices pay-kinds";
+  ["sales", "freelance", "daily"].forEach((k) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "welcome-choice" + (sel.kind === k ? " active" : "");
+    b.textContent = tr("pay.kind." + k);
+    b.addEventListener("click", () => onPick({ pay: "varies", kind: k }));
+    kinds.appendChild(b);
+  });
+  box.appendChild(kinds);
+}
+const payFromSetting_ = (v) => { const [pay, kind] = String(v || "").split(":"); return { pay: pay === "salary" || pay === "varies" ? pay : "", kind: kind || "" }; };
+const payVaries_ = () => payFromSetting_(meta && meta.settings && meta.settings.pay).pay === "varies";
 function renderWelcomeFits_() {
   I18n.applyStatic(welcomeEl_("welcome-fits"));
   welcomeEl_("wf-step").textContent = tr("welcome.step", { n: 2 });
+  const payOn = !!(meta && meta.capabilities && meta.capabilities.incomeVaries);
+  welcomeEl_("wpay-block").hidden = !payOn;
+  if (payOn) fillPayChoices_(welcomeEl_("wpay-box"), welcome_.payChoice || { pay: "", kind: "" }, (c) => { welcome_.payChoice = c; renderWelcomeFits_(); });
   fillFitsChips_(welcomeEl_("wf-chips"), welcome_.fits, (a) => { welcome_.fits = fitsToggled_(welcome_.fits, a); renderWelcomeFits_(); });
   waEl_("wb-block").hidden = !businessOffered();   // the business question is only asked where the pack is offered
   if (!businessOffered()) welcome_.business = false;
@@ -11752,6 +12362,10 @@ async function finishWelcome_() {
     if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
     // The category packs. An older backend lacks the action (the app only asks one that says it has it), and a failure here never blocks the
     // welcome: the same packs can be added later from More → My profile → What fits me.
+    // How do you get paid? (after the picks: its category is one more income category)
+    if (welcome_.payChoice && welcome_.payChoice.pay && meta && meta.capabilities && meta.capabilities.incomeVaries) {
+      try { await callApi("setPay", welcome_.payChoice); } catch (e) { /* can be answered again in My profile */ }
+    }
     if (welcome_.fits.length && meta && meta.capabilities && meta.capabilities.profile) {
       try { await callApi("applyProfile", { answers: welcome_.fits }); } catch (e) { /* see above */ }
     }
@@ -11774,7 +12388,7 @@ async function finishWelcome_() {
   welcomeEl_("welcome-accounts").hidden = true;
   welcomeEl_("welcome-platforms").hidden = true;
   // The new accounts, platforms and categories must show up in the app right away (entry form, Accounts & cards): reload on the way out.
-  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName;
+  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName || !!(welcome_.payChoice && welcome_.payChoice.pay);
   const toTour = () => {
     if (perfShareState_().asked) openTour_(reloadAfter);
     else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
@@ -12234,6 +12848,9 @@ async function showMyProfileScreen() {
   fitsOpen_(false);   // closed every time the screen opens: it is for a one-off choice, and it is long
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
+  document.getElementById("my-profile-pay-card").hidden = !caps.incomeVaries;
+  document.getElementById("my-profile-pay-msg").textContent = "";
+  if (caps.incomeVaries) drawProfilePay_(payFromSetting_(meta.settings && meta.settings.pay));
   try {
     const [names, state] = await Promise.all([
       callApi("getOwnerNames", {}),
@@ -12249,6 +12866,20 @@ async function showMyProfileScreen() {
   } catch (e) {
     loading.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(e.message)}</p>`;
   }
+}
+// How I get paid: a tap on "A fixed salary" or on a kind saves at once; "It varies" alone only opens the kinds.
+function drawProfilePay_(sel) {
+  fillPayChoices_(document.getElementById("my-profile-pay"), sel, (c) => {
+    drawProfilePay_(c);
+    if (c.pay === "varies" && !c.kind) return;
+    const msg = document.getElementById("my-profile-pay-msg");
+    msg.textContent = tr("common.savingToast");
+    callApi("setPay", c).then((r) => {
+      if (meta && meta.settings) meta.settings.pay = r.pay;
+      msg.textContent = r.added ? tr("prof.payAdded", { name: r.added.name }) : tr("prof.paySaved");
+      if (r.added) loadMeta && loadMeta().catch(() => {});
+    }).catch(() => { msg.textContent = tr("prof.payFailed"); });
+  });
 }
 document.getElementById("more-my-profile-btn").addEventListener("click", showMyProfileScreen);
 document.getElementById("my-profile-back-btn").addEventListener("click", () => showScreen("more"));
@@ -14764,7 +15395,7 @@ function runCategoriesDelete_(chosen, opts) {
     result.deleted.filter((d) => d.to).forEach((d) => { byTarget.set(d.to, (byTarget.get(d.to) || []).concat(d)); });
     byTarget.forEach((list, to) => lines.push(tr("catBulk.resultMoved", { to, names: namesOf(list), n: list.reduce((sum, d) => sum + (d.moved || 0), 0) })));
     if (result.hidden.length) lines.push(tr("catBulk.resultHidden", { names: namesOf(result.hidden) }));
-    if ((result.droppedBudgets || []).length) lines.push(tr("catBulk.resultBudgetDropped", { list: result.droppedBudgets.map((b) => `${b.currency} ${moneyFmt(b.amount)} ${tr(b.period_type === "yearly" ? "budgets.perYear" : "budgets.perMonth")}`).join(", ") }));
+    if ((result.droppedBudgets || []).length) lines.push(tr("catBulk.resultBudgetDropped", { list: result.droppedBudgets.map((b) => `${b.currency} ${moneyFmt(b.amount)} ${tr(budgetKindKeys_(b.period_type).per)}`).join(", ") }));
     const keptBy = (reason) => result.kept.filter((k) => k.reason === reason && k.name);
     if (keptBy("noTarget").length) lines.push(tr("catBulk.resultNoTarget", { names: namesOf(keptBy("noTarget")) }));
     if (keptBy("hiddenAlready").length) lines.push(tr("catBulk.resultHiddenAlready", { names: namesOf(keptBy("hiddenAlready")) }));
@@ -14842,6 +15473,8 @@ function openCatModal_(cat) {
   document.querySelectorAll("#cat-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === catModalState.type));
   document.getElementById("cat-name").value = cat ? cat.name : "";
   document.getElementById("cat-emoji").value = cat ? (cat.icon || "") : "";
+  document.getElementById("cat-earning").value = cat && cat.earning ? cat.earning : (cat ? "none" : "varies");
+  syncCatEarning_();
   document.getElementById("cat-form-error").textContent = "";
   document.getElementById("cat-reassign").hidden = true;
   const manageable = !!cat && cat.key !== "other";
@@ -14873,8 +15506,14 @@ document.querySelectorAll("#cat-type-tabs .type-tab").forEach((tab) => {
     if (!catModalState) return;
     catModalState.type = tab.dataset.type;
     document.querySelectorAll("#cat-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    syncCatEarning_();
   });
 });
+// Income categories: regular pay, income that varies, or not earnings (owner, 2026-11-07; IncomeVaries.gs). Where the backend knows it.
+function syncCatEarning_() {
+  const on = !!(catModalState && catModalState.type === "income" && meta && meta.capabilities && meta.capabilities.incomeVaries);
+  document.getElementById("cat-earning-wrap").hidden = !on;
+}
 document.getElementById("cat-name").addEventListener("input", () => catModalState && updateCatPreview_());
 document.getElementById("cat-emoji").addEventListener("input", () => catModalState && updateCatPreview_());
 
@@ -14893,6 +15532,7 @@ document.getElementById("cat-save-btn").addEventListener("click", async () => {
       icon: document.getElementById("cat-emoji").value.trim(),
       color: catModalState.color
     };
+    if (!document.getElementById("cat-earning-wrap").hidden) payload.income_kind = document.getElementById("cat-earning").value;
     closeCatModal_();
     saveBehindScreen_(() => callApi("saveCategory", payload), refreshCategoriesAfterChange_);
   } catch (err) { errorEl.textContent = err.message; }
@@ -19512,7 +20152,8 @@ function renderProjectionsSummary_(p) {
 // to the current month server-side, since neither means anything for a
 // forward-looking projection.
 function projectionPeriodPayload_() {
-  const anchorDate = `${periodAnchor.getFullYear()}-${pad2(periodAnchor.getMonth() + 1)}-01`;
+  // A week sends its Monday (Budgets shows weekly budgets for that week; Projections has no Week: showScreen turns it into the month).
+  const anchorDate = periodType === "week" ? isoOf_(mondayDate_(periodAnchor)) : `${periodAnchor.getFullYear()}-${pad2(periodAnchor.getMonth() + 1)}-01`;
   return { displayPeriodType: periodType, anchorDate };
 }
 
@@ -21032,7 +21673,7 @@ function guidedEntrySteps_() {
   const accountText = { expense: "spot.g.accExp", income: "spot.g.accInc", transfer: "spot.g.accFrom", investment: "spot.g.accInv" };
   return [
     { key: "intro", text: () => tr("spot.g.intro"), button: () => tr("spot.g.start") },
-    { key: "type", target: "#entry-type-tabs", text: () => tr("spot.g.type"), tap: "#entry-type-tabs", button: () => tr("spot.g.keepExpense") },
+    { key: "type", target: "#entry-type-tabs", text: () => tr(payVaries_() ? "spot.g.typeVaries" : "spot.g.type"), tap: "#entry-type-tabs", button: () => tr("spot.g.keepExpense") },
     { key: "category", target: "#category-picker", text: () => tr(selectedType === "income" ? "spot.g.catIncome" : "spot.g.cat"),
       until: () => !document.getElementById("entry-form").hidden, available: () => ICON_PICKER_TYPES.includes(selectedType), before: async () => shownNow("category-picker") },
     { target: "#repayment-field", text: () => tr("spot.g.transferKind"), visit: "#transfer-kind", button: next,
@@ -22473,14 +23114,14 @@ function practiceBSteps_() {
   const amountEl = () => document.getElementById("budget-amount");
   const amountVal = () => parseFloat(amountEl().value);
   const amountDone = () => amountVal() > 0 && document.activeElement !== amountEl();
-  const periodWord = () => tr(budgetPeriodType === "yearly" ? "period.yearly" : "period.monthly").toLowerCase();
+  const periodWord = () => tr(budgetPeriodType === "yearly" ? "period.yearly" : budgetPeriodType === "weekly" ? "period.weekly" : "period.monthly").toLowerCase();
   // A budget on the same categories and period already exists (the server refuses a second one): the walkthrough goes back to the category.
   const duplicate = () => {
     if (!selectedBudgetCategoryIds.size) return false;
     const allIds = allExpenseCategoryIds_();
     const every = allIds.length > 0 && allIds.every((id) => selectedBudgetCategoryIds.has(id));
     const mine = every ? "ALL" : Array.from(selectedBudgetCategoryIds).sort().join(",");
-    return budgetsLoaded_.some((b) => (b.period_type === "yearly" ? "yearly" : "monthly") === budgetPeriodType &&
+    return budgetsLoaded_.some((b) => b.period_type === budgetPeriodType &&
       (b.all_categories ? "ALL" : (b.category_ids || []).slice().sort().join(",")) === mine);
   };
   const nameIt = () => {
@@ -25140,11 +25781,51 @@ function openForgiveModal(loan, returnFriend) {
   populateCategoryOptionsForSelect_("forgive-category", entryType);
   document.getElementById("forgive-date").value = todayLocalISO();
   document.getElementById("forgive-convert-fields").hidden = !hasBalance || !checkbox.checked;
+  // Which budget the forgiven amount will count in, and where that leaves it (owner, 2026-11-07: forgiving silently pushed Restaurants
+  // to 117%). Fetched behind the open form; the line shows once it has arrived and follows the amount, category and date.
+  forgiveBudgets_ = null;
+  document.getElementById("forgive-budget-note").hidden = true;
+  if (hasBalance && entryType === "expense") {
+    const forLoan = loan;
+    callApi("listBudgets", {}).then((data) => {
+      if (forgiveLoanTarget !== forLoan) return;
+      forgiveBudgets_ = data.budgets || [];
+      updateForgiveBudgetNote_();
+    }).catch(() => {});
+  }
 
   const backdrop = document.getElementById("forgive-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
 }
+
+let forgiveBudgets_ = null;
+function updateForgiveBudgetNote_() {
+  const note = document.getElementById("forgive-budget-note");
+  const loan = forgiveLoanTarget;
+  const categoryId = document.getElementById("forgive-category").value;
+  const date = document.getElementById("forgive-date").value;
+  const amount = parseFloat(document.getElementById("forgive-amount").value.replace(",", "."));
+  note.hidden = true;
+  if (!loan || !forgiveBudgets_ || !categoryId || !date || !(amount > 0)) return;
+  // Budgets covering this category whose current period holds the date, in the loan's own currency (no conversion guessed here).
+  const hits = forgiveBudgets_.filter((b) => {
+    const p = b.progress;
+    return p && p.spent != null && p.effectiveAmount > 0 && b.currency === loan.currency &&
+      (!b.category_ids || b.category_ids.includes(categoryId)) && p.startDate <= date && date <= p.endDate;
+  }).map((b) => ({ b, after: b.progress.spent + amount, pct: (b.progress.spent + amount) / b.progress.effectiveAmount * 100 }));
+  if (!hits.length) return;
+  hits.sort((x, y) => y.pct - x.pct);
+  const h = hits[0];
+  note.textContent = tr("forgive.budgetAfter", { name: h.b.category_name, pct: Math.round(h.pct), cur: h.b.currency,
+    spent: moneyFmt(h.after), amount: moneyFmt(h.b.progress.effectiveAmount) });
+  note.classList.toggle("over", h.pct >= 100);
+  note.hidden = false;
+}
+["forgive-amount", "forgive-category", "forgive-date"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", updateForgiveBudgetNote_);
+  document.getElementById(id).addEventListener("change", updateForgiveBudgetNote_);
+});
 
 function closeForgiveModal() {
   document.getElementById("forgive-modal-backdrop").hidden = true;

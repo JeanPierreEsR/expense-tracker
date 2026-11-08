@@ -69,6 +69,7 @@ var TABLE_DEFINITIONS = {
   Settlements: ['id', 'loan_id', 'date', 'amount', 'payment_method_id', 'offset_loan_id', 'transfer_entry_id'],
   Budgets: ['id', 'category_id', 'amount', 'currency', 'period_type', 'thresholds', 'name'],
   'Budget Alert Log': ['id', 'budget_id', 'threshold', 'period', 'sent_at'],
+  'Budget History': ['id', 'budget_id', 'from_period', 'amount', 'currency', 'category_id', 'ended', 'changed_at'],
   // Not part of the original spec — added after Loans already held real
   // data (self-heals via ensureLoanAlertLogSheet_ in Loans.gs, same
   // pattern as Payors/Recurring Expenses). Same dedup idea as Budget
@@ -155,6 +156,7 @@ var DATE_LIKE_COLUMNS = {
   Settlements: ['date'],
   'Exchange Rates': ['month'],
   'Budget Alert Log': ['period', 'sent_at'],
+  'Budget History': ['from_period', 'changed_at'],
   'Loan Alert Log': ['due_date', 'sent_at'],
   'Loan Installments': ['due_date', 'paid_date'],
   'Import Batches': ['date'],

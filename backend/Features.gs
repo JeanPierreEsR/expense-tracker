@@ -113,6 +113,9 @@ function getCapabilities_() {
     friendPhoneEdit: true,   // addFriend / updateFriend take `phone` and listMyFriends returns it (More → Friends shows and edits the number); an older backend ignores it, so the app hides the field
     friendsBulkDelete: true,   // deleteFriends (several at once, More → Friends → Edit); an older backend lacks it, so the app hides the Edit button
     programmedStop: true,   // stopRecurringAtLastPayment / deleteRecurringExpenses / previewProgrammedDelete / convertPausedProgrammedForOwnerOnce + `paid` on one-time items (Programmed items: Stop or Delete); an older backend lacks them, so the app keeps its plain Delete
+    incomeVaries: true,     // income categories regular / varies (saveCategory income_kind), setPay, getPeriodSummary.incomeVaries (IncomeVaries.gs)
+    budgetHistory: true,    // budgets change forward only: addBudget({start}), endBudget(s), updateBudget({restart}) (Budgets.gs § Budget history)
+    paceCategories: true,   // getMonthlyHistory({categoryIds}): the Spending pace screen's 'Which expenses' (an older backend would ignore it and draw all expenses)
     budgetsBulkDelete: true,   // deleteBudgets (several at once, Budgets → Edit); an older backend lacks it, so the app hides the Edit button
     bulkShowAgain: true,   // restoreFriends / restorePaymentMethods / showCategories + `deletedRows` in deleteFriends / removePaymentMethods (Undo after a bulk delete or hide, and a bulk "Show again" in Edit mode); an older backend lacks them, so the app shows no Undo and no Show again button
     pmBulkRemove: true,   // removePaymentMethods (several accounts at once, More → Accounts → Edit); an older backend lacks it, so the app hides the Edit button

@@ -1735,8 +1735,19 @@ body.income-revealed .sens-mask { display: none; }
   background: var(--bg);
   border-radius: 999px;
   height: 8px;
-  overflow: hidden;
+  position: relative;   /* the Year view's "today" mark sits on it, a little taller than the bar (the fill keeps its own rounded ends) */
 }
+.budget-today-mark { position: absolute; top: -4px; width: 2px; height: 16px; margin-left: -1px; background: var(--text, #1c1c1e); border-radius: 1px; }
+.budgets-status-line { font-weight: 600; margin: 0 0 10px; }
+#budgets-today-hint { margin: -4px 0 10px; }
+.budgets-group-head { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted, #8e8e93); margin: 14px 0 4px; }
+.budgets-group-head:first-child { margin-top: 0; }
+.budgets-status-line .over { color: var(--expense); }
+.budgets-status-line .warn { color: #b8741a; }
+.budget-row-annual { margin-top: 2px; font-size: 0.75rem; }
+.legend-annual { font-size: 0.75rem; margin-top: 1px; }
+.drilldown-annual-link { padding-left: 0; text-align: left; }
+#forgive-budget-note.over { color: var(--expense); font-weight: 600; }
 
 .budget-progress-fill {
   height: 100%;
@@ -1787,6 +1798,7 @@ body.income-revealed .sens-mask { display: none; }
 }
 
 .budget-period-tabs { grid-template-columns: repeat(2, 1fr); margin-bottom: 0; }
+#budget-period-tabs { grid-template-columns: repeat(3, 1fr); }   /* Weekly · Monthly · Yearly on one row */
 
 .budget-period-tabs .type-tab.active {
   background: var(--accent);
@@ -3463,7 +3475,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 }
 .friends-editbar[hidden] { display: none; }
 .friends-editbar button.add-inline { white-space: nowrap; margin: 0; }   /* margin: the stacked-button rule (.add-inline + .add-inline) must not push "Done" below "Select all" */
-.friends-editbar button.primary { width: auto; white-space: nowrap; margin-top: 0; padding: 12px 22px; }
+.friends-editbar button.primary { width: auto; white-space: nowrap; margin-top: 0; padding: 12px 22px; min-height: 44px; box-sizing: border-box; }   /* min-height: Delete was 42 px next to the 44 px Select all / Done (testers, 2026-11-07) */
 /* room under the last friend so the fixed bar never covers it */
 #screen-friends.friends-editing .card { padding-bottom: 90px; }
 .friends-hidden-box { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 4px; }
@@ -3607,6 +3619,39 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .screen-load-failed { margin: 0 0 12px; }
 #screen-overview.load-failed > .card:not(#period-selector-card),
 #screen-budgets.load-failed > .card:not(#period-selector-card) { display: none; }
+/* Overview, Custom with no dates chosen: only the date choice and its line, no figures (testers, 2026-11-07) */
+#custom-range-needs { display: none; }
+#screen-overview.overview-needs-dates #custom-range-needs { display: block; }
+#screen-overview.overview-needs-dates > .card:not(#period-selector-card) { display: none; }
+
+/* ---- Overview clarity (testers, 2026-11-07) ---- */
+.period-pending-line { display: block; width: 100%; margin: 0 0 12px; padding: 10px 12px; min-height: 44px; border: none; border-radius: 10px;
+  background: #fff6e0; color: #8a5a00; font: inherit; font-size: 0.85rem; text-align: left; cursor: pointer; }
+.period-pending-line[hidden] { display: none; }
+.ov-sum-grid.folded .ov-sum-tile.investment, .ov-sum-grid.folded .ov-sum-tile.loans { display: none; }
+.ov-sum-zero-line { text-align: center; margin: 6px 0 0; }
+.pace-ref-switch { display: flex; gap: 8px; margin: 6px 0 4px; }
+.pace-ref-switch button { flex: 1 1 0; min-height: 44px; border: 1px solid var(--border); background: white; border-radius: 999px; padding: 8px 10px;
+  font: inherit; font-size: 0.8rem; cursor: pointer; }
+.pace-ref-switch button.active { background: var(--accent); color: white; border-color: var(--accent); }
+.loans-ov-owed { display: block; width: 100%; margin-top: 10px; padding: 10px 0 0; min-height: 44px; border: none; border-top: 1px solid var(--border);
+  background: none; font: inherit; font-size: 0.85rem; color: var(--accent); text-align: left; cursor: pointer; }
+.loans-ov-owed[hidden] { display: none; }
+/* Spending pace screen (owner, 2026-11-07) */
+.pace-screen { display: flex; flex-direction: column; }
+.pace-screen-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.pace-screen-body label { display: block; margin-top: 14px; }
+.pace-screen-body select { width: 100%; }
+#pace-s-other { margin-top: 8px; }
+.home-line-svg.pace-screen-svg { height: 200px; }
+.pace-days { position: relative; height: 16px; font-size: 0.7rem; color: var(--muted); }
+.pace-days span { position: absolute; transform: translateX(-50%); }
+#pace-s-lines { flex-wrap: wrap; }
+.pace-diff { flex: 1 0 100%; margin-top: 6px; font-size: 0.85rem; color: var(--muted); }
+.pace-custom-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 4px; font-size: 0.85rem; color: var(--muted); }
+.pace-custom-row .add-inline { margin: 0; }
+#pace-card { cursor: pointer; }
+#pace-s-reset { margin-top: 8px; padding-left: 0; }
 
 /* Rates against the US dollar (RatesUsd.gs): the offer on More → Currencies and its preview sheet. */
 .rates-usd-offer { border: 1px solid var(--border, #e3e3e3); border-radius: 12px; padding: 10px 12px; margin: 8px 0 12px; }
@@ -3619,6 +3664,19 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #rates-usd-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 #rates-usd-actions .add-inline { margin-top: 0; }
 .usd-share-amt { white-space: nowrap; }
+/* Projections works by month or year: no Week choice there (owner, 2026-11-07) */
+#screen-projections .period-type-chip[data-period-type="week"] { display: none; }
+/* Income that varies (owner, 2026-11-07) */
+#overview-varies-card h3 { font-size: 0.9rem; margin: 14px 0 4px; }
+.ov-varies-line { margin: 6px 0 0; font-size: 0.95rem; }
+.ov-varies-avg { display: block; width: 100%; min-height: 44px; margin: 8px 0 0; padding: 8px 0; border: none; border-top: 1px solid var(--border);
+  background: none; font: inherit; font-size: 0.9rem; color: inherit; text-align: left; cursor: pointer; }
+.ov-varies-avg:disabled { cursor: default; }
+.ov-varies-switch { display: block; color: var(--accent); font-size: 0.8rem; margin-top: 2px; }
+.ov-varies-payer { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+.ov-varies-payer:last-child { border-bottom: none; }
+.ov-varies-payer-name { min-width: 0; overflow-wrap: anywhere; }
+.pay-kinds { margin-top: 4px; }
 
 /* More → Currencies: one row per currency, its history opens in place (owner, 2026-11-07). */
 .rates-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }

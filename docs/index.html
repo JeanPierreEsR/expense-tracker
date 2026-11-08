@@ -456,6 +456,7 @@
           <button type="button" class="period-nav-btn" id="period-next" data-i18n-aria-label="period.next" aria-label="Next period">›</button>
         </div>
         <div class="period-type-chips" id="period-type-chips">
+          <button type="button" class="period-type-chip" data-period-type="week" data-i18n="period.week">Week</button>
           <button type="button" class="period-type-chip active" data-period-type="month" data-i18n="period.month">Month</button>
           <button type="button" class="period-type-chip" data-period-type="year" data-i18n="period.year">Year</button>
           <button type="button" class="period-type-chip" data-period-type="alltime" data-i18n="period.alltime">All-time</button>
@@ -468,8 +469,10 @@
         <div id="custom-range-fields" hidden>
           <label data-i18n="period.dates">Dates</label>
           <div><input type="date" id="custom-start"><input type="date" id="custom-end"></div>
+          <p class="hint" id="custom-range-needs" data-i18n="period.pickDates">Pick a start and end date to see the totals.</p>
         </div>
       </div>
+      <button type="button" class="period-pending-line" id="period-pending-line" hidden></button>
 
       <div class="card ov-period">
         <div class="ov-sum-grid">
@@ -500,8 +503,22 @@
           <span class="ov-sum-net-value" id="summary-net">0.00</span>
           <span class="ov-sum-net-eq" id="summary-net-eq"></span>
         </div>
+        <p class="hint ov-sum-zero-line" id="summary-zero-line" hidden></p>
+        <p class="hint" id="overview-noincome-note" hidden data-i18n="overview.noIncome">No income recorded in this period yet: What's left only counts what went out.</p>
+        <p class="hint" id="overview-year-compare" hidden></p>
         <p class="hint" id="overview-excluded-note" hidden></p>
         <p class="hint" id="overview-empty-note" hidden data-i18n="overview.empty">No entries in this period yet.</p>
+      </div>
+
+      <div class="card" id="overview-varies-card" hidden>
+        <h2 data-i18n="varies.title">💵 Income that varies</h2>
+        <p class="hint" id="ov-varies-split" hidden></p>
+        <p class="ov-varies-line" id="ov-varies-perday" hidden></p>
+        <button type="button" class="ov-varies-avg" id="ov-varies-avg" hidden></button>
+        <div id="ov-varies-payers-wrap" hidden>
+          <h3 data-i18n="varies.whoPaid">Who paid me</h3>
+          <div id="ov-varies-payers"></div>
+        </div>
       </div>
 
       <div class="card" id="months-card" hidden>
@@ -514,6 +531,14 @@
       <div class="card" id="pace-card" hidden>
         <h2 data-i18n="home.paceTitle">Spending pace</h2>
         <div id="pace-ref-label" class="pace-ref-label"></div>
+        <div class="pace-ref-switch" id="pace-ref-switch" role="group">
+          <button type="button" class="period-type-chip-like" data-pace-ref="last" data-i18n="pace.refLast">Against earlier months</button>
+          <button type="button" class="period-type-chip-like" data-pace-ref="year" data-i18n="pace.refYear">Against last year</button>
+        </div>
+        <div class="pace-custom-row" id="pace-custom-row" hidden>
+          <span data-i18n="pace.customView">Custom view</span>
+          <button type="button" class="add-inline" id="pace-custom-reset" data-i18n="pace.reset">Reset</button>
+        </div>
         <svg class="home-line-svg pace-big" id="pace-svg" viewBox="0 0 300 150" preserveAspectRatio="none" aria-hidden="true"></svg>
         <div class="home-pace-lines" id="pace-lines"></div>
       </div>
@@ -543,6 +568,8 @@
         <h2 data-i18n="loans.ov.title">Loans</h2>
         <p class="hint" data-i18n="loans.ov.hint">Money borrowed, lent and repaid in this period, per currency. Includes friends' shares of bills and bank loans. Not income or expenses, so it stays out of the totals above.</p>
         <div id="loans-ov-list"></div>
+        <button type="button" class="add-inline" id="loans-ov-people-btn" hidden></button>
+        <button type="button" class="loans-ov-owed" id="loans-ov-owed" hidden></button>
       </div>
 
       <div class="card ov-period">
@@ -590,6 +617,8 @@
             <button type="button" class="icon-btn" id="add-budget-btn" data-i18n-aria-label="budgets.addAria" aria-label="Add budget"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
+        <p class="budgets-status-line" id="budgets-status-line" hidden></p>
+        <p class="hint" id="budgets-today-hint" hidden data-i18n="budgets.todayHint">The small mark on each bar is today's place in the year: a bar that goes past it is spending faster than an even pace.</p>
         <div id="budgets-list"></div>
         <p class="hint" id="budgets-empty-note" hidden data-i18n="budgets.empty">No budgets yet — add one to start tracking a category.</p>
         <div class="friends-editbar" id="budgets-editbar" hidden>
@@ -1324,6 +1353,13 @@
             </div>
           </div>
 
+          <div id="my-profile-pay-card" hidden>
+            <h3 class="md-head" data-i18n="prof.payHead">How I get paid</h3>
+            <p class="hint" data-i18n="prof.payHint">Each income category can also be marked as regular pay or as income that varies, in More → Categories.</p>
+            <div id="my-profile-pay"></div>
+            <p class="hint" id="my-profile-pay-msg" role="status"></p>
+          </div>
+
           <div id="my-profile-dates-card">
             <h3 class="md-head" data-i18n="prof.datesHead">How I type dates</h3>
             <p class="hint" data-i18n="prof.datesHint">Used for the order dates are written in the app and for dates you type to the Telegram bot.</p>
@@ -1571,6 +1607,36 @@
   <div id="app-undo-toast" class="app-toast app-undo-toast" role="status" hidden>
     <span id="app-undo-text"></span>
     <button type="button" id="app-undo-btn" class="app-undo-btn" data-i18n="tidy.undo">Undo</button>
+  </div>
+
+  <!-- Spending pace screen (owner, 2026-11-07): a tap on Overview's Spending pace card; customises what the graph compares. -->
+  <div id="pace-screen-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal currency-screen pace-screen">
+      <div class="currency-modal-header">
+        <span data-i18n="home.paceTitle">Spending pace</span>
+        <button type="button" id="pace-screen-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="pace-screen-body">
+        <div id="pace-s-loading"></div>
+        <div id="pace-s-content" hidden>
+          <div id="pace-s-label" class="pace-ref-label"></div>
+          <svg class="home-line-svg pace-big pace-screen-svg" id="pace-s-svg" viewBox="0 0 300 200" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <div class="pace-days" id="pace-s-days" aria-hidden="true"></div>
+          <div class="home-pace-lines" id="pace-s-lines"></div>
+          <label for="pace-s-blue" data-i18n="pace.blueLabel">Blue line</label>
+          <select id="pace-s-blue"></select>
+          <label for="pace-s-grey" data-i18n="pace.greyLabel">Compare with (grey line)</label>
+          <select id="pace-s-grey"></select>
+          <select id="pace-s-other" hidden data-i18n-aria-label="pace.greyOther" aria-label="Another month"></select>
+          <div id="pace-s-cats-field">
+            <label for="pace-s-cats" data-i18n="pace.catsLabel">Which expenses</label>
+            <select id="pace-s-cats"></select>
+          </div>
+          <p class="hint" data-i18n="pace.keptHint">Your choice stays on this phone, and the Overview card shows it too, until you change it or reset it.</p>
+          <button type="button" class="add-inline" id="pace-s-reset" hidden data-i18n="pace.resetLong">Reset to the usual view</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="currency-modal-backdrop" class="currency-modal-backdrop" hidden>
@@ -2359,6 +2425,11 @@
         <p class="hint" data-i18n="wf.intro">Tap any that apply. Each one adds a few categories you will probably use. This step is optional, and you can add more any time in More → Categories.</p>
         <div id="wf-chips"></div>
         <p class="hint" data-i18n="wf.basics">Always included: Groceries, Restaurants, Home (with your household bills), Transport, Travel, Sports, Bank fees and Other.</p>
+        <div id="wpay-block" hidden>
+          <h3 data-i18n="pay.title">How do you get paid?</h3>
+          <p class="hint" data-i18n="pay.hint">Optional. It helps the app show what matters for your kind of income.</p>
+          <div id="wpay-box"></div>
+        </div>
         <div id="wb-block" hidden>
           <h3 data-i18n="wb.title">Do you also have a business or projects?</h3>
           <p class="hint" data-i18n="wb.intro">Optional. You can turn this on or off any time in More → Business features.</p>
@@ -2861,6 +2932,7 @@
           <label for="forgive-date" data-i18n="field.date">Date</label>
           <input type="date" id="forgive-date">
         </div>
+        <p class="hint" id="forgive-budget-note" hidden></p>
 
         <p class="hint" id="forgive-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="forgive-save-btn" data-i18n="forgive.title">Forgive loan</button>
@@ -2929,6 +3001,7 @@
 
         <label for="budget-amount" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="budget-amount" placeholder="0.00">
+        <p class="hint" id="budget-forward-hint" hidden></p>
 
         <label data-i18n="field.currency">Currency</label>
         <input type="hidden" id="budget-currency" value="PEN">
@@ -2940,8 +3013,14 @@
 
         <label data-i18n="budgetModal.period">Period</label>
         <div class="type-tabs budget-period-tabs" id="budget-period-tabs">
+          <div class="type-tab" data-period="weekly" data-i18n="period.weekly">Weekly</div>
           <div class="type-tab active" data-period="monthly" data-i18n="period.monthly">Monthly</div>
           <div class="type-tab" data-period="yearly" data-i18n="period.yearly">Yearly</div>
+        </div>
+        <div id="budget-start-wrap" hidden>
+          <label for="budget-start" data-i18n="budgetModal.starts">Starts</label>
+          <select id="budget-start"></select>
+          <p class="hint" id="budget-start-hint" hidden></p>
         </div>
 
 <div id="budget-alert-fields">
@@ -2950,9 +3029,11 @@
         <p class="hint" data-alert-hint="budgetModal.alertHint">Comma-separated percentages of the budget. You'll get an alert the first time spending crosses each one, once per period.</p>
         </div>
 
+        <p class="hint" id="budget-ended-note" hidden></p>
         <p class="hint" id="budget-form-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="budget-save-btn" data-i18n="budgetModal.save">Save budget</button>
         <button type="button" class="delete-entry-btn" id="budget-delete-btn" hidden data-i18n="budgetModal.delete">Delete this budget</button>
+        <button type="button" class="delete-entry-btn" id="budget-delete-full-btn" hidden data-i18n="budgetModal.deleteFull">Delete completely</button>
       </div>
     </div>
   </div>
@@ -3440,6 +3521,16 @@
           <div class="type-tab active" data-type="expense" data-i18n="categories.type.expense">Expense</div>
           <div class="type-tab" data-type="income" data-i18n="categories.type.income">Income</div>
         </div>
+      </div>
+
+      <div id="cat-earning-wrap" hidden>
+        <label for="cat-earning" data-i18n="categories.earning">Counts as</label>
+        <select id="cat-earning">
+          <option value="regular" data-i18n="categories.earning.regular">Regular pay (a salary)</option>
+          <option value="varies" data-i18n="categories.earning.varies">Income that varies (sales, jobs)</option>
+          <option value="none" data-i18n="categories.earning.none">Not earnings (gifts, refunds…)</option>
+        </select>
+        <p class="hint" data-i18n="categories.earningHint">Income that varies gets its own figures in Overview: per day, who paid you, and the last months' average.</p>
       </div>
 
       <label for="cat-name" data-i18n="categories.name">Name</label>
