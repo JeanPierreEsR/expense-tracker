@@ -2325,6 +2325,24 @@
     </div>
   </div>
 
+  <!-- A budget change that could count from this period on or for all its periods (owner, 2026-11-08); an app window, not the
+       iPhone's own dialog (that one speaks the phone's language: "Annuler"). -->
+  <div id="budget-scope-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="budget-scope-title"></span>
+        <button type="button" id="budget-scope-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <button type="button" class="primary" id="budget-scope-forward"></button>
+        <p class="hint" id="budget-scope-forward-hint"></p>
+        <button type="button" class="secondary-choice" id="budget-scope-all"></button>
+        <p class="hint" id="budget-scope-all-hint"></p>
+        <button type="button" class="cancel-edit-btn" id="budget-scope-back" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="settlement-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">

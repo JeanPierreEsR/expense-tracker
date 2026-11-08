@@ -219,3 +219,16 @@ test("moving the start of a running budget (owner, 2026-11-08): earlier adds mon
   assert.equal(l.later.find((z) => z.id === b.id).start_later, k(1));
   assert.equal(amt(b.id, 1), 1000);
 });
+
+test("'For all its months': a change replaces every earlier amount of the budget, changes in between included", () => {
+  const { rt } = freshApp({ small: true });
+  rt.run("deleteRowsWhere_('Budgets', function () { return true; })");
+  const [y, m] = today().split("-").map(Number);
+  const k = (n) => { const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+  const cat = rt.api("getMeta").categories.find((c) => c.type === "expense").id;
+  const amt = (id, n) => { const x = rt.api("listBudgets", { displayPeriodType: "month", anchorDate: k(n) + "-01" }).budgets.find((z) => z.id === id); return x ? x.progress.effectiveAmount : null; };
+  const b = rt.api("addBudget", { category_id: cat, amount: 500, currency: "PEN", period_type: "monthly", start: k(-2) });
+  rt.api("updateBudget", { id: b.id, amount: 1000 });
+  rt.api("updateBudget", { id: b.id, amount: 1500, apply_all: true });
+  assert.deepEqual([-3, -2, -1, 0, 1].map((n) => amt(b.id, n)), [null, 1500, 1500, 1500, 1500]);
+});
