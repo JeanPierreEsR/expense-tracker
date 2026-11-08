@@ -13736,13 +13736,53 @@ function renderPerfScreen() {
 
 // ---- Exchange rates (More tab) ----
 
-async function refreshExchangeRates() {
+let ratesCache_ = [];            // the last list the server sent (the Add sheet finds an existing month in it)
+const ratesOpen_ = new Set();    // currencies whose history is open (kept while the screen is redrawn)
+const ratesAll_ = new Set();     // currencies showing all their months, not only the last 12
+// Redraws from what the phone already holds (opening a currency's history needs no server call).
+function refreshExchangeRatesFromCache_() { return refreshExchangeRates(ratesCache_); }
+
+// ---- Add an exchange rate (More → Currencies, +; owner 2026-11-07): currency and month, then the usual rate window ----
+function openRatesAdd_() {
+  const sel = document.getElementById("rates-add-currency");
+  const used = [...new Set(ratesCache_.map((r) => r.currency))];
+  const choices = [...new Set(["USD", ...used])].filter((c) => c !== homeCur());
+  sel.innerHTML = choices.map((c) => `<option value="${c}">${findCurrency(c).flag} ${c}</option>`).join("");
+  sel.value = choices[0] || "";
+  currencyPickOn_(sel);
+  const now = new Date();   // this month on the phone's own calendar
+  document.getElementById("rates-add-month").value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  document.getElementById("rates-add-error").textContent = "";
+  const backdrop = document.getElementById("rates-add-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function ratesAddClose_() { document.getElementById("rates-add-modal-backdrop").hidden = true; }
+document.getElementById("rates-add-btn").addEventListener("click", openRatesAdd_);
+document.getElementById("rates-add-modal-close").addEventListener("click", ratesAddClose_);
+document.getElementById("rates-add-next").addEventListener("click", async () => {
+  const cur = String(document.getElementById("rates-add-currency").value || "").toUpperCase();
+  const month = document.getElementById("rates-add-month").value;
+  const err = document.getElementById("rates-add-error");
+  if (!/^[A-Z]{3}$/.test(cur)) return;
+  if (cur === homeCur()) { err.textContent = tr("rates.addMain", { cur }); return; }
+  if (!/^\d{4}-\d{2}$/.test(month)) { err.textContent = tr("rates.addNoMonth"); return; }
+  ratesAddClose_();
+  // A month already on file opens with its rate, so it is edited, never doubled.
+  const known = ratesCache_.find((r) => r.currency === cur && r.month === month);
+  const usd = ratesUsdOn_();
+  const existing = known ? (usd && known.per_usd > 0 ? known.per_usd : known.rate) : undefined;
+  const newRate = await openRateModal(cur, month, /* required */ false, existing);
+  if (newRate != null) { ratesOpen_.add(cur); refreshExchangeRates(); }
+});
+
+async function refreshExchangeRates(cached) {
   const list = document.getElementById("exchange-rates-list");
   const emptyNote = document.getElementById("exchange-rates-empty-note");
-  list.innerHTML = loadingHtml_();
-  let rates;
+  let rates = cached;
+  if (!rates) list.innerHTML = loadingHtml_();
   try {
-    rates = await callApi("listExchangeRates");
+    if (!rates) rates = await callApi("listExchangeRates");
   } catch (err) {
     list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
     return;
@@ -13750,28 +13790,84 @@ async function refreshExchangeRates() {
 
   list.innerHTML = "";
   emptyNote.hidden = rates.length > 0;
+  ratesCache_ = rates;
 
-  // Friends' copies read every rate against the US dollar, the way banks and the news quote them ("1 USD = 0.92 EUR"); the
-  // owner's own copy keeps "1 X = main". Only the reading changes: what is stored, and the window a tap opens, are the same.
+  // Friends' copies read every rate against the US dollar, the way banks and the news quote them ("USD 1 = EUR 0.92"); the
+  // owner's own copy reads "X 1 = main" until its rates are stored against the dollar. Only the reading changes.
   const usd = ratesUsdOn_() && rates.every((r) => r.per_usd > 0);   // stored "1 USD = x": the server says each row's x
   const quotes = usd || perfIsOwnerCopy_() ? [] : RateQuotes.usdQuotes(rates, homeCur());
   renderRatesUsdOffer_(rates);
+  // Each row as a pair: `per` units of b for one a (written with the stronger one as 1).
+  const pair = (r, i) => (usd && r.per_usd > 0 ? { a: "USD", b: usdRateTarget_(r.currency), per: r.per_usd }
+    : quotes[i] ? { a: "USD", b: quotes[i].target, per: quotes[i].per } : { a: r.currency, b: homeCur(), per: r.rate });
+  // One row per currency (owner, 2026-11-07: too many rows with years of history): the latest rate, its month and how many
+  // months are on file; a tap opens the history in place, newest first, with the change from the month before.
+  const groups = new Map();
   rates.forEach((r, i) => {
-    const q = quotes[i];
-    const row = document.createElement("div");
-    row.className = "recurring-row";
-    row.innerHTML = `
+    if (!groups.has(r.currency)) groups.set(r.currency, []);
+    groups.get(r.currency).push({ r, p: pair(r, i) });
+  });
+  const codes = [...groups.keys()].sort((x, y) => (x === "USD" ? -1 : y === "USD" ? 1 : x < y ? -1 : 1));
+  const monthWords = (m) => { const [y, mo] = m.split("-").map(Number); return `${I18n.monthShort(mo - 1, true)} ${y}`; };   // "Nov 2026": one line on a phone
+  codes.forEach((code) => {
+    const items = groups.get(code).sort((x, y) => (x.r.month < y.r.month ? 1 : -1));
+    const latest = items[0];
+    const s = strongRate_(latest.p.a, latest.p.b, latest.p.per);
+    // Every month is written in the latest one's direction, so the changes compare like with like.
+    const shown = (it) => (s && s.one === it.p.a ? it.p.per : 1 / it.p.per);
+    const open = ratesOpen_.has(code);
+    const group = document.createElement("div");
+    group.className = "rates-group";
+    group.dataset.currency = code;
+    const head = document.createElement("div");
+    head.className = "recurring-row rates-group-head";
+    head.setAttribute("role", "button");
+    head.setAttribute("aria-expanded", open ? "true" : "false");
+    head.innerHTML = `
       <div>
-        <div class="recurring-row-name">${findCurrency(r.currency).flag} ${r.currency}</div>
-        <div class="recurring-row-sub">${r.month}</div>
+        <div class="recurring-row-name">${findCurrency(code).flag} ${escapeHtml(code)}</div>
+        <div class="recurring-row-sub">${escapeHtml(tr(items.length === 1 ? "rates.groupSubOne" : "rates.groupSub", { month: monthWords(latest.r.month), n: items.length }))}</div>
       </div>
-      <div class="recurring-row-amount">${usd && r.per_usd > 0 ? strongRateLine_("USD", usdRateTarget_(r.currency), r.per_usd) : q ? strongRateLine_("USD", q.target, q.per) : strongRateLine_(r.currency, homeCur(), r.rate)}</div>
-    `;
-    row.addEventListener("click", async () => {
-      const newRate = await openRateModal(r.currency, r.month, /* required */ false, usd && r.per_usd > 0 ? r.per_usd : r.rate);
-      if (newRate != null) refreshExchangeRates();
+      <div class="recurring-row-amount">${escapeHtml(s ? rateLine_(s.one, s.other, s.rate) : "")} <span class="rates-chevron" aria-hidden="true">${open ? "⌄" : "›"}</span></div>`;
+    head.addEventListener("click", () => {
+      if (ratesOpen_.has(code)) ratesOpen_.delete(code); else ratesOpen_.add(code);
+      refreshExchangeRatesFromCache_();
     });
-    list.appendChild(row);
+    group.appendChild(head);
+    if (open) {
+      const box = document.createElement("div");
+      box.className = "rates-history";
+      const limit = ratesAll_.has(code) ? items.length : Math.min(items.length, 12);
+      items.slice(0, limit).forEach((it, k) => {
+        const older = items[k + 1];
+        const v = shown(it);
+        let change = "";
+        if (older) {
+          const pct = (v / shown(older) - 1) * 100;
+          const t = Math.abs(pct) < 0.05 ? "=" : `${pct > 0 ? "+" : "−"}${Math.abs(pct).toFixed(1)}%`;
+          change = `<span class="rates-change${Math.abs(pct) > 10 ? " rates-jump" : ""}" aria-label="${escapeHtml(tr("rates.changeAria"))}">${t}</span>`;
+        }
+        const row = document.createElement("div");
+        row.className = "rates-month-row";
+        row.innerHTML = `<span class="rates-month-name">${escapeHtml(monthWords(it.r.month))}</span>
+          <span class="rates-month-rate">${escapeHtml(s ? rateLine_(s.one, s.other, v) : "")}</span>${change}`;
+        row.addEventListener("click", async () => {
+          const newRate = await openRateModal(it.r.currency, it.r.month, /* required */ false, usd && it.r.per_usd > 0 ? it.r.per_usd : it.r.rate);
+          if (newRate != null) refreshExchangeRates();
+        });
+        box.appendChild(row);
+      });
+      if (limit < items.length) {
+        const more = document.createElement("button");
+        more.type = "button";
+        more.className = "add-inline rates-older-btn";
+        more.textContent = tr("rates.showOlder", { n: items.length - limit });
+        more.addEventListener("click", () => { ratesAll_.add(code); refreshExchangeRatesFromCache_(); });
+        box.appendChild(more);
+      }
+      group.appendChild(box);
+    }
+    list.appendChild(group);
   });
   offerExchangeTip_();   // only now that everything has arrived (loading standard)
 }

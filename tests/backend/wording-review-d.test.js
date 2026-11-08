@@ -80,7 +80,7 @@ test("C21: the statements buttons, trips labels, loans and rates read as propose
   assert.match(get("loanModal.direction").en, /Who owes whom\?/);
   assert.match(get("forgive.title").en, /Forgive the debt/);
   assert.match(get("repay.overpaidRecordedIncome").en, /The payment of \{cur\} \{amount\} was more than the debt/);
-  assert.match(get("rates.hint").en, /Tap a rate to change it/);
+  assert.match(get("rates.hint").en, /a month to change its rate/);
   for (const k of ["rates.empty", "rateModal.none", "budgetModal.noRate", "trips.noRate"]) assert.ok(!/on file/.test(get(k).en), k);
   assert.match(get("pmm.catSuggestion").en, /percentage points closer/);
   assert.match(get("wa.alias").en, /Name \(optional\)/);
