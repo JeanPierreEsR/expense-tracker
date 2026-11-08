@@ -24244,20 +24244,27 @@ function bankRenderTotals_() {
   document.getElementById("bank-save").disabled = !ok || (bankDraft_.mode === "new" && !document.getElementById("bank-lender").value.trim());
 }
 
+function bankLoanAccount_(sched) {
+  const id = String((sched && sched.loan && sched.loan.payment_method_id) || "");
+  return id && meta.paymentMethods.some((pm) => String(pm.id) === id && pm.type !== "investment" && !pmHidden_(pm)) ? id : "";
+}
+// Like the friends' loan form (owner, 2026-11-08): the accounts first, the top one picked to start, and a named LAST choice for money
+// that moved through none of them — never an empty "None" box. Investment platforms are not offered.
 function bankPopulateAccounts_(selectId, keep) {
   const sel = document.getElementById(selectId);
   sel.innerHTML = "";
-  const none = document.createElement("option");
-  none.value = "";
-  none.textContent = tr("form.noneAccount");
-  sel.appendChild(none);
-  meta.paymentMethods.filter((pm) => !pmHidden_(pm)).forEach((pm) => {
+  const accounts = meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm));
+  accounts.forEach((pm) => {
     const o = document.createElement("option");
     o.value = pm.id;
     o.textContent = pmPickLabel_(pm);
     sel.appendChild(o);
   });
-  sel.value = keep || "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr(accounts.length ? "loanModal.noAccount" : "form.noneAccount");
+  sel.appendChild(none);
+  sel.value = keep !== undefined && keep !== null && keep !== "" ? keep : (accounts.length ? accounts[0].id : "");
 }
 
 function openBankLoanForm_() {
@@ -24545,7 +24552,7 @@ function bankEarlyPreview_() {
 function openBankEarly_(sched) {
   bankEarlyCtx_ = { sched };
   document.getElementById("bank-early-date").value = todayLocalISO();
-  bankPopulateAccounts_("bank-early-account", "");
+  bankPopulateAccounts_("bank-early-account", bankLoanAccount_(sched));   // the account the loan arrived in, when it still exists; else the top one
   document.getElementById("bank-early-principal").value = "";
   document.getElementById("bank-early-fee").value = "0";
   populateCategoryOptionsForSelect_("bank-early-category", "expense");
@@ -24605,7 +24612,7 @@ function openBankRecord_(inst, sched) {
   bankRecordCtx_ = { inst, sched };
   document.getElementById("bank-record-title").textContent = tr("bank.recordTitle", { n: inst.number, count: sched.installments.length });
   document.getElementById("bank-record-date").value = todayLocalISO();
-  bankPopulateAccounts_("bank-record-account", "");
+  bankPopulateAccounts_("bank-record-account", bankLoanAccount_(sched));   // the account the loan arrived in, when it still exists; else the top one
   document.getElementById("bank-record-principal").value = inst.principal;
   document.getElementById("bank-record-interest").value = inst.interest || "";
   document.getElementById("bank-record-fees").value = inst.fees || "";

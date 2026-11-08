@@ -3701,3 +3701,8 @@ html.kb-open .currency-modal-backdrop .currency-modal { max-height: calc(var(--v
 
 /* A currency exchange on Home: what left above, what arrived below (buildExchangePairRow_). */
 .entry-amount .xch-amt { display: block; }
+
+/* Round choice buttons keep their own look: the text-box rule above (width 100%, no native look) turned them into empty pills on
+   the iPhone and pushed the sheet sideways (owner's screenshot, bank loan "How do you want to enter it?", 2026-11-08). */
+input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; height: 20px; min-height: 0; padding: 0; margin: 0; flex: none; accent-color: var(--accent); border: none; }
+#bank-mode-box { margin-top: 16px; }

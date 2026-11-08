@@ -128,7 +128,7 @@ function getLoanSchedule(payload) {
   // what is still owed counts EVERYTHING repaid on the loan (installments and early payments), not just the paid installments
   var paidPrincipal = getAllRows('Settlements').filter(function (st) { return st.loan_id === loan.id; }).reduce(function (n, st) { return n + Number(st.amount); }, 0);
   return {
-    loan: { id: loan.id, amount: Number(loan.amount), currency: loan.currency, date: loan.date, description: loan.description || '', friend_id: loan.friend_id, friend_name: friend ? friend.name : '' },
+    loan: { id: loan.id, amount: Number(loan.amount), currency: loan.currency, date: loan.date, description: loan.description || '', friend_id: loan.friend_id, friend_name: friend ? friend.name : '', payment_method_id: loan.payment_method_id || '' },   // (the installment window starts on the account it arrived in)
     installments: rows,
     remaining_principal: bankRound_(Number(loan.amount) - paidPrincipal),
     totals: {
