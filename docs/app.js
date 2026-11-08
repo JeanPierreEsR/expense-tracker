@@ -25027,7 +25027,7 @@ function openLoanModal(loan, returnFriend, opts) {
   populateLoanFriendOptions();
   populateLoanPaymentMethodOptions();
   document.getElementById("loan-friend").value = loan ? loan.friend_id : ((opts && opts.friendId) || (meta.friends.length ? meta.friends[0].id : ""));
-  setLoanDirection_(loan ? loan.direction : "they_owe_me");
+  setLoanDirection_(loan ? loan.direction : ((opts && opts.direction) || "they_owe_me"));   // the "You owe" card's + starts on "I owe them"
   document.getElementById("loan-amount").value = loan ? loan.amount : "";
   document.getElementById("loan-currency").value = loan ? loan.currency : homeCur();
   renderCurrencyChips("loan");
@@ -25099,6 +25099,7 @@ document.getElementById("loan-apply-btn").addEventListener("click", () => {
   openApplyUnapplied_(loan, friend);
 });
 document.getElementById("add-loan-btn").addEventListener("click", () => openLoanModal(null, null));
+document.getElementById("add-loan-owe-btn").addEventListener("click", () => openLoanModal(null, null, { direction: "i_owe_them" }));
 document.getElementById("loan-modal-close").addEventListener("click", closeLoanModal);
 document.getElementById("loan-modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "loan-modal-backdrop") closeLoanModal();

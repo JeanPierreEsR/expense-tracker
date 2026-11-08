@@ -1085,6 +1085,7 @@
     // ---- loans ----
     "loans.owesYou": { en: "💸 Owes you", es: "💸 Te deben" },
     "loans.add": { en: "+ Add loan", es: "+ Agregar préstamo" },
+    "loans.addOweAria": { en: "Add money you owe", es: "Agregar dinero que debes" },
     "loans.addAria": { en: "Add loan", es: "Agregar préstamo" },
     "loans.totalOwed": { en: "Total owed to you", es: "Total que te deben" },
     "loans.noneOwed": { en: "No one owes you anything right now.", es: "Nadie te debe nada por ahora." },
