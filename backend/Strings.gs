@@ -203,6 +203,7 @@ var BACKEND_STRINGS_ = {
   // ---- budget ----
   "budget.amountGreater": { en: "The budget amount must be a number greater than 0.", es: "El monto del presupuesto debe ser un número mayor que 0." },
   "budget.thresholds": { en: "Alert thresholds must be positive numbers separated by commas, like 75,100 — \"{value}\" is not valid.", es: "Los porcentajes de aviso deben ser números positivos separados por comas, como 75,100: \"{value}\" no es válido." },
+  "budget.weekly": { en: "weekly", es: "semanal" },
   "budget.monthly": { en: "monthly", es: "mensual" },
   "budget.yearly": { en: "yearly", es: "anual" },
   "budget.allExpenseLower": { en: "all expense categories", es: "todas las categorías de gasto" },
@@ -526,6 +527,7 @@ var BACKEND_STRINGS_ = {
   "bot.blockerPlatform": { en: "an investment needs its platform first — reply \"platform Hapi\"", es: "una inversión necesita primero su plataforma; responde \"plataforma Hapi\"" },
   "bot.blockerCategory": { en: "it needs a category first — reply \"category groceries\"", es: "primero necesita una categoría; responde \"categoría supermercado\"" },
   "bot.thisYear": { en: "this year", es: "este año" },
+  "bot.thisWeek": { en: "this week", es: "esta semana" },
   "bot.thisMonth": { en: "this month", es: "este mes" },
   "bot.tripLabel": { en: "🧳 Trip/event: ", es: "🧳 Viaje/evento: " },
   "bot.tripWillLink": { en: "🧳 Will be linked to: {name} when you confirm — reply \"trip none\" to skip it, or \"trip <name>\" to pick another.", es: "🧳 Se vinculará a: {name} al confirmar — responde \"viaje ninguno\" para no vincularlo, o \"viaje <nombre>\" para elegir otro." },

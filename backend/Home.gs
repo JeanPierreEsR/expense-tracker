@@ -51,7 +51,7 @@ function getHomeGlance() {
   // Only those running this month: an ended budget, or one that starts later, is not part of it (Budgets.gs § Budget history).
   var budgetHist = budgetHistory_();
   var monthlyBudgets = getAllRows('Budgets').filter(function (b) {
-    return b.period_type !== 'yearly' && budgetActiveNow_(b, { budgetHistory: budgetHist });
+    return budgetKind_(b.period_type) === 'monthly' && budgetActiveNow_(b, { budgetHistory: budgetHist });
   });
   var budgetIds = monthlyBudgets.map(function (b) { return parseBudgetCategoryIds_(b.category_id); });
   function insideBudgets_(categoryId) {

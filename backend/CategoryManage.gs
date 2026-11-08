@@ -188,7 +188,7 @@ function dropDuplicateMovedBudgets_(movedIds) {
   if (!Object.keys(movedIds).length) return dropped;
   var key = function (b) {
     var ids = parseBudgetCategoryIds_(b.category_id);
-    return (b.period_type === 'yearly' ? 'yearly' : 'monthly') + '|' + (ids === null ? 'ALL' : ids.slice().sort().join(','));
+    return budgetKind_(b.period_type) + '|' + (ids === null ? 'ALL' : ids.slice().sort().join(','));
   };
   var seen = {};
   var rows = getAllRows('Budgets');
@@ -197,7 +197,7 @@ function dropDuplicateMovedBudgets_(movedIds) {
   rows.forEach(function (b) {
     if (!movedIds[String(b.id)]) return;
     var k = key(b);
-    if (seen[k]) { drop[String(b.id)] = true; dropped.push({ name: String(b.name || ''), amount: Number(b.amount), currency: String(b.currency || ''), period_type: b.period_type === 'yearly' ? 'yearly' : 'monthly' }); }
+    if (seen[k]) { drop[String(b.id)] = true; dropped.push({ name: String(b.name || ''), amount: Number(b.amount), currency: String(b.currency || ''), period_type: budgetKind_(b.period_type) }); }
     else seen[k] = true;
   });
   if (Object.keys(drop).length) {

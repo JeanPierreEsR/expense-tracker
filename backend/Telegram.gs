@@ -394,7 +394,7 @@ function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progre
 
 // The words of a budget alert (also the in-app notice, Notices.gs).
 function budgetAlertText_(budget, categoryDisplayName, progress) {
-  var periodLabel = tr_(budget.period_type === 'yearly' ? 'bot.thisYear' : 'bot.thisMonth');
+  var periodLabel = tr_(budget.period_type === 'yearly' ? 'bot.thisYear' : budget.period_type === 'weekly' ? 'bot.thisWeek' : 'bot.thisMonth');
   var emoji = progress.percent >= 100 ? '🚨' : '⚠️';
   var spentStr = progress.spent != null ? moneyFmt_(progress.spent) : '?';
   var amountStr = moneyFmt_(budget.amount);

@@ -9,6 +9,23 @@ var DEFAULT_BUDGET_THRESHOLDS = '50,75,100,110,125,150';
 
 function pad2_(n) { return (n < 10 ? '0' : '') + n; }
 
+// A budget's kind: 'monthly' (the default), 'yearly' or 'weekly' (Monday to Sunday, owner 2026-11-07).
+function budgetKind_(t) { return t === 'yearly' ? 'yearly' : t === 'weekly' ? 'weekly' : 'monthly'; }
+
+// 'YYYY-MM-DD' arithmetic in whole days (no time zone involved).
+function isoAddDays_(iso, n) {
+  var d = new Date(Date.UTC(Number(iso.substring(0, 4)), Number(iso.substring(5, 7)) - 1, Number(iso.substring(8, 10)) + n));
+  return d.getUTCFullYear() + '-' + pad2_(d.getUTCMonth() + 1) + '-' + pad2_(d.getUTCDate());
+}
+// The Monday of the week holding this day (a week runs Monday to Sunday; the owner's choice).
+function mondayOf_(iso) {
+  var d = new Date(Date.UTC(Number(iso.substring(0, 4)), Number(iso.substring(5, 7)) - 1, Number(iso.substring(8, 10))));
+  return isoAddDays_(iso, -((d.getUTCDay() + 6) % 7));
+}
+function isoDayCount_(from, to) {   // days from..to, both included
+  return Math.round((Date.UTC(+to.substring(0, 4), +to.substring(5, 7) - 1, +to.substring(8, 10)) - Date.UTC(+from.substring(0, 4), +from.substring(5, 7) - 1, +from.substring(8, 10))) / 86400000) + 1;
+}
+
 // Monthly budgets reset every calendar month, yearly ones every calendar
 // year — periodKey is what Budget Alert Log dedupes alerts against, so a
 // threshold already alerted this period never re-fires until the period
@@ -16,6 +33,10 @@ function pad2_(n) { return (n < 10 ? '0' : '') + n; }
 function getBudgetPeriodBounds_(periodType, refDate) {
   var y = refDate.getFullYear();
   var m = refDate.getMonth();
+  if (periodType === 'weekly') {   // Monday to Sunday; the key is the Monday ('YYYY-MM-DD')
+    var mon = mondayOf_(y + '-' + pad2_(m + 1) + '-' + pad2_(refDate.getDate()));
+    return { startDate: mon, endDate: isoAddDays_(mon, 6), periodKey: mon };
+  }
   if (periodType === 'yearly') {
     return { startDate: y + '-01-01', endDate: y + '-12-31', periodKey: String(y) };
   }
@@ -199,8 +220,10 @@ function latestRateAtOrBefore_(ctx, currency, cutoffMonth) {
 // just shows its own native period in that case (same as before periods
 // were browsable here at all).
 function resolveEffectivePeriodType_(budgetPeriodType, displayPeriodType) {
+  var kind = budgetKind_(budgetPeriodType);
   if (displayPeriodType === 'year') return 'yearly';
-  return budgetPeriodType;
+  if (displayPeriodType === 'month' && kind === 'weekly') return 'monthly';   // a weekly budget across a whole month
+  return kind;   // a Week view never narrows a monthly or yearly budget: it shows its own month / year
 }
 
 // Monthly budgets leave Annual-tagged expenses out; yearly ones count them.
@@ -210,8 +233,15 @@ function budgetExcludesAnnual_(budget) {
 
 function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, anchorDate) {
   var effectivePeriodType = resolveEffectivePeriodType_(budget.period_type, displayPeriodType);
-  var usesAnchor = (displayPeriodType === 'month' || displayPeriodType === 'year') && anchorDate;
+  var usesAnchor = (displayPeriodType === 'month' || displayPeriodType === 'year' || displayPeriodType === 'week') && anchorDate;
   var refDate = usesAnchor ? new Date(anchorDate + 'T00:00:00') : new Date();
+  if (displayPeriodType === 'week' && usesAnchor && effectivePeriodType !== 'weekly') {
+    // A monthly or yearly budget in a Week view: the month (year) of today when the week holds today, else of the week's Thursday
+    // (a week belongs to the month holding most of its days).
+    var mon = mondayOf_(anchorDate), todayIso = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    var pick = (todayIso >= mon && todayIso <= isoAddDays_(mon, 6)) ? todayIso : isoAddDays_(mon, 3);
+    refDate = new Date(pick + 'T00:00:00');
+  }
   var bounds = getBudgetPeriodBounds_(effectivePeriodType, refDate);
 
   // A monthly budget's amount is a per-month figure — shown across a full
@@ -219,10 +249,11 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
   // the other way around: a yearly budget's amount already IS the whole
   // year's figure, so it's never divided down for a monthly view — see
   // resolveEffectivePeriodType_.)
-  var annualized = effectivePeriodType === 'yearly' && budget.period_type === 'monthly';
+  var annualized = effectivePeriodType === 'yearly' && budgetKind_(budget.period_type) === 'monthly';
+  var weeksWidened = effectivePeriodType !== 'weekly' && budgetKind_(budget.period_type) === 'weekly';
   // What the budget was in the period shown: amount, currency and categories count from their own period on, and a budget
   // exists only from its start to its end (owner, 2026-11-07; see § Budget history below).
-  var plan = budgetPlan_(budget, ctx, annualized ? bounds.periodKey : null, annualized ? null : bounds.periodKey);
+  var plan = budgetPlanForRange_(budget, ctx, bounds.startDate, bounds.endDate);
   if (!plan.exists) return { exists: false, effectivePeriodType: effectivePeriodType, annualized: annualized, periodKey: bounds.periodKey, startDate: bounds.startDate, endDate: bounds.endDate };
 
   // A budget's own period_type decides (not the widened display period): a
@@ -263,6 +294,8 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
     category_id: plan.categoryRaw,
     amountChanged: plan.changed,
     monthsCounted: plan.monthsCounted,    // a monthly budget shown by year: the months it existed in (12 = the whole year)
+    weeksWidened: weeksWidened,           // a weekly budget shown by month or year: its weeks, a week cut by the period counted by its days
+    weeksCounted: plan.weeksCounted || null,
     countFrom: plan.firstMonth || null,   // …and the first and last of them ('YYYY-MM'), for the drill-down's list
     countTo: plan.lastMonth || null,
     percent: percent,
@@ -306,7 +339,7 @@ function listBudgets(payload) {
       amount: Number(b.amount),
       amount_pen: rate != null ? Number(b.amount) * rate : null,
       currency: currency,
-      period_type: b.period_type === 'yearly' ? 'yearly' : 'monthly',
+      period_type: budgetKind_(b.period_type),
       thresholds: b.thresholds || DEFAULT_BUDGET_THRESHOLDS,
       progress: computeBudgetProgressWithContext_(b, ctx, displayPeriodType, anchorDate),
       active_now: budgetActiveNow_(b, ctx),   // running this month (year): counts in the totals below
@@ -330,8 +363,9 @@ function listBudgets(payload) {
   // budgets with no rate on file (amount_pen null) sort last within their
   // group.
   budgets.sort(function (a, b) {
-    var orderA = a.period_type === 'yearly' ? 0 : 1;
-    var orderB = b.period_type === 'yearly' ? 0 : 1;
+    var KIND_ORDER = { yearly: 0, monthly: 1, weekly: 2 };
+    var orderA = KIND_ORDER[a.period_type];
+    var orderB = KIND_ORDER[b.period_type];
     if (orderA !== orderB) return orderA - orderB;
     var pa = a.amount_pen == null ? -1 : a.amount_pen;
     var pb = b.amount_pen == null ? -1 : b.amount_pen;
@@ -394,8 +428,10 @@ function listBudgets(payload) {
   budgets.forEach(function (b, idx) {
     if (dominated[idx]) return;
     if (b.amount_pen == null) { excludedCount++; return; }
-    if (b.period_type !== 'yearly') monthlyPen += b.amount_pen;
-    yearlyPen += b.period_type === 'yearly' ? b.amount_pen : b.amount_pen * 12;
+    // A weekly budget is a real cap every week: 52 of them a year, 52 / 12 a month.
+    if (b.period_type === 'monthly') monthlyPen += b.amount_pen;
+    if (b.period_type === 'weekly') monthlyPen += b.amount_pen * 52 / 12;
+    yearlyPen += b.period_type === 'yearly' ? b.amount_pen : b.period_type === 'weekly' ? b.amount_pen * 52 : b.amount_pen * 12;
   });
 
   // Budgets that survive the dedup above (none fully contains the other)
@@ -449,10 +485,7 @@ function getBudgetChartSeries(payload) {
 
   var ctx = buildBudgetContext_();
   // What the budget was in the period shown (currency, categories, the months it existed in): see § Budget history.
-  var spansYear = startDate.substring(0, 7) !== endDate.substring(0, 7);
-  var plan = budgetPlan_(rawBudget, ctx,
-    spansYear && rawBudget.period_type !== 'yearly' ? endDate.substring(0, 4) : null,
-    rawBudget.period_type === 'yearly' ? endDate.substring(0, 4) : endDate.substring(0, 7));
+  var plan = budgetPlanForRange_(rawBudget, ctx, startDate, endDate);
   var currency = plan.exists ? plan.currency : (rawBudget.currency || homeCurrency_());
   var categoryIds = plan.exists ? plan.categoryIds : parseBudgetCategoryIds_(rawBudget.category_id);   // programmed / expected: the latest
   var match = plan.exists ? plan.match : function () { return false; };
@@ -606,24 +639,24 @@ function assertNoDuplicateBudget_(categoryRaw, periodType, excludeId) {
   getAllRows('Budgets').forEach(function (other) {
     if (other.id === excludeId) return;
     if (budgetEndedNow_(other, history[String(other.id)])) return;   // an ended budget may be made again (owner, 2026-11-07)
-    if ((other.period_type === 'yearly' ? 'yearly' : 'monthly') !== periodType) return;
+    if (budgetKind_(other.period_type) !== periodType) return;
     if (key(parseBudgetCategoryIds_(other.category_id)) !== myKey) return;
     var what = mine === null
       ? tr_('budget.allExpenseLower')
       : mine.map(function (id) { return '"' + (names[id] || tr_('budget.thisCategory')) + '"'; }).join(' + ');
-    throw new Error(tr_('budget.duplicate', { period: tr_(periodType === 'yearly' ? 'budget.yearly' : 'budget.monthly'), what: what }));
+    throw new Error(tr_('budget.duplicate', { period: tr_(periodType === 'yearly' ? 'budget.yearly' : periodType === 'weekly' ? 'budget.weekly' : 'budget.monthly'), what: what }));
   });
 }
 
 function addBudget(payload) {
   validateBudgetAmount_(payload.amount);
-  assertNoDuplicateBudget_(payload.category_id, payload.period_type === 'yearly' ? 'yearly' : 'monthly', null);
+  assertNoDuplicateBudget_(payload.category_id, budgetKind_(payload.period_type), null);
   var budget = {
     id: Utilities.getUuid(),
     category_id: payload.category_id,
     amount: Number(payload.amount),
     currency: payload.currency || homeCurrency_(),
-    period_type: payload.period_type === 'yearly' ? 'yearly' : 'monthly',
+    period_type: budgetKind_(payload.period_type),
     thresholds: normalizeBudgetThresholds_(payload.thresholds),
     name: payload.name ? String(payload.name).trim() : ''
   };
@@ -647,7 +680,7 @@ function updateBudget(payload) {
     var newPeriod = payload.period_type !== undefined ? payload.period_type : current.period_type;
     assertNoDuplicateBudget_(
       payload.category_id !== undefined ? payload.category_id : current.category_id,
-      newPeriod === 'yearly' ? 'yearly' : 'monthly',
+      budgetKind_(newPeriod),
       payload.id
     );
   }
@@ -995,6 +1028,7 @@ function budgetCurrentPeriodKey_(periodType, step) {
   var now = Utilities.formatDate(new Date(), tz, 'yyyy-MM');
   var y = Number(now.substring(0, 4)), m = Number(now.substring(5, 7));
   if (periodType === 'yearly') return String(y + (step || 0));
+  if (periodType === 'weekly') return isoAddDays_(mondayOf_(Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd')), 7 * (step || 0));
   var d = new Date(y, m - 1 + (step || 0), 1);
   return d.getFullYear() + '-' + pad2_(d.getMonth() + 1);
 }
@@ -1003,8 +1037,9 @@ function budgetCurrentPeriodKey_(periodType, step) {
 function budgetStartKey_(periodType, start) {
   if (start === 'always') return '';
   if (start === 'next') return budgetCurrentPeriodKey_(periodType, 1);
+  if (periodType === 'weekly' && start && /^\d{4}-\d{2}-\d{2}$/.test(String(start))) return mondayOf_(String(start));
   var ok = periodType === 'yearly' ? /^\d{4}$/ : /^\d{4}-\d{2}$/;
-  if (start && ok.test(String(start))) return String(start);
+  if (periodType !== 'weekly' && start && ok.test(String(start))) return String(start);
   return budgetCurrentPeriodKey_(periodType, 0);
 }
 
@@ -1023,20 +1058,20 @@ function budgetStateAt_(budget, rows, key) {
 // Ended: not running now and nothing planned later (a budget that starts next month is not ended).
 function budgetEndedNow_(budget, rows) {
   if (!rows || !rows.length) return false;
-  var key = budgetCurrentPeriodKey_(budget.period_type === 'yearly' ? 'yearly' : 'monthly', 0);
+  var key = budgetCurrentPeriodKey_(budgetKind_(budget.period_type), 0);
   if (budgetStateAt_(budget, rows, key).exists) return false;
   return !rows.some(function (r) { return r.from > key && !r.ended; });
 }
 
 // Did the budget run in some period before this one (so ending it leaves something to show)?
 function budgetRanBefore_(budget, rows) {
-  var key = budgetCurrentPeriodKey_(budget.period_type === 'yearly' ? 'yearly' : 'monthly', 0);
+  var key = budgetCurrentPeriodKey_(budgetKind_(budget.period_type), 0);
   return !rows || !rows.length || rows.some(function (r) { return r.from < key && !r.ended; });
 }
 
 function budgetActiveNow_(budget, ctx) {
   var rows = ctx && ctx.budgetHistory ? ctx.budgetHistory[String(budget.id)] : budgetHistory_()[String(budget.id)];
-  return budgetStateAt_(budget, rows, budgetCurrentPeriodKey_(budget.period_type === 'yearly' ? 'yearly' : 'monthly', 0)).exists;
+  return budgetStateAt_(budget, rows, budgetCurrentPeriodKey_(budgetKind_(budget.period_type), 0)).exists;
 }
 
 // What the budget is measured with in the period shown. key: a monthly budget's month or a yearly budget's year.
@@ -1102,8 +1137,8 @@ function budgetRows_(budgetId) {
 // its planned start. A budget that has ended keeps its rows (it is started again with restart).
 function recordBudgetChange_(current, payload) {
   if (!current) return;
-  var oldType = current.period_type === 'yearly' ? 'yearly' : 'monthly';
-  var newType = payload.period_type !== undefined ? (payload.period_type === 'yearly' ? 'yearly' : 'monthly') : oldType;
+  var oldType = budgetKind_(current.period_type);
+  var newType = payload.period_type !== undefined ? budgetKind_(payload.period_type) : oldType;
   var after = {
     amount: payload.amount !== undefined ? Number(payload.amount) : Number(current.amount),
     currency: payload.currency !== undefined && payload.currency ? payload.currency : (current.currency || homeCurrency_()),
@@ -1134,7 +1169,7 @@ function endBudget(payload) {
   var id = String(payload && payload.id || '');
   var b = getAllRows('Budgets').find(function (x) { return String(x.id) === id; });
   if (!b) return { done: true, missing: true };
-  var type = b.period_type === 'yearly' ? 'yearly' : 'monthly';
+  var type = budgetKind_(b.period_type);
   var key = budgetCurrentPeriodKey_(type, 0);
   var rows = budgetRows_(id);
   if (!budgetRanBefore_(b, rows)) { deleteBudget(id); return { done: true, deleted: true }; }
@@ -1158,8 +1193,8 @@ function endBudgets(payload) {
 // Start an ended budget again from this period, with the values in the form (payload as updateBudget's, restart: true).
 function restartBudget_(current, payload) {
   if (!current) return;
-  var type = payload.period_type !== undefined ? (payload.period_type === 'yearly' ? 'yearly' : 'monthly') : (current.period_type === 'yearly' ? 'yearly' : 'monthly');
-  if (type !== (current.period_type === 'yearly' ? 'yearly' : 'monthly') && budgetHistorySheetExists_()) {
+  var type = payload.period_type !== undefined ? budgetKind_(payload.period_type) : budgetKind_(current.period_type);
+  if (type !== budgetKind_(current.period_type) && budgetHistorySheetExists_()) {
     deleteRowsWhere_('Budget History', function (r) { return String(r.budget_id) === String(current.id); });
   }
   writeBudgetHistoryRow_(current, budgetCurrentPeriodKey_(type, 0), {
@@ -1167,4 +1202,59 @@ function restartBudget_(current, payload) {
     currency: payload.currency || current.currency || homeCurrency_(),
     category_id: payload.category_id !== undefined ? payload.category_id : current.category_id
   }, false);
+}
+
+// What the budget is measured with over a date range (the period shown or the chart's): its own period (one month, one year, one
+// week), a monthly budget across a year, or a weekly budget across a month or a year.
+function budgetPlanForRange_(budget, ctx, startDate, endDate) {
+  var kind = budgetKind_(budget.period_type);
+  if (kind === 'yearly') return budgetPlan_(budget, ctx, null, startDate.substring(0, 4));
+  if (kind === 'monthly') {
+    return startDate.substring(0, 7) === endDate.substring(0, 7)
+      ? budgetPlan_(budget, ctx, null, startDate.substring(0, 7))
+      : budgetPlan_(budget, ctx, endDate.substring(0, 4), null);
+  }
+  if (mondayOf_(startDate) === startDate && isoAddDays_(startDate, 6) === endDate) return budgetPlan_(budget, ctx, null, startDate);
+  return weeklyBudgetAcross_(budget, ctx, startDate, endDate);
+}
+
+// A weekly budget across a longer period: every week that overlaps it, each with the amount, currency and categories it had that
+// week, a week cut by the period's edge counted by its days (4 days of a week = 4/7 of its amount). Amounts in another currency are
+// turned into the last week's through the main currency.
+function weeklyBudgetAcross_(budget, ctx, startDate, endDate) {
+  var rows = (ctx && ctx.budgetHistory && ctx.budgetHistory[String(budget.id)]) || null;
+  var weeks = [], states = {}, last = null, overlapping = 0;
+  for (var mon = mondayOf_(startDate); mon <= endDate; mon = isoAddDays_(mon, 7)) {
+    overlapping++;
+    var st = budgetStateAt_(budget, rows, mon);
+    if (!st.exists) continue;
+    var from = mon < startDate ? startDate : mon, sun = isoAddDays_(mon, 6), to = sun > endDate ? endDate : sun;
+    st.ids = parseBudgetCategoryIds_(st.category_id);
+    st.share = isoDayCount_(from, to) / 7;
+    states[mon] = st; weeks.push(mon); last = st;
+  }
+  if (!last) return { exists: false };
+  var total = 0, counted = 0, sameCats = true;
+  weeks.forEach(function (mon) {
+    var at = states[mon], amt = at.amount;
+    if (at.currency !== last.currency) {
+      var k = mon.substring(0, 7);
+      var fr = latestRateAtOrBefore_(ctx, at.currency, k), to = latestRateAtOrBefore_(ctx, last.currency, k);
+      amt = (fr != null && to) ? at.amount * fr / to : last.amount;
+    }
+    total += amt * at.share;
+    counted += at.share;
+    if (at.category_id !== last.category_id) sameCats = false;
+  });
+  total = Math.round(total * 100) / 100;
+  var weekOf = {};
+  var match = (weeks.length === overlapping && sameCats) ? last.ids : function (e) {
+    var d = String(e.date);
+    var at = states[weekOf[d] || (weekOf[d] = mondayOf_(d))];
+    return !!at && categoryIdMatches_(at.ids, e.category_id);
+  };
+  return { exists: true, amount: total, currency: last.currency, categoryIds: last.ids, categoryRaw: last.category_id, match: match,
+    firstMonth: (weeks[0] < startDate ? startDate : weeks[0]).substring(0, 7), lastMonth: (isoAddDays_(weeks[weeks.length - 1], 6) > endDate ? endDate : isoAddDays_(weeks[weeks.length - 1], 6)).substring(0, 7),
+    changed: last.category_id !== String(budget.category_id || '') || last.currency !== (budget.currency || homeCurrency_()),
+    weeksCounted: Math.round(counted * 10) / 10 };
 }
