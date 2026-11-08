@@ -14775,8 +14775,25 @@ async function refreshExchangeRates(cached) {
 // expenses would read differently, and nothing is saved before "Store them against the dollar".
 function renderRatesUsdOffer_(rates) {
   const box = document.getElementById("rates-usd-offer");
-  box.hidden = !(((meta && meta.capabilities) || {}).ratesUsdConvert && !ratesUsdOn_() && rates.length);
+  const offer = ((meta && meta.capabilities) || {}).ratesUsdConvert && !ratesUsdOn_() && rates.length > 0;
+  // Only dollar rates, against the main currency they were stored in: the conversion changes nothing anyone can see
+  // (USD 1 = PEN 3.75 reads the same before and after), so it is done quietly, with no offer and no button (owner, 2026-11-08).
+  const base = String(((meta && meta.settings) || {}).rate_base || "PEN").toUpperCase();
+  if (offer && base === homeCur() && rates.every((r) => r.currency === "USD")) {
+    box.hidden = true;
+    if (ratesUsdQuiet_) return;
+    ratesUsdQuiet_ = true;
+    callApi("convertRatesToUsd", {}).then(() => {
+      meta.settings.rate_base = "USD";
+      meta.settings.rate_form = "per_base";
+      knownRateMonths_.clear();
+      refreshExchangeRates();
+    }).catch(() => { ratesUsdQuiet_ = false; });   // tried again the next time Currencies opens
+    return;
+  }
+  box.hidden = !offer;
 }
+let ratesUsdQuiet_ = false;
 function ratesUsdClose_() { document.getElementById("rates-usd-modal-backdrop").hidden = true; }
 async function openRatesUsdPreview_() {
   const backdrop = document.getElementById("rates-usd-modal-backdrop"), body = document.getElementById("rates-usd-body");
