@@ -167,6 +167,22 @@ if ! (cd "$W" && GMAIL_READER=readonly node --test tests/backend/ > "$LOG2" 2>&1
 fi
 grep -E "^ℹ (pass|fail)" "$LOG2" | sed 's/^/  (new e-mail reader) /'
 
+# Screen-fit check (owner's rule, 2026-11-07): an app change must fit a 375 px iPhone in both languages.
+# Only when the app (docs/) changed; a Mac without Playwright gets a warning, not a stop (tests/README.md § Screen-fit check).
+if G diff --name-only origin/main HEAD | grep -E '^docs/.*\.(html|js|css)$' | grep -qvE '^docs/stable(-[0-9a-f]+)?/'; then
+  say "Checking that every screen fits a small iPhone (375 px)…"
+  LOG3="$(mktemp)"; SF=0
+  (cd "$W" && node tests/screen-fit/check.js > "$LOG3" 2>&1) || SF=$?
+  cat "$LOG3"
+  if [ "$SF" = "1" ]; then
+    [ -z "$RESUME" ] && rollback
+    die "Some screens do not fit a 375 px iPhone (listed above) — nothing was published$([ -z "$RESUME" ] && echo "; the merge was undone").
+   Fix them in the chat that owns the branch (check with: node tests/screen-fit/check.js), then ship again."
+  elif [ "$SF" != "0" ]; then
+    echo "⚠ The screen-fit check could not run (above) — shipping without it."
+  fi
+fi
+
 # ------------------------------------------------------ 4. version bump
 CHANGED="$(G diff --name-only origin/main HEAD)"
 if echo "$CHANGED" | grep -E '^docs/.*\.(html|js|css)$' | grep -vE '^docs/stable(-[0-9a-f]+)?/' | grep -qv 'version.json'; then
