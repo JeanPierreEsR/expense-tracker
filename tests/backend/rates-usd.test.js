@@ -108,3 +108,17 @@ test("friends' copies are not offered the conversion yet; no dollar rate means n
   assert.deepEqual(own.api("previewRatesToUsd"), { needsUsd: true });
   assert.throws(() => own.api("convertRatesToUsd"));
 });
+
+test("after the conversion, dollar entries are not reported as a currency without a rate (owner's Home card, 2026-11-08)", () => {
+  const { rt, add } = app();
+  rt.api("setExchangeRate", { currency: "USD", month: M1, rate: 3.75 });
+  rt.api("setExchangeRate", { currency: "ARS", month: M1, rate: 0.0026 });
+  add({ date: `${M1}-03`, amount: 12, currency: "USD", description: "Made-up subscription" });
+  assert.equal(rt.api("getHomeGlance", {}).unreadable, null, "before");
+  rt.api("convertRatesToUsd");
+  assert.equal(rt.api("getHomeGlance", {}).unreadable, null, "after: the dollar is the base, worth 1");
+  add({ date: `${M1}-04`, amount: 5, currency: "CHF", description: "No rate at all" });
+  const u = rt.api("getHomeGlance", {}).unreadable;
+  assert.equal(u.count, 1, "a currency with no rate is still reported");
+  assert.equal(u.rows[0].value, "CHF");
+});

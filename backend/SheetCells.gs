@@ -103,6 +103,7 @@ function cleanSheetRow_(sheetName, obj, headers, rowNumber) {
 function unreadableSheetRows_() {
   var main = homeCurrency_();
   var rates = buildRatesByCurrency_();
+  var base = rateBase_();   // the currency rates are stored against has no rows of its own (it is 1): the US dollar once rates go through it
   var rows = [];
   var entries = getAllRows('Entries');
   entries.forEach(function (e, i) {
@@ -110,7 +111,7 @@ function unreadableSheetRows_() {
       e._unreadable.cells.forEach(function (c) {
         rows.push({ sheet: 'Entries', row: e._unreadable.row, cell: c.cell, field: c.field, value: c.value, description: String(e.description || '') });
       });
-    } else if (e.status === 'confirmed' && e.currency !== main && !rates[e.currency]) {
+    } else if (e.status === 'confirmed' && e.currency !== main && e.currency !== base && !rates[e.currency]) {
       var column = Object.keys(e).indexOf('currency');
       rows.push({ sheet: 'Entries', row: i + 2, cell: sheetColumnLetter_(column) + (i + 2), field: 'currency', value: String(e.currency), description: String(e.description || '') });
     }
