@@ -2832,15 +2832,18 @@ let rateModalState = null; // { currency, month, inverted, resolve, existingRate
 
 function renderRateModalLabels_() {
   const { currency, inverted, existingRate, usd } = rateModalState;
-  document.getElementById("rate-invert-btn").hidden = !!usd;   // through the dollar it is always asked "1 USD = ? X" (owner, 2026-11-07)
+  document.getElementById("rate-invert-btn").hidden = !!usd;   // through the dollar it is always asked against the dollar, stronger side as 1 (owner, 2026-11-07)
   if (usd) {
-    document.getElementById("rate-left-label").textContent = "1 USD";
-    document.getElementById("rate-right-label").textContent = usdRateTarget_(currency);
-    document.getElementById("rate-value-input").value = existingRate == null ? "" : String(Number(Number(existingRate).toFixed(existingRate >= 100 ? 4 : 6)));
+    // "USD 1 = ? ARS", or "EUR 1 = ? USD" when the other currency is worth more than a dollar (`inverted` here).
+    const target = usdRateTarget_(currency);
+    document.getElementById("rate-left-label").textContent = inverted ? `${target} 1` : "USD 1";
+    document.getElementById("rate-right-label").textContent = inverted ? "USD" : target;
+    const shown = existingRate == null ? null : (inverted ? 1 / existingRate : Number(existingRate));
+    document.getElementById("rate-value-input").value = shown == null ? "" : String(Number(shown.toFixed(shown >= 100 ? 4 : 6)));
     renderRateMeaning_();
     return;
   }
-  document.getElementById("rate-left-label").textContent = inverted ? `1 ${homeCur()}` : `1 ${currency}`;
+  document.getElementById("rate-left-label").textContent = inverted ? `${homeCur()} 1` : `${currency} 1`;
   document.getElementById("rate-right-label").textContent = inverted ? currency : homeCur();
   // existingRate is always in the canonical "1 currency = rate PEN"
   // orientation (see the comment above) — flip it for display whenever
@@ -2858,9 +2861,10 @@ function renderRateMeaning_() {
   const st = rateModalState;
   const raw = parseFloat(document.getElementById("rate-value-input").value);
   if (!st || !st.firstEver || !(raw > 0)) { el.hidden = true; return; }
-  const from = st.usd ? "USD" : st.inverted ? homeCur() : st.currency;
-  const to = st.usd ? usdRateTarget_(st.currency) : st.inverted ? st.currency : homeCur();
-  el.textContent = tr("rateModal.meaning", { left: `10 ${from}`, right: `${to} ${moneyFmt(raw * 10)}` });
+  const usdFrom = st.inverted ? usdRateTarget_(st.currency) : "USD", usdTo = st.inverted ? "USD" : usdRateTarget_(st.currency);
+  const from = st.usd ? usdFrom : st.inverted ? homeCur() : st.currency;
+  const to = st.usd ? usdTo : st.inverted ? st.currency : homeCur();
+  el.textContent = tr("rateModal.meaning", { left: `${from} 10`, right: `${to} ${moneyFmt(raw * 10)}` });
   el.hidden = false;
 }
 
@@ -2871,7 +2875,7 @@ function openRateModal(currency, month, required, existingRate) {
     // Asked the way it is spoken: the stronger currency as 1 (owner, 2026-11-07); the person can still switch it.
     // Once rates go through the dollar, `existingRate` is "1 USD = ? <currency>" and the window asks it that way.
     const usd = ratesUsdOn_();
-    rateModalState = { currency, month, usd, inverted: !usd && weakerThanMain_(currency, existingRate), resolve, existingRate: existingRate != null ? existingRate : null };
+    rateModalState = { currency, month, usd, inverted: usd ? strongerThanUsd_(currency, existingRate) : weakerThanMain_(currency, existingRate), resolve, existingRate: existingRate != null ? existingRate : null };
     // The previous month's rate (for the "that looks far off" check) is fetched while the person types,
     // so Save has nothing to wait for before it can close.
     const [yy, mm] = month.split("-").map(Number);
@@ -2879,11 +2883,11 @@ function openRateModal(currency, month, required, existingRate) {
     const opening = rateModalState;
     opening.prevRate = callApi("getLatestRateOnOrBefore", { currency, month: prevMonth }).then((r) => {
       // A new rate follows the way the earlier one reads, unless the person already switched it or typed.
-      if (!usd && r.rate != null && existingRate == null && rateModalState === opening && !opening.switched && !document.getElementById("rate-value-input").value) {
-        opening.inverted = weakerThanMain_(currency, r.rate);
+      const prev = usd ? r.per_usd : r.rate;
+      if (prev != null && existingRate == null && rateModalState === opening && !opening.switched && !document.getElementById("rate-value-input").value) {
+        opening.inverted = usd ? strongerThanUsd_(currency, prev) : weakerThanMain_(currency, prev);
         renderRateModalLabels_();
       }
-      const prev = usd ? r.per_usd : r.rate;
       if (prev == null) { opening.firstEver = true; if (rateModalState === opening) renderRateMeaning_(); }
       return prev;
     }).catch(() => null);
@@ -2940,7 +2944,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
   }
 
   const { currency, month, inverted, prevRate, usd } = rateModalState;
-  const rate = usd ? raw : inverted ? 1 / raw : raw;   // through the dollar: compared and sent as "1 USD = raw X"
+  const rate = inverted ? 1 / raw : raw;   // through the dollar: compared and sent as "1 USD = rate X"; else "1 X = rate main"
   const saveBtn = document.getElementById("rate-save-btn");
   saveBtn.disabled = true;
   try {
@@ -2950,7 +2954,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     const prev = await prevRate;
     if (prev && Math.abs(rate / prev - 1) > 0.10) {
       // Said in the window's own direction, so the numbers are the ones the person typed and reads.
-      const shownPrev = !usd && inverted ? 1 / prev : prev;
+      const shownPrev = inverted ? 1 / prev : prev;
       const pct = Math.round(Math.abs(raw / shownPrev - 1) * 100);
       if (!confirm(tr(raw > shownPrev ? "rateModal.confirmHigher" : "rateModal.confirmLower", { rate: strongRateFmt_(raw), pct, prev: strongRateFmt_(shownPrev) }))) return;
     }
@@ -2964,7 +2968,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
   closeRateModal_(undefined);
   showToast_(tr("common.savingToast"));
   try {
-    const saved = await callApi("setExchangeRate", usd ? { currency, month, per_usd: raw } : { currency, month, rate });
+    const saved = await callApi("setExchangeRate", usd ? { currency, month, per_usd: rate } : { currency, month, rate });
     resolve(usd ? saved.rate : rate);   // the opener always gets "1 <currency> = rate <main>"
     refreshHomeGlance_(true);   // foreign amounts are worth something else in the main currency now
     refreshEntryList().catch(() => {});
@@ -8128,6 +8132,13 @@ function strongRateFmt_(n) {
 }
 // Rough units per US dollar, ONLY to choose which way a brand-new rate is asked (the person types the real one); never used for money.
 const CURRENCY_PER_USD_ = { PEN: 3.7, USD: 1, EUR: 0.92, ARS: 1400, MXN: 18, BRL: 5.5, CLP: 950, COP: 4000, BOB: 6.9, UYU: 40, PYG: 7500, VES: 100, GTQ: 7.7, CRC: 510, PAB: 1, DOP: 60, HNL: 25, NIO: 37, CUP: 24, GBP: 0.78, CAD: 1.37, CHF: 0.85, JPY: 150, CNY: 7.2, KRW: 1400, INR: 85, AUD: 1.5, NZD: 1.7, SGD: 1.33, HKD: 7.8, SEK: 10.5, NOK: 10.8, DKK: 6.8, PLN: 3.9, TRY: 40, ZAR: 18, AED: 3.67, THB: 34, RUB: 90, ILS: 3.7, AFN: 70, ALL: 92, DZD: 135, AOA: 900, AMD: 390, AWG: 1.79, AZN: 1.7, BSD: 1, BHD: 0.376, BDT: 120, BBD: 2, BYN: 3.3, BZD: 2, BMD: 1, BTN: 85, BAM: 1.8, BWP: 13.5, BND: 1.33, BIF: 2900, KHR: 4000, CVE: 101, KYD: 0.83, XAF: 600, KMF: 450, CDF: 2800, XCG: 1.79, CZK: 23, DJF: 178, XCD: 2.7, EGP: 49, SVC: 8.75, ERN: 15, SZL: 18, ETB: 130, FKP: 0.78, FJD: 2.25, XPF: 109, GMD: 71, GEL: 2.7, GHS: 12, GIP: 0.78, GNF: 8600, GYD: 209, HTG: 131, HUF: 360, ISK: 137, IDR: 16000, IRR: 42000, IQD: 1310, JMD: 157, JOD: 0.709, KZT: 500, KES: 129, KWD: 0.307, KGS: 87, LAK: 21600, LBP: 89500, LSL: 18, LRD: 190, LYD: 5.4, MOP: 8, MGA: 4500, MWK: 1730, MYR: 4.4, MVR: 15.4, MRU: 40, MUR: 46, MDL: 17.5, MNT: 3400, MAD: 9.5, MZN: 64, MMK: 2100, NAD: 18, NPR: 136, NGN: 1550, KPW: 900, MKD: 56, OMR: 0.385, PKR: 280, PGK: 4, PHP: 57, QAR: 3.64, RON: 4.6, RWF: 1400, SHP: 0.78, WST: 2.7, STN: 22.5, SAR: 3.75, RSD: 108, SCR: 14, SLE: 22.5, SBD: 8.4, SOS: 571, SSP: 4500, LKR: 300, SDG: 600, SRD: 36, SYP: 13000, TWD: 32, TJS: 10.9, TZS: 2600, TOP: 2.35, TTD: 6.8, TND: 3.1, TMT: 3.5, UGX: 3700, UAH: 41, UZS: 12700, VUV: 120, VND: 25500, XOF: 600, YER: 250, ZMW: 27, ZWG: 27 };
+// Through the dollar: true when 1 <currency> is worth more than a dollar (EUR, GBP…), so the window asks "EUR 1 = ? USD".
+// `perUsd` (1 USD = perUsd <currency>) decides when known; else the rough table. For USD itself the main currency is the other side.
+function strongerThanUsd_(currency, perUsd) {
+  if (Number(perUsd) > 0) return Number(perUsd) < 1;
+  const a = CURRENCY_PER_USD_[usdRateTarget_(currency)];
+  return !!a && a < 1;
+}
 // True when 1 <currency> is worth less than 1 of the main currency, so the window asks "1 <main> = ? <currency>". A rate already known decides.
 function weakerThanMain_(currency, knownRate) {
   if (Number(knownRate) > 0) return Number(knownRate) < 1;
@@ -8135,7 +8146,13 @@ function weakerThanMain_(currency, knownRate) {
   return !!(a && m) && a > m;
 }
 
-// Rates stored against the US dollar (backend RatesUsd.gs, owner 2026-11-07): every rate is asked and listed "1 USD = ? <currency>".
+// How every rate is written (owner, 2026-11-07): the stronger currency as 1 and the codes before the numbers, like amounts —
+// "USD 1 = ARS 1,511.54", "EUR 1 = USD 1.0811", never "1 USD = 0.925 EUR".
+function rateLine_(one, other, rate) { return `${one} 1 = ${other} ${strongRateFmt_(rate)}`; }
+// `per` = units of b for one a; written with whichever of the two is stronger as 1. "" when there is no rate.
+function strongRateLine_(a, b, per) { const s = strongRate_(a, b, per); return s ? rateLine_(s.one, s.other, s.rate) : ""; }
+// Rates stored against the US dollar (backend RatesUsd.gs, owner 2026-11-07): every rate is stored "1 USD = x <currency>" and asked
+// against the dollar — "USD 1 = ? ARS", or "EUR 1 = ? USD" for a currency worth more than a dollar.
 function ratesUsdOn_() { const s = (meta && meta.settings) || {}; return s.rate_base === "USD" && s.rate_form === "per_base"; }
 // What a "1 USD = ? x" rate is counted in: the dollar's own rate is the main currency's.
 function usdRateTarget_(currency) { return currency === "USD" ? homeCur() : currency; }
@@ -9450,7 +9467,7 @@ function drawBudgets_() {
 
     if (b.currency !== homeCur() && p.rate != null) {
       const s = strongRate_(b.currency, homeCur(), p.rate);
-      if (s) fxNotes.push(`1 ${s.one} = ${strongRateFmt_(s.rate)} ${s.other} — ${b.category_name}`);
+      if (s) fxNotes.push(`${rateLine_(s.one, s.other, s.rate)} — ${b.category_name}`);
     }
 
     const row = document.createElement("div");
@@ -13694,7 +13711,7 @@ async function refreshExchangeRates() {
         <div class="recurring-row-name">${findCurrency(r.currency).flag} ${r.currency}</div>
         <div class="recurring-row-sub">${r.month}</div>
       </div>
-      <div class="recurring-row-amount">${usd && r.per_usd > 0 ? `1 USD = ${usdRateTarget_(r.currency)} ${strongRateFmt_(r.per_usd)}` : q ? `1 USD = ${rateFmt_(q.per)} ${q.target}` : ((s) => `1 ${s.one} = ${s.other} ${strongRateFmt_(s.rate)}`)(strongRate_(r.currency, homeCur(), r.rate))}</div>
+      <div class="recurring-row-amount">${usd && r.per_usd > 0 ? strongRateLine_("USD", usdRateTarget_(r.currency), r.per_usd) : q ? strongRateLine_("USD", q.target, q.per) : strongRateLine_(r.currency, homeCur(), r.rate)}</div>
     `;
     row.addEventListener("click", async () => {
       const newRate = await openRateModal(r.currency, r.month, /* required */ false, usd && r.per_usd > 0 ? r.per_usd : r.rate);
@@ -13726,12 +13743,12 @@ async function openRatesUsdPreview_() {
   if (backdrop.hidden) return;
   if (p.done) { meta.settings.rate_base = "USD"; meta.settings.rate_form = "per_base"; ratesUsdClose_(); refreshExchangeRates(); return; }
   if (p.needsUsd) { body.innerHTML = `<p class="hint">${escapeHtml(tr("ratesUsd.needsUsd"))}</p>`; return; }
-  const before = (b) => { const s = b && strongRate_(b.currency, homeCur(), b.rate); return s ? `1 ${s.one} = ${s.other} ${strongRateFmt_(s.rate)}` : "—"; };
+  const before = (b) => (b && strongRateLine_(b.currency, homeCur(), b.rate)) || "—";
   const rows = p.rows.map((r) => `
     <div class="rates-usd-row">
       <div class="rates-usd-row-name">${findCurrency(r.currency).flag} ${escapeHtml(r.currency)} <span class="hint">${escapeHtml(r.month)}</span></div>
       <div class="rates-usd-row-was">${escapeHtml(before(r.before))}</div>
-      <div class="rates-usd-row-now">→ 1 USD = ${escapeHtml(r.currency)} ${strongRateFmt_(r.per_usd)}</div>
+      <div class="rates-usd-row-now">→ ${escapeHtml(strongRateLine_("USD", r.currency, r.per_usd))}</div>
     </div>`).join("");
   const months = p.months.length
     ? p.months.map((m) => {
