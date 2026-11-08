@@ -55,14 +55,7 @@ function buildBudgetContext_(opts) {
   // (Overview-style navigation, see resolveEffectivePeriodType_) needs
   // "latest as of THAT period" for the budget's OWN currency lookups
   // below, so the cutoff is resolved per-lookup rather than baked in here.
-  var ratesByCurrency = {};
-  getAllRows('Exchange Rates').forEach(function (r) {
-    if (!ratesByCurrency[r.currency]) ratesByCurrency[r.currency] = [];
-    ratesByCurrency[r.currency].push({ month: r.month, rate: Number(r.rate) });
-  });
-  Object.keys(ratesByCurrency).forEach(function (c) {
-    ratesByCurrency[c].sort(function (a, b) { return a.month < b.month ? -1 : 1; });
-  });
+  var ratesByCurrency = buildRatesByCurrency_();   // the shared reader: it also knows rows stored as "1 USD = r X" (RatesUsd.gs)
   var ctxForEntryRates = { ratesByCurrency: ratesByCurrency };
 
   // Entries tagged Annual don't count against a MONTHLY budget (they do count

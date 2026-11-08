@@ -2993,7 +2993,9 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
   text-align: center;
 }
 .app-toast[hidden] { display: none; }
-.app-undo-toast { display: flex; align-items: center; gap: 12px; text-align: left; width: max-content; }
+.app-undo-toast { display: flex; align-items: center; gap: 12px; text-align: left; width: max-content; transform: translateX(-50%) translateY(var(--drag-y, 0px)); transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 0.25s ease; touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer; }
+.app-undo-toast.is-dragging { transition: none; }
+.app-undo-toast.is-leaving { transition: transform 0.2s ease-in, opacity 0.2s ease-in; }
 .app-undo-btn { background: none; border: 0; color: #9ec5ff; font: inherit; font-weight: 600; padding: 4px 2px; cursor: pointer; white-space: nowrap; }
 .tidy-group { padding: 12px 0; border-top: 1px solid var(--border); }
 .tidy-group:first-child { border-top: 0; }
@@ -3599,6 +3601,10 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .charge-line-row .add-inline, .charge-line-row .add-inline + .add-inline { margin: 0; flex: 0 0 auto; }
 .charge-line-actions { justify-content: space-between; margin-top: 8px; }
 .charge-line-actions .charge-delete { color: #d64545; }
+.stmt-charge-rate { margin: 2px 0 0; }
+.stmt-charge-option { padding: 6px 0; border-top: 1px dashed var(--border); }
+.review-charge-match { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: #eef5ff; font-size: 0.9rem; }
+.review-charge-match .review-charge-btn { margin: 8px 0 0; background: #fff; }
 .charge-paid-line { white-space: nowrap; }
 .charge-rate { margin: 4px 0 0; color: var(--text); }
 .charge-line-error { color: #d64545; margin: 4px 0 0; font-size: 0.85rem; }
@@ -3643,3 +3649,15 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .pace-custom-row .add-inline { margin: 0; }
 #pace-card { cursor: pointer; }
 #pace-s-reset { margin-top: 8px; padding-left: 0; }
+
+/* Rates against the US dollar (RatesUsd.gs): the offer on More → Currencies and its preview sheet. */
+.rates-usd-offer { border: 1px solid var(--border, #e3e3e3); border-radius: 12px; padding: 10px 12px; margin: 8px 0 12px; }
+.rates-usd-offer-title { font-weight: 600; margin: 0 0 4px; }
+.rates-usd-row { padding: 8px 0; border-bottom: 1px solid var(--border, #eee); }
+.rates-usd-row-name { font-weight: 600; }
+.rates-usd-row-was { color: var(--muted, #888); text-decoration: line-through; font-size: 0.9em; }
+.rates-usd-row-now { font-size: 0.95em; }
+.rates-usd-month { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.95em; }
+#rates-usd-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+#rates-usd-actions .add-inline { margin-top: 0; }
+.usd-share-amt { white-space: nowrap; }

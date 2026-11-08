@@ -35,6 +35,8 @@
  *                    batch once and can undo it in one step (StatementHistory.gs builds these)
  *   match            { stmt, line, entryId, overwriteAccount? } line IS that entry
  *   complete_transfer{ stmt, line, entryId, side } fills the blank end of a transfer
+ *   fill_charge      { stmt, line, entryId }  the line is what the card charged for a purchase left pending in what was paid
+ *                    (Charges.gs fillEntryCharge); Undo puts it back to pending
  *   assign_account   { stmt, line, entryId }  entry has no account yet
  *   link             { stmt, line, entryId }  remember a matched line (no change)
  *   ignore / wait    { stmt, line }
@@ -62,7 +64,7 @@ function ensureStatementGapsSheet_() {
   ensureStatementSheet_('Statement Gaps', STATEMENT_GAPS_COLUMNS_, ['account_key', 'period_end', 'created_at', 'resolved_at']);
 }
 
-var STATEMENT_HANDLED_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true, ignored: true, reversed: true };
+var STATEMENT_HANDLED_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true, ignored: true, reversed: true, charge_filled: true };
 
 function ensureStatementSheet_(name, columns, textColumns) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -270,7 +272,7 @@ function applyStatementDecisions(payload) {
   var batchId = Utilities.getUuid();
   var now = nowTimestamp_();
   var today = now.substring(0, 10);
-  var creations = [], changes = [], outcomes = [], usedLines = {};
+  var creations = [], changes = [], outcomes = [], usedLines = {}, chargeFills = [];
   var colChanged = {};   // field -> true, so only touched columns are rewritten
 
   function useLine(L) {
@@ -497,6 +499,16 @@ function applyStatementDecisions(payload) {
         if (a.type === 'match' && !values[i][col.external_id]) setCell(a.entryId, 'external_id', 'stmt-' + m.key);
       }
       remember(m, 'matched', a.entryId);
+    } else if (a.type === 'fill_charge') {
+      var fc = line(a); useLine(fc);
+      if (!(fc.l.amount < 0)) throw new Error(tr_('sa.chargeOut'));
+      var pendingE = getEntryById_(a.entryId);
+      if (!pendingE) throw new Error(tr_('sa.entryNotFound', { id: a.entryId }));
+      if (pendingE.type !== 'expense' || String(pendingE.charge_pending || '') !== '1' || pendingE.payment_method_id !== requirePm(fc).id) throw new Error(tr_('sa.notPendingCharge'));
+      if (chargeFills.some(function (x) { return x.entryId === a.entryId; })) throw new Error(tr_('sa.chargeTwice'));
+      chargeFills.push({ entryId: a.entryId, amount: Math.abs(fc.l.amount), currency: fc.l.currency });
+      report.chargesFilled = (report.chargesFilled || 0) + 1;
+      remember(fc, 'charge_filled', a.entryId);
     } else if (a.type === 'complete_transfer') {
       var c = line(a); useLine(c);
       var j = rowById[String(a.entryId)];
@@ -600,6 +612,25 @@ function applyStatementDecisions(payload) {
     if (values.length) sheet.getRange(2, col[f] + 1, values.length, 1).setValues(colValues);
   });
 
+  // Charges filled in from the statement: after the column writes above, through the same code as Home's "Charges to fill in", each
+  // changed cell recorded for Undo, plus a marker so Undo can also put a shared expense's split back in what was paid.
+  if (chargeFills.length) {
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Entries'];
+    chargeFills.forEach(function (f) {
+      var before = getEntryById_(f.entryId);
+      fillEntryCharge({ id: f.entryId, amount: f.amount, currency: f.currency });
+      var after = getEntryById_(f.entryId);
+      ['amount', 'currency', 'paid_amount', 'paid_currency', 'charge_pending', 'charge_told'].forEach(function (field) {
+        var o = before[field], n = after[field];
+        if (String(o === undefined || o === null ? '' : o) === String(n === undefined || n === null ? '' : n)) return;
+        changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: String(f.entryId), field: field,
+          old_value: String(o === undefined || o === null ? '' : o), new_value: String(n === undefined || n === null ? '' : n), created_at: now });
+      });
+      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: String(f.entryId), field: '__charge_fill__',
+        old_value: String(before.amount), new_value: String(f.amount), created_at: now });
+    });
+  }
+
   var usheet = getSheet('Statement Uploads');
   var uheaders = getHeaders(usheet);
   var newUploadRows = [];   // written in ONE call after the loop: a year of statements is dozens of rows
@@ -695,7 +726,7 @@ function undoStatementBatch(payload) {
   var rowById = {};
   evalues.forEach(function (r, i) { rowById[String(r[eid])] = i; });
   var touched = {};
-  changes.filter(function (c) { return c.sheet === 'Entries'; }).forEach(function (c) {
+  changes.filter(function (c) { return c.sheet === 'Entries' && c.field.indexOf('__') !== 0; }).forEach(function (c) {
     var i = rowById[c.row_id], ci = eheaders.indexOf(c.field);
     if (i === undefined || ci === -1) { res.skipped++; return; }
     if (String(evalues[i][ci]) !== String(c.new_value)) { res.skipped++; return; } // changed since — leave it
@@ -708,6 +739,19 @@ function undoStatementBatch(payload) {
     esheet.getRange(2, ci + 1, evalues.length, 1).setValues(sheetSafeRows_(evalues.map(function (r) { return [r[ci]]; })));
   });
   if (Object.keys(touched).length) bumpStructureVersion_();   // bulk column write — phones reload fully
+  // A charge this upload filled in is pending again: a shared expense's split goes back to what was paid (its debts already are).
+  var chargeMarks = changes.filter(function (c) { return c.sheet === 'Entries' && c.field === '__charge_fill__'; });
+  if (chargeMarks.length) {
+    if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Entry Splits']; }
+    chargeMarks.forEach(function (c) {
+      var e = getEntryById_(c.row_id);
+      if (!e || String(e.charge_pending || '') !== '1') return;
+      var factor = Number(c.old_value) / Number(c.new_value);
+      var splits = getAllRows('Entry Splits').filter(function (s) { return s.entry_id === e.id; })
+        .map(function (s) { return { friend_id: s.friend_id, amount: Math.round(Number(s.amount) * factor * 100) / 100 }; });
+      if (splits.length) saveEntrySplits(e.id, splits);
+    });
+  }
 
   // The entries this upload created go FIRST: it is the slow part, and the upload stays in "Recent uploads" (its Statement
   // Uploads row) until everything is done, so an Undo that is cut short can simply be tapped again. It used to remove the

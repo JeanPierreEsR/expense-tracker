@@ -2831,7 +2831,15 @@ async function ensureExchangeRate(currency, dateStr) {
 let rateModalState = null; // { currency, month, inverted, resolve, existingRate }
 
 function renderRateModalLabels_() {
-  const { currency, inverted, existingRate } = rateModalState;
+  const { currency, inverted, existingRate, usd } = rateModalState;
+  document.getElementById("rate-invert-btn").hidden = !!usd;   // through the dollar it is always asked "1 USD = ? X" (owner, 2026-11-07)
+  if (usd) {
+    document.getElementById("rate-left-label").textContent = "1 USD";
+    document.getElementById("rate-right-label").textContent = usdRateTarget_(currency);
+    document.getElementById("rate-value-input").value = existingRate == null ? "" : String(Number(Number(existingRate).toFixed(existingRate >= 100 ? 4 : 6)));
+    renderRateMeaning_();
+    return;
+  }
   document.getElementById("rate-left-label").textContent = inverted ? `1 ${homeCur()}` : `1 ${currency}`;
   document.getElementById("rate-right-label").textContent = inverted ? currency : homeCur();
   // existingRate is always in the canonical "1 currency = rate PEN"
@@ -2839,7 +2847,7 @@ function renderRateModalLabels_() {
   // the owner has toggled to the "1 PEN = __ currency" view, same as the
   // save handler flips it back on the way in.
   const displayValue = existingRate == null ? "" : (inverted ? 1 / existingRate : existingRate);
-  document.getElementById("rate-value-input").value = displayValue === "" ? "" : String(displayValue);
+  document.getElementById("rate-value-input").value = displayValue === "" ? "" : String(Number(displayValue.toFixed(displayValue >= 100 ? 4 : 6)));   // (no endless decimals once turned around)
   renderRateMeaning_();
 }
 
@@ -2850,8 +2858,8 @@ function renderRateMeaning_() {
   const st = rateModalState;
   const raw = parseFloat(document.getElementById("rate-value-input").value);
   if (!st || !st.firstEver || !(raw > 0)) { el.hidden = true; return; }
-  const from = st.inverted ? homeCur() : st.currency;
-  const to = st.inverted ? st.currency : homeCur();
+  const from = st.usd ? "USD" : st.inverted ? homeCur() : st.currency;
+  const to = st.usd ? usdRateTarget_(st.currency) : st.inverted ? st.currency : homeCur();
   el.textContent = tr("rateModal.meaning", { left: `10 ${from}`, right: `${to} ${moneyFmt(raw * 10)}` });
   el.hidden = false;
 }
@@ -2860,15 +2868,24 @@ function renderRateMeaning_() {
 // rate — omitted, the field just starts blank (a brand-new rate).
 function openRateModal(currency, month, required, existingRate) {
   return new Promise((resolve) => {
-    rateModalState = { currency, month, inverted: false, resolve, existingRate: existingRate != null ? existingRate : null };
+    // Asked the way it is spoken: the stronger currency as 1 (owner, 2026-11-07); the person can still switch it.
+    // Once rates go through the dollar, `existingRate` is "1 USD = ? <currency>" and the window asks it that way.
+    const usd = ratesUsdOn_();
+    rateModalState = { currency, month, usd, inverted: !usd && weakerThanMain_(currency, existingRate), resolve, existingRate: existingRate != null ? existingRate : null };
     // The previous month's rate (for the "that looks far off" check) is fetched while the person types,
     // so Save has nothing to wait for before it can close.
     const [yy, mm] = month.split("-").map(Number);
     const prevMonth = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
     const opening = rateModalState;
     opening.prevRate = callApi("getLatestRateOnOrBefore", { currency, month: prevMonth }).then((r) => {
-      if (r.rate == null) { opening.firstEver = true; if (rateModalState === opening) renderRateMeaning_(); }
-      return r.rate;
+      // A new rate follows the way the earlier one reads, unless the person already switched it or typed.
+      if (!usd && r.rate != null && existingRate == null && rateModalState === opening && !opening.switched && !document.getElementById("rate-value-input").value) {
+        opening.inverted = weakerThanMain_(currency, r.rate);
+        renderRateModalLabels_();
+      }
+      const prev = usd ? r.per_usd : r.rate;
+      if (prev == null) { opening.firstEver = true; if (rateModalState === opening) renderRateMeaning_(); }
+      return prev;
     }).catch(() => null);
     document.getElementById("rate-modal-title").textContent = tr("rateModal.titleWithCurrency", { currency });
     const monthWords = I18n.fmtMonthYear(new Date(yy, mm - 1, 1), true);
@@ -2895,6 +2912,7 @@ function closeRateModal_(result) {
 document.getElementById("rate-invert-btn").addEventListener("click", () => {
   if (!rateModalState) return;
   rateModalState.inverted = !rateModalState.inverted;
+  rateModalState.switched = true;
   renderRateModalLabels_();
 });
 
@@ -2921,8 +2939,8 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     return;
   }
 
-  const { currency, month, inverted, prevRate } = rateModalState;
-  const rate = inverted ? 1 / raw : raw;
+  const { currency, month, inverted, prevRate, usd } = rateModalState;
+  const rate = usd ? raw : inverted ? 1 / raw : raw;   // through the dollar: compared and sent as "1 USD = raw X"
   const saveBtn = document.getElementById("rate-save-btn");
   saveBtn.disabled = true;
   try {
@@ -2931,8 +2949,10 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     // confirmed (rule from specs/entries-and-categories.md, Exchange Rates).
     const prev = await prevRate;
     if (prev && Math.abs(rate / prev - 1) > 0.10) {
-      const pct = Math.round(Math.abs(rate / prev - 1) * 100);
-      if (!confirm(tr(rate > prev ? "rateModal.confirmHigher" : "rateModal.confirmLower", { rate, pct, prev }))) return;
+      // Said in the window's own direction, so the numbers are the ones the person typed and reads.
+      const shownPrev = !usd && inverted ? 1 / prev : prev;
+      const pct = Math.round(Math.abs(raw / shownPrev - 1) * 100);
+      if (!confirm(tr(raw > shownPrev ? "rateModal.confirmHigher" : "rateModal.confirmLower", { rate: strongRateFmt_(raw), pct, prev: strongRateFmt_(shownPrev) }))) return;
     }
   } finally {
     saveBtn.disabled = false;
@@ -2944,8 +2964,8 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
   closeRateModal_(undefined);
   showToast_(tr("common.savingToast"));
   try {
-    await callApi("setExchangeRate", { currency, month, rate });
-    resolve(rate);
+    const saved = await callApi("setExchangeRate", usd ? { currency, month, per_usd: raw } : { currency, month, rate });
+    resolve(usd ? saved.rate : rate);   // the opener always gets "1 <currency> = rate <main>"
     refreshHomeGlance_(true);   // foreign amounts are worth something else in the main currency now
     refreshEntryList().catch(() => {});
   } catch (err) {
@@ -3104,6 +3124,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const charge = chargeForSave_(amount, currency, splits, selectedType, paidByForCharge_());
     const tagIds = Array.from(selectedTagIds);
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
+    // Shared with friends inside a trip that has a group (owner, 2026-11-07): when the friends' shares are kept in another app, the group is
+    // the right choice. Asked before saving; Cancel goes back to the split with nothing changed.
+    const tripGroup = tripId && splits && splits.length && !Spotlight.isRunning() ? (meta.friends || []).find((f) => f.trip_id === tripId) : null;
+    if (tripGroup && !splits.some((s) => s.friend_id === tripGroup.id)) {
+      const trip = (meta.trips || []).find((t) => t.id === tripId);
+      if (!confirm(tr("split.groupAsk", { trip: trip ? trip.name : "", kind: tr(trip && trip.kind === "event" ? "split.groupKind.event" : "split.groupKind.trip"), group: tripGroup.name }))) throw new Error(tr("split.groupPick", { group: tripGroup.name }));
+    }
     const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
     if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
     // A Programmed item cannot belong to a project yet (step 3 brings expected payments), so a future date is refused here
@@ -3729,7 +3756,7 @@ function renderEntryAmountPlainHtml_(entry) {
         const abs = (v) => (v == null ? v : Math.abs(Number(v)));
         return Object.assign({}, entry, {
           amount: abs(entry.amount), amount_pen: abs(entry.amount_pen),
-          own_share: abs(entry.own_share), own_share_pen: abs(entry.own_share_pen)
+          own_share: abs(entry.own_share), own_share_pen: abs(entry.own_share_pen), own_share_usd: abs(entry.own_share_usd)
         });
       })()
     : entry;
@@ -3760,15 +3787,18 @@ function renderEntryAmountPlain_(entry) {
     return `<span class="primary-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
   }
 
+  // A third currency (not USD, not the main one), once rates go through the dollar: my share in dollars under the main amount
+  // (owner, 2026-11-07: "−PEN 32.50 / 🇺🇸 ≈ USD 8.67 / 🇦🇷 ARS 12,500.00"). The server sends it only then.
+  const usdLine = entry.own_share_usd != null ? `<span class="original-amt usd-share-amt">${formatAmount(entry.own_share_usd, "USD", "≈ ")}</span>` : "";
   if (!hasSplit) {
     const originalLine = `<span class="original-amt">${formatAmount(entry.amount, entry.currency)}</span>`;
-    return `<span class="primary-amt">${homeCur()} ${moneyFmt(entry.amount_pen)}</span>${originalLine}`;
+    return `<span class="primary-amt">${homeCur()} ${moneyFmt(entry.amount_pen)}</span>${usdLine}${originalLine}`;
   }
 
   const primaryPen = entry.own_share_pen != null ? entry.own_share_pen : entry.amount_pen;
   const ownShareLine = `<span class="original-amt">${formatAmount(entry.own_share, entry.currency)}</span>`;
   const totalLine = `<span class="original-amt">${tr("common.total")} ${formatAmount(entry.amount, entry.currency)}</span>`;
-  return `<span class="primary-amt">${homeCur()} ${moneyFmt(primaryPen)}</span>${ownShareLine}${totalLine}`;
+  return `<span class="primary-amt">${homeCur()} ${moneyFmt(primaryPen)}</span>${usdLine}${ownShareLine}${totalLine}`;
 }
 
 function findCategory(id) {
@@ -4054,9 +4084,8 @@ function exchangeHouseOf_(p) {
 function exchangeRateText_(p) {
   const home = homeCur(), a = Number(p.out.amount), b = Number(p.in.amount);
   if (!(a > 0 && b > 0)) return "";
-  if (p.out.currency === home) return tr("xch.rowRate", { cur: p.in.currency, rate: (a / b).toFixed(2), home });
-  if (p.in.currency === home) return tr("xch.rowRate", { cur: p.out.currency, rate: (b / a).toFixed(2), home });
-  return tr("xch.rowRate", { cur: p.out.currency, rate: (b / a).toFixed(4), home: p.in.currency });
+  const s = strongRate_(p.out.currency, p.in.currency, b / a);   // the stronger currency as 1, whichever side it is on
+  return tr("xch.rowRate", { cur: s.one, rate: strongRateFmt_(s.rate), home: s.other });
 }
 function buildExchangePairRow_(p) {
   const row = document.createElement("div");
@@ -6415,6 +6444,15 @@ function setBundleCheckStatuses_(state) {
   setRecurringCheckStatus_(state);
 }
 
+// A bank e-mail that is the charge of a purchase left pending on the same card (backend chargeMatchForReview_): asked on its card.
+function reviewChargeMatchHtml_(entry) {
+  const m = entry.charge_match;
+  const rate = chargeRateText_(m.amount, m.currency, Math.abs(Number(entry.amount)), entry.currency);
+  return `<div class="review-charge-match"><div>${escapeHtml(tr("review.chargeMatch", { name: m.description || tr("confirm.thisEntry"), amount: formatAmount(m.amount, m.currency), date: listDate_(m.date) }))}</div>
+    ${rate ? `<div class="hint" style="margin:2px 0 0">${escapeHtml(rate)}</div>` : ""}<div class="hint" style="margin:2px 0 0">${escapeHtml(tr("review.chargeHint"))}</div>
+    <button type="button" class="stmt-choice review-charge-btn">${escapeHtml(tr("review.chargeYes"))}</button></div>`;
+}
+
 // "Looks like a loan to Ana again": what the backend's loan_hint says, in words (or "" when there is none / the friend is gone).
 function reviewLoanHintText_(entry) {
   const h = entry.loan_hint;
@@ -6631,6 +6669,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         </div>
         <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−", "": "" }[entryFlowDirection_(entry)])}</div>
       </div>
+      ${entry.charge_match ? reviewChargeMatchHtml_(entry) : ""}
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
         ${entry.type === "investment" ? "" : `<div class="review-field review-field-wide">
@@ -6686,6 +6725,12 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
 
     const confirmBtn = item.querySelector(".review-confirm-btn");
     const discardBtn = item.querySelector(".review-discard-btn");
+    const chargeBtn = item.querySelector(".review-charge-btn");
+    if (chargeBtn) chargeBtn.addEventListener("click", () => {
+      item.remove();
+      saveBehindScreen_(() => callApi("fillChargeFromReview", { pendingId: entry.id, entryId: entry.charge_match.entryId }),
+        () => { refreshReviewQueue(); refreshHomeGlance_(true); refreshEntryList(); });
+    });
 
     confirmBtn.addEventListener("click", async () => {
       const categoryEl = item.querySelector(".review-category");
@@ -7368,6 +7413,16 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !document.getElementById("screen-entries").hidden && homeGlance_) refreshHomeGlance_(false);
 });
 
+// Home's summary cards show whole amounts only (owner, 2026-11-07: cents there add nothing meaningful).
+function homeWhole_(n, cur) {
+  const c = cur || homeCur();
+  return `${c === homeCur() ? "" : findCurrency(c).flag + " "}${c} ${homeShort_(n)}`;
+}
+function homeWholeSigned_(n) {
+  const r = Math.round(Number(n));
+  return `${r > 0 ? "+" : r < 0 ? "−" : ""}${homeCur()} ${homeShort_(r)}`;
+}
+
 // Whole numbers with thousands separators, for the four small boxes.
 function homeShort_(n) {
   const v = Math.round(Math.abs(Number(n)));
@@ -7415,7 +7470,7 @@ function homeMainCard_(g) {
       <div class="home-four-box"><span>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${homeShort_(m.expense)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${homeShort_(m.investment)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.net"))}</span><b class="${net < 0 ? "expense" : ""}">${net < 0 ? "−" : ""}${homeShort_(net)}</b></div>
-    </div>${Math.abs(m.loans || 0) >= 0.005 ? `<p class="hint home-loans-note">${escapeHtml(tr("home.loansIncluded", { amount: formatPenSigned_(m.loans) }))}</p>` : ""}`;
+    </div>${Math.abs(m.loans || 0) >= 0.005 ? `<p class="hint home-loans-note">${escapeHtml(tr("home.loansIncluded", { amount: homeWholeSigned_(m.loans) }))}</p>` : ""}`;
 
   const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
   const bars = months.map((x, i) => {
@@ -7428,7 +7483,7 @@ function homeMainCard_(g) {
 
   const el = homeCardEl_("home-card-main", `
     <div class="home-card-label">${escapeHtml(label)}</div>
-    <div class="home-big">${escapeHtml(formatPen(m.expense))}</div>
+    <div class="home-big">${escapeHtml(homeWhole_(m.expense))}</div>
     ${delta}
     ${four}
     <div class="home-bars">${bars}</div>
@@ -7462,8 +7517,8 @@ function homePaceCard_(g) {
       ${last >= 0 ? `<circle class="dot" cx="${dx}" cy="${dy}" r="4"/>` : ""}
     </svg>
     <div class="home-pace-lines">
-      <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(formatPen(nowTotal))}</b></div>
-      <div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("home.paceThen"))}<b>${escapeHtml(formatPen(thenTotal))}</b></div>
+      <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(homeWhole_(nowTotal))}</b></div>
+      <div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("home.paceThen"))}<b>${escapeHtml(homeWhole_(thenTotal))}</b></div>
     </div>`);
   paceEl.addEventListener("click", () => openOverviewAt_("pace-card"));
   return paceEl;
@@ -7473,19 +7528,19 @@ function homeBudgetCard_(g) {
   const b = g.budget;
   if (!b || !(b.totalPen > 0)) return null;
   const pct = (b.spentPen / b.totalPen) * 100;
-  const left = b.totalPen - b.spentPen;
+  const left = Math.round(b.totalPen) - Math.round(b.spentPen);   // (whole amounts, so the three figures add up as shown)
   const daysLeft = g.pace.curDays - g.pace.curDay + 1;   // today still counts
   const cls = pct >= 100 ? "over" : pct >= 85 ? "warn" : "";
   const facts = [
-    left >= 0 ? tr("home.budgetLeft", { amount: formatPen(left) }) : tr("home.budgetOver", { amount: formatPen(-left) }),
+    left >= 0 ? tr("home.budgetLeft", { amount: homeWhole_(left) }) : tr("home.budgetOver", { amount: homeWhole_(-left) }),
     tr("home.budgetDays", { n: daysLeft })
   ];
-  if (left > 0 && daysLeft > 0) facts.push(tr("home.budgetPerDay", { amount: formatPen(left / daysLeft) }));
+  if (left > 0 && daysLeft > 0) facts.push(tr("home.budgetPerDay", { amount: homeWhole_(left / daysLeft) }));
   if (b.overCount > 0) facts.push(tr("home.budgetsOver", { n: b.overCount }));   // the overruns are inside "left": say so (owner, 2026-11-07)
   const budgetEl = homeCardEl_("home-card-budget home-card-tap", `
     <div class="home-card-label">${escapeHtml(tr("home.budgetTitle"))} ›</div>
-    <div class="home-big">${escapeHtml(formatPen(b.spentPen))}</div>
-    <div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: formatPen(b.totalPen) }))}</div>
+    <div class="home-big">${escapeHtml(homeWhole_(b.spentPen))}</div>
+    <div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: homeWhole_(b.totalPen) }))}</div>
     <div class="home-meter"><div class="home-meter-fill ${cls}" style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></div></div>
     <div class="home-meter-facts">${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join("")}</div>`);
   budgetEl.addEventListener("click", () => showScreen("budgets"));
@@ -7502,8 +7557,8 @@ function homeTripCard_(t) {
       <div class="home-card-label">${escapeHtml(tr("home.tripDay", { day: t.day, days: t.days }))}</div></div>
     </div>
     <div class="home-card-label" style="margin-top:12px">${escapeHtml(tr("home.tripSpent"))}</div>
-    <div class="home-big">${escapeHtml(formatAmount(t.spent, t.currency))}</div>
-    ${t.budget ? `<div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: formatAmount(t.budget, t.currency) }))}</div>` : ""}
+    <div class="home-big">${escapeHtml(homeWhole_(t.spent, t.currency))}</div>
+    ${t.budget ? `<div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: homeWhole_(t.budget, t.currency) }))}</div>` : ""}
     ${pct == null ? "" : `<div class="home-meter"><div class="home-meter-fill ${pct >= 100 ? "over" : pct >= 85 ? "warn" : ""}" style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></div></div>`}`);
   el.addEventListener("click", () => showTripDetail_(t.id));
   return el;
@@ -8279,6 +8334,29 @@ function moneyFmt(n) {
 }
 
 // A quote like 0.9174 or 3.7512: at least 2 decimals, up to 4 (moneyFmt's 2 would turn 0.9174 into 0.92).
+// Rates are read the way they are spoken (owner, 2026-11-07): the stronger currency as 1 ("1 PEN = 384.62 ARS", never "1 ARS = 0.00 PEN").
+// `per` = units of b for one a. Returns { one, other, rate } with rate >= 1, or null.
+function strongRate_(a, b, per) {
+  if (!(Number(per) > 0)) return null;
+  return per >= 1 ? { one: a, other: b, rate: Number(per) } : { one: b, other: a, rate: 1 / Number(per) };
+}
+function strongRateFmt_(n) {
+  return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: n >= 100 ? 2 : 4 });
+}
+// Rough units per US dollar, ONLY to choose which way a brand-new rate is asked (the person types the real one); never used for money.
+const CURRENCY_PER_USD_ = { PEN: 3.7, USD: 1, EUR: 0.92, ARS: 1400, MXN: 18, BRL: 5.5, CLP: 950, COP: 4000, BOB: 6.9, UYU: 40, PYG: 7500, VES: 100, GTQ: 7.7, CRC: 510, PAB: 1, DOP: 60, HNL: 25, NIO: 37, CUP: 24, GBP: 0.78, CAD: 1.37, CHF: 0.85, JPY: 150, CNY: 7.2, KRW: 1400, INR: 85, AUD: 1.5, NZD: 1.7, SGD: 1.33, HKD: 7.8, SEK: 10.5, NOK: 10.8, DKK: 6.8, PLN: 3.9, TRY: 40, ZAR: 18, AED: 3.67, THB: 34, RUB: 90, ILS: 3.7, AFN: 70, ALL: 92, DZD: 135, AOA: 900, AMD: 390, AWG: 1.79, AZN: 1.7, BSD: 1, BHD: 0.376, BDT: 120, BBD: 2, BYN: 3.3, BZD: 2, BMD: 1, BTN: 85, BAM: 1.8, BWP: 13.5, BND: 1.33, BIF: 2900, KHR: 4000, CVE: 101, KYD: 0.83, XAF: 600, KMF: 450, CDF: 2800, XCG: 1.79, CZK: 23, DJF: 178, XCD: 2.7, EGP: 49, SVC: 8.75, ERN: 15, SZL: 18, ETB: 130, FKP: 0.78, FJD: 2.25, XPF: 109, GMD: 71, GEL: 2.7, GHS: 12, GIP: 0.78, GNF: 8600, GYD: 209, HTG: 131, HUF: 360, ISK: 137, IDR: 16000, IRR: 42000, IQD: 1310, JMD: 157, JOD: 0.709, KZT: 500, KES: 129, KWD: 0.307, KGS: 87, LAK: 21600, LBP: 89500, LSL: 18, LRD: 190, LYD: 5.4, MOP: 8, MGA: 4500, MWK: 1730, MYR: 4.4, MVR: 15.4, MRU: 40, MUR: 46, MDL: 17.5, MNT: 3400, MAD: 9.5, MZN: 64, MMK: 2100, NAD: 18, NPR: 136, NGN: 1550, KPW: 900, MKD: 56, OMR: 0.385, PKR: 280, PGK: 4, PHP: 57, QAR: 3.64, RON: 4.6, RWF: 1400, SHP: 0.78, WST: 2.7, STN: 22.5, SAR: 3.75, RSD: 108, SCR: 14, SLE: 22.5, SBD: 8.4, SOS: 571, SSP: 4500, LKR: 300, SDG: 600, SRD: 36, SYP: 13000, TWD: 32, TJS: 10.9, TZS: 2600, TOP: 2.35, TTD: 6.8, TND: 3.1, TMT: 3.5, UGX: 3700, UAH: 41, UZS: 12700, VUV: 120, VND: 25500, XOF: 600, YER: 250, ZMW: 27, ZWG: 27 };
+// True when 1 <currency> is worth less than 1 of the main currency, so the window asks "1 <main> = ? <currency>". A rate already known decides.
+function weakerThanMain_(currency, knownRate) {
+  if (Number(knownRate) > 0) return Number(knownRate) < 1;
+  const a = CURRENCY_PER_USD_[currency], m = CURRENCY_PER_USD_[homeCur()];
+  return !!(a && m) && a > m;
+}
+
+// Rates stored against the US dollar (backend RatesUsd.gs, owner 2026-11-07): every rate is asked and listed "1 USD = ? <currency>".
+function ratesUsdOn_() { const s = (meta && meta.settings) || {}; return s.rate_base === "USD" && s.rate_form === "per_base"; }
+// What a "1 USD = ? x" rate is counted in: the dollar's own rate is the main currency's.
+function usdRateTarget_(currency) { return currency === "USD" ? homeCur() : currency; }
+
 function rateFmt_(n) {
   return Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 }
@@ -9743,7 +9821,8 @@ function drawBudgets_() {
       (p.annualized ? tr("budget.annualized") : "");
 
     if (b.currency !== homeCur() && p.rate != null) {
-      fxNotes.push(`1 ${b.currency} = ${moneyFmt(p.rate)} ${homeCur()} — ${b.category_name}`);
+      const s = strongRate_(b.currency, homeCur(), p.rate);
+      if (s) fxNotes.push(`1 ${s.one} = ${strongRateFmt_(s.rate)} ${s.other} — ${b.category_name}`);
     }
 
     const row = document.createElement("div");
@@ -12943,7 +13022,7 @@ function startExportPractice_() {
 
 // ---- Categories that catch up later (backend/CategoryFollow.gs) ----
 
-let appUndoTimer_ = null;
+let appUndoTimer_ = null, appUndoLeaving_ = null;
 // A message with an Undo button, for something the app did for the person beyond what they tapped. Undos STACK (QA round 2, 2026-11-03): a second
 // action used to replace the first one's Undo, which made the first change permanent without a word. Now the button undoes the newest, then offers
 // the one before it (if it is under a minute old); the toast says how many earlier ones wait. When the toast times out (10 s) all of them go.
@@ -12957,9 +13036,85 @@ function paintUndoToast_() {
   if (!top) { box.hidden = true; return; }
   const earlier = appUndoStack_.length - 1;
   document.getElementById("app-undo-text").textContent = top.text + (earlier ? " " + tr("tidy.undoEarlier", { n: earlier }) : "");
+  clearTimeout(appUndoLeaving_);   // a new Undo arriving while the old one slides away stays
+  box.classList.remove("is-dragging", "is-leaving");
+  box.style.removeProperty("--drag-y");
+  box.style.removeProperty("opacity");
   box.hidden = false;
-  appUndoTimer_ = setTimeout(() => { box.hidden = true; appUndoStack_ = []; }, 10000);
+  startUndoTimer_();
 }
+function startUndoTimer_() {
+  clearTimeout(appUndoTimer_);
+  appUndoTimer_ = setTimeout(dismissUndoToast_, 10000);
+}
+// Closing it by hand (a tap, or a swipe down) is the same as letting it time out: every waiting Undo goes.
+function dismissUndoToast_() {
+  clearTimeout(appUndoTimer_);
+  appUndoStack_ = [];
+  document.getElementById("app-undo-toast").hidden = true;
+}
+// Owner's request 2026-11-07: the Undo message follows the finger. Held, it moves with it; let go, it springs back to its place unless it was
+// pulled clearly downwards (far enough, or flicked fast), then it slides away. Upwards it only gives a little (it stays anchored). A tap on the
+// message (not on Undo) closes it too. While held it does not time out.
+(function wireUndoToastDrag_() {
+  const box = document.getElementById("app-undo-toast");
+  const DISMISS_PX = 60, FLICK_PX = 20, FLICK_SPEED = 0.5, TAP_PX = 8;   // speed in px per ms
+  let drag = null, swallowClick = false;
+  box.addEventListener("pointerdown", (e) => {
+    if (e.button > 0) return;
+    swallowClick = false;
+    const onUndo = !!(e.target && e.target.closest && e.target.closest("#app-undo-btn"));
+    drag = { id: e.pointerId, y0: e.clientY, t0: e.timeStamp, dy: 0, moved: false, onUndo, lastY: e.clientY, lastT: e.timeStamp, v: 0 };
+    clearTimeout(appUndoTimer_);
+    box.classList.add("is-dragging");
+  });
+  box.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const raw = e.clientY - drag.y0;
+    if (!drag.moved && Math.abs(raw) > TAP_PX) {
+      drag.moved = true;
+      // Held only once it moves: a plain tap must still reach the Undo button as a normal click.
+      try { box.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+    const dt = e.timeStamp - drag.lastT;
+    if (dt > 0) drag.v = (e.clientY - drag.lastY) / dt;
+    drag.lastY = e.clientY;
+    drag.lastT = e.timeStamp;
+    drag.dy = raw > 0 ? raw : raw * 0.25;   // upwards: a little give, it stays where it belongs
+    box.style.setProperty("--drag-y", drag.dy + "px");
+    box.style.opacity = raw > 0 ? String(Math.max(0.3, 1 - raw / 200)) : "";
+  });
+  function release(e, cancelled) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag;
+    drag = null;
+    box.classList.remove("is-dragging");
+    if (!cancelled && !d.moved) {   // a tap
+      if (!d.onUndo) dismissUndoToast_();
+      else startUndoTimer_();   // the button's own click does the Undo
+      return;
+    }
+    swallowClick = d.onUndo;   // a drag that began on the Undo button is not a press of it (the click comes right after the release)
+    if (swallowClick) setTimeout(() => { swallowClick = false; }, 400);
+    const down = d.dy > 0 ? d.dy : 0;
+    const speed = Math.max(d.v, down / Math.max(1, e.timeStamp - d.t0));   // the last movement, or the whole gesture's average
+    if (!cancelled && (down >= DISMISS_PX || (down >= FLICK_PX && speed >= FLICK_SPEED))) {
+      box.classList.add("is-leaving");
+      box.style.setProperty("--drag-y", (down + 160) + "px");
+      box.style.opacity = "0";
+      appUndoLeaving_ = setTimeout(dismissUndoToast_, 200);
+      return;
+    }
+    box.style.removeProperty("--drag-y");   // springs back (CSS transition)
+    box.style.removeProperty("opacity");
+    startUndoTimer_();
+  }
+  box.addEventListener("pointerup", (e) => release(e, false));
+  box.addEventListener("pointercancel", (e) => release(e, true));
+  box.addEventListener("click", (e) => {
+    if (swallowClick) { swallowClick = false; e.stopImmediatePropagation(); e.preventDefault(); }
+  }, true);
+})();
 function showUndoToast_(text, onUndo, kind) {
   appUndoStack_.unshift({ text, action: onUndo, kind: kind || "", at: Date.now() });
   if (appUndoStack_.length > UNDO_STACK_MAX_) appUndoStack_.length = UNDO_STACK_MAX_;
@@ -13902,7 +14057,9 @@ async function refreshExchangeRates() {
 
   // Friends' copies read every rate against the US dollar, the way banks and the news quote them ("1 USD = 0.92 EUR"); the
   // owner's own copy keeps "1 X = main". Only the reading changes: what is stored, and the window a tap opens, are the same.
-  const quotes = perfIsOwnerCopy_() ? [] : RateQuotes.usdQuotes(rates, homeCur());
+  const usd = ratesUsdOn_() && rates.every((r) => r.per_usd > 0);   // stored "1 USD = x": the server says each row's x
+  const quotes = usd || perfIsOwnerCopy_() ? [] : RateQuotes.usdQuotes(rates, homeCur());
+  renderRatesUsdOffer_(rates);
   rates.forEach((r, i) => {
     const q = quotes[i];
     const row = document.createElement("div");
@@ -13912,16 +14069,75 @@ async function refreshExchangeRates() {
         <div class="recurring-row-name">${findCurrency(r.currency).flag} ${r.currency}</div>
         <div class="recurring-row-sub">${r.month}</div>
       </div>
-      <div class="recurring-row-amount">${q ? `1 USD = ${rateFmt_(q.per)} ${q.target}` : `1 ${r.currency} = ${homeCur()} ${moneyFmt(r.rate)}`}</div>
+      <div class="recurring-row-amount">${usd && r.per_usd > 0 ? `1 USD = ${usdRateTarget_(r.currency)} ${strongRateFmt_(r.per_usd)}` : q ? `1 USD = ${rateFmt_(q.per)} ${q.target}` : ((s) => `1 ${s.one} = ${s.other} ${strongRateFmt_(s.rate)}`)(strongRate_(r.currency, homeCur(), r.rate))}</div>
     `;
     row.addEventListener("click", async () => {
-      const newRate = await openRateModal(r.currency, r.month, /* required */ false, r.rate);
+      const newRate = await openRateModal(r.currency, r.month, /* required */ false, usd && r.per_usd > 0 ? r.per_usd : r.rate);
       if (newRate != null) refreshExchangeRates();
     });
     list.appendChild(row);
   });
   offerExchangeTip_();   // only now that everything has arrived (loading standard)
 }
+
+// ---- Rates against the US dollar (backend RatesUsd.gs, release B of the rates plan) ----
+// The owner's copy is offered the conversion until it is done; the preview lists every rate before → after and every month whose
+// expenses would read differently, and nothing is saved before "Store them against the dollar".
+function renderRatesUsdOffer_(rates) {
+  const box = document.getElementById("rates-usd-offer");
+  box.hidden = !(((meta && meta.capabilities) || {}).ratesUsdConvert && !ratesUsdOn_() && rates.length);
+}
+function ratesUsdClose_() { document.getElementById("rates-usd-modal-backdrop").hidden = true; }
+async function openRatesUsdPreview_() {
+  const backdrop = document.getElementById("rates-usd-modal-backdrop"), body = document.getElementById("rates-usd-body");
+  const actions = document.getElementById("rates-usd-actions");
+  body.innerHTML = loadingHtml_();
+  document.getElementById("rates-usd-rows").innerHTML = "";
+  actions.hidden = true;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  let p;
+  try { p = await callApi("previewRatesToUsd", {}); } catch (err) { body.innerHTML = `<p class="charge-line-error">${escapeHtml(err.message)}</p>`; return; }
+  if (backdrop.hidden) return;
+  if (p.done) { meta.settings.rate_base = "USD"; meta.settings.rate_form = "per_base"; ratesUsdClose_(); refreshExchangeRates(); return; }
+  if (p.needsUsd) { body.innerHTML = `<p class="hint">${escapeHtml(tr("ratesUsd.needsUsd"))}</p>`; return; }
+  const before = (b) => { const s = b && strongRate_(b.currency, homeCur(), b.rate); return s ? `1 ${s.one} = ${s.other} ${strongRateFmt_(s.rate)}` : "—"; };
+  const rows = p.rows.map((r) => `
+    <div class="rates-usd-row">
+      <div class="rates-usd-row-name">${findCurrency(r.currency).flag} ${escapeHtml(r.currency)} <span class="hint">${escapeHtml(r.month)}</span></div>
+      <div class="rates-usd-row-was">${escapeHtml(before(r.before))}</div>
+      <div class="rates-usd-row-now">→ 1 USD = ${escapeHtml(r.currency)} ${strongRateFmt_(r.per_usd)}</div>
+    </div>`).join("");
+  const months = p.months.length
+    ? p.months.map((m) => {
+        const [y, mo] = m.month.split("-").map(Number);
+        return `<div class="rates-usd-month"><span>${escapeHtml(I18n.fmtMonthYear(new Date(y, mo - 1, 1), true))}</span><span>${escapeHtml(tr("ratesUsd.monthLine", { cur: p.main, before: moneyFmt(m.before), after: moneyFmt(m.after), n: m.entries }))}</span></div>`;
+      }).join("")
+    : `<p class="hint">${escapeHtml(tr("ratesUsd.noMonths"))}</p>`;
+  // The buttons come before the (long) list of rates, so the choice never needs a scroll to the bottom.
+  body.innerHTML = `
+    <p class="hint">${escapeHtml(tr("ratesUsd.previewIntro"))}</p>
+    <h3>${escapeHtml(tr("ratesUsd.monthsTitle"))}</h3>${months}
+    <p class="hint">${escapeHtml(tr("ratesUsd.backupNote"))}</p>`;
+  document.getElementById("rates-usd-rows").innerHTML = `<h3>${escapeHtml(tr("ratesUsd.rowsTitle", { n: p.rows.length }))}</h3>${rows}`;
+  actions.hidden = false;
+}
+document.getElementById("rates-usd-preview-btn").addEventListener("click", openRatesUsdPreview_);
+document.getElementById("rates-usd-modal-close").addEventListener("click", ratesUsdClose_);
+document.getElementById("rates-usd-cancel").addEventListener("click", ratesUsdClose_);
+document.getElementById("rates-usd-apply").addEventListener("click", () => {
+  ratesUsdClose_();
+  saveBehindScreen_(async () => {
+    await callApi("convertRatesToUsd", {});
+    meta.settings.rate_base = "USD";
+    meta.settings.rate_form = "per_base";
+    knownRateMonths_.clear();
+  }, async () => {
+    refreshExchangeRates();
+    refreshHomeGlance_(true);   // amounts in a third currency now go through the dollar
+    refreshEntryList().catch(() => {});
+  });
+});
 
 // ---- Accounts & cards (More tab) ----
 // The list reads meta.paymentMethods (already loaded for the entry form), and a

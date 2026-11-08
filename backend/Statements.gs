@@ -420,7 +420,7 @@ function analyzeStatements(payload) {
   ['Loans', 'Settlements'].forEach(function (t) {
     getAllRows(t).forEach(function (r) { if (r.transfer_entry_id) loanTransferIds[r.transfer_entry_id] = true; });
   });
-  var result = matchStatements_(matcherInput, entries, { loanTransferIds: loanTransferIds, repaymentTotals: buildRepaymentTotalsForMatching_() });
+  var result = matchStatements_(matcherInput, entries, { loanTransferIds: loanTransferIds, repaymentTotals: buildRepaymentTotalsForMatching_(), chargeRatio: chargeExpectedRatio_ });
   tick('matcher');
   var entryById = {};
   entries.forEach(function (e) { entryById[e.id] = e; });
@@ -448,6 +448,12 @@ function analyzeStatements(payload) {
         o.handled = { outcome: hr.outcome, entryId: hr.entry_id || '', entry: hr.entry_id && entryById[hr.entry_id] ? stmtEntrySummary_(entryById[hr.entry_id], catsById, pmsById) : null };
         o.status = 'handled';
         counts.handled++;
+        return o;
+      }
+      if (r.status === 'fills') {
+        o.fillsCharge = { clear: r.fillsCharge.clear, entryId: r.fillsCharge.entryId, options: r.fillsCharge.options.map(function (c) {
+          return Object.assign(stmtEntrySummary_(entryById[c.entryId], catsById, pmsById), { dayDiff: c.dd, rateOk: c.rateOk }); }) };
+        counts.charges = (counts.charges || 0) + 1;
         return o;
       }
       if (r.status === 'completes') {

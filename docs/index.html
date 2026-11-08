@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="1.63.4"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="1.66.0"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-07T15:44:25Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-08T01:21:30Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -1086,6 +1086,12 @@
       <div class="card">
         <h3 style="margin-top:0;" data-i18n="rates.title">Exchange rates</h3>
         <p class="hint" data-i18n="rates.hint">Every currency/month you've set a rate for. Tap one to change it — every entry that used it updates automatically, since PEN amounts are always calculated fresh, never stored.</p>
+        <!-- Store every rate as "1 USD = x" (RatesUsd.gs): offered on the owner's copy until done; the preview comes first. -->
+        <div id="rates-usd-offer" class="rates-usd-offer" hidden>
+          <p class="rates-usd-offer-title" data-i18n="ratesUsd.offerTitle">Store rates against the US dollar</p>
+          <p class="hint" data-i18n="ratesUsd.offerHint">Every rate becomes “1 USD = …”, the way banks quote it, and other currencies reach your main currency through the dollar. You see every change before anything is saved.</p>
+          <button type="button" class="add-inline" id="rates-usd-preview-btn" data-i18n="ratesUsd.seeChanges">See what changes</button>
+        </div>
         <div id="exchange-rates-list"></div>
         <p class="hint" id="exchange-rates-empty-note" hidden data-i18n="rates.empty">No exchange rates on file yet.</p>
       </div>
@@ -1621,6 +1627,21 @@
       <p class="hint" id="currency-screen-note" hidden></p>
       <div class="currency-option-list" id="currency-option-list"></div>
       <button type="button" class="primary" id="currency-screen-done" hidden data-i18n="currency.done">Done</button>
+    </div>
+  </div>
+
+  <div id="rates-usd-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="ratesUsd.offerTitle">Store rates against the US dollar</span>
+        <button type="button" id="rates-usd-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div id="rates-usd-body"></div>
+      <div id="rates-usd-actions" hidden>
+        <button type="button" class="primary" id="rates-usd-apply" data-i18n="ratesUsd.apply">Store them against the dollar</button>
+        <button type="button" class="add-inline" id="rates-usd-cancel" data-i18n="common.cancel">Cancel</button>
+      </div>
+      <div id="rates-usd-rows"></div>
     </div>
   </div>
 
@@ -3595,24 +3616,24 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="i18n.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="tour-scenes.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="signin-link.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="country-guess.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="rate-quotes.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="bank-sample.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="perf-share.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="spotlight.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="receipt-parse.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="receipt-fields.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="in-process.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="bill-split.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="loan-reminder.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="app.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="statement-sample.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="statement-table.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="statement-parsers.js?v=2026-11-07T15:44:25Z"></script>
-  <script src="statements.js?v=2026-11-07T15:44:25Z"></script>
+  <script src="strings.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="i18n.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="tour-scenes.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="signin-link.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="country-guess.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="rate-quotes.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="bank-sample.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="perf-share.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="spotlight.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="receipt-parse.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="receipt-fields.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="in-process.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="bill-split.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="loan-reminder.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="app.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="statement-sample.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="statement-table.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="statement-parsers.js?v=2026-11-08T01:21:30Z"></script>
+  <script src="statements.js?v=2026-11-08T01:21:30Z"></script>
 </body>
 </html>
