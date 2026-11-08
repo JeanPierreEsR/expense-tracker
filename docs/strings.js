@@ -1086,6 +1086,17 @@
     // ---- rates ----
     "rates.title": { en: "Exchange rates", es: "Tipos de cambio" },
     "rates.hint": { en: "Tap a rate to change it. Everything that used it updates automatically.", es: "Toca un tipo de cambio para cambiarlo: todo lo que lo usó se actualiza solo." },
+    "ratesUsd.offerTitle": { en: "Store rates against the US dollar", es: "Guardar los tipos de cambio contra el dólar" },
+    "ratesUsd.offerHint": { en: "Every rate becomes “1 USD = …”, the way banks quote it, and other currencies reach your main currency through the dollar. You see every change before anything is saved.", es: "Cada tipo de cambio pasa a ser “1 USD = …”, como lo dan los bancos, y las demás monedas llegan a tu moneda principal a través del dólar. Ves cada cambio antes de que se guarde nada." },
+    "ratesUsd.seeChanges": { en: "See what changes", es: "Ver qué cambia" },
+    "ratesUsd.apply": { en: "Store them against the dollar", es: "Guardarlos contra el dólar" },
+    "ratesUsd.previewIntro": { en: "Nothing has been saved yet. Amounts in your main currency and in dollars stay the same; only amounts in other currencies can change, because they now go through the dollar rate of their month.", es: "Todavía no se ha guardado nada. Los montos en tu moneda principal y en dólares no cambian; solo pueden cambiar los de otras monedas, porque ahora pasan por el tipo del dólar de su mes." },
+    "ratesUsd.monthsTitle": { en: "Months whose expenses change", es: "Meses cuyos gastos cambian" },
+    "ratesUsd.noMonths": { en: "None: every month's expenses stay exactly the same.", es: "Ninguno: los gastos de cada mes quedan exactamente igual." },
+    "ratesUsd.monthLine": { en: "{cur} {before} → {cur} {after} · {n} entries", es: "{cur} {before} → {cur} {after} · {n} movimientos" },
+    "ratesUsd.rowsTitle": { en: "Your {n} rates, before → after", es: "Tus {n} tipos de cambio, antes → después" },
+    "ratesUsd.backupNote": { en: "A copy of your rates as they are now stays in a tab of your Sheet called “Exchange Rates before USD”.", es: "Una copia de tus tipos de cambio tal como están ahora queda en una pestaña de tu hoja llamada “Exchange Rates before USD”." },
+    "ratesUsd.needsUsd": { en: "First add a US dollar rate (any month): every other rate is turned into dollars with it.", es: "Primero agrega un tipo de cambio del dólar (de cualquier mes): con él se pasan a dólares todos los demás." },
     "rates.empty": { en: "No exchange rates saved yet.", es: "Aún no hay tipos de cambio registrados." },
 
     // ---- drill ----

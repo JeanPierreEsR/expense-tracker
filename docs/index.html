@@ -1069,6 +1069,12 @@
       <div class="card">
         <h3 style="margin-top:0;" data-i18n="rates.title">Exchange rates</h3>
         <p class="hint" data-i18n="rates.hint">Every currency/month you've set a rate for. Tap one to change it — every entry that used it updates automatically, since PEN amounts are always calculated fresh, never stored.</p>
+        <!-- Store every rate as "1 USD = x" (RatesUsd.gs): offered on the owner's copy until done; the preview comes first. -->
+        <div id="rates-usd-offer" class="rates-usd-offer" hidden>
+          <p class="rates-usd-offer-title" data-i18n="ratesUsd.offerTitle">Store rates against the US dollar</p>
+          <p class="hint" data-i18n="ratesUsd.offerHint">Every rate becomes “1 USD = …”, the way banks quote it, and other currencies reach your main currency through the dollar. You see every change before anything is saved.</p>
+          <button type="button" class="add-inline" id="rates-usd-preview-btn" data-i18n="ratesUsd.seeChanges">See what changes</button>
+        </div>
         <div id="exchange-rates-list"></div>
         <p class="hint" id="exchange-rates-empty-note" hidden data-i18n="rates.empty">No exchange rates on file yet.</p>
       </div>
@@ -1574,6 +1580,21 @@
       <p class="hint" id="currency-screen-note" hidden></p>
       <div class="currency-option-list" id="currency-option-list"></div>
       <button type="button" class="primary" id="currency-screen-done" hidden data-i18n="currency.done">Done</button>
+    </div>
+  </div>
+
+  <div id="rates-usd-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="ratesUsd.offerTitle">Store rates against the US dollar</span>
+        <button type="button" id="rates-usd-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div id="rates-usd-body"></div>
+      <div id="rates-usd-actions" hidden>
+        <button type="button" class="primary" id="rates-usd-apply" data-i18n="ratesUsd.apply">Store them against the dollar</button>
+        <button type="button" class="add-inline" id="rates-usd-cancel" data-i18n="common.cancel">Cancel</button>
+      </div>
+      <div id="rates-usd-rows"></div>
     </div>
   </div>
 

@@ -268,6 +268,10 @@ var BACKEND_STRINGS_ = {
   "err.tooManyAccounts": { en: "Too many accounts at once.", es: "Demasiadas cuentas a la vez." },
   "err.tooManyPlatforms": { en: "Too many platforms at once.", es: "Demasiadas plataformas a la vez." },
   "err.rateMain": { en: "The main currency has no rate of its own.", es: "La moneda principal no tiene un tipo de cambio propio." },
+  "rates.usdOwnerOnly": { en: "Storing rates against the US dollar is not open on this copy yet.", es: "Guardar los tipos de cambio contra el dólar aún no está disponible en esta copia." },
+  "rates.usdNeeded": { en: "Add a US dollar rate first (More → Currencies).", es: "Primero agrega un tipo de cambio del dólar (Más → Monedas)." },
+  "rates.usdNotYet": { en: "This copy does not store rates against the US dollar yet. Reload the app.", es: "Esta copia aún no guarda los tipos de cambio contra el dólar. Vuelve a cargar la app." },
+  "rates.usdBackupNote": { en: "Your exchange rates as they were before being stored against the US dollar (each row: 1 <currency> = rate {base}). Nothing reads this tab.", es: "Tus tipos de cambio como estaban antes de guardarlos contra el dólar (cada fila: 1 <moneda> = tipo {base}). Nada lee esta pestaña." },
   "err.rateMainFirst": { en: "Set the main currency's exchange rate first (More → Exchange rates).", es: "Primero fija el tipo de cambio de la moneda principal (Más → Tipos de cambio)." },
   "err.rateNeeded": { en: "To switch the main currency to {next}, enter how many {next} one {old} is worth today.", es: "Para cambiar la moneda principal a {next}, indica cuántos {next} vale hoy un {old}." },
   "export.h.category": { en: "Category", es: "Categoría" },
@@ -735,6 +739,7 @@ function localizeCategories_(rows, langOverride) {
 function setSetting_(key, value) {
   if (key === 'default_currency') HOME_CURRENCY_MEMO_ = null;   // the main currency (HomeCurrency.gs)
   if (key === 'rate_base') RATE_BASE_MEMO_ = null;
+  if (key === 'rate_form') RATE_FORM_MEMO_ = null;
   var sheet = getSheet('Settings');
   var headers = getHeaders(sheet);
   var keyCol = headers.indexOf('key') + 1;
