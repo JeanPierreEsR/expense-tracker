@@ -28,10 +28,10 @@ function ratesPerBase_() {
 function rowRateToBase_(v) { v = Number(v); return ratesPerBase_() && v > 0 ? 1 / v : v; }
 function baseRateToRow_(v) { v = Number(v); return ratesPerBase_() && v > 0 ? 1 / v : v; }
 
-// Rates go through the dollar: asked and listed as "1 USD = ? <currency>".
+// Rates go through the dollar: asked "USD 1 = <currency> ?".
 function ratesThroughUsd_() { return rateBase_() === 'USD' && ratesPerBase_(); }
 
-// "1 USD = ? <code>" around `month` (latest on or before), for a currency as the person sees it: the main currency's
+// "1 USD = x <code>" around `month` (latest on or before), for a currency as the person sees it: the main currency's
 // own rate is listed as USD (1 USD = ? main). Null when not on file.
 function perUsdAt_(currency, month) {
   if (!ratesThroughUsd_()) return null;
