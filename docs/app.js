@@ -10169,7 +10169,9 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
 // "Delete completely" and the practice's own budget, the old full delete (owner, 2026-11-07).
 function removeBudgetFromForm_(full) {
   if (!editingBudgetId) return;
-  const b = drilldownBudget && drilldownBudget.id === editingBudgetId ? drilldownBudget : (budgetsLoaded_ || []).find((x) => x.id === editingBudgetId) || { id: editingBudgetId, period_type: budgetPeriodType };
+  // A budget that starts later is not in the main list (owner, 2026-11-08: ending one asked "End this item?" and the wrong question).
+  const b = drilldownBudget && drilldownBudget.id === editingBudgetId ? drilldownBudget
+    : (budgetsLoaded_ || []).concat(budgetsLater_ || []).find((x) => x.id === editingBudgetId) || budgetEditingObj_ || { id: editingBudgetId, period_type: budgetPeriodType };
   return removeBudget_(b, full, document.getElementById("budget-name").value);
 }
 // The budget window's two buttons and the drill-down's ⋮ menu. name: the budget's own name as typed (the practice's is deleted outright).
@@ -10179,11 +10181,12 @@ async function removeBudget_(b, full, name) {
   const practice = isPracticeBudgetName_(name || "");
   const end = !full && !practice && budgetHistoryOn_();
   const yearly = b.period_type === "yearly", K = budgetKindKeys_(b.period_type);
-  const question = end && b.end_deletes ? tr(K.endDel, { what })
+  const question = end && b.start_later ? tr("budget.confirmEndNotStarted", { what, when: budgetPeriodName_(b.period_type, b.start_later, true) })
+    : end && b.end_deletes ? tr(K.endDel, { what })
     : end ? tr(K.end, { what })
     : budgetHistoryOn_() ? tr("budget.confirmDeleteFull", { what })
     : tr(yearly ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what });
-  if (!practiceNoConfirm_(practice) && !confirm(question)) return;
+  if (!practiceNoConfirm_(practice) && !(await askConfirmApp_(question, tr(end && !b.end_deletes ? "budgetModal.end" : "budgetModal.deleteFull")))) return;
   const id = b.id;
   markDeleting_("budget:" + id);
   closeBudgetModal();
@@ -10533,12 +10536,13 @@ document.getElementById("budgets-selectall-btn").addEventListener("click", () =>
   budgetsSelected_ = budgetsSelected_.size === budgetsLoaded_.length ? new Set() : new Set(budgetsLoaded_.map((b) => b.id));
   drawBudgets_();
 });
-document.getElementById("budgets-delete-selected-btn").addEventListener("click", () => {
+document.getElementById("budgets-delete-selected-btn").addEventListener("click", async () => {
   const chosen = budgetsLoaded_.filter((b) => budgetsSelected_.has(b.id));
   if (!chosen.length) return;
   const names = chosen.map(budgetPickLabel_).join(", ");
   const ends = budgetHistoryOn_();
-  if (!confirm(tr(chosen.length === 1 ? (ends ? "budgets.confirmEndOne" : "budgets.confirmDeleteOne") : (ends ? "budgets.confirmEndMany" : "budgets.confirmDeleteMany"), { n: chosen.length, names }))) return;
+  if (!(await askConfirmApp_(tr(chosen.length === 1 ? (ends ? "budgets.confirmEndOne" : "budgets.confirmDeleteOne") : (ends ? "budgets.confirmEndMany" : "budgets.confirmDeleteMany"), { n: chosen.length, names }),
+    ends ? tr("budgets.endN", { n: chosen.length }) : tr("friends.deleteN", { n: chosen.length })))) return;
   const ids = chosen.map((b) => b.id);
   const nameOf = new Map(chosen.map((b) => [b.id, budgetPickLabel_(b)]));
   setBudgetsEditing_(false);
@@ -23864,6 +23868,23 @@ function syncConversionAmount_() {
   const field = document.getElementById("amount");
   const from = converting ? own : whole;
   if (field.value === from || field.value === "") field.value = converting ? whole : own;   // never over what the person typed
+}
+
+// A yes/no question in an app window (owner, 2026-11-08): the iPhone's own dialog speaks the phone's language ("Annuler"), not the
+// app's. okLabel names what happens ("End this budget"); it is red, since it removes something. Resolves true / false.
+function askConfirmApp_(text, okLabel) {
+  return new Promise((resolve) => {
+    const backdrop = document.getElementById("app-confirm-backdrop");
+    document.getElementById("app-confirm-text").textContent = text;
+    document.getElementById("app-confirm-ok").textContent = okLabel || tr("common.ok");
+    const ids = ["app-confirm-ok", "app-confirm-back", "app-confirm-close"];
+    const done = (v) => { backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); resolve(v); };
+    document.getElementById("app-confirm-ok").onclick = () => done(true);
+    document.getElementById("app-confirm-back").onclick = () => done(false);
+    document.getElementById("app-confirm-close").onclick = () => done(false);
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+  });
 }
 
 // From this period on, or for all the budget's periods? Resolves "forward", "all" or null (backed out).

@@ -2327,6 +2327,20 @@
 
   <!-- A budget change that could count from this period on or for all its periods (owner, 2026-11-08); an app window, not the
        iPhone's own dialog (that one speaks the phone's language: "Annuler"). -->
+  <div id="app-confirm-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span></span>
+        <button type="button" id="app-confirm-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="app-confirm-text" id="app-confirm-text"></p>
+        <button type="button" class="delete-entry-btn" id="app-confirm-ok"></button>
+        <button type="button" class="cancel-edit-btn" id="app-confirm-back" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="budget-scope-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
