@@ -133,6 +133,7 @@ function getCapabilities_() {
     accountCurrencyList: true,   // savePaymentMethod and saveOnboardingAccounts take `currencies`, a list: an account can have several (2026-11-06)
     plinMany: true,   // Plin on several accounts (saveRailLinks plin_pen_more)
     ratesUsdConvert: !isFriendCopy_(),   // previewRatesToUsd + convertRatesToUsd: store every rate as "1 USD = x" (RatesUsd.gs); the owner's copy only for now
+    bankOpening: true,   // saveBankLoan takes opening + first_number: a bank loan from before the app (2026-11-08)
     chargeFill: true,   // an entry's charge and what was paid (Charges.gs): the form's box, Home's card
     accountCurrencySuggest: true,   // getAccountCurrencySuggestions + apply: older accounts, shown in More → Accounts on the owner's copy (2026-11-06)
     accountCurrencies: true,   // saveOnboardingAccounts takes any currency for a debit / salary account ('debit_eur', 'sueldo_usd'); an older backend gets only soles / dollars offered in the welcome

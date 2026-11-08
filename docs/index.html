@@ -1886,16 +1886,33 @@
           <label for="bank-lender" data-i18n="bank.lender">Bank (who lent it)</label>
           <input type="text" id="bank-lender" list="bank-lender-list" data-i18n-placeholder="bank.lenderPlaceholder" placeholder="The bank's name">
           <datalist id="bank-lender-list"></datalist>
+          <!-- A loan from before the app (owner, 2026-11-08): only what is still owed is saved, no money entry, no account. -->
+          <div id="bank-opening-row" hidden>
+            <label class="settle-choose-row bank-opening-check"><input type="checkbox" id="bank-opening"><span data-i18n="bank.opening">This loan is from before I started using the app</span></label>
+            <p class="hint" id="bank-opening-hint" hidden data-i18n="bank.openingHint">Only what is still owed is saved: no money entry and no change to any account. Installments dated before today count as already paid.</p>
+            <div id="bank-opening-how" hidden>
+              <strong data-i18n="bank.openingHow">Enter it…</strong>
+              <label class="settle-choose-row"><input type="radio" name="bank-opening-how" value="start" checked><span data-i18n="bank.openingStart">as the bank gave it at the start</span></label>
+              <label class="settle-choose-row"><input type="radio" name="bank-opening-how" value="today"><span data-i18n="bank.openingTodayOpt">as it stands today (after an early repayment, or with the bank's new schedule)</span></label>
+              <p class="hint" id="bank-opening-how-hint"></p>
+            </div>
+          </div>
           <label for="bank-description" data-i18n="field.description">Description</label>
           <input type="text" id="bank-description" data-i18n-placeholder="common.optional" placeholder="Optional">
-          <label for="bank-amount" data-i18n="field.amount">Amount</label>
+          <label for="bank-amount" id="bank-amount-label" data-i18n="field.amount">Amount</label>
           <input type="text" inputmode="decimal" id="bank-amount" placeholder="0.00">
           <label for="bank-currency" data-i18n="field.currency">Currency</label>
           <select id="bank-currency"></select>
-          <label for="bank-date" data-i18n="bank.receivedOn">Date received</label>
+          <label for="bank-date" id="bank-date-label" data-i18n="bank.receivedOn">Date received</label>
           <input type="date" id="bank-date">
-          <label for="bank-account" data-i18n="bank.account">Account it arrived in</label>
-          <select id="bank-account"></select>
+          <div id="bank-next-number-field" hidden>
+            <label for="bank-next-number" data-i18n="bank.openingNextNumber">Number of the next installment (as on the bank's schedule)</label>
+            <input type="text" inputmode="numeric" id="bank-next-number" placeholder="1">
+          </div>
+          <div id="bank-account-field">
+            <label for="bank-account" data-i18n="bank.account">Account it arrived in</label>
+            <select id="bank-account"></select>
+          </div>
         </div>
         <div id="bank-mode-box">
           <strong data-i18n="bank.mode">How do you want to enter it?</strong>
@@ -1907,7 +1924,7 @@
         <div class="reassign-limit-box" id="bank-gen-box">
           <strong data-i18n="bank.genTitle">Fill the schedule</strong>
           <p class="hint" data-i18n="bank.genHint">A quick way to fill the rows below. Then type over any number with what the bank's own schedule says.</p>
-          <label for="bank-gen-count" data-i18n="bank.count">Number of installments</label>
+          <label for="bank-gen-count" id="bank-gen-count-label" data-i18n="bank.count">Number of installments</label>
           <input type="text" inputmode="numeric" id="bank-gen-count" placeholder="12">
           <label for="bank-gen-first" data-i18n="bank.firstDue">First due date</label>
           <input type="date" id="bank-gen-first">
@@ -1952,6 +1969,7 @@
         <div id="bank-rows"></div>
         <button type="button" class="add-inline" id="bank-add-row" data-i18n="bank.addRow">+ Add installment</button>
         <p class="hint" id="bank-totals"></p>
+        <p class="hint bank-opening-summary" id="bank-opening-summary" hidden></p>
         <p class="hint" id="bank-error" style="color:#d64545;"></p>
         <button type="button" class="primary" id="bank-save" data-i18n="bank.save">Save bank loan</button>
         <button type="button" class="cancel-edit-btn" id="bank-cancel" data-i18n="common.cancel">Cancel</button>

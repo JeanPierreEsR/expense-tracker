@@ -55,6 +55,12 @@ function loanInstallmentsOf_(loanId) {
     .sort(function (a, b) { return a.number - b.number; });
 }
 
+// How many installments the bank's schedule has: the LAST installment's own number, so a loan from before the app that starts at
+// installment 7 reads "7 of 24" like the bank's papers (owner, 2026-11-08), not "1 of 18". The same as the row count otherwise.
+function bankInstallmentCount_(rows) {
+  return rows.reduce(function (n, r) { return Math.max(n, Number(r.number) || 0); }, 0);
+}
+
 // loan id -> { count, paid, next_due, next_total }: what the person's screen shows on a loan that has a schedule.
 function loanScheduleSummaries_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -65,8 +71,9 @@ function loanScheduleSummaries_() {
   Object.keys(ids).forEach(function (loanId) {
     var rows = loanInstallmentsOf_(loanId);
     var open = rows.filter(function (r) { return !r.paid; });
+    var count = bankInstallmentCount_(rows);
     out[loanId] = {
-      count: rows.length, paid: rows.length - open.length,
+      count: count, paid: count - open.length,   // (installments paid before the app count as paid)
       next_due: open.length ? open[0].due_date : '', next_total: open.length ? open[0].total : 0,
       overdue: open.some(function (r) { return r.status === 'overdue'; })
     };
@@ -100,7 +107,9 @@ function appendInstallmentRows_(loanId, rows, firstNumber) {
   });
 }
 
-// payload: { friend_id | friend_name, amount, currency, date, payment_method_id, description, installments: [{due_date, principal, interest, fees}] }
+// payload: { friend_id | friend_name, amount, currency, date, payment_method_id, description, installments: [{due_date, principal, interest, fees}],
+//            opening?: true = a loan from before the app (no money entry, no account; `amount` is what is still owed and `installments` only
+//            the ones still to pay), first_number?: the bank's number of the first installment sent (default 1) }
 function saveBankLoan(payload) {
   var friendId = payload.friend_id;
   if (!friendId) {
@@ -109,14 +118,16 @@ function saveBankLoan(payload) {
   if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
   if (!payload.date) throw new Error(tr_('err.dateRequired'));
   var rows = cleanInstallments_(payload.installments, bankRound_(payload.amount));   // checked first: nothing is created when it is wrong
+  var opening = payload.opening === true || payload.opening === 'true' || payload.opening === 1 || payload.opening === '1';
+  var firstNumber = Math.max(1, Math.round(Number(payload.first_number) || 1));
   if (!friendId) friendId = addFriend({ name: payload.friend_name }).id;
   var loan = addLoan({
     friend_id: friendId, direction: 'i_owe_them', amount: bankRound_(payload.amount), currency: payload.currency,
-    date: payload.date, due_date: rows[rows.length - 1].due_date, payment_method_id: payload.payment_method_id,
-    description: payload.description
+    date: payload.date, due_date: rows[rows.length - 1].due_date, payment_method_id: opening ? '' : payload.payment_method_id,
+    description: payload.description, opening: opening
   });
   ensureLoanInstallmentsSheet_();
-  appendInstallmentRows_(loan.id, rows, 1);
+  appendInstallmentRows_(loan.id, rows, firstNumber);
   return { loan: loan, installments: loanInstallmentsOf_(loan.id) };
 }
 
@@ -128,7 +139,7 @@ function getLoanSchedule(payload) {
   // what is still owed counts EVERYTHING repaid on the loan (installments and early payments), not just the paid installments
   var paidPrincipal = getAllRows('Settlements').filter(function (st) { return st.loan_id === loan.id; }).reduce(function (n, st) { return n + Number(st.amount); }, 0);
   return {
-    loan: { id: loan.id, amount: Number(loan.amount), currency: loan.currency, date: loan.date, description: loan.description || '', friend_id: loan.friend_id, friend_name: friend ? friend.name : '', payment_method_id: loan.payment_method_id || '' },   // (the installment window starts on the account it arrived in)
+    loan: { id: loan.id, amount: Number(loan.amount), currency: loan.currency, date: loan.date, description: loan.description || '', friend_id: loan.friend_id, friend_name: friend ? friend.name : '', payment_method_id: loan.payment_method_id || '', opening: isOpeningLoan_(loan) },   // (the installment window starts on the account it arrived in)
     installments: rows,
     remaining_principal: bankRound_(Number(loan.amount) - paidPrincipal),
     totals: {
@@ -154,7 +165,9 @@ function saveLoanSchedule(payload) {
   var keep = {};
   paid.forEach(function (r) { keep[r.id] = true; });
   deleteRowsWhere_('Loan Installments', function (r) { return r.loan_id === loan.id && !keep[r.id]; });
-  var maxPaid = paid.reduce(function (n, r) { return Math.max(n, r.number); }, 0);
+  // the numbering goes on from the last paid one; with none paid yet, from the first one on file (a loan from before the app starts at 7)
+  var firstOnFile = existing.length ? existing.reduce(function (n, r) { return Math.min(n, r.number); }, Infinity) : 1;
+  var maxPaid = paid.length ? paid.reduce(function (n, r) { return Math.max(n, r.number); }, 0) : firstOnFile - 1;
   appendInstallmentRows_(loan.id, rows, maxPaid + 1);
   return getLoanSchedule({ loan_id: loan.id });
 }
@@ -185,7 +198,7 @@ function recordInstallment(payload) {
   if (principal - room > 0.004) throw new Error(tr_('bank.moreThanOwed', { cur: loan.currency, amount: moneyFmt_(room) }));
 
   var friend = getAllRows('Friends').find(function (f) { return f.id === loan.friend_id; });
-  var count = loanInstallmentsOf_(loan.id).length;
+  var count = bankInstallmentCount_(loanInstallmentsOf_(loan.id));
   var what = loan.description || (friend ? friend.name : '');
   // no principal (a grace period, interest only): no repayment and no transfer, only the expense below
   var transfer = principal > 0.004 ? createTransferEntry_({
