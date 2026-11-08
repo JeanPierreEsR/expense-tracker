@@ -2789,7 +2789,7 @@ async function settleAmountProblem_(p, scope) {
     setValue(pick);
     return true;
   }
-  await amountAskOpen_(tr("amountBad.title"), p.kind === "negative" ? tr("amountBad.negative") : tr("amountBad.invalid", { typed: p.typed }), [{ label: tr("amountBad.ok"), value: true }]);
+  await amountAskOpen_(tr("amountBad.title"), p.kind === "negative" ? tr(p.input.dataset.amountKind === "rate" ? "amountBad.negativeRate" : "amountBad.negative") : tr("amountBad.invalid", { typed: p.typed }), [{ label: tr("amountBad.ok"), value: true }]);
   p.input.focus();
   return false;
 }
@@ -3026,6 +3026,13 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     // that month, so a rate that differs a lot from the previous one has to be
     // confirmed (rule from specs/entries-and-categories.md, Exchange Rates).
     const prev = await prevRate;
+    // Sanity check (testers, 2026-11-06: 1,000,000,000 was accepted): with no earlier rate to compare with, a rate more than 5 times
+    // away from the usual size for the pair (the rough table, ±5× leaves room for years of inflation) is asked about first.
+    const usual = !prev ? usualStoredRate_(currency, usd) : null;
+    if (usual && Math.max(rate / usual, usual / rate) > 5) {
+      const l = document.getElementById("rate-left-label").textContent, r = document.getElementById("rate-right-label").textContent;
+      if (!confirm(tr("rateModal.confirmUnusual", { typed: `${l} = ${r} ${strongRateFmt_(raw)}`, usual: `${l} = ${r} ${moneyFmt(toShown(usual))}` }))) return;
+    }
     if (prev && Math.abs(rate / prev - 1) > 0.10) {
       // Said in the window's own direction, so the numbers are the ones the person typed and reads.
       const shownPrev = toShown(prev);
@@ -8206,6 +8213,13 @@ function strongRateFmt_(n) {
 }
 // Rough units per US dollar, ONLY to choose which way a brand-new rate is asked (the person types the real one); never used for money.
 const CURRENCY_PER_USD_ = { PEN: 3.7, USD: 1, EUR: 0.92, ARS: 1400, MXN: 18, BRL: 5.5, CLP: 950, COP: 4000, BOB: 6.9, UYU: 40, PYG: 7500, VES: 100, GTQ: 7.7, CRC: 510, PAB: 1, DOP: 60, HNL: 25, NIO: 37, CUP: 24, GBP: 0.78, CAD: 1.37, CHF: 0.85, JPY: 150, CNY: 7.2, KRW: 1400, INR: 85, AUD: 1.5, NZD: 1.7, SGD: 1.33, HKD: 7.8, SEK: 10.5, NOK: 10.8, DKK: 6.8, PLN: 3.9, TRY: 40, ZAR: 18, AED: 3.67, THB: 34, RUB: 90, ILS: 3.7, AFN: 70, ALL: 92, DZD: 135, AOA: 900, AMD: 390, AWG: 1.79, AZN: 1.7, BSD: 1, BHD: 0.376, BDT: 120, BBD: 2, BYN: 3.3, BZD: 2, BMD: 1, BTN: 85, BAM: 1.8, BWP: 13.5, BND: 1.33, BIF: 2900, KHR: 4000, CVE: 101, KYD: 0.83, XAF: 600, KMF: 450, CDF: 2800, XCG: 1.79, CZK: 23, DJF: 178, XCD: 2.7, EGP: 49, SVC: 8.75, ERN: 15, SZL: 18, ETB: 130, FKP: 0.78, FJD: 2.25, XPF: 109, GMD: 71, GEL: 2.7, GHS: 12, GIP: 0.78, GNF: 8600, GYD: 209, HTG: 131, HUF: 360, ISK: 137, IDR: 16000, IRR: 42000, IQD: 1310, JMD: 157, JOD: 0.709, KZT: 500, KES: 129, KWD: 0.307, KGS: 87, LAK: 21600, LBP: 89500, LSL: 18, LRD: 190, LYD: 5.4, MOP: 8, MGA: 4500, MWK: 1730, MYR: 4.4, MVR: 15.4, MRU: 40, MUR: 46, MDL: 17.5, MNT: 3400, MAD: 9.5, MZN: 64, MMK: 2100, NAD: 18, NPR: 136, NGN: 1550, KPW: 900, MKD: 56, OMR: 0.385, PKR: 280, PGK: 4, PHP: 57, QAR: 3.64, RON: 4.6, RWF: 1400, SHP: 0.78, WST: 2.7, STN: 22.5, SAR: 3.75, RSD: 108, SCR: 14, SLE: 22.5, SBD: 8.4, SOS: 571, SSP: 4500, LKR: 300, SDG: 600, SRD: 36, SYP: 13000, TWD: 32, TJS: 10.9, TZS: 2600, TOP: 2.35, TTD: 6.8, TND: 3.1, TMT: 3.5, UGX: 3700, UAH: 41, UZS: 12700, VUV: 120, VND: 25500, XOF: 600, YER: 250, ZMW: 27, ZWG: 27 };
+// The usual size of a rate in the form it is sent: "1 USD = x <currency>" through the dollar (the dollar's own: x main), else
+// "1 <currency> = x main". From the rough table only (a sanity check, never money); null when a currency is not in it.
+function usualStoredRate_(currency, usd) {
+  if (usd) return CURRENCY_PER_USD_[usdRateTarget_(currency)] || null;
+  const x = CURRENCY_PER_USD_[currency], m = CURRENCY_PER_USD_[homeCur()];
+  return x && m ? m / x : null;
+}
 // Through the dollar: true when 1 <currency> is worth more than a dollar (EUR, GBP…), so the window asks "EUR 1 = USD ?".
 // `perUsd` (1 USD = perUsd <currency>) decides when known; else the rough table. For USD itself the main currency is the other side.
 function strongerThanUsd_(currency, perUsd) {

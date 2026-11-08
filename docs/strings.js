@@ -835,6 +835,7 @@
     "amountAsk.title": { en: "Which amount did you mean?", es: "¿Qué monto quisiste poner?" },
     "amountAsk.text": { en: "“{typed}” can be read two ways.", es: "“{typed}” se puede leer de dos formas." },
     "amountBad.title": { en: "Check this amount", es: "Revisa este monto" },
+    "amountBad.negativeRate": { en: "An exchange rate can't be negative. Type it without the minus sign.", es: "Un tipo de cambio no puede ser negativo. Escríbelo sin el signo menos." },
     "amountBad.negative": { en: "An amount can't be negative. Type it without the minus sign.", es: "Un monto no puede ser negativo. Escríbelo sin el signo menos." },
     "amountBad.invalid": { en: "“{typed}” isn't a valid amount. Check the dots and commas.", es: "“{typed}” no es un monto válido. Revisa los puntos y las comas." },
     "amountBad.ok": { en: "OK", es: "Entendido" },
@@ -1702,6 +1703,7 @@
     "rateModal.viaMainNoUsd": { en: "There's no dollar rate for {month} yet, so this can't be turned into dollars. Add the USD rate first.", es: "Aún no hay tipo de cambio del dólar para {month}, así que no se puede pasar a dólares. Agrega primero el del USD." },
     "rateModal.meaning": { en: "This means {left} = {right}.", es: "Esto significa {left} = {right}." },
     "rateModal.validNumber": { en: "Enter a valid number.", es: "Ingresa un número válido." },
+    "rateModal.confirmUnusual": { en: "{typed} is far from the usual size for these currencies (about {usual}). Save it anyway?", es: "{typed} está muy lejos del valor habitual para estas monedas (alrededor de {usual}). ¿Guardarlo de todos modos?" },
     "rateModal.confirmHigher": { en: "This rate ({rate}) is {pct}% higher than the previous one ({prev}). Save it anyway?", es: "Este tipo de cambio ({rate}) es {pct}% más alto que el anterior ({prev}). ¿Guardarlo de todos modos?" },
     "rateModal.confirmLower": { en: "This rate ({rate}) is {pct}% lower than the previous one ({prev}). Save it anyway?", es: "Este tipo de cambio ({rate}) es {pct}% más bajo que el anterior ({prev}). ¿Guardarlo de todos modos?" },
 
