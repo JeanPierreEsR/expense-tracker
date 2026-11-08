@@ -26,3 +26,15 @@ person's copy: only the starter categories and banks, the built-in Cash account,
 a person gets by ticking EVERY "What fits me" choice (starter list + one per pick; Settings `profile` = all picks), and the made-up entries
 are spread over those. `OWNER_CATEGORIES=1` brings back the owner's own long list. Open `http://<this computer>:<port>/login` once to sign a browser in (works from a phone on
 the same Wi-Fi). Restart the server to get the data back exactly as it was. **Friend-style copy and "owner's copy" (2026-11-04):** the server rewrites the owner's web address in `app.js` to `/api`, and the app treats a copy using exactly the owner's address as the owner's (`perfIsOwnerCopy_`), so friends-only rows (Feedback & privacy and others) stayed hidden even with `FRIEND_COPY=1`. With `FRIEND_COPY=1` the `/login` page now also stores a full address (`<origin>/api`), so the app sees a friend's phone; open `/login` again on a copy started before this change. In a desktop browser the same is `localStorage.setItem("apiUrl", location.origin + "/api")`.
+
+## Screen-fit check (2026-11-07)
+
+`node tests/screen-fit/check.js` starts its own test server on a free port, opens the real app at 375 px wide (iPhone SE 2nd/3rd gen,
+12/13 mini) in English and then Spanish, and goes through Home, Overview, Budgets, Projections, Loans, More, the new-entry window and
+every More screen (My data's screens included). It lists anything that runs off the right edge, text cut by its box, and any number
+shortened with "…" (a name may be; an amount may not). `ship.sh` runs it before publishing an app change and stops on a finding; it
+only measures, so a screen that fits but looks crowded is the testers' job. `WIDTH=320` tries another width by hand;
+`SCREEN_FIT_SELFTEST=1` adds a too-wide box to every screen to prove the check still sees one. It needs Playwright, installed once
+outside the repo: `npm install --prefix ~/.expense-tracker-tools playwright@1.65.0` then, in that folder, `npx playwright install
+chromium-headless-shell`. Without it, `ship.sh` warns and ships anyway. A new More screen: add its row's id to `MORE_ROWS` (or
+`MY_DATA_ROWS`) in the script.
