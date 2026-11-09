@@ -7281,6 +7281,7 @@ function openNewEntrySheet_() {
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
   // A new person's first "+": the guided practice starts by itself (owner, 2026-11-04). Never during another practice or "Mark as paid".
   if (!payingRecurringId_ && guidedEntryWanted_()) setTimeout(startGuidedEntry_, 350);
+  if (!payingRecurringId_) { popTipVisit_("entryForm"); setTimeout(watchTripPickTip_, 450); }
 }
 
 function closeNewEntrySheet_() {
@@ -7788,6 +7789,7 @@ function showScreen(name) {
   }
   if (name === "budgets") {
     ensurePeriodSelectorIn("budgets");
+    popTipVisit_("budgets");
     refreshBudgets();
   }
   if (name === "projections") {
@@ -10255,6 +10257,7 @@ async function refreshBudgets() {
   budgetsCache_[budgetsKey] = data;
   drawBudgets_();
   offerBudgetsTip_();   // only now that everything has arrived (loading standard)
+  watchAnnualTip_();
   if (budgetsKey === JSON.stringify(projectionPeriodPayload_())) preloadBudgetsNeighbour_();
 }
 
@@ -10406,6 +10409,7 @@ function drawBudgets_() {
     row.className = "budget-row";
     delKey_(row, "budget:" + b.id);
     row.dataset.budgetName = b.name || "";
+    row.dataset.periodType = b.period_type || "";
     const rowName = p.category_name || b.category_name, rowIcon = p.category_name ? p.category_icon : b.category_icon;   // categories then
     const nameHtml = `<div class="budget-row-name">${rowIcon ? rowIcon + " " : ""}${escapeHtml(rowName)}</div>`;
     const leadHtml = budgetsEditing_
@@ -21521,6 +21525,145 @@ function offerTip_(key, boxId, inviteText, start, after) {
   });
 }
 
+// ---- Pop-up tips (owner's plan, 2026-11-08: "Pop-up tips series - plan (DRAFT 2026-11-08).md") ----
+// One bubble pointing at the field it is about, for an optional extra (the features list marks which). Shown once per tip on this phone,
+// only from the 3rd time its place (a screen or a form) is opened, at most one a day (it also takes one of the day's two yellow-card
+// slots), never during a practice, in Edit mode, with the keyboard up or under another sheet. Nothing is dimmed or blocked: "Got it"
+// or any tap elsewhere closes it. More → How to use the app → Practice tips brings them back with no 3-visit wait.
+// A new tip: count its place with popTipVisit_(place) where it opens, then popTipWatch_({ key, place, target, text, stillWanted, ready }).
+const POP_SEEN_KEY_ = "popTipsSeen", POP_VISITS_KEY_ = "popTipVisits", POP_DAY_KEY_ = "popTipDay", POP_AGAIN_KEY_ = "popTipsAgain";
+const POP_TIP_VISIT_ = 3;
+let popWatch_ = null, popWatchTimer_ = null, popOpen_ = null;
+function popGet_(k, fallback) { try { return JSON.parse(localStorage.getItem(k) || "null") || fallback; } catch (e) { return fallback; } }
+function popSet_(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* no storage: shown at most once per session */ } }
+function popTipVisit_(place) { const v = popGet_(POP_VISITS_KEY_, {}); v[place] = (v[place] || 0) + 1; popSet_(POP_VISITS_KEY_, v); }
+// tip: { key, place, level ("advanced" = no month wait; omit for super advanced), target()→ the element to point at or null (not there yet), text (or text() read when it shows), stillWanted() → false cancels, ready() optional }
+// Super-advanced tips (every tip of the features list's "Super advanced" level, so every tip by default; owner, 2026-11-09) show only
+// from the first month of using the app: 30 days after this phone first opened it. Practice tips (popTipsAgain) lifts the wait.
+const POP_FIRST_USE_KEY_ = "popFirstUse", POP_SUPER_DAYS_ = 30;
+function popFirstUse_() {
+  let d = popGet_(POP_FIRST_USE_KEY_, null);
+  if (!d) { d = todayLocalISO(); popSet_(POP_FIRST_USE_KEY_, d); }
+  return d;
+}
+function popMonthPassed_() { return (Date.parse(todayLocalISO()) - Date.parse(popFirstUse_())) / 86400000 >= POP_SUPER_DAYS_; }
+popFirstUse_();   // stamp the first day as early as possible
+function popTipWatch_(tip) {
+  if (popGet_(POP_SEEN_KEY_, []).includes(tip.key)) return;
+  if (tip.level !== "advanced" && !popGet_(POP_AGAIN_KEY_, false) && !popMonthPassed_()) return;   // super advanced: first month first
+  if (!popGet_(POP_AGAIN_KEY_, false) && (popGet_(POP_VISITS_KEY_, {})[tip.place] || 0) < POP_TIP_VISIT_) return;
+  popWatch_ = tip;
+  if (!popWatchTimer_) popWatchTimer_ = setInterval(popTipTick_, 250);
+  popTipTick_();
+}
+// The moment the field scrolls into view or the keyboard closes, not at the next check (owner's walk: "a little bit too slow").
+["scroll", "focusout", "touchend"].forEach((ev) => document.addEventListener(ev, () => {
+  if (popWatch_ && !popOpen_) requestAnimationFrame(popTipTick_);
+}, { capture: true, passive: true }));
+function popTipStopWatch_() { popWatch_ = null; if (popWatchTimer_) { clearInterval(popWatchTimer_); popWatchTimer_ = null; } }
+function popTyping_() {
+  const a = document.activeElement;
+  return !!a && (a.tagName === "TEXTAREA" || a.tagName === "SELECT" || (a.tagName === "INPUT" && /^(text|number|search|tel|email|url|password|date|)$/i.test(a.type || "")));
+}
+// On screen, fully inside the visible area, and not under anything else (another sheet, a pop-up).
+function popInView_(el) {
+  if (!el || !el.getClientRects().length) return false;
+  const r = el.getBoundingClientRect(), h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  if (!(r.width > 0 && r.height > 0) || r.top < 0 || r.bottom > h) return false;
+  const hit = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height / 2, 20));
+  return !!hit && el.contains(hit);
+}
+function popDayAllows_(key) {
+  const today = todayLocalISO();
+  const open = (popGet_(TIP_DAY_KEY_, {}) || {}).day === today && popGet_(TIP_DAY_KEY_, {}).open;
+  const d = popGet_(POP_DAY_KEY_, null);
+  if (!open && d && d.day === today && d.key !== key) return false;   // one pop-up tip a day
+  if (!tipDayAllows_("pop:" + key)) return false;   // and the day's two card slots
+  popSet_(POP_DAY_KEY_, { day: today, key });
+  return true;
+}
+function popTipTick_() {
+  const tip = popWatch_;
+  if (!tip) { popTipStopWatch_(); return; }
+  if (popOpen_) return;
+  if (!tip.stillWanted()) { popTipStopWatch_(); return; }
+  if (Spotlight.isRunning() || editModeOn_() || !document.getElementById("welcome-overlay").hidden || popTyping_()) return;
+  if (tip.ready && !tip.ready()) return;
+  const el = tip.target();
+  if (!popInView_(el)) return;
+  if (!popDayAllows_(tip.key)) { popTipStopWatch_(); return; }
+  popTipStopWatch_();
+  popTipShow_(tip, el);
+}
+function popTipShow_(tip, el) {
+  popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).concat(tip.key));   // shown = seen, however it is closed
+  const b = document.createElement("div");
+  b.className = "pop-tip";
+  b.setAttribute("role", "dialog");
+  b.dataset.tip = tip.key;
+  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons"><button type="button" class="pop-tip-ok">${escapeHtml(tr("pop.gotIt"))}</button></div>`;
+  document.body.appendChild(b);
+  const place = () => {
+    if (!el.isConnected || !el.getClientRects().length) { close(); return; }
+    const pos = Spotlight.placeBubble(el.getBoundingClientRect(), { w: window.innerWidth, h: window.visualViewport ? window.visualViewport.height : window.innerHeight }, { w: b.offsetWidth, h: b.offsetHeight });
+    b.style.top = pos.top + "px";
+    b.style.left = pos.left + "px";
+    b.dataset.side = pos.side;
+    const arrow = b.querySelector(".pop-tip-arrow");
+    arrow.hidden = pos.arrowLeft == null;
+    if (pos.arrowLeft != null) arrow.style.left = pos.arrowLeft + "px";
+  };
+  const outside = (ev) => { if (!b.contains(ev.target)) close(); };   // the tap itself still goes through
+  const typing = () => setTimeout(() => { if (popTyping_()) close(); }, 0);
+  let frame = 0;
+  const follow = () => { place(); if (popOpen_ && popOpen_.close === close) frame = requestAnimationFrame(follow); };   // every frame: no lag behind a scroll
+  function close() {
+    cancelAnimationFrame(frame);
+    document.removeEventListener("pointerdown", outside, true);
+    document.removeEventListener("focusin", typing, true);
+    b.remove();
+    popOpen_ = null;
+  }
+  b.querySelector(".pop-tip-ok").addEventListener("click", close);
+  document.addEventListener("pointerdown", outside, true);
+  document.addEventListener("focusin", typing, true);
+  popOpen_ = { close };
+  follow();
+}
+function popTipClose_() { if (popOpen_) popOpen_.close(); }
+
+// Batch 1 (the three taken out of the practices). Budgets: the "Annual" tag, at the first monthly budget (the practice card wins).
+function watchAnnualTip_() {
+  popTipWatch_({
+    key: "annual", place: "budgets", text: tr("pop.annual"),
+    target: () => document.querySelector('#budgets-list .budget-row[data-period-type="monthly"]'),
+    stillWanted: () => !document.getElementById("screen-budgets").hidden,
+    ready: () => document.getElementById("budgets-tip-invite").hidden
+  });
+}
+// The new-entry form: the "Trip / event" field, when the entry's date falls during a trip or event.
+function watchTripPickTip_() {
+  popTipWatch_({
+    key: "tripPick", place: "entryForm",
+    text: () => tr(document.getElementById("entry-trip").value ? "pop.tripPicked" : "pop.tripPick"),   // the form often picks the trip by itself
+    target: () => {
+      const field = document.getElementById("trip-field"), date = document.getElementById("date").value;
+      if (selectedType !== "expense" || field.hidden || !(meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date)) return null;
+      return field;
+    },
+    stillWanted: () => newEntrySheetOpen_,
+    ready: () => !guidedEntryWanted_()
+  });
+}
+// The loan form (a new loan): "This debt is from before I started using the app".
+function watchLoanOpeningTip_() {
+  popTipWatch_({
+    key: "loanOpening", place: "loanForm", text: tr("pop.loanOpening"),
+    target: () => { const row = document.getElementById("loan-opening-row"); return row.hidden || editingLoanId ? null : row; },
+    stillWanted: () => !document.getElementById("loan-modal-backdrop").hidden
+  });
+}
+
 // ---- the practice itself ----
 
 // Gets the entry form ready for the practice. False = not possible right now (a sheet or an edit is open, or the person keeps their
@@ -21935,6 +22078,8 @@ function offerLoansMoreLine_() {
 document.getElementById("tour-choice-tips").addEventListener("click", () => {
   try { Spotlight.resetSeen(localStorage); } catch (e) { /* ignore */ }
   tipDayOpen_();   // asked for on purpose: today every card may show
+  popSet_(POP_SEEN_KEY_, []);   // the pop-up tips too, each on the next visit to its place (no 3-visit wait any more)
+  popSet_(POP_AGAIN_KEY_, true);
   try { localStorage.setItem(GUIDED_AGAIN_KEY_, "1"); } catch (e) { /* ignore */ }   // the guided "+" practice runs again, even with entries
   document.getElementById("tour-choice-backdrop").hidden = true;
   showToast_(tr("spot.tipsReset"));
@@ -25502,6 +25647,7 @@ function openLoanModal(loan, returnFriend, opts) {
   const backdrop = document.getElementById("loan-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+  if (!loan) { popTipVisit_("loanForm"); watchLoanOpeningTip_(); }
 }
 
 // Business pack: a cash loan may belong to a project (shown only when the pack is on and a project exists).
