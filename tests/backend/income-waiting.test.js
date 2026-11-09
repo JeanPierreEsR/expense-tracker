@@ -199,23 +199,23 @@ test("Telegram speaks the copy's language", () => {
   assert.equal(rt.rows("Entries").filter((x) => x.id === "tg-1" && x.type === "income" && x.status === "confirmed").length, 0);
 });
 
-test("Programmed this month: pending income sits in its currency's income group, by expected date, those with none last", () => {
+test("Programmed this month: pending income has its own row per currency, after programmed income, by expected date, those with none last", () => {
   const { rt, person } = setup();
   const incomeCat = rt.rows("Categories").find((c) => c.type === "income").id;
-  rt.api("addRecurringExpense", { description: "Monthly client", amount: 500, currency: "PEN", category_id: incomeCat, frequency: "once", date: "2099-12-15" });
+  rt.api("addRecurringExpense", { description: "Monthly client", amount: 500, currency: "PEN", category_id: incomeCat, frequency: "monthly", day: 28 });
   const none = waiting(rt, person, { description: "No date", amount: 10 }).data;
   const far = waiting(rt, person, { description: "Later", amount: 20, due_date: "2099-12-20" }).data;
   const near = waiting(rt, person, { description: "Sooner", amount: 30, due_date: "2099-12-10" }).data;
   const usd = waiting(rt, person, { description: "Dollars", amount: 40, currency: "USD" }).data;
   const out = post(rt, "listExpectedRecurringItems").data.groups.filter((g) => g.type === "income");
-  const pen = out.find((g) => g.currency === "PEN");
-  const waitingNames = pen.items.filter((i) => i.waiting).map((i) => i.description);
-  assert.deepEqual(waitingNames, ["Sooner", "Later", "No date"]);
-  assert.equal(pen.items[pen.items.length - 1].description, "No date");
+  const pen = out.find((g) => g.currency === "PEN" && g.pending);
+  assert.deepEqual(pen.items.map((i) => i.description), ["Sooner", "Later", "No date"]);
+  assert.equal(out.find((g) => g.currency === "PEN" && !g.pending).items.some((i) => i.waiting), false, "programmed income keeps its own row");
+  assert.ok(out.findIndex((g) => g.pending) > out.map((g) => !!g.pending).lastIndexOf(false), "pending rows come after programmed income");
   assert.equal(pen.items.find((i) => i.description === "Sooner").loan_id, loanOf(rt, near.id).id);
   const sum = pen.items.reduce((n, i) => n + i.amount, 0);
   assert.equal(pen.total, sum);
-  assert.equal(out.find((g) => g.currency === "USD").items.at(-1).description, "Dollars", "its own currency's group, last with no date");
+  assert.deepEqual(out.find((g) => g.currency === "USD" && g.pending).items.map((i) => i.description), ["Dollars"]);
   assert.ok(far && none && usd);
 });
 

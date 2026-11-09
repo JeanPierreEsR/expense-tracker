@@ -1814,11 +1814,11 @@ function listExpectedRecurringItems() {
     });
   });
 
-  // Income not received yet is still to come, so it lives with the programmed income of its currency (IncomeWaiting.gs): by its expected date, or last with none.
+  // Income not received yet is still to come: its own row on the card, one per currency (IncomeWaiting.gs), by expected date, or last with none.
   var waitingIncome = listWaitingIncome_();
   waitingIncome.forEach(function (w) {
-    var key = 'income|' + w.currency;
-    if (!groupsByKey[key]) groupsByKey[key] = { type: 'income', currency: w.currency, total: 0, items: [] };
+    var key = 'pending_income|' + w.currency;
+    if (!groupsByKey[key]) groupsByKey[key] = { type: 'income', pending: true, currency: w.currency, total: 0, items: [] };
     var cat = categoryById[(getEntryById_(w.entry_id) || {}).category_id];
     groupsByKey[key].total += w.remaining;
     groupsByKey[key].items.push({
@@ -1847,6 +1847,7 @@ function listExpectedRecurringItems() {
   // predictable rather than whatever order object keys land in.
   groups.sort(function (a, b) {
     if (a.type !== b.type) return a.type === 'income' ? -1 : 1;
+    if (!!a.pending !== !!b.pending) return a.pending ? 1 : -1;   // programmed income, then pending income, then the rest
     if (a.currency === homeCurrency_()) return -1;
     if (b.currency === homeCurrency_()) return 1;
     return a.currency < b.currency ? -1 : 1;

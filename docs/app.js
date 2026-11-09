@@ -20312,12 +20312,14 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     // obvious which item a button belongs to.
     detail.innerHTML = g.items.map((item) => {
       if (item.waiting) {
-        const waitAmt = `${item.overdue ? "⚠️ " : ""}${item.expected_date ? tr("income.cardDue", { date: listDate_(item.expected_date) }) + " · " : ""}${escapeHtml(g.currency)} ${moneyFmt(item.amount)}`;
+        // The date goes with the name: next to the amount it squeezed the name into a narrow column.
+        const waitAmt = `${item.overdue ? "⚠️ " : ""}${escapeHtml(g.currency)} ${moneyFmt(item.amount)}`;
+        const waitDate = item.expected_date ? " · " + tr("income.cardDue", { date: listDate_(item.expected_date) }) : "";
         const waitLabel = [item.category_name ? `${item.category_icon ? item.category_icon + " " : ""}${item.category_name}` : "", item.description].filter(Boolean).join(" — ");
         return `
       <div class="expected-recurring-entry${item.overdue ? " overdue" : ""}">
         <div class="expected-recurring-item">
-          <span class="expected-recurring-item-label">⏳ ${escapeHtml(waitLabel)} · ${escapeHtml(item.friend_name)}</span>
+          <span class="expected-recurring-item-label">${escapeHtml(waitLabel)} · ${escapeHtml(item.friend_name)}${escapeHtml(waitDate)}</span>
           <span class="expected-recurring-item-amount">${sensitiveHtml_(waitAmt)}</span>
         </div>
         <div class="expected-recurring-actions">
@@ -20353,7 +20355,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     const summary = document.createElement("div");
     summary.className = "expected-recurring-summary";
     summary.innerHTML = `
-      <span class="expected-recurring-summary-label">${tr("expected.count", { n: g.items.length, kind: tr(isIncome ? "summary.income" : g.type === "investment" ? "summary.investments" : "summary.expenses") + (g.currency !== homeCur() ? " " + g.currency : "") })}</span>
+      <span class="expected-recurring-summary-label">${tr(g.pending ? "expected.countPending" : "expected.count", { n: g.items.length, kind: tr(g.pending ? "summary.pendingIncome" : isIncome ? "summary.income" : g.type === "investment" ? "summary.investments" : "summary.expenses") + (g.currency !== homeCur() ? " " + g.currency : "") })}</span>
       <span class="expected-recurring-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(amountHtml) : amountHtml}</span>
     `;
     summary.addEventListener("click", () => { detail.hidden = !detail.hidden; });
