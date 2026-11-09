@@ -3761,6 +3761,18 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 /* The second choice of a choice window (budget scope): outlined, not red (nothing is deleted). */
 .secondary-choice { display: block; width: 100%; min-height: 44px; margin-top: 6px; padding: 10px 14px; border: 1px solid var(--accent);
   border-radius: 10px; background: white; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+
+/* Pop-up tips (owner's plan, 2026-11-08): a bubble pointing at a field, above every sheet but under a practice (100000). Nothing is dimmed. */
+.pop-tip { position: fixed; z-index: 99990; width: min(300px, calc(100vw - 24px)); box-sizing: border-box; background: #fff8e1; color: var(--text); border-radius: var(--radius); padding: 12px 14px 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28); }
+.pop-tip p { margin: 0 0 6px; line-height: 1.35; font-size: 15px; }
+.pop-tip-buttons { display: flex; justify-content: flex-end; }
+.pop-tip-ok { min-height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--accent); background: var(--accent); color: #fff; font: inherit; font-weight: 600; }
+.pop-tip-buttons { margin-bottom: 4px; }
+.pop-tip-arrow { position: absolute; width: 14px; height: 14px; background: #fff8e1; transform: translateX(-50%) rotate(45deg); }
+.pop-tip-arrow[hidden] { display: none; }
+.pop-tip[data-side="below"] .pop-tip-arrow { top: -7px; }
+.pop-tip[data-side="above"] .pop-tip-arrow { bottom: -7px; }
+
 .app-confirm-text { white-space: pre-line; font-size: 1rem; line-height: 1.4; margin: 0 0 14px; }
 
 /* The part of a budget bar still to come (Programmed items this period): a lighter shade of the same colour, continuing the bar
