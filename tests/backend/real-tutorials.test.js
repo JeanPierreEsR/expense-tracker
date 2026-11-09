@@ -41,7 +41,9 @@ test("Needs review uses an unusual item only when nothing else is waiting, and n
   const fn = section("function startReviewReal_()", "function startReviewTopUp_(");
   assert.match(fn, /const entry = entries\[0\] \|\| specials\[0\]/);
   assert.match(fn, /reviewRowShowing_\(e\.id\)/);
-  assert.match(app, /function reviewRowShowing_\(id\) \{[^\n]*getClientRects\(\)\.length > 0/);
+  const showing = section("function reviewRowShowing_(", "function startReviewReal_()");
+  assert.match(showing, /r\.hidden/, "a row behind Show more");
+  assert.match(showing, /!reviewOpen_ \|\| r\.getClientRects\(\)\.length > 0/, "the closed row can be opened; an open one must really show");
 });
 
 test("the debt guides end on what really happened", () => {
@@ -169,4 +171,9 @@ test("where a real tutorial exists the practice waits for the two-week nudge on 
   assert.match(app, /function realHoldsPractice_\(key\) \{ return popGet_\(TAUGHT_KEY_, \{\}\)\[key\] === "real" \|\| \(REAL_FIRST_\.includes\(key\) && !realAgain_\(\) && nudgeKey_ !== key\); \}/);
   assert.match(app, /const NUDGE_DAYS_ = 14, NUDGE_EVERY_ = 3/);
   assert.match(section("function offerTip_(", "// ---- Pop-up tips"), /if \(realHoldsPractice_\(key\)\) return;/);
+});
+
+test("the closed Needs review row: the first tutorial opens it, the small extras wait for the person to open it", () => {
+  assert.match(section("function startReviewTopUp_(", "// Transfers"), /!reviewOpen_\) return;/);
+  assert.match(app, /setReviewOpen_\(!reviewOpen_\); if \(reviewOpen_\) offerReviewTip_\(\);/);
 });

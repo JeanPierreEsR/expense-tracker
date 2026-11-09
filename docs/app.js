@@ -7399,7 +7399,7 @@ function showReviewQueue_() {
   setReviewOpen_(true);
   card.scrollIntoView({ behavior: "smooth", block: "start" });
 }
-document.getElementById("review-toggle").addEventListener("click", () => setReviewOpen_(!reviewOpen_));
+document.getElementById("review-toggle").addEventListener("click", () => { setReviewOpen_(!reviewOpen_); if (reviewOpen_) offerReviewTip_(); });
 document.getElementById("review-body").addEventListener("spot-reveal", () => setReviewOpen_(true));
 
 // A long Needs review must not push Recent entries away (Home test: about 100 screens at 206 items): 10 rows (owner), then "Show more". The other rows stay in
@@ -22660,7 +22660,12 @@ function reviewTypeSteps_(id, type, opts) {
   return list.filter((s) => s.blank || !fieldsKnown_().includes(s.field));   // an empty box is asked about even if it was explained before
 }
 function noteReviewType_(type) { const d = popGet_(REVIEW_TYPES_KEY_, []); if (!d.includes(type)) popSet_(REVIEW_TYPES_KEY_, d.concat(type)); }
-function reviewRowShowing_(id) { const r = practiceNRow_(id); return !!r && r.getClientRects().length > 0; }   // a long list keeps the rest hidden behind "Show more"
+// A row a person can reach: the Needs review row may be closed (opening it is one tap, and the first tutorial opens it itself), but a long list keeps the rest behind "Show more".
+function reviewRowShowing_(id) {
+  const r = practiceNRow_(id);
+  if (!r || r.hidden || r.style.display === "none") return false;
+  return !reviewOpen_ || r.getClientRects().length > 0;
+}
 function reviewSpecialKind_(e) { return (e.twins || []).length ? "dup" : e.charge_match ? "charge" : e.link ? "extra" : ""; }
 function reviewSpecialSteps_(entry, id) {
   const row = () => practiceNRow_(id);
@@ -22725,7 +22730,7 @@ function startReviewReal_() {
   });
 }
 function startReviewTopUp_(entries, specials) {
-  if (popGet_(TAUGHT_KEY_, {}).review !== "real") return;   // only for someone the real tutorial taught
+  if (popGet_(TAUGHT_KEY_, {}).review !== "real" || !reviewOpen_) return;   // only for someone the real tutorial taught, and never opening the closed row for a small extra
   const done = popGet_(REVIEW_TYPES_KEY_, []);
   for (const e of specials) {   // the first possible duplicate, charge match or repayment extra, each once
     const mark = "special:" + reviewSpecialKind_(e);
@@ -23073,7 +23078,7 @@ function startSplitReal_() {
 }
 // When the app already suspects it ("Looks like a payment from … again"): one bubble per kind at the highlighted button.
 function watchReviewHint_() {
-  if (!convOffersOn_() || popWatch_ || popOpen_ || Spotlight.isRunning() || document.getElementById("screen-entries").hidden) return;
+  if (!convOffersOn_() || popWatch_ || popOpen_ || Spotlight.isRunning() || !reviewOpen_ || document.getElementById("screen-entries").hidden) return;
   const seen = popGet_(POP_SEEN_KEY_, []);
   const entry = (reviewEntries_ || []).find((e) => e.loan_hint && !seen.includes("hint-" + e.loan_hint.kind) && reviewRowShowing_(e.id));
   if (!entry) return;
