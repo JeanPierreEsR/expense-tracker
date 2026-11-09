@@ -975,6 +975,7 @@
     "programmed.hint": { en: "From your programmed income/expenses, not yet matched to a real entry — these will drop off on their own once the real payment is confirmed (from email, same as always).", es: "De tus ingresos y gastos programados que aún no se emparejan con un movimiento real: desaparecerán solos cuando se confirme el movimiento real (por correo, como siempre)." },
 
     // ---- summary ----
+    "summary.pendingIncome": { en: "Pending income", es: "Ingresos pendientes" },
     "summary.income": { en: "Income", es: "Ingresos" },
     "summary.expenses": { en: "Expenses", es: "Gastos" },
     "summary.investments": { en: "Investments", es: "Inversiones" },
@@ -1956,6 +1957,7 @@
     "expected.day": { en: "Day {day}", es: "Día {day}" },
     "expected.markPaid": { en: "✓ Mark as paid…", es: "✓ Marcar como pagado…" },
     "expected.skipMonth": { en: "⏭ Skip this month", es: "⏭ Omitir este mes" },
+    "expected.countPending": { en: "⏳ {kind} · {n}", es: "⏳ {kind} · {n}" },
     "expected.count": { en: "🔁 {kind} · {n}", es: "🔁 {kind} · {n}" },
     "expected.confirmSkip": { en: "Skip \"{label}\" for this month? It stops counting as expected for this month only. You can undo it from the item's edit screen.", es: "¿Omitir \"{label}\" este mes? Solo este mes deja de contar como esperado. Puedes deshacerlo desde la pantalla de edición del movimiento." },
     "expected.skipFailed": { en: "Couldn't skip it ({error}).", es: "No se pudo omitir ({error})." },
