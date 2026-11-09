@@ -5175,7 +5175,7 @@ function syncCancelNewEntryButton_() {
 
   document.getElementById("cancel-new-entry-btn").addEventListener("click", async () => {
     const typed = document.getElementById("amount").value.trim() || document.getElementById("description").value.trim();
-    if (typed && !await askConfirmApp_(tr("entry.confirmCancelNew"), tr("confirmBtn.yes"), { plain: true })) return;
+    if (typed && !await askConfirmApp_(tr("entry.confirmCancelNew"), tr("confirmBtn.discard"), { cancel: tr("confirmBtn.keepTyping") })) return;
     selectedTagIds.clear();
     populateTags();
     resetSplitState();
@@ -5506,7 +5506,7 @@ document.getElementById("cancel-edit-btn-2").addEventListener("click", cancelEdi
 // Asks, then deletes one entry. Shared by the edit form's "Delete this entry" and the 🗑️ on each row of a
 // drill-down / trip list. Returns true only when the entry was really deleted.
 // onConfirmed runs right after the owner says OK, before the (slow) delete call.
-async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
+async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed, stillHere) {
   // A new entry whose background save failed has no row on the server: deleting it just drops it from this phone.
   const unsaved = getQueuedEdits_().find((e) => e.id === id && e.kind === "create" && (e.status === "failed" || e.waitingNet));
   if (unsaved) {
@@ -5522,6 +5522,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
   let exchangePartner = null;   // the other side of a currency exchange, when this entry is one side
   if (["transfer", "expense", "income"].includes(originalType)) {
     const links = await callApi("getEntryRepaymentLinks", { id });
+    if (stillHere && !stillHere()) return false;   // the person left this entry while the server answered: no question out of nowhere
     exchangePartner = links.exchangePartner || null;
     if (links.forgiveness) {
       const f = links.forgiveness;
@@ -5580,6 +5581,10 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
   const id = editingEntryId;
   const wasPopup = editingViaPopup;
   let ok;
+  const delBtn = document.getElementById("delete-entry-btn"), delLabel = delBtn.textContent;
+  delBtn.disabled = true;
+  delBtn.textContent = tr("entry.deleteChecking");
+  const delBtnBack = () => { delBtn.disabled = false; delBtn.textContent = delLabel; };
   try {
     ok = await confirmAndDiscardEntry_(id, editingEntryOriginalType, editingEntrySummary_, () => {
       // Close the form at once; the row shows "Deleting…" until the server is done.
@@ -5592,7 +5597,7 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
         resetToFreshEntryScreen_();
       }
       markEntryRowsDeleting_(id);
-    });
+    }, () => editingEntryId === id && (!wasPopup || !document.getElementById("edit-entry-modal-backdrop").hidden));
   } catch (err) {
     // The delete failed after the form closed: the entry is still there.
     deletingEntryIds_.delete(id);
@@ -5600,6 +5605,8 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
     await refreshAfterPopupEdit();
     alert(err.message);
     return;
+  } finally {
+    delBtnBack();
   }
   if (!ok) return;
   await refreshEntryList();   // the entry is gone from the server by now
@@ -9537,7 +9544,7 @@ function renderBudgetPaceNote_(budget, recurringByDate, days) {
   const thisPeriod = tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : p.effectivePeriodType === "weekly" ? "budget.thisWeek" : "budget.thisMonth");
 
   if (remaining <= 0) {
-    note.textContent = tr("pace.over", { thisPeriod });
+    note.textContent = tr("pace.over", { thisPeriod: thisPeriod.charAt(0).toUpperCase() + thisPeriod.slice(1) });
     return;
   }
 
@@ -10396,7 +10403,7 @@ function drawBudgets_() {
 
     const amountLabel = `${pc} ${moneyFmt(p.effectiveAmount)}`;
     const subLabel = pct == null
-      ? tr("budget.needsRate", { cur: pc })
+      ? tr(p.effectiveAmount > 0 ? "budget.needsRate" : "budget.badAmount", { cur: pc })   // (no amount: typed wrong in the Sheet)
       : `${pc} ${moneyFmt(p.spent)} / ${amountLabel}`;
     // "this month" / "this year" only for the period that holds today; a past or future one is named (its amount may differ, batch 6).
     const holdsToday = p.startDate <= todayIso && todayIso <= p.endDate;
@@ -11245,7 +11252,7 @@ function renderFirstSteps_() {
     steps.push({ done: anyEntry, text: tr("firstSteps.firstEntry"), hint: tr("firstSteps.firstEntryHint"), go: () => openNewEntrySheet_() });
   }
   steps.push({ done: ownAccounts.length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() });
-  if (caps.bankEmails && (!varies || hasBank)) {
+  if (caps.bankEmails && hasBank) {   // (owner, 2026-11-09: for everyone; Sol, who skipped everything, was told about bank e-mails)
     // Which inbox is read and how other banks' e-mails get there (the Bank emails sheet): a step here instead of a sheet that opened
     // by itself right after the welcome (owner, 2026-11-04: one thing at a time). Done once the person opened it.
     steps.push({ done: fsFlag_("etBankMailIntro"), text: tr("firstSteps.bankMail"), hint: tr("firstSteps.bankMailHint"),
@@ -11255,7 +11262,7 @@ function renderFirstSteps_() {
     const late = days >= 3 && !(info.health && info.health.problem);
     steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => showBankEmailsScreen() });
   }
-  if (!varies || hasBank) steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("data-statements-btn").click(); renderFirstSteps_(); } });
+  if (hasBank) steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("data-statements-btn").click(); renderFirstSteps_(); } });
   if (steps.every((st) => st.done)) { card.hidden = true; return; }
   const list = document.getElementById("first-steps-list");
   list.innerHTML = "";
@@ -12006,6 +12013,8 @@ function maybeShowWelcome_() {
 }
 // preview = true (More → Preview the welcome flow): the same screens, but nothing is sent or stored anywhere; leaving reloads the app.
 function startWelcome_(preview) {
+  // A new person's first screen is in their phone's language, whatever address the app was opened from (Sol, 2026-11-09).
+  if (!preview && !I18n.hasChosenLang() && /^es/i.test(navigator.language || "") && I18n.getLang() !== "es") I18n.setLang("es");
   const lang = I18n.getLang();
   welcomeEl_("welcome-preview-exit").hidden = !preview;
   welcome_ = { preview: !!preview, appLang: lang, lang, order: "dmy", home: "PEN",
@@ -15679,7 +15688,7 @@ async function startCategoriesBulkDelete_(chosen) {
   });
   const canMove = blocks.every((b) => b.candidates.length > 0);
   body.innerHTML = `
-    <p class="hint"><b>${escapeHtml(inUse.length === chosen.length ? tr("catBulk.introAll", { n: chosen.length }) : tr("catBulk.intro", { k: inUse.length, n: chosen.length }))}</b></p>
+    <p class="hint"><b>${escapeHtml(inUse.length === chosen.length ? tr("catBulk.introAll", { n: chosen.length }) : tr(inUse.length === 1 ? "catBulk.introOne" : "catBulk.intro", { k: inUse.length, n: chosen.length }))}</b></p>
     ${blocks.map((b) => `
       <div class="cat-bulk-block">
         <div><b>${escapeHtml(tr(`categories.group.${b.t}`))}</b></div>
@@ -15691,9 +15700,9 @@ async function startCategoriesBulkDelete_(chosen) {
         ` : `<p class="hint">${escapeHtml(tr("catBulk.noTarget", { names: b.names }))}</p>`}
       </div>`).join("")}
     ${canMove ? `<button type="button" class="primary danger" id="cat-bulk-move-btn">${escapeHtml(tr("catBulk.moveBtn"))}</button>
-    <p class="hint">${escapeHtml(tr("catBulk.moveHint") + (free.length ? tr("catBulk.moveRest", { m: free.length }) : ""))}</p>` : ""}
+    <p class="hint">${escapeHtml(tr("catBulk.moveHint") + (free.length ? tr("catBulk.moveRest", { n: free.length, m: free.length }) : ""))}</p>` : ""}
     <button type="button" class="primary" id="cat-bulk-hide-btn">${escapeHtml(tr("catBulk.hideBtn"))}</button>
-    <p class="hint">${escapeHtml(tr("catBulk.hideHint") + (free.length ? tr("catBulk.hideRest", { m: free.length }) : ""))}</p>`;
+    <p class="hint">${escapeHtml(tr("catBulk.hideHint") + (free.length ? tr("catBulk.hideRest", { n: free.length, m: free.length }) : ""))}</p>`;
   blocks.forEach((b) => { const sel = document.getElementById(`cat-bulk-target-${b.t}`); if (sel && b.preferred) sel.value = b.preferred.id; });
   const moveBtn = document.getElementById("cat-bulk-move-btn");
   if (moveBtn) moveBtn.addEventListener("click", () => {
@@ -22106,7 +22115,7 @@ document.getElementById("tour-choice-tips").addEventListener("click", () => {
 // Unlike a practice tutorial (made-up data, deleted at the end), a GUIDED practice has the person record something REAL, field by
 // field, and keeps it. The first time a new person taps "+", it starts by itself: what to record (the four types), then each field
 // with one sentence on what it is for, the optional parts with "Not now", Save, and where the entry landed. Exit leaves the form as it
-// is (the usual draft). Marked seen in tipsSeen ("guided-entry") when it starts; More → Practice tips runs it again.
+// is (the usual draft). Marked seen in tipsSeen ("guided-entry") once the first card is answered (Start or Exit); More → Practice tips runs it again.
 const GUIDED_ENTRY_KEY_ = "guided-entry";
 const GUIDED_AGAIN_KEY_ = "guidedEntryAgain";   // set by "Practice tips": run it again even though there are entries
 const GUIDED_SPLIT_KEY_ = "guidedSplit";        // { friendId, friendName } when the first entry was shared (the Loans tip then only shows it)
@@ -22138,14 +22147,17 @@ function guidedNoteSaved_(id) {
   }
 }
 
-function startGuidedEntry_() {
-  if (!newEntrySheetOpen_ || Spotlight.isRunning()) return;
+function guidedAnswered_() {
   markTipSeen_(GUIDED_ENTRY_KEY_);
   try { localStorage.removeItem(GUIDED_AGAIN_KEY_); } catch (e) { /* ignore */ }
+}
+function startGuidedEntry_() {
+  if (!newEntrySheetOpen_ || Spotlight.isRunning()) return;
   guided_ = { savedId: "", split: null };
   Spotlight.run(guidedEntrySteps_(), {
     labels: { note: tr("spot.g.note"), exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
     onFinish: async (how) => {
+      guidedAnswered_();   // Exit on the first card counts; closing the app on it does not (Sol, 2026-11-09)
       if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0);
       if (guided_ && guided_.split) { try { localStorage.setItem(GUIDED_SPLIT_KEY_, JSON.stringify(guided_.split)); } catch (e) { /* ignore */ } }
       guided_ = null;   // nothing to remove: what the person saved is theirs
@@ -22164,7 +22176,7 @@ function guidedEntrySteps_() {
   // `available` (type only, never what is on screen yet) keeps "3 of 12" right once the type is chosen; `before` checks the screen.
   const accountText = { expense: "spot.g.accExp", income: "spot.g.accInc", transfer: "spot.g.accFrom", investment: "spot.g.accInv" };
   return [
-    { key: "intro", text: () => tr("spot.g.intro"), button: () => tr("spot.g.start") },
+    { key: "intro", text: () => tr("spot.g.intro"), button: () => tr("spot.g.start"), after: guidedAnswered_ },
     { key: "type", target: "#entry-type-tabs", text: () => tr(payVaries_() ? "spot.g.typeVaries" : "spot.g.type"), tap: "#entry-type-tabs", button: () => tr("spot.g.keepExpense") },
     { key: "category", target: "#category-picker", text: () => tr(selectedType === "income" ? "spot.g.catIncome" : "spot.g.cat"),
       until: () => !document.getElementById("entry-form").hidden, available: () => ICON_PICKER_TYPES.includes(selectedType), before: async () => shownNow("category-picker") },
@@ -24077,6 +24089,7 @@ function syncConversionAmount_() {
 // when it is not just backing out. Resolves true / false (✕ and a tap outside are the same as Cancel).
 // The phone's dialog froze the page; this one does not. So questions wait in line (two practices' leftovers a few seconds apart),
 // and the same question asked again while it is still open (a double tap) answers no.
+const APP_CONFIRM_SETTLE_MS_ = 400;
 let appConfirmChain_ = Promise.resolve();
 const appConfirmOpen_ = new Set();
 function askConfirmApp_(text, okLabel, opts) {
@@ -24091,7 +24104,12 @@ function askConfirmApp_(text, okLabel, opts) {
     ok.className = opts.plain ? "primary" : "delete-entry-btn";
     back.textContent = opts.cancel || tr("common.cancel");
     const ids = ["app-confirm-ok", "app-confirm-back", "app-confirm-close"];
-    const done = (v) => { backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); appConfirmOpen_.delete(text); resolve(v); };
+    // The second tap of a double tap lands on the window itself: for its first 0.4 s nothing answers it (Nico, 2026-11-09: it flashed
+    // and vanished; it could as well have landed on the red button).
+    const openedAt = Date.now();
+    backdrop.dataset.openedAt = String(openedAt);
+    const tooSoon = () => Date.now() - openedAt < APP_CONFIRM_SETTLE_MS_;
+    const done = (v) => { if (tooSoon()) return; backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); appConfirmOpen_.delete(text); resolve(v); };
     ok.onclick = () => done(true);
     back.onclick = () => done(false);
     document.getElementById("app-confirm-close").onclick = () => done(false);

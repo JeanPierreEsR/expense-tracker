@@ -29,7 +29,7 @@ function ensureCategoriesIncomeKindColumn_() {
 // 'regular', 'varies' or '' (not earnings / not income).
 function incomeKindOf_(c) {
   if (!c || c.type !== 'income') return '';
-  var v = String(c.income_kind || '');
+  var v = String(c.income_kind || '').trim().toLowerCase();   // typed by hand in the Sheet: "Varies", " varies"
   if (v === 'regular' || v === 'varies') return v;
   if (v === 'none') return '';
   return INCOME_KIND_BY_KEY_[String(c.key || '')] || '';

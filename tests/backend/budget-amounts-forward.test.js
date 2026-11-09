@@ -268,3 +268,23 @@ test("a start typed by hand in the Sheet is read properly; one nobody can read i
   assert.equal(key("soon", "monthly"), null);
   assert.equal(key("2026-13", "monthly"), null);
 });
+
+test("a Year view with months in another currency uses one rate, the one 'spent' uses (Elena, 2026-11-09)", () => {
+  const { rt } = freshApp({ small: true });
+  rt.run("deleteRowsWhere_('Budgets', function () { return true; })");
+  const y = today().slice(0, 4);
+  const cat = rt.api("getMeta").categories.find((c) => c.type === "expense").id;
+  const b = rt.api("addBudget", { category_id: cat, amount: 1000, currency: "PEN", period_type: "monthly", start: y + "-01" });
+  rt.api("updateBudget", { id: b.id, amount: 100, currency: "USD" });
+  const p = rt.api("listBudgets", { displayPeriodType: "year", anchorDate: y + "-01-01" }).budgets.find((x) => x.id === b.id).progress;
+  const months = +today().slice(5, 7);
+  const before = months - 1, after = 12 - before;
+  assert.equal(p.currency, "USD");
+  assert.equal(p.effectiveAmount, Math.round((before * 1000 / p.rate + after * 100) * 100) / 100);
+});
+
+test("hand-typed words in the Sheet: 'Varies' and 'YES ' count (Ingrid, 2026-11-09)", () => {
+  const { rt } = freshApp({ small: true });
+  assert.equal(rt.run(`incomeKindOf_({ type: 'income', income_kind: ' Varies ', key: '' })`), "varies");
+  assert.equal(rt.run(`incomeKindOf_({ type: 'income', income_kind: 'NONE', key: 'business' })`), "");
+});

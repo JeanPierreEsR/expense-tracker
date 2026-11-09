@@ -1137,7 +1137,7 @@ function budgetHistory_() {
     if (from === null) return;   // a start nobody can read (hand-typed): the row is left out rather than guessed
     (out[id] = out[id] || []).push({
       from: from, amount: Number(r.amount), currency: r.currency || homeCurrency_(),
-      category_id: String(r.category_id || ''), ended: r.ended === true || String(r.ended).toLowerCase() === 'yes' || String(r.ended).toLowerCase() === 'true'
+      category_id: String(r.category_id || ''), ended: r.ended === true || String(r.ended).trim().toLowerCase() === 'yes' || String(r.ended).trim().toLowerCase() === 'true'
     });
   });
   Object.keys(out).forEach(function (id) { out[id].sort(function (a, b) { return a.from < b.from ? -1 : a.from > b.from ? 1 : 0; }); });
@@ -1298,7 +1298,9 @@ function budgetPlan_(budget, ctx, yearOfMonthly, key) {
   months.forEach(function (k) {
     var at = states[k], amt = at.amount;
     if (at.currency !== last.currency) {
-      var from = latestRateAtOrBefore_(ctx, at.currency, k), to = latestRateAtOrBefore_(ctx, last.currency, k);
+      // The rate of the period's last month for every month, the same one "spent" uses (owner, 2026-11-09: one rate on one row).
+      var rateMonth = yearOfMonthly + '-12';
+      var from = latestRateAtOrBefore_(ctx, at.currency, rateMonth), to = latestRateAtOrBefore_(ctx, last.currency, rateMonth);
       amt = (from != null && to) ? at.amount * from / to : last.amount;   // no rate on file: that month counts at the last month's amount
     }
     total += amt;
@@ -1436,7 +1438,7 @@ function weeklyBudgetAcross_(budget, ctx, startDate, endDate) {
   weeks.forEach(function (mon) {
     var at = states[mon], amt = at.amount;
     if (at.currency !== last.currency) {
-      var k = mon.substring(0, 7);
+      var k = endDate.substring(0, 7);   // one rate on one row: the period's last month, as "spent" uses
       var fr = latestRateAtOrBefore_(ctx, at.currency, k), to = latestRateAtOrBefore_(ctx, last.currency, k);
       amt = (fr != null && to) ? at.amount * fr / to : last.amount;
     }
