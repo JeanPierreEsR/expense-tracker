@@ -65,8 +65,21 @@ test("the amount is asked for even when already explained: Save needs it", () =>
   assert.ok(!/if \(isNew\("amount"\)\)/.test(fn));
 });
 
-test("the Needs review tutorial opens on the item it is talking about", () => {
-  assert.match(section("function startReviewReal_()", "function startReviewTopUp_("), /key: "intro", look: true, target: part\("\.review-item-top"\)/);
+test("the Needs review tutorial opens on the whole item it is talking about", () => {
+  assert.match(section("function startReviewReal_()", "function startReviewTopUp_("), /key: "intro", look: true, target: row,/);
+});
+
+test("an item that came in wrong can be fixed or converted, not only discarded", () => {
+  const fn = section("function startReviewReal_()", "function startReviewTopUp_(");
+  assert.match(fn, /target: part\("\.review-item-fields"\), text: \(\) => tr\("rt\.review\.check"\)/);
+  assert.match(fn, /\.review-item-secondary-actions/);
+  assert.match(app, /if \(reviewDecideOn_ && e\.target\.closest\("\.review-item-secondary-actions button"\)\) \{ reviewDecideOn_ = false; Spotlight\.stop\("done"\); \}/);
+});
+
+test("a conversion offer waits for a slow server, and only in its own window", () => {
+  const fn = section("function offerConvGuide_(", "function convRun_(");
+  assert.match(fn, /\+\+tries > 150/);
+  assert.match(app, /open\("review-transfer-modal-backdrop"\)\(\) && reviewTransferMode === "loan"/);
 });
 
 test("the update window never opens over a running tutorial", () => {

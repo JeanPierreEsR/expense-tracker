@@ -22451,6 +22451,7 @@ function realScreenFree_() {
 
 // Needs review: on the first real item, what is new about it (owner's rule: no repeating what the first entry explained). Then, the first
 // time another type arrives, only the fields that type adds. The practice with made-up entries is no longer offered (owner, 2026-11-09).
+let reviewDecideOn_ = false;   // the tutorial's last step is on: a conversion button there ends it and takes over
 let reviewRealTimer_ = null, reviewRealDone_ = false;   // one per opening of the app, so nobody gets two in a row
 function offerReviewTip_() {   // called whenever Needs review may have something new (refreshReviewQueue is still drawing, so it waits a moment)
   if (!reviewEntries_.length) return;   // nothing waiting yet
@@ -22492,27 +22493,24 @@ function startReviewReal_() {
   const row = () => practiceNRow_(id);
   const part = (sel) => () => { const r = row(); return r ? r.querySelector(sel) : null; };
   const fieldOf = (sel) => { const el = part(sel)(); return el ? el.closest(".review-field") : null; };
-  const isNew = (f) => !fieldsKnown_().includes(f);
   const next = () => tr("spot.g.next");
   const category = () => { const el = part(".review-category")(); return el ? el.value : ""; };
   const hadCategory = !!category();
   let started = false;
-  const steps = [{ key: "intro", look: true, target: part(".review-item-top"), text: () => tr("rt.review.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("review", "real"); } }];
-  steps.push({ look: true, target: part(".review-item-top"), text: () => tr("rt.review.top"), button: next });
-  if (type !== "investment" && (isNew("category") || !hadCategory)) {
-    const s = { key: "category", field: "category", target: () => fieldOf(".review-category"), text: (fix) => tr(fix ? "rt.review.catFix" : hadCategory ? "rt.review.catCheck" : "rt.review.catPick"), ok: () => !!category(), holdsUntil: "decide" };
-    if (hadCategory) s.button = next; else s.until = () => !!category();
-    steps.push(s);
-  }
-  if (isNew("amount") || isNew("description")) steps.push({ field: "amount", target: () => [fieldOf(".review-description"), fieldOf(".review-amount")].filter(Boolean), text: () => tr("rt.review.details"), button: next, after: () => noteField_("description") });
+  const steps = [{ key: "intro", look: true, target: row, text: () => tr("rt.review.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("review", "real"); } }];
+  if (type !== "investment" && !hadCategory) steps.push({ key: "category", field: "category", target: () => fieldOf(".review-category"), text: (fix) => tr(fix ? "rt.review.catFix" : "rt.review.catPick"), until: () => !!category(), ok: () => !!category(), holdsUntil: "decide" });
+  // Always shown: an item that came in wrong is fixed here, never thrown away (owner's walk, 2026-11-09).
+  steps.push({ field: "amount", target: part(".review-item-fields"), text: () => tr("rt.review.check"), button: next, after: () => { noteField_("description"); if (type !== "investment") noteField_("category"); } });
   steps.push(...reviewTypeSteps_(id, type, { must: true }));
-  steps.push({ key: "decide", target: part(".review-item-actions"), text: () => tr("rt.review.decide"), until: () => !row(), wait: 10000 });
+  steps.push({ key: "decide", target: () => { const els = [part(".review-item-actions")(), part(".review-item-secondary-actions")()].filter(Boolean); return els.length ? els : null; }, text: () => tr("rt.review.decide"), until: () => !row(), wait: 10000,
+    before: async () => { reviewDecideOn_ = true; }, after: () => { reviewDecideOn_ = false; } });
   steps.push({ text: () => tr("rt.review.done"), button: () => tr("spot.g.done") });
   reviewRealDone_ = true;
   noteReviewType_(type);
   Spotlight.run(realSteps_(steps), {
     labels: realLabels_(),
     onFinish: async (how) => {
+      reviewDecideOn_ = false;
       if (!started) { spendRealChance_("review"); return; }   // Exit on its first screen is a "not now"
       if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0);
     },
@@ -22648,13 +22646,17 @@ function startTransferReal_(kind) {
 
 // Conversions on a Needs review item (owner's plan 2b, 2026-11-09): taught when each button is used. The button does its job at once; the offer appears inside the
 // window it opened. Only for someone the Needs review tutorial taught (or who asked through Practice tips), so people already using these are not interrupted.
+let convOfferTimer_ = null;
 function convOffersOn_() { return !!meta && !perfIsOwnerCopy_() && (realAgain_() || popGet_(TAUGHT_KEY_, {}).review === "real"); }
 function offerConvGuide_(feature, textKey, isOpen, target, start) {
   if (!convOffersOn_() || isTaught_(feature) || !realChanceLeft_(feature)) return;
-  let tries = 0;
-  const t = setInterval(() => {   // the window opens after the row's edits have been read
-    if (++tries > 30) { clearInterval(t); return; }
-    if (!isOpen() || Spotlight.isRunning() || popOpen_) return;
+  clearInterval(convOfferTimer_);
+  let tries = 0, opened = false;
+  const t = convOfferTimer_ = setInterval(() => {   // the window opens once the server has answered, which can take several seconds
+    if (++tries > 150) { clearInterval(t); return; }
+    if (!isOpen()) { if (opened) clearInterval(t); return; }
+    opened = true;
+    if (Spotlight.isRunning() || popOpen_) return;
     const el = target();
     if (!el || !popInView_(el)) return;
     clearInterval(t);
@@ -22700,9 +22702,10 @@ function startConvExchange_() {
 // Change type opens the full form: one bubble on the type buttons is enough, the form explains itself from there.
 function offerConvType_() {
   if (!convOffersOn_() || popGet_(POP_SEEN_KEY_, []).includes("conv-type")) return;
+  clearInterval(convOfferTimer_);
   let tries = 0;
-  const t = setInterval(() => {
-    if (++tries > 40) { clearInterval(t); return; }
+  const t = convOfferTimer_ = setInterval(() => {
+    if (++tries > 150) { clearInterval(t); return; }
     if (!confirmingPendingId || Spotlight.isRunning() || popOpen_) return;
     const tabs = document.getElementById("entry-type-tabs");
     if (!popInView_(tabs)) return;
@@ -22714,10 +22717,11 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest) return;
   const el = (id) => document.getElementById(id);
   const open = (id) => () => !el(id).hidden;
+  if (reviewDecideOn_ && e.target.closest(".review-item-secondary-actions button")) { reviewDecideOn_ = false; Spotlight.stop("done"); }
   const b = e.target.closest(".review-repay-btn, .review-loan-btn, .review-exchange-btn, .review-type-btn, #review-transfer-save-btn, #exchange-save-btn");
-  if (!b || Spotlight.isRunning()) return;
-  if (b.classList.contains("review-repay-btn")) offerConvGuide_("conv-repay", "rt.conv.offerRepay", open("review-transfer-modal-backdrop"), () => el("review-transfer-context"), () => startConvDebt_("repay"));
-  else if (b.classList.contains("review-loan-btn")) offerConvGuide_("conv-loan", "rt.conv.offerLoan", open("review-transfer-modal-backdrop"), () => el("review-transfer-context"), () => startConvDebt_("loan"));
+  if (!b || (Spotlight.isRunning() && !b.closest(".review-item-secondary-actions"))) return;
+  if (b.classList.contains("review-repay-btn")) offerConvGuide_("conv-repay", "rt.conv.offerRepay", () => open("review-transfer-modal-backdrop")() && reviewTransferMode === "repay", () => el("review-transfer-context"), () => startConvDebt_("repay"));
+  else if (b.classList.contains("review-loan-btn")) offerConvGuide_("conv-loan", "rt.conv.offerLoan", () => open("review-transfer-modal-backdrop")() && reviewTransferMode === "loan", () => el("review-transfer-context"), () => startConvDebt_("loan"));
   else if (b.classList.contains("review-exchange-btn")) offerConvGuide_("conv-exchange", "rt.conv.offerExchange", open("exchange-modal-backdrop"), () => el("exchange-context"), startConvExchange_);
   else if (b.classList.contains("review-type-btn")) offerConvType_();
   else {   // saved without the guide: the offer ends
