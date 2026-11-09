@@ -21494,7 +21494,7 @@ let popWatch_ = null, popWatchTimer_ = null, popOpen_ = null;
 function popGet_(k, fallback) { try { return JSON.parse(localStorage.getItem(k) || "null") || fallback; } catch (e) { return fallback; } }
 function popSet_(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* no storage: shown at most once per session */ } }
 function popTipVisit_(place) { const v = popGet_(POP_VISITS_KEY_, {}); v[place] = (v[place] || 0) + 1; popSet_(POP_VISITS_KEY_, v); }
-// tip: { key, place, target() → the element to point at or null (not there yet), text, stillWanted() → false cancels, ready() optional }
+// tip: { key, place, target() → the element to point at or null (not there yet), text (or text() read when it shows), stillWanted() → false cancels, ready() optional }
 function popTipWatch_(tip) {
   if (popGet_(POP_SEEN_KEY_, []).includes(tip.key)) return;
   if (!popGet_(POP_AGAIN_KEY_, false) && (popGet_(POP_VISITS_KEY_, {})[tip.place] || 0) < POP_TIP_VISIT_) return;
@@ -21547,7 +21547,7 @@ function popTipShow_(tip, el) {
   b.className = "pop-tip";
   b.setAttribute("role", "dialog");
   b.dataset.tip = tip.key;
-  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(tip.text)}</p><div class="pop-tip-buttons"><button type="button" class="pop-tip-ok">${escapeHtml(tr("pop.gotIt"))}</button></div>`;
+  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons"><button type="button" class="pop-tip-ok">${escapeHtml(tr("pop.gotIt"))}</button></div>`;
   document.body.appendChild(b);
   const place = () => {
     if (!el.isConnected || !el.getClientRects().length) { close(); return; }
@@ -21590,7 +21590,8 @@ function watchAnnualTip_() {
 // The new-entry form: the "Trip / event" field, when the entry's date falls during a trip or event.
 function watchTripPickTip_() {
   popTipWatch_({
-    key: "tripPick", place: "entryForm", text: tr("pop.tripPick"),
+    key: "tripPick", place: "entryForm",
+    text: () => tr(document.getElementById("entry-trip").value ? "pop.tripPicked" : "pop.tripPick"),   // the form often picks the trip by itself
     target: () => {
       const field = document.getElementById("trip-field"), date = document.getElementById("date").value;
       if (selectedType !== "expense" || field.hidden || !(meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date)) return null;
