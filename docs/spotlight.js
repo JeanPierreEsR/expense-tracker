@@ -131,6 +131,11 @@
     function targetsOf(step) {
       var t = typeof step.target === "function" ? step.target() : step.target ? doc.querySelector(step.target) : null;
       var list = !t ? [] : (Array.isArray(t) ? t : [t]);
+      // A section the person can fold (Needs review) opens by itself when a step needs what is inside: it marks itself data-spot-reveal and listens for spot-reveal.
+      list.forEach(function (el) {
+        var fold = el.closest && el.closest("[data-spot-reveal][hidden]");
+        if (fold) fold.dispatchEvent(new CustomEvent("spot-reveal"));
+      });
       return list.filter(onScreen);
     }
     function unionRect(els) {

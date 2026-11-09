@@ -2293,7 +2293,7 @@
     closeAdded();
     const tab = document.querySelector('.nav-btn[data-screen="entries"]');
     if (tab) tab.click();
-    setTimeout(() => { const card = document.getElementById("review-queue-card"); if (card && !card.hidden) card.scrollIntoView({ behavior: "smooth", block: "start" }); }, 400);
+    setTimeout(showReviewQueue_, 400);
   });
   // "Tidy my history" in the saved message opens the same screen as More → Tidy my history.
   document.addEventListener("click", (e) => { if (e.target.closest && e.target.closest(".stmt-tidy-btn")) document.getElementById("more-tidy-btn").click(); });

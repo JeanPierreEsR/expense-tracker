@@ -6782,7 +6782,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   const stillWaiting = new Set(entries.map((e) => e.id));
   reviewSelected_ = new Set([...reviewSelected_].filter((id) => stillWaiting.has(id)));
   if (reviewEditing_) syncReviewEditBar_();
-  document.getElementById("review-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.reviewBulk && entries.length);
+  if (entries.length === 0 && !Spotlight.isRunning()) reviewOpen_ = false;   // the next item to wait starts closed again
+  syncReviewOpen_();
 
   if (entries.length === 0) {
     card.hidden = true;
@@ -7377,6 +7378,30 @@ let reviewEditing_ = false;   // Home → Needs review → Edit (declared here: 
 let entriesEditing_ = false;   // Home list / search → Edit (same reason)
 let entriesSelected_ = new Set();
 let reviewSelected_ = new Set();
+// Needs review starts as one closed row, so Recent entries are right below it (owner, 2026-11-09). The rows stay in the page while closed, so the count, what was
+// typed and every action keep working. Only in memory: a fresh start of the app is closed again. A practice opens it through the spot-reveal event (spotlight.js).
+let reviewOpen_ = false;
+function syncReviewOpen_() {
+  document.getElementById("review-body").hidden = !reviewOpen_;
+  document.getElementById("review-toggle").setAttribute("aria-expanded", String(reviewOpen_));
+  document.getElementById("review-queue-card").classList.toggle("review-closed", !reviewOpen_);
+  document.getElementById("review-edit-btn").hidden = !(reviewOpen_ && meta && meta.capabilities && meta.capabilities.reviewBulk && reviewEntries_.length);
+}
+function setReviewOpen_(on) {
+  reviewOpen_ = on;
+  if (!on && reviewEditing_) setReviewEditing_(false);
+  syncReviewOpen_();
+}
+// "Go to Needs review" from another screen: the person came to work on it, so it opens.
+function showReviewQueue_() {
+  const card = document.getElementById("review-queue-card");
+  if (!card || card.hidden) return;
+  setReviewOpen_(true);
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+document.getElementById("review-toggle").addEventListener("click", () => setReviewOpen_(!reviewOpen_));
+document.getElementById("review-body").addEventListener("spot-reveal", () => setReviewOpen_(true));
+
 // A long Needs review must not push Recent entries away (Home test: about 100 screens at 206 items): 10 rows (owner), then "Show more". The other rows stay in
 // the list, only hidden, so its count and every action keep working, and when a row is confirmed the next one comes up. All of them show in Edit mode
 // (what Select all ticks must be visible) and during a practice (its own rows must be reachable).
@@ -8107,7 +8132,7 @@ function updatePeriodPendingLine_() {
 }
 document.getElementById("period-pending-line").addEventListener("click", () => {
   showScreen("entries");
-  setTimeout(() => { const card = document.getElementById("review-queue-card"); if (card && !card.hidden) card.scrollIntoView({ behavior: "smooth", block: "start" }); }, 150);
+  setTimeout(showReviewQueue_, 150);
 });
 
 function movePeriod(delta) {
