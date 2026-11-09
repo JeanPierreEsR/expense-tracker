@@ -16750,9 +16750,10 @@ async function loadTripFinder_(lookBack) {
       try {
         const ticked = rows.filter((r) => r.input.checked).map((r) => r.e.id);
         await callApi("linkEntriesToTrip", { id, entryIds: ticked });
-        if (practiceT_ && (practiceT_.pastIds || []).some((pid) => ticked.includes(pid))) { practiceT_.linked = true; practiceTSave_(); }
         box.hidden = true;
         await refreshTripDetail_();
+        // Only now: the practice's closing step lights up these totals, and must not show the old ones while they reload.
+        if (practiceT_ && (practiceT_.pastIds || []).some((pid) => ticked.includes(pid))) { practiceT_.linked = true; practiceTSave_(); }
       } catch (err) {
         document.getElementById("trip-detail-error").textContent = tr("trips.loadFailed", { error: err.message });
         addBtn.disabled = false;
@@ -22124,7 +22125,7 @@ function practiceSteps_() {
       before: async () => { await new Promise((r) => setTimeout(r, 600)); } },
     // The amount (what they owe) and the account come filled in: no "check it" steps (owner's plan 2026-11-05). What is saved is recorded
     // for the closing text, which says whether the debt is fully or partly paid.
-    { key: "saveRepayment", target: () => [document.getElementById("settlement-save-btn"), document.getElementById("settlement-form-error")],
+    { key: "saveRepayment", wait: 30000, target: () => [document.getElementById("settlement-save-btn"), document.getElementById("settlement-form-error")],   // (the sheet shows "Loading…" first)
       text: () => { const err = lastError("#settlement-form-error"); return err ? tr("spot.p.s16err", { error: err }) : tr("spot.p.s16"); },
       before: async () => { document.getElementById("settlement-form-error").textContent = ""; },
       until: () => {   // what is about to be saved is noted while the sheet is still open (the closing text says fully / partly paid)
@@ -22324,7 +22325,9 @@ function startGuidedLoansLook_() {
   Spotlight.run([
     { target: row, text: () => tr("spot.g.loans2", { name: g.friendName }), tap: row, wait: 30000,
       before: async () => { showScreen("loans"); }, poke: () => { refreshLoans().catch(() => {}); } },
-    { look: true, target: () => document.querySelector("#loan-detail-modal-backdrop .currency-modal"), text: () => tr("spot.p.s13a"), button: () => tr("spot.p.gotIt"), wait: 15000,
+    // Only once the friend's page has finished loading (its buttons are the last thing to show): until then no "Got it" (owner, 2026-11-09).
+    { look: true, target: () => (document.querySelector("#loan-detail-modal-backdrop .loan-detail-actions:not([hidden])") ? document.querySelector("#loan-detail-modal-backdrop .currency-modal") : null),
+      text: () => tr("spot.p.s13a"), button: () => tr("spot.p.gotIt"), wait: 30000,
       before: async () => { await new Promise((r) => setTimeout(r, 600)); } },
     { look: true, target: "#record-repayment-btn", text: () => tr("spot.g.loans4"), button: () => tr("spot.g.done"), wait: 15000 }
   ], {
@@ -23600,7 +23603,7 @@ function practiceRSteps_() {
       poke: () => { if (practiceRFailed_) { Spotlight.stop("skipped"); return; } refreshExpectedRecurring().catch(() => {}); } },
     { target: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; }, text: () => tr("spot.r.s9"), wait: 15000,
       tap: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; } },
-    { target: "#paid-new-save", text: () => tr("spot.r.s11"), tap: "#paid-new-save", wait: 15000 },
+    { target: () => (document.querySelector("#paid-picker-list .stmt-loading") ? null : document.getElementById("paid-new-save")), text: () => tr("spot.r.s11"), tap: "#paid-new-save", wait: 30000 },   // (once the sheet's list has loaded)
     { key: "pay", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
       text: () => { const err = (document.getElementById("form-error").textContent || "").trim(); return err ? tr("spot.p.s10err", { error: err }) : tr("spot.r.s12"); },
       before: async () => {   // the sheet opens a moment after the tap (the item's saved split is fetched first)
