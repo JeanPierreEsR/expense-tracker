@@ -1388,7 +1388,7 @@
 
     // ---- settle ----
     "settle.empty": { en: "No repayments recorded yet.", es: "Aún no hay repagos registrados." },
-    "settle.pmHint": { en: "Optional — which account received/paid the cash.", es: "Opcional: la cuenta que recibió o pagó el dinero." },
+    "settle.pmHint": { en: "The account that received or paid the money.", es: "La cuenta que recibió o pagó el dinero." },
     "repayChoice.loanTitle": { en: "Delete this loan", es: "Eliminar este préstamo" },
     "repayChoice.expenseTitle": { en: "Delete this expense", es: "Eliminar este gasto" },
     "repayChoice.text": { en: "Already repaid on it: {list}. What should happen to those repayments?", es: "Ya repagado de esto: {list}. ¿Qué hacemos con esos repagos?" },
@@ -1829,9 +1829,7 @@
     "income.waitingBadge": { en: "⏳ Not received yet", es: "⏳ Aún no recibido" },
     "income.waitingNeedsPerson": { en: "Choose who owes you this income.", es: "Elige quién te debe este ingreso." },
     "income.waitingNoBusiness": { en: "Income from a company or project counts when the money arrives, so it can't be saved as not received.", es: "El ingreso de una empresa o proyecto cuenta cuando llega el dinero, así que no se puede guardar como no recibido." },
-    "income.cardTitle": { en: "⏳ Waiting to be paid", es: "⏳ Por cobrar" },
-    "income.cardDue": { en: "expected {date}", es: "esperado el {date}" },
-    "income.received": { en: "Received", es: "Recibido" },
+    "income.cardDue": { en: "Expected {date}", es: "Esperado el {date}" },
     "income.matchAsk": { en: "Is this the payment you were waiting for from {name} ({amount})?", es: "¿Es este el pago que esperabas de {name} ({amount})?" },
     "income.matchYes": { en: "Yes, it is", es: "Sí, es ese" },
     "income.forgiveReduces": { en: ". Your income goes down by this amount; no expense is recorded.", es: ". Tu ingreso baja en este monto; no se registra un gasto." },

@@ -882,7 +882,6 @@ async function renderCachedStartupBundle_(bundle) {
   await loadMeta(bundle.meta);
   await refreshEntryList(bundle.entries);
   await refreshReviewQueue(bundle.pending, true);
-  renderWaitingIncome_(bundle.expectedRecurring.waitingIncome);
   await refreshExpectedRecurring(bundle.expectedRecurring.groups);
 }
 
@@ -1522,25 +1521,7 @@ function setIncomeWaitingForm_(entry) {
 document.getElementById("income-waiting-toggle").addEventListener("change", () => togglePaymentMethodVisibility());
 ["entry-company", "entry-project"].forEach((id) => { const el = document.getElementById(id); if (el) el.addEventListener("change", () => togglePaymentMethodVisibility()); });
 
-function renderWaitingIncome_(list) {
-  const card = document.getElementById("waiting-income-card");
-  const items = list || [];
-  card.hidden = !items.length;
-  const box = document.getElementById("waiting-income-list");
-  box.innerHTML = "";
-  items.forEach((x) => {
-    const row = document.createElement("div");
-    row.className = "recurring-row trip-static-row";
-    const sub = [x.friend_name, listDate_(x.date), x.due_date ? tr("income.cardDue", { date: listDate_(x.due_date) }) : ""].filter(Boolean).join(" · ");
-    row.innerHTML = `<div><div class="recurring-row-name">${escapeHtml(x.description)}</div><div class="recurring-row-sub">${escapeHtml(sub)}</div></div>
-      <div class="recurring-row-amount"><div class="primary-amt">${formatAmount(x.remaining, x.currency)}</div><button type="button" class="add-inline waiting-received-btn">${escapeHtml(tr("income.received"))}</button></div>`;
-    row.querySelector(".waiting-received-btn").addEventListener("click", () => {
-      repaymentTargetLoan_ = { loan_id: x.loan_id, remaining: x.remaining };
-      openRepaymentModal(x.friend_id, x.friend_name, { [x.currency]: x.remaining }, "", [], []);
-    });
-    box.appendChild(row);
-  });
-}
+let waitingIncomeShown_ = false;   // an income not received yet is on the Programmed card, so a repayment must refresh it
 
 function peopleOneList_() { return !!(meta && meta.capabilities && meta.capabilities.peopleOneList); }
 // "Received from": payors and friends are one list; whoever paid income most recently comes first (repayments do not count), then the rest by name.
@@ -6354,7 +6335,7 @@ async function afterMoneySaved_(item) {
   const ctx = item.ctx || {};
   if (["addLoan", "updateLoan", "forgiveLoan", "updateSettlement", "recordRepayment"].includes(item.action)) {
     refreshEntriesInBackground_();
-    if (!document.getElementById("waiting-income-card").hidden) refreshExpectedRecurring().catch(() => {});   // a repayment may have covered an income waiting
+    if (waitingIncomeShown_) refreshExpectedRecurring().catch(() => {});   // a repayment may have covered an income waiting
     await refreshLoans();
     const detailOpen = !document.getElementById("loan-detail-modal-backdrop").hidden;
     if (detailOpen && ctx.friendId && loanDetailScope_.friendId === ctx.friendId) await openLoanDetail(ctx.friendId, ctx.friendName);
@@ -11073,7 +11054,6 @@ async function init() {
       // rendered here instead, same as before this change.
       await timedStep("init:reviewQueue", () => refreshReviewQueue(latestPending, true));
     }
-    renderWaitingIncome_(bundle.expectedRecurring.waitingIncome);
     await timedStep("init:expectedRecurring", () => refreshExpectedRecurring(bundle.expectedRecurring.groups));
     if (paintedFromCache) setRecurringCheckStatus_("hidden");
     homeTipsReady_ = true;
@@ -20286,7 +20266,6 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     try {
       const fresh = await callApi("listExpectedRecurringItems");
       groups = fresh.groups;
-      renderWaitingIncome_(fresh.waitingIncome);
     } catch (err) {
       // Logged rather than swallowed outright — this card hiding with no
       // sign anything went wrong (a slow cold start, a dropped connection)
@@ -20298,6 +20277,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     }
   }
 
+  waitingIncomeShown_ = groups.some((g) => g.items.some((i) => i.waiting));
   if (!groups.length) {
     card.hidden = true;
     return;
@@ -20331,6 +20311,20 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     // Each item and its two buttons sit together in one bordered box, so it's
     // obvious which item a button belongs to.
     detail.innerHTML = g.items.map((item) => {
+      if (item.waiting) {
+        const waitAmt = `${item.overdue ? "⚠️ " : ""}${item.expected_date ? tr("income.cardDue", { date: listDate_(item.expected_date) }) + " · " : ""}${escapeHtml(g.currency)} ${moneyFmt(item.amount)}`;
+        const waitLabel = [item.category_name ? `${item.category_icon ? item.category_icon + " " : ""}${item.category_name}` : "", item.description].filter(Boolean).join(" — ");
+        return `
+      <div class="expected-recurring-entry${item.overdue ? " overdue" : ""}">
+        <div class="expected-recurring-item">
+          <span class="expected-recurring-item-label">⏳ ${escapeHtml(waitLabel)} · ${escapeHtml(item.friend_name)}</span>
+          <span class="expected-recurring-item-amount">${sensitiveHtml_(waitAmt)}</span>
+        </div>
+        <div class="expected-recurring-actions">
+          <button type="button" data-act="paid" data-id="${item.id}">${tr("expected.markPaid")}</button>
+        </div>
+      </div>`;
+      }
       const itemAmt = `${item.overdue ? "⚠️ " : ""}${tr("expected.day", { day: item.day })} · ${escapeHtml(g.currency)} ${item.estimated ? "≈ " : ""}${moneyFmt(item.amount)}`;
       return `
       <div class="expected-recurring-entry${item.overdue ? " overdue" : ""}">
@@ -20348,7 +20342,10 @@ async function refreshExpectedRecurring(prefetchedGroups) {
       const item = g.items.find((i) => i.id === btn.dataset.id);
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        if (btn.dataset.act === "skip") skipRecurringThisMonth_(item);
+        if (item.waiting) {
+          repaymentTargetLoan_ = { loan_id: item.loan_id, remaining: item.amount };
+          openRepaymentModal(item.friend_id, item.friend_name, { [g.currency]: item.amount }, "", [], []);
+        } else if (btn.dataset.act === "skip") skipRecurringThisMonth_(item);
         else openPaidPicker_(item, g.currency, isIncome);
       });
     });
@@ -26491,7 +26488,7 @@ function closeSettlementModal() {
 
 async function refreshAfterSettlementChange_() {
   refreshEntriesInBackground_();
-  if (!document.getElementById("waiting-income-card").hidden) refreshExpectedRecurring().catch(() => {});
+  if (waitingIncomeShown_) refreshExpectedRecurring().catch(() => {});
   await refreshLoans();
   await openLoanDetail(repaymentFriendId, repaymentFriendName);
 }

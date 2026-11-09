@@ -431,10 +431,6 @@
 
       <p class="hint review-check-status" id="recurring-check-status" hidden></p>
 
-      <div class="card" id="waiting-income-card" hidden>
-        <h2 data-i18n="income.cardTitle">⏳ Waiting to be paid</h2>
-        <div id="waiting-income-list"></div>
-      </div>
       <div class="card" id="expected-recurring-card" hidden>
         <h2 data-i18n="programmed.title">🔁 Programmed this month</h2>
         <p class="hint" data-i18n="programmed.hint">From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).</p>
@@ -2397,7 +2393,7 @@
 
           <label for="settlement-payment-method" data-i18n="field.paymentMethod">Payment method</label>
           <select id="settlement-payment-method"></select>
-          <p class="hint" data-i18n="settle.pmHint">Optional — which account received/paid the cash.</p>
+          <p class="hint" data-i18n="settle.pmHint">The account that received or paid the money.</p>
 
           <label for="settlement-description" data-i18n="field.description">Description</label>
           <input type="text" id="settlement-description" data-i18n-placeholder="common.optional" placeholder="Optional">
