@@ -45,6 +45,7 @@ var BACKEND_STRINGS_ = {
   "err.loanNotFound": { en: "Loan not found", es: "No se encontró el préstamo" },
   "err.repaymentNotFound": { en: "Repayment not found", es: "No se encontró el repago" },
   "err.notPractice": { en: "That entry is not a practice expense, so it was not removed.", es: "Ese movimiento no es un gasto de práctica, así que no se eliminó." },
+  "payor.separateSuffix": { en: " (payer)", es: " (pagador)" },
   "err.friendNotFound": { en: "Friend not found", es: "No se encontró al amigo" },
   "err.badPhone": { en: "That phone number doesn't look right. Use the country code and the number, e.g. +51 987 654 321.", es: "Ese número no parece correcto. Usa el código del país y el número, por ejemplo +51 987 654 321." },
   "err.paymentMethodNotFound": { en: "Account not found", es: "No se encontró la cuenta" },

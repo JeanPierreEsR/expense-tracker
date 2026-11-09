@@ -275,7 +275,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     }
   } else if (entry.type === 'income') {
     // Income holds a payor (who paid the owner), never a friend.
-    var payor = entry.paid_by ? getAllRows('Payors').find(function (p) { return p.id === entry.paid_by; }) : null;
+    var payor = entry.paid_by ? getPayorRows_().find(function (p) { return p.id === entry.paid_by; }) : null;
     lines.push(tr_('bot.receivedFrom') + (payor ? payor.name : tr_('bot.notSetPayor')));
     // No payment method shows "❓ not set — reply ..." (same as a transfer's
     // missing end) instead of leaving the line out.

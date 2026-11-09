@@ -219,6 +219,7 @@ function routeActionSwitch_(action, payload) {
     case 'addFriend': return addFriend(payload);
     case 'listPayors': return listPayors();
     case 'addPayor': return addPayor(payload);
+    case 'applyPayorMerge': return applyPayorMerge(payload);
     case 'admin_deletePayor':
       var payorSheet = getSheet('Payors');
       var payorHeaders = getHeaders(payorSheet);
@@ -788,6 +789,7 @@ function getMeta() {
   ensureRailDefaults_();
   ensureAnnualTag_();
   ensureAllTripGroupFriends_();
+  var payorMergeAsk = payorMergeAskForApp_();   // the owner's copy: names to confirm before payors and friends become one list
   return {
     categories: localizeCategories_(getAllRowsCached_('Categories')),
     banks: getAllRowsCached_('Banks'),
@@ -799,7 +801,8 @@ function getMeta() {
     projects: getProjectRows_(),
     expectedPayments: getExpectedRows_(),   // empty (and nothing read) while the pack is off
     friends: getFriendsWithLastUsed_(),
-    payors: getPayorRows_(),
+    payors: getPayorsWithLastIncome_(),
+    payorMergeAsk: payorMergeAsk,
     settings: settingsForApp_(),
     // What this copy of the backend can do beyond the spreadsheet (Features.gs). The
     // Export screen offers "Send to my email" only when an address was saved.
@@ -834,9 +837,11 @@ function getFriendsWithLastUsed_() {
     getAllRows('Loan Installments').forEach(function (r) { withSchedule[r.loan_id] = true; });
     getAllRows('Loans').forEach(function (l) { if (withSchedule[l.id]) bankLender[l.friend_id] = true; });
   }
+  var lastIncome = lastIncomeByPerson_();
   return getAllRowsCached_('Friends').map(function (f) {
     f.last_used = last[f.id] || '';
     f.bank_lender = !!bankLender[f.id];
+    f.last_income = lastIncome[f.id] || '';
     return f;
   });
 }

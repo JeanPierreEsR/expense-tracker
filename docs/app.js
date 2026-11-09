@@ -1301,6 +1301,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   syncLanguageSetting_();
   renderOwnNameCard_();
   maybeAskPausedProgrammed_();
+  maybeAskPayorMerge_();
   if (skipFormPopulate) return;
   // Rebuilding the pickers resets them to their first option. A refresh
   // (pull-down, or any reload of the lists) while an edit screen is open must
@@ -1495,13 +1496,14 @@ function getCategoryId() {
 
 document.getElementById("change-category-btn").addEventListener("click", showCategoryPicker);
 
-// Income keeps its own list (Payors — a client, employer, "Acme
-// Group") entirely separate from Friends: a friend paying for a shared
-// expense is a debt relationship (see Loans in CLAUDE.md), but whoever
-// pays the owner income isn't a debt at all, so it doesn't belong next
-// to actual friends. "Me" only makes sense as an expense/investment/
-// transfer payer, not an income source, so it's left out of the income
-// list entirely.
+function peopleOneList_() { return !!(meta && meta.capabilities && meta.capabilities.peopleOneList); }
+// "Received from": payors and friends are one list; whoever paid income most recently comes first (repayments do not count), then the rest by name.
+function incomePayers_() {
+  return (meta.payors || [])
+    .filter((p) => !p.trip_id && (!isBusinessPerson_(p) || businessOn()) && friendPickable_(p))
+    .sort((a, b) => String(b.last_income || "").localeCompare(String(a.last_income || "")) || String(a.name).localeCompare(String(b.name)));
+}
+// "Me" only makes sense as an expense/investment/transfer payer, not an income source, so it's left out of the income list.
 function populatePaidByOptions() {
   const select = document.getElementById("paid_by");
   const label = document.getElementById("paid-by-label");
@@ -1510,13 +1512,13 @@ function populatePaidByOptions() {
   if (selectedType === "income") {
     label.textContent = tr("field.receivedFrom");
     // With no payers yet, start on an empty choice: "+ Add payer…" must never be the one selected (it was saved as the payer, 2026-11-04).
-    if (!meta.payors.length) {
+    if (!incomePayers_().length) {
       const none = document.createElement("option");
       none.value = "";
       none.textContent = "—";
       select.appendChild(none);
     }
-    meta.payors.forEach((p) => {
+    incomePayers_().forEach((p) => {
       const opt = document.createElement("option");
       opt.value = p.id;
       opt.textContent = p.name;
@@ -2149,7 +2151,12 @@ function friendLabel_(f) { return (isGroupFriend_(f) ? "👥 " : "") + (isBusine
 function isHiddenFriend_(f) { return f.hidden === "yes" || f.hidden === true; }
 let hiddenFriendsShown_ = new Set();
 function friendPickable_(f) { return !isHiddenFriend_(f) || hiddenFriendsShown_.has(f.id) || splitFriendIds.has(f.id); }
-function plainFriends_() { return meta.friends.filter((f) => !isGroupFriend_(f) && (!isBusinessPerson_(f) || businessOn()) && friendPickable_(f)); }
+// Someone who has only ever paid income (an employer, a client) goes after the people shared with or lent to.
+function incomeOnlyPerson_(f) { return !!f.last_income && !f.last_used; }
+function plainFriends_() {
+  const list = meta.friends.filter((f) => !isGroupFriend_(f) && (!isBusinessPerson_(f) || businessOn()) && friendPickable_(f));
+  return list.filter((f) => !incomeOnlyPerson_(f)).concat(list.filter(incomeOnlyPerson_));
+}
 // Groups of trips that still exist, the most recent trip first.
 function groupFriendsNewestFirst_() {
   const end = (f) => ((meta.trips || []).find((t) => t.id === f.trip_id) || {}).end_date || "";
@@ -2612,7 +2619,9 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
     e.target.value = meta.payors.length ? meta.payors[0].id : "";
     if (name && name.trim()) {
       const payor = await callApi("addPayor", { name: name.trim() });
-      meta.payors.push(payor);
+      const known = meta.payors.find((p) => p.id === payor.id);
+      if (known) { if (isHiddenFriend_(known)) known.hidden = ""; } else meta.payors.push(payor);
+      if (peopleOneList_() && !meta.friends.some((f) => f.id === payor.id)) meta.friends.push(payor);
       populatePaidByOptions();
       document.getElementById("paid_by").value = payor.id;
     }
@@ -20039,6 +20048,43 @@ async function startRecurringBulkDelete_(items) {
 // Stopped (end date today) or Deleted; a one-time item has no end date, so it only offers Reactivate / Delete.
 let pausedAskOpen_ = false;
 let pausedAskRetries_ = 0;
+// Payors and friends become one list (owner's copy only, once): payers who share a name with a friend are shown first; ticked = the same person.
+let payorMergeOpen_ = false, payorMergeRetries_ = 0;
+function maybeAskPayorMerge_() {
+  const pairs = (meta && meta.payorMergeAsk) || [];
+  if (!pairs.length || payorMergeOpen_ || meta.fromCache_) return;
+  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning()) {
+    if (payorMergeRetries_++ < 40) setTimeout(maybeAskPayorMerge_, 4000);
+    return;
+  }
+  payorMergeOpen_ = true;
+  const list = document.getElementById("payor-merge-list");
+  list.innerHTML = "";
+  pairs.forEach((p) => {
+    const row = document.createElement("label");
+    row.className = "payor-merge-row";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = true;
+    box.dataset.payorId = p.payor_id;
+    const name = document.createElement("span");
+    name.textContent = p.name;
+    row.append(box, name);
+    list.appendChild(row);
+  });
+  const backdrop = document.getElementById("payor-merge-backdrop");
+  I18n.applyStatic(backdrop);
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+document.getElementById("payor-merge-save").addEventListener("click", () => {
+  const separate = [...document.querySelectorAll("#payor-merge-list input:not(:checked)")].map((b) => b.dataset.payorId);
+  document.getElementById("payor-merge-backdrop").hidden = true;
+  meta.payorMergeAsk = [];
+  payorMergeOpen_ = false;
+  saveBehindScreen_(() => callApi("applyPayorMerge", { separate }), () => location.reload());
+});
+
 let pausedConvertPromise_ = null;
 async function maybeAskPausedProgrammed_() {
   if (!recurringStopCapable_() || !((meta && meta.pausedProgrammed) || []).length || pausedAskOpen_) return;

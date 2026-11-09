@@ -152,7 +152,7 @@ function incomeVariesSummary_(entries, allEntries, categoryById, startDate, endD
   });
   var anyKind = Object.keys(kindOf).some(function (id) { return kindOf[id] === 'varies'; });
   if (!anyKind) return null;
-  var payorById = rowsById_(getAllRows('Payors'));
+  var payorById = rowsById_(getPayorRows_());
   var byPayer = Object.keys(payers).map(function (k) {
     var p = payers[k];
     return { id: p.id, name: p.id ? ((payorById[p.id] && payorById[p.id].name) || '') : '', amount: p.amount, count: p.count };
