@@ -21,7 +21,7 @@ test("every practice intro is two short sentences: what you will do, then that e
     assert.match(t.es, /^[^.]+\. Todo lo de la práctica se elimina al final\.$/, k + " es");
   }
   // the exceptions, as the owner approved them
-  assert.match(STRINGS["spot.n.intro"].en, /^“Needs review” is where purchases from your bank emails wait\. Nothing counts in your totals until you confirm it\. When you finish, or tap Exit, everything is deleted\.$/);
+  assert.match(STRINGS["spot.n.intro"].en, /^\x22Needs review\x22 is where purchases from your bank emails wait\. Nothing counts in your totals until you confirm it\. When you finish, or tap Exit, everything is deleted\.$/);
   assert.match(STRINGS["spot.e.intro"].en, /Nothing is recorded in the app\.$/);
   assert.match(STRINGS["spot.j.intro"].en, /Nothing changes in the app\.$/);
   for (const k of PRACTICES.concat(["n", "e"])) {
@@ -143,7 +143,7 @@ test("Tidy my history: 5 steps, the button says the same word as the group's cou
   assert.equal((steps.match(/^    \{ (key|target|text)/gm) || []).length, 5);
   assert.equal(STRINGS["tidy.showLines"].en, "Show the entries");
   assert.equal(STRINGS["tidy.showLines"].es, "Ver los movimientos");
-  assert.ok(STRINGS["spot.y.s2"].en.includes("“Show the entries”") && STRINGS["spot.y.s2"].es.includes("“Ver los movimientos”"));
+  assert.ok(STRINGS["spot.y.s2"].en.includes("\x22Show the entries\x22") && STRINGS["spot.y.s2"].es.includes("\x22Ver los movimientos\x22"));
   const css = fs.readFileSync(path.join(DOCS, "style.css"), "utf8");
   assert.match(css, /\.tidy-group-row \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto;/);
   for (const k of ["s1", "gotIt"]) assert.ok(!STRINGS[`spot.y.${k}`], k);

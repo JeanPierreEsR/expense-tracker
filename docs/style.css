@@ -39,7 +39,7 @@ button.update-banner {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 300;
+  z-index: 240;   /* under every pop-up window (250+): it must never cover a window's header or its ✕ */
   padding: 10px 16px;
   padding-top: calc(10px + env(safe-area-inset-top, 0px));
   background: var(--accent);
@@ -226,7 +226,7 @@ html[lang="es"] .nav-btn { font-size: min(0.65rem, 2.45vw); }
 .nav-btn > span:last-child { white-space: nowrap; }
 
 .nav-btn.active {
-  color: var(--accent);
+  color: #0066cc;   /* a touch darker than --accent: this label is small, so it needs the stronger contrast */
   background: var(--bg);
 }
 
@@ -725,7 +725,7 @@ input[type="date"] {
 }
 
 /* "Remind on WhatsApp" (specs/loans.md § Reminders): stands out when one of the friend's debts is overdue. */
-#loan-remind-btn.overdue { font-weight: 600; color: #b26a00; }
+#loan-remind-btn.overdue { font-weight: 600; color: #9a5b00; }
 .loan-remind-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.95rem; line-height: 1.4; min-height: 180px; }
 
 .loan-detail-forgive-btn {
@@ -1902,6 +1902,7 @@ body.income-revealed .sens-mask { display: none; }
 /* ---- More tab ---- */
 
 .more-list-item {
+  text-align: left;
   width: 100%;
   display: flex;
   align-items: center;
@@ -3146,7 +3147,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .first-step.done .first-step-mark { color: #2e9e5b; }
 .first-step-body { display: flex; flex-direction: column; gap: 2px; }
 .first-step-body .hint { margin: 0; }
-.first-step.late .hint { color: #b26a00; font-weight: 600; }
+.first-step.late .hint { color: #9a5b00; font-weight: 600; }
 
 /* More → Bank emails: short sheet, one tap-to-open row per bank, long text behind "details" (tour-scenes.js SCENES.bankalerts draws the animation) */
 .bm-stage { margin-top: 4px; margin-bottom: 4px; }
@@ -3173,7 +3174,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .review-loan-hint { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
 .review-hint-btn { font-weight: 600; }
 .payee-suggest { margin: 6px 0 0; font-size: 0.85rem; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.notices-card { border-left: 4px solid #b26a00; }
+.notices-card { border-left: 4px solid #9a5b00; }
 .notices-card h2 { margin: 0; font-size: 1rem; }
 .notices-list { list-style: none; margin: 6px 0 0; padding: 0; }
 .notices-list li { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); }
@@ -3182,14 +3183,14 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .notice-text { overflow-wrap: anywhere; }
 .notice-date { display: block; font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
 .notice-x { border: 0; background: transparent; font-size: 1.1rem; line-height: 1; padding: 4px 8px; color: var(--muted); cursor: pointer; }
-.mail-health { border-left: 4px solid #b26a00; }
+.mail-health { border-left: 4px solid #9a5b00; }
 .mail-health h2 { margin: 0 0 4px; font-size: 1rem; }
 .mail-health .hint { margin: 4px 0 6px; }
 .bm-health { margin: 4px 0; }
-.bm-health.problem { color: #b26a00; font-weight: 600; }
+.bm-health.problem { color: #9a5b00; font-weight: 600; }
 .bm-status { font-size: 0.8rem; color: var(--muted); }
 .bm-status.ok { color: #2e9e5b; font-weight: 600; }
-.bm-status.wait { color: #b26a00; font-weight: 600; }
+.bm-status.wait { color: #9a5b00; font-weight: 600; }
 .bm-bank .hint { margin: 6px 0 0; }
 .bm-more { margin: 10px 0; }
 .bm-more > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
@@ -3204,7 +3205,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .be-kinds li:first-child { border-top: 0; }
 .be-kinds li .hint { margin: 0; }
 .be-kinds li.ok .hint { color: var(--income); font-weight: 600; }
-.be-kinds li.can .hint { color: #b26a00; }
+.be-kinds li.can .hint { color: #9a5b00; }
 .be-wallet { margin: 12px 0 0; font-size: 0.95rem; }
 .be-group { margin: 14px 0; }
 .be-group h3 { margin: 0 0 2px; }
@@ -3303,7 +3304,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .stmt-stepper { display: flex; gap: 6px; margin-top: 12px; }
 .stmt-stepper[hidden] { display: none; }
 .stmt-pill {
-  flex: 1 1 0; min-width: 0; padding: 8px 2px; font-family: inherit; font-size: 0.78rem; line-height: 1.2;
+  flex: 1 1 0; min-width: 0; padding: 8px 2px; white-space: nowrap; font-family: inherit; font-size: 0.78rem; line-height: 1.2;
   border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--muted); cursor: pointer;
 }
 .stmt-pill.on { background: #e8f1fd; border-color: var(--accent); color: var(--accent); font-weight: 600; }
@@ -3423,7 +3424,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .loan-detail-actions .add-inline, .loan-detail-actions .add-inline + .add-inline, #record-repayment-btn, #loan-history-btn { margin: 0; }   /* the stacked-button rule made one button of the row taller */
 #screen-loans.first-loading #loans-owed-card, #screen-loans.first-loading #loans-i-owe-card,
 #screen-loans.load-failed #loans-owed-card, #screen-loans.load-failed #loans-i-owe-card { display: none; }
-.loans-unreadable { color: #b26a00; margin: 0 0 12px; }
+.loans-unreadable { color: #9a5b00; margin: 0 0 12px; }
 .sheet-loading .budget-modal-body > :not(#settlement-loading) { display: none; }
 
 /* repayment history: the loans a repayment paid, as detail under "On loans" */
@@ -3821,3 +3822,14 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 /* The kinds under "I work for myself": a full line of their own, also among the small side-by-side chips of My profile. */
 .occ-kinds { flex: 1 0 100%; padding-left: 12px; border-left: 2px solid var(--border); box-sizing: border-box; }
 .occ-kinds .hint { margin: 2px 0 6px; }
+
+/* Bank statements while it opens: only the header card and its loading line (loading standard). */
+#screen-statements.stmt-opening > .card:not(#stmt-head-card) { display: none; }
+#screen-statements.stmt-opening > #stmt-head-card::after { content: attr(data-loading); display: block; margin-top: 12px; color: var(--muted); font-size: 14px; }
+
+/* Two messages at once: the plain one sits above the one with Undo, never on top of it. */
+body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: 216px; }
+/* WhatsApp number: country on the left, number on the right, one row. */
+.phone-row { display: flex; gap: 8px; align-items: stretch; }
+.phone-row select { flex: 0 0 44%; min-width: 0; width: 44%; margin: 0; }
+.phone-row input { flex: 1 1 0; min-width: 0; width: auto; margin: 0; }

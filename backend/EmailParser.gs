@@ -953,7 +953,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   if (bank && !fields.cardUnknown) {
     var pms = paymentMethods.filter(function (pm) { return pm.bank_id === bank.id; });
     paymentMethod = fields.last4
-      ? pms.find(function (pm) { return String(pm.last_4) === String(fields.last4); })
+      ? pms.find(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); })
       : ((!rule.accountByCurrency && pms.length === 1) ? pms[0] : null);
     // The e-mail names digits but none of the bank's accounts has them: when the person never filled in ANY digits for this bank (they are
     // optional in the welcome questions) the digits cannot disprove anything, so "the bank's only account" still applies, as it did before
@@ -962,7 +962,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   }
   // A rule with no bank (EBANX) still names the card by its last four digits: use them when exactly one account has them.
   if (!paymentMethod && !rule.bank && fields.last4) {
-    var byCard = paymentMethods.filter(function (pm) { return String(pm.last_4) === String(fields.last4); });
+    var byCard = paymentMethods.filter(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); });
     if (byCard.length === 1) paymentMethod = byCard[0];
   }
   // No account named in the email: the rule may say which account of that

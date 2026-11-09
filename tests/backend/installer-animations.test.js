@@ -42,6 +42,6 @@ test("the Google setting drawing has the extra step: tap the API row in Settings
 
 test("no caption tells the person to tap an 'Allow' / 'Permitir' button", () => {
   for (const [name, text] of [["en", en], ["es", es]]) {
-    for (const m of text.matchAll(/\n    (c_\w+): ('(?:[^'\\]|\\.)*'),/g)) assert.ok(!/“Allow”|“Permitir”/.test(m[2]), `${name}: ${m[1]}`);
+    for (const m of text.matchAll(/\n    (c_\w+): ('(?:[^'\\]|\\.)*'),/g)) assert.ok(!/\x22Allow\x22|\x22Permitir\x22/.test(m[2]), `${name}: ${m[1]}`);
   }
 });

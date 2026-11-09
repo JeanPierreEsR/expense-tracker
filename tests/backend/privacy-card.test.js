@@ -49,19 +49,19 @@ test("every text of the Privacy pop-up exists in both languages, and the page us
 });
 
 test("what the card promises is what the app does: it names every kind of count, and says the files stay on the phone", () => {
-  const en = /"privacy\.agree": \{ en: "([^"]*)"/.exec(strings)[1];
+  const en = /"privacy\.agree": \{ en: "((?:[^"\\]|\\.)*)"/.exec(strings)[1];
   for (const part of ["how fast", "failed", "confirmed", "changed or discarded", "screen"]) assert.ok(en.includes(part), part);
-  const never = /"privacy\.never": \{ en: "([^"]*)"/.exec(strings)[1];
+  const never = /"privacy\.never": \{ en: "((?:[^"\\]|\\.)*)"/.exec(strings)[1];
   for (const part of ["amounts", "emails", "photos", "access code"]) assert.ok(never.includes(part), part);
-  assert.match(/"privacy\.readsFiles": \{ en: "([^"]*)"/.exec(strings)[1], /not uploaded/);
+  assert.match(/"privacy\.readsFiles": \{ en: "((?:[^"\\]|\\.)*)"/.exec(strings)[1], /not uploaded/);
   // the statement and receipt readers really are on-device (the promise would be false otherwise)
   assert.match(app, /Nothing is uploaded and the photo is not\s+\/\/ kept/);
   assert.match(read("statements.js"), /the file\s+\/\/ never leaves the device/);
 });
 
 test("the consent pop-up and the Privacy card describe the same things (the card is not allowed to promise less or more)", () => {
-  const body = /"perfShare\.body": \{ en: "([^"]*)"/.exec(strings)[1];
-  const agree = /"privacy\.agree": \{ en: "([^"]*)"/.exec(strings)[1];
+  const body = /"perfShare\.body": \{ en: "((?:[^"\\]|\\.)*)"/.exec(strings)[1];
+  const agree = /"privacy\.agree": \{ en: "((?:[^"\\]|\\.)*)"/.exec(strings)[1];
   for (const part of ["how fast each action ran", "which action failed", "short code", "never what is in it", "how many times you open each screen"]) {
     assert.ok(body.includes(part), "pop-up: " + part);
     assert.ok(agree.includes(part), "card: " + part);

@@ -40,7 +40,7 @@ test("tab memory and the beta screen list know the screen; Categories keeps a on
   const beta = fs.readFileSync(path.join(__dirname, "../../backend/BetaEvents.gs"), "utf8");
   assert.match(beta, /my_profile: 1/);
   assert.match(app, /categories-suggest-btn"\)\.addEventListener\("click", showMyProfileScreen\)/);
-  assert.equal(STRINGS["categories.suggest"].en, "Pick what fits you ›");
+  assert.equal(STRINGS["categories.suggest"].en, "What fits me ›");
   assert.ok(!("fits.title" in STRINGS), "the old pop-up title is gone");
 });
 

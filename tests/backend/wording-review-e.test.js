@@ -12,7 +12,7 @@ function entries(src) {
   const out = [];
   for (const line of src.split("\n")) {
     const m = /^\s*"([\w.]+)": \{ en: (.*?), es: (.*?)\s?\},?$/.exec(line);
-    if (m) out.push({ key: m[1], en: m[2], es: m[3] });
+    if (m) out.push({ key: m[1], en: m[2].replace(/\\"/g, '"'), es: m[3].replace(/\\"/g, '"') });
   }
   return out;
 }
@@ -33,11 +33,11 @@ test("B1: the thing you copy and paste is the 'access code' / 'código de acceso
   assert.match(get("privacy.signin").en, /Your access code is kept on your phone and in your own Google account/);   // 2026-11-04: it is also in the person's Google project
 });
 
-test("B2: the place for detected entries is always “Needs review” / “Por revisar” (no 'review queue', 'review list', 'lista por revisar')", () => {
+test("B2: the place for detected entries is always \x22Needs review\x22 / \x22Por revisar\x22 (no 'review queue', 'review list', 'lista por revisar')", () => {
   assert.ok(!/review queue|review list|review items/i.test(allEn), (/.{25}review (queue|list|items).{10}/i.exec(allEn) || [""])[0]);
   assert.ok(!/lista por revisar|lista de revisión|cola de revisión/i.test(allEs), (/.{25}lista (por revisar|de revisión).{10}/i.exec(allEs) || [""])[0]);
-  assert.match(get("settle.extraSavedIncome").en, /“Needs review”/);
-  assert.match(get("bot.overpaidIn").es, /“Por revisar”/);
+  assert.match(get("settle.extraSavedIncome").en, /\x22Needs review\x22/);
+  assert.match(get("bot.overpaidIn").es, /\x22Por revisar\x22/);
   assert.match(get("banner.saveFailed").en, /tap to see/);
 });
 

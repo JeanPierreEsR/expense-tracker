@@ -832,6 +832,8 @@
         <h2 style="margin-top:0;" data-i18n="recurring.title">Programmed income/expenses</h2>
         <p class="hint" data-i18n="recurring.intro">Known amounts you want accounted for ahead of time — Budgets and Projections use these to tell known, certain amounts apart from the rest.</p>
 
+        <div id="recurring-opening" hidden></div>
+        <div id="recurring-body">
         <h2 class="recurring-kind-title" id="recurring-expenses-title" data-i18n="recurring.expensesTitle">Expenses</h2>
 
         <div class="breakdown-section">
@@ -1223,12 +1225,12 @@
             <p class="hint" data-i18n="be.tx.hint">What you added yourself in the last 90 days: by hand, by receipt photo, or because a statement showed it was missing. Tap a group to see the newest ones.</p>
             <p class="hint" data-i18n="bankMail.nc4">Once a month, load your statement in More, Statements: the app finds whatever is missing.</p>
             <div id="be-share" class="hint" hidden></div>
-            <div id="be-groups"></div>
             <div id="be-unread" hidden>
               <h3 data-i18n="notauto.unread.title">Bank emails I couldn't read</h3>
               <p class="hint" data-i18n="notauto.unread.hint">These emails arrived from your bank but the app didn't know their wording, so nothing was added. Only the sender and the wording of the subject are kept, never the amounts or names. Add these movements by hand, and tell JP about them.</p>
               <div id="be-unread-list"></div>
             </div>
+            <div id="be-groups"></div>
             <p class="hint" id="be-empty" hidden data-i18n="notauto.empty">Nothing in the last 90 days — everything arrived by itself.</p>
           </div>
 
@@ -1405,7 +1407,7 @@
     <div id="screen-feedback-privacy" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
-          <button type="button" class="add-inline" id="fp-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="icon-btn back-btn" id="fp-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
         <h2 style="margin-top:0;" data-i18n="fp.title">Feedback &amp; privacy</h2>
 
@@ -1460,7 +1462,7 @@
     </div>
 
     <div id="screen-statements" class="screen" data-mode="bank" hidden>
-      <div class="card">
+      <div class="card" id="stmt-head-card">
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="statements-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
@@ -1883,7 +1885,7 @@
         <button type="button" class="add-inline" id="loan-remind-reset" data-i18n="remind.reset">↺ Start the message again</button>
 
         <label for="loan-remind-phone" id="loan-remind-phone-label" data-i18n="remind.phone">WhatsApp number (optional)</label>
-        <input type="tel" id="loan-remind-phone" maxlength="24" autocomplete="off" inputmode="tel">
+        <div class="phone-row"><select id="loan-remind-phone-cc" data-i18n-aria-label="phone.country" aria-label="Country"></select><input type="tel" id="loan-remind-phone" maxlength="24" autocomplete="off" inputmode="tel"></div>
         <p class="hint" id="loan-remind-phone-hint" data-i18n="remind.phoneHint">With the country code, e.g. +51 987 654 321. Saved for next time. Leave it empty to pick the chat in WhatsApp.</p>
 
         <p class="hint" id="loan-remind-error" style="color:#d64545;"></p>
@@ -2349,6 +2351,7 @@
       </div>
       <div class="budget-modal-body">
         <p class="app-confirm-text" id="app-confirm-text"></p>
+        <input type="text" id="app-confirm-input" autocomplete="off" hidden>
         <button type="button" id="app-confirm-ok"></button>
         <button type="button" class="cancel-edit-btn" id="app-confirm-back" data-i18n="common.cancel">Cancel</button>
       </div>
@@ -2817,13 +2820,7 @@
         </div>
         <div id="bs-step-3" hidden>
           <p class="hint" id="bs-msg-3" role="status" style="color:#d64545;font-weight:600;"></p>
-          <p class="hint"><strong data-i18n="bankSample.previewTitle">This is exactly what JP will receive</strong></p>
-          <p class="hint"><span data-i18n="bankSample.subjectLine">Subject:</span> <span id="bs-subject"></span></p>
-          <textarea id="bs-preview" rows="10" spellcheck="false"></textarea>
-          <label for="bs-hide" data-i18n="bankSample.hideLabel">Anything else to hide? (your name as the bank writes it, your street…)</label>
-          <input type="text" id="bs-hide" autocomplete="off" maxlength="200">
-          <p class="hint" data-i18n="bankSample.hideHint">Separate with commas. Then tap “Hide again”.</p>
-          <button type="button" class="cancel-edit-btn" id="bs-redo"data-i18n="bankSample.redo">Hide again</button>
+          <p class="hint"><strong data-i18n="bankSample.previewTitle">Ready to send to JP</strong></p>
           <label for="bs-name" data-i18n="bankSample.nameLabel">Your first name, so JP can tell you when your bank is ready</label>
           <input type="text" id="bs-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">
           <button type="button" class="primary" id="bs-send" data-i18n="bankSample.send">Send to JP</button>
@@ -3226,7 +3223,7 @@
 
         <div id="person-phone-box" hidden>
           <label for="person-phone" data-i18n="remind.phone">WhatsApp number (optional)</label>
-          <input type="tel" id="person-phone" maxlength="24" autocomplete="off" inputmode="tel">
+          <div class="phone-row"><select id="person-phone-cc" data-i18n-aria-label="phone.country" aria-label="Country"></select><input type="tel" id="person-phone" maxlength="24" autocomplete="off" inputmode="tel"></div>
           <p class="hint" data-i18n="friends.phoneHint">With the country code, e.g. +51 987 654 321. Used by "Remind on WhatsApp" on their loans. Leave it empty to remove it.</p>
         </div>
 
@@ -3425,6 +3422,7 @@
           <div class="type-tab" data-frequency="once" data-i18n="recModal.once">One-time</div>
           <div class="type-tab" data-frequency="custom" data-i18n="recModal.other">Other</div>
         </div>
+        <p class="hint" data-i18n="recurring.freqOtherHint">Every day or every week? Choose Custom.</p>
 
         <div id="recurring-custom-fields" hidden>
           <label for="recurring-interval" data-i18n="recModal.repeatsEvery">Repeats every</label>

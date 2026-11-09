@@ -30,8 +30,8 @@ test("the privacy text sits on the screen and is not cut: every section of the o
   ["privacy.intro", "privacy.liveTitle", "privacy.live", "privacy.readsTitle", "privacy.readsMail", "privacy.readsFiles", "privacy.agreeTitle", "privacy.agree",
     "privacy.sendTitle", "privacy.send", "privacy.neverTitle", "privacy.never", "privacy.otherTitle", "privacy.updates", "privacy.signin"].forEach((k) => assert.ok(s.includes(`data-i18n="${k}"`), k));
   assert.ok(!s.includes('data-i18n="privacy.removeTitle"') && s.includes('data-i18n="privacy.remove"'));
-  assert.match(STRINGS["privacy.remove"].en, /^Tap “Delete everything” below\./);
-  assert.match(STRINGS["privacy.remove"].es, /^Toca “Borrar todo” abajo\./);
+  assert.match(STRINGS["privacy.remove"].en, /^Tap \x22Delete everything\x22 below\./);
+  assert.match(STRINGS["privacy.remove"].es, /^Toca \x22Eliminar todo\x22 abajo\./);
 });
 
 test("Extra features keeps its pop-up but loses the second 'Change what I share' (the What I share card is on the same screen)", () => {
@@ -72,7 +72,7 @@ test("no text sends the person to a row that no longer exists, in either languag
   assert.match(STRINGS["privacy.signin"].es, /Más → Mi perfil → Dónde tengo la sesión iniciada/);
   assert.match(STRINGS["tour.more.feedback"].en, /Feedback & privacy/);
   assert.match(STRINGS["tour.more.feedback"].es, /Comentarios y privacidad/);
-  assert.match(STRINGS["tour.more.extras"].en, /^ There, “Extra features”/, "it follows the Feedback & privacy sentence");
+  assert.match(STRINGS["tour.more.extras"].en, /^ There, \x22Extra features\x22/, "it follows the Feedback & privacy sentence");
   assert.match(serverStrings, /More → Feedback & privacy → Extra features/);
 });
 

@@ -18,6 +18,9 @@
 // round-trip time to tell network/wake-up delay from real Sheet work.
 var PERF_INSTANCE_WARM_ = false;
 
+// A Sheet cell not set to text turns 0123 into 123: read as what was meant.
+function pmLast4_(v) { var s = String(v === undefined || v === null ? '' : v).trim(); return /^\d{1,3}$/.test(s) ? ('000' + s).slice(-4) : s; }
+
 function doPost(e) {
   var perfStart = Date.now();
   var perfCold = !PERF_INSTANCE_WARM_;
@@ -793,7 +796,7 @@ function getMeta() {
   return {
     categories: localizeCategories_(getAllRowsCached_('Categories')),
     banks: getAllRowsCached_('Banks'),
-    paymentMethods: getAllRowsCached_('Payment Methods'),
+    paymentMethods: getAllRowsCached_('Payment Methods').map(function (pm) { return Object.assign({}, pm, { last_4: pmLast4_(pm.last_4) }); }),
     tags: localizeTags_(getAllRowsCached_('Tags')),
     trips: getTripRows_(),
     // Business pack (Business.gs): empty, and no sheet is read, while the person has not turned it on.
