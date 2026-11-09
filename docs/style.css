@@ -3731,9 +3731,15 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #rates-add-next { margin-top: 12px; width: 100%; }
 
 /* Sheets sit above the iPhone keyboard (keepSheetsAboveKeyboard_ in app.js sets --kb-gap / --vv-h while it is open). */
-/* The strip under a lifted sheet is painted like the sheet: the bar iPhone puts above the keyboard is see-through, and the tab bar showed through it (owner's screenshot, 2026-11-09). The extra 1px closes any hairline at the sheet's edge. */
-html.kb-open .currency-modal-backdrop { padding-bottom: var(--kb-gap, 0px); box-sizing: border-box; background-image: linear-gradient(to top, var(--card) calc(var(--kb-gap, 0px) + 1px), transparent calc(var(--kb-gap, 0px) + 1px)); }
-html.kb-open .currency-modal-backdrop .currency-modal { max-height: calc(var(--vv-h, 100dvh) - 16px) !important; }
+/* The bar iPhone puts above the keyboard is see-through, and the tab bar showed through it (owner's screenshot, 2026-11-09). A sheet now
+   continues under that bar (--kb-peek, about the bar's height), so its lower part shows there; the same amount of extra room at the end of what
+   scrolls lets the last field come clear of the bar. Whatever is left under the sheet is painted in its colour (the 1px closes any hairline). */
+html.kb-open { --kb-peek: min(var(--kb-gap, 0px), 70px); }
+html.kb-open .currency-modal-backdrop { padding-bottom: calc(var(--kb-gap, 0px) - var(--kb-peek)); box-sizing: border-box; background-image: linear-gradient(to top, var(--card) calc(var(--kb-gap, 0px) + 1px), transparent calc(var(--kb-gap, 0px) + 1px)); }
+html.kb-open .currency-modal-backdrop .currency-modal { max-height: calc(var(--vv-h, 100dvh) - 16px + var(--kb-peek)) !important; padding-bottom: calc(16px + var(--kb-peek)); }
+html.kb-open .currency-modal-backdrop .currency-modal:has(> :is(.budget-modal-body, .edit-entry-modal-body, #drilldown-scroll-area, .bill-scroll, .pace-screen-body, .currency-option-list):last-child:not([hidden])) { padding-bottom: 0; }
+html.kb-open .currency-modal-backdrop .currency-modal > :is(.budget-modal-body, .edit-entry-modal-body, #drilldown-scroll-area, .bill-scroll, .pace-screen-body, .currency-option-list):last-child:not([hidden]) { padding-bottom: calc(16px + var(--kb-peek)); }
+html.kb-open #entries-bulk-go, html.kb-open #entries-bulk-cat-go, html.kb-open #entries-bulk-trip-go { bottom: var(--kb-peek); }
 
 /* A currency exchange on Home: what left above, what arrived below (buildExchangePairRow_). */
 .entry-amount .xch-amt { display: block; }
