@@ -70,3 +70,15 @@ test("the page loads the engine before app.js, and the practice walkthrough poin
     assert.ok(html.includes(`id="${id}"`), `index.html has no #${id}`);
   }
 });
+
+test("the friend's page step waits for the page to load, and Exit comes back during a long wait", () => {
+  const docs = path.join(__dirname, "..", "..", "docs");
+  const lines = fs.readFileSync(path.join(docs, "app.js"), "utf8").split("\n");
+  const at = lines.findIndex((l) => l.includes('tr("spot.p.s13a")'));
+  assert.ok(at > 0);
+  const step = lines.slice(at - 1, at + 1).join("\n");
+  assert.ok(step.includes(".loan-detail-actions:not([hidden])"), "the target must not exist until the page's buttons have shown");
+  assert.match(step, /exitAfter: \d+/);
+  const engine = fs.readFileSync(path.join(docs, "spotlight.js"), "utf8");
+  assert.ok(engine.includes("exitBtn.hidden = !!step.exitAfter"));
+});
