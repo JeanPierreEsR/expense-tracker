@@ -174,6 +174,6 @@ test("where a real tutorial exists the practice waits for the two-week nudge on 
 });
 
 test("the closed Needs review row: the first tutorial opens it, the small extras wait for the person to open it", () => {
-  assert.match(section("function startReviewTopUp_(", "// Transfers"), /!reviewOpen_\) return;/);
+  assert.match(section("function startReviewTopUp_(", "const TRANSFER_FEATURE_"), /!reviewOpen_\) return;/);
   assert.match(app, /setReviewOpen_\(!reviewOpen_\); if \(reviewOpen_\) offerReviewTip_\(\);/);
 });
