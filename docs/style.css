@@ -3799,3 +3799,6 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 /* The kinds under "I work for myself": a full line of their own, also among the small side-by-side chips of My profile. */
 .occ-kinds { flex: 1 0 100%; padding-left: 12px; border-left: 2px solid var(--border); box-sizing: border-box; }
 .occ-kinds .hint { margin: 2px 0 6px; }
+
+/* Home, "Waiting to be paid": the button's text ends at the same right edge as the amount above it. */
+.waiting-received-btn { padding-right: 0; }

@@ -995,7 +995,15 @@ function createEntry(payload) {
     if (payload.charge_pending) entry.charge_pending = '1';
     if (Number(payload.paid_amount) > 0 && payload.paid_currency) { entry.paid_amount = Number(payload.paid_amount); entry.paid_currency = String(payload.paid_currency).toUpperCase(); }
   }
+  var incomeWaits = entry.type === 'income' && !!payload.income_waiting;
+  if (incomeWaits) {
+    checkWaitingIncome_(entry.paid_by, !!entry.company_id);
+    ensureIncomeWaitingColumns_();
+    entry.payment_method_id = '';   // no account until the money arrives
+    entry.income_waiting = '1';
+  }
   appendRowObject('Entries', entry);
+  if (incomeWaits) createWaitingIncomeLoan_(entry, payload.due_date);
   if (guessedCategory) entry.guessed_category_name = categoryNameForMessage_(guessedCategory);
 
   if (payload.tag_ids && payload.tag_ids.length) {
@@ -1438,6 +1446,7 @@ function buildSearchIndexRows_(entries) {
     var usdShare = usdLineAmount_(ratesByCurrency, ownShare, e.currency, e.date);
     if (usdShare != null) row.own_share_usd = usdShare;   // third currency: the share in dollars (RatesUsd.gs)
     // Only while the Business pack is on, so a personal-only copy's search data is exactly what it was.
+    if (e.income_waiting) row.income_waiting = e.income_waiting;
     if (business) { row.company_id = e.company_id || ''; row.project_id = e.project_id || ''; row.expected_payment_id = e.expected_payment_id || ''; row.igv_amount = e.igv_amount || ''; }
     return row;
   });
@@ -1481,6 +1490,7 @@ function listPendingEntries() {
   // A waiting entry can be a repayment's extra (income / expense with no category yet): it carries `link` like a confirmed one
   // so the Needs review row can send Discard to the repayment's screen instead of deleting it on its own.
   var transferLinks = entries.length ? buildTransferLinkMap_() : {};
+  var waitingIncome = entries.some(function (e) { return e.type === 'income'; }) ? listWaitingIncome_() : [];
   var payeeHist = entries.length ? buildPayeeHistory_() : null;   // PayeeGuess.gs
   entries.forEach(function (entry) {
     if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];
@@ -1494,6 +1504,8 @@ function listPendingEntries() {
     if (loanHint) entry.loan_hint = loanHint;
     var chargeMatch = chargeMatchForReview_(entry, all);   // "Is this the charge of …?" (Charges.gs)
     if (chargeMatch) entry.charge_match = chargeMatch;
+    var waitingMatch = entry.type === 'income' && !isPracticeReview_(entry) ? waitingMatchFor_(entry, waitingIncome) : null;   // "Is this the payment you were waiting for?" (IncomeWaiting.gs)
+    if (waitingMatch) entry.waiting_match = waitingMatch;
   });
   entries.sort(compareEntriesRecency_);
   return entries;

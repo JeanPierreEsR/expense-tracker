@@ -255,7 +255,9 @@ function updateEntryFromApp_(payload) {
   syncLoanBeforeEntryEdit_(payload.id, payload.fields);   // a loan's money entry and the loan are one: the loan follows (and may refuse)
   var before = payload.fields && payload.fields.category_id !== undefined ? (getEntryById_(payload.id) || {}).category_id : null;
   var wasExchangeLeg = !!exchangeLegSide_(getEntryById_(payload.id));
+  var afterIncomeEdit = prepareWaitingIncomeEdit_(payload.id, payload.fields);   // an income not received yet and its debt are one
   var entry = updateEntryFields(payload.id, payload.fields);
+  if (afterIncomeEdit) { afterIncomeEdit(); entry = getEntryById_(payload.id); }
   // No longer an exchange leg once it is another type: drop the marker so nothing treats it as one.
   if (wasExchangeLeg && entry && entry.type !== 'transfer' && entry.exchange) {
     updateRowFields_('Entries', payload.id, { exchange: '' });
