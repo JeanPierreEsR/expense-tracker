@@ -22324,7 +22324,9 @@ function startGuidedLoansLook_() {
   Spotlight.run([
     { target: row, text: () => tr("spot.g.loans2", { name: g.friendName }), tap: row, wait: 30000,
       before: async () => { showScreen("loans"); }, poke: () => { refreshLoans().catch(() => {}); } },
-    { look: true, target: () => document.querySelector("#loan-detail-modal-backdrop .currency-modal"), text: () => tr("spot.p.s13a"), button: () => tr("spot.p.gotIt"), wait: 15000,
+    // Only once the friend's page has finished loading (its buttons are the last thing to show): until then no "Got it" (owner, 2026-11-09).
+    { look: true, target: () => (document.querySelector("#loan-detail-modal-backdrop .loan-detail-actions:not([hidden])") ? document.querySelector("#loan-detail-modal-backdrop .currency-modal") : null),
+      text: () => tr("spot.p.s13a"), button: () => tr("spot.p.gotIt"), wait: 30000, exitAfter: 8000,
       before: async () => { await new Promise((r) => setTimeout(r, 600)); } },
     { look: true, target: "#record-repayment-btn", text: () => tr("spot.g.loans4"), button: () => tr("spot.g.done"), wait: 15000 }
   ], {

@@ -21,6 +21,7 @@
 //                                                          a tap anywhere closes the keyboard, which is how the step ends
 //   after:   () => void                                    runs when the step is done
 //   wait:    ms                                            how long to wait for the target to appear (default 5000; then the step is left out)
+//   exitAfter: ms                                          "Exit" stays hidden while waiting for the target, and shows after this long if it still has not appeared
 //   poke:    () => void                                    called every 2 s while waiting for the target (e.g. refresh a list), never while ctx.busy()
 //   available: () => boolean                               cheap, no side effects: lets "3 of 12" count only steps that will show
 //   button:  () => string                                  shows one button with this label; pressing it ends the step (an info step)
@@ -261,6 +262,10 @@
     async function showStep(i, fixing, afterSkip) {
       var step = steps[i], token = ++stepToken, ok = true;
       root.dataset.step = String(i) + (step.key ? ":" + step.key : "");   // which step is on (shown in tests and bug reports)
+      // Nothing to press while the screen behind is still loading; Exit comes back after a few seconds so a load that hangs cannot trap the person (owner, 2026-11-09).
+      var exitBtn = $(".spot-exit");
+      exitBtn.hidden = !!step.exitAfter;
+      var exitTimer = step.exitAfter ? setTimeout(function () { if (!closed && token === stepToken) { exitBtn.hidden = false; layoutSoon(); } }, step.exitAfter) : null;
       // A step that has to prepare something slowly (waiting for a save) must not leave the PREVIOUS step's highlight on screen meanwhile.
       var waitTimer = step.before ? setTimeout(function () { if (!closed && token === stepToken) showWaiting(); }, 250) : null;
       try { if (step.before) ok = (await step.before()) !== false; } catch (e) { ok = false; }
@@ -286,6 +291,8 @@
         await sleep(100); waited += 100;
       }
       if (closed || token !== stepToken) return "stale";
+      if (exitTimer) clearTimeout(exitTimer);
+      exitBtn.hidden = false;
       if (targets.length && targets[0].scrollIntoView && !isTyping(step, doc)) targets[0].scrollIntoView({ block: "center", inline: "nearest" });
       await frames(2);
       if (closed || token !== stepToken) return "stale";
