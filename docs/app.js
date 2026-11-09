@@ -12240,7 +12240,7 @@ function showWelcomeStep_(step) {
 // Two groups of picks, "My responsibilities" and "My lifestyle"; each pick adds exactly one category (backend/Profile.gs applyProfile, called when the
 // welcome is saved). The same chips are used by More → My profile → What fits me.
 const FITS_GROUPS_ = [
-  { title: "fits.g.life", answers: ["car", "kids", "pets", "study", "health", "selfemployed", "family", "debt"] },
+  { title: "fits.g.life", answers: ["car", "kids", "pets", "study", "health", "family", "debt"] },
   { title: "fits.g.spheres", answers: ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "gifts"] }
 ];
 const FITS_ANSWERS_ = FITS_GROUPS_.flatMap((g) => g.answers);
@@ -12264,57 +12264,77 @@ function fillFitsChips_(box, selected, onToggle, compact) {
   });
 }
 const fitsToggled_ = (list, a) => (list.includes(a) ? list.filter((x) => x !== a) : list.concat(a));
-// "How do you get paid?" (owner, 2026-11-07): a fixed salary, income that varies, or both (2026-11-08) — then the kinds that fit (sales,
-// freelance, daily work; several), each adding its income category. The same choices on the welcome and in My profile.
-// sel = { salary: bool, varies: bool, kinds: [] }; payCode_ makes the server's answer of it.
-const payCode_ = (c) => (c.salary && c.varies ? "both" : c.varies ? "varies" : c.salary ? "salary" : "none");
-function fillPayChoices_(box, sel, onPick) {
+// "These days…" (owner, 2026-11-09): what the person does, the first group of What fits me, on the welcome and in My profile. Several can
+// be picked. "I work for myself" opens the kinds (sales, freelance, daily work) and also brings the work-expenses pack (the old
+// "selfemployed" pick). sel = { list: [], kinds: [] }. Saved with the rest of What fits me (applyProfile).
+const OCCUPATIONS_ = ["full_time", "self_employed", "own_business", "student", "next_step", "home", "retired", "rentals"];
+function fillOccupationChips_(box, sel, onPick, compact) {
   box.innerHTML = "";
-  const kindsNow = sel.kinds || [];
+  const h = document.createElement("h3");
+  h.textContent = tr("occ.title");
+  box.appendChild(h);
   const row = document.createElement("div");
-  row.className = "welcome-choices";
-  [["salary", "pay.salary"], ["varies", "pay.varies"]].forEach(([v, key]) => {
+  row.className = "welcome-choices" + (compact ? " fits-compact" : "");
+  OCCUPATIONS_.forEach((o) => {
+    const on = sel.list.includes(o);
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "welcome-choice" + (sel[v] ? " active" : "");
-    b.setAttribute("aria-pressed", String(!!sel[v]));
-    b.textContent = tr(key);
-    b.addEventListener("click", () => onPick(Object.assign({}, sel, { [v]: !sel[v], kinds: v === "varies" && sel.varies ? [] : kindsNow })));
+    b.className = "welcome-choice" + (on ? " active" : "");
+    b.setAttribute("aria-pressed", String(on));
+    b.textContent = tr("occ." + o);
+    b.addEventListener("click", () => onPick({ list: on ? sel.list.filter((x) => x !== o) : sel.list.concat(o), kinds: o === "self_employed" && on ? [] : sel.kinds }));
     row.appendChild(b);
+    if (o === "self_employed" && on) row.appendChild(occupationKinds_(sel, onPick, compact));   // right under it, not below the whole list
   });
   box.appendChild(row);
-  if (!sel.varies) return;
+}
+function occupationKinds_(sel, onPick, compact) {
+  const wrap = document.createElement("div");
+  wrap.className = "occ-kinds";
   const q = document.createElement("p");
   q.className = "hint";
   q.textContent = tr("pay.kindQ");
-  box.appendChild(q);
+  wrap.appendChild(q);
   const kinds = document.createElement("div");
-  kinds.className = "welcome-choices pay-kinds";
+  kinds.className = "welcome-choices pay-kinds" + (compact ? " fits-compact" : "");
   ["sales", "freelance", "daily"].forEach((k) => {
+    const on = sel.kinds.includes(k);
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "welcome-choice" + (kindsNow.includes(k) ? " active" : "");
-    b.setAttribute("aria-pressed", String(kindsNow.includes(k)));
+    b.className = "welcome-choice" + (on ? " active" : "");
+    b.setAttribute("aria-pressed", String(on));
     b.textContent = tr("pay.kind." + k);
-    b.addEventListener("click", () => onPick(Object.assign({}, sel, { kinds: kindsNow.includes(k) ? kindsNow.filter((x) => x !== k) : kindsNow.concat(k) })));
+    b.addEventListener("click", () => onPick({ list: sel.list, kinds: on ? sel.kinds.filter((x) => x !== k) : sel.kinds.concat(k) }));
     kinds.appendChild(b);
   });
-  box.appendChild(kinds);
+  wrap.appendChild(kinds);
+  return wrap;
 }
+// The saved answer; a person who answered the older "How do you get paid?" or picked "self-employed" keeps that answer here.
+function occupationFromSettings_(extraPicks) {
+  const st = (meta && meta.settings) || {};
+  const pay = payFromSetting_(st.pay);
+  let list = st.occupation ? String(st.occupation).split(",").filter((o) => OCCUPATIONS_.includes(o)) : [];
+  if (!st.occupation) { if (pay.salary) list.push("full_time"); if (pay.varies) list.push("self_employed"); }
+  if ((extraPicks || []).includes("selfemployed") && !list.includes("self_employed")) list.push("self_employed");
+  return { list, kinds: pay.kinds };
+}
+// What the save sends: "I work for myself" also brings the work-expenses pack.
+const fitsAnswersWithOcc_ = (fits, occ) => fits.concat(occ.list.includes("self_employed") ? ["selfemployed"] : []);
 const payFromSetting_ = (v) => { const [pay, kinds] = String(v || "").split(":"); return { salary: pay === "salary" || pay === "both", varies: pay === "varies" || pay === "both", kinds: (kinds || "").split(",").filter(Boolean) }; };
 // Getting started and the guided entry put income first only for people with no salary at all.
 const payVaries_ = () => { const p = payFromSetting_(meta && meta.settings && meta.settings.pay); return p.varies && !p.salary; };
 function renderWelcomeFits_() {
   I18n.applyStatic(welcomeEl_("welcome-fits"));
   welcomeEl_("wf-step").textContent = tr("welcome.step", { n: 2 });
-  const payOn = !!(meta && meta.capabilities && meta.capabilities.incomeVaries);
-  welcomeEl_("wpay-block").hidden = !payOn;
-  if (payOn) fillPayChoices_(welcomeEl_("wpay-box"), welcome_.payChoice || { salary: false, varies: false, kinds: [] }, (c) => { welcome_.payChoice = c; renderWelcomeFits_(); });
+  const occOn = !!(meta && meta.capabilities && meta.capabilities.occupation);
+  welcomeEl_("wpay-block").hidden = !occOn;
+  if (occOn) fillOccupationChips_(welcomeEl_("wpay-box"), welcome_.occ || { list: [], kinds: [] }, (c) => { welcome_.occ = c; renderWelcomeFits_(); });
   fillFitsChips_(welcomeEl_("wf-chips"), welcome_.fits, (a) => { welcome_.fits = fitsToggled_(welcome_.fits, a); renderWelcomeFits_(); });
   waEl_("wb-block").hidden = !businessOffered();   // the business question is only asked where the pack is offered
   if (!businessOffered()) welcome_.business = false;
   document.querySelectorAll("[data-welcome-business]").forEach((b) => b.classList.toggle("active", (b.dataset.welcomeBusiness === "yes") === !!welcome_.business));
-  welcomeEl_("wf-skip-btn").hidden = welcome_.fits.length > 0;
+  welcomeEl_("wf-skip-btn").hidden = welcome_.fits.length > 0 || !!(welcome_.occ && welcome_.occ.list.length);
 }
 welcomeEl_("wf-back-btn").addEventListener("click", () => showWelcomeStep_(1));
 welcomeEl_("wf-next-btn").addEventListener("click", () => showWelcomeStep_(3));
@@ -12688,12 +12708,9 @@ async function finishWelcome_() {
     if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
     // The category packs. An older backend lacks the action (the app only asks one that says it has it), and a failure here never blocks the
     // welcome: the same packs can be added later from More → My profile → What fits me.
-    // How do you get paid? (after the picks: its category is one more income category)
-    if (welcome_.payChoice && (welcome_.payChoice.salary || welcome_.payChoice.varies) && meta && meta.capabilities && meta.capabilities.incomeVaries) {
-      try { await callApi("setPay", { pay: payCode_(welcome_.payChoice), kinds: welcome_.payChoice.kinds }); } catch (e) { /* can be answered again in My profile */ }
-    }
-    if (welcome_.fits.length && meta && meta.capabilities && meta.capabilities.profile) {
-      try { await callApi("applyProfile", { answers: welcome_.fits }); } catch (e) { /* see above */ }
+    const occ = welcome_.occ && welcome_.occ.list.length && meta && meta.capabilities && meta.capabilities.occupation ? welcome_.occ : null;
+    if ((welcome_.fits.length || occ) && meta && meta.capabilities && meta.capabilities.profile) {
+      try { await callApi("applyProfile", Object.assign({ answers: occ ? fitsAnswersWithOcc_(welcome_.fits, occ) : welcome_.fits }, occ ? { occupation: occ } : {})); } catch (e) { /* see above */ }
     }
     await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, homeCurrency: welcome_.home, currencies: welcome_.currencies });
   } catch (err) {
@@ -12714,7 +12731,7 @@ async function finishWelcome_() {
   welcomeEl_("welcome-accounts").hidden = true;
   welcomeEl_("welcome-platforms").hidden = true;
   // The new accounts, platforms and categories must show up in the app right away (entry form, Accounts & cards): reload on the way out.
-  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName || !!(welcome_.payChoice && (welcome_.payChoice.salary || welcome_.payChoice.varies));
+  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName || !!(welcome_.occ && welcome_.occ.list.length);
   const toTour = () => {
     if (perfShareState_().asked) openTour_(reloadAfter);
     else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
@@ -13174,9 +13191,7 @@ async function showMyProfileScreen() {
   fitsOpen_(false);   // closed every time the screen opens: it is for a one-off choice, and it is long
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
-  document.getElementById("my-profile-pay-card").hidden = !caps.incomeVaries;
-  document.getElementById("my-profile-pay-msg").textContent = "";
-  if (caps.incomeVaries) drawProfilePay_(payFromSetting_(meta.settings && meta.settings.pay));
+  fitsOcc_ = occupationFromSettings_(String((meta && meta.settings && meta.settings.profile) || "").split(","));
   try {
     const [names, state] = await Promise.all([
       callApi("getOwnerNames", {}),
@@ -13184,7 +13199,10 @@ async function showMyProfileScreen() {
     ]);
     renderOwnerNames_(names);
     // A saved pick shows as clicked only while its category still exists (hidden or deleted ones are not clicked any more).
-    if (state && Array.isArray(state.active)) fitsSel_ = state.active.filter((a) => FITS_ANSWERS_.includes(a));
+    if (state && Array.isArray(state.active)) {
+      fitsSel_ = state.active.filter((a) => FITS_ANSWERS_.includes(a));
+      if (state.active.includes("selfemployed")) fitsOcc_ = occupationFromSettings_(["selfemployed"]);
+    }
     fitsDraw_();
     drawProfileDates_();
     loading.innerHTML = "";
@@ -13192,22 +13210,6 @@ async function showMyProfileScreen() {
   } catch (e) {
     loading.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(e.message)}</p>`;
   }
-}
-// How I get paid: a tap on "A fixed salary" or on a kind saves at once; "It varies" alone only opens the kinds. Un-ticking a kind
-// never deletes its category (as What fits me).
-function drawProfilePay_(sel) {
-  fillPayChoices_(document.getElementById("my-profile-pay"), sel, (c) => {
-    drawProfilePay_(c);
-    if (c.varies && !c.salary && !c.kinds.length && !sel.kinds.length && !sel.salary) return;   // "It varies" alone only opens the kinds
-    const msg = document.getElementById("my-profile-pay-msg");
-    msg.textContent = tr("common.savingToast");
-    callApi("setPay", { pay: payCode_(c), kinds: c.kinds }).then((r) => {
-      if (meta && meta.settings) meta.settings.pay = r.pay;
-      const added = r.addedAll && r.addedAll.length ? r.addedAll.map((a) => a.name).join(", ") : r.added ? r.added.name : "";
-      msg.textContent = added ? tr("prof.payAdded", { name: added }) : tr("prof.paySaved");
-      if (r.added) loadMeta && loadMeta().catch(() => {});
-    }).catch(() => { msg.textContent = tr("prof.payFailed"); });
-  });
 }
 document.getElementById("more-my-profile-btn").addEventListener("click", showMyProfileScreen);
 document.getElementById("my-profile-back-btn").addEventListener("click", () => showScreen("more"));
@@ -15978,10 +15980,15 @@ document.getElementById("categories-add-btn").addEventListener("click", () => op
 // "What fits me" (More → My profile): the same "What fits you?" chips for people who already use the app. Adds the common categories they
 // don't have (an equivalent such as "Mobile Phone" counts as having "Phone") plus the packs of what they pick. Never removes anything.
 let fitsSel_ = [];
+let fitsOcc_ = { list: [], kinds: [] };   // "These days…", the first group
 const fitsEl_ = (id) => document.getElementById(id);
 function fitsDraw_() {
+  const occOn = !!(meta && meta.capabilities && meta.capabilities.occupation);
+  fitsEl_("fits-occupation").hidden = !occOn;
+  if (occOn) fillOccupationChips_(fitsEl_("fits-occupation"), fitsOcc_, (c) => { fitsOcc_ = c; fitsDraw_(); }, true);
   fillFitsChips_(fitsEl_("fits-chips"), fitsSel_, (a) => { fitsSel_ = fitsToggled_(fitsSel_, a); fitsDraw_(); }, true);
-  fitsEl_("fits-count").textContent = fitsSel_.length ? tr("prof.fitsPicked", { n: fitsSel_.length }) : tr("prof.fitsNone");
+  const n = fitsSel_.length + (occOn ? fitsOcc_.list.length : 0);
+  fitsEl_("fits-count").textContent = n ? tr("prof.fitsPicked", { n }) : tr("prof.fitsNone");
 }
 // The "What fits me" row opens and closes its choices.
 function fitsOpen_(open) {
@@ -15996,10 +16003,14 @@ fitsEl_("fits-add-btn").addEventListener("click", async () => {
   btn.disabled = true;
   fitsEl_("fits-msg").textContent = tr("common.savingToast");
   try {
-    const res = await callApi("applyProfile", { answers: fitsSel_, basics: true });
-    if (meta && meta.settings) meta.settings.profile = (res.profile || []).join(",");
+    const occOn = !!(meta && meta.capabilities && meta.capabilities.occupation);
+    const res = await callApi("applyProfile", Object.assign({ answers: occOn ? fitsAnswersWithOcc_(fitsSel_, fitsOcc_) : fitsSel_, basics: true }, occOn ? { occupation: fitsOcc_ } : {}));
+    if (meta && meta.settings) {
+      meta.settings.profile = (res.profile || []).join(",");
+      if (res.occupation) { meta.settings.occupation = res.occupation.join(","); meta.settings.pay = res.pay || ""; }
+    }
     const changed = res.added.length + (res.restored || []).length;   // new ones, plus hidden ones shown again
-    fitsEl_("fits-msg").textContent = changed ? tr("fits.added", { n: changed }) : tr("fits.none");
+    fitsEl_("fits-msg").textContent = changed ? tr("fits.added", { n: changed }) : tr(occOn ? "fits.savedNoNew" : "fits.none");
     if (changed) await refreshCategoriesAfterChange_();
   } catch (err) {
     fitsEl_("fits-msg").textContent = tr("fits.failed");

@@ -3787,3 +3787,7 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 
 /* "Show the n people" starts at the card's left edge, with the rows above it (Tomás, 2026-11-09). */
 #loans-ov-people-btn { padding-left: 0; margin-left: 0; }
+
+/* The kinds under "I work for myself": a full line of their own, also among the small side-by-side chips of My profile. */
+.occ-kinds { flex: 1 0 100%; padding-left: 12px; border-left: 2px solid var(--border); box-sizing: border-box; }
+.occ-kinds .hint { margin: 2px 0 6px; }

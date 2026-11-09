@@ -114,6 +114,7 @@ function getCapabilities_() {
     friendsBulkDelete: true,   // deleteFriends (several at once, More → Friends → Edit); an older backend lacks it, so the app hides the Edit button
     programmedStop: true,   // stopRecurringAtLastPayment / deleteRecurringExpenses / previewProgrammedDelete / convertPausedProgrammedForOwnerOnce + `paid` on one-time items (Programmed items: Stop or Delete); an older backend lacks them, so the app keeps its plain Delete
     incomeVaries: true,     // income categories regular / varies (saveCategory income_kind), setPay, getPeriodSummary.incomeVaries (IncomeVaries.gs)
+    occupation: true,       // applyProfile({occupation}): What fits me → These days…
     budgetHistory: true,    // budgets change forward only: addBudget({start}), endBudget(s), updateBudget({restart}) (Budgets.gs § Budget history)
     paceCategories: true,   // getMonthlyHistory({categoryIds}): the Spending pace screen's 'Which expenses' (an older backend would ignore it and draw all expenses)
     paceRanges: true,       // getSpendingPace({ranges}): the Spending pace card in the Week, Year and Custom views

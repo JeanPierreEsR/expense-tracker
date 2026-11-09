@@ -142,7 +142,7 @@ test("the welcome has the 'What fits you?' screen with two groups; the Business 
   assert.ok(fits > 0 && fits < wb && wb < accounts, "the Business question sits on the new screen, hidden by default");
   assert.match(app, /waEl_\("wb-block"\)\.hidden = !businessOffered\(\)/, "and is shown only where the pack is offered");
   assert.match(app, /function waNext_\(\) \{[\s\S]*?showWelcomeStep_\(4\);\s*\n\}/, "the accounts step leads to the platforms step for everyone");
-  assert.match(app, /welcome_\.fits\.length && meta && meta\.capabilities && meta\.capabilities\.profile/, "an older backend is never asked");
+  assert.match(app, /\(welcome_\.fits\.length \|\| occ\) && meta && meta\.capabilities && meta\.capabilities\.profile/, "an older backend is never asked");
   assert.match(app, /categories-suggest-btn"\)\.hidden = !\(meta && meta\.capabilities && meta\.capabilities\.profile\)/);
   assert.match(app, /FITS_GROUPS_ = \[\s*\{ title: "fits\.g\.life"[\s\S]*"fits\.g\.spheres"/);
   assert.match(doc("docs", "strings.js"), /"welcome\.step": \{ en: "Step \{n\} of 4"/);
