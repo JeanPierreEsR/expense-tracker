@@ -198,3 +198,33 @@ test("Telegram speaks the copy's language", () => {
   assert.match(tap("waitpay:tg-1", 3), /Registrado como el pago de Client Test/);
   assert.equal(rt.rows("Entries").filter((x) => x.id === "tg-1" && x.type === "income" && x.status === "confirmed").length, 0);
 });
+
+test("Programmed this month: pending income sits in its currency's income group, by expected date, those with none last", () => {
+  const { rt, person } = setup();
+  const incomeCat = rt.rows("Categories").find((c) => c.type === "income").id;
+  rt.api("addRecurringExpense", { description: "Monthly client", amount: 500, currency: "PEN", category_id: incomeCat, frequency: "once", date: "2099-12-15" });
+  const none = waiting(rt, person, { description: "No date", amount: 10 }).data;
+  const far = waiting(rt, person, { description: "Later", amount: 20, due_date: "2099-12-20" }).data;
+  const near = waiting(rt, person, { description: "Sooner", amount: 30, due_date: "2099-12-10" }).data;
+  const usd = waiting(rt, person, { description: "Dollars", amount: 40, currency: "USD" }).data;
+  const out = post(rt, "listExpectedRecurringItems").data.groups.filter((g) => g.type === "income");
+  const pen = out.find((g) => g.currency === "PEN");
+  const waitingNames = pen.items.filter((i) => i.waiting).map((i) => i.description);
+  assert.deepEqual(waitingNames, ["Sooner", "Later", "No date"]);
+  assert.equal(pen.items[pen.items.length - 1].description, "No date");
+  assert.equal(pen.items.find((i) => i.description === "Sooner").loan_id, loanOf(rt, near.id).id);
+  const sum = pen.items.reduce((n, i) => n + i.amount, 0);
+  assert.equal(pen.total, sum);
+  assert.equal(out.find((g) => g.currency === "USD").items.at(-1).description, "Dollars", "its own currency's group, last with no date");
+  assert.ok(far && none && usd);
+});
+
+test("Programmed this month: a part-payment lowers the amount and a full payment takes it off", () => {
+  const { rt, person, pm } = setup();
+  waiting(rt, person, { description: "Job", due_date: "2099-12-10" });
+  const item = () => post(rt, "listExpectedRecurringItems").data.groups.flatMap((g) => g.items).find((i) => i.waiting);
+  repay(rt, person, pm, 40);
+  assert.equal(item().amount, 60);
+  repay(rt, person, pm, 60);
+  assert.equal(item(), undefined);
+});

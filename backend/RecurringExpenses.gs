@@ -1809,7 +1809,22 @@ function listExpectedRecurringItems() {
       // and also fixes a latent mismatch for a monthly item whose day
       // (e.g. 31) got clamped to a shorter month's real last day.
       day: Number(entry.occurrenceDate.slice(8, 10)),
+      sort_date: entry.occurrenceDate,
       overdue: entry.occurrenceDate < todayStr
+    });
+  });
+
+  // Income not received yet is still to come, so it lives with the programmed income of its currency (IncomeWaiting.gs): by its expected date, or last with none.
+  var waitingIncome = listWaitingIncome_();
+  waitingIncome.forEach(function (w) {
+    var key = 'income|' + w.currency;
+    if (!groupsByKey[key]) groupsByKey[key] = { type: 'income', currency: w.currency, total: 0, items: [] };
+    var cat = categoryById[(getEntryById_(w.entry_id) || {}).category_id];
+    groupsByKey[key].total += w.remaining;
+    groupsByKey[key].items.push({
+      id: w.loan_id, waiting: true, loan_id: w.loan_id, friend_id: w.friend_id, friend_name: w.friend_name, description: w.description,
+      category_name: cat ? categoryLabel_(cat) : '', category_icon: cat ? cat.icon : '', amount: w.remaining,
+      expected_date: w.due_date, sort_date: w.due_date, overdue: !!w.due_date && w.due_date < todayStr
     });
   });
 
@@ -1819,7 +1834,10 @@ function listExpectedRecurringItems() {
       var rate = latestRateAtOrBefore_(ctx, group.currency, cutoffMonth);
       group.totalPen = rate != null ? group.total * rate : null;
     }
-    group.items.sort(function (a, b) { return a.day - b.day; });
+    group.items.sort(function (a, b) {   // a stable sort: those with no expected date stay in their own order, at the end
+      if (!a.sort_date || !b.sort_date) return (a.sort_date ? 0 : 1) - (b.sort_date ? 0 : 1);
+      return a.sort_date < b.sort_date ? -1 : (a.sort_date > b.sort_date ? 1 : 0);
+    });
     return group;
   });
 
@@ -1834,7 +1852,7 @@ function listExpectedRecurringItems() {
     return a.currency < b.currency ? -1 : 1;
   });
 
-  return { groups: groups, waitingIncome: listWaitingIncome_() };
+  return { groups: groups, waitingIncome: waitingIncome };
 }
 
 function clampedCalendarDate_(year, month, day) {
