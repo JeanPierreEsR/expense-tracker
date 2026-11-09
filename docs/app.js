@@ -20830,7 +20830,7 @@ function renderProjectionSplit_(detail) {
   const seasonal = !lastYearMethod && p.seasonalYears > 0 && Math.abs(p.seasonalFactor - 1) >= 0.0005;   // (any adjustment is said: a silent 2% made the sum look wrong, Carlos 2026-11-09)
   // "months left": every remaining day counts 1 / (the days of ITS month), so a
   // whole month is always 1 — whether it has 28 days or 31.
-  const monthsLeftText = (p.monthsLeft || 0).toFixed(2);
+  const monthsLeftText = (p.monthsLeft || 0).toFixed(3);   // (three decimals, so the sum shown can be followed: Carlos, 2026-11-09)
   const prorationLine = () => {
     if (lastYearMethod) return tr("projections.formulaLastYear", { year: p.lastYearYear, base: formatPen(p.baseAmountPen), amount: formatPen(p.expectedRemainingPen) });
     if (!seasonal) return tr("projections.formulaProrated", { rate: formatPen(p.levelPerMonth), months: monthsLeftText, n: p.daysLeft, amount: formatPen(p.expectedRemainingPen) });
@@ -20838,7 +20838,7 @@ function renderProjectionSplit_(detail) {
       pct: Math.max(1, Math.round(Math.abs(p.seasonalFactor - 1) * 100)),
       years: (p.seasonalYearList || []).join(", "),
       level: formatPen(p.levelPerMonth),
-      factor: p.seasonalFactor.toFixed(2),
+      factor: p.seasonalFactor.toFixed(3),
       months: monthsLeftText,
       n: p.daysLeft,
       amount: formatPen(p.expectedRemainingPen)
