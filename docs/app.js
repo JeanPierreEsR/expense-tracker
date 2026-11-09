@@ -7831,7 +7831,38 @@ function stripEditMarks_(screenId) {
   document.querySelectorAll(`#${screenId} .friends-check, #${screenId} .friends-check-spacer`).forEach((el) => el.remove());
   document.querySelectorAll(`#${screenId} .friends-check-row`).forEach((el) => el.classList.remove("friends-check-row"));
 }
+// Each bottom tab keeps its own place (owner, 2026-11-09). The whole app scrolls as one page, so a short tab pulled the shared position up and a long tab
+// came back somewhere else. Leaving a tab notes where it was; tapping back puts it there, and keeps it there while the tab's refresh redraws it (the page
+// can be too short at first), until the person touches the screen. In memory only: reopening the app starts at the top.
+const TAB_SCREENS_ = ["entries", "overview", "budgets", "projections", "loans", "more"];
+const tabScrollY_ = {};
+let tabScrollHoldEnd_ = null;
+function endTabScrollHold_() { if (tabScrollHoldEnd_) tabScrollHoldEnd_(); }
+function rememberTabScroll_(goingTo) {
+  endTabScrollHold_();
+  const open = document.querySelector(".screen:not([hidden])");
+  const name = open ? open.id.replace(/^screen-/, "") : null;
+  if (TAB_SCREENS_.includes(name) && name !== goingTo) tabScrollY_[name] = window.scrollY;
+}
+function restoreTabScroll_(name) {
+  if (Spotlight.isRunning()) return;   // a practice moves the page itself
+  const y = tabScrollY_[name] || 0;
+  window.scrollTo(0, y);
+  if (!y) return;
+  const ro = new ResizeObserver(() => { if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y); });
+  ro.observe(document.getElementById("screen-" + name));
+  const TOUCHES = ["pointerdown", "touchstart", "wheel"];
+  const timer = setTimeout(() => endTabScrollHold_(), 10000);
+  tabScrollHoldEnd_ = () => {
+    tabScrollHoldEnd_ = null;
+    ro.disconnect();
+    clearTimeout(timer);
+    TOUCHES.forEach((t) => window.removeEventListener(t, endTabScrollHold_, true));
+  };
+  TOUCHES.forEach((t) => window.addEventListener(t, endTabScrollHold_, { capture: true, passive: true }));
+}
 function showScreen(name) {
+  rememberTabScroll_(name);
   if (name !== "budgets" && budgetsEditing_) setBudgetsEditing_(false, false);
   if (name !== "accounts" && accountsEditing_) setAccountsEditing_(false);
   if (name !== "trips" && tripsEditing_) setTripsEditing_(false);
@@ -7965,6 +7996,7 @@ document.querySelectorAll(".nav-btn").forEach((btn) => {
     if (target === "more" && moreReturn && !MORE_SUBSCREENS.includes(visibleName) && visibleName !== "more") {
       const { name, scrollY } = moreReturn;
       moreReturn = null;
+      rememberTabScroll_(name);
       document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== `screen-${name}`; });
       document.querySelectorAll(".nav-btn").forEach((b) => {
         b.classList.toggle("active", b.dataset.screen === "more");
@@ -7973,6 +8005,8 @@ document.querySelectorAll(".nav-btn").forEach((btn) => {
       return;
     }
     showScreen(target);
+    // Tapping the tab already open, or More from one of its own sub-screens (which goes to the list), is not a return to a tab.
+    if (target !== visibleName && !(target === "more" && MORE_SUBSCREENS.includes(visibleName))) restoreTabScroll_(target);
   });
 });
 
