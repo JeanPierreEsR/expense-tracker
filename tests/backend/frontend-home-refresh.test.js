@@ -15,7 +15,7 @@ test("deleting one entry, a plain Confirm and a new rate each ask for fresh numb
 
 test("a forced refresh during one on its way runs again when that one lands", () => {
   const fn = between("function refreshHomeGlance_(force)", 'document.addEventListener("visibilitychange"');
-  assert.match(fn, /if \(homeGlanceBusy_\) \{ if \(force\) homeGlanceAgain_ = true; return homeGlanceBusy_; \}/);
+  assert.match(fn, /if \(homeGlanceBusy_\) \{ if \(force && apiWriteGen_ !== homeGlanceGen_\) homeGlanceAgain_ = true; return homeGlanceBusy_; \}/);
   assert.match(fn, /if \(homeGlanceAgain_\) \{ homeGlanceAgain_ = false; refreshHomeGlance_\(true\); \}/);
 });
 

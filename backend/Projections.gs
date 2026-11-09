@@ -255,7 +255,8 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
 
   var overridesByKey = {};
   getProjectionOverrideRows_().forEach(function (o) {
-    overridesByKey[o.category_id + '|' + String(o.period_key)] = Number(o.amount);
+    var overrideAmount = Number(o.amount);
+    if (o.amount !== '' && isFinite(overrideAmount) && overrideAmount >= 0) overridesByKey[o.category_id + '|' + String(o.period_key)] = overrideAmount;   // (a row typed by hand may be anything)
   });
 
   var recurringByCategory = {};
@@ -451,10 +452,9 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
     // breakdown lines a category's own row shows (actual + programmed +
     // expected always equals this exactly, with an override folding into
     // it the same way it folds into remainingTotalPen above). `amountPen`
-    // (the old flat full-period figure) is kept only for
-    // openProjectionOverrideModal_'s own pre-fill — an override still
-    // targets "what I think the FULL period will total," a genuinely
-    // different question than "what's happened plus what's left."
+    // (the old flat full-period figure) is only what a typed figure is
+    // kept in now: the override form shows totalPen, the card's own figure
+    // (2026-11-09, two different "calculated" totals read as a contradiction).
     var totalPen = actualPen + remainingTotalPen;
 
     return {
@@ -733,6 +733,10 @@ function computeCategoryYtdBreakdown_(categoryId, methodId) {
 }
 
 function setProjectionOverride(payload) {
+  var typed = Number(payload.amount);
+  if (!isFinite(typed) || typed < 0 || payload.amount === '' || payload.amount === null || payload.amount === undefined) throw new Error(tr_('err.validAmount'));
+  if (!/^\d{4}(-\d{2})?$/.test(String(payload.periodKey))) throw new Error(tr_('err.validPeriod'));
+  if (!rowsById_(getAllRows('Categories'))[payload.categoryId]) throw new Error(tr_('err.categoryNotFound'));
   ensureProjectionOverridesSheet_();
   var sheet = getSheet('Projection Overrides');
   var headers = getHeaders(sheet);
@@ -798,6 +802,19 @@ function getProjections(payload) {
     return all.reduce(function (sum, c) { return c.category_type === type ? sum + c[field] : sum; }, 0);
   }
 
+  // The explanation lines under the headline: a category set by hand has no Programmed or Expected part, only what is left of the
+  // figure typed for it, or those lines would not add up to the headline (Carlos, 2026-11-09).
+  function sumPlannedByType_(type, field) {
+    return all.reduce(function (sum, c) { return c.category_type === type && !c.hasOverride ? sum + c[field] : sum; }, 0);
+  }
+  function sumManualByType_(type) {
+    return all.reduce(function (sum, c) { return c.category_type === type && c.hasOverride ? sum + c.remainingTotalPen : sum; }, 0);
+  }
+  // Nothing could be estimated because the history is too short (not because the period is over or every category was set by hand).
+  var expensesCalculated = all.filter(function (c) { return c.category_type === 'expense' && !c.hasOverride; });
+  var notEnoughHistory = bounds.endDate >= formatCalendarDate_(new Date()) && expensesCalculated.length > 0
+    && expensesCalculated.every(function (c) { return !(c.baseAmountPen > 0.004); });
+
   // Rolled up from `totalPen` (added 2026-09-16, replacing `amountPen`) —
   // actual so far plus what's genuinely still left for every category of
   // that type, the same reality-aware figure the "By category" list and
@@ -830,16 +847,20 @@ function getProjections(payload) {
     periodType: bounds.periodType,
     income: income,
     incomeActual: sumByType_('income', 'actualPen'),
-    incomeProgrammed: sumByType_('income', 'programmedRemainingPen'),
+    incomeProgrammed: sumPlannedByType_('income', 'programmedRemainingPen'),
+    incomeManual: sumManualByType_('income'),
     expenses: expenses,
     expensesActual: sumByType_('expense', 'actualPen'),
-    expensesProgrammed: sumByType_('expense', 'programmedRemainingPen'),
-    expensesExpected: sumByType_('expense', 'expectedRemainingPen'),
+    expensesProgrammed: sumPlannedByType_('expense', 'programmedRemainingPen'),
+    expensesExpected: sumPlannedByType_('expense', 'expectedRemainingPen'),
+    expensesManual: sumManualByType_('expense'),
+    notEnoughHistory: notEnoughHistory,
     investments: investments,
     investmentsActual: -sumByType_('investment', 'actualPen'),
     investmentsIn: sumByType_('investment', 'flowInPen'),
     investmentsOut: sumByType_('investment', 'flowOutPen'),
-    investmentsProgrammed: sumByType_('investment', 'programmedRemainingPen'),   // money to be put in
+    investmentsProgrammed: sumPlannedByType_('investment', 'programmedRemainingPen'),   // money to be put in
+    investmentsManual: sumManualByType_('investment'),
     investmentsExpected: sumByType_('investment', 'expectedRemainingPen'),
     loans: loans,
     loansActual: loansActual,
