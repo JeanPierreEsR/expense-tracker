@@ -11530,7 +11530,7 @@ function openUpdateModal_() {
   backdrop.hidden = false;
 }
 document.getElementById("more-update-btn").addEventListener("click", openUpdateModal_);
-document.getElementById("update-close-btn").addEventListener("click", () => { document.getElementById("update-modal-backdrop").hidden = true; });
+document.getElementById("update-close-btn").addEventListener("click", () => { document.getElementById("update-modal-backdrop").hidden = true; offerReviewTip_(); });   // (a tutorial waits while this window is open)
 document.getElementById("update-open-btn").addEventListener("click", () => {
   openInSafari_(updatePageUrl_(), () => { document.getElementById("update-stuck").hidden = false; });
 });
