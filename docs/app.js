@@ -21685,8 +21685,8 @@ const POP_PAUSED_ = ["paidBy", "bankOpening", "forgive", "overpay"];
 function popTipWatch_(tip) {
   if (POP_PAUSED_.includes(tip.key)) return;
   if (popGet_(POP_SEEN_KEY_, []).includes(tip.key)) return;
-  if (tip.level !== "advanced" && !popMonthPassed_()) return;   // super advanced: first month first
-  if (!popGet_(POP_AGAIN_KEY_, false) && (popGet_(POP_VISITS_KEY_, {})[tip.place] || 0) < POP_TIP_VISIT_) return;
+  if (!tip.help && tip.level !== "advanced" && !popMonthPassed_()) return;   // super advanced: first month first
+  if (!tip.help && !popGet_(POP_AGAIN_KEY_, false) && (popGet_(POP_VISITS_KEY_, {})[tip.place] || 0) < POP_TIP_VISIT_) return;
   popWatch_ = tip;
   if (!popWatchTimer_) popWatchTimer_ = setInterval(popTipTick_, 250);
   popTipTick_();
@@ -21734,7 +21734,7 @@ function popTipTick_() {
   if (tip.ready && !tip.ready()) return;
   const el = tip.target();
   if (!popInView_(el)) return;
-  if (!popDayAllows_(tip.key)) { popTipStopWatch_(); return; }
+  if (!tip.help && !popDayAllows_(tip.key)) { popTipStopWatch_(); return; }
   popTipStopWatch_();
   popTipShow_(tip, el);
 }
@@ -22454,8 +22454,8 @@ function realScreenFree_() {
 let reviewRealTimer_ = null, reviewRealDone_ = false;   // one per opening of the app, so nobody gets two in a row
 function offerReviewTip_() {   // called whenever Needs review may have something new (refreshReviewQueue is still drawing, so it waits a moment)
   if (!reviewEntries_.length) return;   // nothing waiting yet
-  if (reviewRealTimer_ || reviewRealDone_) return;
-  reviewRealTimer_ = setTimeout(() => { reviewRealTimer_ = null; startReviewReal_(); }, 400);
+  if (reviewRealTimer_) return;
+  reviewRealTimer_ = setTimeout(() => { reviewRealTimer_ = null; startReviewReal_(); watchReviewHint_(); }, 400);
 }
 function reviewTypeSteps_(id, type, opts) {
   const row = () => practiceNRow_(id);
@@ -22644,6 +22644,99 @@ function startTransferReal_(kind) {
     onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); guided_ = null; },
     busy: () => perfInflight_ > 0
   });
+}
+
+// Conversions on a Needs review item (owner's plan 2b, 2026-11-09): taught when each button is used. The button does its job at once; the offer appears inside the
+// window it opened. Only for someone the Needs review tutorial taught (or who asked through Practice tips), so people already using these are not interrupted.
+function convOffersOn_() { return !!meta && !perfIsOwnerCopy_() && (realAgain_() || popGet_(TAUGHT_KEY_, {}).review === "real"); }
+function offerConvGuide_(feature, textKey, isOpen, target, start) {
+  if (!convOffersOn_() || isTaught_(feature) || !realChanceLeft_(feature)) return;
+  let tries = 0;
+  const t = setInterval(() => {   // the window opens after the row's edits have been read
+    if (++tries > 30) { clearInterval(t); return; }
+    if (!isOpen() || Spotlight.isRunning() || popOpen_) return;
+    const el = target();
+    if (!el || !popInView_(el)) return;
+    clearInterval(t);
+    spendRealChance_(feature);
+    popTipShow_({ key: "offer-" + feature, text: tr(textKey), offer: start }, el);
+  }, 100);
+}
+function convRun_(steps) { Spotlight.run(realSteps_(steps), { labels: realLabels_(), onFinish: async (how) => { if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0); }, busy: () => perfInflight_ > 0 }); }
+function startConvDebt_(mode) {
+  if (Spotlight.isRunning()) return;
+  markTaught_(mode === "repay" ? "conv-repay" : "conv-loan", "real");
+  const el = (id) => document.getElementById(id);
+  const back = el("review-transfer-modal-backdrop");
+  const friendOk = () => { const v = el("review-transfer-friend").value; return !!v && v !== "__add__"; };
+  const accountBlank = !el("review-transfer-payment-method").value;
+  const err = () => el("review-transfer-form-error").textContent.trim();
+  const next = () => tr("spot.g.next");
+  const steps = [{ target: "#review-transfer-context", text: () => tr(mode === "repay" ? "rt.conv.repayWhat" : "rt.conv.loanWhat"), button: next }];
+  steps.push({ key: "friend", target: "#review-transfer-friend", text: (fix) => tr(fix ? "rt.transfer.friendFix" : "rt.loan.friend"), visit: "#review-transfer-friend", button: next, ok: friendOk, holdsUntil: "save" });
+  if (accountBlank) steps.push({ field: "account", target: "#review-transfer-payment-method", text: () => tr("rt.transfer.account"), until: () => !!el("review-transfer-payment-method").value });
+  steps.push({ key: "save", target: () => [el("review-transfer-save-btn"), el("review-transfer-form-error")], text: () => { const e = err(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); }, until: () => back.hidden });
+  steps.push({ text: () => tr(mode === "repay" ? "rt.repay.done" : "rt.loan.done"), button: () => tr("spot.g.done") });
+  convRun_(steps);
+}
+function startConvExchange_() {
+  if (Spotlight.isRunning() || !exchangeContext_) return;
+  markTaught_("conv-exchange", "real");
+  const el = (id) => document.getElementById(id);
+  const back = el("exchange-modal-backdrop");
+  const other = exchangeContext_.leg === "out" ? "in" : "out";
+  const next = () => tr("spot.g.next");
+  const amountBox = el(`exchange-${other}-amount`);
+  const err = () => (el("exchange-form-error").textContent || "").trim();
+  convRun_([
+    { target: "#exchange-context", text: () => tr("rt.conv.exchangeWhat"), button: next },
+    { target: `#exchange-${other}-account`, text: () => tr(other === "in" ? "spot.x.s6" : "spot.x.s4"), visit: `#exchange-${other}-account`, button: next },
+    { target: () => amountBox.parentElement, text: () => tr(other === "in" ? "spot.x.s7" : "spot.x.s5", { cur: el(`exchange-${other}-currency`).value }), blurTap: true,
+      until: () => parseFloat(amountBox.value) > 0 && document.activeElement !== amountBox },
+    { target: () => [el("exchange-save-btn"), el("exchange-form-error")], text: () => { const e = err(); return e ? tr("spot.x.s10err", { error: e }) : tr("spot.x.s10"); }, until: () => back.hidden },
+    { text: () => tr("rt.exchange.done"), button: () => tr("spot.g.done") }
+  ]);
+}
+// Change type opens the full form: one bubble on the type buttons is enough, the form explains itself from there.
+function offerConvType_() {
+  if (!convOffersOn_() || popGet_(POP_SEEN_KEY_, []).includes("conv-type")) return;
+  let tries = 0;
+  const t = setInterval(() => {
+    if (++tries > 40) { clearInterval(t); return; }
+    if (!confirmingPendingId || Spotlight.isRunning() || popOpen_) return;
+    const tabs = document.getElementById("entry-type-tabs");
+    if (!popInView_(tabs)) return;
+    clearInterval(t);
+    popTipShow_({ key: "conv-type", text: tr("rt.conv.type") }, tabs);
+  }, 100);
+}
+document.addEventListener("click", (e) => {
+  if (!e.target.closest) return;
+  const el = (id) => document.getElementById(id);
+  const open = (id) => () => !el(id).hidden;
+  const b = e.target.closest(".review-repay-btn, .review-loan-btn, .review-exchange-btn, .review-type-btn, #review-transfer-save-btn, #exchange-save-btn");
+  if (!b || Spotlight.isRunning()) return;
+  if (b.classList.contains("review-repay-btn")) offerConvGuide_("conv-repay", "rt.conv.offerRepay", open("review-transfer-modal-backdrop"), () => el("review-transfer-context"), () => startConvDebt_("repay"));
+  else if (b.classList.contains("review-loan-btn")) offerConvGuide_("conv-loan", "rt.conv.offerLoan", open("review-transfer-modal-backdrop"), () => el("review-transfer-context"), () => startConvDebt_("loan"));
+  else if (b.classList.contains("review-exchange-btn")) offerConvGuide_("conv-exchange", "rt.conv.offerExchange", open("exchange-modal-backdrop"), () => el("exchange-context"), startConvExchange_);
+  else if (b.classList.contains("review-type-btn")) offerConvType_();
+  else {   // saved without the guide: the offer ends
+    const isDebt = b.id === "review-transfer-save-btn";
+    const feature = isDebt ? (reviewTransferMode === "repay" ? "conv-repay" : "conv-loan") : (exchangeContext_ && exchangeContext_.entry ? "conv-exchange" : "");
+    const back = el(isDebt ? "review-transfer-modal-backdrop" : "exchange-modal-backdrop");
+    if (feature) setTimeout(() => { if (back.hidden) markTaught_(feature, "used"); }, 700);
+  }
+}, true);
+// When the app already suspects it ("Looks like a payment from … again"): one bubble per kind at the highlighted button.
+function watchReviewHint_() {
+  if (!convOffersOn_() || popWatch_ || popOpen_ || Spotlight.isRunning() || document.getElementById("screen-entries").hidden) return;
+  const seen = popGet_(POP_SEEN_KEY_, []);
+  const entry = (reviewEntries_ || []).find((e) => e.loan_hint && !seen.includes("hint-" + e.loan_hint.kind) && reviewRowShowing_(e.id));
+  if (!entry) return;
+  popTipWatch_({ key: "hint-" + entry.loan_hint.kind, place: "home", help: true, text: tr("rt.conv.hint"),
+    target: () => { const r = practiceNRow_(entry.id); return r ? r.querySelector(".review-hint-btn") : null; },
+    stillWanted: () => !document.getElementById("screen-entries").hidden && !!practiceNRow_(entry.id),
+    ready: realScreenFree_ });
 }
 
 // ---- First-use practice: Needs review ----

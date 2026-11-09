@@ -86,3 +86,22 @@ test("what these tutorials save is kept: their finish removes nothing", () => {
   const fn = section("function startReviewReal_()", "// ---- First-use practice: Needs review ----");
   assert.ok(!/callApi\(|deleteEntry|practiceRemove_|removePractice/.test(fn));
 });
+
+test("conversions: the button does its job, the offer appears inside the window it opened, once saved it ends", () => {
+  const fn = section("function offerConvGuide_(", "function convRun_(");
+  assert.match(fn, /realChanceLeft_\(feature\)/);
+  assert.ok(!/Spotlight\.run/.test(fn), "the offer itself starts nothing");
+  assert.match(app, /if \(back\.hidden\) markTaught_\(feature, "used"\)/);
+});
+
+test("conversions are not offered to people already using Needs review, nor on the owner's copy", () => {
+  assert.match(app, /function convOffersOn_\(\) \{ return !!meta && !perfIsOwnerCopy_\(\) && \(realAgain_\(\) \|\| popGet_\(TAUGHT_KEY_, \{\}\)\.review === "real"\); \}/);
+});
+
+test("a help bubble skips the 3 visits, the month and the one-a-day limit; the others keep them", () => {
+  const watch = section("function popTipWatch_(", "// The moment the field scrolls into view");
+  assert.match(watch, /!tip\.help && tip\.level !== "advanced" && !popMonthPassed_\(\)/);
+  assert.match(watch, /!tip\.help && !popGet_\(POP_AGAIN_KEY_, false\)/);
+  assert.match(app, /if \(!tip\.help && !popDayAllows_\(tip\.key\)\)/);
+  assert.match(section("function watchReviewHint_(", "// ---- First-use practice: Needs review ----"), /help: true/);
+});
