@@ -21675,7 +21675,10 @@ function popFirstUse_() {
 }
 function popMonthPassed_() { return (Date.parse(todayLocalISO()) - Date.parse(popFirstUse_())) / 86400000 >= POP_SUPER_DAYS_; }
 popFirstUse_();   // stamp the first day as early as possible
+// Built but switched off by the owner (2026-11-09): real tutorials come first, then bubbles from most basic to super advanced. Empty this list to bring them back.
+const POP_PAUSED_ = ["paidBy", "bankOpening", "forgive", "overpay"];
 function popTipWatch_(tip) {
+  if (POP_PAUSED_.includes(tip.key)) return;
   if (popGet_(POP_SEEN_KEY_, []).includes(tip.key)) return;
   if (tip.level !== "advanced" && !popMonthPassed_()) return;   // super advanced: first month first
   if (!popGet_(POP_AGAIN_KEY_, false) && (popGet_(POP_VISITS_KEY_, {})[tip.place] || 0) < POP_TIP_VISIT_) return;
@@ -21801,6 +21804,7 @@ function watchTripPickTip_() {
 }
 // Batch 2. The entry form has two tips and one watcher: the trip one when a trip covers the date (it needs that moment), else "Paid by".
 function watchEntryFormTip_() {
+  if (!meta) return;   // the app's data has not arrived yet
   const date = document.getElementById("date").value;
   const tripDue = !popGet_(POP_SEEN_KEY_, []).includes("tripPick") && (meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date);
   if (tripDue) watchTripPickTip_(); else watchPaidByTip_();
