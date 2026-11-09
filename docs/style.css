@@ -3404,6 +3404,11 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 /* Two small actions side by side (a person's screen: Record repayment / Repayment history). */
 .loan-detail-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; }
 .loan-detail-actions[hidden] { display: none; }
+.loan-detail-actions .add-inline, .loan-detail-actions .add-inline + .add-inline { margin: 0; }   /* the stacked-button rule made one button of the row taller */
+#screen-loans.first-loading #loans-owed-card, #screen-loans.first-loading #loans-i-owe-card,
+#screen-loans.load-failed #loans-owed-card, #screen-loans.load-failed #loans-i-owe-card { display: none; }
+.loans-unreadable { color: #b26a00; margin: 0 0 12px; }
+.sheet-loading .budget-modal-body > :not(#settlement-loading) { display: none; }
 
 /* repayment history: the loans a repayment paid, as detail under "On loans" */
 .loan-detail-row-meta.history-sub { padding-left: 16px; }

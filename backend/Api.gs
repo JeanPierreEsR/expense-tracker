@@ -653,8 +653,40 @@ function getAllRows(sheetName) {
     return ROWS_MEMO_[sheetName].map(function (r) { return Object.assign({}, r); });
   }
   var rows = readAllRows_(sheetName);
+  if (sheetName === 'Loans' || sheetName === 'Settlements') rows.forEach(cleanHandTypedMoneyRow_);
   if (ROWS_MEMO_) ROWS_MEMO_[sheetName] = rows.map(function (r) { return Object.assign({}, r); });
   return rows;
+}
+
+// A hand-typed amount: a clear text form becomes its number ("1,200.50", "1.200,50", "12,50"). NaN = it cannot be read for sure: "1,200"
+// could be a thousand or a decimal, and the app never guesses (same rule as the amount boxes).
+function parseHandTypedAmount_(v) {
+  if (typeof v === 'number') return v;
+  var s = String(v === null || v === undefined ? '' : v).trim();
+  if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+  if (/^\d{1,3}(,\d{3})+\.\d{1,2}$/.test(s)) return Number(s.replace(/,/g, ''));
+  if (/^\d{1,3}(\.\d{3})+,\d{1,2}$/.test(s)) return Number(s.replace(/\./g, '').replace(',', '.'));
+  if (/^\d+,\d{1,2}$/.test(s)) return Number(s.replace(',', '.'));
+  return NaN;
+}
+
+// Rows of Loans / Settlements as the rest of the code expects them, whatever was typed in the Sheet. An amount or currency that cannot
+// be read counts as 0 (a NaN would poison every total) and the row is marked; the Loans tab names it (Ingrid, 2026-11-09).
+function cleanHandTypedMoneyRow_(row) {
+  var blank = row.amount === '' || row.amount === null || row.amount === undefined;
+  if (blank && !row.friend_id && !row.loan_id) return;   // an empty row
+  var amount = parseHandTypedAmount_(row.amount);
+  var loanRow = row.direction !== undefined;
+  var currency = loanRow ? String(row.currency === null || row.currency === undefined ? '' : row.currency).trim().toUpperCase() : '';
+  var badCurrency = loanRow && !(currency && (currency === homeCurrency_() || isKnownCurrencyCode_(currency)));
+  if (blank || isNaN(amount) || amount < 0 || badCurrency) {
+    row.unreadable_amount = row.amount;
+    row.unreadable_currency = row.currency;
+    row.amount = 0;
+    return;
+  }
+  row.amount = amount;
+  if (loanRow) row.currency = currency;
 }
 
 // The time zone Sheets used when it turned a written date into a Date cell. Dates must be turned back into text in THIS
@@ -795,8 +827,16 @@ function getFriendsWithLastUsed_() {
     var d = String(l.date || '');
     if (d && (!last[l.friend_id] || d > last[l.friend_id])) last[l.friend_id] = d;
   });
+  // A bank you borrowed from is a person of that name in the lists: marked so it can be told apart (🏦, 2026-11-09).
+  var bankLender = {};
+  if (SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Loan Installments')) {
+    var withSchedule = {};
+    getAllRows('Loan Installments').forEach(function (r) { withSchedule[r.loan_id] = true; });
+    getAllRows('Loans').forEach(function (l) { if (withSchedule[l.id]) bankLender[l.friend_id] = true; });
+  }
   return getAllRowsCached_('Friends').map(function (f) {
     f.last_used = last[f.id] || '';
+    f.bank_lender = !!bankLender[f.id];
     return f;
   });
 }

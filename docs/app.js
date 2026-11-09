@@ -2143,7 +2143,7 @@ const SPLIT_FRIEND_MAX_ROWS = 3;
 function isGroupFriend_(f) { return !!f.trip_id; }
 // Business pack: a client / supplier / partner is listed (marked 🏢) only while Business features are on; the data stays when it is off.
 function isBusinessPerson_(f) { return !!f.role && f.role !== "friend"; }
-function friendLabel_(f) { return (isGroupFriend_(f) ? "👥 " : "") + (isBusinessPerson_(f) ? "🏢 " : "") + f.name; }
+function friendLabel_(f) { return (isGroupFriend_(f) ? "👥 " : "") + (isBusinessPerson_(f) ? "🏢 " : "") + (f.bank_lender ? "🏦 " : "") + f.name; }
 // A friend hidden from More → Friends (they have history, so they were hidden instead of deleted) is left out of every picker, except while the
 // form in front of the person already uses them (an old entry paid by / shared with them being edited), so editing never changes who it was.
 function isHiddenFriend_(f) { return f.hidden === "yes" || f.hidden === true; }
@@ -6756,6 +6756,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−", "": "" }[entryFlowDirection_(entry)])}</div>
       </div>
       ${entry.charge_match ? reviewChargeMatchHtml_(entry) : ""}
+      ${/^(Overpayment (from|to) |Pago de más (de|a) )/.test(entry.description || "") ? `<p class="hint review-overpay-note">${escapeHtml(tr("review.overpayNote"))}</p>` : ""}
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
         ${entry.type === "investment" ? "" : `<div class="review-field review-field-wide">
@@ -23749,10 +23750,22 @@ async function refreshLoans() {
   // AFTER a newer one and redraw the list without the new debt (owner, 2026-11-03: the Loans practice's friend row vanished under
   // its "Tap their name" step).
   const seq = ++loansRefreshSeq_;
+  // The first load shows "Loading…", not empty cards (loading standard; Tomás, Nico, 2026-11-09). Later refreshes keep what is on screen.
+  const screen = document.getElementById("screen-loans");
+  const firstLoading = document.getElementById("loans-first-loading");
+  const firstLoad = !loansLoadedOnce_;
+  if (firstLoad) { screen.classList.add("first-loading"); firstLoading.hidden = false; }
+  const endFirstLoad = () => { screen.classList.remove("first-loading"); firstLoading.hidden = true; };
   let balances;
-  try { balances = await callApi("listLoanBalances", loansScopePayload_()); }
-  catch (err) { if (seq === loansRefreshSeq_ && !loansLoadedOnce_) setLoadFailed_("loans", err); throw err; }
+  try {
+    balances = await callApi("listLoanBalances", { ...loansScopePayload_(), withUnreadable: true });
+  } catch (err) {
+    if (seq === loansRefreshSeq_ && !loansLoadedOnce_) { endFirstLoad(); setLoadFailed_("loans", err); }
+    throw err;
+  }
   if (seq !== loansRefreshSeq_) return;
+  const unreadable = (balances && balances.unreadable) || [];   // (an older backend answers with the plain list)
+  if (balances && balances.balances) balances = balances.balances;
   loansLoadedOnce_ = true;
   setLoadFailed_("loans", null);
   if (!loansScope_) loansLastBalances_ = balances;
@@ -23780,7 +23793,11 @@ async function refreshLoans() {
 
   renderLoanTotals_("loans-owed-to-me-total-row", "loans-owed-to-me-total", owedToMe, "owed-to-me");
   renderLoanTotals_("loans-i-owe-total-row", "loans-i-owe-total", iOwe, "i-owe");
-  renderSettledPeople_();
+  const warn = document.getElementById("loans-unreadable");
+  warn.hidden = !unreadable.length;
+  warn.textContent = unreadable.length ? tr("loans.unreadable", { list: unreadable.map((u) => `${u.friend_name} ("${u.amount} ${u.currency}")`.replace(" \")", "\")")).join(", ") }) : "";
+  if (firstLoad) { await renderSettledPeople_().catch(() => {}); endFirstLoad(); }
+  else renderSettledPeople_();
   offerLoansTip_();   // only now that everything has arrived (loading standard)
 }
 
@@ -23894,8 +23911,13 @@ async function openLoanDetail(friendId, friendName, projectId) {
       const n = netByCurrency[cur];
       return (n > 0 ? "+" : "−") + `${cur} ${moneyFmt(Math.abs(n))}`;
     });
+  // In words, not "Net" (Rosa, Marta, 2026-11-09).
+  const netSide = (sign, key) => {
+    const parts = Object.keys(netByCurrency).filter((cur) => sign * netByCurrency[cur] > 0.004).map((cur) => `${sign > 0 ? "+" : "−"}${cur} ${moneyFmt(Math.abs(netByCurrency[cur]))}`);
+    return parts.length ? tr(key, { parts: parts.join(" · ") }) : "";
+  };
   document.getElementById("loan-detail-subtitle").textContent = netParts.length
-    ? tr("loanDetail.net", { parts: netParts.join(" · ") })
+    ? [netSide(1, "loanDetail.owesYou"), netSide(-1, "loanDetail.youOweThem")].filter(Boolean).join(" · ")
     : tr("loanDetail.settled");
 
   // Friend-level, not per-loan — recordRepayment (Loans.gs) figures out
@@ -23906,6 +23928,7 @@ async function openLoanDetail(friendId, friendName, projectId) {
     openRepaymentHistory_(friendId, friendName, projectId, document.getElementById("loan-detail-subtitle").textContent);
   const repayBtn = document.getElementById("record-repayment-btn");
   repayBtn.hidden = netParts.length === 0;
+  repayBtn.textContent = tr(Object.values(netByCurrency).some((n) => n > 0.004) ? "loan.recordRepayment" : "loan.recordMyRepayment");
   // Nothing owed either way: the person may have a debt from before the app that was never recorded (no repayment button without a debt).
   const openingOffer = document.getElementById("loan-detail-opening");
   openingOffer.hidden = netParts.length > 0 || !!projectId || !((meta && meta.capabilities) || {}).openingLoan;
@@ -24058,7 +24081,8 @@ function buildLoanDetailRow_(l, friendId, friendName) {
     const forgiveBtn = document.createElement("button");
     forgiveBtn.type = "button";
     forgiveBtn.className = "add-inline loan-detail-forgive-btn";
-    forgiveBtn.textContent = tr("loanDetail.forgive");
+    forgiveBtn.textContent = tr(l.direction === "i_owe_them" ? "loanDetail.theyForgave" : "loanDetail.forgive");
+    forgiveBtn.setAttribute("aria-label", `${forgiveBtn.textContent}: ${l.description || tr("loan.word")}`);
     forgiveBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       openForgiveModal(l, { id: friendId, name: friendName });
@@ -24927,7 +24951,7 @@ function openBankLoanForm_() {
   (meta.friends || []).forEach((f) => { const o = document.createElement("option"); o.value = f.name; lenders.appendChild(o); });
   const curSel = document.getElementById("bank-currency");
   curSel.innerHTML = "";
-  [...new Set([homeCur(), ...getRecentCurrencies()])].forEach((code) => { const o = document.createElement("option"); o.value = code; o.textContent = code; curSel.appendChild(o); });
+  [...new Set([homeCur(), ...getRecentCurrencies()])].forEach((code) => { const o = document.createElement("option"); o.value = code; o.textContent = `${findCurrency(code).flag} ${code}`; curSel.appendChild(o); });
   curSel.value = homeCur();
   bankPopulateAccounts_("bank-account", "");
   document.getElementById("bank-opening-row").hidden = !((meta && meta.capabilities) || {}).bankOpening;   // an older backend would make a normal loan
@@ -25413,6 +25437,13 @@ let loanModalReturnFriend = null;
 function populateLoanFriendOptions() {
   const select = document.getElementById("loan-friend");
   select.innerHTML = "";
+  if (!plainFriends_().length) {   // nothing to pick yet: the box says what to do (it looked empty; Diego, Rosa, Sol, Wilmer, 2026-11-09)
+    const hint = document.createElement("option");
+    hint.value = "";
+    hint.textContent = tr("loanModal.pickOrAddFriend");
+    hint.disabled = true;
+    select.appendChild(hint);
+  }
   plainFriends_().forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
@@ -25426,6 +25457,7 @@ function populateLoanFriendOptions() {
 }
 
 document.getElementById("loan-friend").addEventListener("change", async (e) => {
+  document.getElementById("loan-friend-error").hidden = true;
   if (e.target.value !== "__add__") return;
   const name = await askName_(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
@@ -25692,6 +25724,7 @@ function openLoanModal(loan, returnFriend, opts) {
   // A "paid earlier, no loan" payment can be put on loans from here too (same as the button on the person's screen).
   document.getElementById("loan-apply-btn").hidden = !(loan && returnFriend && (loan.unapplied || loan.unapplied_sources) && loan.status !== "forgiven" && loan.remaining > 0.004);
   document.getElementById("loan-form-error").textContent = "";
+  document.getElementById("loan-friend-error").hidden = true;
   populateLoanFriendOptions();
   populateLoanPaymentMethodOptions();
   document.getElementById("loan-friend").value = loan ? loan.friend_id : ((opts && opts.friendId) || (meta.friends.length ? meta.friends[0].id : ""));
@@ -25788,7 +25821,13 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     const paymentMethodId = document.getElementById("loan-payment-method").value;
     const description = document.getElementById("loan-description").value.trim();
 
-    if (!friendId || friendId === "__add__") throw new Error(tr("error.pickFriend"));
+    if (!friendId || friendId === "__add__") {   // said right under the box, in view (it appeared off screen at the bottom)
+      const friendError = document.getElementById("loan-friend-error");
+      friendError.textContent = tr("error.pickFriend");
+      friendError.hidden = false;
+      friendError.scrollIntoView({ block: "center" });
+      return;
+    }
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     if (!date) throw new Error(tr("error.dateRequired"));
     const opening = document.getElementById("loan-opening").checked;
@@ -25981,6 +26020,7 @@ function resetSettlementForm_() {
   editingSettlementLoanId_ = "";
   document.getElementById("settlement-loan-field").hidden = true;
   renderSettlementChoose_();
+  updateSettlementOverpayNote_();
 }
 
 // ---- "Which loan this pays": fixing a recorded repayment that went to the wrong loan ----
@@ -26107,7 +26147,20 @@ document.getElementById("settlement-choose-btn").addEventListener("click", () =>
 });
 document.getElementById("settlement-amount").addEventListener("input", () => {
   if (!document.getElementById("settlement-choose-panel").hidden) renderSettlementChooseSummary_();
+  updateSettlementOverpayNote_();
 });
+
+// Said while typing, so the extra in Needs review is no surprise (Rosa, Marta, 2026-11-09). The rule itself is the server's.
+function updateSettlementOverpayNote_() {
+  const note = document.getElementById("settlement-overpay-note");
+  const owed = Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0);
+  const paid = parseFloat(sanitizeAmountInputValue(document.getElementById("settlement-amount").value)) || 0;
+  const extra = paid - owed;
+  note.hidden = !!editingSettlementId || extra <= 0.004;
+  if (note.hidden) return;
+  const parts = { name: repaymentFriendName, cur: repaymentCurrency, owed: moneyFmt(owed), extra: moneyFmt(extra) };
+  note.textContent = tr(repaymentDirection === "they_owe_me" ? "settle.overpayNoteTheyOwe" : "settle.overpayNoteIOwe", parts);
+}
 
 function loadSettlementIntoForm_(s) {
   editingSettlementId = s.id;
@@ -26179,6 +26232,7 @@ async function switchRepaymentCurrency_(currency) {
 let repaymentProjectId_ = "";   // Business pack: set when the repayment is recorded from a project's debts
 let repaymentLoans_ = [];       // the person's open loans (in the scope the sheet was opened with), for "Choose which loans this pays"
 let repaymentAllLoans_ = [];    // the same scope including paid ones, for "Which loan this pays" when fixing a recorded repayment
+let repaymentOpenSeq_ = 0;
 async function openRepaymentModal(friendId, friendName, netByCurrency, projectId, openLoans, allLoans) {
   repaymentLoans_ = openLoans || [];
   repaymentAllLoans_ = allLoans || openLoans || [];
@@ -26190,12 +26244,26 @@ async function openRepaymentModal(friendId, friendName, netByCurrency, projectId
   document.getElementById("settlement-modal-title").textContent = tr("transfer.kind.repayment");
   populateSettlementPaymentMethodOptions();
 
-  const currencies = Object.keys(netByCurrency);
-  await switchRepaymentCurrency_(currencies[0]);
-
+  // Opens at once with "Loading…" and shows its content when the earlier repayments have arrived (loading standard; Tomás, 2026-11-09).
+  const seq = ++repaymentOpenSeq_;
   const backdrop = document.getElementById("settlement-modal-backdrop");
+  const loading = document.getElementById("settlement-loading");
+  loading.textContent = tr("common.loading");
+  loading.hidden = false;
+  backdrop.classList.add("sheet-loading");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+
+  const currencies = Object.keys(netByCurrency);
+  try {
+    await switchRepaymentCurrency_(currencies[0]);
+  } catch (err) {
+    if (seq === repaymentOpenSeq_) loading.textContent = tr("drill.loadFailed", { error: err.message });
+    return;
+  }
+  if (seq !== repaymentOpenSeq_) return;
+  loading.hidden = true;
+  backdrop.classList.remove("sheet-loading");
 }
 
 function closeSettlementModal() {
@@ -26421,6 +26489,10 @@ function openForgiveModal(loan, returnFriend) {
   forgiveLoanTarget = loan;
   forgiveReturnFriend = returnFriend;
 
+  // On a debt I owe, the other person is the one forgiving (Marta, 2026-11-09).
+  const forgiveTitle = tr(loan.direction === "i_owe_them" ? "forgive.titleTheyForgave" : "forgive.title");
+  document.getElementById("forgive-modal-title").textContent = forgiveTitle;
+  document.getElementById("forgive-save-btn").textContent = forgiveTitle;
   document.getElementById("forgive-form-error").textContent = "";
   document.getElementById("forgive-context").textContent =
     tr("forgive.context", { name: loan.description || tr("loan.word"), cur: loan.currency, amount: moneyFmt(loan.remaining) });
@@ -26448,7 +26520,13 @@ function openForgiveModal(loan, returnFriend) {
     document.getElementById("forgive-context").textContent +=
       tr(entryType === "expense" ? "forgive.recordedExpense" : "forgive.recordedIncome");
   }
+  // Starts empty: the first category of the list silently took the forgiveness (Andrés, Lucho, Carlos, 2026-11-09).
   populateCategoryOptionsForSelect_("forgive-category", entryType);
+  const forgivePick = document.createElement("option");
+  forgivePick.value = "";
+  forgivePick.textContent = tr("review.pickCategory");
+  document.getElementById("forgive-category").prepend(forgivePick);
+  document.getElementById("forgive-category").value = "";
   document.getElementById("forgive-date").value = todayLocalISO();
   document.getElementById("forgive-convert-fields").hidden = !hasBalance || !checkbox.checked;
   // Which budget the forgiven amount will count in, and where that leaves it (owner, 2026-11-07: forgiving silently pushed Restaurants

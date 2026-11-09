@@ -194,6 +194,12 @@
     // ---- loan ----
     "loan.dueDateOptional": { en: "Due date (optional)", es: "Fecha de vencimiento (opcional)" },
     "loan.dueDateHint": { en: "Optional. Without a date there is no overdue reminder.", es: "Opcional. Sin fecha, no recibirás aviso de vencimiento." },
+    "loan.recordMyRepayment": { en: "💰 Record my repayment", es: "💰 Registrar mi repago" },
+    "loans.unreadable": { en: "⚠️ These rows of your Loans sheet can't be read, so they are not counted. Fix them in the Sheet: {list}", es: "⚠️ Estas filas de tu pestaña Loans no se pueden leer, así que no se cuentan. Corrígelas en el archivo: {list}" },
+    "loanModal.pickOrAddFriend": { en: "Pick or add a friend…", es: "Elige o agrega un amigo…" },
+    "settle.overpayNoteTheyOwe": { en: "{name} only owes {cur} {owed}; the extra {cur} {extra} will wait in Needs review.", es: "{name} solo debe {cur} {owed}; los {cur} {extra} de más quedarán en Por revisar." },
+    "settle.overpayNoteIOwe": { en: "You only owe {cur} {owed}; the extra {cur} {extra} will wait in Needs review.", es: "Solo debes {cur} {owed}; los {cur} {extra} de más quedarán en Por revisar." },
+    "review.overpayNote": { en: "This is money paid beyond what was owed. Pick a category and confirm, or change it if it was something else.", es: "Es dinero pagado de más sobre lo que se debía. Elige una categoría y confirma, o cámbialo si era otra cosa." },
     "loan.recordRepayment": { en: "💰 Record repayment", es: "💰 Registrar repago" },
     "loan.word": { en: "Loan", es: "Préstamo" },
 
@@ -1291,6 +1297,9 @@
 
     // ---- loanDetail ----
     "loanDetail.empty": { en: "No loans with this friend yet.", es: "Aún no hay préstamos con este amigo." },
+    "loanDetail.owesYou": { en: "Owes you {parts}", es: "Te debe {parts}" },
+    "loanDetail.youOweThem": { en: "You owe {parts}", es: "Le debes {parts}" },
+    "loanDetail.theyForgave": { en: "🙏 They forgave it", es: "🙏 Me la perdonaron" },
     "loanDetail.net": { en: "Net: {parts}", es: "Neto: {parts}" },
     "loanDetail.settled": { en: "All settled up.", es: "Todo saldado." },
     "loanDetail.nothingPending": { en: "Nothing pending — see already paid below.", es: "Nada pendiente: mira los ya pagados abajo." },
@@ -1587,6 +1596,7 @@
     "forgive.amountHint": { en: "The full amount forgives the whole debt. A smaller amount forgives only that part, and the rest stays owed.", es: "El monto completo perdona toda la deuda. Un monto menor perdona solo esa parte y el resto sigue pendiente." },
     "loanDetail.forgivenSoFar": { en: "Forgiven {cur} {amount}", es: "Perdonado {cur} {amount}" },
     "history.forgivenAmt": { en: "Forgiven {amount}", es: "Perdonado {amount}" },
+    "forgive.titleTheyForgave": { en: "They forgave this debt", es: "Me perdonaron esta deuda" },
     "forgive.title": { en: "Forgive the debt", es: "Perdonar la deuda" },
     "forgive.convert": { en: "Also record the remaining balance as an expense", es: "También registrar el saldo restante como gasto" },
     "forgive.context": { en: "{name} · {cur} {amount} remaining", es: "{name} · quedan {cur} {amount}" },

@@ -679,6 +679,8 @@
       <!-- First-use tip invitation (spotlight.js / offerTip_ in app.js): shown once, only after the list has loaded. -->
       <div class="card tip-invite" id="loans-tip-invite" hidden></div>
       <p class="hint loans-more-practice" id="loans-more-practice" hidden></p>
+      <div class="status-msg" id="loans-first-loading" hidden data-i18n="common.loading">Loading…</div>
+      <p class="hint loans-unreadable" id="loans-unreadable" hidden></p>
       <div class="card" id="loans-owed-card">
         <div class="budgets-header">
           <h2 data-i18n="loans.owesYou">💸 Owes you</h2>
@@ -2262,6 +2264,7 @@
       <div class="budget-modal-body">
         <label for="loan-friend" data-i18n="common.friend">Friend</label>
         <select id="loan-friend"></select>
+        <p class="hint form-error" id="loan-friend-error" hidden style="color:#d64545;"></p>
 
         <div id="loan-project-field" hidden>
           <label for="loan-project" data-i18n="business.loanProject">Project (optional)</label>
@@ -2367,6 +2370,7 @@
         <button type="button" id="settlement-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
+        <div class="status-msg" id="settlement-loading" hidden></div>
         <p class="hint" id="settlement-friend-context"></p>
         <div class="currency-chips" id="settlement-currency-chips" hidden></div>
 
@@ -2376,6 +2380,7 @@
         <div id="settlement-form">
           <label for="settlement-amount" data-i18n="field.amount">Amount</label>
           <input type="text" inputmode="decimal" id="settlement-amount" placeholder="0.00">
+          <p class="hint" id="settlement-overpay-note" hidden></p>
 
           <label for="settlement-date" data-i18n="field.date">Date</label>
           <input type="date" id="settlement-date">
@@ -2969,7 +2974,7 @@
   <div id="forgive-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span data-i18n="forgive.title">Forgive loan</span>
+        <span id="forgive-modal-title" data-i18n="forgive.title">Forgive loan</span>
         <button type="button" id="forgive-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">

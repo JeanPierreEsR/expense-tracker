@@ -2752,6 +2752,15 @@ function listLoanBalances(payload) {
     });
   });
 
+  // The phone asks for this shape; other callers keep the plain list.
+  if (payload && payload.withUnreadable) {
+    return {
+      balances: result,
+      unreadable: loans.filter(function (l) { return l.unreadable_amount !== undefined; }).map(function (l) {
+        return { friend_name: friendMap[l.friend_id] || tr_('label.unknownFriend'), amount: String(l.unreadable_amount), currency: String(l.unreadable_currency || '') };
+      })
+    };
+  }
   return result;
 }
 
@@ -3083,7 +3092,7 @@ function getFriendLoanDetail(friendId) {
   ensureLoansUnappliedColumn_();
   var schedules = loanScheduleSummaries_();
   var settledByLoan = buildSettlementTotalsByLoan_();
-  var loans = getAllRows('Loans').filter(function (l) { return l.friend_id === friendId; });
+  var loans = getAllRows('Loans').filter(function (l) { return l.friend_id === friendId && l.unreadable_amount === undefined; });   // (a row that cannot be read is named on the Loans tab)
   loans.forEach(function (loan) {
     loan.settled = settledByLoan[loan.id] || 0;
     loan.remaining = Number(loan.amount) - loan.settled;
