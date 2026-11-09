@@ -22630,7 +22630,7 @@ function startTransferReal_(kind) {
     until: () => amt("exchange-in-amount") > 0 && document.activeElement !== el("exchange-in-amount") }));
   steps.push(only(is("exchange"), { key: "xsave", target: () => [el("exchange-save-btn"), el("exchange-form-error")],
     text: () => { const e = xError(); return e ? tr("spot.x.s10err", { error: e }) : tr("spot.x.s10"); },
-    before: async () => { chosen = kindNow(); el("exchange-form-error").textContent = ""; return true; }, until: () => !newEntrySheetOpen_ }));
+    before: async () => { chosen = kindNow(); submitted = true; el("exchange-form-error").textContent = ""; return true; }, until: () => !newEntrySheetOpen_ }));
   // Save, and what it did
   steps.push(only(is("between", "repayment", "loan"), { key: "save", target: () => [el("submit-btn"), el("form-error")],
     text: () => { const err = lastError(); return err ? tr("spot.g.saveErr", { error: err }) : tr("spot.g.save"); },
