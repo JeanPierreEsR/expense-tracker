@@ -7290,7 +7290,7 @@ function openNewEntrySheet_() {
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
   // A new person's first "+": the guided practice starts by itself (owner, 2026-11-04). Never during another practice or "Mark as paid".
   if (!payingRecurringId_ && guidedEntryWanted_()) setTimeout(startGuidedEntry_, 350);
-  if (!payingRecurringId_) { popTipVisit_("entryForm"); setTimeout(watchTripPickTip_, 450); }
+  if (!payingRecurringId_) { popTipVisit_("entryForm"); setTimeout(watchEntryFormTip_, 450); }
 }
 
 function closeNewEntrySheet_() {
@@ -21777,6 +21777,46 @@ function watchTripPickTip_() {
     ready: () => !guidedEntryWanted_()
   });
 }
+// Batch 2. The entry form has two tips and one watcher: the trip one when a trip covers the date (it needs that moment), else "Paid by".
+function watchEntryFormTip_() {
+  const date = document.getElementById("date").value;
+  const tripDue = !popGet_(POP_SEEN_KEY_, []).includes("tripPick") && (meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date);
+  if (tripDue) watchTripPickTip_(); else watchPaidByTip_();
+}
+function watchPaidByTip_() {
+  popTipWatch_({
+    key: "paidBy", place: "entryForm", text: tr("pop.paidBy"),
+    target: () => (selectedType !== "expense" || document.getElementById("paid-by-label").hidden || !(meta.friends || []).length ? null : document.getElementById("paid_by")),
+    stillWanted: () => newEntrySheetOpen_,
+    ready: () => !guidedEntryWanted_()
+  });
+}
+// The form for a new bank loan: "This loan is from before I started using the app".
+function watchBankOpeningTip_() {
+  popTipWatch_({
+    key: "bankOpening", place: "bankLoanForm", text: tr("pop.bankOpening"),
+    target: () => { const row = document.getElementById("bank-opening-row"); return row.hidden || !bankDraft_ || bankDraft_.mode !== "new" ? null : row; },
+    stillWanted: () => !document.getElementById("bank-loan-modal-backdrop").hidden
+  });
+}
+// The person's loan screen: "Forgive", worded by who owes whom (the same button does both).
+function watchForgiveTip_() {
+  const btn = () => document.querySelector("#loan-detail-modal-backdrop .loan-forgive-btn");
+  popTipWatch_({
+    key: "forgive", place: "loanScreen",
+    text: () => { const b = btn(); return tr(b && b.dataset.direction === "i_owe_them" ? "pop.forgiveIOwe" : "pop.forgiveTheyOwe"); },
+    target: btn,
+    stillWanted: () => !document.getElementById("loan-detail-modal-backdrop").hidden
+  });
+}
+// The repayment form (a new repayment): what happens to an amount above the debt.
+function watchOverpayTip_() {
+  popTipWatch_({
+    key: "overpay", place: "repaymentForm", text: tr("pop.overpay"),
+    target: () => (editingSettlementId || document.getElementById("settlement-form").hidden ? null : document.getElementById("settlement-amount")),
+    stillWanted: () => !document.getElementById("settlement-modal-backdrop").hidden
+  });
+}
 // The loan form (a new loan): "This debt is from before I started using the app".
 function watchLoanOpeningTip_() {
   popTipWatch_({
@@ -24039,7 +24079,7 @@ async function openLoanDetail(friendId, friendName, projectId) {
   };
 
   detailActions.hidden = false;
-  if (firstOpen) return;
+  if (firstOpen) { popTipVisit_("loanScreen"); watchForgiveTip_(); return; }
   const backdrop = document.getElementById("loan-detail-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -24133,7 +24173,8 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   if (l.status !== "forgiven" && l.remaining > 0.004 && !l.schedule) {   // a bank does not forgive: no Forgive on a loan with a schedule
     const forgiveBtn = document.createElement("button");
     forgiveBtn.type = "button";
-    forgiveBtn.className = "add-inline loan-detail-forgive-btn";
+    forgiveBtn.className = "add-inline loan-detail-forgive-btn loan-forgive-btn";
+    forgiveBtn.dataset.direction = l.direction;
     forgiveBtn.textContent = tr(l.direction === "i_owe_them" ? "loanDetail.theyForgave" : "loanDetail.forgive");
     forgiveBtn.setAttribute("aria-label", `${forgiveBtn.textContent}: ${l.description || tr("loan.word")}`);
     forgiveBtn.addEventListener("click", (e) => {
@@ -25044,6 +25085,8 @@ function openBankLoanForm_() {
   const backdrop = document.getElementById("bank-loan-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+  popTipVisit_("bankLoanForm");
+  watchBankOpeningTip_();
 }
 
 // "Edit the schedule": the installments not yet paid, with the principal that is still to be repaid as the target.
@@ -26347,6 +26390,8 @@ async function openRepaymentModal(friendId, friendName, netByCurrency, projectId
   if (seq !== repaymentOpenSeq_) return;
   loading.hidden = true;
   backdrop.classList.remove("sheet-loading");
+  popTipVisit_("repaymentForm");
+  watchOverpayTip_();
 }
 
 function closeSettlementModal() {
