@@ -21661,7 +21661,7 @@ function popSet_(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } cat
 function popTipVisit_(place) { const v = popGet_(POP_VISITS_KEY_, {}); v[place] = (v[place] || 0) + 1; popSet_(POP_VISITS_KEY_, v); }
 // tip: { key, place, level ("advanced" = no month wait; omit for super advanced), target()→ the element to point at or null (not there yet), text (or text() read when it shows), stillWanted() → false cancels, ready() optional }
 // Super-advanced tips (every tip of the features list's "Super advanced" level, so every tip by default; owner, 2026-11-09) show only
-// from the first month of using the app: 30 days after this phone first opened it. Practice tips (popTipsAgain) lifts the wait.
+// from the first month of using the app: 30 days after this phone first opened it. Practice tips (popTipsAgain) lifts only the 3-visit wait, never this one (owner, 2026-11-09).
 const POP_FIRST_USE_KEY_ = "popFirstUse", POP_SUPER_DAYS_ = 30;
 function popFirstUse_() {
   let d = popGet_(POP_FIRST_USE_KEY_, null);
@@ -21672,7 +21672,7 @@ function popMonthPassed_() { return (Date.parse(todayLocalISO()) - Date.parse(po
 popFirstUse_();   // stamp the first day as early as possible
 function popTipWatch_(tip) {
   if (popGet_(POP_SEEN_KEY_, []).includes(tip.key)) return;
-  if (tip.level !== "advanced" && !popGet_(POP_AGAIN_KEY_, false) && !popMonthPassed_()) return;   // super advanced: first month first
+  if (tip.level !== "advanced" && !popMonthPassed_()) return;   // super advanced: first month first
   if (!popGet_(POP_AGAIN_KEY_, false) && (popGet_(POP_VISITS_KEY_, {})[tip.place] || 0) < POP_TIP_VISIT_) return;
   popWatch_ = tip;
   if (!popWatchTimer_) popWatchTimer_ = setInterval(popTipTick_, 250);
