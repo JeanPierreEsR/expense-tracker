@@ -12,7 +12,7 @@ const strings = read("strings.js"), setup = read("setup/index.html");
 function text(key) {
   const m = new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "((?:[^"\\\\]|\\\\.)*)", es: "((?:[^"\\\\]|\\\\.)*)" \\}`).exec(strings);
   assert.ok(m, key);
-  return { en: m[1].replace(/\\"/g, '"'), es: m[2].replace(/\\"/g, '"') };
+  return { en: m[1], es: m[2] };
 }
 const privacyKeys = [...strings.matchAll(/"(privacy\.[A-Za-z]+)":/g)].map((m) => m[1]);
 
@@ -31,8 +31,8 @@ test("the Privacy card informs: it never speaks as JP, it names JP in the third 
   for (const k of privacyKeys) {
     if (k === "privacy.change") continue;                         // the person's own button: "Change what I share"
     const { en, es } = text(k);
-    const enClean = en.replace(/\x22(Help me improve the app|Change what I share|How my data is treated|Delete everything)\x22/g, "").replace("More → My profile → Where I'm signed in", "");   // names of buttons and rows, in the person's own voice
-    const esClean = es.replace(/\x22(Ayúdame a mejorar la app|Cómo se trata mi información|Eliminar todo)\x22/g, "").replace("Más → Mi perfil → Dónde tengo la sesión iniciada", "");
+    const enClean = en.replace(/“(Help me improve the app|Change what I share|How my data is treated|Delete everything)”/g, "").replace("More → My profile → Where I'm signed in", "");   // names of buttons and rows, in the person's own voice
+    const esClean = es.replace(/“(Ayúdame a mejorar la app|Cómo se trata mi información|Eliminar todo)”/g, "").replace("Más → Mi perfil → Dónde tengo la sesión iniciada", "");
     assert.ok(!/\b(I|me|my)\b/.test(enClean), `${k} (en): ${en}`);
     assert.ok(!/\b(yo|me|mí|mi)\b|llegarme|avisarme|envíame/i.test(esClean), `${k} (es): ${es}`);
   }
@@ -72,6 +72,6 @@ test("the installer page names JP in the third person outside its signed request
 test("the Spanish Privacy card says 'archivo de Google Sheets' where it speaks of the person's file, and never 'hoja de Google'", () => {
   assert.match(text("privacy.live").es, /se guarda en un archivo de Google Sheets que pertenece a tu propia cuenta de Google/);
   assert.match(text("privacy.live").es, /JP no puede abrirlo, ni nadie más, a menos que tú compartas el archivo\./);
-  assert.match(text("privacy.remove").es, /elimina el archivo de Google Sheets llamado \x22Expense Tracker\x22/);
+  assert.match(text("privacy.remove").es, /elimina el archivo de Google Sheets llamado “Expense Tracker”/);
   for (const k of privacyKeys) assert.ok(!/hoja de Google/i.test(text(k).es), k);
 });

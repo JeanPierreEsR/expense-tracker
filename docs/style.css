@@ -3833,3 +3833,4 @@ body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: 216px; }
 .phone-row { display: flex; gap: 8px; align-items: stretch; }
 .phone-row select { flex: 0 0 44%; min-width: 0; width: 44%; margin: 0; }
 .phone-row input { flex: 1 1 0; min-width: 0; width: auto; margin: 0; }
+#statement-past-btn { margin-left: 16px; }   /* in line with the cards' inner edge above it */

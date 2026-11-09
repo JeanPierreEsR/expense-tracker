@@ -131,9 +131,9 @@ test("step 3A: the loan picker shows only while fixing a recorded repayment, and
   assert.match(app, /openRepaymentModal\(friendId, friendName, netByCurrency, projectId, outstanding, loans\)/);
   const strings = read("docs", "strings.js");
   for (const key of ["settle.loanLabel", "settle.loanHint", "settle.loanOption", "settle.loanCurrent", "settle.loanTooMuch"]) {
-    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "(?:[^"\\\\]|\\\\.)+", es: "(?:[^"\\\\]|\\\\.)+"`), key);
+    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "[^"]+", es: "[^"]+"`), key);
   }
-  assert.match(read("backend", "Strings.gs"), /"repay\.moveBad": \{ en: "(?:[^"\\\\]|\\\\.)+", es: "(?:[^"\\\\]|\\\\.)+"/);
+  assert.match(read("backend", "Strings.gs"), /"repay\.moveBad": \{ en: "[^"]+", es: "[^"]+"/);
 });
 
 test("step 3B: the IGV screen is remembered by the More tab, listed for beta usage, and its year picker is not a period picker", () => {
@@ -167,10 +167,10 @@ test("step 3B: every igv.* text the app uses exists in English and Spanish", () 
   for (const key of html.matchAll(/data-i18n="(igv\.[A-Za-z.]+)"/g)) used.add(key[1]);   // the texts written in the page itself
   assert.ok(used.size > 25, "found " + used.size);
   for (const key of used) {
-    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "(?:[^"\\\\]|\\\\.)+", es: "(?:[^"\\\\]|\\\\.)+"`), key);
+    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "[^"]+", es: "[^"]+"`), key);
   }
   for (const key of ["business.errIgv", "business.igvPaymentNotFound", "export.h.igv"]) {
-    assert.match(read("backend", "Strings.gs"), new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "(?:[^"\\\\]|\\\\.)+", es: "(?:[^"\\\\]|\\\\.)+"`), key);
+    assert.match(read("backend", "Strings.gs"), new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "[^"]+", es: "[^"]+"`), key);
   }
 });
 
@@ -188,7 +188,7 @@ test("step 3B: the receipt reader button is hidden in the page itself, shown onl
   for (const key of ["receipt.f.amount", "receipt.f.date", "receipt.f.business", "receipt.f.payer", "receipt.f.invoice", "receipt.f.igv"]) used.add(key);   // built from a list in the code
   assert.ok(used.size >= 12, "found " + used.size);
   for (const key of used) {
-    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "(?:[^"\\\\]|\\\\.)+", es: "(?:[^"\\\\]|\\\\.)+"`), key);
+    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "[^"]+", es: "[^"]+"`), key);
   }
 });
 
@@ -199,6 +199,6 @@ test("step 3A: every xp.* / bx.* / settle.choose* text the app uses exists in En
   ["xp.state.settled", "xp.state.covered"].forEach((k) => used.add(k));   // built from a prefix in the code
   assert.ok(used.size > 20);
   for (const key of used) {
-    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "(?:[^"\\\\]|\\\\.)+", es: "(?:[^"\\\\]|\\\\.)+"`), key);
+    assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: "[^"]+", es: "[^"]+"`), key);
   }
 });

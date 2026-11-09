@@ -54,7 +54,7 @@ test("the card's texts name today's rows and the way back to the practices", () 
   assert.match(all("es"), /Más → Cómo usar la app → 💡 Prácticas/);
   // the row names the card quotes are the hub's own
   for (const [lang, rows] of [["en", ["Bank statements", "Import from another app", "Tidy my history", "Recently deleted", "Export my data"]], ["es", ["Estados de cuenta", "Importar de otra app", "Ordenar mi historial", "Eliminados recientemente", "Exportar mis datos"]]]) {
-    for (const r of rows) assert.ok(all(lang).includes(r), `${lang}: the card never names \x22${r}\x22`);
+    for (const r of rows) assert.ok(all(lang).includes(r), `${lang}: the card never names “${r}”`);
   }
 });
 
