@@ -137,3 +137,9 @@ test("Change type: picking Income, Investment or Transfer offers its own guide, 
   assert.match(fn, /ok: \(\) => submitted \|\| !!el\("to_payment_method"\)\.value/, "a save empties the form: it must not send the guide back");
   assert.ok(!/callApi\(|deleteEntry|removePractice/.test(fn));
 });
+
+test("an item that leaves partway ends the guide cleanly instead of waiting for it", () => {
+  const fn = section("function startReviewReal_()", "function startReviewTopUp_(");
+  assert.match(fn, /const whileRow = /);
+  assert.match(fn, /realSteps_\(steps\.map\(whileRow\)\)/);
+});

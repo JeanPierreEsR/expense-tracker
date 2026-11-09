@@ -22534,7 +22534,9 @@ function startReviewReal_() {
   steps.push({ text: () => tr("rt.review.done"), button: () => tr("spot.g.done") });
   reviewRealDone_ = true;
   noteReviewType_(type);
-  Spotlight.run(realSteps_(steps), {
+  // The item can leave partway (the charge's own "Yes" button removes it): the steps about it are then left out, straight to the end.
+  const whileRow = (st, i) => (i === 0 || i === steps.length - 1 ? st : { ...st, before: async () => { if (!row()) return false; return st.before ? st.before() : true; } });
+  Spotlight.run(realSteps_(steps.map(whileRow)), {
     labels: realLabels_(),
     onFinish: async (how) => {
       reviewDecideOn_ = false;
