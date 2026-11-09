@@ -111,3 +111,12 @@ test("How do you get paid? — several kinds at once, each adding its category o
   assert.equal(rt.rows("Categories").filter((c) => c.key === "freelance").length, 1);
   assert.equal(rt.api("getMeta", {}).settings.pay, "varies:sales");
 });
+
+test("How do you get paid? — a fixed salary AND income that varies; both un-ticked clears it (owner, 2026-11-08)", () => {
+  const rt = setup();
+  const r = rt.api("setPay", { pay: "both", kinds: ["freelance"] });
+  assert.equal(r.pay, "both:freelance");
+  assert.equal(rt.rows("Categories").filter((c) => c.key === "freelance").length, 1);
+  assert.equal(rt.api("setPay", { pay: "none" }).pay, "");
+  assert.equal(rt.rows("Categories").filter((c) => c.key === "freelance").length, 1, "clearing the answer deletes nothing");
+});

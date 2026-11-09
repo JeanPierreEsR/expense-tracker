@@ -5,7 +5,7 @@
  *     (gifts, refunds, other: not earnings). The column `income_kind` on Categories holds the person's choice ('regular',
  *     'varies', 'none'); blank = the built-in default by key (Salary regular; Business, Sales, Freelance, Daily work varies).
  *     The column is added the first time a choice is saved, so nothing is needed on older copies.
- *   - The welcome question "How do you get paid?" (and My profile) stores Settings `pay`: 'salary' or 'varies:<kind>,<kind>' (several since 2026-11-08), and for
+ *   - The welcome question "How do you get paid?" (and My profile) stores Settings `pay`: 'salary', 'varies:<kind>,<kind>' or 'both:<kind>,<kind>' (2026-11-08), and for
  *     "It varies" adds ONE income category of that kind (Sales, Freelance or Daily work), marked as varying.
  *   - Overview's income figures for varying income (per day, who paid, the 3/6-month average) work for ANYONE with such income,
  *     whatever they answered (incomeVariesSummary_, used by getPeriodSummary).
@@ -48,12 +48,14 @@ function setCategoryIncomeKind_(id, kind) {
 // kind's income category (or shows it again when hidden) and marks it as varying. Never deletes anything.
 function setPay(payload) {
   payload = payload || {};
-  var pay = payload.pay === 'varies' ? 'varies' : payload.pay === 'salary' ? 'salary' : '';
+  // 'both' (owner, 2026-11-08): a fixed salary AND income that varies. 'none': both un-ticked, the answer is cleared.
+  if (payload.pay === 'none') { setSetting_(PAY_SETTING_, ''); return { pay: '', added: null, addedAll: [] }; }
+  var pay = payload.pay === 'varies' || payload.pay === 'both' || payload.pay === 'salary' ? payload.pay : '';
   if (!pay) return { pay: getSettingsMap()[PAY_SETTING_] || '', added: null, addedAll: [] };   // nothing recognisable: nothing changes
   // Several kinds since 2026-11-08 (owner): kinds = ['sales', 'daily']; an older phone still sends one `kind`.
   var asked = payload.kinds && payload.kinds.length ? payload.kinds : payload.kind ? [payload.kind] : [];
-  var kinds = pay === 'varies' ? asked.filter(function (k, i) { return PAY_KIND_PACKS_[k] && asked.indexOf(k) === i; }) : [];
-  setSetting_(PAY_SETTING_, pay === 'varies' ? 'varies' + (kinds.length ? ':' + kinds.join(',') : '') : 'salary');
+  var kinds = pay !== 'salary' ? asked.filter(function (k, i) { return PAY_KIND_PACKS_[k] && asked.indexOf(k) === i; }) : [];
+  setSetting_(PAY_SETTING_, pay !== 'salary' ? pay + (kinds.length ? ':' + kinds.join(',') : '') : 'salary');
   var addedAll = [];
   if (kinds.length) {
     var headers = ensureCategoriesIncomeKindColumn_();
