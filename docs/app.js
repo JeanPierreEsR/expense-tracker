@@ -22451,6 +22451,7 @@ function realScreenFree_() {
 
 // Needs review: on the first real item, what is new about it (owner's rule: no repeating what the first entry explained). Then, the first
 // time another type arrives, only the fields that type adds. The practice with made-up entries is no longer offered (owner, 2026-11-09).
+let reviewTransferJust_ = "";   // the item "Make it a transfer" was just tapped on
 let reviewDecideOn_ = false;   // the tutorial's last step is on: a conversion button there ends it and takes over
 let reviewRealTimer_ = null, reviewRealDone_ = false;   // one per opening of the app, so nobody gets two in a row
 function offerReviewTip_() {   // called whenever Needs review may have something new (refreshReviewQueue is still drawing, so it waits a moment)
@@ -22467,7 +22468,7 @@ function reviewTypeSteps_(id, type, opts) {
   const add = (field, sel, textKey, must) => {
     const sels = [].concat(sel);
     if (!sels.every((x) => part(x))) return;
-    const step = { field, target: () => { const els = sels.map(fieldEl).filter(Boolean); return els.length ? els : null; }, text: () => tr(textKey) };
+    const step = { field, blank: !part(sels[0]).value, target: () => { const els = sels.map(fieldEl).filter(Boolean); return els.length ? els : null; }, text: () => tr(textKey) };
     if (must && !part(sels[0]).value) step.until = () => { const el = part(sels[0]); return !!(el && el.value); };
     else step.button = next;
     list.push(step);
@@ -22477,19 +22478,44 @@ function reviewTypeSteps_(id, type, opts) {
   if (type === "income") add("accountIn", ".review-account", "rt.review.accountIn");
   if (type === "transfer") add("transferAccounts", [".review-from", ".review-to"], "rt.review.transfer");
   if (type === "investment") add("platform", ".review-platform", "rt.review.platform", opts.must);
-  return list.filter((s) => !fieldsKnown_().includes(s.field));
+  if (type === "investment") add("land", ".review-land", "rt.review.land");
+  return list.filter((s) => s.blank || !fieldsKnown_().includes(s.field));   // an empty box is asked about even if it was explained before
 }
 function noteReviewType_(type) { const d = popGet_(REVIEW_TYPES_KEY_, []); if (!d.includes(type)) popSet_(REVIEW_TYPES_KEY_, d.concat(type)); }
 function reviewRowShowing_(id) { const r = practiceNRow_(id); return !!r && r.getClientRects().length > 0; }   // a long list keeps the rest hidden behind "Show more"
+function reviewSpecialKind_(e) { return (e.twins || []).length ? "dup" : e.charge_match ? "charge" : e.link ? "extra" : ""; }
+function reviewSpecialSteps_(entry, id) {
+  const row = () => practiceNRow_(id);
+  const part = (sel) => () => { const r = row(); return r ? r.querySelector(sel) : null; };
+  const kind = reviewSpecialKind_(entry);
+  if (!kind) return [];
+  const target = kind === "dup" ? part(".review-dup-warning") : kind === "charge" ? part(".review-charge-match") : () => part(".review-overpay-note")() || part(".review-item-top")();
+  return [{ target, text: () => tr("rt.review." + kind), button: () => tr("spot.g.next"), until: () => !row() }];   // (the charge's own button removes the row)
+}
 function startReviewReal_() {
-  if (reviewRealDone_ || document.getElementById("screen-entries").hidden || !realScreenFree_()) return;
-  // Not the unusual rows: part of a repayment, a possible duplicate, a match with a charge already recorded.
-  const entries = (reviewEntries_ || []).filter((e) => !isPracticeReviewEntry_(e) && !e.link && !e.charge_match && !(e.twins || []).length && reviewRowShowing_(e.id));
-  if (!entries.length) return;
-  if (isTaught_("review")) return startReviewTopUp_(entries);
+  if (document.getElementById("screen-entries").hidden || !realScreenFree_()) return;
+  // Just turned into a transfer with "Make it a transfer": the card is back with From and To, say what to do with them right here.
+  if (reviewTransferJust_ && reviewRowShowing_(reviewTransferJust_)) {
+    const id = reviewTransferJust_, e = (reviewEntries_ || []).find((x) => x.id === id);
+    reviewTransferJust_ = "";
+    if (e && e.type === "transfer" && convOffersOn_()) {
+      const steps = reviewTypeSteps_(id, "transfer", {});
+      if (steps.length) {
+        steps[steps.length - 1].button = () => tr("spot.g.done");
+        noteReviewType_("transfer");
+        Spotlight.run(realSteps_(steps), { labels: realLabels_(), onFinish: async () => {}, busy: () => perfInflight_ > 0 });
+        return;
+      }
+    }
+  }
+  if (reviewRealDone_) return;
+  const showing = (reviewEntries_ || []).filter((e) => !isPracticeReviewEntry_(e) && reviewRowShowing_(e.id));
+  const entries = showing.filter((e) => !reviewSpecialKind_(e)), specials = showing.filter((e) => reviewSpecialKind_(e));
+  if (!showing.length) return;
+  if (isTaught_("review")) return startReviewTopUp_(entries, specials);
   if (!realAgain_() && (lastRenderedEntries_ || []).some((e) => e.source === "email" && e.status !== "pending")) { markTaught_("review", "used"); return; }
   if (!realChanceLeft_("review", true)) return;
-  const entry = entries[0], id = entry.id, type = entry.type;
+  const entry = entries[0] || specials[0], id = entry.id, type = entry.type;   // an unusual item only when nothing else is waiting
   const row = () => practiceNRow_(id);
   const part = (sel) => () => { const r = row(); return r ? r.querySelector(sel) : null; };
   const fieldOf = (sel) => { const el = part(sel)(); return el ? el.closest(".review-field") : null; };
@@ -22498,12 +22524,13 @@ function startReviewReal_() {
   const hadCategory = !!category();
   let started = false;
   const steps = [{ key: "intro", look: true, target: row, text: () => tr("rt.review.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("review", "real"); } }];
+  steps.push(...reviewSpecialSteps_(entry, id));
   if (type !== "investment" && !hadCategory) steps.push({ key: "category", field: "category", target: () => fieldOf(".review-category"), text: (fix) => tr(fix ? "rt.review.catFix" : "rt.review.catPick"), until: () => !!category(), ok: () => !!category(), holdsUntil: "decide" });
   // Always shown: an item that came in wrong is fixed here, never thrown away (owner's walk, 2026-11-09).
   steps.push({ field: "amount", target: part(".review-item-fields"), text: () => tr("rt.review.check"), button: next, after: () => { noteField_("description"); if (type !== "investment") noteField_("category"); } });
   steps.push(...reviewTypeSteps_(id, type, { must: true }));
-  steps.push({ key: "decide", target: () => { const els = [part(".review-item-actions")(), part(".review-item-secondary-actions")()].filter(Boolean); return els.length ? els : null; }, text: () => tr("rt.review.decide"), until: () => !row(), wait: 10000,
-    before: async () => { reviewDecideOn_ = true; }, after: () => { reviewDecideOn_ = false; } });
+  steps.push({ key: "decide", target: () => { const els = [part(".review-item-actions")(), part(".review-item-secondary-actions")()].filter(Boolean); return els.length ? els : null; }, text: () => tr(reviewSpecialKind_(entry) === "extra" ? "rt.review.decideExtra" : "rt.review.decide"), until: () => !row(), wait: 10000,
+    before: async () => { if (!row()) return false; reviewDecideOn_ = true; }, after: () => { reviewDecideOn_ = false; } });
   steps.push({ text: () => tr("rt.review.done"), button: () => tr("spot.g.done") });
   reviewRealDone_ = true;
   noteReviewType_(type);
@@ -22517,9 +22544,19 @@ function startReviewReal_() {
     busy: () => perfInflight_ > 0
   });
 }
-function startReviewTopUp_(entries) {
+function startReviewTopUp_(entries, specials) {
   if (popGet_(TAUGHT_KEY_, {}).review !== "real") return;   // only for someone the real tutorial taught
   const done = popGet_(REVIEW_TYPES_KEY_, []);
+  for (const e of specials) {   // the first possible duplicate, charge match or repayment extra, each once
+    const mark = "special:" + reviewSpecialKind_(e);
+    if (done.includes(mark)) continue;
+    const steps = reviewSpecialSteps_(e, e.id);
+    steps[steps.length - 1].button = () => tr("spot.g.done");
+    reviewRealDone_ = true;
+    noteReviewType_(mark);
+    Spotlight.run(realSteps_(steps), { labels: realLabels_(), onFinish: async () => {}, busy: () => perfInflight_ > 0 });
+    return;
+  }
   for (const e of entries) {
     if (done.includes(e.type)) continue;
     const steps = reviewTypeSteps_(e.id, e.type, { withCategory: true });
@@ -22571,6 +22608,7 @@ function offerTransferGuide_(fromTab) {
 document.querySelector('#entry-type-tabs .type-tab[data-type="transfer"]').addEventListener("click", () => offerTransferGuide_(true));
 document.getElementById("transfer-kind").addEventListener("change", () => offerTransferGuide_(false));
 function transferNoteSaved_() {
+  if (selectedType === "expense" && document.getElementById("split-toggle").checked) markTaught_("split", guided_ ? "real" : "used");
   if (selectedType !== "transfer") return;
   const f = TRANSFER_FEATURE_[document.getElementById("transfer-kind").value];
   if (f) markTaught_(f, guided_ ? "real" : "used");   // saving one, guided or not, ends the offer
@@ -22646,7 +22684,7 @@ function startTransferReal_(kind) {
 
 // Conversions on a Needs review item (owner's plan 2b, 2026-11-09): taught when each button is used. The button does its job at once; the offer appears inside the
 // window it opened. Only for someone the Needs review tutorial taught (or who asked through Practice tips), so people already using these are not interrupted.
-let convOfferTimer_ = null;
+let convOfferTimer_ = null, convDebtOutcome_ = "";   // "ok" | "over" | "refused", set by the window's save
 function convOffersOn_() { return !!meta && !perfIsOwnerCopy_() && (realAgain_() || popGet_(TAUGHT_KEY_, {}).review === "real"); }
 function offerConvGuide_(feature, textKey, isOpen, target, start) {
   if (!convOffersOn_() || isTaught_(feature) || !realChanceLeft_(feature)) return;
@@ -22664,7 +22702,10 @@ function offerConvGuide_(feature, textKey, isOpen, target, start) {
     popTipShow_({ key: "offer-" + feature, text: tr(textKey), offer: start }, el);
   }, 100);
 }
-function convRun_(steps) { Spotlight.run(realSteps_(steps), { labels: realLabels_(), onFinish: async (how) => { if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0); }, busy: () => perfInflight_ > 0 }); }
+function convRun_(steps) {
+  guided_ = { savedId: "", split: null };   // (a window opened during it, such as Add friend, goes above its dimmed screen)
+  Spotlight.run(realSteps_(steps), { labels: realLabels_(), onFinish: async (how) => { guided_ = null; if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0); }, busy: () => perfInflight_ > 0 });
+}
 function startConvDebt_(mode) {
   if (Spotlight.isRunning()) return;
   markTaught_(mode === "repay" ? "conv-repay" : "conv-loan", "real");
@@ -22678,7 +22719,9 @@ function startConvDebt_(mode) {
   steps.push({ key: "friend", target: "#review-transfer-friend", text: (fix) => tr(fix ? "rt.transfer.friendFix" : "rt.loan.friend"), visit: "#review-transfer-friend", button: next, ok: friendOk, holdsUntil: "save" });
   if (accountBlank) steps.push({ field: "account", target: "#review-transfer-payment-method", text: () => tr("rt.transfer.account"), until: () => !!el("review-transfer-payment-method").value });
   steps.push({ key: "save", target: () => [el("review-transfer-save-btn"), el("review-transfer-form-error")], text: () => { const e = err(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); }, until: () => back.hidden });
-  steps.push({ text: () => tr(mode === "repay" ? "rt.repay.done" : "rt.loan.done"), button: () => tr("spot.g.done") });
+  // Only once the server has answered: more than was owed comes back as an extra, money received with no debt on record is refused.
+  steps.push({ text: () => tr(convDebtOutcome_ === "refused" ? "rt.conv.refused" : convDebtOutcome_ === "over" ? "rt.conv.repayOver" : mode === "repay" ? "rt.conv.repayDone" : "rt.loan.done"), button: () => tr("spot.g.done"),
+    before: async () => { for (let i = 0; i < 300 && !convDebtOutcome_; i++) await new Promise((r) => setTimeout(r, 100)); return true; } });
   convRun_(steps);
 }
 function startConvExchange_() {
@@ -22718,6 +22761,10 @@ document.addEventListener("click", (e) => {
   const el = (id) => document.getElementById(id);
   const open = (id) => () => !el(id).hidden;
   if (reviewDecideOn_ && e.target.closest(".review-item-secondary-actions button")) { reviewDecideOn_ = false; Spotlight.stop("done"); }
+  const toTransfer = e.target.closest(".review-transfer-btn");
+  if (toTransfer) { const r = toTransfer.closest(".review-item"); reviewTransferJust_ = r ? r.dataset.entryId : ""; }
+  const splitBtn = e.target.closest(".review-split-btn");
+  if (splitBtn) offerConvGuide_("split", "rt.conv.offerSplit", () => !!confirmingPendingId && selectedType === "expense", splitTarget_, startSplitReal_);
   const b = e.target.closest(".review-repay-btn, .review-loan-btn, .review-exchange-btn, .review-type-btn, #review-transfer-save-btn, #exchange-save-btn");
   if (!b || (Spotlight.isRunning() && !b.closest(".review-item-secondary-actions"))) return;
   if (b.classList.contains("review-repay-btn")) offerConvGuide_("conv-repay", "rt.conv.offerRepay", () => open("review-transfer-modal-backdrop")() && reviewTransferMode === "repay", () => el("review-transfer-context"), () => startConvDebt_("repay"));
@@ -22732,10 +22779,10 @@ document.addEventListener("click", (e) => {
   }
 }, true);
 // Change type: picking Income, Investment or Transfer inside the form offers a guide for what that type needs (owner's walk, 2026-11-09). What was read from the bank stays filled in.
-const CONV_TYPES_ = { income: "rt.conv.typeIncome", investment: "rt.conv.typeInvestment", transfer: "rt.conv.typeTransfer" };
+const CONV_TYPES_ = { expense: "rt.conv.typeExpense", income: "rt.conv.typeIncome", investment: "rt.conv.typeInvestment", transfer: "rt.conv.typeTransfer" };
 document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => tab.addEventListener("click", () => {
   const type = tab.dataset.type;
-  if (!confirmingPendingId || !CONV_TYPES_[type] || Spotlight.isRunning()) return;
+  if (!confirmingPendingId || !CONV_TYPES_[type] || Spotlight.isRunning() || (lastConfirmPendingEntry_ && lastConfirmPendingEntry_.type === type)) return;
   offerConvGuide_("conv-type-" + type, CONV_TYPES_[type], () => !!confirmingPendingId && selectedType === type, () => tab, () => startConvType_(type));
 }));
 function startConvType_(type) {
@@ -22754,6 +22801,11 @@ function startConvType_(type) {
   const whenShown = (id, step) => ({ ...step, before: async () => shownNow(id) });
   const tabSel = `#entry-type-tabs .type-tab[data-type="${type}"]`;
   const steps = [];
+  if (type === "expense") {
+    steps.push({ target: tabSel, text: () => tr("rt.conv.expenseWhat"), button: next });
+    steps.push({ field: "category", target: "#category-picker", text: () => tr("spot.g.cat"), until: () => !el("entry-form").hidden, before: async () => shownNow("category-picker") });
+    steps.push(whenShown("payment-method-field", { field: "account", target: "#payment-method-field", text: () => tr("spot.g.accExp"), visit: "#payment_method", button: next }));
+  }
   if (type === "income") steps.push({ target: tabSel, text: () => tr("rt.conv.incomeWhat"), button: next });
   if (type === "investment") steps.push({ target: tabSel, text: () => tr("rt.conv.investWhat"), button: next });
   if (type === "transfer") steps.push({ target: tabSel, text: () => tr("rt.transfer.kind"), button: next });
@@ -22773,12 +22825,63 @@ function startConvType_(type) {
   }
   steps.push({ key: "save", target: () => [el("submit-btn"), el("form-error")], text: () => { const e = lastError(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); },
     before: async () => { el("form-error").textContent = ""; return true; }, until: () => !confirmingPendingId });
-  steps.push({ text: () => tr({ income: "rt.conv.incomeDone", investment: "rt.conv.investDone", transfer: "rt.transfer.done" }[type]), button: () => tr("spot.g.done") });
+  steps.push({ text: () => tr({ expense: "rt.conv.expenseDone", income: "rt.conv.incomeDone", investment: "rt.conv.investDone", transfer: "rt.transfer.done" }[type]), button: () => tr("spot.g.done") });
   Spotlight.run(realSteps_(steps), {
     labels: realLabels_(),
     onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0); },
     busy: () => perfInflight_ > 0
   });
+}
+// Split: checking "Split this expense" may be only a look, so it asks; Needs review's Split button offers the same guide inside the form it opens.
+function splitTarget_() {
+  const row = document.querySelector("#split-field .checkbox-row");
+  if (row && !popInView_(row)) row.scrollIntoView({ block: "center" });
+  return row;
+}
+function splitTaught_() { return isTaught_("split") || isTaught_("loans"); }
+document.getElementById("split-toggle").addEventListener("change", (e) => {
+  if (!e.target.checked || !newEntrySheetOpen_ || editingEntryId || editingViaPopup || confirmingPendingId) return;
+  if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || splitTaught_()) return;
+  if (!realAgain_() && !popGet_(TAUGHT_KEY_, {})["split-checked"]) {
+    markTaught_("split-checked", "yes");
+    if ((lastRenderedEntries_ || []).some((x) => x.own_share != null && Number(x.own_share) !== Math.abs(Number(x.amount)))) { markTaught_("split", "used"); return; }
+  }
+  offerConvGuideAny_();
+});
+function offerConvGuideAny_() {
+  if (!realChanceLeft_("split")) return;
+  setTimeout(() => {
+    if (Spotlight.isRunning() || popOpen_ || !document.getElementById("split-toggle").checked) return;
+    const row = splitTarget_();
+    if (!popInView_(row)) return;
+    spendRealChance_("split");
+    popTipShow_({ key: "offer-split", text: tr("rt.split.offer"), offer: startSplitReal_ }, row);
+  }, 350);
+}
+function startSplitReal_() {
+  if (Spotlight.isRunning()) return;
+  markTaught_("split", "real");
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  guided_ = { savedId: "", split: null };
+  const el = (id) => document.getElementById(id);
+  const splitOn = () => el("split-toggle").checked;
+  const amountOk = () => parseFloat(el("amount").value) > 0;
+  const formOpen = () => newEntrySheetOpen_ || !!confirmingPendingId;
+  const lastError = () => el("form-error").textContent.trim();
+  let submitted = false;
+  const onSubmit = () => { submitted = true; };
+  el("entry-form").addEventListener("submit", onSubmit, true);
+  const steps = [];
+  if (!splitOn()) steps.push({ target: "#split-field .checkbox-row", text: () => tr("rt.split.toggle"), until: splitOn });
+  if (!amountOk()) steps.push({ key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
+    until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || amountOk(), holdsUntil: "save" });
+  steps.push({ key: "splitFriend", target: () => [el("split-friend-chips"), el("split-add-friend-btn")], text: () => tr("spot.g.splitFriend"), until: () => splitFriendIds.size > 0, wait: 8000, ok: () => submitted || splitFriendIds.size > 0, holdsUntil: "save" });
+  steps.push({ target: () => [el("split-mode-tabs"), el("split-rows"), el("split-summary")], text: () => tr("spot.g.splitHow"), button: () => tr("spot.g.next") });
+  steps.push({ key: "save", target: () => [el("submit-btn"), el("form-error")], text: () => { const e = lastError(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); },
+    before: async () => { el("form-error").textContent = ""; return true; }, until: () => !!(guided_ && guided_.savedId) || !formOpen() });
+  steps.push({ text: () => tr("rt.split.done"), button: () => tr("spot.g.done") });
+  Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
+    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
 }
 // When the app already suspects it ("Looks like a payment from … again"): one bubble per kind at the highlighted button.
 function watchReviewHint_() {
@@ -27361,6 +27464,7 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
   const mode = reviewTransferMode;
   closeReviewTransferModal();
   dropReviewCard_(entryId);   // gone at once; a refusal's refresh below brings it back
+  convDebtOutcome_ = "";
 
   // Saves behind the screen. One server call per swap (convertEntryToRepayment / convertEntryToLoan): everything is checked
   // first and the waiting entry is put back if anything fails, so a refusal (an income with no debt on record, say) leaves
@@ -27380,6 +27484,7 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         overpay_pending_ok: true
       });
       if (result.overpaid > 0.004) {
+        convDebtOutcome_ = "over";
         alert(tr(incoming ? "review.overpaidIncoming" : "review.overpaidOutgoing", { name: friendName, cur: currency, amount: moneyFmt(result.overpaid) }));
       }
     } else {
@@ -27394,7 +27499,9 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         description
       });
     }
+    if (!convDebtOutcome_) convDebtOutcome_ = "ok";
   }, async () => {
+    if (!convDebtOutcome_) convDebtOutcome_ = "refused";
     refreshEntriesInBackground_();
     await refreshReviewQueue();
     refreshLoans().catch(() => {});

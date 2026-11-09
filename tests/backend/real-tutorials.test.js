@@ -37,11 +37,22 @@ test("someone who already uses the feature is not interrupted, unless they asked
   assert.match(section("function offerTransferGuide_(", "function transferNoteSaved_()"), /!realAgain_\(\)/);
 });
 
-test("Needs review skips rows it cannot teach on and rows hidden behind Show more", () => {
+test("Needs review uses an unusual item only when nothing else is waiting, and never a row hidden behind Show more", () => {
   const fn = section("function startReviewReal_()", "function startReviewTopUp_(");
-  assert.match(fn, /!e\.link && !e\.charge_match/);
+  assert.match(fn, /const entry = entries\[0\] \|\| specials\[0\]/);
   assert.match(fn, /reviewRowShowing_\(e\.id\)/);
   assert.match(app, /function reviewRowShowing_\(id\) \{[^\n]*getClientRects\(\)\.length > 0/);
+});
+
+test("the debt guides end on what really happened", () => {
+  const fn = section("function startConvDebt_(", "function startConvExchange_(");
+  assert.match(fn, /convDebtOutcome_ === "refused" \? "rt\.conv\.refused"/);
+  assert.match(fn, /convDebtOutcome_ === "over" \? "rt\.conv\.repayOver"/);
+  assert.match(app, /if \(!convDebtOutcome_\) convDebtOutcome_ = "refused"/);
+});
+
+test("a window opened during these guides goes above the dim", () => {
+  assert.match(section("function convRun_(", "function startConvDebt_("), /guided_ = \{ savedId: "", split: null \}/);
 });
 
 test("a look is not a use: the Transfer tab only asks, with up to 3 chances, and points at the tab", () => {
