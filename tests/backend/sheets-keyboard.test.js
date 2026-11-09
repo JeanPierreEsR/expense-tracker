@@ -8,6 +8,6 @@ test("the strip under a sheet lifted above the keyboard is painted like the shee
   const css = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "style.css"), "utf8");
   const rule = css.split("\n").find((l) => l.startsWith("html.kb-open .currency-modal-backdrop {"));
   assert.ok(rule, "the keyboard rule for sheets is gone");
-  assert.match(rule, /padding-bottom: var\(--kb-gap/);
+  assert.match(rule, /padding-bottom: calc\(var\(--kb-gap, 0px\) - var\(--kb-peek\)\)/);
   assert.match(rule, /background-image: linear-gradient\(to top, var\(--card\)/);
 });
