@@ -1847,7 +1847,7 @@ function listExpectedRecurringItems() {
   // predictable rather than whatever order object keys land in.
   groups.sort(function (a, b) {
     if (a.type !== b.type) return a.type === 'income' ? -1 : 1;
-    if (!!a.pending !== !!b.pending) return a.pending ? 1 : -1;   // programmed income, then pending income, then the rest
+    if (!!a.pending !== !!b.pending) return a.pending ? -1 : 1;   // pending income, then programmed income, then the rest
     if (a.currency === homeCurrency_()) return -1;
     if (b.currency === homeCurrency_()) return 1;
     return a.currency < b.currency ? -1 : 1;
