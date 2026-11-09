@@ -392,7 +392,13 @@ function listBudgets(payload) {
   var shown = budgets.filter(function (x) { return x.progress.exists; });
   // Budgets that start later are listed apart, so they never vanish (owner, 2026-11-08: a budget saved to start later was invisible,
   // yet blocked making it again).
-  var later = budgets.filter(function (x) { return x.start_later && !x.progress.exists; });
+  // Since 2026-11-08 (owner): also a budget that starts after the period ON SCREEN (a past week shown, a weekly budget made this week).
+  var firstDayOf = function (k) { return !k ? '' : k.length === 4 ? k + '-01-01' : k.length === 7 ? k + '-01' : k; };
+  var later = budgets.filter(function (x) {
+    if (x.progress.exists || x.ended) return false;
+    var first = firstDayOf(x.start_key);
+    return !!x.start_later || (!!first && !!x.progress.endDate && first > x.progress.endDate);
+  });
   budgets = budgets.filter(function (x) { return x.active_now; });   // the totals card: standing budgets, whatever period is shown
   var allExpenseCategoryIds = Object.keys(categoryById).filter(function (id) {
     return categoryById[id].type === 'expense';
