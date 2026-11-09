@@ -420,7 +420,7 @@ function listBudgets(payload) {
   // dominated[i] === true means budget i's categories are already fully
   // covered by some other budget j, so i is left out of the total. When
   // two budgets cover the exact same categories, only one survives (the
-  // larger PEN amount, tie-broken by id) — otherwise an identical pair
+  // larger PEN amount per year, tie-broken by id) — otherwise an identical pair
   // would each "contain" the other and both would vanish.
   var dominated = budgets.map(function () { return false; });
   for (var i = 0; i < budgets.length; i++) {
@@ -428,8 +428,10 @@ function listBudgets(payload) {
       if (i === j || !isSubset_(budgetSets[i], budgetSets[j])) continue;
       var equalSets = setSize_(budgetSets[i]) === setSize_(budgetSets[j]);
       if (!equalSets) { dominated[i] = true; break; }
-      var pi = budgets[i].amount_pen == null ? -1 : budgets[i].amount_pen;
-      var pj = budgets[j].amount_pen == null ? -1 : budgets[j].amount_pen;
+      // Compared per year, so a weekly, a monthly and a yearly budget are the same kind of number (Elena, 2026-11-09: 70 a week lost to 213 a month).
+      var perYear = function (x) { return x.amount_pen == null ? -1 : x.amount_pen * (x.period_type === 'weekly' ? 52 : x.period_type === 'monthly' ? 12 : 1); };
+      var pi = perYear(budgets[i]);
+      var pj = perYear(budgets[j]);
       if (pj > pi || (pj === pi && String(budgets[j].id) > String(budgets[i].id))) {
         dominated[i] = true;
         break;
@@ -1097,10 +1099,24 @@ function budgetFromKey_(raw, kind) {
   if (raw instanceof Date) raw = Utilities.formatDate(raw, sheetDateTz_(), 'yyyy-MM-dd');
   var s = String(raw == null ? '' : raw).trim();
   if (!s) return '';
-  if (/^\d{4}(\.0+)?$/.test(s)) return s.substring(0, 4);   // a year Sheets kept as a number
-  if (kind === 'yearly') return s.substring(0, 4);
-  if (kind === 'monthly') return s.substring(0, 7);
-  return s.substring(0, 10);
+  // Typed by hand in the Sheet (Ingrid, 2026-11-09): "2026-9", "2026/09", 202609, "Sep 2026", "septiembre de 2026". The key is compared as
+  // text, so "2026-9" used to sort after "2026-12". What cannot be read is null: budgetHistory_ leaves that row out.
+  var y, m = 1, d = 1, hit;
+  if ((hit = s.match(/^(\d{4})(?:\.0+)?$/))) y = +hit[1];
+  else if ((hit = s.match(/^(\d{4})(\d{2})(?:\.0+)?$/))) { y = +hit[1]; m = +hit[2]; }
+  else if ((hit = s.match(/^(\d{4})[-\/.](\d{1,2})(?:[-\/.](\d{1,2}))?/))) { y = +hit[1]; m = +hit[2]; d = hit[3] ? +hit[3] : 1; }
+  else if ((hit = s.toLowerCase().match(/^([a-z\u00e1\u00e9\u00ed\u00f3\u00fa]{3,})\.?\s*(?:de\s+)?(\d{4})$/))) {
+    m = { jan: 1, ene: 1, feb: 2, mar: 3, apr: 4, abr: 4, may: 5, jun: 6, jul: 7, aug: 8, ago: 8, sep: 9, set: 9, oct: 10, nov: 11, dec: 12, dic: 12 }[hit[1].substring(0, 3)];
+    y = +hit[2];
+  } else {
+    var when = new Date(s);
+    if (isNaN(when.getTime())) return null;
+    y = when.getFullYear(); m = when.getMonth() + 1; d = when.getDate();
+  }
+  if (!y || !m || m < 1 || m > 12 || d < 1 || d > 31) return null;
+  if (kind === 'yearly') return String(y);
+  if (kind === 'monthly') return y + '-' + pad2_(m);
+  return mondayOf_(y + '-' + pad2_(m) + '-' + pad2_(d));
 }
 var BUDGET_KIND_BY_ID_ = null;
 function budgetKindById_(id) {
@@ -1117,8 +1133,10 @@ function budgetHistory_() {
   BUDGET_KIND_BY_ID_ = null;
   getAllRows('Budget History').forEach(function (r) {
     var id = String(r.budget_id);
+    var from = budgetFromKey_(r.from_period, budgetKindById_(id));
+    if (from === null) return;   // a start nobody can read (hand-typed): the row is left out rather than guessed
     (out[id] = out[id] || []).push({
-      from: budgetFromKey_(r.from_period, budgetKindById_(id)), amount: Number(r.amount), currency: r.currency || homeCurrency_(),
+      from: from, amount: Number(r.amount), currency: r.currency || homeCurrency_(),
       category_id: String(r.category_id || ''), ended: r.ended === true || String(r.ended).toLowerCase() === 'yes' || String(r.ended).toLowerCase() === 'true'
     });
   });

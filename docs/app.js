@@ -9892,7 +9892,10 @@ document.getElementById("budget-start").addEventListener("click", () => {
 function updateBudgetForwardHint_(budget) {
   if (budget !== undefined) budgetForwardType_ = budget ? budget.period_type : null;
   const el = document.getElementById("budget-forward-hint");
-  el.hidden = !budgetForwardType_ || budgetPeriodType !== budgetForwardType_ || budgetEditingEnded_;
+  // Not for a budget with no earlier period to keep: one that starts later, or that starts in this very period (Marta, 2026-11-09).
+  const ob = budgetEditingObj_;
+  const noEarlier = !!ob && (!!ob.start_later || (!!ob.start_key && ob.start_key >= budgetPeriodKey_(ob.period_type, 0)));
+  el.hidden = !budgetForwardType_ || budgetPeriodType !== budgetForwardType_ || budgetEditingEnded_ || noEarlier;
   if (!el.hidden) el.textContent = tr(budgetKindKeys_(budgetForwardType_).fwd);
 }
 const DEFAULT_BUDGET_THRESHOLDS_DISPLAY = "50, 75, 100, 110, 125, 150";
@@ -10180,15 +10183,19 @@ function removeBudgetFromForm_(full) {
   return removeBudget_(b, full, document.getElementById("budget-name").value);
 }
 // The budget window's two buttons and the drill-down's ⋮ menu. name: the budget's own name as typed (the practice's is deleted outright).
+// What ending this budget really does: stops from its current period on, or (it never counted in an earlier period) deletes it.
+function budgetEndQuestion_(b, what) {
+  if (b.start_later) return tr("budget.confirmEndNotStarted", { what, when: budgetPeriodName_(b.period_type, b.start_later, true) });
+  const K = budgetKindKeys_(b.period_type);
+  return tr(b.end_deletes ? K.endDel : K.end, { what });
+}
 async function removeBudget_(b, full, name) {
   const budgetLabel = String(name || "").trim() || b.category_name || "";
   const what = describeForConfirm_(budgetLabel, b.currency ? `${b.currency} ${moneyFmt(b.amount)}` : "");
   const practice = isPracticeBudgetName_(name || "");
   const end = !full && !practice && budgetHistoryOn_();
   const yearly = b.period_type === "yearly", K = budgetKindKeys_(b.period_type);
-  const question = end && b.start_later ? tr("budget.confirmEndNotStarted", { what, when: budgetPeriodName_(b.period_type, b.start_later, true) })
-    : end && b.end_deletes ? tr(K.endDel, { what })
-    : end ? tr(K.end, { what })
+  const question = end ? budgetEndQuestion_(b, what)
     : budgetHistoryOn_() ? tr("budget.confirmDeleteFull", { what })
     : tr(yearly ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what });
   if (!practiceNoConfirm_(practice) && !(await askConfirmApp_(question, tr(end && !b.end_deletes ? "budgetModal.end" : "budgetModal.deleteFull")))) return;
@@ -10563,8 +10570,16 @@ document.getElementById("budgets-delete-selected-btn").addEventListener("click",
   if (!chosen.length) return;
   const names = chosen.map(budgetPickLabel_).join(", ");
   const ends = budgetHistoryOn_();
-  if (!(await askConfirmApp_(tr(chosen.length === 1 ? (ends ? "budgets.confirmEndOne" : "budgets.confirmDeleteOne") : (ends ? "budgets.confirmEndMany" : "budgets.confirmDeleteMany"), { n: chosen.length, names }),
-    ends ? tr("budgets.endN", { n: chosen.length }) : tr("friends.deleteN", { n: chosen.length })))) return;
+  // Edit mode says what each one really does (Marta, 2026-11-09: it promised "earlier periods keep it" for a budget that gets deleted).
+  const goes = ends ? chosen.filter((b) => b.end_deletes || b.start_later) : [];
+  const stays = ends ? chosen.filter((b) => !goes.includes(b)) : [];
+  const nameList = (list) => list.map(budgetPickLabel_).join(", ");
+  const question = !ends ? tr(chosen.length === 1 ? "budgets.confirmDeleteOne" : "budgets.confirmDeleteMany", { n: chosen.length, names })
+    : chosen.length === 1 ? budgetEndQuestion_(chosen[0], budgetPickLabel_(chosen[0]))
+    : [tr("budgets.confirmEndMany", { n: chosen.length }),
+      stays.length ? tr("budgets.confirmEndStay", { n: stays.length, names: nameList(stays) }) : "",
+      goes.length ? tr("budgets.confirmEndGo", { n: goes.length, names: nameList(goes) }) : ""].filter(Boolean).join("\n\n");
+  if (!(await askConfirmApp_(question, ends && goes.length < chosen.length ? tr("budgets.endN", { n: chosen.length }) : tr("friends.deleteN", { n: chosen.length })))) return;
   const ids = chosen.map((b) => b.id);
   const nameOf = new Map(chosen.map((b) => [b.id, budgetPickLabel_(b)]));
   setBudgetsEditing_(false);
@@ -10574,7 +10589,7 @@ document.getElementById("budgets-delete-selected-btn").addEventListener("click",
   saveBehindScreen_(async () => {
     if (ends) {
       const r = await callApi("endBudgets", { ids });
-      result = { deleted: r.deleted.concat(r.ended), ended: r.ended, missing: r.missing };
+      result = { deleted: r.deleted, ended: r.ended, missing: r.missing };
     } else result = await callApi("deleteBudgets", { ids });
   }, async () => {
     try { await refreshBudgets(); }
@@ -10582,9 +10597,11 @@ document.getElementById("budgets-delete-selected-btn").addEventListener("click",
     if (result && result.missing.length) alert(tr("budgets.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
   }, {
     busy: "common.deletingToast", release: delKeys,
-    done: () => !result || !result.deleted.length ? ""
-      : result.ended ? tr("budgets.resultEnded", { n: result.deleted.length, names: shortNames_(result.deleted.map((id) => nameOf.get(id))) })
-      : tr("budgets.resultDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((id) => nameOf.get(id))) }),
+    done: () => {
+      if (!result) return "";
+      const line = (key, list) => (list && list.length ? tr(key, { n: list.length, names: shortNames_(list.map((id) => nameOf.get(id))) }) : "");
+      return [line("budgets.resultEnded", result.ended), line("budgets.resultDeleted", result.deleted)].filter(Boolean).join(" ");
+    },
   });
 });
 
@@ -23935,6 +23952,10 @@ function askConfirmApp_(text, okLabel, opts) {
     document.getElementById("app-confirm-close").onclick = () => done(false);
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // the keyboard would cover it
     bringModalToFront_(backdrop);
+    // Above whatever is open: some sheets have their own fixed layer (the split bill's is 260, above the counter), and it would open
+    // behind them with the app looking frozen.
+    const layers = [...document.querySelectorAll(".currency-modal-backdrop, #welcome-overlay")].filter((el) => el !== backdrop && !el.hidden).map((el) => Number(getComputedStyle(el).zIndex) || 0);
+    if (layers.length && Math.max(...layers) >= Number(backdrop.style.zIndex)) backdrop.style.zIndex = Math.max(...layers) + 1;
     // During a practice it goes above the dimmed screen and its blocked taps (spotlight.js is at 100000; a window it lifts, 100001).
     if (typeof Spotlight !== "undefined" && Spotlight.isRunning()) backdrop.style.zIndex = 100002;
     backdrop.hidden = false;

@@ -247,3 +247,24 @@ test("the dotted part of a budget: Programmed items still to come this period, n
   const past = rt.api("listBudgets", { displayPeriodType: "month", anchorDate: `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}-01` }).budgets.find((x) => x.id === b.id);
   assert.ok(!past || !past.progress.programmed, "a past month has nothing still to come");
 });
+
+test("the totals card keeps the larger of two budgets on the same categories, compared per year (Elena, 2026-11-09)", () => {
+  const { rt } = freshApp({ small: true });
+  rt.run("deleteRowsWhere_('Budgets', function () { return true; })");
+  const cat = rt.api("getMeta").categories.find((c) => c.type === "expense").id;
+  rt.api("addBudget", { category_id: cat, amount: 200, currency: "PEN", period_type: "monthly" });
+  rt.api("addBudget", { category_id: cat, amount: 70, currency: "PEN", period_type: "weekly" });
+  const s = rt.api("listBudgets", { displayPeriodType: "month" }).summary;
+  assert.equal(s.yearlyPen, 70 * 52, "70 a week (3,640 a year) beats 200 a month (2,400 a year)");
+});
+
+test("a start typed by hand in the Sheet is read properly; one nobody can read is left out (Ingrid, 2026-11-09)", () => {
+  const { rt } = freshApp({ small: true });
+  const key = (v, k) => rt.run(`budgetFromKey_(${JSON.stringify(v)}, '${k}')`);
+  for (const v of ["2026-9", "2026/09", "2026-09", 202609, "Sep 2026", "septiembre de 2026", "set 2026", "2026-09-15"]) assert.equal(key(v, "monthly"), "2026-09", String(v));
+  assert.equal(key(2027, "yearly"), "2027");
+  assert.equal(key("2026-11-11", "weekly"), "2026-11-09", "a weekly start is its Monday");
+  assert.equal(key("", "monthly"), "");
+  assert.equal(key("soon", "monthly"), null);
+  assert.equal(key("2026-13", "monthly"), null);
+});
