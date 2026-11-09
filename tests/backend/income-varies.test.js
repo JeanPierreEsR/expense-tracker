@@ -99,3 +99,15 @@ test("a week: the 8 complete weeks before it; a whole year: its complete months 
   const yv = rt.api("getPeriodSummary", { startDate: `${y}-01-01`, endDate: `${y}-12-31` }).incomeVaries;
   assert.ok(yv.yearMonths.every((m) => m.month < today().slice(0, 7)), "only complete months");
 });
+
+test("How do you get paid? — several kinds at once, each adding its category once (owner, 2026-11-08)", () => {
+  const rt = setup();
+  const r = rt.api("setPay", { pay: "varies", kinds: ["sales", "daily", "sales"] });
+  assert.equal(r.pay, "varies:sales,daily");
+  assert.deepEqual(r.addedAll.map((a) => a.name).sort(), ["Daily work", "Sales"]);
+  rt.api("setPay", { pay: "varies", kinds: ["sales", "daily", "freelance"] });
+  for (const k of ["sales", "daily_work", "freelance"]) assert.equal(rt.rows("Categories").filter((c) => c.key === k).length, 1, k);
+  rt.api("setPay", { pay: "varies", kinds: ["sales"] });   // un-ticking never deletes a category
+  assert.equal(rt.rows("Categories").filter((c) => c.key === "freelance").length, 1);
+  assert.equal(rt.api("getMeta", {}).settings.pay, "varies:sales");
+});

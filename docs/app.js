@@ -12234,10 +12234,12 @@ function fillFitsChips_(box, selected, onToggle, compact) {
   });
 }
 const fitsToggled_ = (list, a) => (list.includes(a) ? list.filter((x) => x !== a) : list.concat(a));
-// "How do you get paid?" (owner, 2026-11-07): a fixed salary, or it varies — then ONE kind (sales, freelance, daily work), which adds
-// that income category. The same choices on the welcome and in My profile. sel = { pay: "salary"|"varies"|"", kind }.
+// "How do you get paid?" (owner, 2026-11-07): a fixed salary, or it varies — then the kinds that fit (sales, freelance, daily work;
+// several since 2026-11-08, owner), each adding its income category. The same choices on the welcome and in My profile.
+// sel = { pay: "salary"|"varies"|"", kinds: [] }.
 function fillPayChoices_(box, sel, onPick) {
   box.innerHTML = "";
+  const kindsNow = sel.kinds || [];
   const row = document.createElement("div");
   row.className = "welcome-choices";
   [["salary", "pay.salary"], ["varies", "pay.varies"]].forEach(([v, key]) => {
@@ -12245,7 +12247,7 @@ function fillPayChoices_(box, sel, onPick) {
     b.type = "button";
     b.className = "welcome-choice" + (sel.pay === v ? " active" : "");
     b.textContent = tr(key);
-    b.addEventListener("click", () => onPick({ pay: v, kind: v === "varies" ? sel.kind || "" : "" }));
+    b.addEventListener("click", () => onPick({ pay: v, kinds: v === "varies" ? kindsNow : [] }));
     row.appendChild(b);
   });
   box.appendChild(row);
@@ -12259,21 +12261,22 @@ function fillPayChoices_(box, sel, onPick) {
   ["sales", "freelance", "daily"].forEach((k) => {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "welcome-choice" + (sel.kind === k ? " active" : "");
+    b.className = "welcome-choice" + (kindsNow.includes(k) ? " active" : "");
+    b.setAttribute("aria-pressed", String(kindsNow.includes(k)));
     b.textContent = tr("pay.kind." + k);
-    b.addEventListener("click", () => onPick({ pay: "varies", kind: k }));
+    b.addEventListener("click", () => onPick({ pay: "varies", kinds: kindsNow.includes(k) ? kindsNow.filter((x) => x !== k) : kindsNow.concat(k) }));
     kinds.appendChild(b);
   });
   box.appendChild(kinds);
 }
-const payFromSetting_ = (v) => { const [pay, kind] = String(v || "").split(":"); return { pay: pay === "salary" || pay === "varies" ? pay : "", kind: kind || "" }; };
+const payFromSetting_ = (v) => { const [pay, kinds] = String(v || "").split(":"); return { pay: pay === "salary" || pay === "varies" ? pay : "", kinds: (kinds || "").split(",").filter(Boolean) }; };
 const payVaries_ = () => payFromSetting_(meta && meta.settings && meta.settings.pay).pay === "varies";
 function renderWelcomeFits_() {
   I18n.applyStatic(welcomeEl_("welcome-fits"));
   welcomeEl_("wf-step").textContent = tr("welcome.step", { n: 2 });
   const payOn = !!(meta && meta.capabilities && meta.capabilities.incomeVaries);
   welcomeEl_("wpay-block").hidden = !payOn;
-  if (payOn) fillPayChoices_(welcomeEl_("wpay-box"), welcome_.payChoice || { pay: "", kind: "" }, (c) => { welcome_.payChoice = c; renderWelcomeFits_(); });
+  if (payOn) fillPayChoices_(welcomeEl_("wpay-box"), welcome_.payChoice || { pay: "", kinds: [] }, (c) => { welcome_.payChoice = c; renderWelcomeFits_(); });
   fillFitsChips_(welcomeEl_("wf-chips"), welcome_.fits, (a) => { welcome_.fits = fitsToggled_(welcome_.fits, a); renderWelcomeFits_(); });
   waEl_("wb-block").hidden = !businessOffered();   // the business question is only asked where the pack is offered
   if (!businessOffered()) welcome_.business = false;
@@ -13157,16 +13160,18 @@ async function showMyProfileScreen() {
     loading.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(e.message)}</p>`;
   }
 }
-// How I get paid: a tap on "A fixed salary" or on a kind saves at once; "It varies" alone only opens the kinds.
+// How I get paid: a tap on "A fixed salary" or on a kind saves at once; "It varies" alone only opens the kinds. Un-ticking a kind
+// never deletes its category (as What fits me).
 function drawProfilePay_(sel) {
   fillPayChoices_(document.getElementById("my-profile-pay"), sel, (c) => {
     drawProfilePay_(c);
-    if (c.pay === "varies" && !c.kind) return;
+    if (c.pay === "varies" && !c.kinds.length && !sel.kinds.length) return;
     const msg = document.getElementById("my-profile-pay-msg");
     msg.textContent = tr("common.savingToast");
     callApi("setPay", c).then((r) => {
       if (meta && meta.settings) meta.settings.pay = r.pay;
-      msg.textContent = r.added ? tr("prof.payAdded", { name: r.added.name }) : tr("prof.paySaved");
+      const added = r.addedAll && r.addedAll.length ? r.addedAll.map((a) => a.name).join(", ") : r.added ? r.added.name : "";
+      msg.textContent = added ? tr("prof.payAdded", { name: added }) : tr("prof.paySaved");
       if (r.added) loadMeta && loadMeta().catch(() => {});
     }).catch(() => { msg.textContent = tr("prof.payFailed"); });
   });
@@ -15787,6 +15792,7 @@ function openCatModal_(cat) {
   document.getElementById("cat-name").value = cat ? cat.name : "";
   document.getElementById("cat-emoji").value = cat ? (cat.icon || "") : "";
   document.getElementById("cat-earning").value = cat && cat.earning ? cat.earning : (cat ? "none" : "varies");
+  syncCatEarningHint_();
   syncCatEarning_();
   document.getElementById("cat-form-error").textContent = "";
   document.getElementById("cat-reassign").hidden = true;
@@ -15826,7 +15832,15 @@ document.querySelectorAll("#cat-type-tabs .type-tab").forEach((tab) => {
 function syncCatEarning_() {
   const on = !!(catModalState && catModalState.type === "income" && meta && meta.capabilities && meta.capabilities.incomeVaries);
   document.getElementById("cat-earning-wrap").hidden = !on;
+  syncCatEarningHint_();
 }
+// The line under "Counts as" says what the choice picked does (owner, 2026-11-08: one fixed line about income that varies read as if it
+// applied to every choice).
+function syncCatEarningHint_() {
+  const v = document.getElementById("cat-earning").value;
+  document.getElementById("cat-earning-hint").textContent = tr(v === "regular" ? "categories.earningHintRegular" : v === "varies" ? "categories.earningHintVaries" : "categories.earningHintNone");
+}
+document.getElementById("cat-earning").addEventListener("change", syncCatEarningHint_);
 document.getElementById("cat-name").addEventListener("input", () => catModalState && updateCatPreview_());
 document.getElementById("cat-emoji").addEventListener("input", () => catModalState && updateCatPreview_());
 
