@@ -21599,6 +21599,8 @@ function runTip_(steps, afterFinish, note) {
     onFinish: async (how) => {
       markPracticeDeleting_();
       if (how === "lost") setTimeout(() => alert(tr("spot.lost")), 0);   // the engine stopped it (see spotlight.js go()): say why, then clean up as usual
+      if (how === "done" && tipRunningKey_) markTaught_(tipRunningKey_, "practice");   // only a practice done to the end teaches (Not now, Exit and a lost one do not)
+      tipRunningKey_ = "";
       await afterFinish(how);
     },
     busy: () => perfInflight_ > 0   // a call still on its way: a step's reload waits for it (no stacked reloads)
@@ -21629,6 +21631,7 @@ function editModeOn_() {
   return reviewEditing_ || entriesEditing_ || budgetsEditing_ || businessEditing_ || peopleEditing_ || categoriesEditing_ || tripsEditing_ || accountsEditing_ || friendsEditing_ || recurringEditing_;
 }
 // after(): runs once the card was answered (Not now, or the practice started), e.g. the Loans line offering the other two loan practices.
+let tipRunningKey_ = "";   // the practice started from its card, so its finish can be recorded
 function offerTip_(key, boxId, inviteText, start, after) {
   const box = document.getElementById(boxId);
   if (!box || tipSeen_(key) || Spotlight.isRunning()) return;
@@ -21645,7 +21648,8 @@ function offerTip_(key, boxId, inviteText, start, after) {
   box.querySelector(".tip-invite-go").addEventListener("click", async () => {
     if (editModeOn_()) { showToast_(tr("spot.editOn")); return; }   // a practice needs the normal screen: stays on offer, nothing marked
     if (practiceDueList_().length) { showToast_(tr("spot.p.stillRemoving")); practiceRetryDue_(); return; }   // starting now could overwrite what it still has to remove
-    if (!await start()) return;   // not possible right now (something half-typed): stays on offer, nothing marked
+    tipRunningKey_ = key;
+    if (!await start()) { tipRunningKey_ = ""; return; }   // not possible right now (something half-typed): stays on offer, nothing marked
     markTipSeen_(key);
     box.hidden = true;
     if (after) after();
@@ -21734,12 +21738,12 @@ function popTipTick_() {
   popTipShow_(tip, el);
 }
 function popTipShow_(tip, el) {
-  popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).concat(tip.key));   // shown = seen, however it is closed
+  if (!tip.offer) popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).concat(tip.key));   // shown = seen, however it is closed (an offer keeps its own count: realChanceLeft_)
   const b = document.createElement("div");
   b.className = "pop-tip";
   b.setAttribute("role", "dialog");
   b.dataset.tip = tip.key;
-  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons"><button type="button" class="pop-tip-ok">${escapeHtml(tr("pop.gotIt"))}</button></div>`;
+  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons"><button type="button" class="pop-tip-ok">${escapeHtml(tip.offer ? tr("rt.guideMe") : tr("pop.gotIt"))}</button></div>`;
   document.body.appendChild(b);
   const place = () => {
     if (!el.isConnected || !el.getClientRects().length) { close(); return; }
@@ -21769,7 +21773,7 @@ function popTipShow_(tip, el) {
     b.remove();
     popOpen_ = null;
   }
-  b.querySelector(".pop-tip-ok").addEventListener("click", close);
+  b.querySelector(".pop-tip-ok").addEventListener("click", () => { close(); if (tip.offer) tip.offer(); });
   document.addEventListener("pointerdown", outsideDown, true);
   document.addEventListener("pointerup", outsideUp, true);
   document.addEventListener("pointercancel", outsideCancel, true);
@@ -21908,6 +21912,7 @@ function practiceSaveFailed_() {
 function tipNoteSavedEntry_(id, description) {
   practiceINoteSaved_(id, description);   // (the Investments practice's deposit / withdrawal)
   guidedNoteSaved_(id);                   // (the guided practice's first real entry)
+  transferNoteSaved_();                   // (saving one, guided or not, ends the offer)
   if (!practice_ || practice_.entryId || !Spotlight.isRunning() || description !== tr("spot.p.name")) return;
   const friendId = [...splitFriendIds][0] || "";
   const friend = (meta.friends || []).find((f) => f.id === friendId);
@@ -22269,6 +22274,7 @@ document.getElementById("tour-choice-tips").addEventListener("click", () => {
   popSet_(POP_SEEN_KEY_, []);   // the pop-up tips too, each on the next visit to its place (no 3-visit wait any more)
   popSet_(POP_AGAIN_KEY_, true);
   try { localStorage.setItem(GUIDED_AGAIN_KEY_, "1"); } catch (e) { /* ignore */ }   // the guided "+" practice runs again, even with entries
+  realTutorialsReset_();
   document.getElementById("tour-choice-backdrop").hidden = true;
   showToast_(tr("spot.tipsReset"));
 });
@@ -22316,7 +22322,7 @@ function guidedAnswered_() {
 function startGuidedEntry_() {
   if (!newEntrySheetOpen_ || Spotlight.isRunning()) return;
   guided_ = { savedId: "", split: null };
-  Spotlight.run(guidedEntrySteps_(), {
+  Spotlight.run(realSteps_(guidedEntrySteps_()), {
     labels: { note: tr("spot.g.note"), exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
     onFinish: async (how) => {
       guidedAnswered_();   // Exit on the first card counts; closing the app on it does not (Sol, 2026-11-09)
@@ -22340,20 +22346,20 @@ function guidedEntrySteps_() {
   return [
     { key: "intro", text: () => tr("spot.g.intro"), button: () => tr("spot.g.start"), after: guidedAnswered_ },
     { key: "type", target: "#entry-type-tabs", text: () => tr(payVaries_() ? "spot.g.typeVaries" : "spot.g.type"), tap: "#entry-type-tabs", button: () => tr("spot.g.keepExpense") },
-    { key: "category", target: "#category-picker", text: () => tr(selectedType === "income" ? "spot.g.catIncome" : "spot.g.cat"),
+    { key: "category", field: "category", target: "#category-picker", text: () => tr(selectedType === "income" ? "spot.g.catIncome" : "spot.g.cat"),
       until: () => !document.getElementById("entry-form").hidden, available: () => ICON_PICKER_TYPES.includes(selectedType), before: async () => shownNow("category-picker") },
     { target: "#repayment-field", text: () => tr("spot.g.transferKind"), visit: "#transfer-kind", button: next,
       available: is("transfer"), before: async () => is("transfer")() && shownNow("repayment-field") },
     { target: "#investment-direction-tabs", text: () => tr("spot.g.invDir"), tap: "#investment-direction-tabs", button: next,
       available: is("investment"), before: async () => is("investment")() && shownNow("investment-direction-tabs") },
-    { key: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
+    { key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
       until: () => amountOk() && document.activeElement !== document.getElementById("amount"), ok: amountOk, holdsUntil: "save" },
-    { target: "#currency-chips", text: () => tr("spot.g.currency"), tap: "#currency-chips", button: next },
-    { target: "#description", text: () => tr("spot.g.desc"), blurTap: true, visit: "#description", button: next },
-    { target: "#date", text: () => tr("spot.g.date"), visit: "#date", button: next },
+    { field: "currency", target: "#currency-chips", text: () => tr("spot.g.currency"), tap: "#currency-chips", button: next },
+    { field: "description", target: "#description", text: () => tr("spot.g.desc"), blurTap: true, visit: "#description", button: next },
+    { field: "date", target: "#date", text: () => tr("spot.g.date"), visit: "#date", button: next },
     { target: "#paid_by", text: () => tr(selectedType === "income" ? "spot.g.payer" : "spot.g.paidBy"), visit: "#paid_by", button: next,
       available: () => is("expense")() || is("income")(), before: async () => (is("expense")() || is("income")()) && shownNow("paid_by") },
-    { target: "#payment-method-field", text: () => tr(accountText[selectedType] || "spot.g.accExp"), visit: "#payment_method", button: next,
+    { field: selectedType === "income" ? "accountIn" : "account", target: "#payment-method-field", text: () => tr(accountText[selectedType] || "spot.g.accExp"), visit: "#payment_method", button: next,
       before: async () => shownNow("payment-method-field") },
     { target: "#to-payment-method-field", text: () => tr("spot.g.accTo"), visit: "#to_payment_method", button: next,
       available: is("transfer"), before: async () => is("transfer")() && shownNow("to-payment-method-field") },
@@ -22403,6 +22409,177 @@ function startGuidedLoansLook_() {
   return true;
 }
 
+// ---- Real tutorials (owner's plan, 2026-11-09: "Tutorials from the map - plan") ----
+// The person does the real thing and it is kept. Only one of practice / real tutorial is ever done with someone: each feature has one record
+// here on the phone. A practice counts only if finished; a person who already uses the feature is never interrupted; the owner's copy never gets them.
+// Steps carry `field`: explained once, then later tutorials skip it (the first entry fills most of the list).
+const TAUGHT_KEY_ = "tutorialTaught", TAUGHT_OLD_KEY_ = "tutorialTaughtOld", FIELDS_KEY_ = "tutorialFields", CHANCES_KEY_ = "tutorialChances", REAL_AGAIN_KEY_ = "tutorialAgain", REVIEW_TYPES_KEY_ = "tutorialReviewTypes";
+const REAL_CHANCES_ = 3;
+// Practice cards answered before this existed cannot be told apart from finished ones, so they count as taught (once, at the first opening).
+if (popGet_(TAUGHT_OLD_KEY_, null) === null) popSet_(TAUGHT_OLD_KEY_, popGet_("tipsSeen", []));
+function isTaught_(feature) { return !!popGet_(TAUGHT_KEY_, {})[feature] || popGet_(TAUGHT_OLD_KEY_, []).includes(feature); }
+function markTaught_(feature, how) { const t = popGet_(TAUGHT_KEY_, {}); if (!t[feature]) { t[feature] = how; popSet_(TAUGHT_KEY_, t); } }
+function realAgain_() { return !!popGet_(REAL_AGAIN_KEY_, false); }   // More → Practice tips: run them even for someone who already uses the feature
+function realTutorialsReset_() {
+  popSet_(TAUGHT_KEY_, {}); popSet_(TAUGHT_OLD_KEY_, []); popSet_(FIELDS_KEY_, []); popSet_(CHANCES_KEY_, {}); popSet_(REVIEW_TYPES_KEY_, []);
+  popSet_(REAL_AGAIN_KEY_, true);
+  reviewRealDone_ = false;
+}
+function fieldsKnown_() { return popGet_(FIELDS_KEY_, []); }
+function noteField_(f) { const k = fieldsKnown_(); if (!k.includes(f)) popSet_(FIELDS_KEY_, k.concat(f)); }
+function realSteps_(steps) {
+  steps.forEach((s) => { if (s.field) { const after = s.after; s.after = () => { if (after) after(); noteField_(s.field); }; } });
+  return steps;
+}
+function realLabels_() { return { note: tr("spot.g.note"), exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) }; }
+// "A look is not a use": up to 3 chances to accept; `perDay` also keeps a tutorial that opens by itself to once a day.
+function realChanceLeft_(feature, perDay) {
+  const c = popGet_(CHANCES_KEY_, {})[feature] || { n: 0, day: "" };
+  return c.n < REAL_CHANCES_ && !(perDay && c.day === todayLocalISO());
+}
+function spendRealChance_(feature) {
+  const all = popGet_(CHANCES_KEY_, {}), c = all[feature] || { n: 0, day: "" };
+  all[feature] = { n: c.n + 1, day: todayLocalISO() };
+  popSet_(CHANCES_KEY_, all);
+}
+function realScreenFree_() {
+  if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || popOpen_ || editModeOn_() || !document.getElementById("welcome-overlay").hidden) return false;
+  if (newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId || practiceDueList_().length) return false;
+  return !document.querySelector(".currency-modal-backdrop:not([hidden])");
+}
+
+// Needs review: on the first real item, what is new about it (owner's rule: no repeating what the first entry explained). Then, the first
+// time another type arrives, only the fields that type adds. The practice with made-up entries is no longer offered (owner, 2026-11-09).
+let reviewRealTimer_ = null, reviewRealDone_ = false;   // one per opening of the app, so nobody gets two in a row
+function offerReviewTip_() {   // called whenever Needs review may have something new (refreshReviewQueue is still drawing, so it waits a moment)
+  if (!reviewEntries_.length) return;   // nothing waiting yet
+  if (reviewRealTimer_ || reviewRealDone_) return;
+  reviewRealTimer_ = setTimeout(() => { reviewRealTimer_ = null; startReviewReal_(); }, 400);
+}
+function reviewTypeSteps_(id, type, opts) {
+  const row = () => practiceNRow_(id);
+  const part = (sel) => { const r = row(); return r ? r.querySelector(sel) : null; };
+  const fieldEl = (sel) => { const el = part(sel); return el ? (el.closest(".review-field") || el) : null; };
+  const next = () => tr(opts.last ? "spot.g.done" : "spot.g.next");
+  const list = [];
+  const add = (field, sel, textKey, must) => {
+    const sels = [].concat(sel);
+    if (!sels.every((x) => part(x))) return;
+    const step = { field, target: () => { const els = sels.map(fieldEl).filter(Boolean); return els.length ? els : null; }, text: () => tr(textKey) };
+    if (must && !part(sels[0]).value) step.until = () => { const el = part(sels[0]); return !!(el && el.value); };
+    else step.button = next;
+    list.push(step);
+  };
+  if (opts.withCategory && type !== "investment") add("category", ".review-category", "rt.review.catPick");
+  if (type === "expense") add("account", ".review-account", "rt.review.accountOut");
+  if (type === "income") add("accountIn", ".review-account", "rt.review.accountIn");
+  if (type === "transfer") add("transferAccounts", [".review-from", ".review-to"], "rt.review.transfer");
+  if (type === "investment") add("platform", ".review-platform", "rt.review.platform", opts.must);
+  return list.filter((s) => !fieldsKnown_().includes(s.field));
+}
+function noteReviewType_(type) { const d = popGet_(REVIEW_TYPES_KEY_, []); if (!d.includes(type)) popSet_(REVIEW_TYPES_KEY_, d.concat(type)); }
+function reviewRowShowing_(id) { const r = practiceNRow_(id); return !!r && r.getClientRects().length > 0; }   // a long list keeps the rest hidden behind "Show more"
+function startReviewReal_() {
+  if (reviewRealDone_ || document.getElementById("screen-entries").hidden || !realScreenFree_()) return;
+  // Not the unusual rows: part of a repayment, a possible duplicate, a match with a charge already recorded.
+  const entries = (reviewEntries_ || []).filter((e) => !isPracticeReviewEntry_(e) && !e.link && !e.charge_match && !(e.twins || []).length && reviewRowShowing_(e.id));
+  if (!entries.length) return;
+  if (isTaught_("review")) return startReviewTopUp_(entries);
+  if (!realAgain_() && (lastRenderedEntries_ || []).some((e) => e.source === "email" && e.status !== "pending")) { markTaught_("review", "used"); return; }
+  if (!realChanceLeft_("review", true)) return;
+  const entry = entries[0], id = entry.id, type = entry.type;
+  const row = () => practiceNRow_(id);
+  const part = (sel) => () => { const r = row(); return r ? r.querySelector(sel) : null; };
+  const fieldOf = (sel) => { const el = part(sel)(); return el ? el.closest(".review-field") : null; };
+  const isNew = (f) => !fieldsKnown_().includes(f);
+  const next = () => tr("spot.g.next");
+  const category = () => { const el = part(".review-category")(); return el ? el.value : ""; };
+  const hadCategory = !!category();
+  let started = false;
+  const steps = [{ key: "intro", text: () => tr("rt.review.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("review", "real"); } }];
+  steps.push({ look: true, target: part(".review-item-top"), text: () => tr("rt.review.top"), button: next });
+  if (type !== "investment" && (isNew("category") || !hadCategory)) {
+    const s = { key: "category", field: "category", target: () => fieldOf(".review-category"), text: (fix) => tr(fix ? "rt.review.catFix" : hadCategory ? "rt.review.catCheck" : "rt.review.catPick"), ok: () => !!category(), holdsUntil: "decide" };
+    if (hadCategory) s.button = next; else s.until = () => !!category();
+    steps.push(s);
+  }
+  if (isNew("amount") || isNew("description")) steps.push({ field: "amount", target: () => [fieldOf(".review-description"), fieldOf(".review-amount")].filter(Boolean), text: () => tr("rt.review.details"), button: next, after: () => noteField_("description") });
+  steps.push(...reviewTypeSteps_(id, type, { must: true }));
+  steps.push({ key: "decide", target: part(".review-item-actions"), text: () => tr("rt.review.decide"), until: () => !row(), wait: 10000 });
+  steps.push({ text: () => tr("rt.review.done"), button: () => tr("spot.g.done") });
+  reviewRealDone_ = true;
+  noteReviewType_(type);
+  Spotlight.run(realSteps_(steps), {
+    labels: realLabels_(),
+    onFinish: async (how) => {
+      if (!started) { spendRealChance_("review"); return; }   // Exit on its first screen is a "not now"
+      if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0);
+    },
+    busy: () => perfInflight_ > 0
+  });
+}
+function startReviewTopUp_(entries) {
+  if (popGet_(TAUGHT_KEY_, {}).review !== "real") return;   // only for someone the real tutorial taught
+  const done = popGet_(REVIEW_TYPES_KEY_, []);
+  for (const e of entries) {
+    if (done.includes(e.type)) continue;
+    const steps = reviewTypeSteps_(e.id, e.type, { withCategory: true });
+    if (!steps.length) { noteReviewType_(e.type); continue; }
+    steps[steps.length - 1].button = () => tr("spot.g.done");
+    steps.forEach((s, i) => { if (i === steps.length - 1) return; s.button = () => tr("spot.g.next"); });
+    reviewRealDone_ = true;
+    noteReviewType_(e.type);
+    Spotlight.run(realSteps_(steps), { labels: realLabels_(), onFinish: async () => {}, busy: () => perfInflight_ > 0 });
+    return;
+  }
+}
+
+// A move between the person's own accounts ("+" → Transfer → Between my accounts). Choosing the tab may be only a look, so it asks. Confirming one in Needs review does not count.
+function transferBetweenChosen_() { return selectedType === "transfer" && document.getElementById("transfer-kind").value === "between"; }
+function offerTransferGuide_() {
+  setTimeout(() => {
+    if (!newEntrySheetOpen_ || editingEntryId || editingViaPopup || confirmingPendingId || !transferBetweenChosen_()) return;
+    if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || popOpen_ || isTaught_("transfer")) return;
+    if (!realAgain_() && (lastRenderedEntries_ || []).some((e) => e.type === "transfer" && e.status !== "pending")) { markTaught_("transfer", "used"); return; }
+    if (!realChanceLeft_("transfer")) return;
+    const el = document.getElementById("repayment-field");
+    if (!popInView_(el)) return;
+    spendRealChance_("transfer");
+    popTipShow_({ key: "offer-transfer", text: tr("rt.transfer.offer"), offer: startTransferReal_ }, el);
+  }, 350);
+}
+document.querySelector('#entry-type-tabs .type-tab[data-type="transfer"]').addEventListener("click", offerTransferGuide_);
+document.getElementById("transfer-kind").addEventListener("change", offerTransferGuide_);
+function transferNoteSaved_() { if (transferBetweenChosen_()) markTaught_("transfer", guided_ ? "real" : "used"); }
+function startTransferReal_() {
+  if (!newEntrySheetOpen_ || Spotlight.isRunning()) return;
+  guided_ = { savedId: "", split: null };
+  markTaught_("transfer", "real");
+  const isNew = (f) => !fieldsKnown_().includes(f);
+  const next = () => tr("spot.g.next");
+  const amountOk = () => parseFloat(document.getElementById("amount").value) > 0;
+  const lastError = () => document.getElementById("form-error").textContent.trim();
+  const steps = [{ target: "#repayment-field", text: () => tr("rt.transfer.kind"), button: next }];
+  if (isNew("amount")) steps.push({ key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
+    until: () => amountOk() && document.activeElement !== document.getElementById("amount"), ok: amountOk, holdsUntil: "save" });
+  if (isNew("date")) steps.push({ field: "date", target: "#date", text: () => tr("spot.g.date"), visit: "#date", button: next });
+  steps.push({ target: "#payment-method-field", text: () => tr("spot.g.accFrom"), visit: "#payment_method", button: next });
+  steps.push({ target: "#to-payment-method-field", text: () => tr("spot.g.accTo"), visit: "#to_payment_method", button: next });
+  steps.push({ key: "save", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
+    text: () => { const err = lastError(); return err ? tr("spot.g.saveErr", { error: err }) : tr("spot.g.save"); },
+    before: async () => { document.getElementById("form-error").textContent = ""; },
+    until: () => !!(guided_ && guided_.savedId) });
+  steps.push({ look: true, target: () => (guided_ && guided_.savedId ? document.querySelector(`#entry-list .entry[data-entry-id="${CSS.escape(guided_.savedId)}"]`) : null),
+    text: () => tr("rt.transfer.done"), button: () => tr("spot.g.done"), wait: 15000,
+    before: async () => { showScreen("entries"); await new Promise((r) => setTimeout(r, 600)); },
+    poke: () => { refreshEntryList().catch(() => {}); } });
+  Spotlight.run(realSteps_(steps), {
+    labels: realLabels_(),
+    onFinish: async (how) => { if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); guided_ = null; },
+    busy: () => perfInflight_ > 0
+  });
+}
+
 // ---- First-use practice: Needs review ----
 // The person sees how an automatic capture waits in "Needs review": two made-up purchases arrive (one server call, createPracticePending),
 // they pick a category and confirm one (it shows up in the day's list and counts) and discard the other. The practice entries carry the
@@ -22425,11 +22602,6 @@ function isPracticeReviewEntry_(e) {
   return !!e && (e.source === "practice" || /^(Practice purchase|Compra de práctica|Practice charge|Cargo de práctica)$/.test(String(e.description || "").trim()));
 }
 
-function offerReviewTip_() {
-  if (!((meta && meta.capabilities) || {}).practiceReview) return;   // an older backend would let the practice entries teach the app
-  if (!reviewEntries_.length) return;   // nothing waiting yet: a person with no bank e-mails has no use for it (owner, 2026-11-06)
-  offerTip_("review", "home-tip-invite", tr("spot.n.invite"), startReviewPractice_);
-}
 
 function practiceNRow_(id) {
   if (!id) return null;
