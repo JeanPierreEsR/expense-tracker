@@ -22731,6 +22731,55 @@ document.addEventListener("click", (e) => {
     if (feature) setTimeout(() => { if (back.hidden) markTaught_(feature, "used"); }, 700);
   }
 }, true);
+// Change type: picking Income, Investment or Transfer inside the form offers a guide for what that type needs (owner's walk, 2026-11-09). What was read from the bank stays filled in.
+const CONV_TYPES_ = { income: "rt.conv.typeIncome", investment: "rt.conv.typeInvestment", transfer: "rt.conv.typeTransfer" };
+document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => tab.addEventListener("click", () => {
+  const type = tab.dataset.type;
+  if (!confirmingPendingId || !CONV_TYPES_[type] || Spotlight.isRunning()) return;
+  offerConvGuide_("conv-type-" + type, CONV_TYPES_[type], () => !!confirmingPendingId && selectedType === type, () => tab, () => startConvType_(type));
+}));
+function startConvType_(type) {
+  if (Spotlight.isRunning() || !confirmingPendingId) return;
+  markTaught_("conv-type-" + type, "real");
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  guided_ = { savedId: "", split: null };   // (a window opened during it, such as Add account, goes above its dimmed screen)
+  const el = (id) => document.getElementById(id);
+  const shownNow = (id) => { const e = el(id); return !!e && !e.hidden && e.getClientRects().length > 0; };
+  const next = () => tr("spot.g.next");
+  const isNew = (f) => !fieldsKnown_().includes(f);
+  const lastError = () => el("form-error").textContent.trim();
+  let submitted = false;
+  const onSubmit = () => { submitted = true; };
+  el("entry-form").addEventListener("submit", onSubmit, true);
+  const whenShown = (id, step) => ({ ...step, before: async () => shownNow(id) });
+  const tabSel = `#entry-type-tabs .type-tab[data-type="${type}"]`;
+  const steps = [];
+  if (type === "income") steps.push({ target: tabSel, text: () => tr("rt.conv.incomeWhat"), button: next });
+  if (type === "investment") steps.push({ target: tabSel, text: () => tr("rt.conv.investWhat"), button: next });
+  if (type === "transfer") steps.push({ target: tabSel, text: () => tr("rt.transfer.kind"), button: next });
+  if (type === "income") {
+    steps.push({ field: "category", target: "#category-picker", text: () => tr("spot.g.catIncome"), until: () => !el("entry-form").hidden, before: async () => shownNow("category-picker") });
+    if (isNew("payer")) steps.push(whenShown("paid_by", { field: "payer", target: "#paid_by", text: () => tr("spot.g.payer"), visit: "#paid_by", button: next }));
+    steps.push(whenShown("payment-method-field", { field: "accountIn", target: "#payment-method-field", text: () => tr("spot.g.accInc"), visit: "#payment_method", button: next }));
+  }
+  if (type === "investment") {
+    steps.push(whenShown("investment-direction-tabs", { target: "#investment-direction-tabs", text: () => tr("spot.g.invDir"), tap: "#investment-direction-tabs", button: next }));
+    steps.push(whenShown("payment-method-field", { target: "#payment-method-field", text: () => tr("spot.g.accInv"), visit: "#payment_method", button: next }));
+    steps.push(whenShown("to-payment-method-field", { key: "platform", target: "#to-payment-method-field", text: () => tr("spot.g.platform"), visit: "#to_payment_method", ok: () => submitted || !!el("to_payment_method").value, holdsUntil: "save" }));
+  }
+  if (type === "transfer") {
+    steps.push(whenShown("payment-method-field", { target: "#payment-method-field", text: () => tr("spot.g.accFrom"), visit: "#payment_method", button: next }));
+    steps.push(whenShown("to-payment-method-field", { target: "#to-payment-method-field", text: () => tr("spot.g.accTo"), visit: "#to_payment_method", button: next }));
+  }
+  steps.push({ key: "save", target: () => [el("submit-btn"), el("form-error")], text: () => { const e = lastError(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); },
+    before: async () => { el("form-error").textContent = ""; return true; }, until: () => !confirmingPendingId });
+  steps.push({ text: () => tr({ income: "rt.conv.incomeDone", investment: "rt.conv.investDone", transfer: "rt.transfer.done" }[type]), button: () => tr("spot.g.done") });
+  Spotlight.run(realSteps_(steps), {
+    labels: realLabels_(),
+    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0); },
+    busy: () => perfInflight_ > 0
+  });
+}
 // When the app already suspects it ("Looks like a payment from … again"): one bubble per kind at the highlighted button.
 function watchReviewHint_() {
   if (!convOffersOn_() || popWatch_ || popOpen_ || Spotlight.isRunning() || document.getElementById("screen-entries").hidden) return;

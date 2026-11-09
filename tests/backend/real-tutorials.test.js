@@ -118,3 +118,11 @@ test("a help bubble skips the 3 visits, the month and the one-a-day limit; the o
   assert.match(app, /if \(!tip\.help && !popDayAllows_\(tip\.key\)\)/);
   assert.match(section("function watchReviewHint_(", "// ---- First-use practice: Needs review ----"), /help: true/);
 });
+
+test("Change type: picking Income, Investment or Transfer offers its own guide, and the form is left as it was on Exit", () => {
+  const fn = section("const CONV_TYPES_ =", '// When the app already suspects it');
+  for (const k of ["rt.conv.typeIncome", "rt.conv.typeInvestment", "rt.conv.typeTransfer", "rt.conv.incomeDone", "rt.conv.investDone"]) assert.ok(fn.includes(k), k);
+  assert.match(fn, /offerConvGuide_\("conv-type-" \+ type/);
+  assert.match(fn, /ok: \(\) => submitted \|\| !!el\("to_payment_method"\)\.value/, "a save empties the form: it must not send the guide back");
+  assert.ok(!/callApi\(|deleteEntry|removePractice/.test(fn));
+});
