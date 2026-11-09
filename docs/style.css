@@ -222,7 +222,7 @@ main {
    to a 320px phone. The rem value only caps the size on wider screens.
    Spanish words are longer, hence its smaller ratio. */
 .nav-btn { font-size: min(0.7rem, 2.75vw); margin: 6px 0; }
-html[lang="es"] .nav-btn { font-size: min(0.65rem, 2.6vw); }
+html[lang="es"] .nav-btn { font-size: min(0.65rem, 2.45vw); }
 .nav-btn > span:last-child { white-space: nowrap; }
 
 .nav-btn.active {
