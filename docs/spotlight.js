@@ -45,6 +45,7 @@
   var PAD = 6;      // breathing room between the target and the edge of the cut-out
   var GAP = 12;     // between the cut-out and the bubble
   var EDGE = 12;    // never closer than this to the screen's edge
+  var EXIT_AFTER_MS = 8000;   // while a step waits for its screen nothing can be pressed; after this long Exit comes back, so a load that hangs cannot trap the person (owner, 2026-11-09)
   var STUCK_MS = 25000;   // after this long on one step a small "skip this step" appears (a way out, never the normal way on)
 
   function readSeen(storage) {
@@ -248,7 +249,20 @@
       $(".spot-count").textContent = "";
       $(".spot-go").hidden = true;
       $(".spot-stuck").hidden = true;
+      holdExit();
       layout();
+    }
+    // Called again and again during one wait: the clock starts once, and an Exit that has come back stays.
+    var exitTimer = null;
+    function holdExit() {
+      if (exitTimer) return;
+      $(".spot-exit").hidden = true;
+      exitTimer = setTimeout(function () { if (!closed) { $(".spot-exit").hidden = false; layoutSoon(); } }, EXIT_AFTER_MS);
+    }
+    function releaseExit() {
+      if (exitTimer) clearTimeout(exitTimer);
+      exitTimer = null;
+      $(".spot-exit").hidden = false;
     }
 
     function onKey(e) { if (e.key === "Escape") { e.stopPropagation(); finish("skipped"); } }
@@ -292,6 +306,7 @@
       targets = step.target ? targetsOf(step) : [];
 
       cur = { step: step, targets: targets, stop: null };
+      releaseExit();
       $(".spot-text").textContent = step.text(!!fixing);
       $(".spot-count").textContent = L.step(stepNumber(i), stepsShownCount());
       $(".spot-stuck").hidden = true;
@@ -367,11 +382,11 @@
           if (cur.step.target && !t.length) {
             var nowMs = Date.now();
             if (!goneSince) goneSince = nowMs;
-            if (!goneWaiting && nowMs - goneSince > 800) { goneWaiting = true; $(".spot-text").textContent = L.waiting; go.hidden = true; $(".spot-stuck").hidden = true; }
+            if (!goneWaiting && nowMs - goneSince > 800) { goneWaiting = true; $(".spot-text").textContent = L.waiting; go.hidden = true; $(".spot-stuck").hidden = true; holdExit(); layoutSoon(); }
             if (cur.step.poke && nowMs - gonePokeAt >= 2000 && (!(ctx.busy && ctx.busy()) || nowMs - gonePokeAt >= 8000)) { gonePokeAt = nowMs; try { cur.step.poke(); } catch (e) { /* ignore */ } }
           } else if (goneSince) {
             goneSince = 0;
-            if (goneWaiting) { goneWaiting = false; $(".spot-text").textContent = step.text(!!fixing); go.hidden = !step.button; }
+            if (goneWaiting) { goneWaiting = false; releaseExit(); $(".spot-text").textContent = step.text(!!fixing); go.hidden = !step.button; layoutSoon(); }
           }
           // Something above it finished loading and pushed it off the screen (the Overview's cards arrive one by one): bring it back.
           var viewH = window.visualViewport ? window.visualViewport.height : window.innerHeight;

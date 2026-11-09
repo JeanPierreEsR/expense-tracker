@@ -15531,6 +15531,10 @@ document.getElementById("accounts-add-btn").addEventListener("click", () => open
 // The 8 colors the app has always used, then 8 more pastels — pastel so the emoji stays readable on every tile.
 const CAT_SWATCHES_ = ["#F7C6D9", "#C9E4F7", "#FFE0B2", "#D9F2D9", "#E0D9F7", "#FFF3B0", "#F7D9C4", "#D9F7F0",
   "#FFCDD2", "#B3E5FC", "#C8E6C9", "#D1C4E9", "#FFE082", "#B2DFDB", "#F8BBD0", "#CFD8DC"];
+// The same colours as the form shows them: rainbow order, grey last. CAT_SWATCHES_ keeps its mixed order on purpose: a new
+// category is offered the first unused colour there, so categories added one after another get clearly different colours.
+const CAT_SWATCHES_BY_SHADE_ = ["#F7C6D9", "#F8BBD0", "#FFCDD2", "#F7D9C4", "#FFE0B2", "#FFE082", "#FFF3B0", "#D9F2D9",
+  "#C8E6C9", "#D9F7F0", "#B2DFDB", "#B3E5FC", "#C9E4F7", "#E0D9F7", "#D1C4E9", "#CFD8DC"];
 // Suggested emojis by theme (strings split on spaces so multi-part emojis stay whole).
 const CAT_EMOJI_GROUPS_ = [
   ["food", "🍽️ 🍔 🍕 🍣 🍜 🥗 🍝 🌮 🍞 🥐 🍰 🍦 ☕ 🍺 🍷 🥤 🛒 🥑 🍎 🥩"],
@@ -15830,7 +15834,7 @@ function buildCatPickers_() {
   }
   const sw = document.getElementById("cat-swatches");
   if (!sw.childElementCount) {
-    CAT_SWATCHES_.forEach((color, i) => {
+    CAT_SWATCHES_BY_SHADE_.forEach((color, i) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "cat-swatch";
@@ -16750,9 +16754,10 @@ async function loadTripFinder_(lookBack) {
       try {
         const ticked = rows.filter((r) => r.input.checked).map((r) => r.e.id);
         await callApi("linkEntriesToTrip", { id, entryIds: ticked });
-        if (practiceT_ && (practiceT_.pastIds || []).some((pid) => ticked.includes(pid))) { practiceT_.linked = true; practiceTSave_(); }
         box.hidden = true;
         await refreshTripDetail_();
+        // Only now: the practice's closing step lights up these totals, and must not show the old ones while they reload.
+        if (practiceT_ && (practiceT_.pastIds || []).some((pid) => ticked.includes(pid))) { practiceT_.linked = true; practiceTSave_(); }
       } catch (err) {
         document.getElementById("trip-detail-error").textContent = tr("trips.loadFailed", { error: err.message });
         addBtn.disabled = false;
@@ -22181,7 +22186,7 @@ function practiceSteps_() {
       before: async () => { await new Promise((r) => setTimeout(r, 600)); } },
     // The amount (what they owe) and the account come filled in: no "check it" steps (owner's plan 2026-11-05). What is saved is recorded
     // for the closing text, which says whether the debt is fully or partly paid.
-    { key: "saveRepayment", target: () => [document.getElementById("settlement-save-btn"), document.getElementById("settlement-form-error")],
+    { key: "saveRepayment", wait: 30000, target: () => [document.getElementById("settlement-save-btn"), document.getElementById("settlement-form-error")],   // (the sheet shows "Loading…" first)
       text: () => { const err = lastError("#settlement-form-error"); return err ? tr("spot.p.s16err", { error: err }) : tr("spot.p.s16"); },
       before: async () => { document.getElementById("settlement-form-error").textContent = ""; },
       until: () => {   // what is about to be saved is noted while the sheet is still open (the closing text says fully / partly paid)
@@ -22381,7 +22386,9 @@ function startGuidedLoansLook_() {
   Spotlight.run([
     { target: row, text: () => tr("spot.g.loans2", { name: g.friendName }), tap: row, wait: 30000,
       before: async () => { showScreen("loans"); }, poke: () => { refreshLoans().catch(() => {}); } },
-    { look: true, target: () => document.querySelector("#loan-detail-modal-backdrop .currency-modal"), text: () => tr("spot.p.s13a"), button: () => tr("spot.p.gotIt"), wait: 15000,
+    // Only once the friend's page has finished loading (its buttons are the last thing to show): until then no "Got it" (owner, 2026-11-09).
+    { look: true, target: () => (document.querySelector("#loan-detail-modal-backdrop .loan-detail-actions:not([hidden])") ? document.querySelector("#loan-detail-modal-backdrop .currency-modal") : null),
+      text: () => tr("spot.p.s13a"), button: () => tr("spot.p.gotIt"), wait: 30000,
       before: async () => { await new Promise((r) => setTimeout(r, 600)); } },
     { look: true, target: "#record-repayment-btn", text: () => tr("spot.g.loans4"), button: () => tr("spot.g.done"), wait: 15000 }
   ], {
@@ -23657,7 +23664,7 @@ function practiceRSteps_() {
       poke: () => { if (practiceRFailed_) { Spotlight.stop("skipped"); return; } refreshExpectedRecurring().catch(() => {}); } },
     { target: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; }, text: () => tr("spot.r.s9"), wait: 15000,
       tap: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; } },
-    { target: "#paid-new-save", text: () => tr("spot.r.s11"), tap: "#paid-new-save", wait: 15000 },
+    { target: () => (document.querySelector("#paid-picker-list .stmt-loading") ? null : document.getElementById("paid-new-save")), text: () => tr("spot.r.s11"), tap: "#paid-new-save", wait: 30000 },   // (once the sheet's list has loaded)
     { key: "pay", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
       text: () => { const err = (document.getElementById("form-error").textContent || "").trim(); return err ? tr("spot.p.s10err", { error: err }) : tr("spot.r.s12"); },
       before: async () => {   // the sheet opens a moment after the tap (the item's saved split is fetched first)

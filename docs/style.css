@@ -3731,7 +3731,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #rates-add-next { margin-top: 12px; width: 100%; }
 
 /* Sheets sit above the iPhone keyboard (keepSheetsAboveKeyboard_ in app.js sets --kb-gap / --vv-h while it is open). */
-html.kb-open .currency-modal-backdrop { padding-bottom: var(--kb-gap, 0px); box-sizing: border-box; }
+/* The strip under a lifted sheet is painted like the sheet: the bar iPhone puts above the keyboard is see-through, and the tab bar showed through it (owner's screenshot, 2026-11-09). The extra 1px closes any hairline at the sheet's edge. */
+html.kb-open .currency-modal-backdrop { padding-bottom: var(--kb-gap, 0px); box-sizing: border-box; background-image: linear-gradient(to top, var(--card) calc(var(--kb-gap, 0px) + 1px), transparent calc(var(--kb-gap, 0px) + 1px)); }
 html.kb-open .currency-modal-backdrop .currency-modal { max-height: calc(var(--vv-h, 100dvh) - 16px) !important; }
 
 /* A currency exchange on Home: what left above, what arrived below (buildExchangePairRow_). */
