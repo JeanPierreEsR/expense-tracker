@@ -199,7 +199,7 @@ test("Telegram speaks the copy's language", () => {
   assert.equal(rt.rows("Entries").filter((x) => x.id === "tg-1" && x.type === "income" && x.status === "confirmed").length, 0);
 });
 
-test("Programmed this month: pending income has its own row per currency, after programmed income, by expected date, those with none last", () => {
+test("Programmed this month: pending income has its own row per currency, above programmed income, by expected date, those with none last", () => {
   const { rt, person } = setup();
   const incomeCat = rt.rows("Categories").find((c) => c.type === "income").id;
   rt.api("addRecurringExpense", { description: "Monthly client", amount: 500, currency: "PEN", category_id: incomeCat, frequency: "monthly", day: 28 });
@@ -211,7 +211,7 @@ test("Programmed this month: pending income has its own row per currency, after 
   const pen = out.find((g) => g.currency === "PEN" && g.pending);
   assert.deepEqual(pen.items.map((i) => i.description), ["Sooner", "Later", "No date"]);
   assert.equal(out.find((g) => g.currency === "PEN" && !g.pending).items.some((i) => i.waiting), false, "programmed income keeps its own row");
-  assert.ok(out.findIndex((g) => g.pending) > out.map((g) => !!g.pending).lastIndexOf(false), "pending rows come after programmed income");
+  assert.ok(out.map((g) => !!g.pending).lastIndexOf(true) < out.findIndex((g) => !g.pending), "pending rows come before programmed income");
   assert.equal(pen.items.find((i) => i.description === "Sooner").loan_id, loanOf(rt, near.id).id);
   const sum = pen.items.reduce((n, i) => n + i.amount, 0);
   assert.equal(pen.total, sum);
