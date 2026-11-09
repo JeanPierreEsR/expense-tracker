@@ -22581,9 +22581,10 @@ function startTransferReal_(kind) {
   if (!newEntrySheetOpen_ || Spotlight.isRunning()) return;
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // the form opens with the keyboard up on Amount
   guided_ = { savedId: "", split: null };
+  let chosen = "";
   if (kind) markTaught_(TRANSFER_FEATURE_[kind], "real");
   const el = (id) => document.getElementById(id);
-  const kindNow = () => el("transfer-kind").value;
+  const kindNow = () => chosen || el("transfer-kind").value;   // once saved the form goes back to "between": the steps left still follow the kind chosen
   const is = (...k) => () => k.includes(kindNow());
   const shownNow = (id) => { const e = el(id); return !!e && !e.hidden && e.getClientRects().length > 0; };
   const isNew = (f) => !fieldsKnown_().includes(f);
@@ -22603,7 +22604,7 @@ function startTransferReal_(kind) {
   };
   const debt = is("repayment", "loan");
   // A check only applies to its own kind, and stops at Save: a save empties the form before the sheet closes, which must not send the guide back.
-  let submitted = false, chosen = "";   // (chosen: the form goes back to "between" once saved)
+  let submitted = false;
   const onSubmit = () => { submitted = true; };
   el("entry-form").addEventListener("submit", onSubmit, true);
   const steps = [];
