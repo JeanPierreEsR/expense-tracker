@@ -12,7 +12,14 @@
  */
 
 var PAY_SETTING_ = 'pay';
-var INCOME_KIND_BY_KEY_ = { salary: 'regular', business: 'varies', sales: 'varies', freelance: 'varies', daily_work: 'varies' };
+var INCOME_KIND_BY_KEY_ = { salary: 'regular', business: 'varies', sales: 'varies', freelance: 'varies', daily_work: 'varies', pension: 'regular', rental_income: 'regular' };
+// What fits me → "These days…" (owner, 2026-11-09): what the person does, several allowed. Each may add ONE income category:
+// [name, icon, what it counts as]. self_employed adds the kinds ticked under it (PAY_KIND_PACKS_) and next_step adds nothing.
+var OCCUPATION_SETTING_ = 'occupation';
+var OCCUPATION_PACKS_ = {
+  full_time: ['Salary', '💼', 'regular'], self_employed: null, own_business: ['Business', '🏢', 'varies'], student: ['Family support', '🤝', 'none'],
+  next_step: null, home: ['Household contribution', '🏠', 'none'], retired: ['Pension', '🌿', 'regular'], rentals: ['Rental income', '🔑', 'regular']
+};
 var PAY_KIND_PACKS_ = { sales: ['Sales', '🏪'], freelance: ['Freelance', '💻'], daily: ['Daily work', '🛠️'] };
 
 function ensureCategoriesIncomeKindColumn_() {
@@ -29,7 +36,7 @@ function ensureCategoriesIncomeKindColumn_() {
 // 'regular', 'varies' or '' (not earnings / not income).
 function incomeKindOf_(c) {
   if (!c || c.type !== 'income') return '';
-  var v = String(c.income_kind || '');
+  var v = String(c.income_kind || '').trim().toLowerCase();   // typed by hand in the Sheet: "Varies", " varies"
   if (v === 'regular' || v === 'varies') return v;
   if (v === 'none') return '';
   return INCOME_KIND_BY_KEY_[String(c.key || '')] || '';
@@ -57,28 +64,61 @@ function setPay(payload) {
   var kinds = pay !== 'salary' ? asked.filter(function (k, i) { return PAY_KIND_PACKS_[k] && asked.indexOf(k) === i; }) : [];
   setSetting_(PAY_SETTING_, pay !== 'salary' ? pay + (kinds.length ? ':' + kinds.join(',') : '') : 'salary');
   var addedAll = [];
-  if (kinds.length) {
-    var headers = ensureCategoriesIncomeKindColumn_();
-    kinds.forEach(function (kind) {
-      var pack = PAY_KIND_PACKS_[kind];
-      var cats = getAllRows('Categories');
-      var hidden = starterHiddenRow_(cats, 'income', pack[0]);
-      if (hidden) {
-        var sheet = getSheet('Categories');
-        setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, hidden.id), 'hidden', '');
-        setCategoryIncomeKind_(hidden.id, 'varies');
-        addedAll.push({ name: categoryLabel_(hidden), restored: true });
-      } else if (!incomeCategoryThere_(cats, pack[0])) {
-        var row = { id: Utilities.getUuid(), name: pack[0], type: 'income', icon: pack[1],
-          color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: categoryKeyFromName_(pack[0]), hidden: '', income_kind: 'varies' };
-        appendRowObject('Categories', row);
-        addedAll.push({ name: categoryLabel_(row) });
-      }
-      if (ROWS_MEMO_) delete ROWS_MEMO_['Categories'];
-    });
-    bumpStructureVersion_();
-  }
+  kinds.forEach(function (kind) {
+    var pack = PAY_KIND_PACKS_[kind], got = addIncomePack_(pack[0], pack[1], 'varies');
+    if (got) addedAll.push(got);
+  });
+  if (kinds.length) bumpStructureVersion_();
   return { pay: getSettingsMap()[PAY_SETTING_], added: addedAll[0] || null, addedAll: addedAll };
+}
+
+// One income category of a choice: shown again when hidden, made when missing, left alone when it is there. Returns { name } when it changed.
+function addIncomePack_(name, icon, kind) {
+  var headers = ensureCategoriesIncomeKindColumn_();
+  var cats = getAllRows('Categories');
+  var out = null;
+  var hidden = starterHiddenRow_(cats, 'income', name);
+  if (hidden) {
+    var sheet = getSheet('Categories');
+    setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, hidden.id), 'hidden', '');
+    setCategoryIncomeKind_(hidden.id, kind);
+    out = { name: categoryLabel_(hidden), restored: true, type: 'income' };
+  } else if (!incomeCategoryThere_(cats, name)) {
+    var row = { id: Utilities.getUuid(), name: name, type: 'income', icon: icon,
+      color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: categoryKeyFromName_(name), hidden: '', income_kind: kind };
+    appendRowObject('Categories', row);
+    out = { name: categoryLabel_(row), type: 'income' };
+  }
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Categories'];
+  return out;
+}
+
+// Saved with What fits me (applyProfile, one call). occ = { list: [...], kinds: ['sales', ...] }. `pay` is kept in step, since Getting
+// started and the guided entry read it: income first only for someone who works for themselves and has no full-time job.
+function applyOccupation_(occ) {
+  occ = occ || {};
+  var list = (occ.list || []).filter(function (o, i, a) { return OCCUPATION_PACKS_.hasOwnProperty(o) && a.indexOf(o) === i; });
+  var asked = occ.kinds || [];
+  var self = list.indexOf('self_employed') !== -1;
+  var kinds = self ? asked.filter(function (k, i) { return PAY_KIND_PACKS_[k] && asked.indexOf(k) === i; }) : [];
+  setSetting_(OCCUPATION_SETTING_, list.join(','));
+  var full = list.indexOf('full_time') !== -1;
+  var pay = full && self ? 'both' : self ? 'varies' : full ? 'salary' : '';
+  setSetting_(PAY_SETTING_, pay && pay !== 'salary' && kinds.length ? pay + ':' + kinds.join(',') : pay);
+  var changed = [];
+  list.forEach(function (o) {
+    var pack = OCCUPATION_PACKS_[o];
+    if (!pack) return;
+    var got = addIncomePack_(pack[0], pack[1], pack[2]);
+    if (got) changed.push(got);
+  });
+  kinds.forEach(function (k) {
+    var got = addIncomePack_(PAY_KIND_PACKS_[k][0], PAY_KIND_PACKS_[k][1], 'varies');
+    if (got) changed.push(got);
+  });
+  if (changed.length) bumpStructureVersion_();
+  var settings = getSettingsMap();
+  return { occupation: list, pay: settings[PAY_SETTING_] || '', changed: changed };
 }
 
 // The same category already there: same built-in key or same name in either language. Not the statement aliases (they read

@@ -167,5 +167,8 @@ function applyProfile(payload) {
     bumpStructureVersion_();
   }
   setSetting_(PROFILE_SETTING_, answers.join(','));
-  return { added: added, restored: restored, profile: answers };
+  // "These days…" (what the person does) is saved in this same call (speed rules: one save, one call).
+  var occ = payload.occupation ? applyOccupation_(payload.occupation) : null;
+  if (occ) occ.changed.forEach(function (c) { (c.restored ? restored : added).push({ name: c.name, type: 'income' }); });
+  return { added: added, restored: restored, profile: answers, occupation: occ ? occ.occupation : undefined, pay: occ ? occ.pay : undefined };
 }

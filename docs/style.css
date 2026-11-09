@@ -3525,7 +3525,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 
 /* Budgets → Edit: a checkbox before the name, and room under the last row for the fixed bar (same bar as Friends) */
 .budget-row-lead { display: flex; align-items: center; gap: 12px; min-width: 0; }
-#screen-budgets.budgets-editing .card { padding-bottom: 90px; }
+#screen-budgets.budgets-editing { padding-bottom: 90px; }   /* room for the fixed bar: on the page, not on every card (Tomás, 2026-11-09) */
 
 /* Round icon buttons in a screen header (pencil = Edit, + = Add): the same outlined circle as the period arrows. While Edit is on the pencil is filled. */
 .icon-btn {
@@ -3791,3 +3791,10 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 .budget-row-prog { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
 .budget-row-prog.warn { color: #b8741a; }
 .budget-row-prog.over { color: #d64545; }
+
+/* "Show the n people" starts at the card's left edge, with the rows above it (Tomás, 2026-11-09). */
+#loans-ov-people-btn { padding-left: 0; margin-left: 0; }
+
+/* The kinds under "I work for myself": a full line of their own, also among the small side-by-side chips of My profile. */
+.occ-kinds { flex: 1 0 100%; padding-left: 12px; border-left: 2px solid var(--border); box-sizing: border-box; }
+.occ-kinds .hint { margin: 2px 0 6px; }

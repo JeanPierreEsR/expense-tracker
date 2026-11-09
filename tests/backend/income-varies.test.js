@@ -120,3 +120,26 @@ test("How do you get paid? — a fixed salary AND income that varies; both un-ti
   assert.equal(rt.api("setPay", { pay: "none" }).pay, "");
   assert.equal(rt.rows("Categories").filter((c) => c.key === "freelance").length, 1, "clearing the answer deletes nothing");
 });
+
+test("These days… : each choice adds at most one income category, once, with what it counts as; 'pay' stays in step (owner, 2026-11-09)", () => {
+  const rt = setup();
+  const save = (list, kinds = []) => rt.api("applyProfile", { answers: [], occupation: { list, kinds } });
+  const r = save(["full_time", "student", "home", "retired", "rentals", "own_business", "next_step", "nonsense"]);
+  assert.deepEqual(r.occupation, ["full_time", "student", "home", "retired", "rentals", "own_business", "next_step"]);
+  assert.equal(r.pay, "salary");
+  const earning = () => { const m = {}; rt.api("getMeta", {}).categories.filter((c) => c.type === "income").forEach((c) => { m[c.key] = c.earning; }); return m; };
+  const e = earning();
+  assert.equal(e.family_support, "");
+  assert.equal(e.household_contribution, "");
+  assert.equal(e.pension, "regular");
+  assert.equal(e.rental_income, "regular");
+  assert.equal(e.business, "varies");
+  const before = rt.rows("Categories").length;
+  assert.equal(save(["full_time", "student", "home", "retired", "rentals", "own_business"]).pay, "salary");
+  assert.equal(rt.rows("Categories").length, before, "never twice");
+  assert.equal(save(["self_employed", "full_time"], ["sales", "daily"]).pay, "both:sales,daily");
+  assert.equal(save(["self_employed"], ["sales"]).pay, "varies:sales");
+  assert.equal(save(["next_step"]).pay, "", "no pay answer");
+  assert.equal(rt.rows("Categories").filter((c) => c.key === "sales").length, 1, "un-ticking deletes nothing");
+  assert.equal(rt.api("getMeta", {}).settings.occupation, "next_step");
+});

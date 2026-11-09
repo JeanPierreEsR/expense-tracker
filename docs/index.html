@@ -1360,17 +1360,11 @@
             </button>
             <div id="fits-body" hidden>
               <p class="hint" data-i18n="fits.intro">Tap what is part of your life.</p>
+              <div id="fits-occupation" hidden></div>
               <div id="fits-chips"></div>
               <p class="hint" id="fits-msg" role="status"></p>
-              <button type="button" class="primary" id="fits-add-btn" data-i18n="fits.add">Add categories</button>
+              <button type="button" class="primary" id="fits-add-btn" data-i18n="fits.add">Save my choices</button>
             </div>
-          </div>
-
-          <div id="my-profile-pay-card" hidden>
-            <h3 class="md-head" data-i18n="prof.payHead">How I get paid</h3>
-            <p class="hint" data-i18n="prof.payHint">Each income category can also be marked as regular pay or as income that varies, in More → Categories.</p>
-            <div id="my-profile-pay"></div>
-            <p class="hint" id="my-profile-pay-msg" role="status"></p>
           </div>
 
           <div id="my-profile-dates-card">
@@ -2341,7 +2335,7 @@
       </div>
       <div class="budget-modal-body">
         <p class="app-confirm-text" id="app-confirm-text"></p>
-        <button type="button" class="delete-entry-btn" id="app-confirm-ok"></button>
+        <button type="button" id="app-confirm-ok"></button>
         <button type="button" class="cancel-edit-btn" id="app-confirm-back" data-i18n="common.cancel">Cancel</button>
       </div>
     </div>
@@ -2489,13 +2483,9 @@
         <p class="hint" id="wf-step"></p>
         <h2 data-i18n="wf.title">What fits you?</h2>
         <p class="hint" data-i18n="wf.intro">Tap any that apply. Each one adds a few categories you will probably use. This step is optional, and you can add more any time in More → Categories.</p>
+        <div id="wpay-block" hidden><div id="wpay-box"></div></div>
         <div id="wf-chips"></div>
         <p class="hint" data-i18n="wf.basics">Always included: Groceries, Restaurants, Home (with your household bills), Transport, Travel, Sports, Bank fees and Other.</p>
-        <div id="wpay-block" hidden>
-          <h3 data-i18n="pay.title">How do you get paid?</h3>
-          <p class="hint" data-i18n="pay.hint">Optional. It helps the app show what matters for your kind of income.</p>
-          <div id="wpay-box"></div>
-        </div>
         <div id="wb-block" hidden>
           <h3 data-i18n="wb.title">Do you also have a business or projects?</h3>
           <p class="hint" data-i18n="wb.intro">Optional. You can turn this on or off any time in More → Business features.</p>
