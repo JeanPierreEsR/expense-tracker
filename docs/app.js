@@ -21499,9 +21499,13 @@ function popTipWatch_(tip) {
   if (popGet_(POP_SEEN_KEY_, []).includes(tip.key)) return;
   if (!popGet_(POP_AGAIN_KEY_, false) && (popGet_(POP_VISITS_KEY_, {})[tip.place] || 0) < POP_TIP_VISIT_) return;
   popWatch_ = tip;
-  if (!popWatchTimer_) popWatchTimer_ = setInterval(popTipTick_, 500);
+  if (!popWatchTimer_) popWatchTimer_ = setInterval(popTipTick_, 250);
   popTipTick_();
 }
+// The moment the field scrolls into view or the keyboard closes, not at the next check (owner's walk: "a little bit too slow").
+["scroll", "focusout", "touchend"].forEach((ev) => document.addEventListener(ev, () => {
+  if (popWatch_ && !popOpen_) requestAnimationFrame(popTipTick_);
+}, { capture: true, passive: true }));
 function popTipStopWatch_() { popWatch_ = null; if (popWatchTimer_) { clearInterval(popWatchTimer_); popWatchTimer_ = null; } }
 function popTyping_() {
   const a = document.activeElement;
@@ -21557,9 +21561,10 @@ function popTipShow_(tip, el) {
   };
   const outside = (ev) => { if (!b.contains(ev.target)) close(); };   // the tap itself still goes through
   const typing = () => setTimeout(() => { if (popTyping_()) close(); }, 0);
-  const timer = setInterval(place, 150);   // follows the field when the screen or the sheet scrolls
+  let frame = 0;
+  const follow = () => { place(); if (popOpen_ && popOpen_.close === close) frame = requestAnimationFrame(follow); };   // every frame: no lag behind a scroll
   function close() {
-    clearInterval(timer);
+    cancelAnimationFrame(frame);
     document.removeEventListener("pointerdown", outside, true);
     document.removeEventListener("focusin", typing, true);
     b.remove();
@@ -21569,7 +21574,7 @@ function popTipShow_(tip, el) {
   document.addEventListener("pointerdown", outside, true);
   document.addEventListener("focusin", typing, true);
   popOpen_ = { close };
-  place();
+  follow();
 }
 function popTipClose_() { if (popOpen_) popOpen_.close(); }
 
