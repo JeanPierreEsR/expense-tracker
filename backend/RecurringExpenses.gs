@@ -1834,7 +1834,7 @@ function listExpectedRecurringItems() {
     return a.currency < b.currency ? -1 : 1;
   });
 
-  return { groups: groups };
+  return { groups: groups, waitingIncome: listWaitingIncome_() };
 }
 
 function clampedCalendarDate_(year, month, day) {

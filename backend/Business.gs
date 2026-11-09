@@ -891,7 +891,7 @@ function deleteFriend(payload) {
   var used = getAllRows('Loans').some(function (l) { return String(l.friend_id) === id; }) ||
     getAllRows('Entry Splits').some(function (s) { return String(s.friend_id) === id; }) ||
     recurringSplitFriendIds_()[id] === true ||
-    getAllRows('Entries').some(function (e) { return e.type !== 'income' && String(e.paid_by) === id; });
+    getAllRows('Entries').some(function (e) { return String(e.paid_by) === id; });   // income too: payors and friends are one list
   if (used) throw new Error(tr_('business.errPersonInUse'));
   if (businessClientIds_()[id] === true) throw new Error(tr_('business.errPersonClient'));
   deleteRowsWhere_('Friends', function (row) { return String(row.id) === id; });
@@ -979,7 +979,7 @@ function deleteFriends(payload) {
   getAllRows('Entry Splits').forEach(function (s) { inUse[String(s.friend_id)] = true; });
   var progSplits = recurringSplitFriendIds_();
   Object.keys(progSplits).forEach(function (id) { inUse[id] = true; });
-  getAllRows('Entries').forEach(function (e) { if (e.type !== 'income' && e.paid_by) inUse[String(e.paid_by)] = true; });
+  getAllRows('Entries').forEach(function (e) { if (e.paid_by) inUse[String(e.paid_by)] = true; });
   var open = friendOpenBalances_();
   var deleted = [], hidden = [], kept = [], seen = {};
   ids.forEach(function (id) {

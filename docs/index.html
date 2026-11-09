@@ -262,6 +262,18 @@
           <select id="paid_by"></select>
           <p class="hint" id="paid-by-friend-hint" hidden></p>
 
+          <div id="income-waiting-field" hidden>
+            <label class="checkbox-row">
+              <input type="checkbox" id="income-waiting-toggle">
+              <span data-i18n="income.waitingToggle">Not received yet</span>
+            </label>
+            <div id="income-waiting-details" hidden>
+              <p class="hint" data-i18n="income.waitingHint">It counts as income on this date. Your accounts change when the money arrives.</p>
+              <label for="income-waiting-due" data-i18n="income.waitingDue">Expected by (optional)</label>
+              <input type="date" id="income-waiting-due">
+            </div>
+          </div>
+
           <div id="payment-method-field">
             <label for="payment_method" id="payment-method-label" data-i18n="field.paymentMethod">Payment method</label>
             <select id="payment_method"></select>
@@ -419,6 +431,10 @@
 
       <p class="hint review-check-status" id="recurring-check-status" hidden></p>
 
+      <div class="card" id="waiting-income-card" hidden>
+        <h2 data-i18n="income.cardTitle">⏳ Waiting to be paid</h2>
+        <div id="waiting-income-list"></div>
+      </div>
       <div class="card" id="expected-recurring-card" hidden>
         <h2 data-i18n="programmed.title">🔁 Programmed this month</h2>
         <p class="hint" data-i18n="programmed.hint">From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).</p>
@@ -3504,6 +3520,19 @@
         <button type="button" id="cat-bulk-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body" id="cat-bulk-body"></div>
+    </div>
+  </div>
+
+  <div id="payor-merge-backdrop" class="currency-modal-backdrop" data-no-dismiss hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="payorMerge.title">One list of people</span>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="payorMerge.intro">Payers and friends are becoming one list. These payers have the same name as a friend. Leave one checked if it is the same person.</p>
+        <div id="payor-merge-list"></div>
+        <button type="button" id="payor-merge-save" class="primary" data-i18n="payorMerge.save">Make one list</button>
+      </div>
     </div>
   </div>
 

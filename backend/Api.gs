@@ -219,6 +219,7 @@ function routeActionSwitch_(action, payload) {
     case 'addFriend': return addFriend(payload);
     case 'listPayors': return listPayors();
     case 'addPayor': return addPayor(payload);
+    case 'applyPayorMerge': return applyPayorMerge(payload);
     case 'admin_deletePayor':
       var payorSheet = getSheet('Payors');
       var payorHeaders = getHeaders(payorSheet);
@@ -788,6 +789,7 @@ function getMeta() {
   ensureRailDefaults_();
   ensureAnnualTag_();
   ensureAllTripGroupFriends_();
+  var payorMergeAsk = payorMergeAskForApp_();   // the owner's copy: names to confirm before payors and friends become one list
   return {
     categories: localizeCategories_(getAllRowsCached_('Categories')),
     banks: getAllRowsCached_('Banks'),
@@ -799,7 +801,8 @@ function getMeta() {
     projects: getProjectRows_(),
     expectedPayments: getExpectedRows_(),   // empty (and nothing read) while the pack is off
     friends: getFriendsWithLastUsed_(),
-    payors: getPayorRows_(),
+    payors: getPayorsWithLastIncome_(),
+    payorMergeAsk: payorMergeAsk,
     settings: settingsForApp_(),
     // What this copy of the backend can do beyond the spreadsheet (Features.gs). The
     // Export screen offers "Send to my email" only when an address was saved.
@@ -834,9 +837,11 @@ function getFriendsWithLastUsed_() {
     getAllRows('Loan Installments').forEach(function (r) { withSchedule[r.loan_id] = true; });
     getAllRows('Loans').forEach(function (l) { if (withSchedule[l.id]) bankLender[l.friend_id] = true; });
   }
+  var lastIncome = lastIncomeByPerson_();
   return getAllRowsCached_('Friends').map(function (f) {
     f.last_used = last[f.id] || '';
     f.bank_lender = !!bankLender[f.id];
+    f.last_income = lastIncome[f.id] || '';
     return f;
   });
 }
@@ -990,7 +995,15 @@ function createEntry(payload) {
     if (payload.charge_pending) entry.charge_pending = '1';
     if (Number(payload.paid_amount) > 0 && payload.paid_currency) { entry.paid_amount = Number(payload.paid_amount); entry.paid_currency = String(payload.paid_currency).toUpperCase(); }
   }
+  var incomeWaits = entry.type === 'income' && !!payload.income_waiting;
+  if (incomeWaits) {
+    checkWaitingIncome_(entry.paid_by, !!entry.company_id);
+    ensureIncomeWaitingColumns_();
+    entry.payment_method_id = '';   // no account until the money arrives
+    entry.income_waiting = '1';
+  }
   appendRowObject('Entries', entry);
+  if (incomeWaits) createWaitingIncomeLoan_(entry, payload.due_date);
   if (guessedCategory) entry.guessed_category_name = categoryNameForMessage_(guessedCategory);
 
   if (payload.tag_ids && payload.tag_ids.length) {
@@ -1433,6 +1446,7 @@ function buildSearchIndexRows_(entries) {
     var usdShare = usdLineAmount_(ratesByCurrency, ownShare, e.currency, e.date);
     if (usdShare != null) row.own_share_usd = usdShare;   // third currency: the share in dollars (RatesUsd.gs)
     // Only while the Business pack is on, so a personal-only copy's search data is exactly what it was.
+    if (e.income_waiting) row.income_waiting = e.income_waiting;
     if (business) { row.company_id = e.company_id || ''; row.project_id = e.project_id || ''; row.expected_payment_id = e.expected_payment_id || ''; row.igv_amount = e.igv_amount || ''; }
     return row;
   });
@@ -1476,6 +1490,7 @@ function listPendingEntries() {
   // A waiting entry can be a repayment's extra (income / expense with no category yet): it carries `link` like a confirmed one
   // so the Needs review row can send Discard to the repayment's screen instead of deleting it on its own.
   var transferLinks = entries.length ? buildTransferLinkMap_() : {};
+  var waitingIncome = entries.some(function (e) { return e.type === 'income'; }) ? listWaitingIncome_() : [];
   var payeeHist = entries.length ? buildPayeeHistory_() : null;   // PayeeGuess.gs
   entries.forEach(function (entry) {
     if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];
@@ -1489,6 +1504,8 @@ function listPendingEntries() {
     if (loanHint) entry.loan_hint = loanHint;
     var chargeMatch = chargeMatchForReview_(entry, all);   // "Is this the charge of …?" (Charges.gs)
     if (chargeMatch) entry.charge_match = chargeMatch;
+    var waitingMatch = waitingMatchForPending_(entry, waitingIncome);   // "Is this the payment you were waiting for?" (IncomeWaiting.gs)
+    if (waitingMatch) entry.waiting_match = waitingMatch;
   });
   entries.sort(compareEntriesRecency_);
   return entries;

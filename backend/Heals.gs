@@ -30,7 +30,11 @@ var HEALS_ = [
   // More -> Bank emails names the inbox the app reads. A copy that cannot ask Google for its own address (the owner's: full Gmail access,
   // no "see your address" permission) showed "the account you signed in with" instead (2026-11-05). This heal reads the address once from
   // the To line of a bank e-mail already in the inbox and keeps it (MAILBOX_ADDRESS). Runs on the owner's copy too (`owner: true`).
-  { id: 'mailbox-address-to-line', owner: true, run: healMailboxAddressFromToLine_ }
+  { id: 'mailbox-address-to-line', owner: true, run: healMailboxAddressFromToLine_ },
+  // Payors and friends became one list of people (2026-11-09). A payor with a friend's exact name is that friend; everyone else is added with their own id,
+  // so past income keeps its payer. DELIBERATE EXCEPTION to "a heal never rewrites data" (owner's OK, 2026-11-09): only the payer of those same-name incomes
+  // changes, and the old Payors tab stays as it was. The owner's copy is asked first instead (payorMergeAskForApp_).
+  { id: 'payors-into-friends', run: function () { mergePayorsIntoFriends_({}); } }
 ];
 
 function healMailboxAddressFromToLine_() {

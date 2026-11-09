@@ -68,7 +68,7 @@ test("the project budget button says 'Add a budget' in both languages", () => {
 test("step 2: People is a remembered More screen; business people hide from ordinary pickers while the pack is off", () => {
   assert.ok(app.match(/const MORE_SUBSCREENS = \[([^\]]*)\]/)[1].includes('"business-people"'));
   assert.ok(html.includes('id="screen-business-people"'));
-  assert.match(app, /function plainFriends_\(\) \{ return meta\.friends\.filter\(\(f\) => !isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\) && friendPickable_\(f\)\); \}/);
+  assert.match(app, /function plainFriends_\(\) \{\s+const list = meta\.friends\.filter\(\(f\) => !isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\) && friendPickable_\(f\)\);/);
   assert.match(app, /\(!isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\) && friendPickable_\(f\)\) \|\| \(tripId/, "the split list follows the same rule");
 });
 
@@ -117,7 +117,7 @@ test("step 3A: the income form sends the expected payment only for an income on 
 });
 
 test("step 3A: the repayment sends the chosen loans only when the panel was opened, never while fixing a recorded repayment", () => {
-  assert.match(app, /const allocations = !editingSettlementId && !document\.getElementById\("settlement-choose-panel"\)\.hidden \? settlementAssignments_\(\) : \[\];/);
+  assert.match(app, /let allocations = !editingSettlementId && !document\.getElementById\("settlement-choose-panel"\)\.hidden \? settlementAssignments_\(\) : \[\];/);
   assert.match(app, /allocations: allocations\.length \? allocations : undefined/);
   assert.match(app, /wrap\.hidden = !!editingSettlementId \|\| settlementChoosableLoans_\(\)\.length < 2;/);
 });
