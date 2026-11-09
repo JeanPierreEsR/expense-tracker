@@ -153,3 +153,13 @@ test("a start Google Sheets turned into a date still counts (owner's real Sheet,
   rt.api("updateBudget", { id: b.id, amount: 75 });
   assert.equal(rt.api("listBudgets", { displayPeriodType: "month" }).budgets.find((x) => x.id === b.id).progress.effectiveAmount, 75);
 });
+
+test("looking at last week, a weekly budget made this week is listed under 'Start after this period' (owner's walkthrough, 2026-11-08)", () => {
+  const rt = setup();
+  const b = addWeekly(rt);
+  const lastMonday = addDays(thisMonday(), -7);
+  const l = list(rt, "week", lastMonday);
+  assert.equal(l.budgets.some((x) => x.id === b.id), false);
+  assert.equal(l.later.find((x) => x.id === b.id).start_key, thisMonday());
+  assert.equal(list(rt, "week", thisMonday()).later.length, 0, "this week: listed normally");
+});

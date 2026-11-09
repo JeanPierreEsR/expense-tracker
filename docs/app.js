@@ -8243,8 +8243,9 @@ function renderMonthsBars_() {
 
 document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.addEventListener("click", (e) => {
   e.stopPropagation();   // the card itself opens the Spending pace screen
+  // Week: last week / last month, remembered apart from the Month view's choice.
+  if (periodType === "week") { localStorage.setItem("paceRefWeek", b.dataset.paceRef === "year" ? "month" : "last"); renderPaceBig_(); return; }
   localStorage.setItem("paceRef", b.dataset.paceRef);
-  if (periodType !== "month") { renderPaceBig_(); return; }   // Week: the week before / the same week last year
   setPaceView_(null);    // the quick switch is the usual view: it ends a custom one
   if (monthsHist_) renderPaceBig_();
 }));
@@ -8377,8 +8378,12 @@ function paceRangeSpec_() {
   const es = I18n.getLang() === "es";
   const shortDay = (iso) => { const d = isoDate_(iso); const mo = I18n.monthShort(d.getMonth(), true).replace(/\.$/, ""); return es ? `${d.getDate()} ${mo.toLowerCase()}` : `${mo} ${d.getDate()}`; };
   if (periodType === "week") {
-    const yearMode = localStorage.getItem("paceRef") === "year";
-    const rs = isoShift_(b.startDate, yearMode ? -364 : -7), re = isoShift_(rs, 6);
+    // Owner, 2026-11-08: the week's two quick choices are last week and last month (the week holding the date a month before this
+    // week's Thursday, so weekdays line up).
+    const monthMode = localStorage.getItem("paceRefWeek") === "month";
+    let rs = isoShift_(b.startDate, -7);
+    if (monthMode) { const t = isoDate_(isoShift_(b.startDate, 3)); rs = isoOf_(mondayDate_(new Date(t.getFullYear(), t.getMonth() - 1, t.getDate()))); }
+    const re = isoShift_(rs, 6);
     const refName = weekLabel_(isoDate_(rs), isoDate_(re));
     const wd = new Intl.DateTimeFormat(es ? "es-PE" : "en-US", { weekday: "short" });
     const days = [0, 1, 2, 3, 4, 5, 6].map((i) => ({ i, label: wd.format(isoDate_(isoShift_(b.startDate, i))).replace(/\.$/, "") }));
@@ -8403,10 +8408,10 @@ function renderPaceRange_() {
   const sw = document.getElementById("pace-ref-switch");
   sw.hidden = !spec.switchable;
   if (spec.switchable) {
-    const yearMode = localStorage.getItem("paceRef") === "year";
+    const monthMode = localStorage.getItem("paceRefWeek") === "month";
     sw.querySelectorAll("button").forEach((b) => {
-      b.textContent = tr(b.dataset.paceRef === "year" ? "pace.refYear" : "pace.refWeekBefore");
-      b.classList.toggle("active", b.dataset.paceRef === (yearMode ? "year" : "last"));
+      b.textContent = tr(b.dataset.paceRef === "year" ? "pace.refLastMonth" : "pace.refWeekBefore");
+      b.classList.toggle("active", b.dataset.paceRef === (monthMode ? "year" : "last"));
     });
   }
   const key = JSON.stringify([spec.cur, spec.ref]);
@@ -10289,7 +10294,7 @@ function drawBudgetsLater_() {
     row.type = "button";
     row.className = "budgets-later-row";
     row.innerHTML = `<span class="budgets-later-name">${escapeHtml(`${b.category_icon ? b.category_icon + " " : ""}${b.category_name}`)}</span>` +
-      `<span class="budgets-later-when">${escapeHtml(tr("budgets.startsOn", { when: budgetPeriodName_(b.period_type, b.start_later, true) }))} ›</span>`;
+      `<span class="budgets-later-when">${escapeHtml(tr("budgets.startsOn", { when: budgetPeriodName_(b.period_type, b.start_later || b.start_key, true) }))} ›</span>`;
     row.addEventListener("click", () => openBudgetModal(b));
     box.appendChild(row);
   });
@@ -10386,7 +10391,9 @@ function drawBudgets_() {
     // "this month" / "this year" only for the period that holds today; a past or future one is named (its amount may differ, batch 6).
     const holdsToday = p.startDate <= todayIso && todayIso <= p.endDate;
     const periodLabel = (holdsToday ? tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : p.effectivePeriodType === "weekly" ? "budget.thisWeek" : "budget.thisMonth")
-      : p.effectivePeriodType === "yearly" ? p.startDate.slice(0, 4) : p.effectivePeriodType === "weekly" ? budgetPeriodName_("weekly", p.startDate) : paceMonthName_(p.startDate.slice(0, 7), true)) +
+      : p.effectivePeriodType === "yearly" ? p.startDate.slice(0, 4) : p.effectivePeriodType === "weekly" ? budgetPeriodName_("weekly", p.startDate)
+        // The Week view shows a monthly budget's WHOLE month (the one holding the week's Thursday): said so (owner, 2026-11-08).
+        : periodType === "week" ? tr("budget.allOfMonth", { month: paceMonthName_(p.startDate.slice(0, 7), true) }) : paceMonthName_(p.startDate.slice(0, 7), true)) +
       (p.weeksWidened && p.weeksCounted ? tr("budget.weeksWidened", { n: String(p.weeksCounted).replace(".", I18n.getLang() === "es" ? "," : ".") }) : "") +
       (p.annualized ? (p.monthsCounted && p.monthsCounted < 12 ? tr("budget.annualizedN", { n: p.monthsCounted }) : tr("budget.annualized")) : "");
 
