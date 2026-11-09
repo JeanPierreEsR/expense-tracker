@@ -149,3 +149,24 @@ test("the conversion guides stop to check what the bank filled in before saving"
   assert.match(section("function startConvExchange_(", "// Change type opens the full form"), /tr\("rt\.review\.check"\)/);
   assert.match(section("function startSplitReal_(", "// When the app already suspects it"), /if \(confirmingPendingId\) steps\.push\(\{ target: [^\n]*rt\.review\.check/);
 });
+
+test("a dedicated + starts with Start / Exit; saving without the guide ends the offer", () => {
+  const fn = section("function startFormGuide_(", "const realShown_ =");
+  assert.match(fn, /key: "intro", text: \(\) => tr\(introKey\), button: \(\) => tr\("spot\.g\.start"\)/);
+  assert.match(fn, /if \(!started\) spendRealChance_\(feature\)/);
+  assert.match(app, /if \(REAL_SAVE_\[b\.id\]\)/);
+});
+
+test("a refused Save lights up the whole form, so nothing the person must fix is dimmed", () => {
+  assert.match(section("function realSaveTarget_(", "function realSaveSteps_("), /closest\("\.currency-modal"\)/);
+});
+
+test("windows opened during a real tutorial sit above its dim, the calendar included", () => {
+  assert.match(section("function openDateRangePicker_(", "function attachDateRange_("), /guidedLift_\(dom\.backdrop\)/);
+});
+
+test("where a real tutorial exists the practice waits for the two-week nudge on Home, or for Practice tips", () => {
+  assert.match(app, /function realHoldsPractice_\(key\) \{ return popGet_\(TAUGHT_KEY_, \{\}\)\[key\] === "real" \|\| \(REAL_FIRST_\.includes\(key\) && !realAgain_\(\) && nudgeKey_ !== key\); \}/);
+  assert.match(app, /const NUDGE_DAYS_ = 14, NUDGE_EVERY_ = 3/);
+  assert.match(section("function offerTip_(", "// ---- Pop-up tips"), /if \(realHoldsPractice_\(key\)\) return;/);
+});
