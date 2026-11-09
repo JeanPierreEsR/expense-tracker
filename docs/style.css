@@ -6,8 +6,8 @@
   --muted: #6e6e73;
   --border: #e5e5ea;
   --accent: #0071e3;
-  --expense: #d64545;
-  --income: #2e9e5b;
+  --expense: #c53030;
+  --income: #1e7d46;
   --investment: #7a5af5;
   --transfer: #8a8a8e;
   --radius: 14px;
@@ -221,8 +221,8 @@ main {
    in Spanish, "Projections" in English) keeps a gap from its neighbour down
    to a 320px phone. The rem value only caps the size on wider screens.
    Spanish words are longer, hence its smaller ratio. */
-.nav-btn { font-size: min(0.7rem, 2.45vw); margin: 6px 0; }
-html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
+.nav-btn { font-size: min(0.7rem, 2.75vw); margin: 6px 0; }
+html[lang="es"] .nav-btn { font-size: min(0.65rem, 2.6vw); }
 .nav-btn > span:last-child { white-space: nowrap; }
 
 .nav-btn.active {

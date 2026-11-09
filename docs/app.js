@@ -2709,6 +2709,7 @@ function sanitizeAmountInputValue(value) {
 // "signed" (starting and statement balances) may be negative.
 function amountProblem_(input) {
   const v = sanitizeAmountInputValue(input.value.trim());
+  if (/[a-z]/i.test(input.value)) return { kind: "invalid", input, typed: input.value.trim() };   // "1e9" was saved as 19 (Nico, 2026-11-09)
   if (!v) return null;
   const kind = input.dataset.amountKind || "";
   if (v[0] === "-" && kind !== "signed") return { kind: "negative", input };
@@ -3785,7 +3786,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 // ("🇺🇸 −USD 10.00"), never "−🇺🇸 USD 10.00" (owner 2026-10-29).
 function formatAmount(amount, currency, prefix) {
   const flag = currency === homeCur() ? "" : findCurrency(currency).flag + " ";
-  return `${flag}${prefix || ""}${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${flag}${prefix || ""}${escapeHtml(currency)} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;   // (a currency can be typed by hand in the Sheet: Rafael, 2026-11-09)
 }
 
 // Confirmed entries lead with PEN (the currency every report/budget
@@ -7445,6 +7446,7 @@ let homeGlance_ = null;
 let homeGlanceAt_ = 0;
 let homeGlanceBusy_ = null;
 let homeGlanceAgain_ = false;
+let homeGlanceGen_ = 0;   // apiWriteGen_ when the one on its way left
 let homeSelectedMonth_ = null;   // 'yyyy-mm' picked by tapping a bar; null = this month
 
 function paintHomeGlanceFromCache_() {
@@ -7480,8 +7482,10 @@ function refreshHomeGlance_(force) {
   setTimeout(() => { if (typeof window.statementsPracticeLeftover_ === "function") window.statementsPracticeLeftover_(); }, 24000);
   setTimeout(retryWaitingSaves_, 500);   // saves waiting for a connection
   // One already on its way may have left before the change this refresh is for: when it lands, ask once more.
-  if (homeGlanceBusy_) { if (force) homeGlanceAgain_ = true; return homeGlanceBusy_; }
+  // (only if something was saved since it left: a second call for the same figures cost prepaid data on every save, Wilmer 2026-11-09)
+  if (homeGlanceBusy_) { if (force && apiWriteGen_ !== homeGlanceGen_) homeGlanceAgain_ = true; return homeGlanceBusy_; }
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
+  homeGlanceGen_ = apiWriteGen_;
   homeGlanceBusy_ = callApi("getHomeGlance", {})
     .then((data) => {
       homeGlance_ = data;
@@ -7834,6 +7838,15 @@ function showExchangeRatesScreen() {
 
 // A tab whose first load failed (no connection, usually) says so instead of looking empty: Overview's zeros and Budgets' blank read as real
 // information (owner, 2026-11-07). A failed refresh of something already on screen stays quiet, as before. err = null takes the message away.
+// Every sheet's ✕ has a spoken name, also the sheets drawn later (Paola, 2026-11-09). data-i18n-aria-label keeps it right after a language change.
+function nameCloseButtons_(root) {
+  const list = root.matches && root.matches(".currency-modal-close") ? [root] : root.querySelectorAll(".currency-modal-close");
+  list.forEach((b) => { if (!b.hasAttribute("aria-label")) { b.setAttribute("data-i18n-aria-label", "common.close"); b.setAttribute("aria-label", tr("common.close")); } });
+}
+nameCloseButtons_(document);
+new MutationObserver((changes) => changes.forEach((c) => c.addedNodes.forEach((n) => { if (n.nodeType === 1) nameCloseButtons_(n); })))
+  .observe(document.body, { childList: true, subtree: true });
+
 function setLoadFailed_(name, err) {
   const screen = document.getElementById("screen-" + name);
   let note = screen.querySelector(":scope > .screen-load-failed");
@@ -16922,7 +16935,7 @@ document.querySelectorAll(".business-period-select").forEach((sel) => sel.addEve
 function businessEmoji_(item, fallback) { return (item && item.emoji) || fallback; }
 function companyLabel_(c) { return `${businessEmoji_(c, "🏢")} ${c.name}`; }
 function projectLabel_(p) { return `${businessEmoji_(p, "🏗️")} ${p.name}`; }
-function businessAmount_(cur, n) { return `${cur} ${moneyFmt(n)}`; }
+function businessAmount_(cur, n) { return `${escapeHtml(cur)} ${moneyFmt(n)}`; }
 
 // Keeps the app's lists in step with what the server just said (the entry form's picker reads them).
 function rememberBusinessLists_(companies) {
@@ -19584,7 +19597,7 @@ function renderVariableSuggestions_(suggestions) {
       : "";
     const amountHtml = s.shared
       ? `≈ ${s.currency} ${moneyFmt(s.own_avg_amount)}<span class="original-amt">${tr("common.total")} ${s.currency} ${moneyFmt(s.avg_amount)}</span>`
-      : `≈ ${s.currency} ${moneyFmt(s.avg_amount)}`;
+      : `≈ ${escapeHtml(s.currency)} ${moneyFmt(s.avg_amount)}`;
     box.innerHTML = `
       <div class="expected-recurring-item">
         <span class="expected-recurring-item-label">${s.category_icon ? s.category_icon + " " : ""}${escapeHtml(s.description)}
@@ -20145,9 +20158,9 @@ async function refreshExpectedRecurring(prefetchedGroups) {
       amountHtml = `<span class="primary-amt">${sign}${homeCur()} ${moneyFmt(g.total)}</span>`;
     } else if (g.totalPen != null) {
       amountHtml = `<span class="primary-amt">${sign}${homeCur()} ${moneyFmt(g.totalPen)}</span>` +
-        `<span class="original-amt">${findCurrency(g.currency).flag} ${g.currency} ${moneyFmt(g.total)}</span>`;
+        `<span class="original-amt">${findCurrency(g.currency).flag} ${escapeHtml(g.currency)} ${moneyFmt(g.total)}</span>`;
     } else {
-      amountHtml = `<span class="primary-amt">⚠️ ${findCurrency(g.currency).flag} ${g.currency} ${moneyFmt(g.total)}</span>` +
+      amountHtml = `<span class="primary-amt">⚠️ ${findCurrency(g.currency).flag} ${escapeHtml(g.currency)} ${moneyFmt(g.total)}</span>` +
         `<span class="original-amt">${tr("expected.needsRate")}</span>`;
     }
 
@@ -20157,7 +20170,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     // Each item and its two buttons sit together in one bordered box, so it's
     // obvious which item a button belongs to.
     detail.innerHTML = g.items.map((item) => {
-      const itemAmt = `${item.overdue ? "⚠️ " : ""}${tr("expected.day", { day: item.day })} · ${g.currency} ${item.estimated ? "≈ " : ""}${moneyFmt(item.amount)}`;
+      const itemAmt = `${item.overdue ? "⚠️ " : ""}${tr("expected.day", { day: item.day })} · ${escapeHtml(g.currency)} ${item.estimated ? "≈ " : ""}${moneyFmt(item.amount)}`;
       return `
       <div class="expected-recurring-entry${item.overdue ? " overdue" : ""}">
         <div class="expected-recurring-item">
@@ -20300,7 +20313,7 @@ async function openPaidPicker_(item, currency, isIncome) {
       row.style.cursor = "pointer";
       row.innerHTML = `
         <div class="link-candidate-text">
-          <div class="link-candidate-date">${listDate_(e.date)} · ${e.currency} ${moneyFmt(e.amount)}</div>
+          <div class="link-candidate-date">${listDate_(e.date)} · ${escapeHtml(e.currency)} ${moneyFmt(e.amount)}</div>
           <div class="link-candidate-desc">${escapeHtml(e.description || e.category_name || tr("review.noDescription"))}</div>
         </div>`;
       row.addEventListener("click", () => {
@@ -23804,7 +23817,7 @@ async function refreshLoans() {
 // "+PEN 1,200.00" owed to you, "−PEN 1,200.00" you owe: signs follow the owner's
 // point of view, like the Net line (owner's decision, 2026-10-27).
 function formatLoanAmount_(currency, amount, kind) {
-  return `${kind === "owed-to-me" ? "+" : "−"}${currency} ${moneyFmt(Math.abs(amount))}`;
+  return `${kind === "owed-to-me" ? "+" : "−"}${escapeHtml(currency)} ${moneyFmt(Math.abs(amount))}`;
 }
 
 // One line per currency, PEN first (the backend already orders each
@@ -23847,7 +23860,7 @@ function renderLoanBalanceList_(listId, emptyNoteId, rows, kind) {
     // Business pack: which projects this person's debts belong to (only while the pack is on).
     const projectNames = businessOn() ? (r.project_ids || []).map((id) => ((meta.projects || []).find((p) => p.id === id) || {}).name).filter(Boolean) : [];
     row.innerHTML = `
-      <span class="loan-row-name">${r.has_overdue ? "⚠️ " : ""}${escapeHtml(r.friend_name)}${projectNames.length ? `<span class="loan-row-projects">${escapeHtml(projectNames.join(" · "))}</span>` : ""}</span>
+      <span class="loan-row-name">${r.has_overdue ? `<span role="img" aria-label="${escapeHtml(tr("loans.overdueAria"))}">⚠️</span> ` : ""}${escapeHtml(r.friend_name)}${projectNames.length ? `<span class="loan-row-projects">${escapeHtml(projectNames.join(" · "))}</span>` : ""}</span>
       <span class="loan-row-amount ${kind}">${amounts}</span>
     `;
     row.dataset.friendId = r.friend_id;
@@ -24034,7 +24047,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
     <div class="loan-detail-row-main">
       <div class="loan-detail-row-top">
         <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
-        <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
+        <span class="loan-detail-row-amount ${kind}">${sign}${escapeHtml(l.currency)} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
       </div>
       <div class="loan-detail-row-meta">${listDate_(l.date)}${l.opening === "1" || l.opening === 1 ? " · " + escapeHtml(tr("loanDetail.fromBefore")) : ""}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
     </div>
@@ -25351,6 +25364,7 @@ function openLoanRemind_(friendId, friendName, loans) {
   loanRemind_ = { friendId, text, phone: friend.phone || "" };
   document.getElementById("loan-remind-title").textContent = tr("remind.title", { name: friendName });
   document.getElementById("loan-remind-text").value = text;
+  document.getElementById("loan-remind-phone-hint").textContent = tr(loanRemindPhoneHintKey_());
   document.getElementById("loan-remind-phone").value = friend.phone || "";
   document.getElementById("loan-remind-error").textContent = "";
   document.getElementById("loan-remind-stuck").hidden = true;
@@ -25365,6 +25379,8 @@ function closeLoanRemind_() {
 }
 
 // Remembers a new / changed / cleared number in the background; the reminder never waits for it.
+function loanRemindPhoneHintKey_() { return ((meta && meta.capabilities) || {}).friendPhone ? "remind.phoneHint" : "remind.phoneHintNoSave"; }   // an older backend cannot keep the number (Julia, 2026-11-09)
+
 function rememberLoanRemindPhone_(phone) {
   const r = loanRemind_;
   if (!r || LoanReminder.phoneDigits(phone) === LoanReminder.phoneDigits(r.phone)) return;
@@ -25979,7 +25995,7 @@ function renderSettlementCurrencyChips_() {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "currency-chip" + (cur === repaymentCurrency ? " active" : "");
-    chip.innerHTML = `<span>${findCurrency(cur).flag}</span><span>${cur}</span>`;
+    chip.innerHTML = `<span>${findCurrency(cur).flag}</span><span>${escapeHtml(cur)}</span>`;
     chip.addEventListener("click", () => switchRepaymentCurrency_(cur));
     container.appendChild(chip);
   });
@@ -26998,7 +27014,7 @@ function renderBalanceCurrentLines_() {
     el.appendChild(line);
   });
   const sel = document.getElementById("balance-check-currency");
-  sel.innerHTML = balanceModalData.balances.map((b) => `<option value="${b.currency}">${b.currency}</option>`).join("");
+  sel.innerHTML = balanceModalData.balances.map((b) => `<option value="${escapeHtml(b.currency)}">${escapeHtml(b.currency)}</option>`).join("");
   sel.hidden = balanceModalData.balances.length < 2;
 }
 
@@ -27022,7 +27038,7 @@ async function loadBalanceMovements_(pmId) {
     row.innerHTML = `
       <div class="loan-detail-row-top">
         <span class="loan-detail-row-desc">${escapeHtml(label)}</span>
-        <span class="loan-detail-row-amount ${m.signed > 0 ? "owed-to-me" : "i-owe"}">${m.signed > 0 ? "+" : "−"}${m.currency} ${moneyFmt(Math.abs(m.signed))}</span>
+        <span class="loan-detail-row-amount ${m.signed > 0 ? "owed-to-me" : "i-owe"}">${m.signed > 0 ? "+" : "−"}${escapeHtml(m.currency)} ${moneyFmt(Math.abs(m.signed))}</span>
       </div>
       <div class="loan-detail-row-meta">${listDate_(m.date)} · ${m.type}${extra}</div>
     `;

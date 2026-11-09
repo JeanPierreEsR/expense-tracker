@@ -603,7 +603,7 @@
         [1100, (i) => { fg.tap(i); }],
         [1300, () => {
           const s = sheetOpen(p, "Ana");
-          h("div", "ts-hint", tr("loanDetail.net", { parts: "+" + ctx.home + " " + ctx.money(100) }), s);
+          h("div", "ts-hint", tr("loanDetail.owesYou", { parts: "+" + ctx.home + " " + ctx.money(100) }), s);
           rec = h("div", "ts-link big", tr("loan.recordRepayment"), s);
         }],
         [1900, (i) => fg.to(rec, i)],

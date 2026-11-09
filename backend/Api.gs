@@ -762,7 +762,7 @@ function appendRowObject(sheetName, obj) {
   }
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
-  var row = headers.map(function (h) { return obj[h] !== undefined ? (sheetName === 'Entries' ? sheetSafeText_(obj[h]) : obj[h]) : ''; });
+  var row = headers.map(function (h) { return obj[h] !== undefined ? safeCellValue_(sheetName, h, obj[h]) : ''; });
   sheet.appendRow(row);
   if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
   noteRowAppended_(sheetName, obj);

@@ -255,7 +255,8 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
 
   var overridesByKey = {};
   getProjectionOverrideRows_().forEach(function (o) {
-    overridesByKey[o.category_id + '|' + String(o.period_key)] = Number(o.amount);
+    var overrideAmount = Number(o.amount);
+    if (o.amount !== '' && isFinite(overrideAmount) && overrideAmount >= 0) overridesByKey[o.category_id + '|' + String(o.period_key)] = overrideAmount;   // (a row typed by hand may be anything)
   });
 
   var recurringByCategory = {};
@@ -732,6 +733,10 @@ function computeCategoryYtdBreakdown_(categoryId, methodId) {
 }
 
 function setProjectionOverride(payload) {
+  var typed = Number(payload.amount);
+  if (!isFinite(typed) || typed < 0 || payload.amount === '' || payload.amount === null || payload.amount === undefined) throw new Error(tr_('err.validAmount'));
+  if (!/^\d{4}(-\d{2})?$/.test(String(payload.periodKey))) throw new Error(tr_('err.validPeriod'));
+  if (!rowsById_(getAllRows('Categories'))[payload.categoryId]) throw new Error(tr_('err.categoryNotFound'));
   ensureProjectionOverridesSheet_();
   var sheet = getSheet('Projection Overrides');
   var headers = getHeaders(sheet);

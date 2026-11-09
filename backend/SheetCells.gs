@@ -142,6 +142,13 @@ function sheetSafeText_(v) {
   return "'" + v;
 }
 
+// Free-text columns of the other tabs, none of them plain-text columns (Rafael, 2026-11-09: a friend named =IMPORTDATA(...) was stored as a formula).
+var SHEET_SAFE_COLUMNS_ = { Friends: ['name'], Loans: ['description'], Settlements: ['description'], Categories: ['name'], 'Payment Methods': ['name'] };
+function safeCellValue_(sheetName, column, value) {
+  if (sheetName === 'Entries') return sheetSafeText_(value);
+  return (SHEET_SAFE_COLUMNS_[sheetName] || []).indexOf(column) >= 0 ? sheetSafeText_(value) : value;
+}
+
 function sheetSafeRows_(rows) {
   return rows.map(function (r) { return r.map(sheetSafeText_); });
 }
