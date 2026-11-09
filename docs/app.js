@@ -21695,6 +21695,14 @@ function popInView_(el) {
   const hit = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height / 2, 20));
   return !!hit && el.contains(hit);
 }
+// While a bubble is open: is its field still on screen and not scrolled under the sheet's header? (The bubble itself may overlap it.)
+function popFieldShowing_(el, bubble) {
+  const r = el.getBoundingClientRect(), h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  const y = r.top + Math.min(r.height / 2, 20);
+  if (y < 0 || y > h) return false;
+  const hit = document.elementFromPoint(r.left + r.width / 2, y);
+  return !!hit && (el.contains(hit) || bubble.contains(hit));
+}
 function popDayAllows_(key) {
   const today = todayLocalISO();
   const open = (popGet_(TIP_DAY_KEY_, {}) || {}).day === today && popGet_(TIP_DAY_KEY_, {}).open;
@@ -21734,20 +21742,29 @@ function popTipShow_(tip, el) {
     const arrow = b.querySelector(".pop-tip-arrow");
     arrow.hidden = pos.arrowLeft == null;
     if (pos.arrowLeft != null) arrow.style.left = pos.arrowLeft + "px";
+    b.style.visibility = popFieldShowing_(el, b) ? "" : "hidden";   // scrolled away: it waits unseen and comes back with the field
   };
-  const outside = (ev) => { if (!b.contains(ev.target)) close(); };   // the tap itself still goes through
+  // A tap elsewhere closes it (the tap itself still goes through); a finger that scrolls does not (owner's walk, 2026-11-09). A phone ends a scroll with pointercancel.
+  let downAt = null;
+  const outsideDown = (ev) => { downAt = b.contains(ev.target) ? null : { x: ev.clientX, y: ev.clientY }; };
+  const outsideUp = (ev) => { if (downAt && Math.hypot(ev.clientX - downAt.x, ev.clientY - downAt.y) < 10) close(); downAt = null; };
+  const outsideCancel = () => { downAt = null; };
   const typing = () => setTimeout(() => { if (popTyping_()) close(); }, 0);
   let frame = 0;
   const follow = () => { place(); if (popOpen_ && popOpen_.close === close) frame = requestAnimationFrame(follow); };   // every frame: no lag behind a scroll
   function close() {
     cancelAnimationFrame(frame);
-    document.removeEventListener("pointerdown", outside, true);
+    document.removeEventListener("pointerdown", outsideDown, true);
+    document.removeEventListener("pointerup", outsideUp, true);
+    document.removeEventListener("pointercancel", outsideCancel, true);
     document.removeEventListener("focusin", typing, true);
     b.remove();
     popOpen_ = null;
   }
   b.querySelector(".pop-tip-ok").addEventListener("click", close);
-  document.addEventListener("pointerdown", outside, true);
+  document.addEventListener("pointerdown", outsideDown, true);
+  document.addEventListener("pointerup", outsideUp, true);
+  document.addEventListener("pointercancel", outsideCancel, true);
   document.addEventListener("focusin", typing, true);
   popOpen_ = { close };
   follow();
