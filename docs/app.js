@@ -15531,6 +15531,10 @@ document.getElementById("accounts-add-btn").addEventListener("click", () => open
 // The 8 colors the app has always used, then 8 more pastels — pastel so the emoji stays readable on every tile.
 const CAT_SWATCHES_ = ["#F7C6D9", "#C9E4F7", "#FFE0B2", "#D9F2D9", "#E0D9F7", "#FFF3B0", "#F7D9C4", "#D9F7F0",
   "#FFCDD2", "#B3E5FC", "#C8E6C9", "#D1C4E9", "#FFE082", "#B2DFDB", "#F8BBD0", "#CFD8DC"];
+// The same colours as the form shows them: rainbow order, grey last. CAT_SWATCHES_ keeps its mixed order on purpose: a new
+// category is offered the first unused colour there, so categories added one after another get clearly different colours.
+const CAT_SWATCHES_BY_SHADE_ = ["#F7C6D9", "#F8BBD0", "#FFCDD2", "#F7D9C4", "#FFE0B2", "#FFE082", "#FFF3B0", "#D9F2D9",
+  "#C8E6C9", "#D9F7F0", "#B2DFDB", "#B3E5FC", "#C9E4F7", "#E0D9F7", "#D1C4E9", "#CFD8DC"];
 // Suggested emojis by theme (strings split on spaces so multi-part emojis stay whole).
 const CAT_EMOJI_GROUPS_ = [
   ["food", "🍽️ 🍔 🍕 🍣 🍜 🥗 🍝 🌮 🍞 🥐 🍰 🍦 ☕ 🍺 🍷 🥤 🛒 🥑 🍎 🥩"],
@@ -15830,7 +15834,7 @@ function buildCatPickers_() {
   }
   const sw = document.getElementById("cat-swatches");
   if (!sw.childElementCount) {
-    CAT_SWATCHES_.forEach((color, i) => {
+    CAT_SWATCHES_BY_SHADE_.forEach((color, i) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "cat-swatch";
