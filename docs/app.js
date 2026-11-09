@@ -7793,8 +7793,10 @@ function showScreen(name) {
     refreshBudgets();
   }
   if (name === "projections") {
-    // Projections works by month or year: a Week shown elsewhere becomes the month holding the week's Thursday.
+    // Projections works by month or year: a Week shown elsewhere becomes the month holding the week's Thursday; All-time and Custom
+    // (which a projection cannot use, testers 2026-11-09) become the current month.
     if (periodType === "week") { periodAnchor = anchorForPeriodSwitch_("week", "month"); periodType = "month"; renderPeriodSelector(); }
+    if (periodType === "alltime" || periodType === "custom") { periodAnchor = new Date(); periodType = "month"; renderPeriodSelector(); }
     ensurePeriodSelectorIn("projections");
     refreshProjectionsScreen();
   }
@@ -7974,8 +7976,19 @@ function updatePeriodPendingLine_() {
   const n = (typeof reviewEntries_ !== "undefined" && reviewEntries_ ? reviewEntries_ : [])
     .filter((e) => (!b.startDate || e.date >= b.startDate) && (!b.endDate || e.date <= b.endDate)).length;
   const needsDates = periodType === "custom" && !b.startDate && !b.endDate;
-  btn.hidden = !n || needsDates;
-  if (n) btn.textContent = tr("period.pending", { n });
+  // Projections, while the period is still running: Expected is estimated from the past months, so expenses waiting from those months
+  // lower it too (Valeria, 2026-11-09).
+  const today = todayLocalISO();
+  let expectedLow = 0;
+  if (!document.getElementById("screen-projections").hidden && b.endDate && b.endDate >= today) {
+    const now = new Date();
+    const from = isoOf_(new Date(now.getFullYear() - 1, now.getMonth(), 1));
+    expectedLow = (typeof reviewEntries_ !== "undefined" && reviewEntries_ ? reviewEntries_ : [])
+      .filter((e) => e.type === "expense" && e.date >= from && e.date <= b.endDate).length;
+  }
+  btn.hidden = (!n && !expectedLow) || needsDates;
+  if (expectedLow) btn.textContent = tr("period.pendingExpected", { n: expectedLow });
+  else if (n) btn.textContent = tr("period.pending", { n });
 }
 document.getElementById("period-pending-line").addEventListener("click", () => {
   showScreen("entries");
@@ -9369,8 +9382,15 @@ function enumeratePeriodDates_(startDate, endDate) {
 // by matching real calendar dates rather than assumed offsets), plus the
 // two axis border lines. Returns raw SVG strings for the caller to
 // interleave with its own data lines/reference lines.
+// A chart's top value: three equal, round steps, so the side labels are evenly spaced (they read 0 / 1,000 / 2,100 / 3,100; Nico, 2026-11-09).
+function niceChartTop_(maxY) {
+  const rough = maxY / 3;
+  const size = Math.pow(10, Math.floor(Math.log10(rough)));
+  const step = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map((m) => m * size).find((s) => s >= rough - 1e-9);
+  return Math.max(1, step) * 3;
+}
+
 function buildChartAxesSvg_(days, n, maxY, effectivePeriodType, marginLeft, marginTop, plotRight, plotBottom, xFor, yFor) {
-  const yRoundingUnit = maxY >= 400 ? 100 : (maxY >= 40 ? 10 : 1);
   const yGridlinesSvg = [0, 1, 2, 3].map((i) => {
     const y = yFor((maxY * i) / 3).toFixed(1);
     return `<line x1="${marginLeft}" y1="${y}" x2="${plotRight}" y2="${y}" style="stroke:rgba(128,128,128,0.25);stroke-width:1;stroke-dasharray:1,2" />`;
@@ -9378,7 +9398,7 @@ function buildChartAxesSvg_(days, n, maxY, effectivePeriodType, marginLeft, marg
 
   const yTicksSvg = [0, 1, 2, 3].map((i) => {
     const value = (maxY * i) / 3;
-    const roundedValue = Math.round(value / yRoundingUnit) * yRoundingUnit;
+    const roundedValue = Math.round(value * 100) / 100;
     const y = yFor(value).toFixed(1);
     return `
       <line x1="${marginLeft - 3}" y1="${y}" x2="${marginLeft}" y2="${y}" style="stroke:var(--border);stroke-width:1" />
@@ -9480,7 +9500,7 @@ function renderBudgetChart_(data, budget) {
   if (lastVertex[0] === lastIdx) lastVertex[1] = finalValue;
   else paceVertices.push([lastIdx, finalValue]);
 
-  const maxY = Math.max(budgetAmount, finalValue, ...actualPoints, 1) * 1.08;
+  const maxY = niceChartTop_(Math.max(budgetAmount, finalValue, ...actualPoints, 1) * 1.08);
 
   // Plot area sits inset from the full SVG canvas — a left margin for the
   // Y-axis' money labels, a bottom margin for the X-axis' date labels.
@@ -20398,6 +20418,7 @@ async function refreshProjections() {
     body.innerHTML = loadingHtml_();
     monthLabel.textContent = "";
     methodNote.textContent = "";
+    document.getElementById("projections-explain").hidden = true;
   }
 
   let p;
@@ -20415,6 +20436,19 @@ async function refreshProjections() {
   if (cacheKey !== projectionsCacheKey_()) return;
   saveProjectionsCache_(cacheKey, "summary", p);
   renderProjectionsSummary_(p);
+}
+
+// Each part as it will be shown, in cents, so the parts add up to the total shown: a rounding difference goes on the last part that
+// has an amount (Lucho, Carlos, 2026-11-09). A bigger difference is left alone (it is not rounding).
+function partsMatchingTotal_(total, parts) {
+  const cents = parts.map((v) => Math.round((v || 0) * 100));
+  const diff = Math.round((total || 0) * 100) - cents.reduce((sum, c) => sum + c, 0);
+  if (diff && Math.abs(diff) <= parts.length) {
+    let i = cents.length - 1;
+    while (i > 0 && !cents[i]) i--;
+    cents[i] += diff;
+  }
+  return cents.map((c) => c / 100);
 }
 
 function renderProjectionsSummary_(p) {
@@ -20436,13 +20470,18 @@ function renderProjectionsSummary_(p) {
   // already.
   const breakdownLines = [];
   if (p.income > 0) {
-    breakdownLines.push(tr("projections.lineIncome", { actual: formatPen(p.incomeActual), programmed: formatPen(p.incomeProgrammed) }));
+    const manual = p.incomeManual || 0;   // (an older backend sends none)
+    const [actual, programmed, shownManual] = partsMatchingTotal_(p.income, [p.incomeActual, p.incomeProgrammed, manual]);
+    breakdownLines.push(tr(manual > 0.004 ? "projections.lineIncomeManual" : "projections.lineIncome", { actual: formatPen(actual), programmed: formatPen(programmed), manual: formatPen(shownManual) }));
   }
   if (p.expenses > 0) {
-    breakdownLines.push(tr("projections.lineExpenses", { actual: formatPen(p.expensesActual), programmed: formatPen(p.expensesProgrammed), expected: formatPen(p.expensesExpected) }));
+    const manual = p.expensesManual || 0;
+    const [actual, programmed, shownManual, expected] = partsMatchingTotal_(p.expenses, [p.expensesActual, p.expensesProgrammed, manual, p.expensesExpected]);
+    breakdownLines.push(tr(manual > 0.004 ? "projections.lineExpensesManual" : "projections.lineExpenses", { actual: formatPen(actual), programmed: formatPen(programmed), expected: formatPen(expected), manual: formatPen(shownManual) }));
+    if (p.notEnoughHistory) breakdownLines.push(tr("projections.notEnoughToEstimate"));
   }
   if (p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0) {
-    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPenSigned_(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
+    breakdownLines.push(tr(p.investmentsManual > 0.004 ? "projections.lineInvestmentsManual" : "projections.lineInvestments", { manual: formatPen(p.investmentsManual || 0), actual: formatPenSigned_(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
   }
   // Loans (2026-11-04): money borrowed and repaid counts in What's left, like Overview; a bank loan's installments still to pay add
   // their principal here (their interest + fees are in Expenses). Shown only when there is something (an older backend sends none).
@@ -20477,6 +20516,8 @@ function renderProjectionsSummary_(p) {
     ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
   `;
   methodNote.textContent = tr("projections.method");
+  // The explanation stays behind a link, and away when there is nothing to explain (Diego, Rosa, 2026-11-09).
+  document.getElementById("projections-explain").hidden = !(p.income > 0 || p.expenses > 0 || p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0 || hasLoans);
   projectionDefaultMethod = p.defaultMethod || "balanced";
   document.getElementById("projections-method-btn").textContent = tr("projections.methodBtn", { name: projectionMethodLabel_(projectionDefaultMethod) });
 }
@@ -20772,7 +20813,7 @@ function renderProjectionSplit_(detail) {
   // or below an average month, the "× days left" line says so and shows the
   // adjusted sum instead of the plain one (see "Seasonality" in Projections.gs).
   const lastYearMethod = p.methodUsed === "last_year";
-  const seasonal = !lastYearMethod && p.seasonalYears > 0 && Math.abs(p.seasonalFactor - 1) >= 0.03;
+  const seasonal = !lastYearMethod && p.seasonalYears > 0 && Math.abs(p.seasonalFactor - 1) >= 0.0005;   // (any adjustment is said: a silent 2% made the sum look wrong, Carlos 2026-11-09)
   // "months left": every remaining day counts 1 / (the days of ITS month), so a
   // whole month is always 1 — whether it has 28 days or 31.
   const monthsLeftText = (p.monthsLeft || 0).toFixed(2);
@@ -20780,7 +20821,7 @@ function renderProjectionSplit_(detail) {
     if (lastYearMethod) return tr("projections.formulaLastYear", { year: p.lastYearYear, base: formatPen(p.baseAmountPen), amount: formatPen(p.expectedRemainingPen) });
     if (!seasonal) return tr("projections.formulaProrated", { rate: formatPen(p.levelPerMonth), months: monthsLeftText, n: p.daysLeft, amount: formatPen(p.expectedRemainingPen) });
     return tr(p.seasonalFactor > 1 ? "projections.seasonHigh" : "projections.seasonLow", {
-      pct: Math.round(Math.abs(p.seasonalFactor - 1) * 100),
+      pct: Math.max(1, Math.round(Math.abs(p.seasonalFactor - 1) * 100)),
       years: (p.seasonalYearList || []).join(", "),
       level: formatPen(p.levelPerMonth),
       factor: p.seasonalFactor.toFixed(2),
@@ -20867,7 +20908,10 @@ function renderPmmOptions_() {
   if (pmmState.categoryId) rows.push({ id: "", name: tr("pmm.useDefault", { name: projectionMethodLabel_(pmmState.defaultMethod) }), desc: "" });
   PROJECTION_PRESET_IDS.forEach((id) => rows.push({ id, name: tr("projMethod." + id + ".name"), desc: tr("projMethod." + id + ".desc") }));
   rows.push({ id: "custom", name: tr("projMethod.custom.name"), desc: tr("projMethod.custom.desc") });
-  rows.forEach((row) => {
+  // At first only Balanced and the method in use; the rest behind "See more methods" (Rosa, 2026-11-09). A practice lights the whole list.
+  const inUse = (row) => (row.id === "custom" ? pmmIsCustom_(pmmState.openedWith) : row.id === pmmState.openedWith);
+  const shortList = !pmmState.showAll && !Spotlight.isRunning();
+  rows.filter((row) => !shortList || row.id === "" || row.id === "balanced" || inUse(row)).forEach((row) => {
     const selected = row.id === "custom" ? pmmIsCustom_(pmmState.selected) : row.id === pmmState.selected;
     const btn = document.createElement("button");
     btn.type = "button";
@@ -20879,6 +20923,15 @@ function renderPmmOptions_() {
     });
     box.appendChild(btn);
   });
+  if (shortList) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "add-inline";
+    more.id = "pmm-more";
+    more.textContent = tr("pmm.more");
+    more.addEventListener("click", () => { pmmState.showAll = true; renderPmmOptions_(); });
+    box.appendChild(more);
+  }
   document.getElementById("pmm-custom").hidden = !pmmIsCustom_(pmmState.selected);
   document.getElementById("pmm-apply-all").hidden = !!pmmState.categoryId;
 }
@@ -20894,23 +20947,39 @@ function fillPmmSelects_(customId) {
 }
 
 // opts: { categoryId?, categoryName?, ownMethod? ("" = uses the default) }
+let pmmOpenSeq_ = 0;
 async function openProjectionMethodModal_(opts) {
+  // Opens at once with "Loading…" (loading standard): nothing showed for seconds after the tap (Tomás, 2026-11-09).
+  const seq = ++pmmOpenSeq_;
+  const backdrop = document.getElementById("pm-modal-backdrop-method");
+  const loading = document.getElementById("pmm-loading");
+  const content = document.getElementById("pmm-content");
+  const categoryId = opts && opts.categoryId ? opts.categoryId : "";
+  pmmState = null;
+  document.getElementById("pmm-title").textContent = categoryId ? tr("pmm.titleCategory", { name: opts.categoryName }) : tr("pmm.title");
+  loading.textContent = tr("common.loading");
+  loading.hidden = false;
+  content.hidden = true;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
   let settings;
   try {
     settings = await callApi("getProjectionMethodSettings");
   } catch (err) {
-    alert(tr("drill.loadFailed", { error: err.message }));
+    if (seq === pmmOpenSeq_ && !backdrop.hidden) loading.textContent = tr("drill.loadFailed", { error: err.message });
     return;
   }
+  if (seq !== pmmOpenSeq_ || backdrop.hidden) return;
   projectionDefaultMethod = settings.defaultMethod;
-  const categoryId = opts && opts.categoryId ? opts.categoryId : "";
+  const openedWith = categoryId ? (settings.overrides[categoryId] || "") : settings.defaultMethod;
   pmmState = {
     categoryId,
     categoryName: categoryId ? opts.categoryName : "",
     defaultMethod: settings.defaultMethod,
-    selected: categoryId ? (settings.overrides[categoryId] || "") : settings.defaultMethod
+    selected: openedWith,
+    openedWith,
+    showAll: false
   };
-  document.getElementById("pmm-title").textContent = categoryId ? tr("pmm.titleCategory", { name: pmmState.categoryName }) : tr("pmm.title");
   document.getElementById("pmm-hint").textContent = categoryId ? tr("pmm.hintCategory") : tr("pmm.hintGlobal");
   document.getElementById("pmm-error").textContent = "";
   document.getElementById("pmm-compare-results").hidden = true;
@@ -20918,9 +20987,8 @@ async function openProjectionMethodModal_(opts) {
   document.getElementById("pmm-apply-best-result").textContent = "";
   fillPmmSelects_(pmmState.selected);
   renderPmmOptions_();
-  const backdrop = document.getElementById("pm-modal-backdrop-method");
-  bringModalToFront_(backdrop);
-  backdrop.hidden = false;
+  loading.hidden = true;
+  content.hidden = false;
 }
 
 function closeProjectionMethodModal_() {
@@ -21177,7 +21245,7 @@ function renderProjectionChart_(detail) {
   });
   convergenceVertices.push([n - 1, convergenceTarget]);
 
-  const maxY = Math.max(projectedTotal, actualSoFar, ...actualPoints, 1) * 1.08;
+  const maxY = niceChartTop_(Math.max(projectedTotal, actualSoFar, ...actualPoints, 1) * 1.08);
   const W = 300, H = 130;
   const marginLeft = 34, marginTop = 8, marginBottom = 14;
   const plotRight = W, plotBottom = H - marginBottom;
@@ -21202,6 +21270,7 @@ function renderProjectionChart_(detail) {
       ${axes.yTicksSvg}
       ${axes.xTicksSvg}
       <line x1="${marginLeft}" y1="${targetLineY}" x2="${plotRight}" y2="${targetLineY}" style="stroke:var(--border);stroke-width:1" />
+      <text x="${plotRight - 2}" y="${targetLineY}" dy="-2.5" text-anchor="end" style="font-size:7.5px;fill:var(--muted)">${escapeHtml(tr("common.total"))}</text>
       <polyline points="${convergencePath}" style="fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3" />
       <polyline points="${actualPath}" style="fill:none;stroke:var(--accent);stroke-width:2" />
     </svg>
@@ -21262,9 +21331,11 @@ function openProjectionOverrideModal_(categoryProjection, detail) {
     actualPen: detail.projection.actualPen
   };
   document.getElementById("projection-override-modal-title").textContent = tr("projOverride.title");
+  // The same figure the card shows, so saving it unchanged changes nothing (a typed figure stays as typed; an older backend's detail may lack totalPen).
+  const shownTotal = detail.projection.hasOverride || typeof detail.projection.totalPen !== "number" ? detail.projection.amountPen : detail.projection.totalPen;
   document.getElementById("projection-override-modal-subtitle").textContent =
-    tr(detail.projection.hasOverride ? "projOverride.subtitleManual" : "projOverride.subtitleCalculated", { category: categoryProjection.category_name, amount: formatPen(detail.projection.amountPen) });
-  document.getElementById("projection-override-value-input").value = detail.projection.amountPen.toFixed(2);
+    tr(detail.projection.hasOverride ? "projOverride.subtitleManual" : "projOverride.subtitleCalculated", { category: categoryProjection.category_name, amount: formatPen(shownTotal) });
+  document.getElementById("projection-override-value-input").value = shownTotal.toFixed(2);
   document.getElementById("projection-override-form-error").textContent = "";
   document.getElementById("projection-override-reset-btn").hidden = !detail.projection.hasOverride;
   setProjectionOverrideMode_("total");

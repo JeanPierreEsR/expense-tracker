@@ -2185,7 +2185,7 @@ body.income-revealed .sens-mask { display: none; }
 /* ---- Projections tab (reuses Overview's .summary-grid) ---- */
 
 .projections-breakdown {
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   color: var(--muted);
   margin-top: 10px;
   margin-bottom: 0;
@@ -3690,7 +3690,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #rates-usd-actions .add-inline { margin-top: 0; }
 .usd-share-amt { white-space: nowrap; }
 /* Projections works by month or year: no Week choice there (owner, 2026-11-07) */
-#screen-projections .period-type-chip[data-period-type="week"] { display: none; }
+#screen-projections .period-type-chip[data-period-type="week"],
+#screen-projections .period-type-chip[data-period-type="alltime"],
+#screen-projections .period-type-chip[data-period-type="custom"] { display: none; }
 /* Income that varies (owner, 2026-11-07) */
 #overview-varies-card h3 { font-size: 0.9rem; margin: 14px 0 4px; }
 .ov-varies-line { margin: 6px 0 0; font-size: 0.95rem; }

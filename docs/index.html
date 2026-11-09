@@ -656,7 +656,10 @@
         <h2 data-i18n="nav.projections">Projections</h2>
         <p class="hint" id="projections-month-label"></p>
         <div id="projections-body"></div>
-        <p class="hint" id="projections-method-note"></p>
+        <details id="projections-explain" hidden>
+          <summary class="add-inline" data-i18n="projections.howCalc">How is this calculated?</summary>
+          <p class="hint" id="projections-method-note"></p>
+        </details>
         <button type="button" class="add-inline" id="projections-method-btn"></button>
       </div>
 
@@ -3322,6 +3325,8 @@
         <button type="button" id="pmm-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
+        <div class="status-msg" id="pmm-loading" hidden></div>
+        <div id="pmm-content">
         <p class="hint" id="pmm-hint"></p>
         <div id="pmm-options"></div>
         <div id="pmm-custom" hidden>
@@ -3343,6 +3348,7 @@
             <button type="button" class="add-inline" id="pmm-apply-best" hidden data-i18n="pmm.useBestEach">Use the best for each category</button>
             <p class="hint" id="pmm-apply-best-result"></p>
           </div>
+        </div>
         </div>
       </div>
     </div>
