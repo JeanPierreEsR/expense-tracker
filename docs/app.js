@@ -11448,7 +11448,7 @@ function promptBackendUpdateOnce_(latest) {
   let seen = ""; try { seen = localStorage.getItem("etUpdatePrompted") || ""; } catch (e) { /* no storage: asks once per open */ }
   if (seen === latest) return;
   const welcome = document.getElementById("welcome-overlay");
-  if ((welcome && !welcome.hidden) || document.querySelector(".currency-modal-backdrop:not([hidden])")) return;
+  if ((welcome && !welcome.hidden) || Spotlight.isRunning() || document.querySelector(".currency-modal-backdrop:not([hidden])")) return;
   try { localStorage.setItem("etUpdatePrompted", latest); } catch (e) { /* ignore */ }
   openUpdateModal_();
 }
