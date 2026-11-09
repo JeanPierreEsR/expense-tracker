@@ -182,6 +182,10 @@ function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
         { text: tr_('bot.discardButton'), callback_data: 'discard:' + entry.id }
       ]]
     };
+    // It may be an income the owner was waiting for: answered here, it is a repayment and not a second income (IncomeWaiting.gs).
+    if (waitingMatchForPending_(entry, listWaitingIncome_())) {
+      payload.reply_markup.inline_keyboard.unshift([{ text: tr_('bot.waitingYesButton'), callback_data: 'waitpay:' + entry.id }]);
+    }
   }
   var res = telegramApi_('sendMessage', payload);
 
@@ -275,7 +279,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     }
   } else if (entry.type === 'income') {
     // Income holds a payor (who paid the owner), never a friend.
-    var payor = entry.paid_by ? getAllRows('Payors').find(function (p) { return p.id === entry.paid_by; }) : null;
+    var payor = entry.paid_by ? getPayorRows_().find(function (p) { return p.id === entry.paid_by; }) : null;
     lines.push(tr_('bot.receivedFrom') + (payor ? payor.name : tr_('bot.notSetPayor')));
     // No payment method shows "❓ not set — reply ..." (same as a transfer's
     // missing end) instead of leaving the line out.
@@ -322,6 +326,12 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
         if (suggestedTrip) lines.push(tr_('bot.tripWillLink', { name: tripDisplayName_(suggestedTrip) }));
       }
     }
+  }
+
+  var waitingMatch = waitingMatchForPending_(entry, entry.type === 'income' && entry.status === 'pending' ? listWaitingIncome_() : []);
+  if (waitingMatch) {
+    lines.push('');
+    lines.push(tr_('bot.waitingAsk', { name: waitingMatch.friend_name, cur: waitingMatch.currency, amount: moneyFmt_(waitingMatch.remaining) }));
   }
 
   var twins = entry.status === 'pending' ? findSameDayTwins_(entry, getAllRows('Entries')) : [];
@@ -508,7 +518,7 @@ function handleTelegramCallback_(cb) {
   // Once handled, take the buttons off the card so a second tap (easy when
   // the first reply is slow) can't confirm again — and answer a repeat tap
   // on an already-handled entry with a note instead of "Confirmed." again.
-  var entry = action === 'confirm' || action === 'discard' ? getEntryById_(entryId) : null;
+  var entry = action === 'confirm' || action === 'discard' || action === 'waitpay' ? getEntryById_(entryId) : null;
   var reply = null;
   var replyMarkup = null;   // buttons on the bot's own reply (only the "delete the whole repayment" offer has any)
   var keepButtons = false;
@@ -552,6 +562,23 @@ function handleTelegramCallback_(cb) {
         reply = tr_('bot.discarded');
       } catch (err) {
         reply = tr_('bot.notDiscarded', { error: err.message });
+      }
+    }
+  } else if (action === 'waitpay') {
+    // Worked out again from today's debts: the card may be old. If it no longer fits, Confirm and Discard stay on the card.
+    var waitMatch = entry ? waitingMatchForPending_(entry, listWaitingIncome_()) : null;
+    if (!entry) {
+      reply = tr_('bot.entryGone');
+    } else if (!waitMatch) {
+      reply = tr_('bot.waitingGone');
+      keepButtons = entry.status === 'pending';
+    } else {
+      try {
+        applyWaitingPayment_(entry, waitMatch);
+        reply = tr_('bot.waitingDone', { name: waitMatch.friend_name });
+      } catch (err) {
+        reply = tr_('bot.waitingFailed', { error: err.message });
+        keepButtons = true;
       }
     }
   } else if (action === 'delrep') {

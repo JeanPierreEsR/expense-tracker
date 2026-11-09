@@ -67,6 +67,7 @@ test("answering twice is harmless", () => {
 test("a copy made by the installer gets no sample friends; the owner's copy and tests still do", () => {
   const { rt } = freshApp({ small: true });
   rt.sheet("Friends").rows.length = 1;
+  rt.sheet("Payors").rows.length = 1;   // payors become people on the first open; a new copy has none of its own
   rt.svc.props.set("FEATURES", "base");
   rt.run("seedFriends()");
   assert.equal(rt.rows("Friends").length, 0);

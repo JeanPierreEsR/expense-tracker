@@ -1301,6 +1301,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   syncLanguageSetting_();
   renderOwnNameCard_();
   maybeAskPausedProgrammed_();
+  maybeAskPayorMerge_();
   if (skipFormPopulate) return;
   // Rebuilding the pickers resets them to their first option. A refresh
   // (pull-down, or any reload of the lists) while an edit screen is open must
@@ -1495,13 +1496,41 @@ function getCategoryId() {
 
 document.getElementById("change-category-btn").addEventListener("click", showCategoryPicker);
 
-// Income keeps its own list (Payors — a client, employer, "Acme
-// Group") entirely separate from Friends: a friend paying for a shared
-// expense is a debt relationship (see Loans in CLAUDE.md), but whoever
-// pays the owner income isn't a debt at all, so it doesn't belong next
-// to actual friends. "Me" only makes sense as an expense/investment/
-// transfer payer, not an income source, so it's left out of the income
-// list entirely.
+// "Not received yet" on an income: it counts on its date, the person owes it, and an account only moves when the repayment arrives (IncomeWaiting.gs).
+let editingIncomeWaiting_ = "";   // the income being edited: "" ordinary, "1" still owed, "paid" fully covered
+let repaymentTargetLoan_ = null;  // Home's "Received": the repayment goes to this income's debt
+function incomeWaitingOn_() { return selectedType === "income" && !document.getElementById("income-waiting-field").hidden && document.getElementById("income-waiting-toggle").checked; }
+function incomeHasBusinessLink_() {
+  const company = document.getElementById("entry-company");
+  const project = document.getElementById("entry-project");
+  return !!((company && !company.closest("[hidden]") && company.value) || (project && !project.closest("[hidden]") && project.value));
+}
+function syncIncomeWaitingField_() {
+  const field = document.getElementById("income-waiting-field");
+  const box = document.getElementById("income-waiting-toggle");
+  const allowed = selectedType === "income" && !!(meta && meta.capabilities && meta.capabilities.incomeWaiting) && !confirmingPendingId && editingIncomeWaiting_ !== "paid" && !incomeHasBusinessLink_();
+  field.hidden = !allowed;
+  if (!allowed) box.checked = false;
+  document.getElementById("income-waiting-details").hidden = !box.checked;
+}
+function setIncomeWaitingForm_(entry) {
+  editingIncomeWaiting_ = entry ? String(entry.income_waiting || "") : "";
+  document.getElementById("income-waiting-toggle").checked = editingIncomeWaiting_ === "1";
+  document.getElementById("income-waiting-due").value = "";
+}
+document.getElementById("income-waiting-toggle").addEventListener("change", () => togglePaymentMethodVisibility());
+["entry-company", "entry-project"].forEach((id) => { const el = document.getElementById(id); if (el) el.addEventListener("change", () => togglePaymentMethodVisibility()); });
+
+let waitingIncomeShown_ = false;   // an income not received yet is on the Programmed card, so a repayment must refresh it
+
+function peopleOneList_() { return !!(meta && meta.capabilities && meta.capabilities.peopleOneList); }
+// "Received from": payors and friends are one list; whoever paid income most recently comes first (repayments do not count), then the rest by name.
+function incomePayers_() {
+  return (meta.payors || [])
+    .filter((p) => !p.trip_id && (!isBusinessPerson_(p) || businessOn()) && friendPickable_(p))
+    .sort((a, b) => String(b.last_income || "").localeCompare(String(a.last_income || "")) || String(a.name).localeCompare(String(b.name)));
+}
+// "Me" only makes sense as an expense/investment/transfer payer, not an income source, so it's left out of the income list.
 function populatePaidByOptions() {
   const select = document.getElementById("paid_by");
   const label = document.getElementById("paid-by-label");
@@ -1510,13 +1539,13 @@ function populatePaidByOptions() {
   if (selectedType === "income") {
     label.textContent = tr("field.receivedFrom");
     // With no payers yet, start on an empty choice: "+ Add payer…" must never be the one selected (it was saved as the payer, 2026-11-04).
-    if (!meta.payors.length) {
+    if (!incomePayers_().length) {
       const none = document.createElement("option");
       none.value = "";
       none.textContent = "—";
       select.appendChild(none);
     }
-    meta.payors.forEach((p) => {
+    incomePayers_().forEach((p) => {
       const opt = document.createElement("option");
       opt.value = p.id;
       opt.textContent = p.name;
@@ -1807,6 +1836,7 @@ function togglePaymentMethodVisibilityBase_() {
     selectedType === "transfer" || isInvestment ? tr("field.from") :
     selectedType === "income" ? tr("field.receivedAt") :
     tr("field.paymentMethod");
+  syncIncomeWaitingField_();
   document.getElementById("to-payment-method-field").hidden = selectedType !== "transfer" && !isInvestment;
   document.getElementById("to-payment-method-label").textContent = isInvestment ? tr("field.platform") : tr("field.toAccount");
   document.getElementById("to-payment-method-hint").hidden = isInvestment;
@@ -1826,7 +1856,7 @@ function togglePaymentMethodVisibilityBase_() {
   // tied to paid_by === "me" (a friend paying means the owner's own
   // accounts were never touched). Always shown for income accordingly.
   if (selectedType === "income") {
-    document.getElementById("payment-method-field").hidden = false;
+    document.getElementById("payment-method-field").hidden = incomeWaitingOn_() || editingIncomeWaiting_ === "paid";   // no account until the money arrives
     return;
   }
   const paidBy = document.getElementById("paid_by").value;
@@ -2149,7 +2179,12 @@ function friendLabel_(f) { return (isGroupFriend_(f) ? "👥 " : "") + (isBusine
 function isHiddenFriend_(f) { return f.hidden === "yes" || f.hidden === true; }
 let hiddenFriendsShown_ = new Set();
 function friendPickable_(f) { return !isHiddenFriend_(f) || hiddenFriendsShown_.has(f.id) || splitFriendIds.has(f.id); }
-function plainFriends_() { return meta.friends.filter((f) => !isGroupFriend_(f) && (!isBusinessPerson_(f) || businessOn()) && friendPickable_(f)); }
+// Someone who has only ever paid income (an employer, a client) goes after the people shared with or lent to.
+function incomeOnlyPerson_(f) { return !!f.last_income && !f.last_used; }
+function plainFriends_() {
+  const list = meta.friends.filter((f) => !isGroupFriend_(f) && (!isBusinessPerson_(f) || businessOn()) && friendPickable_(f));
+  return list.filter((f) => !incomeOnlyPerson_(f)).concat(list.filter(incomeOnlyPerson_));
+}
 // Groups of trips that still exist, the most recent trip first.
 function groupFriendsNewestFirst_() {
   const end = (f) => ((meta.trips || []).find((t) => t.id === f.trip_id) || {}).end_date || "";
@@ -2612,7 +2647,9 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
     e.target.value = meta.payors.length ? meta.payors[0].id : "";
     if (name && name.trim()) {
       const payor = await callApi("addPayor", { name: name.trim() });
-      meta.payors.push(payor);
+      const known = meta.payors.find((p) => p.id === payor.id);
+      if (known) { if (isHiddenFriend_(known)) known.hidden = ""; } else meta.payors.push(payor);
+      if (peopleOneList_() && !meta.friends.some((f) => f.id === payor.id)) meta.friends.push(payor);
       populatePaidByOptions();
       document.getElementById("paid_by").value = payor.id;
     }
@@ -3176,7 +3213,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // field — income always carries a payment method (which account
     // received it), an expense/investment/transfer only when the owner
     // themselves paid.
-    const usesPaymentMethod = isRepayment || selectedType === "income" || paidBy === "me";
+    const usesPaymentMethod = isRepayment || (selectedType === "income" && !incomeWaitingOn_() && editingIncomeWaiting_ !== "paid") || (selectedType !== "income" && paidBy === "me");
     // Transfers only; always sent (even blank) so switching an entry away
     // from transfer, or clearing the destination, actually clears it.
     const toPaymentMethodId = selectedType === "transfer" || selectedType === "investment" ? document.getElementById("to_payment_method").value : "";
@@ -3219,6 +3256,10 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     }
     const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
     if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
+    const waitingOn = incomeWaitingOn_();
+    if (waitingOn && !paidBy) throw new Error(tr("income.waitingNeedsPerson"));
+    if (waitingOn && (businessLink.project_id || businessLink.company_id)) throw new Error(tr("income.waitingNoBusiness"));
+    const waitingFields = selectedType === "income" && !document.getElementById("income-waiting-field").hidden ? { income_waiting: waitingOn, due_date: waitingOn ? document.getElementById("income-waiting-due").value : "" } : {};
     // A Programmed item cannot belong to a project yet (step 3 brings expected payments), so a future date is refused here
     // rather than silently losing the label or recording money that has not moved.
     if ((businessLink.project_id || businessLink.company_id) && !editingEntryId && !confirmingPendingId && date > todayLocalISO()) {
@@ -3236,7 +3277,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // even when the owner themselves paid, so it's excluded here too.
     const isFutureDate = !editingEntryId && !confirmingPendingId && date > todayLocalISO();
     const canProgram = isFutureDate && selectedType !== "transfer" && !isWithdrawal &&
-      (selectedType === "income" || paidBy === "me") && !splits && !payingRecurringId_;
+      (selectedType === "income" || paidBy === "me") && !splits && !payingRecurringId_ && !waitingOn;
     let programmedInstead = false;
     if (canProgram && !categoryId) throw new Error(tr("error.pickCategory"));   // a Programmed item needs its category
     const repeat = repeatChoice_();
@@ -3390,7 +3431,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         to_payment_method_id: toPaymentMethodId,
         trip_id: tripId,
         ...charge.fields,
-        ...businessLink
+        ...businessLink,
+        ...waitingFields
       }, confirmingPendingId), {
         splits: selectedType === "expense" && (paidBy !== "me" || (splits && splits.length)) ? (charge.splits || []) : null,
         tagIds
@@ -3421,7 +3463,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         payment_method_id: usesPaymentMethod ? paymentMethodId : "",
         tag_ids: tagIds,
         trip_id: tripId,
-        ...businessLink
+        ...businessLink,
+        ...waitingFields
       });
       exitEditMode();
       refreshLoans().catch(() => {});
@@ -3538,7 +3581,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         to_payment_method_id: toPaymentMethodId,
         trip_id: tripId,
         ...charge.fields,
-        ...businessLink
+        ...businessLink,
+        ...waitingFields
       }, id);
       // null (not an expense, never was) means "don't touch splits" — see
       // queueEntryEdit_. Sent as [] rather than null whenever the entry
@@ -3630,7 +3674,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         to_payment_method_id: toPaymentMethodId,
         trip_id: tripId,
         ...charge.fields,
-        ...businessLink
+        ...businessLink,
+        ...waitingFields
       }, charge.splits || [], tagIds, billApplied && splits && splits.length ? billToJSON_() : undefined,
       { kind: "create", linkRecurringId: payingRecurringId_ || "", repeat });
       backgroundSaved = { kind: "create", id: newId };
@@ -3649,7 +3694,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         to_payment_method_id: toPaymentMethodId,
         tag_ids: tagIds,
         trip_id: tripId,
-        ...businessLink
+        ...businessLink,
+        ...waitingFields
       });
       tipNoteSavedEntry_(created.id, description);
       if (created.guessed_category_name) {
@@ -4074,6 +4120,7 @@ function buildEntryRow_(entry) {
     <div class="entry-category">${headline.title}</div>
     ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
     <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
+    ${entry.income_waiting === "1" ? `<div class="entry-desc">${escapeHtml(tr("income.waitingBadge"))}</div>` : ""}
     ${statusLine}
   `;
 
@@ -5326,6 +5373,7 @@ async function startEditEntry(entry) {
   selectCurrency(entry.currency, "entry");
 
   document.getElementById("paid_by").value = entry.paid_by;
+  setIncomeWaitingForm_(entry);
   presetDebtKind_(entry);   // a repayment / loan opens as one (its person, its direction), not as "Between my accounts"
   togglePaymentMethodVisibility();
   if (entry.type === "income" || entry.paid_by === "me") {
@@ -5462,6 +5510,7 @@ function pickDefaultAccount_() {
 
 function resetEntryFormFields_() {
   clearEntryDraft_();
+  setIncomeWaitingForm_(null);
   hiddenFriendsShown_ = new Set();
   document.getElementById("amount").value = "";
   document.getElementById("description").value = "";
@@ -6286,6 +6335,7 @@ async function afterMoneySaved_(item) {
   const ctx = item.ctx || {};
   if (["addLoan", "updateLoan", "forgiveLoan", "updateSettlement", "recordRepayment"].includes(item.action)) {
     refreshEntriesInBackground_();
+    if (waitingIncomeShown_) refreshExpectedRecurring().catch(() => {});   // a repayment may have covered an income waiting
     await refreshLoans();
     const detailOpen = !document.getElementById("loan-detail-modal-backdrop").hidden;
     if (detailOpen && ctx.friendId && loanDetailScope_.friendId === ctx.friendId) await openLoanDetail(ctx.friendId, ctx.friendName);
@@ -6732,7 +6782,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   const stillWaiting = new Set(entries.map((e) => e.id));
   reviewSelected_ = new Set([...reviewSelected_].filter((id) => stillWaiting.has(id)));
   if (reviewEditing_) syncReviewEditBar_();
-  document.getElementById("review-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.reviewBulk && entries.length);
+  if (entries.length === 0 && !Spotlight.isRunning()) reviewOpen_ = false;   // the next item to wait starts closed again
+  syncReviewOpen_();
 
   if (entries.length === 0) {
     card.hidden = true;
@@ -6764,6 +6815,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−", "": "" }[entryFlowDirection_(entry)])}</div>
       </div>
       ${entry.charge_match ? reviewChargeMatchHtml_(entry) : ""}
+      ${entry.waiting_match ? `<div class="review-charge-match"><div>${escapeHtml(tr("income.matchAsk", { name: entry.waiting_match.friend_name, amount: formatAmount(entry.waiting_match.remaining, entry.waiting_match.currency) }))}</div><button type="button" class="stmt-choice review-waiting-btn">${escapeHtml(tr("income.matchYes"))}</button></div>` : ""}
       ${/^(Overpayment (from|to) |Pago de más (de|a) )/.test(entry.description || "") ? `<p class="hint review-overpay-note">${escapeHtml(tr("review.overpayNote"))}</p>` : ""}
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
@@ -6825,6 +6877,15 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       item.remove();
       saveBehindScreen_(() => callApi("fillChargeFromReview", { pendingId: entry.id, entryId: entry.charge_match.entryId }),
         () => { refreshReviewQueue(); refreshHomeGlance_(true); refreshEntryList(); });
+    });
+
+    const waitingBtn = item.querySelector(".review-waiting-btn");
+    if (waitingBtn) waitingBtn.addEventListener("click", () => {
+      const m = entry.waiting_match;
+      item.remove();
+      saveBehindScreen_(() => callApi("convertEntryToRepayment", { entry_id: entry.id, friend_id: m.friend_id, direction: "they_owe_me", amount: Math.abs(Number(entry.amount)), currency: entry.currency, date: entry.date,
+        payment_method_id: entry.payment_method_id, description: entry.description, require_owed: true, overpay_pending_ok: true, allocations: [{ loan_id: m.loan_id, amount: Math.abs(Number(entry.amount)) }] }),
+        () => { refreshReviewQueue(); refreshHomeGlance_(true); refreshEntryList(); refreshExpectedRecurring(); refreshLoans().catch(() => {}); });
     });
 
     confirmBtn.addEventListener("click", async () => {
@@ -7317,6 +7378,30 @@ let reviewEditing_ = false;   // Home → Needs review → Edit (declared here: 
 let entriesEditing_ = false;   // Home list / search → Edit (same reason)
 let entriesSelected_ = new Set();
 let reviewSelected_ = new Set();
+// Needs review starts as one closed row, so Recent entries are right below it (owner, 2026-11-09). The rows stay in the page while closed, so the count, what was
+// typed and every action keep working. Only in memory: a fresh start of the app is closed again. A practice opens it through the spot-reveal event (spotlight.js).
+let reviewOpen_ = false;
+function syncReviewOpen_() {
+  document.getElementById("review-body").hidden = !reviewOpen_;
+  document.getElementById("review-toggle").setAttribute("aria-expanded", String(reviewOpen_));
+  document.getElementById("review-queue-card").classList.toggle("review-closed", !reviewOpen_);
+  document.getElementById("review-edit-btn").hidden = !(reviewOpen_ && meta && meta.capabilities && meta.capabilities.reviewBulk && reviewEntries_.length);
+}
+function setReviewOpen_(on) {
+  reviewOpen_ = on;
+  if (!on && reviewEditing_) setReviewEditing_(false);
+  syncReviewOpen_();
+}
+// "Go to Needs review" from another screen: the person came to work on it, so it opens.
+function showReviewQueue_() {
+  const card = document.getElementById("review-queue-card");
+  if (!card || card.hidden) return;
+  setReviewOpen_(true);
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+document.getElementById("review-toggle").addEventListener("click", () => setReviewOpen_(!reviewOpen_));
+document.getElementById("review-body").addEventListener("spot-reveal", () => setReviewOpen_(true));
+
 // A long Needs review must not push Recent entries away (Home test: about 100 screens at 206 items): 10 rows (owner), then "Show more". The other rows stay in
 // the list, only hidden, so its count and every action keep working, and when a row is confirmed the next one comes up. All of them show in Edit mode
 // (what Select all ticks must be visible) and during a practice (its own rows must be reachable).
@@ -7771,7 +7856,38 @@ function stripEditMarks_(screenId) {
   document.querySelectorAll(`#${screenId} .friends-check, #${screenId} .friends-check-spacer`).forEach((el) => el.remove());
   document.querySelectorAll(`#${screenId} .friends-check-row`).forEach((el) => el.classList.remove("friends-check-row"));
 }
+// Each bottom tab keeps its own place (owner, 2026-11-09). The whole app scrolls as one page, so a short tab pulled the shared position up and a long tab
+// came back somewhere else. Leaving a tab notes where it was; tapping back puts it there, and keeps it there while the tab's refresh redraws it (the page
+// can be too short at first), until the person touches the screen. In memory only: reopening the app starts at the top.
+const TAB_SCREENS_ = ["entries", "overview", "budgets", "projections", "loans", "more"];
+const tabScrollY_ = {};
+let tabScrollHoldEnd_ = null;
+function endTabScrollHold_() { if (tabScrollHoldEnd_) tabScrollHoldEnd_(); }
+function rememberTabScroll_(goingTo) {
+  endTabScrollHold_();
+  const open = document.querySelector(".screen:not([hidden])");
+  const name = open ? open.id.replace(/^screen-/, "") : null;
+  if (TAB_SCREENS_.includes(name) && name !== goingTo) tabScrollY_[name] = window.scrollY;
+}
+function restoreTabScroll_(name) {
+  if (Spotlight.isRunning()) return;   // a practice moves the page itself
+  const y = tabScrollY_[name] || 0;
+  window.scrollTo(0, y);
+  if (!y) return;
+  const ro = new ResizeObserver(() => { if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y); });
+  ro.observe(document.getElementById("screen-" + name));
+  const TOUCHES = ["pointerdown", "touchstart", "wheel"];
+  const timer = setTimeout(() => endTabScrollHold_(), 10000);
+  tabScrollHoldEnd_ = () => {
+    tabScrollHoldEnd_ = null;
+    ro.disconnect();
+    clearTimeout(timer);
+    TOUCHES.forEach((t) => window.removeEventListener(t, endTabScrollHold_, true));
+  };
+  TOUCHES.forEach((t) => window.addEventListener(t, endTabScrollHold_, { capture: true, passive: true }));
+}
 function showScreen(name) {
+  rememberTabScroll_(name);
   if (name !== "budgets" && budgetsEditing_) setBudgetsEditing_(false, false);
   if (name !== "accounts" && accountsEditing_) setAccountsEditing_(false);
   if (name !== "trips" && tripsEditing_) setTripsEditing_(false);
@@ -7905,6 +8021,7 @@ document.querySelectorAll(".nav-btn").forEach((btn) => {
     if (target === "more" && moreReturn && !MORE_SUBSCREENS.includes(visibleName) && visibleName !== "more") {
       const { name, scrollY } = moreReturn;
       moreReturn = null;
+      rememberTabScroll_(name);
       document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== `screen-${name}`; });
       document.querySelectorAll(".nav-btn").forEach((b) => {
         b.classList.toggle("active", b.dataset.screen === "more");
@@ -7913,6 +8030,8 @@ document.querySelectorAll(".nav-btn").forEach((btn) => {
       return;
     }
     showScreen(target);
+    // Tapping the tab already open, or More from one of its own sub-screens (which goes to the list), is not a return to a tab.
+    if (target !== visibleName && !(target === "more" && MORE_SUBSCREENS.includes(visibleName))) restoreTabScroll_(target);
   });
 });
 
@@ -8013,7 +8132,7 @@ function updatePeriodPendingLine_() {
 }
 document.getElementById("period-pending-line").addEventListener("click", () => {
   showScreen("entries");
-  setTimeout(() => { const card = document.getElementById("review-queue-card"); if (card && !card.hidden) card.scrollIntoView({ behavior: "smooth", block: "start" }); }, 150);
+  setTimeout(showReviewQueue_, 150);
 });
 
 function movePeriod(delta) {
@@ -20039,6 +20158,43 @@ async function startRecurringBulkDelete_(items) {
 // Stopped (end date today) or Deleted; a one-time item has no end date, so it only offers Reactivate / Delete.
 let pausedAskOpen_ = false;
 let pausedAskRetries_ = 0;
+// Payors and friends become one list (owner's copy only, once): payers who share a name with a friend are shown first; ticked = the same person.
+let payorMergeOpen_ = false, payorMergeRetries_ = 0;
+function maybeAskPayorMerge_() {
+  const pairs = (meta && meta.payorMergeAsk) || [];
+  if (!pairs.length || payorMergeOpen_ || meta.fromCache_) return;
+  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning()) {
+    if (payorMergeRetries_++ < 40) setTimeout(maybeAskPayorMerge_, 4000);
+    return;
+  }
+  payorMergeOpen_ = true;
+  const list = document.getElementById("payor-merge-list");
+  list.innerHTML = "";
+  pairs.forEach((p) => {
+    const row = document.createElement("label");
+    row.className = "checkbox-row";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = true;
+    box.dataset.payorId = p.payor_id;
+    const name = document.createElement("span");
+    name.textContent = p.name;
+    row.append(box, name);
+    list.appendChild(row);
+  });
+  const backdrop = document.getElementById("payor-merge-backdrop");
+  I18n.applyStatic(backdrop);
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+document.getElementById("payor-merge-save").addEventListener("click", () => {
+  const separate = [...document.querySelectorAll("#payor-merge-list input:not(:checked)")].map((b) => b.dataset.payorId);
+  document.getElementById("payor-merge-backdrop").hidden = true;
+  meta.payorMergeAsk = [];
+  payorMergeOpen_ = false;
+  saveBehindScreen_(() => callApi("applyPayorMerge", { separate }), () => location.reload());
+});
+
 let pausedConvertPromise_ = null;
 async function maybeAskPausedProgrammed_() {
   if (!recurringStopCapable_() || !((meta && meta.pausedProgrammed) || []).length || pausedAskOpen_) return;
@@ -20167,7 +20323,8 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     groups = prefetchedGroups;
   } else {
     try {
-      ({ groups } = await callApi("listExpectedRecurringItems"));
+      const fresh = await callApi("listExpectedRecurringItems");
+      groups = fresh.groups;
     } catch (err) {
       // Logged rather than swallowed outright — this card hiding with no
       // sign anything went wrong (a slow cold start, a dropped connection)
@@ -20179,6 +20336,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     }
   }
 
+  waitingIncomeShown_ = groups.some((g) => g.items.some((i) => i.waiting));
   if (!groups.length) {
     card.hidden = true;
     return;
@@ -20212,6 +20370,22 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     // Each item and its two buttons sit together in one bordered box, so it's
     // obvious which item a button belongs to.
     detail.innerHTML = g.items.map((item) => {
+      if (item.waiting) {
+        // The date goes with the name: next to the amount it squeezed the name into a narrow column.
+        const waitAmt = `${item.overdue ? "⚠️ " : ""}${escapeHtml(g.currency)} ${moneyFmt(item.amount)}`;
+        const waitDate = item.expected_date ? " · " + tr("income.cardDue", { date: listDate_(item.expected_date) }) : "";
+        const waitLabel = [item.category_name ? `${item.category_icon ? item.category_icon + " " : ""}${item.category_name}` : "", item.description].filter(Boolean).join(" — ");
+        return `
+      <div class="expected-recurring-entry${item.overdue ? " overdue" : ""}">
+        <div class="expected-recurring-item">
+          <span class="expected-recurring-item-label">${escapeHtml(waitLabel)} · ${escapeHtml(item.friend_name)}${escapeHtml(waitDate)}</span>
+          <span class="expected-recurring-item-amount">${sensitiveHtml_(waitAmt)}</span>
+        </div>
+        <div class="expected-recurring-actions">
+          <button type="button" data-act="paid" data-id="${item.id}">${tr("expected.markPaid")}</button>
+        </div>
+      </div>`;
+      }
       const itemAmt = `${item.overdue ? "⚠️ " : ""}${tr("expected.day", { day: item.day })} · ${escapeHtml(g.currency)} ${item.estimated ? "≈ " : ""}${moneyFmt(item.amount)}`;
       return `
       <div class="expected-recurring-entry${item.overdue ? " overdue" : ""}">
@@ -20229,7 +20403,10 @@ async function refreshExpectedRecurring(prefetchedGroups) {
       const item = g.items.find((i) => i.id === btn.dataset.id);
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        if (btn.dataset.act === "skip") skipRecurringThisMonth_(item);
+        if (item.waiting) {
+          repaymentTargetLoan_ = { loan_id: item.loan_id, remaining: item.amount };
+          openRepaymentModal(item.friend_id, item.friend_name, { [g.currency]: item.amount }, "", [], []);
+        } else if (btn.dataset.act === "skip") skipRecurringThisMonth_(item);
         else openPaidPicker_(item, g.currency, isIncome);
       });
     });
@@ -20237,7 +20414,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     const summary = document.createElement("div");
     summary.className = "expected-recurring-summary";
     summary.innerHTML = `
-      <span class="expected-recurring-summary-label">${tr("expected.count", { n: g.items.length, kind: tr(isIncome ? "summary.income" : g.type === "investment" ? "summary.investments" : "summary.expenses") + (g.currency !== homeCur() ? " " + g.currency : "") })}</span>
+      <span class="expected-recurring-summary-label">${tr(g.pending ? "expected.countPending" : "expected.count", { n: g.items.length, kind: tr(g.pending ? "summary.pendingIncome" : isIncome ? "summary.income" : g.type === "investment" ? "summary.investments" : "summary.expenses") + (g.currency !== homeCur() ? " " + g.currency : "") })}</span>
       <span class="expected-recurring-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(amountHtml) : amountHtml}</span>
     `;
     summary.addEventListener("click", () => { detail.hidden = !detail.hidden; });
@@ -27092,6 +27269,7 @@ async function openRepaymentModal(friendId, friendName, netByCurrency, projectId
 function closeSettlementModal() {
   document.getElementById("settlement-modal-backdrop").hidden = true;
   editingSettlementId = null;
+  repaymentTargetLoan_ = null;
   // Closed without picking a category for the extra: nothing is lost — the
   // server already saved it as a pending entry. Say so and show it.
   if (pendingOverpay) {
@@ -27104,6 +27282,7 @@ function closeSettlementModal() {
 
 async function refreshAfterSettlementChange_() {
   refreshEntriesInBackground_();
+  if (waitingIncomeShown_) refreshExpectedRecurring().catch(() => {});
   await refreshLoans();
   await openLoanDetail(repaymentFriendId, repaymentFriendName);
 }
@@ -27126,7 +27305,8 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   if (!amount || amount <= 0) { errorEl.textContent = tr("error.validAmount"); return; }
   if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
   // "Choose which loans this pays" (only when the person opened it and typed amounts): otherwise FIFO, exactly as before.
-  const allocations = !editingSettlementId && !document.getElementById("settlement-choose-panel").hidden ? settlementAssignments_() : [];
+  let allocations = !editingSettlementId && !document.getElementById("settlement-choose-panel").hidden ? settlementAssignments_() : [];
+  if (repaymentTargetLoan_ && !editingSettlementId && !allocations.length && amount <= repaymentTargetLoan_.remaining + 0.004) allocations = [{ loan_id: repaymentTargetLoan_.loan_id, amount }];
   if (allocations.reduce((n, a) => n + a.amount, 0) > amount + 0.004) { errorEl.textContent = tr("settle.chooseTooMuch"); return; }
   // Moving a recorded repayment to another loan: checked here too, so the message shows in the open sheet.
   const newLoanId = editingSettlementId && !document.getElementById("settlement-loan-field").hidden ? document.getElementById("settlement-loan").value : "";
@@ -27351,7 +27531,8 @@ function openForgiveModal(loan, returnFriend) {
   document.getElementById("forgive-category").prepend(forgivePick);
   document.getElementById("forgive-category").value = "";
   document.getElementById("forgive-date").value = todayLocalISO();
-  document.getElementById("forgive-convert-fields").hidden = !hasBalance || !checkbox.checked;
+  document.getElementById("forgive-convert-fields").hidden = !hasBalance || !checkbox.checked || !!loan.pending_income;
+  if (loan.pending_income) document.getElementById("forgive-context").textContent = tr("forgive.context", { name: loan.description || tr("loan.word"), cur: loan.currency, amount: moneyFmt(loan.remaining) }) + tr("income.forgiveReduces");
   // Which budget the forgiven amount will count in, and where that leaves it (owner, 2026-11-07: forgiving silently pushed Restaurants
   // to 117%). Fetched behind the open form; the line shows once it has arrived and follows the amount, category and date.
   forgiveBudgets_ = null;
@@ -27422,7 +27603,7 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
   const date = document.getElementById("forgive-date").value;
   const amount = parseFloat(document.getElementById("forgive-amount").value.replace(",", "."));
   if (convert && !(amount > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
-  if (convert && !categoryId) { errorEl.textContent = tr("error.pickCategory"); return; }
+  if (convert && !categoryId && !forgiveLoanTarget.pending_income) { errorEl.textContent = tr("error.pickCategory"); return; }
   if (convert && !date) { errorEl.textContent = tr("error.dateRequired"); return; }
 
   if (convert && amount > forgiveLoanTarget.remaining + 0.004) {

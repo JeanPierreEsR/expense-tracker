@@ -1508,22 +1508,25 @@
       h("div", "ts-bar", tr("nav.home"), phone);
       const p = { phone, finger: makeFinger(stage), ctx };
       p.card = h("div", "ts-card ts-review", null, phone); p.card.hidden = true;
-      h("b", null, tr("review.title") + " (1)", p.card);
-      h("div", "ts-hint", tr("review.intro"), p.card);
-      const top = h("div", "ts-review-top", null, p.card);
+      p.head = h("div", "ts-review-head", null, p.card);   // starts as a closed row, as on the real Home: a tap opens it
+      h("b", null, tr("review.title") + " (1)", p.head);
+      h("span", "ts-review-chev", "›", p.head);
+      p.details = h("div", null, null, p.card); p.details.hidden = true;
+      h("div", "ts-hint", tr("review.intro"), p.details);
+      const top = h("div", "ts-review-top", null, p.details);
       const left = h("div", null, null, top);
       h("b", null, "Cafe Luna", left);
       h("div", "ts-hint", isoDay(0) + " · " + tr("type.expense").toLowerCase(), left);
       h("b", null, ctx.home + " " + ctx.money(48), top);
-      p.category = box(p.card, "", tr("review.pickCategory"));
+      p.category = box(p.details, "", tr("review.pickCategory"));
       p.category.box.querySelector(".ts-box-label").remove();
-      const two = h("div", "ts-two", null, p.card);
+      const two = h("div", "ts-two", null, p.details);
       box(two, "", "Cafe Luna", "grow").box.querySelector(".ts-box-label").remove();
       box(two, "", "48", "grow").box.querySelector(".ts-box-label").remove();
-      const btns = h("div", "ts-two", null, p.card);
+      const btns = h("div", "ts-two", null, p.details);
       p.confirm = h("div", "ts-btn green grow", tr("review.confirm"), btns);
       h("div", "ts-btn ghost grow", tr("review.discard"), btns);
-      const more = h("div", "ts-links", null, p.card);
+      const more = h("div", "ts-links", null, p.details);
       ["review.split", "review.markRepayment", "review.convertLoan"].forEach((k) => h("span", "ts-link", tr(k), more));
       const recent = h("div", "ts-list", null, phone);
       h("div", "ts-list-title", tr("entries.recent"), recent);
@@ -1543,13 +1546,15 @@
       const tr = ctx.tr, fg = p.finger;
       return [
         [800, () => { p.card.hidden = false; p.card.classList.add("pop"); }],
-        [2000, (i) => fg.to(p.category.box, i)],
-        [2500, (i) => { fg.tap(i); p.category.box.classList.add("focus"); }],
-        [3100, () => { p.category.value.textContent = tr("scene.cat.restaurants"); p.category.box.classList.remove("focus"); }],
-        [3800, (i) => fg.to(p.confirm, i)],
-        [4300, (i) => { fg.tap(i); p.confirm.classList.add("pressed"); }],
-        [4600, () => { p.card.hidden = true; p.addRow("🍽️ " + tr("scene.cat.restaurants"), ctx.home + " " + ctx.money(48), true); }],
-        [5400, () => fg.hide()]
+        [1700, (i) => fg.to(p.head, i)],
+        [2200, (i) => { fg.tap(i); p.details.hidden = false; p.head.classList.add("open"); }],
+        [3400, (i) => fg.to(p.category.box, i)],
+        [3900, (i) => { fg.tap(i); p.category.box.classList.add("focus"); }],
+        [4500, () => { p.category.value.textContent = tr("scene.cat.restaurants"); p.category.box.classList.remove("focus"); }],
+        [5200, (i) => fg.to(p.confirm, i)],
+        [5700, (i) => { fg.tap(i); p.confirm.classList.add("pressed"); }],
+        [6000, () => { p.card.hidden = true; p.addRow("🍽️ " + tr("scene.cat.restaurants"), ctx.home + " " + ctx.money(48), true); }],
+        [6800, () => fg.hide()]
       ];
     }
   };

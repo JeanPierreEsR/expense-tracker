@@ -23,6 +23,7 @@ function getEntrySplits(entryId) {
 function saveEntrySplits(entryId, splits) {
   var entry = getEntryById_(entryId);
   if (!entry) throw new Error(tr_('err.entryNotFound'));
+  if (incomeIsWaiting_(entry)) return { splits: [] };   // its only debt is the "not received yet" one (IncomeWaiting.gs), never rebuilt from splits
 
   // A loan that already has a repayment against it can't be deleted (that
   // would silently lose the repayment), so it is reused in place below
@@ -82,7 +83,7 @@ function saveEntrySplits(entryId, splits) {
         description: entry.description || ''
       });
     });
-  } else if (ownShare > 0.004) {
+  } else if (ownShare > 0.004 && entry.type !== 'income') {   // an income's paid_by is who paid the owner, never a debt the owner has
     // A friend paid — only that friend gets a loan, for the owner's own
     // remaining share. With no splits at all, that's the full amount: a
     // friend-paid expense the owner didn't explicitly split with anyone
@@ -908,6 +909,7 @@ function updateLoanStatusFromSettlements_(loanId) {
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, loanId);
   if (rowIndex !== -1) setCellByRow_(sheet, headers, rowIndex, 'status', status);
+  if (String(loan.pending_income) === '1') syncWaitingIncomeMarker_(loan, status);
 }
 
 function recordSettlementRow_(loanId, date, amount, paymentMethodId, offsetLoanId, transferEntryId, limited, gapEntryId) {
@@ -2158,6 +2160,7 @@ function buildRepaymentTotalsForMatching_() {
 function entryTypeChangeBlock_(entryId, newType) {
   var entry = getEntryById_(entryId);
   if (!entry || entry.type === newType || entry.status === 'pending') return '';
+  if (incomeIsWaiting_(entry)) return tr_('income.waitingNoTypeChange');
   ensureSettlementsTransferEntryColumn_();
   ensureLoansTransferEntryColumn_();
   if (getAllRows('Settlements').some(function (s) { return s.transfer_entry_id === entryId && !s.offset_loan_id; })) {
@@ -2508,6 +2511,7 @@ function forgiveLoan(payload) {
     if (wanted > remaining + 0.004) throw new Error(tr_('forgive.tooMuch', { remaining: remaining.toFixed(2) }));
   }
   var partial = remaining > 0.004 && remaining - wanted > 0.004;
+  if (String(loan.pending_income) === '1' && remaining > 0.004) return forgiveWaitingIncome_(loan, partial ? wanted : remaining, settled, forgiveClientId);
 
   var sheet = getSheet('Loans');
   var headers = getHeaders(sheet);
@@ -2807,7 +2811,7 @@ function getFriendRepaymentHistory(payload) {
     return {
       id: l.id, date: l.date, description: label(l), origin: l.origin, direction: l.direction, currency: l.currency,
       amount: Number(l.amount), paid: real, offset: off, forgiven_part: forgivenPart, remaining: Math.max(Number(l.amount) - real - off - forgivenPart, 0),
-      status: l.status, linked_to_expense: !!(l.origin === 'entry' && l.entry_id)
+      status: l.status, linked_to_expense: !!(l.origin === 'entry' && l.entry_id), pending_income: String(l.pending_income) === '1'
     };
   }).sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
 

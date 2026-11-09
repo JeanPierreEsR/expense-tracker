@@ -454,8 +454,10 @@ function applyStatementDecisions(payload) {
       // Interest earned has a known home (the line-by-line comparison files it there too); every other income stays uncategorized.
       var interestCat = /INTER[EÉ]S/i.test(hi.l.description) ? (catByName['income:Savings return'] || '') : '';
       var hiCat = lineCategory('income', hi.l.category);
+      // It may be an income the person was waiting for: then it goes to Needs review, which asks, instead of counting the same money twice.
+      var hiWaits = !!waitingMatchFor_({ currency: hi.l.currency, amount: hi.l.amount }, listWaitingIncome_());
       var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: hiCat.id || interestCat,
-        description: stmtCleanDescription_(hi.l.description), payment_method_id: requirePm(hi).id, status: 'confirmed', external_id: 'stmt-' + hi.key });
+        description: stmtCleanDescription_(hi.l.description), payment_method_id: requirePm(hi).id, status: hiWaits ? 'pending' : 'confirmed', external_id: 'stmt-' + hi.key });
       if (madeHI) { report.created.income++; countLineCategory(hiCat); }
       remember(hi, 'added', madeHI ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_income') {

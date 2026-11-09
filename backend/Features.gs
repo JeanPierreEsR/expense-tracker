@@ -108,6 +108,8 @@ function getCapabilities_() {
     practiceDeleted: true,   // createPracticeDeleted + removePracticeDeleted: the Recently deleted practice is only offered where this exists (and where entriesRestore + entriesBulk do)
     practiceReview: true,  // createPracticePending + removePracticeReview + the practice entries are ignored by learning / follow / guesses: the Needs review practice is only offered where this exists
     openingLoan: true,   // addLoan understands `opening` (a debt from before the app: no money entry); an older backend would save a normal loan, so the app hides the switch
+    incomeWaiting: true,   // an income can be saved as not received yet (IncomeWaiting.gs)
+    peopleOneList: true,   // payors and friends are one list; applyPayorMerge answers the one-time question on the owner's copy
     friendsEdit: true,   // listMyFriends + updateFriend / deleteFriend for plain friends in any copy (More → Friends); an older backend lacks it, so the app hides the card
     friendPhone: true,   // setFriendPhone (the loan screen's "Remind on WhatsApp" remembers the number); an older backend lacks it, so the app does not offer to remember it
     friendPhoneEdit: true,   // addFriend / updateFriend take `phone` and listMyFriends returns it (More → Friends shows and edits the number); an older backend ignores it, so the app hides the field
