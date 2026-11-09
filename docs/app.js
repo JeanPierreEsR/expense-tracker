@@ -2143,7 +2143,7 @@ const SPLIT_FRIEND_MAX_ROWS = 3;
 function isGroupFriend_(f) { return !!f.trip_id; }
 // Business pack: a client / supplier / partner is listed (marked 🏢) only while Business features are on; the data stays when it is off.
 function isBusinessPerson_(f) { return !!f.role && f.role !== "friend"; }
-function friendLabel_(f) { return (isGroupFriend_(f) ? "👥 " : "") + (isBusinessPerson_(f) ? "🏢 " : "") + f.name; }
+function friendLabel_(f) { return (isGroupFriend_(f) ? "👥 " : "") + (isBusinessPerson_(f) ? "🏢 " : "") + (f.bank_lender ? "🏦 " : "") + f.name; }
 // A friend hidden from More → Friends (they have history, so they were hidden instead of deleted) is left out of every picker, except while the
 // form in front of the person already uses them (an old entry paid by / shared with them being edited), so editing never changes who it was.
 function isHiddenFriend_(f) { return f.hidden === "yes" || f.hidden === true; }
@@ -2709,6 +2709,7 @@ function sanitizeAmountInputValue(value) {
 // "signed" (starting and statement balances) may be negative.
 function amountProblem_(input) {
   const v = sanitizeAmountInputValue(input.value.trim());
+  if (/[a-z]/i.test(input.value)) return { kind: "invalid", input, typed: input.value.trim() };   // "1e9" was saved as 19 (Nico, 2026-11-09)
   if (!v) return null;
   const kind = input.dataset.amountKind || "";
   if (v[0] === "-" && kind !== "signed") return { kind: "negative", input };
@@ -3785,7 +3786,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 // ("🇺🇸 −USD 10.00"), never "−🇺🇸 USD 10.00" (owner 2026-10-29).
 function formatAmount(amount, currency, prefix) {
   const flag = currency === homeCur() ? "" : findCurrency(currency).flag + " ";
-  return `${flag}${prefix || ""}${currency} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${flag}${prefix || ""}${escapeHtml(currency)} ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;   // (a currency can be typed by hand in the Sheet: Rafael, 2026-11-09)
 }
 
 // Confirmed entries lead with PEN (the currency every report/budget
@@ -6763,6 +6764,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−", "": "" }[entryFlowDirection_(entry)])}</div>
       </div>
       ${entry.charge_match ? reviewChargeMatchHtml_(entry) : ""}
+      ${/^(Overpayment (from|to) |Pago de más (de|a) )/.test(entry.description || "") ? `<p class="hint review-overpay-note">${escapeHtml(tr("review.overpayNote"))}</p>` : ""}
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-item-fields">
         ${entry.type === "investment" ? "" : `<div class="review-field review-field-wide">
@@ -7451,6 +7453,7 @@ let homeGlance_ = null;
 let homeGlanceAt_ = 0;
 let homeGlanceBusy_ = null;
 let homeGlanceAgain_ = false;
+let homeGlanceGen_ = 0;   // apiWriteGen_ when the one on its way left
 let homeSelectedMonth_ = null;   // 'yyyy-mm' picked by tapping a bar; null = this month
 
 function paintHomeGlanceFromCache_() {
@@ -7486,8 +7489,10 @@ function refreshHomeGlance_(force) {
   setTimeout(() => { if (typeof window.statementsPracticeLeftover_ === "function") window.statementsPracticeLeftover_(); }, 24000);
   setTimeout(retryWaitingSaves_, 500);   // saves waiting for a connection
   // One already on its way may have left before the change this refresh is for: when it lands, ask once more.
-  if (homeGlanceBusy_) { if (force) homeGlanceAgain_ = true; return homeGlanceBusy_; }
+  // (only if something was saved since it left: a second call for the same figures cost prepaid data on every save, Wilmer 2026-11-09)
+  if (homeGlanceBusy_) { if (force && apiWriteGen_ !== homeGlanceGen_) homeGlanceAgain_ = true; return homeGlanceBusy_; }
   if (!force && homeGlance_ && Date.now() - homeGlanceAt_ < HOME_GLANCE_FRESH_MS) return Promise.resolve();
+  homeGlanceGen_ = apiWriteGen_;
   homeGlanceBusy_ = callApi("getHomeGlance", {})
     .then((data) => {
       homeGlance_ = data;
@@ -7800,8 +7805,10 @@ function showScreen(name) {
     refreshBudgets();
   }
   if (name === "projections") {
-    // Projections works by month or year: a Week shown elsewhere becomes the month holding the week's Thursday.
+    // Projections works by month or year: a Week shown elsewhere becomes the month holding the week's Thursday; All-time and Custom
+    // (which a projection cannot use, testers 2026-11-09) become the current month.
     if (periodType === "week") { periodAnchor = anchorForPeriodSwitch_("week", "month"); periodType = "month"; renderPeriodSelector(); }
+    if (periodType === "alltime" || periodType === "custom") { periodAnchor = new Date(); periodType = "month"; renderPeriodSelector(); }
     ensurePeriodSelectorIn("projections");
     refreshProjectionsScreen();
   }
@@ -7838,6 +7845,15 @@ function showExchangeRatesScreen() {
 
 // A tab whose first load failed (no connection, usually) says so instead of looking empty: Overview's zeros and Budgets' blank read as real
 // information (owner, 2026-11-07). A failed refresh of something already on screen stays quiet, as before. err = null takes the message away.
+// Every sheet's ✕ has a spoken name, also the sheets drawn later (Paola, 2026-11-09). data-i18n-aria-label keeps it right after a language change.
+function nameCloseButtons_(root) {
+  const list = root.matches && root.matches(".currency-modal-close") ? [root] : root.querySelectorAll(".currency-modal-close");
+  list.forEach((b) => { if (!b.hasAttribute("aria-label")) { b.setAttribute("data-i18n-aria-label", "common.close"); b.setAttribute("aria-label", tr("common.close")); } });
+}
+nameCloseButtons_(document);
+new MutationObserver((changes) => changes.forEach((c) => c.addedNodes.forEach((n) => { if (n.nodeType === 1) nameCloseButtons_(n); })))
+  .observe(document.body, { childList: true, subtree: true });
+
 function setLoadFailed_(name, err) {
   const screen = document.getElementById("screen-" + name);
   let note = screen.querySelector(":scope > .screen-load-failed");
@@ -7981,8 +7997,19 @@ function updatePeriodPendingLine_() {
   const n = (typeof reviewEntries_ !== "undefined" && reviewEntries_ ? reviewEntries_ : [])
     .filter((e) => (!b.startDate || e.date >= b.startDate) && (!b.endDate || e.date <= b.endDate)).length;
   const needsDates = periodType === "custom" && !b.startDate && !b.endDate;
-  btn.hidden = !n || needsDates;
-  if (n) btn.textContent = tr("period.pending", { n });
+  // Projections, while the period is still running: Expected is estimated from the past months, so expenses waiting from those months
+  // lower it too (Valeria, 2026-11-09).
+  const today = todayLocalISO();
+  let expectedLow = 0;
+  if (!document.getElementById("screen-projections").hidden && b.endDate && b.endDate >= today) {
+    const now = new Date();
+    const from = isoOf_(new Date(now.getFullYear() - 1, now.getMonth(), 1));
+    expectedLow = (typeof reviewEntries_ !== "undefined" && reviewEntries_ ? reviewEntries_ : [])
+      .filter((e) => e.type === "expense" && e.date >= from && e.date <= b.endDate).length;
+  }
+  btn.hidden = (!n && !expectedLow) || needsDates;
+  if (expectedLow) btn.textContent = tr("period.pendingExpected", { n: expectedLow });
+  else if (n) btn.textContent = tr("period.pending", { n });
 }
 document.getElementById("period-pending-line").addEventListener("click", () => {
   showScreen("entries");
@@ -9376,8 +9403,15 @@ function enumeratePeriodDates_(startDate, endDate) {
 // by matching real calendar dates rather than assumed offsets), plus the
 // two axis border lines. Returns raw SVG strings for the caller to
 // interleave with its own data lines/reference lines.
+// A chart's top value: three equal, round steps, so the side labels are evenly spaced (they read 0 / 1,000 / 2,100 / 3,100; Nico, 2026-11-09).
+function niceChartTop_(maxY) {
+  const rough = maxY / 3;
+  const size = Math.pow(10, Math.floor(Math.log10(rough)));
+  const step = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map((m) => m * size).find((s) => s >= rough - 1e-9);
+  return Math.max(1, step) * 3;
+}
+
 function buildChartAxesSvg_(days, n, maxY, effectivePeriodType, marginLeft, marginTop, plotRight, plotBottom, xFor, yFor) {
-  const yRoundingUnit = maxY >= 400 ? 100 : (maxY >= 40 ? 10 : 1);
   const yGridlinesSvg = [0, 1, 2, 3].map((i) => {
     const y = yFor((maxY * i) / 3).toFixed(1);
     return `<line x1="${marginLeft}" y1="${y}" x2="${plotRight}" y2="${y}" style="stroke:rgba(128,128,128,0.25);stroke-width:1;stroke-dasharray:1,2" />`;
@@ -9385,7 +9419,7 @@ function buildChartAxesSvg_(days, n, maxY, effectivePeriodType, marginLeft, marg
 
   const yTicksSvg = [0, 1, 2, 3].map((i) => {
     const value = (maxY * i) / 3;
-    const roundedValue = Math.round(value / yRoundingUnit) * yRoundingUnit;
+    const roundedValue = Math.round(value * 100) / 100;
     const y = yFor(value).toFixed(1);
     return `
       <line x1="${marginLeft - 3}" y1="${y}" x2="${marginLeft}" y2="${y}" style="stroke:var(--border);stroke-width:1" />
@@ -9487,7 +9521,7 @@ function renderBudgetChart_(data, budget) {
   if (lastVertex[0] === lastIdx) lastVertex[1] = finalValue;
   else paceVertices.push([lastIdx, finalValue]);
 
-  const maxY = Math.max(budgetAmount, finalValue, ...actualPoints, 1) * 1.08;
+  const maxY = niceChartTop_(Math.max(budgetAmount, finalValue, ...actualPoints, 1) * 1.08);
 
   // Plot area sits inset from the full SVG canvas — a left margin for the
   // Y-axis' money labels, a bottom margin for the X-axis' date labels.
@@ -16938,7 +16972,7 @@ document.querySelectorAll(".business-period-select").forEach((sel) => sel.addEve
 function businessEmoji_(item, fallback) { return (item && item.emoji) || fallback; }
 function companyLabel_(c) { return `${businessEmoji_(c, "🏢")} ${c.name}`; }
 function projectLabel_(p) { return `${businessEmoji_(p, "🏗️")} ${p.name}`; }
-function businessAmount_(cur, n) { return `${cur} ${moneyFmt(n)}`; }
+function businessAmount_(cur, n) { return `${escapeHtml(cur)} ${moneyFmt(n)}`; }
 
 // Keeps the app's lists in step with what the server just said (the entry form's picker reads them).
 function rememberBusinessLists_(companies) {
@@ -19600,7 +19634,7 @@ function renderVariableSuggestions_(suggestions) {
       : "";
     const amountHtml = s.shared
       ? `≈ ${s.currency} ${moneyFmt(s.own_avg_amount)}<span class="original-amt">${tr("common.total")} ${s.currency} ${moneyFmt(s.avg_amount)}</span>`
-      : `≈ ${s.currency} ${moneyFmt(s.avg_amount)}`;
+      : `≈ ${escapeHtml(s.currency)} ${moneyFmt(s.avg_amount)}`;
     box.innerHTML = `
       <div class="expected-recurring-item">
         <span class="expected-recurring-item-label">${s.category_icon ? s.category_icon + " " : ""}${escapeHtml(s.description)}
@@ -20161,9 +20195,9 @@ async function refreshExpectedRecurring(prefetchedGroups) {
       amountHtml = `<span class="primary-amt">${sign}${homeCur()} ${moneyFmt(g.total)}</span>`;
     } else if (g.totalPen != null) {
       amountHtml = `<span class="primary-amt">${sign}${homeCur()} ${moneyFmt(g.totalPen)}</span>` +
-        `<span class="original-amt">${findCurrency(g.currency).flag} ${g.currency} ${moneyFmt(g.total)}</span>`;
+        `<span class="original-amt">${findCurrency(g.currency).flag} ${escapeHtml(g.currency)} ${moneyFmt(g.total)}</span>`;
     } else {
-      amountHtml = `<span class="primary-amt">⚠️ ${findCurrency(g.currency).flag} ${g.currency} ${moneyFmt(g.total)}</span>` +
+      amountHtml = `<span class="primary-amt">⚠️ ${findCurrency(g.currency).flag} ${escapeHtml(g.currency)} ${moneyFmt(g.total)}</span>` +
         `<span class="original-amt">${tr("expected.needsRate")}</span>`;
     }
 
@@ -20173,7 +20207,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     // Each item and its two buttons sit together in one bordered box, so it's
     // obvious which item a button belongs to.
     detail.innerHTML = g.items.map((item) => {
-      const itemAmt = `${item.overdue ? "⚠️ " : ""}${tr("expected.day", { day: item.day })} · ${g.currency} ${item.estimated ? "≈ " : ""}${moneyFmt(item.amount)}`;
+      const itemAmt = `${item.overdue ? "⚠️ " : ""}${tr("expected.day", { day: item.day })} · ${escapeHtml(g.currency)} ${item.estimated ? "≈ " : ""}${moneyFmt(item.amount)}`;
       return `
       <div class="expected-recurring-entry${item.overdue ? " overdue" : ""}">
         <div class="expected-recurring-item">
@@ -20316,7 +20350,7 @@ async function openPaidPicker_(item, currency, isIncome) {
       row.style.cursor = "pointer";
       row.innerHTML = `
         <div class="link-candidate-text">
-          <div class="link-candidate-date">${listDate_(e.date)} · ${e.currency} ${moneyFmt(e.amount)}</div>
+          <div class="link-candidate-date">${listDate_(e.date)} · ${escapeHtml(e.currency)} ${moneyFmt(e.amount)}</div>
           <div class="link-candidate-desc">${escapeHtml(e.description || e.category_name || tr("review.noDescription"))}</div>
         </div>`;
       row.addEventListener("click", () => {
@@ -20435,6 +20469,7 @@ async function refreshProjections() {
     body.innerHTML = loadingHtml_();
     monthLabel.textContent = "";
     methodNote.textContent = "";
+    document.getElementById("projections-explain").hidden = true;
   }
 
   let p;
@@ -20452,6 +20487,19 @@ async function refreshProjections() {
   if (cacheKey !== projectionsCacheKey_()) return;
   saveProjectionsCache_(cacheKey, "summary", p);
   renderProjectionsSummary_(p);
+}
+
+// Each part as it will be shown, in cents, so the parts add up to the total shown: a rounding difference goes on the last part that
+// has an amount (Lucho, Carlos, 2026-11-09). A bigger difference is left alone (it is not rounding).
+function partsMatchingTotal_(total, parts) {
+  const cents = parts.map((v) => Math.round((v || 0) * 100));
+  const diff = Math.round((total || 0) * 100) - cents.reduce((sum, c) => sum + c, 0);
+  if (diff && Math.abs(diff) <= parts.length) {
+    let i = cents.length - 1;
+    while (i > 0 && !cents[i]) i--;
+    cents[i] += diff;
+  }
+  return cents.map((c) => c / 100);
 }
 
 function renderProjectionsSummary_(p) {
@@ -20473,13 +20521,18 @@ function renderProjectionsSummary_(p) {
   // already.
   const breakdownLines = [];
   if (p.income > 0) {
-    breakdownLines.push(tr("projections.lineIncome", { actual: formatPen(p.incomeActual), programmed: formatPen(p.incomeProgrammed) }));
+    const manual = p.incomeManual || 0;   // (an older backend sends none)
+    const [actual, programmed, shownManual] = partsMatchingTotal_(p.income, [p.incomeActual, p.incomeProgrammed, manual]);
+    breakdownLines.push(tr(manual > 0.004 ? "projections.lineIncomeManual" : "projections.lineIncome", { actual: formatPen(actual), programmed: formatPen(programmed), manual: formatPen(shownManual) }));
   }
   if (p.expenses > 0) {
-    breakdownLines.push(tr("projections.lineExpenses", { actual: formatPen(p.expensesActual), programmed: formatPen(p.expensesProgrammed), expected: formatPen(p.expensesExpected) }));
+    const manual = p.expensesManual || 0;
+    const [actual, programmed, shownManual, expected] = partsMatchingTotal_(p.expenses, [p.expensesActual, p.expensesProgrammed, manual, p.expensesExpected]);
+    breakdownLines.push(tr(manual > 0.004 ? "projections.lineExpensesManual" : "projections.lineExpenses", { actual: formatPen(actual), programmed: formatPen(programmed), expected: formatPen(expected), manual: formatPen(shownManual) }));
+    if (p.notEnoughHistory) breakdownLines.push(tr("projections.notEnoughToEstimate"));
   }
   if (p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0) {
-    breakdownLines.push(tr("projections.lineInvestments", { actual: formatPenSigned_(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
+    breakdownLines.push(tr(p.investmentsManual > 0.004 ? "projections.lineInvestmentsManual" : "projections.lineInvestments", { manual: formatPen(p.investmentsManual || 0), actual: formatPenSigned_(p.investmentsActual), putIn: formatPen(p.investmentsIn), takenOut: formatPen(p.investmentsOut), programmed: formatPen(p.investmentsProgrammed) }));
   }
   // Loans (2026-11-04): money borrowed and repaid counts in What's left, like Overview; a bank loan's installments still to pay add
   // their principal here (their interest + fees are in Expenses). Shown only when there is something (an older backend sends none).
@@ -20514,6 +20567,8 @@ function renderProjectionsSummary_(p) {
     ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
   `;
   methodNote.textContent = tr("projections.method");
+  // The explanation stays behind a link, and away when there is nothing to explain (Diego, Rosa, 2026-11-09).
+  document.getElementById("projections-explain").hidden = !(p.income > 0 || p.expenses > 0 || p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0 || hasLoans);
   projectionDefaultMethod = p.defaultMethod || "balanced";
   document.getElementById("projections-method-btn").textContent = tr("projections.methodBtn", { name: projectionMethodLabel_(projectionDefaultMethod) });
 }
@@ -20809,18 +20864,18 @@ function renderProjectionSplit_(detail) {
   // or below an average month, the "× days left" line says so and shows the
   // adjusted sum instead of the plain one (see "Seasonality" in Projections.gs).
   const lastYearMethod = p.methodUsed === "last_year";
-  const seasonal = !lastYearMethod && p.seasonalYears > 0 && Math.abs(p.seasonalFactor - 1) >= 0.03;
+  const seasonal = !lastYearMethod && p.seasonalYears > 0 && Math.abs(p.seasonalFactor - 1) >= 0.0005;   // (any adjustment is said: a silent 2% made the sum look wrong, Carlos 2026-11-09)
   // "months left": every remaining day counts 1 / (the days of ITS month), so a
   // whole month is always 1 — whether it has 28 days or 31.
-  const monthsLeftText = (p.monthsLeft || 0).toFixed(2);
+  const monthsLeftText = (p.monthsLeft || 0).toFixed(3);   // (three decimals, so the sum shown can be followed: Carlos, 2026-11-09)
   const prorationLine = () => {
     if (lastYearMethod) return tr("projections.formulaLastYear", { year: p.lastYearYear, base: formatPen(p.baseAmountPen), amount: formatPen(p.expectedRemainingPen) });
     if (!seasonal) return tr("projections.formulaProrated", { rate: formatPen(p.levelPerMonth), months: monthsLeftText, n: p.daysLeft, amount: formatPen(p.expectedRemainingPen) });
     return tr(p.seasonalFactor > 1 ? "projections.seasonHigh" : "projections.seasonLow", {
-      pct: Math.round(Math.abs(p.seasonalFactor - 1) * 100),
+      pct: Math.max(1, Math.round(Math.abs(p.seasonalFactor - 1) * 100)),
       years: (p.seasonalYearList || []).join(", "),
       level: formatPen(p.levelPerMonth),
-      factor: p.seasonalFactor.toFixed(2),
+      factor: p.seasonalFactor.toFixed(3),
       months: monthsLeftText,
       n: p.daysLeft,
       amount: formatPen(p.expectedRemainingPen)
@@ -20904,7 +20959,10 @@ function renderPmmOptions_() {
   if (pmmState.categoryId) rows.push({ id: "", name: tr("pmm.useDefault", { name: projectionMethodLabel_(pmmState.defaultMethod) }), desc: "" });
   PROJECTION_PRESET_IDS.forEach((id) => rows.push({ id, name: tr("projMethod." + id + ".name"), desc: tr("projMethod." + id + ".desc") }));
   rows.push({ id: "custom", name: tr("projMethod.custom.name"), desc: tr("projMethod.custom.desc") });
-  rows.forEach((row) => {
+  // At first only Balanced and the method in use; the rest behind "See more methods" (Rosa, 2026-11-09). A practice lights the whole list.
+  const inUse = (row) => (row.id === "custom" ? pmmIsCustom_(pmmState.openedWith) : row.id === pmmState.openedWith);
+  const shortList = !pmmState.showAll && !Spotlight.isRunning();
+  rows.filter((row) => !shortList || row.id === "" || row.id === "balanced" || inUse(row)).forEach((row) => {
     const selected = row.id === "custom" ? pmmIsCustom_(pmmState.selected) : row.id === pmmState.selected;
     const btn = document.createElement("button");
     btn.type = "button";
@@ -20916,6 +20974,15 @@ function renderPmmOptions_() {
     });
     box.appendChild(btn);
   });
+  if (shortList) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "add-inline";
+    more.id = "pmm-more";
+    more.textContent = tr("pmm.more");
+    more.addEventListener("click", () => { pmmState.showAll = true; renderPmmOptions_(); });
+    box.appendChild(more);
+  }
   document.getElementById("pmm-custom").hidden = !pmmIsCustom_(pmmState.selected);
   document.getElementById("pmm-apply-all").hidden = !!pmmState.categoryId;
 }
@@ -20931,23 +20998,39 @@ function fillPmmSelects_(customId) {
 }
 
 // opts: { categoryId?, categoryName?, ownMethod? ("" = uses the default) }
+let pmmOpenSeq_ = 0;
 async function openProjectionMethodModal_(opts) {
+  // Opens at once with "Loading…" (loading standard): nothing showed for seconds after the tap (Tomás, 2026-11-09).
+  const seq = ++pmmOpenSeq_;
+  const backdrop = document.getElementById("pm-modal-backdrop-method");
+  const loading = document.getElementById("pmm-loading");
+  const content = document.getElementById("pmm-content");
+  const categoryId = opts && opts.categoryId ? opts.categoryId : "";
+  pmmState = null;
+  document.getElementById("pmm-title").textContent = categoryId ? tr("pmm.titleCategory", { name: opts.categoryName }) : tr("pmm.title");
+  loading.textContent = tr("common.loading");
+  loading.hidden = false;
+  content.hidden = true;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
   let settings;
   try {
     settings = await callApi("getProjectionMethodSettings");
   } catch (err) {
-    alert(tr("drill.loadFailed", { error: err.message }));
+    if (seq === pmmOpenSeq_ && !backdrop.hidden) loading.textContent = tr("drill.loadFailed", { error: err.message });
     return;
   }
+  if (seq !== pmmOpenSeq_ || backdrop.hidden) return;
   projectionDefaultMethod = settings.defaultMethod;
-  const categoryId = opts && opts.categoryId ? opts.categoryId : "";
+  const openedWith = categoryId ? (settings.overrides[categoryId] || "") : settings.defaultMethod;
   pmmState = {
     categoryId,
     categoryName: categoryId ? opts.categoryName : "",
     defaultMethod: settings.defaultMethod,
-    selected: categoryId ? (settings.overrides[categoryId] || "") : settings.defaultMethod
+    selected: openedWith,
+    openedWith,
+    showAll: false
   };
-  document.getElementById("pmm-title").textContent = categoryId ? tr("pmm.titleCategory", { name: pmmState.categoryName }) : tr("pmm.title");
   document.getElementById("pmm-hint").textContent = categoryId ? tr("pmm.hintCategory") : tr("pmm.hintGlobal");
   document.getElementById("pmm-error").textContent = "";
   document.getElementById("pmm-compare-results").hidden = true;
@@ -20955,9 +21038,8 @@ async function openProjectionMethodModal_(opts) {
   document.getElementById("pmm-apply-best-result").textContent = "";
   fillPmmSelects_(pmmState.selected);
   renderPmmOptions_();
-  const backdrop = document.getElementById("pm-modal-backdrop-method");
-  bringModalToFront_(backdrop);
-  backdrop.hidden = false;
+  loading.hidden = true;
+  content.hidden = false;
 }
 
 function closeProjectionMethodModal_() {
@@ -21214,7 +21296,7 @@ function renderProjectionChart_(detail) {
   });
   convergenceVertices.push([n - 1, convergenceTarget]);
 
-  const maxY = Math.max(projectedTotal, actualSoFar, ...actualPoints, 1) * 1.08;
+  const maxY = niceChartTop_(Math.max(projectedTotal, actualSoFar, ...actualPoints, 1) * 1.08);
   const W = 300, H = 130;
   const marginLeft = 34, marginTop = 8, marginBottom = 14;
   const plotRight = W, plotBottom = H - marginBottom;
@@ -21239,6 +21321,7 @@ function renderProjectionChart_(detail) {
       ${axes.yTicksSvg}
       ${axes.xTicksSvg}
       <line x1="${marginLeft}" y1="${targetLineY}" x2="${plotRight}" y2="${targetLineY}" style="stroke:var(--border);stroke-width:1" />
+      <text x="${plotRight - 2}" y="${targetLineY}" dy="-2.5" text-anchor="end" style="font-size:7.5px;fill:var(--muted)">${escapeHtml(tr("common.total"))}</text>
       <polyline points="${convergencePath}" style="fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:4 3" />
       <polyline points="${actualPath}" style="fill:none;stroke:var(--accent);stroke-width:2" />
     </svg>
@@ -21299,9 +21382,11 @@ function openProjectionOverrideModal_(categoryProjection, detail) {
     actualPen: detail.projection.actualPen
   };
   document.getElementById("projection-override-modal-title").textContent = tr("projOverride.title");
+  // The same figure the card shows, so saving it unchanged changes nothing (a typed figure stays as typed; an older backend's detail may lack totalPen).
+  const shownTotal = detail.projection.hasOverride || typeof detail.projection.totalPen !== "number" ? detail.projection.amountPen : detail.projection.totalPen;
   document.getElementById("projection-override-modal-subtitle").textContent =
-    tr(detail.projection.hasOverride ? "projOverride.subtitleManual" : "projOverride.subtitleCalculated", { category: categoryProjection.category_name, amount: formatPen(detail.projection.amountPen) });
-  document.getElementById("projection-override-value-input").value = detail.projection.amountPen.toFixed(2);
+    tr(detail.projection.hasOverride ? "projOverride.subtitleManual" : "projOverride.subtitleCalculated", { category: categoryProjection.category_name, amount: formatPen(shownTotal) });
+  document.getElementById("projection-override-value-input").value = shownTotal.toFixed(2);
   document.getElementById("projection-override-form-error").textContent = "";
   document.getElementById("projection-override-reset-btn").hidden = !detail.projection.hasOverride;
   setProjectionOverrideMode_("total");
@@ -23718,10 +23803,22 @@ async function refreshLoans() {
   // AFTER a newer one and redraw the list without the new debt (owner, 2026-11-03: the Loans practice's friend row vanished under
   // its "Tap their name" step).
   const seq = ++loansRefreshSeq_;
+  // The first load shows "Loading…", not empty cards (loading standard; Tomás, Nico, 2026-11-09). Later refreshes keep what is on screen.
+  const screen = document.getElementById("screen-loans");
+  const firstLoading = document.getElementById("loans-first-loading");
+  const firstLoad = !loansLoadedOnce_;
+  if (firstLoad) { screen.classList.add("first-loading"); firstLoading.hidden = false; }
+  const endFirstLoad = () => { screen.classList.remove("first-loading"); firstLoading.hidden = true; };
   let balances;
-  try { balances = await callApi("listLoanBalances", loansScopePayload_()); }
-  catch (err) { if (seq === loansRefreshSeq_ && !loansLoadedOnce_) setLoadFailed_("loans", err); throw err; }
+  try {
+    balances = await callApi("listLoanBalances", { ...loansScopePayload_(), withUnreadable: true });
+  } catch (err) {
+    if (seq === loansRefreshSeq_ && !loansLoadedOnce_) { endFirstLoad(); setLoadFailed_("loans", err); }
+    throw err;
+  }
   if (seq !== loansRefreshSeq_) return;
+  const unreadable = (balances && balances.unreadable) || [];   // (an older backend answers with the plain list)
+  if (balances && balances.balances) balances = balances.balances;
   loansLoadedOnce_ = true;
   setLoadFailed_("loans", null);
   if (!loansScope_) loansLastBalances_ = balances;
@@ -23749,14 +23846,18 @@ async function refreshLoans() {
 
   renderLoanTotals_("loans-owed-to-me-total-row", "loans-owed-to-me-total", owedToMe, "owed-to-me");
   renderLoanTotals_("loans-i-owe-total-row", "loans-i-owe-total", iOwe, "i-owe");
-  renderSettledPeople_();
+  const warn = document.getElementById("loans-unreadable");
+  warn.hidden = !unreadable.length;
+  warn.textContent = unreadable.length ? tr("loans.unreadable", { list: unreadable.map((u) => `${u.friend_name} ("${u.amount} ${u.currency}")`.replace(" \")", "\")")).join(", ") }) : "";
+  if (firstLoad) { await renderSettledPeople_().catch(() => {}); endFirstLoad(); }
+  else renderSettledPeople_();
   offerLoansTip_();   // only now that everything has arrived (loading standard)
 }
 
 // "+PEN 1,200.00" owed to you, "−PEN 1,200.00" you owe: signs follow the owner's
 // point of view, like the Net line (owner's decision, 2026-10-27).
 function formatLoanAmount_(currency, amount, kind) {
-  return `${kind === "owed-to-me" ? "+" : "−"}${currency} ${moneyFmt(Math.abs(amount))}`;
+  return `${kind === "owed-to-me" ? "+" : "−"}${escapeHtml(currency)} ${moneyFmt(Math.abs(amount))}`;
 }
 
 // One line per currency, PEN first (the backend already orders each
@@ -23799,7 +23900,7 @@ function renderLoanBalanceList_(listId, emptyNoteId, rows, kind) {
     // Business pack: which projects this person's debts belong to (only while the pack is on).
     const projectNames = businessOn() ? (r.project_ids || []).map((id) => ((meta.projects || []).find((p) => p.id === id) || {}).name).filter(Boolean) : [];
     row.innerHTML = `
-      <span class="loan-row-name">${r.has_overdue ? "⚠️ " : ""}${escapeHtml(r.friend_name)}${projectNames.length ? `<span class="loan-row-projects">${escapeHtml(projectNames.join(" · "))}</span>` : ""}</span>
+      <span class="loan-row-name">${r.has_overdue ? `<span role="img" aria-label="${escapeHtml(tr("loans.overdueAria"))}">⚠️</span> ` : ""}${escapeHtml(r.friend_name)}${projectNames.length ? `<span class="loan-row-projects">${escapeHtml(projectNames.join(" · "))}</span>` : ""}</span>
       <span class="loan-row-amount ${kind}">${amounts}</span>
     `;
     row.dataset.friendId = r.friend_id;
@@ -23863,8 +23964,13 @@ async function openLoanDetail(friendId, friendName, projectId) {
       const n = netByCurrency[cur];
       return (n > 0 ? "+" : "−") + `${cur} ${moneyFmt(Math.abs(n))}`;
     });
+  // In words, not "Net" (Rosa, Marta, 2026-11-09).
+  const netSide = (sign, key) => {
+    const parts = Object.keys(netByCurrency).filter((cur) => sign * netByCurrency[cur] > 0.004).map((cur) => `${sign > 0 ? "+" : "−"}${cur} ${moneyFmt(Math.abs(netByCurrency[cur]))}`);
+    return parts.length ? tr(key, { parts: parts.join(" · ") }) : "";
+  };
   document.getElementById("loan-detail-subtitle").textContent = netParts.length
-    ? tr("loanDetail.net", { parts: netParts.join(" · ") })
+    ? [netSide(1, "loanDetail.owesYou"), netSide(-1, "loanDetail.youOweThem")].filter(Boolean).join(" · ")
     : tr("loanDetail.settled");
 
   // Friend-level, not per-loan — recordRepayment (Loans.gs) figures out
@@ -23875,6 +23981,7 @@ async function openLoanDetail(friendId, friendName, projectId) {
     openRepaymentHistory_(friendId, friendName, projectId, document.getElementById("loan-detail-subtitle").textContent);
   const repayBtn = document.getElementById("record-repayment-btn");
   repayBtn.hidden = netParts.length === 0;
+  repayBtn.textContent = tr(Object.values(netByCurrency).some((n) => n > 0.004) ? "loan.recordRepayment" : "loan.recordMyRepayment");
   // Nothing owed either way: the person may have a debt from before the app that was never recorded (no repayment button without a debt).
   const openingOffer = document.getElementById("loan-detail-opening");
   openingOffer.hidden = netParts.length > 0 || !!projectId || !((meta && meta.capabilities) || {}).openingLoan;
@@ -23980,7 +24087,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
     <div class="loan-detail-row-main">
       <div class="loan-detail-row-top">
         <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
-        <span class="loan-detail-row-amount ${kind}">${sign}${l.currency} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
+        <span class="loan-detail-row-amount ${kind}">${sign}${escapeHtml(l.currency)} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
       </div>
       <div class="loan-detail-row-meta">${listDate_(l.date)}${l.opening === "1" || l.opening === 1 ? " · " + escapeHtml(tr("loanDetail.fromBefore")) : ""}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
     </div>
@@ -24027,7 +24134,8 @@ function buildLoanDetailRow_(l, friendId, friendName) {
     const forgiveBtn = document.createElement("button");
     forgiveBtn.type = "button";
     forgiveBtn.className = "add-inline loan-detail-forgive-btn";
-    forgiveBtn.textContent = tr("loanDetail.forgive");
+    forgiveBtn.textContent = tr(l.direction === "i_owe_them" ? "loanDetail.theyForgave" : "loanDetail.forgive");
+    forgiveBtn.setAttribute("aria-label", `${forgiveBtn.textContent}: ${l.description || tr("loan.word")}`);
     forgiveBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       openForgiveModal(l, { id: friendId, name: friendName });
@@ -24923,7 +25031,7 @@ function openBankLoanForm_() {
   (meta.friends || []).forEach((f) => { const o = document.createElement("option"); o.value = f.name; lenders.appendChild(o); });
   const curSel = document.getElementById("bank-currency");
   curSel.innerHTML = "";
-  [...new Set([homeCur(), ...getRecentCurrencies()])].forEach((code) => { const o = document.createElement("option"); o.value = code; o.textContent = code; curSel.appendChild(o); });
+  [...new Set([homeCur(), ...getRecentCurrencies()])].forEach((code) => { const o = document.createElement("option"); o.value = code; o.textContent = `${findCurrency(code).flag} ${code}`; curSel.appendChild(o); });
   curSel.value = homeCur();
   bankPopulateAccounts_("bank-account", "");
   document.getElementById("bank-opening-row").hidden = !((meta && meta.capabilities) || {}).bankOpening;   // an older backend would make a normal loan
@@ -25323,6 +25431,7 @@ function openLoanRemind_(friendId, friendName, loans) {
   loanRemind_ = { friendId, text, phone: friend.phone || "" };
   document.getElementById("loan-remind-title").textContent = tr("remind.title", { name: friendName });
   document.getElementById("loan-remind-text").value = text;
+  document.getElementById("loan-remind-phone-hint").textContent = tr(loanRemindPhoneHintKey_());
   document.getElementById("loan-remind-phone").value = friend.phone || "";
   document.getElementById("loan-remind-error").textContent = "";
   document.getElementById("loan-remind-stuck").hidden = true;
@@ -25337,6 +25446,8 @@ function closeLoanRemind_() {
 }
 
 // Remembers a new / changed / cleared number in the background; the reminder never waits for it.
+function loanRemindPhoneHintKey_() { return ((meta && meta.capabilities) || {}).friendPhone ? "remind.phoneHint" : "remind.phoneHintNoSave"; }   // an older backend cannot keep the number (Julia, 2026-11-09)
+
 function rememberLoanRemindPhone_(phone) {
   const r = loanRemind_;
   if (!r || LoanReminder.phoneDigits(phone) === LoanReminder.phoneDigits(r.phone)) return;
@@ -25409,6 +25520,13 @@ let loanModalReturnFriend = null;
 function populateLoanFriendOptions() {
   const select = document.getElementById("loan-friend");
   select.innerHTML = "";
+  if (!plainFriends_().length) {   // nothing to pick yet: the box says what to do (it looked empty; Diego, Rosa, Sol, Wilmer, 2026-11-09)
+    const hint = document.createElement("option");
+    hint.value = "";
+    hint.textContent = tr("loanModal.pickOrAddFriend");
+    hint.disabled = true;
+    select.appendChild(hint);
+  }
   plainFriends_().forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
@@ -25422,6 +25540,7 @@ function populateLoanFriendOptions() {
 }
 
 document.getElementById("loan-friend").addEventListener("change", async (e) => {
+  document.getElementById("loan-friend-error").hidden = true;
   if (e.target.value !== "__add__") return;
   const name = await askName_(tr("prompt.friendName"));
   e.target.value = meta.friends.length ? meta.friends[0].id : "";
@@ -25688,6 +25807,7 @@ function openLoanModal(loan, returnFriend, opts) {
   // A "paid earlier, no loan" payment can be put on loans from here too (same as the button on the person's screen).
   document.getElementById("loan-apply-btn").hidden = !(loan && returnFriend && (loan.unapplied || loan.unapplied_sources) && loan.status !== "forgiven" && loan.remaining > 0.004);
   document.getElementById("loan-form-error").textContent = "";
+  document.getElementById("loan-friend-error").hidden = true;
   populateLoanFriendOptions();
   populateLoanPaymentMethodOptions();
   document.getElementById("loan-friend").value = loan ? loan.friend_id : ((opts && opts.friendId) || (meta.friends.length ? meta.friends[0].id : ""));
@@ -25784,7 +25904,13 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     const paymentMethodId = document.getElementById("loan-payment-method").value;
     const description = document.getElementById("loan-description").value.trim();
 
-    if (!friendId || friendId === "__add__") throw new Error(tr("error.pickFriend"));
+    if (!friendId || friendId === "__add__") {   // said right under the box, in view (it appeared off screen at the bottom)
+      const friendError = document.getElementById("loan-friend-error");
+      friendError.textContent = tr("error.pickFriend");
+      friendError.hidden = false;
+      friendError.scrollIntoView({ block: "center" });
+      return;
+    }
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     if (!date) throw new Error(tr("error.dateRequired"));
     const opening = document.getElementById("loan-opening").checked;
@@ -25936,7 +26062,7 @@ function renderSettlementCurrencyChips_() {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "currency-chip" + (cur === repaymentCurrency ? " active" : "");
-    chip.innerHTML = `<span>${findCurrency(cur).flag}</span><span>${cur}</span>`;
+    chip.innerHTML = `<span>${findCurrency(cur).flag}</span><span>${escapeHtml(cur)}</span>`;
     chip.addEventListener("click", () => switchRepaymentCurrency_(cur));
     container.appendChild(chip);
   });
@@ -25977,6 +26103,7 @@ function resetSettlementForm_() {
   editingSettlementLoanId_ = "";
   document.getElementById("settlement-loan-field").hidden = true;
   renderSettlementChoose_();
+  updateSettlementOverpayNote_();
 }
 
 // ---- "Which loan this pays": fixing a recorded repayment that went to the wrong loan ----
@@ -26103,7 +26230,20 @@ document.getElementById("settlement-choose-btn").addEventListener("click", () =>
 });
 document.getElementById("settlement-amount").addEventListener("input", () => {
   if (!document.getElementById("settlement-choose-panel").hidden) renderSettlementChooseSummary_();
+  updateSettlementOverpayNote_();
 });
+
+// Said while typing, so the extra in Needs review is no surprise (Rosa, Marta, 2026-11-09). The rule itself is the server's.
+function updateSettlementOverpayNote_() {
+  const note = document.getElementById("settlement-overpay-note");
+  const owed = Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0);
+  const paid = parseFloat(sanitizeAmountInputValue(document.getElementById("settlement-amount").value)) || 0;
+  const extra = paid - owed;
+  note.hidden = !!editingSettlementId || extra <= 0.004;
+  if (note.hidden) return;
+  const parts = { name: repaymentFriendName, cur: repaymentCurrency, owed: moneyFmt(owed), extra: moneyFmt(extra) };
+  note.textContent = tr(repaymentDirection === "they_owe_me" ? "settle.overpayNoteTheyOwe" : "settle.overpayNoteIOwe", parts);
+}
 
 function loadSettlementIntoForm_(s) {
   editingSettlementId = s.id;
@@ -26175,6 +26315,7 @@ async function switchRepaymentCurrency_(currency) {
 let repaymentProjectId_ = "";   // Business pack: set when the repayment is recorded from a project's debts
 let repaymentLoans_ = [];       // the person's open loans (in the scope the sheet was opened with), for "Choose which loans this pays"
 let repaymentAllLoans_ = [];    // the same scope including paid ones, for "Which loan this pays" when fixing a recorded repayment
+let repaymentOpenSeq_ = 0;
 async function openRepaymentModal(friendId, friendName, netByCurrency, projectId, openLoans, allLoans) {
   repaymentLoans_ = openLoans || [];
   repaymentAllLoans_ = allLoans || openLoans || [];
@@ -26186,12 +26327,26 @@ async function openRepaymentModal(friendId, friendName, netByCurrency, projectId
   document.getElementById("settlement-modal-title").textContent = tr("transfer.kind.repayment");
   populateSettlementPaymentMethodOptions();
 
-  const currencies = Object.keys(netByCurrency);
-  await switchRepaymentCurrency_(currencies[0]);
-
+  // Opens at once with "Loading…" and shows its content when the earlier repayments have arrived (loading standard; Tomás, 2026-11-09).
+  const seq = ++repaymentOpenSeq_;
   const backdrop = document.getElementById("settlement-modal-backdrop");
+  const loading = document.getElementById("settlement-loading");
+  loading.textContent = tr("common.loading");
+  loading.hidden = false;
+  backdrop.classList.add("sheet-loading");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+
+  const currencies = Object.keys(netByCurrency);
+  try {
+    await switchRepaymentCurrency_(currencies[0]);
+  } catch (err) {
+    if (seq === repaymentOpenSeq_) loading.textContent = tr("drill.loadFailed", { error: err.message });
+    return;
+  }
+  if (seq !== repaymentOpenSeq_) return;
+  loading.hidden = true;
+  backdrop.classList.remove("sheet-loading");
 }
 
 function closeSettlementModal() {
@@ -26417,6 +26572,10 @@ function openForgiveModal(loan, returnFriend) {
   forgiveLoanTarget = loan;
   forgiveReturnFriend = returnFriend;
 
+  // On a debt I owe, the other person is the one forgiving (Marta, 2026-11-09).
+  const forgiveTitle = tr(loan.direction === "i_owe_them" ? "forgive.titleTheyForgave" : "forgive.title");
+  document.getElementById("forgive-modal-title").textContent = forgiveTitle;
+  document.getElementById("forgive-save-btn").textContent = forgiveTitle;
   document.getElementById("forgive-form-error").textContent = "";
   document.getElementById("forgive-context").textContent =
     tr("forgive.context", { name: loan.description || tr("loan.word"), cur: loan.currency, amount: moneyFmt(loan.remaining) });
@@ -26444,7 +26603,13 @@ function openForgiveModal(loan, returnFriend) {
     document.getElementById("forgive-context").textContent +=
       tr(entryType === "expense" ? "forgive.recordedExpense" : "forgive.recordedIncome");
   }
+  // Starts empty: the first category of the list silently took the forgiveness (Andrés, Lucho, Carlos, 2026-11-09).
   populateCategoryOptionsForSelect_("forgive-category", entryType);
+  const forgivePick = document.createElement("option");
+  forgivePick.value = "";
+  forgivePick.textContent = tr("review.pickCategory");
+  document.getElementById("forgive-category").prepend(forgivePick);
+  document.getElementById("forgive-category").value = "";
   document.getElementById("forgive-date").value = todayLocalISO();
   document.getElementById("forgive-convert-fields").hidden = !hasBalance || !checkbox.checked;
   // Which budget the forgiven amount will count in, and where that leaves it (owner, 2026-11-07: forgiving silently pushed Restaurants
@@ -26916,7 +27081,7 @@ function renderBalanceCurrentLines_() {
     el.appendChild(line);
   });
   const sel = document.getElementById("balance-check-currency");
-  sel.innerHTML = balanceModalData.balances.map((b) => `<option value="${b.currency}">${b.currency}</option>`).join("");
+  sel.innerHTML = balanceModalData.balances.map((b) => `<option value="${escapeHtml(b.currency)}">${escapeHtml(b.currency)}</option>`).join("");
   sel.hidden = balanceModalData.balances.length < 2;
 }
 
@@ -26940,7 +27105,7 @@ async function loadBalanceMovements_(pmId) {
     row.innerHTML = `
       <div class="loan-detail-row-top">
         <span class="loan-detail-row-desc">${escapeHtml(label)}</span>
-        <span class="loan-detail-row-amount ${m.signed > 0 ? "owed-to-me" : "i-owe"}">${m.signed > 0 ? "+" : "−"}${m.currency} ${moneyFmt(Math.abs(m.signed))}</span>
+        <span class="loan-detail-row-amount ${m.signed > 0 ? "owed-to-me" : "i-owe"}">${m.signed > 0 ? "+" : "−"}${escapeHtml(m.currency)} ${moneyFmt(Math.abs(m.signed))}</span>
       </div>
       <div class="loan-detail-row-meta">${listDate_(m.date)} · ${m.type}${extra}</div>
     `;

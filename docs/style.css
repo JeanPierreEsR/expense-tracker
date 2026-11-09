@@ -6,8 +6,8 @@
   --muted: #6e6e73;
   --border: #e5e5ea;
   --accent: #0071e3;
-  --expense: #d64545;
-  --income: #2e9e5b;
+  --expense: #c53030;
+  --income: #1e7d46;
   --investment: #7a5af5;
   --transfer: #8a8a8e;
   --radius: 14px;
@@ -221,8 +221,8 @@ main {
    in Spanish, "Projections" in English) keeps a gap from its neighbour down
    to a 320px phone. The rem value only caps the size on wider screens.
    Spanish words are longer, hence its smaller ratio. */
-.nav-btn { font-size: min(0.7rem, 2.45vw); margin: 6px 0; }
-html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
+.nav-btn { font-size: min(0.7rem, 2.75vw); margin: 6px 0; }
+html[lang="es"] .nav-btn { font-size: min(0.65rem, 2.45vw); }
 .nav-btn > span:last-child { white-space: nowrap; }
 
 .nav-btn.active {
@@ -2185,7 +2185,7 @@ body.income-revealed .sens-mask { display: none; }
 /* ---- Projections tab (reuses Overview's .summary-grid) ---- */
 
 .projections-breakdown {
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   color: var(--muted);
   margin-top: 10px;
   margin-bottom: 0;
@@ -3404,6 +3404,11 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 /* Two small actions side by side (a person's screen: Record repayment / Repayment history). */
 .loan-detail-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; }
 .loan-detail-actions[hidden] { display: none; }
+.loan-detail-actions .add-inline, .loan-detail-actions .add-inline + .add-inline, #record-repayment-btn, #loan-history-btn { margin: 0; }   /* the stacked-button rule made one button of the row taller */
+#screen-loans.first-loading #loans-owed-card, #screen-loans.first-loading #loans-i-owe-card,
+#screen-loans.load-failed #loans-owed-card, #screen-loans.load-failed #loans-i-owe-card { display: none; }
+.loans-unreadable { color: #b26a00; margin: 0 0 12px; }
+.sheet-loading .budget-modal-body > :not(#settlement-loading) { display: none; }
 
 /* repayment history: the loans a repayment paid, as detail under "On loans" */
 .loan-detail-row-meta.history-sub { padding-left: 16px; }
@@ -3690,7 +3695,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #rates-usd-actions .add-inline { margin-top: 0; }
 .usd-share-amt { white-space: nowrap; }
 /* Projections works by month or year: no Week choice there (owner, 2026-11-07) */
-#screen-projections .period-type-chip[data-period-type="week"] { display: none; }
+#screen-projections .period-type-chip[data-period-type="week"],
+#screen-projections .period-type-chip[data-period-type="alltime"],
+#screen-projections .period-type-chip[data-period-type="custom"] { display: none; }
 /* Income that varies (owner, 2026-11-07) */
 #overview-varies-card h3 { font-size: 0.9rem; margin: 14px 0 4px; }
 .ov-varies-line { margin: 6px 0 0; font-size: 0.95rem; }

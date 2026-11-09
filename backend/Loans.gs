@@ -666,13 +666,26 @@ function defaultLoanDueDate_(dateStr) {
   return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
 }
 
+// What the screens never send, refused anyway (Rafael, 2026-11-09): an amount that is not a real one, a date that is not a date, a currency that does not exist.
+function checkMoneyFields_(payload) {
+  var amount = Number(payload.amount);
+  if (!isFinite(amount) || amount < 0.01) throw new Error(tr_('err.validAmount'));
+  if (!payload.date) throw new Error(tr_('err.dateRequired'));
+  var d = /^(\d{4})-\d{2}-\d{2}$/.exec(String(payload.date));
+  if (!d || Number(d[1]) < 2000 || Number(d[1]) > 2100) throw new Error(tr_('err.validDate'));
+  if (payload.currency) {
+    var code = String(payload.currency).toUpperCase();
+    if (code !== homeCurrency_() && !isKnownCurrencyCode_(code)) throw new Error(tr_('err.validCurrency'));
+  }
+}
+
 function addLoan(payload) {
   if (!payload.friend_id) throw new Error(tr_('err.pickFriend'));
   if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') {
     throw new Error(tr_('err.invalidDirection'));
   }
-  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
-  if (!payload.date) throw new Error(tr_('err.dateRequired'));
+  checkMoneyFields_(payload);
+  if (!getAllRows('Friends').some(function (f) { return f.id === payload.friend_id; })) throw new Error(tr_('err.friendNotFound'));
 
   var clientId = clientSaveId_(payload);
   if (clientId) {
@@ -686,7 +699,7 @@ function addLoan(payload) {
     direction: payload.direction,
     origin: 'cash',
     amount: Number(payload.amount),
-    currency: payload.currency || homeCurrency_(),
+    currency: String(payload.currency || homeCurrency_()).toUpperCase(),
     date: payload.date,
     // An opening debt gets no automatic due date (it would be "overdue" from the first day): only one the person typed.
     due_date: payload.due_date || (opening ? '' : defaultLoanDueDate_(payload.date)),
@@ -966,8 +979,7 @@ function recordRepayment(payload) {
   if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') {
     throw new Error(tr_('err.invalidDirection'));
   }
-  if (!(Number(payload.amount) > 0)) throw new Error(tr_('err.validAmount'));
-  if (!payload.date) throw new Error(tr_('err.dateRequired'));
+  checkMoneyFields_(payload);
   var currency = payload.currency || homeCurrency_();
   // Business pack: from a project screen only THAT project's loans are paid down and offset. Blank = today's behaviour
   // (every loan of the person, oldest first, project ones included).
@@ -2752,6 +2764,15 @@ function listLoanBalances(payload) {
     });
   });
 
+  // The phone asks for this shape; other callers keep the plain list.
+  if (payload && payload.withUnreadable) {
+    return {
+      balances: result,
+      unreadable: loans.filter(function (l) { return l.unreadable_amount !== undefined; }).map(function (l) {
+        return { friend_name: friendMap[l.friend_id] || tr_('label.unknownFriend'), amount: String(l.unreadable_amount), currency: String(l.unreadable_currency || '') };
+      })
+    };
+  }
   return result;
 }
 
@@ -3083,7 +3104,7 @@ function getFriendLoanDetail(friendId) {
   ensureLoansUnappliedColumn_();
   var schedules = loanScheduleSummaries_();
   var settledByLoan = buildSettlementTotalsByLoan_();
-  var loans = getAllRows('Loans').filter(function (l) { return l.friend_id === friendId; });
+  var loans = getAllRows('Loans').filter(function (l) { return l.friend_id === friendId && l.unreadable_amount === undefined; });   // (a row that cannot be read is named on the Loans tab)
   loans.forEach(function (loan) {
     loan.settled = settledByLoan[loan.id] || 0;
     loan.remaining = Number(loan.amount) - loan.settled;
