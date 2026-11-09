@@ -128,3 +128,17 @@ function waitingMatchFor_(entry, waiting) {
   }
   return null;
 }
+
+// The same question wherever a bank e-mail or statement line is reviewed (the app's Needs review, Telegram). Only money that reached a known account can
+// be a repayment: without one the balance would not move, so the question appears once the account is set.
+function waitingMatchForPending_(entry, waiting) {
+  if (!entry || entry.type !== 'income' || entry.status !== 'pending' || !entry.payment_method_id || isPracticeReview_(entry)) return null;
+  return waitingMatchFor_(entry, waiting);
+}
+
+// "Yes, it is": the waiting entry becomes a repayment of that income's debt. Same call as the app's button.
+function applyWaitingPayment_(entry, match) {
+  var amount = Math.abs(Number(entry.amount));
+  return convertEntryToRepayment({ entry_id: entry.id, friend_id: match.friend_id, direction: 'they_owe_me', amount: amount, currency: entry.currency, date: entry.date,
+    payment_method_id: entry.payment_method_id, description: entry.description, require_owed: true, overpay_pending_ok: true, allocations: [{ loan_id: match.loan_id, amount: amount }] });
+}

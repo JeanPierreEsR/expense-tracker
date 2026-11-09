@@ -1,7 +1,7 @@
 // Income not received yet (2026-11-09): it counts on its date, the person owes it, and only the repayment moves an account. Made-up data.
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { freshApp } = require("./helpers");
+const { freshApp, linkTelegram } = require("./helpers");
 
 const post = (rt, action, payload = {}) => rt.rawPost(JSON.stringify({ accessCode: rt.ACCESS_CODE, action, payload }));
 function setup() {
@@ -137,4 +137,64 @@ test("its type cannot be changed while linked to the debt", () => {
   const { rt, person } = setup();
   const e = waiting(rt, person).data;
   assert.equal(post(rt, "saveEntryAll", { kind: "update", id: e.id, fields: { type: "expense" } }).ok, false);
+});
+
+// ---- Telegram ----
+function telegramSetup(lang) {
+  const base = setup();
+  const chat = linkTelegram(base.rt);
+  if (lang) post(base.rt, "saveOnboarding", { language: lang, dateOrder: "dmy", currencies: [] });
+  const e = waiting(base.rt, base.person).data;
+  base.rt.run(`appendRowObject('Entries', ${JSON.stringify({ id: "tg-1", type: "income", date: "2026-10-21", amount: 100, currency: "PEN", category_id: "", description: "Transfer received", payment_method_id: "w-pm", paid_by: "", status: "pending", source: "email" })}); bumpVersion_('ENTRIES_VERSION');`);
+  const card = () => { base.rt.svc.fetchLog.length = 0; base.rt.run(`sendTelegramEntryNotification_(getEntryById_('tg-1'), '', '');`); return JSON.parse(base.rt.svc.fetchLog.find((x) => /sendMessage/.test(x.url)).options.payload); };
+  const tap = (data, n) => { base.rt.svc.fetchLog.length = 0; base.rt.rawPost(JSON.stringify({ update_id: 9300 + n, callback_query: { id: "cb" + n, data, message: { chat: { id: chat }, message_id: 90 + n } } })); return base.rt.svc.fetchLog.filter((x) => /sendMessage/.test(x.url)).map((x) => JSON.parse(x.options.payload).text).join("\n"); };
+  return Object.assign(base, { e, card, tap });
+}
+
+test("Telegram asks on a card that matches, with its own button above Confirm and Discard", () => {
+  const { card } = telegramSetup();
+  const c = card();
+  assert.match(c.text, /Is this the payment you were waiting for from Client Test \(PEN 100/);
+  assert.equal(c.reply_markup.inline_keyboard[0][0].callback_data, "waitpay:tg-1");
+  assert.ok(Buffer.byteLength(c.reply_markup.inline_keyboard[0][0].callback_data) <= 64);
+  assert.equal(c.reply_markup.inline_keyboard[1][0].callback_data, "confirm:tg-1");
+});
+
+test("Telegram: yes records a repayment, not a second income, and the balance rises once", () => {
+  const { rt, person, pm, e, tap } = telegramSetup();
+  const before = balance(rt, pm);
+  assert.match(tap("waitpay:tg-1", 1), /Recorded as Client Test's payment/);
+  assert.equal(entryOf(rt, e.id).income_waiting, "paid");
+  assert.equal(rt.rows("Entries").filter((x) => x.type === "income" && x.status === "confirmed" && x.paid_by === person.id).length, 1);
+  assert.notEqual(entryOf(rt, "tg-1") && entryOf(rt, "tg-1").type, "income");
+  assert.equal(balance(rt, pm), before + 100);
+});
+
+test("Telegram: a second tap, or an old card whose debt was paid meanwhile, changes nothing", () => {
+  const { rt, person, pm, tap } = telegramSetup();
+  repay(rt, person, pm, 100);
+  const before = balance(rt, pm);
+  assert.match(tap("waitpay:tg-1", 2), /no longer waiting/);
+  assert.equal(entryOf(rt, "tg-1").status, "pending");
+  assert.equal(balance(rt, pm), before);
+});
+
+test("Telegram: a different amount, or no account yet, does not ask; choosing Confirm stays possible", () => {
+  const { rt, card } = telegramSetup();
+  rt.run(`updateEntryFields('tg-1', { payment_method_id: '' });`);
+  let c = card();
+  assert.doesNotMatch(c.text, /waiting for from/);
+  assert.equal(c.reply_markup.inline_keyboard[0][0].callback_data, "confirm:tg-1");
+  rt.run(`updateEntryFields('tg-1', { payment_method_id: 'w-pm', amount: 99 });`);
+  c = card();
+  assert.doesNotMatch(c.text, /waiting for from/);
+});
+
+test("Telegram speaks the copy's language", () => {
+  const { rt, card, tap } = telegramSetup("es");
+  const c = card();
+  assert.match(c.text, /¿Es este el pago que esperabas de Client Test/);
+  assert.equal(c.reply_markup.inline_keyboard[0][0].text, "⏳ Sí, ese pago");
+  assert.match(tap("waitpay:tg-1", 3), /Registrado como el pago de Client Test/);
+  assert.equal(rt.rows("Entries").filter((x) => x.id === "tg-1" && x.type === "income" && x.status === "confirmed").length, 0);
 });

@@ -1504,7 +1504,7 @@ function listPendingEntries() {
     if (loanHint) entry.loan_hint = loanHint;
     var chargeMatch = chargeMatchForReview_(entry, all);   // "Is this the charge of …?" (Charges.gs)
     if (chargeMatch) entry.charge_match = chargeMatch;
-    var waitingMatch = entry.type === 'income' && !isPracticeReview_(entry) ? waitingMatchFor_(entry, waitingIncome) : null;   // "Is this the payment you were waiting for?" (IncomeWaiting.gs)
+    var waitingMatch = waitingMatchForPending_(entry, waitingIncome);   // "Is this the payment you were waiting for?" (IncomeWaiting.gs)
     if (waitingMatch) entry.waiting_match = waitingMatch;
   });
   entries.sort(compareEntriesRecency_);
