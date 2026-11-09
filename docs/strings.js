@@ -2426,6 +2426,8 @@
     "rt.conv.repayWhat": { en: "This item paid back a debt: it stops counting as an expense or income and only lowers what's owed.", es: "Este movimiento pagó una deuda: deja de contar como gasto o ingreso y solo baja lo que se debe." },
     "rt.conv.loanWhat": { en: "This money was lent or borrowed: it stops counting as an expense or income and becomes a debt on Loans.", es: "Este dinero se prestó o se pidió prestado: deja de contar como gasto o ingreso y queda como deuda en Préstamos." },
     "rt.conv.save": { en: "All set: tap the button to save it.", es: "Todo listo: toca el botón para guardarlo." },
+    "rt.conv.checkIn": { en: "Does everything look right? Check the amount, the date and the account it arrived in.", es: "¿Todo se ve bien? Revisa el monto, la fecha y la cuenta a la que llegó." },
+    "rt.conv.checkOut": { en: "Does everything look right? Check the amount, the date and the account it left.", es: "¿Todo se ve bien? Revisa el monto, la fecha y la cuenta de la que salió." },
     "rt.conv.exchangeWhat": { en: "This item is one side of the exchange. Fill in the other side.", es: "Este movimiento es un lado del cambio. Completa el otro lado." },
     "rt.conv.type": { en: "Pick what this really is. The form changes to match, and saving confirms it.", es: "Elige qué es en realidad. El formulario cambia según lo que elijas y, al guardar, queda confirmado." },
     "rt.conv.hint": { en: "The app recognized this from last time. Tap here to record it the same way.", es: "La app lo reconoció de la vez anterior. Toca aquí para registrarlo igual." },

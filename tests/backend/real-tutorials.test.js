@@ -143,3 +143,9 @@ test("an item that leaves partway ends the guide cleanly instead of waiting for 
   assert.match(fn, /const whileRow = /);
   assert.match(fn, /realSteps_\(steps\.map\(whileRow\)\)/);
 });
+
+test("the conversion guides stop to check what the bank filled in before saving", () => {
+  assert.match(section("function startConvDebt_(", "function startConvExchange_("), /tr\(arrived \? "rt\.conv\.checkIn" : "rt\.conv\.checkOut"\)/);
+  assert.match(section("function startConvExchange_(", "// Change type opens the full form"), /tr\("rt\.review\.check"\)/);
+  assert.match(section("function startSplitReal_(", "// When the app already suspects it"), /if \(confirmingPendingId\) steps\.push\(\{ target: [^\n]*rt\.review\.check/);
+});

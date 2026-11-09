@@ -22720,6 +22720,9 @@ function startConvDebt_(mode) {
   const steps = [{ target: "#review-transfer-context", text: () => tr(mode === "repay" ? "rt.conv.repayWhat" : "rt.conv.loanWhat"), button: next }];
   steps.push({ key: "friend", target: "#review-transfer-friend", text: (fix) => tr(fix ? "rt.transfer.friendFix" : "rt.loan.friend"), visit: "#review-transfer-friend", button: next, ok: friendOk, holdsUntil: "save" });
   if (accountBlank) steps.push({ field: "account", target: "#review-transfer-payment-method", text: () => tr("rt.transfer.account"), until: () => !!el("review-transfer-payment-method").value });
+  // Always shown: what the bank e-mail filled in (the account above all) is checked here, not skipped (owner's walk, 2026-11-09).
+  const arrived = !!reviewTransferEntry && reviewEntryArrived_(reviewTransferEntry);
+  steps.push({ target: () => [el("review-transfer-amount"), el("review-transfer-date"), el("review-transfer-payment-method"), el("review-transfer-description-field")], text: () => tr(arrived ? "rt.conv.checkIn" : "rt.conv.checkOut"), button: next });
   steps.push({ key: "save", target: () => [el("review-transfer-save-btn"), el("review-transfer-form-error")], text: () => { const e = err(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); }, until: () => back.hidden });
   // Only once the server has answered: more than was owed comes back as an extra, money received with no debt on record is refused.
   steps.push({ text: () => tr(convDebtOutcome_ === "refused" ? "rt.conv.refused" : convDebtOutcome_ === "over" ? "rt.conv.repayOver" : mode === "repay" ? "rt.conv.repayDone" : "rt.loan.done"), button: () => tr("spot.g.done"),
@@ -22740,6 +22743,7 @@ function startConvExchange_() {
     { target: `#exchange-${other}-account`, text: () => tr(other === "in" ? "spot.x.s6" : "spot.x.s4"), visit: `#exchange-${other}-account`, button: next },
     { target: () => amountBox.parentElement, text: () => tr(other === "in" ? "spot.x.s7" : "spot.x.s5", { cur: el(`exchange-${other}-currency`).value }), blurTap: true,
       until: () => parseFloat(amountBox.value) > 0 && document.activeElement !== amountBox },
+    { target: () => [el("exchange-date"), el("exchange-out-account"), el("exchange-out-amount").parentElement, el("exchange-in-account"), el("exchange-in-amount").parentElement], text: () => tr("rt.review.check"), button: next },
     { target: () => [el("exchange-save-btn"), el("exchange-form-error")], text: () => { const e = err(); return e ? tr("spot.x.s10err", { error: e }) : tr("spot.x.s10"); }, until: () => back.hidden },
     { text: () => tr("rt.exchange.done"), button: () => tr("spot.g.done") }
   ]);
@@ -22879,6 +22883,9 @@ function startSplitReal_() {
     until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || amountOk(), holdsUntil: "save" });
   steps.push({ key: "splitFriend", target: () => [el("split-friend-chips"), el("split-add-friend-btn")], text: () => tr("spot.g.splitFriend"), until: () => splitFriendIds.size > 0, wait: 8000, ok: () => submitted || splitFriendIds.size > 0, holdsUntil: "save" });
   steps.push({ target: () => [el("split-mode-tabs"), el("split-rows"), el("split-summary")], text: () => tr("spot.g.splitHow"), button: () => tr("spot.g.next") });
+  // An item with no category cannot be saved: it is asked for here, or the Save error would point at a dimmed box.
+  if (confirmingPendingId && !getCategoryId()) steps.push({ key: "category", field: "category", target: "#category-select-field", text: () => tr("rt.review.catPick"), until: () => !!getCategoryId() });
+  if (confirmingPendingId) steps.push({ target: () => [el("amount"), el("date"), el("payment-method-field")].filter((x) => x && !x.hidden), text: () => tr("rt.review.check"), button: () => tr("spot.g.next") });
   steps.push({ key: "save", target: () => [el("submit-btn"), el("form-error")], text: () => { const e = lastError(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); },
     before: async () => { el("form-error").textContent = ""; return true; }, until: () => !!(guided_ && guided_.savedId) || !formOpen() });
   steps.push({ text: () => tr("rt.split.done"), button: () => tr("spot.g.done") });
