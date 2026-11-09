@@ -34,7 +34,7 @@ test("practice cards answered before this count as taught, once", () => {
 test("someone who already uses the feature is not interrupted, unless they asked through Practice tips", () => {
   const fn = section("function startReviewReal_()", "function startReviewTopUp_(");
   assert.match(fn, /!realAgain_\(\) && \(lastRenderedEntries_ \|\| \[\]\)\.some\(\(e\) => e\.source === "email"/);
-  assert.match(section("function offerTransferGuide_()", "function transferNoteSaved_()"), /!realAgain_\(\)/);
+  assert.match(section("function offerTransferGuide_(", "function transferNoteSaved_()"), /!realAgain_\(\)/);
 });
 
 test("Needs review skips rows it cannot teach on and rows hidden behind Show more", () => {
@@ -44,12 +44,33 @@ test("Needs review skips rows it cannot teach on and rows hidden behind Show mor
   assert.match(app, /function reviewRowShowing_\(id\) \{[^\n]*getClientRects\(\)\.length > 0/);
 });
 
-test("a look is not a use: the transfer tab only asks, with up to 3 chances", () => {
-  const fn = section("function offerTransferGuide_()", "function transferNoteSaved_()");
-  assert.match(fn, /popTipShow_\(\{ key: "offer-transfer", text: tr\("rt\.transfer\.offer"\), offer: startTransferReal_ \}/);
-  assert.match(fn, /realChanceLeft_\("transfer"\)/);
+test("a look is not a use: the Transfer tab only asks, with up to 3 chances, and points at the tab", () => {
+  const fn = section("function offerTransferGuide_(", "function transferNoteSaved_()");
+  assert.match(fn, /popTipShow_\(\{ key: "offer-transfer", text: tr\("rt\.transfer\.offer"\), offer: \(\) => startTransferReal_\(null\) \}, tab\)/);
+  assert.match(fn, /realChanceLeft_\("transfer-start"\)/);
+  assert.match(fn, /realChanceLeft_\(feature\)/);
   assert.ok(!/Spotlight\.run/.test(fn), "the offer itself starts nothing");
   assert.match(app, /const REAL_CHANCES_ = 3;/);
+});
+
+test("one transfer start, a path for each kind, and each check applies only to its own kind", () => {
+  const fn = section("function startTransferReal_(", "// ---- First-use practice: Needs review ----");
+  for (const k of ["rt.transfer.pick", "rt.transfer.kind", "rt.repay.direction", "rt.loan.direction", "rt.loan.due", "rt.repay.done", "rt.loan.done", "rt.exchange.done"]) assert.ok(fn.includes(k), k);
+  assert.match(fn, /ok: \(\) => submitted \|\| !debt\(\) \|\| friendOk\(\)/, "a friend is only needed on a repayment or a loan");
+  assert.match(fn, /ok: \(\) => submitted \|\| !is\("between", "repayment", "loan"\)\(\) \|\| amountOk\(\)/, "an exchange has its own amounts");
+});
+
+test("the amount is asked for even when already explained: Save needs it", () => {
+  const fn = section("function startTransferReal_(", "// ---- First-use practice: Needs review ----");
+  assert.ok(!/if \(isNew\("amount"\)\)/.test(fn));
+});
+
+test("the Needs review tutorial opens on the item it is talking about", () => {
+  assert.match(section("function startReviewReal_()", "function startReviewTopUp_("), /key: "intro", look: true, target: part\("\.review-item-top"\)/);
+});
+
+test("the update window never opens over a running tutorial", () => {
+  assert.match(section("function promptBackendUpdateOnce_(", "function openInSafari_("), /Spotlight\.isRunning\(\)/);
 });
 
 test("an offer does not use up the pop-up tips' seen list", () => {

@@ -21635,6 +21635,7 @@ let tipRunningKey_ = "";   // the practice started from its card, so its finish 
 function offerTip_(key, boxId, inviteText, start, after) {
   const box = document.getElementById(boxId);
   if (!box || tipSeen_(key) || Spotlight.isRunning()) return;
+  if (popGet_(TAUGHT_KEY_, {})[key] === "real") return;   // only one of the two is ever done with a person
   if (!box.hidden) return;   // already on offer
   if (!tipDayAllows_(key)) return;
   box.innerHTML = `<p>${escapeHtml(inviteText)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-no">${escapeHtml(tr("spot.dismiss"))}</button><button type="button" class="tip-invite-go">${escapeHtml(tr("spot.showMe"))}</button></div>`;
@@ -22496,7 +22497,7 @@ function startReviewReal_() {
   const category = () => { const el = part(".review-category")(); return el ? el.value : ""; };
   const hadCategory = !!category();
   let started = false;
-  const steps = [{ key: "intro", text: () => tr("rt.review.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("review", "real"); } }];
+  const steps = [{ key: "intro", look: true, target: part(".review-item-top"), text: () => tr("rt.review.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("review", "real"); } }];
   steps.push({ look: true, target: part(".review-item-top"), text: () => tr("rt.review.top"), button: next });
   if (type !== "investment" && (isNew("category") || !hadCategory)) {
     const s = { key: "category", field: "category", target: () => fieldOf(".review-category"), text: (fix) => tr(fix ? "rt.review.catFix" : hadCategory ? "rt.review.catCheck" : "rt.review.catPick"), ok: () => !!category(), holdsUntil: "decide" };
@@ -22534,48 +22535,112 @@ function startReviewTopUp_(entries) {
   }
 }
 
-// A move between the person's own accounts ("+" → Transfer → Between my accounts). Choosing the tab may be only a look, so it asks. Confirming one in Needs review does not count.
-function transferBetweenChosen_() { return selectedType === "transfer" && document.getElementById("transfer-kind").value === "between"; }
-function offerTransferGuide_() {
+// Transfers ("+" → Transfer): one start, then a path per kind (owner, 2026-11-09). Choosing the tab may be only a look, so it asks. Confirming one in Needs review does not count.
+const TRANSFER_FEATURE_ = { between: "transfer", repayment: "repay", loan: "loan", exchange: "exchange" };
+const TRANSFER_PRACTICE_ = { repay: "loans", loan: "loans-standalone" };   // the practice that already teaches it, where its name differs
+function transferKindTaught_(kind) {
+  const f = TRANSFER_FEATURE_[kind];
+  return isTaught_(f) || (!!TRANSFER_PRACTICE_[f] && isTaught_(TRANSFER_PRACTICE_[f]));
+}
+function offerTransferGuide_(fromTab) {
   setTimeout(() => {
-    if (!newEntrySheetOpen_ || editingEntryId || editingViaPopup || confirmingPendingId || !transferBetweenChosen_()) return;
-    if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || popOpen_ || isTaught_("transfer")) return;
-    if (!realAgain_() && (lastRenderedEntries_ || []).some((e) => e.type === "transfer" && e.status !== "pending")) { markTaught_("transfer", "used"); return; }
-    if (!realChanceLeft_("transfer")) return;
-    const el = document.getElementById("repayment-field");
-    if (!popInView_(el)) return;
-    spendRealChance_("transfer");
-    popTipShow_({ key: "offer-transfer", text: tr("rt.transfer.offer"), offer: startTransferReal_ }, el);
+    if (!newEntrySheetOpen_ || editingEntryId || editingViaPopup || confirmingPendingId || selectedType !== "transfer") return;
+    if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || popOpen_) return;
+    const kinds = Object.keys(TRANSFER_FEATURE_);
+    // Judged once, at the first look: later transfers are the person's own tutorial results and must not silence the other kinds.
+    if (!realAgain_() && !popGet_(TAUGHT_KEY_, {})["transfer-checked"]) {
+      markTaught_("transfer-checked", "yes");
+      if ((lastRenderedEntries_ || []).some((e) => e.type === "transfer" && e.status !== "pending")) { kinds.forEach((k) => markTaught_(TRANSFER_FEATURE_[k], "used")); return; }
+    }
+    const kind = document.getElementById("transfer-kind").value;
+    if (!TRANSFER_FEATURE_[kind]) return;
+    if (fromTab && kind === "between" && kinds.every((k) => !transferKindTaught_(k))) {
+      if (!realChanceLeft_("transfer-start")) return;
+      const tab = document.querySelector('#entry-type-tabs .type-tab[data-type="transfer"]');
+      if (!popInView_(tab)) return;
+      spendRealChance_("transfer-start");
+      popTipShow_({ key: "offer-transfer", text: tr("rt.transfer.offer"), offer: () => startTransferReal_(null) }, tab);
+      return;
+    }
+    const feature = TRANSFER_FEATURE_[kind];
+    if (transferKindTaught_(kind) || !realChanceLeft_(feature)) return;
+    const box = document.getElementById("transfer-kind");
+    if (!popInView_(box)) return;
+    spendRealChance_(feature);
+    popTipShow_({ key: "offer-" + feature, text: tr("rt.offer." + kind), offer: () => startTransferReal_(kind) }, box);
   }, 350);
 }
-document.querySelector('#entry-type-tabs .type-tab[data-type="transfer"]').addEventListener("click", offerTransferGuide_);
-document.getElementById("transfer-kind").addEventListener("change", offerTransferGuide_);
-function transferNoteSaved_() { if (transferBetweenChosen_()) markTaught_("transfer", guided_ ? "real" : "used"); }
-function startTransferReal_() {
+document.querySelector('#entry-type-tabs .type-tab[data-type="transfer"]').addEventListener("click", () => offerTransferGuide_(true));
+document.getElementById("transfer-kind").addEventListener("change", () => offerTransferGuide_(false));
+function transferNoteSaved_() {
+  if (selectedType !== "transfer") return;
+  const f = TRANSFER_FEATURE_[document.getElementById("transfer-kind").value];
+  if (f) markTaught_(f, guided_ ? "real" : "used");   // saving one, guided or not, ends the offer
+}
+function startTransferReal_(kind) {
   if (!newEntrySheetOpen_ || Spotlight.isRunning()) return;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // the form opens with the keyboard up on Amount
   guided_ = { savedId: "", split: null };
-  markTaught_("transfer", "real");
+  if (kind) markTaught_(TRANSFER_FEATURE_[kind], "real");
+  const el = (id) => document.getElementById(id);
+  const kindNow = () => el("transfer-kind").value;
+  const is = (...k) => () => k.includes(kindNow());
+  const shownNow = (id) => { const e = el(id); return !!e && !e.hidden && e.getClientRects().length > 0; };
   const isNew = (f) => !fieldsKnown_().includes(f);
   const next = () => tr("spot.g.next");
-  const amountOk = () => parseFloat(document.getElementById("amount").value) > 0;
-  const lastError = () => document.getElementById("form-error").textContent.trim();
-  const steps = [{ target: "#repayment-field", text: () => tr("rt.transfer.kind"), button: next }];
-  if (isNew("amount")) steps.push({ key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
-    until: () => amountOk() && document.activeElement !== document.getElementById("amount"), ok: amountOk, holdsUntil: "save" });
-  if (isNew("date")) steps.push({ field: "date", target: "#date", text: () => tr("spot.g.date"), visit: "#date", button: next });
-  steps.push({ target: "#payment-method-field", text: () => tr("spot.g.accFrom"), visit: "#payment_method", button: next });
-  steps.push({ target: "#to-payment-method-field", text: () => tr("spot.g.accTo"), visit: "#to_payment_method", button: next });
-  steps.push({ key: "save", target: () => [document.getElementById("submit-btn"), document.getElementById("form-error")],
+  const amountOk = () => parseFloat(el("amount").value) > 0;
+  const friendOk = () => { const v = el("repayment-friend").value; return !!v && v !== "__add__"; };
+  const amt = (id) => parseFloat(el(id).value);
+  const curOf = (which) => el(`exchange-${which}-currency`).value;
+  const lastError = () => el("form-error").textContent.trim();
+  const xError = () => (el("exchange-form-error").textContent || "").trim();
+  // `available` keeps "3 of 12" right once the kind is chosen; `before` leaves the step out when it does not apply.
+  const only = (cond, step) => {
+    const before = step.before;
+    step.available = cond;
+    step.before = async () => { if (!cond()) return false; return before ? before() : true; };
+    return step;
+  };
+  const debt = is("repayment", "loan");
+  // A check only applies to its own kind, and stops at Save: a save empties the form before the sheet closes, which must not send the guide back.
+  let submitted = false, chosen = "";   // (chosen: the form goes back to "between" once saved)
+  const onSubmit = () => { submitted = true; };
+  el("entry-form").addEventListener("submit", onSubmit, true);
+  const steps = [];
+  if (!kind) steps.push({ key: "kind", target: "#transfer-kind", text: () => tr("rt.transfer.pick"), visit: "#transfer-kind", button: next, after: () => markTaught_(TRANSFER_FEATURE_[kindNow()], "real") });
+  // Between my accounts
+  steps.push(only(is("between"), { target: "#transfer-kind", text: () => tr("rt.transfer.kind"), button: next }));
+  // Repayment / new loan: who and which way
+  steps.push(only(debt, { target: "#repayment-direction-tabs", text: () => tr(is("loan")() ? "rt.loan.direction" : "rt.repay.direction"), tap: "#repayment-direction-tabs", button: next }));
+  steps.push(only(debt, { key: "friend", target: () => [el("repayment-friend"), el("repayment-hint")], text: (fix) => tr(fix ? "rt.transfer.friendFix" : is("loan")() ? "rt.loan.friend" : "rt.repay.friend"), visit: "#repayment-friend", button: next, ok: () => submitted || !debt() || friendOk(), holdsUntil: "save" }));
+  steps.push(only(is("loan"), { target: "#loan-due-block", text: () => tr("rt.loan.due"), visit: "#loan-due-date", button: () => tr("spot.g.notNow") }));
+  // Everything except an exchange, which has its own fields. The amount is asked for even when already explained: Save needs it.
+  steps.push(only(is("between", "repayment", "loan"), { key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
+    until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || !is("between", "repayment", "loan")() || amountOk(), holdsUntil: "save" }));
+  if (isNew("date")) steps.push(only(is("between", "repayment", "loan"), { field: "date", target: "#date", text: () => tr("spot.g.date"), visit: "#date", button: next }));
+  steps.push(only(is("between"), { target: "#payment-method-field", text: () => tr("spot.g.accFrom"), visit: "#payment_method", button: next }));
+  steps.push(only(is("between"), { target: "#to-payment-method-field", text: () => tr("spot.g.accTo"), visit: "#to_payment_method", button: next }));
+  steps.push(only(debt, { target: "#payment-method-field", text: () => tr("rt.transfer.account"), visit: "#payment_method", button: next }));
+  // Currency exchange
+  steps.push(only(is("exchange"), { target: "#exchange-out-account", text: () => tr("spot.x.s4"), visit: "#exchange-out-account", button: next, before: async () => exchangeFormIsInline_() }));
+  steps.push(only(is("exchange"), { key: "outAmt", target: () => el("exchange-out-amount").parentElement, text: () => tr("spot.x.s5", { cur: curOf("out") }), blurTap: true,
+    until: () => amt("exchange-out-amount") > 0 && document.activeElement !== el("exchange-out-amount") }));
+  steps.push(only(is("exchange"), { target: "#exchange-in-account", text: () => tr("spot.x.s6"), visit: "#exchange-in-account", button: next }));
+  steps.push(only(is("exchange"), { key: "inAmt", target: () => el("exchange-in-amount").parentElement, text: () => tr("spot.x.s7", { cur: curOf("in") }), blurTap: true,
+    until: () => amt("exchange-in-amount") > 0 && document.activeElement !== el("exchange-in-amount") }));
+  steps.push(only(is("exchange"), { key: "xsave", target: () => [el("exchange-save-btn"), el("exchange-form-error")],
+    text: () => { const e = xError(); return e ? tr("spot.x.s10err", { error: e }) : tr("spot.x.s10"); },
+    before: async () => { chosen = kindNow(); el("exchange-form-error").textContent = ""; return true; }, until: () => !newEntrySheetOpen_ }));
+  // Save, and what it did
+  steps.push(only(is("between", "repayment", "loan"), { key: "save", target: () => [el("submit-btn"), el("form-error")],
     text: () => { const err = lastError(); return err ? tr("spot.g.saveErr", { error: err }) : tr("spot.g.save"); },
-    before: async () => { document.getElementById("form-error").textContent = ""; },
-    until: () => !!(guided_ && guided_.savedId) });
-  steps.push({ look: true, target: () => (guided_ && guided_.savedId ? document.querySelector(`#entry-list .entry[data-entry-id="${CSS.escape(guided_.savedId)}"]`) : null),
-    text: () => tr("rt.transfer.done"), button: () => tr("spot.g.done"), wait: 15000,
-    before: async () => { showScreen("entries"); await new Promise((r) => setTimeout(r, 600)); },
-    poke: () => { refreshEntryList().catch(() => {}); } });
+    before: async () => { chosen = kindNow(); el("form-error").textContent = ""; return true; },
+    until: () => !!(guided_ && guided_.savedId) || !newEntrySheetOpen_ }));
+  steps.push({ text: () => tr({ between: "rt.transfer.done", repayment: "rt.repay.done", loan: "rt.loan.done", exchange: "rt.exchange.done" }[chosen] || "rt.transfer.done"), button: () => tr("spot.g.done"),
+    before: async () => { if (document.getElementById("screen-entries").hidden) showScreen("entries"); return true; } });
   Spotlight.run(realSteps_(steps), {
     labels: realLabels_(),
-    onFinish: async (how) => { if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); guided_ = null; },
+    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); guided_ = null; },
     busy: () => perfInflight_ > 0
   });
 }
