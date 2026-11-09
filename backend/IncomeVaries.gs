@@ -5,7 +5,7 @@
  *     (gifts, refunds, other: not earnings). The column `income_kind` on Categories holds the person's choice ('regular',
  *     'varies', 'none'); blank = the built-in default by key (Salary regular; Business, Sales, Freelance, Daily work varies).
  *     The column is added the first time a choice is saved, so nothing is needed on older copies.
- *   - The welcome question "How do you get paid?" (and My profile) stores Settings `pay`: 'salary' or 'varies:<kind>', and for
+ *   - The welcome question "How do you get paid?" (and My profile) stores Settings `pay`: 'salary', 'varies:<kind>,<kind>' or 'both:<kind>,<kind>' (2026-11-08), and for
  *     "It varies" adds ONE income category of that kind (Sales, Freelance or Daily work), marked as varying.
  *   - Overview's income figures for varying income (per day, who paid, the 3/6-month average) work for ANYONE with such income,
  *     whatever they answered (incomeVariesSummary_, used by getPeriodSummary).
@@ -48,31 +48,37 @@ function setCategoryIncomeKind_(id, kind) {
 // kind's income category (or shows it again when hidden) and marks it as varying. Never deletes anything.
 function setPay(payload) {
   payload = payload || {};
-  var pay = payload.pay === 'varies' ? 'varies' : payload.pay === 'salary' ? 'salary' : '';
-  if (!pay) return { pay: getSettingsMap()[PAY_SETTING_] || '', added: null };   // nothing recognisable: nothing changes
-  var kind = pay === 'varies' && PAY_KIND_PACKS_[payload.kind] ? payload.kind : '';
-  setSetting_(PAY_SETTING_, pay === 'varies' ? 'varies' + (kind ? ':' + kind : '') : 'salary');
-  var added = null;
-  if (kind) {
-    var pack = PAY_KIND_PACKS_[kind];
+  // 'both' (owner, 2026-11-08): a fixed salary AND income that varies. 'none': both un-ticked, the answer is cleared.
+  if (payload.pay === 'none') { setSetting_(PAY_SETTING_, ''); return { pay: '', added: null, addedAll: [] }; }
+  var pay = payload.pay === 'varies' || payload.pay === 'both' || payload.pay === 'salary' ? payload.pay : '';
+  if (!pay) return { pay: getSettingsMap()[PAY_SETTING_] || '', added: null, addedAll: [] };   // nothing recognisable: nothing changes
+  // Several kinds since 2026-11-08 (owner): kinds = ['sales', 'daily']; an older phone still sends one `kind`.
+  var asked = payload.kinds && payload.kinds.length ? payload.kinds : payload.kind ? [payload.kind] : [];
+  var kinds = pay !== 'salary' ? asked.filter(function (k, i) { return PAY_KIND_PACKS_[k] && asked.indexOf(k) === i; }) : [];
+  setSetting_(PAY_SETTING_, pay !== 'salary' ? pay + (kinds.length ? ':' + kinds.join(',') : '') : 'salary');
+  var addedAll = [];
+  if (kinds.length) {
     var headers = ensureCategoriesIncomeKindColumn_();
-    var cats = getAllRows('Categories');
-    var hidden = starterHiddenRow_(cats, 'income', pack[0]);
-    if (hidden) {
-      var sheet = getSheet('Categories');
-      setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, hidden.id), 'hidden', '');
-      setCategoryIncomeKind_(hidden.id, 'varies');
-      added = { name: categoryLabel_(hidden), restored: true };
-    } else if (!incomeCategoryThere_(cats, pack[0])) {
-      var row = { id: Utilities.getUuid(), name: pack[0], type: 'income', icon: pack[1],
-        color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: categoryKeyFromName_(pack[0]), hidden: '', income_kind: 'varies' };
-      appendRowObject('Categories', row);
-      added = { name: categoryLabel_(row) };
-    }
-    if (ROWS_MEMO_) delete ROWS_MEMO_['Categories'];
+    kinds.forEach(function (kind) {
+      var pack = PAY_KIND_PACKS_[kind];
+      var cats = getAllRows('Categories');
+      var hidden = starterHiddenRow_(cats, 'income', pack[0]);
+      if (hidden) {
+        var sheet = getSheet('Categories');
+        setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, hidden.id), 'hidden', '');
+        setCategoryIncomeKind_(hidden.id, 'varies');
+        addedAll.push({ name: categoryLabel_(hidden), restored: true });
+      } else if (!incomeCategoryThere_(cats, pack[0])) {
+        var row = { id: Utilities.getUuid(), name: pack[0], type: 'income', icon: pack[1],
+          color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: categoryKeyFromName_(pack[0]), hidden: '', income_kind: 'varies' };
+        appendRowObject('Categories', row);
+        addedAll.push({ name: categoryLabel_(row) });
+      }
+      if (ROWS_MEMO_) delete ROWS_MEMO_['Categories'];
+    });
     bumpStructureVersion_();
   }
-  return { pay: getSettingsMap()[PAY_SETTING_], added: added };
+  return { pay: getSettingsMap()[PAY_SETTING_], added: addedAll[0] || null, addedAll: addedAll };
 }
 
 // The same category already there: same built-in key or same name in either language. Not the statement aliases (they read

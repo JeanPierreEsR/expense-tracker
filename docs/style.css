@@ -3772,3 +3772,15 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 .pop-tip-arrow[hidden] { display: none; }
 .pop-tip[data-side="below"] .pop-tip-arrow { top: -7px; }
 .pop-tip[data-side="above"] .pop-tip-arrow { bottom: -7px; }
+
+.app-confirm-text { white-space: pre-line; font-size: 1rem; line-height: 1.4; margin: 0 0 14px; }
+
+/* The part of a budget bar still to come (Programmed items this period): a lighter shade of the same colour, continuing the bar
+   (owner, 2026-11-08: option A of four; the first dotted version looked busy). Blue, amber (75 %+) or red (100 %+) by the total. */
+.budget-progress-track { position: relative; }
+.budget-progress-prog { position: absolute; top: 0; bottom: 0; border-radius: 0 999px 999px 0; background: var(--accent); opacity: 0.28; }
+.budget-progress-prog.warn { background: #e0952c; opacity: 0.35; }
+.budget-progress-prog.over { background: #d64545; opacity: 0.3; }
+.budget-row-prog { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+.budget-row-prog.warn { color: #b8741a; }
+.budget-row-prog.over { color: #d64545; }

@@ -8245,8 +8245,9 @@ function renderMonthsBars_() {
 
 document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.addEventListener("click", (e) => {
   e.stopPropagation();   // the card itself opens the Spending pace screen
+  // Week: last week / last month, remembered apart from the Month view's choice.
+  if (periodType === "week") { localStorage.setItem("paceRefWeek", b.dataset.paceRef === "year" ? "month" : "last"); renderPaceBig_(); return; }
   localStorage.setItem("paceRef", b.dataset.paceRef);
-  if (periodType !== "month") { renderPaceBig_(); return; }   // Week: the week before / the same week last year
   setPaceView_(null);    // the quick switch is the usual view: it ends a custom one
   if (monthsHist_) renderPaceBig_();
 }));
@@ -8379,8 +8380,12 @@ function paceRangeSpec_() {
   const es = I18n.getLang() === "es";
   const shortDay = (iso) => { const d = isoDate_(iso); const mo = I18n.monthShort(d.getMonth(), true).replace(/\.$/, ""); return es ? `${d.getDate()} ${mo.toLowerCase()}` : `${mo} ${d.getDate()}`; };
   if (periodType === "week") {
-    const yearMode = localStorage.getItem("paceRef") === "year";
-    const rs = isoShift_(b.startDate, yearMode ? -364 : -7), re = isoShift_(rs, 6);
+    // Owner, 2026-11-08: the week's two quick choices are last week and last month (the week holding the date a month before this
+    // week's Thursday, so weekdays line up).
+    const monthMode = localStorage.getItem("paceRefWeek") === "month";
+    let rs = isoShift_(b.startDate, -7);
+    if (monthMode) { const t = isoDate_(isoShift_(b.startDate, 3)); rs = isoOf_(mondayDate_(new Date(t.getFullYear(), t.getMonth() - 1, t.getDate()))); }
+    const re = isoShift_(rs, 6);
     const refName = weekLabel_(isoDate_(rs), isoDate_(re));
     const wd = new Intl.DateTimeFormat(es ? "es-PE" : "en-US", { weekday: "short" });
     const days = [0, 1, 2, 3, 4, 5, 6].map((i) => ({ i, label: wd.format(isoDate_(isoShift_(b.startDate, i))).replace(/\.$/, "") }));
@@ -8405,10 +8410,10 @@ function renderPaceRange_() {
   const sw = document.getElementById("pace-ref-switch");
   sw.hidden = !spec.switchable;
   if (spec.switchable) {
-    const yearMode = localStorage.getItem("paceRef") === "year";
+    const monthMode = localStorage.getItem("paceRefWeek") === "month";
     sw.querySelectorAll("button").forEach((b) => {
-      b.textContent = tr(b.dataset.paceRef === "year" ? "pace.refYear" : "pace.refWeekBefore");
-      b.classList.toggle("active", b.dataset.paceRef === (yearMode ? "year" : "last"));
+      b.textContent = tr(b.dataset.paceRef === "year" ? "pace.refLastMonth" : "pace.refWeekBefore");
+      b.classList.toggle("active", b.dataset.paceRef === (monthMode ? "year" : "last"));
     });
   }
   const key = JSON.stringify([spec.cur, spec.ref]);
@@ -10171,7 +10176,9 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
 // "Delete completely" and the practice's own budget, the old full delete (owner, 2026-11-07).
 function removeBudgetFromForm_(full) {
   if (!editingBudgetId) return;
-  const b = drilldownBudget && drilldownBudget.id === editingBudgetId ? drilldownBudget : (budgetsLoaded_ || []).find((x) => x.id === editingBudgetId) || { id: editingBudgetId, period_type: budgetPeriodType };
+  // A budget that starts later is not in the main list (owner, 2026-11-08: ending one asked "End this item?" and the wrong question).
+  const b = drilldownBudget && drilldownBudget.id === editingBudgetId ? drilldownBudget
+    : (budgetsLoaded_ || []).concat(budgetsLater_ || []).find((x) => x.id === editingBudgetId) || budgetEditingObj_ || { id: editingBudgetId, period_type: budgetPeriodType };
   return removeBudget_(b, full, document.getElementById("budget-name").value);
 }
 // The budget window's two buttons and the drill-down's ⋮ menu. name: the budget's own name as typed (the practice's is deleted outright).
@@ -10181,11 +10188,12 @@ async function removeBudget_(b, full, name) {
   const practice = isPracticeBudgetName_(name || "");
   const end = !full && !practice && budgetHistoryOn_();
   const yearly = b.period_type === "yearly", K = budgetKindKeys_(b.period_type);
-  const question = end && b.end_deletes ? tr(K.endDel, { what })
+  const question = end && b.start_later ? tr("budget.confirmEndNotStarted", { what, when: budgetPeriodName_(b.period_type, b.start_later, true) })
+    : end && b.end_deletes ? tr(K.endDel, { what })
     : end ? tr(K.end, { what })
     : budgetHistoryOn_() ? tr("budget.confirmDeleteFull", { what })
     : tr(yearly ? "budget.confirmDeleteYearly" : "budget.confirmDeleteMonthly", { what });
-  if (!practiceNoConfirm_(practice) && !confirm(question)) return;
+  if (!practiceNoConfirm_(practice) && !(await askConfirmApp_(question, tr(end && !b.end_deletes ? "budgetModal.end" : "budgetModal.deleteFull")))) return;
   const id = b.id;
   markDeleting_("budget:" + id);
   closeBudgetModal();
@@ -10289,7 +10297,7 @@ function drawBudgetsLater_() {
     row.type = "button";
     row.className = "budgets-later-row";
     row.innerHTML = `<span class="budgets-later-name">${escapeHtml(`${b.category_icon ? b.category_icon + " " : ""}${b.category_name}`)}</span>` +
-      `<span class="budgets-later-when">${escapeHtml(tr("budgets.startsOn", { when: budgetPeriodName_(b.period_type, b.start_later, true) }))} ›</span>`;
+      `<span class="budgets-later-when">${escapeHtml(tr("budgets.startsOn", { when: budgetPeriodName_(b.period_type, b.start_later || b.start_key, true) }))} ›</span>`;
     row.addEventListener("click", () => openBudgetModal(b));
     box.appendChild(row);
   });
@@ -10326,9 +10334,12 @@ function drawBudgets_() {
   // Owner, 2026-11-07: two visible groups. First "over or close" (75 % and up), the most used first; then the rest, the biggest budget
   // first — compared in the main currency over the period shown (a monthly budget in a Year view counts 12 months).
   const pctOf = (b) => (b.progress && b.progress.percent != null ? b.progress.percent : -1);
+  // With the Programmed items still to come (the dotted part, owner 2026-11-08): a budget that will be over or close once they are
+  // paid joins the first group too.
+  const pctAll = (b) => { const p = b.progress; return p && p.percent != null && p.programmed > 0 && p.effectiveAmount > 0 ? (p.spent + p.programmed) / p.effectiveAmount * 100 : pctOf(b); };
   const sizeOf = (b) => (b.amount_pen != null && b.amount ? b.amount_pen / b.amount : 0) * (b.progress ? b.progress.effectiveAmount : 0);
-  const attention = budgets.filter((b) => pctOf(b) >= 75).sort((x, y) => pctOf(y) - pctOf(x));
-  const others = budgets.filter((b) => pctOf(b) < 75).sort((x, y) => sizeOf(y) - sizeOf(x));
+  const attention = budgets.filter((b) => pctAll(b) >= 75).sort((x, y) => pctAll(y) - pctAll(x));
+  const others = budgets.filter((b) => pctAll(b) < 75).sort((x, y) => sizeOf(y) - sizeOf(x));
   const ordered = attention.concat(others);
   const groupHead = (key) => { const h = document.createElement("div"); h.className = "budgets-group-head"; h.textContent = tr(key); list.appendChild(h); };
   const overN = budgets.filter((b) => pctOf(b) >= 100).length;
@@ -10337,6 +10348,8 @@ function drawBudgets_() {
   const statusParts = [];
   if (overN) statusParts.push(`<span class="over">${escapeHtml(tr("budgets.statusOver", { n: overN }))}</span>`);
   if (closeN) statusParts.push(`<span class="warn">${escapeHtml(tr("budgets.statusClose", { n: closeN }))}</span>`);
+  const progN = budgets.filter((b) => pctOf(b) < 75 && pctAll(b) >= 75).length;
+  if (progN) statusParts.push(`<span class="warn">${escapeHtml(tr("budgets.statusProg", { n: progN }))}</span>`);
   statusLine.innerHTML = statusParts.length ? statusParts.join(" · ") : escapeHtml(tr("budgets.statusFine"));
   statusLine.hidden = false;
   // Year view: a small mark on each bar where today falls in its year ("expected by now", owner 2026-11-07), and one line explaining it.
@@ -10363,6 +10376,14 @@ function drawBudgets_() {
       todayMark = `<span class="budget-today-mark" style="left:${(frac * 100).toFixed(1)}%" role="img" aria-label="${escapeHtml(tr("budgets.todayMarkAria", { cur: pc, amount: moneyFmt(expected) }))}"></span>`;
       anyTodayMark = true;
     }
+    // The dotted part: Programmed items still to come in this period, after what is spent; a line names them and the % with them.
+    let progBar = "", progLine = "";
+    if (pct != null && p.programmed > 0.004) {
+      const all = pctAll(b), end = Math.min(100, Math.max(0, all));
+      const progClass = all >= 100 ? "over" : all >= 75 ? "warn" : "";
+      if (end > barPct) progBar = `<div class="budget-progress-prog ${progClass}" style="left:${barPct}%;width:${(end - barPct).toFixed(2)}%"></div>`;
+      progLine = `<div class="budget-row-prog ${pct < 75 && all >= 75 ? progClass : ""}">${escapeHtml(tr("budget.programmedLine", { cur: pc, amount: moneyFmt(p.programmed), pct: all.toFixed(0) }))}</div>`;
+    }
     const annualNote = p.annualLeftOut > 0.005
       ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: pc, amount: moneyFmt(p.annualLeftOut) }))}</div>` : "";
 
@@ -10373,7 +10394,9 @@ function drawBudgets_() {
     // "this month" / "this year" only for the period that holds today; a past or future one is named (its amount may differ, batch 6).
     const holdsToday = p.startDate <= todayIso && todayIso <= p.endDate;
     const periodLabel = (holdsToday ? tr(p.effectivePeriodType === "yearly" ? "budget.thisYear" : p.effectivePeriodType === "weekly" ? "budget.thisWeek" : "budget.thisMonth")
-      : p.effectivePeriodType === "yearly" ? p.startDate.slice(0, 4) : p.effectivePeriodType === "weekly" ? budgetPeriodName_("weekly", p.startDate) : paceMonthName_(p.startDate.slice(0, 7), true)) +
+      : p.effectivePeriodType === "yearly" ? p.startDate.slice(0, 4) : p.effectivePeriodType === "weekly" ? budgetPeriodName_("weekly", p.startDate)
+        // The Week view shows a monthly budget's WHOLE month (the one holding the week's Thursday): said so (owner, 2026-11-08).
+        : periodType === "week" ? tr("budget.allOfMonth", { month: paceMonthName_(p.startDate.slice(0, 7), true) }) : paceMonthName_(p.startDate.slice(0, 7), true)) +
       (p.weeksWidened && p.weeksCounted ? tr("budget.weeksWidened", { n: String(p.weeksCounted).replace(".", I18n.getLang() === "es" ? "," : ".") }) : "") +
       (p.annualized ? (p.monthsCounted && p.monthsCounted < 12 ? tr("budget.annualizedN", { n: p.monthsCounted }) : tr("budget.annualized")) : "");
 
@@ -10399,12 +10422,14 @@ function drawBudgets_() {
       </div>
       <div class="budget-progress-track">
         <div class="budget-progress-fill ${statusClass}" style="width:${barPct}%"></div>
+        ${progBar}
         ${todayMark}
       </div>
       <div class="budget-row-sub">
         <span>${subLabel}</span>
         <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
       </div>
+      ${progLine}
       ${annualNote}
     `;
     // Editing/deleting now lives behind the drill-down's ⋮ menu (see
@@ -10537,12 +10562,13 @@ document.getElementById("budgets-selectall-btn").addEventListener("click", () =>
   budgetsSelected_ = budgetsSelected_.size === budgetsLoaded_.length ? new Set() : new Set(budgetsLoaded_.map((b) => b.id));
   drawBudgets_();
 });
-document.getElementById("budgets-delete-selected-btn").addEventListener("click", () => {
+document.getElementById("budgets-delete-selected-btn").addEventListener("click", async () => {
   const chosen = budgetsLoaded_.filter((b) => budgetsSelected_.has(b.id));
   if (!chosen.length) return;
   const names = chosen.map(budgetPickLabel_).join(", ");
   const ends = budgetHistoryOn_();
-  if (!confirm(tr(chosen.length === 1 ? (ends ? "budgets.confirmEndOne" : "budgets.confirmDeleteOne") : (ends ? "budgets.confirmEndMany" : "budgets.confirmDeleteMany"), { n: chosen.length, names }))) return;
+  if (!(await askConfirmApp_(tr(chosen.length === 1 ? (ends ? "budgets.confirmEndOne" : "budgets.confirmDeleteOne") : (ends ? "budgets.confirmEndMany" : "budgets.confirmDeleteMany"), { n: chosen.length, names }),
+    ends ? tr("budgets.endN", { n: chosen.length }) : tr("friends.deleteN", { n: chosen.length })))) return;
   const ids = chosen.map((b) => b.id);
   const nameOf = new Map(chosen.map((b) => [b.id, budgetPickLabel_(b)]));
   setBudgetsEditing_(false);
@@ -12212,22 +12238,26 @@ function fillFitsChips_(box, selected, onToggle, compact) {
   });
 }
 const fitsToggled_ = (list, a) => (list.includes(a) ? list.filter((x) => x !== a) : list.concat(a));
-// "How do you get paid?" (owner, 2026-11-07): a fixed salary, or it varies — then ONE kind (sales, freelance, daily work), which adds
-// that income category. The same choices on the welcome and in My profile. sel = { pay: "salary"|"varies"|"", kind }.
+// "How do you get paid?" (owner, 2026-11-07): a fixed salary, income that varies, or both (2026-11-08) — then the kinds that fit (sales,
+// freelance, daily work; several), each adding its income category. The same choices on the welcome and in My profile.
+// sel = { salary: bool, varies: bool, kinds: [] }; payCode_ makes the server's answer of it.
+const payCode_ = (c) => (c.salary && c.varies ? "both" : c.varies ? "varies" : c.salary ? "salary" : "none");
 function fillPayChoices_(box, sel, onPick) {
   box.innerHTML = "";
+  const kindsNow = sel.kinds || [];
   const row = document.createElement("div");
   row.className = "welcome-choices";
   [["salary", "pay.salary"], ["varies", "pay.varies"]].forEach(([v, key]) => {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "welcome-choice" + (sel.pay === v ? " active" : "");
+    b.className = "welcome-choice" + (sel[v] ? " active" : "");
+    b.setAttribute("aria-pressed", String(!!sel[v]));
     b.textContent = tr(key);
-    b.addEventListener("click", () => onPick({ pay: v, kind: v === "varies" ? sel.kind || "" : "" }));
+    b.addEventListener("click", () => onPick(Object.assign({}, sel, { [v]: !sel[v], kinds: v === "varies" && sel.varies ? [] : kindsNow })));
     row.appendChild(b);
   });
   box.appendChild(row);
-  if (sel.pay !== "varies") return;
+  if (!sel.varies) return;
   const q = document.createElement("p");
   q.className = "hint";
   q.textContent = tr("pay.kindQ");
@@ -12237,21 +12267,23 @@ function fillPayChoices_(box, sel, onPick) {
   ["sales", "freelance", "daily"].forEach((k) => {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "welcome-choice" + (sel.kind === k ? " active" : "");
+    b.className = "welcome-choice" + (kindsNow.includes(k) ? " active" : "");
+    b.setAttribute("aria-pressed", String(kindsNow.includes(k)));
     b.textContent = tr("pay.kind." + k);
-    b.addEventListener("click", () => onPick({ pay: "varies", kind: k }));
+    b.addEventListener("click", () => onPick(Object.assign({}, sel, { kinds: kindsNow.includes(k) ? kindsNow.filter((x) => x !== k) : kindsNow.concat(k) })));
     kinds.appendChild(b);
   });
   box.appendChild(kinds);
 }
-const payFromSetting_ = (v) => { const [pay, kind] = String(v || "").split(":"); return { pay: pay === "salary" || pay === "varies" ? pay : "", kind: kind || "" }; };
-const payVaries_ = () => payFromSetting_(meta && meta.settings && meta.settings.pay).pay === "varies";
+const payFromSetting_ = (v) => { const [pay, kinds] = String(v || "").split(":"); return { salary: pay === "salary" || pay === "both", varies: pay === "varies" || pay === "both", kinds: (kinds || "").split(",").filter(Boolean) }; };
+// Getting started and the guided entry put income first only for people with no salary at all.
+const payVaries_ = () => { const p = payFromSetting_(meta && meta.settings && meta.settings.pay); return p.varies && !p.salary; };
 function renderWelcomeFits_() {
   I18n.applyStatic(welcomeEl_("welcome-fits"));
   welcomeEl_("wf-step").textContent = tr("welcome.step", { n: 2 });
   const payOn = !!(meta && meta.capabilities && meta.capabilities.incomeVaries);
   welcomeEl_("wpay-block").hidden = !payOn;
-  if (payOn) fillPayChoices_(welcomeEl_("wpay-box"), welcome_.payChoice || { pay: "", kind: "" }, (c) => { welcome_.payChoice = c; renderWelcomeFits_(); });
+  if (payOn) fillPayChoices_(welcomeEl_("wpay-box"), welcome_.payChoice || { salary: false, varies: false, kinds: [] }, (c) => { welcome_.payChoice = c; renderWelcomeFits_(); });
   fillFitsChips_(welcomeEl_("wf-chips"), welcome_.fits, (a) => { welcome_.fits = fitsToggled_(welcome_.fits, a); renderWelcomeFits_(); });
   waEl_("wb-block").hidden = !businessOffered();   // the business question is only asked where the pack is offered
   if (!businessOffered()) welcome_.business = false;
@@ -12631,8 +12663,8 @@ async function finishWelcome_() {
     // The category packs. An older backend lacks the action (the app only asks one that says it has it), and a failure here never blocks the
     // welcome: the same packs can be added later from More → My profile → What fits me.
     // How do you get paid? (after the picks: its category is one more income category)
-    if (welcome_.payChoice && welcome_.payChoice.pay && meta && meta.capabilities && meta.capabilities.incomeVaries) {
-      try { await callApi("setPay", welcome_.payChoice); } catch (e) { /* can be answered again in My profile */ }
+    if (welcome_.payChoice && (welcome_.payChoice.salary || welcome_.payChoice.varies) && meta && meta.capabilities && meta.capabilities.incomeVaries) {
+      try { await callApi("setPay", { pay: payCode_(welcome_.payChoice), kinds: welcome_.payChoice.kinds }); } catch (e) { /* can be answered again in My profile */ }
     }
     if (welcome_.fits.length && meta && meta.capabilities && meta.capabilities.profile) {
       try { await callApi("applyProfile", { answers: welcome_.fits }); } catch (e) { /* see above */ }
@@ -12656,7 +12688,7 @@ async function finishWelcome_() {
   welcomeEl_("welcome-accounts").hidden = true;
   welcomeEl_("welcome-platforms").hidden = true;
   // The new accounts, platforms and categories must show up in the app right away (entry form, Accounts & cards): reload on the way out.
-  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName || !!(welcome_.payChoice && welcome_.payChoice.pay);
+  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName || !!(welcome_.payChoice && (welcome_.payChoice.salary || welcome_.payChoice.varies));
   const toTour = () => {
     if (perfShareState_().asked) openTour_(reloadAfter);
     else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
@@ -13135,16 +13167,18 @@ async function showMyProfileScreen() {
     loading.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(e.message)}</p>`;
   }
 }
-// How I get paid: a tap on "A fixed salary" or on a kind saves at once; "It varies" alone only opens the kinds.
+// How I get paid: a tap on "A fixed salary" or on a kind saves at once; "It varies" alone only opens the kinds. Un-ticking a kind
+// never deletes its category (as What fits me).
 function drawProfilePay_(sel) {
   fillPayChoices_(document.getElementById("my-profile-pay"), sel, (c) => {
     drawProfilePay_(c);
-    if (c.pay === "varies" && !c.kind) return;
+    if (c.varies && !c.salary && !c.kinds.length && !sel.kinds.length && !sel.salary) return;   // "It varies" alone only opens the kinds
     const msg = document.getElementById("my-profile-pay-msg");
     msg.textContent = tr("common.savingToast");
-    callApi("setPay", c).then((r) => {
+    callApi("setPay", { pay: payCode_(c), kinds: c.kinds }).then((r) => {
       if (meta && meta.settings) meta.settings.pay = r.pay;
-      msg.textContent = r.added ? tr("prof.payAdded", { name: r.added.name }) : tr("prof.paySaved");
+      const added = r.addedAll && r.addedAll.length ? r.addedAll.map((a) => a.name).join(", ") : r.added ? r.added.name : "";
+      msg.textContent = added ? tr("prof.payAdded", { name: added }) : tr("prof.paySaved");
       if (r.added) loadMeta && loadMeta().catch(() => {});
     }).catch(() => { msg.textContent = tr("prof.payFailed"); });
   });
@@ -15765,6 +15799,7 @@ function openCatModal_(cat) {
   document.getElementById("cat-name").value = cat ? cat.name : "";
   document.getElementById("cat-emoji").value = cat ? (cat.icon || "") : "";
   document.getElementById("cat-earning").value = cat && cat.earning ? cat.earning : (cat ? "none" : "varies");
+  syncCatEarningHint_();
   syncCatEarning_();
   document.getElementById("cat-form-error").textContent = "";
   document.getElementById("cat-reassign").hidden = true;
@@ -15804,7 +15839,15 @@ document.querySelectorAll("#cat-type-tabs .type-tab").forEach((tab) => {
 function syncCatEarning_() {
   const on = !!(catModalState && catModalState.type === "income" && meta && meta.capabilities && meta.capabilities.incomeVaries);
   document.getElementById("cat-earning-wrap").hidden = !on;
+  syncCatEarningHint_();
 }
+// The line under "Counts as" says what the choice picked does (owner, 2026-11-08: one fixed line about income that varies read as if it
+// applied to every choice).
+function syncCatEarningHint_() {
+  const v = document.getElementById("cat-earning").value;
+  document.getElementById("cat-earning-hint").textContent = tr(v === "regular" ? "categories.earningHintRegular" : v === "varies" ? "categories.earningHintVaries" : "categories.earningHintNone");
+}
+document.getElementById("cat-earning").addEventListener("change", syncCatEarningHint_);
 document.getElementById("cat-name").addEventListener("input", () => catModalState && updateCatPreview_());
 document.getElementById("cat-emoji").addEventListener("input", () => catModalState && updateCatPreview_());
 
@@ -24009,6 +24052,23 @@ function syncConversionAmount_() {
   const field = document.getElementById("amount");
   const from = converting ? own : whole;
   if (field.value === from || field.value === "") field.value = converting ? whole : own;   // never over what the person typed
+}
+
+// A yes/no question in an app window (owner, 2026-11-08): the iPhone's own dialog speaks the phone's language ("Annuler"), not the
+// app's. okLabel names what happens ("End this budget"); it is red, since it removes something. Resolves true / false.
+function askConfirmApp_(text, okLabel) {
+  return new Promise((resolve) => {
+    const backdrop = document.getElementById("app-confirm-backdrop");
+    document.getElementById("app-confirm-text").textContent = text;
+    document.getElementById("app-confirm-ok").textContent = okLabel || tr("common.ok");
+    const ids = ["app-confirm-ok", "app-confirm-back", "app-confirm-close"];
+    const done = (v) => { backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); resolve(v); };
+    document.getElementById("app-confirm-ok").onclick = () => done(true);
+    document.getElementById("app-confirm-back").onclick = () => done(false);
+    document.getElementById("app-confirm-close").onclick = () => done(false);
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+  });
 }
 
 // From this period on, or for all the budget's periods? Resolves "forward", "all" or null (backed out).
