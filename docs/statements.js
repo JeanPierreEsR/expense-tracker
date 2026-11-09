@@ -1315,7 +1315,7 @@
       if (!lines.length) return;
       // A chosen rename changes the name of entries already recorded: said once more, in a pop-up, before going on (owner, 2026-11-04).
       const renames = nameConflicts().filter((c) => c.renamed);
-      if (renames.length && !practiceNoConfirm_(true) && !confirm(tr("table.conflictConfirm", { list: renames.map((c) => tr("table.conflictLine", { mine: c.info.name, to: String(state.catNames[c.it.key] || "").trim(), n: c.info.entries })).join("\n") }))) return;
+      if (renames.length && !practiceNoConfirm_(true) && !await askConfirmApp_(tr("table.conflictConfirm", { list: renames.map((c) => tr("table.conflictLine", { mine: c.info.name, to: String(state.catNames[c.it.key] || "").trim(), n: c.info.entries })).join("\n") }), tr("confirmBtn.yes"), { plain: true })) return;
       // Lines go to their account: the one picked, or — for a file with an account column — the account each name was matched to.
       const byAccount = new Map();
       lines.forEach((l) => {
@@ -1911,7 +1911,7 @@
     const btn = $("statement-history-save");
     const status = $("statement-review-status");
     const adding = historyCounts().entries;
-    if (!practiceNoConfirm_(practiceIOwns_(usable.map((u) => u.group || u.file))) && !confirm(tr(adding ? "hist.confirm" : "hist.confirmKeep", { n: adding }) + "\n\n" + tr("stmt.confirmUndoable"))) return;   // (the practice's own file asks nothing while the walkthrough runs)
+    if (!practiceNoConfirm_(practiceIOwns_(usable.map((u) => u.group || u.file))) && !await askConfirmApp_(tr(adding ? "hist.confirm" : "hist.confirmKeep", { n: adding }) + "\n\n" + tr("stmt.confirmUndoable"), tr("confirmBtn.yes"), { plain: true })) return;   // (the practice's own file asks nothing while the walkthrough runs)
     btn.insertAdjacentHTML("afterend", loadingHtml(tr("hist.saving")));   // right where the person tapped, not in a box further down
     btn.hidden = true;
     status.innerHTML = "";
@@ -2079,7 +2079,7 @@
   }
 
   async function undoBatch(batchId, trigger) {
-    if (!practiceNoConfirm_(practiceIOwnsBatch_(batchId)) && !confirm(tr("stmt.confirmUndo"))) return;
+    if (!practiceNoConfirm_(practiceIOwnsBatch_(batchId)) && !await askConfirmApp_(tr("stmt.confirmUndo"), tr("confirmBtn.yes"), { plain: true })) return;
     // The Undo buttons sit in Recent uploads (a side panel) or in step 4: the result is always shown in step 4.
     savedThisRun = true;
     showStep(4);
@@ -2270,7 +2270,7 @@
     if (e.target.closest(".stmt-inbox-earlier-toggle")) { inboxEarlierOpen = !inboxEarlierOpen; renderInbox(); return; }
     if (all) openAllInboxItems(all);
     else if (open) openInboxItem(open.dataset.id, open);
-    else if (dis && confirm(tr("stmt.confirmDismiss"))) {
+    else if (dis && await askConfirmApp_(tr("stmt.confirmDismiss"), tr("confirmBtn.yes"), { plain: true })) {
       // Right after OK: the row's buttons give way to a "Removing…" line (the server call takes a moment; a second tap must not be possible).
       const buttons = dis.closest(".stmt-choices");
       if (buttons) buttons.innerHTML = loadingHtml(tr("stmt.removing"));
@@ -2547,12 +2547,12 @@
   };
 
   // A practice left behind (the app was closed midway): offered once when the app opens.
-  window.statementsPracticeLeftover_ = function () {
+  window.statementsPracticeLeftover_ = async function () {
     if (practiceDue_("s") || practiceDue_("f")) return;
     const left = practiceILoad_() || {};
     if (practiceILeftoverAsked_ || practiceIRemoving_ || Spotlight.isRunning() || !(left.touched || (left.kind === "bank" && left.accountMade))) return;
     practiceILeftoverAsked_ = true;
     const k = left.kind === "bank" ? "s" : "f";
-    if (confirm(tr(`spot.${k}.leftover`))) practiceIRemove_().then((ok) => { if (ok) showToast_(tr(`spot.${k}.removed`)); });
+    if (await askConfirmApp_(tr(`spot.${k}.leftover`), tr("confirmBtn.yes"), { plain: true })) practiceIRemove_().then((ok) => { if (ok) showToast_(tr(`spot.${k}.removed`)); });
   };
 })();

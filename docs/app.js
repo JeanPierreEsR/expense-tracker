@@ -3031,13 +3031,13 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     const usual = !prev ? usualStoredRate_(currency, usd) : null;
     if (usual && Math.max(rate / usual, usual / rate) > 5) {
       const l = document.getElementById("rate-left-label").textContent, r = document.getElementById("rate-right-label").textContent;
-      if (!confirm(tr("rateModal.confirmUnusual", { typed: `${l} = ${r} ${strongRateFmt_(raw)}`, usual: `${l} = ${r} ${moneyFmt(toShown(usual))}` }))) return;
+      if (!await askConfirmApp_(tr("rateModal.confirmUnusual", { typed: `${l} = ${r} ${strongRateFmt_(raw)}`, usual: `${l} = ${r} ${moneyFmt(toShown(usual))}` }), tr("confirmBtn.yes"), { plain: true })) return;
     }
     if (prev && Math.abs(rate / prev - 1) > 0.10) {
       // Said in the window's own direction, so the numbers are the ones the person typed and reads.
       const shownPrev = toShown(prev);
       const pct = Math.round(Math.abs(raw / shownPrev - 1) * 100);
-      if (!confirm(tr(raw > shownPrev ? "rateModal.confirmHigher" : "rateModal.confirmLower", { rate: strongRateFmt_(raw), pct, prev: strongRateFmt_(shownPrev) }))) return;
+      if (!await askConfirmApp_(tr(raw > shownPrev ? "rateModal.confirmHigher" : "rateModal.confirmLower", { rate: strongRateFmt_(raw), pct, prev: strongRateFmt_(shownPrev) }), tr("confirmBtn.yes"), { plain: true })) return;
     }
   } finally {
     saveBtn.disabled = false;
@@ -3202,7 +3202,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // An account is not mandatory. When the person HAS accounts and picked none, ask once; with none set up there is nothing to ask.
     if (usesPaymentMethod && !paymentMethodId && !(selectedType === "transfer" && toPaymentMethodId) &&
         Array.from(document.getElementById("payment_method").options).some((o) => o.value && o.value !== "__add__") &&
-        !confirm(tr("entry.confirmNoAccount"))) {
+        !await askConfirmApp_(tr("entry.confirmNoAccount"), tr("confirmBtn.yes"), { plain: true })) {
       throw new Error(tr("error.pickPaymentMethod"));
     }
     const splits = validateSplitIfEnabled();
@@ -3214,7 +3214,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const tripGroup = tripId && splits && splits.length && !Spotlight.isRunning() ? (meta.friends || []).find((f) => f.trip_id === tripId) : null;
     if (tripGroup && !splits.some((s) => s.friend_id === tripGroup.id)) {
       const trip = (meta.trips || []).find((t) => t.id === tripId);
-      if (!confirm(tr("split.groupAsk", { trip: trip ? trip.name : "", kind: tr(trip && trip.kind === "event" ? "split.groupKind.event" : "split.groupKind.trip"), group: tripGroup.name }))) throw new Error(tr("split.groupPick", { group: tripGroup.name }));
+      if (!await askConfirmApp_(tr("split.groupAsk", { trip: trip ? trip.name : "", kind: tr(trip && trip.kind === "event" ? "split.groupKind.event" : "split.groupKind.trip"), group: tripGroup.name }), tr("confirmBtn.saveAsIs"), { plain: true, cancel: tr("confirmBtn.chooseGroup") })) throw new Error(tr("split.groupPick", { group: tripGroup.name }));
     }
     const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
     if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
@@ -3295,7 +3295,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
             repaymentsChoice = await askRepaymentChoice_("repayChoice.convertTitle", [{ friend: loanInfo.friend, currency: loanInfo.currency, total: loanInfo.paid }],
               { keep: "repayChoice.convertKeep", cancel: "repayChoice.convertCancel" });
             if (!repaymentsChoice) return;   // backed out: nothing changed, the form stays open
-          } else if (!confirm(tr("loanConv.confirmToRepayment"))) {
+          } else if (!await askConfirmApp_(tr("loanConv.confirmToRepayment"), tr("confirmBtn.yes"), { plain: true })) {
             return;
           }
         }
@@ -3318,7 +3318,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         if (fromRepayment) {
           const moneyIn = editingRepayment_.direction === "they_owe_me";
           if (direction !== (moneyIn ? "i_owe_them" : "they_owe_me")) throw new Error(tr(moneyIn ? "repayConv.loanIn" : "repayConv.loanOut"));
-          if (!confirm(repaymentCancelText_())) return;
+          if (!await askConfirmApp_(repaymentCancelText_(), tr("confirmBtn.yes"), { plain: true })) return;
         }
         // A repayment's own entry edited as a repayment again (another person, amount, account, direction): the old
         // one is cancelled and the new one recorded in its place (convertRepaymentToRepayment).
@@ -3328,12 +3328,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           // (where the loans and the extra are split) — go straight there, as for any amount change from Home.
           if (friendId === editingRepayment_.friend_id && direction === editingRepayment_.direction) {
             const target = editingRepayment_;   // cancelEdit() clears it, so keep what the editor needs
-            if (!confirm(tr("repay.openHistoryAsk", { friend: target.friend }))) return;   // stays on the form, nothing changed
+            if (!await askConfirmApp_(tr("repay.openHistoryAsk", { friend: target.friend }), tr("confirmBtn.yes"), { plain: true })) return;   // stays on the form, nothing changed
             cancelEdit();
             await openRepaymentEditorForEntry_(target.friend_id, target.friend, target.entry_id);
             return;
           }
-          if (!confirm(repaymentCancelText_(true))) return;
+          if (!await askConfirmApp_(repaymentCancelText_(true), tr("confirmBtn.yes"), { plain: true })) return;
         }
         // From the edit pop-up: it closes now while the server works, and
         // comes back with the error shown if the conversion is refused.
@@ -3402,7 +3402,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       const moneyIn = editingRepayment_.direction === "they_owe_me";
       if (selectedType !== "expense" && selectedType !== "income") throw new Error(tr("repayConv.onlyThese"));
       if (selectedType !== (moneyIn ? "income" : "expense")) throw new Error(tr(moneyIn ? "repayConv.incomeOnly" : "repayConv.expenseOnly"));
-      if (!confirm(repaymentCancelText_())) return;   // backed out: nothing changed, the form stays open
+      if (!await askConfirmApp_(repaymentCancelText_(), tr("confirmBtn.yes"), { plain: true })) return;   // backed out: nothing changed, the form stays open
       await ensureExchangeRate(currency, date);
       if (editingViaPopup) {
         document.getElementById("edit-entry-modal-backdrop").hidden = true;
@@ -3476,7 +3476,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // the loans and the extra are split): offer to go straight there instead of refusing.
       const target = editingRepayment_ || editingRepaymentExtra_;
       const entryOfRepayment = editingRepayment_ ? editingRepayment_.entry_id : editingRepaymentExtra_.transfer_entry_id;
-      if (!confirm(tr("repay.openHistoryAsk", { friend: target.friend }))) return;   // stays on the form, nothing changed
+      if (!await askConfirmApp_(tr("repay.openHistoryAsk", { friend: target.friend }), tr("confirmBtn.yes"), { plain: true })) return;   // stays on the form, nothing changed
       cancelEdit();
       await openRepaymentEditorForEntry_(target.friend_id, target.friend, entryOfRepayment);
       return;
@@ -3509,7 +3509,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         exchangePartnerToOpen_ = null;
         if (check.exchangePartner) {
           const p = check.exchangePartner;
-          if (confirm(tr("exchangeConv.askPartner", { amount: formatAmount(p.amount, p.currency), date: listDate_(p.date) }))) exchangePartnerToOpen_ = p;
+          if (await askConfirmApp_(tr("exchangeConv.askPartner", { amount: formatAmount(p.amount, p.currency), date: listDate_(p.date) }), tr("confirmBtn.yes"), { plain: true })) exchangePartnerToOpen_ = p;
         }
         // A shared expense whose debts friends already (partly) repaid: the person decides what happens to those
         // repayments, as when deleting the expense; its splits and debts are cleared before the new type is saved.
@@ -4244,7 +4244,7 @@ document.getElementById("xpair-delete-btn").addEventListener("click", async () =
   const p = exchangePairOpen_;
   if (!p) return;
   const what = `${formatAmount(p.out.amount, p.out.currency)} → ${formatAmount(p.in.amount, p.in.currency)}`;
-  if (!confirm(tr("xch.pairConfirm", { what }))) return;
+  if (!await askConfirmApp_(tr("xch.pairConfirm", { what }), tr("confirmBtn.yes"), { plain: true })) return;
   // Saving standard: the sheet closes at once and the row says "Deleting…" until both sides are gone.
   closeExchangePairSheet_();
   [p.out.id, p.in.id].forEach((id) => deletingEntryIds_.add(id));
@@ -5173,9 +5173,9 @@ function syncCancelNewEntryButton_() {
     watch.observe(document.getElementById(id), { attributes: true, attributeFilter: ["hidden"] }));
   syncCancelNewEntryButton_();
 
-  document.getElementById("cancel-new-entry-btn").addEventListener("click", () => {
+  document.getElementById("cancel-new-entry-btn").addEventListener("click", async () => {
     const typed = document.getElementById("amount").value.trim() || document.getElementById("description").value.trim();
-    if (typed && !confirm(tr("entry.confirmCancelNew"))) return;
+    if (typed && !await askConfirmApp_(tr("entry.confirmCancelNew"), tr("confirmBtn.yes"), { plain: true })) return;
     selectedTagIds.clear();
     populateTags();
     resetSplitState();
@@ -5510,7 +5510,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
   // A new entry whose background save failed has no row on the server: deleting it just drops it from this phone.
   const unsaved = getQueuedEdits_().find((e) => e.id === id && e.kind === "create" && (e.status === "failed" || e.waitingNet));
   if (unsaved) {
-    if (!confirm(tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") }))) return false;
+    if (!await askConfirmApp_(tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") }), tr("confirmBtn.delete"))) return false;
     unqueueEntryEdit_(id);
     renderEntryListFromCache_();
     if (onConfirmed) onConfirmed();
@@ -5543,7 +5543,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
         ? { friend: links.repaymentExtra.friend, friendId: links.repaymentExtra.friend_id, transferId: links.repaymentExtra.transfer_entry_id }
         : null;
     if (ofRepayment && ofRepayment.friendId && ofRepayment.transferId) {
-      if (!confirm(tr("delete.openRepaymentAsk", { friend: ofRepayment.friend }))) return false;   // nothing changed
+      if (!await askConfirmApp_(tr("delete.openRepaymentAsk", { friend: ofRepayment.friend }), tr("confirmBtn.yes"), { plain: true })) return false;   // nothing changed
       cancelEdit();
       await openRepaymentEditorForEntry_(ofRepayment.friendId, ofRepayment.friend, ofRepayment.transferId);
       return false;   // nothing was deleted here
@@ -5557,12 +5557,12 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed) {
       confirmText = tr(r.direction === "they_owe_me" ? "delete.repaymentFrom" : "delete.repaymentTo", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
     }
   }
-  if (!repaymentsChoice && !confirm(confirmText)) return false;
+  if (!repaymentsChoice && !await askConfirmApp_(confirmText, tr("confirmBtn.delete"))) return false;
   // One side of a currency exchange: the other side is a separate entry. Offer to delete it too, so half an exchange
   // (and a balance that is off) is never left behind (owner, 2026-11-02). OK = both, Cancel = only this one.
   let partner = null;
   if (originalType === "transfer" && exchangePartner) {
-    if (confirm(tr("delete.exchangeBoth", { amount: formatAmount(exchangePartner.amount, exchangePartner.currency), date: listDate_(exchangePartner.date) }))) partner = exchangePartner;
+    if (await askConfirmApp_(tr("delete.exchangeBoth", { amount: formatAmount(exchangePartner.amount, exchangePartner.currency), date: listDate_(exchangePartner.date) }), tr("confirmBtn.deleteBoth"), { cancel: tr("confirmBtn.onlyThisOne") })) partner = exchangePartner;
   }
   if (onConfirmed) onConfirmed();
   await callApi("discardEntry", { id, repayments: repaymentsChoice });
@@ -6386,21 +6386,21 @@ function reopenMoneyItem_(item) {
   }
 }
 
-function handleMoneyFailure_(id) {
+async function handleMoneyFailure_(id) {
   const item = id ? getMoneyQueue_().find((q) => q.id === id) : getMoneyQueue_().find((q) => q.status === "failed");
   if (!item || item.status !== "failed") return;
   const reopenable = MONEY_REOPENABLE_.includes(item.action) && !(item.action === "forgiveLoan" && !(item.ctx && item.ctx.loan));
   if (reopenable) {
-    if (confirm(tr("money.failedOpen", { what: item.label, error: item.lastError || "" }))) {
+    if (await askConfirmApp_(tr("money.failedOpen", { what: item.label, error: item.lastError || "" }), tr("confirmBtn.yes"), { plain: true })) {
       reopenMoneyItem_(item);
       return;
     }
-  } else if (confirm(tr("money.failedRetry", { what: item.label, error: item.lastError || "" }))) {
+  } else if (await askConfirmApp_(tr("money.failedRetry", { what: item.label, error: item.lastError || "" }), tr("confirmBtn.yes"), { plain: true })) {
     setMoneyItemStatus_(item.id, "saving", null);
     flushMoneyQueue_();
     return;
   }
-  if (confirm(tr("money.failedDiscard", { what: item.label }))) removeMoneyItem_(item.id);
+  if (await askConfirmApp_(tr("money.failedDiscard", { what: item.label }), tr("confirmBtn.discard"))) removeMoneyItem_(item.id);
 }
 
 // The "💾 Saving…" / "⚠️ Couldn't save" rows at the top of the Loans tab and of a person's loan screen (loan, forgiving and
@@ -6426,7 +6426,7 @@ function renderMoneyQueueStrips_() {
   fill("loan-detail-queue", items.filter((q) => q.ctx && q.ctx.friendId && q.ctx.friendId === loanDetailScope_.friendId));
 }
 
-document.getElementById("save-failed-banner").addEventListener("click", () => {
+document.getElementById("save-failed-banner").addEventListener("click", async () => {
   const failed = getQueuedEdits_().filter((e) => e.status === "failed");
   if (!failed.length) {
     handleMoneyFailure_();
@@ -6439,7 +6439,7 @@ document.getElementById("save-failed-banner").addEventListener("click", () => {
   showScreen("entries");
   const entry = applyQueuedEditOverlay_(lastRenderedEntries_).find((e) => e.id === f.id);
   if (entry) {
-    if (confirm(tr("money.failedOpen", { what, error: f.lastError || "" }))) {
+    if (await askConfirmApp_(tr("money.failedOpen", { what, error: f.lastError || "" }), tr("confirmBtn.yes"), { plain: true })) {
       currentDrilldown = null;
       openEditPopup(entry);
       return;
@@ -6447,7 +6447,7 @@ document.getElementById("save-failed-banner").addEventListener("click", () => {
   } else {
     alert(tr("entry.notInListFailed", { what, error: f.lastError || "" }));
   }
-  if (confirm(tr("money.failedDiscard", { what }))) {
+  if (await askConfirmApp_(tr("money.failedDiscard", { what }), tr("confirmBtn.discard"))) {
     unqueueEntryEdit_(f.id);
     renderEntryListFromCache_();
   }
@@ -6645,7 +6645,7 @@ function reviewAfterBulk_(handledIds) {
 }
 const reviewIssueText_ = (entry, reason) => `${reviewShortName_(entry)} (${tr(`reviewBulk.why.${reason}`)})`;
 
-document.getElementById("review-confirm-selected-btn").addEventListener("click", () => {
+document.getElementById("review-confirm-selected-btn").addEventListener("click", async () => {
   const chosen = reviewEntries_.filter((e) => reviewSelected_.has(e.id));
   if (!chosen.length) return;
   const ready = chosen.filter((e) => !reviewIssue_(e));
@@ -6653,7 +6653,7 @@ document.getElementById("review-confirm-selected-btn").addEventListener("click",
   const notReadyText = notReady.map((e) => reviewIssueText_(e, reviewIssue_(e))).join(", ");
   if (!ready.length) { alert(tr("reviewBulk.noneReady", { items: notReadyText })); return; }
   const left = notReady.length ? tr("reviewBulk.leftNote", { items: notReadyText }) : "";
-  if (!confirm(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }))) return;
+  if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }), tr("confirmBtn.yes"), { plain: true })) return;
   const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (e.trip_id || e.suggested_trip_id || "") : undefined }));
   ready.forEach((e) => {   // the optional "help me improve" sharing sees a confirm exactly as the card's own Confirm reports it
     if (isPracticeReviewEntry_(e)) return;
@@ -6679,7 +6679,7 @@ document.getElementById("review-confirm-selected-btn").addEventListener("click",
   });
 });
 
-document.getElementById("review-discard-selected-btn").addEventListener("click", () => {
+document.getElementById("review-discard-selected-btn").addEventListener("click", async () => {
   const chosen = reviewEntries_.filter((e) => reviewSelected_.has(e.id));
   if (!chosen.length) return;
   const parts = chosen.filter(reviewIsRepaymentPart_);
@@ -6687,7 +6687,7 @@ document.getElementById("review-discard-selected-btn").addEventListener("click",
   if (!ready.length) { alert(tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }).trim()); return; }
   const note = parts.length ? tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }) : "";
   const safe = !!(meta && meta.capabilities && meta.capabilities.entriesRestore);   // a backend with the safety copy: Discard can be undone
-  if (!confirm(tr(safe ? "reviewBulk.discardAskSafe" : "reviewBulk.discardAsk", { n: ready.length, list: reviewListText_(ready), note }))) return;
+  if (!await askConfirmApp_(tr(safe ? "reviewBulk.discardAskSafe" : "reviewBulk.discardAsk", { n: ready.length, list: reviewListText_(ready), note }), tr("confirmBtn.discard"))) return;
   ready.forEach((e) => { if (!isPracticeReviewEntry_(e)) betaRecordEvents_(PerfShare.queueEvents(e, null, betaEntryPlace_(e))); });
   const byId = new Map(ready.map((e) => [e.id, e]));
   const ids = ready.map((e) => e.id);
@@ -6893,14 +6893,14 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       const partOf = entry.link && (entry.link.kind === "repaymentExtra" || entry.link.kind === "repayment") ? entry.link : null;
       if (partOf) {
         const transferId = partOf.kind === "repayment" ? entry.id : partOf.transfer_entry_id;
-        if (partOf.friend_id && transferId && confirm(tr("delete.openRepaymentAsk", { friend: partOf.friend }))) {
+        if (partOf.friend_id && transferId && await askConfirmApp_(tr("delete.openRepaymentAsk", { friend: partOf.friend }), tr("confirmBtn.yes"), { plain: true })) {
           await openRepaymentEditorForEntry_(partOf.friend_id, partOf.friend, transferId);
         } else if (!partOf.friend_id || !transferId) {
           alert(tr("review.partOfRepayment"));
         }
         return;
       }
-      if (!confirm(tr("review.confirmDiscard", { what: describeForConfirm_(entry.description || "", formatAmount(entry.amount, entry.currency), entry.date) }))) return;
+      if (!await askConfirmApp_(tr("review.confirmDiscard", { what: describeForConfirm_(entry.description || "", formatAmount(entry.amount, entry.currency), entry.date) }), tr("confirmBtn.discard"))) return;
 
       if (!isPracticeReviewEntry_(entry)) betaRecordEvents_(PerfShare.queueEvents(entry, null, betaEntryPlace_(entry)));
       queueReviewAction_(entry.id, "discard", null);
@@ -6974,7 +6974,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       // transfer (From / To), with the account it already had on the matching side.
       const makeTransferBtn = item.querySelector(".review-transfer-btn");
       if (makeTransferBtn) makeTransferBtn.addEventListener("click", async () => {
-        if (!confirm(tr("review.makeTransferConfirm"))) return;
+        if (!await askConfirmApp_(tr("review.makeTransferConfirm"), tr("confirmBtn.yes"), { plain: true })) return;
         const amt = parseFloat(amountInput.value.trim());
         const body = {
           id: entry.id,
@@ -11085,10 +11085,10 @@ async function signOutThisDevice_() {
 }
 
 document.getElementById("more-signout-btn").addEventListener("click", async () => {
-  if (!confirm(tr("signin.confirmSignOut"))) return;
+  if (!await askConfirmApp_(tr("signin.confirmSignOut"), tr("devices.signOut"))) return;
   // A save that has not reached the server yet is kept on this phone only: signing out would throw it away.
   const unsaved = pendingSaveCount_();
-  if (unsaved && !confirm(tr("signin.pendingSaves", { n: unsaved }))) return;
+  if (unsaved && !await askConfirmApp_(tr("signin.pendingSaves", { n: unsaved }), tr("devices.signOut"))) return;
   await signOutThisDevice_();
 });
 
@@ -11136,7 +11136,7 @@ async function openDevicesModal_() {
       </div>
       <button type="button" class="add-inline">${escapeHtml(tr("devices.signOut"))}</button>`;
     row.querySelector("button").addEventListener("click", async () => {
-      if (!confirm(s.current ? tr("devices.confirmThis") : tr("devices.confirmNamed", { name: s.device_name }))) return;
+      if (!await askConfirmApp_(s.current ? tr("devices.confirmThis") : tr("devices.confirmNamed", { name: s.device_name }), tr("devices.signOut"))) return;
       if (s.current) { await signOutThisDevice_(); return; }
       try {
         await callApi("revokeSession", { id: s.id });
@@ -12415,7 +12415,7 @@ function renderWalletBoxes_(box, slots, ticked, onToggle) {
     const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = ticked.includes(key);
     const span = document.createElement("span");
     span.textContent = tr(`wa.rail.${key}`) + (key === "yape_usd" ? ` ${tr("wallets.optional")}` : "");
-    cb.addEventListener("change", () => { if (onToggle(key, cb.checked) === false) cb.checked = !cb.checked; });
+    cb.addEventListener("change", async () => { const asked = cb.checked; if ((await onToggle(key, asked)) === false) cb.checked = !asked; });
     row.appendChild(cb); row.appendChild(span);
     box.appendChild(row);
   });
@@ -12497,11 +12497,11 @@ function renderWaWallets_() {
   f.wallets = (f.wallets || []).filter((k) => slots.includes(k));
   waEl_("wa-wallets").hidden = !slots.length;
   const names = waDisplayNames_();
-  renderWalletBoxes_(waEl_("wa-wallet-boxes"), slots, f.wallets, (key, on) => {
+  renderWalletBoxes_(waEl_("wa-wallet-boxes"), slots, f.wallets, async (key, on) => {
     if (!on) { f.wallets = f.wallets.filter((k) => k !== key); return; }
     const holder = welcome_.links[key];
     const other = holder && holder !== f.cid && welcome_.accounts.find((a) => a.cid === holder);
-    if (other && !confirm(tr("wallets.replace", { wallet: tr(`wa.rail.${key}`), name: names[other.cid] }))) return false;
+    if (other && !await askConfirmApp_(tr("wallets.replace", { wallet: tr(`wa.rail.${key}`), name: names[other.cid] }), tr("confirmBtn.yes"), { plain: true })) return false;
     f.wallets.push(key);
   });
 }
@@ -12564,14 +12564,14 @@ waEl_("wa-back-btn").addEventListener("click", () => showWelcomeStep_(2));
 welcomeEl_("welcome-continue-btn").addEventListener("click", () => showWelcomeStep_(2));
 
 // The end of step 3 (accounts): check the Yape / Plin links, then on to step 4 (nothing is saved yet).
-function waNext_() {
+async function waNext_() {
   const typed = waEl_("wa-name").value.trim().replace(/\s+/g, " ");
   if (typed && !ownerNameLooksReal_(typed)) { waEl_("wa-error").textContent = tr("ownerNames.badName", { name: typed }); return; }
   welcome_.ownName = typed;
   // Alert when an account could carry Yape or Plin but none has been ticked; the person may go back and tick them.
   const canLink = welcome_.accounts.some((a) => waSlots_(a.bank, a.kind).length);
   const linked = WA_RAILS.some((k) => welcome_.accounts.some((a) => a.cid === welcome_.links[k]));
-  if (canLink && !linked && !confirm(tr("wallets.confirm"))) return;
+  if (canLink && !linked && !await askConfirmApp_(tr("wallets.confirm"), tr("confirmBtn.continueAnyway"), { plain: true, cancel: tr("confirmBtn.goBackLink") })) return;
   showWelcomeStep_(4);
 }
 
@@ -13413,7 +13413,7 @@ document.getElementById("devices-modal-backdrop").addEventListener("click", (e) 
   if (e.target.id === "devices-modal-backdrop") e.target.hidden = true;
 });
 document.getElementById("devices-signout-others-btn").addEventListener("click", async () => {
-  if (!confirm(tr("devices.confirmOthers"))) return;
+  if (!await askConfirmApp_(tr("devices.confirmOthers"), tr("devices.signOut"))) return;
   try {
     await callApi("revokeOtherSessions", {});
     openDevicesModal_();
@@ -13883,9 +13883,9 @@ async function refreshDeletedScreen_() {
     actions.querySelector(".deleted-all").addEventListener("click", () => {
       saveBehindScreen_(() => restoreDeletedBatch_({ batch_id: b.batch_id }), null, { busy: "deleted.restoring" });
     });
-    actions.querySelector(".deleted-forget").addEventListener("click", () => {
+    actions.querySelector(".deleted-forget").addEventListener("click", async () => {
       const ownPractice = practiceDOwns_(b.entries.map((e) => e.entry_id));
-      if (!practiceNoConfirm_(ownPractice) && !confirm(tr("deleted.confirmForget", { n: b.entries.length }))) return;   // (the practice's own batch asks nothing while the walkthrough runs)
+      if (!practiceNoConfirm_(ownPractice) && !await askConfirmApp_(tr("deleted.confirmForget", { n: b.entries.length }), tr("confirmBtn.delete"))) return;   // (the practice's own batch asks nothing while the walkthrough runs)
       if (ownPractice && practiceD_) { practiceD_.forgetTapped = true; practiceDSave_(); }   // the practice moves on at once; the cleanup waits for the call
       saveBehindScreen_(async () => {
         await (deletedBatchBusy_[b.batch_id] || Promise.resolve()).catch(() => {});   // a restore from this batch lands first
@@ -14040,11 +14040,11 @@ async function practiceDRemove_() {
 }
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
-function practiceDLeftover_() {
+async function practiceDLeftover_() {
   if (practiceDue_("d")) return;   // already being retried, nothing to ask
   if (practiceDLeftoverAsked_ || practiceDRemoving_ || Spotlight.isRunning() || !(practiceDLoad_() || {}).made) return;
   practiceDLeftoverAsked_ = true;
-  if (confirm(tr("spot.d.leftover"))) practiceDRemove_().then((ok) => { if (ok) showToast_(tr("spot.d.removed")); });
+  if (await askConfirmApp_(tr("spot.d.leftover"), tr("confirmBtn.yes"), { plain: true })) practiceDRemove_().then((ok) => { if (ok) showToast_(tr("spot.d.removed")); });
 }
 
 async function showTidyScreen() {
@@ -14267,11 +14267,11 @@ async function practiceYRemove_() {
 }
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
-function practiceYLeftover_() {
+async function practiceYLeftover_() {
   if (practiceDue_("y")) return;   // already being retried, nothing to ask
   if (practiceYLeftoverAsked_ || practiceYRemoving_ || Spotlight.isRunning() || !(practiceYLoad_() || {}).made) return;   // (a practice closed before it made anything has nothing to remove)
   practiceYLeftoverAsked_ = true;
-  if (confirm(tr("spot.y.leftover"))) practiceYRemove_().then((ok) => { if (ok) showToast_(tr("spot.y.removed")); });
+  if (await askConfirmApp_(tr("spot.y.leftover"), tr("confirmBtn.yes"), { plain: true })) practiceYRemove_().then((ok) => { if (ok) showToast_(tr("spot.y.removed")); });
 }
 
 // ---- More → My data: one row for everything about getting data in, tidying it and taking it out (owner's design, 2026-11-03) ----
@@ -15197,11 +15197,11 @@ function renderPmWallets_() {
   const slots = pmWalletSlots_();
   document.getElementById("pm-wallets").hidden = !slots.length;
   const settings = (meta && meta.settings) || {};
-  renderWalletBoxes_(document.getElementById("pm-wallet-boxes"), slots, pmModalState.wallets, (key, on) => {
+  renderWalletBoxes_(document.getElementById("pm-wallet-boxes"), slots, pmModalState.wallets, async (key, on) => {
     if (!on) { pmModalState.wallets = pmModalState.wallets.filter((k) => k !== key); return; }
     const holder = key === "plin_pen" && plinManyOn_() ? "" : String(settings[key] || "");   // (several accounts can have Plin: nothing to move)
     const other = holder && holder !== String(pmModalState.id) && meta.paymentMethods.find((p) => String(p.id) === holder);
-    if (other && !confirm(tr("wallets.replace", { wallet: tr(`wa.rail.${key}`), name: other.nickname }))) return false;
+    if (other && !await askConfirmApp_(tr("wallets.replace", { wallet: tr(`wa.rail.${key}`), name: other.nickname }), tr("confirmBtn.yes"), { plain: true })) return false;
     pmModalState.wallets.push(key);
   });
 }
@@ -15247,7 +15247,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   const before = pmModalState.id && meta.paymentMethods.find((p) => p.id === pmModalState.id);
   const renamed = !before || plain(before.nickname) !== plain(nickname);
   if (renamed && plain(nickname) === "plin") { errorEl.textContent = tr("wallets.plinNotAccount"); return; }
-  if (renamed && plain(nickname) === "yape" && !confirm(tr("wallets.yapeAlone"))) return;
+  if (renamed && plain(nickname) === "yape" && !await askConfirmApp_(tr("wallets.yapeAlone"), tr("confirmBtn.yes"), { plain: true })) return;
   // Closes at once and saves behind the screen (a refusal, such as a repeated name, comes back as an alert).
   const state = { id: pmModalState.id, wallets: pmModalState.wallets, selectIn: pmModalState.selectIn || "" };
   const type = document.getElementById("pm-type").value;
@@ -15327,7 +15327,7 @@ document.getElementById("pm-delete-btn").addEventListener("click", async () => {
   errorEl.textContent = "";
   const pm = meta.paymentMethods.find((p) => p.id === pmModalState.id);
   const one = pmRemoveOne_();
-  if (!pm || (!practiceNoConfirm_(isPracticeAccountName_(pm.nickname)) && !confirm(tr(one ? "accounts.confirmRemove" : "accounts.confirmDelete", { name: pm.nickname })))) return;
+  if (!pm || (!practiceNoConfirm_(isPracticeAccountName_(pm.nickname)) && !await askConfirmApp_(tr(one ? "accounts.confirmRemove" : "accounts.confirmDelete", { name: pm.nickname }), tr("confirmBtn.remove")))) return;
   // Saving standard: back to the list at once; the account's row says "Deleting…" until the server is done.
   markDeleting_("pm:" + pm.id);
   closePmModal_();
@@ -15400,13 +15400,13 @@ function showAccountsAgainFlow_(chosen) {
     done: () => result ? tr("bulkShow.done", { n: result.shown, names: shortNames_(chosen.map((pm) => pm.nickname)) }) : "",
   });
 }
-document.getElementById("accounts-delete-selected-btn").addEventListener("click", () => {
+document.getElementById("accounts-delete-selected-btn").addEventListener("click", async () => {
   const picked = meta.paymentMethods.filter((pm) => accountsSelected_.has(pm.id)).sort((a, b) => a.nickname.localeCompare(b.nickname));
   if (picked.length && picked.every((pm) => accountTickHidden_(pm.id))) { setAccountsEditing_(false); showAccountsAgainFlow_(picked); return; }
   const chosen = picked;
   if (!chosen.length) return;
   const names = chosen.map((pm) => pm.nickname).join(", ");
-  if (!confirm(tr(chosen.length === 1 ? "accounts.confirmRemove" : "accounts.confirmDeleteMany", { n: chosen.length, names, name: names }))) return;
+  if (!await askConfirmApp_(tr(chosen.length === 1 ? "accounts.confirmRemove" : "accounts.confirmDeleteMany", { n: chosen.length, names, name: names }), tr("confirmBtn.remove"))) return;
   const ids = chosen.map((pm) => pm.id);
   setAccountsEditing_(false);
   const delKeys = ids.map((id) => "pm:" + id);
@@ -15641,7 +15641,7 @@ async function startCategoriesBulkDelete_(chosen) {
     closeCatBulkSheet_();
     await nextPaint_();
     const names = chosen.map(label).join(", ");
-    if (confirm(chosen.length === 1 ? tr("categories.confirmDelete", { name: names }) : tr("catBulk.confirmMany", { n: chosen.length, names }))) runCategoriesDelete_(chosen, {});
+    if (await askConfirmApp_(chosen.length === 1 ? tr("categories.confirmDelete", { name: names }) : tr("catBulk.confirmMany", { n: chosen.length, names }), tr("confirmBtn.delete"))) runCategoriesDelete_(chosen, {});
     return;
   }
   const chosenIds = new Set(ids);
@@ -15905,7 +15905,7 @@ document.getElementById("cat-delete-btn").addEventListener("click", async () => 
   const n = categoryCounts_[cat.id] || 0;
   // Entries use it: they must go somewhere, so ask where instead of refusing.
   if (n > 0) { showCatReassign_(cat, "categories.reassignHint", n); return; }
-  if (!confirm(tr("categories.confirmDelete", { name: cat.name }))) return;
+  if (!await askConfirmApp_(tr("categories.confirmDelete", { name: cat.name }), tr("confirmBtn.delete"))) return;
   try {
     await callApi("deleteCategory", { id: cat.id });
     closeCatModal_();
@@ -15924,7 +15924,7 @@ document.getElementById("cat-reassign-btn").addEventListener("click", async () =
   const cat = meta.categories.find((c) => c.id === catModalState.id);
   const target = meta.categories.find((c) => c.id === document.getElementById("cat-reassign-select").value);
   if (!cat || !target) return;
-  if (!confirm(tr("categories.confirmMove", { from: cat.name, to: target.name }))) return;
+  if (!await askConfirmApp_(tr("categories.confirmMove", { from: cat.name, to: target.name }), tr("confirmBtn.yes"), { plain: true })) return;
   const btn = document.getElementById("cat-reassign-btn");
   btn.disabled = true;
   try {
@@ -16187,13 +16187,13 @@ document.getElementById("trips-selectall-btn").addEventListener("click", () => {
   tripsSelected_ = tripsSelected_.size === all.length ? new Set() : new Set(all);
   renderTripsList_(meta.trips || []);
 });
-document.getElementById("trips-delete-selected-btn").addEventListener("click", () => {
+document.getElementById("trips-delete-selected-btn").addEventListener("click", async () => {
   const chosen = (meta.trips || []).filter((t) => tripsSelected_.has(t.id)).sort((a, b) => a.name.localeCompare(b.name));
   if (!chosen.length) return;
   const label = (t) => tripLabel_(t);
   const names = chosen.map(label).join(", ");
   const entries = chosen.reduce((sum, t) => sum + (t.entryCount || 0), 0);
-  if (!confirm(chosen.length === 1 ? tr("trips.confirmDelete", { name: chosen[0].name }) : tr("trips.confirmDeleteMany", { n: chosen.length, names, entries }))) return;
+  if (!await askConfirmApp_(chosen.length === 1 ? tr("trips.confirmDelete", { name: chosen[0].name }) : tr("trips.confirmDeleteMany", { n: chosen.length, names, entries }), tr("confirmBtn.delete"))) return;
   const ids = chosen.map((t) => t.id);
   const nameOf = new Map(chosen.map((t) => [t.id, label(t)]));
   setTripsEditing_(false);
@@ -16511,7 +16511,7 @@ function renderTripEstimates_(d) {
     // "Covered": a real expense has replaced this estimate, so the estimate is deleted.
     row.querySelector(".trip-covered-btn").addEventListener("click", async (ev) => {
       ev.stopPropagation();
-      if (!confirm(tr("trips.confirmCovered", { what: describeForConfirm_(e.description || e.category_name, formatAmount(e.amount, e.currency)) }))) return;
+      if (!await askConfirmApp_(tr("trips.confirmCovered", { what: describeForConfirm_(e.description || e.category_name, formatAmount(e.amount, e.currency)) }), tr("confirmBtn.yes"), { plain: true })) return;
       ev.target.disabled = true;
       try {
         await callApi("deleteRecurringExpense", { id: e.id });
@@ -16748,7 +16748,7 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
 document.getElementById("trip-delete-btn").addEventListener("click", async () => {
   if (!editingTripId_) return;
   const trip = (meta.trips || []).find((t) => t.id === editingTripId_);
-  if (!trip || (!practiceNoConfirm_(isPracticeTripName_(trip.name)) && !confirm(tr("trips.confirmDelete", { name: trip.name })))) return;
+  if (!trip || (!practiceNoConfirm_(isPracticeTripName_(trip.name)) && !await askConfirmApp_(tr("trips.confirmDelete", { name: trip.name }), tr("confirmBtn.delete")))) return;
   // Saving standard: back to the list at once; the trip's row says "Deleting…" until the server is done.
   markDeleting_("trip:" + trip.id);
   closeTripModal_();
@@ -17115,7 +17115,7 @@ document.getElementById("business-delete-selected-btn").addEventListener("click"
     if (parts.length) notes.push(tr("bizBulk.sideNote", { parts: parts.join("; ") }));
   } catch (err) { /* an older backend has no preview: the question is asked without the extra line */ }
   hideToast_(tr("common.loading"));
-  if (!confirm(tr("bizBulk.confirm", { n: companies.length + projects.length, list: list.join("\n"), notes: notes.join("\n\n") }))) return;
+  if (!await askConfirmApp_(tr("bizBulk.confirm", { n: companies.length + projects.length, list: list.join("\n"), notes: notes.join("\n\n") }), tr("confirmBtn.delete"))) return;
   const company_ids = companies.map((c) => c.id), project_ids = projects.map((p) => p.id);
   const nameOf = new Map([...companies.map((c) => [c.id, companyLabel_(c)]), ...projects.map((p) => [p.id, projectLabel_(p)])]);
   setBusinessEditing_(false);
@@ -17473,7 +17473,7 @@ document.getElementById("expected-save-btn").addEventListener("click", async () 
   }
 });
 document.getElementById("expected-delete-btn").addEventListener("click", async () => {
-  if (!editingExpected_ || !editingExpected_.payment || !confirm(tr("xp.confirmDelete"))) return;
+  if (!editingExpected_ || !editingExpected_.payment || !await askConfirmApp_(tr("xp.confirmDelete"), tr("confirmBtn.delete"))) return;
   try {
     await callApi("deleteExpectedPayment", { id: editingExpected_.payment.id });
     await afterExpectedChange_();
@@ -17571,7 +17571,7 @@ document.getElementById("company-save-btn").addEventListener("click", async () =
 document.getElementById("company-delete-btn").addEventListener("click", async () => {
   if (!editingCompanyId_) return;
   const company = (meta.companies || []).find((c) => c.id === editingCompanyId_);
-  if (!company || !confirm(tr("business.confirmDeleteCompany", { name: company.name }))) return;
+  if (!company || !await askConfirmApp_(tr("business.confirmDeleteCompany", { name: company.name }), tr("confirmBtn.delete"))) return;
   try {
     await callApi("deleteCompany", { id: company.id });
     closeCompanyModal_();
@@ -17726,7 +17726,7 @@ document.getElementById("igv-payment-save-btn").addEventListener("click", () => 
   }, () => refreshIgvScreen_());
 });
 document.getElementById("igv-payment-delete-btn").addEventListener("click", async () => {
-  if (!editingIgvPayment_ || !editingIgvPayment_.payment || !confirm(tr("igv.paymentConfirmDelete"))) return;
+  if (!editingIgvPayment_ || !editingIgvPayment_.payment || !await askConfirmApp_(tr("igv.paymentConfirmDelete"), tr("confirmBtn.delete"))) return;
   try {
     await callApi("deleteIgvPayment", { id: editingIgvPayment_.payment.id });
     closeIgvPaymentModal_();
@@ -17836,7 +17836,7 @@ document.getElementById("project-save-btn").addEventListener("click", async () =
 document.getElementById("project-delete-btn").addEventListener("click", async () => {
   if (!editingProjectId_) return;
   const project = (meta.projects || []).find((p) => p.id === editingProjectId_);
-  if (!project || !confirm(tr("business.confirmDeleteProject", { name: project.name }))) return;
+  if (!project || !await askConfirmApp_(tr("business.confirmDeleteProject", { name: project.name }), tr("confirmBtn.delete"))) return;
   try {
     await callApi("deleteProject", { id: project.id });
     closeProjectModal_();
@@ -17956,11 +17956,11 @@ document.getElementById("people-selectall-btn").addEventListener("click", () => 
   peopleSelected_ = peopleSelected_.size === people_.length ? new Set() : new Set(people_.map((p) => p.id));
   renderPeopleList_(people_);
 });
-document.getElementById("people-delete-selected-btn").addEventListener("click", () => {
+document.getElementById("people-delete-selected-btn").addEventListener("click", async () => {
   const chosen = people_.filter((p) => peopleSelected_.has(p.id)).sort((a, b) => a.name.localeCompare(b.name));
   if (!chosen.length) return;
   const names = chosen.map((p) => p.name).join(", ");
-  if (!confirm(tr("bizBulk.peopleConfirm", { n: chosen.length, names }))) return;
+  if (!await askConfirmApp_(tr("bizBulk.peopleConfirm", { n: chosen.length, names }), tr("confirmBtn.delete"))) return;
   const ids = chosen.map((p) => p.id);
   const nameOf = new Map(chosen.map((p) => [p.id, p.name]));
   setPeopleEditing_(false);
@@ -18190,14 +18190,14 @@ function showFriendsAgainFlow_(chosen) {
     done: () => result ? tr("bulkShow.done", { n: result.shown, names: shortNames_(chosen.map((p) => p.name)) }) : "",
   });
 }
-document.getElementById("friends-delete-selected-btn").addEventListener("click", () => {
+document.getElementById("friends-delete-selected-btn").addEventListener("click", async () => {
   const picked = friends_.filter((p) => friendsSelected_.has(p.id)).sort((x, y) => x.name.localeCompare(y.name));
   if (picked.length && picked.every((p) => p.hidden)) { setFriendsEditing_(false); showFriendsAgainFlow_(picked); return; }
   const chosen = picked.filter((p) => !p.hidden);
   if (!chosen.length) return;
   const names = chosen.map((p) => p.name).join(", ");
   // ONE question for the whole batch.
-  if (!confirm(tr(chosen.length === 1 ? "friends.confirmDeleteOne" : "friends.confirmDeleteMany", { n: chosen.length, names }))) return;
+  if (!await askConfirmApp_(tr(chosen.length === 1 ? "friends.confirmDeleteOne" : "friends.confirmDeleteMany", { n: chosen.length, names }), tr("confirmBtn.delete"))) return;
   setFriendsEditing_(false);
   deleteFriendsFlow_(chosen);
 });
@@ -18290,12 +18290,12 @@ document.getElementById("person-delete-btn").addEventListener("click", async () 
   if (!person) return;
   if (personModalFriends_) {
     // More → Friends: the same rules as Edit → Delete (deleted, or hidden when they have history).
-    if (!confirm(tr("friends.confirmDeleteOne", { names: person.name }))) return;
+    if (!await askConfirmApp_(tr("friends.confirmDeleteOne", { names: person.name }), tr("confirmBtn.delete"))) return;
     closePersonModal_();
     deleteFriendsFlow_([person]);
     return;
   }
-  if (!confirm(tr("people.confirmDelete", { name: person.name }))) return;
+  if (!await askConfirmApp_(tr("people.confirmDelete", { name: person.name }), tr("confirmBtn.delete"))) return;
   try {
     await callApi("deleteFriend", { id: person.id });
     meta.friends = (meta.friends || []).filter((f) => f.id !== person.id);
@@ -19808,7 +19808,7 @@ function runRecurringStopOn_(re, endDate) {
   saveBehindScreen_(() => callApi("updateRecurringExpense", { id: re.id, end_date: endDate, active: true }), afterRecurringChange_,
     { busy: "common.stoppingToast", done: () => tr("recDel.stoppedOne", { name: recurringName_(re), date: recurringDateLabel_(endDate) }) });
 }
-// The plain question needs the "Loading…" sheet gone first: a native confirm() freezes the page before it repaints, so it used to float over it.
+// The plain question needs the "Loading…" sheet gone first: the phone's own dialog froze the page before it repainted, so it used to float over it.
 const nextPaint_ = () => new Promise((resolve) => setTimeout(resolve, 60));
 // The sentence about skipped months only when the item really has some.
 const skippedGoneText_ = (items) => {
@@ -19821,7 +19821,7 @@ document.getElementById("recurring-delete-close").addEventListener("click", clos
 async function startRecurringDelete_(re) {
   if (practiceNoConfirm_(isPracticeProgrammedName_(re.description))) { runRecurringDelete_(re); return; }   // the practice item: no question
   if (!recurringStopCapable_()) {   // an older backend: the plain question, as before
-    if (!confirm(tr("recModal.confirmDelete", { what: recurringDeleteWhat_(re), skipped: skippedGoneText_([re]) }))) return;
+    if (!await askConfirmApp_(tr("recModal.confirmDelete", { what: recurringDeleteWhat_(re), skipped: skippedGoneText_([re]) }), tr("confirmBtn.delete"))) return;
     closeRecurringModal();
     await callApi("deleteRecurringExpense", { id: re.id });
     afterRecurringChange_();
@@ -19847,13 +19847,13 @@ async function startRecurringDelete_(re) {
   if (effect < 0.5) {   // nothing in the last 12 months depends on it: the plain question
     closeRecurringDeleteSheet_();
     await nextPaint_();
-    if (confirm(tr("recModal.confirmDelete", { what: recurringDeleteWhat_(re), skipped: skippedGoneText_([re]) }))) runRecurringDelete_(re);
+    if (await askConfirmApp_(tr("recModal.confirmDelete", { what: recurringDeleteWhat_(re), skipped: skippedGoneText_([re]) }), tr("confirmBtn.delete"))) runRecurringDelete_(re);
     return;
   }
   if (!recurringStoppable_(re)) {   // a paid one-time item has no end date to set: say what deleting does
     closeRecurringDeleteSheet_();
     await nextPaint_();
-    if (confirm(tr("recDel.onceWarn", { amount }))) runRecurringDelete_(re);
+    if (await askConfirmApp_(tr("recDel.onceWarn", { amount }), tr("confirmBtn.delete"))) runRecurringDelete_(re);
     return;
   }
   body.innerHTML = `
@@ -19909,7 +19909,7 @@ async function startRecurringBulkDelete_(items) {
   if (!effectful.length) {   // nothing in the last 12 months depends on any of them: the plain question
     closeRecurringDeleteSheet_();
     await nextPaint_();
-    if (confirm(tr("recBulk.confirmMany", { n: items.length, names: items.map(nameOf).join(", "), skipped: skippedGoneText_(items) }))) deleteAll();
+    if (await askConfirmApp_(tr("recBulk.confirmMany", { n: items.length, names: items.map(nameOf).join(", "), skipped: skippedGoneText_(items) }), tr("confirmBtn.delete"))) deleteAll();
     return;
   }
   const stoppable = effectful.filter(recurringStoppable_);
@@ -19917,7 +19917,7 @@ async function startRecurringBulkDelete_(items) {
   if (!stoppable.length) {
     closeRecurringDeleteSheet_();
     await nextPaint_();
-    if (confirm(tr("recBulk.onlyFixed", { amount, n: items.length }))) deleteAll();
+    if (await askConfirmApp_(tr("recBulk.onlyFixed", { amount, n: items.length }), tr("confirmBtn.delete"))) deleteAll();
     return;
   }
   const rest = items.filter((re) => !effectful.includes(re));   // no payment on record: deleted either way
@@ -20030,7 +20030,7 @@ async function renderPausedDecision_() {
         row.querySelectorAll("button").forEach((b) => { b.disabled = false; });
       }
     };
-    row.querySelectorAll("button").forEach((btn) => btn.addEventListener("click", () => {
+    row.querySelectorAll("button").forEach((btn) => btn.addEventListener("click", async () => {
       const act = btn.dataset.act;
       if (act === "stop") {   // the person picks its last day; closing the calendar leaves the item as it was
         pickRecurringEndDate_(it, lastPaid[it.id], (endDate) => run(() => callApi("updateRecurringExpense", { id: it.id, end_date: endDate, active: true })));
@@ -20038,7 +20038,7 @@ async function renderPausedDecision_() {
       }
       if (act === "delete") {   // never a one-tap delete in a sheet that cannot be dismissed: the figure warning, or the plain question
         const warn = (effects[it.id] || 0) >= 0.5;
-        if (!confirm(warn ? tr("paused.deleteWarn", { amount: `${homeCur()} ${moneyFmt(Math.round(effects[it.id]))}` }) : tr("paused.deleteConfirm", { name: it.description || it.category_name }))) return;
+        if (!await askConfirmApp_(warn ? tr("paused.deleteWarn", { amount: `${homeCur()} ${moneyFmt(Math.round(effects[it.id]))}` }) : tr("paused.deleteConfirm", { name: it.description || it.category_name }), tr("confirmBtn.delete"))) return;
       }
       run(() => act === "reactivate" ? callApi("updateRecurringExpense", { id: it.id, active: true }) : callApi("deleteRecurringExpenses", { ids: [it.id] }));
     }));
@@ -20173,7 +20173,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
 // untouched, and it can be undone from the item's edit screen.
 async function skipRecurringThisMonth_(item) {
   const label = item.description || item.category_name;
-  if (!confirm(tr("expected.confirmSkip", { label }))) return;
+  if (!await askConfirmApp_(tr("expected.confirmSkip", { label }), tr("confirmBtn.yes"), { plain: true })) return;
   try {
     await callApi("skipRecurringOccurrence", { id: item.id, month: todayLocalISO().slice(0, 7) });
     await refreshExpectedRecurring();
@@ -20959,7 +20959,7 @@ document.getElementById("pmm-save").addEventListener("click", async () => {
 
 document.getElementById("pmm-apply-all").addEventListener("click", async () => {
   if (!pmmState || pmmState.categoryId) return;
-  if (!confirm(tr("pmm.applyAllConfirm", { name: projectionMethodLabel_(pmmState.selected) }))) return;
+  if (!await askConfirmApp_(tr("pmm.applyAllConfirm", { name: projectionMethodLabel_(pmmState.selected) }), tr("confirmBtn.yes"), { plain: true })) return;
   const method = pmmState.selected;
   closeProjectionMethodModal_();
   saveBehindScreen_(() => callApi("applyProjectionMethodToAll", { method }), () => afterProjectionMethodChange_());
@@ -21037,7 +21037,7 @@ document.getElementById("pmm-compare-btn").addEventListener("click", async () =>
 
 document.getElementById("pmm-apply-best").addEventListener("click", async () => {
   if (!pmmState) return;
-  if (!confirm(tr("pmm.useBestEachConfirm"))) return;
+  if (!await askConfirmApp_(tr("pmm.useBestEachConfirm"), tr("confirmBtn.yes"), { plain: true })) return;
   const resultEl = document.getElementById("pmm-apply-best-result");
   try {
     const res = await callApi("applyBestProjectionMethods");
@@ -21511,10 +21511,10 @@ function offerTip_(key, boxId, inviteText, start, after) {
     alert(tr("spot.dismissed"));   // say once how to bring the practice back
     if (after) after();
   });
-  box.querySelector(".tip-invite-go").addEventListener("click", () => {
+  box.querySelector(".tip-invite-go").addEventListener("click", async () => {
     if (editModeOn_()) { showToast_(tr("spot.editOn")); return; }   // a practice needs the normal screen: stays on offer, nothing marked
     if (practiceDueList_().length) { showToast_(tr("spot.p.stillRemoving")); practiceRetryDue_(); return; }   // starting now could overwrite what it still has to remove
-    if (!start()) return;   // not possible right now (something half-typed): stays on offer, nothing marked
+    if (!await start()) return;   // not possible right now (something half-typed): stays on offer, nothing marked
     markTipSeen_(key);
     box.hidden = true;
     if (after) after();
@@ -21527,7 +21527,7 @@ function offerTip_(key, boxId, inviteText, start, after) {
 // own unfinished entry). The form can also hold things nobody sees: an unfinished entry saved as a draft, or text left in the hidden
 // form. The practice's own leftovers (an earlier practice closed midway leaves a "Practice expense" draft) are cleared silently;
 // anything else is the person's, and is only discarded if they say so.
-function tipPrepareForm_(ownName) {
+async function tipPrepareForm_(ownName) {
   if (newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId) { showToast_(tr("spot.p.busy")); return false; }
   const amountEl = document.getElementById("amount"), descEl = document.getElementById("description");
   let draft = null;
@@ -21538,7 +21538,7 @@ function tipPrepareForm_(ownName) {
     const description = ((draft && draft.description) || descEl.value || "").trim();
     const amount = ((draft && draft.amount) || amountEl.value || "").toString().trim();
     const what = [amount ? tr("spot.p.draftAmount", { amount }) : "", description ? tr("spot.p.draftDesc", { text: description }) : ""].filter(Boolean).join(", ");
-    if (description !== name && !confirm(tr("spot.p.draftAsk", { what: what || tr("spot.p.draftEmpty") }))) return false;
+    if (description !== name && !await askConfirmApp_(tr("spot.p.draftAsk", { what: what || tr("spot.p.draftEmpty") }), tr("confirmBtn.yes"), { plain: true })) return false;
     clearEntryDraft_();
     amountEl.value = "";
     descEl.value = "";
@@ -21760,11 +21760,11 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) prac
 
 // A practice left behind (the app was closed midway): offered once when Home opens.
 let practiceLeftoverAsked_ = false;
-function practiceLeftover_() {
+async function practiceLeftover_() {
   if (practiceDue_("p")) return;   // already being retried, nothing to ask
   if (practiceLeftoverAsked_ || practiceRemoving_ || Spotlight.isRunning() || !practiceLoad_()) return;
   practiceLeftoverAsked_ = true;
-  if (confirm(tr("spot.p.leftover"))) practiceRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.p.removed"); });
+  if (await askConfirmApp_(tr("spot.p.leftover"), tr("confirmBtn.yes"), { plain: true })) practiceRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.p.removed"); });
 }
 
 function practiceFriendRow_() {
@@ -21880,9 +21880,9 @@ function practiceSteps_() {
 }
 
 // Starts the practice. False = not possible right now (the person is in the middle of an entry): the invitation stays.
-function startPractice_() {
+async function startPractice_() {
   if (practiceRemoving_) { showToast_(tr("spot.p.stillRemoving")); return false; }   // the last practice is still being removed
-  if (!tipPrepareForm_()) return false;
+  if (!await tipPrepareForm_()) return false;
   practice_ = { entryId: "", friendId: "", friendName: "", currency: homeCur(), amount: 0, friendsBefore: (meta.friends || []).map((f) => f.id), startedOn: todayLocalISO() };
   practiceSave_();
   practiceHint_ = "";
@@ -22210,11 +22210,11 @@ async function practiceNRemove_() {
 }
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
-function practiceNLeftover_() {
+async function practiceNLeftover_() {
   if (practiceDue_("n")) return;   // already being retried, nothing to ask
   if (practiceNLeftoverAsked_ || practiceNRemoving_ || Spotlight.isRunning() || !practiceNLoad_()) return;
   practiceNLeftoverAsked_ = true;
-  if (confirm(tr("spot.n.leftover"))) practiceNRemove_().then((ok) => { if (ok) showToast_(tr("spot.n.removed")); });
+  if (await askConfirmApp_(tr("spot.n.leftover"), tr("confirmBtn.yes"), { plain: true })) practiceNRemove_().then((ok) => { if (ok) showToast_(tr("spot.n.removed")); });
 }
 
 // ---- First-use practices: a standalone loan, and a bank loan ----
@@ -22491,11 +22491,11 @@ async function practiceMRemove_() {
 }
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
-function practiceMLeftover_() {
+async function practiceMLeftover_() {
   if (practiceDue_("l")) return;   // already being retried, nothing to ask
   if (practiceMLeftoverAsked_ || practiceMRemoving_ || Spotlight.isRunning() || !practiceMLoad_()) return;
   practiceMLeftoverAsked_ = true;
-  if (confirm(tr("spot.l.leftover"))) practiceMRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.l.removed"); });
+  if (await askConfirmApp_(tr("spot.l.leftover"), tr("confirmBtn.yes"), { plain: true })) practiceMRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.l.removed"); });
 }
 
 // ---- First-use practice: Investments ----
@@ -22659,7 +22659,7 @@ function practiceIClearOwnDraft_() {
   }
 }
 
-function startInvestmentsPractice_() {
+async function startInvestmentsPractice_() {
   if (practiceIRemoving_) { showToast_(tr("spot.i.stillRemoving")); return false; }
   const open = ["pm-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
   if (open || newEntrySheetOpen_) { showToast_(tr("spot.i.busy")); return false; }
@@ -22670,7 +22670,7 @@ function startInvestmentsPractice_() {
     return false;
   }
   practiceIClearOwnDraft_();
-  if (!tipPrepareForm_()) return false;
+  if (!await tipPrepareForm_()) return false;
   practiceI_ = { saved: false, startedOn: todayLocalISO(), platformSent: false, depositId: "", withdrawalId: "", deposit: 0 };
   practiceISave_();
   practiceIFailed_ = "";
@@ -22724,11 +22724,11 @@ async function practiceIRemove_(force) {
 }
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
-function practiceILeftover_() {
+async function practiceILeftover_() {
   if (practiceDue_("i")) return;   // already being retried, nothing to ask
   if (practiceILeftoverAsked_ || practiceIRemoving_ || Spotlight.isRunning() || !practiceILoad_()) return;
   practiceILeftoverAsked_ = true;
-  if (confirm(tr("spot.i.leftover"))) practiceIRemove_().then((ok) => { if (ok) showToast_(tr("spot.i.removed")); });
+  if (await askConfirmApp_(tr("spot.i.leftover"), tr("confirmBtn.yes"), { plain: true })) practiceIRemove_().then((ok) => { if (ok) showToast_(tr("spot.i.removed")); });
 }
 
 // ---- First-use practice: Accounts, cards & platforms ----
@@ -22907,11 +22907,11 @@ async function practiceARemove_(force) {
 }
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
-function practiceALeftover_() {
+async function practiceALeftover_() {
   if (practiceDue_("a")) return;   // already being retried, nothing to ask
   if (practiceALeftoverAsked_ || practiceARemoving_ || Spotlight.isRunning() || !practiceALoad_()) return;
   practiceALeftoverAsked_ = true;
-  if (confirm(tr("spot.a.leftover"))) practiceARemove_().then((ok) => { if (ok) showToast_(tr("spot.a.removed")); });
+  if (await askConfirmApp_(tr("spot.a.leftover"), tr("confirmBtn.yes"), { plain: true })) practiceARemove_().then((ok) => { if (ok) showToast_(tr("spot.a.removed")); });
 }
 
 // ---- First-use practice: Trips & events ----
@@ -23023,10 +23023,10 @@ function practiceTSteps_() {
 }
 
 let practiceTMaking_ = null;   // the call making the two past expenses
-function startTripsPractice_() {
+async function startTripsPractice_() {
   if (practiceTRemoving_) { showToast_(tr("spot.t.stillRemoving")); return false; }
   const open = ["trip-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
-  if (open || !tipPrepareForm_()) { if (open) showToast_(tr("spot.t.busy")); return false; }
+  if (open || !await tipPrepareForm_()) { if (open) showToast_(tr("spot.t.busy")); return false; }
   practiceT_ = { saved: false, deleted: false, startedOn: todayLocalISO(), made: true, pastIds: [], linked: false };   // (made: marked BEFORE the call)
   practiceTSave_();
   practiceTFailed_ = "";
@@ -23081,11 +23081,11 @@ async function practiceTRemove_() {
 }
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
-function practiceTLeftover_() {
+async function practiceTLeftover_() {
   if (practiceDue_("t")) return;   // already being retried, nothing to ask
   if (practiceTLeftoverAsked_ || practiceTRemoving_ || Spotlight.isRunning() || !practiceTLoad_()) return;
   practiceTLeftoverAsked_ = true;
-  if (confirm(tr("spot.t.leftover"))) practiceTRemove_().then((ok) => { if (ok) showToast_(tr("spot.t.removed")); });
+  if (await askConfirmApp_(tr("spot.t.leftover"), tr("confirmBtn.yes"), { plain: true })) practiceTRemove_().then((ok) => { if (ok) showToast_(tr("spot.t.removed")); });
 }
 
 // ---- First-use practice: Currency exchange ----
@@ -23187,11 +23187,11 @@ function practiceXSteps_() {
   ];
 }
 
-function startExchangePractice_() {
+async function startExchangePractice_() {
   if (practiceXRemoving_) { showToast_(tr("spot.x.stillRemoving")); return false; }
   const open = ["exchange-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop", "currency-modal-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
   if (open || newEntrySheetOpen_) { showToast_(tr("spot.x.busy")); return false; }
-  if (!tipPrepareForm_()) return false;
+  if (!await tipPrepareForm_()) return false;
   practiceX_ = { saved: false, startedOn: todayLocalISO(), accounts: [] };
   practiceXSave_();
   practiceXBalances_ = false;
@@ -23236,11 +23236,11 @@ async function practiceXRemove_() {
 }
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
-function practiceXLeftover_() {
+async function practiceXLeftover_() {
   if (practiceDue_("x")) return;   // already being retried, nothing to ask
   if (practiceXLeftoverAsked_ || practiceXRemoving_ || Spotlight.isRunning() || !practiceXLoad_()) return;
   practiceXLeftoverAsked_ = true;
-  if (confirm(tr("spot.x.leftover"))) practiceXRemove_().then((ok) => { if (ok) showToast_(tr("spot.x.removed")); });
+  if (await askConfirmApp_(tr("spot.x.leftover"), tr("confirmBtn.yes"), { plain: true })) practiceXRemove_().then((ok) => { if (ok) showToast_(tr("spot.x.removed")); });
 }
 
 // ---- First-use practice: Programmed items ----
@@ -23346,11 +23346,11 @@ function practiceRSteps_() {
   ];
 }
 
-function startProgrammedPractice_() {
+async function startProgrammedPractice_() {
   if (practiceRRemoving_) { showToast_(tr("spot.r.stillRemoving")); return false; }
   const open = ["recurring-modal-backdrop", "paid-picker-modal-backdrop", "recurring-delete-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
   if (open || newEntrySheetOpen_) { showToast_(tr("spot.r.busy")); return false; }
-  if (!tipPrepareForm_(tr("spot.r.name"))) return false;   // "Record the payment" overwrites the entry form: an unfinished draft is asked about first
+  if (!await tipPrepareForm_(tr("spot.r.name"))) return false;   // "Record the payment" overwrites the entry form: an unfinished draft is asked about first
   practiceR_ = { saved: false, deleted: false, startedOn: todayLocalISO() };
   practiceRSave_();
   practiceRFailed_ = "";
@@ -23393,11 +23393,11 @@ async function practiceRRemove_() {
 }
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
-function practiceRLeftover_() {
+async function practiceRLeftover_() {
   if (practiceDue_("r")) return;   // already being retried, nothing to ask
   if (practiceRLeftoverAsked_ || practiceRRemoving_ || Spotlight.isRunning() || !practiceRLoad_()) return;
   practiceRLeftoverAsked_ = true;
-  if (confirm(tr("spot.r.leftover"))) practiceRRemove_().then((ok) => { if (ok) showToast_(tr("spot.r.removed")); });
+  if (await askConfirmApp_(tr("spot.r.leftover"), tr("confirmBtn.yes"), { plain: true })) practiceRRemove_().then((ok) => { if (ok) showToast_(tr("spot.r.removed")); });
 }
 
 // ---- First-use practice: Budgets ----
@@ -23518,11 +23518,11 @@ async function practiceBRemove_() {
 }
 
 // A practice left behind (the app was closed midway): offered once when the app opens.
-function practiceBLeftover_() {
+async function practiceBLeftover_() {
   if (practiceDue_("b")) return;   // already being retried, nothing to ask
   if (practiceBLeftoverAsked_ || practiceBRemoving_ || Spotlight.isRunning() || !practiceBLoad_()) return;
   practiceBLeftoverAsked_ = true;
-  if (confirm(tr("spot.b.leftover"))) practiceBRemove_().then((ok) => { if (ok) showToast_(tr("spot.b.removed")); });
+  if (await askConfirmApp_(tr("spot.b.leftover"), tr("confirmBtn.yes"), { plain: true })) practiceBRemove_().then((ok) => { if (ok) showToast_(tr("spot.b.removed")); });
 }
 
 let loansRefreshSeq_ = 0;
@@ -23909,21 +23909,38 @@ function syncConversionAmount_() {
   if (field.value === from || field.value === "") field.value = converting ? whole : own;   // never over what the person typed
 }
 
-// A yes/no question in an app window (owner, 2026-11-08): the iPhone's own dialog speaks the phone's language ("Annuler"), not the
-// app's. okLabel names what happens ("End this budget"); it is red, since it removes something. Resolves true / false.
-function askConfirmApp_(text, okLabel) {
-  return new Promise((resolve) => {
+// Every yes/no question goes through this app window (owner, 2026-11-08), never the phone's own dialog: that one speaks the phone's
+// language ("Annuler"), its buttons cannot say what happens, and a practice cannot work with it. okLabel names what happens; red, since
+// most questions remove something; opts.plain = a blue button for a question that removes nothing; opts.cancel = what "Cancel" means
+// when it is not just backing out. Resolves true / false (✕ and a tap outside are the same as Cancel).
+// The phone's dialog froze the page; this one does not. So questions wait in line (two practices' leftovers a few seconds apart),
+// and the same question asked again while it is still open (a double tap) answers no.
+let appConfirmChain_ = Promise.resolve();
+const appConfirmOpen_ = new Set();
+function askConfirmApp_(text, okLabel, opts) {
+  opts = opts || {};
+  if (appConfirmOpen_.has(text)) return Promise.resolve(false);
+  appConfirmOpen_.add(text);
+  const shown = appConfirmChain_.then(() => new Promise((resolve) => {
     const backdrop = document.getElementById("app-confirm-backdrop");
+    const ok = document.getElementById("app-confirm-ok"), back = document.getElementById("app-confirm-back");
     document.getElementById("app-confirm-text").textContent = text;
-    document.getElementById("app-confirm-ok").textContent = okLabel || tr("common.ok");
+    ok.textContent = okLabel || tr("confirmBtn.yes");
+    ok.className = opts.plain ? "primary" : "delete-entry-btn";
+    back.textContent = opts.cancel || tr("common.cancel");
     const ids = ["app-confirm-ok", "app-confirm-back", "app-confirm-close"];
-    const done = (v) => { backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); resolve(v); };
-    document.getElementById("app-confirm-ok").onclick = () => done(true);
-    document.getElementById("app-confirm-back").onclick = () => done(false);
+    const done = (v) => { backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); appConfirmOpen_.delete(text); resolve(v); };
+    ok.onclick = () => done(true);
+    back.onclick = () => done(false);
     document.getElementById("app-confirm-close").onclick = () => done(false);
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // the keyboard would cover it
     bringModalToFront_(backdrop);
+    // During a practice it goes above the dimmed screen and its blocked taps (spotlight.js is at 100000; a window it lifts, 100001).
+    if (typeof Spotlight !== "undefined" && Spotlight.isRunning()) backdrop.style.zIndex = 100002;
     backdrop.hidden = false;
-  });
+  }));
+  appConfirmChain_ = shown.catch(() => {});
+  return shown;
 }
 
 // From this period on, or for all the budget's periods? Resolves "forward", "all" or null (backed out).
@@ -23983,7 +24000,7 @@ async function deleteOrphanLoan_(l, friend) {
     if (info.hasRepayments) {
       repayments = await askRepaymentChoice_("repayChoice.loanTitle", [{ friend: friend.name, currency: info.currency, total: info.paid }]);
       if (!repayments) return;
-    } else if (!confirm(tr("loanDetail.confirmDeleteOrphan", { amount: `${l.currency} ${moneyFmt(l.amount)}`, date: listDate_(l.date) }))) {
+    } else if (!await askConfirmApp_(tr("loanDetail.confirmDeleteOrphan", { amount: `${l.currency} ${moneyFmt(l.amount)}`, date: listDate_(l.date) }), tr("confirmBtn.delete"))) {
       return;
     }
     markDeleting_("loan:" + l.id);
@@ -24124,7 +24141,7 @@ async function openRepaymentEditorForEntry_(friendId, friendName, transferEntryI
 // Tapping an automatic cancel-out line offers to undo it: both loans owe that amount again.
 async function undoCancelOut_(r) {
   const ctx = historyCtx_;
-  if (!confirm(tr("history.undoConfirm", { amount: `${r.currency} ${moneyFmt(r.amount)}`, a: r.loan_description, b: r.offset_loan_description }))) return;
+  if (!await askConfirmApp_(tr("history.undoConfirm", { amount: `${r.currency} ${moneyFmt(r.amount)}`, a: r.loan_description, b: r.offset_loan_description }), tr("confirmBtn.yes"), { plain: true })) return;
   try {
     await callApi("undoCancelOut", { id: r.id });
   } catch (err) {
@@ -24344,7 +24361,7 @@ document.getElementById("reassign-delete").addEventListener("click", async () =>
   const text = r.gapAmount > 0.004
     ? tr("reassign.confirmDeleteWithExtra", { friend: ctx.friendName, cur: r.currency, total, loans: moneyFmt(r.applied), extra: moneyFmt(r.gapAmount) })
     : tr("reassign.confirmDelete", { friend: ctx.friendName, cur: r.currency, total });
-  if (!confirm(text)) return;
+  if (!await askConfirmApp_(text, tr("confirmBtn.delete"))) return;
   const repaymentId = r.id;
   document.getElementById("reassign-error").textContent = "";
   closeReassign_();
@@ -24485,9 +24502,9 @@ function bankSolveTea_(amount, count, net, start, dates, grace, graceType) {
 // The softer check before the impossible one (owner, 2026-11-08): over 200% a year is asked about (a typo such as an extra zero
 // or a wrong number of installments); banks' consumer credit in Peru is around 100–110% at most. `tea` is a fraction.
 const BANK_RATE_ASK_ = 2;
-function bankRateLooksRight_(tea) {
+async function bankRateLooksRight_(tea) {
   if (!(tea > BANK_RATE_ASK_) || Spotlight.isRunning()) return true;   // (a practice's made-up numbers are not asked about)
-  return confirm(tr("bank.highRate", { tea: (tea * 100).toLocaleString("en-US", { maximumFractionDigits: 0 }) }));
+  return await askConfirmApp_(tr("bank.highRate", { tea: (tea * 100).toLocaleString("en-US", { maximumFractionDigits: 0 }) }), tr("confirmBtn.yes"), { plain: true });
 }
 
 // The rows a quick generator makes: equal principal when there is no rate; otherwise a fixed installment (typed, or worked out as
@@ -24784,7 +24801,7 @@ function bankApplyMode_() {
 }
 document.querySelectorAll('input[name="bank-mode"]').forEach((r) => r.addEventListener("change", bankApplyMode_));
 
-document.getElementById("bank-gen-btn").addEventListener("click", () => {
+document.getElementById("bank-gen-btn").addEventListener("click", async () => {
   const amount = bankNum_(document.getElementById("bank-amount").value);
   const count = Math.round(bankNum_(document.getElementById("bank-gen-count").value));
   const first = document.getElementById("bank-gen-first").value;
@@ -24816,16 +24833,16 @@ document.getElementById("bank-gen-btn").addEventListener("click", () => {
       errEl.textContent = tr("bank.installmentTooHigh", { n: count, pay: `${cur} ${moneyFmt(payment)}`, amount: `${cur} ${moneyFmt(amount)}` });
       return;
     }
-    if (!bankRateLooksRight_(t)) return;
+    if (!await bankRateLooksRight_(t)) return;
     impliedEl.textContent = tr("bank.impliedRate", { tea: (t * 100).toFixed(2) });
     bankDraft_.rows = bankGenerateRowsDays_(amount, count, startDate, first, t, payment - fee, fee, freq, grace, graceType);
   } else if (byDays) {
-    if (!bankRateLooksRight_(typedRate / 100)) return;
+    if (!await bankRateLooksRight_(typedRate / 100)) return;
     bankDraft_.rows = bankGenerateRowsDays_(amount, count, startDate, first, typedRate / 100, 0, fee, freq, grace, graceType);
   } else {
     // a rate per payment period, as a yearly rate for the check: compounded over the periods in a year
     const perYear = { weekly: 52, biweekly: 26, monthly: 12, bimonthly: 6, quarterly: 4, semiannual: 2, yearly: 1 }[freq] || 12;
-    if (!bankRateLooksRight_(Math.pow(1 + typedRate / 100, perYear) - 1)) return;
+    if (!await bankRateLooksRight_(Math.pow(1 + typedRate / 100, perYear) - 1)) return;
     // a rate per payment period: the same rate every period, no day count
     bankDraft_.rows = bankGenerateRows_(amount, count, first, 0, typedRate, fee, freq, grace, graceType);
   }
@@ -25272,10 +25289,10 @@ document.querySelectorAll("#loan-direction-tabs .type-tab").forEach((tab) => {
 // A credit card does not normally receive money from a person or lend it to one, so picking one in the loan form, the
 // repayment form or the Transfer tab's Repayment / New loan asks once ("Use it anyway?"). Cancel puts the previous account
 // back. Only a pick by hand asks: an account already saved on an entry never does, and nothing is ever blocked.
-function warnCreditCardPick_(select, moneyComesIn) {
+async function warnCreditCardPick_(select, moneyComesIn) {
   const pm = (meta.paymentMethods || []).find((p) => p.id === select.value);
   if (!pm || pm.type !== "credit") { select.dataset.prev = select.value; return; }
-  if (confirm(tr(moneyComesIn ? "creditCard.warnIn" : "creditCard.warnOut", { name: pm.nickname }))) { select.dataset.prev = select.value; return; }
+  if (await askConfirmApp_(tr(moneyComesIn ? "creditCard.warnIn" : "creditCard.warnOut", { name: pm.nickname }), tr("confirmBtn.useAnyway"), { plain: true, cancel: tr("confirmBtn.changeAccount") })) { select.dataset.prev = select.value; return; }
   select.value = select.dataset.prev || "";
 }
 function watchCreditCardPick_(selectId, moneyComesIn) {
@@ -25643,7 +25660,7 @@ document.getElementById("loan-delete-btn").addEventListener("click", async () =>
     if (info.hasRepayments) {
       repayments = await askRepaymentChoice_("repayChoice.loanTitle", [{ friend: loanWho, currency: info.currency, total: info.paid }]);
       if (!repayments) return;
-    } else if (!practiceNoConfirm_(isPracticeLoanText_(loanDesc)) && !confirm(tr("loanModal.confirmDelete", { what: describeForConfirm_(loanDesc || loanWho, loanAmt ? `${loanCur} ${loanAmt}` : "", loanDesc && loanWho ? loanWho : "") }))) {
+    } else if (!practiceNoConfirm_(isPracticeLoanText_(loanDesc)) && !await askConfirmApp_(tr("loanModal.confirmDelete", { what: describeForConfirm_(loanDesc || loanWho, loanAmt ? `${loanCur} ${loanAmt}` : "", loanDesc && loanWho ? loanWho : "") }), tr("confirmBtn.delete"))) {
       return;
     }
     // Saving standard: the form closes at once; the loan's row says "Deleting…" until the server is done.
@@ -26120,7 +26137,7 @@ document.getElementById("settlement-delete-btn").addEventListener("click", async
   if (!editingSettlementId) return;
   const repAmt = document.getElementById("settlement-amount").value.trim();
   const repDate = document.getElementById("settlement-date").value;
-  if (!confirm(tr("settle.confirmDelete", { what: describeForConfirm_(repaymentFriendName || "", repAmt ? `${repaymentCurrency} ${repAmt}` : "", repDate) }))) return;
+  if (!await askConfirmApp_(tr("settle.confirmDelete", { what: describeForConfirm_(repaymentFriendName || "", repAmt ? `${repaymentCurrency} ${repAmt}` : "", repDate) }), tr("confirmBtn.delete"))) return;
 
   // Closes first, finishes in the background (same as the save button).
   const settlementId = editingSettlementId;
@@ -26881,7 +26898,7 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
 
 document.getElementById("balance-clear-btn").addEventListener("click", async () => {
   if (!balanceModalPmId) return;
-  if (!confirm(tr("balance.confirmStop"))) return;
+  if (!await askConfirmApp_(tr("balance.confirmStop"), tr("confirmBtn.yes"), { plain: true })) return;
   const pmId = balanceModalPmId;
   try {
     await callApi("setPaymentMethodOpeningBalance", { id: pmId, balances: [] });
@@ -27628,9 +27645,9 @@ async function recognizeReceiptText_(canvas, onProgress) {
 
 // Puts what was read into the open sheet (replacing what was there only after
 // asking, if the sheet already has items).
-function applyReceiptToBill_(parsed, opts) {
+async function applyReceiptToBill_(parsed, opts) {
   opts = opts || {};
-  if (!opts.noConfirm && billState.items.some((it) => it.price) && !confirm(tr("photo.confirmReplace"))) return false;
+  if (!opts.noConfirm && billState.items.some((it) => it.price) && !await askConfirmApp_(tr("photo.confirmReplace"), tr("confirmBtn.yes"), { plain: true })) return false;
   // Lines that are unchanged keep who shared them (matched by name + price).
   const previous = billState.items.slice();
   const keepPeople = (it) => {
@@ -27701,7 +27718,7 @@ async function readBillPhoto_(file) {
       say(tr("photo.noItems"), true);
       return;
     }
-    if (!applyReceiptToBill_(parsed)) { say(tr("photo.leftAsWas")); return; }
+    if (!await applyReceiptToBill_(parsed)) { say(tr("photo.leftAsWas")); return; }
     const dishes = parsed.items.filter((i) => !i.discount).length;
     const notes = parsed.warnings.length ? " " + parsed.warnings.join(" ") : "";
     say(tr("photo.readN", { n: dishes, notes }), parsed.warnings.length > 0);
@@ -27927,10 +27944,10 @@ document.getElementById("inproc-apply").addEventListener("click", () => {
 
 document.getElementById("bill-photo-again").addEventListener("click", () => { if (receiptFormFile_) readBillPhoto_(receiptFormFile_); });
 document.getElementById("bill-photo-btn").addEventListener("click", () => document.getElementById("bill-photo-input").click());
-document.getElementById("bill-photo-reparse").addEventListener("click", () => {
+document.getElementById("bill-photo-reparse").addEventListener("click", async () => {
   const parsed = ReceiptParse.parseReceipt(document.getElementById("bill-photo-text").value);
   if (!parsed.items.length) { billPhotoSay_(tr("photo.textNoItems"), true); return; }
-  if (billItemsEdited && !confirm(tr("photo.confirmOverwrite"))) return;
+  if (billItemsEdited && !await askConfirmApp_(tr("photo.confirmOverwrite"), tr("confirmBtn.yes"), { plain: true })) return;
   applyReceiptToBill_(parsed, { noConfirm: true, keepAssignments: true });
   const dishes = parsed.items.filter((i) => !i.discount).length;
   billPhotoSay_(tr("photo.reworked", { n: dishes }) + (parsed.warnings.length ? " " + parsed.warnings.join(" ") : ""), parsed.warnings.length > 0);

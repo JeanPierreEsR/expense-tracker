@@ -16,5 +16,5 @@ test("default name: the app's when the category already holds entries, else the 
 test("names that differ are listed above the categories, and a chosen rename asks before going on", () => {
   assert.match(src, /function nameConflicts\(\)/);
   assert.match(src, /tm-cat-conflict-box/);
-  assert.match(src, /const renames = nameConflicts\(\)\.filter\(\(c\) => c\.renamed\);\s*if \(renames\.length && !practiceNoConfirm_\(true\) && !confirm\(tr\("table\.conflictConfirm"/);
+  assert.match(src, /const renames = nameConflicts\(\)\.filter\(\(c\) => c\.renamed\);\s*if \(renames\.length && !practiceNoConfirm_\(true\) && !await askConfirmApp_\(tr\("table\.conflictConfirm"/);
 });
