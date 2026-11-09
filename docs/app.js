@@ -22628,6 +22628,7 @@ function realScreenFree_() {
 
 // Needs review: on the first real item, what is new about it (owner's rule: no repeating what the first entry explained). Then, the first
 // time another type arrives, only the fields that type adds. The practice with made-up entries is no longer offered (owner, 2026-11-09).
+let reviewConfirmedId_ = "";   // the item Confirm was tapped on during the tutorial
 let reviewTransferJust_ = "";   // the item "Make it a transfer" was just tapped on
 let reviewDecideOn_ = false;   // the tutorial's last step is on: a conversion button there ends it and takes over
 let reviewRealTimer_ = null, reviewRealDone_ = false;   // one per opening of the app, so nobody gets two in a row
@@ -22714,11 +22715,11 @@ function startReviewReal_() {
   steps.push(...reviewTypeSteps_(id, type, { must: true }));
   steps.push({ key: "decide", target: () => { const els = [part(".review-item-actions")(), part(".review-item-secondary-actions")()].filter(Boolean); return els.length ? els : null; }, text: () => tr(reviewSpecialKind_(entry) === "extra" ? "rt.review.decideExtra" : "rt.review.decide"), until: () => !row(), wait: 10000,
     before: async () => { if (!row()) return false; reviewDecideOn_ = true; }, after: () => { reviewDecideOn_ = false; } });
-  steps.push({ text: () => tr("rt.review.done"), button: () => tr("spot.g.done") });
+  steps.push(...realWhereSteps_(() => realEntryRow_(id), () => tr("rt.review.where"), { otherwise: () => tr("rt.review.done"), before: async () => { if (reviewConfirmedId_ !== id) return false; return realOnHome_(); }, poke: () => { refreshEntryList().catch(() => {}); } }));
   reviewRealDone_ = true;
   noteReviewType_(type);
   // The item can leave partway (the charge's own "Yes" button removes it): the steps about it are then left out, straight to the end.
-  const whileRow = (st, i) => (i === 0 || i === steps.length - 1 ? st : { ...st, before: async () => { if (!row()) return false; return st.before ? st.before() : true; } });
+  const whileRow = (st, i) => (i === 0 || st.keep ? st : { ...st, before: async () => { if (!row()) return false; return st.before ? st.before() : true; } });
   Spotlight.run(realSteps_(steps.map(whileRow)), {
     labels: realLabels_(),
     onFinish: async (how) => {
@@ -22836,7 +22837,7 @@ function startTransferReal_(kind) {
   // Repayment / new loan: who and which way
   steps.push(only(debt, { target: "#repayment-direction-tabs", text: () => tr(is("loan")() ? "rt.loan.direction" : "rt.repay.direction"), tap: "#repayment-direction-tabs", button: next }));
   steps.push(only(debt, { key: "friend", target: () => [el("repayment-friend"), el("repayment-hint")], text: (fix) => tr(fix ? "rt.transfer.friendFix" : is("loan")() ? "rt.loan.friend" : "rt.repay.friend"), visit: "#repayment-friend", button: next, ok: () => submitted || !debt() || friendOk(), holdsUntil: "save" }));
-  steps.push(only(is("loan"), { target: "#loan-due-block", text: () => tr("rt.loan.due"), visit: "#loan-due-date", button: () => tr("spot.g.notNow") }));
+  steps.push(only(is("loan"), { target: "#loan-due-block", text: () => tr("rt.loan.due"), visit: "#loan-due-date", button: next }));
   // Everything except an exchange, which has its own fields. The amount is asked for even when already explained: Save needs it.
   steps.push(only(is("between", "repayment", "loan"), { key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
     until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || !is("between", "repayment", "loan")() || amountOk(), holdsUntil: "save" }));
@@ -22859,8 +22860,10 @@ function startTransferReal_(kind) {
     text: () => { const err = lastError(); return err ? tr("spot.g.saveErr", { error: err }) : tr("spot.g.save"); },
     before: async () => { chosen = kindNow(); el("form-error").textContent = ""; return true; },
     until: () => !!(guided_ && guided_.savedId) || !newEntrySheetOpen_ }));
-  steps.push({ text: () => tr({ between: "rt.transfer.done", repayment: "rt.repay.done", loan: "rt.loan.done", exchange: "rt.exchange.done" }[chosen] || "rt.transfer.done"), button: () => tr("spot.g.done"),
-    before: async () => { if (document.getElementById("screen-entries").hidden) showScreen("entries"); return true; } });
+  let friend = "";
+  steps.push(...realWhereSteps_(() => (debt() ? realLoanRow_(friend) : is("exchange")() ? document.querySelector("#entry-list .entry-exchange") : realEntryRow_(guided_ && guided_.savedId)),
+    () => tr({ between: "rt.transfer.done", repayment: "rt.repay.done", loan: "rt.loan.done", exchange: "rt.exchange.done" }[chosen] || "rt.transfer.done"),
+    { before: async () => { friend = el("repayment-friend").value; if (debt()) { showScreen("loans"); return true; } return realOnHome_(); }, poke: () => { (debt() ? refreshLoans() : refreshEntryList()).catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), {
     labels: realLabels_(),
     onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); guided_ = null; },
@@ -22909,8 +22912,11 @@ function startConvDebt_(mode) {
   steps.push({ target: () => [el("review-transfer-amount"), el("review-transfer-date"), el("review-transfer-payment-method"), el("review-transfer-description-field")], text: () => tr(arrived ? "rt.conv.checkIn" : "rt.conv.checkOut"), button: next });
   steps.push({ key: "save", target: () => realSaveTarget_("review-transfer-save-btn", "review-transfer-form-error"), text: () => { const e = err(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); }, until: () => back.hidden });
   // Only once the server has answered: more than was owed comes back as an extra, money received with no debt on record is refused.
-  steps.push({ text: () => tr(convDebtOutcome_ === "refused" ? "rt.conv.refused" : convDebtOutcome_ === "over" ? "rt.conv.repayOver" : mode === "repay" ? "rt.conv.repayDone" : "rt.loan.done"), button: () => tr("spot.g.done"),
-    before: async () => { for (let i = 0; i < 300 && !convDebtOutcome_; i++) await new Promise((r) => setTimeout(r, 100)); return true; } });
+  let friend = "";
+  const endText = () => tr(convDebtOutcome_ === "refused" ? "rt.conv.refused" : convDebtOutcome_ === "over" ? "rt.conv.repayOver" : mode === "repay" ? "rt.conv.repayDone" : "rt.loan.done");
+  steps[steps.length - 1].after = () => { friend = el("review-transfer-friend").value; };
+  steps.push(...realWhereSteps_(() => realLoanRow_(friend), endText, { wait: 12000, poke: () => { refreshLoans().catch(() => {}); },
+    before: async () => { for (let i = 0; i < 300 && !convDebtOutcome_; i++) await new Promise((r) => setTimeout(r, 100)); if (convDebtOutcome_ === "refused") return false; showScreen("loans"); return true; } }));
   convRun_(steps);
 }
 function startConvExchange_() {
@@ -22929,7 +22935,7 @@ function startConvExchange_() {
       until: () => parseFloat(amountBox.value) > 0 && document.activeElement !== amountBox },
     { target: () => [el("exchange-date"), el("exchange-out-account"), el("exchange-out-amount").parentElement, el("exchange-in-account"), el("exchange-in-amount").parentElement], text: () => tr("rt.review.check"), button: next },
     { target: () => realSaveTarget_("exchange-save-btn", "exchange-form-error"), text: () => { const e = err(); return e ? tr("spot.x.s10err", { error: e }) : tr("spot.x.s10"); }, until: () => back.hidden },
-    { text: () => tr("rt.exchange.done"), button: () => tr("spot.g.done") }
+    ...realWhereSteps_(() => document.querySelector("#entry-list .entry-exchange"), () => tr("rt.exchange.done"), { before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } })
   ]);
 }
 // Change type opens the full form: one bubble on the type buttons is enough, the form explains itself from there.
@@ -22951,6 +22957,8 @@ document.addEventListener("click", (e) => {
   const el = (id) => document.getElementById(id);
   const open = (id) => () => !el(id).hidden;
   if (reviewDecideOn_ && e.target.closest(".review-item-secondary-actions button")) { reviewDecideOn_ = false; Spotlight.stop("done"); }
+  const confirmed = e.target.closest(".review-confirm-btn");
+  if (confirmed) { const r = confirmed.closest(".review-item"); reviewConfirmedId_ = r ? r.dataset.entryId : ""; }
   const toTransfer = e.target.closest(".review-transfer-btn");
   if (toTransfer) { const r = toTransfer.closest(".review-item"); reviewTransferJust_ = r ? r.dataset.entryId : ""; }
   const splitBtn = e.target.closest(".review-split-btn");
@@ -23015,7 +23023,8 @@ function startConvType_(type) {
   }
   steps.push({ key: "save", target: () => realSaveTarget_("submit-btn", "form-error"), text: () => { const e = lastError(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); },
     before: async () => { el("form-error").textContent = ""; return true; }, until: () => !confirmingPendingId });
-  steps.push({ text: () => tr({ expense: "rt.conv.expenseDone", income: "rt.conv.incomeDone", investment: "rt.conv.investDone", transfer: "rt.transfer.done" }[type]), button: () => tr("spot.g.done") });
+  const itemId = confirmingPendingId;
+  steps.push(...realWhereSteps_(() => realEntryRow_(itemId), () => tr({ expense: "rt.conv.expenseDone", income: "rt.conv.incomeDone", investment: "rt.conv.investDone", transfer: "rt.transfer.done" }[type]), { before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), {
     labels: realLabels_(),
     onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0); },
@@ -23072,7 +23081,8 @@ function startSplitReal_() {
   if (confirmingPendingId) steps.push({ target: () => [el("amount"), el("date"), el("payment-method-field")].filter((x) => x && !x.hidden), text: () => tr("rt.review.check"), button: () => tr("spot.g.next") });
   steps.push({ key: "save", target: () => realSaveTarget_("submit-btn", "form-error"), text: () => { const e = lastError(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); },
     before: async () => { el("form-error").textContent = ""; return true; }, until: () => !!(guided_ && guided_.savedId) || !formOpen() });
-  steps.push({ text: () => tr("rt.split.done"), button: () => tr("spot.g.done") });
+  const itemId = confirmingPendingId;
+  steps.push(...realWhereSteps_(() => realEntryRow_((guided_ && guided_.savedId) || itemId), () => tr("rt.split.done"), { before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
     onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
 }
@@ -23117,19 +23127,29 @@ function startFormGuide_(feature, used, backdropId, saveId, introKey, build) {
 }
 const realShown_ = (id) => { const e = document.getElementById(id); return !!e && !e.hidden && e.getClientRects().length > 0; };
 const realNext_ = () => tr("spot.g.next");
-const realNotNow_ = () => tr("spot.g.notNow");
 // A refused Save lights up the whole form: the fix may be in a field the guide already passed, and a dimmed one cannot be reached (owner's walks, 2026-11-09).
 function realSaveTarget_(saveId, errId) {
   const b = document.getElementById(saveId), e = document.getElementById(errId);
   if ((e.textContent || "").trim()) { const form = b.closest(".currency-modal") || b.closest("#entry-card"); if (form) return form; }
   return [b, e];
 }
-function realSaveSteps_(ctx, saveId, errId, doneKey) {
-  const err = () => (document.getElementById(errId).textContent || "").trim();
+// The end of a tutorial: it scrolls to what was just saved and lights it up, so the person sees where it lives ("Saving…" until it arrives). If it never appears, the same words, centred.
+function realWhereSteps_(find, textFn, opts) {
+  opts = opts || {};
+  let shown = false;
   return [
-    { key: "save", target: () => realSaveTarget_(saveId, errId), text: () => { const e = err(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); }, until: () => !ctx.open() },
-    { text: () => tr(doneKey), button: () => tr("spot.g.done") }
+    { keep: true, look: true, target: find, text: textFn, button: () => tr("spot.g.done"), wait: opts.wait || 30000, waitText: () => tr("rt.saving"), poke: opts.poke, before: opts.before, after: () => { shown = true; } },
+    { keep: true, text: opts.otherwise || textFn, button: () => tr("spot.g.done"), before: async () => !shown }
   ];
+}
+const realEntryRow_ = (id) => (id ? document.querySelector(`#entry-list .entry[data-entry-id="${CSS.escape(id)}"]`) : null);
+const realOnHome_ = async () => { if (document.getElementById("screen-entries").hidden) showScreen("entries"); return true; };
+const realLoanRow_ = (friendId) => Array.from(document.querySelectorAll("#loans-owed-to-me-list .loan-row, #loans-i-owe-list .loan-row")).find((r) => r.dataset.friendId === friendId) || null;
+function realSaveSteps_(ctx, saveId, errId, doneKey, where) {
+  const err = () => (document.getElementById(errId).textContent || "").trim();
+  const save = { key: "save", target: () => realSaveTarget_(saveId, errId), text: () => { const e = err(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); }, until: () => !ctx.open(),
+    before: async () => { if (ctx.capture) ctx.capture(); return true; } };
+  return [save].concat(where ? realWhereSteps_(where.find, () => tr(doneKey), where) : [{ text: () => tr(doneKey), button: () => tr("spot.g.done") }]);
 }
 function realAmountStep_(ctx, id, textFn, fixKey) {
   const box = () => document.getElementById(id);
@@ -23141,51 +23161,77 @@ function realNameStep_(ctx, id, textKey) {
   return { key: "name", target: "#" + id, text: (fix) => tr(fix ? "rt.form.nameFix" : textKey), blurTap: true, until: () => !!box().value.trim() && document.activeElement !== box(), ok: () => ctx.saving() || !!box().value.trim(), holdsUntil: "save" };
 }
 function budgetGuideSteps_(ctx) {
+  let name = "";
+  ctx.capture = () => { const c = meta.categories.find((x) => selectedBudgetCategoryIds.has(x.id)); name = document.getElementById("budget-name").value.trim() || (c ? c.name : ""); };
+  const row = () => Array.from(document.querySelectorAll("#budgets-list .budget-row")).find((r) => r.dataset.budgetName === name || (name && r.textContent.includes(name))) || null;
   return [
     { key: "category", target: "#budget-category-chips", text: () => tr("spot.b.s2"), until: () => selectedBudgetCategoryIds.size > 0, ok: () => ctx.saving() || selectedBudgetCategoryIds.size > 0, holdsUntil: "save" },
     realAmountStep_(ctx, "budget-amount", () => tr("spot.b.s3", { cur: document.getElementById("budget-currency").value }), "spot.b.s3fix"),
     { target: "#budget-period-tabs", text: () => tr("spot.b.s4"), tap: "#budget-period-tabs", button: realNext_ },
-    { target: "#budget-name", text: () => tr("rt.budget.name"), visit: "#budget-name", button: realNotNow_ },
-    { target: "#budget-alert-fields", text: () => tr("rt.budget.alerts"), visit: "#budget-thresholds", button: realNotNow_, before: async () => realShown_("budget-alert-fields") }
-  ].concat(realSaveSteps_(ctx, "budget-save-btn", "budget-form-error", "rt.budget.done"));
+    { target: "#budget-name", text: () => tr("rt.budget.name"), blurTap: true, visit: "#budget-name", button: realNext_ },
+    { target: "#budget-alert-fields", text: () => tr("rt.budget.alerts"), blurTap: true, visit: "#budget-thresholds", button: realNext_, before: async () => realShown_("budget-alert-fields") }
+  ].concat(realSaveSteps_(ctx, "budget-save-btn", "budget-form-error", "rt.budget.done", { find: row }));
 }
 function programmedGuideSteps_(ctx) {
   const once = () => recurringFrequency === "once";
+  let name = "";
+  ctx.capture = () => { const c = meta.categories.find((x) => x.id === selectedRecurringCategoryId); name = document.getElementById("recurring-description").value.trim() || (c ? c.name : ""); };
+  const row = () => Array.from(document.querySelectorAll("#screen-recurring .recurring-row")).find((r) => name && r.textContent.includes(name)) || null;
   return [
-    { target: "#recurring-description", text: () => tr("rt.prog.desc"), visit: "#recurring-description", button: realNext_ },
+    { target: "#recurring-description", text: () => tr("rt.prog.desc"), blurTap: true, visit: "#recurring-description", button: realNext_ },
     { key: "category", target: "#recurring-category-chips", text: () => tr("rt.prog.category"), until: () => !!selectedRecurringCategoryId, ok: () => ctx.saving() || !!selectedRecurringCategoryId, holdsUntil: "save" },
     realAmountStep_(ctx, "recurring-amount", () => tr("rt.prog.amount"), "spot.r.s3fix"),
     { target: "#recurring-frequency-tabs", text: () => tr("rt.prog.freq"), tap: "#recurring-frequency-tabs", button: realNext_ },
+    { target: "#recurring-custom-fields", text: () => tr("rt.prog.custom"), button: realNext_, before: async () => realShown_("recurring-custom-fields") },
+    { target: "#recurring-window-fields", text: () => tr("rt.prog.window"), button: realNext_, available: () => !once(), before: async () => !once() && realShown_("recurring-window-fields") },
     { key: "date", target: "#recurring-occurrence-date", text: () => tr("rt.prog.date"), visit: "#recurring-occurrence-date", button: realNext_, available: once, before: async () => once(), ok: () => ctx.saving() || !once() || !!document.getElementById("recurring-occurrence-date").value, holdsUntil: "save" }
-  ].concat(realSaveSteps_(ctx, "recurring-save-btn", "recurring-form-error", "rt.prog.done"));
+  ].concat(realSaveSteps_(ctx, "recurring-save-btn", "recurring-form-error", "rt.prog.done", { find: row }));
 }
 function accountGuideSteps_(ctx) {
+  let name = "";
+  ctx.capture = () => { name = document.getElementById("pm-nickname").value.trim(); };
+  const row = () => Array.from(document.querySelectorAll("#accounts-list .recurring-row")).find((r) => { const n = r.querySelector(".recurring-row-name"); return n && n.textContent.includes(name); }) || null;
   return [
     realNameStep_(ctx, "pm-nickname", "rt.acc.name"),
     { target: "#pm-type", text: () => tr("rt.acc.type"), visit: "#pm-type", button: realNext_ },
-    { target: "#pm-bank", text: () => tr("rt.acc.bank"), visit: "#pm-bank", button: realNotNow_, before: async () => realShown_("pm-bank") },
-    { target: "#pm-last4", text: () => tr("rt.acc.last4"), visit: "#pm-last4", button: realNotNow_, before: async () => realShown_("pm-last4") }
-  ].concat(realSaveSteps_(ctx, "pm-save-btn", "pm-form-error", "rt.acc.done"));
+    { target: "#pm-cur-box", text: () => tr("rt.acc.cur"), button: realNext_, before: async () => realShown_("pm-cur-box") },
+    { target: "#pm-bank", text: () => tr("rt.acc.bank"), visit: "#pm-bank", button: realNext_, before: async () => realShown_("pm-bank") },
+    { target: "#pm-last4", text: () => tr("rt.acc.last4"), blurTap: true, visit: "#pm-last4", button: realNext_, before: async () => realShown_("pm-last4") }
+  ].concat(realSaveSteps_(ctx, "pm-save-btn", "pm-form-error", "rt.acc.done", { find: row }));
 }
 function tripGuideSteps_(ctx) {
+  let name = "";
+  ctx.capture = () => { name = document.getElementById("trip-name").value.trim(); };
+  const row = () => Array.from(document.querySelectorAll("#trips-list .recurring-row")).find((r) => r.dataset.tripName === name) || null;
   return [
     { target: "#trip-kind-tabs", text: () => tr("rt.trip.kind"), tap: "#trip-kind-tabs", button: realNext_ },
     realNameStep_(ctx, "trip-name", "rt.trip.name"),
     { target: () => document.getElementById("trip-start").previousElementSibling, text: () => tr("rt.trip.dates"), button: realNext_ },   // (the date field the app draws in place of the two boxes)
-    { target: "#trip-budget", text: () => tr("rt.trip.budget"), visit: "#trip-budget", button: realNotNow_ }
-  ].concat(realSaveSteps_(ctx, "trip-save-btn", "trip-form-error", "rt.trip.done"));
+    { target: "#trip-budget", text: () => tr("rt.trip.budget"), blurTap: true, visit: "#trip-budget", button: realNext_ }
+  ].concat(realSaveSteps_(ctx, "trip-save-btn", "trip-form-error", "rt.trip.done", { find: row }));
 }
+// Split a bill: every part of the window, starting with the photo. "Use this split" only fills in the expense, so the tutorial goes on to save it.
 function billGuideSteps_(ctx) {
+  const el = (id) => document.getElementById(id);
   const items = () => (billState && billState.items ? billState.items.length : 0);
+  const total = () => parseFloat(el("bill-total").value);
+  const applyOff = () => el("bill-apply").disabled;
+  const modal = () => el("bill-apply").closest(".currency-modal");
+  const fromForm = confirmingPendingId;
   return [
-    { target: () => [document.getElementById("bill-photo-btn"), document.getElementById("bill-items"), document.getElementById("bill-add-item")], text: (fix) => tr(fix ? "rt.bill.itemsFix" : "rt.bill.items"), key: "items", button: realNext_, ok: () => ctx.saving() || items() > 0, holdsUntil: "save" },
-    realAmountStep_(ctx, "bill-total", () => tr("rt.bill.total"), "spot.g.amountFix"),
-    { key: "people", target: () => [document.getElementById("bill-people-chips"), document.getElementById("bill-add-friend")], text: () => tr("rt.bill.people"), until: () => billState.people.size > 0 },
+    { key: "photo", target: () => [el("bill-photo-btn"), el("bill-photo-status")].filter((x) => !x.hidden), text: () => tr("rt.bill.photo"), button: realNext_, until: () => items() > 0 },
+    { key: "items", target: () => [el("bill-items"), el("bill-add-item")], text: (fix) => tr(fix ? "rt.bill.itemsFix" : "rt.bill.items"), button: realNext_, ok: () => ctx.saving() || items() > 0, holdsUntil: "save" },
+    { key: "total", target: "#bill-total", text: (fix) => tr(fix ? "rt.bill.totalFix" : "rt.bill.total"), blurTap: true, visit: "#bill-total", button: realNext_, ok: () => ctx.saving() || total() > 0, holdsUntil: "save" },
+    { key: "people", target: () => [el("bill-people-chips"), el("bill-add-friend")], text: () => tr("rt.bill.people"), until: () => billState.people.size > 0 },
     { target: "#bill-items", text: () => tr("rt.bill.assign"), button: realNext_ },
-    { target: "#bill-tip-type-tabs", text: () => tr("rt.bill.tip"), button: realNext_ },
-    { key: "save", target: () => realSaveTarget_("bill-apply", "bill-error"), text: () => { const e = (document.getElementById("bill-error").textContent || "").trim(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.bill.apply"); }, until: () => !ctx.open() },
-    { text: () => tr("rt.bill.done"), button: () => tr("spot.g.done") }
-  ];
+    { target: () => [el("bill-add-discount"), el("bill-add-charge")], text: () => tr("rt.bill.adjust"), button: realNext_ },
+    { target: () => [el("bill-tip-type-tabs"), el("bill-tip-value"), el("bill-tip-preview")], text: () => tr("rt.bill.tip"), button: realNext_ },
+    { target: "#bill-tip-mode-tabs", text: () => tr("rt.bill.tipMode"), button: realNext_ },
+    // A red line means it does not add up yet: the whole window lights up so anything can be fixed, and it cannot go on until it does.
+    { key: "check", target: () => (applyOff() ? modal() : [el("bill-check"), el("bill-result")]), text: (fix) => tr(fix || applyOff() ? "rt.bill.checkFix" : "rt.bill.check"), button: realNext_, ok: () => ctx.saving() || !applyOff(), holdsUntil: "save" },
+    { key: "save", target: () => realSaveTarget_("bill-apply", "bill-error"), text: () => { const e = (el("bill-error").textContent || "").trim(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.bill.apply"); }, until: () => billApplied && !ctx.open() },
+    { key: "entrySave", target: () => realSaveTarget_("submit-btn", "form-error"), text: () => { const e = el("form-error").textContent.trim(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.bill.saveEntry"); }, until: () => !!(guided_ && guided_.savedId) || !(newEntrySheetOpen_ || confirmingPendingId) }
+  ].concat(realWhereSteps_(() => realEntryRow_((guided_ && guided_.savedId) || fromForm), () => tr("rt.bill.done"), { before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } }));
 }
 document.addEventListener("click", (e) => {
   if (!e.target.closest) return;
@@ -23202,6 +23248,11 @@ document.addEventListener("click", (e) => {
   if (b.id === "trips-add-btn") startFormGuide_("trips", () => (meta.trips || []).length > 0, "trip-modal-backdrop", "trip-save-btn", "rt.trip.intro", tripGuideSteps_);
   if (b.id === "bill-open-btn") startFormGuide_("bill", () => false, "bill-modal-backdrop", "bill-apply", "rt.bill.intro", billGuideSteps_);
 }, true);
+
+// Adding an investment platform: the example name is a platform, not a bank card.
+function syncPmNameExample_() { document.getElementById("pm-nickname").placeholder = tr(document.getElementById("pm-type").value === "investment" ? "accounts.namePlaceholderInvest" : "accounts.namePlaceholder"); }
+document.getElementById("pm-type").addEventListener("change", syncPmNameExample_);
+new MutationObserver(() => { if (!document.getElementById("pm-modal-backdrop").hidden) syncPmNameExample_(); }).observe(document.getElementById("pm-modal-backdrop"), { attributes: true, attributeFilter: ["hidden"] });
 
 // Investments ("+" → Investment): the tab may be only a look, so it asks.
 document.querySelector('#entry-type-tabs .type-tab[data-type="investment"]').addEventListener("click", (e) => {
@@ -23230,7 +23281,7 @@ function startInvestmentReal_() {
     realAmountStep_(ctx, "amount", () => tr("spot.g.amount"), "spot.g.amountFix"),
     { target: "#payment-method-field", text: () => tr("spot.g.accInv"), visit: "#payment_method", button: realNext_ },
     { key: "platform", target: "#to-payment-method-field", text: () => tr("spot.g.platform"), visit: "#to_payment_method", ok: () => saving || !!platform(), holdsUntil: "save" }
-  ].concat(realSaveSteps_({ open: () => newEntrySheetOpen_ && !(guided_ && guided_.savedId) }, "submit-btn", "form-error", "rt.invest.done"));
+  ].concat(realSaveSteps_({ open: () => newEntrySheetOpen_ && !(guided_ && guided_.savedId) }, "submit-btn", "form-error", "rt.invest.done", { find: () => realEntryRow_(guided_ && guided_.savedId), before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
     onFinish: async (how) => { form.removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
 }

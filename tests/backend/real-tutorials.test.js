@@ -177,3 +177,27 @@ test("the closed Needs review row: the first tutorial opens it, the small extras
   assert.match(section("function startReviewTopUp_(", "const TRANSFER_FEATURE_"), /!reviewOpen_\) return;/);
   assert.match(app, /setReviewOpen_\(!reviewOpen_\); if \(reviewOpen_\) offerReviewTip_\(\);/);
 });
+
+test("typing steps hand the screen to the keyboard, in the home-screen app as much as in Safari", () => {
+  for (const id of ["budget-name", "recurring-description", "trip-budget", "pm-last4"]) assert.match(app, new RegExp(`target: "#${id}", text: \\(\\) => tr\\("[a-z.A-Z0-9]+"\\), blurTap: true`), id);
+});
+
+test("a tutorial ends on what it just saved, and says so while it is saving", () => {
+  const fn = section("function realWhereSteps_(", "const realEntryRow_ =");
+  assert.match(fn, /look: true, target: find/);
+  assert.match(fn, /waitText: \(\) => tr\("rt\.saving"\)/);
+  assert.match(fn, /before: async \(\) => !shown/, "if it never appears, the same words, centred");
+});
+
+test("Split a bill starts with the photo, cannot go on while it does not add up, and saves the expense", () => {
+  const fn = section("function billGuideSteps_(", 'document.addEventListener("click", (e) => {\n  if (!e.target.closest) return;\n  const b = e.target.closest("#add-budget-btn');
+  assert.match(fn, /key: "photo"/);
+  assert.match(fn, /ok: \(\) => ctx\.saving\(\) \|\| !applyOff\(\)/);
+  assert.match(fn, /until: \(\) => billApplied && !ctx\.open\(\)/);
+  assert.match(fn, /key: "entrySave"/);
+});
+
+test("the focus window stops at the sheet's edges", () => {
+  const engine = fs.readFileSync(path.join(__dirname, "../../docs/spotlight.js"), "utf8");
+  assert.match(engine, /e\.closest\("\.currency-modal"\)/);
+});
