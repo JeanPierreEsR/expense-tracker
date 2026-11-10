@@ -107,6 +107,10 @@
     });
     const loaded = [refreshStatementCoverage(), refreshStatementGaps(), refreshStatementBatches(), refreshStatementInbox()];
     renderSteps();
+    // Loading standard: the tabs and "Loading…" first; everything below appears together once it has all arrived.
+    $("stmt-head-card").dataset.loading = tr("common.loading");
+    $("screen-statements").classList.add("stmt-opening");
+    Promise.allSettled(loaded).then(() => $("screen-statements").classList.remove("stmt-opening"));
     if (next === "import") offerImportTip_();
     Promise.allSettled(loaded).then(() => {   // loading standard: offered once the status line and the Inbox have arrived
       if (screenMode !== next || $("screen-statements").hidden) return;
@@ -164,6 +168,7 @@
   function renderSteps() {
     const names = ["stmt.step.upload", "stmt.step.check", "stmt.step.preview", "stmt.step.done"];
     $("stmt-stepper").hidden = pastOpen;
+    $("stmt-head-card").hidden = pastOpen;   // the past list has its own Back: never two arrows
     $("stmt-stepper").innerHTML = names.map((key, i) => {
       const n = i + 1;
       const cls = n === stepNow ? "on" : (n < stepNow ? "done" : "");
@@ -178,7 +183,9 @@
   // Counts and buttons that depend on what was read so far.
   function updateStepUi() {
     const total = stmtCards().length, ready = readyCount();
-    $("stmt-s2-count").textContent = total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr("stmt.s2.skipped") : "") : tr("stmt.s2.none");
+    // A spreadsheet waits for its "Use these lines" even when everything is already set (a saved layout, its accounts remembered): say so.
+    const waiting = !!$("statement-results").querySelector(".tm-use");
+    $("stmt-s2-count").textContent = total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr(waiting ? "stmt.s2.waitingUse" : "stmt.s2.skipped") : "") : tr("stmt.s2.none");
     const next = $("stmt-next-2");
     next.hidden = !usable.length;
     next.textContent = tr("stmt.s2.next", { n: ready });
@@ -464,7 +471,7 @@
   async function toggleGap(id, isOpen, btn) {
     const payload = { id, resolved: isOpen };
     if (isOpen) {
-      const note = prompt(tr("gaps.notePrompt"), "");
+      const note = await askTextApp_(tr("gaps.notePrompt"), tr("gaps.resolve"));
       if (note === null) return;           // cancelled
       payload.note = note;
     }
@@ -880,6 +887,7 @@
       const rows = await StatementTable.readTable(new Uint8Array(await file.arrayBuffer()), file.name);
       if (rows.length < 2) throw new Error("table-empty");
       await renderTableMapping(body, rows, file);
+      updateStepUi();   // the counter now knows this file waits for "Use these lines"
     } catch (err) {
       body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(tableErrorText(err))}</p>`;
     }
@@ -1863,7 +1871,11 @@
     const { actions, summary } = historyPlan;
     const left = summary.leftOut, c = historyCounts();
     const lines = [];
-    if (c.expenses) lines.push(tr("hist.sum.expenses", { n: c.expenses, total: moneyTotals(c.spent) }));
+    if (c.expenses) {
+      const totals = moneyTotals(c.spent).split(" + ");
+      if (totals.length > 1) lines.push(tr("hist.sum.expensesMany", { n: c.expenses }), ...totals);   // one line per currency: never added together
+      else lines.push(tr("hist.sum.expenses", { n: c.expenses, total: totals[0] }));
+    }
     if (c.income) lines.push(tr("hist.sum.income", { n: c.income }));
     if (c.refunds) lines.push(tr("hist.sum.refunds", { n: c.refunds }));
     if (c.refundIncome) lines.push(tr("hist.sum.refundIncome", { n: c.refundIncome }));
