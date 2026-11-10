@@ -217,3 +217,17 @@ test("step 5: bank loan, statements and import tutorials, the idle offer, Export
   assert.match(stm, /realStmtFileChosen_\(\);\n    return card\.querySelector\("\.stmt-result-body"\)/);
   for (const k of [...(app + stm).matchAll(/"(rt\.(?:bank|stmt|imp|idle)\.[A-Za-z]+)"/g)].map((m) => m[1])) assert.match(strs, new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: ".+", es: ".+" \\}'), k);
 });
+
+test("step 5b: no tutorial says Saved for a refused save or a window closed without saving; Tidy follows an upload", () => {
+  const where = section("function realWhereSteps_(", "function realNoteFailed_(");
+  assert.match(where, /giveUp: \(\) => realSaveFailed_\(\) \|\| unsaved\(\)/);
+  assert.match(where, /realSaveFailed_\(\) \? tr\("rt\.notSaved"\) : unsaved\(\) \? tr\("rt\.closedNoSave"\)/);
+  assert.match(section("function saveBehindScreen_(", "function afterNewEntrySaved_("), /realNoteFailed_\(\);/);
+  assert.match(fs.readFileSync(path.join(__dirname, "../../docs/spotlight.js"), "utf8"), /if \(step\.giveUp && step\.giveUp\(\)\) return "gaveUp";/);
+  const stm = fs.readFileSync(path.join(__dirname, "../../docs/statements.js"), "utf8");
+  assert.ok(!stm.includes('getElementById("more-tidy-btn")'), "the Tidy button after an upload must open Tidy (more-tidy-btn no longer exists)");
+  assert.match(stm, /markTidyFromUpload_\(\); showTidyScreen\(\);/);
+  assert.match(app, /offerTidyReal_\(\);/);
+  const strs = fs.readFileSync(path.join(__dirname, "../../docs/strings.js"), "utf8");
+  for (const k of [...(app + stm).matchAll(/"(rt\.(?:tidy|form|entry|notSaved|closedNoSave)[A-Za-z.]*)"/g)].map((m) => m[1])) assert.match(strs, new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: ".+", es: ".+" \\}'), k);
+});

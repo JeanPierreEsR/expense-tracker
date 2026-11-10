@@ -22,6 +22,7 @@
 //   after:   () => void                                    runs when the step is done
 //   wait:    ms                                            how long to wait for the target to appear (default 5000; then the step is left out)
 //   poke:    () => void                                    called every 2 s while waiting for the target (e.g. refresh a list), never while ctx.busy()
+//   giveUp:  () => boolean                                 while waiting for the target: true = stop waiting, go on quietly
 //   waitText: () => string                                 what to say while waiting for this step's target (e.g. "Saving…"; default "One moment…")
 //   available: () => boolean                               cheap, no side effects: lets "3 of 12" count only steps that will show
 //   button:  () => string                                  shows one button with this label; pressing it ends the step (an info step)
@@ -301,6 +302,7 @@
         if (targets.length) break;
         if (closed || token !== stepToken) return "stale";
         if (waited >= limit) return "missing";   // never appeared: see go()
+        if (step.giveUp && step.giveUp()) return "gaveUp";   // what it waits for will never come (a refused save): the next step says so
         // A poke (reload the list the target lives in) only while nothing is on its way to the server (ctx.busy): a reload sent
         // while the save is still travelling cannot show the new item yet, and stacked reloads slowed the save itself down.
         // (after 8 s it goes ahead anyway: a slow background call, e.g. the e-mail check, must not hold it back)

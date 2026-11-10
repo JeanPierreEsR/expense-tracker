@@ -2304,7 +2304,8 @@
     setTimeout(showReviewQueue_, 400);
   });
   // "Tidy my history" in the saved message opens the same screen as More → Tidy my history.
-  document.addEventListener("click", (e) => { if (e.target.closest && e.target.closest(".stmt-tidy-btn")) document.getElementById("more-tidy-btn").click(); });
+  // (it used to press "more-tidy-btn", which no longer exists since Tidy moved into My data: the button did nothing)
+  document.addEventListener("click", (e) => { if (e.target.closest && e.target.closest(".stmt-tidy-btn")) { markTidyFromUpload_(); showTidyScreen(); } });
   // The same button sits in Recent uploads and in the "saved" message after a save.
   document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest(".stmt-added-btn"); if (b) openAdded(b.dataset.batch); });
   $("statement-batches").addEventListener("click", (e) => { const b = e.target.closest(".stmt-undo-row"); if (b) undoBatch(b.dataset.batch, b); });
@@ -2526,8 +2527,11 @@
     const canSave = () => !!$("statement-history-save");
     const planError = () => !!$("statement-plan-status").querySelector(".stmt-verdict.bad");
     const pre = imp ? "rt.imp." : "rt.stmt.";
+    const tidyBtn = () => $("statement-review-status").querySelector(".stmt-tidy-btn");
+    const pendingBtn = () => $("statement-review-status").querySelector(".stmt-goreview-btn");
     const steps = [];
-    if (fromStart) steps.push({ key: "choose", target: imp ? ".stmt-upload-btn" : "#stmt-upload-card", text: () => tr(pre + "choose"), until: () => stmtCards().length > 0,
+    const findShown = () => !$("statement-find-card").hidden;
+    if (fromStart) steps.push({ key: "choose", target: imp ? ".stmt-upload-btn" : "#stmt-upload-card", text: () => tr(!imp && findShown() ? "rt.stmt.choose3" : pre + "choose"), until: () => stmtCards().length > 0,
       before: async () => { window.scrollTo(0, 0); return true; } });
     steps.push(
       { key: "reading", target: "#statement-results", text: () => tr("rt.stmt.reading"), until: readDone, wait: 8000, before: async () => !readDone() },
@@ -2536,12 +2540,19 @@
       { key: "cats", target: part(".tm-cats"), text: () => tr("rt.imp.cats"), button: realNext,
         before: async () => { if (!mapper()) return false; await waitFor(() => { const b = part(".tm-cats")(); return !!b && !b.querySelector(".stmt-loading"); }, 15000); return !!part(".tm-cat-row")(); } },
       { key: "use", target: () => (needsAccount() ? root() : part(".tm-use")()), text: () => tr(needsAccount() ? "rt.stmt.useFix" : "rt.stmt.use"), until: () => !mapper() && readDone(), before: async () => mapper() },
-      { key: "result", target: "#statement-results", text: () => tr(usable.length ? "rt.stmt.result" : "rt.stmt.bad"), button: realNext, before: async () => { await waitFor(readDone, 3000); return true; } },
+      { key: "result", target: "#statement-results", button: realNext,
+        text: () => (usable.length ? tr(readyCount() < stmtCards().length ? "rt.stmt.resultMixed" : "rt.stmt.result") + ($("statement-results").querySelector(".stmt-note.warn") ? " " + tr("rt.stmt.notes") : "") : tr("rt.stmt.bad")), before: async () => { await waitFor(readDone, 3000); return true; } },
       { key: "next", target: "#stmt-next-2", text: () => tr("rt.stmt.next"), tap: "#stmt-next-2", before: async () => usable.length > 0 },
       { key: "planning", target: "#statement-review-card", text: () => tr("rt.stmt.planning"), until: planSettled, before: async () => usable.length > 0 && !planSettled() },
-      { key: "preview", target: previewParts, text: () => tr(canSave() ? "rt.stmt.preview" : "rt.stmt.previewNone"), button: realNext, before: async () => usable.length > 0 },
+      { target: () => $("statement-history").querySelector(".stmt-new-accounts"), text: () => tr("rt.stmt.newAccounts"), button: realNext, before: async () => usable.length > 0 && !!$("statement-history").querySelector(".stmt-new-accounts") },
+      { key: "preview", target: previewParts, button: realNext, before: async () => usable.length > 0,
+        text: () => tr(canSave() ? "rt.stmt.preview" : "rt.stmt.previewNone") + (canSave() && $("statement-history").querySelector("details.stmt-group, .stmt-choices button:not(#statement-history-save)") ? " " + tr("rt.stmt.questions") : "") },
       { key: "save", target: () => [$("statement-history-save"), planError() ? $("statement-plan-status") : null].filter(Boolean), text: () => tr(planError() ? "rt.stmt.saveErr" : "rt.stmt.save"), until: () => savedThisRun, before: async () => usable.length > 0 && canSave() },
-      { keep: true, look: true, target: "#statement-review-status", text: () => tr(imp ? "rt.imp.done" : "rt.stmt.done"), button: done, wait: 30000, waitText: () => tr("rt.saving"), before: async () => savedThisRun },
+      { keep: true, look: true, target: "#statement-review-status", text: () => tr(imp ? "rt.imp.done" : "rt.stmt.done") + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done, wait: 30000, waitText: () => tr("rt.saving"),
+        before: async () => savedThisRun && !tidyBtn() },
+      // Purchases with no category: the tutorial leads into Tidy my history, on these very purchases (owner, 2026-11-09).
+      { keep: true, target: () => [$("statement-review-status"), tidyBtn()], text: () => tr(imp ? "rt.imp.doneTidy" : "rt.stmt.doneTidy") + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done,
+        until: () => !$("screen-tidy").hidden, before: async () => savedThisRun && !!tidyBtn() },
       { keep: true, text: () => tr(usable.length ? "rt.stmt.endNone" : "rt.stmt.endBad"), button: done, before: async () => !savedThisRun }
     );
     return steps;
