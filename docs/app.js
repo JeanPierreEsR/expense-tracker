@@ -1304,8 +1304,8 @@ function refreshTelegramFields_() {
 
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", {});
-  (meta.categories || []).forEach(cleanCategoryLook_);
   syncPairWithBackend_();
+  (meta.categories || []).forEach(cleanCategoryLook_);
   refreshTelegramFields_();
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
   // The order dates are written in (More → My profile → How I type dates); nothing chosen = the language decides, as before.
