@@ -102,7 +102,7 @@ test("a description with accents is capitalised word by word without breaking th
   assert.equal(t("almuerzo de práctica"), "Almuerzo De Práctica");
   assert.equal(t("CAFÉ  DEL   PARQUE"), "Café Del Parque");
   assert.equal(t("pago ñandú*lima per"), "Pago Ñandú");
-  assert.equal(t("Bodega la esquina"), "Bodega La Esquina");
+  assert.equal(t("Bodega la esquina"), "Bodega la esquina", "written with care: left as it is");
 });
 
 test("saved through the real import, the practice entries carry exactly the names the cleanup looks for, in both languages", () => {

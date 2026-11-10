@@ -33,10 +33,13 @@ var EXPORT_BACKUP_TABS_ = [
   'Companies', 'Projects', 'Project Budgets', 'Expected Payments', 'IGV Payments'   // Business pack: always included when they exist, whatever the switch says
 ];
 
+// A value with no translated text (typed by hand in the Sheet) is written as it is.
+function exportValue_(kind, value) { var key = 'export.v.' + kind + '.' + value; return BACKEND_STRINGS_[key] ? tr_(key) : value; }
+
 var EXPORT_MAX_BYTES_ = 20 * 1024 * 1024;   // Gmail's limit is 25 MB per message
 
 // Column headings are texts in Strings.gs (export.h.<key>), in the active language.
-// The CELLS stay as stored (type / status / source values are not translated).
+// Type, status and source are shown in the file's language (exportValue_); the full backup keeps them as stored.
 var EXPORT_CSV_HEADERS_ = [
   'id', 'date', 'type', 'description', 'merchant', 'category',
   'amount', 'currency', 'amountPen', 'share', 'sharePen', 'splitWith', 'paidAmount', 'paidCurrency',
@@ -195,7 +198,7 @@ function buildEntriesCsv_(opts) {
 
     var cat = lk.categoriesById[e.category_id];
     var parent = cat && cat.parent_id ? lk.categoriesById[cat.parent_id] : null;
-    var category = cat ? (parent ? categoryLabel_(parent) + ' › ' + categoryLabel_(cat) : categoryLabel_(cat)) : '';
+    var category = cat ? (parent ? categoryLabel_(parent) + ' › ' + categoryLabel_(cat) : categoryLabel_(cat)) : (e.category_id ? tr_('export.unknownCategory') : '');
     var method = lk.methodsById[e.payment_method_id];
     var toMethod = lk.methodsById[e.to_payment_method_id];
     var link = lk.transferLinks[e.id];
@@ -219,13 +222,13 @@ function buildEntriesCsv_(opts) {
     }
 
     var row = [
-      csvCell_(e.id), csvCell_(e.date), csvCell_(e.type), csvCell_(e.description), csvCell_(e.merchant), csvCell_(category),
+      csvCell_(e.id), csvCell_(e.date), csvCell_(exportValue_('type', e.type)), csvCell_(e.description), csvCell_(e.merchant), csvCell_(category),
       amount, csvCell_(e.currency), amountPen == null ? '' : exportMoney_(amountPen), exportMoney_(share), sharePen == null ? '' : exportMoney_(sharePen),
       csvCell_(splitWith), Number(e.paid_amount) > 0 ? exportMoney_(Number(e.paid_amount)) : '', csvCell_(e.paid_currency || ''),
       csvCell_(method ? method.nickname : ''), csvCell_(toMethod ? toMethod.nickname : ''), csvCell_(paidBy),
       csvCell_(link ? link.friend : ''), csvCell_(linkedAs),
       csvCell_((lk.tagNamesByEntry[e.id] || []).join('; ')),
-      csvCell_(e.trip_id && lk.tripsById[e.trip_id] ? lk.tripsById[e.trip_id].name : ''), csvCell_(e.status), csvCell_(e.source), csvCell_(e.created_at)
+      csvCell_(e.trip_id && lk.tripsById[e.trip_id] ? lk.tripsById[e.trip_id].name : ''), csvCell_(exportValue_('status', e.status)), csvCell_(exportValue_('source', e.source)), csvCell_(e.created_at)
     ];
     if (business) {
       var company = companiesById[e.company_id];

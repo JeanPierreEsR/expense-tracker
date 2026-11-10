@@ -41,6 +41,25 @@ const TYPE_LABELS = {
 // sheet is actually opened.
 let topModalZIndex = 250;
 const WELCOME_OVERLAY_Z_ = 300;   // .welcome-overlay in style.css
+// VoiceOver: a window says it is one, focus goes in when it opens and back to what opened it when it closes.
+const modalOpeners_ = new WeakMap();
+new MutationObserver((changes) => changes.forEach((c) => {
+  const b = c.target;
+  if (!b.matches || !b.matches(".currency-modal-backdrop")) return;
+  const box = b.querySelector(".currency-modal");
+  if (!box) return;
+  if (b.hidden) {
+    const from = modalOpeners_.get(b);
+    modalOpeners_.delete(b);
+    if (from && from.isConnected && from.focus) from.focus({ preventScroll: true });
+    return;
+  }
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  box.tabIndex = -1;
+  if (!b.contains(document.activeElement)) { modalOpeners_.set(b, document.activeElement); box.focus({ preventScroll: true }); }
+})).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["hidden"] });
+
 function bringModalToFront_(backdropEl) {
   // A pop-up opened while the welcome screens are up (the bank-e-mail info at the end of step 3, "teach the app my bank" from step 2)
   // must sit ABOVE them: at 251 it opened behind the welcome overlay and the person saw a blank screen (found 2026-10-23, two friends).
@@ -606,6 +625,7 @@ function getSessionToken() {
 
 function setSessionToken(token) {
   localStorage.setItem("sessionToken", token);
+  localStorage.removeItem("eraseFinishPending");
 }
 
 // "iPhone · home-screen app" — what the Signed-in devices list shows.
@@ -625,6 +645,7 @@ function clearLocalSignIn_() {
   localStorage.removeItem(STARTUP_CACHE_KEY);
   localStorage.removeItem(PROJECTIONS_CACHE_KEY);
   localStorage.removeItem(ENTRY_DRAFT_KEY);
+  localStorage.removeItem(HOME_GLANCE_CACHE_KEY);   // the Home summary holds the person's own numbers
   clearSearchCache_();
 }
 
@@ -1127,6 +1148,7 @@ function isIosSafariBrowser_() {
 }
 
 function showSetupScreen(message) {
+  try { if (localStorage.getItem("eraseFinishPending") === "1" && !localStorage.getItem("sessionToken")) message = tr("erase.signedOut"); } catch (e) { /* no reminder */ }
   // A brand-new phone whose language is Spanish gets Spanish from the first screen (a choice made later in
   // More still wins). Only before any address is known, so the owner's phone is never affected.
   if (!getApiUrl() && !I18n.hasChosenLang() && /^es/i.test(navigator.language || "")) {
@@ -1283,6 +1305,7 @@ function refreshTelegramFields_() {
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", {});
   syncPairWithBackend_();
+  (meta.categories || []).forEach(cleanCategoryLook_);
   refreshTelegramFields_();
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
   // The order dates are written in (More → My profile → How I type dates); nothing chosen = the language decides, as before.
@@ -1380,7 +1403,7 @@ function populateCategoryPicker() {
       tile.type = "button";
       tile.className = "category-tile";
       tile.innerHTML = `
-        <span class="category-tile-icon" style="background:${c.color || "#eee"}">${c.icon || "•"}</span>
+        <span class="category-tile-icon" style="background:${safeColor_(c.color)}">${escapeHtml(c.icon || "•")}</span>
         <span class="category-tile-name">${escapeHtml(c.name)}</span>
       `;
       tile.addEventListener("click", () => { showDetailForm(c); preselectAnnualForTravel_(c.id); });
@@ -3960,9 +3983,9 @@ function entryHeadline_(entry) {
   if (entry.type !== "investment") {
     const cat = findCategory(entry.category_id);
     const marker = cat && cat.icon
-      ? `<span class="entry-cat-icon" style="background:${cat.color || "#eee"}">${cat.icon}</span>`
+      ? `<span class="entry-cat-icon" style="background:${safeColor_(cat.color)}">${escapeHtml(cat.icon)}</span>`
       : `<span class="type-dot" data-type="${entry.type}"></span>`;
-    return { title: `${marker}${categoryName(entry.category_id)}`, meta: paidByLabel(entry) };
+    return { title: `${marker}${escapeHtml(categoryName(entry.category_id))}`, meta: paidByLabel(entry) };
   }
   const withdrawal = Number(entry.amount) < 0;
   const pmName = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname : ""; };
@@ -5765,6 +5788,10 @@ function loadingHtml_(text) {
   return `<div class="stmt-loading center" role="status" aria-live="polite"><span class="stmt-spinner" aria-hidden="true"></span><span>${escapeHtml(text || tr("common.loading"))}</span></div>`;
 }
 
+// A category's color goes inside a style attribute: only a plain #hex color may get there (a hand-edited Sheet can hold anything).
+// An icon is an emoji: a hand-edited Sheet can hold anything, so what could become page code is dropped at the door, for every screen.
+function cleanCategoryLook_(c) { if (c.icon) c.icon = String(c.icon).replace(/[<>&"'`]/g, ""); if (c.color) c.color = safeColor_(c.color); }
+function safeColor_(c) { return /^#[0-9a-f]{3,8}$/i.test(String(c || "")) ? c : "#eee"; }
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
@@ -7468,11 +7495,20 @@ function saveBehindScreen_(work, after, opts) {
   showToast_(busyText || tr("common.savingToast"), !!busyText);
   (async () => {
     let ok = true;
-    try {
-      await work();
-    } catch (err) {
-      ok = false;
-      alert(tr("common.notSaved", { error: err.message }));
+    for (;;) {
+      try {
+        ok = true;
+        await work();
+        break;
+      } catch (err) {
+        ok = false;
+        // No connection is not a refusal: what was typed is still here, so the person can send it again (a person decides, so a reply lost on its way can't silently make a second one).
+        if (!err || err.code !== "unreachable") { appMessage_(tr("common.notSaved", { error: err.message })); break; }
+        const text = tr("common.noConnectionRetry");
+        while (appConfirmOpen_.has(text)) await sleep(300);   // two saves at once: one question at a time, neither answered for the person
+        if (!await askConfirmApp_(text, tr("common.tryAgain"), { plain: true, cancel: tr("confirmBtn.discard") })) break;
+        showToast_(busyText || tr("common.savingToast"), !!busyText);
+      }
     }
     try { if (after) await after(); } catch (e) { /* the list shows its own load error */ }
     // A bulk delete greys every ticked row ("Deleting…"): the ones that really went are gone from the list by now, the ones that were kept / hidden / not
@@ -7946,7 +7982,7 @@ function showRecurringScreen() {
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
-  refreshRecurringExpenses();
+  refreshRecurringExpenses({ opening: true });
 }
 
 // Same "More stays highlighted" reasoning as showRecurringScreen, above.
@@ -9190,7 +9226,7 @@ const OTHERS_COLOR = "#B5B5BD";
 function resolveDisplayColors(items) {
   let prevColor = null;
   return items.map((item, i) => {
-    let color = item.color || FALLBACK_PALETTE[i % FALLBACK_PALETTE.length];
+    let color = (item.color && safeColor_(item.color)) || FALLBACK_PALETTE[i % FALLBACK_PALETTE.length];
     if (color === prevColor) {
       color = FALLBACK_PALETTE.find((c) => c !== prevColor) || color;
     }
@@ -9286,7 +9322,7 @@ function renderPie(key, items) {
     label.style.left = `${half + x}px`;
     label.style.top = `${half + y}px`;
     label.innerHTML = `
-      <span class="pie-outside-icon" style="background:${s.slice.displayColor}">${s.slice.icon || ""}</span>
+      <span class="pie-outside-icon" style="background:${safeColor_(s.slice.displayColor)}">${escapeHtml(s.slice.icon || "")}</span>
       <span class="pie-outside-pct">${s.slice.percent.toFixed(0)}%</span>
     `;
     // The outside labels are display-only (too small and too close together
@@ -9303,9 +9339,9 @@ function appendLegendRow_(listEl, key, item) {
   const row = document.createElement("div");
   row.className = "legend-row";
   row.innerHTML = `
-    <span class="legend-swatch" style="background:${item.displayColor}"></span>
+    <span class="legend-swatch" style="background:${safeColor_(item.displayColor)}"></span>
     <div class="legend-text">
-      <div class="legend-name">${item.icon ? item.icon + " " : ""}${escapeHtml(item.name)}</div>
+      <div class="legend-name">${escapeHtml(item.icon ? item.icon + " " : "")}${escapeHtml(item.name)}</div>
       <div class="legend-sub">
         <span class="legend-amount">${formatPen(item.amount_pen)}</span>
         <span class="legend-percent">${item.percent.toFixed(1)}%</span>
@@ -10577,7 +10613,7 @@ function drawBudgets_() {
     delKey_(row, "budget:" + b.id);
     row.dataset.budgetName = b.name || "";
     row.dataset.periodType = b.period_type || "";
-    const rowName = p.category_name || b.category_name, rowIcon = p.category_name ? p.category_icon : b.category_icon;   // categories then
+    const rowName = p.category_name || b.category_name, rowIcon = String((p.category_name ? p.category_icon : b.category_icon) || "").replace(/[<>&"'`]/g, "");   // categories then
     const nameHtml = `<div class="budget-row-name">${rowIcon ? rowIcon + " " : ""}${escapeHtml(rowName)}</div>`;
     const leadHtml = budgetsEditing_
       ? `<span class="budget-row-lead"><input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${budgetsSelected_.has(b.id) ? " checked" : ""}>${nameHtml}</span>`
@@ -10847,16 +10883,18 @@ function mailHealthProblemText_(health) {
 function renderMailHealth_() {
   const health = meta && meta.emailInfo && meta.emailInfo.health;
   const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails) && !!health;
+  const quiet = bankAlertsQuiet_();
+  document.body.classList.toggle("bank-quiet", quiet);
   const card = document.getElementById("mail-health-card");
   if (card) {
-    card.hidden = !(reading && mailHealthChecked_ && health.problem);
+    card.hidden = !(reading && mailHealthChecked_ && health.problem) || quiet;
     if (!card.hidden) document.getElementById("mail-health-text").textContent = mailHealthProblemText_(health);
   }
   // The welcome pop-up and the Bank emails screen each carry a status line and a Check now button.
   [["bm-health", "bm-check-btn"], ["be-health", "be-check-btn"]].forEach(([lineId, btnId]) => {
     const line = document.getElementById(lineId);
     if (line) {
-      const problem = reading && !!health.problem;
+      const problem = reading && !!health.problem && !quiet;
       line.classList.toggle("problem", problem);
       line.textContent = !reading ? "" : problem ? mailHealthProblemText_(health) : health.lastOk ? tr("mailHealth.lastOk", { ago: mailAgo_(health, health.lastOk) }) : "";
     }
@@ -11260,10 +11298,26 @@ document.getElementById("more-perf-btn").addEventListener("click", showPerfScree
 // ---- Signed-in devices / sign out ----
 
 async function signOutThisDevice_() {
-  try { await callApi("logout", {}); } catch (err) { /* offline: the key is still dropped on this phone */ }
+  const token = getSessionToken();
+  let ended = true;
+  try { await callApi("logout", {}); }
+  catch (err) { ended = false; if (token) try { localStorage.setItem(LOGOUT_PENDING_KEY, JSON.stringify({ token, url: getApiUrl() })); } catch (e) { /* private mode */ } }
   clearLocalSignIn_();
-  showSignedOutScreen_(tr("signin.signedOut"));
+  showSignedOutScreen_(tr(ended ? "signin.signedOut" : "signin.signedOutLater"));
 }
+// Signed out with no connection: the session is ended on the server as soon as the phone can reach it.
+const LOGOUT_PENDING_KEY = "logoutPending";
+async function finishPendingLogout_() {
+  let p = null;
+  try { p = JSON.parse(localStorage.getItem(LOGOUT_PENDING_KEY) || "null"); } catch (e) { /* nothing to finish */ }
+  if (!p || !p.token || !p.url) return;
+  try {
+    const res = await fetch(p.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ sessionToken: p.token, action: "logout", payload: {} }) });
+    if (res.ok) localStorage.removeItem(LOGOUT_PENDING_KEY);
+  } catch (e) { /* still offline: tried again next time */ }
+}
+window.addEventListener("online", finishPendingLogout_);
+finishPendingLogout_();
 
 document.getElementById("more-signout-btn").addEventListener("click", async () => {
   if (!await askConfirmApp_(tr("signin.confirmSignOut"), tr("devices.signOut"))) return;
@@ -11386,6 +11440,14 @@ function refreshExtrasRow_() {
 // optional first statement. It disappears when everything is ticked, or when the person taps Hide (remembered on this phone only).
 function fsFlag_(key) { try { return localStorage.getItem(key) === "1"; } catch (e) { return false; } }
 function fsSetFlag_(key) { try { localStorage.setItem(key, "1"); } catch (e) { /* the card just stays */ } }
+// While a new person is getting started the bank e-mail screens only say good things (owner, 2026-11-09). That ends when Getting started is finished or
+// hidden, or 21 days after the welcome questions. The owner's copy never waits. A copy with no welcome date is past onboarding.
+const BANK_QUIET_DAYS_ = 21;
+function bankAlertsQuiet_() {
+  if (!meta || perfIsOwnerCopy_() || fsFlag_("etFirstStepsHidden") || fsFlag_("etFirstStepsDone")) return false;
+  const raw = (meta.emailInfo || {}).since, since = Number(raw) || Date.parse(raw) || 0;
+  return !!since && Date.now() - since < BANK_QUIET_DAYS_ * 86400000;
+}
 function renderFirstSteps_() {
   const card = document.getElementById("first-steps-card");
   if (!card) return;
@@ -11412,11 +11474,12 @@ function renderFirstSteps_() {
       go: () => { fsSetFlag_("etBankMailIntro"); openBankMailModal_({ onClose: renderFirstSteps_ }); } });
     const got = Object.keys(info.seen || {}).length > 0;
     // "No e-mail yet, check your bank alerts" is only fair when the check itself works: a failing check has its own warning (mailHealth).
-    const late = days >= 3 && !(info.health && info.health.problem);
-    steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => showBankEmailsScreen() });
+    const quiet = bankAlertsQuiet_();
+    const late = days >= 3 && !quiet && !(info.health && info.health.problem);
+    steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr(quiet && days >= 3 ? "firstSteps.firstMailSoon" : "firstSteps.firstMailWait"), go: () => showBankEmailsScreen() });
   }
   if (hasBank) steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("data-statements-btn").click(); renderFirstSteps_(); } });
-  if (steps.every((st) => st.done)) { card.hidden = true; return; }
+  if (steps.every((st) => st.done)) { fsSetFlag_("etFirstStepsDone"); card.hidden = true; return; }
   const list = document.getElementById("first-steps-list");
   list.innerHTML = "";
   steps.forEach((st) => {
@@ -11722,6 +11785,7 @@ eraseEl_("erase-go-btn").addEventListener("click", async () => {
   btn.textContent = label;
   appErased_ = true;
   clearLocalSignIn_();   // the backend has signed every device out already
+  try { localStorage.setItem("eraseFinishPending", "1"); } catch (e) { /* only the reminder is lost */ }
   const standalone = isHomeScreenApp_();
   eraseEl_("erase-modal-hint").textContent = tr(standalone ? "erase.hintHome" : "erase.hintSafari");
   eraseEl_("erase-finish-btn").textContent = tr(standalone ? "app.openInSafari" : "erase.finishBtn");
@@ -11924,7 +11988,6 @@ function openBankSampleModal_(opts) {
   I18n.applyStatic(backdrop);
   bsEl_("bs-sender").value = (opts && opts.sender) || "";
   bsEl_("bs-paste-text").value = "";
-  bsEl_("bs-hide").value = "";
   bsEl_("bs-name").value = perfShareState_().label || "";
   bsEl_("bs-find").hidden = !(meta && meta.capabilities && meta.capabilities.bankEmails !== false);
   bsEl_("bs-find-hint").hidden = bsEl_("bs-find").hidden;   // the hint explains that button
@@ -11947,16 +12010,10 @@ function bsSenderOrWarn_() {
 }
 function bsShowPreview_() {
   bsEl_("bs-send").disabled = false;
-  bsRedo_();
   bsStep_(3);
 }
-// Hides again from the ORIGINAL text, so an earlier edit in the box is replaced (the person can edit after).
-function bsRedo_() {
-  const hide = bsEl_("bs-hide").value + "," + bsEl_("bs-name").value;   // the person's own first name is always hidden
-  bsEl_("bs-preview").value = BankSample.redact(bs_.raw, { sender: bs_.sender, hide });
-  bsEl_("bs-subject").textContent = BankSample.redact(bs_.subject, { sender: bs_.sender, hide });
-  bsEl_("bs-subject").parentElement.hidden = !bs_.subject;   // a pasted e-mail has no subject line
-}
+// What leaves the phone, made at the moment of sending (owner, 2026-11-09: the person no longer reads the text first). The first name is always hidden.
+function bsCleaned_(text) { return BankSample.redact(text, { sender: bs_.sender, hide: bsEl_("bs-name").value }); }
 bsEl_("bs-find").addEventListener("click", async () => {
   const sender = bsSenderOrWarn_();
   if (!sender) return;
@@ -12006,7 +12063,6 @@ bsEl_("bs-paste-go").addEventListener("click", () => {
   Object.assign(bs_, { raw, subject: "", how: "pasted" });
   bsShowPreview_();
 });
-bsEl_("bs-redo").addEventListener("click", bsRedo_);
 bsEl_("bs-back-2").addEventListener("click", () => { bsSetKind_(""); if (bs_.shape) bsEl_("bank-sample-modal-backdrop").hidden = true; else bsStep_(1); });
 bsEl_("bs-back-3").addEventListener("click", () => bsStep_(2));
 bsEl_("bs-another").addEventListener("click", () => { bsEl_("bank-sample-modal-backdrop").hidden = true; });
@@ -12026,7 +12082,7 @@ bsEl_("bs-send").addEventListener("click", async () => {
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action: "reportBankSample", payload: {
         install: perfInstallId_(), label: PerfShare.cleanLabel(bsEl_("bs-name").value), sender: bs_.sender,
-        subject: bsEl_("bs-subject").textContent, text: bsEl_("bs-preview").value, language: I18n.getLang(),
+        subject: bs_.subject ? bsCleaned_(bs_.subject) : "", text: bsCleaned_(bs_.raw), language: I18n.getLang(),
         app: appRelease_(), how: bs_.how, kind: bs_.kind
       } }),
       signal: controller.signal
@@ -13019,7 +13075,7 @@ function tourChrome_(i) {
   [...dots.children].forEach((d, n) => d.classList.toggle("active", n === i));
   welcomeEl_("tour-hint").style.visibility = i === 0 ? "visible" : "hidden";
   // "Skip all" from the second card on (owner, 2026-11-04): on the first one it read as the way forward, before the person had seen any card.
-  welcomeEl_("tour-skip-btn").style.visibility = last || i === 0 ? "hidden" : "visible";
+  welcomeEl_("tour-skip-btn").style.visibility = last ? "hidden" : "visible";
 }
 function tourSceneCtx_() { return { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label, restore: !!((meta && meta.capabilities) || {}).entriesRestore }; }
 function previewTourSlide_(sl) {
@@ -13209,7 +13265,7 @@ async function startMainCurrencyChange_(code) {
   mainCurrencyEl_("main-currency-rate-row").hidden = !pre.needsRate;
   mainCurrencyEl_("main-currency-rate-label").textContent = tr("mainCur.rateQuestion", { from: homeCur(), to: code });
   mainCurrencyEl_("main-currency-rate").value = "";
-  mainCurrencyEl_("main-currency-estimate").textContent = pre.estimatedBefore ? tr("mainCur.estimate", { month: pre.estimatedBefore, to: code }) : "";
+  mainCurrencyEl_("main-currency-estimate").textContent = pre.estimatedBefore ? tr("mainCur.estimate", { month: monthLabel(pre.estimatedBefore), to: code }) : "";
   mainCurrencyEl_("main-currency-view").hidden = true;
   mainCurrencyEl_("main-currency-confirm").hidden = false;
 }
@@ -14239,7 +14295,7 @@ async function showTidyScreen() {
   });
   tidySkipped_.clear();
   const list = document.getElementById("tidy-list");
-  list.textContent = "…";
+  list.innerHTML = loadingHtml_();
   try {
     await loadTidy_();
     offerTidyTip_();   // only now that the list has arrived (loading standard)
@@ -14506,6 +14562,11 @@ async function showBankEmailsScreen() {
   }
 }
 
+document.getElementById("be-unread-link").addEventListener("click", () => {
+  document.getElementById("be-tab-tx").click();
+  document.getElementById("be-unread").scrollIntoView({ block: "start" });
+});
+
 function renderBankEmails_() {
   const info = (meta && meta.emailInfo) || {};
   const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails);
@@ -14738,6 +14799,7 @@ beEl_("be-groups").addEventListener("click", (ev) => {
 function beKindName_(k) {
   if (k.reason === "whatsapp") return tr("notauto.kind.plin_out_whatsapp");
   if (k.need === "must") return k.key === "yape_out" ? tr("be.kind.must.yape_out") : tr("notauto.kind." + k.key);
+  if (k.key === "other_manual" && k.need === "optional") return tr("be.kind.other_manual_optional");   // the two groups must not share a title
   return tr(k.need ? "be.kind." + k.key : "notauto.kind." + k.key);
 }
 
@@ -14774,7 +14836,10 @@ function renderBeTx_(data) {
   // A redraw after an answer keeps the groups that were open (the answer moves a group; it must not snap shut under the finger).
   be_.openKinds = new Set([...beEl_("be-groups").querySelectorAll("details.be-kind[open]")].map((d) => d.dataset.kind));
   const kinds = beApplyReasons_(data.kinds || [], data.reasons);
-  const unread = data.unread || [];
+  const unread = bankAlertsQuiet_() ? [] : (data.unread || []);
+  const unreadLink = beEl_("be-unread-link"), unreadN = unread.reduce((sum, u) => sum + (Number(u.count) || 1), 0);
+  unreadLink.hidden = !unreadN;
+  if (unreadN) unreadLink.textContent = tr("be.unreadLink", { n: unreadN });
   beEl_("be-empty").hidden = kinds.length > 0 || unread.length > 0;
   beEl_("be-unread").hidden = !unread.length;
   beEl_("be-unread-list").innerHTML = unread.map((u) => {
@@ -15028,7 +15093,7 @@ async function refreshExchangeRates(cached) {
 // expenses would read differently, and nothing is saved before "Store them against the dollar".
 function renderRatesUsdOffer_(rates) {
   const box = document.getElementById("rates-usd-offer");
-  const offer = ((meta && meta.capabilities) || {}).ratesUsdConvert && !ratesUsdOn_() && rates.length > 0;
+  const offer = ((meta && meta.capabilities) || {}).ratesUsdConvert && !ratesUsdOn_() && rates.length > 0 && homeCur() !== "USD";
   // Only dollar rates, against the main currency they were stored in: the conversion changes nothing anyone can see
   // (USD 1 = PEN 3.75 reads the same before and after), so it is done quietly, with no offer and no button (owner, 2026-11-08).
   const base = String(((meta && meta.settings) || {}).rate_base || "PEN").toUpperCase();
@@ -15134,11 +15199,11 @@ function showAccountsScreen() {
 }
 
 // Suggested currencies for older accounts (owner, 2026-11-06): shown once they have arrived, editable, and nothing is saved until Apply.
-// "Not now" hides it until the screen is next opened. Only the owner's copy gets any rows.
+// "Not now" hides it for 30 days (on this phone). Only the owner's copy gets any rows.
 async function refreshAccountSuggestions_() {
   const card = document.getElementById("accounts-suggest-card");
   let finished = false;
-  try { finished = localStorage.getItem("accountCurSuggestDone") === "1"; } catch (err) { /* private mode */ }
+  try { finished = localStorage.getItem("accountCurSuggestDone") === "1" || Date.now() - Number(localStorage.getItem("accountCurSuggestLater") || 0) < 30 * 86400000; } catch (err) { /* private mode */ }
   if (finished || !((meta && meta.capabilities) || {}).accountCurrencySuggest || Spotlight.isRunning()) { card.hidden = true; return; }
   let res;
   try { res = await callApi("getAccountCurrencySuggestions", {}); } catch (err) { card.hidden = true; return; }
@@ -15183,16 +15248,18 @@ async function refreshAccountSuggestions_() {
   later.type = "button";
   later.className = "add-inline";
   later.textContent = tr("acur.notNow");
-  later.addEventListener("click", () => { card.hidden = true; });
+  later.addEventListener("click", () => { card.hidden = true; try { localStorage.setItem("accountCurSuggestLater", String(Date.now())); } catch (err) { /* private mode */ } });
   card.appendChild(apply);
   card.appendChild(later);
   card.hidden = false;
 }
 
+// A type typed by hand in the Sheet has no text of its own: say "Other", never the raw key.
+function pmTypeLabel_(type) { const key = `accounts.type.${type}`, text = tr(key); return text === key ? tr("accounts.type.other") : text; }
 function renderAccountsList_() {
   const list = document.getElementById("accounts-list");
   const bankName = (id) => { const b = (meta.banks || []).find((x) => x.id === id); return b ? b.name : ""; };
-  const rows = meta.paymentMethods.slice().sort((a, b) => a.nickname.localeCompare(b.nickname));
+  const rows = meta.paymentMethods.slice().sort((a, b) => String(a.nickname).localeCompare(String(b.nickname)));
   document.getElementById("accounts-empty-note").hidden = rows.length > 0;
   const selectable = rows.filter((pm) => !isBasicCashPm_(pm));
   document.getElementById("accounts-edit-btn").hidden = !(pmBulkRemove_() && selectable.length);
@@ -15208,14 +15275,15 @@ function renderAccountsList_() {
     const isCash = isBasicCashPm_(pm);   // the built-in Cash can never be deleted or hidden: no checkbox in Edit mode
     row.className = "recurring-row" + (pmHidden_(pm) ? " inactive" : "") + (accountsEditing_ ? " friends-check-row" : "");
     delKey_(row, "pm:" + pm.id);
-    const sub = [tr(`accounts.type.${pm.type}`), bankName(pm.bank_id)].filter(Boolean).join(" · ");
+    const typeName = pmTypeLabel_(pm.type);
+    const sub = [typeName === pm.nickname ? "" : typeName, bankName(pm.bank_id)].filter(Boolean).join(" · ");
     const lead = !accountsEditing_ ? ""
       : isCash ? `<span class="friends-check-spacer"></span>`
       : `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${accountsSelected_.has(pm.id) ? " checked" : ""}>`;
     row.innerHTML = `
       ${lead}
       <div>
-        <div class="recurring-row-name">${escapeHtml(pm.nickname)}</div>
+        <div class="recurring-row-name">${escapeHtml(pm.nickname || tr("common.noName"))}</div>
         <div class="recurring-row-sub">${escapeHtml(sub)}</div>
       </div>
       <div class="recurring-row-amount">${pm.last_4 ? escapeHtml(tr("accounts.digits", { last4: pm.last_4 })) : ""}</div>
@@ -15282,7 +15350,7 @@ function openPmModal_(pm) {
   const linked = (meta && meta.settings) || {};
   pmModalState = { id: pm ? pm.id : null, lastBank: pm ? pm.bank_id || "" : "",
     wallets: pm ? ["yape_pen", "yape_usd", "plin_pen"].filter((k) => String(linked[k] || "") === String(pm.id) || (k === "plin_pen" && plinMoreIds_().includes(String(pm.id)))) : [], kind: pm ? pm.alias_kind || "" : "" };
-  document.getElementById("pm-modal-title").textContent = tr(pm ? "accounts.editTitle" : "accounts.addTitle");
+  document.getElementById("pm-modal-title").textContent = tr(pm ? (pm.type === "investment" ? "accounts.editPlatformTitle" : "accounts.editTitle") : "accounts.addTitle");
   const typeSel = document.getElementById("pm-type");
   typeSel.innerHTML = "";
   // "Investment platform" is offered to everyone (a copy that skipped the welcome step has no other way to add a platform).
@@ -15691,6 +15759,7 @@ async function loadCategoryCounts_() {
 
 // A name used by an expense category AND an income category is shown with its type — "Other (income)", "Other (expense)".
 function categoryShownName_(c, bothTypes) {
+  if (!String(c.name || "").trim()) return tr("common.noName");
   return bothTypes.has(String(c.name).trim().toLowerCase()) ? `${c.name} ${tr(c.type === "income" ? "categories.tag.income" : "categories.tag.expense")}` : c.name;
 }
 function categoryNamesInBothTypes_() {
@@ -15703,6 +15772,8 @@ function categoryNamesInBothTypes_() {
   return new Set([...types].filter(([, t]) => t.has("expense") && t.has("income")).map(([k]) => k));
 }
 
+// Two categories of the same type with one name can only come from a hand-edited Sheet: say so, or they cannot be told apart.
+function isDuplicateCategoryName_(c) { const n = String(c.name || "").trim().toLowerCase(); return !!n && meta.categories.filter((o) => o.type === c.type && String(o.name || "").trim().toLowerCase() === n).length > 1; }
 function renderCategoriesList_() {
   const list = document.getElementById("categories-list");
   list.innerHTML = "";
@@ -15727,10 +15798,10 @@ function renderCategoriesList_() {
       row.innerHTML = `
         ${lead}
         <div class="cat-preview" style="margin:0;">
-          <span class="category-tile-icon" style="background:${escapeHtml(c.color || "#eee")};width:40px;height:40px;font-size:1.2rem;">${escapeHtml(c.icon || "•")}</span>
+          <span class="category-tile-icon" style="background:${safeColor_(c.color)};width:40px;height:40px;font-size:1.2rem;">${escapeHtml(c.icon || "•")}</span>
           <div>
             <div class="recurring-row-name">${escapeHtml(categoryShownName_(c, bothTypes))}</div>
-            <div class="recurring-row-sub"><span class="cat-count" data-cat-id="${escapeHtml(c.id)}">${catCountText_(c.id)}</span>${catHidden_(c) ? ` · ${escapeHtml(tr("categories.hiddenTag"))}` : ""}</div>
+            <div class="recurring-row-sub"><span class="cat-count" data-cat-id="${escapeHtml(c.id)}">${catCountText_(c.id)}</span>${catHidden_(c) ? ` · ${escapeHtml(tr("categories.hiddenTag"))}` : ""}${isDuplicateCategoryName_(c) ? ` · ${escapeHtml(tr("categories.dupTag"))}` : ""}</div>
           </div>
         </div>`;
       row.addEventListener("click", () => {
@@ -16275,7 +16346,7 @@ function tripGroupOf_(trip, today) {
 
 function tripDatesText_(trip) {
   return trip.start_date === trip.end_date
-    ? trip.start_date
+    ? listDate_(trip.start_date)
     : tr("trips.dateRange", { start: listDate_(trip.start_date), end: listDate_(trip.end_date) });
 }
 
@@ -16539,12 +16610,15 @@ function renderTripGroup_(d) {
     ? `<div class="recurring-row trip-static-row"><div class="recurring-row-name">${escapeHtml(tr("trips.groupPaidOut"))}</div><div class="recurring-row-amount">${cur} ${moneyFmt(g.paidOut)}</div></div>
        <div class="recurring-row trip-static-row"><div class="recurring-row-name">${escapeHtml(tr("trips.groupShare"))}</div><div class="recurring-row-amount">${cur} ${moneyFmt(d.totalMain)}</div></div>`
     : "";
-  box.innerHTML = `
+  const quiet = !g.rows.length && !paidLine;   // nothing shared with a group yet: one small link instead of the whole block
+  box.innerHTML = `${quiet ? `<button type="button" class="add-inline" id="trip-group-open">${escapeHtml(tr("trips.groupAsk"))}</button>` : ""}
+    <div id="trip-group-full"${quiet ? " hidden" : ""}>
     <h3 class="accounts-group-title">${escapeHtml(tr("trips.groupTitle"))}</h3>
     <p class="hint">${escapeHtml(tr("trips.groupHint"))}</p>
     ${paidLine}${rows}
     <button type="button" class="add-inline" id="trip-group-settle-btn">${escapeHtml(tr("trips.groupSettleBtn"))}</button>
-    <div id="trip-group-form" hidden></div>`;
+    <div id="trip-group-form" hidden></div></div>`;
+  if (quiet) document.getElementById("trip-group-open").addEventListener("click", (ev) => { ev.target.hidden = true; document.getElementById("trip-group-full").hidden = false; });
   document.getElementById("trip-group-settle-btn").addEventListener("click", () => {
     const form = document.getElementById("trip-group-form");
     if (!form.hidden) { form.hidden = true; return; }
@@ -18266,7 +18340,7 @@ function renderFriendsList_() {
     row.className = "recurring-row" + (friendsEditing_ ? " friends-check-row" : "");
     delKey_(row, "friend:" + p.id);
     row.innerHTML = `
-      ${friendsEditing_ ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${friendsSelected_.has(p.id) ? " checked" : ""}>` : ""}
+      ${friendsEditing_ ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-label="${escapeHtml(p.name)}"${friendsSelected_.has(p.id) ? " checked" : ""}>` : ""}
       <div>
         <div class="recurring-row-name">${escapeHtml(p.name)}</div>
         <div class="recurring-row-sub">${escapeHtml([p.phone ? "📱 " + p.phone : "", p.totals.length ? "" : tr("people.noDebts")].filter(Boolean).join(" · "))}</div>
@@ -18292,7 +18366,7 @@ function renderFriendsList_() {
     const row = document.createElement("div");
     row.className = "recurring-row friends-hidden-row friends-check-row";
     delKey_(row, "friend:" + p.id);
-    row.innerHTML = `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${friendsSelected_.has(p.id) ? " checked" : ""}><div class="recurring-row-name">${escapeHtml(p.name)}</div>`;
+    row.innerHTML = `<input type="checkbox" class="friends-check" tabindex="-1" aria-label="${escapeHtml(p.name)}"${friendsSelected_.has(p.id) ? " checked" : ""}><div class="recurring-row-name">${escapeHtml(p.name)}</div>`;
     row.addEventListener("click", () => tickFriend_(p.id, row));
     hiddenList.appendChild(row);
   });
@@ -18416,7 +18490,7 @@ function openPersonModal_(person, friendsMode) {
   document.getElementById("person-name").value = person ? person.name : "";
   // More → Friends: the WhatsApp number "Remind on WhatsApp" uses (specs/loans.md § Reminders); only where the backend saves it here.
   document.getElementById("person-phone-box").hidden = !(personModalFriends_ && friendPhoneEditable_());
-  document.getElementById("person-phone").value = (person && person.phone) || "";
+  setPhoneField_("person-phone", (person && person.phone) || "");
   const sel = document.getElementById("person-role");
   sel.innerHTML = "";
   ["client", "supplier", "partner", "friend"].forEach((role) => {
@@ -18433,6 +18507,44 @@ function openPersonModal_(person, friendsMode) {
   backdrop.hidden = false;
 }
 
+// WhatsApp number: a list of countries by name (Peru first chosen) beside the number. Country names come from the phone itself, in the app's language.
+const PHONE_CODES_ = {AF:93,AL:355,DZ:213,AD:376,AO:244,AG:1268,AR:54,AM:374,AU:61,AT:43,AZ:994,BS:1242,BH:973,BD:880,BB:1246,BY:375,BE:32,BZ:501,BJ:229,BT:975,BO:591,BA:387,BW:267,BR:55,BN:673,BG:359,BF:226,BI:257,KH:855,CM:237,CA:1,CV:238,CF:236,TD:235,CL:56,CN:86,CO:57,KM:269,CG:242,CD:243,CR:506,CI:225,HR:385,CU:53,CY:357,CZ:420,DK:45,DJ:253,DM:1767,DO:1809,EC:593,EG:20,SV:503,GQ:240,ER:291,EE:372,SZ:268,ET:251,FJ:679,FI:358,FR:33,GA:241,GM:220,GE:995,DE:49,GH:233,GR:30,GD:1473,GT:502,GN:224,GW:245,GY:592,HT:509,HN:504,HK:852,HU:36,IS:354,IN:91,ID:62,IR:98,IQ:964,IE:353,IL:972,IT:39,JM:1876,JP:81,JO:962,KZ:7,KE:254,KW:965,KG:996,LA:856,LV:371,LB:961,LS:266,LR:231,LY:218,LI:423,LT:370,LU:352,MO:853,MG:261,MW:265,MY:60,MV:960,ML:223,MT:356,MR:222,MU:230,MX:52,MD:373,MC:377,MN:976,ME:382,MA:212,MZ:258,MM:95,NA:264,NP:977,NL:31,NZ:64,NI:505,NE:227,NG:234,MK:389,NO:47,OM:968,PK:92,PA:507,PG:675,PY:595,PE:51,PH:63,PL:48,PT:351,PR:1787,QA:974,RO:40,RU:7,RW:250,KN:1869,LC:1758,VC:1784,WS:685,SM:378,ST:239,SA:966,SN:221,RS:381,SC:248,SL:232,SG:65,SK:421,SI:386,SB:677,SO:252,ZA:27,KR:82,SS:211,ES:34,LK:94,SD:249,SR:597,SE:46,CH:41,SY:963,TW:886,TJ:992,TZ:255,TH:66,TL:670,TG:228,TO:676,TT:1868,TN:216,TR:90,TM:993,UG:256,UA:380,AE:971,GB:44,US:1,UY:598,UZ:998,VU:678,VE:58,VN:84,YE:967,ZM:260,ZW:263};
+function phoneCountryName_(region) {
+  try { return new Intl.DisplayNames([I18n.getLang()], { type: "region" }).of(region) || region; } catch (e) { return region; }
+}
+function fillPhoneCountries_(select) {
+  if (select.dataset.lang === I18n.getLang()) return;
+  const lang = I18n.getLang();
+  select.innerHTML = Object.keys(PHONE_CODES_).map((r) => ({ r, name: phoneCountryName_(r) })).sort((a, b) => a.name.localeCompare(b.name, lang))
+    .map((c) => `<option value="${c.r}">${escapeHtml(c.name)} (+${PHONE_CODES_[c.r]})</option>`).join("");
+  select.dataset.lang = lang;
+}
+// The longest country code a stored number starts with; among countries sharing a code the usual one (+1 US, +7 Russia).
+function phoneRegionOf_(digits) {
+  const usual = { 1: "US", 7: "RU" };
+  for (let n = 4; n >= 1; n--) {
+    const code = Number(digits.slice(0, n));
+    if (usual[code] && n === String(code).length) return usual[code];
+    const r = Object.keys(PHONE_CODES_).find((k) => PHONE_CODES_[k] === code);
+    if (r && digits.length > n) return r;
+  }
+  return "";
+}
+function setPhoneField_(id, stored) {
+  const select = document.getElementById(id + "-cc"), input = document.getElementById(id);
+  fillPhoneCountries_(select);
+  const digits = String(stored || "").replace(/\D/g, "");
+  const region = digits ? phoneRegionOf_(digits) : "";
+  select.value = region || "PE";
+  input.value = region ? digits.slice(String(PHONE_CODES_[region]).length) : digits;
+}
+// Empty stays empty (it clears the number). A number pasted with its own + or 00 is taken as written; otherwise the chosen country goes in front.
+function readPhoneField_(id) {
+  const typed = document.getElementById(id).value.trim();
+  if (!typed) return "";
+  if (/^(\+|00)/.test(typed)) return "+" + typed.replace(/\D/g, "").replace(/^00/, "");
+  return "+" + PHONE_CODES_[document.getElementById(id + "-cc").value] + typed.replace(/\D/g, "").replace(/^0/, "");
+}
 function friendPhoneEditable_() { return !!((meta && meta.capabilities) || {}).friendPhoneEdit; }
 
 function closePersonModal_() {
@@ -18464,7 +18576,7 @@ document.getElementById("person-save-btn").addEventListener("click", () => {
   const role = document.getElementById("person-role").value;
   if (!name) { errorEl.textContent = tr("accounts.errName"); return; }
   const withPhone = personModalFriends_ && friendPhoneEditable_();
-  const phone = withPhone ? document.getElementById("person-phone").value.trim() : undefined;
+  const phone = withPhone ? readPhoneField_("person-phone") : undefined;
   if (phone && !LoanReminder.phoneOk(phone)) { errorEl.textContent = tr("remind.errPhone"); return; }
   // Closes at once and saves behind the screen; the list is refreshed once the person is on the server.
   const editing = editingPerson_;
@@ -18916,7 +19028,7 @@ function renderRecurringAmountHtml_(re) {
   const hasSplit = re.split_total > 0.005;
   const ownAmount = hasSplit ? re.amount - re.split_total : re.amount;
   // "≈": a variable-amount item shows its current estimate, not a fixed price.
-  const primary = `<span class="primary-amt">${formatAmount(ownAmount, re.currency, (isIncome ? "+" : "−") + (re.variable ? "≈ " : ""))}</span>`;
+  const primary = `<span class="primary-amt">${formatAmount(ownAmount, re.currency, (re.variable ? "≈ " : "") + (isIncome ? "+" : "−"))}</span>`;
   if (!hasSplit) return primary;
   return `${primary}<span class="original-amt">${tr("common.total")} ${formatAmount(re.amount, re.currency)}</span>`;
 }
@@ -19051,18 +19163,19 @@ document.getElementById("recurring-delete-selected-btn").addEventListener("click
   if (chosen.length) startRecurringBulkDelete_(chosen);
 });
 
-async function refreshRecurringExpenses() {
-  const list = document.getElementById("recurring-list");
-  const onetimeList = document.getElementById("recurring-onetime-list");
-  list.innerHTML = loadingHtml_();
-  onetimeList.innerHTML = "";
+// Loading standard: opening the screen shows only "Loading…" until the whole list has arrived; a refresh while it is open keeps what it shows.
+async function refreshRecurringExpenses(opts) {
+  const body = document.getElementById("recurring-body"), opening = document.getElementById("recurring-opening");
+  if (opts && opts.opening) { body.hidden = true; opening.innerHTML = loadingHtml_(); opening.hidden = false; }
   let items;
   try {
     items = await callApi("listRecurringExpenses");
   } catch (err) {
-    list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
+    if (body.hidden) opening.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
+    else showToast_(tr("drill.loadFailed", { error: err.message }));
     return;
   }
+  opening.hidden = true; body.hidden = false;
   recurringItems_ = items;
   const still = new Set(items.map((re) => re.id));
   recurringSelected_ = new Set([...recurringSelected_].filter((id) => still.has(id)));
@@ -21816,7 +21929,7 @@ function offerTip_(key, boxId, inviteText, start, after) {
   box.querySelector(".tip-invite-no").addEventListener("click", () => {
     markTipSeen_(key);
     box.hidden = true;
-    alert(tr("spot.dismissed"));   // say once how to bring the practice back
+    appMessage_(tr("spot.dismissed"));   // say once how to bring the practice back
     if (after) after();
   });
   box.querySelector(".tip-invite-go").addEventListener("click", async () => {
@@ -22374,7 +22487,7 @@ function offerLoansMoreLine_() {
   box.querySelector(".loans-more-close").addEventListener("click", () => {
     left.forEach(([k]) => markTipSeen_(k));
     box.hidden = true;
-    alert(tr("spot.dismissed"));
+    appMessage_(tr("spot.dismissed"));
   });
 }
 
@@ -22386,7 +22499,7 @@ document.getElementById("tour-choice-tips").addEventListener("click", () => {
   popSet_(POP_AGAIN_KEY_, true);
   try { localStorage.setItem(GUIDED_AGAIN_KEY_, "1"); } catch (e) { /* ignore */ }   // the guided "+" practice runs again, even with entries
   document.getElementById("tour-choice-backdrop").hidden = true;
-  showToast_(tr("spot.tipsReset"));
+  showToast_(tr("spot.tipsReset"), false, 6000);
 });
 
 // ---- Guided practice: the first new entry (owner's design, 2026-11-04; plan "Onboarding test fixes and guided practices") ----
@@ -24395,6 +24508,16 @@ function syncConversionAmount_() {
 const APP_CONFIRM_SETTLE_MS_ = 400;
 let appConfirmChain_ = Promise.resolve();
 const appConfirmOpen_ = new Set();
+// A message with one button, in the app's own window (never the phone's alert).
+function appMessage_(text) { return askConfirmApp_(text, tr("common.gotIt"), { plain: true, noCancel: true }); }
+// The same window with a text box: resolves to what was typed, or null if closed.
+async function askTextApp_(text, okLabel) {
+  const input = document.getElementById("app-confirm-input");
+  input.value = ""; input.hidden = false;
+  const yes = await askConfirmApp_(text, okLabel, { plain: true });
+  input.hidden = true;
+  return yes ? input.value : null;
+}
 function askConfirmApp_(text, okLabel, opts) {
   opts = opts || {};
   if (appConfirmOpen_.has(text)) return Promise.resolve(false);
@@ -24406,6 +24529,7 @@ function askConfirmApp_(text, okLabel, opts) {
     ok.textContent = okLabel || tr("confirmBtn.yes");
     ok.className = opts.plain ? "primary" : "delete-entry-btn";
     back.textContent = opts.cancel || tr("common.cancel");
+    back.hidden = !!opts.noCancel;
     const ids = ["app-confirm-ok", "app-confirm-back", "app-confirm-close"];
     // The second tap of a double tap lands on the window itself: for its first 0.4 s nothing answers it (Nico, 2026-11-09: it flashed
     // and vanished; it could as well have landed on the red button).
@@ -25616,7 +25740,7 @@ function openLoanRemind_(friendId, friendName, loans) {
   document.getElementById("loan-remind-title").textContent = tr("remind.title", { name: friendName });
   document.getElementById("loan-remind-text").value = text;
   document.getElementById("loan-remind-phone-hint").textContent = tr(loanRemindPhoneHintKey_());
-  document.getElementById("loan-remind-phone").value = friend.phone || "";
+  setPhoneField_("loan-remind-phone", friend.phone || "");
   document.getElementById("loan-remind-error").textContent = "";
   document.getElementById("loan-remind-stuck").hidden = true;
   const backdrop = document.getElementById("loan-remind-modal-backdrop");
@@ -25651,7 +25775,7 @@ document.getElementById("loan-remind-reset").addEventListener("click", () => {
 });
 document.getElementById("loan-remind-send").addEventListener("click", () => {
   const text = document.getElementById("loan-remind-text").value.trim();
-  const phone = document.getElementById("loan-remind-phone").value.trim();
+  const phone = readPhoneField_("loan-remind-phone");
   const error = document.getElementById("loan-remind-error");
   if (!text) { error.textContent = tr("remind.errEmpty"); return; }
   if (phone && !LoanReminder.phoneOk(phone)) { error.textContent = tr("remind.errPhone"); return; }

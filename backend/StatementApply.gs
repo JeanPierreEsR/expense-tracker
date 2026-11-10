@@ -132,7 +132,9 @@ function stmtTitleCase_(text) {
 }
 
 function stmtCleanDescription_(text) {
-  return stmtTitleCase_(String(text || '').replace(/\*/g, ' ').replace(/\s+(LIMA\s+)?PER$/i, '').replace(/\s+/g, ' ').trim());
+  var clean = String(text || '').replace(/\*/g, ' ').replace(/\s+(LIMA\s+)?PER$/i, '').replace(/\s+/g, ' ').trim();
+  if (/[a-zñáéíóúü]/.test(clean) && /[A-ZÑÁÉÍÓÚÜ]/.test(clean)) return clean;   // written with care ("October pay"): only ALL CAPS or all-lowercase text is tidied
+  return stmtTitleCase_(clean);
 }
 
 function stmtFeeDescription_(text) {

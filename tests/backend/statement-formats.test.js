@@ -82,12 +82,12 @@ test("a line's category is used when the app has one of that name (any case or a
   run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "app.csv", statements: [stmt], actions: p.actions })})`);
   const byDesc = Object.fromEntries(made(rt).map((e) => [e.description, e.category_id]));
   assert.equal(byDesc["Pinkberry"], "c-food");
-  assert.equal(byDesc["Public Transport"], "c-tr");
+  assert.equal(byDesc["Public transport"], "c-tr");
   assert.equal(byDesc["Mystery"], "");
-  assert.equal(byDesc["Hidden One"], "");
-  assert.equal(byDesc["No Category"], "");
-  assert.equal(byDesc["Pay Day"], "c-sal");
-  assert.equal(byDesc["Wrong Type"], "");
+  assert.equal(byDesc["Hidden one"], "");
+  assert.equal(byDesc["No category"], "");
+  assert.equal(byDesc["Pay day"], "c-sal");
+  assert.equal(byDesc["Wrong type"], "");
 });
 
 test("entries filed from a source app's categories feed the merchant history the category guess learns from", () => {

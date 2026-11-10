@@ -31,7 +31,7 @@ test("the privacy text sits on the screen and is not cut: every section of the o
     "privacy.sendTitle", "privacy.send", "privacy.neverTitle", "privacy.never", "privacy.otherTitle", "privacy.updates", "privacy.signin"].forEach((k) => assert.ok(s.includes(`data-i18n="${k}"`), k));
   assert.ok(!s.includes('data-i18n="privacy.removeTitle"') && s.includes('data-i18n="privacy.remove"'));
   assert.match(STRINGS["privacy.remove"].en, /^Tap “Delete everything” below\./);
-  assert.match(STRINGS["privacy.remove"].es, /^Toca “Borrar todo” abajo\./);
+  assert.match(STRINGS["privacy.remove"].es, /^Toca “Eliminar todo” abajo\./);
 });
 
 test("Extra features keeps its pop-up but loses the second 'Change what I share' (the What I share card is on the same screen)", () => {
