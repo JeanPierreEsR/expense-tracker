@@ -49,8 +49,11 @@ test("B6: the transfer 'To' hint is one idea, and the currency exchange is the L
   const kinds = [...index.matchAll(/<option value="(\w+)" data-i18n="transfer\.kind\.\w+"/g)].map((m) => m[1]);
   assert.deepEqual(kinds, ["between", "repayment", "loan", "exchange"]);
   assert.match(app, /const allowed = !editingEntryId;/);
-  assert.equal(get("form.noneFromOutside").en, JSON.stringify("Someone else's account"));
-  assert.equal(get("form.noneToOutside").es, JSON.stringify("Cuenta de otra persona"));
+  // One wording for "the other end is not one of my accounts" since 1.76.1 (transfer, exchange, loan).
+  assert.equal(get("form.noneFromOutside").en, JSON.stringify("Outside my accounts"));
+  assert.equal(get("form.noneToOutside").es, JSON.stringify("Fuera de mis cuentas"));
+  assert.equal(get("xch.outside").es, JSON.stringify("Fuera de mis cuentas"));
+  assert.equal(get("loanModal.noAccount").en, JSON.stringify("Outside my accounts"));
 });
 
 test("B7: each loan form says what really happens with the due date", () => {

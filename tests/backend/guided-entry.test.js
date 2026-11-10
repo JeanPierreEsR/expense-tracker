@@ -41,3 +41,26 @@ test("names are asked in the app's own window, never the phone's prompt box", ()
   assert.match(html, /id="name-ask-backdrop"/);
   assert.match(app, /backdrop\.style\.zIndex = 100002/);
 });
+
+// 1.76.1 (testers round before the promote): a tutorial cut off by closing the app is offered again; it counts once finished or exited.
+test("a tutorial counts as seen only once it is finished or exited, never on Start", () => {
+  assert.ok(!/key: "intro", text: \(\) => tr\("spot\.g\.intro"\)[^\n]*after: guidedAnswered_/.test(app), "the first-entry Start does not mark it seen");
+  const mark = app.slice(app.indexOf("function markTaught_("), app.indexOf("function realAgain_()"));
+  assert.match(mark, /if \(how === "real"\) \{ taughtPending_\[feature\] = how; return; \}/);
+  assert.match(mark, /ctx\.onFinish = \(how\) => \{ keepTaughtPending_\(\);/, "every walkthrough's end keeps what it taught");
+});
+
+test("a file picked while Bank statements still says Loading… waits for it instead of being dropped", () => {
+  const st = read("statements.js");
+  assert.match(st, /screenLoaded = Promise\.allSettled\(loaded\);/);
+  const fn = st.slice(st.indexOf("async function handleStatementFiles(files)"), st.indexOf("// ---- review (read-only) ----"));
+  assert.ok(fn.indexOf("const picked = Array.from(files);") < fn.indexOf("await"), "the picked files are copied before any wait (the box is emptied right after the pick)");
+  assert.match(fn, /for \(const f of picked\)/);
+});
+
+test("the step counter never jumps, and a real tutorial says 'this is real' on its first step only", () => {
+  const sp = read("spotlight.js");
+  assert.match(sp, /function stepNumber\(i\) \{ return Math\.max\(1, seen\.filter/);
+  assert.match(sp, /if \(L\.note && L\.noteOnce\) \$\("\.spot-note"\)\.hidden = seen\.length > 1;/);
+  assert.match(app, /function realLabels_\(\) \{ return \{ note: tr\("spot\.g\.note"\), noteOnce: true,/);
+});

@@ -67,7 +67,9 @@ test("two earlier deposits are not enough, and neither is a split history", () =
 test("a place always filed under one category gets that category, as an expense", () => {
   const { rt, expenseCat } = setup();
   for (let i = 0; i < 3; i++) history(rt, { type: "expense", category_id: expenseCat.id });
-  email(rt, { to: "Broker XYZ", op: "PG-4" });
+  // An amount no demo Programmed item is near: S/ 300 matched the demo's yearly S/ 330.10 item in the days before its 15 November date,
+  // whose category is filled first (the place's habit only fills a category the entry lacks), so this test failed from 10 November.
+  email(rt, { to: "Broker XYZ", op: "PG-4", amount: "57.00" });
   run(rt);
   const e = pendingOf(rt, "PG-4");
   assert.equal(e.type, "expense");

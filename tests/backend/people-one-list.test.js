@@ -27,12 +27,51 @@ test("a shared name is asked first on the owner's copy, and nothing moves until 
   addPayorRow(rt, "p-ana", "ana test");
   income(rt, "p-ana", "2026-10-02", { id: "inc-ana" });
   const m = meta(rt);
-  assert.deepEqual(m.payorMergeAsk, [{ payor_id: "p-ana", friend_id: friend.id, name: "Ana Test" }]);
+  assert.deepEqual(m.payorMergeAsk, [{ payor_id: "p-ana", friend_id: friend.id, name: "Ana Test", incomes: 1, last_income: "2026-10-02", owed: {} }]);
   assert.equal(rt.rows("Entries").find((e) => e.id === "inc-ana").paid_by, "p-ana");
   post(rt, "applyPayorMerge", { separate: [] });
   assert.equal(rt.rows("Entries").find((e) => e.id === "inc-ana").paid_by, friend.id);
   assert.equal(rt.rows("Friends").filter((f) => String(f.name).toLowerCase() === "ana test").length, 1);
   assert.deepEqual(meta(rt).payorMergeAsk, []);
+});
+
+test("each shared name says how many incomes the payer has, the latest, and what the friend owes now per currency", () => {
+  const rt = setup();
+  const friend = post(rt, "addFriend", { name: "Eva Test" }).data;
+  const acct = rt.rows("Payment Methods")[0].id;
+  post(rt, "addLoan", { friend_id: friend.id, direction: "they_owe_me", amount: 45, currency: "PEN", date: "2026-10-21", payment_method_id: acct, description: "L1" });
+  post(rt, "addLoan", { friend_id: friend.id, direction: "i_owe_them", amount: 10, currency: "USD", date: "2026-10-22", payment_method_id: acct, description: "L2" });
+  addPayorRow(rt, "p-eva", "Eva Test");
+  income(rt, "p-eva", "2026-09-01");
+  income(rt, "p-eva", "2026-11-02");
+  income(rt, "p-eva", "2026-11-05", { status: "pending" });   // waiting for review: not counted
+  const ask = meta(rt).payorMergeAsk[0];
+  assert.equal(ask.incomes, 2);
+  assert.equal(ask.last_income, "2026-11-02");
+  assert.deepEqual(ask.owed, { PEN: 45, USD: -10 });
+});
+
+test("a friend's copy with a shared name is asked too (since 1.76.1): the heal leaves it alone", () => {
+  const rt = setup();
+  rt.svc.props.set("FEATURES", "base");   // a friend's copy
+  const friend = post(rt, "addFriend", { name: "Teo Test" }).data;
+  addPayorRow(rt, "p-teo", "Teo Test");
+  income(rt, "p-teo", "2026-10-02", { id: "inc-teo" });
+  rt.run(`mergePayorsIfNothingShared_();`);
+  assert.equal(rt.run(`payorsMerged_()`), false);
+  assert.equal(meta(rt).payorMergeAsk.length, 1);
+  post(rt, "applyPayorMerge", { separate: [] });
+  assert.equal(rt.rows("Entries").find((e) => e.id === "inc-teo").paid_by, friend.id);
+});
+
+test("a friend's copy with no shared name is merged by the heal, quietly", () => {
+  const rt = setup();
+  rt.svc.props.set("FEATURES", "base");
+  addPayorRow(rt, "p-boss", "Boss Test");
+  income(rt, "p-boss", "2026-10-02");
+  rt.run(`mergePayorsIfNothingShared_();`);
+  assert.equal(rt.run(`payorsMerged_()`), true);
+  assert.ok(rt.rows("Friends").some((f) => f.id === "p-boss"));
 });
 
 test("same name but a different person stays apart, with a marked name", () => {

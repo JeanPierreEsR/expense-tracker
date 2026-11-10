@@ -1834,7 +1834,7 @@
           <div class="type-tab" data-v="amount" data-i18n="bill.tipAmountTab">Fixed amount</div>
         </div>
         <label for="bill-tip-value" id="bill-tip-label" data-i18n="bill.tipPercentLabel">Tip percent (%)</label>
-        <input type="text" id="bill-tip-value" data-amount-kind="rate" class="bill-tip-input" inputmode="decimal" placeholder="e.g. 10" autocomplete="off">
+        <input type="text" id="bill-tip-value" data-amount-kind="rate" class="bill-tip-input" inputmode="decimal" data-i18n-placeholder="bill.tipPercentPlaceholder" placeholder="e.g. 10" autocomplete="off">
         <p class="hint" id="bill-tip-preview"></p>
         <div class="type-tabs budget-period-tabs bill-tabs" id="bill-tip-mode-tabs">
           <div class="type-tab active" data-v="proportional" data-i18n="bill.byOrdered">By what each ordered</div>
@@ -3523,12 +3523,14 @@
   <div id="payor-merge-backdrop" class="currency-modal-backdrop" data-no-dismiss hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span data-i18n="payorMerge.title">One list of people</span>
+        <span data-i18n="payorMerge.title">Your people are now one list</span>
       </div>
       <div class="budget-modal-body">
-        <p class="hint" data-i18n="payorMerge.intro">Payers and friends are becoming one list. These payers have the same name as a friend. Leave one checked if it is the same person.</p>
+        <p class="hint" data-i18n="payorMerge.intro">Until now the app kept two lists: people who pay you income (“payers”) and friends you share expenses or loans with. From now on there is one list, in More → Friends.</p>
+        <p data-i18n="payorMerge.question">These names are in both lists. Are they the same person?</p>
         <div id="payor-merge-list"></div>
-        <button type="button" id="payor-merge-save" class="primary" data-i18n="payorMerge.save">Make one list</button>
+        <p class="hint" data-i18n="payorMerge.nothingDeleted">Nothing is deleted. You can rename or hide anyone later in More → Friends.</p>
+        <button type="button" id="payor-merge-save" class="primary" data-i18n="payorMerge.save">Done</button>
       </div>
     </div>
   </div>
