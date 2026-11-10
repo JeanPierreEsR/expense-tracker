@@ -79,7 +79,7 @@ test("the friend's page step waits for its page, and any practice's wait hides E
   const step = lines.slice(at - 1, at + 1).join("\n");
   assert.ok(step.includes(".loan-detail-actions:not([hidden])"), "the target must not exist until the page's buttons have shown");
   const engine = fs.readFileSync(path.join(docs, "spotlight.js"), "utf8");
-  const waiting = engine.slice(engine.indexOf("function showWaiting()"), engine.indexOf("function holdExit()"));
+  const waiting = engine.slice(engine.indexOf("function showWaiting("), engine.indexOf("function holdExit()"));
   assert.ok(waiting.includes("holdExit()"), "every wait hides Exit");
   assert.match(engine, /EXIT_AFTER_MS = \d+/);
 });

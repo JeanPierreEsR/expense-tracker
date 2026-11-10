@@ -22,6 +22,8 @@
 //   after:   () => void                                    runs when the step is done
 //   wait:    ms                                            how long to wait for the target to appear (default 5000; then the step is left out)
 //   poke:    () => void                                    called every 2 s while waiting for the target (e.g. refresh a list), never while ctx.busy()
+//   giveUp:  () => boolean                                 while waiting for the target: true = stop waiting, go on quietly
+//   waitText: () => string                                 what to say while waiting for this step's target (e.g. "Saving…"; default "One moment…")
 //   available: () => boolean                               cheap, no side effects: lets "3 of 12" count only steps that will show
 //   button:  () => string                                  shows one button with this label; pressing it ends the step (an info step)
 //   look:    true                                          view-only: taps inside the cut-out are blocked too (an overview of a whole screen)
@@ -142,6 +144,9 @@
       var r = null;
       els.forEach(function (e) {
         var b = e.getBoundingClientRect();
+        // A long list inside a sheet is cut by the sheet: the bright window stops at the sheet's edges too (owner's walk, 2026-11-09).
+        var sheet = e.closest && e.closest(".currency-modal");
+        if (sheet) { var m = sheet.getBoundingClientRect(); b = { top: Math.max(b.top, m.top), bottom: Math.min(b.bottom, m.bottom), left: b.left, right: b.right }; }
         r = r ? { top: Math.min(r.top, b.top), bottom: Math.max(r.bottom, b.bottom), left: Math.min(r.left, b.left), right: Math.max(r.right, b.right) }
               : { top: b.top, bottom: b.bottom, left: b.left, right: b.right };
       });
@@ -248,9 +253,9 @@
     }
 
     // The screen while something the person cannot see is still happening (a save on its way to the server): dimmed, one line, no highlight.
-    function showWaiting() {
+    function showWaiting(text) {
       cur = { step: null, targets: [] };
-      $(".spot-text").textContent = L.waiting;
+      $(".spot-text").textContent = text || L.waiting;
       $(".spot-count").textContent = "";
       $(".spot-go").hidden = true;
       $(".spot-stuck").hidden = true;
@@ -281,7 +286,7 @@
       var step = steps[i], token = ++stepToken, ok = true;
       root.dataset.step = String(i) + (step.key ? ":" + step.key : "");   // which step is on (shown in tests and bug reports)
       // A step that has to prepare something slowly (waiting for a save) must not leave the PREVIOUS step's highlight on screen meanwhile.
-      var waitTimer = step.before ? setTimeout(function () { if (!closed && token === stepToken) showWaiting(); }, 250) : null;
+      var waitTimer = step.before ? setTimeout(function () { if (!closed && token === stepToken) showWaiting(step.waitText && step.waitText()); }, 250) : null;
       try { if (step.before) ok = (await step.before()) !== false; } catch (e) { ok = false; }
       if (waitTimer) clearTimeout(waitTimer);
       if (closed || token !== stepToken) return "stale";
@@ -297,11 +302,12 @@
         if (targets.length) break;
         if (closed || token !== stepToken) return "stale";
         if (waited >= limit) return "missing";   // never appeared: see go()
+        if (step.giveUp && step.giveUp()) return "gaveUp";   // what it waits for will never come (a refused save): the next step says so
         // A poke (reload the list the target lives in) only while nothing is on its way to the server (ctx.busy): a reload sent
         // while the save is still travelling cannot show the new item yet, and stacked reloads slowed the save itself down.
         // (after 8 s it goes ahead anyway: a slow background call, e.g. the e-mail check, must not hold it back)
         if (step.poke && waited - lastPoke >= 2000 && (!(ctx.busy && ctx.busy()) || waited - lastPoke >= 8000)) { lastPoke = waited; try { step.poke(); } catch (e) { /* ignore */ } }
-        if (waited >= 600) showWaiting();   // a long wait (a save still reaching the server): say so, centred
+        if (waited >= 600) showWaiting(step.waitText && step.waitText());   // a long wait (a save still reaching the server): say so, centred
         await sleep(100); waited += 100;
       }
       if (closed || token !== stepToken) return "stale";

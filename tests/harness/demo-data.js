@@ -3,6 +3,7 @@
 //
 //   Home entries ... delete several (search "dup lunch"): plain ones go, a shared one takes its debt along; loans / repayments / exchanges are kept and named
 //   Needs review ... confirm / discard several: 4 ready, 1 without a category, 2 duplicates, and a repayment's extra (never discarded here)
+//                    also: a charge match ("Demo Card charge abroad") and an income to mark as a repayment from "Demo Free A", who owes nothing (refused)
 //   Business ....... (owner's copy only) delete several companies / projects / people: some go, some are kept because they still have projects, entries or loans
 //   Categories ..... delete several: unused ones go; in use = everything moves into ONE category (alert when several merge), or hide instead
 //   Trips & events .. delete several (their expenses stay, unlinked; an estimate stays as a Programmed item)
@@ -161,6 +162,14 @@ function seedDemo(rt, data) {
   const repayer = rt.api("addFriend", { name: "Demo Repays more" });
   rt.api("addLoan", { friend_id: repayer.id, direction: "they_owe_me", amount: 100, currency: "PEN", date: ago(2, 3), payment_method_id: pm, description: "Demo loan to repay" });
   rt.api("recordRepayment", { friend_id: repayer.id, direction: "they_owe_me", amount: 130, currency: "PEN", date: dayOffset(-1), payment_method_id: pm });   // the extra 30 waits here: part of a repayment, never discarded on its own
+
+  // A purchase abroad still waiting for its charge, and the bank e-mail with that charge: the card asks "Is this the charge of …?".
+  rt.run("ensureEntriesChargeColumns_()");
+  const otherCard = data.pms[1].id;   // its own card, so only this one waiting item is the match (the rule looks at every item on the same card within 5 days)
+  pay(cat(2), "Demo Dinner abroad", 40, dayOffset(-4), { currency: "USD", charge_pending: "1", payment_method_id: otherCard });
+  waiting("Demo Card charge abroad", 150, cat(2), dayOffset(-4), { payment_method_id: otherCard });
+  // Money received, to try "Mark as repayment" with someone who owes nothing ("Demo Free A"): the server refuses it and the item stays waiting.
+  waiting("Demo Money received", 75, incomeCat.id, dayOffset(-4), { type: "income" });
 
   // ---------------- Home entries (try Home or search → Edit: search "dup lunch", select all, delete; search "demo loan" to see what is protected) ----------------
   for (let i = 0; i < 4; i++) pay(cat(1), "Demo dup lunch", 28.5, dayOffset(-1 - i));   // the same charge several times: plain entries, deleted in one go

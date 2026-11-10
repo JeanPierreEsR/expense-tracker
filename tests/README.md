@@ -38,3 +38,7 @@ only measures, so a screen that fits but looks crowded is the testers' job. `WID
 outside the repo: `npm install --prefix ~/.expense-tracker-tools playwright@1.65.0` then, in that folder, `npx playwright install
 chromium-headless-shell`. Without it, `ship.sh` warns and ships anyway. A new More screen: add its row's id to `MORE_ROWS` (or
 `MY_DATA_ROWS`) in the script.
+
+**`REAL_NEW=1` (2026-11-09, with `FRIEND_COPY=1`):** opening `/login` makes this browser look like a person who finished the welcome and the first entry and has met no real tutorial yet, so Needs review and transfers can be tried on the demo data. Opening `/login` again starts over.
+
+**`POP_MONTH_OLD=1` (2026-11-09):** opening `/login` also makes this browser count as having used the app for 40 days, and gets every pop-up tip again with no 3-visit wait and no daily limit for that day, so all of them can be walked at once on a test copy (open `/login` again the next day).
