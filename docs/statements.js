@@ -179,7 +179,9 @@
   // Counts and buttons that depend on what was read so far.
   function updateStepUi() {
     const total = stmtCards().length, ready = readyCount();
-    $("stmt-s2-count").textContent = total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr("stmt.s2.skipped") : "") : tr("stmt.s2.none");
+    // A spreadsheet waits for its "Use these lines" even when everything is already set (a saved layout, its accounts remembered): say so.
+    const waiting = !!$("statement-results").querySelector(".tm-use");
+    $("stmt-s2-count").textContent = total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr(waiting ? "stmt.s2.waitingUse" : "stmt.s2.skipped") : "") : tr("stmt.s2.none");
     const next = $("stmt-next-2");
     next.hidden = !usable.length;
     next.textContent = tr("stmt.s2.next", { n: ready });
@@ -878,6 +880,7 @@
       const rows = await StatementTable.readTable(new Uint8Array(await file.arrayBuffer()), file.name);
       if (rows.length < 2) throw new Error("table-empty");
       await renderTableMapping(body, rows, file);
+      updateStepUi();   // the counter now knows this file waits for "Use these lines"
     } catch (err) {
       body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(tableErrorText(err))}</p>`;
     }

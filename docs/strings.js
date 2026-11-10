@@ -4063,6 +4063,7 @@
     "stmt.s2.title": { en: "Check what was read", es: "Comprueba lo que se leyó" },
     "stmt.s2.count": { en: "Ready for the preview: {ready} of {total}.", es: "Listos para la vista previa: {ready} de {total}." },
     "stmt.s2.skipped": { en: "Any that could not be read stay out.", es: "Los que no se pudieron leer quedan fuera." },
+    "stmt.s2.waitingUse": { en: "Check each file below and tap “Use these lines”.", es: "Revisa cada archivo abajo y toca “Usar estas líneas”." },
     "stmt.s2.none": { en: "Nothing read yet. Upload a statement first.", es: "Aún no se leyó nada. Sube primero un estado de cuenta." },
     "stmt.s2.next": { en: { one: "Next: preview 1 statement", other: "Next: preview {n} statements" }, es: { one: "Siguiente: ver 1 estado de cuenta", other: "Siguiente: ver {n} estados de cuenta" } },
     "stmt.s2.addMore": { en: "+ Add more statements", es: "+ Agregar más estados de cuenta" },
