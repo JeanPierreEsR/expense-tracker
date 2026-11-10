@@ -135,13 +135,47 @@ function mergePayorsIntoFriends_(separate) {
   return { merged: Object.keys(idMap).length };
 }
 
-// The owner's copy: nothing that shares a name is merged without being shown first. With no such names it just happens.
+// Every copy (owner, 2026-11-09; friends' copies too since 1.76.1): nothing that shares a name is merged without being shown first.
+// With no such names it just happens. Each pair carries what the person needs to judge it: the payer's incomes (how many, the latest
+// date) and what the friend owes or is owed now, per currency (positive = they owe the person).
 function payorMergeAskForApp_() {
-  if (isFriendCopy_() || payorsMerged_()) return [];
+  if (payorsMerged_()) return [];
   ensurePayorsSheet_();
   var pairs = payorMergePairs_(getAllRows('Payors'), getAllRows('Friends'));
-  if (!pairs.length) mergePayorsIntoFriends_({});
-  return pairs;
+  if (!pairs.length) { mergePayorsIntoFriends_({}); return []; }
+  return payorMergeDetails_(pairs);
+}
+
+// The heal for friends' copies: merges by itself only when no name is shared; otherwise the app asks (payorMergeAskForApp_).
+function mergePayorsIfNothingShared_() {
+  if (payorsMerged_()) return;
+  ensurePayorsSheet_();
+  if (!payorMergePairs_(getAllRows('Payors'), getAllRows('Friends')).length) mergePayorsIntoFriends_({});
+}
+
+function payorMergeDetails_(pairs) {
+  var byPayor = {}, byFriend = {};
+  pairs.forEach(function (p) { byPayor[p.payor_id] = { n: 0, last: '' }; byFriend[p.friend_id] = {}; });
+  getAllRows('Entries').forEach(function (e) {
+    var inc = byPayor[String(e.paid_by)];
+    if (!inc || e.type !== 'income' || e.status === 'pending') return;
+    inc.n++;
+    var d = String(e.date || '').slice(0, 10);   // as lastIncomeByPerson_ reads it
+    if (d > inc.last) inc.last = d;
+  });
+  var settled = buildSettlementTotalsByLoan_();
+  getAllRows('Loans').forEach(function (l) {
+    var owed = byFriend[String(l.friend_id)];
+    if (!owed || l.status === 'forgiven') return;
+    var remaining = Number(l.amount) - (settled[l.id] || 0);
+    if (remaining <= 0.004) return;
+    owed[l.currency] = (owed[l.currency] || 0) + (l.direction === 'they_owe_me' ? remaining : -remaining);
+  });
+  return pairs.map(function (p) {
+    var owed = byFriend[p.friend_id];
+    Object.keys(owed).forEach(function (c) { if (Math.abs(owed[c]) < 0.005) delete owed[c]; else owed[c] = Math.round(owed[c] * 100) / 100; });
+    return { payor_id: p.payor_id, friend_id: p.friend_id, name: p.name, incomes: byPayor[p.payor_id].n, last_income: byPayor[p.payor_id].last, owed: owed };
+  });
 }
 
 // payload.separate: the payor ids the owner said are a different person.

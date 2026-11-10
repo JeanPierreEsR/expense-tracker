@@ -33,8 +33,9 @@ var HEALS_ = [
   { id: 'mailbox-address-to-line', owner: true, run: healMailboxAddressFromToLine_ },
   // Payors and friends became one list of people (2026-11-09). A payor with a friend's exact name is that friend; everyone else is added with their own id,
   // so past income keeps its payer. DELIBERATE EXCEPTION to "a heal never rewrites data" (owner's OK, 2026-11-09): only the payer of those same-name incomes
-  // changes, and the old Payors tab stays as it was. The owner's copy is asked first instead (payorMergeAskForApp_).
-  { id: 'payors-into-friends', run: function () { mergePayorsIntoFriends_({}); } }
+  // changes, and the old Payors tab stays as it was. Since 1.76.1 (owner) a copy where a payer and a friend share a name is asked first, in the
+  // app, like the owner's (payorMergeAskForApp_); the heal merges by itself only when no name is shared.
+  { id: 'payors-into-friends', run: function () { mergePayorsIfNothingShared_(); } }
 ];
 
 function healMailboxAddressFromToLine_() {

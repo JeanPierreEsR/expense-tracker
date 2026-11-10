@@ -50,3 +50,13 @@ test("the person's screen has no unreadable row, and other callers keep the plai
   assert.equal(loans.length, 1);
   assert.ok(Array.isArray(rt.api("listLoanBalances", {})));
 });
+
+test("a hand-typed direction is read when it clearly names one; anything else is named, never guessed as 'You owe' (1.76.1)", () => {
+  const { rt, friendId, mine, list } = setup();
+  const addDir = (id, direction, amount) => rt.run(`appendRowObject('Loans', ${JSON.stringify({ id, friend_id: friendId, direction, origin: "manual", amount, currency: "PEN", date: "2026-10-01", status: "open" })})`);
+  addDir("d1", "They owe me", 50);
+  addDir("d2", " I owe them ", 20);
+  addDir("d3", "lent", 70);
+  assert.equal(net(mine(), "PEN"), 30);
+  assert.deepEqual(list().unreadable.filter((u) => u.friend_name === "Sheet Pal").map((u) => u.amount), ["70"]);
+});

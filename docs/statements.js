@@ -21,6 +21,7 @@
     : "");
 
   let coverage = null;       // last listStatementCoverage result
+  let screenLoaded = Promise.resolve();   // the screen's first lists; a file picked before they arrive waits for them (else it was lost)
   let usable = [];           // statements read OK this session: [{ file, result }]
   let pdfjsPromise = null;   // pdf.js is loaded only when first needed
   // Passwords that opened a statement, newest first. Each file tries them silently one by one before asking (banks usually use one
@@ -106,6 +107,7 @@
       btn.classList.toggle("active", btn.dataset.screen === "more");
     });
     const loaded = [refreshStatementCoverage(), refreshStatementGaps(), refreshStatementBatches(), refreshStatementInbox()];
+    screenLoaded = Promise.allSettled(loaded);
     renderSteps();
     // Loading standard: the tabs and "Loading…" first; everything below appears together once it has all arrived.
     $("stmt-head-card").dataset.loading = tr("common.loading");
@@ -1378,8 +1380,12 @@
   }
 
   async function handleStatementFiles(files) {
+    // Copied BEFORE any wait: the file box is emptied right after the pick (so the same file can be picked again), and a list read after
+    // a wait was empty, so a file picked while the screen still said "Loading…" was silently dropped (Andrés, 2026-11-09).
+    const picked = Array.from(files);
+    await screenLoaded;   // ...and it is read once the screen has loaded
     if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
-    for (const f of Array.from(files)) {   // one at a time: easy on a phone's memory
+    for (const f of picked) {   // one at a time: easy on a phone's memory
       if (screenMode === "import" && !isTableFile(f)) {
         const body = resultCardShell(f.name);
         body.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("imp.blockedPdf"))}</p>

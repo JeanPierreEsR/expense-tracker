@@ -222,7 +222,7 @@ main {
    to a 320px phone. The rem value only caps the size on wider screens.
    Spanish words are longer, hence its smaller ratio. */
 .nav-btn { font-size: min(0.7rem, 2.75vw); margin: 6px 0; }
-html[lang="es"] .nav-btn { font-size: min(0.65rem, 2.45vw); }
+html[lang="es"] .nav-btn { font-size: min(0.65rem, 2.3vw); letter-spacing: -0.01em; }   /* 1.76.1: "Presupuestos" and "Proyecciones" touched on a 320px phone */
 .nav-btn > span:last-child { white-space: nowrap; }
 
 .nav-btn.active {
@@ -3140,7 +3140,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .first-steps-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .first-steps-head h2 { margin: 0; }
 .first-steps-list { list-style: none; margin: 8px 0 0; padding: 0; }
-.first-step { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--border); padding: 10px 0; font: inherit; color: inherit; cursor: pointer; }
+.first-step { display: flex; gap: 10px; align-items: flex-start; width: 100%; min-height: 44px; text-align: left; background: none; border: 0; border-top: 1px solid var(--border); padding: 10px 0; font: inherit; color: inherit; cursor: pointer; }
 .first-step.done { cursor: default; color: var(--muted); }
 .first-step.done b { font-weight: 500; text-decoration: line-through; }
 .first-step-mark { width: 22px; flex: none; text-align: center; font-weight: 700; color: var(--muted); }
@@ -3182,7 +3182,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .notice-body { flex: 1; min-width: 0; }
 .notice-text { overflow-wrap: anywhere; }
 .notice-date { display: block; font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
-.notice-x { border: 0; background: transparent; font-size: 1.1rem; line-height: 1; padding: 4px 8px; color: var(--muted); cursor: pointer; }
+.notice-x { border: 0; background: transparent; font-size: 1.1rem; line-height: 1; padding: 0; min-width: 44px; min-height: 44px; margin: -10px -10px -10px 0; display: flex; align-items: center; justify-content: center; color: var(--muted); cursor: pointer; }   /* 44px to tap (1.76.1), the row keeps its height */
 .mail-health { border-left: 4px solid #9a5b00; }
 .mail-health h2 { margin: 0 0 4px; font-size: 1rem; }
 .mail-health .hint { margin: 4px 0 6px; }
@@ -3837,3 +3837,12 @@ body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: 216px; }
 
 /* Getting started: the bank e-mail screens carry no warning colors. */
 .bank-quiet .bm-status.wait, .bank-quiet .bm-health.problem, .bank-quiet .be-kinds li.can .hint { color: var(--muted); font-weight: 400; }
+
+/* "Your people are now one list" (1.76.1): one block per shared name; its two-way choice and the result line under it. */
+.payor-merge-row { padding: 10px 0; border-top: 1px solid var(--border); }
+.payor-merge-row:last-child { border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.payor-merge-name { font-weight: 600; }
+.payor-merge-tabs { margin-top: 8px; }
+.payor-merge-tabs .type-tab { font-size: 0.85rem; font-family: inherit; color: inherit; }
+.payor-merge-result { margin: 6px 0 0; }
+#loan-detail-list.is-updating { opacity: 0.45; }   /* an installment or early payment is being saved: the old lines stay, dimmed (1.76.1) */

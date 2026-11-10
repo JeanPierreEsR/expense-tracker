@@ -278,8 +278,16 @@
     function onKey(e) { if (e.key === "Escape") { e.stopPropagation(); finish("skipped"); } }
 
     function shown(s) { return !s.available || s.available(); }
-    function stepsShownCount() { return steps.filter(shown).length; }
-    function stepNumber(i) { return Math.max(1, steps.slice(0, i + 1).filter(shown).length); }
+    // The counter counts the steps the person really sees (1.76.1): a step left out on the way (already explained, already answered) never
+    // makes it jump ("2 of 15" then "5 of 15", Rosa); the total is what was seen plus what can still come after the furthest step seen.
+    var seen = [];
+    function noteSeen(i) { if (seen.indexOf(i) < 0) seen.push(i); }
+    function stepsShownCount() {
+      var last = seen.length ? Math.max.apply(null, seen) : -1, more = 0;
+      for (var j = last + 1; j < steps.length; j++) if (shown(steps[j])) more++;
+      return seen.length + more;
+    }
+    function stepNumber(i) { return Math.max(1, seen.filter(function (j) { return j <= i; }).length); }
 
     // Shows step i and settles when the person has completed it: "done", "skip" (left out or skipped) or "stale" (closed).
     async function showStep(i, fixing, afterSkip) {
@@ -319,7 +327,9 @@
       cur = { step: step, targets: targets, stop: null };
       releaseExit();
       $(".spot-text").textContent = step.text(!!fixing);
+      noteSeen(i);
       $(".spot-count").textContent = L.step(stepNumber(i), stepsShownCount());
+      if (L.note && L.noteOnce) $(".spot-note").hidden = seen.length > 1;   // a real tutorial says "this is real" on its first step only (Rosa)
       $(".spot-stuck").hidden = true;
       var go = $(".spot-go");
       go.hidden = !step.button;

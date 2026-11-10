@@ -683,14 +683,18 @@ function cleanHandTypedMoneyRow_(row) {
   var loanRow = row.direction !== undefined;
   var currency = loanRow ? String(row.currency === null || row.currency === undefined ? '' : row.currency).trim().toUpperCase() : '';
   var badCurrency = loanRow && !(currency && (currency === homeCurrency_() || isKnownCurrencyCode_(currency)));
-  if (blank || isNaN(amount) || amount < 0 || badCurrency) {
+  // The direction, typed by hand, is read when it clearly names one of the two ("They owe me", "they_owe_me"); anything else is never
+  // guessed (it used to count as "You owe": Ingrid, 2026-11-09) and the row is named like an unreadable amount.
+  var direction = loanRow ? String(row.direction === null || row.direction === undefined ? '' : row.direction).trim().toLowerCase().replace(/[\s-]+/g, '_') : '';
+  var badDirection = loanRow && direction !== 'they_owe_me' && direction !== 'i_owe_them';
+  if (blank || isNaN(amount) || amount < 0 || badCurrency || badDirection) {
     row.unreadable_amount = row.amount;
     row.unreadable_currency = row.currency;
     row.amount = 0;
     return;
   }
   row.amount = amount;
-  if (loanRow) row.currency = currency;
+  if (loanRow) { row.currency = currency; row.direction = direction; }
 }
 
 // The time zone Sheets used when it turned a written date into a Date cell. Dates must be turned back into text in THIS

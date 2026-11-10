@@ -6557,6 +6557,11 @@ function reviewHasAccountBox_(entry) {
     && (entry.type === "income" || !entry.paid_by || entry.paid_by === "me");
 }
 
+// A transfer's side on a Needs review card: "Pick the account…" (not answered yet), "Outside my accounts" (on purpose), then the accounts.
+const REVIEW_OUTSIDE_ = "__outside__";
+function reviewTransferSideOptions_(selectedId) {
+  return transferAccountOptions_(selectedId, tr("review.pickAccount")).replace("</option>", `</option><option value="${REVIEW_OUTSIDE_}">${escapeHtml(tr("xch.outside"))}</option>`);
+}
 function transferAccountOptions_(selectedId, blankLabel) {
   const opts = meta.paymentMethods.filter((pm) => !pmHidden_(pm) || pm.id === selectedId).map((pm) =>
     `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`
@@ -6866,9 +6871,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <select class="review-trip">${reviewTripOptions_(entry.trip_id || entry.suggested_trip_id || "")}</select>` : ""}
         ${entry.type === "transfer" ? `
         <label class="review-transfer-label">${tr("review.fromLabel")}</label>
-        <select class="review-from">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>
+        <select class="review-from">${reviewTransferSideOptions_(entry.payment_method_id)}</select>
         <label class="review-transfer-label">${tr("review.toLabel")}</label>
-        <select class="review-to">${transferAccountOptions_(entry.to_payment_method_id, tr("review.pickAccount"))}</select>` : ""}
+        <select class="review-to">${reviewTransferSideOptions_(entry.to_payment_method_id)}</select>` : ""}
         ${entry.type === "investment" ? `
         <label class="review-transfer-label">${tr("review.platformLabel")}${Number(entry.amount) < 0 ? tr("review.platformWithdrawal") : ""}</label>
         <select class="review-platform">${investmentPlatformOptions_(entry.to_payment_method_id)}</select>
@@ -6938,8 +6943,12 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       const fields = { description, amount: entry.type === "investment" && Number(entry.amount) < 0 ? -amount : amount };
       if (entry.type !== "investment") fields.category_id = categoryId;
       if (entry.type === "transfer") {
-        const fromId = item.querySelector(".review-from").value;
-        const toId = item.querySelector(".review-to").value;
+        const fromVal = item.querySelector(".review-from").value, toVal = item.querySelector(".review-to").value;
+        // Each side is an account or, said on purpose, "Outside my accounts": a box left on "Pick the account…" used to be saved
+        // quietly as someone else's account (1.76.1).
+        if (!fromVal || !toVal) { alert(tr("review.pickBothSides")); return; }
+        const fromId = fromVal === REVIEW_OUTSIDE_ ? "" : fromVal, toId = toVal === REVIEW_OUTSIDE_ ? "" : toVal;
+        if (!fromId && !toId) { alert(tr("error.pickAccount")); return; }
         if (fromId && toId && fromId === toId) {
           alert(tr("error.sameAccount"));
           return;
@@ -20324,29 +20333,66 @@ async function startRecurringBulkDelete_(items) {
 // Stopped (end date today) or Deleted; a one-time item has no end date, so it only offers Reactivate / Delete.
 let pausedAskOpen_ = false;
 let pausedAskRetries_ = 0;
-// Payors and friends become one list (owner's copy only, once): payers who share a name with a friend are shown first; ticked = the same person.
+// Payors and friends become one list (once per copy; friends' copies too since 1.76.1): payers who share a name with a friend are shown with
+// what each side holds (incomes, debts) and a two-way choice whose result is spelled out under it before Done. Shown only once Home has
+// finished loading, so it never lands on top of something half-drawn or in the middle of a tap.
 let payorMergeOpen_ = false, payorMergeRetries_ = 0;
+function payorMergeHomeBusy_() {
+  return [...document.querySelectorAll("#screen-entries .stmt-loading")].some((el) => el.offsetParent);
+}
+function payorMergeFriendLine_(owed) {
+  const pos = [], neg = [];
+  Object.keys(owed || {}).forEach((cur) => (owed[cur] > 0 ? pos : neg).push(formatAmount(Math.abs(owed[cur]), cur)));
+  const parts = [];
+  if (pos.length) parts.push(tr("payorMerge.owesYou", { amounts: pos.join(" + ") }));
+  if (neg.length) parts.push(tr("payorMerge.youOwe", { amounts: neg.join(" + ") }));
+  return tr("payorMerge.asFriend", { what: parts.length ? parts.join(" · ") : tr("payorMerge.nothingOwed") });
+}
 function maybeAskPayorMerge_() {
   const pairs = (meta && meta.payorMergeAsk) || [];
   if (!pairs.length || payorMergeOpen_ || meta.fromCache_) return;
-  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning()) {
-    if (payorMergeRetries_++ < 40) setTimeout(maybeAskPayorMerge_, 4000);
+  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning() || payorMergeHomeBusy_()) {
+    if (payorMergeRetries_++ < 40) setTimeout(maybeAskPayorMerge_, payorMergeHomeBusy_() ? 1000 : 4000);
     return;
   }
   payorMergeOpen_ = true;
   const list = document.getElementById("payor-merge-list");
   list.innerHTML = "";
   pairs.forEach((p) => {
-    const row = document.createElement("label");
-    row.className = "checkbox-row";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.checked = true;
-    box.dataset.payorId = p.payor_id;
-    const name = document.createElement("span");
+    const row = document.createElement("div");
+    row.className = "payor-merge-row";
+    row.dataset.payorId = p.payor_id;
+    row.dataset.same = "1";
+    const name = document.createElement("div");
+    name.className = "payor-merge-name";
     name.textContent = p.name;
-    row.append(box, name);
+    const facts = document.createElement("div");
+    facts.className = "hint";
+    const payerLine = p.incomes ? tr("payorMerge.asPayer", { n: p.incomes, date: listDate_(p.last_income) }) : tr("payorMerge.asPayerNone");
+    facts.textContent = `${payerLine} · ${payorMergeFriendLine_(p.owed)}`;
+    const tabs = document.createElement("div");
+    tabs.className = "type-tabs budget-period-tabs payor-merge-tabs";
+    tabs.setAttribute("role", "group");
+    tabs.setAttribute("aria-label", p.name);
+    const result = document.createElement("p");
+    result.className = "hint payor-merge-result";
+    const pick = (same) => {
+      row.dataset.same = same ? "1" : "0";
+      tabs.querySelectorAll("button").forEach((b) => { const on = (b.dataset.same === "1") === same; b.classList.toggle("active", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
+      result.textContent = same ? tr("payorMerge.sameResult") : tr("payorMerge.differentResult", { name: p.name + tr("payorMerge.payerSuffix") });
+    };
+    [["1", "payorMerge.same"], ["0", "payorMerge.different"]].forEach(([v, key]) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "type-tab";
+      b.dataset.same = v;
+      b.textContent = tr(key);
+      b.addEventListener("click", () => pick(v === "1"));
+      tabs.appendChild(b);
+    });
+    row.append(name, facts, tabs, result);
     list.appendChild(row);
+    pick(true);
   });
   const backdrop = document.getElementById("payor-merge-backdrop");
   I18n.applyStatic(backdrop);
@@ -20354,7 +20400,7 @@ function maybeAskPayorMerge_() {
   backdrop.hidden = false;
 }
 document.getElementById("payor-merge-save").addEventListener("click", () => {
-  const separate = [...document.querySelectorAll("#payor-merge-list input:not(:checked)")].map((b) => b.dataset.payorId);
+  const separate = [...document.querySelectorAll("#payor-merge-list .payor-merge-row[data-same='0']")].map((r) => r.dataset.payorId);
   document.getElementById("payor-merge-backdrop").hidden = true;
   meta.payorMergeAsk = [];
   payorMergeOpen_ = false;
@@ -22628,7 +22674,8 @@ document.getElementById("tour-choice-tips").addEventListener("click", () => {
 // Unlike a practice tutorial (made-up data, deleted at the end), a GUIDED practice has the person record something REAL, field by
 // field, and keeps it. The first time a new person taps "+", it starts by itself: what to record (the four types), then each field
 // with one sentence on what it is for, the optional parts with "Not now", Save, and where the entry landed. Exit leaves the form as it
-// is (the usual draft). Marked seen in tipsSeen ("guided-entry") once the first card is answered (Start or Exit); More → Practice tips runs it again.
+// is (the usual draft). Marked seen in tipsSeen ("guided-entry") once it is finished or exited (1.76.1; closing the app midway does not count);
+// More → Practice tips runs it again.
 const GUIDED_ENTRY_KEY_ = "guided-entry";
 const GUIDED_AGAIN_KEY_ = "guidedEntryAgain";   // set by "Practice tips": run it again even though there are entries
 const GUIDED_SPLIT_KEY_ = "guidedSplit";        // { friendId, friendName } when the first entry was shared (the Loans tip then only shows it)
@@ -22668,9 +22715,9 @@ function startGuidedEntry_() {
   if (!newEntrySheetOpen_ || Spotlight.isRunning()) return;
   guided_ = { savedId: "", split: null };
   Spotlight.run(realSteps_(guidedEntrySteps_()), {
-    labels: { note: tr("spot.g.note"), exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
+    labels: { exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },   // (no "this is real" line: its first card says so; it was said twice, Wilmer)
     onFinish: async (how) => {
-      guidedAnswered_();   // Exit on the first card counts; closing the app on it does not (Sol, 2026-11-09)
+      guidedAnswered_();   // finished or Exit (any step) counts; closing the app midway does not (Sol, Rosa, 2026-11-09)
       if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0);
       if (guided_ && guided_.split) { try { localStorage.setItem(GUIDED_SPLIT_KEY_, JSON.stringify(guided_.split)); } catch (e) { /* ignore */ } }
       guided_ = null;   // nothing to remove: what the person saved is theirs
@@ -22689,7 +22736,7 @@ function guidedEntrySteps_() {
   // `available` (type only, never what is on screen yet) keeps "3 of 12" right once the type is chosen; `before` checks the screen.
   const accountText = { expense: "spot.g.accExp", income: "spot.g.accInc", transfer: "spot.g.accFrom", investment: "spot.g.accInv" };
   return [
-    { key: "intro", text: () => tr("spot.g.intro"), button: () => tr("spot.g.start"), after: guidedAnswered_ },
+    { key: "intro", text: () => tr("spot.g.intro"), button: () => tr("spot.g.start") },   // (seen only once it ends: onFinish)
     { key: "type", target: "#entry-type-tabs", text: () => tr(payVaries_() ? "spot.g.typeVaries" : "spot.g.type"), tap: "#entry-type-tabs", button: () => tr("spot.g.keepExpense") },
     { key: "category", field: "category", target: "#category-picker", text: () => tr(selectedType === "income" ? "spot.g.catIncome" : "spot.g.cat"),
       until: () => !document.getElementById("entry-form").hidden, available: () => ICON_PICKER_TYPES.includes(selectedType), before: async () => shownNow("category-picker") },
@@ -22762,8 +22809,32 @@ const TAUGHT_KEY_ = "tutorialTaught", TAUGHT_OLD_KEY_ = "tutorialTaughtOld", FIE
 const REAL_CHANCES_ = 3;
 // Practice cards answered before this existed cannot be told apart from finished ones, so they count as taught (once, at the first opening).
 if (popGet_(TAUGHT_OLD_KEY_, null) === null) popSet_(TAUGHT_OLD_KEY_, popGet_("tipsSeen", []));
-function isTaught_(feature) { return !!popGet_(TAUGHT_KEY_, {})[feature] || popGet_(TAUGHT_OLD_KEY_, []).includes(feature); }
-function markTaught_(feature, how) { const t = popGet_(TAUGHT_KEY_, {}); if (!t[feature]) { t[feature] = how; popSet_(TAUGHT_KEY_, t); } }
+// A real tutorial counts as taught only once it is finished or exited, whichever comes first (owner, 2026-11-09): a "real" mark made when it
+// starts waits here, in memory, and is kept when the walkthrough ends. One cut off by closing the app is offered again next time (Rosa).
+let taughtPending_ = {};
+function isTaught_(feature) { return !!taughtPending_[feature] || !!popGet_(TAUGHT_KEY_, {})[feature] || popGet_(TAUGHT_OLD_KEY_, []).includes(feature); }
+function markTaught_(feature, how) {
+  if (how === "real") { taughtPending_[feature] = how; return; }
+  const t = popGet_(TAUGHT_KEY_, {}); if (!t[feature]) { t[feature] = how; popSet_(TAUGHT_KEY_, t); }
+}
+function keepTaughtPending_() {
+  const keys = Object.keys(taughtPending_);
+  if (!keys.length) return;
+  const t = popGet_(TAUGHT_KEY_, {});
+  keys.forEach((k) => { if (!t[k]) t[k] = taughtPending_[k]; });
+  taughtPending_ = {};
+  popSet_(TAUGHT_KEY_, t);
+}
+// Every walkthrough's end (done, Exit, lost) keeps what it taught; the engine's own onFinish of each caller still runs as before.
+(function () {
+  const run = Spotlight.run;
+  Spotlight.run = function (steps, ctx) {
+    ctx = ctx || {};
+    const onFinish = ctx.onFinish;
+    ctx.onFinish = (how) => { keepTaughtPending_(); return onFinish ? onFinish(how) : null; };
+    return run.call(this, steps, ctx);
+  };
+})();
 function realAgain_() { return !!popGet_(REAL_AGAIN_KEY_, false); }   // More → Practice tips: run them even for someone who already uses the feature
 function realTutorialsReset_() {
   popSet_(TAUGHT_KEY_, {}); popSet_(TAUGHT_OLD_KEY_, []); popSet_(FIELDS_KEY_, []); popSet_(CHANCES_KEY_, {}); popSet_(REVIEW_TYPES_KEY_, []); popSet_(IDLE_SEEN_KEY_, []);
@@ -22776,7 +22847,7 @@ function realSteps_(steps) {
   steps.forEach((s) => { if (s.field) { const after = s.after; s.after = () => { if (after) after(); noteField_(s.field); }; } });
   return steps;
 }
-function realLabels_() { return { note: tr("spot.g.note"), exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) }; }
+function realLabels_() { return { note: tr("spot.g.note"), noteOnce: true, exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) }; }
 // "A look is not a use": up to 3 chances to accept; `perDay` also keeps a tutorial that opens by itself to once a day.
 function realChanceLeft_(feature, perDay) {
   const c = popGet_(CHANCES_KEY_, {})[feature] || { n: 0, day: "" };
@@ -26614,13 +26685,31 @@ document.getElementById("bank-early-save").addEventListener("click", () => {
   };
   const friend = bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name };
   document.getElementById("bank-early-modal-backdrop").hidden = true;
+  bankLoanDetailUpdating_(friend);
   saveBehindScreen_(() => callApi("recordEarlyPayment", payload), async () => {
     refreshEntriesInBackground_();
     refreshReviewQueue().catch(() => {});
     await refreshLoans();
+    await bankLoanDetailRefresh_(friend);
     await openBankSchedule_(ctx.sched.loan.id, friend);
   });
 });
+
+// The bank's screen in Loans (the person's loan screen) under the schedule kept the old balance until the next action (Lucía, 2026-11-09):
+// it says "Updating…" while an installment or an early payment is saved, then shows the new balance (saved or refused: it is read again).
+function bankLoanDetailOpenFor_(friend) {
+  return friend && !document.getElementById("loan-detail-modal-backdrop").hidden && loanDetailScope_.friendId === friend.id;
+}
+function bankLoanDetailUpdating_(friend) {
+  if (!bankLoanDetailOpenFor_(friend)) return;
+  document.getElementById("loan-detail-subtitle").textContent = tr("loanDetail.updating");
+  document.getElementById("loan-detail-list").classList.add("is-updating");
+}
+async function bankLoanDetailRefresh_(friend) {
+  if (!bankLoanDetailOpenFor_(friend)) return;
+  try { await openLoanDetail(friend.id, friend.name); } catch (e) { /* the schedule below still opens */ }
+  document.getElementById("loan-detail-list").classList.remove("is-updating");
+}
 
 // How many installments the bank's schedule has: the last one's own number ("7 of 24" for a loan from before the app that starts at 7).
 function bankCountOf_(sched) { return sched.installments.reduce((n, r) => Math.max(n, Number(r.number) || 0), 0); }
@@ -26671,10 +26760,12 @@ document.getElementById("bank-record-save").addEventListener("click", () => {
   };
   const friend = bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name };
   document.getElementById("bank-record-modal-backdrop").hidden = true;
+  bankLoanDetailUpdating_(friend);
   const tracked = practiceMTrack_(() => callApi("recordInstallment", payload), async () => {
     refreshEntriesInBackground_();
     refreshReviewQueue().catch(() => {});
     await refreshLoans();
+    await bankLoanDetailRefresh_(friend);
     await openBankSchedule_(ctx.sched.loan.id, friend);
   }, ctx.sched.loan.description, "recorded");   // the first-use practice follows its own installment
   saveBehindScreen_(tracked.work, tracked.after);
@@ -27174,7 +27265,7 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     if (!date) throw new Error(tr("error.dateRequired"));
     const opening = document.getElementById("loan-opening").checked;
-    // (No account is now a choice the person picks by name, "Not through my accounts": no second question.)
+    // (No account is now a choice the person picks by name, "Outside my accounts": no second question.)
 
     const fields = {
       friend_id: friendId,
@@ -28696,7 +28787,7 @@ function syncBillTabs_() {
   const cur = (document.getElementById("currency").value || homeCur()).toUpperCase();
   document.getElementById("bill-tip-label").textContent = isPercent ? tr("bill.tipPercentLabel") : tr("bill.tipAmountLabel", { cur });
   const box = document.getElementById("bill-tip-value");
-  box.placeholder = isPercent ? "e.g. 10" : "0.00";
+  box.placeholder = isPercent ? tr("bill.tipPercentPlaceholder") : "0.00";
   box.value = isPercent ? billState.tip.percent : billState.tip.amount;
 }
 
