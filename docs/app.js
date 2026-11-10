@@ -13663,7 +13663,7 @@ function showExportScreen() {
   exportEl_("export-ready").hidden = true;
   exportEl_("export-ready").textContent = "";
   refreshExportScreen_();
-  offerExportTip_();   // nothing to fetch on this screen, so it is complete as soon as it is drawn (loading standard)
+  watchExportIdle_();   // nothing to fetch on this screen, so it is complete as soon as it is drawn (loading standard)
 }
 
 function refreshExportScreen_() {
@@ -13826,8 +13826,15 @@ document.getElementById("export-send-btn").addEventListener("click", sendExport_
 // changes only the period, and that alone is put back at the end.
 let practiceE_ = null;   // { range }: the period before the practice started
 
-function offerExportTip_() {
-  offerTip_("export", "export-tip-invite", tr("spot.e.invite"), startExportPractice_);
+// No yellow card (owner, 2026-11-09: nobody needs nudging to export): the bubble after 20 idle seconds offers it.
+function watchExportIdle_() {
+  if (!meta || perfIsOwnerCopy_() || isTaught_("export") || tipSeen_("export")) return;
+  idleOffer_({
+    key: "export",
+    wanted: () => !document.getElementById("screen-export").hidden && !isTaught_("export") && !tipSeen_("export"),
+    target: () => document.getElementById("export-get-btn"),
+    start: () => { tipRunningKey_ = "export"; if (startExportPractice_()) markTipSeen_("export"); else tipRunningKey_ = ""; }
+  });
 }
 
 function practiceESteps_() {
@@ -21921,7 +21928,7 @@ function popTipShow_(tip, el) {
   b.className = "pop-tip";
   b.setAttribute("role", "dialog");
   b.dataset.tip = tip.key;
-  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons"><button type="button" class="pop-tip-ok">${escapeHtml(tip.offer ? tr("rt.guideMe") : tr("pop.gotIt"))}</button></div>`;
+  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons"><button type="button" class="pop-tip-ok">${escapeHtml(tip.offer ? (tip.offerLabel || tr("rt.guideMe")) : tr("pop.gotIt"))}</button></div>`;
   document.body.appendChild(b);
   const place = () => {
     if (!el.isConnected || !el.getClientRects().length) { close(); return; }
@@ -22426,7 +22433,7 @@ function offerLoansMoreLine_() {
   const box = document.getElementById("loans-more-practice");
   if (!box) return;
   const left = ((meta && meta.capabilities) || {}).practiceLoansMore   // an older backend could not clean these practices up
-    ? [["loans-standalone", "spot.lm.loan", "standalone"], ["loans-bank", "spot.lm.bank", "bank"]].filter(([k]) => !tipSeen_(k) && (k !== "loans-standalone" || (realAgain_() && !transferKindTaught_("loan")))) : [];
+    ? [["loans-standalone", "spot.lm.loan", "standalone"], ["loans-bank", "spot.lm.bank", "bank"]].filter(([k]) => !tipSeen_(k) && (k === "loans-bank" ? realAgain_() && !isTaught_(k) : realAgain_() && !transferKindTaught_("loan"))) : [];
   if (!left.length || Spotlight.isRunning()) { box.hidden = true; return; }
   box.innerHTML = `<span class="loans-more-head"><span>${escapeHtml(tr("spot.lm.title"))}</span>`
     + `<button type="button" class="loans-more-close" aria-label="${escapeHtml(tr("spot.lm.hide"))}">✕</button></span>`
@@ -22434,7 +22441,8 @@ function offerLoansMoreLine_() {
   box.hidden = false;
   box.querySelectorAll("[data-tip]").forEach((b) => b.addEventListener("click", () => {
     const k = b.dataset.tip;
-    if (!startLoansMorePractice_(k === "loans-bank" ? "bank" : "standalone")) return;
+    tipRunningKey_ = k;
+    if (!startLoansMorePractice_(k === "loans-bank" ? "bank" : "standalone")) { tipRunningKey_ = ""; return; }
     markTipSeen_(k);
     box.hidden = true;
   }));
@@ -22599,7 +22607,7 @@ function isTaught_(feature) { return !!popGet_(TAUGHT_KEY_, {})[feature] || popG
 function markTaught_(feature, how) { const t = popGet_(TAUGHT_KEY_, {}); if (!t[feature]) { t[feature] = how; popSet_(TAUGHT_KEY_, t); } }
 function realAgain_() { return !!popGet_(REAL_AGAIN_KEY_, false); }   // More → Practice tips: run them even for someone who already uses the feature
 function realTutorialsReset_() {
-  popSet_(TAUGHT_KEY_, {}); popSet_(TAUGHT_OLD_KEY_, []); popSet_(FIELDS_KEY_, []); popSet_(CHANCES_KEY_, {}); popSet_(REVIEW_TYPES_KEY_, []);
+  popSet_(TAUGHT_KEY_, {}); popSet_(TAUGHT_OLD_KEY_, []); popSet_(FIELDS_KEY_, []); popSet_(CHANCES_KEY_, {}); popSet_(REVIEW_TYPES_KEY_, []); popSet_(IDLE_SEEN_KEY_, []);
   popSet_(REAL_AGAIN_KEY_, true);
   reviewRealDone_ = false;
 }
@@ -22635,6 +22643,7 @@ let reviewRealTimer_ = null, reviewRealDone_ = false;   // one per opening of th
 function offerReviewTip_() {   // called whenever Needs review may have something new (refreshReviewQueue is still drawing, so it waits a moment)
   setTimeout(offerNudge_, 700);
   if (!reviewEntries_.length) return;   // nothing waiting yet
+  if (!reviewOpen_) return;   // the row starts closed: its tutorial starts when the person opens it (owner, 2026-11-09), never when Home loads
   if (reviewRealTimer_) return;
   reviewRealTimer_ = setTimeout(() => { reviewRealTimer_ = null; startReviewReal_(); watchReviewHint_(); }, 400);
 }
@@ -23098,8 +23107,36 @@ function watchReviewHint_() {
     ready: realScreenFree_ });
 }
 
+// "Idle too long" (owner's plan, 2026-11-09): 20 seconds with no tap, typing or scrolling while the screen is showing, nothing is loading and the file chooser is shut.
+// Time in the background does not count. A bubble then offers the walkthrough; it never starts by itself. Once per screen, per phone (More → Practice tips brings it back).
+const IDLE_SECONDS_ = 20, IDLE_SEEN_KEY_ = "tutorialIdleSeen";
+let idleTip_ = null, idleCount_ = 0, idleTimer_ = null, idleChooser_ = false;
+// tip: { key, wanted() → false stops watching, target() → what the bubble points at, start() }
+function idleOffer_(tip) {
+  if (popGet_(IDLE_SEEN_KEY_, []).includes(tip.key)) return;
+  idleTip_ = tip;
+  idleCount_ = 0;
+  if (!idleTimer_) idleTimer_ = setInterval(idleTick_, 1000);
+}
+function idleStop_() { idleTip_ = null; if (idleTimer_) { clearInterval(idleTimer_); idleTimer_ = null; } }
+function idleTick_() {
+  const tip = idleTip_;
+  if (!tip || !tip.wanted()) { idleStop_(); return; }
+  if (document.hidden || idleChooser_ || perfInflight_ > 0 || popTyping_() || !realScreenFree_()) return;
+  if (++idleCount_ < IDLE_SECONDS_) return;
+  const el = tip.target();
+  if (!popInView_(el)) return;
+  popSet_(IDLE_SEEN_KEY_, popGet_(IDLE_SEEN_KEY_, []).concat(tip.key));
+  idleStop_();
+  popTipShow_({ key: "idle-" + tip.key, text: tr("rt.idle.offer"), offer: tip.start, offerLabel: tr("spot.showMe") }, el);
+}
+["pointerdown", "keydown", "input", "scroll", "touchstart"].forEach((ev) => document.addEventListener(ev, () => { idleCount_ = 0; if (ev === "pointerdown") idleChooser_ = false; }, { capture: true, passive: true }));
+document.addEventListener("click", (e) => { if (e.target.matches && e.target.matches('input[type="file"]')) idleChooser_ = true; }, true);
+["change", "cancel"].forEach((ev) => document.addEventListener(ev, (e) => { if (e.target.matches && e.target.matches('input[type="file"]')) idleChooser_ = false; }, true));
+window.addEventListener("focus", () => { idleChooser_ = false; });
+
 // Real tutorials on a dedicated "+" (owner's plan, step 4): tapping + is a clear intention, so the window opens as usual and a first screen offers Start / Exit (3 chances, another day each).
-const REAL_SAVE_ = { "budget-save-btn": ["budgets", "budget-modal-backdrop"], "recurring-save-btn": ["programmed", "recurring-modal-backdrop"], "pm-save-btn": ["accounts", "pm-modal-backdrop"], "trip-save-btn": ["trips", "trip-modal-backdrop"] };
+const REAL_SAVE_ = { "bank-save": ["loans-bank", "bank-loan-modal-backdrop"], "budget-save-btn": ["budgets", "budget-modal-backdrop"], "recurring-save-btn": ["programmed", "recurring-modal-backdrop"], "pm-save-btn": ["accounts", "pm-modal-backdrop"], "trip-save-btn": ["trips", "trip-modal-backdrop"] };
 let realFormTimer_ = null;
 function startFormGuide_(feature, used, backdropId, saveId, introKey, build) {
   if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || isTaught_(feature) || !realChanceLeft_(feature, true)) return;
@@ -23233,9 +23270,46 @@ function billGuideSteps_(ctx) {
     { key: "entrySave", target: () => realSaveTarget_("submit-btn", "form-error"), text: () => { const e = el("form-error").textContent.trim(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.bill.saveEntry"); }, until: () => !!(guided_ && guided_.savedId) || !(newEntrySheetOpen_ || confirmingPendingId) }
   ].concat(realWhereSteps_(() => realEntryRow_((guided_ && guided_.savedId) || fromForm), () => tr("rt.bill.done"), { before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } }));
 }
+// The phone cannot tell a bank loan from the Loans list (only the loan's own screen shows its schedule), so a second loan still gets the Start / Exit screen once.
+const bankLoanHeld_ = () => false;
+// Bank loan: every field of the form, and the schedule's fields only for the way the person chooses to enter it. It ends on the installments of the saved loan.
+function bankGuideSteps_(ctx) {
+  const el = (id) => document.getElementById(id);
+  const num = (id) => bankNum_(el(id).value);
+  const auto = () => bankMode_() !== "manual";
+  const byRate = () => bankMode_() === "rate";
+  const byPayment = () => bankMode_() === "installment";
+  const rowsOk = () => !!bankDraft_ && bankDraft_.rows.length > 0 && !el("bank-save").disabled;
+  const countOk = () => { const n = num("bank-gen-count"); return n >= 1 && n <= 480 && Math.round(n) === n; };
+  const left = (id) => document.activeElement !== el(id);
+  let fillBase = 0;
+  return [
+    realNameStep_(ctx, "bank-lender", "rt.bank.lender"),
+    { target: "#bank-description", text: () => tr("rt.bank.desc"), blurTap: true, visit: "#bank-description", button: realNext_ },
+    { target: "#bank-opening-row", text: () => tr("rt.bank.opening"), button: realNext_, before: async () => realShown_("bank-opening-row") },
+    realAmountStep_(ctx, "bank-amount", () => tr("rt.bank.amount"), "rt.bank.amountFix"),
+    { target: () => [el("bank-currency"), el("bank-date")], text: () => tr("rt.bank.money"), button: realNext_ },
+    { target: "#bank-next-number-field", text: () => tr("rt.bank.nextNumber"), blurTap: true, visit: "#bank-next-number", button: realNext_, before: async () => realShown_("bank-next-number-field") },
+    { target: "#bank-account-field", text: () => tr("rt.bank.account"), visit: "#bank-account", button: realNext_, before: async () => realShown_("bank-account-field") },
+    { target: "#bank-mode-box", text: () => tr("rt.bank.mode"), button: realNext_ },
+    { key: "count", target: "#bank-gen-count", text: (fix) => tr(fix ? "rt.bank.countFix" : "rt.bank.count"), blurTap: true, available: auto, before: async () => auto(),
+      until: () => countOk() && left("bank-gen-count"), ok: () => ctx.saving() || !auto() || countOk(), holdsUntil: "fill" },
+    { target: () => [el("bank-gen-first"), el("bank-gen-freq")], text: () => tr("rt.bank.when"), button: realNext_, before: async () => auto() },
+    { target: "#bank-gen-grace", text: () => tr("rt.bank.grace"), blurTap: true, visit: "#bank-gen-grace", button: realNext_, before: async () => auto() },
+    { key: "pay", target: "#bank-gen-payment", text: (fix) => tr(fix ? "rt.bank.paymentFix" : "rt.bank.payment"), blurTap: true, available: byPayment, before: async () => byPayment(),
+      until: () => num("bank-gen-payment") > 0 && left("bank-gen-payment"), ok: () => ctx.saving() || !byPayment() || num("bank-gen-payment") > 0, holdsUntil: "fill" },
+    { target: "#bank-gen-rate", text: () => tr("rt.bank.rate"), blurTap: true, visit: "#bank-gen-rate", button: realNext_, before: async () => byRate() },
+    { target: "#bank-gen-rate-type", text: () => tr("rt.bank.rateType"), visit: "#bank-gen-rate-type", button: realNext_, before: async () => byRate() },
+    { target: "#bank-gen-fee", text: () => tr("rt.bank.fee"), blurTap: true, visit: "#bank-gen-fee", button: realNext_, before: async () => auto() },
+    { key: "fill", target: () => realSaveTarget_("bank-gen-btn", "bank-error"), text: () => { const e = (el("bank-error").textContent || "").trim(); return e ? tr("rt.bank.fillErr", { error: e }) : tr("rt.bank.fill"); },
+      available: auto, before: async () => { fillBase = bankFillClicks_; return auto(); }, until: () => bankFillClicks_ > fillBase && rowsOk(), ok: () => ctx.saving() || !auto() || bankDraft_.rows.length > 0, holdsUntil: "save" },
+    { target: () => [el("bank-rows"), el("bank-add-row"), el("bank-totals")], text: () => tr("rt.bank.manual"), blurTap: true, until: () => rowsOk() && !popTyping_(), before: async () => !auto() },
+    { key: "check", target: () => [el("bank-rows"), el("bank-totals"), el("bank-opening-summary")].filter((x) => !x.hidden), text: (fix) => tr(fix ? "rt.bank.checkFix" : "rt.bank.check"), blurTap: true, button: realNext_, ok: () => ctx.saving() || rowsOk(), holdsUntil: "save" }
+  ].concat(realSaveSteps_(ctx, "bank-save", "bank-error", "rt.bank.done", { find: practiceMSchedBtn_, wait: 45000 }));
+}
 document.addEventListener("click", (e) => {
   if (!e.target.closest) return;
-  const b = e.target.closest("#add-budget-btn, #add-recurring-btn, #accounts-add-btn, #trips-add-btn, #bill-open-btn, #budget-save-btn, #recurring-save-btn, #pm-save-btn, #trip-save-btn");
+  const b = e.target.closest("#add-budget-btn, #add-recurring-btn, #accounts-add-btn, #trips-add-btn, #bill-open-btn, #add-bank-loan-btn, #bank-save, #budget-save-btn, #recurring-save-btn, #pm-save-btn, #trip-save-btn");
   if (!b || Spotlight.isRunning()) return;
   if (REAL_SAVE_[b.id]) {   // saved without the guide: the offer ends
     const [feature, backId] = REAL_SAVE_[b.id];
@@ -23247,6 +23321,7 @@ document.addEventListener("click", (e) => {
   if (b.id === "accounts-add-btn") startFormGuide_("accounts", () => new Set((lastRenderedEntries_ || []).map((x) => x.payment_method_id).filter(Boolean)).size > 1, "pm-modal-backdrop", "pm-save-btn", "rt.acc.intro", accountGuideSteps_);
   if (b.id === "trips-add-btn") startFormGuide_("trips", () => (meta.trips || []).length > 0, "trip-modal-backdrop", "trip-save-btn", "rt.trip.intro", tripGuideSteps_);
   if (b.id === "bill-open-btn") startFormGuide_("bill", () => false, "bill-modal-backdrop", "bill-apply", "rt.bill.intro", billGuideSteps_);
+  if (b.id === "add-bank-loan-btn") startFormGuide_("loans-bank", bankLoanHeld_, "bank-loan-modal-backdrop", "bank-save", "rt.bank.intro", bankGuideSteps_);
 }, true);
 
 // Adding an investment platform: the example name is a platform, not a bank card.
@@ -23287,7 +23362,7 @@ function startInvestmentReal_() {
 }
 
 // A practice is only a nudge where a real tutorial exists (owner, 2026-11-09): shown on Home, one at a time, at most every 3 days, from 14 days after the first opening.
-const REAL_FIRST_ = ["budgets", "programmed", "accounts", "loans", "exchange", "trips", "investments"];
+const REAL_FIRST_ = ["budgets", "programmed", "accounts", "loans", "exchange", "trips", "investments", "loans-bank", "bank", "import"];
 const NUDGE_DAYS_ = 14, NUDGE_EVERY_ = 3, NUDGE_LAST_KEY_ = "tutorialNudgeLast";
 let nudgeKey_ = "";
 // Only one of practice / real tutorial is ever done with a person; and where a real tutorial exists, the practice only comes as the two-week nudge (or when asked for).
@@ -23299,8 +23374,11 @@ function offerNudge_() {
   const last = popGet_(NUDGE_LAST_KEY_, "");
   if (last && realDaysSince_(last) < NUDGE_EVERY_) return;
   const list = { budgets: ["spot.b.invite", startBudgetPractice_], programmed: ["spot.r.invite", startProgrammedPractice_], accounts: ["spot.a.invite", startAccountsPractice_], loans: ["spot.p.invite", startPractice_],
-    exchange: ["spot.x.invite", startExchangePractice_], trips: ["spot.t.invite", startTripsPractice_], investments: ["spot.i.invite", startInvestmentsPractice_] };
-  const key = REAL_FIRST_.find((k) => !isTaught_(k) && !tipSeen_(k));
+    exchange: ["spot.x.invite", startExchangePractice_], trips: ["spot.t.invite", startTripsPractice_], investments: ["spot.i.invite", startInvestmentsPractice_],
+    "loans-bank": ["spot.k.nudge", () => startLoansMorePractice_("bank")], bank: ["spot.s.invite", () => window.statementsNudgePractice_("bank")], import: ["spot.f.invite", () => window.statementsNudgePractice_("import")] };
+  const caps = (meta && meta.capabilities) || {};
+  const can = { "loans-bank": caps.practiceLoansMore, bank: caps.practiceBank, import: caps.practiceImport };
+  const key = REAL_FIRST_.find((k) => !isTaught_(k) && !tipSeen_(k) && (!(k in can) || can[k]));
   if (!key) return;
   nudgeKey_ = key;
   offerTip_(key, "home-tip-invite", tr(list[key][0]), list[key][1]);

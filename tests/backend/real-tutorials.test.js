@@ -201,3 +201,19 @@ test("the focus window stops at the sheet's edges", () => {
   const engine = fs.readFileSync(path.join(__dirname, "../../docs/spotlight.js"), "utf8");
   assert.match(engine, /e\.closest\("\.currency-modal"\)/);
 });
+
+test("Needs review's tutorial waits for the person to open the closed row", () => {
+  const fn = /function offerReviewTip_\(\) \{[\s\S]*?\n\}/.exec(app)[0];
+  assert.match(fn, /if \(!reviewOpen_\) return;/);
+  assert.ok(fn.indexOf("!reviewOpen_") < fn.indexOf("startReviewReal_"));
+});
+
+test("step 5: bank loan, statements and import tutorials, the idle offer, Export without a card", () => {
+  assert.match(app, /startFormGuide_\("loans-bank", bankLoanHeld_, "bank-loan-modal-backdrop", "bank-save", "rt\.bank\.intro", bankGuideSteps_\)/);
+  assert.match(app, /const IDLE_SECONDS_ = 20/);
+  assert.match(app, /function idleTick_[\s\S]*?document\.hidden \|\| idleChooser_ \|\| perfInflight_ > 0/);
+  const stm = fs.readFileSync(path.join(__dirname, "../../docs/statements.js"), "utf8");
+  const strs = fs.readFileSync(path.join(__dirname, "../../docs/strings.js"), "utf8");
+  assert.match(stm, /realStmtFileChosen_\(\);\n    return card\.querySelector\("\.stmt-result-body"\)/);
+  for (const k of [...(app + stm).matchAll(/"(rt\.(?:bank|stmt|imp|idle)\.[A-Za-z]+)"/g)].map((m) => m[1])) assert.match(strs, new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: ".+", es: ".+" \\}'), k);
+});

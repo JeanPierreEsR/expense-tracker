@@ -108,7 +108,11 @@
     const loaded = [refreshStatementCoverage(), refreshStatementGaps(), refreshStatementBatches(), refreshStatementInbox()];
     renderSteps();
     if (next === "import") offerImportTip_();
-    else Promise.allSettled(loaded).then(() => { if (screenMode === "bank" && !$("screen-statements").hidden) offerBankTip_(); });   // loading standard: offered once the status line and the Inbox have arrived
+    Promise.allSettled(loaded).then(() => {   // loading standard: offered once the status line and the Inbox have arrived
+      if (screenMode !== next || $("screen-statements").hidden) return;
+      if (next === "bank") offerBankTip_();
+      watchStmtIdle_();
+    });
   }
 
   // ---- the four steps: Upload > Check > Preview > Done ----
@@ -566,6 +570,7 @@
       $("statement-password-input").value = "";
       const backdrop = $("statement-password-backdrop");
       bringModalToFront_(backdrop);
+      guidedLift_(backdrop);   // (asked during a real tutorial: above its dimmed screen)
       backdrop.hidden = false;
       setTimeout(() => $("statement-password-input").focus(), 50);
     });
@@ -650,6 +655,7 @@
     ssEl_("ss-send").disabled = false;
     ssStep_(1);
     bringModalToFront_(backdrop);
+    guidedLift_(backdrop);
     backdrop.hidden = false;
   }
   ssEl_("ss-close").addEventListener("click", () => { ssEl_("statement-sample-backdrop").hidden = true; });
@@ -704,6 +710,7 @@
     $("statement-results").prepend(card);
     // Reading starts: the person moves on to step 2 by themselves (from the inbox, a file, or the Gmail search alike).
     if (stepNow === 1 || pastOpen) showStep(2); else updateStepUi();
+    realStmtFileChosen_();
     return card.querySelector(".stmt-result-body");
   }
 
@@ -2120,6 +2127,7 @@
     const box = $("statement-batches");
     try {
       const batches = await callApi("listStatementBatches", { limit: batchesShown, kind: screenMode === "import" ? "import" : "statement" });
+      batchesHeld[screenMode] = batches.length;
       const more = batches.length >= batchesShown   // as many as were asked for: there may be older ones
         ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-batches-more">${escapeHtml(tr("stmt.showMore"))}</button></div>` : "";
       box.innerHTML = (batches.length ? batches.map((b) => `<div class="stmt-row"><div class="stmt-row-main">
@@ -2470,11 +2478,93 @@
     }
   }
 
+  let batchesHeld = {};   // how many past uploads each side of the screen has (from its list): someone who already uses it gets no tutorial
+
   function offerBankTip_() {
     const caps = (typeof meta !== "undefined" && meta && meta.capabilities) || {};
     if (!caps.practiceBank || screenMode !== "bank") return;   // an older backend could not make or clean up the practice account
     offerTip_("bank", "bank-tip-invite", tr("spot.s.invite"), startBankPractice_);
   }
+
+  // ---- Real tutorials on the person's own file (owner's plan, step 5) ----
+  // Only one of these and the practice is ever done with a person. It starts when a file is chosen (Start / Exit, up to 3 chances, one a day), or from the
+  // bubble after 20 idle seconds on the first step. Nothing is saved until the person taps Add, and what they add stays. Every reading is judged by what really happened:
+  // a table asks about its columns, a PDF shows its verdict, a file that cannot be used says so and ends.
+  const realStmtFeature_ = (mode) => (mode === "import" ? "import" : "bank");
+  function realStmtWanted_(mode) {
+    const f = realStmtFeature_(mode);
+    if (typeof meta === "undefined" || !meta || perfIsOwnerCopy_() || Spotlight.isRunning() || isTaught_(f)) return false;
+    if (!realAgain_() && batchesHeld[mode] > 0) { markTaught_(f, "used"); return false; }
+    return true;
+  }
+  function realStmtFileChosen_() {
+    const mode = screenMode;
+    if (!realStmtWanted_(mode) || !realChanceLeft_(realStmtFeature_(mode), true)) return;
+    setTimeout(() => { if (!Spotlight.isRunning() && stmtCards().length) startStmtReal_(mode, false); }, 0);
+  }
+  function watchStmtIdle_() {
+    const mode = screenMode;
+    if (!realStmtWanted_(mode)) return;
+    idleOffer_({
+      key: realStmtFeature_(mode),
+      wanted: () => screenMode === mode && !$("screen-statements").hidden && stepNow === 1 && !pastOpen && !stmtCards().length && !isTaught_(realStmtFeature_(mode)),
+      target: () => [document.querySelector(".stmt-upload-btn"), $("stmt-stepper")].find((e) => popInView_(e)) || null,
+      start: () => startStmtReal_(mode, true)
+    });
+  }
+  function realStmtSteps_(mode, fromStart) {
+    const imp = mode === "import";
+    const { root, part, waitFor } = practiceTools_();
+    const realNext = () => tr("spot.g.next"), done = () => tr("spot.g.done");
+    const reading = () => stmtCards().some((c) => { const b = c.querySelector(".stmt-result-body"); return !!b && !!b.firstElementChild && b.firstElementChild.classList.contains("stmt-loading"); });
+    const readDone = () => stmtCards().length > 0 && !reading();
+    const mapper = () => !!part(".tm-use")();
+    const needsAccount = () => { const r = root(), s = part(".tm-account")(); return !imp && !!r && !!s && !r.querySelector(".tm-single").hidden && !s.value; };
+    const columns = () => { const r = root(); return r ? Array.from(r.querySelectorAll(".tm-date, .tm-desc, .tm-mode, .tm-one:not([hidden]), .tm-two:not([hidden]), .tm-preview")) : null; };
+    const planSettled = () => !!historyPlan || !$("statement-history").querySelector(".stmt-loading");
+    const previewParts = () => { const k = Array.from($("statement-history").children).filter((c) => c.id !== "statement-history-save"); return k.length ? k : $("statement-review-card"); };
+    const canSave = () => !!$("statement-history-save");
+    const planError = () => !!$("statement-plan-status").querySelector(".stmt-verdict.bad");
+    const pre = imp ? "rt.imp." : "rt.stmt.";
+    const steps = [];
+    if (fromStart) steps.push({ key: "choose", target: imp ? ".stmt-upload-btn" : "#stmt-upload-card", text: () => tr(pre + "choose"), until: () => stmtCards().length > 0,
+      before: async () => { window.scrollTo(0, 0); return true; } });
+    steps.push(
+      { key: "reading", target: "#statement-results", text: () => tr("rt.stmt.reading"), until: readDone, wait: 8000, before: async () => !readDone() },
+      { key: "account", target: () => { const r = root(); return r ? (r.querySelector(".tm-multi:not([hidden])") || r.querySelector(".tm-single:not([hidden])")) : null; }, text: () => tr(pre === "rt.imp." ? "rt.imp.account" : "rt.stmt.account"), button: realNext, before: async () => mapper() },
+      { key: "columns", target: columns, text: () => tr("rt.stmt.columns"), button: realNext, before: async () => mapper() },
+      { key: "cats", target: part(".tm-cats"), text: () => tr("rt.imp.cats"), button: realNext,
+        before: async () => { if (!mapper()) return false; await waitFor(() => { const b = part(".tm-cats")(); return !!b && !b.querySelector(".stmt-loading"); }, 15000); return !!part(".tm-cat-row")(); } },
+      { key: "use", target: () => (needsAccount() ? root() : part(".tm-use")()), text: () => tr(needsAccount() ? "rt.stmt.useFix" : "rt.stmt.use"), until: () => !mapper() && readDone(), before: async () => mapper() },
+      { key: "result", target: "#statement-results", text: () => tr(usable.length ? "rt.stmt.result" : "rt.stmt.bad"), button: realNext, before: async () => { await waitFor(readDone, 3000); return true; } },
+      { key: "next", target: "#stmt-next-2", text: () => tr("rt.stmt.next"), tap: "#stmt-next-2", before: async () => usable.length > 0 },
+      { key: "planning", target: "#statement-review-card", text: () => tr("rt.stmt.planning"), until: planSettled, before: async () => usable.length > 0 && !planSettled() },
+      { key: "preview", target: previewParts, text: () => tr(canSave() ? "rt.stmt.preview" : "rt.stmt.previewNone"), button: realNext, before: async () => usable.length > 0 },
+      { key: "save", target: () => [$("statement-history-save"), planError() ? $("statement-plan-status") : null].filter(Boolean), text: () => tr(planError() ? "rt.stmt.saveErr" : "rt.stmt.save"), until: () => savedThisRun, before: async () => usable.length > 0 && canSave() },
+      { keep: true, look: true, target: "#statement-review-status", text: () => tr(imp ? "rt.imp.done" : "rt.stmt.done"), button: done, wait: 30000, waitText: () => tr("rt.saving"), before: async () => savedThisRun },
+      { keep: true, text: () => tr(usable.length ? "rt.stmt.endNone" : "rt.stmt.endBad"), button: done, before: async () => !savedThisRun }
+    );
+    return steps;
+  }
+  function startStmtReal_(mode, fromStart) {
+    if (Spotlight.isRunning()) return;
+    const f = realStmtFeature_(mode);
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    let started = false;
+    guided_ = { savedId: "", split: null };
+    const intro = { key: "intro", text: () => tr(mode === "import" ? "rt.imp.intro" : "rt.stmt.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_(f, "real"); } };
+    Spotlight.run(realSteps_([intro].concat(realStmtSteps_(mode, fromStart))), {
+      labels: realLabels_(), busy: () => perfInflight_ > 0,
+      onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_(f); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); }
+    });
+  }
+  // The practice brought from the two-week nudge on Home.
+  window.statementsNudgePractice_ = function (kind) {
+    const caps = (typeof meta !== "undefined" && meta && meta.capabilities) || {};
+    if (!caps[kind === "bank" ? "practiceBank" : "practiceImport"]) return false;
+    showStatementsScreen(kind);
+    return startStatementsPractice_(kind);
+  };
 
   // Builds the made-up file and hands it to the real file handler. The file's layout key is stored FIRST, so a closed app can still forget it.
   async function practiceIFeed_() {
