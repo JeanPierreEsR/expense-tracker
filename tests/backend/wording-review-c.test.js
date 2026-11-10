@@ -69,7 +69,7 @@ test("C11: the small Spanish items", () => {
   assert.match(get("rec.customInterval").es, /Se repite cada/);
   assert.match(get("tour.flow.body").es, /la imagen/);
   for (const e of ALL) assert.ok(!/excedente/i.test(e.es), `${e.key} excedente`);
-  assert.match(get("privacy.never").es, /las personas a quienes pagas/);
+  assert.match(get("privacy.never").es, /las categorías que creaste/);
 });
 
 test("C12: 'gap' no longer means two things; C13: no 'offset'; C14: 'payer', not 'payor/payee'; C16: no local words in English", () => {

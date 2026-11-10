@@ -3834,3 +3834,6 @@ body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: 216px; }
 .phone-row select { flex: 0 0 44%; min-width: 0; width: 44%; margin: 0; }
 .phone-row input { flex: 1 1 0; min-width: 0; width: auto; margin: 0; }
 #statement-past-btn { margin-left: 16px; }   /* in line with the cards' inner edge above it */
+
+/* Getting started: the bank e-mail screens carry no warning colors. */
+.bank-quiet .bm-status.wait, .bank-quiet .bm-health.problem, .bank-quiet .be-kinds li.can .hint { color: var(--muted); font-weight: 400; }

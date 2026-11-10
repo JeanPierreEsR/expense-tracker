@@ -64,3 +64,17 @@ test("Import keeps text written with care; ALL CAPS is still tidied", () => {
   assert.equal(run(rt, `stmtCleanDescription_("October pay")`), "October pay");
   assert.equal(run(rt, `stmtCleanDescription_("SUPERMERCADOS WONG")`), "Supermercados Wong");
 });
+
+test("Never sent to JP lists only what a sample can never contain", () => {
+  const never = /"privacy\.never": \{ en: "([^"]*)"/.exec(strings)[1];
+  assert.ok(!/description|names of|emails/i.test(never), never);
+});
+
+test("while a new person is getting started no bank alert is drawn, and the reason ends with Getting started or after 21 days", () => {
+  const quiet = app.slice(app.indexOf("function bankAlertsQuiet_"), app.indexOf("function renderFirstSteps_"));
+  assert.match(quiet, /perfIsOwnerCopy_\(\) \|\| fsFlag_\("etFirstStepsHidden"\) \|\| fsFlag_\("etFirstStepsDone"\)/);
+  assert.match(app, /const BANK_QUIET_DAYS_ = 21;/);
+  assert.match(app, /const unread = bankAlertsQuiet_\(\) \? \[\] : \(data\.unread \|\| \[\]\);/);
+  assert.match(app, /\|\| quiet;/);
+  assert.ok(!/⚠/.test(/"be\.unreadLink": [^\n]*/.exec(strings)[0]));
+});

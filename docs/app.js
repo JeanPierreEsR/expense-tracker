@@ -10880,16 +10880,18 @@ function mailHealthProblemText_(health) {
 function renderMailHealth_() {
   const health = meta && meta.emailInfo && meta.emailInfo.health;
   const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails) && !!health;
+  const quiet = bankAlertsQuiet_();
+  document.body.classList.toggle("bank-quiet", quiet);
   const card = document.getElementById("mail-health-card");
   if (card) {
-    card.hidden = !(reading && mailHealthChecked_ && health.problem);
+    card.hidden = !(reading && mailHealthChecked_ && health.problem) || quiet;
     if (!card.hidden) document.getElementById("mail-health-text").textContent = mailHealthProblemText_(health);
   }
   // The welcome pop-up and the Bank emails screen each carry a status line and a Check now button.
   [["bm-health", "bm-check-btn"], ["be-health", "be-check-btn"]].forEach(([lineId, btnId]) => {
     const line = document.getElementById(lineId);
     if (line) {
-      const problem = reading && !!health.problem;
+      const problem = reading && !!health.problem && !quiet;
       line.classList.toggle("problem", problem);
       line.textContent = !reading ? "" : problem ? mailHealthProblemText_(health) : health.lastOk ? tr("mailHealth.lastOk", { ago: mailAgo_(health, health.lastOk) }) : "";
     }
@@ -11435,6 +11437,14 @@ function refreshExtrasRow_() {
 // optional first statement. It disappears when everything is ticked, or when the person taps Hide (remembered on this phone only).
 function fsFlag_(key) { try { return localStorage.getItem(key) === "1"; } catch (e) { return false; } }
 function fsSetFlag_(key) { try { localStorage.setItem(key, "1"); } catch (e) { /* the card just stays */ } }
+// While a new person is getting started the bank e-mail screens only say good things (owner, 2026-11-09). That ends when Getting started is finished or
+// hidden, or 21 days after the welcome questions. The owner's copy never waits. A copy with no welcome date is past onboarding.
+const BANK_QUIET_DAYS_ = 21;
+function bankAlertsQuiet_() {
+  if (!meta || perfIsOwnerCopy_() || fsFlag_("etFirstStepsHidden") || fsFlag_("etFirstStepsDone")) return false;
+  const raw = (meta.emailInfo || {}).since, since = Number(raw) || Date.parse(raw) || 0;
+  return !!since && Date.now() - since < BANK_QUIET_DAYS_ * 86400000;
+}
 function renderFirstSteps_() {
   const card = document.getElementById("first-steps-card");
   if (!card) return;
@@ -11461,11 +11471,12 @@ function renderFirstSteps_() {
       go: () => { fsSetFlag_("etBankMailIntro"); openBankMailModal_({ onClose: renderFirstSteps_ }); } });
     const got = Object.keys(info.seen || {}).length > 0;
     // "No e-mail yet, check your bank alerts" is only fair when the check itself works: a failing check has its own warning (mailHealth).
-    const late = days >= 3 && !(info.health && info.health.problem);
-    steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr("firstSteps.firstMailWait"), go: () => showBankEmailsScreen() });
+    const quiet = bankAlertsQuiet_();
+    const late = days >= 3 && !quiet && !(info.health && info.health.problem);
+    steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr(quiet && days >= 3 ? "firstSteps.firstMailSoon" : "firstSteps.firstMailWait"), go: () => showBankEmailsScreen() });
   }
   if (hasBank) steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("data-statements-btn").click(); renderFirstSteps_(); } });
-  if (steps.every((st) => st.done)) { card.hidden = true; return; }
+  if (steps.every((st) => st.done)) { fsSetFlag_("etFirstStepsDone"); card.hidden = true; return; }
   const list = document.getElementById("first-steps-list");
   list.innerHTML = "";
   steps.forEach((st) => {
@@ -14548,6 +14559,11 @@ async function showBankEmailsScreen() {
   }
 }
 
+document.getElementById("be-unread-link").addEventListener("click", () => {
+  document.getElementById("be-tab-tx").click();
+  document.getElementById("be-unread").scrollIntoView({ block: "start" });
+});
+
 function renderBankEmails_() {
   const info = (meta && meta.emailInfo) || {};
   const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails);
@@ -14817,7 +14833,10 @@ function renderBeTx_(data) {
   // A redraw after an answer keeps the groups that were open (the answer moves a group; it must not snap shut under the finger).
   be_.openKinds = new Set([...beEl_("be-groups").querySelectorAll("details.be-kind[open]")].map((d) => d.dataset.kind));
   const kinds = beApplyReasons_(data.kinds || [], data.reasons);
-  const unread = data.unread || [];
+  const unread = bankAlertsQuiet_() ? [] : (data.unread || []);
+  const unreadLink = beEl_("be-unread-link"), unreadN = unread.reduce((sum, u) => sum + (Number(u.count) || 1), 0);
+  unreadLink.hidden = !unreadN;
+  if (unreadN) unreadLink.textContent = tr("be.unreadLink", { n: unreadN });
   beEl_("be-empty").hidden = kinds.length > 0 || unread.length > 0;
   beEl_("be-unread").hidden = !unread.length;
   beEl_("be-unread-list").innerHTML = unread.map((u) => {
