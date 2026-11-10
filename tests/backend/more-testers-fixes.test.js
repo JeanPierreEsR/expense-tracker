@@ -14,6 +14,12 @@ test("a category's name, icon and color can never run as code on Home", () => {
   assert.match(app, /background:\$\{safeColor_\(cat\.color\)\}">\$\{escapeHtml\(cat\.icon\)\}/);
 });
 
+test("an icon or color typed by hand in the Sheet cannot run as code on Overview or Budgets", () => {
+  assert.match(app, /\(meta\.categories \|\| \[\]\)\.forEach\(cleanCategoryLook_\)/);
+  assert.match(app, /rowIcon = String\(\(p\.category_name \? p\.category_icon : b\.category_icon\) \|\| ""\)\.replace/);
+  assert.match(app, /legend-swatch" style="background:\$\{safeColor_\(item\.displayColor\)\}/);
+});
+
 test("banners stay under every pop-up window", () => {
   assert.match(read("docs", "style.css"), /\.update-banner \{[^}]*z-index: 240;/);
 });

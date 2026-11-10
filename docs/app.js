@@ -1304,6 +1304,7 @@ function refreshTelegramFields_() {
 
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", {});
+  (meta.categories || []).forEach(cleanCategoryLook_);
   syncPairWithBackend_();
   refreshTelegramFields_();
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
@@ -5788,6 +5789,8 @@ function loadingHtml_(text) {
 }
 
 // A category's color goes inside a style attribute: only a plain #hex color may get there (a hand-edited Sheet can hold anything).
+// An icon is an emoji: a hand-edited Sheet can hold anything, so what could become page code is dropped at the door, for every screen.
+function cleanCategoryLook_(c) { if (c.icon) c.icon = String(c.icon).replace(/[<>&"'`]/g, ""); if (c.color) c.color = safeColor_(c.color); }
 function safeColor_(c) { return /^#[0-9a-f]{3,8}$/i.test(String(c || "")) ? c : "#eee"; }
 function escapeHtml(str) {
   const div = document.createElement("div");
@@ -9223,7 +9226,7 @@ const OTHERS_COLOR = "#B5B5BD";
 function resolveDisplayColors(items) {
   let prevColor = null;
   return items.map((item, i) => {
-    let color = item.color || FALLBACK_PALETTE[i % FALLBACK_PALETTE.length];
+    let color = (item.color && safeColor_(item.color)) || FALLBACK_PALETTE[i % FALLBACK_PALETTE.length];
     if (color === prevColor) {
       color = FALLBACK_PALETTE.find((c) => c !== prevColor) || color;
     }
@@ -9319,7 +9322,7 @@ function renderPie(key, items) {
     label.style.left = `${half + x}px`;
     label.style.top = `${half + y}px`;
     label.innerHTML = `
-      <span class="pie-outside-icon" style="background:${s.slice.displayColor}">${s.slice.icon || ""}</span>
+      <span class="pie-outside-icon" style="background:${safeColor_(s.slice.displayColor)}">${escapeHtml(s.slice.icon || "")}</span>
       <span class="pie-outside-pct">${s.slice.percent.toFixed(0)}%</span>
     `;
     // The outside labels are display-only (too small and too close together
@@ -9336,9 +9339,9 @@ function appendLegendRow_(listEl, key, item) {
   const row = document.createElement("div");
   row.className = "legend-row";
   row.innerHTML = `
-    <span class="legend-swatch" style="background:${item.displayColor}"></span>
+    <span class="legend-swatch" style="background:${safeColor_(item.displayColor)}"></span>
     <div class="legend-text">
-      <div class="legend-name">${item.icon ? item.icon + " " : ""}${escapeHtml(item.name)}</div>
+      <div class="legend-name">${escapeHtml(item.icon ? item.icon + " " : "")}${escapeHtml(item.name)}</div>
       <div class="legend-sub">
         <span class="legend-amount">${formatPen(item.amount_pen)}</span>
         <span class="legend-percent">${item.percent.toFixed(1)}%</span>
@@ -10610,7 +10613,7 @@ function drawBudgets_() {
     delKey_(row, "budget:" + b.id);
     row.dataset.budgetName = b.name || "";
     row.dataset.periodType = b.period_type || "";
-    const rowName = p.category_name || b.category_name, rowIcon = p.category_name ? p.category_icon : b.category_icon;   // categories then
+    const rowName = p.category_name || b.category_name, rowIcon = String((p.category_name ? p.category_icon : b.category_icon) || "").replace(/[<>&"'`]/g, "");   // categories then
     const nameHtml = `<div class="budget-row-name">${rowIcon ? rowIcon + " " : ""}${escapeHtml(rowName)}</div>`;
     const leadHtml = budgetsEditing_
       ? `<span class="budget-row-lead"><input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${budgetsSelected_.has(b.id) ? " checked" : ""}>${nameHtml}</span>`
