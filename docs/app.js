@@ -28755,7 +28755,7 @@ function loadBalanceRowsFor_(pmId) {
 
 // Banks whose movements-list screenshot the in-process reader knows (docs/in-process.js). Owner, 2026-11-11: the button shows only for
 // these. Diners joins when its layout is read (the plan's step 5).
-const INPROC_BANKS_ = [/interbank/i];
+const INPROC_BANKS_ = [/interbank/i, /diners/i];
 function inprocBankKnown_(pm) {
   const bank = pm && ((meta && meta.banks) || []).find((b) => b.id === pm.bank_id);
   return !!bank && INPROC_BANKS_.some((re) => re.test(bank.name || ""));
@@ -29724,7 +29724,34 @@ function mergeReceiptPasses_(lines1, lines2) {
   }).join("\n");
 }
 
-async function recognizeReceiptText_(canvas, onProgress) {
+// A column layout (Diners): its "En proceso" is an outlined tag under the row, which a full-page read skips (checked on the owner's
+// screenshot, 2026-11-11: the page read never had it; the band under the row read alone gives "En proceso"). So each row with an amount
+// gets the band below it (left part of the screen, down to the next line) read on its own, and a found tag is put back as its own line.
+// Only when InProcess finds the "S/ … $" heading; other layouts are untouched.
+async function readColumnTags_(worker, canvas, lines) {
+  if (typeof InProcess === "undefined" || !InProcess.markColumns(lines, canvas.width)) return lines;
+  const sorted = lines.slice().sort((a, b) => a.y0 - b.y0), out = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const l = sorted[i];
+    out.push(l);
+    if (!(l.words || []).some((w) => /^\d{1,3}(?:,\d{3})*\.\d{2}$/.test(w.text))) continue;
+    const next = i + 1 < sorted.length ? sorted[i + 1].y0 : canvas.height, h = l.y1 - l.y0;
+    if (next - l.y1 < h * 0.8) continue;   // no room for a tag under this row
+    const band = document.createElement("canvas");
+    band.width = Math.round(canvas.width * 0.45);
+    band.height = next - l.y1;
+    band.getContext("2d").drawImage(canvas, 0, l.y1, band.width, band.height, 0, 0, band.width, band.height);
+    try {
+      const r = await worker.recognize(band, {}, { text: true });
+      if (/[eEfF][nN]\s*pr\w{2,5}s[o0]/i.test((r.data && r.data.text) || "")) {
+        out.push({ y0: l.y1, y1: next, words: [{ text: "En", x0: 0, x1: 10 }, { text: "proceso", x0: 12, x1: 40 }] });
+      }
+    } catch (err) { /* a band that cannot be read just has no tag */ }
+  }
+  return out;
+}
+
+async function recognizeReceiptText_(canvas, onProgress, opts) {
   await loadTesseract_();
   const base = siteUrl_("vendor/tesseract/");
   const worker = await Tesseract.createWorker("spa", 1, {
@@ -29737,6 +29764,7 @@ async function recognizeReceiptText_(canvas, onProgress) {
     await worker.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1" });
     const first = await worker.recognize(canvas, {}, { blocks: true, text: true });
     const lines1 = receiptLines_(first.data);
+    if (opts && opts.onLines) opts.onLines(opts.columnTags ? await readColumnTags_(worker, canvas, lines1) : lines1);   // word boxes, for in-process screenshots
     if (!lines1.length) return first.data.text || "";
     try {
       // Where do the amounts start? (a little left of the leftmost amount column,
@@ -29946,7 +29974,10 @@ async function readInprocFiles_(files) {
       for (const size of [2400, 1600]) {
         try {
           const canvas = await prepareReceiptImage_(files[i], { crop: false, maxLong: size });
-          const text = await recognizeReceiptText_(canvas, () => {});
+          let lines = null;
+          const read = await recognizeReceiptText_(canvas, () => {}, { columnTags: true, onLines: (l) => { lines = l; } });
+          // A layout whose currency is a column (Diners) is rebuilt from the word boxes; any other is read as the text came.
+          const text = (lines && InProcess.markColumns(lines, canvas.width)) || read;
           const parsed = InProcess.parseInProcess(text);
           reads.push(parsed.items);
           inprocPosted_ = Math.max(inprocPosted_, parsed.posted);
