@@ -436,7 +436,11 @@ var BACKEND_STRINGS_ = {
   "report.uncategorized": { en: "Uncategorized", es: "Sin categoría" },
   "report.untagged": { en: "Untagged", es: "Sin etiqueta" },
   "report.noAccount": { en: "No account", es: "Sin cuenta" },
-  "report.paidByFriend": { en: "Paid by a friend", es: "Lo pagó un amigo" },
+  "report.notRepaidYet": { en: "Not repaid yet", es: "Aún no devuelto" },
+  "report.friendCovered": { en: "A friend covered it", es: "Lo cubrió un amigo" },
+  "report.paidWithOwed": { en: "Paid with what they owed me", es: "Pagado con lo que me debían" },
+  "report.notReceivedYet": { en: "Not received yet", es: "Aún no recibido" },
+  "report.receivedAsOwed": { en: "Received as what I owed them", es: "Recibido como lo que yo le debía" },
   "report.otherMethod": { en: "Other", es: "Otros" },
 
   // ---- guess ----

@@ -9785,6 +9785,24 @@ function renderBudgetPaceNote_(budget, recurringByDate, days) {
   note.textContent = tr("pace.leftToSpend", { cur: budget.currency, amount: moneyFmt(discretionary), after: recurringPart, perDay: moneyFmt(perDay), n: daysLeft });
 }
 
+// Overview "By account or card" drill-down: which part of this entry counts in the slice, and how it got there
+// ("PEN 60.00 of PEN 100.00 · repaid from Interbank"; the whole of it: "Repaid from Interbank"). AccountSlices.gs.
+function slicePartText_(entry) {
+  const p = entry.slice_part;
+  const how = tr(`drill.how.${p.how}`, { account: p.account || "" });
+  const total = Number(entry.own_share != null ? entry.own_share : entry.amount);
+  if (p.fraction >= 0.9995) return how.charAt(0).toUpperCase() + how.slice(1);
+  return tr("drill.part", { part: formatAmount(total * p.fraction, entry.currency), total: formatAmount(total, entry.currency), how });
+}
+
+// The row's big amount in a slice's list is the part that counts there, so the list adds up to the slice.
+function slicePartEntry_(entry) {
+  const f = entry.slice_part.fraction;
+  const scale = (v) => (v == null ? v : Number(v) * f);
+  const own = entry.own_share != null ? entry.own_share : entry.amount;
+  return Object.assign({}, entry, { own_share: scale(own), own_share_pen: scale(entry.own_share_pen != null ? entry.own_share_pen : entry.amount_pen), own_share_usd: scale(entry.own_share_usd) });
+}
+
 function renderDrilldownEntries(entries) {
   renderEntriesInto_(document.getElementById("drilldown-list"), entries);
 }
@@ -9811,10 +9829,11 @@ function renderEntriesInto_(list, entries, emptyKey) {
         <div class="entry-category">${headline.title}</div>
         ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
         <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
+        ${entry.slice_part ? `<div class="entry-meta slice-part">${escapeHtml(slicePartText_(entry))}</div>` : ""}
         ${deletingEntryIds_.has(entry.id) ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>` : ""}
       </div>
       <div class="entry-amount">
-        ${renderEntryAmountHtml(entry)}
+        ${renderEntryAmountHtml(entry.slice_part ? slicePartEntry_(entry) : entry)}
       </div>
     `;
     // Opens the same edit form used everywhere else, but as a pop-up on

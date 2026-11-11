@@ -39,6 +39,8 @@ function getPeriodSummary(payload) {
   var categoryById = rowsById_(getAllRows('Categories'));
   var tagById = rowsById_(localizeTags_(getAllRows('Tags')));
   var pmById = rowsById_(getAllRows('Payment Methods'));
+  var sliceCtx = buildAccountSliceContext_();
+  var sliceRefs = specialSliceRefs_();
 
   var totals = { income: 0, expense: 0, investment: 0 };
   var excludedCount = 0;
@@ -92,15 +94,11 @@ function getPeriodSummary(payload) {
     tagIds.forEach(function (tagId) {
       addToBucket_(bucket.tag, tagId, ownAmountPen, tagById);
     });
-    if (e.paid_by === 'me' && e.payment_method_id) {
-      addToBucket_(bucket.paymentMethod, e.payment_method_id, ownAmountPen, pmById);
-    } else if (e.paid_by && e.paid_by !== 'me') {
-      // Paid by a friend on the owner's behalf (owner, 2026-11-08): its own slice, not "No account". Never the repayment's account:
-      // the expense counts the day the friend paid; the repayment is a loan movement (principle 3).
-      addToBucket_(bucket.paymentMethod, PAID_BY_FRIEND_KEY_, ownAmountPen, paidByFriendRef_());
-    } else {
-      addToBucket_(bucket.paymentMethod, '', ownAmountPen, pmById);
-    }
+    // By account or card (owner's design, 2026-11-10, AccountSlices.gs): a friend-paid expense splits by what happened to its
+    // debt (repaid from an account, forgiven, still owed); an income counts where it arrived. Same split as the drill-down.
+    entryAccountSliceParts_(e, sliceCtx).forEach(function (part) {
+      addToBucket_(bucket.paymentMethod, part.key, ownAmountPen * part.fraction, isSpecialSliceKey_(part.key) ? sliceRefs : pmById);
+    });
   });
 
   // Loans (owner's design, 2026-10-29): the Overview summary is four blocks that ADD UP to What's left, so the net money borrowed
@@ -248,10 +246,6 @@ function rowsById_(rows) {
   return map;
 }
 
-var PAID_BY_FRIEND_KEY_ = '__friend__';
-function paidByFriendRef_() { var o = {}; o[PAID_BY_FRIEND_KEY_] = { name: tr_('report.paidByFriend') }; return o; }
-// The breakdown's slices by account: paid with one of my accounts / paid by a friend for me / neither ("No account").
-function entryPaidByFriend_(e) { return !!(e.paid_by && e.paid_by !== 'me'); }
 
 function addToBucket_(bucket, key, amountPen, lookup) {
   var k = key || '__none__';
