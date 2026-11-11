@@ -647,7 +647,13 @@ function applyStatementDecisions(payload) {
   report.categoriesRenamed = report.categoriesRenamed.filter(function (r) { return changes.some(function (c) { return c.sheet === 'Categories' && c.field === 'name' && c.new_value === r.to; }); });
   report.categoriesCreatedNames = Object.keys(createdCategoryIds).filter(function (ph) { return changes.some(function (c) { return c.sheet === 'Categories' && c.row_id === createdCategoryIds[ph]; }); }).map(function (ph) { return newCategories[ph].name; });
   appendRowsBulk_('Entries', creations);
-  if (payload.inboxIds && payload.inboxIds.length) markStatementInboxProcessed_(payload.inboxIds);
+  if (payload.inboxIds && payload.inboxIds.length) {
+    // Read = saved (owner, 2026-11-11). Each one is recorded so Undo puts it back as waiting in the Inbox.
+    markStatementInboxProcessed_(payload.inboxIds).forEach(function (m) {
+      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Statement Inbox', row_id: m.id, field: 'status',
+        old_value: m.from, new_value: 'processed', created_at: now });
+    });
+  }
   Object.keys(colChanged).forEach(function (f) {
     var colValues = values.map(function (r) { return [r[col[f]]]; });
     if (values.length) sheet.getRange(2, col[f] + 1, values.length, 1).setValues(colValues);
@@ -856,6 +862,12 @@ function undoStatementBatch(payload) {
     if (Object.keys(unused).length) deleteRowsWhere_('Categories', function (row) { return unused[String(row.id)]; });   // one call for all of them
     bumpStructureVersion_();
   }
+
+  // Inbox statements this upload marked as read: waiting again (only if nothing else changed them since).
+  changes.filter(function (c) { return c.sheet === 'Statement Inbox' && c.field === 'status'; }).forEach(function (c) {
+    var row = getAllRows('Statement Inbox').find(function (r) { return r.id === c.row_id; });
+    if (row && String(row.status) === String(c.new_value)) updateRowFields_('Statement Inbox', c.row_id, { status: c.old_value || 'new' });
+  });
 
   // Account Opening Balances: remove the rows this batch created, bring back the ones it replaced.
   var createdBalanceIds = {};

@@ -259,25 +259,12 @@ function stmtLastProcessedFor_(accounts, uploads) {
 }
 
 /**
- * "Probably already read" (owner, 2026-11-11): only when EVERY account this e-mail could be about already has a saved statement whose
- * period ends in the STMT_INBOX_CYCLE_DAYS_ before the e-mail arrived (the statement it carries). It used to be by BANK: one saved
- * Interbank statement hid the other three Interbank statements of the month (soles, dollars, salary account, card) as "read".
- * An e-mail with no matching account at all is never assumed read.
+ * Read = saved (owner, 2026-11-11): an Inbox statement counts as read ONLY once the person finished every step for it — the final save
+ * of the Statements screen, with that statement in it (markStatementInboxProcessed_, StatementApply.gs). The app no longer guesses
+ * "probably already read" from other statements of the bank (that guess hid, first, a bank's other accounts and then, with a 40-day
+ * look-back, October statements because September's were saved). `probably_processed` stays in the answer, always false, for phones
+ * still on an older release. Undo puts the statement back as waiting.
  */
-var STMT_INBOX_CYCLE_DAYS_ = 40;
-function stmtInboxProbablyRead_(received, accounts, uploads) {
-  if (!accounts.length) return false;
-  var day = String(received).slice(0, 10);
-  var from = covAddDays_(day, -STMT_INBOX_CYCLE_DAYS_);
-  return accounts.every(function (pm) {
-    var key = covKey_(pm.last_4);
-    return uploads.some(function (u) {
-      var end = String(u.period_end || '').slice(0, 10);
-      return covKey_(u.account_key) === key && end && end <= day && end >= from;
-    });
-  });
-}
-
 function listStatementInbox() {
   ensureStatementInboxSheet_();
   ensureStatementUploadsSheet_();
@@ -288,7 +275,7 @@ function listStatementInbox() {
     var last = stmtLastProcessedFor_(accts, uploads);
     var link = stmtIsLinkItem_(r);
     return { id: r.id, bank: r.bank_label, received: String(r.received), file_name: link ? '' : r.attachment_name, size_kb: link ? null : Number(r.size_kb), link: link,
-      status: r.status, sender: r.sender_key === 'self' ? '' : String(r.sender_key), last_processed: last, probably_processed: r.status === 'new' && stmtInboxProbablyRead_(r.received, accts, uploads) };
+      status: r.status, sender: r.sender_key === 'self' ? '' : String(r.sender_key), last_processed: last, probably_processed: false };
   });
   items.sort(function (a, b) { return (a.status === b.status ? 0 : (a.status === 'new' ? -1 : 1)) || (a.received < b.received ? 1 : -1); });
   return { items: items.filter(function (i) { return i.status === 'new'; }).concat(items.filter(function (i) { return i.status === 'processed'; }).slice(0, 8)) };
@@ -320,7 +307,14 @@ function dismissStatement(payload) {
 
 /** Called after a review is saved: the inbox items whose PDFs were used are done. */
 function markStatementInboxProcessed_(ids) {
-  (ids || []).forEach(function (id) { updateRowFields_('Statement Inbox', id, { status: 'processed' }); });
+  var rows = getAllRows('Statement Inbox'), done = [];
+  (ids || []).forEach(function (id) {
+    var row = rows.find(function (r) { return r.id === id; });
+    if (!row || row.status === 'processed') return;
+    done.push({ id: id, from: String(row.status || 'new') });
+    updateRowFields_('Statement Inbox', id, { status: 'processed' });
+  });
+  return done;   // what changed, so the save can record it for Undo
 }
 
 /** Read-only: how many unprocessed inbox statements wait per account key (for the coverage list). */
