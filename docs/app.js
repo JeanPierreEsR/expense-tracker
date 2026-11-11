@@ -23622,7 +23622,8 @@ function realSaveSteps_(ctx, saveId, errId, doneKey, where) {
   const save = { key: "save", target: () => realSaveTarget_(saveId, errId), text: () => { const e = err(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); }, until: () => !ctx.open(),
     before: async () => { if (ctx.capture) ctx.capture(); return true; } };
   if (where && ctx.unsaved && !where.unsaved) where.unsaved = ctx.unsaved;
-  return [save].concat(where ? realWhereSteps_(where.find, () => tr(doneKey), where) : [{ text: () => tr(doneKey), button: () => tr("spot.g.done") }]);
+  const doneText = () => tr(typeof doneKey === "function" ? doneKey() : doneKey);
+  return [save].concat(where ? realWhereSteps_(where.find, doneText, where) : [{ text: doneText, button: () => tr("spot.g.done") }]);
 }
 function realAmountStep_(ctx, id, textFn, fixKey) {
   const box = () => document.getElementById(id);
@@ -23667,8 +23668,8 @@ function programmedGuideSteps_(ctx) {
   ].concat(realSaveSteps_(ctx, "recurring-save-btn", "recurring-form-error", "rt.prog.done", { find: row }));
 }
 function accountGuideSteps_(ctx) {
-  let name = "";
-  ctx.capture = () => { name = document.getElementById("pm-nickname").value.trim(); };
+  let name = "", type = "";
+  ctx.capture = () => { name = document.getElementById("pm-nickname").value.trim(); type = document.getElementById("pm-type").value; };
   const row = () => Array.from(document.querySelectorAll("#accounts-list .recurring-row")).find((r) => { const n = r.querySelector(".recurring-row-name"); return n && n.textContent.includes(name); }) || null;
   return [
     realNameStep_(ctx, "pm-nickname", "rt.acc.name"),
@@ -23677,7 +23678,7 @@ function accountGuideSteps_(ctx) {
     { target: "#pm-bank", text: () => tr("rt.acc.bank"), visit: "#pm-bank", button: realNext_, before: async () => realShown_("pm-bank") },
     { target: "#pm-last4", text: () => tr("rt.acc.last4"), blurTap: true, visit: "#pm-last4", button: realNext_, before: async () => realShown_("pm-last4") },
     { target: "#pm-wallets", text: () => tr("rt.acc.wallets"), button: realNext_, before: async () => realShown_("pm-wallets") }
-  ].concat(realSaveSteps_(ctx, "pm-save-btn", "pm-form-error", "rt.acc.done", { find: row }));
+  ].concat(realSaveSteps_(ctx, "pm-save-btn", "pm-form-error", () => (type === "debit" || type === "credit" ? "rt.acc.doneBank" : "rt.acc.done"), { find: row }));
 }
 function tripGuideSteps_(ctx) {
   let name = "";
@@ -28749,6 +28750,22 @@ function loadBalanceRowsFor_(pmId) {
   balanceFormRows.forEach((r) => { if (need.includes(r.currency)) r.needed = true; });
   const hint = document.getElementById("balance-starting-hint");
   if (hint) hint.textContent = tr(pm && pm.type === "credit" ? "balance.startingHintCard" : "balance.startingHint");
+  balanceFormExtras_(pm);
+}
+
+// Banks whose movements-list screenshot the in-process reader knows (docs/in-process.js). Owner, 2026-11-11: the button shows only for
+// these. Diners joins when its layout is read (the plan's step 5).
+const INPROC_BANKS_ = [/interbank/i];
+function inprocBankKnown_(pm) {
+  const bank = pm && ((meta && meta.banks) || []).find((b) => b.id === pm.bank_id);
+  return !!bank && INPROC_BANKS_.some((re) => re.test(bank.name || ""));
+}
+// Recommend starting from a statement (owner's plan, step 4: recommended, never required): a bank account or card only, and only where
+// this phone can read statements (Bank statements in My data).
+function balanceFormExtras_(pm) {
+  document.getElementById("inproc-open-btn").hidden = !inprocBankKnown_(pm);
+  const bankish = !!pm && (pm.type === "debit" || pm.type === "credit");
+  document.getElementById("balance-stmt-tip").hidden = !bankish || !document.getElementById("data-statements-btn");
 }
 
 // The currencies an account must have a starting balance in: what the account holds (accountCurrencyList_) and what it has moved in.
@@ -28916,6 +28933,11 @@ document.getElementById("balance-notyet-save").addEventListener("click", () => {
   balanceNyState_ = null;
   closeBalanceModal();
   saveBehindScreen_(() => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances }), refreshBalances);
+});
+
+document.getElementById("balance-stmt-tip-btn").addEventListener("click", () => {
+  closeBalanceModal();
+  document.getElementById("data-statements-btn").click();
 });
 
 function closeBalanceModal() {

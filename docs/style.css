@@ -3881,3 +3881,8 @@ body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: 216px; }
 .notyet-choices .notyet-choice { flex: 1; min-height: 44px; margin: 0; border: 1px solid #c9d3e0; background: #fff; color: #333; border-radius: 10px; font-size: 15px; }
 .notyet-choices .notyet-choice.active { background: #1f6feb; border-color: #1f6feb; color: #fff; font-weight: 600; }
 #balance-notyet .primary { margin-top: 16px; }
+
+/* Starting balance: recommend a statement (owner's plan, step 4). */
+.balance-stmt-tip { background: #eef5ff; border-radius: 10px; padding: 10px 12px; margin: 4px 0 10px; font-size: 14px; line-height: 1.35; }
+.balance-stmt-tip p { margin: 0 0 4px; }
+.balance-stmt-tip .add-inline { margin: 0; }
