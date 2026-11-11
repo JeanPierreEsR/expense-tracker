@@ -35,7 +35,11 @@ var HEALS_ = [
   // so past income keeps its payer. DELIBERATE EXCEPTION to "a heal never rewrites data" (owner's OK, 2026-11-09): only the payer of those same-name incomes
   // changes, and the old Payors tab stays as it was. Since 1.76.1 (owner) a copy where a payer and a friend share a name is asked first, in the
   // app, like the owner's (payorMergeAskForApp_); the heal merges by itself only when no name is shared.
-  { id: 'payors-into-friends', run: function () { mergePayorsIfNothingShared_(); } }
+  { id: 'payors-into-friends', run: function () { mergePayorsIfNothingShared_(); } },
+  // Repayments saved before 2026-10-27 that came in as two entries (what the loans took + an extra income/expense) were linked only when
+  // someone opened that person's repayment history, so a bank statement showed their single line as "not in the app" (owner, 2026-11-10).
+  // Links every unambiguous one once (linkAllEarlierGapEntries_, Loans.gs). Adds a link only; no amount, date or entry changes.
+  { id: 'link-old-repayment-extras', owner: true, run: function () { linkAllEarlierGapEntries_(); } }
 ];
 
 function healMailboxAddressFromToLine_() {
