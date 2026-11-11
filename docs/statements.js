@@ -1609,12 +1609,14 @@
   // ---- Order B (owner, 2026-11-11): "Ready, nothing to do" first, then "Needs your choice", then balances. Every group starts
   // collapsed and remembers being opened (historyPlan.openSec); a group of choices shows how many are still to decide.
   const isReady_ = (d) => !!d.clear && !d.suggested;
+  // Inside every group, oldest first, like the bank's own statement (owner, 2026-11-11).
+  const byDate_ = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.stmt - b.stmt) || (a.line - b.line));
   function secOpen_(id) { return historyPlan.openSec && historyPlan.openSec.has(id) ? "open" : ""; }
   function toDecideBadge_(n) { return n ? ` <span class="stmt-count stmt-todo">${escapeHtml(tr("hist.toDecide", { n }))}</span>` : ""; }
 
   // ---- "In the app with no account": a bank line that is an entry saved with no account; it gets this statement's account ----
   function noAccountHtml() {
-    const p = historyPlan, list = p.summary.noAccount || [];
+    const p = historyPlan, list = (p.summary.noAccount || []).slice().sort(byDate_);
     if (!list.length) return "";
     const rows = list.map((d) => {
       const k = lineKey(d), off = p.noAcctOff.has(k), o = d.entry;
@@ -1634,7 +1636,7 @@
   // ---- "Charged in another currency": a card line in USD for a purchase recorded in PEN (or the other way), 3 days apart at most ----
   function rechargesHtml(part) {
     const p = historyPlan, all = p.summary.recharges || [];
-    const items = all.map((d, k) => ({ d, k })).filter(({ d }) => (part === "ready") === isReady_(d));
+    const items = all.map((d, k) => ({ d, k })).filter(({ d }) => (part === "ready") === isReady_(d)).sort((x, y) => byDate_(x.d, y.d));
     if (!items.length) return "";
     const id = "statement-history-recharges-" + part;
     const todo = items.filter(({ k }) => !rechargeOf(k)).length;
@@ -1667,7 +1669,7 @@
   // ---- "Charged less than recorded": a card line lower than a purchase in the app (a discount), 3 days apart at most ----
   function discountsHtml(part) {
     const p = historyPlan, all = p.summary.discounts || [];
-    const items = all.map((d, k) => ({ d, k })).filter(({ d }) => (part === "ready") === isReady_(d));
+    const items = all.map((d, k) => ({ d, k })).filter(({ d }) => (part === "ready") === isReady_(d)).sort((x, y) => byDate_(x.d, y.d));
     if (!items.length) return "";
     const list = items.map(({ d }) => d);
     const id = "statement-history-discounts-" + part;
@@ -1700,7 +1702,7 @@
   // ---- "Completes a charge you left pending": a USD line on the card and a purchase recorded in ARS on it, 5 days apart at most ----
   function chargesHtml(part) {
     const p = historyPlan, all = p.summary.charges || [];
-    const items = all.map((c, k) => ({ c, k })).filter(({ c }) => (part === "ready") === isReady_(c));
+    const items = all.map((c, k) => ({ c, k })).filter(({ c }) => (part === "ready") === isReady_(c)).sort((x, y) => byDate_(x.c, y.c));
     if (!items.length) return "";
     const charges = items.map(({ c }) => c);
     const id = "statement-history-charges-" + part;
@@ -2128,8 +2130,17 @@
         ${historyActions().length ? `<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
       return;
     }
-    const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
-    out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>
+    const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(summary.from === summary.to ? tr("hist.rangeOne", { date: fmtDate(summary.from, true) })
+      : tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
+    // Three counters first (owner, 2026-11-11): new entries · entries you have that change · choices still open.
+    const nUpdated = c.accountsFilled + c.charges + c.recharges + c.discounts;
+    const nDecide = (summary.charges || []).filter((x, k) => !chargeOf(k)).length + (summary.recharges || []).filter((x, k) => !rechargeOf(k)).length
+      + (summary.discounts || []).filter((x, k) => !discountOf(k)).length;
+    const counters = `<p class="stmt-counters">${[
+      `<span>➕ ${escapeHtml(tr("hist.cnt.new", { n: c.entries }))}</span>`,
+      `<span>✏️ ${escapeHtml(tr("hist.cnt.updated", { n: nUpdated }))}</span>`,
+      `<span>❓ ${escapeHtml(tr("hist.cnt.decide", { n: nDecide }))}</span>`].join(" · ")}</p>`;
+    out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>${counters}
       <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
       ${range}<p class="hint">${escapeHtml(tr(usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategoryUnlessNamed" : "hist.noCategory"))}</p>${noteHtml}
       <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;

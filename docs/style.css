@@ -2426,6 +2426,8 @@ body.income-revealed .sens-mask { display: none; }
   background: var(--border);
   margin-left: 6px;
 }
+/* The three counters under "Ready to add to your history" (2026-11-11). */
+.stmt-counters { font-size: 1rem; font-weight: 600; margin: 4px 0 8px; }
 /* Order B (2026-11-11): the two parts of the preview, and the "N to decide" badge on a group of choices. */
 .stmt-section-title { font-size: 0.95rem; margin: 16px 0 4px; }
 .stmt-count.stmt-todo { background: #fdebd0; color: #9a5b00; }
