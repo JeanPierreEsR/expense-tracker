@@ -131,7 +131,14 @@
 
   function stmtCards() { return Array.from($("statement-results").children); }
   // Distinct statements that can go on to the preview (a spreadsheet may yield several entries in `usable`).
-  function readyCount() { return new Set(usable.map((u) => u.group || u.file)).size; }
+  function readyCount() { return new Set(usable.map(slotOf)).size; }
+  // Each card (one picked file) has its own slot: files are told apart by it, never by their name. Interbank's app names every
+  // statement "account_sumary.pdf", so three accounts picked together counted as one and two were silently left out (owner, 2026-11-11).
+  let slotSeq = 0;
+  function slotOf(u) { return u.slot || u.group || u.file; }
+  function sameStatement(a, b) {
+    return a.kind === b.kind && accountKeyOf(a) === accountKeyOf(b) && JSON.stringify(a.period) === JSON.stringify(b.period) && (a.lines || []).length === (b.lines || []).length;
+  }
 
   function canGoTo(n) {
     if (n === 1) return true;
@@ -713,22 +720,25 @@
   function resultCardShell(fileName) {
     const card = document.createElement("div");
     card.className = "stmt-result";
+    const slot = "s" + (++slotSeq);
     card.innerHTML = `<div class="stmt-result-name">${escapeHtml(fileName)}</div><div class="stmt-result-body">${loadingHtml(tr("stmt.reading"))}</div>
       <button type="button" class="stmt-result-remove">${escapeHtml(tr("stmt.removeFile"))}</button>`;
-    card.querySelector(".stmt-result-remove").addEventListener("click", () => removeResultCard(card, fileName));
+    card.querySelector(".stmt-result-remove").addEventListener("click", () => removeResultCard(card, slot));
     $("statement-results").prepend(card);
     // Reading starts: the person moves on to step 2 by themselves (from the inbox, a file, or the Gmail search alike).
     if (stepNow === 1 || pastOpen) showStep(2); else updateStepUi();
     realStmtFileChosen_();
-    return card.querySelector(".stmt-result-body");
+    const body = card.querySelector(".stmt-result-body");
+    body.dataset.slot = slot;
+    return body;
   }
 
   // Takes one file out of this session's list (it is only on the phone; the PDF itself is never kept).
-  function removeResultCard(card, fileName) {
-    const had = usable.some((u) => (u.group || u.file) === fileName);
+  function removeResultCard(card, slot) {
+    const had = usable.some((u) => slotOf(u) === slot);
     card.remove();
     if (!had) { updateReviewButton(); return; }
-    usable = usable.filter((u) => (u.group || u.file) !== fileName);
+    usable = usable.filter((u) => slotOf(u) !== slot);
     // The plan's statement/line numbers refer to the list — any change makes an open plan stale.
     historyPlan = null;
     $("statement-history").innerHTML = "";
@@ -836,9 +846,11 @@
       if (result.kind && result.ok) {
         // A statement that came from Gmail and was read: its sender is a bank this app now knows (the 15-minute check finds its next ones).
         if (file.inboxId) callApi("rememberStatementSender", { id: file.inboxId }).catch(() => {});
-        // A re-read of the same file replaces its earlier reading.
-        usable = usable.filter((u) => (u.group || u.file) !== file.name);
-        usable.push({ file: file.name, result, inboxId: file.inboxId || "" });
+        // A re-read of the same card replaces its earlier reading.
+        // The same statement picked twice (same account, dates and number of lines) also counts once, whatever the files are called.
+        const slot = body.dataset.slot;
+        usable = usable.filter((u) => slotOf(u) !== slot && !sameStatement(u.result, result));
+        usable.push({ file: file.name, slot, result, inboxId: file.inboxId || "" });
         // The plan's statement/line numbers refer to THIS list — any change makes an open plan stale.
         historyPlan = null;
         $("statement-history").innerHTML = "";
@@ -1360,9 +1372,10 @@
         mapping: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, account: m.account, category: m.category, type: m.type,
           dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed, source: m.source || "" } }).catch(() => {});
       if (StatementTable.PRACTICE_FILE_NAMES.includes(file.name)) practiceINote_("used");   // the practice file's layout was just remembered: its cleanup forgets it
-      // A re-read of the same file replaces its earlier reading.
-      usable = usable.filter((u) => (u.group || u.file) !== file.name);
-      results.forEach((r) => usable.push({ file: r.name, group: file.name, result: r.result, inboxId: "" }));
+      // A re-read of the same card replaces its earlier reading.
+      const slot = body.dataset.slot;
+      usable = usable.filter((u) => slotOf(u) !== slot);
+      results.forEach((r) => usable.push({ file: r.name, group: file.name, slot, result: r.result, inboxId: "" }));
       historyPlan = null;
       $("statement-history").innerHTML = "";
       updateReviewButton();

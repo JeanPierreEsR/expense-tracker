@@ -214,7 +214,7 @@ test("step 5: bank loan, statements and import tutorials, the idle offer, Export
   assert.match(app, /function idleTick_[\s\S]*?document\.hidden \|\| idleChooser_ \|\| perfInflight_ > 0/);
   const stm = fs.readFileSync(path.join(__dirname, "../../docs/statements.js"), "utf8");
   const strs = fs.readFileSync(path.join(__dirname, "../../docs/strings.js"), "utf8");
-  assert.match(stm, /realStmtFileChosen_\(\);\n    return card\.querySelector\("\.stmt-result-body"\)/);
+  assert.match(stm, /realStmtFileChosen_\(\);\n    const body = card\.querySelector\("\.stmt-result-body"\)/);
   for (const k of [...(app + stm).matchAll(/"(rt\.(?:bank|stmt|imp|idle)\.[A-Za-z]+)"/g)].map((m) => m[1])) assert.match(strs, new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: ".+", es: ".+" \\}'), k);
 });
 
