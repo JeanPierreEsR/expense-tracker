@@ -68,7 +68,7 @@ function ensureStatementGapsSheet_() {
 
 var STATEMENT_HANDLED_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true, ignored: true, reversed: true, charge_filled: true };
 // The card charged less than recorded (a discount; owner, 2026-11-10): the purchase takes the bank's amount, within this share of it.
-var STMT_DISCOUNT_APPLY_MAX_ = 0.15;
+var STMT_DISCOUNT_APPLY_MAX_ = 0.30;   // a pre-filled pair is within 15%, a suggestion the person picked within 30% (StatementMatch.gs)
 
 function ensureStatementSheet_(name, columns, textColumns) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();

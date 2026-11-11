@@ -457,7 +457,7 @@ function analyzeStatements(payload) {
         return o;
       }
       if (r.status === 'discount') {
-        o.discount = { clear: r.discount.clear, entryId: r.discount.entryId, options: r.discount.options.map(function (c) {
+        o.discount = { clear: r.discount.clear, suggested: !!r.discount.suggested, entryId: r.discount.entryId, options: r.discount.options.map(function (c) {
           return Object.assign(stmtEntrySummary_(entryById[c.entryId], catsById, pmsById), { dayDiff: c.dd }); }) };
         counts.discounts = (counts.discounts || 0) + 1;
         return o;

@@ -884,6 +884,7 @@
     "hist.disc.hint": { en: "The card charged a little less than the purchase you have in the app (a discount). The checked ones take the bank's amount when you add; Undo puts the old amount back.", es: "La tarjeta cobró un poco menos que la compra que tienes en la app (un descuento). Las marcadas toman el monto del banco al agregar; Deshacer devuelve el monto anterior." },
     "hist.disc.change": { en: "In the app {from} → the bank charged {to}", es: "En la app {from} → el banco cobró {to}" },
     "hist.disc.use": { en: "Use the bank's amount", es: "Usar el monto del banco" },
+    "hist.disc.suggested": { en: "Suggestion: the card charged {pct}% less than the app has. Check it's the same purchase before you pick it.", es: "Sugerencia: la tarjeta cobró {pct}% menos de lo que tiene la app. Revisa que sea la misma compra antes de elegirla." },
     "hist.disc.not": { en: "Different purchase: add it", es: "Otra compra: agregarla" },
     "hist.sum.discounts": { en: { one: "{n} purchase takes the lower amount the card charged", other: "{n} purchases take the lower amount the card charged" }, es: { one: "{n} compra toma el monto menor que cobró la tarjeta", other: "{n} compras toman el monto menor que cobró la tarjeta" } },
     "stmt.balDiscounted": { en: { one: "{amount} from {n} purchase charged less than recorded", other: "{amount} from {n} purchases charged less than recorded" }, es: { one: "{amount} de {n} compra cobrada por menos de lo registrado", other: "{amount} de {n} compras cobradas por menos de lo registrado" } },

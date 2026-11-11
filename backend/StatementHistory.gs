@@ -281,7 +281,7 @@ function stmtHistoryPlan_(analysis, platforms) {
         // The card charged less than the purchase in the app (a discount): the app's amount becomes the bank's when the pair is clear
         // (ticked by default), else the person picks. Never added as a second purchase.
         discounts.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname,
-          clear: l.discount.clear, entryId: l.discount.entryId, options: l.discount.options });
+          clear: l.discount.clear, suggested: !!l.discount.suggested, entryId: l.discount.entryId, options: l.discount.options });
         if (l.discount.clear) { actions.push({ type: 'use_bank_amount', stmt: si, line: li, entryId: l.discount.entryId }); counts.discounts++; }
         return;
       }
