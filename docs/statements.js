@@ -143,7 +143,17 @@
   // Files picked but not read yet (they are read one at a time, and each gets its card only when its turn comes) and the one being
   // read now: while any is left, the counter says so and the preview waits (owner, 2026-11-11: 9 picked, the screen said "6 of 6").
   let filesQueued = 0, filesReading = 0;
-  function readingBusy() { return filesQueued + filesReading > 0; }
+  // The phone's file picker was opened and has not handed anything over yet: an iPhone prepares (copies, downloads from iCloud) every
+  // picked file before the page hears of any, so for a while the app cannot know how many are coming (owner, 2026-11-11: "5 of 5"
+  // with four still on their way). Until the files arrive, or the picker is cancelled, the preview waits too.
+  let pickerWaiting = false, pickerTimer = null;
+  function setPickerWaiting(on) {
+    pickerWaiting = on;
+    clearTimeout(pickerTimer);
+    if (on) pickerTimer = setTimeout(() => setPickerWaiting(false), 180000);   // never locked for good if the phone sends neither files nor "cancel"
+    updateStepUi();
+  }
+  function readingBusy() { return filesQueued + filesReading > 0 || pickerWaiting; }
 
   function canGoTo(n) {
     if (n === 1) return true;
@@ -199,11 +209,14 @@
     const total = stmtCards().length + filesQueued, ready = readyCount(), busy = readingBusy();
     // A spreadsheet waits for its "Use these lines" even when everything is already set (a saved layout, its accounts remembered): say so.
     const waiting = !!$("statement-results").querySelector(".tm-use");
-    $("stmt-s2-count").textContent = busy ? tr("stmt.s2.reading", { done: total - filesQueued - filesReading, total }) : total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr(waiting ? "stmt.s2.waitingUse" : "stmt.s2.skipped") : "") : tr("stmt.s2.none");
+    $("stmt-s2-count").textContent = busy && !(filesQueued + filesReading) ? tr("stmt.s2.waitingPicker") : busy ? tr("stmt.s2.reading", { done: total - filesQueued - filesReading, total }) : total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr(waiting ? "stmt.s2.waitingUse" : "stmt.s2.skipped") : "") : tr("stmt.s2.none");
     const next = $("stmt-next-2");
     next.hidden = !usable.length;
     next.disabled = busy;
     next.textContent = tr("stmt.s2.next", { n: ready });
+    const s1wait = $("stmt-s1-waiting");
+    s1wait.hidden = !busy;
+    if (busy) s1wait.textContent = $("stmt-s2-count").textContent;
     const cont = $("stmt-step1-continue");
     cont.hidden = !total;
     cont.textContent = tr("stmt.s1.continue", { n: total });
@@ -2373,7 +2386,10 @@
     if (tab && tab.dataset.mode !== screenMode) { showStatementsScreen(tab.dataset.mode); window.scrollTo(0, 0); }
   });
   $("statements-back-btn").addEventListener("click", () => { sessionPasswords = []; showMyDataScreen(); });
+  $("statement-file-input").addEventListener("click", () => setPickerWaiting(true));
+  $("statement-file-input").addEventListener("cancel", () => setPickerWaiting(false));
   $("statement-file-input").addEventListener("change", (e) => {
+    setPickerWaiting(false);
     const files = e.target.files;
     if (files && files.length) handleStatementFiles(files);
     e.target.value = ""; // lets the same file be picked again
