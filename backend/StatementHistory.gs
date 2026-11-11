@@ -225,6 +225,7 @@ function stmtHistoryPlan_(analysis, platforms) {
   var aside = [];
   var counts = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, fees: 0, linked: 0, completed: 0, charges: 0, discounts: 0, recharges: 0 };
   var charges = [];   // statement lines that are the charge of a purchase left pending (Charges.gs)
+  var noAccount = [];   // lines that ARE an entry the person saved with no account: that entry gets this statement's account
   var recharges = [];   // card lines in another currency than a purchase recorded in the app (StatementMatch.gs)
   var discounts = [];   // card lines that charged LESS than a purchase recorded in the app (StatementMatch.gs)
   var usedCharges = {};   // a charge is reversed by one refund only
@@ -296,6 +297,11 @@ function stmtHistoryPlan_(analysis, platforms) {
         actions.push({ type: 'complete_transfer', stmt: si, line: li, entryId: l.completesTransfer.entry.id, side: l.completesTransfer.side });
         counts.completed++;
         return;
+      }
+      if (l.status === 'matched' && l.entryHadNoAccount && l.entry) {
+        // Shown on their own (owner, 2026-11-11): the entry is in the app, only its account is missing. Ticked by default.
+        noAccount.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname,
+          entry: l.entry });
       }
       if (l.status === 'matched') {
         actions.push(l.entryHadNoAccount
@@ -387,7 +393,7 @@ function stmtHistoryPlan_(analysis, platforms) {
   return {
     actions: actions,
     summary: {
-      counts: counts, leftOut: leftOut, spent: spent, aside: aside, charges: charges, discounts: discounts, recharges: recharges, peopleOut: peopleOut, incomeLines: incomeLines, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
+      counts: counts, leftOut: leftOut, spent: spent, aside: aside, charges: charges, discounts: discounts, recharges: recharges, noAccount: noAccount, peopleOut: peopleOut, incomeLines: incomeLines, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
       candidates: candidates, exchangeSuggestions: stmtExchangeSuggestions_(candidates),
       unknownAccounts: Object.keys(unknownAccounts),
       newAccounts: stmtNewAccountProposals_(sts),   // accounts the statements name that the app does not have yet, with the defaults it would give them

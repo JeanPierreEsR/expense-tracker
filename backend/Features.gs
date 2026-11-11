@@ -102,6 +102,7 @@ function getCapabilities_() {
     recurringPayments: true,   // listRecurringPayments: the "Past payments" group of the Programmed item window    // saveEntryAll takes `repeat`: the entry form's "Repeat…" makes a Programmed item from the entry and links it
     entrySaveOne: true,   // saveEntryAll: a new / edited / confirmed entry with its split, tags and bill in ONE call (was 2-4 trips to Google); an older backend gets the separate calls
     practiceRemove: true,   // removePracticeData: the first-use practice's cleanup in one call; an older backend makes the phone do it step by step
+    noAccountTidy: true,   // listNoAccountEntries + assignEntryAccounts + undoEntryAccounts: "Entries with no account" in Tidy my history
     practiceTidy: true,   // createPracticeTidy + removePracticeTidy + listTidyGroups({pinPractice}): the Tidy my history practice is only offered where this exists
     practiceBank: true,   // createPracticeBankAccount + removePracticeBank: the Bank statements practice is only offered where this exists
     practiceImport: true,   // removePracticeImport: the Import from another app practice is only offered where this exists

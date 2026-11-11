@@ -1461,6 +1461,7 @@
       historyPlan.incMode = new Map();     // index into summary.incomeLines -> "transfer" | "investment" | "review" | "leave" (absent = income, the default)
       historyPlan.outMode = new Map();     // index into summary.peopleOut -> "review" or "leave" (absent = spending, the default)
       historyPlan.openPeople = new Set();  // people whose lines are showing
+      historyPlan.noAcctOff = new Set();      // lineKey of a no-account pair the person said is a different entry (added as new instead)
       historyPlan.rechargeChoice = new Map(); // index into summary.recharges -> the entry id that takes the card's charge, or "add"; absent = the plan's own
       historyPlan.discountChoice = new Map(); // index into summary.discounts -> the entry id that takes the bank's amount, or "add"; absent = the plan's own
       historyPlan.chargeChoice = new Map(); // index into summary.charges -> the entry id it fills, or "add" (a new purchase); absent = the plan's own
@@ -1555,6 +1556,13 @@
       if (pick === "add") chargeActions.push({ type: "add_history_expense", stmt: c.stmt, line: c.line });
       else if (pick) chargeActions.push({ type: "fill_charge", stmt: c.stmt, line: c.line, entryId: pick });
     });
+    // Lines that are an entry saved with no account: it gets this account (the plan's assign_account), or the line is a new entry.
+    (p.summary.noAccount || []).forEach((d) => {
+      if (p.noAcctOff && p.noAcctOff.has(lineKey(d))) {
+        chargeKeys[lineKey(d)] = true;
+        chargeActions.push({ type: d.amount < 0 ? "add_history_expense" : "add_history_income", stmt: d.stmt, line: d.line });
+      }
+    });
     // A card line in another currency than a purchase in the app: the purchase takes the charge (what was paid is kept), or it is a new purchase.
     (p.summary.recharges || []).forEach((d, k) => {
       chargeKeys[lineKey(d)] = true;
@@ -1595,6 +1603,20 @@
   function chargeOf(k) {
     const c = historyPlan.summary.charges[k];
     return historyPlan.chargeChoice.has(k) ? historyPlan.chargeChoice.get(k) : (c.clear ? c.entryId : "");
+  }
+
+  // ---- "In the app with no account": a bank line that is an entry saved with no account; it gets this statement's account ----
+  function noAccountHtml() {
+    const p = historyPlan, list = p.summary.noAccount || [];
+    if (!list.length) return "";
+    const rows = list.map((d) => {
+      const k = lineKey(d), off = p.noAcctOff.has(k), o = d.entry;
+      const body = `<div>${escapeHtml(tr("hist.noacct.recorded", { entry: `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`, account: d.account }))}</div>
+        <div class="stmt-choices" style="padding-left:0">${modeButton(`data-noacct="${escapeHtml(k)}" data-pick="use"`, !off, tr("hist.noacct.use", { account: d.account }))}${modeButton(`data-noacct="${escapeHtml(k)}" data-pick="add"`, off, tr("hist.disc.not"))}</div>`;
+      return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}`);
+    }).join("");
+    return `<details class="stmt-group" id="statement-history-noaccount" open><summary>${escapeHtml(tr("hist.noacct.title"))} <span class="stmt-count">${list.length}</span></summary>
+      <p class="hint">${escapeHtml(tr("hist.noacct.hint"))}</p>${rows}</details>`;
   }
 
   function rechargeOf(k) {
@@ -1684,7 +1706,7 @@
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
-    const c = { charges: 0, discounts: 0, recharges: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
+    const c = { charges: 0, discounts: 0, recharges: 0, accountsFilled: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
         const l = usable[a.stmt].result.lines[a.line];
@@ -1704,7 +1726,8 @@
       else if (a.type === "fill_charge") c.charges++;
       else if (a.type === "use_bank_amount") c.discounts++;
       else if (a.type === "use_bank_charge") c.recharges++;
-      else if (["link", "assign_account", "complete_transfer"].includes(a.type)) c.linked++;
+      else if (a.type === "assign_account") c.accountsFilled++;
+      else if (["link", "complete_transfer"].includes(a.type)) c.linked++;
     });
     c.entries = c.expenses + c.income + c.refunds + c.refundIncome + c.transfers + c.legs + c.investments + c.pending + 2 * c.exchanges + c.fees;
     c.reviewTotal = c.legs + c.pending + c.pendingInvestments;   // entries that will wait in Needs review for the person to finish
@@ -1951,6 +1974,7 @@
         if (c.notInApp.lines) parts.push(tr("stmt.balNotInApp", { amount: signed(c.currency, c.notInApp.net), n: c.notInApp.lines }));
         if (c.pending.lines) parts.push(tr("stmt.balPending", { amount: signed(c.currency, c.pending.net), n: c.pending.lines }));
         if (c.discounted && c.discounted.lines) parts.push(tr("stmt.balDiscounted", { amount: signed(c.currency, c.discounted.net), n: c.discounted.lines }));
+        if (c.noAccount && c.noAccount.lines) parts.push(tr("stmt.balNoAccount", { amount: signed(c.currency, c.noAccount.net), n: c.noAccount.lines }));
         if (c.otherCurrency && c.otherCurrency.lines) parts.push(tr("stmt.balOtherCurrency", { amount: signed(c.currency, c.otherCurrency.net), n: c.otherCurrency.lines }));
         if (c.late && c.late.lines) parts.push(tr("stmt.balLate", { amount: signed(c.currency, c.late.net), n: c.late.lines }));
         const leftOut = c.leftOut ? ` ${tr("stmt.balLeftOut", { amount: signed(c.currency, c.leftOut.net), n: c.leftOut.lines })}` : "";
@@ -2053,6 +2077,7 @@
     if (c.charges) lines.push(tr("hist.sum.charges", { n: c.charges }));
     if (c.discounts) lines.push(tr("hist.sum.discounts", { n: c.discounts }));
     if (c.recharges) lines.push(tr("hist.sum.recharges", { n: c.recharges }));
+    if (c.accountsFilled) lines.push(tr("hist.sum.accountsFilled", { n: c.accountsFilled }));
     const proposals = summary.newAccounts || [];
     const proposedKeys = new Set(proposals.map((p) => p.key));
     const stillUnknown = (summary.unknownAccounts || []).filter((k) => !proposedKeys.has(k));
@@ -2063,7 +2088,7 @@
     if (left.noAccount && stillUnknown.length) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: stillUnknown.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
     const pre = newAccountsHtml(proposals) + addedAccountsHtml();
-    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + chargesHtml() + rechargesHtml() + discountsHtml() + peopleHtml() + incomeHtml() + asideHtml() + (StatementTable.canLinkExchange(summary.candidates) ? exchangeHtml() : "") + balancesHtml();
+    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + chargesHtml() + noAccountHtml() + rechargesHtml() + discountsHtml() + peopleHtml() + incomeHtml() + asideHtml() + (StatementTable.canLinkExchange(summary.candidates) ? exchangeHtml() : "") + balancesHtml();
     if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(summary.charges || []).length && !(summary.discounts || []).length && !(summary.recharges || []).length && !(historyPlan.checks || []).length) {
       out.innerHTML = pre + (proposals.length ? "" : `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>`) + noteHtml;
       return;
@@ -2093,7 +2118,7 @@
     if (!historyPlan || !historyActions().length) return;
     const btn = $("statement-history-save");
     const status = $("statement-review-status");
-    const hc = historyCounts(), adding = hc.entries, updating = hc.charges + hc.discounts + hc.recharges;
+    const hc = historyCounts(), adding = hc.entries, updating = hc.charges + hc.discounts + hc.recharges + hc.accountsFilled;
     // Purchases already in the app that take the card's figure are a change too: never say "nothing is added" about them alone.
     // Both when a statement adds AND corrects purchases already in the app (Carlos, 2026-11-10: only the added ones were named).
     const askText = adding ? tr("hist.confirm", { n: adding }) + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
@@ -2377,6 +2402,12 @@
     const bal = e.target.closest("[data-bal]"), balAll = e.target.closest("[data-balall]");
     const link = e.target.closest("[data-xlink]"), unlink = e.target.closest("[data-xunlink]"), manual = e.target.closest("[data-xmanual]");
     const aside = historyPlan.summary.aside || [];
+    const na = e.target.closest("[data-noacct]");
+    if (na) {
+      if (na.dataset.pick === "add") historyPlan.noAcctOff.add(na.dataset.noacct); else historyPlan.noAcctOff.delete(na.dataset.noacct);
+      renderHistoryPlan();
+      return;
+    }
     const rech = e.target.closest("[data-rech]");
     if (rech) {
       historyPlan.rechargeChoice.set(Number(rech.dataset.rech), rechargeOf(Number(rech.dataset.rech)) === rech.dataset.pick ? "" : rech.dataset.pick);
