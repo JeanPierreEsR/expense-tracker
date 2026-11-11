@@ -171,6 +171,18 @@ function statementCoversEntry_(entryId, periodEnd) {
   return !!(STMT_COVERAGE_MEMO_[entryId] && STMT_COVERAGE_MEMO_[entryId][periodEnd]);
 }
 
+// A line of any saved statement is this entry (whatever its period): the bank posted it.
+function statementCoversAny_(entryId) {
+  statementCoversEntry_(entryId, '');
+  return !!STMT_COVERAGE_MEMO_[entryId];
+}
+// …on a saved statement whose period ended on or before `date` (it was posted by then).
+function statementCoversUpTo_(entryId, date) {
+  statementCoversEntry_(entryId, '');
+  var m = STMT_COVERAGE_MEMO_[entryId];
+  return !!m && Object.keys(m).some(function (end) { return end && end.slice(0, 10) <= date; });
+}
+
 // A loan-linked transfer Entry has only one payment method (where the
 // cash moved through) and no explicit direction, so it's worked out from
 // the Loan/Settlement that created it: money comes IN when someone lends

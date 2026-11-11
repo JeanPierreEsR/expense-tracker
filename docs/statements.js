@@ -1526,7 +1526,12 @@
   }
   // The starting-balance correction the person accepted (owner, 2026-11-11): its entries count after the balance, so the app moves by
   // their effect and that much is no longer unexplained.
-  function startFixSum_(c) { return r2_((c.startFix ? c.startFix.items : []).reduce((t, it) => t + it.amount, 0)); }
+  function startFixSum_(c) { return r2_((c.startFix ? c.startFix.items : []).reduce((t, it) => t + (it.weight !== undefined ? it.weight : it.amount), 0)); }
+  // The note's wording by direction: all "taken as inside", all "counted after", or both.
+  function startFixKind_(c) {
+    const sides = new Set(c.startFix.items.map((it) => it.side || "in"));
+    return sides.size > 1 ? "Mixed" : sides.has("out") ? "Out" : "";
+  }
   // The starting number after this save: the correction's entries, plus any "charged differently" difference on purchases inside it that the
   // same save takes (both move the number; c is a live check).
   function startFixCorrected_(c) { return r2_(c.startFix.amount + startFixSum_(c) + ((c.startShift && c.startShift.net) || 0)); }
@@ -2080,7 +2085,7 @@
         <div class="stmt-choices" style="padding-left:0"><button type="button" class="add-inline" data-startfixoff="${i}">${escapeHtml(tr("stmt.startFix.undo"))}</button></div>`;
     }
     if (Math.abs(c.unexplained - startFixSum_(c)) > 0.004) return "";   // the person's other choices changed what is left: it no longer fits
-    return `<p class="stmt-note info">💡 ${escapeHtml(tr("stmt.startFix.seems", { date: fmtDate(c.startFix.date, true), items: names, n: c.startFix.items.length }))}</p>
+    return `<p class="stmt-note info">💡 ${escapeHtml(tr("stmt.startFix.seems" + startFixKind_(c), { date: fmtDate(c.startFix.date, true), items: names, n: c.startFix.items.length, amount: signed(c.currency, startFixSum_(c)) }))}</p>
       <div class="stmt-choices" style="padding-left:0"><button type="button" class="add-inline" data-startfix="${i}">${escapeHtml(tr("stmt.startFix.review"))}</button></div>`;
   }
 
@@ -2558,7 +2563,10 @@
     if (sfix) {
       const i = Number(sfix.dataset.startfix), c = historyPlan.checks[i];
       if (!c || !c.startFix) return;
-      const names = c.startFix.items.map((it) => `${fmtDate(it.date, true)} · ${it.description || tr("type." + it.type)} ${signed(c.currency, it.amount)}`).join("\n");
+      const line = (it) => `${fmtDate(it.date, true)} · ${it.description || tr("type." + it.type)} ${signed(c.currency, it.amount)}`;
+      const ins = c.startFix.items.filter((it) => (it.side || "in") === "in"), outs = c.startFix.items.filter((it) => it.side === "out");
+      const names = [ins.length ? tr("stmt.startFix.whyIn", { n: ins.length }) + "\n" + ins.map(line).join("\n") : "",
+        outs.length ? tr("stmt.startFix.whyOut", { n: outs.length }) + "\n" + outs.map(line).join("\n") : ""].filter(Boolean).join("\n\n");
       const text = tr("stmt.startFix.window", { account: acctOfCheck(c), date: fmtDate(c.startFix.date, true), amount: fmtMoney(c.currency, c.startFix.amount),
         corrected: fmtMoney(c.currency, startFixCorrected_(liveCheck(c, coveredLines(historyActions(false))))),
         // after everything this upload adds or corrects, plus this correction: the statement minus what would still be unexplained

@@ -574,10 +574,14 @@ function applyStatementDecisions(payload) {
       var pmN = accounts[a.stmt];
       if (!pmN || !(openingsByPm[pmN.id] || []).some(function (o) { return o.currency === a.currency; })) throw new Error(tr_('sa.unknownBalance'));
       if (!fixInbound) fixInbound = buildInboundTransferIds_();
+      var ownN = (openingsByPm[pmN.id] || []).find(function (o) { return o.currency === a.currency; });
       var fixShift = 0;
       (a.ids || []).forEach(function (id) {
         var fe = getEntryById_(String(id));   // as it is in the Sheet: an amount this save changes is not written yet
-        if (fe && fe.status === 'confirmed' && (fe.currency || homeCurrency_()) === a.currency) fixShift += signedEffectOnPaymentMethod_(fe, pmN.id, fixInbound);
+        if (!fe || fe.status !== 'confirmed' || (fe.currency || homeCurrency_()) !== a.currency) return;
+        var eff = signedEffectOnPaymentMethod_(fe, pmN.id, fixInbound);
+        // inside the balance but not posted yet: the number takes it; counted after but already posted: the number gives it back
+        fixShift += stmtInsideStart_(fe, ownN) ? eff : -eff;
       });
       startOps.push({ pm: pmN, currency: a.currency, shift: Math.round(fixShift * 100) / 100 });
     } else if (a.type === 'set_balance') {

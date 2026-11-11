@@ -50,7 +50,9 @@ test("two entries that would both fit: nothing is offered", () => {
   add("2019-03-09", 42.50, "Tienda Dos");
   add("2019-03-10", 42.50, "Tienda Tres");
   rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: "2019-03-10" }] });
-  const c = plan(rt, [stmt(-142.50, [])]).balance_checks[0];
+  // both posted on the statement, the balance included one of them: either could be the one, so nothing is offered
+  const c = plan(rt, [stmt(-142.50, [{ date: "2019-03-09", description: "TIENDA DOS", amount: -42.50, currency: "PEN" },
+    { date: "2019-03-10", description: "TIENDA TRES", amount: -42.50, currency: "PEN" }])]).balance_checks[0];
   assert.equal(c.unexplained, -42.5);
   assert.equal(c.startFix, undefined);
 });
@@ -105,7 +107,9 @@ test("the correction looks at the whole window of days: five entries that add up
   const { rt, card, add, stmt } = setup();
   const ids = [["2019-03-08", 11.11], ["2019-03-09", 22.22], ["2019-03-09", 33.33], ["2019-03-10", 44.44], ["2019-03-10", 55.55]].map(([d, a], k) => add(d, a, "Tienda " + k));
   rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: "2019-03-10" }] });
-  const c = plan(rt, [stmt(-266.65, [])]).balance_checks[0];
+  const lines = [["2019-03-08", 11.11], ["2019-03-09", 22.22], ["2019-03-09", 33.33], ["2019-03-10", 44.44], ["2019-03-10", 55.55]]
+    .map(([d, a], k) => ({ date: d, description: "TIENDA " + k, amount: -a, currency: "PEN" }));
+  const c = plan(rt, [stmt(-266.65, lines)]).balance_checks[0];
   assert.equal(c.unexplained, -166.65);
   assert.deepEqual(c.startFix.items.map((i) => i.id).sort(), ids.slice().sort());
 });
@@ -121,4 +125,59 @@ test("a set balance whose correction was not taken keeps the likely entries in i
   const gaps = run(rt, "listStatementGaps()").gaps;
   assert.equal(gaps.length, 1);
   assert.equal(gaps[0].likely, "Mar 10 · Tienda Dos −PEN 42.50");
+});
+
+// ---- the opposite correction (owner, 2026-11-11): counted after the balance, but the bank had already posted it ----
+test("an entry counted after the balance that the bank had already posted: the number gives it back", () => {
+  const { rt, card, add, stmt } = setup();
+  const x = add("2019-03-09", 30, "Tienda Cuatro");
+  rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: "2019-03-10", not_yet: [x] }] });
+  // the typed −100 already had it: the bank says −100 at the end
+  const s = stmt(-100, [{ date: "2019-03-09", description: "TIENDA CUATRO", amount: -30, currency: "PEN" }]);
+  const p = plan(rt, [s]);
+  const c = p.balance_checks[0];
+  assert.equal(c.unexplained, 30);
+  assert.deepEqual(c.startFix.items.map((i) => [i.id, i.side, i.weight]), [[x, "out", 30]]);
+  const res = save(rt, [s], p.actions.concat([{ type: "start_not_yet", stmt: 0, currency: "PEN", ids: [x] }]));
+  assert.equal(opening(rt, card.id).amount, -70);
+  assert.equal(rt.api("listPaymentMethodBalances", {}).find((b) => b.id === card.id).balances[0].amount, -100, "now the app agrees with the bank");
+  run(rt, `undoStatementBatch({ batchId: ${JSON.stringify(res.batchId)} })`);
+  assert.equal(opening(rt, card.id).amount, -100);
+});
+
+test("a payment in process that the bank cancelled (never on a statement) is never offered", () => {
+  const { rt, card, add, stmt } = setup();
+  const x = add("2019-03-09", 30, "Tienda Cuatro");
+  rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: "2019-03-10", not_yet: [x] }] });
+  const c = plan(rt, [stmt(-100, [])]).balance_checks[0];
+  assert.equal(c.unexplained, 30);
+  assert.equal(c.startFix, undefined, "it stays in 'in the app, not on this statement', the real fix being to remove it");
+});
+
+test("a duplicate (the bank posted only its twin) is never offered", () => {
+  const { rt, card, add, stmt } = setup();
+  const a = add("2019-03-09", 30, "Tienda Cuatro");
+  const b = add("2019-03-09", 30, "Tienda Cuatro copia");
+  rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: "2019-03-10", not_yet: [a, b] }] });
+  // the bank posted it once, after the balance
+  const p = plan(rt, [stmt(-130, [{ date: "2019-03-11", description: "TIENDA CUATRO", amount: -30, currency: "PEN" }])]);
+  const c = p.balance_checks[0];
+  assert.equal(c.unexplained, 30);
+  assert.equal(c.startFix, undefined);
+});
+
+test("both directions at once: one taken inside but not posted, one counted after but posted", () => {
+  const { rt, card, add, stmt } = setup();
+  const y = add("2019-03-10", 20, "Tienda Cinco");   // inside the balance, not posted when it was typed
+  const x = add("2019-03-09", 30, "Tienda Seis");    // marked Not yet, but already posted
+  rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: "2019-03-10", not_yet: [x] }] });
+  const s = stmt(-120, [{ date: "2019-03-09", description: "TIENDA SEIS", amount: -30, currency: "PEN" },
+    { date: "2019-03-10", description: "TIENDA CINCO", amount: -20, currency: "PEN" }]);
+  const p = plan(rt, [s]);
+  const c = p.balance_checks[0];
+  assert.equal(c.unexplained, 10);
+  assert.deepEqual(c.startFix.items.map((i) => [i.id, i.side]).sort(), [[x, "out"], [y, "in"]].sort());
+  save(rt, [s], p.actions.concat([{ type: "start_not_yet", stmt: 0, currency: "PEN", ids: [x, y] }]));
+  assert.equal(opening(rt, card.id).amount, -90);
+  assert.equal(rt.api("listPaymentMethodBalances", {}).find((b) => b.id === card.id).balances[0].amount, -120);
 });

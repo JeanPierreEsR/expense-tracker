@@ -221,21 +221,33 @@ function stmtInsideStart_(e, own) {
   return !!(own && own.date && d && d <= own.date && !entryCountsAfterOpening_(e, own));
 }
 
-// The smallest set of entries of the starting balance's last days (START_NOT_YET_DAYS_) that it took as inside, whose effect on the
-// account adds up EXACTLY to the unexplained amount: any number of entries of that window (owner, 2026-11-11: "a window of days, not
-// entries"; was 1 to 3). Only when exactly one set of that size fits; otherwise nothing (a guess between two answers is not offered).
-// Counting them after the balance moves the app by their effect, which closes the gap. The 14 newest entries of the window at most.
+// The starting balance's correction (owner's plan step 3, both directions since 2026-11-11). Candidates: the account's entries of the
+// balance's last days (START_NOT_YET_DAYS_) in this currency that the BANK REALLY POSTED (a line of this statement, or of a statement
+// saved earlier, is that entry), each on the side the app put it:
+//   'in'  — taken as already inside the balance; if the bank had not posted it yet, the number should take its effect (weight = +effect);
+//   'out' — counted after the balance (marked "Not yet", a late bank e-mail, recorded after the balance on its day); if the bank had
+//           already posted it, the number should not have it counted again (weight = −effect).
+// The ONE smallest set whose weights add up EXACTLY to the unexplained amount is offered; none when two sets fit. "Posted" keeps out a
+// payment the bank cancelled while in process and a duplicate entry (only one of two twins is ever on a statement line). The 14 newest
+// candidates at most. The number moves by the sum of the weights (StatementApply.gs, start_not_yet).
 var STMT_START_FIX_MAX_ = 14;
 function stmtStartFix_(args, own, unexplained) {
   var pm = args.pm, cur = args.currency, from = startNotYetFrom_(own.date), target = Math.round(unexplained * 100);
+  var posted = stmtExplainedIds_(args);
   var cands = [];
   (args.confirmed || []).forEach(function (e) {
     if ((e.currency || homeCurrency_()) !== cur) return;
     var d = String(e.date || '').slice(0, 10);
-    if (d < from || d > own.date || !stmtInsideStart_(e, own)) return;
+    if (d < from || d > own.date) return;
+    var side = stmtInsideStart_(e, own) ? 'in' : 'out';
+    // posted: 'in' — on any statement line (a card line carries the purchase date, not the day it posted); 'out' — on a line dated on or
+    // before the balance's day (a line after it shows it rightly counts after: the duplicate test, 2026-11-11)
+    if (side === 'in' ? !(posted[e.id] || statementCoversAny_(e.id)) : !((posted[e.id] && posted[e.id] <= own.date) || statementCoversUpTo_(e.id, own.date))) return;
     var eff = signedEffectOnPaymentMethod_(e, pm.id, args.inboundIds);
     if (!eff) return;
-    cands.push({ id: e.id, date: d, description: String(e.description || ''), type: e.type, amount: Math.round(eff * 100) / 100, cents: Math.round(eff * 100) });
+    var w = side === 'in' ? eff : -eff;
+    cands.push({ id: e.id, date: d, description: String(e.description || ''), type: e.type, side: side,
+      amount: Math.round(eff * 100) / 100, weight: Math.round(w * 100) / 100, cents: Math.round(w * 100) });
   });
   cands.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
   cands = cands.slice(0, STMT_START_FIX_MAX_);
@@ -250,9 +262,26 @@ function stmtStartFix_(args, own, unexplained) {
     walk(0, [], 0);
     if (found.length === 1) {
       return { date: own.date, amount: own.amount, items: found[0].map(function (i) {
-        var c = cands[i]; return { id: c.id, date: c.date, description: c.description, type: c.type, amount: c.amount }; }) };
+        var c = cands[i]; return { id: c.id, date: c.date, description: c.description, type: c.type, side: c.side, amount: c.amount, weight: c.weight }; }) };
     }
     if (found.length > 1) return null;
   }
   return null;
+}
+
+// Entries a line of THIS statement is (matched, completed, filled, charged differently…), the same reading as stmtAppOnlyEntries_:
+// entry id -> that line's date.
+function stmtExplainedIds_(args) {
+  var ids = {};
+  var put = function (id, l) { if (id && (!ids[id] || l.date < ids[id])) ids[id] = String(l.date || ''); };
+  (args.lines || []).forEach(function (l) {
+    if (l.entry && l.entry.id) put(l.entry.id, l);
+    if (l.gapEntryId) put(l.gapEntryId, l);
+    if (l.handled && l.handled.entryId && l.handled.outcome !== 'ignored' && l.handled.outcome !== 'waiting') put(l.handled.entryId, l);
+    if (l.completesTransfer && l.completesTransfer.entry && l.completesTransfer.entry.id) put(l.completesTransfer.entry.id, l);
+    if (l.fillsCharge && l.fillsCharge.clear && l.fillsCharge.entryId) put(l.fillsCharge.entryId, l);
+    if (l.discount && l.discount.clear && l.discount.entryId) put(l.discount.entryId, l);
+    if (l.recharge && l.recharge.clear && l.recharge.entryId) put(l.recharge.entryId, l);
+  });
+  return ids;
 }
