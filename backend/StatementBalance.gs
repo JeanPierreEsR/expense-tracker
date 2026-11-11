@@ -74,9 +74,13 @@ function stmtBalanceCheck_(args) {
     out.canSet = true;
     out.reason = tr_('sb.newer', { date: own.date });
   } else if (args.end === own.date) {
-    out.direction = 'same-date';
-    out.canSet = false;
-    out.reason = tr_('sb.sameDay', { date: own.date });
+    // The statement closes on the starting balance's own day (owner, 2026-11-11: it used to check nothing and could not replace it).
+    // It is checked like a later one (the app's figure is the typed balance plus that day's entries counted after it) and may replace
+    // the typed balance: a statement is exact. The phone asks first (sameDay).
+    out.direction = 'forward';
+    out.sameDay = true;
+    out.canSet = true;
+    out.reason = tr_('sb.newer', { date: own.date });
   } else {
     out.direction = 'backward';
     out.canSet = false;
@@ -87,6 +91,7 @@ function stmtBalanceCheck_(args) {
   // difference with the statement's own lines that are not in the app yet.
   if (out.direction === 'forward') {
     var after = own ? own.date : '';
+    var insideShift = 0, insideShiftN = 0;
     var missing = 0, pending = 0, missingN = 0, missingItems = [], pendingN = 0, discounted = 0, discountedN = 0, other = 0, otherN = 0, noAcct = 0, noAcctN = 0;
     // A purchase the card charged in ANOTHER currency (StatementMatch.gs, 'recharge'): until it takes the charge, the line is missing in
     // its currency and the purchase sits in the other one. Both halves are named here instead of looking unexplained.
@@ -95,13 +100,24 @@ function stmtBalanceCheck_(args) {
       var re = args.entryById[l.recharge.entryId];
       if (re && re.status === 'confirmed' && (re.currency || homeCurrency_()) === cur && re.payment_method_id === pm.id) { other += Number(re.amount); otherN++; }
     });
+    // A line dated on/before the starting balance is inside it, unless its entry was marked "Not yet" when the balance was saved
+    // (owner, 2026-11-11): then it counts after the balance, like the entry.
+    var notYet = {};
+    ((own && own.not_yet) || []).forEach(function (id) { notYet[id] = true; });
+    var lineNotYet = function (l) {
+      var id = l.entry ? l.entry.id : (l.handled && l.handled.entryId) || (l.discount && l.discount.entryId) || '';
+      return !!(id && notYet[id]);
+    };
     (args.lines || []).forEach(function (l, li) {
-      if (l.currency !== cur || l.date <= after) return;
+      if (l.currency !== cur || (l.date <= after && !lineNotYet(l))) return;
       if (l.recharge && l.recharge.clear && l.recharge.entryId) { other += Number(l.amount); otherN++; return; }
       // A card line paired with a purchase it charged LESS than (a discount, StatementMatch.gs): the purchase is in the app, only the
       // discount is not yet — it disappears once the purchase takes the bank's amount.
       if (l.discount && l.discount.clear && l.discount.entryId) {
         var de = args.entryById[l.discount.entryId];
+        // A purchase INSIDE the starting balance (its charge posted after it): taking the bank's amount moves the starting balance, so it
+        // is counted with the other starting-balance differences below (insideShift), not as a plain discount.
+        if (de && de.status === 'confirmed' && own && stmtInsideStart_(de, own)) { insideShift += Number(l.amount) + Number(de.amount); insideShiftN++; return; }
         if (de && de.status === 'confirmed') { discounted += Number(l.amount) + Number(de.amount); discountedN++; return; }
       }
       var entryId = l.entry ? l.entry.id : (l.handled && l.handled.entryId) || '';
@@ -125,9 +141,31 @@ function stmtBalanceCheck_(args) {
     out.discounted = { net: Math.round(discounted * 100) / 100, lines: discountedN };
     out.otherCurrency = { net: Math.round(other * 100) / 100, lines: otherN };
     out.noAccount = { net: Math.round(noAcct * 100) / 100, lines: noAcctN };
-    out.unexplained = Math.round((out.diff - missing - pending - discounted - other - noAcct) * 100) / 100;
+    out.unexplained = Math.round((out.diff - missing - pending - discounted - other - noAcct - insideShift) * 100) / 100;
     // A card posts what was bought in the last days before the closing on the NEXT statement (owner, 2026-11-10): those purchases are
     // named apart ("probably on the next statement") and no longer count as unexplained.
+    // The starting balance itself, checked by this statement (owner's plan, 2026-11-11, step 3).
+    if (own && own.date) {
+      // (a) A purchase INSIDE the starting balance that the card charged differently, its line dated on/before that balance: taking the
+      // bank's amount also moves the starting balance by the difference (StatementApply.gs, use_bank_amount), so it is explained.
+      var shift = insideShift, shiftN = insideShiftN;
+      (args.lines || []).forEach(function (l) {
+        if (l.currency !== cur || l.date > after || !(l.discount && l.discount.clear && l.discount.entryId)) return;
+        var se = args.entryById[l.discount.entryId];
+        if (!se || se.status !== 'confirmed' || !stmtInsideStart_(se, own)) return;
+        shift += Number(l.amount) + Number(se.amount); shiftN++;
+      });
+      if (shiftN) {
+        out.startShift = { net: Math.round(shift * 100) / 100, lines: shiftN };
+        out.unexplained = Math.round((out.unexplained - (shift - insideShift)) * 100) / 100;   // insideShift is already out of it
+      }
+      // (b) What is left equals, to the cent, recent entries the starting balance took as already in the bank: probably still in process
+      // when the balance was typed. Offered as a correction (count them after it, "Not yet"); never applied without the person.
+      if (out.unexplained) {
+        var fix = stmtStartFix_(args, own, out.unexplained);
+        if (fix) out.startFix = fix;
+      }
+    }
     var appOnly = stmtAppOnlyEntries_(args, governing, after);
     if (pm.type === 'credit' && appOnly.all.length) {
       var endDay = stmtDayNumber_(args.end), late = 0, lateItems = [];
@@ -170,7 +208,7 @@ function stmtAppOnlyEntries_(args, governing, after) {
   (args.confirmed || []).forEach(function (e) {
     if ((e.currency || homeCurrency_()) !== cur || explained[e.id]) return;
     var d = String(e.date || '').slice(0, 10);
-    if (!d || d > args.end || (args.start && d < args.start) || (after && d <= after)) return;
+    if (!d || d > args.end || (args.start && d < args.start) || (after && d <= after && !((governing.not_yet || []).indexOf(String(e.id)) !== -1))) return;
     if (!entryCountsAfterOpening_(e, governing)) return;
     var eff = signedEffectOnPaymentMethod_(e, pm.id, args.inboundIds);
     if (!eff) return;
@@ -178,4 +216,76 @@ function stmtAppOnlyEntries_(args, governing, after) {
   });
   items.sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
   return { all: items };
+}
+
+
+// An entry the starting balance takes as already inside it (dated on/before its day, recorded before it, not marked "Not yet").
+function stmtInsideStart_(e, own) {
+  var d = String(e.date || '').slice(0, 10);
+  return !!(own && own.date && d && d <= own.date && !entryCountsAfterOpening_(e, own));
+}
+
+// The starting balance's correction (owner's plan step 3, both directions since 2026-11-11). Candidates: the account's entries of the
+// balance's last days (START_NOT_YET_DAYS_) in this currency that the BANK REALLY POSTED (a line of this statement, or of a statement
+// saved earlier, is that entry), each on the side the app put it:
+//   'in'  — taken as already inside the balance; if the bank had not posted it yet, the number should take its effect (weight = +effect);
+//   'out' — counted after the balance (marked "Not yet", a late bank e-mail, recorded after the balance on its day); if the bank had
+//           already posted it, the number should not have it counted again (weight = −effect).
+// The ONE smallest set whose weights add up EXACTLY to the unexplained amount is offered; none when two sets fit. "Posted" keeps out a
+// payment the bank cancelled while in process and a duplicate entry (only one of two twins is ever on a statement line). The 14 newest
+// candidates at most. The number moves by the sum of the weights (StatementApply.gs, start_not_yet).
+var STMT_START_FIX_MAX_ = 14;
+function stmtStartFix_(args, own, unexplained) {
+  var pm = args.pm, cur = args.currency, from = startNotYetFrom_(own.date), target = Math.round(unexplained * 100);
+  var posted = stmtExplainedIds_(args);
+  var cands = [];
+  (args.confirmed || []).forEach(function (e) {
+    if ((e.currency || homeCurrency_()) !== cur) return;
+    var d = String(e.date || '').slice(0, 10);
+    if (d < from || d > own.date) return;
+    var side = stmtInsideStart_(e, own) ? 'in' : 'out';
+    // posted: 'in' — on any statement line (a card line carries the purchase date, not the day it posted); 'out' — on a line dated on or
+    // before the balance's day (a line after it shows it rightly counts after: the duplicate test, 2026-11-11)
+    if (side === 'in' ? !(posted[e.id] || statementCoversAny_(e.id)) : !((posted[e.id] && posted[e.id] <= own.date) || statementCoversUpTo_(e.id, own.date))) return;
+    var eff = signedEffectOnPaymentMethod_(e, pm.id, args.inboundIds);
+    if (!eff) return;
+    var w = side === 'in' ? eff : -eff;
+    cands.push({ id: e.id, date: d, description: String(e.description || ''), type: e.type, side: side,
+      amount: Math.round(eff * 100) / 100, weight: Math.round(w * 100) / 100, cents: Math.round(w * 100) });
+  });
+  cands.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+  cands = cands.slice(0, STMT_START_FIX_MAX_);
+  var n = cands.length;
+  for (var size = 1; size <= n; size++) {
+    var found = [];
+    var walk = function (start, picked, sum) {
+      if (found.length > 1) return;
+      if (picked.length === size) { if (sum === target) found.push(picked.slice()); return; }
+      for (var i = start; i < n; i++) { picked.push(i); walk(i + 1, picked, sum + cands[i].cents); picked.pop(); }
+    };
+    walk(0, [], 0);
+    if (found.length === 1) {
+      return { date: own.date, amount: own.amount, items: found[0].map(function (i) {
+        var c = cands[i]; return { id: c.id, date: c.date, description: c.description, type: c.type, side: c.side, amount: c.amount, weight: c.weight }; }) };
+    }
+    if (found.length > 1) return null;
+  }
+  return null;
+}
+
+// Entries a line of THIS statement is (matched, completed, filled, charged differently…), the same reading as stmtAppOnlyEntries_:
+// entry id -> that line's date.
+function stmtExplainedIds_(args) {
+  var ids = {};
+  var put = function (id, l) { if (id && (!ids[id] || l.date < ids[id])) ids[id] = String(l.date || ''); };
+  (args.lines || []).forEach(function (l) {
+    if (l.entry && l.entry.id) put(l.entry.id, l);
+    if (l.gapEntryId) put(l.gapEntryId, l);
+    if (l.handled && l.handled.entryId && l.handled.outcome !== 'ignored' && l.handled.outcome !== 'waiting') put(l.handled.entryId, l);
+    if (l.completesTransfer && l.completesTransfer.entry && l.completesTransfer.entry.id) put(l.completesTransfer.entry.id, l);
+    if (l.fillsCharge && l.fillsCharge.clear && l.fillsCharge.entryId) put(l.fillsCharge.entryId, l);
+    if (l.discount && l.discount.clear && l.discount.entryId) put(l.discount.entryId, l);
+    if (l.recharge && l.recharge.clear && l.recharge.entryId) put(l.recharge.entryId, l);
+  });
+  return ids;
 }

@@ -3865,3 +3865,27 @@ body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: 216px; }
 /* A field that must be filled before its button works (showFieldError_, owner 2026-11-11) */
 .field-invalid { border-color: #d64545 !important; box-shadow: 0 0 0 1px #d64545; }
 .field-error-msg { color: #d64545; font-size: 0.85rem; margin: 4px 0 0; }
+
+/* A tracked account moving in a currency with no starting balance of its own (owner, 2026-11-11). */
+.balance-row-missing { font-size: 13px; color: #b25e00; margin-top: 2px; font-weight: 400; }
+.balances-missing { display: block; width: 100%; text-align: left; background: #fff4e5; color: #8a4b00; border: none; border-radius: 10px; padding: 10px 12px; margin: 8px 0; font-size: 14px; line-height: 1.35; cursor: pointer; }
+
+/* "Already in / Not yet" when saving a starting balance (owner, 2026-11-11). */
+.notyet-cur { font-weight: 600; margin: 12px 0 4px; }
+.notyet-row { border-bottom: 1px solid #eee; padding: 10px 0; }
+.notyet-top { display: flex; justify-content: space-between; gap: 8px; }
+.notyet-desc { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.notyet-amount { white-space: nowrap; font-weight: 600; }
+.notyet-meta { font-size: 13px; color: #777; margin-top: 2px; }
+.notyet-choices { display: flex; gap: 8px; margin-top: 8px; }
+.notyet-choices .notyet-choice { flex: 1; min-height: 44px; margin: 0; border: 1px solid #c9d3e0; background: #fff; color: #333; border-radius: 10px; font-size: 15px; }
+.notyet-choices .notyet-choice.active { background: #1f6feb; border-color: #1f6feb; color: #fff; font-weight: 600; }
+#balance-notyet .primary { margin-top: 16px; }
+
+/* Starting balance: recommend a statement (owner's plan, step 4). */
+.balance-stmt-tip { background: #eef5ff; border-radius: 10px; padding: 10px 12px; margin: 4px 0 10px; font-size: 14px; line-height: 1.35; }
+.balance-stmt-tip p { margin: 0 0 4px; }
+.balance-stmt-tip .add-inline { margin: 0; }
+
+/* A row Save refused (blank amount): outlined in red. */
+.balance-form-row.bad { outline: 2px solid #d64545; outline-offset: 2px; border-radius: 10px; }

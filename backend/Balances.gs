@@ -70,6 +70,13 @@ function ensureAccountOpeningBalancesSheet_() {
 function ensureAccountOpeningBalancesAsOfColumn_() {
   ensureAccountOpeningBalancesSheet_();
   ensureColumn_('Account Opening Balances', 'as_of');
+  ensureColumn_('Account Opening Balances', 'not_yet');
+}
+
+// not_yet (owner, 2026-11-11): entry ids the person marked "Not yet (in process)" when saving the starting balance. They were recorded
+// before the balance was typed, but had not left the bank yet, so they count AFTER it. Stored "id1,id2"; read as a list.
+function notYetList_(value) {
+  return String(value || '').split(',').map(function (x) { return x.trim(); }).filter(function (x) { return x; });
 }
 
 // Map of payment_method_id -> [{currency, amount, date}], from the new
@@ -83,7 +90,8 @@ function buildOpeningsByPm_(pms) {
       currency: String(r.currency || homeCurrency_()).toUpperCase(),
       amount: Number(r.amount) || 0,
       date: r.date || '',
-      as_of: r.as_of || ''
+      as_of: r.as_of || '',
+      not_yet: notYetList_(r.not_yet)
     });
   });
   pms.forEach(function (pm) {
@@ -130,6 +138,13 @@ function openingForCurrency_(openings, currency) {
 function entryCountsAfterOpening_(entry, opening) {
   if (!opening || !opening.date) return true;
   if (entry.date > opening.date) return true;
+  if (opening.not_yet && opening.not_yet.indexOf(String(entry.id)) !== -1) return true;   // marked "Not yet" when the balance was saved
+  // A BANK E-MAIL that arrived after the balance was saved, for a purchase of the balance's last days (owner's option C, 2026-11-11):
+  // the bank was still processing it when the balance was typed, so it counts after the balance. An entry typed by hand later stays
+  // inside (it usually catches up on something already posted). Only for a balance with a saved moment, and never for an entry a
+  // statement line covers (that statement's closing already holds it).
+  if (entry.date < opening.date && String(entry.source || '') === 'email' && opening.as_of && entry.created_at && entry.created_at >= opening.as_of &&
+      entry.date >= startNotYetFrom_(opening.date) && !statementCoversEntry_(entry.id, opening.date)) return true;
   if (entry.date < opening.date) return false;
   if (!opening.as_of) return false;
   if (!(entry.created_at && entry.created_at >= opening.as_of)) return false;
@@ -154,6 +169,18 @@ function statementCoversEntry_(entryId, periodEnd) {
     }
   }
   return !!(STMT_COVERAGE_MEMO_[entryId] && STMT_COVERAGE_MEMO_[entryId][periodEnd]);
+}
+
+// A line of any saved statement is this entry (whatever its period): the bank posted it.
+function statementCoversAny_(entryId) {
+  statementCoversEntry_(entryId, '');
+  return !!STMT_COVERAGE_MEMO_[entryId];
+}
+// …on a saved statement whose period ended on or before `date` (it was posted by then).
+function statementCoversUpTo_(entryId, date) {
+  statementCoversEntry_(entryId, '');
+  var m = STMT_COVERAGE_MEMO_[entryId];
+  return !!m && Object.keys(m).some(function (end) { return end && end.slice(0, 10) <= date; });
 }
 
 // A loan-linked transfer Entry has only one payment method (where the
@@ -338,7 +365,9 @@ function setPaymentMethodOpeningBalance(payload) {
       throw new Error(tr_('bal.validBalance', { cur: currency }));
     }
     if (!b.date) throw new Error(tr_('bal.pickFromDate', { cur: currency }));
-    return { currency: currency, amount: Number(b.amount), date: String(b.date) };
+    var out = { currency: currency, amount: Number(b.amount), date: String(b.date) };
+    if (Array.isArray(b.not_yet)) out.not_yet = b.not_yet.map(String).filter(function (x) { return x && x.indexOf(',') === -1; });
+    return out;
   });
 
   // A row left unchanged (same currency, amount and date) keeps its
@@ -354,6 +383,11 @@ function setPaymentMethodOpeningBalance(payload) {
     });
     if (prev && prev.as_of) b.as_of = prev.as_of;
     else b.as_of = b.date === today ? now : '';
+    // The "Not yet" marks: what the phone sent, else (a phone on an older release, or an untouched row) what this currency had.
+    if (!b.not_yet) {
+      var same = previous.find(function (r) { return String(r.currency).toUpperCase() === b.currency && r.date === b.date; });
+      b.not_yet = same ? notYetList_(same.not_yet) : [];
+    }
   });
 
   deleteRowsWhere_('Account Opening Balances', function (row) { return row.payment_method_id === payload.id; });
@@ -372,10 +406,52 @@ function setPaymentMethodOpeningBalance(payload) {
     var asOfCell = sheet.getRange(sheet.getLastRow(), headers.indexOf('as_of') + 1);
     asOfCell.setNumberFormat('@');
     asOfCell.setValue(b.as_of);
+    if (b.not_yet.length) sheet.getRange(sheet.getLastRow(), headers.indexOf('not_yet') + 1).setValue(b.not_yet.join(','));
   });
 
   ['opening_balance', 'opening_balance_date', 'opening_balance_currency'].forEach(function (col) {
     setCellByRow_(pmSheet, pmHeaders, rowIndex, col, '');
   });
   return { done: true };
+}
+
+
+// ---- "Is this already in your bank's balance?" (owner, 2026-11-11) ----
+// When a starting balance is saved, the phone lists this account's entries of the 3 days up to the balance's date that the balance
+// would take as already inside it (recorded before the moment it is saved), so the person can mark the ones still in process "Not
+// yet". payload: { id, rows: [{ currency, date }] }. Answers { currency: [{ id, date, description, signed, type, created_at }] },
+// newest first. Read-only.
+var START_NOT_YET_DAYS_ = 3;   // owner, 2026-11-11 (was 5)
+function listStartBalanceCandidates(payload) {
+  var pm = getAllRows('Payment Methods').find(function (p) { return p.id === payload.id; });
+  if (!pm) throw new Error(tr_('err.paymentMethodNotFound'));
+  var inboundIds = buildInboundTransferIds_();
+  var entries = confirmedEntries_();
+  var out = {};
+  (payload.rows || []).forEach(function (row) {
+    var cur = String(row.currency || homeCurrency_()).toUpperCase(), date = String(row.date || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    var from = startNotYetFrom_(date);
+    var list = [];
+    entries.forEach(function (e) {
+      var d = String(e.date || '').slice(0, 10);
+      if ((e.currency || homeCurrency_()) !== cur || d < from || d > date) return;
+      var signed = signedEffectOnPaymentMethod_(e, pm.id, inboundIds);
+      if (!signed) return;
+      list.push({ id: e.id, date: d, description: String(e.description || ''), type: e.type, signed: Math.round(signed * 100) / 100,
+        created_at: String(e.created_at || '') });
+    });
+    list.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.created_at < b.created_at ? 1 : -1); });
+    out[cur] = list;
+  });
+  // Every currency this account has confirmed movements in, at any date: a new account's form asks for each (testers, 2026-11-11).
+  var moved = {};
+  entries.forEach(function (e) { if (signedEffectOnPaymentMethod_(e, pm.id, inboundIds)) moved[e.currency || homeCurrency_()] = true; });
+  out.__moved = Object.keys(moved).sort();
+  return out;
+}
+function startNotYetFrom_(date) {
+  var d = new Date(date + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() - (START_NOT_YET_DAYS_ - 1));
+  return d.toISOString().slice(0, 10);
 }

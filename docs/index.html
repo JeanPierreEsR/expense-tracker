@@ -536,6 +536,7 @@
           <div id="balances-totals-lines"></div>
           <button type="button" class="balances-toggle" id="balances-toggle" aria-expanded="false"></button>
         </div>
+        <button type="button" class="balances-missing" id="balances-missing" hidden></button>
         <div id="balances-list" hidden></div>
         <p class="hint" id="balances-empty-note" hidden data-i18n="balances.empty">No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.</p>
       </div>
@@ -2137,6 +2138,7 @@
         <button type="button" id="balance-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
+        <div id="balance-main">
         <div id="balance-account-picker-wrap" hidden>
           <label for="balance-account-picker" data-i18n="balance.accountPicker">Account (✓ = already has balances)</label>
           <select id="balance-account-picker"></select>
@@ -2152,9 +2154,13 @@
           <p class="hint" id="balance-check-result"></p>
         </div>
 
+        <div id="balance-stmt-tip" class="balance-stmt-tip" hidden>
+          <p data-i18n="balance.stmtTip">📄 Have a statement for this account? Starting from its closing balance is the most exact: only what the bank already posted, discounts included.</p>
+          <button type="button" class="add-inline" id="balance-stmt-tip-btn" data-i18n="balance.stmtTipBtn">Read a statement ›</button>
+        </div>
         <button type="button" class="add-inline" id="inproc-open-btn" data-i18n="inproc.open">🕒 Add up payments in process…</button>
         <h3 class="balance-section-title" data-i18n="balance.starting">Starting balances</h3>
-        <p class="hint" data-i18n="balance.startingHint">One per currency the account holds. Type what the account holds at that moment: for today, that is right now, at this time of day. Only entries after that moment change the balance; earlier ones are ignored.</p>
+        <p class="hint" id="balance-starting-hint" data-i18n="balance.startingHint">One per currency the account holds. Type what the account holds at that moment: for today, that is right now, at this time of day. Only entries after that moment change the balance; earlier ones are ignored.</p>
         <div id="balance-rows"></div>
         <button type="button" class="add-inline" id="balance-add-row-btn" data-i18n="balance.addCurrency">+ Add another currency</button>
 
@@ -2165,6 +2171,14 @@
         <div id="balance-movements-wrap" hidden>
           <h3 class="balance-section-title" data-i18n="balance.movements">Movements since the starting date</h3>
           <div id="balance-movements"></div>
+        </div>
+        </div>
+        <div id="balance-notyet" hidden>
+          <h3 class="balance-section-title" data-i18n="balance.ny.title">Are these already in the balance you typed?</h3>
+          <p class="hint" id="balance-notyet-hint"></p>
+          <div id="balance-notyet-list"></div>
+          <button type="button" class="primary" id="balance-notyet-save" data-i18n="balance.save">Save starting balances</button>
+          <button type="button" class="add-inline" id="balance-notyet-back" data-i18n="balance.ny.back">‹ Back to the balances</button>
         </div>
       </div>
     </div>

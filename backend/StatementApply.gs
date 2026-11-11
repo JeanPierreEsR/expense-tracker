@@ -61,9 +61,10 @@ var STATEMENT_CHANGES_COLUMNS_ = ['id', 'batch_id', 'sheet', 'row_id', 'field', 
 // balances or loans. Informational only: `gap` and `app_balance` are the figures
 // the phone showed, stored as-is. Undo removes the notes its upload created.
 var STATEMENT_GAPS_COLUMNS_ = ['id', 'payment_method_id', 'account_key', 'account_label', 'currency', 'period_end',
-  'closing', 'app_balance', 'gap', 'status', 'note', 'batch_id', 'created_at', 'resolved_at'];
+  'closing', 'app_balance', 'gap', 'status', 'note', 'batch_id', 'created_at', 'resolved_at', 'likely'];
 function ensureStatementGapsSheet_() {
   ensureStatementSheet_('Statement Gaps', STATEMENT_GAPS_COLUMNS_, ['account_key', 'period_end', 'created_at', 'resolved_at']);
+  ensureColumn_('Statement Gaps', 'likely');   // added 2026-11-11: what the balance check named as the likely cause (a sheet made earlier lacks it)
 }
 
 var STATEMENT_HANDLED_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true, ignored: true, reversed: true, charge_filled: true };
@@ -279,7 +280,7 @@ function applyStatementDecisions(payload) {
   var batchId = Utilities.getUuid();
   var now = nowTimestamp_();
   var today = now.substring(0, 10);
-  var creations = [], changes = [], outcomes = [], usedLines = {}, chargeFills = [], discountSplits = [];
+  var creations = [], changes = [], outcomes = [], usedLines = {}, chargeFills = [], discountSplits = [], startOps = [], fixInbound = null;
   var colChanged = {};   // field -> true, so only touched columns are rewritten
 
   function useLine(L) {
@@ -548,6 +549,11 @@ function applyStatementDecisions(payload) {
       if (!curFromD && !pmD.noAccount) setCell(a.entryId, 'payment_method_id', pmD.id);
       if (!values[di][col.merchant] && stmtMerchantKey_(du.l.description)) setCell(a.entryId, 'merchant', stmtMerchantKey_(du.l.description));
       discountSplits.push({ entryId: String(a.entryId), from: recordedAmt, to: charged });
+      // A purchase INSIDE the account's starting balance (owner, 2026-11-11): the balance was typed with the old amount in it, so it moves
+      // by the same difference (else the app stays off by it, since that purchase is not counted again).
+      var ownD = (openingsByPm[pmD.id] || []).find(function (o) { return o.currency === du.l.currency; });
+      var entD = ownD ? getEntryById_(String(a.entryId)) : null;
+      if (entD && stmtInsideStart_(entD, ownD)) startOps.push({ pm: pmD, currency: du.l.currency, shift: Math.round((recordedAmt - charged) * 100) / 100, entryId: String(a.entryId) });
       report.discounts = (report.discounts || 0) + 1;
       remember(du, 'matched', a.entryId);
     } else if (a.type === 'complete_transfer') {
@@ -561,6 +567,23 @@ function applyStatementDecisions(payload) {
       // Both ends are known now, and the line is on the second statement: nothing is missing any more, so it is confirmed.
       if (String(values[j][col.status]) === 'pending') setCell(a.entryId, 'status', 'confirmed');
       remember(c, 'completed', a.entryId);
+    } else if (a.type === 'start_not_yet') {
+      // The person accepted the correction the balance check offered (StatementBalance.gs, startFix). Owner's choice (2026-11-11): the
+      // starting NUMBER changes by these entries' effect (99.95 → 16.80 for a payment of 83.15 the bank had not posted yet); the entries
+      // stay inside it. Written after the balances below, and skipped when this statement sets a newer balance for the same currency.
+      var pmN = accounts[a.stmt];
+      if (!pmN || !(openingsByPm[pmN.id] || []).some(function (o) { return o.currency === a.currency; })) throw new Error(tr_('sa.unknownBalance'));
+      if (!fixInbound) fixInbound = buildInboundTransferIds_();
+      var ownN = (openingsByPm[pmN.id] || []).find(function (o) { return o.currency === a.currency; });
+      var fixShift = 0;
+      (a.ids || []).forEach(function (id) {
+        var fe = getEntryById_(String(id));   // as it is in the Sheet: an amount this save changes is not written yet
+        if (!fe || fe.status !== 'confirmed' || (fe.currency || homeCurrency_()) !== a.currency) return;
+        var eff = signedEffectOnPaymentMethod_(fe, pmN.id, fixInbound);
+        // inside the balance but not posted yet: the number takes it; counted after but already posted: the number gives it back
+        fixShift += stmtInsideStart_(fe, ownN) ? eff : -eff;
+      });
+      startOps.push({ pm: pmN, currency: a.currency, shift: Math.round(fixShift * 100) / 100 });
     } else if (a.type === 'set_balance') {
       var sb = stmts[a.stmt];
       var pmB = accounts[a.stmt];
@@ -570,13 +593,14 @@ function applyStatementDecisions(payload) {
       if (!bal || bal.closing === null || bal.closing === undefined) throw new Error(tr_('sa.noClosing', { cur: a.currency }));
       if (!sb.period || !sb.period.end) throw new Error(tr_('sa.noEnd'));
       var ownRow = (openingsByPm[pmB.id] || []).find(function (o) { return o.currency === a.currency; });
-      if (ownRow && !(sb.period.end > ownRow.date)) throw new Error(tr_('sa.balanceNotOlder', { date: ownRow.date }));
+      if (ownRow && sb.period.end < ownRow.date) throw new Error(tr_('sa.balanceNotOlder', { date: ownRow.date }));   // the same day may replace it (owner, 2026-11-11)
       balanceOps.push({ pm: pmB, currency: a.currency, amount: Math.round(Number(bal.closing) * 100) / 100, date: sb.period.end });
       var gapAmt = Math.round(Number(a.gap) * 100) / 100;
       if (a.gap !== undefined && a.gap !== null && a.gap !== '' && isFinite(gapAmt) && gapAmt !== 0) {
         var appBal = Number(a.app_balance);
         gapOps.push({ pm: pmB, accountKey: covKey_(sb.key), currency: a.currency, period_end: sb.period.end,
-          closing: Math.round(Number(bal.closing) * 100) / 100, app_balance: isFinite(appBal) ? Math.round(appBal * 100) / 100 : '', gap: gapAmt });
+          closing: Math.round(Number(bal.closing) * 100) / 100, app_balance: isFinite(appBal) ? Math.round(appBal * 100) / 100 : '', gap: gapAmt,
+          likely: String(a.likely || '').slice(0, 300) });
       }
     } else if (a.type === 'ignore' || a.type === 'wait') {
       var g = line(a); useLine(g);
@@ -600,6 +624,7 @@ function applyStatementDecisions(payload) {
     uploadOps.push({ s: s, si: si, existing: existing || null, acctKey: acctKey, isImport: isImport });
   });
   report.statementsRecorded = uploadOps.length;
+  report.startFixes = startOps.filter(function (o) { return !balanceOps.some(function (b) { return b.pm.id === o.pm.id && b.currency === o.currency; }); }).length;
   report.balancesSet = balanceOps.map(function (b) { return { account: b.pm.nickname, currency: b.currency, amount: b.amount, date: b.date }; });
   report.gapsRecorded = gapOps.map(function (g) { return { account: g.pm.nickname, currency: g.currency, gap: g.gap, date: g.period_end }; });
   report.linesRemembered = outcomes.length;
@@ -742,6 +767,37 @@ function applyStatementDecisions(payload) {
       old_value: '', new_value: '', created_at: now });
   });
 
+  // Starting-balance corrections (owner, 2026-11-11): "Not yet" marks and amount shifts, each cell recorded so Undo puts it back. A
+  // currency whose balance this statement replaced is left alone (the newer balance prevails).
+  var startByRow = {};
+  startOps.forEach(function (o) {
+    var k = o.pm.id + '|' + o.currency;
+    var g = startByRow[k] || (startByRow[k] = { pm: o.pm, currency: o.currency, ids: [], shift: 0 });
+    (o.ids || []).forEach(function (id) { if (g.ids.indexOf(id) === -1) g.ids.push(id); });
+  });
+  // Every shift adds up: a correction moves the number by the entries' recorded effect, a bank amount by its difference (Elena's case,
+  // 2026-11-11: −100 − 50 + 5 = −145, the statement's figure).
+  startOps.forEach(function (o) { if (o.shift) startByRow[o.pm.id + '|' + o.currency].shift += o.shift; });
+  Object.keys(startByRow).forEach(function (k) {
+    var o = startByRow[k];
+    if (balanceOps.some(function (b) { return b.pm.id === o.pm.id && b.currency === o.currency; })) return;
+    var row = getAllRows('Account Opening Balances').find(function (r) { return r.payment_method_id === o.pm.id && String(r.currency).toUpperCase() === o.currency; });
+    if (!row) return;
+    var fields = {};
+    if (o.ids.length) {
+      var list = notYetList_(row.not_yet);
+      o.ids.forEach(function (id) { if (list.indexOf(id) === -1) list.push(id); });
+      fields.not_yet = list.join(',');
+    }
+    if (Math.abs(o.shift) > 0.004) fields.amount = Math.round((Number(row.amount) + o.shift) * 100) / 100;
+    Object.keys(fields).forEach(function (f) {
+      if (String(row[f] === undefined ? '' : row[f]) === String(fields[f])) return;
+      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Account Opening Balances', row_id: row.id, field: f,
+        old_value: String(row[f] === undefined ? '' : row[f]), new_value: String(fields[f]), created_at: now });
+      updateRowFields_('Account Opening Balances', row.id, (function () { var x = {}; x[f] = fields[f]; return x; })());
+    });
+  });
+
   // Gap notes (see Statement Gaps, above).
   if (gapOps.length) {
     ensureStatementGapsSheet_();
@@ -749,7 +805,7 @@ function applyStatementDecisions(payload) {
       var gid = Utilities.getUuid();
       appendRowObject('Statement Gaps', { id: gid, payment_method_id: g.pm.id, account_key: g.accountKey, account_label: g.pm.nickname,
         currency: g.currency, period_end: g.period_end, closing: g.closing, app_balance: g.app_balance, gap: g.gap,
-        status: 'open', note: '', batch_id: batchId, created_at: now, resolved_at: '' });
+        status: 'open', note: '', batch_id: batchId, created_at: now, resolved_at: '', likely: g.likely || '' });
       changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Statement Gaps', row_id: gid, field: '__created__',
         old_value: '', new_value: '', created_at: now });
     });
@@ -869,6 +925,15 @@ function undoStatementBatch(payload) {
     if (row && String(row.status) === String(c.new_value)) updateRowFields_('Statement Inbox', c.row_id, { status: c.old_value || 'new' });
   });
 
+  // Starting-balance corrections: back to what they were, newest first (only where nothing changed them since).
+  changes.filter(function (c) { return c.sheet === 'Account Opening Balances' && (c.field === 'amount' || c.field === 'not_yet'); }).reverse().forEach(function (c) {
+    var row = getAllRows('Account Opening Balances').find(function (r) { return r.id === c.row_id; });
+    if (!row || String(row[c.field] === undefined ? '' : row[c.field]) !== String(c.new_value)) return;
+    var x = {}; x[c.field] = c.field === 'amount' ? Number(c.old_value) : c.old_value;
+    updateRowFields_('Account Opening Balances', c.row_id, x);
+    res.startFixesUndone = (res.startFixesUndone || 0) + 1;
+  });
+
   // Account Opening Balances: remove the rows this batch created, bring back the ones it replaced.
   var createdBalanceIds = {};
   changes.filter(function (c) { return c.sheet === 'Account Opening Balances' && c.field === '__created__'; }).forEach(function (c) { createdBalanceIds[c.row_id] = true; });
@@ -881,7 +946,7 @@ function undoStatementBatch(payload) {
         return o.payment_method_id === r.payment_method_id && String(o.currency).toUpperCase() === String(r.currency).toUpperCase() && String(o.date).substring(0, 10) === String(r.date).substring(0, 10);
       });
       if (there) return;
-      addOpeningRow_(r.payment_method_id, String(r.currency).toUpperCase(), Number(r.amount), String(r.date), String(r.as_of || ''));
+      addOpeningRow_(r.payment_method_id, String(r.currency).toUpperCase(), Number(r.amount), String(r.date), String(r.as_of || ''), String(r.not_yet || ''));
       res.balancesRestored = (res.balancesRestored || 0) + 1;
     } catch (e) { /* unreadable — leave */ }
   });
@@ -937,7 +1002,7 @@ function listStatementGaps() {
     return { id: r.id, payment_method_id: r.payment_method_id, account_key: r.account_key, account_label: r.account_label,
       currency: r.currency, period_end: String(r.period_end), closing: Number(r.closing),
       app_balance: r.app_balance === '' ? null : Number(r.app_balance), gap: Number(r.gap),
-      status: r.status === 'resolved' ? 'resolved' : 'open', note: String(r.note || ''),
+      status: r.status === 'resolved' ? 'resolved' : 'open', note: String(r.note || ''), likely: String(r.likely || ''),
       created_at: String(r.created_at), resolved_at: String(r.resolved_at || '') };
   });
   rows.sort(function (x, y) {
