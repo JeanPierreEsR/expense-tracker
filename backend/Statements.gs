@@ -553,6 +553,13 @@ function analyzeStatements(payload) {
         lines: out[idx].lines, openings: openingsByPm[pm.id] || [], confirmed: confirmedAll, inboundIds: inboundIds, entryById: allById });
       chk.stmt = idx;
       chk.verified = s.verified !== false;
+      // A "charged differently" option on a purchase inside this account's starting balance (owner, 2026-11-11): picking it also moves
+      // that balance, so the screen can count it at once.
+      out[idx].lines.forEach(function (l) {
+        if (l.currency !== cur || !l.discount) return;
+        var own = (openingsByPm[pm.id] || []).find(function (o) { return o.currency === cur; });
+        (l.discount.options || []).forEach(function (o) { var e = allById[o.id]; if (own && e && stmtInsideStart_(e, own)) o.insideStart = true; });
+      });
       if (!chk.verified) chk.canSet = false;
       balanceChecks.push(chk);
     });

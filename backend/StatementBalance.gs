@@ -136,6 +136,28 @@ function stmtBalanceCheck_(args) {
     out.unexplained = Math.round((out.diff - missing - pending - discounted - other - noAcct) * 100) / 100;
     // A card posts what was bought in the last days before the closing on the NEXT statement (owner, 2026-11-10): those purchases are
     // named apart ("probably on the next statement") and no longer count as unexplained.
+    // The starting balance itself, checked by this statement (owner's plan, 2026-11-11, step 3).
+    if (own && own.date) {
+      // (a) A purchase INSIDE the starting balance that the card charged differently, its line dated on/before that balance: taking the
+      // bank's amount also moves the starting balance by the difference (StatementApply.gs, use_bank_amount), so it is explained.
+      var shift = 0, shiftN = 0;
+      (args.lines || []).forEach(function (l) {
+        if (l.currency !== cur || l.date > after || !(l.discount && l.discount.clear && l.discount.entryId)) return;
+        var se = args.entryById[l.discount.entryId];
+        if (!se || se.status !== 'confirmed' || !stmtInsideStart_(se, own)) return;
+        shift += Number(l.amount) + Number(se.amount); shiftN++;
+      });
+      if (shiftN) {
+        out.startShift = { net: Math.round(shift * 100) / 100, lines: shiftN };
+        out.unexplained = Math.round((out.unexplained - shift) * 100) / 100;
+      }
+      // (b) What is left equals, to the cent, recent entries the starting balance took as already in the bank: probably still in process
+      // when the balance was typed. Offered as a correction (count them after it, "Not yet"); never applied without the person.
+      if (out.unexplained) {
+        var fix = stmtStartFix_(args, own, out.unexplained);
+        if (fix) out.startFix = fix;
+      }
+    }
     var appOnly = stmtAppOnlyEntries_(args, governing, after);
     if (pm.type === 'credit' && appOnly.all.length) {
       var endDay = stmtDayNumber_(args.end), late = 0, lateItems = [];
@@ -186,4 +208,46 @@ function stmtAppOnlyEntries_(args, governing, after) {
   });
   items.sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
   return { all: items };
+}
+
+
+// An entry the starting balance takes as already inside it (dated on/before its day, recorded before it, not marked "Not yet").
+function stmtInsideStart_(e, own) {
+  var d = String(e.date || '').slice(0, 10);
+  return !!(own && own.date && d && d <= own.date && !entryCountsAfterOpening_(e, own));
+}
+
+// The smallest set (1 to 3) of entries of the starting balance's last days (START_NOT_YET_DAYS_) that it took as inside, whose effect
+// on the account adds up EXACTLY to the unexplained amount. Only when exactly one set of that size fits; otherwise nothing (a guess
+// between two answers is not offered). Counting them after the balance moves the app by their effect, which closes the gap.
+var STMT_START_FIX_MAX_ = 14;
+function stmtStartFix_(args, own, unexplained) {
+  var pm = args.pm, cur = args.currency, from = startNotYetFrom_(own.date), target = Math.round(unexplained * 100);
+  var cands = [];
+  (args.confirmed || []).forEach(function (e) {
+    if ((e.currency || homeCurrency_()) !== cur) return;
+    var d = String(e.date || '').slice(0, 10);
+    if (d < from || d > own.date || !stmtInsideStart_(e, own)) return;
+    var eff = signedEffectOnPaymentMethod_(e, pm.id, args.inboundIds);
+    if (!eff) return;
+    cands.push({ id: e.id, date: d, description: String(e.description || ''), type: e.type, amount: Math.round(eff * 100) / 100, cents: Math.round(eff * 100) });
+  });
+  cands.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+  cands = cands.slice(0, STMT_START_FIX_MAX_);
+  var n = cands.length;
+  for (var size = 1; size <= 3; size++) {
+    var found = [];
+    var walk = function (start, picked, sum) {
+      if (found.length > 1) return;
+      if (picked.length === size) { if (sum === target) found.push(picked.slice()); return; }
+      for (var i = start; i < n; i++) { picked.push(i); walk(i + 1, picked, sum + cands[i].cents); picked.pop(); }
+    };
+    walk(0, [], 0);
+    if (found.length === 1) {
+      return { date: own.date, amount: own.amount, items: found[0].map(function (i) {
+        var c = cands[i]; return { id: c.id, date: c.date, description: c.description, type: c.type, amount: c.amount }; }) };
+    }
+    if (found.length > 1) return null;
+  }
+  return null;
 }
