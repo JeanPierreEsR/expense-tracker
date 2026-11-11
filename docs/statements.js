@@ -1513,13 +1513,56 @@
   // A balance check recounted with the person's choices (owner, 2026-11-11): the server counts every statement line not in the app as
   // explained ("from N lines not in the app"), on the idea that it gets added. A line the person leaves out (or that only waits) is not
   // added, so its amount moves to "unexplained" — on screen at once, and in the difference note a set balance saves.
-  function liveCheck(c, covered) {
+  function liveCheck(c0, covered) {
+    const c = livePicks_(c0);
     const items = (c.direction === "forward" && c.notInApp && c.notInApp.items) || [];
     const out = items.filter((it) => !covered[lineKey({ stmt: c.stmt, line: it.line })]);
     if (!out.length) return c;
     const sum = out.reduce((t, it) => t + it.amount, 0);
     return { ...c, notInApp: { ...c.notInApp, net: Math.round((c.notInApp.net - sum) * 100) / 100, lines: c.notInApp.lines - out.length },
       leftOut: { net: Math.round(sum * 100) / 100, lines: out.length }, unexplained: Math.round((c.unexplained + sum) * 100) / 100 };
+  }
+  // Pairs the person PICKED on screen (a suggestion, or a pair that was not ticked by itself), owner 2026-11-11: the server counted their
+  // line as "not in the app" (it could not know the choice). On a pick it is recounted as what it really is — the purchase is already in
+  // the app, so the line is "charged less / more than recorded" (only the difference counts) or "charged in another currency".
+  const r2_ = (n) => Math.round(n * 100) / 100;
+  function livePicks_(c) {
+    if (c.direction !== "forward" || !historyPlan || !historyPlan.summary) return c;
+    const s = historyPlan.summary, round = r2_;
+    let notIn = c.notInApp ? { ...c.notInApp, items: (c.notInApp.items || []).slice() } : null;
+    let disc = { ...(c.discounted || { net: 0, lines: 0 }) }, other = { ...(c.otherCurrency || { net: 0, lines: 0 }) }, unexplained = c.unexplained, changed = false;
+    const takeLine = (d) => {   // this check's "not in the app" line for d, removed from that count; null when it is not there
+      if (!notIn || d.stmt !== c.stmt || d.currency !== c.currency) return null;
+      const at = notIn.items.findIndex((it) => it.line === d.line);
+      if (at < 0) return null;
+      const it = notIn.items.splice(at, 1)[0];
+      notIn = { ...notIn, net: round(notIn.net - it.amount), lines: notIn.lines - 1 };
+      return it;
+    };
+    (s.discounts || []).forEach((d, k) => {
+      const pick = d.clear ? "" : discountOf(k);
+      if (!pick || pick === "add") return;
+      const o = (d.options || []).find((x) => x.id === pick);
+      if (!o || !takeLine(d)) return;
+      // the line minus the purchase already counted: only the discount (or the tip) is new
+      disc = { net: round(disc.net + d.amount + Number(o.amount)), lines: disc.lines + 1 };
+      unexplained = round(unexplained - Number(o.amount));
+      changed = true;
+    });
+    (s.recharges || []).forEach((d, k) => {
+      const pick = d.clear ? "" : rechargeOf(k);
+      if (!pick || pick === "add") return;
+      const o = (d.options || []).find((x) => x.id === pick);
+      if (!o) return;
+      if (takeLine(d)) { other = { net: round(other.net + d.amount), lines: other.lines + 1 }; changed = true; }   // the charge, in the line's currency
+      else if (o.currency === c.currency && usable[c.stmt] && usable[d.stmt] && c.stmt === d.stmt) {
+        // the purchase's own currency on the same card: it leaves this currency once it takes the charge
+        other = { net: round(other.net + Number(o.amount)), lines: other.lines + 1 };
+        unexplained = round(unexplained - Number(o.amount));
+        changed = true;
+      }
+    });
+    return changed ? { ...c, notInApp: notIn, discounted: disc, otherCurrency: other, unexplained } : c;
   }
   // Lines an action adds to the app (an entry, a transfer, an exchange, a Needs review item); "ignore" and "wait" add nothing.
   function coveredLines(actions) {

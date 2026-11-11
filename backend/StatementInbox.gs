@@ -258,16 +258,37 @@ function stmtLastProcessedFor_(accounts, uploads) {
   return last;
 }
 
+/**
+ * "Probably already read" (owner, 2026-11-11): only when EVERY account this e-mail could be about already has a saved statement whose
+ * period ends in the STMT_INBOX_CYCLE_DAYS_ before the e-mail arrived (the statement it carries). It used to be by BANK: one saved
+ * Interbank statement hid the other three Interbank statements of the month (soles, dollars, salary account, card) as "read".
+ * An e-mail with no matching account at all is never assumed read.
+ */
+var STMT_INBOX_CYCLE_DAYS_ = 40;
+function stmtInboxProbablyRead_(received, accounts, uploads) {
+  if (!accounts.length) return false;
+  var day = String(received).slice(0, 10);
+  var from = covAddDays_(day, -STMT_INBOX_CYCLE_DAYS_);
+  return accounts.every(function (pm) {
+    var key = covKey_(pm.last_4);
+    return uploads.some(function (u) {
+      var end = String(u.period_end || '').slice(0, 10);
+      return covKey_(u.account_key) === key && end && end <= day && end >= from;
+    });
+  });
+}
+
 function listStatementInbox() {
   ensureStatementInboxSheet_();
   ensureStatementUploadsSheet_();
   var rows = getAllRows('Statement Inbox').filter(function (r) { return r.status === 'new' || r.status === 'processed'; });
   var pms = getAllRows('Payment Methods'), banksById = rowsById_(getAllRows('Banks')), uploads = getAllRows('Statement Uploads').filter(function (u) { return u.source !== 'import'; });
   var items = rows.map(function (r) {
-    var last = stmtLastProcessedFor_(stmtInboxAccounts_(r, pms, banksById), uploads);
+    var accts = stmtInboxAccounts_(r, pms, banksById);
+    var last = stmtLastProcessedFor_(accts, uploads);
     var link = stmtIsLinkItem_(r);
     return { id: r.id, bank: r.bank_label, received: String(r.received), file_name: link ? '' : r.attachment_name, size_kb: link ? null : Number(r.size_kb), link: link,
-      status: r.status, sender: r.sender_key === 'self' ? '' : String(r.sender_key), last_processed: last, probably_processed: r.status === 'new' && !!last && String(r.received) <= last };
+      status: r.status, sender: r.sender_key === 'self' ? '' : String(r.sender_key), last_processed: last, probably_processed: r.status === 'new' && stmtInboxProbablyRead_(r.received, accts, uploads) };
   });
   items.sort(function (a, b) { return (a.status === b.status ? 0 : (a.status === 'new' ? -1 : 1)) || (a.received < b.received ? 1 : -1); });
   return { items: items.filter(function (i) { return i.status === 'new'; }).concat(items.filter(function (i) { return i.status === 'processed'; }).slice(0, 8)) };
