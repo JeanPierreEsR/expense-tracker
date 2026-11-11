@@ -26,8 +26,14 @@ var STMT_COMMON_WORDS_ = { pago: 1, pagos: 1, compra: 1, compras: 1, consumo: 1,
   srl: 1, cia: 1, compania: 1, company: 1, tienda: 1, tiendas: 1, store: 1, shop: 1, online: 1, app: 1, web: 1, www: 1, com: 1,
   ibk: 1, bcp: 1, sip: 1, plin: 1, yape: 1, transf: 1, transferencia: 1, the: 1, and: 1, del: 1, los: 1, las: 1, por: 1, con: 1,
   san: 1, santa: 1, miraflores: 1, isidro: 1, surco: 1, borja: 1, mall: 1, plaza: 1, centro: 1, food: 1, drive: 1 };
+// One company under several names (owner, 2026-11-11: an "iCloud" purchase in the app is "Apple" on the card): each name also counts
+// as the company's, so the two still share a word. Only for pairing a charge with a purchase; never shown.
+var STMT_SAME_COMPANY_ = { icloud: 'apple', itunes: 'apple', appstore: 'apple', youtube: 'google', gmail: 'google' };
 function stmtDistinctWords_(text) {
-  return stmtWords_(text).filter(function (w) { return !STMT_COMMON_WORDS_[w] && !/^\d+$/.test(w); });
+  var words = stmtWords_(String(text || '').replace(/app\s+store/gi, 'appstore'))
+    .filter(function (w) { return !STMT_COMMON_WORDS_[w] && !/^\d+$/.test(w); });
+  words.slice().forEach(function (w) { var c = STMT_SAME_COMPANY_[w]; if (c && words.indexOf(c) === -1) words.push(c); });
+  return words;
 }
 
 function stmtDayNumber_(iso) {

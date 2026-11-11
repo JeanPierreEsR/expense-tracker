@@ -109,3 +109,15 @@ test("A in the balance check: both halves of a charge in another currency are na
   assert.deepEqual(usd.otherCurrency, { net: -6.27, lines: 1 });
   assert.equal(usd.unexplained, 0);
 });
+
+test("A: one company under several names: an iCloud or App Store purchase pairs with the card's Apple charge (owner, 2026-11-11)", () => {
+  const { rt, add, stmt } = setup();
+  const ic = add("2019-03-21", 12.90, "iCloud");
+  const as = add("2019-03-24", 25.30, "App Store");
+  const p = plan(rt, [stmt([
+    { date: "2019-03-21", description: "Apple", amount: -3.87, currency: "USD" },
+    { date: "2019-03-24", description: "APPLE.COM/BILL", amount: -7.44, currency: "USD" }
+  ])]);
+  assert.equal(p.summary.recharges.length, 2);
+  assert.deepEqual(p.summary.recharges.map((r) => r.entryId || (r.options && r.options[0] && r.options[0].entryId)).sort(), [ic, as].sort());
+});

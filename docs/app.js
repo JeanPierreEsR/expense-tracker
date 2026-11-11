@@ -2032,10 +2032,13 @@ function updateRepaymentUi_() {
   if (!available) kindSelect.value = "between";
   syncExchangeKindOption_(kindSelect);
   syncUnloanKindOption_(kindSelect);
+  syncExchangeLegKindOptions_(kindSelect);
   const kind = transferKind_();
   syncExchangeInline_();
-  document.getElementById("repayment-detail").hidden = kind === "between" || kind === "exchange" || kind === "unloan";
-  if (kind === "between" || kind === "exchange" || kind === "unloan") return;
+  applyExchangeLegLayout_(kind);
+  const plain = kind === "between" || kind === "exchange" || kind === "unloan" || kind === "xleg" || kind === "unexchange";
+  document.getElementById("repayment-detail").hidden = plain;
+  if (plain) return;
 
   const isLoan = kind === "loan";
   const iPaid = repaymentDirectionChoice === "i_owe_them";
@@ -3234,7 +3237,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const description = document.getElementById("description").value.trim();
     const paidByRaw = document.getElementById("paid_by").value;
     const paidBy = paidByRaw === "__add_payor__" || paidByRaw === "__add__" ? "" : paidByRaw;
-    const paymentMethodId = document.getElementById("payment_method").value;
+    let paymentMethodId = document.getElementById("payment_method").value;
     // Same condition togglePaymentMethodVisibility() uses to show the
     // field — income always carries a payment method (which account
     // received it), an expense/investment/transfer only when the owner
@@ -3242,7 +3245,11 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const usesPaymentMethod = isRepayment || (selectedType === "income" && !incomeWaitingOn_() && editingIncomeWaiting_ !== "paid") || (selectedType !== "income" && paidBy === "me");
     // Transfers only; always sent (even blank) so switching an entry away
     // from transfer, or clearing the destination, actually clears it.
-    const toPaymentMethodId = selectedType === "transfer" || selectedType === "investment" ? document.getElementById("to_payment_method").value : "";
+    let toPaymentMethodId = selectedType === "transfer" || selectedType === "investment" ? document.getElementById("to_payment_method").value : "";
+    // One side of a currency exchange: kept as an exchange it keeps only its own account; made "my own transfer" it needs both.
+    const legKind = selectedType === "transfer" && editingExchangeLeg_ ? transferKind_() : "";
+    if (legKind === "xleg") { if (editingExchangeLeg_ === "in") paymentMethodId = ""; else toPaymentMethodId = ""; }
+    if (legKind === "unexchange" && (!paymentMethodId || !toPaymentMethodId)) throw new Error(tr("xleg.pickBoth"));
     if (selectedType === "transfer" && toPaymentMethodId && toPaymentMethodId === paymentMethodId) {
       throw new Error(tr("error.sameAccount"));
     }
@@ -3583,7 +3590,15 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       if (editingRepaymentExtra_ && editingRepaymentExtra_.currency && currency !== editingRepaymentExtra_.currency) {
         throw new Error(tr("repay.extraCurrency"));
       }
-      if (selectedType !== editingEntryOriginalType) {
+      if (legKind === "unexchange") {
+        // No longer an exchange: the other side stays as it is; the person may change it too, right after this one is saved.
+        exchangePartnerToOpen_ = null;
+        const check = await callApi("checkEntryTypeChange", { id: editingEntryId, type: selectedType, unexchange: true });
+        if (check.exchangePartner) {
+          const p = check.exchangePartner;
+          if (await askConfirmApp_(tr("xleg.askPartner", { amount: formatAmount(p.amount, p.currency), date: listDate_(p.date) }), tr("confirmBtn.yes"), { plain: true })) exchangePartnerToOpen_ = p;
+        }
+      } else if (selectedType !== editingEntryOriginalType) {
         const check = await callApi("checkEntryTypeChange", { id: editingEntryId, type: selectedType });
         if (check.blocked) throw new Error(check.blocked);
         // One side of a currency exchange is a separate entry: only this one changes. If the app can tell where the other
@@ -3620,7 +3635,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         trip_id: tripId,
         ...charge.fields,
         ...businessLink,
-        ...waitingFields
+        ...waitingFields,
+        // "Not an exchange": the marker goes, and a description that still starts with "Currency exchange" would make it one again.
+        ...(legKind === "unexchange" ? { exchange: "", description: description.replace(/^(Currency exchange|Cambio de moneda)/i, tr("xleg.transferWord")) } : {})
       }, id);
       // null (not an expense, never was) means "don't touch splits" — see
       // queueEntryEdit_. Sent as [] rather than null whenever the entry
@@ -7230,6 +7247,56 @@ function syncUnloanKindOption_(kindSelect) {
   } else if (!want && has) {
     if (kindSelect.value === "unloan") kindSelect.value = "between";
     unloanKindOption_.remove();
+  }
+}
+
+// Editing ONE side of a currency exchange (owner, 2026-11-11): "Type of transfer" reads "Currency exchange" (the side keeps its one
+// account: "Arrived in" or "Left from") or "Not an exchange: my own transfer" (it becomes a plain transfer between two accounts).
+// "Between my accounts" is taken out meanwhile: it used to show here and read as if the exchange were a move between accounts.
+let exchangeLegKindOptions_ = null, betweenKindOption_ = null;
+function syncExchangeLegKindOptions_(kindSelect) {
+  const want = !!editingExchangeLeg_;
+  if (!exchangeLegKindOptions_) {
+    exchangeLegKindOptions_ = [["xleg", "transfer.kind.exchange"], ["unexchange", "transfer.kind.unexchange"]].map(([value, key]) => {
+      const o = document.createElement("option");
+      o.value = value;
+      o.setAttribute("data-i18n", key);
+      o.textContent = tr(key);
+      return o;
+    });
+  }
+  if (!betweenKindOption_) betweenKindOption_ = kindSelect.querySelector('option[value="between"]');
+  const has = !!kindSelect.querySelector('option[value="xleg"]');
+  if (want && !has) {
+    exchangeLegKindOptions_.forEach((o) => { o.textContent = tr(o.getAttribute("data-i18n")); });   // made once, maybe before a language change
+    exchangeLegKindOptions_.slice().reverse().forEach((o) => kindSelect.prepend(o));
+    betweenKindOption_.remove();
+    kindSelect.value = "xleg";
+  } else if (!want && has) {
+    const was = kindSelect.value;
+    exchangeLegKindOptions_.forEach((o) => o.remove());
+    betweenKindOption_.textContent = tr("transfer.kind.between");
+    kindSelect.prepend(betweenKindOption_);
+    if (was === "xleg" || was === "unexchange" || !kindSelect.value) kindSelect.value = "between";
+  } else if (want && !kindSelect.value) {
+    kindSelect.value = "xleg";
+  }
+}
+// Only the side's own account while it stays an exchange; both accounts once it is "my own transfer".
+function applyExchangeLegLayout_(kind) {
+  const hint = document.getElementById("exchange-leg-hint");
+  const on = !!editingExchangeLeg_ && selectedType === "transfer" && (kind === "xleg" || kind === "unexchange");
+  hint.hidden = !on;
+  if (!on) return;
+  const arrived = editingExchangeLeg_ === "in";
+  document.getElementById("to-payment-method-hint").hidden = true;   // "Optional…" is about a plain transfer's To: not this side's account, nor a required one
+  if (kind === "xleg") {
+    hint.textContent = tr(arrived ? "xleg.hintIn" : "xleg.hintOut");
+    document.getElementById(arrived ? "payment-method-field" : "to-payment-method-field").hidden = true;
+    if (arrived) document.getElementById("to-payment-method-label").textContent = tr("xleg.arrivedIn");
+    else document.getElementById("payment-method-label").textContent = tr("xleg.leftFrom");
+  } else {
+    hint.textContent = tr("xleg.hintUn");
   }
 }
 

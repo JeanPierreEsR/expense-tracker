@@ -1483,6 +1483,27 @@
     return checks.map((c) => ({ ...c, newest: newest[accountKeyOf(usable[c.stmt].result) + "|" + c.currency] === c }));
   }
 
+  // A balance check recounted with the person's choices (owner, 2026-11-11): the server counts every statement line not in the app as
+  // explained ("from N lines not in the app"), on the idea that it gets added. A line the person leaves out (or that only waits) is not
+  // added, so its amount moves to "unexplained" — on screen at once, and in the difference note a set balance saves.
+  function liveCheck(c, covered) {
+    const items = (c.direction === "forward" && c.notInApp && c.notInApp.items) || [];
+    const out = items.filter((it) => !covered[lineKey({ stmt: c.stmt, line: it.line })]);
+    if (!out.length) return c;
+    const sum = out.reduce((t, it) => t + it.amount, 0);
+    return { ...c, notInApp: { ...c.notInApp, net: Math.round((c.notInApp.net - sum) * 100) / 100, lines: c.notInApp.lines - out.length },
+      leftOut: { net: Math.round(sum * 100) / 100, lines: out.length }, unexplained: Math.round((c.unexplained + sum) * 100) / 100 };
+  }
+  // Lines an action adds to the app (an entry, a transfer, an exchange, a Needs review item); "ignore" and "wait" add nothing.
+  function coveredLines(actions) {
+    const covered = {};
+    actions.forEach((a) => {
+      if (a.type === "ignore" || a.type === "wait" || a.type === "set_balance") return;
+      [a, a.out, a.in].forEach((ref) => { if (ref && ref.stmt !== undefined && ref.line !== undefined) covered[lineKey(ref)] = true; });
+    });
+    return covered;
+  }
+
   function balanceAction(c) {
     return c.direction === "forward" && typeof c.unexplained === "number"
       ? { type: "set_balance", stmt: c.stmt, currency: c.currency, gap: c.unexplained, app_balance: c.appAtEnd }
@@ -1505,7 +1526,7 @@
     return linked;
   }
 
-  function historyActions() {
+  function historyActions(withBalances = true) {
     const p = historyPlan, aside = p.summary.aside || [];
     const linked = linkedKeys();
     const taken = {}, takenOut = {}, takenInc = {};
@@ -1553,8 +1574,11 @@
       if (action && !linked[lineKey(action)]) optIns.push(action);
     });
     const exchanges = p.exchanges.map((x) => ({ type: "record_exchange", out: { stmt: x.out.stmt, line: x.out.line }, in: { stmt: x.in.stmt, line: x.in.line } }));
-    const balances = settableChecks().filter(({ i }) => p.bal.has(i)).map(({ c }) => balanceAction(c));   // after the entries, as the apply expects
-    return kept.concat(chargeActions, optIns, exchanges, balances);
+    const entries = kept.concat(chargeActions, optIns, exchanges);
+    if (!withBalances) return entries;
+    const covered = coveredLines(entries);
+    const balances = settableChecks().filter(({ i }) => p.bal.has(i)).map(({ c }) => balanceAction(liveCheck(c, covered)));   // after the entries, as the apply expects
+    return entries.concat(balances);
   }
   function chargeOf(k) {
     const c = historyPlan.summary.charges[k];
@@ -1899,7 +1923,8 @@
   }
 
   // One row per statement and currency: the closing balance, what the app showed that day, the difference and what it is made of.
-  function balanceRowHtml(c, i) {
+  function balanceRowHtml(c0, i, covered) {
+    const c = liveCheck(c0, covered);
     const lines = [`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balClosing", { date: fmtDate(c.end, true) }))}</span><span>${escapeHtml(fmtMoney(c.currency, c.closing))}</span></div>`];
     let verdict = "";
     if (c.direction === "untracked") {
@@ -1916,9 +1941,10 @@
         if (c.discounted && c.discounted.lines) parts.push(tr("stmt.balDiscounted", { amount: signed(c.currency, c.discounted.net), n: c.discounted.lines }));
         if (c.otherCurrency && c.otherCurrency.lines) parts.push(tr("stmt.balOtherCurrency", { amount: signed(c.currency, c.otherCurrency.net), n: c.otherCurrency.lines }));
         if (c.late && c.late.lines) parts.push(tr("stmt.balLate", { amount: signed(c.currency, c.late.net), n: c.late.lines }));
+        const leftOut = c.leftOut ? ` ${tr("stmt.balLeftOut", { amount: signed(c.currency, c.leftOut.net), n: c.leftOut.lines })}` : "";
         verdict = c.unexplained === 0
           ? `<p class="stmt-note ok">${escapeHtml(tr("stmt.balExplained", { parts: parts.join(tr("common.and")) }))}</p>`
-          : `<p class="stmt-note warn">${parts.length ? escapeHtml(parts.join(tr("common.and"))) + ". " : ""}<b>${escapeHtml(tr("stmt.balUnexplainedBold", { amount: signed(c.currency, c.unexplained) }))}</b>${escapeHtml(tr("stmt.balUnexplainedRest"))}</p>`;
+          : `<p class="stmt-note warn">${parts.length ? escapeHtml(parts.join(tr("common.and"))) + ". " : ""}<b>${escapeHtml(tr("stmt.balUnexplainedBold", { amount: signed(c.currency, c.unexplained) }))}</b>${escapeHtml(tr("stmt.balUnexplainedRest") + leftOut)}</p>`;
       } else if (c.direction === "backward") {
         verdict = `<p class="stmt-note info">${escapeHtml(tr("stmt.balBackward", { reason: c.reason, date: fmtDate(c.end) }))}</p>`;
       } else {
@@ -1940,9 +1966,10 @@
     if (!checks.length) return "";
     const can = settableChecks();
     const allOn = can.length > 0 && can.every(({ i }) => p.bal.has(i));
+    const covered = coveredLines(historyActions(false));
     const all = can.length > 1 ? `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-balall="1"`, allOn, tr("bal.setAll", { n: can.length }))}</div>` : "";
     return `<details class="stmt-group" id="statement-history-balances" ${p.balOpen ? "open" : ""}><summary>${escapeHtml(tr("bal.title", { n: checks.length }))}</summary>
-      <p class="hint">${escapeHtml(tr("bal.hint"))}</p>${all}${checks.map((c, i) => balanceRowHtml(c, i)).join("")}</details>`;
+      <p class="hint">${escapeHtml(tr("bal.hint"))}</p>${all}${checks.map((c, i) => balanceRowHtml(c, i, covered)).join("")}</details>`;
   }
 
   // ---- accounts the statements name that the app does not have yet (backend/StatementAccounts.gs) ----
