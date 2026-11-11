@@ -536,6 +536,7 @@
           <div id="balances-totals-lines"></div>
           <button type="button" class="balances-toggle" id="balances-toggle" aria-expanded="false"></button>
         </div>
+        <button type="button" class="balances-missing" id="balances-missing" hidden></button>
         <div id="balances-list" hidden></div>
         <p class="hint" id="balances-empty-note" hidden data-i18n="balances.empty">No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.</p>
       </div>
@@ -2154,7 +2155,7 @@
 
         <button type="button" class="add-inline" id="inproc-open-btn" data-i18n="inproc.open">🕒 Add up payments in process…</button>
         <h3 class="balance-section-title" data-i18n="balance.starting">Starting balances</h3>
-        <p class="hint" data-i18n="balance.startingHint">One per currency the account holds. Type what the account holds at that moment: for today, that is right now, at this time of day. Only entries after that moment change the balance; earlier ones are ignored.</p>
+        <p class="hint" id="balance-starting-hint" data-i18n="balance.startingHint">One per currency the account holds. Type what the account holds at that moment: for today, that is right now, at this time of day. Only entries after that moment change the balance; earlier ones are ignored.</p>
         <div id="balance-rows"></div>
         <button type="button" class="add-inline" id="balance-add-row-btn" data-i18n="balance.addCurrency">+ Add another currency</button>
 

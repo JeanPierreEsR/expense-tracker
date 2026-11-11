@@ -24604,6 +24604,10 @@ function practiceASteps_() {
         await new Promise((r) => setTimeout(r, 150));
         const b = document.querySelector("#balance-rows .balance-row-negative");
         if (b && !b.checked) { b.checked = true; b.dispatchEvent(new Event("change", { bubbles: true })); }
+        // A card has a row per currency (owner, 2026-11-11): the practice teaches the first one and puts 0 in the others itself.
+        Array.from(document.querySelectorAll("#balance-rows .balance-row-amount-input")).slice(1).forEach((x) => {
+          if (!x.value) { x.value = "0"; x.dispatchEvent(new Event("input", { bubbles: true })); }
+        });
       } },
     { key: "balsave", target: () => [document.getElementById("balance-save-btn"), document.getElementById("balance-form-error")],
       text: () => { const err = (document.getElementById("balance-form-error").textContent || "").trim(); return err ? tr("spot.a.s12err", { error: err }) : tr("spot.a.s12"); },
@@ -28548,13 +28552,19 @@ async function refreshBalancesInner_() {
   balancesCache = rows;
   list.innerHTML = "";
   emptyNote.hidden = rows.length > 0;
+  // An account moving in a currency with no starting balance of its own (owner, 2026-11-11): said above the list, which starts closed.
+  const missingN = rows.filter((r) => balanceMissingCurrencies_(r).length).length;
+  const missingNote = document.getElementById("balances-missing");
+  missingNote.hidden = !missingN;
+  missingNote.textContent = missingN ? tr("balances.missingNote", { n: missingN }) : "";
   rows.forEach((r) => {
     const row = document.createElement("div");
     row.className = "balance-row";
     const [main, ...others] = r.balances;
+    const missing = balanceMissingCurrencies_(r);
     const otherText = others.filter((b) => Math.abs(b.amount) > 0.004).map((b) => formatSignedBalance_(b.amount, b.currency) + (b.waiting ? ` (${tr("charge.waiting")})` : "")).join(" · ");
     row.innerHTML = `
-      <div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span>${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}</div>
+      <div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span>${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}</div>
       <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>
     `;
     row.addEventListener("click", () => openBalanceModal(r.id));
@@ -28595,6 +28605,7 @@ function applyBalancesExpanded_() {
   btn.setAttribute("aria-expanded", String(balancesExpanded_));
   btn.textContent = balancesExpanded_ ? tr("balances.hideAccounts") : tr("balances.showAccounts", { n: balancesRowCount_ });
 }
+document.getElementById("balances-missing").addEventListener("click", () => { if (!balancesExpanded_) { balancesExpanded_ = true; applyBalancesExpanded_(); } });
 document.getElementById("balances-toggle").addEventListener("click", () => {
   balancesExpanded_ = !balancesExpanded_;
   applyBalancesExpanded_();
@@ -28722,7 +28733,33 @@ function loadBalanceRowsFor_(pmId) {
         // moment on save — setPaymentMethodOpeningBalance) from a changed one.
         saved: { amount: o.amount, currency: o.currency, date: o.date || "", asOf: o.as_of || "" }
       }))
-    : [{ amount: "", negative: balanceNegDefault_(), currency: homeCur(), date: todayLocalISO() }];
+    : [];
+  // Every currency of the account gets its own row (owner, 2026-11-11): the ones its card/account holds and the ones it has movements in.
+  // A currency left without a starting balance was counted from 0 without anyone saying so (an Interbank card's dollars). 0 is fine.
+  const pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === pmId);
+  const need = balanceNeededCurrencies_(pm, existing);
+  const firstDate = balanceFormRows.length ? balanceFormRows[0].date : todayLocalISO();
+  need.forEach((cur) => {
+    if (balanceFormRows.some((r) => r.currency === cur)) return;
+    balanceFormRows.push({ amount: "", negative: balanceNegDefault_(), currency: cur, date: firstDate });
+  });
+  if (!balanceFormRows.length) balanceFormRows.push({ amount: "", negative: balanceNegDefault_(), currency: homeCur(), date: todayLocalISO() });
+  balanceFormRows.forEach((r) => { if (need.includes(r.currency)) r.needed = true; });
+  const hint = document.getElementById("balance-starting-hint");
+  if (hint) hint.textContent = tr(pm && pm.type === "credit" ? "balance.startingHintCard" : "balance.startingHint");
+}
+
+// The currencies an account must have a starting balance in: what the account holds (accountCurrencyList_) and what it has moved in.
+function balanceNeededCurrencies_(pm, tracked) {
+  const out = [];
+  accountCurrencyList_(pm).forEach((c) => { if (!out.includes(c)) out.push(c); });
+  ((tracked && tracked.balances) || []).forEach((b) => { if (!out.includes(b.currency)) out.push(b.currency); });
+  return out;
+}
+// The currencies a tracked account moves in with no starting balance of their own (counted from 0 on its other balance's date).
+function balanceMissingCurrencies_(r) {
+  const own = new Set((r.openings || []).map((o) => o.currency));
+  return (r.balances || []).map((b) => b.currency).filter((c) => !own.has(c));
 }
 
 // What moment a balance row stands for, in words. Mirrors the backend: a row
@@ -28753,8 +28790,9 @@ function renderBalanceRows_() {
       <div class="balance-form-row-main">
         <input type="text" inputmode="decimal" class="balance-row-amount-input" data-amount-kind="signed" placeholder="0.00" value="${escapeHtml(row.amount)}">
         <select class="balance-row-currency-select">${currencyOpts}</select>
-        ${balanceFormRows.length > 1 ? `<button type="button" class="balance-row-remove" aria-label="${escapeHtml(tr("balance.remove"))}">✕</button>` : ""}
+        ${balanceFormRows.length > 1 && !row.needed ? `<button type="button" class="balance-row-remove" aria-label="${escapeHtml(tr("balance.remove"))}">✕</button>` : ""}
       </div>
+      ${i > 0 && row.needed && !row.saved ? `<p class="hint balance-row-zero">${escapeHtml(tr("balance.zeroHint", { cur: row.currency }))}</p>` : ""}
       <label class="checkbox-row"><input type="checkbox" class="balance-row-negative"${row.negative ? " checked" : ""}><span>${tr("balance.negative")}</span></label>
       <label class="balance-row-date-label">${tr("balance.fromDate")}</label>
       <input type="date" class="balance-row-date" value="${row.date}">
