@@ -28320,7 +28320,13 @@ async function refreshBalancesInner_() {
   document.getElementById("balances-hint").textContent = tr("balances.hint", { date: I18n.fmtDateMedium(new Date()) });
   const list = document.getElementById("balances-list");
   const emptyNote = document.getElementById("balances-empty-note");
-  const rows = await callApi("listPaymentMethodBalances", {});
+  // First load: the card shows only "Loading…", like the period cards around it (loading standard); a later refresh keeps what it shows.
+  const card = document.getElementById("balances-card");
+  if (!balancesLoaded_) { card.dataset.loading = tr("common.loading"); card.classList.add("ov-loading"); }
+  let rows;
+  try { rows = await callApi("listPaymentMethodBalances", {}); }
+  finally { card.classList.remove("ov-loading"); }
+  balancesLoaded_ = true;
   balancesCache = rows;
   list.innerHTML = "";
   emptyNote.hidden = rows.length > 0;
@@ -28359,6 +28365,7 @@ async function refreshBalancesInner_() {
 }
 
 let balancesCache = [];
+let balancesLoaded_ = false;
 
 // The Balances card opens showing only the net per currency; the accounts
 // (this person's own tracked ones) appear when it is expanded.

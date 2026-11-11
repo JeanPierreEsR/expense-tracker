@@ -3351,8 +3351,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 /* Each block of figures that belongs to another period says "Loading…" in its place until its own figures arrive (owner, 2026-11-08:
    the faded old numbers with a small ring did not read as loading). The text comes from data-loading (set in app.js, both languages). */
 .overview-stale > .card.ov-period { pointer-events: none; }
-.overview-stale > .card.ov-period > *, #pace-card.ov-loading > * { display: none !important; }
-.overview-stale > .card.ov-period::before, #pace-card.ov-loading::before { content: attr(data-loading); display: block; padding: 6px 0; color: var(--muted); font-size: 0.95rem; }
+.overview-stale > .card.ov-period > *, #pace-card.ov-loading > *, #balances-card.ov-loading > * { display: none !important; }
+.overview-stale > .card.ov-period::before, #pace-card.ov-loading::before, #balances-card.ov-loading::before { content: attr(data-loading); display: block; padding: 6px 0; color: var(--muted); font-size: 0.95rem; }
 @keyframes ov-appear { from { opacity: 0; } to { opacity: 1; } }
 
 /* Overview: the period picker stays at the top while the screen scrolls. */
