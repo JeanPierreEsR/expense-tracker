@@ -1791,6 +1791,16 @@
     return c.accountName || accountKeyOf(r);
   }
 
+  // "In the app but not on this statement": each entry with its effect on the account, then what is still left unexplained.
+  function appOnlyHtml(c) {
+    const a = c.appOnly;
+    const rows = a.items.map((it) => `<div class="stmt-kv"><span>${escapeHtml(fmtDate(it.date, true))} · ${escapeHtml(it.description || tr("type." + it.type))}</span><span>${escapeHtml(signed(c.currency, it.amount))}</span></div>`).join("");
+    const more = a.n > a.items.length ? `<p class="hint">${escapeHtml(tr("stmt.balAppOnlyMore", { n: a.n - a.items.length }))}</p>` : "";
+    const left = Math.round((c.unexplained + a.net) * 100) / 100;
+    const end = Math.abs(left) < 0.005 ? tr("stmt.balAppOnlyAll", { n: a.n }) : tr("stmt.balAppOnlyLeft", { n: a.n, amount: signed(c.currency, left) });
+    return `<p class="hint"><b>${escapeHtml(tr("stmt.balAppOnlyTitle", { n: a.n }))}</b></p>${rows}${more}<p class="hint">${escapeHtml(end)} ${escapeHtml(tr("stmt.balAppOnlyHint"))}</p>`;
+  }
+
   // One row per statement and currency: the closing balance, what the app showed that day, the difference and what it is made of.
   function balanceRowHtml(c, i) {
     const lines = [`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balClosing", { date: fmtDate(c.end, true) }))}</span><span>${escapeHtml(fmtMoney(c.currency, c.closing))}</span></div>`];
@@ -1814,6 +1824,8 @@
       } else {
         verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
       }
+      // The other half of an unexplained difference: what the app counts here that no statement line explains.
+      if (c.direction === "forward" && c.unexplained && c.appOnly && c.appOnly.n) verdict += appOnlyHtml(c);
       if (c.canSet && c.newest && c.direction === "forward" && c.unexplained) verdict += `<p class="hint">${escapeHtml(tr("gaps.willNote", { amount: signed(c.currency, c.unexplained) }))}</p>`;
     }
     let choice = "";

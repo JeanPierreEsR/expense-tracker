@@ -465,6 +465,7 @@ function analyzeStatements(payload) {
         o.dayDiff = r.dayDiff;
         o.viaTotal = !!r.viaTotal;
         o.viaRepayment = !!r.viaRepayment;
+        if (r.gapEntryId) o.gapEntryId = r.gapEntryId;
         o.entryHadNoAccount = !!r.entryHadNoAccount;
         counts.matched++;
         if (r.entryHadNoAccount) counts.assignAccount++;
