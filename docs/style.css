@@ -3694,6 +3694,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .loans-ov-owed[hidden] { display: none; }
 /* Spending pace screen (owner, 2026-11-07) */
 .pace-screen { display: flex; flex-direction: column; }
+.pace-screen .currency-modal-header { justify-content: flex-start; gap: 12px; }
 .pace-screen-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .pace-screen-body label { display: block; margin-top: 14px; }
 .pace-screen-body select { width: 100%; }

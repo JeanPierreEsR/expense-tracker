@@ -7774,7 +7774,8 @@ function homePaceCard_(g) {
       <div><span style="color:var(--accent)">●</span> ${escapeHtml(tr("home.paceNow"))}<b>${escapeHtml(homeWhole_(nowTotal))}</b></div>
       <div style="text-align:right"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("home.paceThen"))}<b>${escapeHtml(homeWhole_(thenTotal))}</b></div>
     </div>`);
-  paceEl.addEventListener("click", () => openOverviewAt_("pace-card"));
+  // Straight to the Spending pace screen, with Overview (at its Spending pace card) underneath for Back (owner, 2026-11-10).
+  paceEl.addEventListener("click", () => { openOverviewAt_("pace-card"); paceFromHome_ = true; openPaceScreen_(); });
   return paceEl;
 }
 
@@ -8685,8 +8686,13 @@ function openPaceScreen_() {
   backdrop.hidden = false;
   renderPaceScreen_();
 }
-function closePaceScreen_() { document.getElementById("pace-screen-backdrop").hidden = true; }
-document.getElementById("pace-screen-close").addEventListener("click", closePaceScreen_);
+let paceFromHome_ = false;   // opened from Home: Back returns to Overview's Spending pace card, wherever the page moved while it was open
+function closePaceScreen_() {
+  document.getElementById("pace-screen-backdrop").hidden = true;
+  if (paceFromHome_) { paceFromHome_ = false; holdOverviewAt_("pace-card"); }
+}
+// A full screen, not a sheet (owner, 2026-11-10): a Back arrow at the top left instead of the ✕; Back leaves the person on Overview.
+document.getElementById("pace-screen-back").addEventListener("click", closePaceScreen_);
 
 async function renderPaceScreen_() {
   const seq = ++paceScreenSeq_;
@@ -8794,6 +8800,9 @@ document.getElementById("pace-s-reset").addEventListener("click", () => {
 // cards above it finish loading (they change height and would push it away) until the person touches the screen.
 function openOverviewAt_(cardId) {
   showScreen("overview");
+  holdOverviewAt_(cardId);
+}
+function holdOverviewAt_(cardId) {
   if (Spotlight.isRunning()) return;
   const el = document.getElementById(cardId);
   const picker = document.getElementById("period-selector-card");
