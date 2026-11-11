@@ -2244,7 +2244,7 @@ function checkEntryTypeChange(payload) {
   var ids = entryTypeChangeRepaidLoanIds_(payload.id, payload.type);
   return {
     blocked: blocked,
-    exchangePartner: !blocked && payload.type !== (entry && entry.type) ? exchangeLegPartner_(entry) : null,
+    exchangePartner: !blocked && (payload.unexchange || payload.type !== (entry && entry.type)) ? exchangeLegPartner_(entry) : null,   // unexchange: a side made "my own transfer" (owner, 2026-11-11)
     needsRelease: ids.length > 0,
     repaid: ids.length ? entryRepaidLoansSummary_(payload.id) : []
   };

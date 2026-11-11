@@ -1518,6 +1518,7 @@ function listPendingEntries() {
 function updateEntryFields(entryId, fields) {
   fields = businessFieldsForUpdate_(entryId, fields);   // Business pack link cleaned (Business.gs); untouched when it is not involved
   if (fields && fields.to_payment_method_id !== undefined) ensureEntriesToPaymentMethodColumn_();
+  if (fields && fields.exchange !== undefined) ensureEntriesExchangeColumn_();   // "Not an exchange" clears it (a statement-made side may predate the column)
   if (fields && (fields.paid_amount !== undefined || fields.charge_pending !== undefined)) ensureEntriesChargeColumns_();
   if (fields && fields.trip_id !== undefined) {
     fields = Object.assign({}, fields, { trip_id: validTripIdOrBlank_(fields.trip_id) });
