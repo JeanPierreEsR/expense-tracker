@@ -2902,6 +2902,24 @@ function linkAllEarlierGapEntries_() {
   Object.keys(friendIds).forEach(function (id) { getFriendRepaymentHistory({ friendId: id }); });
 }
 
+// Takes back every link between a repayment and an extra entry in ANOTHER currency (the late linking above once missed the
+// currency check; testers, 2026-11-10). Only the link goes; no entry, amount or loan changes. Returns how many rows it cleared.
+function unlinkCrossCurrencyGapEntries_() {
+  ensureSettlementsGapColumn_();
+  var loanCur = {};
+  getAllRows('Loans').forEach(function (l) { loanCur[l.id] = String(l.currency); });
+  var entryCur = {};
+  getAllRows('Entries').forEach(function (e) { entryCur[e.id] = String(e.currency); });
+  var sh = null, h = null, n = 0;
+  getAllRows('Settlements').forEach(function (st) {
+    if (!st.gap_entry_id || !entryCur[st.gap_entry_id] || !loanCur[st.loan_id] || entryCur[st.gap_entry_id] === loanCur[st.loan_id]) return;
+    if (!sh) { sh = getSheet('Settlements'); h = getHeaders(sh); }
+    setCellByRow_(sh, h, findRowIndexById(sh, h, st.id), 'gap_entry_id', '');
+    n++;
+  });
+  return n;
+}
+
 // Repayments saved before gap entries were linked: when a repayment line has no linked entry and exactly ONE income/expense
 // entry fits (the "paid more than owed" wording for that person, same date and account) and nothing else claims it, it is linked.
 // Anything ambiguous is left alone.
@@ -2924,11 +2942,12 @@ function linkEarlierGapEntries_(lines, loans) {
     var wording = [tr_(key, { name: friend.name }, 'en'), tr_(key, { name: friend.name }, 'es')];
     var fits = entries.filter(function (e) {
       return e.type === type && !claimed[e.id] && wording.indexOf(String(e.description)) !== -1 &&
-        String(e.date).slice(0, 10) === String(line.date).slice(0, 10) && (e.payment_method_id || '') === (line.payment_method_id || '');
+        String(e.date).slice(0, 10) === String(line.date).slice(0, 10) && (e.payment_method_id || '') === (line.payment_method_id || '') &&
+        String(e.currency) === String(line.currency);   // never an extra in another currency (testers, 2026-11-10)
     });
     var rivals = candidates.filter(function (o) {
       return o !== line && o.direction === line.direction && String(o.date).slice(0, 10) === String(line.date).slice(0, 10) &&
-        (o.payment_method_id || '') === (line.payment_method_id || '');
+        (o.payment_method_id || '') === (line.payment_method_id || '') && String(o.currency) === String(line.currency);
     });
     if (fits.length !== 1 || rivals.length) return;
     ensureSettlementsGapColumn_();

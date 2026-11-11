@@ -112,6 +112,6 @@ test("a server that still reads dates the OLD way (in the script's zone) shows t
 test("heals are listed once each, in order, with ids that are never reused", () => {
   const rt = freshApp({ small: true }).rt;
   const ids = JSON.parse(rt.run("JSON.stringify(HEALS_.map(function (h) { return h.id; }))"));
-  assert.deepEqual(ids, ["sheet-time-zone", "paused-programmed-to-ended", "cash-name-language", "mailbox-address-to-line", "payors-into-friends", "link-old-repayment-extras"]);
+  assert.deepEqual(ids, ["sheet-time-zone", "paused-programmed-to-ended", "cash-name-language", "mailbox-address-to-line", "payors-into-friends", "link-old-repayment-extras", "unlink-cross-currency-extras"]);
   assert.equal(new Set(ids).size, ids.length);
 });
