@@ -2039,7 +2039,9 @@
     const status = $("statement-review-status");
     const hc = historyCounts(), adding = hc.entries, updating = hc.charges + hc.discounts + hc.recharges;
     // Purchases already in the app that take the card's figure are a change too: never say "nothing is added" about them alone.
-    const askText = adding ? tr("hist.confirm", { n: adding }) : updating ? tr("hist.confirmUpdate", { n: updating }) : tr("hist.confirmKeep");
+    // Both when a statement adds AND corrects purchases already in the app (Carlos, 2026-11-10: only the added ones were named).
+    const askText = adding ? tr("hist.confirm", { n: adding }) + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
+      : updating ? tr("hist.confirmUpdate", { n: updating }) : tr("hist.confirmKeep");
     if (!practiceNoConfirm_(practiceIOwns_(usable.map((u) => u.group || u.file))) && !await askConfirmApp_(askText + "\n\n" + tr("stmt.confirmUndoable"), tr("confirmBtn.yes"), { plain: true })) return;   // (the practice's own file asks nothing while the walkthrough runs)
     btn.insertAdjacentHTML("afterend", loadingHtml(tr("hist.saving")));   // right where the person tapped, not in a box further down
     btn.hidden = true;
