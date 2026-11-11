@@ -8969,7 +8969,6 @@ function paintOverviewSummary_(data) {
   // Money went out but nothing came in: say so, or a big negative What's left reads as bad news (Marta, 2026-11-07).
   document.getElementById("overview-noincome-note").hidden = !(data.totals.income < 0.004 && (data.totals.expense > 0.004 || data.totals.investment > 0.004));
   renderYearCompare_();
-  renderIncomeVaries_(data.incomeVaries);
 
   renderBreakdowns(data.breakdowns[overviewType]);
   if (periodType === "month") { if (monthsHist_) renderPaceBig_(); }   // the blue line is the month in view
@@ -9017,69 +9016,6 @@ async function refreshOverviewInner_() {
   paintOverviewSummary_(data);
   loadOverviewEntries_(bounds).then(() => { if (token === overviewReqToken_) preloadOverviewNeighbour_(); });
 }
-
-// Income that varies (owner, 2026-11-07; IncomeVaries.gs): one card under the summary, for anyone with an income category that
-// varies — the split with regular pay, the average per day (Week and Month), the last 3 / 6 complete months (Month; a tap switches,
-// remembered on this phone) and who paid. Hidden when the period has none of it and there is no average to show.
-function renderIncomeVaries_(v) {
-  // Owner's redesign (2026-11-08): what came in (so far) and from how many payments; in Month view, what a usual month brings (the
-  // last 3 or 6 complete months, tap to switch) and a bar of this month against it; who paid. No per-day average.
-  const card = document.getElementById("overview-varies-card");
-  const months = v && v.months ? v.months : [];
-  // The "usual" figure: Month view, the months before (3 or 6); Week view, the weeks before (4 or 8); Year view, the year's own
-  // complete months (no bar: a year against one month says nothing). Custom / All time: none.
-  const usualSet = periodType === "month" ? { list: months, n: [3, 6], key: "variesAvgN", text: "varies.usual", bar: "varies.ofUsual" }
-    : periodType === "week" ? { list: (v && v.weeks) || [], n: [4, 8], key: "variesWeekN", text: "varies.usualWeek", bar: "varies.ofUsualWeek" }
-    : periodType === "year" ? { list: (v && v.yearMonths) || [], n: null, text: "varies.usualYear", bar: null } : null;
-  const withAvg = !!(usualSet && usualSet.list.length > 0 && usualSet.list.some((m) => m.amount > 0.004));
-  card.hidden = !v || (!(v.varies > 0.004) && !withAvg);
-  if (card.hidden) return;
-  const b = getPeriodBounds(), t = todayLocalISO();
-  const running = !!(b.startDate && b.endDate && t >= b.startDate && t <= b.endDate);
-  const nowKey = { week: "pace.nowWeek", month: "home.paceNow", year: "pace.nowYear" }[periodType] || "pace.nowRange";
-  const payments = (v.byPayer || []).reduce((n, p) => n + p.count, 0);
-  document.getElementById("ov-varies-got").textContent = tr("varies.got", { label: running ? tr(nowKey) : b.label, amount: formatPen(v.varies), n: payments });
-  const split = document.getElementById("ov-varies-split");
-  split.hidden = !(v.regular > 0.004 && v.varies > 0.004);
-  if (!split.hidden) split.textContent = tr("varies.split", { regular: formatPen(v.regular), varies: formatPen(v.varies) });
-  const avg = document.getElementById("ov-varies-avg");
-  const barWrap = document.getElementById("ov-varies-bar-wrap");
-  avg.hidden = !withAvg;
-  barWrap.hidden = true;
-  if (withAvg) {
-    const list = usualSet.list;
-    const [few, many] = usualSet.n || [list.length, list.length];
-    const want = usualSet.n && localStorage.getItem(usualSet.key) === String(many) ? many : few;
-    const used = list.slice(0, want), amounts = used.map((m) => m.amount);
-    const usual = amounts.reduce((a, x) => a + x, 0) / used.length;
-    avg.textContent = tr(usualSet.text, { year: periodAnchor.getFullYear(), n: used.length, amount: formatPen(usual), low: formatPen(Math.min(...amounts)), high: formatPen(Math.max(...amounts)) });
-    const canSwitch = !!usualSet.n && list.length > few;
-    if (canSwitch) { const sw = document.createElement("span"); sw.className = "ov-varies-switch"; sw.textContent = tr(periodType === "week" ? "varies.avgSwitchWeeks" : "varies.avgSwitch", { n: want === few ? many : few }); avg.appendChild(sw); }
-    avg.disabled = !canSwitch;
-    if (usualSet.bar && usual > 0.004) {
-      const pct = Math.round(v.varies / usual * 100);
-      barWrap.hidden = false;
-      document.getElementById("ov-varies-bar-fill").style.width = `${Math.min(100, pct)}%`;
-      document.getElementById("ov-varies-bar-text").textContent = tr(usualSet.bar, { pct });
-    }
-  }
-  const wrap = document.getElementById("ov-varies-payers-wrap");
-  const list = document.getElementById("ov-varies-payers");
-  wrap.hidden = !(v.byPayer && v.byPayer.length && v.varies > 0.004);
-  list.innerHTML = "";
-  if (!wrap.hidden) v.byPayer.slice(0, 5).forEach((p) => {
-    const row = document.createElement("div");
-    row.className = "ov-varies-payer";
-    row.innerHTML = `<span class="ov-varies-payer-name">${escapeHtml(p.name || tr("varies.noPayer"))}</span><span class="income">${escapeHtml(formatPen(p.amount))}</span>`;
-    list.appendChild(row);
-  });
-}
-document.getElementById("ov-varies-avg").addEventListener("click", () => {
-  if (periodType === "week") localStorage.setItem("variesWeekN", localStorage.getItem("variesWeekN") === "8" ? "4" : "8");
-  else localStorage.setItem("variesAvgN", localStorage.getItem("variesAvgN") === "6" ? "3" : "6");
-  const d = overviewCache_[overviewKey_(getPeriodBounds())];
-  if (d) renderIncomeVaries_(d.incomeVaries);
-});
 
 // Speed (owner, 2026-11-07): once the shown month or year has fully loaded (figures AND entry list), the one before it is fetched in the
 // background (figures only, ONE call, never at the same time as the period being shown), so tapping ‹ shows it at once; it is then

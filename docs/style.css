@@ -3726,19 +3726,6 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #screen-projections .period-type-chip[data-period-type="week"],
 #screen-projections .period-type-chip[data-period-type="alltime"],
 #screen-projections .period-type-chip[data-period-type="custom"] { display: none; }
-/* Income that varies (owner, 2026-11-07) */
-#overview-varies-card h3 { font-size: 0.9rem; margin: 14px 0 4px; }
-.ov-varies-line { margin: 6px 0 0; font-size: 0.95rem; }
-.ov-varies-avg { display: block; width: 100%; min-height: 44px; margin: 8px 0 0; padding: 8px 0; border: none; border-top: 1px solid var(--border);
-  background: none; font: inherit; font-size: 0.9rem; color: inherit; text-align: left; cursor: pointer; }
-.ov-varies-avg:disabled { cursor: default; }
-.ov-varies-bar-wrap { margin: 4px 0 6px; }
-.ov-varies-bar { height: 8px; border-radius: 4px; background: #e9e9ee; overflow: hidden; margin-bottom: 4px; }
-.ov-varies-bar span { display: block; height: 100%; background: var(--income); border-radius: 4px; }
-.ov-varies-switch { display: block; color: var(--accent); font-size: 0.8rem; margin-top: 2px; }
-.ov-varies-payer { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
-.ov-varies-payer:last-child { border-bottom: none; }
-.ov-varies-payer-name { min-width: 0; overflow-wrap: anywhere; }
 .pay-kinds { margin-top: 4px; }
 
 /* More → Currencies: one row per currency, its history opens in place (owner, 2026-11-07). */
