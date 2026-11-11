@@ -66,6 +66,9 @@ function stmtBalanceCheck_(args) {
     out.direction = 'forward';
     out.canSet = true;
     out.reason = tr_('sb.noCurrency', { cur: cur });
+    // The app counts this currency from 0 on the date of the account's other starting balance. Said on the screen when something is left
+    // unexplained (owner, 2026-11-11: an Interbank card had no USD starting balance, and its USD gap was exactly the missing balance).
+    out.noAnchor = { date: governing.date || '' };
   } else if (args.end > own.date) {
     out.direction = 'forward';
     out.canSet = true;

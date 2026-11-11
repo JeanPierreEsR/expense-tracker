@@ -1953,6 +1953,10 @@
       // The other half of an unexplained difference: what the app counts here that no statement line explains.
       if (c.direction === "forward" && c.late && c.late.lines) verdict += lateHtml(c);
       if (c.direction === "forward" && c.unexplained && c.appOnly && c.appOnly.n) verdict += appOnlyHtml(c);
+      // No starting balance in this currency: the app counted it from 0, which is the likeliest cause of what is left unexplained.
+      if (c.direction === "forward" && c.unexplained && c.noAnchor) verdict += `<p class="stmt-note warn">${escapeHtml(c.noAnchor.date
+        ? tr("stmt.balNoAnchor", { cur: c.currency, date: fmtDate(c.noAnchor.date, true), account: acctOfCheck(c) })
+        : tr("stmt.balNoAnchorNoDate", { cur: c.currency, account: acctOfCheck(c) }))}</p>`;
       if (c.canSet && c.newest && c.direction === "forward" && c.unexplained) verdict += `<p class="hint">${escapeHtml(tr("gaps.willNote", { amount: signed(c.currency, c.unexplained) }))}</p>`;
     }
     let choice = "";
