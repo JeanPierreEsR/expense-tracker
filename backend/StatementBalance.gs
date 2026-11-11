@@ -74,9 +74,13 @@ function stmtBalanceCheck_(args) {
     out.canSet = true;
     out.reason = tr_('sb.newer', { date: own.date });
   } else if (args.end === own.date) {
-    out.direction = 'same-date';
-    out.canSet = false;
-    out.reason = tr_('sb.sameDay', { date: own.date });
+    // The statement closes on the starting balance's own day (owner, 2026-11-11: it used to check nothing and could not replace it).
+    // It is checked like a later one (the app's figure is the typed balance plus that day's entries counted after it) and may replace
+    // the typed balance: a statement is exact. The phone asks first (sameDay).
+    out.direction = 'forward';
+    out.sameDay = true;
+    out.canSet = true;
+    out.reason = tr_('sb.newer', { date: own.date });
   } else {
     out.direction = 'backward';
     out.canSet = false;

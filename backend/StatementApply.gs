@@ -593,7 +593,7 @@ function applyStatementDecisions(payload) {
       if (!bal || bal.closing === null || bal.closing === undefined) throw new Error(tr_('sa.noClosing', { cur: a.currency }));
       if (!sb.period || !sb.period.end) throw new Error(tr_('sa.noEnd'));
       var ownRow = (openingsByPm[pmB.id] || []).find(function (o) { return o.currency === a.currency; });
-      if (ownRow && !(sb.period.end > ownRow.date)) throw new Error(tr_('sa.balanceNotOlder', { date: ownRow.date }));
+      if (ownRow && sb.period.end < ownRow.date) throw new Error(tr_('sa.balanceNotOlder', { date: ownRow.date }));   // the same day may replace it (owner, 2026-11-11)
       balanceOps.push({ pm: pmB, currency: a.currency, amount: Math.round(Number(bal.closing) * 100) / 100, date: sb.period.end });
       var gapAmt = Math.round(Number(a.gap) * 100) / 100;
       if (a.gap !== undefined && a.gap !== null && a.gap !== '' && isFinite(gapAmt) && gapAmt !== 0) {

@@ -2089,13 +2089,16 @@
       <div class="stmt-choices" style="padding-left:0"><button type="button" class="add-inline" data-startfix="${i}">${escapeHtml(tr("stmt.startFix.review"))}</button></div>`;
   }
 
+  // A server reason carries ISO dates ("2026-11-11"); the screen shows them the way every other date is shown (Mark, 2026-11-11).
+  function isoDatesReadable_(text) { return String(text || "").replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (d) => fmtDate(d, true)); }
+
   // One row per statement and currency: the closing balance, what the app showed that day, the difference and what it is made of.
   function balanceRowHtml(c0, i, covered) {
     const c = liveCheck(c0, covered);
     const lines = [`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balClosing", { date: fmtDate(c.end, true) }))}</span><span>${escapeHtml(fmtMoney(c.currency, c.closing))}</span></div>`];
     let verdict = "";
     if (c.direction === "untracked") {
-      verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
+      verdict = `<p class="stmt-note info">${escapeHtml(isoDatesReadable_(c.reason))}</p>`;
     } else {
       lines.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balInApp"))}</span><span>${escapeHtml(fmtMoney(c.currency, c.appAtEnd))}</span></div>`);
       lines.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balDiff"))}</span><span>${escapeHtml(signed(c.currency, c.diff))}</span></div>`);
@@ -2116,10 +2119,12 @@
           ? `<p class="stmt-note ok">${escapeHtml(tr("stmt.balExplained", { parts: parts.join(tr("common.and")) }))}</p>`
           : `<p class="stmt-note warn">${parts.length ? escapeHtml(parts.join(tr("common.and"))) + ". " : ""}<b>${escapeHtml(tr("stmt.balUnexplainedBold", { amount: signed(c.currency, c.unexplained) }))}</b>${escapeHtml(tr("stmt.balUnexplainedRest") + leftOut)}</p>`;
       } else if (c.direction === "backward") {
-        verdict = `<p class="stmt-note info">${escapeHtml(tr("stmt.balBackward", { reason: c.reason, date: fmtDate(c.end) }))}</p>`;
+        verdict = `<p class="stmt-note info">${escapeHtml(tr("stmt.balBackward", { reason: isoDatesReadable_(c.reason), date: fmtDate(c.end) }))}</p>`;
       } else {
-        verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
+        verdict = `<p class="stmt-note info">${escapeHtml(isoDatesReadable_(c.reason))}</p>`;
       }
+      // Same day as the starting balance: said, since setting the balance here replaces the number the person typed.
+      if (c.sameDay) verdict = `<p class="hint">${escapeHtml(tr("stmt.balSameDay", { date: fmtDate(c.end, true) }))}</p>` + verdict;
       // The other half of an unexplained difference: what the app counts here that no statement line explains.
       if (c.direction === "forward" && c.late && c.late.lines) verdict += lateHtml(c);
       if (c.direction === "forward" && c.unexplained && c.appOnly && c.appOnly.n) verdict += appOnlyHtml(c);
@@ -2607,12 +2612,22 @@
       return;
     }
     if (bal) {
-      const i = Number(bal.dataset.bal);
+      const i = Number(bal.dataset.bal), c = historyPlan.checks[i];
+      if (!historyPlan.bal.has(i) && c && c.sameDay) {
+        (async () => {   // replacing the number the person typed for that same day: asked first
+          if (!await askConfirmApp_(tr("stmt.balSameDayAsk", { date: fmtDate(c.end, true), amount: fmtMoney(c.currency, c.closing) }), tr("stmt.balSameDayOk"), { plain: true })) return;
+          if (!historyPlan || historyPlan.checks[i] !== c) return;
+          historyPlan.bal.add(i);
+          historyPlan.balOpen = true;
+          renderHistoryPlan();
+        })();
+        return;
+      }
       if (historyPlan.bal.has(i)) historyPlan.bal.delete(i); else historyPlan.bal.add(i);
       historyPlan.balOpen = true;
     } else if (balAll) {
       const can = settableChecks(), allOn = can.every(({ i }) => historyPlan.bal.has(i));
-      can.forEach(({ i }) => { if (allOn) historyPlan.bal.delete(i); else historyPlan.bal.add(i); });
+      can.forEach(({ i, c }) => { if (allOn) historyPlan.bal.delete(i); else if (!c.sameDay) historyPlan.bal.add(i); });   // a same-day one asks on its own button
       historyPlan.balOpen = true;
     } else if (one) {
       const i = Number(one.dataset.aside), mode = one.dataset.mode;

@@ -181,3 +181,22 @@ test("both directions at once: one taken inside but not posted, one counted afte
   assert.equal(opening(rt, card.id).amount, -90);
   assert.equal(rt.api("listPaymentMethodBalances", {}).find((b) => b.id === card.id).balances[0].amount, -120);
 });
+
+// ---- a statement closing on the starting balance's own day (owner, 2026-11-11) ----
+test("same day: the statement checks the balance (correction offered) and may replace it", () => {
+  const { rt, card, add, stmt } = setup();
+  const t = add("2019-03-30", 42.50, "Tienda Dos");
+  rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: "2019-03-31" }] });
+  const s = stmt(-142.50, [{ date: "2019-03-30", description: "TIENDA DOS", amount: -42.50, currency: "PEN" }]);   // closes 2019-03-31
+  const p = plan(rt, [s]);
+  const c = p.balance_checks[0];
+  assert.equal(c.sameDay, true);
+  assert.equal(c.direction, "forward");
+  assert.equal(c.canSet, true);
+  assert.equal(c.unexplained, -42.5);
+  assert.deepEqual(c.startFix.items.map((i) => i.id), [t]);
+  // replacing the typed balance with the statement's closing is allowed on the same day
+  save(rt, [s], p.actions.concat([{ type: "set_balance", stmt: 0, currency: "PEN", gap: 0, app_balance: c.appAtEnd }]));
+  assert.equal(opening(rt, card.id).amount, -142.5);
+  assert.equal(opening(rt, card.id).date, "2019-03-31");
+});
