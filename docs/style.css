@@ -703,11 +703,18 @@ input[type="date"] {
 .loan-detail-row-desc {
   font-size: 0.9rem;
   color: var(--text);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
+/* The amount never breaks onto two lines ("+USD" / "0.34"): a long
+   description wraps instead (owner, 2026-11-10). */
 .loan-detail-row-amount {
   font-weight: 600;
   font-size: 0.9rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: 12px;
 }
 
 .loan-detail-row-amount.owed-to-me { color: var(--income); }
