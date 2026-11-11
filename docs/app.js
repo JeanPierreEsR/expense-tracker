@@ -9051,7 +9051,7 @@ function renderIncomeVaries_(v) {
   if (!wrap.hidden) v.byPayer.slice(0, 5).forEach((p) => {
     const row = document.createElement("div");
     row.className = "ov-varies-payer";
-    row.innerHTML = `<span class="ov-varies-payer-name">${escapeHtml(p.name || tr("varies.noPayer"))}<span class="hint"> · ${escapeHtml(tr("varies.times", { n: p.count }))}</span></span><span class="income">${escapeHtml(formatPen(p.amount))}</span>`;
+    row.innerHTML = `<span class="ov-varies-payer-name">${escapeHtml(p.name || tr("varies.noPayer"))}</span><span class="income">${escapeHtml(formatPen(p.amount))}</span>`;
     list.appendChild(row);
   });
 }
@@ -9161,55 +9161,19 @@ if (typeof ResizeObserver !== "undefined") {
   if (sumGrid) new ResizeObserver(() => fitOverviewSummary_()).observe(sumGrid);
 }
 
-// Loans card: FLOWS of debts with friends and banks in the selected period, per person and per currency, never converted and
-// never part of income/expenses/net. The headline is the net in the owner's pocket (borrowed and repaid-to-you in, lent and
-// repaid-by-you out); under it each kind that happened. Tap a person to open their loans.
-const LOAN_OV_KINDS_ = [["borrowed", 1], ["lent", -1], ["paidBack", -1], ["receivedBack", 1]];
-function loansOvLineHtml_(l) {
-  const parts = LOAN_OV_KINDS_.filter(([k]) => l[k]).map(([k, sign]) => `${tr("loans.ov." + k)} ${signedMoney_(sign * l[k], l.currency)}`);
-  return `<div class="loans-ov-line">
-    <div class="loans-ov-parts">${escapeHtml(parts.join(" · "))}</div>
-    <div class="loans-ov-net ${l.net > 0 ? "pos-green" : ""}">${signedMoney_(l.net, l.currency)}</div>
-  </div>`;
-}
-let loansOvPeopleOpen_ = false;
+// Loans card (owner, 2026-11-10): only what is tied up in loans today — one row for what I'm owed (green, "+": money coming to me),
+// one for what I owe — each currency on its own line. The period's flows and the people list went away (they live on the Loans tab).
 function renderLoansPeriod_(loans, owed) {
-  const list = document.getElementById("loans-ov-list");
   const owedBtn = document.getElementById("loans-ov-owed");
   const hasOwed = !!(owed && (owed.toMe.length || owed.iOwe.length));
-  document.getElementById("loans-ov-card").hidden = loans.people.length === 0 && !hasOwed;
-  // What is tied up in loans today (not this period's flows), at the top of the card: one row for what I'm owed, one for what I owe,
-  // each currency on its own line (owner, 2026-11-08).
+  document.getElementById("loans-ov-card").hidden = !hasOwed;
   owedBtn.hidden = !hasOwed;
-  if (hasOwed) {
-    const amounts = (arr) => (arr.length ? arr : [{ amount: 0, currency: homeCur() }]).map((x) => `<span>${escapeHtml(formatAmount(x.amount, x.currency))}</span>`).join("");
-    owedBtn.innerHTML = `<div class="loans-ov-owed-row"><span>${escapeHtml(tr("loans.ov.owedToMe"))}</span><b>${amounts(owed.toMe)}</b></div>` +
-      `<div class="loans-ov-owed-row"><span>${escapeHtml(tr("loans.ov.iOwe"))}</span><b>${amounts(owed.iOwe)}</b></div>`;
-  }
-  list.innerHTML = "";
-  // Shorter page: with several people the card starts on its total line; "Show the n people" opens the list (owner, 2026-11-07).
-  const peopleBtn = document.getElementById("loans-ov-people-btn");
-  const fold = loans.people.length > 1;
-  peopleBtn.hidden = !fold;
-  if (fold) peopleBtn.textContent = loansOvPeopleOpen_ ? tr("loans.ov.hidePeople") : tr("loans.ov.showPeople", { n: loans.people.length });
-  (fold && !loansOvPeopleOpen_ ? [] : loans.people).forEach((p) => {
-    const row = document.createElement("div");
-    row.className = "loans-ov-row";
-    row.innerHTML = `<div class="balance-row-name">${escapeHtml(p.name)}<span class="loan-detail-row-chevron">›</span></div>${p.lines.map(loansOvLineHtml_).join("")}`;
-    row.addEventListener("click", () => openLoanDetail(p.id, p.name));
-    list.appendChild(row);
-  });
-  if (loans.people.length > 1) {
-    const total = document.createElement("div");
-    total.className = "loans-ov-row loans-ov-total";
-    total.innerHTML = `<div class="balance-row-name"><strong>${escapeHtml(tr("loans.ov.total"))}</strong></div>${loans.totals.map(loansOvLineHtml_).join("")}`;
-    if (loansOvPeopleOpen_) list.appendChild(total); else list.prepend(total);
-  }
+  if (!hasOwed) return;
+  const amounts = (arr, plus) => (arr.length ? arr : [{ amount: 0, currency: homeCur() }])
+    .map((x) => `<span>${formatAmount(x.amount, x.currency, plus && x.amount > 0.004 ? "+" : "")}</span>`).join("");
+  owedBtn.innerHTML = `<div class="loans-ov-owed-row"><span>${escapeHtml(tr("loans.ov.owedToMe"))}</span><b class="${owed.toMe.length ? "pos-green" : ""}">${amounts(owed.toMe, true)}</b></div>` +
+    `<div class="loans-ov-owed-row"><span>${escapeHtml(tr("loans.ov.iOwe"))}</span><b>${amounts(owed.iOwe, false)}</b></div>`;
 }
-document.getElementById("loans-ov-people-btn").addEventListener("click", () => {
-  loansOvPeopleOpen_ = !loansOvPeopleOpen_;
-  if (lastOverviewData) renderLoansPeriod_(lastOverviewData.loans || { people: [], totals: [] }, lastOverviewData.owed);
-});
 // The whole card opens the Loans tab, except its own buttons and the people's rows, which open that person (owner, 2026-11-08).
 document.getElementById("loans-ov-card").addEventListener("click", (e) => {
   if (e.target.closest("button, a, select, input, .loans-ov-row:not(.loans-ov-total)")) return;

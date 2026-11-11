@@ -3688,7 +3688,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .pace-ref-switch button.active { background: var(--accent); color: white; border-color: var(--accent); }
 #loans-ov-card { cursor: pointer; }
 .ov-card-chevron { color: var(--muted); font-weight: 400; }
-.loans-ov-owed { margin: 8px 0 4px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.loans-ov-owed { margin: 8px 0 0; }
 .loans-ov-owed-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 4px 0; }
 .loans-ov-owed-row b { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; }
 .loans-ov-owed[hidden] { display: none; }
