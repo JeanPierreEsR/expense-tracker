@@ -51,6 +51,25 @@ test("up to 15% stays pre-filled, and over 30% is not suggested at all", () => {
   assert.ok(!p.summary.discounts[0].suggested);
 });
 
+test("a charge up to 10% HIGHER is suggested (a tip, a final fare); over 10% higher is nothing; picking it saves", () => {
+  const { rt, add, stmt } = setup();
+  const tip = add("2019-03-12", 100, "parrilla don eduardo");
+  add("2019-03-22", 100, "parrilla don eduardo");
+  const s = stmt([
+    { date: "2019-03-12", description: "PARRILLA DON EDUARDO MIRA", amount: -110, currency: "PEN" },   // 10% more
+    { date: "2019-03-22", description: "PARRILLA DON EDUARDO MIRA", amount: -112, currency: "PEN" }    // 12% more: nothing
+  ]);
+  const p = plan(rt, [s]);
+  assert.equal(p.summary.discounts.length, 1);
+  const d = p.summary.discounts[0];
+  assert.equal(d.suggested, true);
+  assert.equal(d.higher, true);
+  assert.equal(d.clear, false);
+  assert.deepEqual(d.options.map((o) => o.id), [tip]);
+  save(rt, [s], [{ type: "use_bank_amount", stmt: 0, line: 0, entryId: tip }]);
+  assert.equal(Number(rt.rows("Entries").find((e) => e.id === tip).amount), 110);
+});
+
 test("a suggestion never takes a purchase another method already explained", () => {
   const { rt, add, stmt } = setup();
   const pv = add("2019-03-06", 120, "agora shop");

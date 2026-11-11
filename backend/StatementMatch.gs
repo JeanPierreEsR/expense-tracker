@@ -22,6 +22,7 @@ var STMT_TRANSFER_HINT = /TRANSF|PAGO|DINERS|I-BANC|INTERBANK|BPI|AHORRA|TARJ|CU
 var STMT_DISCOUNT_WINDOW_DAYS = 3;   // owner, 2026-11-10
 var STMT_DISCOUNT_MAX = 0.15;        // the card charged at most 15% less than recorded: pre-filled (owner, 2026-11-10)
 var STMT_DISCOUNT_SUGGEST_MAX = 0.30;   // over 15% and up to 30% less: only suggested, never ticked, after every other method (owner, 2026-11-11)
+var STMT_HIGHER_SUGGEST_MAX = 0.10;    // up to 10% MORE than recorded (a tip, a final fare, a fee): only suggested, never ticked (owner, 2026-11-11)
 // Words that say nothing about WHICH shop: never enough on their own to pair a discounted charge with a purchase.
 var STMT_COMMON_WORDS_ = { pago: 1, pagos: 1, compra: 1, compras: 1, consumo: 1, lima: 1, peru: 1, per: 1, sac: 1, saa: 1, eirl: 1,
   srl: 1, cia: 1, compania: 1, company: 1, tienda: 1, tiendas: 1, store: 1, shop: 1, online: 1, app: 1, web: 1, www: 1, com: 1,
@@ -510,17 +511,19 @@ function matchStatements_(statements, entries, opts) {
         if (e.payment_method_id && e.payment_method_id !== st.pmId) return;
         if (String(e.charge_pending || '') === '1' || stmtFromStatement_(e) || (e.paid_by && e.paid_by !== 'me')) return;
         var recorded = Number(e.amount);
-        // only the band ABOVE the pre-filled one
-        if (!(charged < recorded * (1 - STMT_DISCOUNT_MAX) - 0.004) || charged < recorded * (1 - STMT_DISCOUNT_SUGGEST_MAX) - 0.004) return;
+        // Lower: only the band ABOVE the pre-filled one (15–30%). Higher (owner, 2026-11-11: a tip, a final fare, a fee): up to 10% more.
+        var lowerBand = charged < recorded * (1 - STMT_DISCOUNT_MAX) - 0.004 && charged >= recorded * (1 - STMT_DISCOUNT_SUGGEST_MAX) - 0.004;
+        var higherBand = charged > recorded + 0.004 && charged <= recorded * (1 + STMT_HIGHER_SUGGEST_MAX) + 0.004;
+        if (!lowerBand && !higherBand) return;
         var dd = Math.abs(index.days[ei] - ld);
         if (dd > STMT_DISCOUNT_WINDOW_DAYS) return;
         var ew = stmtDistinctWords_(e.description + ' ' + (e.merchant || ''));
         if (!lw.some(function (w) { return ew.indexOf(w) !== -1; })) return;
-        list.push({ entryId: e.id, dd: dd, recorded: recorded, gap: recorded - charged });
+        list.push({ entryId: e.id, dd: dd, recorded: recorded, gap: Math.abs(recorded - charged) });
       });
       if (!list.length) return;
       list.sort(function (a, b) { return (a.dd - b.dd) || (a.gap - b.gap); });
-      perLine[st.key][li] = { status: 'discount', discount: { entryId: '', clear: false, suggested: true,
+      perLine[st.key][li] = { status: 'discount', discount: { entryId: '', clear: false, suggested: true, higher: charged > list[0].recorded,
         options: list.map(function (c) { return { entryId: c.entryId, dd: c.dd, recorded: c.recorded }; }) }, guess: 'expense' };
     });
   });

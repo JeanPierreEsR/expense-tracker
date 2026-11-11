@@ -1673,13 +1673,14 @@
           + `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-disc="${k}" data-pick="add"`, pick === "add", tr("hist.charge.add"))}</div>`;
       }
       const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
-      // Over 15% less (up to 30%): only a suggestion, never ticked (owner, 2026-11-11).
-      const pct = d.options.length ? Math.round((1 - Math.abs(d.amount) / d.options[0].amount) * 100) : 0;
-      const suggested = d.suggested ? `<p class="stmt-note warn" style="margin:6px 0 0">${escapeHtml(tr("hist.disc.suggested", { pct }))}</p>` : "";
+      // Over 15% less (up to 30%), or up to 10% more: only a suggestion, never ticked (owner, 2026-11-11).
+      const pct = d.options.length ? Math.round(Math.abs(1 - Math.abs(d.amount) / d.options[0].amount) * 100) : 0;
+      const suggested = d.suggested ? `<p class="stmt-note warn" style="margin:6px 0 0">${escapeHtml(tr(d.higher ? "hist.disc.suggestedMore" : "hist.disc.suggested", { pct }))}</p>` : "";
       return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${suggested}${body}${unpicked}`);
     }).join("");
-    return `<details class="stmt-group" id="statement-history-discounts" open><summary>${escapeHtml(tr("hist.disc.title"))} <span class="stmt-count">${list.length}</span></summary>
-      <p class="hint">${escapeHtml(tr("hist.disc.hint"))}</p>${rows}</details>`;
+    const anyHigher = list.some((d) => d.higher);
+    return `<details class="stmt-group" id="statement-history-discounts" open><summary>${escapeHtml(tr(anyHigher ? "hist.disc.titleDiffers" : "hist.disc.title"))} <span class="stmt-count">${list.length}</span></summary>
+      <p class="hint">${escapeHtml(tr(anyHigher ? "hist.disc.hintDiffers" : "hist.disc.hint"))}</p>${rows}</details>`;
   }
 
   // ---- "Completes a charge you left pending": a USD line on the card and a purchase recorded in ARS on it, 5 days apart at most ----
