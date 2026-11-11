@@ -60,3 +60,18 @@ test("a hand-typed direction is read when it clearly names one; anything else is
   assert.equal(net(mine(), "PEN"), 30);
   assert.deepEqual(list().unreadable.filter((u) => u.friend_name === "Sheet Pal").map((u) => u.amount), ["70"]);
 });
+
+test("a repayment row whose amount cannot be read is named on Home; a clear one is not (testers, 2026-11-11)", () => {
+  const { rt, friendId, add } = setup();
+  add("L1", 500);
+  const st = (id, amount) => rt.run(`appendRowObject('Settlements', ${JSON.stringify({ id, loan_id: "L1", date: "2026-10-05", amount, payment_method_id: "" })})`);
+  st("s-ok", "1,234.50");
+  st("s-bad", "1,234");
+  const u = rt.api("getHomeGlance", {}).unreadable;
+  const mine = (u ? u.rows : []).filter((r) => r.sheet === "Settlements");
+  assert.equal(mine.length, 1, JSON.stringify(u));
+  assert.equal(mine[0].value, "1,234");
+  assert.equal(mine[0].field, "amount");
+  assert.equal(mine[0].description, "Sheet Pal");
+  assert.match(mine[0].cell, /^[A-Z]+\d+$/);
+});

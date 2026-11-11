@@ -6954,7 +6954,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       const amount = parseFloat(amountStr);
 
       if (!categoryId && entry.type !== "investment") {
-        alert(tr("review.pickCategoryFirst"));
+        showFieldError_(categoryEl, tr("review.pickCategoryFirst"));
         return;
       }
       if (!amountStr || isNaN(amount) || amount <= 0) {
@@ -14424,7 +14424,7 @@ document.getElementById("tidy-list").addEventListener("click", (ev) => {
     renderTidy_();
   } else if (ev.target.closest(".tidy-apply")) {
     const categoryId = row.querySelector(".tidy-select").value;
-    if (!categoryId) { alert(tr("review.pickCategoryFirst")); return; }
+    if (!categoryId) { showFieldError_(row.querySelector(".tidy-select"), tr("review.pickCategoryFirst"), row.querySelector(".tidy-group-row")); return; }
     applyTidy_([{ key, categoryId }], [ev.target.closest(".tidy-apply")]);
   }
 });
@@ -25546,6 +25546,27 @@ function syncConversionAmount_() {
 const APP_CONFIRM_SETTLE_MS_ = 400;
 let appConfirmChain_ = Promise.resolve();
 const appConfirmOpen_ = new Set();
+// A field that must be filled before a button works: it turns red, the reason sits right under it, and the screen brings it into view
+// (owner, 2026-11-11: "Pick a category first." used to be the phone's own alert box, which did not show which field). Goes away
+// as soon as the field changes.
+// `under`: where the message goes when the field shares a row with buttons (default: right under the field).
+function showFieldError_(el, text, under) {
+  if (!el) return;
+  el.classList.add("field-invalid");
+  const anchor = under || el;
+  let msg = anchor.nextElementSibling;
+  if (!msg || !msg.classList.contains("field-error-msg")) {
+    msg = document.createElement("p");
+    msg.className = "field-error-msg";
+    msg.setAttribute("role", "alert");
+    anchor.after(msg);
+  }
+  msg.textContent = text;
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+  const clear = () => { el.classList.remove("field-invalid"); if (msg.isConnected) msg.remove(); el.removeEventListener("change", clear); };
+  el.addEventListener("change", clear);
+}
+
 // A message with one button, in the app's own window (never the phone's alert).
 function appMessage_(text) { return askConfirmApp_(text, tr("common.gotIt"), { plain: true, noCancel: true }); }
 // The same window with a text box: resolves to what was typed, or null if closed.

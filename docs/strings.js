@@ -466,8 +466,6 @@
     "home.last6": { en: "Last 6 months", es: "Últimos 6 meses" },
     "monthsHist.title": { en: "Month by month", es: "Mes a mes" },
     "monthsHist.hint": { en: "Income and expenses for every month with entries. Tap a month to see it below.", es: "Ingresos y gastos de cada mes con movimientos. Toca un mes para verlo abajo." },
-    "pace.refAtDay": { en: "{month}, same day", es: "{month}, mismo día" },
-    "pace.refWholeDone": { en: "All of {month} (finished)", es: "Todo {month} (ya terminado)" },
     "pace.refWhole": { en: "All of {month}", es: "Todo {month}" },
     "pace.refLast": { en: "Against earlier months", es: "Frente a meses anteriores" },
     "pace.refYear": { en: "Against last year", es: "Frente al año pasado" },
@@ -1310,8 +1308,8 @@
     "drill.noEntries": { en: "No entries in this period.", es: "No hay movimientos en este periodo." },
     // Overview "By account or card" drill-down: the part of an entry that counts in that slice (2026-11-10).
     "drill.part": { en: "{part} of {total} · {how}", es: "{part} de {total} · {how}" },
-    "drill.how.repaidFrom": { en: "repaid from {account}", es: "devuelto desde {account}" },
-    "drill.how.repaidNoAccount": { en: "repaid with no account", es: "devuelto sin cuenta" },
+    "drill.how.repaidFrom": { en: "repaid from {account}", es: "repagado desde {account}" },
+    "drill.how.repaidNoAccount": { en: "repaid with no account", es: "repagado sin cuenta" },
     "drill.how.receivedIn": { en: "received in {account}", es: "recibido en {account}" },
     "drill.how.receivedNoAccount": { en: "received with no account", es: "recibido sin cuenta" },
     "drill.how.offsetMeFrom": { en: "canceled out against what they owed me ({account})", es: "compensado con lo que me debían ({account})" },
@@ -1319,10 +1317,10 @@
     "drill.how.offsetThemFrom": { en: "canceled out against what I owed them ({account})", es: "compensado con lo que yo le debía ({account})" },
     "drill.how.offsetThem": { en: "canceled out against what I owed them", es: "compensado con lo que yo le debía" },
     "drill.how.covered": { en: "a friend covered it", es: "lo cubrió un amigo" },
-    "drill.how.notRepaid": { en: "not repaid yet", es: "aún no devuelto" },
+    "drill.how.notRepaid": { en: "not repaid yet", es: "aún sin repagar" },
     "drill.how.notReceived": { en: "not received yet", es: "aún no recibido" },
     "drill.how.paidWithOwed": { en: "paid with what they owed me", es: "pagado con lo que me debían" },
-    "drill.how.receivedAsOwed": { en: "received as what I owed them", es: "recibido como lo que yo le debía" },
+    "drill.how.receivedAsOwed": { en: "canceled out against what I owed them", es: "compensado con lo que yo le debía" },
 
     // ---- remind (the person's loan screen → "Remind on WhatsApp", docs/loan-reminder.js) ----
     "remind.button": { en: "💬 Remind on WhatsApp", es: "💬 Recordar por WhatsApp" },

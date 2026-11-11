@@ -137,7 +137,7 @@ test("canceled out against income they owed me: Paid with what they owed me, and
   assert.ok(Math.abs(t.slice("__owedme__") - 100) < 0.02);
   assert.equal(t.pie().find((i) => i.id === "__owedme__").name, "Paid with what they owed me");
   assert.ok(Math.abs(t.slice("__owedthem__", "income") - 100) < 0.02);
-  assert.equal(t.pie("income").find((i) => i.id === "__owedthem__").name, "Received as what I owed them");
+  assert.equal(t.pie("income").find((i) => i.id === "__owedthem__").name, "Canceled out against what I owed them");
   assert.ok(t.drill("__owedme__").some((r) => r.id === exp.id));
   assert.ok(t.drill("__owedthem__", "income").some((r) => r.id === inc.id));
   t.addsUp(); t.addsUp("income");
@@ -199,7 +199,7 @@ test("names in Spanish", () => {
   t.rt.api("setLanguage", { lang: "es" });
   t.friendPaid();
   const s = t.pie().find((i) => i.id === "__notrepaid__");
-  assert.equal(s.name, "Aún no devuelto");
+  assert.equal(s.name, "Aún sin repagar");
 });
 
 test("an older phone's 'Paid by a friend' list still lists every friend-paid expense", () => {
