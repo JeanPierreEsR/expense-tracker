@@ -117,7 +117,11 @@ test("every conversion that deletes and re-creates goes through callConversion_,
     assert.match(app, new RegExp(`callConversion_\\("${action}"`), action + " is called through callConversion_");
     assert.doesNotMatch(app, new RegExp(`callApi\\("${action}"`), action + " is never called raw");
   }
-  assert.match(app, /result = await callConversion_\(fromRepayment \? "convertRepaymentToLoan"/);
+  // Transfer-tab conversions: from the pop-up (which closes at once, "Saving…") a refusal re-opens the form with what was typed and
+  // the reason (owner, 2026-11-10), so the form is the message; anywhere else callConversion_ announces it.
+  assert.match(app, /const conversionAction = fromRepayment \? "convertRepaymentToLoan"/);
+  assert.match(app, /result = popupHiddenEarly \? await callApi\(conversionAction, conversionPayload\) : await callConversion_\(conversionAction, conversionPayload\)/);
+  assert.match(app, /if \(popupHiddenEarly && !writesDone\) document\.getElementById\("edit-entry-modal-backdrop"\)\.hidden = false;/, "a refusal brings the form back");
   assert.match(app, /async function callConversion_[\s\S]{0,200}alert\(err\.message\)/, "a failure is shown as a message, not only a red line");
 });
 

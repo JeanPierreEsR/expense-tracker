@@ -1018,6 +1018,10 @@ function syncRepaymentAfterTelegramEdit_(entryId, before) {
   var link = repaymentOfEntry_(entryId);
   var now = getEntryById_(entryId);
   if (!link || !now || !before) return '';
+  if (String(now.currency) !== String(before.currency)) {   // another currency is another debt: re-recorded in the app only
+    setEntryField_(entryId, 'currency', before.currency);
+    return tr_('bot.repaymentRefused', { reason: tr_('repay.editCurrencyRerecord') });
+  }
   if (Math.abs(Number(now.amount) - Number(before.amount)) > 0.004) {
     setEntryField_(entryId, 'amount', before.amount);
     return tr_('bot.repaymentRefused', { reason: tr_(link.kind === 'transfer' ? 'repay.editAmountInHistory' : 'repay.editExtraInHistory') });

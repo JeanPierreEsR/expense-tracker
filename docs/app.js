@@ -1933,9 +1933,12 @@ function keptDebtEdit_() {
   const o = editingDebtOriginal_;
   if (!o || !editingEntryId || selectedType !== "transfer" || transferKind_() !== o.kind) return false;
   if (document.getElementById("repayment-friend").value !== o.friendId || debtDirection_() !== o.direction) return false;
+  // Another currency is another debt (a repayment pays loans of its own currency only), so it is re-recorded, never a plain
+  // edit: a plain edit relabelled the entry while the repayment stayed on the old currency's loans (owner, 2026-11-10).
+  if (document.getElementById("currency").value.toUpperCase() !== o.currency) return false;
   if (o.kind === "loan") {
     const amount = parseFloat(document.getElementById("amount").value);
-    if (Math.abs(amount - o.amount) > 0.004 || document.getElementById("currency").value.toUpperCase() !== o.currency) return false;
+    if (Math.abs(amount - o.amount) > 0.004) return false;
   }
   return true;
 }
@@ -3391,7 +3394,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         if (rerecordRepayment) {
           // The same person and direction: only the amount / loans can differ, and that is changed in the repayment's editor
           // (where the loans and the extra are split) — go straight there, as for any amount change from Home.
-          if (friendId === editingRepayment_.friend_id && direction === editingRepayment_.direction) {
+          if (friendId === editingRepayment_.friend_id && direction === editingRepayment_.direction && currency === String(editingRepayment_.currency || "").toUpperCase()) {
             const target = editingRepayment_;   // cancelEdit() clears it, so keep what the editor needs
             if (!await askConfirmApp_(tr("repay.openHistoryAsk", { friend: target.friend }), tr("confirmBtn.yes"), { plain: true })) return;   // stays on the form, nothing changed
             cancelEdit();
@@ -3400,18 +3403,26 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           }
           if (!await askConfirmApp_(repaymentCancelText_(true), tr("confirmBtn.yes"), { plain: true })) return;
         }
-        // From the edit pop-up: it closes now while the server works, and
-        // comes back with the error shown if the conversion is refused.
+        // From the edit pop-up: it closes now while the server works ("💾 Saving…" says so, saving standard), and comes back
+        // with what was typed and the reason if the conversion is refused (owner, 2026-11-10) — the form itself is the message,
+        // so no extra alert on top of it.
         if (editingViaPopup) {
           document.getElementById("edit-entry-modal-backdrop").hidden = true;
           popupHiddenEarly = true;
+          showToast_(tr("common.savingToast"), true);
         }
-        result = await callConversion_(fromRepayment ? "convertRepaymentToLoan" : loanToRepayment ? "convertLoanToRepayment" : loanToLoan ? "convertLoanToLoan" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment", {
+        const conversionAction = fromRepayment ? "convertRepaymentToLoan" : loanToRepayment ? "convertLoanToRepayment" : loanToLoan ? "convertLoanToLoan" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment";
+        const conversionPayload = {
           ...fields,
           repayments: repaymentsChoice,
           entry_id: editingEntryId,
           ...(isLoanKind ? {} : { overpay_category_id: overpayCategoryId, overpay_pending_ok: !overpayCategoryId })
-        });
+        };
+        try {
+          result = popupHiddenEarly ? await callApi(conversionAction, conversionPayload) : await callConversion_(conversionAction, conversionPayload);
+        } finally {
+          hideToast_(tr("common.savingToast"));
+        }
         exitEditMode();
       } else if (isLoanKind) {
         result = await callApi("addLoan", fields);
@@ -3567,6 +3578,10 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // the same, but asked HERE the reason shows before the form closes.
       if (editingForgiveness_ && (Math.abs(Number(amount) - editingForgiveness_.amount) > 0.004 || currency !== editingForgiveness_.currency)) {
         throw new Error(tr("forgive.entryLocked"));
+      }
+      // A repayment's extra keeps the repayment's currency (the server refuses too): it changes with the whole repayment.
+      if (editingRepaymentExtra_ && editingRepaymentExtra_.currency && currency !== editingRepaymentExtra_.currency) {
+        throw new Error(tr("repay.extraCurrency"));
       }
       if (selectedType !== editingEntryOriginalType) {
         const check = await callApi("checkEntryTypeChange", { id: editingEntryId, type: selectedType });
@@ -3798,6 +3813,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       closeConfirmPendingPopup();
       sendPendingConfirmInBackground_(pendingId);
     } else if (editingViaPopup) {
+      // A conversion saved behind the screen: say it landed (the form's own notice went with the hidden pop-up).
+      if (popupHiddenEarly && lastFormNotice_) showToast_(lastFormNotice_, false, 6000);
       await refreshAfterPopupEdit();
     } else if (programmedInstead) {
       // Stays on the (now-cleared) form instead of jumping back to the
@@ -5353,7 +5370,7 @@ async function startEditEntry(entry) {
   else if (entry.type === "transfer" && entry.payment_method_id && !entry.to_payment_method_id) repaymentDirectionChoice = "i_owe_them";
   // The extra (income/expense) part of a repayment: its amount is also changed from the repayment's editor.
   editingRepaymentExtra_ = (entry.type === "income" || entry.type === "expense") && !!entry.link && entry.link.kind === "repaymentExtra"
-    ? { friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", transfer_entry_id: entry.link.transfer_entry_id || "", total: entry.amount } : null;
+    ? { friend: entry.link.friend || "", friend_id: entry.link.friend_id || "", transfer_entry_id: entry.link.transfer_entry_id || "", total: entry.amount, currency: String(entry.currency || "").toUpperCase() } : null;
   // A loan's own entry knows how the money moved too: a loan I gave left my account ("I paid them"), one I received arrived.
   if (editingLoanMovement_) repaymentDirectionChoice = editingLoanMovement_ === "they_owe_me" ? "i_owe_them" : "they_owe_me";
   // A repayment's own entry knows how the money moved (the debts it paid were owed TO me = it arrived).
@@ -5757,6 +5774,12 @@ async function refreshAfterPopupEdit() {
   closeEditPopup();
   if (currentDrilldown) {
     await currentDrilldown.refetch();
+  }
+  // A person's repayment history open on top of their loan screen shows the change too (a repayment re-recorded in
+  // another currency moves between its lists).
+  const h = historyCtx_;
+  if (h && !document.getElementById("history-modal-backdrop").hidden) {
+    await openRepaymentHistory_(h.friendId, h.friendName, h.projectId, document.getElementById("loan-detail-subtitle").textContent);
   }
   // The trip screen is a screen of its own, not a drill-down: refresh it too.
   if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
@@ -25686,8 +25709,10 @@ async function openRepaymentHistory_(friendId, friendName, projectId, netText) {
     const kind = r.is_offset ? tr("history.offset") : tr(r.direction === "they_owe_me" ? "history.realIn" : "history.realOut");
     const acct = !r.is_offset && r.payment_method_id ? escapeHtml(pmName(r.payment_method_id)) : "";
     // A repayment that paid several loans is ONE line; the loans it paid are listed under it.
+    // A cancel-out is ONE line for both loans (the server pairs its two halves, `paired`); it says plainly that no money moved.
     const where = r.is_offset
-      ? [tr("history.offsetAgainst", { loan: escapeHtml(r.offset_loan_description) })]
+      ? [r.paired ? tr("history.offsetPair", { a: escapeHtml(r.loan_description), b: escapeHtml(r.offset_loan_description) })
+        : tr("history.offsetAgainst", { loan: escapeHtml(r.offset_loan_description) }), tr("history.offsetNoMoney")]
       : r.parts.length > 1
         ? r.parts.map((pt) => `${escapeHtml(pt.loan_description)} (${listDate_(pt.loan_date)}): ${money(r.currency, pt.amount)}`)
         : [tr("history.on", { loan: escapeHtml(r.loan_description), date: listDate_(r.loan_date) })];

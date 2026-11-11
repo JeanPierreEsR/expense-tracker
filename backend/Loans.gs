@@ -2090,10 +2090,16 @@ function repaymentExtraEntries_(settlementRows) {
 // Before an app edit is written: the amount of a repayment's money movement is changed from the person's repayment history
 // (where the loans and the extra are split), never straight here.
 function guardRepaymentEntryEdit_(entryId, fields) {
-  if (!fields || fields.amount === undefined) return;
+  if (!fields || (fields.amount === undefined && fields.currency === undefined)) return;
   var link = repaymentOfEntry_(entryId);
   if (!link) return;
   var entry = getEntryById_(entryId);
+  // Another currency is another debt: a plain edit would relabel the entry while the repayment stays on the old currency's
+  // loans (owner, 2026-11-10). The app re-records it instead (convertRepaymentToRepayment); an older phone is refused here.
+  if (entry && fields.currency !== undefined && String(fields.currency).toUpperCase() !== String(entry.currency).toUpperCase()) {
+    throw new Error(tr_('repay.editCurrencyRerecord'));
+  }
+  if (fields.amount === undefined) return;
   if (entry && Math.abs(Number(fields.amount) - Number(entry.amount)) > 0.004) {
     throw new Error(tr_(link.kind === 'transfer' ? 'repay.editAmountInHistory' : 'repay.editExtraInHistory'));
   }
@@ -2819,8 +2825,16 @@ function getFriendRepaymentHistory(payload) {
   // are grouped by it and listed as `parts`. An automatic cancel-out, or a row from before transfer entries existed, is its own line.
   var lines = [];
   var groups = {};
+  // An automatic cancel-out is written as two halves, one on each loan, pointing at each other (same date and amount). They
+  // are ONE event, so they make ONE line (owner, 2026-11-10: every pairing showed twice). Matched one to one, like undoCancelOut.
+  var offsetHalves = {};
+  function offsetKey(loanId, otherId, s) { return loanId + '|' + otherId + '|' + String(s.date) + '|' + Number(s.amount).toFixed(2); }
   settlements.forEach(function (s) {
     var loan = loanById[s.loan_id];
+    if (s.offset_loan_id) {
+      var waiting = offsetHalves[offsetKey(s.offset_loan_id, s.loan_id, s)];
+      if (waiting && waiting.length) { waiting.shift().paired = true; return; }
+    }
     var part = { loan_id: loan.id, loan_description: label(loan), loan_date: loan.date, amount: Number(s.amount) };
     if (!s.offset_loan_id && s.transfer_entry_id && groups[s.transfer_entry_id]) {
       var g = groups[s.transfer_entry_id];
@@ -2843,6 +2857,10 @@ function getFriendRepaymentHistory(payload) {
     };
     lines.push(line);
     if (!s.offset_loan_id && s.transfer_entry_id) groups[s.transfer_entry_id] = line;
+    if (s.offset_loan_id) {
+      var k = offsetKey(s.loan_id, s.offset_loan_id, s);
+      (offsetHalves[k] = offsetHalves[k] || []).push(line);
+    }
   });
   linkEarlierGapEntries_(lines, loans);
   // The line shows the money that really arrived (the repayment's transfer entry). The part of it that no longer sits on a
