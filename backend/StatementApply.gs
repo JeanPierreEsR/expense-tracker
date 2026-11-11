@@ -281,6 +281,16 @@ function applyStatementDecisions(payload) {
   var now = nowTimestamp_();
   var today = now.substring(0, 10);
   var creations = [], changes = [], outcomes = [], usedLines = {}, chargeFills = [], discountSplits = [], startOps = [], fixInbound = null;
+  // entry id -> { period end: true } for the entries this save's lines will cover (matched, discount taken, transfer completed). A
+  // statement closing on a starting balance's own day moves the entries it covers inside that balance by itself (Balances.gs), so the
+  // starting-balance correction must not count them a second time (owner, 2026-11-11).
+  var coverBySave = {};
+  actions.forEach(function (a) {
+    if (!(a.type === 'match' || a.type === 'assign_account' || a.type === 'link' || a.type === 'use_bank_amount' || a.type === 'complete_transfer') || !a.entryId || a.stored) return;
+    var s = stmts[a.stmt];
+    var end = s && s.period ? s.period.end : '';
+    if (end) (coverBySave[String(a.entryId)] = coverBySave[String(a.entryId)] || {})[end] = true;
+  });
   var colChanged = {};   // field -> true, so only touched columns are rewritten
 
   function useLine(L) {
@@ -580,8 +590,11 @@ function applyStatementDecisions(payload) {
         var fe = getEntryById_(String(id));   // as it is in the Sheet: an amount this save changes is not written yet
         if (!fe || fe.status !== 'confirmed' || (fe.currency || homeCurrency_()) !== a.currency) return;
         var eff = signedEffectOnPaymentMethod_(fe, pmN.id, fixInbound);
+        var insideN = stmtInsideStart_(fe, ownN);
+        // counted after, but a statement of this save closing on the balance's own day covers it: the save moves it inside by itself
+        if (!insideN && coverBySave[String(id)] && coverBySave[String(id)][ownN.date]) return;
         // inside the balance but not posted yet: the number takes it; counted after but already posted: the number gives it back
-        fixShift += stmtInsideStart_(fe, ownN) ? eff : -eff;
+        fixShift += insideN ? eff : -eff;
       });
       startOps.push({ pm: pmN, currency: a.currency, shift: Math.round(fixShift * 100) / 100 });
     } else if (a.type === 'set_balance') {

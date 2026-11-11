@@ -200,3 +200,44 @@ test("same day: the statement checks the balance (correction offered) and may re
   assert.equal(opening(rt, card.id).amount, -142.5);
   assert.equal(opening(rt, card.id).date, "2019-03-31");
 });
+
+// ---- a late bank e-mail the starting balance already held (owner, 2026-11-11: the same-day statement corrected it twice) ----
+const limaDay = (k) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date(Date.now() - k * 86400000));
+function lateMailSetup(id, description) {
+  const { rt, card, stmt } = setup();
+  rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: limaDay(0) }] });   // typed with the purchase in it
+  rt.run(`appendRowObject('Entries', ${JSON.stringify({ id, type: "expense", date: limaDay(1), amount: 64.90, currency: "PEN", category_id: "",
+    description, payment_method_id: card.id, paid_by: "me", status: "confirmed", source: "email", created_at: "2099-01-01T00:00:00" })});`);
+  const bal = () => rt.api("listPaymentMethodBalances", {}).find((b) => b.id === card.id).balances[0].amount;
+  return { rt, card, stmt, bal };
+}
+
+test("same day, late bank e-mail already in the balance: the save itself puts it inside, so no correction is offered or applied", () => {
+  const { rt, card, stmt, bal } = lateMailSetup("mail-late-1", "Tienda Siete");
+  assert.equal(bal(), -164.9, "counted after the balance (option C): the double count");
+  const s = Object.assign(stmt(-100, [{ date: limaDay(1), description: "TIENDA SIETE", amount: -64.90, currency: "PEN" }]),
+    { period: { start: limaDay(10), end: limaDay(0) } });
+  const p = plan(rt, [s]);
+  const c = p.balance_checks[0];
+  assert.equal(c.sameDay, true);
+  assert.equal(c.diff, 0, "judged as it will be after the save: the statement covers it, so it is inside");
+  assert.equal(c.startFix, undefined);
+  assert.equal(bal(), -164.9, "the check itself changes nothing");
+  // an older phone that still sends the correction: the save does not count it twice
+  save(rt, [s], p.actions.concat([{ type: "start_not_yet", stmt: 0, currency: "PEN", ids: ["mail-late-1"] }]));
+  assert.equal(opening(rt, card.id).amount, -100);
+  assert.equal(bal(), -100);
+});
+
+test("a later statement, late bank e-mail already in the balance: the correction is offered and lands on the statement", () => {
+  const { rt, card, stmt, bal } = lateMailSetup("mail-late-2", "Tienda Ocho");
+  const s = Object.assign(stmt(-100, [{ date: limaDay(1), description: "TIENDA OCHO", amount: -64.90, currency: "PEN" }]),
+    { period: { start: limaDay(10), end: limaDay(-5) } });
+  const p = plan(rt, [s]);
+  const c = p.balance_checks[0];
+  assert.equal(c.unexplained, 64.9);
+  assert.deepEqual(c.startFix.items.map((i) => [i.id, i.side]), [["mail-late-2", "out"]]);
+  save(rt, [s], p.actions.concat([{ type: "start_not_yet", stmt: 0, currency: "PEN", ids: ["mail-late-2"] }]));
+  assert.equal(opening(rt, card.id).amount, -35.1);
+  assert.equal(bal(), -100);
+});
