@@ -28618,10 +28618,13 @@ function formatSignedBalance_(amount, currency) {
 
 // `pmId` set → that account's detail; null → "+ Add balance" (pick any
 // account that isn't tracked yet).
+let balanceOpenSeq_ = 0;   // which opening of the balance sheet is on screen (a late check from an older one is dropped: Nico, Tomás 2026-11-11)
 async function openBalanceModal(pmId) {
+  balanceOpenSeq_++;
   balanceModalPmId = pmId;
   balanceNyShow_(false);
   balanceNyCands_ = null;
+  balanceNyChoices_ = {};
   document.getElementById("balance-form-error").textContent = "";
   document.getElementById("balance-check-input").value = "";
   document.getElementById("balance-check-result").textContent = "";
@@ -28749,7 +28752,7 @@ function loadBalanceRowsFor_(pmId) {
   if (!balanceFormRows.length) balanceFormRows.push({ amount: "", negative: balanceNegDefault_(), currency: homeCur(), date: todayLocalISO() });
   balanceFormRows.forEach((r) => { if (need.includes(r.currency)) r.needed = true; });
   const hint = document.getElementById("balance-starting-hint");
-  if (hint) hint.textContent = tr(pm && pm.type === "credit" ? "balance.startingHintCard" : "balance.startingHint");
+  if (hint) hint.textContent = tr(pm && pm.type === "credit" ? "balance.startingHintCard" : pm && pm.type === "debit" ? "balance.startingHint" : "balance.startingHintCash");   // cash and wallets have no bank app (Carlos)
   balanceFormExtras_(pm);
 }
 
@@ -28838,6 +28841,15 @@ document.getElementById("balance-add-row-btn").addEventListener("click", () => {
   renderBalanceRows_();
 });
 
+// A row Save refused: outlined in red and brought into view, so the reason is not only at the bottom of the sheet (Mark, 2026-11-11).
+function balanceMarkBadRow_(i) {
+  const el = document.querySelectorAll("#balance-rows .balance-form-row")[i];
+  if (!el) return;
+  el.classList.add("bad");
+  // after the error line is drawn (it moves the layout), so the row really ends up in view
+  setTimeout(() => { try { el.scrollIntoView({ block: "center" }); } catch (e) { /* old browsers */ } }, 50);
+}
+
 // ---- "Already in / Not yet" (owner's plan, 2026-11-11, option B) ----
 // After Save, the sheet lists the account's entries of the last 3 days up to each balance's day that the balance would take as
 // already inside it (recorded before it). The person marks the ones still in process "Not yet": they count after the balance.
@@ -28845,9 +28857,17 @@ document.getElementById("balance-add-row-btn").addEventListener("click", () => {
 // balance's day and the day before (card purchases take 1-3 days to post); everything else "Already in".
 let balanceNyCands_ = null;   // { key, data } of the last answer
 let balanceNyState_ = null;   // { pmId, balances, cands: [{ currency, items: [{ ..., notYet }] }] }
+let balanceNyChoices_ = {};   // entry id -> notYet, what the person picked on the list while this sheet is open (kept through "Back")
+let balanceTitleWas_ = null;
 function balanceNyShow_(on) {
   document.getElementById("balance-main").hidden = on;
   document.getElementById("balance-notyet").hidden = !on;
+  const title = document.getElementById("balance-modal-title");
+  if (on) {   // the step names the account it is about (Tomás, Inés)
+    if (balanceTitleWas_ === null) balanceTitleWas_ = title.textContent;
+    const pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === (balanceNyState_ && balanceNyState_.pmId));
+    if (pm) title.textContent = pm.nickname;
+  } else if (balanceTitleWas_ !== null) { title.textContent = balanceTitleWas_; balanceTitleWas_ = null; }
 }
 // Only rows that are new or changed are asked about: an untouched row keeps its moment and its marks (the server keeps them).
 function balanceNyRowsToAsk_(balances) {
@@ -28876,6 +28896,7 @@ async function balanceNyCandidates_(pmId, balances) {
     const items = (balanceNyCands_.data[b.currency] || []).map((e) => {
       const known = savedAt && e.created_at && e.created_at < savedAt;
       let notYet = saved.includes(e.id) || (!known && e.date >= recentFrom);
+      if (Object.prototype.hasOwnProperty.call(balanceNyChoices_, e.id)) notYet = balanceNyChoices_[e.id];
       const k = inproc.indexOf(Math.round(e.signed * 100));
       if (k !== -1) { notYet = true; inproc.splice(k, 1); }
       return Object.assign({}, e, { notYet, fromShot: k !== -1 });
@@ -28916,7 +28937,7 @@ function balanceNyRender_() {
           <button type="button" class="notyet-choice${it.notYet ? "" : " active"}" data-v="in">${escapeHtml(tr("balance.ny.in"))}</button>
           <button type="button" class="notyet-choice${it.notYet ? " active" : ""}" data-v="not">${escapeHtml(tr("balance.ny.not"))}</button>
         </div>`;
-      row.querySelectorAll(".notyet-choice").forEach((b) => b.addEventListener("click", () => { it.notYet = b.dataset.v === "not"; balanceNyRender_(); }));
+      row.querySelectorAll(".notyet-choice").forEach((b) => b.addEventListener("click", () => { it.notYet = b.dataset.v === "not"; balanceNyChoices_[it.id] = it.notYet; balanceNyRender_(); }));
       list.appendChild(row);
     });
   });
@@ -28941,6 +28962,7 @@ document.getElementById("balance-stmt-tip-btn").addEventListener("click", () => 
 });
 
 function closeBalanceModal() {
+  balanceOpenSeq_++;
   document.getElementById("balance-modal-backdrop").hidden = true;
   balanceNyShow_(false);
   balanceModalPmId = null;
@@ -28984,10 +29006,11 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
     const pmId = balanceModalPmId || document.getElementById("balance-account-picker").value;
     if (!pmId) throw new Error(tr("balance.pickAccount"));
     const seen = new Set();
-    const balances = balanceFormRows.map((row) => {
+    document.querySelectorAll("#balance-rows .balance-form-row.bad").forEach((x) => x.classList.remove("bad"));
+    const balances = balanceFormRows.map((row, ri) => {
       const text = String(row.amount).trim().replace(/,/g, "").replace(/[−–]/g, "-");
       const parsed = parseFloat(text);
-      if (!text || isNaN(parsed)) throw new Error(tr("balance.enterStarting", { cur: row.currency }));
+      if (!text || isNaN(parsed)) { balanceMarkBadRow_(ri); throw new Error(tr("balance.enterStarting", { cur: row.currency })); }
       if (!row.date) throw new Error(tr("balance.pickFromDate", { cur: row.currency }));
       if (seen.has(row.currency)) throw new Error(tr("balance.listedTwice", { cur: row.currency }));
       seen.add(row.currency);
@@ -28998,10 +29021,24 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
     if (((meta && meta.capabilities) || {}).startNotYet && !Spotlight.isRunning()) {
       saveBtn.disabled = true;
       saveBtn.textContent = tr("balance.ny.checking");
+      const seq = balanceOpenSeq_;
       let cands = null;
       try { cands = await balanceNyCandidates_(pmId, balances); } catch (e) { cands = null; }
       saveBtn.textContent = tr("balance.save");
-      if (document.getElementById("balance-modal-backdrop").hidden) return;   // closed while checking
+      // Closed, reopened or switched to another account while checking: this answer belongs to a sheet that is gone.
+      if (seq !== balanceOpenSeq_ || document.getElementById("balance-modal-backdrop").hidden ||
+          (balanceModalPmId || document.getElementById("balance-account-picker").value) !== pmId) return;
+      // A currency the account has movements in but no row for (a new account: owner's testers, 2026-11-11): add its row and ask.
+      const moved = (balanceNyCands_ && balanceNyCands_.data && balanceNyCands_.data.__moved) || [];
+      const missing = moved.filter((c) => !balanceFormRows.some((r) => r.currency === c));
+      if (missing.length) {
+        balanceFormRows.forEach((r) => { if (moved.includes(r.currency)) r.needed = true; });   // every currency it moves in stays (no ✕)
+        const firstDate = balanceFormRows.length ? balanceFormRows[0].date : todayLocalISO();
+        missing.forEach((cur) => balanceFormRows.push({ amount: "", negative: balanceNegDefault_(), currency: cur, date: firstDate, needed: true }));
+        renderBalanceRows_();
+        balanceMarkBadRow_(balanceFormRows.length - missing.length);
+        throw new Error(tr("balance.movedIn", { cur: missing.join(", ") }));
+      }
       if (cands && cands.some((c) => c.items.length)) { balanceNyOpen_(pmId, balances, cands); return; }
     }
     closeBalanceModal();

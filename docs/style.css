@@ -3886,3 +3886,6 @@ body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: 216px; }
 .balance-stmt-tip { background: #eef5ff; border-radius: 10px; padding: 10px 12px; margin: 4px 0 10px; font-size: 14px; line-height: 1.35; }
 .balance-stmt-tip p { margin: 0 0 4px; }
 .balance-stmt-tip .add-inline { margin: 0; }
+
+/* A row Save refused (blank amount): outlined in red. */
+.balance-form-row.bad { outline: 2px solid #d64545; outline-offset: 2px; border-radius: 10px; }

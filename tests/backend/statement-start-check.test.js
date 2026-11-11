@@ -83,3 +83,40 @@ test("a picked suggestion on a purchase inside the starting balance is marked fo
   assert.equal(d.options.find((o) => o.id === pv).insideStart, true);
   assert.equal(p.balance_checks[0].startFix, undefined, "the purchase is not offered as 'not yet': it is a charged-less pair");
 });
+
+test("a purchase both charged less and counted after the balance in the same save: the balance does not move twice (Elena)", () => {
+  const { rt, card, add, stmt } = setup();
+  const pv = add("2019-03-09", 50.00, "PV", "agora shop");
+  rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: "2019-03-10" }] });
+  // the charge posted AFTER the balance was typed: it was not in it, and the card charged 45.00
+  const s = stmt(-145, [{ date: "2019-03-11", description: "AGORA SHOP COMPANIA FO", amount: -45.00, currency: "PEN" }]);
+  const p = plan(rt, [s]);
+  const c = p.balance_checks[0];
+  assert.deepEqual(c.startFix.items.map((i) => i.id), [pv]);
+  save(rt, [s], p.actions.concat([{ type: "start_not_yet", stmt: 0, currency: "PEN", ids: [pv] }]));
+  assert.equal(opening(rt, card.id).amount, -100, "the typed number stays: the purchase now counts after it");
+  const bal = rt.api("listPaymentMethodBalances", {}).find((b) => b.id === card.id).balances.find((b) => b.currency === "PEN").amount;
+  assert.equal(bal, -145);
+});
+
+test("the correction looks at the whole window of days: five entries that add up to the gap are offered", () => {
+  const { rt, card, add, stmt } = setup();
+  const ids = [["2019-03-08", 11.11], ["2019-03-09", 22.22], ["2019-03-09", 33.33], ["2019-03-10", 44.44], ["2019-03-10", 55.55]].map(([d, a], k) => add(d, a, "Tienda " + k));
+  rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: "2019-03-10" }] });
+  const c = plan(rt, [stmt(-266.65, [])]).balance_checks[0];
+  assert.equal(c.unexplained, -166.65);
+  assert.deepEqual(c.startFix.items.map((i) => i.id).sort(), ids.slice().sort());
+});
+
+test("a set balance whose correction was not taken keeps the likely entries in its difference note", () => {
+  const { rt, card, add, stmt } = setup();
+  add("2019-03-10", 42.50, "Tienda Dos");
+  rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: "2019-03-10" }] });
+  const s = stmt(-142.50, []);
+  const p = plan(rt, [s]);
+  const c = p.balance_checks[0];
+  save(rt, [s], p.actions.concat([{ type: "set_balance", stmt: 0, currency: "PEN", gap: c.unexplained, app_balance: c.appAtEnd, likely: "Mar 10 · Tienda Dos −PEN 42.50" }]));
+  const gaps = run(rt, "listStatementGaps()").gaps;
+  assert.equal(gaps.length, 1);
+  assert.equal(gaps[0].likely, "Mar 10 · Tienda Dos −PEN 42.50");
+});

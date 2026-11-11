@@ -217,9 +217,10 @@ function stmtInsideStart_(e, own) {
   return !!(own && own.date && d && d <= own.date && !entryCountsAfterOpening_(e, own));
 }
 
-// The smallest set (1 to 3) of entries of the starting balance's last days (START_NOT_YET_DAYS_) that it took as inside, whose effect
-// on the account adds up EXACTLY to the unexplained amount. Only when exactly one set of that size fits; otherwise nothing (a guess
-// between two answers is not offered). Counting them after the balance moves the app by their effect, which closes the gap.
+// The smallest set of entries of the starting balance's last days (START_NOT_YET_DAYS_) that it took as inside, whose effect on the
+// account adds up EXACTLY to the unexplained amount: any number of entries of that window (owner, 2026-11-11: "a window of days, not
+// entries"; was 1 to 3). Only when exactly one set of that size fits; otherwise nothing (a guess between two answers is not offered).
+// Counting them after the balance moves the app by their effect, which closes the gap. The 14 newest entries of the window at most.
 var STMT_START_FIX_MAX_ = 14;
 function stmtStartFix_(args, own, unexplained) {
   var pm = args.pm, cur = args.currency, from = startNotYetFrom_(own.date), target = Math.round(unexplained * 100);
@@ -235,7 +236,7 @@ function stmtStartFix_(args, own, unexplained) {
   cands.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
   cands = cands.slice(0, STMT_START_FIX_MAX_);
   var n = cands.length;
-  for (var size = 1; size <= 3; size++) {
+  for (var size = 1; size <= n; size++) {
     var found = [];
     var walk = function (start, picked, sum) {
       if (found.length > 1) return;

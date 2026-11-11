@@ -426,6 +426,10 @@ function listStartBalanceCandidates(payload) {
     list.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : (a.created_at < b.created_at ? 1 : -1); });
     out[cur] = list;
   });
+  // Every currency this account has confirmed movements in, at any date: a new account's form asks for each (testers, 2026-11-11).
+  var moved = {};
+  entries.forEach(function (e) { if (signedEffectOnPaymentMethod_(e, pm.id, inboundIds)) moved[e.currency || homeCurrency_()] = true; });
+  out.__moved = Object.keys(moved).sort();
   return out;
 }
 function startNotYetFrom_(date) {

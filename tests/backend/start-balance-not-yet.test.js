@@ -68,3 +68,11 @@ test("a statement line matched to a Not yet purchase is explained by the stateme
   assert.equal(out.diff, 0);
   assert.equal(out.unexplained, 0);
 });
+
+test("the candidates also name every currency the account has movements in, at any date", () => {
+  const rt = setup();
+  spend(rt, "a", "2026-10-09", 5);
+  spend(rt, "u", "2020-01-01", 7, "USD");
+  const out = rt.api("listStartBalanceCandidates", { id: "ny-pm", rows: [{ currency: "PEN", date: "2026-10-09" }] });
+  assert.deepEqual(out.__moved, ["PEN", "USD"]);
+});

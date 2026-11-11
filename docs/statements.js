@@ -484,7 +484,8 @@
     if (!res.gaps.length) { list.innerHTML = `<p class="hint">${escapeHtml(tr("gaps.empty"))}</p>`; return; }
     list.innerHTML = res.gaps.map((g) => {
       const open = g.status === "open";
-      const what = tr(g.gap < 0 ? "gaps.less" : "gaps.more", { amount: fmtMoney(g.currency, Math.abs(g.gap)) });
+      const what = g.likely ? tr("gaps.likely", { amount: signed(g.currency, g.gap), items: g.likely })
+        : tr(g.gap < 0 ? "gaps.less" : "gaps.more", { amount: fmtMoney(g.currency, Math.abs(g.gap)) });
       const compare = g.app_balance === null ? "" : tr("gaps.compare", { closing: fmtMoney(g.currency, g.closing), app: fmtMoney(g.currency, g.app_balance) });
       const resolvedLine = open ? "" : [tr("gaps.resolvedOn", { date: fmtDate(g.resolved_at, true) }), g.note].filter(Boolean).join(" · ");
       return `<div class="stmt-row"><div class="stmt-row-main">
@@ -1597,9 +1598,13 @@
   }
 
   function balanceAction(c) {
-    return c.direction === "forward" && typeof c.unexplained === "number"
-      ? { type: "set_balance", stmt: c.stmt, currency: c.currency, gap: c.unexplained, app_balance: c.appAtEnd }
-      : { type: "set_balance", stmt: c.stmt, currency: c.currency };
+    if (!(c.direction === "forward" && typeof c.unexplained === "number")) return { type: "set_balance", stmt: c.stmt, currency: c.currency };
+    const a = { type: "set_balance", stmt: c.stmt, currency: c.currency, gap: c.unexplained, app_balance: c.appAtEnd };
+    // A correction was offered and not taken (Andrés, 2026-11-11): the note names those entries instead of "money the app doesn't know about".
+    if (c.startFix && !c.startFixed && Math.abs(c.unexplained - startFixSum_(c)) < 0.005) {
+      a.likely = c.startFix.items.map((it) => `${fmtDate(it.date, true)} · ${it.description || tr("type." + it.type)} ${signed(c.currency, it.amount)}`).join("; ");
+    }
+    return a;
   }
 
   function settableChecks() { return historyPlan.checks.map((c, i) => ({ c, i })).filter(({ c }) => c.canSet && c.newest); }
@@ -2068,11 +2073,11 @@
     if (c.direction !== "forward" || !c.startFix) return "";
     const names = c.startFix.items.map((it) => `${it.description || tr("type." + it.type)} ${signed(c.currency, it.amount)}`).join(tr("common.and"));
     if (startFixOn_(c._src || c)) {
-      return `<p class="stmt-note ok">${escapeHtml(tr("stmt.startFix.done", { items: names, date: fmtDate(c.startFix.date, true) }))}</p>
+      return `<p class="stmt-note ok">${escapeHtml(tr("stmt.startFix.done", { items: names, date: fmtDate(c.startFix.date, true), n: c.startFix.items.length }))}</p>
         <div class="stmt-choices" style="padding-left:0"><button type="button" class="add-inline" data-startfixoff="${i}">${escapeHtml(tr("stmt.startFix.undo"))}</button></div>`;
     }
     if (Math.abs(c.unexplained - startFixSum_(c)) > 0.004) return "";   // the person's other choices changed what is left: it no longer fits
-    return `<p class="stmt-note info">💡 ${escapeHtml(tr("stmt.startFix.seems", { date: fmtDate(c.startFix.date, true), items: names }))}</p>
+    return `<p class="stmt-note info">💡 ${escapeHtml(tr("stmt.startFix.seems", { date: fmtDate(c.startFix.date, true), items: names, n: c.startFix.items.length }))}</p>
       <div class="stmt-choices" style="padding-left:0"><button type="button" class="add-inline" data-startfix="${i}">${escapeHtml(tr("stmt.startFix.review"))}</button></div>`;
   }
 

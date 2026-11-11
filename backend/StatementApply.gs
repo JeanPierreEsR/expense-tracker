@@ -61,9 +61,10 @@ var STATEMENT_CHANGES_COLUMNS_ = ['id', 'batch_id', 'sheet', 'row_id', 'field', 
 // balances or loans. Informational only: `gap` and `app_balance` are the figures
 // the phone showed, stored as-is. Undo removes the notes its upload created.
 var STATEMENT_GAPS_COLUMNS_ = ['id', 'payment_method_id', 'account_key', 'account_label', 'currency', 'period_end',
-  'closing', 'app_balance', 'gap', 'status', 'note', 'batch_id', 'created_at', 'resolved_at'];
+  'closing', 'app_balance', 'gap', 'status', 'note', 'batch_id', 'created_at', 'resolved_at', 'likely'];
 function ensureStatementGapsSheet_() {
   ensureStatementSheet_('Statement Gaps', STATEMENT_GAPS_COLUMNS_, ['account_key', 'period_end', 'created_at', 'resolved_at']);
+  ensureColumn_('Statement Gaps', 'likely');   // added 2026-11-11: what the balance check named as the likely cause (a sheet made earlier lacks it)
 }
 
 var STATEMENT_HANDLED_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true, ignored: true, reversed: true, charge_filled: true };
@@ -552,7 +553,7 @@ function applyStatementDecisions(payload) {
       // by the same difference (else the app stays off by it, since that purchase is not counted again).
       var ownD = (openingsByPm[pmD.id] || []).find(function (o) { return o.currency === du.l.currency; });
       var entD = ownD ? getEntryById_(String(a.entryId)) : null;
-      if (entD && stmtInsideStart_(entD, ownD)) startOps.push({ pm: pmD, currency: du.l.currency, shift: Math.round((recordedAmt - charged) * 100) / 100 });
+      if (entD && stmtInsideStart_(entD, ownD)) startOps.push({ pm: pmD, currency: du.l.currency, shift: Math.round((recordedAmt - charged) * 100) / 100, entryId: String(a.entryId) });
       report.discounts = (report.discounts || 0) + 1;
       remember(du, 'matched', a.entryId);
     } else if (a.type === 'complete_transfer') {
@@ -587,7 +588,8 @@ function applyStatementDecisions(payload) {
       if (a.gap !== undefined && a.gap !== null && a.gap !== '' && isFinite(gapAmt) && gapAmt !== 0) {
         var appBal = Number(a.app_balance);
         gapOps.push({ pm: pmB, accountKey: covKey_(sb.key), currency: a.currency, period_end: sb.period.end,
-          closing: Math.round(Number(bal.closing) * 100) / 100, app_balance: isFinite(appBal) ? Math.round(appBal * 100) / 100 : '', gap: gapAmt });
+          closing: Math.round(Number(bal.closing) * 100) / 100, app_balance: isFinite(appBal) ? Math.round(appBal * 100) / 100 : '', gap: gapAmt,
+          likely: String(a.likely || '').slice(0, 300) });
       }
     } else if (a.type === 'ignore' || a.type === 'wait') {
       var g = line(a); useLine(g);
@@ -761,7 +763,13 @@ function applyStatementDecisions(payload) {
     var k = o.pm.id + '|' + o.currency;
     var g = startByRow[k] || (startByRow[k] = { pm: o.pm, currency: o.currency, ids: [], shift: 0 });
     (o.ids || []).forEach(function (id) { if (g.ids.indexOf(id) === -1) g.ids.push(id); });
-    g.shift += o.shift || 0;
+  });
+  // A purchase this same save marks "Not yet" counts after the balance with its new amount, so the balance must NOT also move by its
+  // difference (Elena, 2026-11-11: the window promised −145 and the save gave −140).
+  startOps.forEach(function (o) {
+    if (!o.shift) return;
+    var g = startByRow[o.pm.id + '|' + o.currency];
+    if (g.ids.indexOf(o.entryId) === -1) g.shift += o.shift;
   });
   Object.keys(startByRow).forEach(function (k) {
     var o = startByRow[k];
@@ -790,7 +798,7 @@ function applyStatementDecisions(payload) {
       var gid = Utilities.getUuid();
       appendRowObject('Statement Gaps', { id: gid, payment_method_id: g.pm.id, account_key: g.accountKey, account_label: g.pm.nickname,
         currency: g.currency, period_end: g.period_end, closing: g.closing, app_balance: g.app_balance, gap: g.gap,
-        status: 'open', note: '', batch_id: batchId, created_at: now, resolved_at: '' });
+        status: 'open', note: '', batch_id: batchId, created_at: now, resolved_at: '', likely: g.likely || '' });
       changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Statement Gaps', row_id: gid, field: '__created__',
         old_value: '', new_value: '', created_at: now });
     });
@@ -987,7 +995,7 @@ function listStatementGaps() {
     return { id: r.id, payment_method_id: r.payment_method_id, account_key: r.account_key, account_label: r.account_label,
       currency: r.currency, period_end: String(r.period_end), closing: Number(r.closing),
       app_balance: r.app_balance === '' ? null : Number(r.app_balance), gap: Number(r.gap),
-      status: r.status === 'resolved' ? 'resolved' : 'open', note: String(r.note || ''),
+      status: r.status === 'resolved' ? 'resolved' : 'open', note: String(r.note || ''), likely: String(r.likely || ''),
       created_at: String(r.created_at), resolved_at: String(r.resolved_at || '') };
   });
   rows.sort(function (x, y) {
