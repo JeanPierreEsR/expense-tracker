@@ -2868,6 +2868,22 @@ function getFriendRepaymentHistory(payload) {
   return { loans: loanRows, repayments: lines };
 }
 
+// Every person's older repayments at once (heal 'link-old-repayment-extras', 2026-11-10). linkEarlierGapEntries_ used to run only
+// when someone opened a person's repayment history, so a bank statement could not match a repayment saved before 2026-10-27 that
+// came in as two entries (e.g. 266.66 on the loan + 0.34 extra income for one bank line of 267.00). Same rules: only an
+// unambiguous fit is linked; it only fills Settlements.gap_entry_id, no amount, date or entry changes.
+function linkAllEarlierGapEntries_() {
+  ensureSettlementsTransferEntryColumn_();
+  ensureSettlementsGapColumn_();
+  var loanFriend = {};
+  getAllRows('Loans').forEach(function (l) { loanFriend[l.id] = l.friend_id; });
+  var friendIds = {};
+  getAllRows('Settlements').forEach(function (s) {
+    if (!s.offset_loan_id && s.transfer_entry_id && !s.gap_entry_id && loanFriend[s.loan_id]) friendIds[loanFriend[s.loan_id]] = true;
+  });
+  Object.keys(friendIds).forEach(function (id) { getFriendRepaymentHistory({ friendId: id }); });
+}
+
 // Repayments saved before gap entries were linked: when a repayment line has no linked entry and exactly ONE income/expense
 // entry fits (the "paid more than owed" wording for that person, same date and account) and nothing else claims it, it is linked.
 // Anything ambiguous is left alone.
