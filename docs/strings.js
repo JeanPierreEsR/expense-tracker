@@ -4340,6 +4340,7 @@
     "imp.past": { en: "Past imports ›", es: "Importaciones anteriores ›" },
     "stmt.past": { en: "Past uploads and differences ›", es: "Cargas anteriores y diferencias ›" },
     "stmt.s2.title": { en: "Check what was read", es: "Comprueba lo que se leyó" },
+    "stmt.s2.reading": { en: "Reading the files: {done} of {total} done. The next step opens once all are read.", es: "Leyendo los archivos: {done} de {total} listos. El siguiente paso se abre cuando se hayan leído todos." },
     "stmt.s2.count": { en: "Ready for the preview: {ready} of {total}.", es: "Listos para la vista previa: {ready} de {total}." },
     "stmt.s2.skipped": { en: "Any that could not be read stay out.", es: "Los que no se pudieron leer quedan fuera." },
     "stmt.s2.waitingUse": { en: "Check each file below and tap “Use these lines”.", es: "Revisa cada archivo abajo y toca “Usar estas líneas”." },

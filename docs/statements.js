@@ -140,10 +140,15 @@
     return a.kind === b.kind && accountKeyOf(a) === accountKeyOf(b) && JSON.stringify(a.period) === JSON.stringify(b.period) && (a.lines || []).length === (b.lines || []).length;
   }
 
+  // Files picked but not read yet (they are read one at a time, and each gets its card only when its turn comes) and the one being
+  // read now: while any is left, the counter says so and the preview waits (owner, 2026-11-11: 9 picked, the screen said "6 of 6").
+  let filesQueued = 0, filesReading = 0;
+  function readingBusy() { return filesQueued + filesReading > 0; }
+
   function canGoTo(n) {
     if (n === 1) return true;
     if (n === 2) return stmtCards().length > 0;
-    if (n === 3) return usable.length > 0;
+    if (n === 3) return usable.length > 0 && !readingBusy();
     return savedThisRun;
   }
 
@@ -191,12 +196,13 @@
 
   // Counts and buttons that depend on what was read so far.
   function updateStepUi() {
-    const total = stmtCards().length, ready = readyCount();
+    const total = stmtCards().length + filesQueued, ready = readyCount(), busy = readingBusy();
     // A spreadsheet waits for its "Use these lines" even when everything is already set (a saved layout, its accounts remembered): say so.
     const waiting = !!$("statement-results").querySelector(".tm-use");
-    $("stmt-s2-count").textContent = total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr(waiting ? "stmt.s2.waitingUse" : "stmt.s2.skipped") : "") : tr("stmt.s2.none");
+    $("stmt-s2-count").textContent = busy ? tr("stmt.s2.reading", { done: total - filesQueued - filesReading, total }) : total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr(waiting ? "stmt.s2.waitingUse" : "stmt.s2.skipped") : "") : tr("stmt.s2.none");
     const next = $("stmt-next-2");
     next.hidden = !usable.length;
+    next.disabled = busy;
     next.textContent = tr("stmt.s2.next", { n: ready });
     const cont = $("stmt-step1-continue");
     cont.hidden = !total;
@@ -282,7 +288,8 @@
     const item = inbox.find((i) => i.id === id);
     file.senderAddress = sender !== undefined ? sender : ((item && item.sender) || "");
     if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
-    await readStatementFile(file);
+    filesReading++;
+    try { await readStatementFile(file); } finally { filesReading--; updateStepUi(); }
   }
 
   async function openInboxItem(id, btn) {
@@ -1396,17 +1403,22 @@
     // Copied BEFORE any wait: the file box is emptied right after the pick (so the same file can be picked again), and a list read after
     // a wait was empty, so a file picked while the screen still said "Loading…" was silently dropped (Andrés, 2026-11-09).
     const picked = Array.from(files);
+    filesQueued += picked.length;
+    updateStepUi();
     await screenLoaded;   // ...and it is read once the screen has loaded
     if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
     for (const f of picked) {   // one at a time: easy on a phone's memory
-      if (screenMode === "import" && !isTableFile(f)) {
-        const body = resultCardShell(f.name);
-        body.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("imp.blockedPdf"))}</p>
-          <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice imp-go">${escapeHtml(tr("imp.openStatements"))}</button></div>`;
-        body.querySelector(".imp-go").addEventListener("click", () => { showStatementsScreen("bank"); window.scrollTo(0, 0); });
-        continue;
-      }
-      await (isTableFile(f) ? readTableFile(f) : readStatementFile(f));
+      filesQueued--; filesReading++;
+      try {
+        if (screenMode === "import" && !isTableFile(f)) {
+          const body = resultCardShell(f.name);
+          body.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("imp.blockedPdf"))}</p>
+            <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice imp-go">${escapeHtml(tr("imp.openStatements"))}</button></div>`;
+          body.querySelector(".imp-go").addEventListener("click", () => { showStatementsScreen("bank"); window.scrollTo(0, 0); });
+          continue;
+        }
+        await (isTableFile(f) ? readTableFile(f) : readStatementFile(f));
+      } finally { filesReading--; updateStepUi(); }
     }
   }
 
@@ -2345,7 +2357,7 @@
   });
   $("stmt-status-toggle").addEventListener("click", () => setStatusOpen($("statement-coverage-list").hidden));
   $("stmt-step1-continue").addEventListener("click", () => showStep(2));
-  $("stmt-next-2").addEventListener("click", () => showStep(3));
+  $("stmt-next-2").addEventListener("click", () => { if (!readingBusy()) showStep(3); });
   $("stmt-add-more").addEventListener("click", () => showStep(1));
   $("stmt-back-3").addEventListener("click", () => showStep(2));
   $("stmt-another").addEventListener("click", () => { clearRun(); showStep(1); });
