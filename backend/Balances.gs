@@ -399,11 +399,11 @@ function setPaymentMethodOpeningBalance(payload) {
 
 
 // ---- "Is this already in your bank's balance?" (owner, 2026-11-11) ----
-// When a starting balance is saved, the phone lists this account's entries of the 5 days up to the balance's date that the balance
+// When a starting balance is saved, the phone lists this account's entries of the 3 days up to the balance's date that the balance
 // would take as already inside it (recorded before the moment it is saved), so the person can mark the ones still in process "Not
 // yet". payload: { id, rows: [{ currency, date }] }. Answers { currency: [{ id, date, description, signed, type, created_at }] },
 // newest first. Read-only.
-var START_NOT_YET_DAYS_ = 5;
+var START_NOT_YET_DAYS_ = 3;   // owner, 2026-11-11 (was 5)
 function listStartBalanceCandidates(payload) {
   var pm = getAllRows('Payment Methods').find(function (p) { return p.id === payload.id; });
   if (!pm) throw new Error(tr_('err.paymentMethodNotFound'));

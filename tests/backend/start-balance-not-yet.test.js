@@ -38,15 +38,15 @@ test("re-saving without marks keeps the saved ones for the same currency and day
   assert.equal(balance(rt), -120);
 });
 
-test("the candidates are the account's entries of the 5 days up to the balance's day, per currency, newest first", () => {
+test("the candidates are the account's entries of the 3 days up to the balance's day, per currency, newest first", () => {
   const rt = setup();
-  spend(rt, "old", "2026-10-04", 1);
-  spend(rt, "d5", "2026-10-05", 2);
+  spend(rt, "old", "2026-10-06", 1);
+  spend(rt, "d7", "2026-10-07", 2);
   spend(rt, "d9", "2026-10-09", 3);
   spend(rt, "later", "2026-10-10", 4);
   spend(rt, "usd", "2026-10-08", 5, "USD");
   const out = rt.api("listStartBalanceCandidates", { id: "ny-pm", rows: [{ currency: "PEN", date: "2026-10-09" }, { currency: "USD", date: "2026-10-09" }] });
-  assert.deepEqual(out.PEN.map((e) => e.id), ["d9", "d5"]);
+  assert.deepEqual(out.PEN.map((e) => e.id), ["d9", "d7"]);
   assert.equal(out.PEN[0].signed, -3);
   assert.deepEqual(out.USD.map((e) => e.id), ["usd"]);
 });

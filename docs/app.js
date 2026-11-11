@@ -28822,7 +28822,7 @@ document.getElementById("balance-add-row-btn").addEventListener("click", () => {
 });
 
 // ---- "Already in / Not yet" (owner's plan, 2026-11-11, option B) ----
-// After Save, the sheet lists the account's entries of the last 5 days up to each balance's day that the balance would take as
+// After Save, the sheet lists the account's entries of the last 3 days up to each balance's day that the balance would take as
 // already inside it (recorded before it). The person marks the ones still in process "Not yet": they count after the balance.
 // Starting marks: what was saved before; an entry the in-process screenshot found (balance row `inproc`); on a CREDIT card, the
 // balance's day and the day before (card purchases take 1-3 days to post); everything else "Already in".
