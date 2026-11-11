@@ -1527,6 +1527,9 @@
   // The starting-balance correction the person accepted (owner, 2026-11-11): its entries count after the balance, so the app moves by
   // their effect and that much is no longer unexplained.
   function startFixSum_(c) { return r2_((c.startFix ? c.startFix.items : []).reduce((t, it) => t + it.amount, 0)); }
+  // The starting number after this save: the correction's entries, plus any "charged differently" difference on purchases inside it that the
+  // same save takes (both move the number; c is a live check).
+  function startFixCorrected_(c) { return r2_(c.startFix.amount + startFixSum_(c) + ((c.startShift && c.startShift.net) || 0)); }
   function startFixOn_(c) { return !!(c.startFix && historyPlan && historyPlan.startFix && historyPlan.startFix.has(historyPlan.checks.indexOf(c))); }
   function liveStartFix_(c, c0) {   // c0: the check as the server sent it (the one in historyPlan.checks)
     if (!startFixOn_(c0)) return c;
@@ -2073,7 +2076,7 @@
     if (c.direction !== "forward" || !c.startFix) return "";
     const names = c.startFix.items.map((it) => `${it.description || tr("type." + it.type)} ${signed(c.currency, it.amount)}`).join(tr("common.and"));
     if (startFixOn_(c._src || c)) {
-      return `<p class="stmt-note ok">${escapeHtml(tr("stmt.startFix.done", { items: names, date: fmtDate(c.startFix.date, true), n: c.startFix.items.length }))}</p>
+      return `<p class="stmt-note ok">${escapeHtml(tr("stmt.startFix.done", { date: fmtDate(c.startFix.date, true), corrected: fmtMoney(c.currency, startFixCorrected_(c)) }))}</p>
         <div class="stmt-choices" style="padding-left:0"><button type="button" class="add-inline" data-startfixoff="${i}">${escapeHtml(tr("stmt.startFix.undo"))}</button></div>`;
     }
     if (Math.abs(c.unexplained - startFixSum_(c)) > 0.004) return "";   // the person's other choices changed what is left: it no longer fits
@@ -2557,6 +2560,7 @@
       if (!c || !c.startFix) return;
       const names = c.startFix.items.map((it) => `${fmtDate(it.date, true)} · ${it.description || tr("type." + it.type)} ${signed(c.currency, it.amount)}`).join("\n");
       const text = tr("stmt.startFix.window", { account: acctOfCheck(c), date: fmtDate(c.startFix.date, true), amount: fmtMoney(c.currency, c.startFix.amount),
+        corrected: fmtMoney(c.currency, startFixCorrected_(liveCheck(c, coveredLines(historyActions(false))))),
         // after everything this upload adds or corrects, plus this correction: the statement minus what would still be unexplained
         items: names, after: fmtMoney(c.currency, r2_(c.closing - (liveCheck(c, coveredLines(historyActions(false))).unexplained - startFixSum_(c)))), closing: fmtMoney(c.currency, c.closing) });
       (async () => {   // the window waits for the answer; this click handler does not

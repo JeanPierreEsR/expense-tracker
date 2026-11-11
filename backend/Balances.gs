@@ -139,6 +139,12 @@ function entryCountsAfterOpening_(entry, opening) {
   if (!opening || !opening.date) return true;
   if (entry.date > opening.date) return true;
   if (opening.not_yet && opening.not_yet.indexOf(String(entry.id)) !== -1) return true;   // marked "Not yet" when the balance was saved
+  // A BANK E-MAIL that arrived after the balance was saved, for a purchase of the balance's last days (owner's option C, 2026-11-11):
+  // the bank was still processing it when the balance was typed, so it counts after the balance. An entry typed by hand later stays
+  // inside (it usually catches up on something already posted). Only for a balance with a saved moment, and never for an entry a
+  // statement line covers (that statement's closing already holds it).
+  if (entry.date < opening.date && String(entry.source || '') === 'email' && opening.as_of && entry.created_at && entry.created_at >= opening.as_of &&
+      entry.date >= startNotYetFrom_(opening.date) && !statementCoversEntry_(entry.id, opening.date)) return true;
   if (entry.date < opening.date) return false;
   if (!opening.as_of) return false;
   if (!(entry.created_at && entry.created_at >= opening.as_of)) return false;

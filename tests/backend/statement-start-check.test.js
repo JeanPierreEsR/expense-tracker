@@ -38,10 +38,11 @@ test("an entry the starting balance wrongly took as inside is offered as the cor
   assert.deepEqual(c.startFix.items.map((i) => i.id), [pay]);
   const res = save(rt, [s], p.actions.concat([{ type: "start_not_yet", stmt: 0, currency: "PEN", ids: [pay] }]));
   assert.equal(res.startFixes, 1);
-  assert.deepEqual(opening(rt, card.id).not_yet, [pay]);
+  assert.equal(opening(rt, card.id).amount, -142.5, "the starting number itself is corrected (owner, 2026-11-11)");
+  assert.deepEqual(opening(rt, card.id).not_yet, []);
   assert.equal(plan(rt, [s]).balance_checks[0].diff, 0, "read again: the app now agrees with the statement");
   run(rt, `undoStatementBatch({ batchId: ${JSON.stringify(res.batchId)} })`);
-  assert.deepEqual(opening(rt, card.id).not_yet, []);
+  assert.equal(opening(rt, card.id).amount, -100);
 });
 
 test("two entries that would both fit: nothing is offered", () => {
@@ -93,8 +94,9 @@ test("a purchase both charged less and counted after the balance in the same sav
   const p = plan(rt, [s]);
   const c = p.balance_checks[0];
   assert.deepEqual(c.startFix.items.map((i) => i.id), [pv]);
+  assert.deepEqual(c.startShift, { net: 5, lines: 1 }, "its charge posted after the balance, yet taking the bank amount moves the balance");
   save(rt, [s], p.actions.concat([{ type: "start_not_yet", stmt: 0, currency: "PEN", ids: [pv] }]));
-  assert.equal(opening(rt, card.id).amount, -100, "the typed number stays: the purchase now counts after it");
+  assert.equal(opening(rt, card.id).amount, -145, "the number takes both: −50 not posted yet, +5 charged less");
   const bal = rt.api("listPaymentMethodBalances", {}).find((b) => b.id === card.id).balances.find((b) => b.currency === "PEN").amount;
   assert.equal(bal, -145);
 });

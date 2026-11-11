@@ -76,3 +76,16 @@ test("the candidates also name every currency the account has movements in, at a
   const out = rt.api("listStartBalanceCandidates", { id: "ny-pm", rows: [{ currency: "PEN", date: "2026-10-09" }] });
   assert.deepEqual(out.__moved, ["PEN", "USD"]);
 });
+
+test("option C: a bank e-mail that arrives after the balance was saved, for a purchase of its last 3 days, counts after it; a hand-typed one does not", () => {
+  const rt = setup();
+  const day = (k) => { const d = new Date(Date.now() - k * 86400000); return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(d); };
+  rt.api("setPaymentMethodOpeningBalance", { id: "ny-pm", balances: [{ currency: "PEN", amount: -100, date: day(0) }] });
+  const late = (id, date, amount, source) => rt.run(`appendRowObject('Entries', ${JSON.stringify({
+    id, type: "expense", date, amount, currency: "PEN", category_id: "", description: "Late " + id,
+    payment_method_id: "ny-pm", paid_by: "me", status: "confirmed", source, created_at: "2099-01-01T00:00:00" })});`);
+  late("mail-yesterday", day(1), 30, "email");    // counts after: the bank was still processing it
+  late("hand-yesterday", day(1), 7, "manual");    // stays inside: typed later, usually already posted
+  late("mail-old", day(5), 11, "email");          // older than the window: stays inside
+  assert.equal(balance(rt), -130);
+});

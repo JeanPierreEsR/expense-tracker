@@ -280,7 +280,7 @@ function applyStatementDecisions(payload) {
   var batchId = Utilities.getUuid();
   var now = nowTimestamp_();
   var today = now.substring(0, 10);
-  var creations = [], changes = [], outcomes = [], usedLines = {}, chargeFills = [], discountSplits = [], startOps = [];
+  var creations = [], changes = [], outcomes = [], usedLines = {}, chargeFills = [], discountSplits = [], startOps = [], fixInbound = null;
   var colChanged = {};   // field -> true, so only touched columns are rewritten
 
   function useLine(L) {
@@ -568,11 +568,18 @@ function applyStatementDecisions(payload) {
       if (String(values[j][col.status]) === 'pending') setCell(a.entryId, 'status', 'confirmed');
       remember(c, 'completed', a.entryId);
     } else if (a.type === 'start_not_yet') {
-      // The person accepted the correction the balance check offered (StatementBalance.gs, startFix): these entries count after the
-      // starting balance. Written after the balances below, and skipped when this statement sets a newer balance for the same currency.
+      // The person accepted the correction the balance check offered (StatementBalance.gs, startFix). Owner's choice (2026-11-11): the
+      // starting NUMBER changes by these entries' effect (99.95 → 16.80 for a payment of 83.15 the bank had not posted yet); the entries
+      // stay inside it. Written after the balances below, and skipped when this statement sets a newer balance for the same currency.
       var pmN = accounts[a.stmt];
       if (!pmN || !(openingsByPm[pmN.id] || []).some(function (o) { return o.currency === a.currency; })) throw new Error(tr_('sa.unknownBalance'));
-      startOps.push({ pm: pmN, currency: a.currency, ids: (a.ids || []).map(String).filter(function (x) { return x && x.indexOf(',') === -1; }) });
+      if (!fixInbound) fixInbound = buildInboundTransferIds_();
+      var fixShift = 0;
+      (a.ids || []).forEach(function (id) {
+        var fe = getEntryById_(String(id));   // as it is in the Sheet: an amount this save changes is not written yet
+        if (fe && fe.status === 'confirmed' && (fe.currency || homeCurrency_()) === a.currency) fixShift += signedEffectOnPaymentMethod_(fe, pmN.id, fixInbound);
+      });
+      startOps.push({ pm: pmN, currency: a.currency, shift: Math.round(fixShift * 100) / 100 });
     } else if (a.type === 'set_balance') {
       var sb = stmts[a.stmt];
       var pmB = accounts[a.stmt];
@@ -764,13 +771,9 @@ function applyStatementDecisions(payload) {
     var g = startByRow[k] || (startByRow[k] = { pm: o.pm, currency: o.currency, ids: [], shift: 0 });
     (o.ids || []).forEach(function (id) { if (g.ids.indexOf(id) === -1) g.ids.push(id); });
   });
-  // A purchase this same save marks "Not yet" counts after the balance with its new amount, so the balance must NOT also move by its
-  // difference (Elena, 2026-11-11: the window promised −145 and the save gave −140).
-  startOps.forEach(function (o) {
-    if (!o.shift) return;
-    var g = startByRow[o.pm.id + '|' + o.currency];
-    if (g.ids.indexOf(o.entryId) === -1) g.shift += o.shift;
-  });
+  // Every shift adds up: a correction moves the number by the entries' recorded effect, a bank amount by its difference (Elena's case,
+  // 2026-11-11: −100 − 50 + 5 = −145, the statement's figure).
+  startOps.forEach(function (o) { if (o.shift) startByRow[o.pm.id + '|' + o.currency].shift += o.shift; });
   Object.keys(startByRow).forEach(function (k) {
     var o = startByRow[k];
     if (balanceOps.some(function (b) { return b.pm.id === o.pm.id && b.currency === o.currency; })) return;

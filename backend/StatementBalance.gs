@@ -87,6 +87,7 @@ function stmtBalanceCheck_(args) {
   // difference with the statement's own lines that are not in the app yet.
   if (out.direction === 'forward') {
     var after = own ? own.date : '';
+    var insideShift = 0, insideShiftN = 0;
     var missing = 0, pending = 0, missingN = 0, missingItems = [], pendingN = 0, discounted = 0, discountedN = 0, other = 0, otherN = 0, noAcct = 0, noAcctN = 0;
     // A purchase the card charged in ANOTHER currency (StatementMatch.gs, 'recharge'): until it takes the charge, the line is missing in
     // its currency and the purchase sits in the other one. Both halves are named here instead of looking unexplained.
@@ -110,6 +111,9 @@ function stmtBalanceCheck_(args) {
       // discount is not yet — it disappears once the purchase takes the bank's amount.
       if (l.discount && l.discount.clear && l.discount.entryId) {
         var de = args.entryById[l.discount.entryId];
+        // A purchase INSIDE the starting balance (its charge posted after it): taking the bank's amount moves the starting balance, so it
+        // is counted with the other starting-balance differences below (insideShift), not as a plain discount.
+        if (de && de.status === 'confirmed' && own && stmtInsideStart_(de, own)) { insideShift += Number(l.amount) + Number(de.amount); insideShiftN++; return; }
         if (de && de.status === 'confirmed') { discounted += Number(l.amount) + Number(de.amount); discountedN++; return; }
       }
       var entryId = l.entry ? l.entry.id : (l.handled && l.handled.entryId) || '';
@@ -133,14 +137,14 @@ function stmtBalanceCheck_(args) {
     out.discounted = { net: Math.round(discounted * 100) / 100, lines: discountedN };
     out.otherCurrency = { net: Math.round(other * 100) / 100, lines: otherN };
     out.noAccount = { net: Math.round(noAcct * 100) / 100, lines: noAcctN };
-    out.unexplained = Math.round((out.diff - missing - pending - discounted - other - noAcct) * 100) / 100;
+    out.unexplained = Math.round((out.diff - missing - pending - discounted - other - noAcct - insideShift) * 100) / 100;
     // A card posts what was bought in the last days before the closing on the NEXT statement (owner, 2026-11-10): those purchases are
     // named apart ("probably on the next statement") and no longer count as unexplained.
     // The starting balance itself, checked by this statement (owner's plan, 2026-11-11, step 3).
     if (own && own.date) {
       // (a) A purchase INSIDE the starting balance that the card charged differently, its line dated on/before that balance: taking the
       // bank's amount also moves the starting balance by the difference (StatementApply.gs, use_bank_amount), so it is explained.
-      var shift = 0, shiftN = 0;
+      var shift = insideShift, shiftN = insideShiftN;
       (args.lines || []).forEach(function (l) {
         if (l.currency !== cur || l.date > after || !(l.discount && l.discount.clear && l.discount.entryId)) return;
         var se = args.entryById[l.discount.entryId];
@@ -149,7 +153,7 @@ function stmtBalanceCheck_(args) {
       });
       if (shiftN) {
         out.startShift = { net: Math.round(shift * 100) / 100, lines: shiftN };
-        out.unexplained = Math.round((out.unexplained - shift) * 100) / 100;
+        out.unexplained = Math.round((out.unexplained - (shift - insideShift)) * 100) / 100;   // insideShift is already out of it
       }
       // (b) What is left equals, to the cent, recent entries the starting balance took as already in the bank: probably still in process
       // when the balance was typed. Offered as a correction (count them after it, "Not yet"); never applied without the person.
