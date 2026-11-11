@@ -84,7 +84,7 @@ function stmtBalanceCheck_(args) {
   // difference with the statement's own lines that are not in the app yet.
   if (out.direction === 'forward') {
     var after = own ? own.date : '';
-    var missing = 0, pending = 0, missingN = 0, pendingN = 0, discounted = 0, discountedN = 0, other = 0, otherN = 0;
+    var missing = 0, pending = 0, missingN = 0, missingItems = [], pendingN = 0, discounted = 0, discountedN = 0, other = 0, otherN = 0;
     // A purchase the card charged in ANOTHER currency (StatementMatch.gs, 'recharge'): until it takes the charge, the line is missing in
     // its currency and the purchase sits in the other one. Both halves are named here instead of looking unexplained.
     (args.lines || []).forEach(function (l) {
@@ -92,7 +92,7 @@ function stmtBalanceCheck_(args) {
       var re = args.entryById[l.recharge.entryId];
       if (re && re.status === 'confirmed' && (re.currency || homeCurrency_()) === cur && re.payment_method_id === pm.id) { other += Number(re.amount); otherN++; }
     });
-    (args.lines || []).forEach(function (l) {
+    (args.lines || []).forEach(function (l, li) {
       if (l.currency !== cur || l.date <= after) return;
       if (l.recharge && l.recharge.clear && l.recharge.entryId) { other += Number(l.amount); otherN++; return; }
       // A card line paired with a purchase it charged LESS than (a discount, StatementMatch.gs): the purchase is in the app, only the
@@ -110,8 +110,10 @@ function stmtBalanceCheck_(args) {
       if (inApp) return;
       if (e && e.status === 'pending' && (e.payment_method_id === pm.id) && handledOutcome !== 'ignored') { pending += Number(l.amount); pendingN++; return; }
       missing += Number(l.amount); missingN++;
+      missingItems.push({ line: li, amount: Number(l.amount) });
     });
-    out.notInApp = { net: Math.round(missing * 100) / 100, lines: missingN };
+    // `items`: which lines these are, so the screen can recount when the person leaves one out (owner, 2026-11-11).
+    out.notInApp = { net: Math.round(missing * 100) / 100, lines: missingN, items: missingItems };
     out.pending = { net: Math.round(pending * 100) / 100, lines: pendingN };
     out.discounted = { net: Math.round(discounted * 100) / 100, lines: discountedN };
     out.otherCurrency = { net: Math.round(other * 100) / 100, lines: otherN };

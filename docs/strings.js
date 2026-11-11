@@ -4001,6 +4001,7 @@
     "stmt.balPending": { en: { one: "{amount} from {n} pending purchase (counted once confirmed)", other: "{amount} from {n} pending purchases (counted once confirmed)" }, es: { one: "{amount} de {n} compra pendiente (se cuenta cuando se confirme)", other: "{amount} de {n} compras pendientes (se cuentan cuando se confirmen)" } },
     "stmt.balExplained": { en: "✓ Fully explained: {parts}.", es: "✓ Totalmente explicado: {parts}." },
     "stmt.balUnexplainedBold": { en: "{amount} is unexplained", es: "{amount} sin explicar" },
+    "stmt.balLeftOut": { en: { one: "That includes {amount} from 1 line that won't be added.", other: "That includes {amount} from {n} lines that won't be added." }, es: { one: "Eso incluye {amount} de 1 línea que no se agregará.", other: "Eso incluye {amount} de {n} líneas que no se agregarán." } },
     "stmt.balUnexplainedRest": { en: " — something in the app differs from this statement.", es: ": algo en la app difiere de este estado de cuenta." },
     "stmt.balAppOnlyTitle": { en: { one: "In the app but not on this statement ({n}):", other: "In the app but not on this statement ({n}):" }, es: { one: "En la app pero no en este estado de cuenta ({n}):", other: "En la app pero no en este estado de cuenta ({n}):" } },
     "stmt.balAppOnlyAll": { en: { one: "This explains the rest of the difference.", other: "These explain the rest of the difference." }, es: { one: "Esto explica el resto de la diferencia.", other: "Estos explican el resto de la diferencia." } },
