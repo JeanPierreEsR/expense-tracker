@@ -3844,3 +3844,6 @@ body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: 216px; }
 .payor-merge-tabs .type-tab { font-size: 0.85rem; font-family: inherit; color: inherit; }
 .payor-merge-result { margin: 6px 0 0; }
 #loan-detail-list.is-updating { opacity: 0.45; }   /* an installment or early payment is being saved: the old lines stay, dimmed (1.76.1) */
+/* A field that must be filled before its button works (showFieldError_, owner 2026-11-11) */
+.field-invalid { border-color: #d64545 !important; box-shadow: 0 0 0 1px #d64545; }
+.field-error-msg { color: #d64545; font-size: 0.85rem; margin: 4px 0 0; }

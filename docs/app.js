@@ -3401,7 +3401,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
             await openRepaymentEditorForEntry_(target.friend_id, target.friend, target.entry_id);
             return;
           }
-          if (!await askConfirmApp_(repaymentCancelText_(true), tr("confirmBtn.yes"), { plain: true })) return;
+          if (!await askConfirmApp_(repaymentCancelText_(true) + noDebtsInCurrencyText_(friendId, direction, currency), tr("confirmBtn.yes"), { plain: true })) return;
         }
         // From the edit pop-up: it closes now while the server works ("💾 Saving…" says so, saving standard), and comes back
         // with what was typed and the reason if the conversion is refused (owner, 2026-11-10) — the form itself is the message,
@@ -5382,6 +5382,9 @@ async function startEditEntry(entry) {
     rp.extraPromise = callApi("getEntryRepaymentLinks", { id: entry.id })
       .then((l) => { if (editingRepayment_ === rp) { rp.extra = (l.repayment && l.repayment.extra) || null; syncConversionAmount_(); } })
       .catch(() => {});
+    // The people's debts per currency, for the "owes you nothing in USD" line of a currency change (noDebtsInCurrencyText_), when
+    // the Loans tab was not opened yet. In the background; the question never waits for it.
+    if (!loansLastBalances_) callApi("listLoanBalances", {}).then((b) => { if (!loansLastBalances_) loansLastBalances_ = (b && b.balances) || b; }).catch(() => {});
   }
 
   selectedType = entry.type;
@@ -6889,7 +6892,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         ${reviewHasAccountBox_(entry) ? `
         <label class="review-transfer-label">${tr(entry.type === "income" ? "review.receivedAtLabel" : "field.paidFromAccount")}</label>
         <select class="review-account">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>` : ""}
-        ${entry.type === "expense" && (meta.trips || []).length ? `
+        ${entry.type === "expense" && reviewTripFits_(entry) ? `
         <label class="review-transfer-label">${tr("field.trip")}</label>
         <select class="review-trip">${reviewTripOptions_(entry.trip_id || entry.suggested_trip_id || "")}</select>` : ""}
         ${entry.type === "transfer" ? `
@@ -6951,7 +6954,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       const amount = parseFloat(amountStr);
 
       if (!categoryId && entry.type !== "investment") {
-        alert(tr("review.pickCategoryFirst"));
+        showFieldError_(categoryEl, tr("review.pickCategoryFirst"));
         return;
       }
       if (!amountStr || isNaN(amount) || amount <= 0) {
@@ -8044,7 +8047,18 @@ function nameCloseButtons_(root) {
   list.forEach((b) => { if (!b.hasAttribute("aria-label")) { b.setAttribute("data-i18n-aria-label", "common.close"); b.setAttribute("aria-label", tr("common.close")); } });
 }
 nameCloseButtons_(document);
-new MutationObserver((changes) => changes.forEach((c) => c.addedNodes.forEach((n) => { if (n.nodeType === 1) nameCloseButtons_(n); })))
+// Cards and rows that open something when tapped are announced as buttons by VoiceOver (Paola, 2026-11-10): Home's tappable cards,
+// Overview's Loans card, and the Breakdown rows. Each reads its own text; Enter or Space opens it too.
+const TAPPABLE_SEL_ = ".home-card-tap, .legend-row, #loans-ov-card";   // (not Overview's Spending pace card: a button hides the switch buttons inside it)
+function markTappable_(root) {
+  const list = root.matches && root.matches(TAPPABLE_SEL_) ? [root] : root.querySelectorAll(TAPPABLE_SEL_);
+  list.forEach((el) => { if (!el.hasAttribute("role")) { el.setAttribute("role", "button"); el.tabIndex = 0; } });
+}
+markTappable_(document);
+document.addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches(TAPPABLE_SEL_)) { e.preventDefault(); e.target.click(); }
+});
+new MutationObserver((changes) => changes.forEach((c) => c.addedNodes.forEach((n) => { if (n.nodeType === 1) { nameCloseButtons_(n); markTappable_(n); } })))
   .observe(document.body, { childList: true, subtree: true });
 
 function setLoadFailed_(name, err) {
@@ -8444,7 +8458,10 @@ function renderMonthsHistory_() {
 function renderMonthsBars_() {
   const card = document.getElementById("months-card");
   const months = monthsHist_.months;
-  card.hidden = months.length < 1;
+  // Unlocked with 6 complete months of data, the same bar as the Projections practice (owner, 2026-11-11: with less it looked
+  // half-drawn on a new copy).
+  const cur = todayLocalISO().slice(0, 7);
+  card.hidden = months.filter((m) => m.month < cur && (m.income || m.expense || m.investment)).length < PROJECTIONS_MIN_MONTHS_;
   if (card.hidden) return;
   const box = document.getElementById("months-scroll");
   const keep = box.scrollLeft;
@@ -9864,6 +9881,33 @@ function openSheetBackdrops_() {
 function syncSheetScrollLock_() {
   document.body.classList.toggle("sheet-open", openSheetBackdrops_().length > 0);
 }
+
+// A double tap's second tap must not land on what was behind a window that just closed (testers, 2026-11-10: a second tap on "Yes"
+// opened another entry, a second tap on Save opened a Home row). For 0.4 s after any pop-up or question closes, real taps are ignored,
+// wherever they land. Clicks the app makes itself (isTrusted false) still go through.
+const TAP_SHIELD_MS_ = 400;
+let tapShieldUntil_ = 0;
+(function setupTapShield_() {
+  const wasOpen = new WeakSet();
+  const isSheet = (el) => el.nodeType === 1 && el.classList.contains("currency-modal-backdrop");
+  const shield = () => { tapShieldUntil_ = Date.now() + TAP_SHIELD_MS_; };
+  new MutationObserver((changes) => changes.forEach((c) => {
+    if (c.type === "childList") {   // a sheet the code builds and removes
+      c.addedNodes.forEach((n) => { if (isSheet(n) && !n.hidden) wasOpen.add(n); });
+      c.removedNodes.forEach((n) => { if (isSheet(n) && !n.hidden) shield(); });
+      return;
+    }
+    const el = c.target;
+    if (!isSheet(el)) return;
+    if (!el.hidden) { wasOpen.add(el); return; }
+    if (wasOpen.has(el)) { wasOpen.delete(el); shield(); }
+  })).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["hidden"] });
+  document.addEventListener("click", (e) => {
+    if (!e.isTrusted || Date.now() >= tapShieldUntil_) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+})();
 
 (function setupSheetScrollLock() {
   new MutationObserver(syncSheetScrollLock_).observe(document.body, {
@@ -14380,7 +14424,7 @@ document.getElementById("tidy-list").addEventListener("click", (ev) => {
     renderTidy_();
   } else if (ev.target.closest(".tidy-apply")) {
     const categoryId = row.querySelector(".tidy-select").value;
-    if (!categoryId) { alert(tr("review.pickCategoryFirst")); return; }
+    if (!categoryId) { showFieldError_(row.querySelector(".tidy-select"), tr("review.pickCategoryFirst"), row.querySelector(".tidy-group-row")); return; }
     applyTidy_([{ key, categoryId }], [ev.target.closest(".tidy-apply")]);
   }
 });
@@ -16319,6 +16363,14 @@ function fillTripOptions_(sel, keep) {
 }
 
 // <option> HTML for a review card's trip picker, `selected` pre-chosen (same order as the entry form's).
+// A Needs review expense offers Trip / event only when its date falls within a trip's dates, or it is already linked to one
+// (owner, 2026-11-11: an everyday purchase does not need the field).
+function reviewTripFits_(entry) {
+  if (entry.trip_id) return true;
+  const d = String(entry.date || "").slice(0, 10);
+  return (meta.trips || []).some((t) => d >= t.start_date && d <= t.end_date);
+}
+
 function reviewTripOptions_(selected) {
   const holder = document.createElement("select");
   fillTripOptions_(holder, selected);
@@ -25467,6 +25519,18 @@ function repaymentCancelText_(rerecord) {
     : tr("repayConv.confirm", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
 }
 
+// A repayment re-recorded in a currency the person has no open debts in becomes all "extra" (debts are kept per currency, never
+// converted): the question says so (testers, 2026-11-10). From the Loans tab's balances already on the phone; unknown → nothing said.
+function noDebtsInCurrencyText_(friendId, direction, currency) {
+  if (!loansLastBalances_) return "";
+  const b = loansLastBalances_.find((x) => x.friend_id === friendId);
+  const sign = direction === "they_owe_me" ? 1 : -1;
+  const open = b && (b.balances || []).some((l) => String(l.currency).toUpperCase() === currency && sign * l.net > 0.004);
+  if (open) return "";
+  const f = (meta.friends || []).find((x) => x.id === friendId);
+  return "\n\n" + tr(direction === "they_owe_me" ? "repayConv.noDebtsTheyOwe" : "repayConv.noDebtsIOwe", { friend: f ? f.name : "", cur: currency });
+}
+
 // When a repayment's entry is being turned into something else (another tab, or Transfer → Repayment / New loan) the
 // amount shown is the WHOLE repayment (loans + its extra entry); for a plain edit it stays the money movement's own amount.
 function syncConversionAmount_() {
@@ -25490,6 +25554,27 @@ function syncConversionAmount_() {
 const APP_CONFIRM_SETTLE_MS_ = 400;
 let appConfirmChain_ = Promise.resolve();
 const appConfirmOpen_ = new Set();
+// A field that must be filled before a button works: it turns red, the reason sits right under it, and the screen brings it into view
+// (owner, 2026-11-11: "Pick a category first." used to be the phone's own alert box, which did not show which field). Goes away
+// as soon as the field changes.
+// `under`: where the message goes when the field shares a row with buttons (default: right under the field).
+function showFieldError_(el, text, under) {
+  if (!el) return;
+  el.classList.add("field-invalid");
+  const anchor = under || el;
+  let msg = anchor.nextElementSibling;
+  if (!msg || !msg.classList.contains("field-error-msg")) {
+    msg = document.createElement("p");
+    msg.className = "field-error-msg";
+    msg.setAttribute("role", "alert");
+    anchor.after(msg);
+  }
+  msg.textContent = text;
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+  const clear = () => { el.classList.remove("field-invalid"); if (msg.isConnected) msg.remove(); el.removeEventListener("change", clear); };
+  el.addEventListener("change", clear);
+}
+
 // A message with one button, in the app's own window (never the phone's alert).
 function appMessage_(text) { return askConfirmApp_(text, tr("common.gotIt"), { plain: true, noCancel: true }); }
 // The same window with a text box: resolves to what was typed, or null if closed.

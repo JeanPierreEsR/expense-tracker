@@ -125,6 +125,20 @@ function unreadableSheetRows_() {
       rows.push({ sheet: 'Entry Splits', row: s._unreadable.row, cell: c.cell, field: c.field, value: c.value, description: parent ? String(parent.description || '') : '' });
     });
   });
+  // A repayment row whose amount cannot be read counts as 0 (cleanHandTypedMoneyRow_, Api.gs): named here too, with the person it was
+  // from (testers, 2026-11-11: it was left out silently; unreadable loans are named on the Loans tab).
+  var settlements = getAllRows('Settlements');
+  if (settlements.some(function (st) { return st.unreadable_amount !== undefined; })) {
+    var loanFriend = {}, friendName = {};
+    getAllRows('Loans').forEach(function (l) { loanFriend[l.id] = l.friend_id; });
+    getAllRows('Friends').forEach(function (f) { friendName[f.id] = f.name; });
+    settlements.forEach(function (st, i) {
+      if (st.unreadable_amount === undefined) return;
+      var column = Object.keys(st).indexOf('amount');
+      rows.push({ sheet: 'Settlements', row: i + 2, cell: sheetColumnLetter_(column) + (i + 2), field: 'amount',
+        value: String(st.unreadable_amount == null ? '' : st.unreadable_amount), description: String(friendName[loanFriend[st.loan_id]] || '') });
+    });
+  }
   if (!rows.length) return null;
   return { count: rows.length, rows: rows.slice(0, 5) };
 }

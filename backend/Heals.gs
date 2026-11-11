@@ -39,7 +39,10 @@ var HEALS_ = [
   // Repayments saved before 2026-10-27 that came in as two entries (what the loans took + an extra income/expense) were linked only when
   // someone opened that person's repayment history, so a bank statement showed their single line as "not in the app" (owner, 2026-11-10).
   // Links every unambiguous one once (linkAllEarlierGapEntries_, Loans.gs). Adds a link only; no amount, date or entry changes.
-  { id: 'link-old-repayment-extras', owner: true, run: function () { linkAllEarlierGapEntries_(); } }
+  { id: 'link-old-repayment-extras', owner: true, run: function () { linkAllEarlierGapEntries_(); } },
+  // That linking once paired a repayment with an extra entry in another currency (shown as one total in the wrong currency; testers,
+  // 2026-11-10). Takes back only such links; the linking itself now checks the currency.
+  { id: 'unlink-cross-currency-extras', owner: true, run: function () { unlinkCrossCurrencyGapEntries_(); } }
 ];
 
 function healMailboxAddressFromToLine_() {
