@@ -1474,6 +1474,7 @@
       historyPlan.incMode = new Map();     // index into summary.incomeLines -> "transfer" | "investment" | "review" | "leave" (absent = income, the default)
       historyPlan.outMode = new Map();     // index into summary.peopleOut -> "review" or "leave" (absent = spending, the default)
       historyPlan.openPeople = new Set();  // people whose lines are showing
+      historyPlan.openSec = new Set();        // groups the person opened (order B: all start collapsed)
       historyPlan.noAcctOff = new Set();      // lineKey of a no-account pair the person said is a different entry (added as new instead)
       historyPlan.rechargeChoice = new Map(); // index into summary.recharges -> the entry id that takes the card's charge, or "add"; absent = the plan's own
       historyPlan.discountChoice = new Map(); // index into summary.discounts -> the entry id that takes the bank's amount, or "add"; absent = the plan's own
@@ -1618,9 +1619,17 @@
     return historyPlan.chargeChoice.has(k) ? historyPlan.chargeChoice.get(k) : (c.clear ? c.entryId : "");
   }
 
+  // ---- Order B (owner, 2026-11-11): "Ready, nothing to do" first, then "Needs your choice", then balances. Every group starts
+  // collapsed and remembers being opened (historyPlan.openSec); a group of choices shows how many are still to decide.
+  const isReady_ = (d) => !!d.clear && !d.suggested;
+  // Inside every group, oldest first, like the bank's own statement (owner, 2026-11-11).
+  const byDate_ = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.stmt - b.stmt) || (a.line - b.line));
+  function secOpen_(id) { return historyPlan.openSec && historyPlan.openSec.has(id) ? "open" : ""; }
+  function toDecideBadge_(n) { return n ? ` <span class="stmt-count stmt-todo">${escapeHtml(tr("hist.toDecide", { n }))}</span>` : ""; }
+
   // ---- "In the app with no account": a bank line that is an entry saved with no account; it gets this statement's account ----
   function noAccountHtml() {
-    const p = historyPlan, list = p.summary.noAccount || [];
+    const p = historyPlan, list = (p.summary.noAccount || []).slice().sort(byDate_);
     if (!list.length) return "";
     const rows = list.map((d) => {
       const k = lineKey(d), off = p.noAcctOff.has(k), o = d.entry;
@@ -1628,7 +1637,7 @@
         <div class="stmt-choices" style="padding-left:0">${modeButton(`data-noacct="${escapeHtml(k)}" data-pick="use"`, !off, tr("hist.noacct.use", { account: d.account }))}${modeButton(`data-noacct="${escapeHtml(k)}" data-pick="add"`, off, tr("hist.disc.not"))}</div>`;
       return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}`);
     }).join("");
-    return `<details class="stmt-group" id="statement-history-noaccount" open><summary>${escapeHtml(tr("hist.noacct.title"))} <span class="stmt-count">${list.length}</span></summary>
+    return `<details class="stmt-group" id="statement-history-noaccount" data-sec="statement-history-noaccount" ${secOpen_("statement-history-noaccount")}><summary>${escapeHtml(tr("hist.noacct.title"))} <span class="stmt-count">${list.length}</span></summary>
       <p class="hint">${escapeHtml(tr("hist.noacct.hint"))}</p>${rows}</details>`;
   }
 
@@ -1638,10 +1647,13 @@
   }
 
   // ---- "Charged in another currency": a card line in USD for a purchase recorded in PEN (or the other way), 3 days apart at most ----
-  function rechargesHtml() {
-    const p = historyPlan, list = p.summary.recharges || [];
-    if (!list.length) return "";
-    const rows = list.map((d, k) => {
+  function rechargesHtml(part) {
+    const p = historyPlan, all = p.summary.recharges || [];
+    const items = all.map((d, k) => ({ d, k })).filter(({ d }) => (part === "ready") === isReady_(d)).sort((x, y) => byDate_(x.d, y.d));
+    if (!items.length) return "";
+    const id = "statement-history-recharges-" + part;
+    const todo = items.filter(({ k }) => !rechargeOf(k)).length;
+    const rows = items.map(({ d, k }) => {
       const pick = rechargeOf(k);
       const option = (o) => `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`;
       const change = (o) => `<div class="hint">${escapeHtml(tr("hist.rech.change", { from: fmtMoney(o.currency, o.amount), to: fmtMoney(d.currency, Math.abs(d.amount)) }))}</div>`;
@@ -1658,7 +1670,7 @@
       const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
       return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}${unpicked}`);
     }).join("");
-    return `<details class="stmt-group" id="statement-history-recharges" open><summary>${escapeHtml(tr("hist.rech.title"))} <span class="stmt-count">${list.length}</span></summary>
+    return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.rech.title"))} <span class="stmt-count">${items.length}</span>${toDecideBadge_(todo)}</summary>
       <p class="hint">${escapeHtml(tr("hist.rech.hint"))}</p>${rows}</details>`;
   }
 
@@ -1668,10 +1680,14 @@
   }
 
   // ---- "Charged less than recorded": a card line lower than a purchase in the app (a discount), 3 days apart at most ----
-  function discountsHtml() {
-    const p = historyPlan, list = p.summary.discounts || [];
-    if (!list.length) return "";
-    const rows = list.map((d, k) => {
+  function discountsHtml(part) {
+    const p = historyPlan, all = p.summary.discounts || [];
+    const items = all.map((d, k) => ({ d, k })).filter(({ d }) => (part === "ready") === isReady_(d)).sort((x, y) => byDate_(x.d, y.d));
+    if (!items.length) return "";
+    const list = items.map(({ d }) => d);
+    const id = "statement-history-discounts-" + part;
+    const todo = items.filter(({ k }) => !discountOf(k)).length;
+    const rows = items.map(({ d, k }) => {
       const pick = discountOf(k);
       const option = (o) => `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`;
       const change = (o) => `<div class="hint">${escapeHtml(tr("hist.disc.change", { from: fmtMoney(o.currency, o.amount), to: fmtMoney(d.currency, Math.abs(d.amount)) }))}</div>`;
@@ -1686,17 +1702,25 @@
           + `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-disc="${k}" data-pick="add"`, pick === "add", tr("hist.charge.add"))}</div>`;
       }
       const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
-      return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}${unpicked}`);
+      // Over 15% less (up to 30%), or up to 10% more: only a suggestion, never ticked (owner, 2026-11-11).
+      const pct = d.options.length ? Math.round(Math.abs(1 - Math.abs(d.amount) / d.options[0].amount) * 100) : 0;
+      const suggested = d.suggested ? `<p class="stmt-note warn" style="margin:6px 0 0">${escapeHtml(tr(d.higher ? "hist.disc.suggestedMore" : "hist.disc.suggested", { pct }))}</p>` : "";
+      return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${suggested}${body}${unpicked}`);
     }).join("");
-    return `<details class="stmt-group" id="statement-history-discounts" open><summary>${escapeHtml(tr("hist.disc.title"))} <span class="stmt-count">${list.length}</span></summary>
-      <p class="hint">${escapeHtml(tr("hist.disc.hint"))}</p>${rows}</details>`;
+    const anyHigher = list.some((d) => d.higher);
+    return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr(anyHigher ? "hist.disc.titleDiffers" : "hist.disc.title"))} <span class="stmt-count">${list.length}</span>${toDecideBadge_(todo)}</summary>
+      <p class="hint">${escapeHtml(tr(anyHigher ? "hist.disc.hintDiffers" : "hist.disc.hint"))}</p>${rows}</details>`;
   }
 
   // ---- "Completes a charge you left pending": a USD line on the card and a purchase recorded in ARS on it, 5 days apart at most ----
-  function chargesHtml() {
-    const p = historyPlan, charges = p.summary.charges || [];
-    if (!charges.length) return "";
-    const rows = charges.map((c, k) => {
+  function chargesHtml(part) {
+    const p = historyPlan, all = p.summary.charges || [];
+    const items = all.map((c, k) => ({ c, k })).filter(({ c }) => (part === "ready") === isReady_(c)).sort((x, y) => byDate_(x.c, y.c));
+    if (!items.length) return "";
+    const charges = items.map(({ c }) => c);
+    const id = "statement-history-charges-" + part;
+    const todo = items.filter(({ k }) => !chargeOf(k)).length;
+    const rows = items.map(({ c, k }) => {
       const pick = chargeOf(k);
       const option = (o) => `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`;
       const rate = (o) => { const t = chargeRateText_(o.amount, o.currency, Math.abs(c.amount), c.currency); return t ? `<div class="hint stmt-charge-rate">${escapeHtml(t)}</div>` : ""; };
@@ -1713,7 +1737,7 @@
       const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
       return lineRow({ date: c.date, description: c.description, amount: c.amount, currency: c.currency }, `${escapeHtml(c.account)}${body}${unpicked}`);
     }).join("");
-    return `<details class="stmt-group" id="statement-history-charges" ${p.chargesOpen === false ? "" : "open"}><summary>${escapeHtml(tr("hist.charge.title"))} <span class="stmt-count">${charges.length}</span></summary>
+    return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.charge.title"))} <span class="stmt-count">${charges.length}</span>${toDecideBadge_(todo)}</summary>
       <p class="hint">${escapeHtml(tr("hist.charge.hint"))}</p>${rows}</details>`;
   }
 
@@ -2070,6 +2094,7 @@
     const { actions, summary } = historyPlan;
     const left = summary.leftOut, c = historyCounts();
     const lines = [];
+    // Same order as the groups below: new entries, then what changes in entries you have, then what is only remembered.
     if (c.expenses) {
       const totals = moneyTotals(c.spent).split(" + ");
       if (totals.length > 1) lines.push(tr("hist.sum.expensesMany", { n: c.expenses }), ...totals);   // one line per currency: never added together
@@ -2084,13 +2109,13 @@
     if (c.exchanges) lines.push(tr("hist.sum.exchanges", { n: c.exchanges }));
     if (c.fees) lines.push(tr("hist.sum.fees", { n: c.fees }));
     if (c.pending) lines.push(tr("hist.sum.pending", { n: c.pending }));
-    if (c.left) lines.push(tr("hist.sum.left", { n: c.left }));
-    if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
-    if (c.balances) lines.push(tr("hist.sum.balances", { n: c.balances }));
-    if (c.charges) lines.push(tr("hist.sum.charges", { n: c.charges }));
-    if (c.discounts) lines.push(tr("hist.sum.discounts", { n: c.discounts }));
-    if (c.recharges) lines.push(tr("hist.sum.recharges", { n: c.recharges }));
     if (c.accountsFilled) lines.push(tr("hist.sum.accountsFilled", { n: c.accountsFilled }));
+    if (c.charges) lines.push(tr("hist.sum.charges", { n: c.charges }));
+    if (c.recharges) lines.push(tr("hist.sum.recharges", { n: c.recharges }));
+    if (c.discounts) lines.push(tr("hist.sum.discounts", { n: c.discounts }));
+    if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
+    if (c.left) lines.push(tr("hist.sum.left", { n: c.left }));
+    if (c.balances) lines.push(tr("hist.sum.balances", { n: c.balances }));
     const proposals = summary.newAccounts || [];
     const proposedKeys = new Set(proposals.map((p) => p.key));
     const stillUnknown = (summary.unknownAccounts || []).filter((k) => !proposedKeys.has(k));
@@ -2101,7 +2126,13 @@
     if (left.noAccount && stillUnknown.length) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: stillUnknown.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
     const pre = newAccountsHtml(proposals) + addedAccountsHtml();
-    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + chargesHtml() + noAccountHtml() + rechargesHtml() + discountsHtml() + peopleHtml() + incomeHtml() + asideHtml() + (StatementTable.canLinkExchange(summary.candidates) ? exchangeHtml() : "") + balancesHtml();
+    const readyHtml = noAccountHtml() + chargesHtml("ready") + rechargesHtml("ready") + discountsHtml("ready");
+    const decideHtml = discountsHtml("decide") + chargesHtml("decide") + rechargesHtml("decide") + peopleHtml() + incomeHtml()
+      + (StatementTable.canLinkExchange(summary.candidates) ? exchangeHtml() : "") + asideHtml();
+    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("")
+      + (readyHtml ? `<h3 class="stmt-section-title">${escapeHtml(tr("hist.sec.ready"))}</h3>${readyHtml}` : "")
+      + (decideHtml ? `<h3 class="stmt-section-title">${escapeHtml(tr("hist.sec.decide"))}</h3>${decideHtml}` : "")
+      + (() => { const b = balancesHtml(); return b && (readyHtml || decideHtml) ? `<h3 class="stmt-section-title">${escapeHtml(tr("hist.sec.balances"))}</h3>${b}` : b; })();
     if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(summary.charges || []).length && !(summary.discounts || []).length && !(summary.recharges || []).length && !(historyPlan.checks || []).length) {
       out.innerHTML = pre + (proposals.length ? "" : `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>`) + noteHtml;
       return;
@@ -2112,8 +2143,17 @@
         ${historyActions().length ? `<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
       return;
     }
-    const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
-    out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>
+    const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(summary.from === summary.to ? tr("hist.rangeOne", { date: fmtDate(summary.from, true) })
+      : tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
+    // Three counters first (owner, 2026-11-11): new entries · entries you have that change · choices still open.
+    const nUpdated = c.accountsFilled + c.charges + c.recharges + c.discounts;
+    const nDecide = (summary.charges || []).filter((x, k) => !chargeOf(k)).length + (summary.recharges || []).filter((x, k) => !rechargeOf(k)).length
+      + (summary.discounts || []).filter((x, k) => !discountOf(k)).length;
+    const counters = `<p class="stmt-counters">${[
+      `<span>➕ ${escapeHtml(tr("hist.cnt.new", { n: c.entries }))}</span>`,
+      `<span>✏️ ${escapeHtml(tr("hist.cnt.updated", { n: nUpdated }))}</span>`,
+      `<span>❓ ${escapeHtml(tr("hist.cnt.decide", { n: nDecide }))}</span>`].join(" · ")}</p>`;
+    out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>${counters}
       <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
       ${range}<p class="hint">${escapeHtml(tr(usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategoryUnlessNamed" : "hist.noCategory"))}</p>${noteHtml}
       <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;
@@ -2508,6 +2548,9 @@
       if (e.target.open) historyPlan.openPeople.add(e.target.dataset.ppkey); else historyPlan.openPeople.delete(e.target.dataset.ppkey);
     }
     if (e.target.id === "statement-history-xch") historyPlan.xchOpen = e.target.open;
+    if (e.target.dataset && e.target.dataset.sec && historyPlan.openSec) {
+      if (e.target.open) historyPlan.openSec.add(e.target.dataset.sec); else historyPlan.openSec.delete(e.target.dataset.sec);
+    }
     if (e.target.dataset && e.target.dataset.gopen) {
       const g = Number(e.target.dataset.gopen);
       if (e.target.open) historyPlan.openGroups.add(g); else historyPlan.openGroups.delete(g);

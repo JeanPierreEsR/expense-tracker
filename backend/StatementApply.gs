@@ -68,7 +68,8 @@ function ensureStatementGapsSheet_() {
 
 var STATEMENT_HANDLED_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true, ignored: true, reversed: true, charge_filled: true };
 // The card charged less than recorded (a discount; owner, 2026-11-10): the purchase takes the bank's amount, within this share of it.
-var STMT_DISCOUNT_APPLY_MAX_ = 0.15;
+var STMT_DISCOUNT_APPLY_MAX_ = 0.30;   // a pre-filled pair is within 15%, a suggestion the person picked within 30% (StatementMatch.gs)
+var STMT_HIGHER_APPLY_MAX_ = 0.10;     // a picked "charged more" suggestion: at most 10% above what was recorded
 
 function ensureStatementSheet_(name, columns, textColumns) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -537,7 +538,8 @@ function applyStatementDecisions(payload) {
       var pmD = requirePm(du), charged = Math.round(-Number(du.l.amount) * 100) / 100, recordedAmt = Number(values[di][col.amount]);
       var curFromD = values[di][col.payment_method_id];
       if (values[di][col.type] !== 'expense' || String(values[di][col.currency] || homeCurrency_()) !== du.l.currency || !(charged > 0) ||
-          !(recordedAmt > charged) || charged < recordedAmt * (1 - STMT_DISCOUNT_APPLY_MAX_) - 0.004 || (curFromD && curFromD !== pmD.id)) {
+          Math.abs(recordedAmt - charged) < 0.005 || charged < recordedAmt * (1 - STMT_DISCOUNT_APPLY_MAX_) - 0.004 ||
+          charged > recordedAmt * (1 + STMT_HIGHER_APPLY_MAX_) + 0.004 || (curFromD && curFromD !== pmD.id)) {
         throw new Error(tr_('sa.discountMismatch'));
       }
       if (repaymentOfEntry_(String(a.entryId))) throw new Error(tr_('sa.discountMismatch'));

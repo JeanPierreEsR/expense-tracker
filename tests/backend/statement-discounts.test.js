@@ -54,7 +54,10 @@ test("limits: more than 15% lower, more than 3 days apart, a higher charge, or o
     { date: "2019-03-25", description: "SHOP LIMA PERU", amount: -39.00, currency: "PEN" }
   ]);
   const p = plan(rt, [s]);
-  assert.equal(p.summary.discounts.length, 0);
+  // Since 2026-11-11 the 16.5% lower one and the 5% HIGHER one (Tambo) are SUGGESTIONS (never ticked); the others still give nothing.
+  assert.deepEqual(p.summary.discounts.map((d) => [d.description, d.suggested, d.clear, !!d.higher]),
+    [["AGORA SHOP COMPANIA FO", true, false, false], ["TAMBO", true, false, true]]);
+  assert.ok(!p.actions.some((a) => a.type === "use_bank_amount"));
 });
 
 test("an exact match always wins, and two possible purchases are left for the person to pick", () => {
