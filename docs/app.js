@@ -7942,8 +7942,15 @@ function restoreTabScroll_(name) {
   if (Spotlight.isRunning()) return;   // a practice moves the page itself
   const y = tabScrollY_[name] || 0;
   window.scrollTo(0, y);
-  if (!y) return;
-  const ro = new ResizeObserver(() => { if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y); });
+  if (y) holdScroll_(name, () => y);
+}
+// Keeps the page at whereY() while the screen's cards load and change height, until the person touches the screen (or 10 s).
+// whereY() returns null while its target is not on screen yet.
+function holdScroll_(name, whereY) {
+  endTabScrollHold_();
+  const go = () => { const y = whereY(); if (y !== null && Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y); };
+  go();
+  const ro = new ResizeObserver(go);
   ro.observe(document.getElementById("screen-" + name));
   const TOUCHES = ["pointerdown", "touchstart", "wheel"];
   const timer = setTimeout(() => endTabScrollHold_(), 10000);
@@ -8413,7 +8420,6 @@ document.getElementById("custom-end").addEventListener("change", refreshCurrentP
 let monthsHist_ = null;
 let monthsHistAt_ = 0;
 let monthsHistBusy_ = null;
-let overviewScrollTo_ = null;    // card id to bring into view once the history has painted
 
 function refreshMonthsHistory_() {
   if (monthsHistBusy_) return monthsHistBusy_;
@@ -8432,11 +8438,6 @@ function renderMonthsHistory_() {
   if (!monthsHist_) return;
   renderMonthsBars_();
   renderPaceBig_();
-  if (overviewScrollTo_) {
-    const el = document.getElementById(overviewScrollTo_);
-    overviewScrollTo_ = null;
-    if (el && !el.hidden) el.scrollIntoView({ block: "start", behavior: "auto" });
-  }
 }
 
 function renderMonthsBars_() {
@@ -8789,10 +8790,17 @@ document.getElementById("pace-s-reset").addEventListener("click", () => {
   });
 })();
 
-// Home's cards land here: open Overview and bring the matching card into view.
+// Home's cards land here: open Overview on the matching card, just under the pinned period picker, and keep it there while the
+// cards above it finish loading (they change height and would push it away) until the person touches the screen.
 function openOverviewAt_(cardId) {
-  overviewScrollTo_ = cardId;
   showScreen("overview");
+  if (Spotlight.isRunning()) return;
+  const el = document.getElementById(cardId);
+  const picker = document.getElementById("period-selector-card");
+  holdScroll_("overview", () => {
+    if (!el || el.hidden || !el.offsetParent) return null;
+    return Math.max(0, Math.round(el.getBoundingClientRect().top + window.scrollY - picker.offsetHeight - 8));
+  });
 }
 
 // ---- Overview: expense/income toggle ----
