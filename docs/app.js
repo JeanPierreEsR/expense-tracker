@@ -6892,7 +6892,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         ${reviewHasAccountBox_(entry) ? `
         <label class="review-transfer-label">${tr(entry.type === "income" ? "review.receivedAtLabel" : "field.paidFromAccount")}</label>
         <select class="review-account">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>` : ""}
-        ${entry.type === "expense" && (meta.trips || []).length ? `
+        ${entry.type === "expense" && reviewTripFits_(entry) ? `
         <label class="review-transfer-label">${tr("field.trip")}</label>
         <select class="review-trip">${reviewTripOptions_(entry.trip_id || entry.suggested_trip_id || "")}</select>` : ""}
         ${entry.type === "transfer" ? `
@@ -16363,6 +16363,14 @@ function fillTripOptions_(sel, keep) {
 }
 
 // <option> HTML for a review card's trip picker, `selected` pre-chosen (same order as the entry form's).
+// A Needs review expense offers Trip / event only when its date falls within a trip's dates, or it is already linked to one
+// (owner, 2026-11-11: an everyday purchase does not need the field).
+function reviewTripFits_(entry) {
+  if (entry.trip_id) return true;
+  const d = String(entry.date || "").slice(0, 10);
+  return (meta.trips || []).some((t) => d >= t.start_date && d <= t.end_date);
+}
+
 function reviewTripOptions_(selected) {
   const holder = document.createElement("select");
   fillTripOptions_(holder, selected);
