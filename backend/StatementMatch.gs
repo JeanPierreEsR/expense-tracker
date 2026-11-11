@@ -294,6 +294,45 @@ function matchStatements_(statements, entries, opts) {
     });
   });
 
+  // A card charged a purchase in ANOTHER currency than the one recorded in the app (owner, 2026-11-10): Apple's and Spotify's e-mails
+  // say soles, the card bills dollars. Card statements only; an expense on this card (or with no account yet) that is NOT a "charge to
+  // fill in" (those are paired above), paid by the person, up to STMT_DISCOUNT_WINDOW_DAYS apart, a distinctive word in common, and the
+  // two amounts within STMT_CHARGE_RATE_SLACK of the rate table (no rate on file = no pair). Same CLEAR rule as the discounts.
+  statements.forEach(function (st) {
+    if (!st.card || String(st.pmId).indexOf('unknown:') === 0 || !opts.chargeRatio) return;
+    var cands = {}, perEntry = {};
+    st.lines.forEach(function (l, li) {
+      var r = perLine[st.key][li];
+      if (r.status !== 'unregistered' || l.handled || l.stored || l.appLine || !(l.amount < 0)) return;
+      var charged = -l.amount, ld = stmtDayNumber_(l.date), lw = stmtDistinctWords_(l.description), list = [];
+      if (!lw.length) return;
+      near(ld, STMT_DISCOUNT_WINDOW_DAYS).forEach(function (ei) {
+        var e = entries[ei];
+        if (e.status !== 'confirmed' || e.type !== 'expense' || !e.currency || e.currency === l.currency || used[e.id]) return;
+        if (e.payment_method_id && e.payment_method_id !== st.pmId) return;
+        if (String(e.charge_pending || '') === '1' || e.paid_currency || stmtFromStatement_(e) || (e.paid_by && e.paid_by !== 'me')) return;
+        var dd = Math.abs(index.days[ei] - ld);
+        if (dd > STMT_DISCOUNT_WINDOW_DAYS || !(Number(e.amount) > 0)) return;
+        var expected = opts.chargeRatio(e.currency, l.currency, e.date);
+        if (!expected) return;
+        var off = Math.abs(charged / Number(e.amount) / expected - 1);
+        if (off > STMT_CHARGE_RATE_SLACK) return;
+        var ew = stmtDistinctWords_(e.description + ' ' + (e.merchant || ''));
+        if (!lw.some(function (w) { return ew.indexOf(w) !== -1; })) return;
+        list.push({ entryId: e.id, dd: dd, off: off });
+        perEntry[e.id] = (perEntry[e.id] || 0) + 1;
+      });
+      if (list.length) cands[li] = list.sort(function (a, b) { return (a.dd - b.dd) || (a.off - b.off); });
+    });
+    Object.keys(cands).forEach(function (li) {
+      var list = cands[li], best = list[0];
+      var clear = list.length === 1 && perEntry[best.entryId] === 1;
+      if (clear) used[best.entryId] = true;
+      perLine[st.key][li] = { status: 'recharge', recharge: { entryId: clear ? best.entryId : '', clear: clear,
+        options: list.map(function (c) { return { entryId: c.entryId, dd: c.dd }; }) }, guess: 'expense' };
+    });
+  });
+
   // Second look for whatever is still unmatched: an entry with the same
   // amount and date that is assigned to a DIFFERENT account (e.g. a salary
   // logged as "Bank transfer"). Never auto-matched — offered as a possible
