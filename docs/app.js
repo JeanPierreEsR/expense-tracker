@@ -28619,6 +28619,8 @@ function formatSignedBalance_(amount, currency) {
 // account that isn't tracked yet).
 async function openBalanceModal(pmId) {
   balanceModalPmId = pmId;
+  balanceNyShow_(false);
+  balanceNyCands_ = null;
   document.getElementById("balance-form-error").textContent = "";
   document.getElementById("balance-check-input").value = "";
   document.getElementById("balance-check-result").textContent = "";
@@ -28731,7 +28733,7 @@ function loadBalanceRowsFor_(pmId) {
         date: o.date || todayLocalISO(),
         // The saved snapshot, so the note can tell an untouched row (keeps its
         // moment on save — setPaymentMethodOpeningBalance) from a changed one.
-        saved: { amount: o.amount, currency: o.currency, date: o.date || "", asOf: o.as_of || "" }
+        saved: { amount: o.amount, currency: o.currency, date: o.date || "", asOf: o.as_of || "", notYet: o.not_yet || [] }
       }))
     : [];
   // Every currency of the account gets its own row (owner, 2026-11-11): the ones its card/account holds and the ones it has movements in.
@@ -28819,8 +28821,106 @@ document.getElementById("balance-add-row-btn").addEventListener("click", () => {
   renderBalanceRows_();
 });
 
+// ---- "Already in / Not yet" (owner's plan, 2026-11-11, option B) ----
+// After Save, the sheet lists the account's entries of the last 5 days up to each balance's day that the balance would take as
+// already inside it (recorded before it). The person marks the ones still in process "Not yet": they count after the balance.
+// Starting marks: what was saved before; an entry the in-process screenshot found (balance row `inproc`); on a CREDIT card, the
+// balance's day and the day before (card purchases take 1-3 days to post); everything else "Already in".
+let balanceNyCands_ = null;   // { key, data } of the last answer
+let balanceNyState_ = null;   // { pmId, balances, cands: [{ currency, items: [{ ..., notYet }] }] }
+function balanceNyShow_(on) {
+  document.getElementById("balance-main").hidden = on;
+  document.getElementById("balance-notyet").hidden = !on;
+}
+// Only rows that are new or changed are asked about: an untouched row keeps its moment and its marks (the server keeps them).
+function balanceNyRowsToAsk_(balances) {
+  return balances.filter((b) => {
+    const row = balanceFormRows.find((r) => r.currency === b.currency);
+    const s = row && row.saved;
+    return !(s && s.currency === b.currency && s.date === b.date && s.amount === b.amount);
+  });
+}
+async function balanceNyCandidates_(pmId, balances) {
+  const ask = balanceNyRowsToAsk_(balances);
+  if (!ask.length) return [];
+  const rows = ask.map((b) => ({ currency: b.currency, date: b.date }));
+  const key = JSON.stringify([pmId, rows]);
+  if (!balanceNyCands_ || balanceNyCands_.key !== key) balanceNyCands_ = { key, data: await callApi("listStartBalanceCandidates", { id: pmId, rows }) };
+  const pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === pmId);
+  const card = !!pm && pm.type === "credit";
+  return ask.map((b) => {
+    const row = balanceFormRows.find((r) => r.currency === b.currency) || {};
+    // Marks chosen last time for this day: an entry that existed then keeps that choice; a newer one gets the starting rule.
+    const saved = (row.saved && row.saved.date === b.date && row.saved.notYet) || [];
+    const savedAt = row.saved && row.saved.date === b.date ? row.saved.asOf || "" : "";
+    const inproc = ((row.inproc || []).filter((it) => it.currency === b.currency)).map((it) => Math.round(it.amount * 100));
+    const dayBefore = new Date(b.date + "T12:00:00"); dayBefore.setDate(dayBefore.getDate() - 1);
+    const recentFrom = card ? dayBefore.toISOString().slice(0, 10) : "9999";
+    const items = (balanceNyCands_.data[b.currency] || []).map((e) => {
+      const known = savedAt && e.created_at && e.created_at < savedAt;
+      let notYet = saved.includes(e.id) || (!known && e.date >= recentFrom);
+      const k = inproc.indexOf(Math.round(e.signed * 100));
+      if (k !== -1) { notYet = true; inproc.splice(k, 1); }
+      return Object.assign({}, e, { notYet, fromShot: k !== -1 });
+    });
+    return { currency: b.currency, date: b.date, items };
+  });
+}
+function balanceNyOpen_(pmId, balances, cands) {
+  balanceNyState_ = { pmId, balances, cands };
+  document.getElementById("balance-notyet-hint").textContent = tr("balance.ny.hint");
+  document.querySelector("#balance-notyet .balance-section-title").textContent = tr("balance.ny.title");
+  document.getElementById("balance-notyet-save").textContent = tr("balance.save");
+  document.getElementById("balance-notyet-back").textContent = tr("balance.ny.back");
+  balanceNyRender_();
+  balanceNyShow_(true);
+  const body = document.querySelector("#balance-modal-backdrop .budget-modal-body");
+  if (body) body.scrollTop = 0;
+}
+function balanceNyRender_() {
+  const list = document.getElementById("balance-notyet-list");
+  list.innerHTML = "";
+  balanceNyState_.cands.forEach((c) => {
+    if (!c.items.length) return;
+    if (balanceNyState_.cands.filter((x) => x.items.length).length > 1) {
+      const h = document.createElement("div");
+      h.className = "notyet-cur";
+      h.textContent = c.currency;
+      list.appendChild(h);
+    }
+    c.items.forEach((it) => {
+      const row = document.createElement("div");
+      row.className = "notyet-row";
+      const amount = formatAmount(Math.abs(it.signed), c.currency, it.signed < 0 ? "−" : "+");
+      row.innerHTML = `
+        <div class="notyet-top"><span class="notyet-desc">${escapeHtml(it.description || TYPE_LABELS[it.type] || it.type)}</span><span class="notyet-amount">${amount}</span></div>
+        <div class="notyet-meta">${escapeHtml(listDate_(it.date))}${it.fromShot ? " · " + escapeHtml(tr("balance.ny.fromShot")) : ""}</div>
+        <div class="notyet-choices">
+          <button type="button" class="notyet-choice${it.notYet ? "" : " active"}" data-v="in">${escapeHtml(tr("balance.ny.in"))}</button>
+          <button type="button" class="notyet-choice${it.notYet ? " active" : ""}" data-v="not">${escapeHtml(tr("balance.ny.not"))}</button>
+        </div>`;
+      row.querySelectorAll(".notyet-choice").forEach((b) => b.addEventListener("click", () => { it.notYet = b.dataset.v === "not"; balanceNyRender_(); }));
+      list.appendChild(row);
+    });
+  });
+}
+document.getElementById("balance-notyet-back").addEventListener("click", () => balanceNyShow_(false));
+document.getElementById("balance-notyet-save").addEventListener("click", () => {
+  const st = balanceNyState_;
+  if (!st) return;
+  const balances = st.balances.map((b) => {
+    const c = st.cands.find((x) => x.currency === b.currency);
+    return c ? Object.assign({}, b, { not_yet: c.items.filter((it) => it.notYet).map((it) => it.id) }) : b;
+  });
+  const pmId = st.pmId;
+  balanceNyState_ = null;
+  closeBalanceModal();
+  saveBehindScreen_(() => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances }), refreshBalances);
+});
+
 function closeBalanceModal() {
   document.getElementById("balance-modal-backdrop").hidden = true;
+  balanceNyShow_(false);
   balanceModalPmId = null;
   balanceModalData = null;
 }
@@ -28872,6 +28972,16 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
       // Typed minus or the checkbox both mean negative; never double-negate.
       return { currency: row.currency, amount: row.negative ? -Math.abs(parsed) : parsed, date: row.date };
     });
+    // "Is this already in your bank's balance?" (owner, 2026-11-11): the account's recent entries the balance would take as inside it.
+    if (((meta && meta.capabilities) || {}).startNotYet && !Spotlight.isRunning()) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = tr("balance.ny.checking");
+      let cands = null;
+      try { cands = await balanceNyCandidates_(pmId, balances); } catch (e) { cands = null; }
+      saveBtn.textContent = tr("balance.save");
+      if (document.getElementById("balance-modal-backdrop").hidden) return;   // closed while checking
+      if (cands && cands.some((c) => c.items.length)) { balanceNyOpen_(pmId, balances, cands); return; }
+    }
     closeBalanceModal();
     saveBehindScreen_(practiceATrackBalance_(pmId, () => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances })), refreshBalances);
   } catch (err) {
@@ -29896,31 +30006,29 @@ document.getElementById("inproc-negative").addEventListener("change", () => upda
 
 // Puts the new balance (the number typed, or the balance this app shows now, plus the in-process total) into the balance sheet behind this one.
 // Nothing is saved here: the person reviews the row and presses Save in the balance sheet.
+// Puts the number the bank app shows into the balance sheet behind this one, AS SHOWN, and remembers the ticked payments so the
+// "Already in / Not yet" step marks them "Not yet" (owner, 2026-11-11: before, the app took them off the number, which counted a
+// payment twice when its entry reached the app after the balance was saved). Nothing is saved here: the person taps Save there.
 document.getElementById("inproc-apply").addEventListener("click", () => {
-  const sums = InProcess.sumsByCurrency(inprocItems_.filter((it) => it.on));
-  const curs = Object.keys(sums);
+  const ticked = inprocItems_.filter((it) => it.on);
+  const curs = Object.keys(InProcess.sumsByCurrency(ticked));
   if (!curs.length) { inprocSay_(tr("inproc.applyNothing"), true); return; }
-  const pmId = balanceFormPmId_;
-  const tracked = pmId && balancesCache.find((b) => b.id === pmId);
   const typed = curs.length === 1 ? inprocTypedBalance_() : null;
-  const newCents = {};
-  for (const cur of curs) {
-    let base = typed;
-    if (base === null) {
-      const have = tracked && tracked.balances.find((b) => b.currency === cur);
-      if (!have) { inprocSay_(tr("inproc.applyNeedNumber", { cur }), true); return; }
-      base = have.amount;
-    }
-    newCents[cur] = Math.round(base * 100) + sums[cur];
+  if (typed === null && curs.length === 1 && !balanceFormRows.some((r) => r.currency === curs[0] && String(r.amount).trim())) {
+    inprocSay_(tr("inproc.applyNeedNumber", { cur: curs[0] }), true); return;
   }
   curs.forEach((cur) => {
     let row = balanceFormRows.find((r) => r.currency === cur);
     if (!row) row = balanceFormRows.find((r) => !String(r.amount).trim());
     if (!row) { row = { amount: "", negative: false, currency: cur, date: todayLocalISO() }; balanceFormRows.push(row); }
     row.currency = cur;
-    row.amount = (Math.abs(newCents[cur]) / 100).toFixed(2);
-    row.negative = newCents[cur] < 0;
+    if (typed !== null) {
+      const bal = inprocDebt_ ? -Math.abs(typed) : typed;
+      row.amount = Math.abs(bal).toFixed(2);
+      row.negative = bal < 0;
+    }
     row.date = todayLocalISO();
+    row.inproc = ticked.filter((it) => it.currency === cur).map((it) => ({ amount: it.amount, currency: it.currency }));
   });
   renderBalanceRows_();
   closeInprocModal_();

@@ -881,7 +881,7 @@ function undoStatementBatch(payload) {
         return o.payment_method_id === r.payment_method_id && String(o.currency).toUpperCase() === String(r.currency).toUpperCase() && String(o.date).substring(0, 10) === String(r.date).substring(0, 10);
       });
       if (there) return;
-      addOpeningRow_(r.payment_method_id, String(r.currency).toUpperCase(), Number(r.amount), String(r.date), String(r.as_of || ''));
+      addOpeningRow_(r.payment_method_id, String(r.currency).toUpperCase(), Number(r.amount), String(r.date), String(r.as_of || ''), String(r.not_yet || ''));
       res.balancesRestored = (res.balancesRestored || 0) + 1;
     } catch (e) { /* unreadable — leave */ }
   });

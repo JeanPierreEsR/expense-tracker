@@ -514,6 +514,7 @@ function routeActionSwitch_(action, payload) {
     case 'listTidyGroups': return listTidyGroups(payload);
     case 'applyTidyGroups': return applyTidyGroups(payload);
     case 'listNoAccountEntries': return listNoAccountEntries(payload);
+    case 'listStartBalanceCandidates': return listStartBalanceCandidates(payload);
     case 'assignEntryAccounts': return assignEntryAccounts(payload);
     case 'undoEntryAccounts': return undoEntryAccounts(payload);
     case 'getEntry': return getEntryById_(payload.id);

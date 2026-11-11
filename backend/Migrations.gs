@@ -89,7 +89,7 @@ function adminSetupIbkAccounts(payload) {
 
 // Same cell handling as setPaymentMethodOpeningBalance: date and as_of are
 // plain-text cells so Sheets doesn't turn them into Date values.
-function addOpeningRow_(pmId, currency, amount, date, asOf) {
+function addOpeningRow_(pmId, currency, amount, date, asOf, notYet) {
   var sheet = getSheet('Account Opening Balances');
   var headers = getHeaders(sheet);
   var newId = Utilities.getUuid();
@@ -103,6 +103,7 @@ function addOpeningRow_(pmId, currency, amount, date, asOf) {
   var asOfCell = sheet.getRange(row, headers.indexOf('as_of') + 1);
   asOfCell.setNumberFormat('@');
   asOfCell.setValue(asOf);
+  if (notYet && headers.indexOf('not_yet') !== -1) sheet.getRange(row, headers.indexOf('not_yet') + 1).setValue(String(notYet));
   return newId;
 }
 

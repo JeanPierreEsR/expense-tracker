@@ -95,8 +95,16 @@ function stmtBalanceCheck_(args) {
       var re = args.entryById[l.recharge.entryId];
       if (re && re.status === 'confirmed' && (re.currency || homeCurrency_()) === cur && re.payment_method_id === pm.id) { other += Number(re.amount); otherN++; }
     });
+    // A line dated on/before the starting balance is inside it, unless its entry was marked "Not yet" when the balance was saved
+    // (owner, 2026-11-11): then it counts after the balance, like the entry.
+    var notYet = {};
+    ((own && own.not_yet) || []).forEach(function (id) { notYet[id] = true; });
+    var lineNotYet = function (l) {
+      var id = l.entry ? l.entry.id : (l.handled && l.handled.entryId) || (l.discount && l.discount.entryId) || '';
+      return !!(id && notYet[id]);
+    };
     (args.lines || []).forEach(function (l, li) {
-      if (l.currency !== cur || l.date <= after) return;
+      if (l.currency !== cur || (l.date <= after && !lineNotYet(l))) return;
       if (l.recharge && l.recharge.clear && l.recharge.entryId) { other += Number(l.amount); otherN++; return; }
       // A card line paired with a purchase it charged LESS than (a discount, StatementMatch.gs): the purchase is in the app, only the
       // discount is not yet — it disappears once the purchase takes the bank's amount.
@@ -170,7 +178,7 @@ function stmtAppOnlyEntries_(args, governing, after) {
   (args.confirmed || []).forEach(function (e) {
     if ((e.currency || homeCurrency_()) !== cur || explained[e.id]) return;
     var d = String(e.date || '').slice(0, 10);
-    if (!d || d > args.end || (args.start && d < args.start) || (after && d <= after)) return;
+    if (!d || d > args.end || (args.start && d < args.start) || (after && d <= after && !((governing.not_yet || []).indexOf(String(e.id)) !== -1))) return;
     if (!entryCountsAfterOpening_(e, governing)) return;
     var eff = signedEffectOnPaymentMethod_(e, pm.id, args.inboundIds);
     if (!eff) return;

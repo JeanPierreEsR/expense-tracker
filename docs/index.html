@@ -2138,6 +2138,7 @@
         <button type="button" id="balance-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
+        <div id="balance-main">
         <div id="balance-account-picker-wrap" hidden>
           <label for="balance-account-picker" data-i18n="balance.accountPicker">Account (✓ = already has balances)</label>
           <select id="balance-account-picker"></select>
@@ -2166,6 +2167,14 @@
         <div id="balance-movements-wrap" hidden>
           <h3 class="balance-section-title" data-i18n="balance.movements">Movements since the starting date</h3>
           <div id="balance-movements"></div>
+        </div>
+        </div>
+        <div id="balance-notyet" hidden>
+          <h3 class="balance-section-title" data-i18n="balance.ny.title">Are these already in the balance you typed?</h3>
+          <p class="hint" id="balance-notyet-hint"></p>
+          <div id="balance-notyet-list"></div>
+          <button type="button" class="primary" id="balance-notyet-save" data-i18n="balance.save">Save starting balances</button>
+          <button type="button" class="add-inline" id="balance-notyet-back" data-i18n="balance.ny.back">‹ Back to the balances</button>
         </div>
       </div>
     </div>
