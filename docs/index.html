@@ -524,27 +524,24 @@
         <p class="hint" id="overview-empty-note" hidden data-i18n="overview.empty">No entries in this period yet.</p>
       </div>
 
-      <div class="card ov-period" id="overview-varies-card" hidden>
-        <h2 data-i18n="varies.title">💵 Income that varies</h2>
-        <p class="hint" data-i18n="varies.intro">Money that changes from month to month (sales, freelance, daily work).</p>
-        <p class="ov-varies-line" id="ov-varies-got"></p>
-        <p class="hint" id="ov-varies-split" hidden></p>
-        <button type="button" class="ov-varies-avg" id="ov-varies-avg" hidden></button>
-        <div class="ov-varies-bar-wrap" id="ov-varies-bar-wrap" hidden>
-          <div class="ov-varies-bar"><span id="ov-varies-bar-fill"></span></div>
-          <span class="hint" id="ov-varies-bar-text"></span>
+      <div class="card" id="balances-card">
+        <div class="budgets-header">
+          <h2 data-i18n="balances.title">Balances</h2>
+          <button type="button" class="icon-btn" id="add-balance-btn" data-i18n-aria-label="balances.addAria" aria-label="Add balance"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
-        <div id="ov-varies-payers-wrap" hidden>
-          <h3 data-i18n="varies.whoPaid">Who paid me</h3>
-          <div id="ov-varies-payers"></div>
+        <p class="hint" id="balances-hint"></p>
+        <div id="balances-totals" class="balances-totals" hidden>
+          <div class="balances-totals-title" data-i18n="balances.netByCurrency">What's left by currency</div>
+          <div id="balances-totals-lines"></div>
+          <button type="button" class="balances-toggle" id="balances-toggle" aria-expanded="false"></button>
         </div>
+        <div id="balances-list" hidden></div>
+        <p class="hint" id="balances-empty-note" hidden data-i18n="balances.empty">No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.</p>
       </div>
 
-      <div class="card" id="months-card" hidden>
-        <h2 data-i18n="monthsHist.title">Month by month</h2>
-        <p class="hint" data-i18n="monthsHist.hint">Income and expenses for every month with entries. Tap a month to see it below.</p>
-        <div class="months-scroll" id="months-scroll"></div>
-        <div class="home-legend"><span><i style="background:var(--income)"></i><span data-i18n="summary.income">Income</span></span><span><i style="background:var(--expense)"></i><span data-i18n="summary.expenses">Expenses</span></span></div>
+      <div class="card ov-period" id="loans-ov-card" hidden>
+        <h2><span data-i18n="loans.ov.title">Loans</span> <span class="ov-card-chevron" aria-hidden="true">›</span></h2>
+        <div class="loans-ov-owed" id="loans-ov-owed" hidden></div>
       </div>
 
       <div class="card ov-period" id="pace-card" hidden>
@@ -562,19 +559,19 @@
         <div class="home-pace-lines" id="pace-lines"></div>
       </div>
 
-      <div class="card" id="balances-card">
-        <div class="budgets-header">
-          <h2 data-i18n="balances.title">Balances</h2>
-          <button type="button" class="icon-btn" id="add-balance-btn" data-i18n-aria-label="balances.addAria" aria-label="Add balance"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+      <div class="card ov-period" id="overview-varies-card" hidden>
+        <h2 data-i18n="varies.title">💵 Income that varies</h2>
+        <p class="ov-varies-line" id="ov-varies-got"></p>
+        <p class="hint" id="ov-varies-split" hidden></p>
+        <button type="button" class="ov-varies-avg" id="ov-varies-avg" hidden></button>
+        <div class="ov-varies-bar-wrap" id="ov-varies-bar-wrap" hidden>
+          <div class="ov-varies-bar"><span id="ov-varies-bar-fill"></span></div>
+          <span class="hint" id="ov-varies-bar-text"></span>
         </div>
-        <p class="hint" id="balances-hint"></p>
-        <div id="balances-totals" class="balances-totals" hidden>
-          <div class="balances-totals-title" data-i18n="balances.netByCurrency">What's left by currency</div>
-          <div id="balances-totals-lines"></div>
-          <button type="button" class="balances-toggle" id="balances-toggle" aria-expanded="false"></button>
+        <div id="ov-varies-payers-wrap" hidden>
+          <h3 data-i18n="varies.whoPaid">Who paid me</h3>
+          <div id="ov-varies-payers"></div>
         </div>
-        <div id="balances-list" hidden></div>
-        <p class="hint" id="balances-empty-note" hidden data-i18n="balances.empty">No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.</p>
       </div>
 
       <div class="card ov-period" id="investments-card" hidden>
@@ -583,12 +580,11 @@
         <div id="investments-period-list"></div>
       </div>
 
-      <div class="card ov-period" id="loans-ov-card" hidden>
-        <h2><span data-i18n="loans.ov.title">Loans</span> <span class="ov-card-chevron" aria-hidden="true">›</span></h2>
-        <p class="hint" data-i18n="loans.ov.hint">Money borrowed, lent and repaid in this period, per currency.</p>
-        <div class="loans-ov-owed" id="loans-ov-owed" hidden></div>
-        <div id="loans-ov-list"></div>
-        <button type="button" class="add-inline" id="loans-ov-people-btn" hidden></button>
+      <div class="card" id="months-card" hidden>
+        <h2 data-i18n="monthsHist.title">Month by month</h2>
+        <p class="hint" data-i18n="monthsHist.hint">Income and expenses for every month with entries. Tap a month to see it below.</p>
+        <div class="months-scroll" id="months-scroll"></div>
+        <div class="home-legend"><span><i style="background:var(--income)"></i><span data-i18n="summary.income">Income</span></span><span><i style="background:var(--expense)"></i><span data-i18n="summary.expenses">Expenses</span></span></div>
       </div>
 
       <div class="card ov-period">
@@ -1637,8 +1633,8 @@
   <div id="pace-screen-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal currency-screen pace-screen">
       <div class="currency-modal-header">
+        <button type="button" class="icon-btn back-btn" id="pace-screen-back" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         <span data-i18n="home.paceTitle">Spending pace</span>
-        <button type="button" id="pace-screen-close" class="currency-modal-close">✕</button>
       </div>
       <div class="pace-screen-body">
         <div id="pace-s-loading"></div>
