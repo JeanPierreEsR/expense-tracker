@@ -58,6 +58,45 @@ function stmtBalanceCheck_(args) {
     out.reason = tr_('sb.untracked');
     return out;
   }
+  // A statement closing on the starting balance's own day: once saved, its lines cover their entries, and an entry such a statement
+  // covers is inside that balance (entryCountsAfterOpening_). Everything below is judged as it will be after the save (owner, 2026-11-11:
+  // a late bank e-mail the same-day statement shows was corrected AND moved inside by the save, 500 became 564.90).
+  var undoForesee = (own && args.end === own.date) ? stmtForeseeCoverage_(args, own.date) : null;
+  try {
+    return stmtBalanceCheckFrom_(args, out, own, governing);
+  } finally {
+    if (undoForesee) undoForesee();
+  }
+}
+
+// The lines of THIS statement that saving will remember as covering an entry (matched, a discount taken, a transfer completed: the
+// covering outcomes of Balances.gs), added to the coverage memo under `day` for the time of the check. Returns the undo.
+function stmtForeseeCoverage_(args, day) {
+  statementCoversEntry_('', day);   // fills the memo
+  var added = [];
+  var cover = function (id) {
+    if (!id) return;
+    var m = STMT_COVERAGE_MEMO_[id] || (STMT_COVERAGE_MEMO_[id] = {});
+    if (!m[day]) { m[day] = true; added.push(id); }
+  };
+  (args.lines || []).forEach(function (l) {
+    if (l.status === 'matched' && l.entry && l.entry.id) cover(l.entry.id);
+    if (l.discount && l.discount.clear && l.discount.entryId) cover(l.discount.entryId);
+    if (l.completesTransfer && l.completesTransfer.entry && l.completesTransfer.entry.id) cover(l.completesTransfer.entry.id);
+  });
+  return function () {
+    if (!STMT_COVERAGE_MEMO_) return;   // the memo was reset meanwhile: nothing of ours is left in it
+    added.forEach(function (id) {
+      var m = STMT_COVERAGE_MEMO_[id];
+      if (!m) return;
+      delete m[day];
+      if (!Object.keys(m).length) delete STMT_COVERAGE_MEMO_[id];
+    });
+  };
+}
+
+function stmtBalanceCheckFrom_(args, out, own, governing) {
+  var pm = args.pm, cur = args.currency;
   out.appAtEnd = stmtBalanceAt_(pm.id, cur, args.end, governing, args.confirmed, args.inboundIds);
   out.diff = Math.round((out.closing - out.appAtEnd) * 100) / 100;
 
