@@ -468,6 +468,7 @@
     "monthsHist.hint": { en: "Income and expenses for every month with entries. Tap a month to see it below.", es: "Ingresos y gastos de cada mes con movimientos. Toca un mes para verlo abajo." },
     "pace.refAtDay": { en: "{month}, same day", es: "{month}, mismo día" },
     "pace.refWholeDone": { en: "All of {month} (finished)", es: "Todo {month} (ya terminado)" },
+    "pace.refWhole": { en: "All of {month}", es: "Todo {month}" },
     "pace.refLast": { en: "Against earlier months", es: "Frente a meses anteriores" },
     "pace.refYear": { en: "Against last year", es: "Frente al año pasado" },
     "pace.noRef": { en: "No entries for {month}.", es: "No hay movimientos de {month}." },

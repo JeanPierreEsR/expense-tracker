@@ -8558,9 +8558,11 @@ function drawPace_(els, r, view) {
   const against = ref ? (r.isThisMonth ? sameDay : ref.expense) : null;
   const curLabel = r.isThisMonth ? (r.nowLabel || tr("home.paceNow")) : tr("pace.monthWhole", { month: r.curNameMid || paceMonthName_(r.curKey, true) });
   const refLine = !ref ? "" : r.isThisMonth
-    ? `<div class="pace-col"><span style="color:#c4c4cc">●</span> ${escapeHtml(tr("pace.refAtDay", { month: r.refStart }))}<b>${escapeHtml(formatPen(sameDay))}</b>
-      <span class="hint pace-whole">${escapeHtml(r.isAvg ? tr("pace.avgWhole") : tr("pace.refWholeDone", { month: r.refName }))}: ${escapeHtml(formatPen(ref.expense))}</span></div>`
-    : `<div class="pace-col"><span style="color:#c4c4cc">●</span> ${escapeHtml(r.isAvg ? r.refStart : tr("pace.monthWhole", { month: r.refName }))}<b>${escapeHtml(formatPen(ref.expense))}</b></div>`;
+    // The grey column sits on the right, right-aligned; its whole-month total under it, label and amount each on their own line
+    // (owner, 2026-11-10: no "same day", no "(finished)").
+    ? `<div class="pace-col pace-col-ref"><span style="color:#c4c4cc">●</span> ${escapeHtml(r.refStart)}<b>${escapeHtml(formatPen(sameDay))}</b>
+      <span class="hint pace-whole">${escapeHtml(r.isAvg ? tr("pace.avgWhole") : tr("pace.refWhole", { month: r.refName }))}:</span><span class="hint pace-whole-amt">${escapeHtml(formatPen(ref.expense))}</span></div>`
+    : `<div class="pace-col pace-col-ref"><span style="color:#c4c4cc">●</span> ${escapeHtml(r.isAvg ? r.refStart : tr("pace.monthWhole", { month: r.refName }))}<b>${escapeHtml(formatPen(ref.expense))}</b></div>`;
   const diff = els.diff && against != null && against > 0.004
     ? `<div class="pace-diff">${escapeHtml(tr("pace.diff", { amount: formatPenSigned_(nowTotal - against), pct: `${nowTotal >= against ? "+" : "−"}${Math.round(Math.abs(nowTotal - against) / against * 100)}%` }))}</div>` : "";
   els.lines.innerHTML = `

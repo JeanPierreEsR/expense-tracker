@@ -3125,6 +3125,9 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
    used to be pushed to the right and wrap under the blue one on the Spending pace screen). */
 .home-pace-lines { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; align-items: start; font-size: 0.8rem; margin-top: 6px; }
 .home-pace-lines .pace-whole { display: block; margin-top: 2px; }
+.home-pace-lines .pace-whole-amt { display: block; margin-top: 0; }
+.home-pace-lines .pace-col-ref { text-align: right; }
+.home-pace-lines .pace-col-ref .pace-whole { white-space: nowrap; }
 .home-pace-lines div { min-width: 0; }
 .home-pace-lines b { display: block; font-size: 0.95rem; }
 
