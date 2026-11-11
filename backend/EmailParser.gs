@@ -83,8 +83,11 @@ function extractAccountLast4_(body, label) {
 // still carries markdown-style *bold* markers or a stray <br>. The
 // connector below tolerates a colon, an asterisk, and/or a newline in any
 // combination between the label and the value.
+// A label may be followed by the Spanish "es" ("Tu código de operación es:\n517632", Interbank card payments since 2026): that word
+// is part of the label, never the value. Reading "es:" as the operation code gave EVERY such e-mail the same id, so after the first
+// one each new card payment was dropped as a repeat (found 2026-11-10 on the owner's mailbox).
 function afterLabel_(body, label) {
-  var re = new RegExp(label + '\\s*:?\\s*\\*?\\s*\\r?\\n?\\s*([^\\r\\n]+)', 'i');
+  var re = new RegExp(label + '(?:\\s+es\\b)?\\s*:?\\s*\\*?\\s*\\r?\\n?\\s*([^\\r\\n]+)', 'i');
   var m = body.match(re);
   return m ? cleanText_(m[1]) : null;
 }
