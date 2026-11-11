@@ -275,7 +275,7 @@ test("repayment history tells real repayments from automatic offsets", () => {
 
   const h = rt.api("getFriendRepaymentHistory", { friendId: friend.id });
   const offsets = h.repayments.filter((r) => r.is_offset);
-  assert.equal(offsets.length, 2, "one offset line on each loan");
+  assert.equal(offsets.length, 1, "the two halves (one on each loan) are ONE line (owner, 2026-11-10)");
   const owedRow = h.loans.find((l) => l.id === owed.id);
   assert.equal(owedRow.offset, 30);
   assert.ok(Math.abs(owedRow.remaining - (50 - 30 - 0.01)) < 0.001);
