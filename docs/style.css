@@ -2440,6 +2440,10 @@ body.income-revealed .sens-mask { display: none; }
   border: 1px solid var(--border); background: none; color: var(--text); cursor: pointer;
 }
 .stmt-choice.on { background: #e3f4e6; border-color: #1e6b32; color: #1e6b32; font-weight: 600; }
+/* Two or more choices that are only buttons (a person's "all lines" buttons, a line's Spending / Transfer / … / Leave out) stack at
+   one width with one left edge, and their words start at the left (owner, 2026-11-11: pills of every size, centred, looked loose). */
+.stmt-choices:has(> .stmt-choice + .stmt-choice):not(:has(> :not(.stmt-choice))) { flex-direction: column; align-items: stretch; }
+.stmt-choices:has(> .stmt-choice + .stmt-choice):not(:has(> :not(.stmt-choice))) > .stmt-choice { width: 100%; text-align: left; }
 .stmt-cat { font-family: inherit; font-size: 0.78rem; padding: 5px 6px; max-width: 100%; }
 .stmt-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .stmt-savebar {
