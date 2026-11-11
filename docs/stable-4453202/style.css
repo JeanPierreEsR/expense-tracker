@@ -50,6 +50,34 @@ button.update-banner {
   cursor: pointer;
 }
 
+/* The person's own server is behind the app (or lacks something the app needs): a closable bar that opens the update sheet. */
+.backend-update-banner {
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  cursor: default;
+}
+.backend-update-banner button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.backend-update-open {
+  flex: 1;
+  min-height: 44px;
+  padding: 10px 8px 10px 16px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  text-align: center;
+}
+.backend-update-close {
+  min-width: 44px;
+  padding: 0 14px;
+  padding-top: env(safe-area-inset-top, 0px);
+  font-size: 1rem;
+}
+
 /* A background entry-edit save failed — see "Background entry-edit
    saving" in app.js. Same fixed/always-visible treatment as the update
    banner above (and the same top:0 default — renderSaveFailedBanner_
@@ -127,7 +155,7 @@ main {
 .type-tabs {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
+  gap: 8px;
   margin-bottom: 14px;
 }
 
@@ -187,7 +215,7 @@ main {
 }
 
 .nav-btn { min-width: 0; }
-.nav-btn .nav-icon { font-size: 1.2rem; }
+.nav-btn .nav-icon { font-size: 1.2rem; height: 29px; line-height: 29px; }
 /* All six labels share one size and shrink together with the phone's width
    (vw), so the longest word in each language ("Presupuestos"/"Proyecciones"
    in Spanish, "Projections" in English) keeps a gap from its neighbour down
@@ -225,7 +253,7 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
   cursor: pointer;
 }
 
-#period-label { min-width: 140px; text-align: center; }
+#period-label { min-width: 140px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; text-align: center; }
 
 /* Month/Year: the label opens the quick picker (a small ▾ says so). */
 #period-label.tappable,
@@ -327,6 +355,38 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
 .summary-value.income { color: var(--income); }
 .summary-value.expense { color: var(--expense); }
 .summary-value.investment { color: var(--investment); }
+.pos-green, .summary-value.pos-green { color: var(--income); }
+
+/* Overview summary: four blocks that add up to What's left (owner's design, 2026-10-29) */
+.ov-sum-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.ov-sum-tile {
+  position: relative; display: flex; flex-direction: column; gap: 2px;
+  min-width: 0; padding: 10px 12px; border-radius: 12px;
+  background: var(--bg); border: 1px solid var(--border);
+}
+.ov-sum-tile.income { background: color-mix(in srgb, var(--income) 10%, var(--card)); border-color: transparent; }
+.ov-sum-tile.expense { background: color-mix(in srgb, var(--expense) 10%, var(--card)); border-color: transparent; }
+.ov-sum-tile.investment { background: color-mix(in srgb, var(--investment) 10%, var(--card)); border-color: transparent; }
+.ov-sum-tile.loans { background: var(--card); }
+.ov-sum-tile .summary-value { font-size: 0.98rem; white-space: nowrap; }
+.ov-sum-sign { position: absolute; top: 8px; right: 12px; font-size: 0.9rem; font-weight: 700; color: var(--muted); }
+.ov-sum-tile.income .ov-sum-sign { color: var(--income); }
+.ov-sum-tile.expense .ov-sum-sign { color: var(--expense); }
+.ov-sum-tile.investment .ov-sum-sign { color: var(--investment); }
+.ov-sum-eq {
+  position: relative; z-index: 1; width: 26px; height: 26px; margin: -5px auto -13px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--card); border: 1px solid var(--border);
+  font-size: 0.95rem; font-weight: 700; color: var(--text);
+}
+.ov-sum-net {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 18px 14px 12px; border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card)); border: 2px solid var(--accent);
+}
+.ov-sum-net-label { font-size: 0.8rem; font-weight: 600; color: var(--accent); }
+.ov-sum-net-value { font-size: 1.6rem; font-weight: 700; color: var(--text); white-space: nowrap; }
+.ov-sum-net-eq { font-size: 0.7rem; color: var(--muted); text-align: center; }
 
 /* ---- Breakdown pie charts ---- */
 
@@ -363,7 +423,7 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  cursor: pointer;
+  pointer-events: none;   /* labels sit 1-4px apart and overlap; the legend rows below are the tap targets */
 }
 
 .pie-outside-icon {
@@ -469,6 +529,7 @@ input, select, textarea {
   color: var(--text);
   font-family: inherit;
   box-sizing: border-box;
+  min-height: 44px;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -503,6 +564,7 @@ input[type="date"] {
   align-items: center;
   gap: 8px;
   margin: 12px 0 0;
+  min-height: 44px;
   font-size: 0.9rem;
   color: var(--text);
   cursor: pointer;
@@ -570,6 +632,7 @@ input[type="date"] {
   justify-content: space-between;
   align-items: center;
   padding: 12px 0;
+  min-height: 44px;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
 }
@@ -599,6 +662,7 @@ input[type="date"] {
 .loan-detail-row:last-child { border-bottom: none; }
 
 .loan-detail-row.editable { cursor: pointer; }
+.loan-detail-row.editable .loan-detail-row-main { cursor: pointer; min-height: 44px; }
 
 .loan-detail-row-chevron {
   color: var(--muted);
@@ -637,7 +701,7 @@ input[type="date"] {
 
 .loan-detail-forgive-btn {
   display: block;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 .loan-detail-paid-toggle {
@@ -653,8 +717,9 @@ input[type="date"] {
   cursor: pointer;
   /* text links were 25-27px tall; 44px is the comfortable minimum for a thumb */
   min-height: 44px;
+  min-width: 44px;
   box-sizing: border-box;
-  padding: 12px 4px;
+  padding: 12px 8px;
   background: none;
   border: none;
 }
@@ -809,6 +874,7 @@ button.primary.danger {
   font-size: 0.85rem;
   color: var(--muted);
 }
+.stmt-loading.center { justify-content: center; padding: 20px; margin-top: 0; }
 .stmt-spinner {
   width: 14px;
   height: 14px;
@@ -931,9 +997,9 @@ button.primary.danger {
 /* Smaller than the main period selector's own nav buttons — this header
    already has the title plus a ⋮ menu and ✕ competing for space. */
 .drilldown-header-left .period-nav-btn {
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
   font-size: 0.9rem;
   flex-shrink: 0;
 }
@@ -956,6 +1022,8 @@ button.primary.danger {
   cursor: pointer;
   padding: 4px 8px;
   line-height: 1;
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .drilldown-menu {
@@ -968,7 +1036,7 @@ button.primary.danger {
   border-radius: 10px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
   overflow: hidden;
-  min-width: 170px;
+  min-width: 220px;
   z-index: 10;
 }
 
@@ -977,6 +1045,7 @@ button.primary.danger {
   width: 100%;
   text-align: left;
   padding: 12px 14px;
+  min-height: 44px;
   background: none;
   border: none;
   border-top: 1px solid var(--border);
@@ -1030,6 +1099,10 @@ button.primary.danger {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  /* A sheet whose content is taller than it (the Categories form, with its emoji and colour pickers) scrolls as a
+     whole; before this its lower part (Save, Hide, Delete) was cut off and unreachable without a header drag. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* Dragging up from the drill-down's header (see setupDrilldownExpand in
@@ -1085,7 +1158,13 @@ body.sheet-open {
   font-size: 1.1rem;
   color: var(--muted);
   cursor: pointer;
+  /* 44x44 is the minimum comfortable thumb target (Apple HIG); the glyph stays small and centred */
+  min-width: 44px;
+  min-height: 44px;
   padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .currency-option-list {
@@ -1179,9 +1258,16 @@ body.sheet-open {
   font-size: 0.85rem;
 }
 
-.review-item-fields .review-category {
-  grid-column: 1 / -1;
-}
+.review-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.review-field-wide { grid-column: 1 / -1; }
+.review-field-label { font-size: 0.72rem; font-weight: 600; color: var(--muted); }
+.review-item-fields .review-transfer-label,
+.review-item-fields .review-trip,
+.review-item-fields .review-from,
+.review-item-fields .review-to,
+.review-item-fields .review-platform,
+.review-item-fields .review-land { grid-column: 1 / -1; }
+.review-item-fields .review-transfer-label { margin: 2px 0 -4px; font-size: 0.72rem; font-weight: 600; }
 
 .review-item-actions {
   display: flex;
@@ -1218,13 +1304,17 @@ body.sheet-open {
 .review-item-secondary-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
-  margin-top: 6px;
+  gap: 0 14px;
+  margin-top: 4px;
 }
 
 .review-item-secondary-actions .add-inline {
   padding: 12px 2px;
 }
+
+/* The generic "stacked buttons" rule (.add-inline + .add-inline, margin-top) must not push the 2nd, 3rd... button
+   below the first one: they sit in a row. */
+.review-item-secondary-actions button.add-inline { margin-top: 0; }
 
 .entry {
   display: flex;
@@ -1281,6 +1371,25 @@ body.sheet-open {
   font-size: 0.75rem;
   margin-top: 2px;
 }
+
+/* Loan, forgiving and repayment changes still being saved (or that failed): the top of the Loans tab and of a person's
+   loan screen — see renderMoneyQueueStrips_ in app.js. */
+.money-queue-strip { margin: 8px 0; }
+.money-queue-row {
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  margin-bottom: 6px;
+}
+.money-queue-row.money-queue-failed {
+  color: var(--expense);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.entry.entry-deleting { opacity: 0.5; pointer-events: none; }
 
 .entry-queue-failed {
   color: var(--expense);
@@ -1479,6 +1588,13 @@ body.income-revealed .sens-mask { display: none; }
 #screen-loans h2 {
   font-size: 1rem;
 }
+
+/* The two buttons of the "Owes you" header sit side by side on one line, "+ Add loan" in the top-right corner. The generic
+   "stacked buttons" rule (.add-inline + .add-inline, margin-top) must not push the second one down. */
+.loans-head-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; margin-right: -8px; }   /* the button's own padding stays out of the way of the right edge */
+.loans-head-actions button.add-inline { margin: 0; white-space: nowrap; }
+/* When the labels are long (Spanish) the group drops to its own right-aligned line instead of squeezing the title or splitting a label. */
+#loans-owed-card .budgets-header { flex-wrap: wrap; }
 
 .budget-row {
   padding: 12px 0;
@@ -1918,6 +2034,7 @@ body.income-revealed .sens-mask { display: none; }
   align-items: center;
   justify-content: space-between;
   padding: 8px 4px;
+  min-height: 44px;
   font-size: 0.85rem;
 }
 
@@ -2078,9 +2195,23 @@ body.income-revealed .sens-mask { display: none; }
 
 .balances-totals {
   margin-top: 6px;
-  padding-top: 12px;
-  border-top: 2px solid var(--border);
 }
+
+.balances-toggle {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 0 2px;
+  background: none;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+#balances-list { margin-top: 8px; border-top: 2px solid var(--border); }
 
 .balances-totals-title {
   font-size: 0.78rem;
@@ -2135,6 +2266,8 @@ body.income-revealed .sens-mask { display: none; }
 .stmt-chip.resolved { background: #e3f4e6; color: #1e6b32; }
 
 .stmt-upload-btn {
+  min-height: 44px;
+  box-sizing: border-box;
   display: block;
   text-align: center;
   padding: 12px;
@@ -2169,13 +2302,13 @@ body.income-revealed .sens-mask { display: none; }
 .stmt-lines summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
 .stmt-line {
   display: grid;
-  grid-template-columns: 52px 1fr auto;
+  grid-template-columns: 80px 1fr auto;   /* wide enough for a date with its year, like Mar 10, 2025 */
   gap: 8px;
   font-size: 0.78rem;
   padding: 5px 0;
   border-bottom: 1px solid var(--border);
 }
-.stmt-line-date { color: var(--muted); }
+.stmt-line-date { color: var(--muted); white-space: nowrap; }
 .stmt-line-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stmt-line-amt.in { color: var(--income); }
 
@@ -2193,14 +2326,14 @@ body.income-revealed .sens-mask { display: none; }
 }
 .stmt-line2 { padding: 4px 0; border-bottom: 1px solid var(--border); }
 .stmt-line2 .stmt-line { border-bottom: none; padding-bottom: 0; }
-.stmt-line-sub { color: var(--muted); font-size: 0.74rem; padding: 0 0 2px 60px; word-break: break-word; }
+.stmt-line-sub { color: var(--muted); font-size: 0.74rem; padding: 0 0 2px 88px; word-break: break-word; }
 .stmt-pair-title { font-size: 0.85rem; font-weight: 600; padding-top: 4px; }
 .stmt-pair-title + .stmt-line-sub { padding-left: 0; }
 #statement-review-btn { margin-top: 8px; }
 
 .stmt-choices { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 2px 60px; align-items: center; }
 .stmt-choice {
-  font-family: inherit; font-size: 0.78rem; padding: 5px 10px; border-radius: 999px;
+  font-family: inherit; font-size: 0.85rem; padding: 10px 16px; min-height: 44px; border-radius: 999px;
   border: 1px solid var(--border); background: none; color: var(--text); cursor: pointer;
 }
 .stmt-choice.on { background: #e3f4e6; border-color: #1e6b32; color: #1e6b32; font-weight: 600; }
@@ -2225,7 +2358,7 @@ body.income-revealed .sens-mask { display: none; }
 .entry-search-row input { margin: 0; padding-right: 40px; min-height: 44px; }
 .entry-search-clear {
   position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-  border: 0; background: transparent; font-size: 16px; padding: 8px 10px;
+  border: 0; background: transparent; font-size: 16px; padding: 0; width: 44px; height: 44px; right: 0;
   color: var(--muted, #888); cursor: pointer;
 }
 .entry-search-card .hint { margin: 6px 2px 0; }
@@ -2260,7 +2393,8 @@ body.income-revealed .sens-mask { display: none; }
 .bill-item-remove { background: none; border: none; color: var(--muted); font-size: 1.1rem; min-width: 44px; min-height: 44px; cursor: pointer; }
 .bill-item .tags-list { margin-top: 8px; }
 .bill-adj .budget-period-tabs { margin: 8px 0 0; }
-.bill-add-row { display: flex; gap: 16px; }
+.bill-add-row { display: flex; align-items: center; gap: 16px; }
+.bill-add-row .add-inline, .bill-add-row .add-inline + .add-inline { display: flex; align-items: center; margin: 0; }
 .bill-result-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 .bill-result-row .bill-result-sub { color: var(--muted); font-size: 0.75rem; }
 .bill-check-ok { color: #2e8b57; }
@@ -2285,10 +2419,10 @@ body.income-revealed .sens-mask { display: none; }
 .welcome-card h2 { margin: 6px 0 6px; line-height: 1.25; }
 .welcome-card h3 { margin: 22px 0 8px; font-size: 1.05em; }
 .welcome-choices { display: flex; flex-direction: column; gap: 8px; }
-.welcome-choice { text-align: left; padding: 14px 16px; border: 2px solid var(--border, #d9d9d4); border-radius: 12px; background: transparent; color: inherit; font: inherit; }
+.welcome-choice { text-align: left; min-height: 44px; padding: 14px 16px; border: 2px solid var(--border, #d9d9d4); border-radius: 12px; background: transparent; color: inherit; font: inherit; }
 .welcome-choice.active { border-color: var(--accent, #1f5fbf); background: rgba(31, 95, 191, 0.1); font-weight: 600; }
 .welcome-currencies { display: flex; flex-wrap: wrap; gap: 8px; }
-.welcome-currencies .welcome-choice { padding: 10px 14px; }
+.welcome-currencies .welcome-choice { padding: 10px 14px; min-height: 44px; }
 .welcome-body { font-size: 1.1em; line-height: 1.5; min-height: 6em; }
 .welcome-dots { display: flex; gap: 8px; justify-content: center; margin: 18px 0; }
 .welcome-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border, #d9d9d4); }
@@ -2441,6 +2575,7 @@ body.income-revealed .sens-mask { display: none; }
 .wa-bank { display: flex; justify-content: space-between; align-items: center; text-align: left; padding: 14px 16px; border: 2px solid var(--border, #d9d9d4); border-radius: 12px; background: transparent; color: inherit; font: inherit; width: 100%; }
 .wa-bank.has { border-color: var(--income); background: rgba(46, 158, 91, 0.08); }
 .wa-bank-count { color: var(--muted); font-size: 0.9em; font-weight: 600; }
+.wa-bank-ticks { display: block; color: var(--income); font-size: 0.8em; font-weight: 600; margin-top: 2px; }
 .wa-account { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 0; border-top: 1px solid var(--border, #d9d9d4); }
 .wa-account-name { font-weight: 700; }
 .wa-account-sub { color: var(--muted); font-size: 0.9em; }
@@ -2494,20 +2629,20 @@ body.income-revealed .sens-mask { display: none; }
 .pmm-option-name { font-weight: 600; }
 .pmm-option-desc { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
 .pmm-compare { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border, #d9dde3); }
-.pmm-table-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.9rem; }
+.pmm-table-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 .pmm-table-row.best { font-weight: 600; color: var(--income, #1b8a4a); }
 .pmm-badge { font-size: 0.7rem; padding: 1px 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.07); margin-left: 6px; font-weight: 500; color: var(--muted); }
-.pmm-cat-row { padding: 8px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.85rem; }
+.pmm-cat-row { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
 
 /* ---- One calendar for a start and an end date ---- */
 .range-field { width: 100%; text-align: left; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text, inherit); font: inherit; cursor: pointer; }
 .range-field.empty { color: var(--muted); }
 .range-modal { max-height: 92vh; max-height: 92dvh; overflow-y: auto; }
 .range-nav { display: flex; align-items: center; justify-content: space-between; gap: 2px; margin: 4px 0 8px; font-weight: 600; }
-.range-nav button { background: none; border: none; font-size: 1.25rem; padding: 6px 10px; color: var(--accent); cursor: pointer; }
+.range-nav button { background: none; border: none; font-size: 1.25rem; padding: 6px 10px; min-width: 44px; min-height: 44px; color: var(--accent); cursor: pointer; }
 .range-weekdays, .range-grid { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; }
 .range-weekdays span { font-size: 0.72rem; color: var(--muted); padding: 4px 0; }
-.range-day { height: 42px; border: none; background: none; font: inherit; color: var(--text, inherit); cursor: pointer; border-radius: 0; }
+.range-day { height: 44px; border: none; background: none; font: inherit; color: var(--text, inherit); cursor: pointer; border-radius: 0; }
 .range-day.is-today { font-weight: 700; text-decoration: underline; }
 .range-day.in-range { background: rgba(0, 113, 227, 0.16); }
 .range-day.is-start, .range-day.is-end { background: var(--accent); color: #fff; border-radius: 999px; }
@@ -2549,10 +2684,10 @@ body.income-revealed .sens-mask { display: none; }
   opacity: 0.65;
   margin: 8px 0 2px;
 }
-.cat-emoji-row { display: flex; flex-wrap: wrap; gap: 2px; }
+.cat-emoji-row { display: flex; flex-wrap: wrap; gap: 4px; }
 .cat-emoji-btn {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   font-size: 1.4rem;
   background: none;
   border: 2px solid transparent;
@@ -2561,10 +2696,10 @@ body.income-revealed .sens-mask { display: none; }
   padding: 0;
 }
 .cat-emoji-btn.selected { border-color: var(--accent, #4a7bd0); }
-.cat-swatches { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+.cat-swatches { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .cat-swatch {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 3px solid transparent;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
@@ -2629,7 +2764,7 @@ body.income-revealed .sens-mask { display: none; }
 .ts-captions li.now { opacity: 1; background: rgba(0, 113, 227, 0.1); animation: ts-pop .5s ease both; }
 .ts-stepnum { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
 .ts-stepper { display: flex; justify-content: center; margin-top: 12px; scroll-margin-bottom: 16px; }
-.ts-step-btn { padding: 11px 26px; border: none; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.ts-step-btn { min-height: 44px; padding: 11px 26px; border: none; border-radius: 10px; background: var(--accent); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
 .ts-step-btn:disabled { opacity: 0.45; cursor: default; }
 @keyframes ts-pop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 
@@ -2648,13 +2783,13 @@ body.income-revealed .sens-mask { display: none; }
 .tour-foot-row .add-inline { justify-self: end; padding: 8px 4px; margin: 0; }
 .tour-foot .welcome-dots { margin: 4px 0; }
 .tour-foot .welcome-dot { position: relative; border: none; padding: 0; cursor: pointer; }
-.tour-foot .welcome-dot::after { content: ""; position: absolute; inset: -10px -4px; }
+.tour-foot .welcome-dot::after { content: ""; position: absolute; inset: -17px -4px; }
 .tour-hint { margin: 2px 0 0; min-height: 1.3em; font-weight: 600; }
 @media (prefers-reduced-motion: reduce) { .tour-track { scroll-behavior: auto; } }
 /* Scrubbing the dots (press and hold, slide the finger): the dots swell and a bubble names the card under the finger */
 .tour-foot { position: relative; }
 .tour-foot-row { touch-action: none; }
-.tour-foot .welcome-dots { border-radius: 999px; padding: 6px 12px; transition: transform .18s ease, background .18s ease; }
+.tour-foot .welcome-dots { border-radius: 999px; min-height: 44px; align-items: center; padding: 6px 12px; transition: transform .18s ease, background .18s ease; }
 .tour-foot .welcome-dot { transition: transform .15s ease, background .15s; }
 .tour-foot-row.scrubbing .welcome-dots { transform: scale(1.4); background: rgba(0, 113, 227, 0.14); }
 .tour-foot-row.scrubbing .welcome-dot.active { transform: scale(1.5); }
@@ -2710,7 +2845,7 @@ body.income-revealed .sens-mask { display: none; }
 .ts-trace[hidden] { display: none; }
 
 /* "Preview the welcome flow" (More): a floating way out while the welcome screens run without saving anything. */
-.welcome-preview-exit { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); right: 12px; z-index: 450; font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid #c0392b; background: #fff; color: #c0392b; }
+.welcome-preview-exit { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 8px); right: 12px; z-index: 450; font-size: 12px; line-height: 1.15; min-height: 44px; max-width: 150px; padding: 6px 14px; border-radius: 999px; border: 1px solid #c0392b; background: #fff; color: #c0392b; }
 
 /* More scene */
 .ts-more-clip { height: 292px; overflow: hidden; position: relative; }
@@ -2729,9 +2864,9 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .fab {
   position: fixed;
   right: 16px;
-  /* 14px above the bottom bar. Before the app measures the bar (syncFab_ sets --nav-h), the
-     estimate is the bar's usual 67px plus the iPhone's bottom safe area, so it is right on first open. */
-  bottom: calc(var(--nav-h, calc(67px + env(safe-area-inset-bottom, 0px))) + 14px);
+  /* 14px above the bottom bar = the bar's height (syncFab_ sets --nav-h; 67px until measured)
+     + the iPhone's bottom safe area, added here so it follows the phone live. */
+  bottom: calc(var(--nav-h, 67px) + env(safe-area-inset-bottom, 0px) + 14px);
   width: 58px;
   height: 58px;
   border-radius: 50%;
@@ -2833,7 +2968,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-four-box b.income { color: var(--income); }
 .home-four-box b.expense { color: var(--expense); }
 
-.home-bars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; align-items: end; }
+.home-bars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px; align-items: end; }
 .home-bar-col {
   background: none; border: none; padding: 0; font-family: inherit; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0;
@@ -2899,6 +3034,29 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .bm-bank summary::after { content: "›"; color: var(--muted); font-size: 18px; transition: transform .15s; }
 .bm-bank[open] summary::after { transform: rotate(90deg); }
 .bm-bank summary b { flex: 1; }
+.own-name-card { border-left: 4px solid var(--accent); }
+.own-name-card h2 { margin: 0 0 4px; font-size: 1rem; }
+.own-name-name { margin: 4px 0; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; }
+.own-name-actions { display: flex; gap: 8px; margin-top: 8px; }
+.own-name-actions button { flex: 1; }
+.review-maybe-own { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
+.review-loan-hint { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
+.review-hint-btn { font-weight: 600; }
+.payee-suggest { margin: 6px 0 0; font-size: 0.85rem; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.notices-card { border-left: 4px solid #b26a00; }
+.notices-card h2 { margin: 0; font-size: 1rem; }
+.notices-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.notices-list li { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); }
+.notices-list li:first-child { border-top: 0; }
+.notice-body { flex: 1; min-width: 0; }
+.notice-text { overflow-wrap: anywhere; }
+.notice-date { display: block; font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+.notice-x { border: 0; background: transparent; font-size: 1.1rem; line-height: 1; padding: 4px 8px; color: var(--muted); cursor: pointer; }
+.mail-health { border-left: 4px solid #b26a00; }
+.mail-health h2 { margin: 0 0 4px; font-size: 1rem; }
+.mail-health .hint { margin: 4px 0 6px; }
+.bm-health { margin: 4px 0; }
+.bm-health.problem { color: #b26a00; font-weight: 600; }
 .bm-status { font-size: 0.8rem; color: var(--muted); }
 .bm-status.ok { color: #2e9e5b; font-weight: 600; }
 .bm-status.wait { color: #b26a00; font-weight: 600; }
@@ -2906,7 +3064,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .bm-more { margin: 10px 0; }
 .bm-more > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
 
-.exchange-amount-row { display: flex; gap: 8px; margin-top: 6px; min-width: 0; }
+.exchange-amount-row { display: flex; gap: 8px; margin-top: 8px; min-width: 0; }
 .exchange-amount-row input { flex: 1 1 0; min-width: 0; width: auto; }
 .exchange-amount-row select { flex: 0 0 34%; min-width: 0; width: 34%; }
 .tour-more-text { margin-top: 14px; }
@@ -2914,3 +3072,283 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 /* More → Statements and More → Import data are one screen in two modes (data-mode on #screen-statements) */
 #screen-statements[data-mode="import"] .stmt-bank-only,
 #screen-statements[data-mode="bank"] .stmt-import-only { display: none !important; }
+
+.stmt-find-row { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
+.stmt-find-row input[type="checkbox"] {
+  /* Same fix as .checkbox-row's: the blanket input rule strips the native checkmark and sizing. */
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  padding: 0;
+}
+
+/* Overview: month-by-month bars and the spending-pace graph (opened from Home's cards) */
+.months-scroll { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 6px; align-items: flex-end; -webkit-overflow-scrolling: touch; }
+.months-scroll .home-bar-col { flex: 0 0 44px; }
+.home-card-tap { cursor: pointer; }
+.pace-ref-label { text-align: center; font-weight: 600; margin: 6px 0; }
+.home-line-svg.pace-big { height: 150px; touch-action: pan-y; }
+
+/* ---- Tap targets: every tappable thing is at least 44x44 (Apple HIG) ---- */
+/* summaries keep their native ▶ marker (display:flex would hide it), so the height comes from padding */
+details > summary { box-sizing: border-box; min-height: 44px; padding-top: 11px; padding-bottom: 11px; }
+.bm-bank summary { display: flex; align-items: center; }
+#paste-manual-btn, a.add-inline { min-height: 44px; }
+a.add-inline { display: inline-flex; align-items: center; }
+.language-label { min-height: 44px; display: flex; align-items: center; }
+input[type="checkbox"], input[type="radio"] { min-height: 0; }
+.checkbox-row input[type="checkbox"] { width: 22px; height: 22px; }
+.tag-chip { min-width: 44px; }
+.tags-list + .add-inline, .tags-list + div.add-inline { margin-top: 8px; }
+#bill-open-btn { margin-top: 8px; }
+.drilldown-projection-split-row + .drilldown-projection-split-row { margin-top: 8px; }
+.drilldown-header-left { min-width: 0; }
+#drilldown-subtitle.tappable { min-height: 44px; display: flex; align-items: center; }
+.currency-chip, .tag-chip { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+
+.expected-recurring-actions button { min-height: 44px; }
+.drilldown-header-actions { gap: 8px; }
+.home-bar-col { min-width: 44px; }
+
+/* ---- Stacked buttons: at least 8px between neighbouring tap targets ---- */
+button.primary + button, button.primary + a.add-inline, .add-inline + .add-inline { margin-top: 8px; }
+#export-send-btn { margin-top: 8px; }
+#extras-google-link { margin-bottom: 8px; }
+#extras-takeback-btn { margin-top: 8px; }
+#statement-find-btn { margin-top: 8px; }
+#rate-invert-btn, #wa-add-bank-btn { margin-top: 8px; }
+.tags-list ~ .add-inline { margin-top: 8px; }
+.stmt-find-read-wrap { margin-top: 14px; }
+
+/* More → Statements: the four steps (Upload, Check, Preview, Done) and the "past uploads" side panel */
+.stmt-stepper { display: flex; gap: 6px; margin-top: 12px; }
+.stmt-stepper[hidden] { display: none; }
+.stmt-pill {
+  flex: 1 1 0; min-width: 0; padding: 8px 2px; font-family: inherit; font-size: 0.78rem; line-height: 1.2;
+  border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--muted); cursor: pointer;
+}
+.stmt-pill.on { background: #e8f1fd; border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.stmt-pill.done { color: var(--text); }
+.stmt-pill:disabled { opacity: 0.55; cursor: default; }
+.stmt-stepnav { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin-top: 12px; }
+.stmt-stepnav .add-inline { align-self: flex-start; }
+.stmt-s4-label { font-weight: 600; font-size: 0.9rem; margin: 14px 0 4px; }
+
+/* Step 1: a status line above the Upload block, and the Upload block's three options */
+.stmt-status-line {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  padding: 0; border: 0; background: none; font-family: inherit; font-size: 0.95rem; font-weight: 600; color: var(--text); text-align: left; cursor: pointer;
+}
+.stmt-status-chev { color: var(--muted); font-size: 1.2rem; transition: transform 0.15s; }
+.stmt-status-line.open .stmt-status-chev { transform: rotate(90deg); }
+#statement-coverage-list { margin-top: 10px; }
+.stmt-option { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-top: 12px; }
+.stmt-option h3 { margin: 0 0 4px; font-size: 1rem; }
+.stmt-option .hint { margin: 4px 0 8px; }
+.stmt-acct { font-weight: 600; font-size: 0.95rem; margin: 2px 0 4px; }
+
+/* Compact Inbox: a header line with a count chip, folds inside */
+.stmt-option-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 0; border: 0; background: none; font-family: inherit; text-align: left; cursor: pointer; color: var(--text);
+}
+.stmt-option-title { font-size: 1rem; font-weight: 600; }
+.stmt-option-head .stmt-chip { margin-left: auto; white-space: normal; text-align: right; }
+.stmt-option-head.open .stmt-status-chev { transform: rotate(90deg); }
+.stmt-chip.info { background: #efeff2; color: var(--muted); }
+#stmt-inbox-body { margin-top: 8px; }
+
+/* Overview loading: a small spinner in the period picker's corner (no layout shift, after a short delay so quick loads
+   show nothing); the period cards are dimmed ONLY while the figures on screen belong to another period. */
+#period-selector-card { position: relative; }
+#screen-overview > .card { transition: opacity 0.2s; }
+/* Each block of figures that belongs to another period shows its own turning ring (like Home's per-block loading) instead of old numbers. */
+.overview-stale > .card.ov-period { position: relative; pointer-events: none; min-height: 64px; }
+.overview-stale > .card.ov-period > * { opacity: 0.18; }
+.overview-stale > .card.ov-period:not(#overview-entries-card)::after {
+  content: ""; position: absolute; top: calc(50% - 9px); left: calc(50% - 9px); width: 18px; height: 18px;
+  border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: stmt-spin 0.8s linear infinite;
+}
+@keyframes ov-appear { from { opacity: 0; } to { opacity: 1; } }
+
+/* Overview: the period picker stays at the top while the screen scrolls. */
+#screen-overview > #period-selector-card,
+#screen-projections > #period-selector-card { position: sticky; top: 0; z-index: 5; }
+/* Cards opened from Home (scrollIntoView) must stop below the pinned picker, not under it. */
+#screen-overview > .card { scroll-margin-top: 150px; }
+
+/* Statements by month: accounts × months, scrolls sideways, account names stay put. */
+.stmt-matrix-summary { font-weight: 600; font-size: 1.05rem; cursor: pointer; }
+.stmt-matrix-scroll { overflow-x: auto; margin-top: 8px; }
+.stmt-matrix { border-collapse: collapse; font-size: 0.78rem; }
+.stmt-matrix th, .stmt-matrix td { padding: 6px 8px; text-align: center; white-space: nowrap; font-weight: 400; color: var(--muted); }
+.stmt-matrix .stmt-matrix-acct { position: sticky; left: 0; background: var(--card, #fff); text-align: left; font-weight: 600; color: var(--text); max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+.stmt-matrix td.has { color: #2e9e5b; font-weight: 700; }
+.stmt-matrix td.hole { color: #d64545; font-weight: 700; }
+.stmt-matrix td small { font-size: 0.65rem; margin-left: 1px; }
+
+/* ---- Business pack (specs/business.md) ---- */
+.business-period-select, .igv-year-select { width: 100%; margin: 6px 0 10px; }
+.business-cur-igv { font-size: 0.8rem; color: var(--muted); padding-top: 2px; }
+.igv-month-head { font-weight: 700; margin: 10px 0 2px; }
+.igv-line { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 0.9rem; }
+.igv-pos { color: var(--expense); font-weight: 700; }
+.igv-neg { color: var(--income); font-weight: 700; }
+.business-cur-card { background: var(--bg); border-radius: 12px; padding: 10px 12px; margin: 8px 0; }
+.business-cur-head { font-weight: 700; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
+.business-cur-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 0.95rem; }
+.business-cur-row.margin { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; font-weight: 700; }
+.business-neg { color: var(--expense); }
+.business-pos { color: var(--income); }
+.business-company-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 18px 0 4px; }
+.business-company-head h3 { margin: 0; cursor: pointer; }
+.business-mini { font-size: 0.78rem; color: var(--muted); text-align: right; }
+.business-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.business-chip { border: 1px solid var(--border); border-radius: 14px; padding: 3px 10px; font-size: 0.82rem; background: transparent; color: var(--text); cursor: pointer; }
+.business-chip.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.business-budget-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.business-budget-row input { margin: 0; }
+.business-budget-row .budget-cur { width: 74px; text-transform: uppercase; }
+.business-budget-row .budget-amt { flex: 1; }
+.entry-business { border-color: #7b5ea7; color: #7b5ea7; }
+
+/* Projections "By category": a small heading before each type (Income, Expenses, Investments). */
+.projection-type-heading { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 14px 0 4px; }
+.projection-type-heading:first-child { margin-top: 0; }
+
+/* Review queue: money coming in reads green, like everywhere else. */
+.review-item-amount.review-amt-in { color: var(--income); }
+
+.loan-row-projects { display: block; font-size: 0.74rem; font-weight: 400; color: var(--muted); margin-top: 1px; }
+
+/* Business pack step 3A: expected payments on a project, the separate Home card, and "Choose which loans this pays". */
+.xp-row { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 4px 10px 8px; margin-bottom: 8px; }
+.xp-row.overdue { border-color: #e0932a; }
+.xp-row .xp-main { cursor: pointer; }
+.xp-closed summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; padding: 6px 0; }
+.business-expected-card .business-expected-row { cursor: pointer; }
+.business-expected-card .business-expected-row.overdue .recurring-row-sub { color: #c77a12; }
+.settle-choose-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 0.85rem; }
+.settle-choose-row span { flex: 1; }
+.settle-choose-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 20px; height: 20px; min-height: 0; flex: none; }
+.settle-choose-row span { min-width: 0; }
+/* "Pay only the selected loans": a separate option under the loan list, not one more loan row */
+.reassign-limit-box { margin: 14px 0 6px; padding: 10px 12px; border: 1px solid var(--border, #d9d9de); border-radius: 12px; background: var(--card-alt, rgba(120,120,128,0.08)); }
+.reassign-limit-box[hidden] { display: none; }
+.reassign-limit-label { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 600; margin: 0; }
+.reassign-limit-label span { flex: 1; min-width: 0; }
+.reassign-limit-label input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 20px; height: 20px; min-height: 0; flex: none; }
+.reassign-limit-box #reassign-gap { margin-top: 10px; }
+.settle-choose-assigned { flex: none !important; font-weight: 600; white-space: nowrap; }
+
+/* Two small actions side by side (a person's screen: Record repayment / Repayment history). */
+.loan-detail-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; }
+.loan-detail-actions[hidden] { display: none; }
+
+/* repayment history: the loans a repayment paid, as detail under "On loans" */
+.loan-detail-row-meta.history-sub { padding-left: 16px; }
+
+/* "Edit this repayment" opened before its data has arrived: only the title and "Loading…" show (Loading standard) */
+.reassign-loading #reassign-fields, .reassign-loading #reassign-list, .reassign-loading #reassign-limit-row, .reassign-loading #reassign-gap,
+.reassign-loading #reassign-summary, .reassign-loading #reassign-hint, .reassign-loading #reassign-record, .reassign-loading #reassign-error,
+.reassign-loading #reassign-save { display: none; }
+
+/* Bank loans: the schedule rows (a date line, then three amounts) and the installment list */
+.bank-row { border-top: 1px solid var(--border); padding: 8px 0; }
+.bank-row-top { display: flex; align-items: center; gap: 8px; }
+.bank-row-top input[type="date"] { flex: 1; min-width: 0; }
+.bank-row-num { font-size: 0.8rem; color: var(--text-muted, #8e8e93); min-width: 22px; }
+.bank-row-amounts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 6px; }
+.bank-row-amounts input { min-width: 0; }
+.bank-row-remove { background: none; border: none; font-size: 1rem; color: #d64545; padding: 4px 8px; }
+.bank-inst { border-top: 1px solid var(--border); padding: 10px 0; }
+.bank-inst.tappable { cursor: pointer; }
+.bank-inst-status { font-size: 0.8rem; font-weight: 600; }
+.bank-inst-status.paid { color: #2e9e5b; }
+.bank-inst-status.overdue { color: #d64545; }
+
+/* Overview: Loans card */
+.loans-ov-row { padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.loans-ov-row:last-child { border-bottom: 0; }
+.loans-ov-total { cursor: default; }
+.loans-ov-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 2px; }
+.loans-ov-parts { font-size: 0.8rem; color: var(--muted); }
+.loans-ov-net { font-size: 0.95rem; white-space: nowrap; }
+
+/* ---- First-use tips: the spotlight walkthrough (docs/spotlight.js) and its invitation card ---- */
+.spot-root { position: fixed; inset: 0; pointer-events: none; }
+.spot-blk { position: absolute; touch-action: none; pointer-events: auto; }
+.spot-root.spot-plain .spot-blk:first-child { background: rgba(0, 0, 0, 0.62); }
+.spot-hole { position: absolute; border-radius: 12px; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.62); outline: 3px solid rgba(255, 255, 255, 0.95); pointer-events: none; transition: top 0.18s ease, left 0.18s ease, width 0.18s ease, height 0.18s ease; }
+.spot-hole[hidden] { display: none; }
+.spot-bubble { position: absolute; width: min(320px, calc(100vw - 24px)); box-sizing: border-box; background: var(--card); color: var(--text); border-radius: var(--radius); padding: 14px 14px 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35); pointer-events: auto; }
+.spot-lookcover { background: transparent; }
+.spot-root.spot-typing .spot-blk:first-child { background: transparent; }
+.spot-root.spot-typing .spot-note, .spot-root.spot-typing .spot-count { display: none; }
+.spot-root.spot-typing .spot-bubble { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); }
+.spot-lookcover[hidden] { display: none; }
+.spot-note { margin: 0 0 6px; color: var(--muted); font-size: 0.8rem; }
+.spot-note[hidden] { display: none; }
+.spot-arrow { position: absolute; width: 14px; height: 14px; background: var(--card); transform: translateX(-50%) rotate(45deg); }
+.spot-arrow[hidden] { display: none; }
+.spot-bubble[data-side="below"] .spot-arrow { top: -7px; }
+.spot-bubble[data-side="above"] .spot-arrow { bottom: -7px; }
+.spot-text { margin: 0 0 6px; font-size: 1rem; line-height: 1.35; }
+.spot-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 8px; }
+.spot-foot[hidden] { display: none; }
+.spot-count { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+.spot-buttons { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.spot-buttons button { min-height: 44px; padding: 0 12px; border-radius: 999px; border: 1px solid transparent; background: transparent; color: var(--muted); font: inherit; }
+.spot-buttons button[hidden] { display: none; }
+.spot-buttons .spot-stuck { color: var(--accent); }
+.spot-buttons .spot-go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+/* The repayment sheet is only for the NEW repayment: past ones (to fix, move or delete) are in the person's Repayment history. */
+#settlement-list,
+#settlement-list-empty-note { display: none; }
+
+.tip-invite { display: flex; flex-direction: column; gap: 10px; background: #fff8e1; }
+.tip-invite[hidden] { display: none; }
+.tip-invite p { margin: 0; line-height: 1.35; }
+.tip-invite-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+.tip-invite-buttons button { min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--muted); font: inherit; }
+.tip-invite-buttons .tip-invite-go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+/* ---- More → Friends: Edit mode (tick several friends, delete them at once) ---- */
+.friends-header-actions { display: inline-flex; gap: 14px; align-items: center; }
+/* The generic "stacked buttons" rule (.add-inline + .add-inline, margin-top) must not push + Friend below Edit. */
+.friends-header-actions button.add-inline { margin: 0; white-space: nowrap; }
+.friends-check-row { gap: 12px; justify-content: flex-start; }
+.friends-check-row > div:nth-child(2) { flex: 1; min-width: 0; }
+.friends-check-row > .recurring-row-amount { margin-left: auto; }
+.friends-check { -webkit-appearance: checkbox; appearance: auto; width: 22px; height: 22px; min-height: 0; flex: 0 0 22px; margin: 0; padding: 0; accent-color: #d64545; pointer-events: none; }
+/* The bar stays on screen the whole time Edit is on: fixed just above the bottom menu (its `bottom` is set from the menu's real height
+   in app.js), as wide as the page. A sticky bar only stuck inside the card, so it showed only once the list was scrolled to its end. */
+.friends-editbar {
+  position: fixed; left: 50%; transform: translateX(-50%); width: min(100%, 480px); box-sizing: border-box; z-index: 140;
+  bottom: 67px; background: var(--card, #fff); border-top: 1px solid var(--border); box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+  padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.friends-editbar[hidden] { display: none; }
+.friends-editbar button.add-inline { white-space: nowrap; }
+.friends-editbar button.primary { width: auto; white-space: nowrap; margin-top: 0; padding: 12px 22px; }
+/* room under the last friend so the fixed bar never covers it */
+#screen-friends.friends-editing .card { padding-bottom: 90px; }
+.friends-hidden-box { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 4px; }
+.friends-hidden-box > .add-inline { padding-left: 0; }
+.friends-hidden-row { cursor: default; }
+
+/* ---- Programmed items: the paused-items decision sheet ---- */
+.paused-row { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.paused-row:last-child { border-bottom: none; }
+.paused-actions { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
+.paused-actions .add-inline { padding-left: 0; padding-right: 0; margin: 0; white-space: nowrap; }
+#recurring-restart-btn { padding-left: 0; }
+.range-day:disabled { opacity: 0.3; cursor: default; }
+#screen-recurring.recurring-editing .card { padding-bottom: 90px; }
+/* Text links that start a line on their own: their 8px of tap padding made the words sit 8px right of the fields
+   above and below. Pull the box back so the WORDS line up with the edge. */
+#receipt-read-btn, #bill-open-btn, #split-client-btn, #split-add-friend-btn, #split-due-add, #add-tag-btn,
+#projections-method-btn { margin-left: -8px; }

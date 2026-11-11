@@ -49,11 +49,14 @@
     return { on: s.on, label: label, scope: scope };
   }
 
-  function make(url, code, share) {
+  // `lang` ("es" / "en"): the language the person read the setup page in, so the app starts in it (2026-11-04).
+  var LANGS = ["es", "en"];
+  function make(url, code, share, lang) {
     if (!isValidUrl(url, true) || !CODE_RE.test(String(code))) throw new Error("not a valid sign-in");
     var o = { u: url, c: code };
     var sh = cleanShare(share);
     if (sh) o.s = { o: sh.on ? 1 : 0, l: sh.label, v: sh.scope };
+    if (LANGS.indexOf(lang) !== -1) o.g = lang;
     return PREFIX + enc(JSON.stringify(o));
   }
 
@@ -66,6 +69,7 @@
       var out = { url: o.u, code: String(o.c) };
       var sh = o.s && cleanShare({ on: o.s.o === 1, label: o.s.l, scope: o.s.v });
       if (sh) out.share = sh;   // absent when the setup page did not carry a choice (older page, owner's tests): the app then asks itself
+      if (LANGS.indexOf(o.g) !== -1) out.lang = o.g;
       return out;
     } catch (e) {
       return null;

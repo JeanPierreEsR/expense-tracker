@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "rules": [
     { "id": "bcp-consumo-debito", "replaces": "Consumo tarjeta de débito", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Consumo tarjeta de débito (pack)",
       "accountByCurrency": true, "subjectHas": ["realizaste un consumo", "debito"], "type": "expense", "amount": { "label": "Total del consumo" },
@@ -46,6 +46,14 @@
 
     { "id": "sip-transferencia-otro-banco", "replaces": "Transferencia a otro banco", "bank": "SIP", "sender": "no-reply@operaciones.agora.pe", "label": "Transferencia a otro banco (pack)",
       "bodyHas": ["transferencia a otro banco"], "type": "transferIfOwn", "amount": { "label": "Monto" }, "recipient": { "label": "Destino" },
-      "externalId": { "label": "Nro. de Operación" } }
+      "externalId": { "label": "Nro. de Operación" } },
+
+    { "id": "interbank-pago-recurrente", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe", "label": "Pago recurrente con tarjeta (pack)",
+      "subjectHas": ["pago recurrente"], "type": "expense", "amount": { "label": "Monto" }, "merchant": { "label": "Comercio" },
+      "last4": { "label": "Tarjeta", "kind": "masked" } }
+  ],
+  "pairs": [
+    { "id": "didi", "sender": "didi@pe.didiglobal.com", "merchantHas": ["didi"] },
+    { "id": "apple", "sender": "no_reply@email.apple.com", "merchantHas": ["apple.com"] }
   ]
 }

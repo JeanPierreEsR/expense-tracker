@@ -6,8 +6,8 @@
   --muted: #6e6e73;
   --border: #e5e5ea;
   --accent: #0071e3;
-  --expense: #d64545;
-  --income: #2e9e5b;
+  --expense: #c53030;
+  --income: #1e7d46;
   --investment: #7a5af5;
   --transfer: #8a8a8e;
   --radius: 14px;
@@ -39,7 +39,7 @@ button.update-banner {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 300;
+  z-index: 240;   /* under every pop-up window (250+): it must never cover a window's header or its ✕ */
   padding: 10px 16px;
   padding-top: calc(10px + env(safe-area-inset-top, 0px));
   background: var(--accent);
@@ -221,12 +221,12 @@ main {
    in Spanish, "Projections" in English) keeps a gap from its neighbour down
    to a 320px phone. The rem value only caps the size on wider screens.
    Spanish words are longer, hence its smaller ratio. */
-.nav-btn { font-size: min(0.7rem, 2.45vw); margin: 6px 0; }
-html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
+.nav-btn { font-size: min(0.7rem, 2.75vw); margin: 6px 0; }
+html[lang="es"] .nav-btn { font-size: min(0.65rem, 2.3vw); letter-spacing: -0.01em; }   /* 1.76.1: "Presupuestos" and "Proyecciones" touched on a 320px phone */
 .nav-btn > span:last-child { white-space: nowrap; }
 
 .nav-btn.active {
-  color: var(--accent);
+  color: #0066cc;   /* a touch darker than --accent: this label is small, so it needs the stronger contrast */
   background: var(--bg);
 }
 
@@ -260,7 +260,8 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
 #drilldown-subtitle.tappable {
   cursor: pointer;
 }
-#period-label.tappable::after,
+/* The period's name is a light outlined button, like the ‹ › beside it, so it reads as "tap to change" (owner, 2026-11-08: no ▾, no icon). */
+#period-label.tappable { border: 1px solid var(--border); border-radius: 999px; background: white; padding: 0 16px; }
 #drilldown-subtitle.tappable::after {
   content: " ▾";
   font-size: 0.8em;
@@ -290,6 +291,25 @@ html[lang="es"] .nav-btn { font-size: min(0.6rem, 2.2vw); }
   cursor: pointer;
 }
 .period-picker-cell.now { border-color: var(--accent); }
+/* "Every earlier month too" above the grid when it picks a budget's start (owner, 2026-11-08). */
+.period-picker-chip { display: block; width: 100%; min-height: 44px; margin-bottom: 12px; border-radius: 10px; border: 1px solid var(--border);
+  background: white; color: var(--text); font: inherit; cursor: pointer; }
+.period-picker-chip[hidden] { display: none; }
+.period-picker-chip.selected { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+/* Week calendar: one button per week (Monday to Sunday), a tap on any day picks the whole row. */
+.period-picker-grid.week-cal { display: flex; flex-direction: column; gap: 6px; }
+.week-cal-head, .week-cal-row { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; }
+.week-cal-head { font-size: 0.8rem; color: var(--muted); }
+.week-cal-row { min-height: 44px; align-items: center; border-radius: 10px; border: 1px solid var(--border); background: white;
+  color: var(--text); font: inherit; cursor: pointer; padding: 0; }
+.week-cal-row .out { color: var(--muted); }
+.week-cal-row.now { border-color: var(--accent); }
+.week-cal-row.selected { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+.week-cal-row.selected .out { color: rgba(255, 255, 255, 0.75); }
+/* A button that reads like a picker box (the budget's Starts field). */
+.select-like { display: block; width: 100%; min-height: 44px; padding: 10px 14px; text-align: left; border: 1px solid var(--border);
+  border-radius: 10px; background: white; color: var(--text); font: inherit; cursor: pointer; }
+.select-like::after { content: " ›"; color: var(--muted); }
 .period-picker-cell.selected {
   background: var(--accent);
   border-color: var(--accent);
@@ -559,6 +579,11 @@ input[type="date"] {
   margin-top: 6px;
 }
 
+.acur-row { padding: 10px 0; border-top: 1px solid var(--border); }
+.acur-name { font-weight: 600; overflow-wrap: anywhere; }
+.acur-ticks { display: flex; flex-wrap: wrap; gap: 0 16px; }
+.currency-checks .checkbox-row { margin-top: 0; }
+.currency-checks .add-inline { margin-top: 4px; }
 .checkbox-row {
   display: flex;
   align-items: center;
@@ -678,11 +703,18 @@ input[type="date"] {
 .loan-detail-row-desc {
   font-size: 0.9rem;
   color: var(--text);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
+/* The amount never breaks onto two lines ("+USD" / "0.34"): a long
+   description wraps instead (owner, 2026-11-10). */
 .loan-detail-row-amount {
   font-weight: 600;
   font-size: 0.9rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: 12px;
 }
 
 .loan-detail-row-amount.owed-to-me { color: var(--income); }
@@ -698,6 +730,10 @@ input[type="date"] {
   display: block;
   margin: 8px 0 4px;
 }
+
+/* "Remind on WhatsApp" (specs/loans.md § Reminders): stands out when one of the friend's debts is overdue. */
+#loan-remind-btn.overdue { font-weight: 600; color: #9a5b00; }
+.loan-remind-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 0.95rem; line-height: 1.4; min-height: 180px; }
 
 .loan-detail-forgive-btn {
   display: block;
@@ -1083,6 +1119,9 @@ button.primary.danger {
   margin-bottom: 0;
 }
 
+/* The Home bulk sheets (Delete / Change): the red or blue action button stays at the bottom of the sheet while its long content scrolls, so a big batch
+   can be read and the button is never below the fold. */
+#entries-bulk-go, #entries-bulk-cat-go, #entries-bulk-trip-go { position: sticky; bottom: 0; z-index: 2; box-shadow: 0 -10px 10px -4px var(--card); }
 .currency-modal {
   background: var(--card);
   width: 100%;
@@ -1202,6 +1241,35 @@ body.sheet-open {
   font-size: 0.85rem;
 }
 
+/* The one currency screen (owner, 2026-11-06): the whole screen, every currency by country; each row shows the country, then code and name. */
+.currency-modal.currency-screen {
+  height: 100vh;
+  height: 100dvh;
+  max-height: none;
+  border-radius: 0;
+  overflow: hidden;
+  padding-top: calc(16px + env(safe-area-inset-top));
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+.currency-screen .currency-modal-header::before { display: none; }
+.currency-screen .currency-option-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.currency-screen .currency-option-country { font-weight: 600; overflow-wrap: anywhere; }
+.currency-screen .currency-option-name b { color: var(--text); font-weight: 600; }
+.currency-screen .currency-option-check { color: var(--accent, #0a66c2); font-weight: 700; }
+.currency-screen .currency-option.checkbox-row { margin: 0; min-height: 44px; }
+.currency-screen .currency-list-title { margin: 12px 0 2px; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+.currency-screen .currency-list-title:first-child { margin-top: 0; }
+.currency-screen #currency-screen-note { margin: 8px 0 0; }
+.currency-screen #currency-screen-done { flex: 0 0 auto; margin-top: 12px; }
+/* A currency box that opens the currency screen: the box stays what the code reads; a clear button on top of it takes the tap. */
+.cur-pick { position: relative; display: block; min-width: 0; }
+.cur-pick > select, .cur-pick > input { width: 100%; pointer-events: none; }
+.cur-pick-btn { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; background: none; border: none; cursor: pointer; }
+.exchange-amount-row .cur-pick { flex: 0 0 34%; width: 34%; }
+.exchange-amount-row .cur-pick > select { flex: none; width: 100%; }
+.balance-form-row-main .cur-pick { flex: 0 0 auto; }
+.balance-form-row-main .cur-pick > select { width: auto; }
+
 .entry-list h2,
 .review-queue h2 {
   font-size: 1rem;
@@ -1212,6 +1280,17 @@ body.sheet-open {
   border: 1px solid #f5c518;
   background: #fffdf5;
 }
+
+/* Needs review opens and closes from its title row (owner, 2026-11-09). */
+.review-queue .budgets-header h2 { flex: 1; min-width: 0; margin: 0; }
+.review-toggle {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  min-height: 44px; margin: 0; padding: 0;
+  background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.review-toggle-chev { color: var(--muted, #8e8e93); font-size: 1.2rem; transition: transform .15s ease; }
+.review-toggle[aria-expanded="true"] .review-toggle-chev { transform: rotate(90deg); }
+.review-queue.review-closed .budgets-header { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
 
 .review-item {
   border-bottom: 1px solid var(--border);
@@ -1390,6 +1469,9 @@ body.sheet-open {
 }
 
 .entry.entry-deleting { opacity: 0.5; pointer-events: none; }
+/* Any other list row while its delete runs behind the screen (markDeleting_ in app.js). */
+.row-deleting { opacity: 0.5; pointer-events: none; position: relative; }
+.row-deleting::after { content: attr(data-del-label); position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: #fff; color: #555; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; box-shadow: 0 0 0 1px #ddd; }
 
 .entry-queue-failed {
   color: var(--expense);
@@ -1579,6 +1661,8 @@ body.income-revealed .sens-mask { display: none; }
   margin: 0;
   font-size: 1rem;
 }
+/* Overview's Balances block: the same title size as the other Overview blocks (owner, 2026-11-08). */
+#balances-card .budgets-header h2 { font-size: revert; }
 
 /* "Owes you" sits inside .budgets-header (for the "+ Add loan" button)
    and inherits its 1rem h2 size above — "You owe" and "Needs an exchange
@@ -1594,7 +1678,7 @@ body.income-revealed .sens-mask { display: none; }
 .loans-head-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; margin-right: -8px; }   /* the button's own padding stays out of the way of the right edge */
 .loans-head-actions button.add-inline { margin: 0; white-space: nowrap; }
 /* When the labels are long (Spanish) the group drops to its own right-aligned line instead of squeezing the title or splitting a label. */
-#loans-owed-card .budgets-header { flex-wrap: wrap; }
+#loans-owed-card .budgets-header, #loans-i-owe-card .budgets-header { flex-wrap: wrap; }
 
 .budget-row {
   padding: 12px 0;
@@ -1691,8 +1775,19 @@ body.income-revealed .sens-mask { display: none; }
   background: var(--bg);
   border-radius: 999px;
   height: 8px;
-  overflow: hidden;
+  position: relative;   /* the Year view's "today" mark sits on it, a little taller than the bar (the fill keeps its own rounded ends) */
 }
+.budget-today-mark { position: absolute; top: -4px; width: 2px; height: 16px; margin-left: -1px; background: var(--text, #1c1c1e); border-radius: 1px; }
+.budgets-status-line { font-weight: 600; margin: 0 0 10px; }
+#budgets-today-hint { margin: -4px 0 10px; }
+.budgets-group-head { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted, #8e8e93); margin: 14px 0 4px; }
+.budgets-group-head:first-child { margin-top: 0; }
+.budgets-status-line .over { color: var(--expense); }
+.budgets-status-line .warn { color: #b8741a; }
+.budget-row-annual { margin-top: 2px; font-size: 0.75rem; }
+.legend-annual { font-size: 0.75rem; margin-top: 1px; }
+.drilldown-annual-link { padding-left: 0; text-align: left; }
+#forgive-budget-note.over { color: var(--expense); font-weight: 600; }
 
 .budget-progress-fill {
   height: 100%;
@@ -1743,6 +1838,7 @@ body.income-revealed .sens-mask { display: none; }
 }
 
 .budget-period-tabs { grid-template-columns: repeat(2, 1fr); margin-bottom: 0; }
+#budget-period-tabs { grid-template-columns: repeat(3, 1fr); }   /* Weekly · Monthly · Yearly on one row */
 
 .budget-period-tabs .type-tab.active {
   background: var(--accent);
@@ -1788,6 +1884,9 @@ body.income-revealed .sens-mask { display: none; }
 #install-block a { color: var(--muted); }
 .paste-manual { margin-top: 18px; text-align: left; }
 .paste-manual summary { cursor: pointer; color: var(--muted); }
+.perf-share-more { margin: 0 0 12px; }
+.welcome-skip-top { margin: 4px 0 12px; }
+.perf-share-more summary { cursor: pointer; color: var(--accent); font-size: 0.9rem; }
 .paste-manual textarea { width: 100%; box-sizing: border-box; margin: 8px 0; font: inherit; padding: 10px; border: 1px solid var(--border); border-radius: 10px; }
 
 .status-msg {
@@ -1810,6 +1909,7 @@ body.income-revealed .sens-mask { display: none; }
 /* ---- More tab ---- */
 
 .more-list-item {
+  text-align: left;
   width: 100%;
   display: flex;
   align-items: center;
@@ -1864,7 +1964,9 @@ body.income-revealed .sens-mask { display: none; }
 .accounts-group-title { margin: 18px 0 4px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #888); }
 .accounts-group-title:first-child { margin-top: 6px; }
 .accounts-hidden-toggle { display: block; width: 100%; background: none; border: 0; padding: 0; text-align: left; font-family: inherit; cursor: pointer; }
-#recurring-past-toggle { margin-top: 10px; }
+#recurring-past-toggle, #recurring-inc-past-toggle { margin-top: 10px; }
+#recurring-inc-past-section { margin-top: 8px; }
+.recurring-kind-title { margin: 22px 0 4px; font-size: 1.1em; }
 #recurring-past-section { margin-top: 8px; }
 
 .recurring-row-name {
@@ -2102,7 +2204,7 @@ body.income-revealed .sens-mask { display: none; }
 /* ---- Projections tab (reuses Overview's .summary-grid) ---- */
 
 .projections-breakdown {
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   color: var(--muted);
   margin-top: 10px;
   margin-bottom: 0;
@@ -2332,6 +2434,7 @@ body.income-revealed .sens-mask { display: none; }
 #statement-review-btn { margin-top: 8px; }
 
 .stmt-choices { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0 2px 60px; align-items: center; }
+.stmt-choices > select, .stmt-choices > button, .stmt-choices > label { margin-top: 0; margin-bottom: 0; }   /* one row: equal margins so everything centres on the same line */
 .stmt-choice {
   font-family: inherit; font-size: 0.85rem; padding: 10px 16px; min-height: 44px; border-radius: 999px;
   border: 1px solid var(--border); background: none; color: var(--text); cursor: pointer;
@@ -2367,7 +2470,7 @@ body.income-revealed .sens-mask { display: none; }
 .entry-search-row input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; display: none; }
 
 /* While searching, the Entries tab shows ONLY the search box and its results. */
-#screen-entries.searching > :not(.entry-search-card):not(.search-results-card) { display: none !important; }
+#screen-entries.searching > :not(.entry-search-card):not(.search-results-card):not(#entries-editbar) { display: none !important; }
 .search-results-card { padding-top: 6px; }
 .search-results-card .entry-updating { opacity: 0.45; pointer-events: none; }
 .search-show-more { width: 100%; margin-top: 8px; }
@@ -2393,6 +2496,11 @@ body.income-revealed .sens-mask { display: none; }
 .bill-item-remove { background: none; border: none; color: var(--muted); font-size: 1.1rem; min-width: 44px; min-height: 44px; cursor: pointer; }
 .bill-item .tags-list { margin-top: 8px; }
 .bill-adj .budget-period-tabs { margin: 8px 0 0; }
+.inproc-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+.inproc-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); flex: none; width: 20px; height: 20px; margin: 0; }
+.inproc-row .inproc-what { flex: 1; min-width: 0; }
+.inproc-row .inproc-when { color: var(--muted); font-size: 0.75rem; }
+.inproc-total { display: flex; justify-content: space-between; padding: 10px 0; font-weight: 600; }
 .bill-add-row { display: flex; align-items: center; gap: 16px; }
 .bill-add-row .add-inline, .bill-add-row .add-inline + .add-inline { display: flex; align-items: center; margin: 0; }
 .bill-result-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
@@ -2415,12 +2523,25 @@ body.income-revealed .sens-mask { display: none; }
 
 /* Welcome questions + tour (first open of an app made by the installer; More → How to use the app) */
 .welcome-overlay { position: fixed; inset: 0; z-index: 300; background: var(--bg, #fafaf8); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+/* Typing on an iPhone: the keyboard shifts the screen and the app behind used to show below the welcome screens (owner, 2026-11-03).
+   The page behind cannot scroll while they are open, and their background is painted beyond their own edges (shadow), so any gap
+   the keyboard opens shows plain background. */
+html:has(#welcome-overlay:not([hidden])), html:has(#welcome-overlay:not([hidden])) body { overflow: hidden; }
+.welcome-overlay { box-shadow: 0 0 0 100vmax var(--bg, #fafaf8); }
 .welcome-card { max-width: 520px; margin: 0 auto; padding: 24px 18px 40px; }
 .welcome-card h2 { margin: 6px 0 6px; line-height: 1.25; }
 .welcome-card h3 { margin: 22px 0 8px; font-size: 1.05em; }
 .welcome-choices { display: flex; flex-direction: column; gap: 8px; }
+.wa-wallet-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.wa-wallet-row .welcome-choice { flex: 1; text-align: center; }
+#wa-wallet-q select { margin-bottom: 8px; }
 .welcome-choice { text-align: left; min-height: 44px; padding: 14px 16px; border: 2px solid var(--border, #d9d9d4); border-radius: 12px; background: transparent; color: inherit; font: inherit; }
 .welcome-choice.active { border-color: var(--accent, #1f5fbf); background: rgba(31, 95, 191, 0.1); font-weight: 600; }
+.welcome-choices.fits-compact { flex-direction: row; flex-wrap: wrap; gap: 8px; }   /* My profile → What fits me: small side-by-side chips */
+.fits-compact .welcome-choice { min-height: 40px; padding: 8px 14px; border-radius: 20px; text-align: center; }
+.fits-toggle { width: 100%; }
+#fits-body { padding-top: 6px; }
+#fits-body h3 { margin: 14px 0 8px; }
 .welcome-currencies { display: flex; flex-wrap: wrap; gap: 8px; }
 .welcome-currencies .welcome-choice { padding: 10px 14px; min-height: 44px; }
 .welcome-body { font-size: 1.1em; line-height: 1.5; min-height: 6em; }
@@ -2561,6 +2682,11 @@ body.income-revealed .sens-mask { display: none; }
 .ts-entry-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; line-height: 1; margin-right: 5px; vertical-align: middle; }
 .ts-review { border-color: #f5c518; background: #fffdf5; display: flex; flex-direction: column; gap: 6px; }
 .ts-review-top { display: flex; justify-content: space-between; align-items: baseline; }
+.ts-review-head { display: flex; justify-content: space-between; align-items: center; }
+.ts-review-chev { color: var(--muted, #8e8e93); transition: transform .15s ease; }
+.ts-review-head.open .ts-review-chev { transform: rotate(90deg); }
+.ts-review > div[hidden] { display: none; }
+.ts-review > div:not([hidden]):not(.ts-review-head) { display: flex; flex-direction: column; gap: 6px; }
 .ts-review .ts-box-value { font-weight: 600; }
 .ts-btn.green { background: var(--income); }
 .ts-btn.ghost { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
@@ -2597,6 +2723,7 @@ body.income-revealed .sens-mask { display: none; }
 #entry-trip { width: 100%; }
 .trip-covered-btn { display: block; margin: 4px 0 0 auto; }
 .trip-find-row { cursor: pointer; gap: 10px; }
+.trip-find-row[hidden] { display: none; }
 .trip-find-row input[type="checkbox"] {
   /* Same fix as .checkbox-row's: the blanket input rule strips the native checkmark. */
   -webkit-appearance: checkbox;
@@ -2913,7 +3040,9 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
   text-align: center;
 }
 .app-toast[hidden] { display: none; }
-.app-undo-toast { display: flex; align-items: center; gap: 12px; text-align: left; width: max-content; }
+.app-undo-toast { display: flex; align-items: center; gap: 12px; text-align: left; width: max-content; transform: translateX(-50%) translateY(var(--drag-y, 0px)); transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 0.25s ease; touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer; }
+.app-undo-toast.is-dragging { transition: none; }
+.app-undo-toast.is-leaving { transition: transform 0.2s ease-in, opacity 0.2s ease-in; }
 .app-undo-btn { background: none; border: 0; color: #9ec5ff; font: inherit; font-weight: 600; padding: 4px 2px; cursor: pointer; white-space: nowrap; }
 .tidy-group { padding: 12px 0; border-top: 1px solid var(--border); }
 .tidy-group:first-child { border-top: 0; }
@@ -2921,8 +3050,12 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .tidy-group-name { font-weight: 600; overflow-wrap: anywhere; }
 .tidy-group-total { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .tidy-group-meta { margin: 2px 0 8px; }
-.tidy-group-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.tidy-group-row select { flex: 1 1 160px; min-width: 0; }
+/* Two lines on purpose, in both languages: the list + Apply, then Show the entries + Skip (owner, 2026-11-05). */
+.tidy-group-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.tidy-group-row select { width: 100%; min-width: 0; margin: 0; }
+.tidy-group-row .tidy-lines { justify-self: start; }
+.tidy-group-row .tidy-apply, .tidy-group-row .tidy-skip { justify-self: stretch; text-align: center; }
+.tidy-group-row .add-inline, .tidy-group-row .add-inline + .add-inline, #perf-copy-btn, #perf-clear-btn { margin: 0; }   /* the stacked-button rule (.add-inline + .add-inline) pushed "Show the lines" 8px below "Apply" */
 .tidy-samples { margin: 8px 0 0; padding: 0; list-style: none; font-size: 0.85rem; color: var(--muted); }
 .tidy-samples li { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
 
@@ -2964,6 +3097,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 14px 0 10px; }
 .home-four-box { background: var(--bg); border-radius: 12px; padding: 7px 6px; min-width: 0; display: flex; flex-direction: column; }
 .home-four-box span { display: block; font-size: 0.62rem; line-height: 1.15; color: var(--muted); }   /* "Lo que queda" wraps to two lines */
+.home-loans-note { margin: -4px 0 8px; font-size: 0.72rem; }
 .home-four-box b { display: block; font-size: 0.78rem; margin-top: auto; padding-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-four-box b.income { color: var(--income); }
 .home-four-box b.expense { color: var(--expense); }
@@ -2987,7 +3121,13 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-line-svg .prev { stroke: #c4c4cc; }
 .home-line-svg .cur { stroke: var(--accent); }
 .home-line-svg .dot { fill: var(--accent); }
-.home-pace-lines { display: flex; justify-content: space-between; gap: 10px; font-size: 0.8rem; margin-top: 6px; }
+/* Two equal columns, both starting at their left edge: the blue line's figure, then the grey line's (owner, 2026-11-08: the grey one
+   used to be pushed to the right and wrap under the blue one on the Spending pace screen). */
+.home-pace-lines { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; align-items: start; font-size: 0.8rem; margin-top: 6px; }
+.home-pace-lines .pace-whole { display: block; margin-top: 2px; }
+.home-pace-lines .pace-whole-amt { display: block; margin-top: 0; }
+.home-pace-lines .pace-col-ref { text-align: right; }
+.home-pace-lines .pace-col-ref .pace-whole { white-space: nowrap; }
 .home-pace-lines div { min-width: 0; }
 .home-pace-lines b { display: block; font-size: 0.95rem; }
 
@@ -3010,14 +3150,14 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .first-steps-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .first-steps-head h2 { margin: 0; }
 .first-steps-list { list-style: none; margin: 8px 0 0; padding: 0; }
-.first-step { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--border); padding: 10px 0; font: inherit; color: inherit; cursor: pointer; }
+.first-step { display: flex; gap: 10px; align-items: flex-start; width: 100%; min-height: 44px; text-align: left; background: none; border: 0; border-top: 1px solid var(--border); padding: 10px 0; font: inherit; color: inherit; cursor: pointer; }
 .first-step.done { cursor: default; color: var(--muted); }
 .first-step.done b { font-weight: 500; text-decoration: line-through; }
 .first-step-mark { width: 22px; flex: none; text-align: center; font-weight: 700; color: var(--muted); }
 .first-step.done .first-step-mark { color: #2e9e5b; }
 .first-step-body { display: flex; flex-direction: column; gap: 2px; }
 .first-step-body .hint { margin: 0; }
-.first-step.late .hint { color: #b26a00; font-weight: 600; }
+.first-step.late .hint { color: #9a5b00; font-weight: 600; }
 
 /* More → Bank emails: short sheet, one tap-to-open row per bank, long text behind "details" (tour-scenes.js SCENES.bankalerts draws the animation) */
 .bm-stage { margin-top: 4px; margin-bottom: 4px; }
@@ -3039,11 +3179,12 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .own-name-name { margin: 4px 0; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; }
 .own-name-actions { display: flex; gap: 8px; margin-top: 8px; }
 .own-name-actions button { flex: 1; }
+#own-name-yes, #own-name-no { margin: 0; }   /* side by side: no stacked-button margins, so both tops line up */
 .review-maybe-own { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
 .review-loan-hint { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
 .review-hint-btn { font-weight: 600; }
 .payee-suggest { margin: 6px 0 0; font-size: 0.85rem; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.notices-card { border-left: 4px solid #b26a00; }
+.notices-card { border-left: 4px solid #9a5b00; }
 .notices-card h2 { margin: 0; font-size: 1rem; }
 .notices-list { list-style: none; margin: 6px 0 0; padding: 0; }
 .notices-list li { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); }
@@ -3051,25 +3192,70 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .notice-body { flex: 1; min-width: 0; }
 .notice-text { overflow-wrap: anywhere; }
 .notice-date { display: block; font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
-.notice-x { border: 0; background: transparent; font-size: 1.1rem; line-height: 1; padding: 4px 8px; color: var(--muted); cursor: pointer; }
-.mail-health { border-left: 4px solid #b26a00; }
+.notice-x { border: 0; background: transparent; font-size: 1.1rem; line-height: 1; padding: 0; min-width: 44px; min-height: 44px; margin: -10px -10px -10px 0; display: flex; align-items: center; justify-content: center; color: var(--muted); cursor: pointer; }   /* 44px to tap (1.76.1), the row keeps its height */
+.mail-health { border-left: 4px solid #9a5b00; }
 .mail-health h2 { margin: 0 0 4px; font-size: 1rem; }
 .mail-health .hint { margin: 4px 0 6px; }
 .bm-health { margin: 4px 0; }
-.bm-health.problem { color: #b26a00; font-weight: 600; }
+.bm-health.problem { color: #9a5b00; font-weight: 600; }
 .bm-status { font-size: 0.8rem; color: var(--muted); }
 .bm-status.ok { color: #2e9e5b; font-weight: 600; }
-.bm-status.wait { color: #b26a00; font-weight: 600; }
+.bm-status.wait { color: #9a5b00; font-weight: 600; }
 .bm-bank .hint { margin: 6px 0 0; }
 .bm-more { margin: 10px 0; }
 .bm-more > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+
+/* ---- More → Bank emails screen (two views: By bank / By transaction) ---- */
+.be-tabs { display: flex; gap: 0; margin: 14px 0 10px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.be-tab { flex: 1; min-height: 44px; border: 0; background: var(--card); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.be-tab + .be-tab { border-left: 1px solid var(--border); }
+.be-tab.active { background: var(--accent); color: #fff; }
+.be-kinds { list-style: none; margin: 8px 0 0; padding: 0; }
+.be-kinds li { display: flex; flex-direction: column; gap: 1px; padding: 6px 0; border-top: 1px solid var(--border); }
+.be-kinds li:first-child { border-top: 0; }
+.be-kinds li .hint { margin: 0; }
+.be-kinds li.ok .hint { color: var(--income); font-weight: 600; }
+.be-kinds li.can .hint { color: #9a5b00; }
+.be-wallet { margin: 12px 0 0; font-size: 0.95rem; }
+.be-group { margin: 14px 0; }
+.be-group h3 { margin: 0 0 2px; }
+.be-group.be-optional h3 { color: var(--muted); }
+.be-kind { border-top: 1px solid var(--border); padding: 8px 0; }
+.be-kind > summary { list-style: none; cursor: pointer; position: relative; padding-right: 22px; }
+.be-kind > summary::-webkit-details-marker { display: none; }
+.be-kind > summary::after { content: "›"; position: absolute; right: 2px; top: 4px; color: var(--muted); font-size: 18px; transition: transform .15s; }
+.be-kind[open] > summary::after { transform: rotate(90deg); }
+.be-why { margin: 8px 0 4px; }
+.be-why-q { margin: 0 0 6px; font-weight: 600; font-size: 0.92rem; }
+.be-why-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.be-why-opt { margin: 0; padding: 6px 10px; border: 1px solid var(--border); border-radius: 16px; background: transparent; color: inherit; font: inherit; font-size: 0.88rem; cursor: pointer; }
+.be-why-opt.on { border-color: var(--accent); background: rgba(0, 113, 227, 0.1); color: var(--accent); font-weight: 600; }
+.be-why-other { margin-top: 6px; }
+.be-why-other textarea { width: 100%; box-sizing: border-box; }
+.be-why-other .add-inline { margin-top: 6px; }
+.be-items { list-style: none; margin: 6px 0 0; padding: 0; }
+.be-items li { display: grid; grid-template-columns: 92px 1fr auto; gap: 8px; padding: 5px 0; font-size: 0.9rem; border-top: 1px dashed var(--border); }
+.be-item-date { color: var(--muted); }
+.be-item-text { overflow-wrap: anywhere; }
+.be-item-amt { white-space: nowrap; }
+.be-item-amt.in { color: var(--income); }
 
 .exchange-amount-row { display: flex; gap: 8px; margin-top: 8px; min-width: 0; }
 .exchange-amount-row input { flex: 1 1 0; min-width: 0; width: auto; }
 .exchange-amount-row select { flex: 0 0 34%; min-width: 0; width: 34%; }
 .tour-more-text { margin-top: 14px; }
 
-/* More → Statements and More → Import data are one screen in two modes (data-mode on #screen-statements) */
+/* More → My data: a small hub, rows in three short headed groups (Bring in / Then tidy / Take out) */
+.md-head { margin: 18px 0 2px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.md-head:first-of-type { margin-top: 8px; }
+/* More → My profile: three cards on one screen, the second and third set off by a line */
+#my-profile-fits-card, #my-profile-dates-card, #my-profile-devices-card, .fp-card { margin-top: 26px; padding-top: 6px; border-top: 1px solid var(--border); }
+.md-row { text-align: left; }
+.md-row > span:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.md-title { font-weight: 600; }
+.md-sub { margin: 0; }
+
+/* The Statements screen is one screen in two modes (data-mode on #screen-statements), switched by the tabs at its top */
 #screen-statements[data-mode="import"] .stmt-bank-only,
 #screen-statements[data-mode="bank"] .stmt-import-only { display: none !important; }
 
@@ -3119,7 +3305,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #export-send-btn { margin-top: 8px; }
 #extras-google-link { margin-bottom: 8px; }
 #extras-takeback-btn { margin-top: 8px; }
-#statement-find-btn { margin-top: 8px; }
+#statement-find-btn, #statement-find-months { margin-top: 0; margin-bottom: 0; }
 #rate-invert-btn, #wa-add-bank-btn { margin-top: 8px; }
 .tags-list ~ .add-inline { margin-top: 8px; }
 .stmt-find-read-wrap { margin-top: 14px; }
@@ -3128,7 +3314,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .stmt-stepper { display: flex; gap: 6px; margin-top: 12px; }
 .stmt-stepper[hidden] { display: none; }
 .stmt-pill {
-  flex: 1 1 0; min-width: 0; padding: 8px 2px; font-family: inherit; font-size: 0.78rem; line-height: 1.2;
+  flex: 1 1 0; min-width: 0; padding: 8px 2px; white-space: nowrap; font-family: inherit; font-size: 0.78rem; line-height: 1.2;
   border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--muted); cursor: pointer;
 }
 .stmt-pill.on { background: #e8f1fd; border-color: var(--accent); color: var(--accent); font-weight: 600; }
@@ -3165,13 +3351,11 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
    show nothing); the period cards are dimmed ONLY while the figures on screen belong to another period. */
 #period-selector-card { position: relative; }
 #screen-overview > .card { transition: opacity 0.2s; }
-/* Each block of figures that belongs to another period shows its own turning ring (like Home's per-block loading) instead of old numbers. */
-.overview-stale > .card.ov-period { position: relative; pointer-events: none; min-height: 64px; }
-.overview-stale > .card.ov-period > * { opacity: 0.18; }
-.overview-stale > .card.ov-period:not(#overview-entries-card)::after {
-  content: ""; position: absolute; top: calc(50% - 9px); left: calc(50% - 9px); width: 18px; height: 18px;
-  border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: stmt-spin 0.8s linear infinite;
-}
+/* Each block of figures that belongs to another period says "Loading…" in its place until its own figures arrive (owner, 2026-11-08:
+   the faded old numbers with a small ring did not read as loading). The text comes from data-loading (set in app.js, both languages). */
+.overview-stale > .card.ov-period { pointer-events: none; }
+.overview-stale > .card.ov-period > *, #pace-card.ov-loading > *, #balances-card.ov-loading > * { display: none !important; }
+.overview-stale > .card.ov-period::before, #pace-card.ov-loading::before, #balances-card.ov-loading::before { content: attr(data-loading); display: block; padding: 6px 0; color: var(--muted); font-size: 0.95rem; }
 @keyframes ov-appear { from { opacity: 0; } to { opacity: 1; } }
 
 /* Overview: the period picker stays at the top while the screen scrolls. */
@@ -3220,7 +3404,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .projection-type-heading:first-child { margin-top: 0; }
 
 /* Review queue: money coming in reads green, like everywhere else. */
-.review-item-amount.review-amt-in { color: var(--income); }
+.review-item-amount.review-amt-in, .primary-amt.review-amt-in { color: var(--income); }
 
 .loan-row-projects { display: block; font-size: 0.74rem; font-weight: 400; color: var(--muted); margin-top: 1px; }
 
@@ -3247,6 +3431,11 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 /* Two small actions side by side (a person's screen: Record repayment / Repayment history). */
 .loan-detail-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 16px; }
 .loan-detail-actions[hidden] { display: none; }
+.loan-detail-actions .add-inline, .loan-detail-actions .add-inline + .add-inline, #record-repayment-btn, #loan-history-btn { margin: 0; }   /* the stacked-button rule made one button of the row taller */
+#screen-loans.first-loading #loans-owed-card, #screen-loans.first-loading #loans-i-owe-card,
+#screen-loans.load-failed #loans-owed-card, #screen-loans.load-failed #loans-i-owe-card { display: none; }
+.loans-unreadable { color: #9a5b00; margin: 0 0 12px; }
+.sheet-loading .budget-modal-body > :not(#settlement-loading) { display: none; }
 
 /* repayment history: the loans a repayment paid, as detail under "On loans" */
 .loan-detail-row-meta.history-sub { padding-left: 16px; }
@@ -3257,12 +3446,14 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .reassign-loading #reassign-save { display: none; }
 
 /* Bank loans: the schedule rows (a date line, then three amounts) and the installment list */
-.bank-row { border-top: 1px solid var(--border); padding: 8px 0; }
-.bank-row-top { display: flex; align-items: center; gap: 8px; }
-.bank-row-top input[type="date"] { flex: 1; min-width: 0; }
+/* One grid: number | date box | ✕, and the three amounts under the date box, same left and right edges (owner, 2026-11-05). */
+.bank-row { border-top: 1px solid var(--border); padding: 8px 0; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; column-gap: 8px; align-items: center; }
+.bank-row-top { display: contents; }
+.bank-row-top input[type="date"] { width: 100%; min-width: 0; box-sizing: border-box; }
+.bank-row-amounts { grid-column: 2; }
 .bank-row-num { font-size: 0.8rem; color: var(--text-muted, #8e8e93); min-width: 22px; }
 .bank-row-amounts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 6px; }
-.bank-row-amounts input { min-width: 0; }
+.bank-row-amounts input { min-width: 0; width: 100%; box-sizing: border-box; }
 .bank-row-remove { background: none; border: none; font-size: 1rem; color: #d64545; padding: 4px 8px; }
 .bank-inst { border-top: 1px solid var(--border); padding: 10px 0; }
 .bank-inst.tappable { cursor: pointer; }
@@ -3314,6 +3505,12 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .tip-invite p { margin: 0; line-height: 1.35; }
 .tip-invite-buttons { display: flex; gap: 8px; justify-content: flex-end; }
 .tip-invite-buttons button { min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border); background: #fff; color: var(--muted); font: inherit; }
+.loans-more-practice { display: flex; flex-direction: column; margin: 0 0 12px; padding: 0 4px; }
+.loans-more-head { display: flex; align-items: center; justify-content: space-between; }
+.loans-more-links { display: flex; flex-wrap: wrap; gap: 0 16px; }
+.loans-more-practice[hidden] { display: none; }
+.loans-more-practice .add-inline, .loans-more-practice .add-inline + .add-inline { margin: 0; padding: 12px 4px; font-size: inherit; }   /* one line: no stacked-button margin (Buttons line up rule) */
+.loans-more-close { min-width: 44px; min-height: 44px; border: 0; background: none; color: var(--muted); font: inherit; }
 .tip-invite-buttons .tip-invite-go { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 
 /* ---- More → Friends: Edit mode (tick several friends, delete them at once) ---- */
@@ -3332,8 +3529,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
   padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
 }
 .friends-editbar[hidden] { display: none; }
-.friends-editbar button.add-inline { white-space: nowrap; }
-.friends-editbar button.primary { width: auto; white-space: nowrap; margin-top: 0; padding: 12px 22px; }
+.friends-editbar button.add-inline { white-space: nowrap; margin: 0; }   /* margin: the stacked-button rule (.add-inline + .add-inline) must not push "Done" below "Select all" */
+.friends-editbar button.primary { width: auto; white-space: nowrap; margin-top: 0; padding: 12px 22px; min-height: 44px; box-sizing: border-box; }   /* min-height: Delete was 42 px next to the 44 px Select all / Done (testers, 2026-11-07) */
 /* room under the last friend so the fixed bar never covers it */
 #screen-friends.friends-editing .card { padding-bottom: 90px; }
 .friends-hidden-box { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 4px; }
@@ -3352,3 +3549,301 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
    above and below. Pull the box back so the WORDS line up with the edge. */
 #receipt-read-btn, #bill-open-btn, #split-client-btn, #split-add-friend-btn, #split-due-add, #add-tag-btn,
 #projections-method-btn { margin-left: -8px; }
+
+/* Budgets → Edit: a checkbox before the name, and room under the last row for the fixed bar (same bar as Friends) */
+.budget-row-lead { display: flex; align-items: center; gap: 12px; min-width: 0; }
+#screen-budgets.budgets-editing { padding-bottom: 90px; }   /* room for the fixed bar: on the page, not on every card (Tomás, 2026-11-09) */
+
+/* Round icon buttons in a screen header (pencil = Edit, + = Add): the same outlined circle as the period arrows. While Edit is on the pencil is filled. */
+.icon-btn {
+  width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: white; color: var(--accent);
+  display: inline-flex; align-items: center; justify-content: center; padding: 0; margin: 0; cursor: pointer; flex: 0 0 44px;
+  -webkit-tap-highlight-color: transparent;
+}
+.icon-btn:active { transform: scale(0.94); }
+.icon-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.icon-btn[hidden] { display: none; }
+.loans-head-actions .icon-btn { margin: 0 8px 0 4px; }   /* the 8px cancels the header's own -8px (made for text buttons), so the circle is not cut off */   /* the Loans header holds a text "Bank loan" button beside the round "+" */
+#screen-accounts.accounts-editing .card { padding-bottom: 90px; }
+.friends-check-spacer { flex: 0 0 22px; }   /* keeps the built-in Cash row (no checkbox) in line with the others while Edit is on */
+#screen-trips.trips-editing .card { padding-bottom: 90px; }
+#screen-categories.categories-editing .card { padding-bottom: 90px; }
+.cat-bulk-alert { background: #fff4e5; border: 1px solid #f0c987; border-radius: 10px; padding: 10px 12px; margin: 8px 0; font-size: 0.85rem; }
+.cat-bulk-block { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.cat-bulk-block select { width: 100%; margin-top: 6px; }
+#screen-business.business-editing .card, #screen-business-people.people-editing .card { padding-bottom: 90px; }
+.business-company-head.friends-check-row { justify-content: flex-start; gap: 12px; }
+.business-company-head.friends-check-row .business-mini { margin-left: auto; }
+/* Needs review → Edit: compact tick rows, and a bar with four buttons (Select all / Done / Discard / Confirm) that has to fit a narrow phone */
+#screen-entries.review-editing #review-queue-card { padding-bottom: 130px; }
+/* Four buttons did not fit a 375px phone once the count had 3 digits ("Discard (204)"): two rows, always, so the bar never jumps in height:
+   Select all (left) and Done (right) above, Discard and Confirm side by side below. */
+#review-editbar { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; padding: 10px 12px; align-items: center; }
+#review-editbar button { white-space: nowrap; }
+#review-editbar button.add-inline:nth-child(1) { justify-self: start; }
+#review-editbar button.add-inline:nth-child(2) { justify-self: end; }
+#review-editbar button.primary { width: 100%; margin: 0; padding: 12px 8px; font-size: 0.9rem; }
+.review-item.review-compact { display: flex; flex-direction: row; align-items: center; gap: 12px; cursor: pointer; }
+.review-item.review-compact .review-item-amount { margin-left: auto; white-space: nowrap; text-align: right; }
+.review-compact-chip { display: inline-block; font-size: 0.75rem; border-radius: 10px; padding: 1px 8px; margin-top: 3px; background: #fff4e5; color: #8a5a00; }
+.review-compact-chip.ok { background: #eaf6ee; color: #25744a; }
+/* Home / search → Edit: a checkbox before each entry, room under the list for the fixed bar */
+.search-results-head { display: flex; justify-content: flex-end; }
+.search-results-head .icon-btn { margin: 4px 0; }
+#screen-entries.entries-editing .entry-list, #screen-entries.entries-editing .search-results-card { padding-bottom: 90px; }
+.entry.entry-check { align-items: center; gap: 12px; cursor: pointer; }
+.entry.entry-check .entry-amount { margin-left: auto; }
+.entry.entry-exchange.entry-check { cursor: default; opacity: 0.75; }
+#entries-bulk-body .entries-bulk-list { font-size: 0.85rem; color: var(--muted); margin: 6px 0; }
+#entries-editbar { gap: 4px; padding: 10px 12px; }
+#entries-editbar button.primary { padding: 12px 12px; font-size: 0.9rem; }
+.deleted-batch { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin: 10px 0; }
+.deleted-batch-title { font-weight: 600; margin-bottom: 4px; }
+.deleted-batch .recurring-row { padding: 8px 0; }
+.deleted-batch-actions { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
+.deleted-batch-actions button.primary { width: auto; margin: 0; padding: 10px 18px; }
+.deleted-forget { color: #d64545; }
+.category-kind-title { flex-basis: 100%; margin-top: 4px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted, #888); }
+.category-kind-title:not(:first-child) { margin-top: 10px; }
+
+/* Bank emails: "is it working?" in one card at the top (the account read, last check, Check now). The Copy button lives in
+   "Do your bank emails arrive at another address?", next to the steps that use the address (owner, 2026-11-03). */
+.bm-status { border: 1px solid var(--border, #d9d9d4); border-radius: 12px; padding: 10px 12px; margin: 4px 0 14px; }
+.bm-status .hint:first-child { margin-top: 0; }
+.bm-status-addr { font-weight: 700; word-break: break-all; margin: 4px 0; }
+
+/* Extra features: one on/off switch per extra (2026-11-04). A checkbox drawn as an iPhone-style switch. */
+.extras-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 600; margin-top: 12px; cursor: pointer; }
+.ios-switch { appearance: none; -webkit-appearance: none; flex: none; position: relative; width: 51px; height: 31px; margin: 0; border-radius: 16px; background: #d1d1d6; cursor: pointer; transition: background 0.2s; }
+.ios-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25); transition: transform 0.2s; }
+.ios-switch:checked { background: #34c759; }
+.ios-switch:checked::after { transform: translateX(20px); }
+.ios-switch:disabled { opacity: 0.5; cursor: default; }
+.ios-switch:focus-visible { outline: 2px solid #1f5fbf; outline-offset: 2px; }
+
+/* A collapsible group header (owner, 2026-11-05): looks like a row you open, not like a blue link, so it never reads as
+   the same thing as an action link ("Find past entries for this") sitting inside it. */
+.disclosure-row {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  min-height: 44px; margin: 12px 0 4px; padding: 10px 12px;
+  background: var(--card-bg, #f4f4f6); color: var(--text, #1c1c1e); border: 1px solid var(--border, #e2e2e6); border-radius: 10px;
+  font: inherit; font-weight: 600; text-align: left; cursor: pointer;
+}
+.disclosure-chevron { color: var(--muted, #8e8e93); font-size: 1.2rem; transition: transform .15s ease; }
+.disclosure-row[aria-expanded="true"] .disclosure-chevron { transform: rotate(90deg); }
+
+/* An entry whose details are still loading shows only "Loading…": nothing can be edited or saved yet. */
+#entry-card.entry-loading #entry-form,
+#entry-card.entry-loading #entry-type-tabs,
+#entry-card.entry-loading #category-picker { display: none; }
+
+/* Rows in the Sheet the app can't read: named on Home (backend/SheetCells.gs). */
+.home-unreadable { border-left: 4px solid #d64545; }
+/* Charges to fill in: a quiet card on Home, yellow once one has waited 45 days. */
+.home-charges { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; font: inherit; color: inherit; border: none; cursor: pointer; }
+.home-charges.late { background: #fff8e1; border-left: 4px solid #f5c518; }
+.home-charges-title { font-weight: 600; }
+.home-charges-chevron { color: var(--muted); font-size: 1.2rem; }
+.home-charges .hint { margin: 2px 0 0; }
+.home-charges.late .hint { color: #7a5c00; }
+.charge-line { padding: 12px 0; border-top: 1px solid var(--border); }
+.charge-line-top { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
+.charge-line-name { overflow-wrap: anywhere; min-width: 0; }
+.charge-line-amount { flex: 0 0 auto; }
+.charge-line .hint { margin: 2px 0 6px; }
+.charge-line label { margin-top: 6px; }
+.charge-line-row { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.charge-line-row .cur-pick { flex: 0 0 34%; width: 34%; }
+.charge-line-row input { flex: 1 1 0; min-width: 0; width: auto; margin: 0; }
+.charge-line-row .cur-pick > select { margin: 0; }
+.charge-line-row .add-inline, .charge-line-row .add-inline + .add-inline { margin: 0; flex: 0 0 auto; }
+.charge-line-actions { justify-content: space-between; margin-top: 8px; }
+.charge-line-actions .charge-delete { color: #d64545; }
+.stmt-charge-rate { margin: 2px 0 0; }
+.stmt-charge-option { padding: 6px 0; border-top: 1px dashed var(--border); }
+.review-charge-match { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: #eef5ff; font-size: 0.9rem; }
+.review-charge-match .review-charge-btn { margin: 8px 0 0; background: #fff; }
+.charge-paid-line { white-space: nowrap; }
+.charge-rate { margin: 4px 0 0; color: var(--text); }
+.charge-line-error { color: #d64545; margin: 4px 0 0; font-size: 0.85rem; }
+.home-unreadable-title { font-weight: 600; margin-bottom: 4px; }
+.home-unreadable ul { margin: 6px 0; padding-left: 18px; font-size: 0.9em; overflow-wrap: anywhere; }
+
+#review-list > [hidden] { display: none; }
+/* A tab whose first load failed: the message instead of zeros or stale rows (setLoadFailed_). */
+.screen-load-failed { margin: 0 0 12px; }
+#screen-overview.load-failed > .card:not(#period-selector-card),
+#screen-budgets.load-failed > .card:not(#period-selector-card) { display: none; }
+/* Overview, Custom with no dates chosen: only the date choice and its line, no figures (testers, 2026-11-07) */
+#custom-range-needs { display: none; }
+#screen-overview.overview-needs-dates #custom-range-needs { display: block; }
+#screen-overview.overview-needs-dates > .card:not(#period-selector-card) { display: none; }
+
+/* ---- Overview clarity (testers, 2026-11-07) ---- */
+.period-pending-line { display: block; width: 100%; margin: 0 0 12px; padding: 10px 12px; min-height: 44px; border: none; border-radius: 10px;
+  background: #fff6e0; color: #8a5a00; font: inherit; font-size: 0.85rem; text-align: left; cursor: pointer; }
+.period-pending-line[hidden] { display: none; }
+.ov-sum-grid.folded .ov-sum-tile.investment, .ov-sum-grid.folded .ov-sum-tile.loans { display: none; }
+.ov-sum-zero-line { text-align: center; margin: 6px 0 0; }
+.pace-ref-switch { display: flex; gap: 8px; margin: 6px 0 4px; }
+.pace-ref-switch button { flex: 1 1 0; min-height: 44px; border: 1px solid var(--border); background: white; border-radius: 999px; padding: 8px 10px;
+  font: inherit; font-size: 0.8rem; cursor: pointer; }
+.pace-ref-switch button.active { background: var(--accent); color: white; border-color: var(--accent); }
+#loans-ov-card { cursor: pointer; }
+.ov-card-chevron { color: var(--muted); font-weight: 400; }
+.loans-ov-owed { margin: 8px 0 0; }
+.loans-ov-owed-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 4px 0; }
+.loans-ov-owed-row b { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; }
+.loans-ov-owed[hidden] { display: none; }
+/* Spending pace screen (owner, 2026-11-07) */
+.pace-screen { display: flex; flex-direction: column; }
+.pace-screen .currency-modal-header { justify-content: flex-start; gap: 12px; }
+.pace-screen-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.pace-screen-body label { display: block; margin-top: 14px; }
+.pace-screen-body select { width: 100%; }
+#pace-s-other { margin-top: 8px; }
+.home-line-svg.pace-screen-svg { height: 200px; }
+.pace-days { position: relative; height: 16px; font-size: 0.7rem; color: var(--muted); }
+.pace-days span { position: absolute; transform: translateX(-50%); }
+.pace-diff { grid-column: 1 / -1; margin-top: 6px; font-size: 0.85rem; color: var(--muted); }
+.pace-custom-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 4px; font-size: 0.85rem; color: var(--muted); }
+.pace-custom-row .add-inline { margin: 0; }
+#pace-card { cursor: pointer; }
+#pace-s-reset { margin-top: 8px; padding-left: 0; }
+
+/* Rates against the US dollar (RatesUsd.gs): the offer on More → Currencies and its preview sheet. */
+.rates-usd-offer { border: 1px solid var(--border, #e3e3e3); border-radius: 12px; padding: 10px 12px; margin: 8px 0 12px; }
+.rates-usd-offer-title { font-weight: 600; margin: 0 0 4px; }
+.rates-usd-row { padding: 8px 0; border-bottom: 1px solid var(--border, #eee); }
+.rates-usd-row-name { font-weight: 600; }
+.rates-usd-row-was { color: var(--muted, #888); text-decoration: line-through; font-size: 0.9em; }
+.rates-usd-row-now { font-size: 0.95em; }
+.rates-usd-month { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border, #eee); font-size: 0.95em; }
+#rates-usd-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+#rates-usd-actions .add-inline { margin-top: 0; }
+.usd-share-amt { white-space: nowrap; }
+/* Projections works by month or year: no Week choice there (owner, 2026-11-07) */
+#screen-projections .period-type-chip[data-period-type="week"],
+#screen-projections .period-type-chip[data-period-type="alltime"],
+#screen-projections .period-type-chip[data-period-type="custom"] { display: none; }
+.pay-kinds { margin-top: 4px; }
+
+/* More → Currencies: one row per currency, its history opens in place (owner, 2026-11-07). */
+.rates-card-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.rates-card-header h3 { margin: 0; }
+.rates-group-head { cursor: pointer; }
+.rates-chevron { color: var(--muted); margin-left: 6px; display: inline-block; width: 12px; text-align: center; }
+.rates-history { padding: 0 0 8px 12px; border-bottom: 1px solid var(--border); }
+.rates-month-row { display: grid; grid-template-columns: 5.5em 1fr 4em; align-items: center; gap: 8px; padding: 8px 0; font-size: 0.95em; cursor: pointer; border-top: 1px solid var(--border); }
+.rates-month-rate { text-align: right; }
+.rates-num { font-variant-numeric: tabular-nums; white-space: nowrap; }   /* same-width digits: the decimals line up */
+.rates-month-name { color: var(--muted); }
+.rates-change { text-align: right; color: var(--muted); font-size: 0.85em; }
+.rates-change.rates-jump { color: #c46a00; font-weight: 600; }
+.rates-older-btn { margin-top: 6px; }
+#rates-add-modal-backdrop label { display: block; margin-top: 10px; font-weight: 600; }
+#rates-add-modal-backdrop select, #rates-add-modal-backdrop input[type="month"] { width: 100%; margin-top: 4px; }
+#rates-add-next { margin-top: 12px; width: 100%; }
+
+/* Sheets sit above the iPhone keyboard (keepSheetsAboveKeyboard_ in app.js sets --kb-gap / --vv-h while it is open). */
+/* The bar iPhone puts above the keyboard is see-through, and the tab bar showed through it (owner's screenshot, 2026-11-09). A sheet now
+   continues under that bar (--kb-peek, about the bar's height), so its lower part shows there; the same amount of extra room at the end of what
+   scrolls lets the last field come clear of the bar. Whatever is left under the sheet is painted in its colour (the 1px closes any hairline). */
+html.kb-open { --kb-peek: min(var(--kb-gap, 0px), 70px); }
+html.kb-open .currency-modal-backdrop { padding-bottom: calc(var(--kb-gap, 0px) - var(--kb-peek)); box-sizing: border-box; background-image: linear-gradient(to top, var(--card) calc(var(--kb-gap, 0px) + 1px), transparent calc(var(--kb-gap, 0px) + 1px)); }
+html.kb-open .currency-modal-backdrop .currency-modal { max-height: calc(var(--vv-h, 100dvh) - 16px + var(--kb-peek)) !important; padding-bottom: calc(16px + var(--kb-peek)); }
+html.kb-open .currency-modal-backdrop .currency-modal:has(> :is(.budget-modal-body, .edit-entry-modal-body, #drilldown-scroll-area, .bill-scroll, .pace-screen-body, .currency-option-list):last-child:not([hidden])) { padding-bottom: 0; }
+html.kb-open .currency-modal-backdrop .currency-modal > :is(.budget-modal-body, .edit-entry-modal-body, #drilldown-scroll-area, .bill-scroll, .pace-screen-body, .currency-option-list):last-child:not([hidden]) { padding-bottom: calc(16px + var(--kb-peek)); }
+html.kb-open #entries-bulk-go, html.kb-open #entries-bulk-cat-go, html.kb-open #entries-bulk-trip-go { bottom: var(--kb-peek); }
+
+/* A currency exchange on Home: what left above, what arrived below (buildExchangePairRow_). */
+.entry-amount .xch-amt { display: block; }
+
+/* Round choice buttons keep their own look: the text-box rule above (width 100%, no native look) turned them into empty pills on
+   the iPhone and pushed the sheet sideways (owner's screenshot, bank loan "How do you want to enter it?", 2026-11-08). */
+input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; height: 20px; min-height: 0; padding: 0; margin: 0; flex: none; accent-color: var(--accent); border: none; }
+#bank-mode-box { margin-top: 16px; }
+/* A bank loan from before the app: the rows before today stay visible, greyed, and are left out on save. */
+.bank-row-past input { color: var(--muted); background: #f4f4f6; }
+.bank-row-tag { grid-column: 2; font-size: 0.75rem; font-weight: 600; color: var(--muted); margin-top: 4px; }
+.bank-opening-check { margin-top: 12px; }
+#bank-opening-how { margin-top: 8px; }
+.bank-opening-summary { font-weight: 600; color: var(--text); }
+
+/* Budgets that start in a later period, under the list: a closed group (owner, 2026-11-08). */
+.budgets-later { margin-top: 10px; border-top: 1px solid var(--border); }
+.budgets-later[hidden] { display: none; }
+.budgets-later-head, .budgets-later-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%;
+  min-height: 44px; padding: 10px 0; border: none; background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.budgets-later-head { font-weight: 600; }
+.budgets-later-count { display: inline-block; min-width: 22px; padding: 1px 7px; margin-left: 4px; border-radius: 999px; background: #efeff2;
+  color: var(--muted); font-size: 0.8rem; font-weight: 600; text-align: center; }
+.budgets-later-chev { color: var(--muted); }
+.budgets-later-row { border-top: 1px solid var(--border); padding-left: 4px; }
+.budgets-later-name { min-width: 0; overflow-wrap: anywhere; }
+.budgets-later-when { color: var(--muted); font-size: 0.9rem; white-space: nowrap; }
+/* The Starts box when it is not the current period: outlined in blue, with a line saying what it means. */
+.select-like.changed { border-color: var(--accent); border-width: 2px; }
+.budget-start-note { color: var(--accent); }
+.budget-dup-open { margin-top: 6px; }
+
+/* The second choice of a choice window (budget scope): outlined, not red (nothing is deleted). */
+.secondary-choice { display: block; width: 100%; min-height: 44px; margin-top: 6px; padding: 10px 14px; border: 1px solid var(--accent);
+  border-radius: 10px; background: white; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+
+/* Pop-up tips (owner's plan, 2026-11-08): a bubble pointing at a field, above every sheet but under a practice (100000). Nothing is dimmed. */
+.pop-tip { position: fixed; z-index: 99990; width: min(300px, calc(100vw - 24px)); box-sizing: border-box; background: #fff8e1; color: var(--text); border-radius: var(--radius); padding: 12px 14px 8px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28); }
+.pop-tip p { margin: 0 0 6px; line-height: 1.35; font-size: 15px; }
+.pop-tip-buttons { display: flex; justify-content: flex-end; }
+.pop-tip-ok { min-height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--accent); background: var(--accent); color: #fff; font: inherit; font-weight: 600; }
+.pop-tip-buttons { margin-bottom: 4px; }
+.pop-tip-arrow { position: absolute; width: 14px; height: 14px; background: #fff8e1; transform: translateX(-50%) rotate(45deg); }
+.pop-tip-arrow[hidden] { display: none; }
+.pop-tip[data-side="below"] .pop-tip-arrow { top: -7px; }
+.pop-tip[data-side="above"] .pop-tip-arrow { bottom: -7px; }
+
+.app-confirm-text { white-space: pre-line; font-size: 1rem; line-height: 1.4; margin: 0 0 14px; }
+
+/* The part of a budget bar still to come (Programmed items this period): a lighter shade of the same colour, continuing the bar
+   (owner, 2026-11-08: option A of four; the first dotted version looked busy). Blue, amber (75 %+) or red (100 %+) by the total. */
+.budget-progress-track { position: relative; }
+.budget-progress-prog { position: absolute; top: 0; bottom: 0; border-radius: 0 999px 999px 0; background: var(--accent); opacity: 0.28; }
+.budget-progress-prog.warn { background: #e0952c; opacity: 0.35; }
+.budget-progress-prog.over { background: #d64545; opacity: 0.3; }
+.budget-row-prog { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+.budget-row-prog.warn { color: #b8741a; }
+.budget-row-prog.over { color: #d64545; }
+
+/* "Show the n people" starts at the card's left edge, with the rows above it (Tomás, 2026-11-09). */
+#loans-ov-people-btn { padding-left: 0; margin-left: 0; }
+
+/* The kinds under "I work for myself": a full line of their own, also among the small side-by-side chips of My profile. */
+.occ-kinds { flex: 1 0 100%; padding-left: 12px; border-left: 2px solid var(--border); box-sizing: border-box; }
+.occ-kinds .hint { margin: 2px 0 6px; }
+
+/* Bank statements while it opens: only the header card and its loading line (loading standard). */
+#screen-statements.stmt-opening > .card:not(#stmt-head-card) { display: none; }
+#screen-statements.stmt-opening > #stmt-head-card::after { content: attr(data-loading); display: block; margin-top: 12px; color: var(--muted); font-size: 14px; }
+
+/* Two messages at once: the plain one sits above the one with Undo, never on top of it. */
+body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: 216px; }
+/* WhatsApp number: country on the left, number on the right, one row. */
+.phone-row { display: flex; gap: 8px; align-items: stretch; }
+.phone-row select { flex: 0 0 44%; min-width: 0; width: 44%; margin: 0; }
+.phone-row input { flex: 1 1 0; min-width: 0; width: auto; margin: 0; }
+#statement-past-btn { margin-left: 16px; }   /* in line with the cards' inner edge above it */
+
+/* Getting started: the bank e-mail screens carry no warning colors. */
+.bank-quiet .bm-status.wait, .bank-quiet .bm-health.problem, .bank-quiet .be-kinds li.can .hint { color: var(--muted); font-weight: 400; }
+
+/* "Your people are now one list" (1.76.1): one block per shared name; its two-way choice and the result line under it. */
+.payor-merge-row { padding: 10px 0; border-top: 1px solid var(--border); }
+.payor-merge-row:last-child { border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.payor-merge-name { font-weight: 600; }
+.payor-merge-tabs { margin-top: 8px; }
+.payor-merge-tabs .type-tab { font-size: 0.85rem; font-family: inherit; color: inherit; }
+.payor-merge-result { margin: 6px 0 0; }
+#loan-detail-list.is-updating { opacity: 0.45; }   /* an installment or early payment is being saved: the old lines stay, dimmed (1.76.1) */
+/* A field that must be filled before its button works (showFieldError_, owner 2026-11-11) */
+.field-invalid { border-color: #d64545 !important; box-shadow: 0 0 0 1px #d64545; }
+.field-error-msg { color: #d64545; font-size: 0.85rem; margin: 4px 0 0; }

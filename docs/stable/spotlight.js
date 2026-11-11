@@ -21,7 +21,9 @@
 //                                                          a tap anywhere closes the keyboard, which is how the step ends
 //   after:   () => void                                    runs when the step is done
 //   wait:    ms                                            how long to wait for the target to appear (default 5000; then the step is left out)
-//   poke:    () => void                                    called every 2 s while waiting for the target (e.g. refresh a list)
+//   poke:    () => void                                    called every 2 s while waiting for the target (e.g. refresh a list), never while ctx.busy()
+//   giveUp:  () => boolean                                 while waiting for the target: true = stop waiting, go on quietly
+//   waitText: () => string                                 what to say while waiting for this step's target (e.g. "Saving…"; default "One moment…")
 //   available: () => boolean                               cheap, no side effects: lets "3 of 12" count only steps that will show
 //   button:  () => string                                  shows one button with this label; pressing it ends the step (an info step)
 //   look:    true                                          view-only: taps inside the cut-out are blocked too (an overview of a whole screen)
@@ -32,7 +34,7 @@
 // }
 // A step needs at least one of tap / until / visit / button. A `visit` step also needs ok() (when given) to be true.
 //
-// ctx: { labels: { exit, waiting, cleaning, stuck, note, step(n, total) }, onFinish(how) }  (onFinish may be async: the bubble says
+// ctx: { labels: { exit, waiting, cleaning, stuck, note, step(n, total) }, onFinish(how), busy() }  (onFinish may be async: the bubble says
 // "cleaning" and the screen stays blocked until it is done).
 //
 // Used by docs/app.js; also loaded by Node for tests/backend/spotlight.test.js. Holds no secrets.
@@ -45,6 +47,7 @@
   var PAD = 6;      // breathing room between the target and the edge of the cut-out
   var GAP = 12;     // between the cut-out and the bubble
   var EDGE = 12;    // never closer than this to the screen's edge
+  var EXIT_AFTER_MS = 8000;   // while a step waits for its screen nothing can be pressed; after this long Exit comes back, so a load that hangs cannot trap the person (owner, 2026-11-09)
   var STUCK_MS = 25000;   // after this long on one step a small "skip this step" appears (a way out, never the normal way on)
 
   function readSeen(storage) {
@@ -130,12 +133,20 @@
     function targetsOf(step) {
       var t = typeof step.target === "function" ? step.target() : step.target ? doc.querySelector(step.target) : null;
       var list = !t ? [] : (Array.isArray(t) ? t : [t]);
+      // A section the person can fold (Needs review) opens by itself when a step needs what is inside: it marks itself data-spot-reveal and listens for spot-reveal.
+      list.forEach(function (el) {
+        var fold = el.closest && el.closest("[data-spot-reveal][hidden]");
+        if (fold) fold.dispatchEvent(new CustomEvent("spot-reveal"));
+      });
       return list.filter(onScreen);
     }
     function unionRect(els) {
       var r = null;
       els.forEach(function (e) {
         var b = e.getBoundingClientRect();
+        // A long list inside a sheet is cut by the sheet: the bright window stops at the sheet's edges too (owner's walk, 2026-11-09).
+        var sheet = e.closest && e.closest(".currency-modal");
+        if (sheet) { var m = sheet.getBoundingClientRect(); b = { top: Math.max(b.top, m.top), bottom: Math.min(b.bottom, m.bottom), left: b.left, right: b.right }; }
         r = r ? { top: Math.min(r.top, b.top), bottom: Math.max(r.bottom, b.bottom), left: Math.min(r.left, b.left), right: Math.max(r.right, b.right) }
               : { top: b.top, bottom: b.bottom, left: b.left, right: b.right };
       });
@@ -242,27 +253,48 @@
     }
 
     // The screen while something the person cannot see is still happening (a save on its way to the server): dimmed, one line, no highlight.
-    function showWaiting() {
+    function showWaiting(text) {
       cur = { step: null, targets: [] };
-      $(".spot-text").textContent = L.waiting;
+      $(".spot-text").textContent = text || L.waiting;
       $(".spot-count").textContent = "";
       $(".spot-go").hidden = true;
       $(".spot-stuck").hidden = true;
+      holdExit();
       layout();
+    }
+    // Called again and again during one wait: the clock starts once, and an Exit that has come back stays.
+    var exitTimer = null;
+    function holdExit() {
+      if (exitTimer) return;
+      $(".spot-exit").hidden = true;
+      exitTimer = setTimeout(function () { if (!closed) { $(".spot-exit").hidden = false; layoutSoon(); } }, EXIT_AFTER_MS);
+    }
+    function releaseExit() {
+      if (exitTimer) clearTimeout(exitTimer);
+      exitTimer = null;
+      $(".spot-exit").hidden = false;
     }
 
     function onKey(e) { if (e.key === "Escape") { e.stopPropagation(); finish("skipped"); } }
 
     function shown(s) { return !s.available || s.available(); }
-    function stepsShownCount() { return steps.filter(shown).length; }
-    function stepNumber(i) { return Math.max(1, steps.slice(0, i + 1).filter(shown).length); }
+    // The counter counts the steps the person really sees (1.76.1): a step left out on the way (already explained, already answered) never
+    // makes it jump ("2 of 15" then "5 of 15", Rosa); the total is what was seen plus what can still come after the furthest step seen.
+    var seen = [];
+    function noteSeen(i) { if (seen.indexOf(i) < 0) seen.push(i); }
+    function stepsShownCount() {
+      var last = seen.length ? Math.max.apply(null, seen) : -1, more = 0;
+      for (var j = last + 1; j < steps.length; j++) if (shown(steps[j])) more++;
+      return seen.length + more;
+    }
+    function stepNumber(i) { return Math.max(1, seen.filter(function (j) { return j <= i; }).length); }
 
     // Shows step i and settles when the person has completed it: "done", "skip" (left out or skipped) or "stale" (closed).
-    async function showStep(i, fixing) {
+    async function showStep(i, fixing, afterSkip) {
       var step = steps[i], token = ++stepToken, ok = true;
       root.dataset.step = String(i) + (step.key ? ":" + step.key : "");   // which step is on (shown in tests and bug reports)
       // A step that has to prepare something slowly (waiting for a save) must not leave the PREVIOUS step's highlight on screen meanwhile.
-      var waitTimer = step.before ? setTimeout(function () { if (!closed && token === stepToken) showWaiting(); }, 250) : null;
+      var waitTimer = step.before ? setTimeout(function () { if (!closed && token === stepToken) showWaiting(step.waitText && step.waitText()); }, 250) : null;
       try { if (step.before) ok = (await step.before()) !== false; } catch (e) { ok = false; }
       if (waitTimer) clearTimeout(waitTimer);
       if (closed || token !== stepToken) return "stale";
@@ -271,14 +303,19 @@
       if (doc.activeElement && doc.activeElement.blur && !step.keepFocus && !step.blurTap) doc.activeElement.blur();
 
       // Wait for the thing to light up to exist (a sheet that is still opening, a list that is still loading).
-      var waited = 0, limit = step.wait || 5000, lastPoke = -2000, targets = [];
+      // (right after "Skip this step" nothing is on its way: a step that would wait 45 s for a save gives up after 3 s)
+      var waited = 0, limit = afterSkip ? Math.min(step.wait || 5000, 3000) : step.wait || 5000, lastPoke = -2000, targets = [];
       while (step.target) {
         targets = targetsOf(step);
         if (targets.length) break;
         if (closed || token !== stepToken) return "stale";
-        if (waited >= limit) return "skip";
-        if (step.poke && waited - lastPoke >= 2000) { lastPoke = waited; try { step.poke(); } catch (e) { /* ignore */ } }
-        if (waited >= 600) showWaiting();   // a long wait (a save still reaching the server): say so, centred
+        if (waited >= limit) return "missing";   // never appeared: see go()
+        if (step.giveUp && step.giveUp()) return "gaveUp";   // what it waits for will never come (a refused save): the next step says so
+        // A poke (reload the list the target lives in) only while nothing is on its way to the server (ctx.busy): a reload sent
+        // while the save is still travelling cannot show the new item yet, and stacked reloads slowed the save itself down.
+        // (after 8 s it goes ahead anyway: a slow background call, e.g. the e-mail check, must not hold it back)
+        if (step.poke && waited - lastPoke >= 2000 && (!(ctx.busy && ctx.busy()) || waited - lastPoke >= 8000)) { lastPoke = waited; try { step.poke(); } catch (e) { /* ignore */ } }
+        if (waited >= 600) showWaiting(step.waitText && step.waitText());   // a long wait (a save still reaching the server): say so, centred
         await sleep(100); waited += 100;
       }
       if (closed || token !== stepToken) return "stale";
@@ -288,8 +325,11 @@
       targets = step.target ? targetsOf(step) : [];
 
       cur = { step: step, targets: targets, stop: null };
+      releaseExit();
       $(".spot-text").textContent = step.text(!!fixing);
+      noteSeen(i);
       $(".spot-count").textContent = L.step(stepNumber(i), stepsShownCount());
+      if (L.note && L.noteOnce) $(".spot-note").hidden = seen.length > 1;   // a real tutorial says "this is real" on its first step only (Rosa)
       $(".spot-stuck").hidden = true;
       var go = $(".spot-go");
       go.hidden = !step.button;
@@ -300,6 +340,9 @@
       var lastBox = "";
       return new Promise(function (finishStep) {
         var finished = false, checking = false, visited = false, timers = [], listeners = [];
+        // The lit-up thing can vanish while its step is on (a list redrawn by a late answer from the server): the step then says
+        // "One moment…", keeps reloading it (poke) and comes back when it reappears, instead of a dim screen with nothing to tap.
+        var goneSince = 0, goneWaiting = false, gonePokeAt = 0;
         function on(target, type, fn, capture) { target.addEventListener(type, fn, capture); listeners.push([target, type, fn, capture]); }
         function end(result) {
           if (finished) return;
@@ -318,7 +361,7 @@
           checking = true;
           try {
             var t = step.text(!!fixing);
-            if ($(".spot-text").textContent !== t) { $(".spot-text").textContent = t; layoutSoon(); }
+            if (!goneWaiting && $(".spot-text").textContent !== t) { $(".spot-text").textContent = t; layoutSoon(); }
             // Done first: a step whose own condition is met is finished even if the form it came from has just been cleared (Save does that).
             if (step.until && (await step.until())) { end("done"); return; }
             if (step.visit) {
@@ -357,18 +400,48 @@
         timers.push(setInterval(function () {
           if (finished || closed || !cur || !cur.step) return;
           var t = targetsOf(cur.step), r = t.length ? unionRect(t) : null;
+          if (cur.step.target && !t.length) {
+            var nowMs = Date.now();
+            if (!goneSince) goneSince = nowMs;
+            if (!goneWaiting && nowMs - goneSince > 800) { goneWaiting = true; $(".spot-text").textContent = L.waiting; go.hidden = true; $(".spot-stuck").hidden = true; holdExit(); layoutSoon(); }
+            if (cur.step.poke && nowMs - gonePokeAt >= 2000 && (!(ctx.busy && ctx.busy()) || nowMs - gonePokeAt >= 8000)) { gonePokeAt = nowMs; try { cur.step.poke(); } catch (e) { /* ignore */ } }
+          } else if (goneSince) {
+            goneSince = 0;
+            if (goneWaiting) { goneWaiting = false; releaseExit(); $(".spot-text").textContent = step.text(!!fixing); go.hidden = !step.button; layoutSoon(); }
+          }
+          // Something above it finished loading and pushed it off the screen (the Overview's cards arrive one by one): bring it back.
+          var viewH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+          if (r && (r.bottom < 0 || r.top > viewH) && !isTyping(cur.step, doc) && t[0].scrollIntoView) t[0].scrollIntoView({ block: "center", inline: "nearest" });
           var key = (isTyping(cur.step, doc) ? "T" : "") + (r ? [r.top, r.left, r.bottom, r.right].map(Math.round).join(",") + "|" + bubble.offsetHeight : "none|" + bubble.offsetHeight) + "|" + (window.visualViewport ? Math.round(window.visualViewport.offsetTop + window.visualViewport.height) : "");
           if (key !== lastBox) { lastBox = key; cur.targets = t; layout(); }
         }, 100));
         // The keyboard takes a moment to slide in or out; look again as it settles.
         on(doc, "focusin", function () { setTimeout(layoutSoon, 150); setTimeout(layoutSoon, 450); setTimeout(layoutSoon, 900); }, true);
         on(doc, "focusout", function () { setTimeout(layoutSoon, 150); setTimeout(layoutSoon, 450); setTimeout(layoutSoon, 900); }, true);
+        // "Skip this step" only where skipping is harmless (owner, 2026-11-03). Never on a step whose answer is needed later
+        // (ok + holdsUntil: skipping it only brought the person back), nor when the NEXT step's target is not there yet: that is
+        // a "Tap +" or a Save the rest depends on, and skipping it left the practice with nothing to show. Exit stays the way out.
+        // A step with its own button ("Start the practice", "Got it") never shows it either: that button already moves on (owner, 2026-11-05).
+        function canSkip() {
+          if (step.button) return false;
+          if (step.ok && step.holdsUntil) return false;
+          for (var n = i + 1; n < steps.length; n++) {
+            if (!shown(steps[n])) continue;
+            return !steps[n].target || targetsOf(steps[n]).length > 0;
+          }
+          return true;
+        }
         timers.push(setTimeout(function () {
           if (finished || closed) return;
           var b = $(".spot-stuck");
-          b.hidden = false;
-          b.onclick = function () { end("skip"); };
-          layoutSoon();
+          b.onclick = function () { end("skipByPerson"); };
+          var showIt = function () {
+            if (finished || closed) return;
+            var want = !goneWaiting && canSkip();
+            if (b.hidden === want) { b.hidden = !want; layoutSoon(); }
+          };
+          showIt();
+          timers.push(setInterval(showIt, 1000));   // what the screen shows changes (a sheet opening): look again
         }, STUCK_MS));
         setTimeout(check, 0);
       });
@@ -379,14 +452,22 @@
       return -1;
     }
     async function go() {
-      var fixing = false, resumeAt = -1, completed = [];
+      // missing: steps in a row whose target never appeared. One is left out quietly (an optional box); a second, or one right after
+      // "Skip this step", means the walkthrough has lost its place (a skipped "Tap +" never opened the form, a sheet was closed with ✕):
+      // it used to show "One moment…" for every remaining step and end on a "Done!" that was not true. It now stops and says so.
+      var fixing = false, resumeAt = -1, completed = [], missing = 0, lastByPerson = false;
       for (var i = 0; i < steps.length && !closed; ) {
         // After going back to fix something, the steps in between that were already done (and still hold) are not asked again.
         if (resumeAt >= 0 && i < resumeAt && !fixing && completed[i] && (!steps[i].ok || steps[i].ok())) { i++; continue; }
         if (i >= resumeAt) resumeAt = -1;
-        var r = await showStep(i, fixing);
+        var r = await showStep(i, fixing, lastByPerson);
         if (closed || r === "stale") return;
         if (typeof r === "string" && r.indexOf("rewind:") === 0) { resumeAt = i; i = Number(r.slice(7)); fixing = true; continue; }
+        if (r === "missing") {
+          missing++;
+          if (missing >= 2 || lastByPerson) { finish("lost"); return; }
+        } else missing = 0;
+        lastByPerson = r === "skipByPerson";
         if (r === "done") completed[i] = true;
         fixing = false;
         i++;
