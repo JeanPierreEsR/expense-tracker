@@ -36,6 +36,7 @@
  *   match            { stmt, line, entryId, overwriteAccount? } line IS that entry
  *   complete_transfer{ stmt, line, entryId, side } fills the blank end of a transfer
  *   fill_charge      { stmt, line, entryId }  the line is what the card charged for a purchase left pending in what was paid
+ *   use_bank_charge  { stmt, line, entryId }  the card charged this purchase in another currency: it takes the charge, keeps what was paid
  *   use_bank_amount  { stmt, line, entryId }  the card charged LESS than this purchase (a discount): it takes the line's amount
  *                    (Charges.gs fillEntryCharge); Undo puts it back to pending
  *   assign_account   { stmt, line, entryId }  entry has no account yet
@@ -516,6 +517,19 @@ function applyStatementDecisions(payload) {
       chargeFills.push({ entryId: a.entryId, amount: Math.abs(fc.l.amount), currency: fc.l.currency });
       report.chargesFilled = (report.chargesFilled || 0) + 1;
       remember(fc, 'charge_filled', a.entryId);
+    } else if (a.type === 'use_bank_charge') {
+      var rc = line(a); useLine(rc);
+      if (!(rc.l.amount < 0)) throw new Error(tr_('sa.chargeOut'));
+      var re = getEntryById_(String(a.entryId));
+      if (!re) throw new Error(tr_('sa.entryNotFound', { id: a.entryId }));
+      var pmR = requirePm(rc);
+      if (re.type !== 'expense' || !re.currency || re.currency === rc.l.currency || String(re.charge_pending || '') === '1' || re.paid_currency ||
+          (re.payment_method_id && re.payment_method_id !== pmR.id) || repaymentOfEntry_(re.id)) throw new Error(tr_('sa.discountMismatch'));
+      if (chargeFills.some(function (x) { return x.entryId === String(a.entryId); })) throw new Error(tr_('sa.chargeTwice'));
+      if (!re.payment_method_id && !pmR.noAccount) setCell(a.entryId, 'payment_method_id', pmR.id);
+      chargeFills.push({ entryId: String(a.entryId), amount: Math.abs(rc.l.amount), currency: rc.l.currency, force: true });
+      report.recharges = (report.recharges || 0) + 1;
+      remember(rc, 'charge_filled', a.entryId);
     } else if (a.type === 'use_bank_amount') {
       var du = line(a); useLine(du);
       var di = rowById[String(a.entryId)];
@@ -659,6 +673,9 @@ function applyStatementDecisions(payload) {
     if (ROWS_MEMO_) delete ROWS_MEMO_['Entries'];
     chargeFills.forEach(function (f) {
       var before = getEntryById_(f.entryId);
+      // A purchase recorded in another currency with no pending marker (StatementMatch.gs, 'recharge'): marked for this one fill only,
+      // so the same code fills it in; Undo then finds the cells as they were before (no marker), and '__recharge__' brings the split back.
+      if (f.force) { ensureEntriesChargeColumns_(); updateEntryFields(f.entryId, { charge_pending: '1' }); }
       fillEntryCharge({ id: f.entryId, amount: f.amount, currency: f.currency });
       var after = getEntryById_(f.entryId);
       ['amount', 'currency', 'paid_amount', 'paid_currency', 'charge_pending', 'charge_told'].forEach(function (field) {
@@ -667,7 +684,7 @@ function applyStatementDecisions(payload) {
         changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: String(f.entryId), field: field,
           old_value: String(o === undefined || o === null ? '' : o), new_value: String(n === undefined || n === null ? '' : n), created_at: now });
       });
-      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: String(f.entryId), field: '__charge_fill__',
+      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: String(f.entryId), field: f.force ? '__recharge__' : '__charge_fill__',
         old_value: String(before.amount), new_value: String(f.amount), created_at: now });
     });
   }
@@ -794,8 +811,8 @@ function undoStatementBatch(payload) {
     });
   }
 
-  // A shared purchase that took the bank's lower amount: its split goes back up in the same proportion.
-  var discountMarks = changes.filter(function (c) { return c.sheet === 'Entries' && c.field === '__discount__'; });
+  // A shared purchase that took the bank's lower amount, or the charge in another currency: its split goes back in the same proportion.
+  var discountMarks = changes.filter(function (c) { return c.sheet === 'Entries' && (c.field === '__discount__' || c.field === '__recharge__'); });
   if (discountMarks.length) {
     if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Entry Splits']; }
     discountMarks.forEach(function (c) {

@@ -450,6 +450,12 @@ function analyzeStatements(payload) {
         counts.handled++;
         return o;
       }
+      if (r.status === 'recharge') {
+        o.recharge = { clear: r.recharge.clear, entryId: r.recharge.entryId, options: r.recharge.options.map(function (c) {
+          return Object.assign(stmtEntrySummary_(entryById[c.entryId], catsById, pmsById), { dayDiff: c.dd }); }) };
+        counts.recharges = (counts.recharges || 0) + 1;
+        return o;
+      }
       if (r.status === 'discount') {
         o.discount = { clear: r.discount.clear, entryId: r.discount.entryId, options: r.discount.options.map(function (c) {
           return Object.assign(stmtEntrySummary_(entryById[c.entryId], catsById, pmsById), { dayDiff: c.dd }); }) };

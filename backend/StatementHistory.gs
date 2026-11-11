@@ -223,8 +223,9 @@ function stmtHistoryPlan_(analysis, platforms) {
   var sts = analysis.statements || [];
   var actions = [];
   var aside = [];
-  var counts = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, fees: 0, linked: 0, completed: 0, charges: 0, discounts: 0 };
+  var counts = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, fees: 0, linked: 0, completed: 0, charges: 0, discounts: 0, recharges: 0 };
   var charges = [];   // statement lines that are the charge of a purchase left pending (Charges.gs)
+  var recharges = [];   // card lines in another currency than a purchase recorded in the app (StatementMatch.gs)
   var discounts = [];   // card lines that charged LESS than a purchase recorded in the app (StatementMatch.gs)
   var usedCharges = {};   // a charge is reversed by one refund only
   var leftOut = { handled: 0, waiting: 0, possible: 0, noAccount: 0, fromPeople: 0 };
@@ -267,6 +268,14 @@ function stmtHistoryPlan_(analysis, platforms) {
       var ref = { stmt: si, line: li };
       if (l.status === 'handled') { leftOut.handled++; return; }
       if (!st.account) { leftOut.noAccount++; return; }
+      if (l.status === 'recharge') {
+        // The card charged a purchase in another currency: it takes the charge, and what was paid is kept (Charges.gs). Ticked when
+        // the pair is clear, else the person picks. Never added as a second purchase.
+        recharges.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname,
+          clear: l.recharge.clear, entryId: l.recharge.entryId, options: l.recharge.options });
+        if (l.recharge.clear) { actions.push({ type: 'use_bank_charge', stmt: si, line: li, entryId: l.recharge.entryId }); counts.recharges++; }
+        return;
+      }
       if (l.status === 'discount') {
         // The card charged less than the purchase in the app (a discount): the app's amount becomes the bank's when the pair is clear
         // (ticked by default), else the person picks. Never added as a second purchase.
@@ -378,7 +387,7 @@ function stmtHistoryPlan_(analysis, platforms) {
   return {
     actions: actions,
     summary: {
-      counts: counts, leftOut: leftOut, spent: spent, aside: aside, charges: charges, discounts: discounts, peopleOut: peopleOut, incomeLines: incomeLines, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
+      counts: counts, leftOut: leftOut, spent: spent, aside: aside, charges: charges, discounts: discounts, recharges: recharges, peopleOut: peopleOut, incomeLines: incomeLines, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
       candidates: candidates, exchangeSuggestions: stmtExchangeSuggestions_(candidates),
       unknownAccounts: Object.keys(unknownAccounts),
       newAccounts: stmtNewAccountProposals_(sts),   // accounts the statements name that the app does not have yet, with the defaults it would give them
