@@ -196,6 +196,7 @@ function matchStatements_(statements, entries, opts) {
         entryHadNoAccount: !p.e.payment_method_id && !p.e.to_payment_method_id,
         viaTotal: !!p.viaTotal,
         viaRepayment: !!p.viaRepayment,
+        gapEntryId: p.gapId || '',   // the repayment's extra entry, explained by this same line
         guess: res[p.li].guess
       };
     });

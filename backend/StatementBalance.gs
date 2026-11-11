@@ -100,6 +100,37 @@ function stmtBalanceCheck_(args) {
     out.notInApp = { net: Math.round(missing * 100) / 100, lines: missingN };
     out.pending = { net: Math.round(pending * 100) / 100, lines: pendingN };
     out.unexplained = Math.round((out.diff - missing - pending) * 100) / 100;
+    if (out.unexplained) out.appOnly = stmtAppOnlyEntries_(args, governing, after);
   }
   return out;
+}
+
+// What the app counts on this account inside the statement's period that no line of the statement explains (owner's request,
+// 2026-11-10): the other half of an "unexplained" difference. Found on the owner's IBK dolares: a currency exchange's USD 1,000
+// recorded on that account, which the bank never received there. Each item's amount is its effect on the account's balance.
+// Read-only: it only lists. A purchase the bank posts after the closing date can show here too, so the screen says so.
+var STMT_APP_ONLY_MAX_ = 30;
+function stmtAppOnlyEntries_(args, governing, after) {
+  var pm = args.pm, cur = args.currency;
+  var explained = {};
+  (args.lines || []).forEach(function (l) {
+    if (l.entry && l.entry.id) explained[l.entry.id] = true;
+    if (l.gapEntryId) explained[l.gapEntryId] = true;
+    if (l.handled && l.handled.entryId) explained[l.handled.entryId] = true;
+    if (l.completesTransfer && l.completesTransfer.entry && l.completesTransfer.entry.id) explained[l.completesTransfer.entry.id] = true;
+    if (l.fillsCharge && l.fillsCharge.entryId) explained[l.fillsCharge.entryId] = true;
+  });
+  var items = [], net = 0;
+  (args.confirmed || []).forEach(function (e) {
+    if ((e.currency || homeCurrency_()) !== cur || explained[e.id]) return;
+    var d = String(e.date || '').slice(0, 10);
+    if (!d || d > args.end || (args.start && d < args.start) || (after && d <= after)) return;
+    if (!entryCountsAfterOpening_(e, governing)) return;
+    var eff = signedEffectOnPaymentMethod_(e, pm.id, args.inboundIds);
+    if (!eff) return;
+    net += eff;
+    items.push({ id: e.id, date: d, description: String(e.description || ''), type: e.type, amount: Math.round(eff * 100) / 100 });
+  });
+  items.sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+  return { net: Math.round(net * 100) / 100, n: items.length, items: items.slice(0, STMT_APP_ONLY_MAX_) };
 }
