@@ -19,6 +19,17 @@ var STMT_FEE_MAX = 5;
 // Words a bank uses for money moving between accounts (own or otherwise).
 var STMT_TRANSFER_HINT = /TRANSF|PAGO|DINERS|I-BANC|INTERBANK|BPI|AHORRA|TARJ|CUENTAS|\bTC\b|\bSIP\b/i;
 
+var STMT_DISCOUNT_WINDOW_DAYS = 3;   // owner, 2026-11-10
+var STMT_DISCOUNT_MAX = 0.15;        // the card charged at most 15% less than recorded (owner, 2026-11-10)
+// Words that say nothing about WHICH shop: never enough on their own to pair a discounted charge with a purchase.
+var STMT_COMMON_WORDS_ = { pago: 1, pagos: 1, compra: 1, compras: 1, consumo: 1, lima: 1, peru: 1, per: 1, sac: 1, saa: 1, eirl: 1,
+  srl: 1, cia: 1, compania: 1, company: 1, tienda: 1, tiendas: 1, store: 1, shop: 1, online: 1, app: 1, web: 1, www: 1, com: 1,
+  ibk: 1, bcp: 1, sip: 1, plin: 1, yape: 1, transf: 1, transferencia: 1, the: 1, and: 1, del: 1, los: 1, las: 1, por: 1, con: 1,
+  san: 1, santa: 1, miraflores: 1, isidro: 1, surco: 1, borja: 1, mall: 1, plaza: 1, centro: 1, food: 1, drive: 1 };
+function stmtDistinctWords_(text) {
+  return stmtWords_(text).filter(function (w) { return !STMT_COMMON_WORDS_[w] && !/^\d+$/.test(w); });
+}
+
 function stmtDayNumber_(iso) {
   var p = String(iso).split('-');
   return Math.round(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000);
@@ -242,6 +253,44 @@ function matchStatements_(statements, entries, opts) {
         : (list.length === 1 && perEntry[best.entryId] === 1 && best.rateOk === null);
       if (clear) used[best.entryId] = true;
       perLine[st.key][li] = { status: 'fills', fillsCharge: { entryId: clear ? best.entryId : '', clear: clear, options: list }, guess: 'expense' };
+    });
+  });
+
+  // A card charged LESS than the purchase recorded in the app (owner, 2026-11-10): the bank's e-mail shows the price, the card applies a
+  // discount (SIP at Plaza Vea / Agora Shop). Card statements only; an expense on this card (or with no account yet), same currency, up
+  // to STMT_DISCOUNT_WINDOW_DAYS apart, the bank's amount lower by at most STMT_DISCOUNT_MAX, and a DISTINCTIVE word in common (shop
+  // names, not "PAGO", "LIMA", "SHOP"…). Runs after the exact matches, so a purchase that really matches a line exactly is never taken.
+  // CLEAR (ticked by default) only when the line has exactly one such purchase and that purchase fits no other line; else the person picks.
+  statements.forEach(function (st) {
+    if (!st.card || String(st.pmId).indexOf('unknown:') === 0) return;
+    var cands = {}, perEntry = {};
+    st.lines.forEach(function (l, li) {
+      var r = perLine[st.key][li];
+      if (r.status !== 'unregistered' || l.handled || l.stored || l.appLine || !(l.amount < 0)) return;
+      var charged = -l.amount, ld = stmtDayNumber_(l.date), lw = stmtDistinctWords_(l.description), list = [];
+      if (!lw.length) return;
+      near(ld, STMT_DISCOUNT_WINDOW_DAYS).forEach(function (ei) {
+        var e = entries[ei];
+        if (e.status !== 'confirmed' || e.type !== 'expense' || e.currency !== l.currency || used[e.id]) return;
+        if (e.payment_method_id && e.payment_method_id !== st.pmId) return;
+        if (String(e.charge_pending || '') === '1' || stmtFromStatement_(e) || (e.paid_by && e.paid_by !== 'me')) return;
+        var recorded = Number(e.amount);
+        if (!(recorded > charged + 0.004) || charged < recorded * (1 - STMT_DISCOUNT_MAX) - 0.004) return;
+        var dd = Math.abs(index.days[ei] - ld);
+        if (dd > STMT_DISCOUNT_WINDOW_DAYS) return;
+        var ew = stmtDistinctWords_(e.description + ' ' + (e.merchant || ''));
+        if (!lw.some(function (w) { return ew.indexOf(w) !== -1; })) return;
+        list.push({ entryId: e.id, dd: dd, recorded: recorded, gap: recorded - charged });
+        perEntry[e.id] = (perEntry[e.id] || 0) + 1;
+      });
+      if (list.length) cands[li] = list.sort(function (a, b) { return (a.dd - b.dd) || (a.gap - b.gap); });
+    });
+    Object.keys(cands).forEach(function (li) {
+      var list = cands[li], best = list[0];
+      var clear = list.length === 1 && perEntry[best.entryId] === 1;
+      if (clear) used[best.entryId] = true;
+      perLine[st.key][li] = { status: 'discount', discount: { entryId: clear ? best.entryId : '', clear: clear,
+        options: list.map(function (c) { return { entryId: c.entryId, dd: c.dd, recorded: c.recorded }; }) }, guess: 'expense' };
     });
   });
 

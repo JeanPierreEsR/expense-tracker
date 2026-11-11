@@ -84,9 +84,15 @@ function stmtBalanceCheck_(args) {
   // difference with the statement's own lines that are not in the app yet.
   if (out.direction === 'forward') {
     var after = own ? own.date : '';
-    var missing = 0, pending = 0, missingN = 0, pendingN = 0;
+    var missing = 0, pending = 0, missingN = 0, pendingN = 0, discounted = 0, discountedN = 0;
     (args.lines || []).forEach(function (l) {
       if (l.currency !== cur || l.date <= after) return;
+      // A card line paired with a purchase it charged LESS than (a discount, StatementMatch.gs): the purchase is in the app, only the
+      // discount is not yet — it disappears once the purchase takes the bank's amount.
+      if (l.discount && l.discount.clear && l.discount.entryId) {
+        var de = args.entryById[l.discount.entryId];
+        if (de && de.status === 'confirmed') { discounted += Number(l.amount) + Number(de.amount); discountedN++; return; }
+      }
       var entryId = l.entry ? l.entry.id : (l.handled && l.handled.entryId) || '';
       var e = entryId ? args.entryById[entryId] : null;
       var handledOutcome = l.handled ? l.handled.outcome : '';
@@ -99,7 +105,8 @@ function stmtBalanceCheck_(args) {
     });
     out.notInApp = { net: Math.round(missing * 100) / 100, lines: missingN };
     out.pending = { net: Math.round(pending * 100) / 100, lines: pendingN };
-    out.unexplained = Math.round((out.diff - missing - pending) * 100) / 100;
+    out.discounted = { net: Math.round(discounted * 100) / 100, lines: discountedN };
+    out.unexplained = Math.round((out.diff - missing - pending - discounted) * 100) / 100;
     if (out.unexplained) out.appOnly = stmtAppOnlyEntries_(args, governing, after);
   }
   return out;
@@ -119,6 +126,7 @@ function stmtAppOnlyEntries_(args, governing, after) {
     if (l.handled && l.handled.entryId) explained[l.handled.entryId] = true;
     if (l.completesTransfer && l.completesTransfer.entry && l.completesTransfer.entry.id) explained[l.completesTransfer.entry.id] = true;
     if (l.fillsCharge && l.fillsCharge.entryId) explained[l.fillsCharge.entryId] = true;
+    if (l.discount && l.discount.clear && l.discount.entryId) explained[l.discount.entryId] = true;
   });
   var items = [], net = 0;
   (args.confirmed || []).forEach(function (e) {

@@ -386,7 +386,7 @@ function analyzeStatements(payload) {
   var lineKeys = stmts.map(function (s) { return stmtLineKeys_(s.key, s.lines); });
   var matcherInput = stmts.map(function (s, idx) {
     var pm = pmFor(s.key);
-    return { key: s.key + '#' + idx, pmId: pm ? pm.id : ('unknown:' + s.key), kind: s.kind,
+    return { key: s.key + '#' + idx, pmId: pm ? pm.id : ('unknown:' + s.key), kind: s.kind, card: !!(pm && pm.type === 'credit'),
       lines: (s.lines || []).map(function (l, i) {
         var flags = {};
         if (handledRows[lineKeys[idx][i]]) flags.handled = true;
@@ -448,6 +448,12 @@ function analyzeStatements(payload) {
         o.handled = { outcome: hr.outcome, entryId: hr.entry_id || '', entry: hr.entry_id && entryById[hr.entry_id] ? stmtEntrySummary_(entryById[hr.entry_id], catsById, pmsById) : null };
         o.status = 'handled';
         counts.handled++;
+        return o;
+      }
+      if (r.status === 'discount') {
+        o.discount = { clear: r.discount.clear, entryId: r.discount.entryId, options: r.discount.options.map(function (c) {
+          return Object.assign(stmtEntrySummary_(entryById[c.entryId], catsById, pmsById), { dayDiff: c.dd }); }) };
+        counts.discounts = (counts.discounts || 0) + 1;
         return o;
       }
       if (r.status === 'fills') {

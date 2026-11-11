@@ -36,6 +36,7 @@
  *   match            { stmt, line, entryId, overwriteAccount? } line IS that entry
  *   complete_transfer{ stmt, line, entryId, side } fills the blank end of a transfer
  *   fill_charge      { stmt, line, entryId }  the line is what the card charged for a purchase left pending in what was paid
+ *   use_bank_amount  { stmt, line, entryId }  the card charged LESS than this purchase (a discount): it takes the line's amount
  *                    (Charges.gs fillEntryCharge); Undo puts it back to pending
  *   assign_account   { stmt, line, entryId }  entry has no account yet
  *   link             { stmt, line, entryId }  remember a matched line (no change)
@@ -65,6 +66,8 @@ function ensureStatementGapsSheet_() {
 }
 
 var STATEMENT_HANDLED_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true, ignored: true, reversed: true, charge_filled: true };
+// The card charged less than recorded (a discount; owner, 2026-11-10): the purchase takes the bank's amount, within this share of it.
+var STMT_DISCOUNT_APPLY_MAX_ = 0.15;
 
 function ensureStatementSheet_(name, columns, textColumns) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -274,7 +277,7 @@ function applyStatementDecisions(payload) {
   var batchId = Utilities.getUuid();
   var now = nowTimestamp_();
   var today = now.substring(0, 10);
-  var creations = [], changes = [], outcomes = [], usedLines = {}, chargeFills = [];
+  var creations = [], changes = [], outcomes = [], usedLines = {}, chargeFills = [], discountSplits = [];
   var colChanged = {};   // field -> true, so only touched columns are rewritten
 
   function useLine(L) {
@@ -513,6 +516,24 @@ function applyStatementDecisions(payload) {
       chargeFills.push({ entryId: a.entryId, amount: Math.abs(fc.l.amount), currency: fc.l.currency });
       report.chargesFilled = (report.chargesFilled || 0) + 1;
       remember(fc, 'charge_filled', a.entryId);
+    } else if (a.type === 'use_bank_amount') {
+      var du = line(a); useLine(du);
+      var di = rowById[String(a.entryId)];
+      if (di === undefined) throw new Error(tr_('sa.entryNotFound', { id: a.entryId }));
+      var pmD = requirePm(du), charged = Math.round(-Number(du.l.amount) * 100) / 100, recordedAmt = Number(values[di][col.amount]);
+      var curFromD = values[di][col.payment_method_id];
+      if (values[di][col.type] !== 'expense' || String(values[di][col.currency] || homeCurrency_()) !== du.l.currency || !(charged > 0) ||
+          !(recordedAmt > charged) || charged < recordedAmt * (1 - STMT_DISCOUNT_APPLY_MAX_) - 0.004 || (curFromD && curFromD !== pmD.id)) {
+        throw new Error(tr_('sa.discountMismatch'));
+      }
+      if (repaymentOfEntry_(String(a.entryId))) throw new Error(tr_('sa.discountMismatch'));
+      if (discountSplits.some(function (x) { return x.entryId === String(a.entryId); })) throw new Error(tr_('sa.chargeTwice'));
+      setCell(a.entryId, 'amount', charged);
+      if (!curFromD && !pmD.noAccount) setCell(a.entryId, 'payment_method_id', pmD.id);
+      if (!values[di][col.merchant] && stmtMerchantKey_(du.l.description)) setCell(a.entryId, 'merchant', stmtMerchantKey_(du.l.description));
+      discountSplits.push({ entryId: String(a.entryId), from: recordedAmt, to: charged });
+      report.discounts = (report.discounts || 0) + 1;
+      remember(du, 'matched', a.entryId);
     } else if (a.type === 'complete_transfer') {
       var c = line(a); useLine(c);
       var j = rowById[String(a.entryId)];
@@ -615,6 +636,22 @@ function applyStatementDecisions(payload) {
     var colValues = values.map(function (r) { return [r[col[f]]]; });
     if (values.length) sheet.getRange(2, col[f] + 1, values.length, 1).setValues(colValues);
   });
+
+  // Purchases that took the bank's lower amount: a shared one's split shrinks in the same proportion (its debts follow), and a marker
+  // lets Undo put the split back too.
+  if (discountSplits.length) {
+    if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Entry Splits']; }
+    discountSplits.forEach(function (d) {
+      var factor = d.to / d.from;
+      var splits = getAllRows('Entry Splits').filter(function (sp) { return sp.entry_id === d.entryId; })
+        .map(function (sp) { return { friend_id: sp.friend_id, amount: Math.round(Number(sp.amount) * factor * 100) / 100 }; });
+      if (splits.length) {
+        saveEntrySplits(d.entryId, splits);
+        changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: d.entryId, field: '__discount__',
+          old_value: String(d.from), new_value: String(d.to), created_at: now });
+      }
+    });
+  }
 
   // Charges filled in from the statement: after the column writes above, through the same code as Home's "Charges to fill in", each
   // changed cell recorded for Undo, plus a marker so Undo can also put a shared expense's split back in what was paid.
@@ -750,6 +787,20 @@ function undoStatementBatch(payload) {
     chargeMarks.forEach(function (c) {
       var e = getEntryById_(c.row_id);
       if (!e || String(e.charge_pending || '') !== '1') return;
+      var factor = Number(c.old_value) / Number(c.new_value);
+      var splits = getAllRows('Entry Splits').filter(function (s) { return s.entry_id === e.id; })
+        .map(function (s) { return { friend_id: s.friend_id, amount: Math.round(Number(s.amount) * factor * 100) / 100 }; });
+      if (splits.length) saveEntrySplits(e.id, splits);
+    });
+  }
+
+  // A shared purchase that took the bank's lower amount: its split goes back up in the same proportion.
+  var discountMarks = changes.filter(function (c) { return c.sheet === 'Entries' && c.field === '__discount__'; });
+  if (discountMarks.length) {
+    if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Entry Splits']; }
+    discountMarks.forEach(function (c) {
+      var e = getEntryById_(c.row_id);
+      if (!e || Math.abs(Number(e.amount) - Number(c.old_value)) > 0.004) return;   // the amount was not put back (changed since)
       var factor = Number(c.old_value) / Number(c.new_value);
       var splits = getAllRows('Entry Splits').filter(function (s) { return s.entry_id === e.id; })
         .map(function (s) { return { friend_id: s.friend_id, amount: Math.round(Number(s.amount) * factor * 100) / 100 }; });

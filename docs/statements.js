@@ -1436,6 +1436,7 @@
       historyPlan.incMode = new Map();     // index into summary.incomeLines -> "transfer" | "investment" | "review" | "leave" (absent = income, the default)
       historyPlan.outMode = new Map();     // index into summary.peopleOut -> "review" or "leave" (absent = spending, the default)
       historyPlan.openPeople = new Set();  // people whose lines are showing
+      historyPlan.discountChoice = new Map(); // index into summary.discounts -> the entry id that takes the bank's amount, or "add"; absent = the plan's own
       historyPlan.chargeChoice = new Map(); // index into summary.charges -> the entry id it fills, or "add" (a new purchase); absent = the plan's own
       historyPlan.chosen = new Map();      // index into summary.aside -> "cash" (spending/income) or "transfer", what the person counted after all
       historyPlan.exchanges = [];          // lines linked as a currency exchange: { out: {stmt, line}, in: {stmt, line} }
@@ -1507,6 +1508,13 @@
       if (pick === "add") chargeActions.push({ type: "add_history_expense", stmt: c.stmt, line: c.line });
       else if (pick) chargeActions.push({ type: "fill_charge", stmt: c.stmt, line: c.line, entryId: pick });
     });
+    // A card charge lower than a purchase in the app (a discount): the purchase takes the bank's amount, or the line is a new purchase.
+    (p.summary.discounts || []).forEach((d, k) => {
+      chargeKeys[lineKey(d)] = true;
+      const pick = discountOf(k);
+      if (pick === "add") chargeActions.push({ type: "add_history_expense", stmt: d.stmt, line: d.line });
+      else if (pick) chargeActions.push({ type: "use_bank_amount", stmt: d.stmt, line: d.line, entryId: pick });
+    });
     const kept = p.actions.filter((a) => {
       if (a.stmt === undefined) return true;
       if (chargeKeys[lineKey(a)]) return false;                 // a transfer pair carries out/in instead of stmt/line
@@ -1530,6 +1538,36 @@
   function chargeOf(k) {
     const c = historyPlan.summary.charges[k];
     return historyPlan.chargeChoice.has(k) ? historyPlan.chargeChoice.get(k) : (c.clear ? c.entryId : "");
+  }
+
+  function discountOf(k) {
+    const d = historyPlan.summary.discounts[k];
+    return historyPlan.discountChoice.has(k) ? historyPlan.discountChoice.get(k) : (d.clear ? d.entryId : "");
+  }
+
+  // ---- "Charged less than recorded": a card line lower than a purchase in the app (a discount), 3 days apart at most ----
+  function discountsHtml() {
+    const p = historyPlan, list = p.summary.discounts || [];
+    if (!list.length) return "";
+    const rows = list.map((d, k) => {
+      const pick = discountOf(k);
+      const option = (o) => `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`;
+      const change = (o) => `<div class="hint">${escapeHtml(tr("hist.disc.change", { from: fmtMoney(o.currency, o.amount), to: fmtMoney(d.currency, Math.abs(d.amount)) }))}</div>`;
+      let body;
+      if (d.options.length === 1) {
+        const o = d.options[0];
+        body = `<div>${escapeHtml(tr("hist.charge.recorded", { entry: option(o) }))}</div>${change(o)}
+          <div class="stmt-choices" style="padding-left:0">${modeButton(`data-disc="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr("hist.disc.use"))}${modeButton(`data-disc="${k}" data-pick="add"`, pick === "add", tr("hist.disc.not"))}</div>`;
+      } else {
+        body = `<div>${escapeHtml(tr("hist.charge.pick"))}</div>` + d.options.map((o) => `<div class="stmt-charge-option"><div>${escapeHtml(option(o))}</div>${change(o)}
+          <div class="stmt-choices" style="padding-left:0">${modeButton(`data-disc="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr("hist.charge.this"))}</div></div>`).join("")
+          + `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-disc="${k}" data-pick="add"`, pick === "add", tr("hist.charge.add"))}</div>`;
+      }
+      const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
+      return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}${unpicked}`);
+    }).join("");
+    return `<details class="stmt-group" id="statement-history-discounts" open><summary>${escapeHtml(tr("hist.disc.title"))} <span class="stmt-count">${list.length}</span></summary>
+      <p class="hint">${escapeHtml(tr("hist.disc.hint"))}</p>${rows}</details>`;
   }
 
   // ---- "Completes a charge you left pending": a USD line on the card and a purchase recorded in ARS on it, 5 days apart at most ----
@@ -1559,7 +1597,7 @@
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
-    const c = { charges: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
+    const c = { charges: 0, discounts: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
         const l = usable[a.stmt].result.lines[a.line];
@@ -1577,6 +1615,7 @@
       else if (a.type === "record_fee") c.fees++;
       else if (a.type === "set_balance") c.balances++;
       else if (a.type === "fill_charge") c.charges++;
+      else if (a.type === "use_bank_amount") c.discounts++;
       else if (["link", "assign_account", "complete_transfer"].includes(a.type)) c.linked++;
     });
     c.entries = c.expenses + c.income + c.refunds + c.refundIncome + c.transfers + c.legs + c.investments + c.pending + 2 * c.exchanges + c.fees;
@@ -1816,6 +1855,7 @@
         const parts = [];
         if (c.notInApp.lines) parts.push(tr("stmt.balNotInApp", { amount: signed(c.currency, c.notInApp.net), n: c.notInApp.lines }));
         if (c.pending.lines) parts.push(tr("stmt.balPending", { amount: signed(c.currency, c.pending.net), n: c.pending.lines }));
+        if (c.discounted && c.discounted.lines) parts.push(tr("stmt.balDiscounted", { amount: signed(c.currency, c.discounted.net), n: c.discounted.lines }));
         verdict = c.unexplained === 0
           ? `<p class="stmt-note ok">${escapeHtml(tr("stmt.balExplained", { parts: parts.join(tr("common.and")) }))}</p>`
           : `<p class="stmt-note warn">${parts.length ? escapeHtml(parts.join(tr("common.and"))) + ". " : ""}<b>${escapeHtml(tr("stmt.balUnexplainedBold", { amount: signed(c.currency, c.unexplained) }))}</b>${escapeHtml(tr("stmt.balUnexplainedRest"))}</p>`;
@@ -1907,6 +1947,7 @@
     if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
     if (c.balances) lines.push(tr("hist.sum.balances", { n: c.balances }));
     if (c.charges) lines.push(tr("hist.sum.charges", { n: c.charges }));
+    if (c.discounts) lines.push(tr("hist.sum.discounts", { n: c.discounts }));
     const proposals = summary.newAccounts || [];
     const proposedKeys = new Set(proposals.map((p) => p.key));
     const stillUnknown = (summary.unknownAccounts || []).filter((k) => !proposedKeys.has(k));
@@ -1917,12 +1958,12 @@
     if (left.noAccount && stillUnknown.length) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: stillUnknown.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
     const pre = newAccountsHtml(proposals) + addedAccountsHtml();
-    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + chargesHtml() + peopleHtml() + incomeHtml() + asideHtml() + (StatementTable.canLinkExchange(summary.candidates) ? exchangeHtml() : "") + balancesHtml();
-    if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(summary.charges || []).length && !(historyPlan.checks || []).length) {
+    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + chargesHtml() + discountsHtml() + peopleHtml() + incomeHtml() + asideHtml() + (StatementTable.canLinkExchange(summary.candidates) ? exchangeHtml() : "") + balancesHtml();
+    if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(summary.charges || []).length && !(summary.discounts || []).length && !(historyPlan.checks || []).length) {
       out.innerHTML = pre + (proposals.length ? "" : `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>`) + noteHtml;
       return;
     }
-    if (!c.entries && !c.charges) {
+    if (!c.entries && !c.charges && !c.discounts) {
       // Nothing to add. Lines waiting for their other statement can still be remembered so they pair up later, and balances set.
       out.innerHTML = pre + `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : ""}${noteHtml}
         ${historyActions().length ? `<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
@@ -1977,6 +2018,7 @@
       const waiting = res.pendingCount || 0;
       const outcome = (waiting ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedPending", { n: waiting }))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-goreview-btn">${escapeHtml(tr("added.goReview"))}</button></div>` : "")
         + (res.chargesFilled ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.charges", { n: res.chargesFilled }))}</p>` : "")
+        + (res.discounts ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.discounts", { n: res.discounts }))}</p>` : "")
         + (notAdded ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedNotAdded", { n: notAdded }))}</p>` : "")
         + (res.categoriesGuessed ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedGuessed", { n: res.categoriesGuessed }))}</p>` : "")
         + (res.categoriesFiled ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategories", { n: res.categoriesFiled }))}</p>` : "")
@@ -2225,6 +2267,12 @@
     const bal = e.target.closest("[data-bal]"), balAll = e.target.closest("[data-balall]");
     const link = e.target.closest("[data-xlink]"), unlink = e.target.closest("[data-xunlink]"), manual = e.target.closest("[data-xmanual]");
     const aside = historyPlan.summary.aside || [];
+    const disc = e.target.closest("[data-disc]");
+    if (disc) {
+      historyPlan.discountChoice.set(Number(disc.dataset.disc), discountOf(Number(disc.dataset.disc)) === disc.dataset.pick ? "" : disc.dataset.pick);
+      renderHistoryPlan();
+      return;
+    }
     const chg = e.target.closest("[data-chg]");
     if (chg) {
       historyPlan.chargeChoice.set(Number(chg.dataset.chg), chargeOf(Number(chg.dataset.chg)) === chg.dataset.pick ? "" : chg.dataset.pick);

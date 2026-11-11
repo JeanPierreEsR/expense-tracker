@@ -381,6 +381,7 @@ var BACKEND_STRINGS_ = {
   "sa.notTransfer": { en: "Not a transfer", es: "No es una transferencia" },
   "sa.chargeOut": { en: "A card charge is money going out", es: "Un cargo de la tarjeta es dinero que sale" },
   "sa.notPendingCharge": { en: "That purchase is not waiting for its charge on this card any more", es: "Esa compra ya no espera su cargo en esta tarjeta" },
+  "sa.discountMismatch": { en: "A statement line no longer fits the purchase it was paired with (amount, currency, account or a repayment changed). Read the statement again.", es: "Una línea del estado de cuenta ya no corresponde a la compra con la que se emparejó (cambió el monto, la moneda, la cuenta o es parte de un repago). Vuelve a leer el estado de cuenta." },
   "sa.chargeTwice": { en: "Two statement lines were given to the same purchase", es: "Se asignaron dos líneas del estado de cuenta a la misma compra" },
   "sa.endFilled": { en: "That end of the transfer is already filled in", es: "Ese extremo de la transferencia ya está completo" },
   "sa.unknownBalance": { en: "Unknown statement or account for the balance", es: "Estado de cuenta o cuenta desconocidos para el saldo" },
