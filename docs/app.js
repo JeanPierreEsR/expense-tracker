@@ -14385,8 +14385,11 @@ async function showTidyScreen() {
   tidySkipped_.clear();
   const list = document.getElementById("tidy-list");
   list.innerHTML = loadingHtml_();
+  document.getElementById("noacct-card").hidden = true;
   try {
-    await loadTidy_();
+    // Both lists arrive before either shows (loading standard); the no-account list only where the backend has it.
+    const wantNoAcct = !!(meta.capabilities && meta.capabilities.noAccountTidy);
+    await Promise.all([loadTidy_(), wantNoAcct ? loadNoAccount_() : Promise.resolve()]);
     offerTidyTip_();   // only now that the list has arrived (loading standard)
     offerTidyReal_();
   } catch (err) {
@@ -14449,6 +14452,106 @@ function renderTidy_() {
     </div>`;
   }).join("");
 }
+
+// ---- Entries with no account (owner, 2026-11-11): newest first, grouped by month; each gets an account, saved together ----
+let noAcctData_ = { entries: [], total: 0, shown: 0 };
+const noAcctPicked_ = new Map();   // entry id -> account id picked on the screen (not saved yet)
+
+async function loadNoAccount_() {
+  noAcctData_ = await callApi("listNoAccountEntries", {});
+  noAcctPicked_.clear();
+  renderNoAccount_();
+}
+
+function noAcctOptions_(selectedId, investment) {
+  const pms = meta.paymentMethods.filter((pm) => (investment || pm.type !== "investment") && (!pmHidden_(pm) || pm.id === selectedId))
+    .sort((a, b) => a.nickname.localeCompare(b.nickname));
+  return `<option value="">${escapeHtml(tr("noacct.pick"))}</option>` +
+    pms.map((pm) => `<option value="${escapeHtml(pm.id)}"${pm.id === selectedId ? " selected" : ""}>${escapeHtml(pm.nickname)}</option>`).join("");
+}
+
+function renderNoAccount_() {
+  const card = document.getElementById("noacct-card");
+  const data = noAcctData_ || { entries: [] };
+  card.hidden = !(data.entries && data.entries.length);
+  if (card.hidden) return;
+  const months = [];
+  data.entries.forEach((e) => {
+    const m = e.date.slice(0, 7);
+    if (!months.length || months[months.length - 1].m !== m) months.push({ m, rows: [] });
+    months[months.length - 1].rows.push(e);
+  });
+  document.getElementById("noacct-list").innerHTML = months.map(({ m, rows }) => {
+    const title = I18n.fmtMonthYear(new Date(m + "-01T00:00:00"));
+    return `<div class="noacct-month" data-month="${escapeHtml(m)}">
+      <div class="tidy-group-top"><span class="tidy-group-name">${escapeHtml(title)}</span><span class="hint">${escapeHtml(tr("noacct.count", { n: rows.length }))}</span></div>
+      <div class="tidy-group-row"><select class="noacct-month-select" aria-label="${escapeHtml(tr("noacct.allMonth", { month: title }))}">${noAcctOptions_("", true).replace(escapeHtml(tr("noacct.pick")), escapeHtml(tr("noacct.allMonth", { month: title })))}</select></div>
+      <ul class="tidy-samples">${rows.map((e) => `<li class="noacct-row" data-id="${escapeHtml(e.id)}">
+        <span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description || tr("type." + e.type))}</span>
+        <span>${formatAmount(e.amount, e.currency)}</span>
+        <select class="noacct-select" aria-label="${escapeHtml(tr("noacct.pick"))}">${noAcctOptions_(noAcctPicked_.get(e.id) || "", e.type === "investment")}</select></li>`).join("")}</ul>
+    </div>`;
+  }).join("");
+  const more = document.getElementById("noacct-more");
+  more.hidden = !(data.total > data.shown);
+  if (!more.hidden) more.textContent = tr("noacct.more", { shown: data.shown, total: data.total });
+  updateNoAccountSave_();
+}
+
+function updateNoAccountSave_() {
+  const btn = document.getElementById("noacct-save");
+  const n = noAcctPicked_.size;
+  btn.disabled = !n;
+  btn.textContent = n ? tr("noacct.save", { n }) : tr("noacct.saveNone");
+}
+
+document.getElementById("noacct-list").addEventListener("change", (ev) => {
+  const one = ev.target.closest(".noacct-select");
+  if (one) {
+    const id = one.closest(".noacct-row").dataset.id;
+    if (one.value) noAcctPicked_.set(id, one.value); else noAcctPicked_.delete(id);
+    updateNoAccountSave_();
+    return;
+  }
+  const all = ev.target.closest(".noacct-month-select");
+  if (all && all.value) {
+    // One account for every entry of that month that has nothing picked yet; each can still be changed one by one.
+    all.closest(".noacct-month").querySelectorAll(".noacct-row").forEach((row) => {
+      const sel = row.querySelector(".noacct-select");
+      if (sel.value || !Array.from(sel.options).some((o) => o.value === all.value)) return;
+      sel.value = all.value;
+      noAcctPicked_.set(row.dataset.id, all.value);
+    });
+    all.value = "";
+    updateNoAccountSave_();
+  }
+});
+
+document.getElementById("noacct-save").addEventListener("click", async (ev) => {
+  const items = Array.from(noAcctPicked_.entries()).map(([id, pm]) => ({ id, payment_method_id: pm }));
+  if (!items.length) return;
+  const btn = ev.currentTarget;
+  btn.disabled = true;
+  showToast_(tr("common.savingToast"));
+  try {
+    const res = await callApi("assignEntryAccounts", { items });
+    if (!res.count) showToast_(tr("noacct.nothing"));
+    else {
+      showUndoToast_(tr("noacct.saved", { n: res.count }), async () => {
+        await callApi("undoEntryAccounts", { changes: res.changes });
+        showToast_(tr("noacct.undone"));
+        await loadNoAccount_();
+        refreshEntryList().catch(() => {});
+      });
+      refreshEntryList().catch(() => {});
+      refreshHomeGlance_(true);
+    }
+    await loadNoAccount_();
+  } catch (err) {
+    alert(err.message || String(err));
+    updateNoAccountSave_();
+  }
+});
 
 // Fills the groups, then offers Undo; the list is reloaded so what is left (and any new suggestion) shows.
 async function applyTidy_(items, buttons) {

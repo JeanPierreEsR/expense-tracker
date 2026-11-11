@@ -3062,6 +3062,13 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .tidy-group-row .add-inline, .tidy-group-row .add-inline + .add-inline, #perf-copy-btn, #perf-clear-btn { margin: 0; }   /* the stacked-button rule (.add-inline + .add-inline) pushed "Show the lines" 8px below "Apply" */
 .tidy-samples { margin: 8px 0 0; padding: 0; list-style: none; font-size: 0.85rem; color: var(--muted); }
 .tidy-samples li { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+/* Entries with no account (Tidy my history): the entry and its amount on one line, its account picker full width below. */
+.noacct-month { padding: 10px 0; border-top: 1px solid var(--border); }
+.noacct-month:first-child { border-top: none; }
+.noacct-month-select, .noacct-select { width: 100%; }
+.noacct-month .tidy-group-row { display: block; margin: 6px 0 0; }
+.tidy-samples li.noacct-row { flex-wrap: wrap; padding: 8px 0; color: var(--text); }
+.tidy-samples li.noacct-row .noacct-select { margin-top: 6px; }
 
 .home-glance { margin: 0 -16px 12px; }   /* full width, so the next card can peek in from the edge */
 .home-glance[hidden] { display: none; }

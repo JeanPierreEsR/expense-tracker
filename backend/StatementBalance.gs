@@ -87,7 +87,7 @@ function stmtBalanceCheck_(args) {
   // difference with the statement's own lines that are not in the app yet.
   if (out.direction === 'forward') {
     var after = own ? own.date : '';
-    var missing = 0, pending = 0, missingN = 0, missingItems = [], pendingN = 0, discounted = 0, discountedN = 0, other = 0, otherN = 0;
+    var missing = 0, pending = 0, missingN = 0, missingItems = [], pendingN = 0, discounted = 0, discountedN = 0, other = 0, otherN = 0, noAcct = 0, noAcctN = 0;
     // A purchase the card charged in ANOTHER currency (StatementMatch.gs, 'recharge'): until it takes the charge, the line is missing in
     // its currency and the purchase sits in the other one. Both halves are named here instead of looking unexplained.
     (args.lines || []).forEach(function (l) {
@@ -106,6 +106,10 @@ function stmtBalanceCheck_(args) {
       }
       var entryId = l.entry ? l.entry.id : (l.handled && l.handled.entryId) || '';
       var e = entryId ? args.entryById[entryId] : null;
+      // The line IS an entry saved with no account (owner, 2026-11-11): not missing, it only needs this account.
+      if (l.status === 'matched' && l.entryHadNoAccount && e && e.status === 'confirmed' && !e.payment_method_id && !e.to_payment_method_id) {
+        noAcct += Number(l.amount); noAcctN++; return;
+      }
       var handledOutcome = l.handled ? l.handled.outcome : '';
       var inApp = l.status !== 'completes' && e && e.status === 'confirmed' &&
         (e.payment_method_id === pm.id || e.to_payment_method_id === pm.id) &&
@@ -120,7 +124,8 @@ function stmtBalanceCheck_(args) {
     out.pending = { net: Math.round(pending * 100) / 100, lines: pendingN };
     out.discounted = { net: Math.round(discounted * 100) / 100, lines: discountedN };
     out.otherCurrency = { net: Math.round(other * 100) / 100, lines: otherN };
-    out.unexplained = Math.round((out.diff - missing - pending - discounted - other) * 100) / 100;
+    out.noAccount = { net: Math.round(noAcct * 100) / 100, lines: noAcctN };
+    out.unexplained = Math.round((out.diff - missing - pending - discounted - other - noAcct) * 100) / 100;
     // A card posts what was bought in the last days before the closing on the NEXT statement (owner, 2026-11-10): those purchases are
     // named apart ("probably on the next statement") and no longer count as unexplained.
     var appOnly = stmtAppOnlyEntries_(args, governing, after);

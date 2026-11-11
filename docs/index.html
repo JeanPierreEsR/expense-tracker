@@ -1169,6 +1169,14 @@
         <p class="hint" id="tidy-more" hidden></p>
         <p class="hint" id="tidy-empty" hidden data-i18n="tidy.empty">Everything has a category. Nothing to tidy.</p>
       </div>
+      <!-- Entries with no account (NoAccount.gs): shown only where the backend says noAccountTidy, and only when there are some. -->
+      <div class="card" id="noacct-card" hidden>
+        <h3 style="margin-top:0;" data-i18n="noacct.title">Entries with no account</h3>
+        <p class="hint" data-i18n="noacct.hint">Give each one the account or card it was paid with, so your balances and bank statements add up. Newest first. Nothing here changes an account you already chose.</p>
+        <div id="noacct-list"></div>
+        <p class="hint" id="noacct-more" hidden></p>
+        <button type="button" class="primary" id="noacct-save" disabled></button>
+      </div>
     </div>
 
     <div id="screen-bank-emails" class="screen" hidden>

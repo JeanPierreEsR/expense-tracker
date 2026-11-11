@@ -133,7 +133,8 @@ var ONCE_ACTIONS_ = {
   // The two long statement writes: the app waits at most 150 s for them, but a resend that does arrive must not run a second copy
   // next to the first (the lock below makes it wait, then get the first one's answer).
   applyStatementDecisions: 1, undoStatementBatch: 1,
-  applyTidyGroups: 1   // a resend must not run a second copy next to the first
+  applyTidyGroups: 1,   // a resend must not run a second copy next to the first
+  assignEntryAccounts: 1   // the same for filling accounts (NoAccount.gs)
 };
 
 // Speed (2026-11-02): the app can ask a save to bring back the lists it reloads right after (payload._then =
@@ -512,6 +513,9 @@ function routeActionSwitch_(action, payload) {
     case 'undoCategoryFollow': return undoCategoryFollow(payload);
     case 'listTidyGroups': return listTidyGroups(payload);
     case 'applyTidyGroups': return applyTidyGroups(payload);
+    case 'listNoAccountEntries': return listNoAccountEntries(payload);
+    case 'assignEntryAccounts': return assignEntryAccounts(payload);
+    case 'undoEntryAccounts': return undoEntryAccounts(payload);
     case 'getEntry': return getEntryById_(payload.id);
     case 'recordCurrencyExchange': return recordCurrencyExchange(payload);
     case 'getEntrySplits': return getEntrySplits(payload.entryId);
