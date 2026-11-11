@@ -40,3 +40,18 @@ test("the heal takes back a link made earlier across currencies, and only that o
   assert.equal(left.length, 1, "only the cross-currency link is taken back");
   assert.equal(left[0].id, good.id);
 });
+
+test("a currency typed by hand in lower case or left blank never takes back a correct link", () => {
+  const { rt, data } = freshApp();
+  const friend = rt.api("addFriend", { name: "Cy Do " + Math.random().toString(36).slice(2, 7) });
+  rt.api("addLoan", { friend_id: friend.id, direction: "they_owe_me", amount: 100, currency: "PEN", date: "2026-01-01", payment_method_id: data.pms[3].id, description: "Cash loan" });
+  const cat = rt.rows("Categories").find((c) => c.type === "income").id;
+  rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 130, date: "2026-03-01", currency: "PEN", payment_method_id: data.pms[3].id, overpay_category_id: cat });
+  const st = rt.rows("Settlements").find((s) => s.gap_entry_id);
+  rt.run("(function () { var sh = getSheet('Entries'); var h = getHeaders(sh); setCellByRow_(sh, h, findRowIndexById(sh, h, '" + st.gap_entry_id + "'), 'currency', 'pen '); return 1; })()");
+  rt.run("unlinkCrossCurrencyGapEntries_()");
+  assert.equal(rt.rows("Settlements").find((s) => s.id === st.id).gap_entry_id, st.gap_entry_id, "lower case: kept");
+  rt.run("(function () { var sh = getSheet('Entries'); var h = getHeaders(sh); setCellByRow_(sh, h, findRowIndexById(sh, h, '" + st.gap_entry_id + "'), 'currency', ''); return 1; })()");
+  rt.run("unlinkCrossCurrencyGapEntries_()");
+  assert.equal(rt.rows("Settlements").find((s) => s.id === st.id).gap_entry_id, st.gap_entry_id, "blank: kept");
+});
