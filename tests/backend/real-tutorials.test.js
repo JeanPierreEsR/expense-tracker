@@ -13,10 +13,9 @@ test("the Needs review practice is hidden for good: nothing offers it", () => {
   assert.ok(!/offerTip_\("review"/.test(app));
 });
 
-test("the four paused bubbles stay switched off, the live ones do not", () => {
+test("no bubble is paused any more: the four paused ones came back with their moments (2026-11-12)", () => {
   const list = app.match(/const POP_PAUSED_ = \[([^\]]*)\]/)[1];
-  for (const k of ["paidBy", "bankOpening", "forgive", "overpay"]) assert.ok(list.includes(`"${k}"`), k);
-  for (const k of ["annual", "tripPick", "loanOpening"]) assert.ok(!list.includes(`"${k}"`), k);
+  for (const k of ["paidBy", "bankOpening", "forgive", "overpay", "annual", "tripPick", "loanOpening"]) assert.ok(!list.includes(`"${k}"`), k);
 });
 
 test("a real tutorial never runs on the owner's copy, during a practice, or over an open form or sheet", () => {
@@ -127,9 +126,8 @@ test("conversions are not offered to people already using Needs review, nor on t
 
 test("a help bubble skips the 3 visits, the month and the one-a-day limit; the others keep them", () => {
   const watch = section("function popTipWatch_(", "// The moment the field scrolls into view");
-  assert.match(watch, /if \(!tip\.help && !tip\.own && !tip\.cont && !tip\.remind\) \{/);
-  assert.match(watch, /popDaysUsed_\(\) < \(POP_LEVEL_DAYS_\[tip\.level \|\| "super"\]/);
-  assert.match(watch, /!popGet_\(POP_AGAIN_KEY_, false\) && \(popGet_\(POP_VISITS_KEY_/);
+  assert.match(watch, /if \(!tip\.help && !tip\.own && !tip\.cont && !tip\.remind && !tip\.noGate\) \{/);
+  assert.match(watch, /if \(!popBasicsOk_\(tip\.level\) && !\(tip\.struggle && tip\.struggle\(\)\)\) return;/);
   assert.match(app, /if \(!tip\.help && !tip\.own && !tip\.cont && !popDayAllows_\(tip\.key\)\)/);
   assert.match(section("function watchReviewHint_(", "// ---- First-use practice: Needs review ----"), /help: true/);
 });
@@ -161,7 +159,7 @@ test("bubbles batch B: Projections reminder, Tidy (bubble, idle offer, practice 
   assert.match(b, /key: "projMethod", place: "projections", remind: true/);
   assert.match(b, /months < PROJECTIONS_MIN_MONTHS_\) return;/);
   assert.match(app, /popSet_\(PROJ_METHOD_USED_KEY_, true\); openProjectionMethodModal_/);
-  assert.match(app, /!tip\.help && !tip\.own && !tip\.cont && !tip\.remind\)/);
+  assert.match(app, /!tip\.help && !tip\.own && !tip\.cont && !tip\.remind && !tip\.noGate\)/);
   // Tidy: not after an upload (the real tutorial is there), not once taught; idle offers the real tutorial
   assert.match(b, /if \(fromUpload \|\| !tidyGroups_\.length \|\| isTaught_\("tidy"\)\) return;/);
   assert.match(b, /key: "tidy", place: "tidy", own: true/);
