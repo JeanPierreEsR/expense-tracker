@@ -124,6 +124,64 @@ function audit() {
           }
         }
       }
+      // Every Edit-mode bar (the fixed bar of Select all / Done / Delete …), with EVERY label each button can show and big
+      // counts, in every combination: no two buttons may overlap, run off the bar, cut their text or be under 44 px tall
+      // (owner, 2026-11-12: "Select all 33 matches" was printed on top of "Done"). A new label for a bar button goes in SLOTS.
+      for (const f of await page.evaluate(() => {
+        const out = [];
+        const n = 999, big = 99999;
+        const SLOTS = {
+          selectall: [tr("friends.selectAll"), tr("friends.selectNone")],
+          done: [tr("friends.done")],
+          del: [tr("friends.deletePick"), tr("friends.deleteN", { n })],
+          change: [tr("entriesBulk.change"), tr("entriesBulk.changeN", { n })],
+          confirm: [tr("review.confirm"), tr("reviewBulk.confirmN", { n })],
+          discard: [tr("review.discard"), tr("reviewBulk.discardN", { n })],
+        };
+        // Labels only some bars show (app.js: syncEntriesEditBar_, syncBudgetsEditBar_, syncOneKindBar_).
+        const EXTRA = {
+          "entries-selectall-btn": [tr("entriesBulk.selectAllMatches", { n: big })],
+          "budgets-delete-selected-btn": [tr("budgets.endPick"), tr("budgets.endN", { n })],
+          "accounts-delete-selected-btn": [tr("bulkShow.showN", { n })],
+          "categories-delete-selected-btn": [tr("bulkShow.showN", { n })],
+          "friends-delete-selected-btn": [tr("bulkShow.showN", { n })],
+        };
+        const slotOf = (b) => /selectall/.test(b.id) ? "selectall" : /done/.test(b.id) ? "done" : /change/.test(b.id) ? "change"
+          : /confirm/.test(b.id) ? "confirm" : /discard/.test(b.id) ? "discard" : "del";
+        const bars = [...document.querySelectorAll(".friends-editbar")];
+        if (!bars.length) out.push("no Edit-mode bars found");
+        for (const bar of bars) {
+          document.body.appendChild(bar);   // out of its (hidden) screen, so it lays out as it does on the phone
+          bar.hidden = false;
+          const all = [...bar.querySelectorAll("button")];
+          // Home's "Change" button only shows with the right backend: try the bar both with and without it.
+          const variants = all.some((b) => slotOf(b) === "change") ? [all, all.filter((b) => slotOf(b) !== "change")] : [all];
+          for (const btns of variants) {
+            all.forEach((b) => { b.hidden = !btns.includes(b); });
+            let combos = [[]];
+            for (const b of btns) combos = combos.flatMap((c) => SLOTS[slotOf(b)].concat(EXTRA[b.id] || []).map((t) => c.concat(t)));
+            for (const combo of combos) {
+              btns.forEach((b, i) => { b.textContent = combo[i]; });
+              const br = bar.getBoundingClientRect();
+              const rs = btns.map((b) => b.getBoundingClientRect());
+              const where = `${bar.id} [${combo.join(" | ")}]`;
+              btns.forEach((b, i) => {
+                const r = rs[i];
+                if (r.left < br.left - 0.5 || r.right > br.right + 0.5 || r.right > window.innerWidth + 0.5) out.push(`${where}: "${combo[i]}" runs off the bar`);
+                if (b.scrollWidth > b.clientWidth + 1) out.push(`${where}: "${combo[i]}" is cut by its button`);
+                if (r.height < 43.5) out.push(`${where}: "${combo[i]}" is only ${Math.round(r.height)} px tall`);
+                for (let j = i + 1; j < btns.length; j++) {
+                  const s = rs[j];
+                  if (r.left < s.right - 0.5 && s.left < r.right - 0.5 && r.top < s.bottom - 0.5 && s.top < r.bottom - 0.5) out.push(`${where}: "${combo[i]}" overlaps "${combo[j]}"`);
+                }
+              });
+            }
+          }
+          bar.hidden = true;
+        }
+        return [...new Set(out)];
+      })) findings.push(`[${lang}] Edit bar ${f}`);
+      looked++;
       for (const e of errors) findings.push(`[${lang}] page error: ${e}`);
       await ctx.close();
     }

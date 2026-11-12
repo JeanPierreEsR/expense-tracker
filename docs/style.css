@@ -3573,8 +3573,14 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
   padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
 }
 .friends-editbar[hidden] { display: none; }
-.friends-editbar button.add-inline { white-space: nowrap; margin: 0; }   /* margin: the stacked-button rule (.add-inline + .add-inline) must not push "Done" below "Select all" */
-.friends-editbar button.primary { width: auto; white-space: nowrap; margin-top: 0; padding: 12px 22px; min-height: 44px; box-sizing: border-box; }   /* min-height: Delete was 42 px next to the 44 px Select all / Done (testers, 2026-11-07) */
+.friends-editbar button.add-inline { margin: 0; }   /* margin: the stacked-button rule (.add-inline + .add-inline) must not push "Done" below "Select all" */
+.friends-editbar button.primary { width: auto; margin-top: 0; padding: 12px 22px; min-height: 44px; box-sizing: border-box; }   /* min-height: Delete was 42 px next to the 44 px Select all / Done (testers, 2026-11-07) */
+/* Buttons never overlap (owner, 2026-11-12): a long label ("Select all 33 matches", "Elige presupuestos para terminar") takes a
+   second line and its button shrinks, but never below its longest word (min-width: auto), so nothing is cut or pushed under its
+   neighbour. tests/screen-fit/check.js tries every label of every bar. */
+.friends-editbar button { white-space: normal; flex: 0 1 auto; min-width: auto; line-height: 1.15; overflow-wrap: normal; }
+.friends-editbar button.add-inline { text-align: left; padding-left: 4px; padding-right: 4px; }
+.friends-editbar button.primary { text-align: center; padding-top: 6px; padding-bottom: 6px; }
 /* room under the last friend so the fixed bar never covers it */
 #screen-friends.friends-editing .card { padding-bottom: 90px; }
 .friends-hidden-box { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 4px; }
@@ -3640,10 +3646,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .entry.entry-exchange.entry-check { cursor: default; opacity: 0.75; }
 #entries-bulk-body .entries-bulk-list { font-size: 0.85rem; color: var(--muted); margin: 6px 0; }
 #entries-editbar { gap: 4px; padding: 10px 12px; }
-#entries-editbar button.primary { padding: 12px 12px; font-size: 0.9rem; }
-/* "Select all 33 matches" is long: it may take two lines and shrink, so it never slides under "Done" (owner's screenshot, 2026-11-12) */
-#entries-editbar #entries-selectall-btn { white-space: normal; flex: 0 1 auto; min-width: 0; text-align: left; line-height: 1.2; padding: 4px 6px 4px 0; }
-#entries-editbar #entries-done-btn { flex: 0 0 auto; }
+#entries-editbar button.primary { padding: 6px 12px; font-size: 0.9rem; }
 .deleted-batch { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; margin: 10px 0; }
 .deleted-batch-title { font-weight: 600; margin-bottom: 4px; }
 .deleted-batch .recurring-row { padding: 8px 0; }
