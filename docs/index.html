@@ -171,6 +171,14 @@
               <label for="repayment-friend" data-i18n="common.friend">Friend</label>
               <select id="repayment-friend"></select>
               <p class="hint" id="repayment-hint"></p>
+              <p class="hint repayment-nothing-owed" id="repayment-nothing-owed" hidden></p>
+              <div id="entry-opening-row" hidden>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="entry-opening">
+                  <span data-i18n="loanModal.opening">This debt is from before I started using the app</span>
+                </label>
+                <p class="hint" id="entry-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
+              </div>
               <div id="repayment-overpay-block">
                 <label for="repayment-overpay-category" id="repayment-overpay-category-label" data-i18n="transfer.overpayCategory">Category if you paid extra</label>
                 <select id="repayment-overpay-category"></select>
@@ -209,7 +217,7 @@
           <label for="amount" id="amount-label" data-i18n="field.amount">Amount</label>
           <input type="text" inputmode="decimal" id="amount" placeholder="0.00" required>
 
-          <label for="date" data-i18n="field.date">Date</label>
+          <label for="date" id="entry-date-label" data-i18n="field.date">Date</label>
           <input type="date" id="date" required>
           <div id="repeat-field" hidden>
             <button type="button" class="add-inline" id="repeat-open-btn" data-i18n="repeat.add">🔁 Repeat…</button>
@@ -2338,6 +2346,7 @@
           <div class="type-tab" data-direction="i_owe_them" data-i18n="loanModal.iOweThem">I owe them</div>
         </div>
 
+        <p class="hint loan-repay-hint" id="loan-repay-hint"></p>
         <label class="checkbox-row" id="loan-opening-row">
           <input type="checkbox" id="loan-opening">
           <span data-i18n="loanModal.opening">This debt is from before I started using the app</span>
@@ -2354,9 +2363,11 @@
         <label for="loan-date" id="loan-date-label" data-i18n="field.date">Date</label>
         <input type="date" id="loan-date">
 
+        <div id="loan-due-wrap">
         <label for="loan-due-date" data-i18n="loanModal.dueDate">Due date</label>
         <input type="date" id="loan-due-date">
         <p class="hint" data-i18n="loanModal.dueHint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
+        </div>
 
         <div id="loan-pm-field">
         <label for="loan-payment-method" data-i18n="field.paymentMethod">Payment method</label>
@@ -2421,6 +2432,25 @@
         <button type="button" class="secondary-choice" id="budget-scope-all"></button>
         <p class="hint" id="budget-scope-all-hint"></p>
         <button type="button" class="cancel-edit-btn" id="budget-scope-back" data-i18n="common.cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Home's "+" → Repayment when nothing is owed that way (owner, 2026-11-12): the person says what the money is before anything is saved. -->
+  <div id="nothing-owed-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span></span>
+        <button type="button" id="nothing-owed-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="app-confirm-text" id="nothing-owed-text"></p>
+        <button type="button" class="primary" id="nothing-owed-before" data-i18n="owed.before">It pays a debt from before the app</button>
+        <p class="hint" id="nothing-owed-before-hint"></p>
+        <button type="button" class="secondary-choice" id="nothing-owed-entry"></button>
+        <p class="hint" id="nothing-owed-entry-hint"></p>
+        <button type="button" class="cancel-edit-btn" id="nothing-owed-back" data-i18n="owed.back">Go back and change it</button>
+        <p class="hint" data-i18n="owed.backHint">Nothing is saved. Use this if you picked the wrong person, currency or direction.</p>
       </div>
     </div>
   </div>

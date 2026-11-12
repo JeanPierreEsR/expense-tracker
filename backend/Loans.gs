@@ -987,6 +987,8 @@ function recalculateRepaymentTransferEntry_(transferEntryId) {
 // its own right, and whoever received it is the one who has to account
 // for it.
 function recordRepayment(payload) {
+  // Home's "+": a debt from before the app, saved together with the repayment that pays it (one request, speed rules).
+  if (payload.opening_loan) return recordRepaymentWithOpening_(payload);
   var friend = getAllRows('Friends').find(function (f) { return f.id === payload.friend_id; });
   if (!friend) throw new Error(tr_('err.friendNotFound'));
   if (payload.direction !== 'they_owe_me' && payload.direction !== 'i_owe_them') {
@@ -1042,6 +1044,10 @@ function recordRepayment(payload) {
       ? tr_('repay.noLoanFromYou', { friend: friend.name, cur: currency })
       : tr_('repay.noDebt', { cur: currency, friend: friend.name }));
   }
+
+  // Home's "+" asks first when nothing is owed this way: the person says what the money is (a debt from before the app, an
+  // expense / income, or a mistake). Nothing is written; the phone sends the repayment again with the answer.
+  if (payload.ask_if_nothing_owed && !primary.length) return { nothing_owed: true, overpaid: 0, currency: currency };
 
   // The person chose which loans this pays (optional): { loan_id, amount } rows. Checked before anything is written.
   var allocations = cleanRepaymentAllocations_(payload.allocations, primary, Number(payload.amount));
@@ -1133,6 +1139,9 @@ function recordRepayment(payload) {
       payment_method_id: payload.payment_method_id,
       category_id: payload.overpay_category_id || '',
       pending: !payload.overpay_category_id,
+      // Home's "+" when nothing was owed and the person chose "Save it as an expense / income" (2026-11-12): it is no overpayment,
+      // so it reads as what it is ("Money to Ana"), or as the person's own description.
+      description: payload.nothing_owed_entry && !transferEntryId ? (payload.description || tr_(payload.direction === 'they_owe_me' ? 'desc.moneyFrom' : 'desc.moneyTo', { name: friend.name })) : undefined,
       client_id: transferEntryId ? '' : clientId   // the payment's own entry already carries the id
     });
     // The owner paid a trip's group more than was owed: that leftover is his share of what others paid, so it
@@ -1156,6 +1165,30 @@ function recordRepayment(payload) {
   }
 
   return { overpaid: overpaid, currency: currency, overpayment_entry: overpaymentEntry };
+}
+
+// A repayment of a debt the app did not know about (owner, 2026-11-12): the debt from before the app (`opening`, no money
+// entry, no account) is added first, then the repayment pays it as usual. A refused repayment takes the new debt away again.
+function recordRepaymentWithOpening_(payload) {
+  var o = payload.opening_loan || {};
+  var rest = Object.assign({}, payload);
+  delete rest.opening_loan;
+  delete rest.ask_if_nothing_owed;
+  if (o.date && payload.date && String(o.date) > String(payload.date)) throw new Error(tr_('repay.openingAfter'));
+  var loan = addLoan({
+    friend_id: payload.friend_id, direction: payload.direction, amount: o.amount,
+    currency: payload.currency, date: o.date, description: o.description || '', project_id: payload.project_id, opening: true
+  });
+  var result;
+  try {
+    result = recordRepayment(rest);
+  } catch (e) {
+    deleteRowsWhere_('Settlements', function (r) { return r.loan_id === loan.id; });
+    deleteRowsWhere_('Loans', function (r) { return r.id === loan.id; });
+    throw e;
+  }
+  result.opening_loan_id = loan.id;
+  return result;
 }
 
 // "Choose which loans this pays": [{ loan_id, amount }]. Each loan must be one of the person's open loans in the
@@ -2742,6 +2775,7 @@ function listLoanBalances(payload) {
   var byFriendCurrency = {};
   var overdueFriendIds = {};
   var projectsByFriend = {};   // Business pack: which projects a person's open debts belong to
+  var openByFriend = {};       // friend_id -> currency -> { they_owe_me, i_owe_them } still owed
   loans.forEach(function (loan) {
     var remaining = Number(loan.amount) - (settledByLoan[loan.id] || 0);
     if (remaining <= 0.004) return;
@@ -2753,6 +2787,11 @@ function listLoanBalances(payload) {
     var byCur = byFriendCurrency[loan.friend_id];
     byCur[loan.currency] = (byCur[loan.currency] || 0) +
       (loan.direction === 'they_owe_me' ? remaining : -remaining);
+    // Each way separately too: Home's repayment says "Ana owes you nothing" only when nothing is owed THAT way (a debt
+    // both ways nets out in `net`).
+    var openCur = ((openByFriend[loan.friend_id] = openByFriend[loan.friend_id] || {})[loan.currency] =
+      openByFriend[loan.friend_id][loan.currency] || { they_owe_me: 0, i_owe_them: 0 });
+    openCur[loan.direction === 'they_owe_me' ? 'they_owe_me' : 'i_owe_them'] += remaining;
   });
 
   var month = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
@@ -2771,7 +2810,7 @@ function listLoanBalances(payload) {
         // shown, and null when no rate is on file, since balances stay in
         // their own currency and nothing here needs a conversion to display.
         var rate = cur === homeCurrency_() ? 1 : getLatestRateOnOrBefore_(cur, month);
-        return { currency: cur, net: byCur[cur], net_pen: rate == null ? null : byCur[cur] * rate };
+        return { currency: cur, net: byCur[cur], net_pen: rate == null ? null : byCur[cur] * rate, open: (openByFriend[friendId] || {})[cur] };
       });
     if (!balances.length) return;
 

@@ -3939,3 +3939,13 @@ body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: 216px; }
 }
 .tidy-samples .tidy-amt { color: var(--text); white-space: nowrap; }
 .tidy-samples .tidy-amt.tidy-amt-in { color: var(--income); }
+
+/* Loans' debt form opened from Home's repayment ("It pays a debt from before the app", 2026-11-12): person, direction and
+   currency are fixed, and a debt from before has no due date or account. */
+.loan-repay-hint { display: none; }
+#loan-modal-backdrop.loan-for-repay .loan-repay-hint { display: block; }
+#loan-modal-backdrop.loan-for-repay #loan-direction-tabs,
+#loan-modal-backdrop.loan-for-repay #loan-currency-chips { pointer-events: none; opacity: 0.6; }
+#loan-modal-backdrop.loan-for-repay #loan-due-wrap,
+#loan-modal-backdrop.loan-for-repay #loan-pm-field { display: none; }
+#loan-modal-backdrop.loan-for-repay #loan-opening-hint { display: none; }
