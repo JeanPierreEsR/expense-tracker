@@ -419,6 +419,7 @@ function selectCurrency(code, target, byPerson) {
     refreshBudgetRateWarning_(null);
   } else if (resolvedTarget === "entry") {
     renderSplitSummary();
+    if (typeof syncNothingOwedLine_ === "function") syncNothingOwedLine_();   // "Ana owes you nothing in USD" follows the currency
     // An expected payment is in one currency: a new currency means a new list to choose from.
     expectedPick_ = ""; expectedPickTouched_ = false;
     syncExpectedField_();
@@ -1127,6 +1128,20 @@ function todayLocalISO() {
 // saved instead of it materializing invisibly (the backend's own
 // addLoan has the same default as a fallback, for any call that bypasses
 // this form).
+// A debt or loan "from before the app" starts, by default, the day before this copy was first used (owner, 2026-11-12): the
+// server's first-use day (getMeta `firstUseDate`), else this phone's first day. Ticking the box moves a date still on today
+// there; unticking moves it back while untouched.
+function beforeAppDate_() {
+  const d = new Date(`${(meta && meta.firstUseDate) || popFirstUse_()}T00:00:00`);
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function syncBeforeAppDate_(input, on) {
+  const today = todayLocalISO(), before = beforeAppDate_();
+  if (on && input.value === today) input.value = before;
+  else if (!on && input.value === before) input.value = today;
+}
+
 function defaultDueDate_(dateStr) {
   const d = new Date(`${dateStr}T00:00:00`);
   d.setDate(d.getDate() + 7);
@@ -2041,7 +2056,7 @@ function updateRepaymentUi_() {
   applyExchangeLegLayout_(kind);
   const plain = kind === "between" || kind === "exchange" || kind === "unloan" || kind === "xleg" || kind === "unexchange";
   document.getElementById("repayment-detail").hidden = plain;
-  if (plain) return;
+  if (plain) { syncEntryOpening_(false); return; }
 
   const isLoan = kind === "loan";
   const iPaid = repaymentDirectionChoice === "i_owe_them";
@@ -2075,6 +2090,59 @@ function updateRepaymentUi_() {
   document.getElementById("to-payment-method-field").hidden = true;
   document.getElementById("payment-method-field").hidden = false;
   document.getElementById("payment-method-label").textContent = iPaid ? tr("field.paidFromAccount") : tr("field.receivedIntoAccount");
+  syncEntryOpening_(isLoan);
+  syncNothingOwedLine_();
+}
+
+// Home's "+" → Transfer → New loan can be a debt from before the app (owner, 2026-11-12), as in Loans → + Add loan: only the
+// debt is saved (addLoan `opening`), so no account, no due date, and the date is a rough "since when". New entries only.
+function entryOpeningOn_() {
+  return !document.getElementById("entry-opening-row").hidden && document.getElementById("entry-opening").checked;
+}
+function syncEntryOpening_(isLoan) {
+  const row = document.getElementById("entry-opening-row");
+  row.hidden = !(isLoan && entryFormIsNewEntry_() && !!((meta && meta.capabilities) || {}).openingLoan);   // an older backend would make a normal loan
+  if (row.hidden) document.getElementById("entry-opening").checked = false;
+  const on = entryOpeningOn_();
+  document.getElementById("entry-opening-hint").hidden = !on;
+  if (on) {
+    document.getElementById("payment-method-field").hidden = true;
+    document.getElementById("loan-due-block").hidden = true;
+  }
+  document.getElementById("entry-date-label").textContent = tr(on ? "loanModal.openingDate" : "field.date");
+}
+document.getElementById("entry-opening").addEventListener("change", (e) => { syncBeforeAppDate_(document.getElementById("date"), e.target.checked); updateRepaymentUi_(); });
+
+// Under the person in Home's "+" → Repayment (owner, 2026-11-12): "Ana owes you nothing in PEN" when nothing is owed that way,
+// so the person knows before Save (which then asks what the money is, askNothingOwed_). From the Loans tab's last list; fetched
+// once in the background when the Loans tab was not opened yet. New entries only, and only where the server can ask.
+let nothingOwedFetching_ = false;
+function syncNothingOwedLine_() {
+  const line = document.getElementById("repayment-nothing-owed");
+  const friendId = document.getElementById("repayment-friend").value;
+  const show = repaymentActive_() && transferKind_() === "repayment" && entryFormIsNewEntry_() && !!((meta && meta.capabilities) || {}).repayNothingOwed &&
+    friendId && friendId !== "__add__";
+  if (!show) { line.hidden = true; return; }
+  if (!loansLastBalances_) {
+    line.hidden = true;
+    if (!nothingOwedFetching_) {
+      nothingOwedFetching_ = true;
+      callApi("listLoanBalances", {}).then((b) => { if (!loansLastBalances_) loansLastBalances_ = (b && b.balances) || b; syncNothingOwedLine_(); })
+        .catch(() => {}).finally(() => { nothingOwedFetching_ = false; });
+    }
+    return;
+  }
+  const currency = document.getElementById("currency").value.toUpperCase();
+  const dir = repaymentDirectionChoice;
+  const b = loansLastBalances_.find((x) => x.friend_id === friendId);
+  const row = b && (b.balances || []).find((l) => String(l.currency).toUpperCase() === currency);
+  // `open` (each way separately) where the server sends it: a debt both ways nets out in `net`.
+  const owed = row && row.open ? Number(row.open[dir] || 0) > 0.004 : !!row && (dir === "they_owe_me" ? row.net : -row.net) > 0.004;
+  line.hidden = owed;
+  if (!owed) {
+    const f = (meta.friends || []).find((x) => x.id === friendId);
+    line.textContent = tr(dir === "they_owe_me" ? "owed.lineTheyOwe" : "owed.lineIOwe", { friend: f ? f.name : "", cur: currency });
+  }
 }
 
 document.getElementById("transfer-kind").addEventListener("change", () => {
@@ -3246,7 +3314,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // field — income always carries a payment method (which account
     // received it), an expense/investment/transfer only when the owner
     // themselves paid.
-    const usesPaymentMethod = isRepayment || (selectedType === "income" && !incomeWaitingOn_() && editingIncomeWaiting_ !== "paid") || (selectedType !== "income" && paidBy === "me");
+    const openingDebt = isRepayment && transferKind_() === "loan" && entryOpeningOn_();   // a debt from before the app moves no money
+    if (openingDebt) paymentMethodId = "";
+    const usesPaymentMethod = !openingDebt && (isRepayment || (selectedType === "income" && !incomeWaitingOn_() && editingIncomeWaiting_ !== "paid") || (selectedType !== "income" && paidBy === "me"));
     // Transfers only; always sent (even blank) so switching an entry away
     // from transfer, or clearing the destination, actually clears it.
     let toPaymentMethodId = selectedType === "transfer" || selectedType === "investment" ? document.getElementById("to_payment_method").value : "";
@@ -3344,10 +3414,14 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         payment_method_id: paymentMethodId,
         description
       };
-      if (isLoanKind) fields.due_date = document.getElementById("loan-due-date").value;
+      if (isLoanKind) fields.due_date = openingDebt ? "" : document.getElementById("loan-due-date").value;
+      if (openingDebt) fields.opening = true;
       if (businessOn()) fields.project_id = businessPickProjectId_();   // the debt (or the repayment's scope) belongs to this project
       let result;
       let extraNote = "";
+      let nothingOwedChoice = null;   // "before" | "entry" when nothing was owed and the person said what the money is
+      lastNothingOwedChoice_ = null;
+      lastOpeningDebt_ = openingDebt;
       if (editingEntryId) {
         // Swapping an existing expense/transfer for the repayment / loan: one
         // server call that checks everything first and undoes itself if
@@ -3439,21 +3513,46 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       } else if (isLoanKind) {
         result = await callApi("addLoan", fields);
       } else {
-        // More than was owed (or nothing was owed): the server books the
-        // leftover itself, in the same request — confirmed if a category was
-        // chosen, otherwise as a pending entry in the review queue.
-        result = await callApi("recordRepayment", { ...fields, overpay_category_id: overpayCategoryId });
+        // More than was owed: the server books the leftover itself, in the same request — confirmed if a category was
+        // chosen, otherwise as a pending entry in the review queue. When NOTHING is owed that way, the server first says so
+        // (writing nothing) and the person picks what the money is (owner, 2026-11-12): a debt from before the app (saved
+        // with this repayment in one request), an expense / income, or back to the form.
+        const repayPayload = { ...fields, overpay_category_id: overpayCategoryId };
+        if (((meta && meta.capabilities) || {}).repayNothingOwed) {
+          result = await callApi("recordRepayment", { ...repayPayload, ask_if_nothing_owed: true });
+          if (result && result.nothing_owed) {
+            nothingOwedChoice = await askNothingOwed_({ friendName, direction, currency, amount, categoryName: overpayCatName_() });
+            lastNothingOwedChoice_ = nothingOwedChoice;
+            if (!nothingOwedChoice) return;   // back to the form, nothing saved
+            let opening = null;
+            if (nothingOwedChoice === "before") {
+              opening = await askOpeningDebtForRepay_({ friendId, direction, currency, amount, date });
+              if (!opening) return;            // the debt form was closed: back to the form, nothing saved
+            }
+            result = await callApi("recordRepayment", opening ? { ...repayPayload, opening_loan: opening } : { ...repayPayload, nothing_owed_entry: true });
+          }
+        } else {
+          result = await callApi("recordRepayment", repayPayload);
+        }
       }
-      if (!isLoanKind && result.overpaid > 0.004) {
+      if (nothingOwedChoice === "entry") {
+        // Saved as an expense / income: said in those words (no "more than the debt", no "extra").
+        const isIncome = direction === "they_owe_me";
+        extraNote = overpayCategoryId ? tr(isIncome ? "owed.savedIncomeIn" : "owed.savedExpenseIn", { category: overpayCatName_() })
+          : tr(isIncome ? "owed.savedIncomePending" : "owed.savedExpensePending");
+        refreshReviewQueue().catch(() => {});
+      } else if (!isLoanKind && result.overpaid > 0.004) {
         const isIncome = direction === "they_owe_me";
         const noteKey = (overpayCategoryId ? "repay.overpaidRecorded" : "repay.overpaidPending") + (isIncome ? "Income" : "Expense");
         extraNote = tr(noteKey, { cur: currency, amount: moneyFmt(result.overpaid) });
         refreshReviewQueue().catch(() => {});
       }
       refreshLoans().catch(() => {});
-      showFormNotice_(isLoanKind
+      showFormNotice_(nothingOwedChoice === "entry" ? extraNote
+        : openingDebt ? tr(direction === "they_owe_me" ? "owed.openingSavedTheyOwe" : "owed.openingSavedIOwe", { name: friendName })
+        : isLoanKind
         ? tr(direction === "they_owe_me" ? "repay.loanTo" : "repay.loanFrom", { name: friendName })
-        : tr(direction === "they_owe_me" ? "repay.repaymentFrom" : "repay.repaymentTo", { name: friendName }) + extraNote);
+        : tr(direction === "they_owe_me" ? "repay.repaymentFrom" : "repay.repaymentTo", { name: friendName }) + (nothingOwedChoice === "before" ? tr("owed.openingNote") : "") + extraNote);
     } else if (confirmingPendingId) {
       // Confirming a pending (review-queue) entry through the full form
       // — Phase 5.7's "Split" action. Same field set as a normal update,
@@ -3808,6 +3907,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     document.getElementById("amount").value = "";
     document.getElementById("description").value = "";
     document.getElementById("to_payment_method").value = "";
+    if (document.getElementById("entry-opening").checked) { document.getElementById("entry-opening").checked = false; updateRepaymentUi_(); }   // each loan says for itself
     resetChargeBox_();
     // The next entry starts in the main currency again (owner, 2026-11-04: a USD expense made the next grocery entry USD too, unnoticed).
     if (document.getElementById("currency").value !== homeCur()) selectCurrency(homeCur(), "entry");
@@ -5586,6 +5686,7 @@ function resetEntryFormFields_() {
   document.getElementById("date").value = todayLocalISO();
   selectCurrency(homeCur(), "entry");
   document.getElementById("to_payment_method").value = "";
+  document.getElementById("entry-opening").checked = false;
   // Back to the first real account, as on a fresh open. An entry with no account, opened and cancelled, must not make "No account" the next default.
   pickDefaultAccount_();
   setInvestmentDirection("deposit");
@@ -23978,6 +24079,8 @@ function startTransferReal_(kind) {
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // the form opens with the keyboard up on Amount
   guided_ = { savedId: "", split: null };
   let chosen = "";
+  lastNothingOwedChoice_ = null;
+  lastOpeningDebt_ = false;
   if (kind) markTaught_(TRANSFER_FEATURE_[kind], "real");
   const el = (id) => document.getElementById(id);
   const kindNow = () => chosen || el("transfer-kind").value;   // once saved the form goes back to "between": the steps left still follow the kind chosen
@@ -24010,14 +24113,15 @@ function startTransferReal_(kind) {
   // Repayment / new loan: who and which way
   steps.push(only(debt, { target: "#repayment-direction-tabs", text: () => tr(is("loan")() ? "rt.loan.direction" : "rt.repay.direction"), tap: "#repayment-direction-tabs", button: next }));
   steps.push(only(debt, { key: "friend", target: () => [el("repayment-friend"), el("repayment-hint")], text: (fix) => tr(fix ? "rt.transfer.friendFix" : is("loan")() ? "rt.loan.friend" : "rt.repay.friend"), visit: "#repayment-friend", button: next, ok: () => submitted || !debt() || friendOk(), holdsUntil: "save" }));
-  steps.push(only(is("loan"), { target: "#loan-due-block", text: () => tr("rt.loan.due"), visit: "#loan-due-date", button: next }));
+  steps.push(only(() => is("loan")() && !document.getElementById("entry-opening-row").hidden, { target: "#entry-opening-row", text: () => tr("rt.loan.opening"), button: next }));
+  steps.push(only(() => is("loan")() && !entryOpeningOn_(), { target: "#loan-due-block", text: () => tr("rt.loan.due"), visit: "#loan-due-date", button: next }));
   // Everything except an exchange, which has its own fields. The amount is asked for even when already explained: Save needs it.
   steps.push(only(is("between", "repayment", "loan"), { key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
     until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || !is("between", "repayment", "loan")() || amountOk(), holdsUntil: "save" }));
-  if (isNew("date")) steps.push(only(is("between", "repayment", "loan"), { field: "date", target: "#date", text: () => tr("spot.g.date"), visit: "#date", button: next }));
+  if (isNew("date")) steps.push(only(is("between", "repayment", "loan"), { field: "date", target: "#date", text: () => tr(is("loan")() && entryOpeningOn_() ? "rt.loan.openingDate" : "spot.g.date"), visit: "#date", button: next }));
   steps.push(only(is("between"), { target: "#payment-method-field", text: () => tr("spot.g.accFrom"), visit: "#payment_method", button: next }));
   steps.push(only(is("between"), { target: "#to-payment-method-field", text: () => tr("rt.transfer.to"), visit: "#to_payment_method", button: next }));
-  steps.push(only(debt, { target: "#payment-method-field", text: () => tr(is("loan")() ? "rt.loan.account" : "rt.transfer.account"), visit: "#payment_method", button: next }));
+  steps.push(only(() => debt() && !entryOpeningOn_(), { target: "#payment-method-field", text: () => tr(is("loan")() ? "rt.loan.account" : "rt.transfer.account"), visit: "#payment_method", button: next }));
   // Currency exchange
   if (isNew("date")) steps.push(only(is("exchange"), { field: "date", target: "#exchange-date", text: () => tr("rt.exchange.date"), visit: "#exchange-date", button: next, before: async () => shownNow("exchange-date") }));
   steps.push(only(is("exchange"), { target: "#exchange-out-account", text: () => tr("spot.x.s4"), visit: "#exchange-out-account", button: next, before: async () => exchangeFormIsInline_() }));
@@ -24036,9 +24140,12 @@ function startTransferReal_(kind) {
     until: () => !!(guided_ && guided_.savedId) || !newEntrySheetOpen_ }));
   let friend = "";
   steps.push(...realWhereSteps_(() => (debt() ? realLoanRow_(friend) : is("exchange")() ? document.querySelector("#entry-list .entry-exchange") : realEntryRow_(guided_ && guided_.savedId)),
-    () => tr({ between: "rt.transfer.done", repayment: "rt.repay.done", loan: "rt.loan.done", exchange: "rt.exchange.done" }[chosen] || "rt.transfer.done"),
+    () => (chosen === "repayment" && lastNothingOwedChoice_ === "entry" ? tr("rt.repay.doneEntry")
+      : chosen === "loan" && lastOpeningDebt_ ? tr("rt.loan.doneOpening")
+      : tr({ between: "rt.transfer.done", repayment: "rt.repay.done", loan: "rt.loan.done", exchange: "rt.exchange.done" }[chosen] || "rt.transfer.done")),
     { unsaved: () => !debt() && !is("exchange")() && !(guided_ && guided_.savedId) && !newEntrySheetOpen_,
-      before: async () => { friend = el("repayment-friend").value; if (debt()) { showScreen("loans"); return true; } return realOnHome_(); }, poke: () => { (debt() ? refreshLoans() : refreshEntryList()).catch(() => {}); } }));
+      // Nothing was owed and it was saved as an expense / income: no Loans row to show, only the words.
+      before: async () => { if (chosen === "repayment" && lastNothingOwedChoice_ === "entry") return false; friend = el("repayment-friend").value; if (debt()) { showScreen("loans"); return true; } return realOnHome_(); }, poke: () => { (debt() ? refreshLoans() : refreshEntryList()).catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), {
     labels: realLabels_(),
     onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); guided_ = null; },
@@ -26574,6 +26681,80 @@ function askBudgetScope_(t) {
 
 // Asks what happens to a deleted loan's / expense's repayments. Resolves to "keep" (they stay on record as a loan the
 // other way), "cancel" (they are cancelled too) or null (the person backed out). `rows` = [{friend, currency, total}].
+// The category picked in Home's Repayment form for money beyond the debt ("" = Decide later), as the list shows it.
+function overpayCatName_() {
+  const sel = document.getElementById("repayment-overpay-category");
+  return sel.value && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : "";
+}
+
+let lastNothingOwedChoice_ = null;   // the last answer, for the transfer tutorial's closing words
+let lastOpeningDebt_ = false;        // the last Home loan was a debt from before the app (same use)
+// Home's "+" → Repayment when nothing is owed that way (owner, 2026-11-12): before anything is saved the person says what the
+// money is. Resolves "before" (a debt from before the app), "entry" (an expense / income) or null (back to the form).
+function askNothingOwed_({ friendName, direction, currency, amount, categoryName }) {
+  return new Promise((resolve) => {
+    const backdrop = document.getElementById("nothing-owed-backdrop");
+    const theyPaid = direction === "they_owe_me";
+    const money = `${currency} ${moneyFmt(amount)}`;
+    const v = { friend: friendName, cur: currency, money, category: categoryName };
+    document.getElementById("nothing-owed-text").textContent = tr(theyPaid ? "owed.askTheyOwe" : "owed.askIOwe", v);
+    document.getElementById("nothing-owed-before-hint").textContent = tr(theyPaid ? "owed.beforeHintIn" : "owed.beforeHintOut", v);
+    document.getElementById("nothing-owed-entry").textContent = tr(theyPaid ? "owed.asIncome" : "owed.asExpense");
+    document.getElementById("nothing-owed-entry-hint").textContent = tr(theyPaid
+      ? (categoryName ? "owed.asIncomeHintIn" : "owed.asIncomeHint")
+      : (categoryName ? "owed.asExpenseHintIn" : "owed.asExpenseHint"), v);
+    const ids = ["nothing-owed-before", "nothing-owed-entry", "nothing-owed-back", "nothing-owed-close"];
+    const openedAt = Date.now();   // the second tap of a double tap on Save must not pick a choice
+    const done = (value) => {
+      if (Date.now() - openedAt < APP_CONFIRM_SETTLE_MS_) return;
+      backdrop.hidden = true;
+      ids.forEach((id) => { document.getElementById(id).onclick = null; });
+      resolve(value);
+    };
+    document.getElementById("nothing-owed-before").onclick = () => done("before");
+    document.getElementById("nothing-owed-entry").onclick = () => done("entry");
+    document.getElementById("nothing-owed-back").onclick = () => done(null);
+    document.getElementById("nothing-owed-close").onclick = () => done(null);
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // the keyboard would cover it
+    bringModalToFront_(backdrop);
+    if (typeof Spotlight !== "undefined" && Spotlight.isRunning()) backdrop.style.zIndex = 100002;   // above a running tutorial
+    backdrop.hidden = false;
+  });
+}
+
+// "It pays a debt from before the app": Loans' own debt form opens over the entry with the person, the direction and the
+// currency fixed and "from before the app" ticked; its Save hands { amount, date, description } back (null if closed), and the
+// entry's save sends the debt and the repayment in ONE request (recordRepayment `opening_loan`).
+let loanModalForRepay_ = null;   // { resolve, maxDate }
+function askOpeningDebtForRepay_({ friendId, direction, currency, amount, date }) {
+  return new Promise((resolve) => {
+    openLoanModal(null, null, { opening: true, friendId, direction, forRepay: true });
+    const friendSel = document.getElementById("loan-friend");
+    if (!Array.from(friendSel.options).some((o) => o.value === friendId)) {   // a trip's group is not in the loan form's list
+      const f = (meta.friends || []).find((x) => x.id === friendId);
+      const opt = document.createElement("option");
+      opt.value = friendId;
+      opt.textContent = f ? friendLabel_(f) : "";
+      friendSel.prepend(opt);
+    }
+    friendSel.value = friendId;
+    loanModalForRepay_ = { resolve, maxDate: date };
+    document.getElementById("loan-modal-backdrop").classList.add("loan-for-repay");
+    if (typeof Spotlight !== "undefined" && Spotlight.isRunning()) document.getElementById("loan-modal-backdrop").style.zIndex = 100001;   // above a running tutorial
+    document.getElementById("loan-modal-title").textContent = tr("owed.formTitle");
+    document.getElementById("loan-save-btn").textContent = tr("owed.formSave");
+    document.getElementById("loan-friend").disabled = true;
+    document.getElementById("loan-opening").disabled = true;
+    document.getElementById("loan-amount").value = amount;
+    document.getElementById("loan-currency").value = currency;
+    renderCurrencyChips("loan");
+    const before = beforeAppDate_();
+    document.getElementById("loan-date").value = before < date ? before : date;   // never after the repayment
+    document.getElementById("loan-project-field").hidden = true;   // the debt takes the repayment's project, if any
+    document.getElementById("loan-repay-hint").textContent = tr("owed.formHint", { money: `${currency} ${moneyFmt(amount)}` });
+  });
+}
+
 function askRepaymentChoice_(titleKey, rows, labelKeys) {
   return new Promise((resolve) => {
     const backdrop = document.getElementById("repay-choice-backdrop");
@@ -27379,7 +27560,7 @@ function bankApplyOpening_() {
   document.getElementById("bank-gen-count-label").textContent = tr(today ? "bank.openingTodayCount" : "bank.count");
   bankRenderRows_();
 }
-document.getElementById("bank-opening").addEventListener("change", bankApplyOpening_);
+document.getElementById("bank-opening").addEventListener("change", (e) => { syncBeforeAppDate_(document.getElementById("bank-date"), e.target.checked); bankApplyOpening_(); });
 document.querySelectorAll('input[name="bank-opening-how"]').forEach((r) => r.addEventListener("change", bankApplyOpening_));
 document.getElementById("bank-next-number").addEventListener("input", () => bankDraft_ && bankRenderRows_());
 
@@ -28098,6 +28279,7 @@ function updateLoanOpeningUi_(fresh) {
   const label = document.getElementById("loan-date-label");
   label.textContent = on ? tr("loanModal.openingDate") : tr("field.date");
   if (fresh) {
+    syncBeforeAppDate_(document.getElementById("loan-date"), on);
     const date = document.getElementById("loan-date").value;
     document.getElementById("loan-due-date").value = on ? "" : defaultDueDate_(date);
   }
@@ -28393,7 +28575,7 @@ function openLoanModal(loan, returnFriend, opts) {
   const backdrop = document.getElementById("loan-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
-  if (!loan) { popTipVisit_("loanForm"); watchLoanOpeningTip_(); }
+  if (!loan && !(opts && opts.forRepay)) { popTipVisit_("loanForm"); watchLoanOpeningTip_(); }
 }
 
 // Business pack: a cash loan may belong to a project (shown only when the pack is on and a project exists).
@@ -28419,6 +28601,10 @@ function populateLoanProjectOptions_(keep) {
 
 function closeLoanModal() {
   document.getElementById("loan-modal-backdrop").hidden = true;
+  if (loanModalForRepay_) { const r = loanModalForRepay_; loanModalForRepay_ = null; r.resolve(null); }   // closed: back to the entry
+  document.getElementById("loan-modal-backdrop").classList.remove("loan-for-repay");
+  document.getElementById("loan-save-btn").textContent = tr("loanModal.save");
+  document.getElementById("loan-friend").disabled = false;
   editingLoanId = null;
   moneyReopen_ = null;   // closed without saving: the failed item stays as it was
 }
@@ -28474,6 +28660,16 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     if (!date) throw new Error(tr("error.dateRequired"));
     const opening = document.getElementById("loan-opening").checked;
     // (No account is now a choice the person picks by name, "Outside my accounts": no second question.)
+
+    // Opened from Home's repayment ("It pays a debt from before the app"): the debt goes back to that save, not to the server.
+    if (loanModalForRepay_) {
+      if (date > loanModalForRepay_.maxDate) throw new Error(tr("owed.dateAfter"));
+      const r = loanModalForRepay_;
+      loanModalForRepay_ = null;
+      closeLoanModal();
+      r.resolve({ amount, date, description });
+      return;
+    }
 
     const fields = {
       friend_id: friendId,

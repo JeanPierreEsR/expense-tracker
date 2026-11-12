@@ -213,6 +213,7 @@ var BACKEND_STRINGS_ = {
   "repay.allocBad": { en: "Choose each loan once, with an amount above 0.", es: "Elige cada préstamo una sola vez, con un monto mayor que 0." },
   "repay.allocTooMuch": { en: "That's more than this loan still owes ({cur} {amount}).", es: "Eso es más de lo que aún debe este préstamo ({cur} {amount})." },
   "repay.allocOverPayment": { en: "The amounts you chose add up to more than the payment.", es: "Los montos que elegiste suman más que el pago." },
+  "repay.openingAfter": { en: "The debt from before the app must start on or before the repayment's date.", es: "La deuda de antes de la app debe empezar en la fecha del repago o antes." },
   "repay.noDebt": { en: "You have no {cur} debt to {friend} on record, so there is nothing for this to repay.", es: "No tienes una deuda en {cur} con {friend} registrada, así que no hay nada que repagar." },
 
   // ---- budget ----
@@ -415,6 +416,8 @@ var BACKEND_STRINGS_ = {
   "desc.loanFrom": { en: "Loan from {name}", es: "Préstamo de {name}" },
   "desc.repaymentFrom": { en: "Repayment from {name}", es: "Repago de {name}" },
   "desc.repaymentTo": { en: "Repayment to {name}", es: "Repago a {name}" },
+  "desc.moneyFrom": { en: "Money from {name}", es: "Dinero de {name}" },
+  "desc.moneyTo": { en: "Money to {name}", es: "Dinero para {name}" },
   "desc.overpaymentFrom": { en: "Overpayment from {name}'s loan repayment", es: "Pago de más de {name} en el repago de su préstamo" },
   "desc.overpaymentTo": { en: "Overpayment to {name}'s loan repayment", es: "Pago de más a {name} en el repago de su préstamo" },
   "desc.forgave": { en: "Forgave {name}'s debt", es: "Perdoné la deuda de {name}" },
