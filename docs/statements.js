@@ -291,7 +291,14 @@
   }
 
   // Fetches one inbox statement from Gmail and reads it (asks its password). Throws on failure.
-  async function fetchAndReadInboxItem(id, sender) {
+  // `queued`: it was counted in filesQueued when a batch started ("Open all", "Read selected"), so the Check step said "N of 9" from the
+  // first tap (owner, 2026-11-11). Counted as being read from the download on, not only once the PDF is in hand.
+  async function fetchAndReadInboxItem(id, sender, queued) {
+    if (queued) filesQueued--;
+    filesReading++;
+    try { await fetchAndReadInboxItemNow(id, sender); } finally { filesReading--; updateStepUi(); }
+  }
+  async function fetchAndReadInboxItemNow(id, sender) {
     const att = await callApi("getStatementAttachment", { id });
     const bin = atob(att.base64);
     const bytes = new Uint8Array(bin.length);
@@ -301,8 +308,7 @@
     const item = inbox.find((i) => i.id === id);
     file.senderAddress = sender !== undefined ? sender : ((item && item.sender) || "");
     if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
-    filesReading++;
-    try { await readStatementFile(file); } finally { filesReading--; updateStepUi(); }
+    await readStatementFile(file);
   }
 
   async function openInboxItem(id, btn) {
@@ -325,9 +331,11 @@
     const label = btn.textContent;
     btn.disabled = true;
     const failed = [];
+    filesQueued += waiting.length;
+    updateStepUi();
     for (let n = 0; n < waiting.length; n++) {
       setBusy(btn, tr("stmt.openingN", { i: n + 1, n: waiting.length }));
-      try { await fetchAndReadInboxItem(waiting[n].id); }
+      try { await fetchAndReadInboxItem(waiting[n].id, undefined, true); }
       catch (err) { failed.push(`${waiting[n].bank} (${waiting[n].received}): ${err && err.message ? err.message : err}`); }
     }
     btn.disabled = false; btn.textContent = label;
@@ -414,15 +422,19 @@
     const picks = pickedFound(), btn = $("statement-find-read");
     if (!picks.length) return;
     btn.dataset.busy = "1"; btn.disabled = true; setBusy(btn, tr("find.adding"));
+    filesQueued += picks.length;   // counted from the tap: the Check step says "N of M" while they are fetched
+    updateStepUi();
     let added;
     try { added = await callApi("addStatementsToInbox", { items: picks.map((p) => ({ message_id: p.message_id, attachment_name: p.attachment_name })) }); }
-    catch (err) { delete btn.dataset.busy; updateFindReadButton(); alert(tr("find.addFailed", { error: err && err.message ? err.message : err })); return; }
+    catch (err) { filesQueued -= picks.length; updateStepUi(); delete btn.dataset.busy; updateFindReadButton(); alert(tr("find.addFailed", { error: err && err.message ? err.message : err })); return; }
+    filesQueued -= picks.length - added.ids.length;   // only what really went into the Inbox is read
+    updateStepUi();
     await refreshStatementInbox();
     if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
     const failed = [];
     for (let n = 0; n < added.ids.length; n++) {
       setBusy(btn, tr("stmt.openingN", { i: n + 1, n: added.ids.length }));
-      try { await fetchAndReadInboxItem(added.ids[n], (added.senders || {})[added.ids[n]] || ""); }
+      try { await fetchAndReadInboxItem(added.ids[n], (added.senders || {})[added.ids[n]] || "", true); }
       catch (err) { failed.push(`${picks[n] ? picks[n].attachment_name : ""}: ${err && err.message ? err.message : err}`); }
     }
     delete btn.dataset.busy;
