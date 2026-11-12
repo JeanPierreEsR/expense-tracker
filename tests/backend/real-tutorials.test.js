@@ -145,12 +145,12 @@ test("bubble rules (owner, 2026-11-11): waits by level, kind A on the first visi
   assert.match(a, /key: "homeEdit", place: "home", level: "medium"/);
   assert.match(a, /lastRenderedEntries_ \|\| \[\]\)\.length < 10/);
   assert.match(a, /key: "profile", place: "myProfile", own: true/);
-  assert.match(a, /key: "theseDays", place: "myProfile", own: true/);
+  assert.match(a, /key: "fitsGroups", place: "myProfile", own: true/);
   assert.match(a, /key: "pace", place: "paceScreen", own: true/);
   // These days… only from My profile's What fits me (never the welcome); the pace bubbles only on its own screen
   assert.match(app, /if \(opening\) watchTheseDaysTip_\(\)/);
   assert.match(section("async function renderPaceScreen_()", "function fillPaceControls_("), /watchPaceTip_\(\)/);
-  for (const k of ["pop.ov.flows", "pop.ov.invLoans", "pop.ov.pendingHere", "pop.ov.pending", "pop.homeEdit", "pop.prof.names", "pop.prof.fits", "pop.prof.dates", "pop.prof.devices", "pop.theseDays.change", "pop.theseDays.choose", "pop.pace.blue", "pop.pace.grey", "pop.pace.cats", "pop.pace.kept"]) {
+  for (const k of ["pop.ov.flows", "pop.ov.invLoans", "pop.ov.pendingHere", "pop.ov.pending", "pop.homeEdit", "pop.prof.names", "pop.prof.fits", "pop.prof.dates", "pop.prof.devices", "pop.theseDays.change", "pop.theseDays.choose", "pop.fits.resp", "pop.fits.life", "pop.pace.blue", "pop.pace.grey", "pop.pace.cats", "pop.pace.kept"]) {
     assert.match(stringsText, new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: "[^"]+", es: "[^"]+" \\}'), k);
   }
 });

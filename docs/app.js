@@ -22533,6 +22533,14 @@ function popSeriesDone_(tip) {
   popSet_(POP_SERIES_KEY_, s);
   if (tip.at >= tip.steps.length) popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).concat(tip.key));
 }
+// A heading spans the whole width: point at its words, not at the middle of the line (owner's walk, 2026-11-12: "These days…").
+function popTargetRect_(el) {
+  if (!/^H[1-6]$/.test(el.tagName)) return el.getBoundingClientRect();
+  const r = document.createRange();
+  r.selectNodeContents(el);
+  const t = r.getBoundingClientRect();
+  return t.width > 0 ? t : el.getBoundingClientRect();
+}
 function popTipShow_(tip, el) {
   if (tip.steps) { tip = Object.assign({}, tip, { at: tip.at + 1 }); popSeriesDone_(tip); tip.at--; tip.text = tip.steps[tip.at].text; }   // this part counts as seen
   else if (!tip.offer) popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).concat(tip.key));   // shown = seen, however it is closed (an offer keeps its own count: realChanceLeft_)
@@ -22544,7 +22552,7 @@ function popTipShow_(tip, el) {
   document.body.appendChild(b);
   const place = () => {
     if (!el.isConnected || !el.getClientRects().length) { close(); return; }
-    const pos = Spotlight.placeBubble(el.getBoundingClientRect(), { w: window.innerWidth, h: window.visualViewport ? window.visualViewport.height : window.innerHeight }, { w: b.offsetWidth, h: b.offsetHeight });
+    const pos = Spotlight.placeBubble(popTargetRect_(el), { w: window.innerWidth, h: window.visualViewport ? window.visualViewport.height : window.innerHeight }, { w: b.offsetWidth, h: b.offsetHeight });
     b.style.top = pos.top + "px";
     b.style.left = pos.left + "px";
     b.dataset.side = pos.side;
@@ -22688,12 +22696,19 @@ function watchProfileTip_() {
 }
 // "These days…" (kind A): the first time What fits me is opened in My profile (never on the welcome). Worded by whether something is picked.
 function watchTheseDaysTip_() {
-  const box = document.getElementById("fits-occupation");
+  const occ = document.getElementById("fits-occupation"), body = document.getElementById("fits-body");
   const picked = fitsOcc_.list.length > 0;
+  const head = (n) => (body.hidden ? null : document.querySelectorAll("#fits-chips > h3")[n] || null);   // the group headings: each group is taller than a screen
   popTipWatch_({
-    key: "theseDays", place: "myProfile", own: true, text: tr(picked ? "pop.theseDays.change" : "pop.theseDays.choose"),
-    target: () => (box.hidden || document.getElementById("fits-body").hidden ? null : box.querySelector("h3") || box),   // the heading: the whole group is taller than a screen
-    stillWanted: () => !document.getElementById("screen-my-profile").hidden && !document.getElementById("fits-body").hidden
+    key: "fitsGroups", place: "myProfile", own: true,
+    steps: [
+      // (it was its own bubble in 1.88.0: not shown twice)
+      { target: () => (occ.hidden || body.hidden ? null : occ.querySelector("h3") || occ), text: tr(picked ? "pop.theseDays.change" : "pop.theseDays.choose"),
+        when: () => !occ.hidden && !popGet_(POP_SEEN_KEY_, []).includes("theseDays") },
+      { target: () => head(0), text: tr("pop.fits.resp") },
+      { target: () => head(1), text: tr("pop.fits.life") }
+    ],
+    stillWanted: () => !document.getElementById("screen-my-profile").hidden && !body.hidden
   });
 }
 // The Spending pace screen (kind A, first opening): how to change the view.
