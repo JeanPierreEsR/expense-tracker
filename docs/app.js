@@ -6601,6 +6601,16 @@ function reviewHasAccountBox_(entry) {
     && (entry.type === "income" || !entry.paid_by || entry.paid_by === "me");
 }
 
+// The account a waiting expense, income or investment deposit was registered with, shown on its card as a plain line (not changeable
+// there). Transfers and investment withdrawals already show their accounts in their own boxes; no account = the "Pick the account" box.
+function reviewAccountLine_(entry) {
+  if (!entry.payment_method_id) return "";
+  const key = entry.type === "expense" ? "review.accountPaid" : entry.type === "income" ? "review.accountReceived"
+    : entry.type === "investment" && Number(entry.amount) > 0 ? "review.accountFrom" : "";
+  const pm = key && meta.paymentMethods.find((m) => m.id === entry.payment_method_id);
+  return pm ? tr(key, { name: pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "") }) : "";
+}
+
 // A transfer's side on a Needs review card: "Pick the account…" (not answered yet), "Outside my accounts" (on purpose), then the accounts.
 const REVIEW_OUTSIDE_ = "__outside__";
 function reviewTransferSideOptions_(selectedId) {
@@ -6885,6 +6895,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <div>
           <div class="review-item-desc">${escapeHtml(entry.description || tr("review.noDescription"))}</div>
           <div class="review-item-meta">${listDate_(entry.date)} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
+          ${reviewAccountLine_(entry) ? `<div class="review-item-meta review-account-line">${escapeHtml(reviewAccountLine_(entry))}</div>` : ""}
           ${entry.maybe_own ? `<div class="review-maybe-own">${escapeHtml(tr("review.maybeYours"))}</div>` : ""}
           ${reviewLoanHintText_(entry) ? `<div class="review-loan-hint">${escapeHtml(reviewLoanHintText_(entry))}</div>` : ""}
         </div>
