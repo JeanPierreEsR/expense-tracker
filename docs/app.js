@@ -14587,6 +14587,7 @@ async function showTidyScreen() {
     const fromUpload = tidyFromUpload_;
     offerTidyReal_();
     watchTidyTip_(fromUpload);
+    watchNoAcctIdle_();
   } catch (err) {
     list.textContent = err.message || String(err);
   }
@@ -14650,6 +14651,7 @@ function renderTidy_() {
 
 // ---- Entries with no account (owner, 2026-11-11): newest first, grouped by month; each gets an account, saved together ----
 let noAcctData_ = { entries: [], total: 0, shown: 0 };
+let noAcctLastSave_ = null;   // { ok, count } of the last Save (the real tutorial ends on it)
 const noAcctPicked_ = new Map();   // entry id -> account id picked on the screen (not saved yet)
 
 async function loadNoAccount_() {
@@ -14710,10 +14712,11 @@ document.getElementById("noacct-list").addEventListener("change", (ev) => {
   }
   const all = ev.target.closest(".noacct-month-select");
   if (all && all.value) {
-    // One account for every entry of that month that has nothing picked yet; each can still be changed one by one.
+    // One account for every entry of that month (until saved, a later pick here replaces an earlier one: owner, 2026-11-12, he could not
+    // change his mind); each can still be changed one by one afterwards.
     all.closest(".noacct-month").querySelectorAll(".noacct-row").forEach((row) => {
       const sel = row.querySelector(".noacct-select");
-      if (sel.value || !Array.from(sel.options).some((o) => o.value === all.value)) return;
+      if (!Array.from(sel.options).some((o) => o.value === all.value)) return;
       sel.value = all.value;
       noAcctPicked_.set(row.dataset.id, all.value);
     });
@@ -14730,6 +14733,7 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
   showToast_(tr("common.savingToast"));
   try {
     const res = await callApi("assignEntryAccounts", { items });
+    noAcctLastSave_ = { ok: true, count: res.count || 0 };
     if (!res.count) showToast_(tr("noacct.nothing"));
     else {
       showUndoToast_(tr("noacct.saved", { n: res.count }), async () => {
@@ -14743,6 +14747,8 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
     }
     await loadNoAccount_();
   } catch (err) {
+    noAcctLastSave_ = { ok: false, count: 0 };
+    realNoteFailed_();
     alert(err.message || String(err));
     updateNoAccountSave_();
   }
@@ -14864,7 +14870,69 @@ function startTidyReal_(startKey) {
   ];
   guided_ = { savedId: "", split: null };
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
-    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("tidy"); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
+    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("tidy"); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); setTimeout(watchNoAcctIdle_, 1500); } });
+}
+
+// ---- Real tutorial: Entries with no account, on Tidy my history (owner, 2026-11-12) ----
+// On the person's own entries, newest month first. Starts on the first tap on the card's lists or its Save (nothing changes on that
+// tap), or after the idle wait when the card is on screen; entries with no category come first (their tutorial and idle offer win).
+const NOACCT_TAP_ASKED_KEY_ = "noacctTapAsked";
+const noAcctCardShown_ = () => !document.getElementById("noacct-card").hidden && !!document.querySelector("#noacct-list .noacct-month");
+function noAcctTapAsk_(ev) {
+  const t = ev.target.closest && ev.target.closest("#noacct-card select, #noacct-save");
+  if (!t || !meta || perfIsOwnerCopy_() || Spotlight.isRunning() || isTaught_("noacct") || !realChanceLeft_("noacct")) return;
+  if (popGet_(NOACCT_TAP_ASKED_KEY_, false) || document.getElementById("screen-tidy").hidden) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
+  if (t.blur) t.blur();
+  popSet_(NOACCT_TAP_ASKED_KEY_, true);
+  if (popOpen_) popOpen_.close();
+  const m = t.closest(".noacct-month");
+  startNoAcctReal_(m ? m.dataset.month : "");
+}
+["pointerdown", "mousedown", "touchstart", "click"].forEach((type) => document.getElementById("noacct-card").addEventListener(type, (ev) => {
+  if (type !== "click" && !(ev.target.closest && ev.target.closest("select"))) return;   // a list opens on the press; Save acts on the click
+  noAcctTapAsk_(ev);
+}, { capture: true, passive: false }));
+// The idle offer, only while entries with no category are not being offered (owner: categories first, never two offers at once).
+function watchNoAcctIdle_() {
+  if (!meta || perfIsOwnerCopy_() || isTaught_("noacct") || !realChanceLeft_("noacct", true) || !noAcctCardShown_()) return;
+  const catsWaiting = tidyGroups_.length && !isTaught_("tidy") && realChanceLeft_("tidy", true) && !popGet_(IDLE_SEEN_KEY_, []).includes("tidy");
+  if (catsWaiting) return;
+  idleOffer_({
+    key: "noacct",
+    wanted: () => !document.getElementById("screen-tidy").hidden && !isTaught_("noacct") && noAcctCardShown_(),
+    target: () => { const m = document.querySelector("#noacct-list .noacct-month"); return m ? m.querySelector(".tidy-group-top") || m : null; },
+    start: () => startNoAcctReal_()
+  });
+}
+function startNoAcctReal_(startMonth) {
+  let started = false, month = "";
+  const box = () => (month ? document.querySelector(`#noacct-list .noacct-month[data-month="${CSS.escape(month)}"]`) : null);
+  const part = (sel) => () => { const b = box(); return b ? b.querySelector(sel) : null; };
+  const rows = () => { const b = box(); return b ? b.querySelectorAll(".noacct-row").length : 0; };
+  const picked = () => noAcctPicked_.size > 0;
+  const cardLeft = () => noAcctCardShown_();
+  noAcctLastSave_ = null;
+  const steps = [
+    { key: "intro", text: () => tr("rt.noacct.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("noacct", "real"); } },
+    { target: part(".tidy-group-top"), text: () => tr("rt.noacct.month"), button: realNext_,
+      before: async () => {   // the month the person tapped, else the newest
+        const all = Array.from(document.querySelectorAll("#noacct-list .noacct-month"));
+        const b = all.find((x) => startMonth && x.dataset.month === startMonth) || all[0];
+        month = b ? b.dataset.month : ""; return !!month; } },
+    { target: part(".noacct-month-select"), text: () => tr("rt.noacct.allMonth"), button: realNext_, before: async () => rows() >= 2 },
+    { key: "pick", target: part(".tidy-samples"), text: (fix) => tr(fix ? "rt.noacct.pickFix" : rows() >= 2 ? "rt.noacct.pick" : "rt.noacct.pickOne"),
+      visit: "#noacct-list select", button: realNext_, ok: picked, holdsUntil: "save" },
+    { key: "save", target: "#noacct-save", text: () => tr("rt.noacct.save"), until: () => !!noAcctLastSave_ },
+    { keep: true, text: () => tr("rt.notSaved"), button: () => tr("spot.g.done"), before: async () => realSaveFailed_() },
+    { keep: true, text: () => tr("rt.noacct.doneAll"), button: () => tr("spot.g.done"), before: async () => !realSaveFailed_() && !cardLeft() },
+    { keep: true, look: true, target: "#noacct-card", text: () => tr("rt.noacct.rest") + (realShown_("noacct-more") ? " " + tr("rt.noacct.more") : ""), button: () => tr("spot.g.done"),
+      before: async () => !realSaveFailed_() && cardLeft() }
+  ];
+  guided_ = { savedId: "", split: null };
+  Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
+    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("noacct"); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
 }
 
 // ---- First-use practice: Tidy my history (owner's design, 2026-11-03; REMOVED 2026-11-12, the real tutorial teaches it) ----
@@ -23366,7 +23434,7 @@ function keepTaughtPending_() {
 function realAgain_() { return !!popGet_(REAL_AGAIN_KEY_, false); }   // More → Practice tips: run them even for someone who already uses the feature
 function realTutorialsReset_() {
   popSet_(TAUGHT_KEY_, {}); popSet_(TAUGHT_OLD_KEY_, []); popSet_(FIELDS_KEY_, []); popSet_(CHANCES_KEY_, {}); popSet_(REVIEW_TYPES_KEY_, []); popSet_(IDLE_SEEN_KEY_, []);
-  popSet_(TIDY_TAP_ASKED_KEY_, false);
+  popSet_(TIDY_TAP_ASKED_KEY_, false); popSet_(NOACCT_TAP_ASKED_KEY_, false);
   popSet_(REAL_AGAIN_KEY_, true);
   reviewRealDone_ = false;
 }

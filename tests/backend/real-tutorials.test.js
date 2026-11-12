@@ -275,3 +275,18 @@ test("step 5b: no tutorial says Saved for a refused save or a window closed with
   const strs = fs.readFileSync(path.join(__dirname, "../../docs/strings.js"), "utf8");
   for (const k of [...(app + stm).matchAll(/"(rt\.(?:tidy|form|entry|notSaved|closedNoSave)[A-Za-z.]*)"/g)].map((m) => m[1])) assert.match(strs, new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: ".+", es: ".+" \\}'), k);
 });
+
+test("Entries with no account: a real tutorial on Tidy (first tap, idle after categories), and the whole-month list can be changed", () => {
+  const t = section("// ---- Real tutorial: Entries with no account", "// ---- First-use practice: Tidy my history");
+  assert.match(t, /isTaught_\("noacct"\)/);
+  assert.match(t, /if \(catsWaiting\) return;/);   // entries with no category come first: never two idle offers
+  assert.match(t, /key: "pick"[^\n]*\n[^\n]*ok: picked, holdsUntil: "save"/);
+  assert.match(t, /key: "save", target: "#noacct-save"/);
+  assert.match(app, /watchTidyTip_\(fromUpload\);\s*watchNoAcctIdle_\(\);/);
+  // the whole-month list replaces earlier picks (owner, 2026-11-12)
+  const m = section("// One account for every entry of that month", "all.value = \"\";");
+  assert.ok(!/if \(sel\.value \|\|/.test(m));
+  for (const k of ["intro", "month", "allMonth", "pick", "pickOne", "pickFix", "save", "doneAll", "rest", "more"]) {
+    assert.match(stringsText, new RegExp(`"rt\\.noacct\\.${k}": \\{ en: "[^"]+", es: "[^"]+" \\}`), k);
+  }
+});
