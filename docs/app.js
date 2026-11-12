@@ -27206,14 +27206,16 @@ document.getElementById("payment_method").addEventListener("change", (e) => {
 
 // ---- What the account really charged (owner, 2026-11-06; backend/Charges.gs) ----
 // The form's box. In a currency the account does not have (ARS on a USD card) it asks what was charged; empty = the charge is pending.
-// In a currency it has, a small link offers what was paid, optional. Only for an expense the person paid from a card or account with a
-// known list, never during a practice.
-let chargeEntry_ = null, chargeOpen_ = false, chargeLastCur_ = "";
+// In a currency it has, a small link offers the listed price, optional; Remove takes it away. Only for an expense the person paid from a
+// card or account with a known list, never during a practice. While the box shows, the labels say which amount is which (owner,
+// 2026-11-11): the Amount says "Charged to the card", the box "Listed price" (or the other way round when the box asks for the charge).
+let chargeEntry_ = null, chargeOpen_ = false, chargeRemoved_ = false, chargeLastCur_ = "";
 const chargeOn_ = () => !!((meta && meta.capabilities) || {}).chargeFill;
 const paidByForCharge_ = () => { const el = document.getElementById("paid_by"); return el ? el.value : "me"; };
 function resetChargeBox_(entry) {
   chargeEntry_ = entry && entry.type === "expense" ? entry : null;
   chargeOpen_ = false;
+  chargeRemoved_ = false;
   chargeLastCur_ = "";
   document.getElementById("charge-amount").value = chargeEntry_ && Number(chargeEntry_.paid_amount) > 0 ? chargeEntry_.paid_amount : "";
   document.getElementById("charge-open").hidden = true;
@@ -27231,12 +27233,15 @@ function chargeMode_() {
 function updateChargeBox_() {
   const mode = chargeMode_();
   const open = document.getElementById("charge-open"), box = document.getElementById("charge-box");
-  if (!mode) { open.hidden = true; box.hidden = true; return; }
+  const amountLabel = document.getElementById("amount-label");
+  if (!mode) { open.hidden = true; box.hidden = true; amountLabel.textContent = tr("field.amount"); return; }
   const cur = document.getElementById("currency").value;
-  const hasPaid = !mode.off && chargeEntry_ && Number(chargeEntry_.paid_amount) > 0;
+  const hasPaid = !mode.off && !chargeRemoved_ && chargeEntry_ && Number(chargeEntry_.paid_amount) > 0;
   const showBox = mode.off || chargeOpen_ || hasPaid;
   open.hidden = showBox;
   box.hidden = !showBox;
+  const charged = tr(mode.pm.type === "credit" ? "charge.chargedCard" : "charge.chargedAccount");
+  amountLabel.textContent = !showBox ? tr("field.amount") : mode.off ? tr("charge.paidLabel") : charged;
   if (!showBox) return;
   const sel = document.getElementById("charge-currency");
   const kind = mode.off ? "off:" + mode.list.join(",") : "paid";
@@ -27247,10 +27252,20 @@ function updateChargeBox_() {
     sel.value = mode.off ? mode.list[0] : (paidCur || (cur === homeCur() ? "USD" : homeCur()));
   }
   document.getElementById("charge-label").textContent = tr(mode.off ? (mode.pm.type === "credit" ? "charge.card" : "charge.account") : "charge.paidLabel");
-  document.getElementById("charge-hint").textContent = tr(mode.off ? "charge.hint" : "charge.paidHint");
+  // A friend's share is owed in the listed price's currency (backend/Loans.gs), so that is said only while the expense is split.
+  const split = document.getElementById("split-toggle"), hint = document.getElementById("charge-hint");
+  hint.textContent = mode.off ? tr("charge.hint") : split && split.checked && !split.closest("[hidden]") ? tr("charge.friendsOwe", { currency: sel.value }) : "";
+  hint.hidden = !hint.textContent;
+  document.getElementById("charge-remove").hidden = mode.off;
   updateChargeRate_();
 }
-document.getElementById("charge-open").addEventListener("click", () => { chargeOpen_ = true; updateChargeBox_(); });
+document.getElementById("charge-open").addEventListener("click", () => { chargeOpen_ = true; chargeRemoved_ = false; updateChargeBox_(); });
+document.getElementById("charge-remove").addEventListener("click", () => {
+  chargeOpen_ = false;
+  chargeRemoved_ = true;   // an entry saved with a listed price loses it on Save (chargeForSave_ reads the closed box as empty)
+  document.getElementById("charge-amount").value = "";
+  updateChargeBox_();
+});
 currencyPickOn_(document.getElementById("charge-currency"));
 ["change", "click"].forEach((ev) => document.getElementById("entry-form").addEventListener(ev, () => setTimeout(updateChargeBox_, 0)));
 

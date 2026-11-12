@@ -206,7 +206,7 @@
             </details>
           </div>
 
-          <label for="amount" data-i18n="field.amount">Amount</label>
+          <label for="amount" id="amount-label" data-i18n="field.amount">Amount</label>
           <input type="text" inputmode="decimal" id="amount" placeholder="0.00" required>
 
           <label for="date" data-i18n="field.date">Date</label>
@@ -241,7 +241,7 @@
           <label data-i18n="field.currency">Currency</label>
           <input type="hidden" id="currency" value="PEN">
           <div class="currency-chips" id="currency-chips"></div>
-          <button type="button" class="add-inline" id="charge-open" hidden data-i18n="charge.paidLink">Paid in another currency?</button>
+          <button type="button" class="add-inline" id="charge-open" hidden data-i18n="charge.paidLink">Listed price in another currency?</button>
           <div id="charge-box" hidden>
             <label id="charge-label"></label>
             <div class="exchange-amount-row">
@@ -250,6 +250,7 @@
             </div>
             <p class="hint charge-rate" id="charge-rate" hidden></p>
             <p class="hint" id="charge-hint"></p>
+            <button type="button" class="add-inline" id="charge-remove" hidden data-i18n="charge.remove">Remove</button>
           </div>
 
           <label for="description" data-i18n="field.description">Description</label>
