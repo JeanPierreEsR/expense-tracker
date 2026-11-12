@@ -3463,6 +3463,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .settle-choose-row span { flex: 1; }
 .settle-choose-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 20px; height: 20px; min-height: 0; flex: none; }
 .settle-choose-row span { min-width: 0; }
+.bank-early-effect { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8rem; }
+.bank-early-effect:empty { display: none; }
 /* "Pay only the selected loans": a separate option under the loan list, not one more loan row */
 .reassign-limit-box { margin: 14px 0 6px; padding: 10px 12px; border: 1px solid var(--border, #d9d9de); border-radius: 12px; background: var(--card-alt, rgba(120,120,128,0.08)); }
 .reassign-limit-box[hidden] { display: none; }

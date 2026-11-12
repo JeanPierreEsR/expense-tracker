@@ -27202,32 +27202,65 @@ function bankEarlyMode_() {
   const picked = document.querySelector('input[name="bank-early-mode"]:checked');
   return picked ? picked.value : "shorten";
 }
-// How many installments are left after an early payment: mirrors recalculateInstallmentsAfterEarly_ (BankLoans.gs), where the
+// What the unpaid installments become after an early payment: mirrors recalculateInstallmentsAfterEarly_ (BankLoans.gs), where the
 // interest is recalculated on the lower balance at the TEA the schedule itself implies (actual days / 360). `prevDate` is the date
-// before the first unpaid installment (the previous installment's, or the loan date).
-function bankRecalcCount_(open, after, mode, prevDate) {
-  if (after <= 0.004 || !open.length) return 0;
-  if (mode === "reduce") return open.length;
+// before the first unpaid installment (the previous installment's, or the loan date). Returns [{ row, principal, interest }] for the
+// rows that stay, in order (rows not returned are removed); fees stay as they are.
+function bankRecalcPlan_(open, after, mode, prevDate) {
+  if (after <= 0.004 || !open.length) return [];
   const before = open.reduce((n, r) => n + r.principal, 0);
   const daysOf = (i) => {
-    const d = (i === 0 ? prevDate : open[i - 1].due_date) ? bankDays_(i === 0 ? prevDate : open[i - 1].due_date, open[i].due_date) : 0;
+    const from = i === 0 ? prevDate : open[i - 1].due_date;
+    const d = from ? bankDays_(from, open[i].due_date) : 0;
     return d > 0 ? d : 30;
   };
   const t = before > 0 && open[0].interest > 0 ? Math.pow(1 + open[0].interest / before, 360 / daysOf(0)) - 1 : 0;
   const n = open.length;
+  let lastAmortizing = -1, firstAmortizing = -1;
+  open.forEach((r, idx) => { if (r.principal > 0.004) { lastAmortizing = idx; if (firstAmortizing < 0) firstAmortizing = idx; } });
+  let payment = 0;
+  if (mode === "reduce" && firstAmortizing >= 0) {
+    const originDate = firstAmortizing === 0 ? prevDate : open[firstAmortizing - 1].due_date;
+    let amortizing = 0, factor = 0;
+    for (let k = firstAmortizing; k < n; k++) {
+      if (open[k].principal <= 0.004) continue;
+      amortizing++;
+      factor += 1 / bankGrow_(t, originDate ? Math.max(bankDays_(originDate, open[k].due_date), 1) : 30 * (k - firstAmortizing + 1));
+    }
+    payment = t > 0 ? after / factor : after / amortizing;
+  }
+  const out = [];
   let balance = after;
-  let count = 0;
-  let lastAmortizing = -1;
-  open.forEach((r, idx) => { if (r.principal > 0.004) lastAmortizing = idx; });
   for (let i = 0; i < n && balance > 0.004; i++) {
     const interest = bankR2_(balance * (bankGrow_(t, daysOf(i)) - 1));
-    if (open[i].principal <= 0.004) { count++; continue; }   // an interest-only row of a grace period stays
-    let p = bankR2_(open[i].principal + open[i].interest - interest);
+    if (open[i].principal <= 0.004) { out.push({ row: open[i], principal: 0, interest }); continue; }   // an interest-only row of a grace period stays
+    let p = bankR2_((mode === "reduce" ? payment : open[i].principal + open[i].interest) - interest);
     if (i === lastAmortizing || p >= balance - 0.004 || p <= 0) p = bankR2_(balance);
+    out.push({ row: open[i], principal: p, interest });
     balance = bankR2_(balance - p);
-    count++;
   }
-  return count;
+  return out;
+}
+
+// One short line under each choice: how it would change THIS loan's schedule (owner's request, 2026-11-12).
+function bankEarlyEffect_(open, plan, mode, cur) {
+  if (!plan.length) return "";
+  const money = (x) => `${cur} ${moneyFmt(x)}`;
+  const monthOf = (iso) => { const [y, m] = String(iso).slice(0, 10).split("-").map(Number); return I18n.fmtMonthYear(new Date(y, m - 1, 1), true); };
+  const saved = bankR2_(open.reduce((s, r) => s + r.interest, 0) - plan.reduce((s, x) => s + x.interest, 0));
+  let line;
+  if (mode === "reduce") {
+    const first = plan.find((x) => x.principal > 0.004);
+    if (!first) return "";
+    const fee = Number(first.row.fees) || 0;
+    line = tr("bank.earlyEffectReduce", { from: money(first.row.principal + first.row.interest + fee), to: money(first.principal + first.interest + fee) });
+  } else {
+    const fewer = open.length - plan.length;
+    const from = monthOf(open[open.length - 1].due_date), to = monthOf(plan[plan.length - 1].row.due_date);
+    line = fewer <= 0 || from === to ? tr("bank.earlyEffectSameEnd", { to })
+      : tr(fewer === 1 ? "bank.earlyEffectShorten1" : "bank.earlyEffectShorten", { from, to, n: fewer });
+  }
+  return saved > 0.004 ? `${line} ${tr("bank.earlyEffectSaves", { amount: money(saved) })}` : line;
 }
 
 // Mirrors recordEarlyPayment (BankLoans.gs), only to show what the schedule will look like.
@@ -27237,6 +27270,8 @@ function bankEarlyPreview_() {
   const principal = bankNum_(document.getElementById("bank-early-principal").value);
   const fee = bankNum_(document.getElementById("bank-early-fee").value);
   const prev = document.getElementById("bank-early-preview");
+  const effects = { shorten: document.getElementById("bank-early-effect-shorten"), reduce: document.getElementById("bank-early-effect-reduce") };
+  Object.values(effects).forEach((el) => { el.textContent = ""; });
   document.getElementById("bank-early-total").textContent = tr("bank.earlyTotal", { amount: `${cur} ${moneyFmt(principal + fee)}` });
   const open = sched.installments.filter((r) => !r.paid);
   const after = bankR2_(sched.remaining_principal - principal);
@@ -27244,8 +27279,8 @@ function bankEarlyPreview_() {
   if (after <= 0.004) { prev.textContent = tr("bank.earlyPreviewDone"); return; }
   const firstOpen = sched.installments.indexOf(open[0]);
   const prevDate = firstOpen > 0 ? sched.installments[firstOpen - 1].due_date : String(sched.loan.date || "").slice(0, 10);
-  const n = bankRecalcCount_(open, after, bankEarlyMode_(), prevDate);
-  prev.textContent = tr("bank.earlyPreview", { left: `${cur} ${moneyFmt(Math.max(after, 0))}`, n });
+  Object.keys(effects).forEach((mode) => { effects[mode].textContent = bankEarlyEffect_(open, bankRecalcPlan_(open, after, mode, prevDate), mode, cur); });
+  prev.textContent = tr("bank.earlyPreview", { left: `${cur} ${moneyFmt(Math.max(after, 0))}` });
 }
 
 function openBankEarly_(sched) {
