@@ -7,6 +7,7 @@ const path = require("node:path");
 
 const app = fs.readFileSync(path.join(__dirname, "../../docs/app.js"), "utf8");
 const section = (from, to) => app.slice(app.indexOf(from), app.indexOf(to));
+const stringsText = fs.readFileSync(path.join(__dirname, "../../docs/strings.js"), "utf8");
 
 test("the Needs review practice is hidden for good: nothing offers it", () => {
   assert.ok(!/offerTip_\("review"/.test(app));
@@ -126,10 +127,32 @@ test("conversions are not offered to people already using Needs review, nor on t
 
 test("a help bubble skips the 3 visits, the month and the one-a-day limit; the others keep them", () => {
   const watch = section("function popTipWatch_(", "// The moment the field scrolls into view");
-  assert.match(watch, /!tip\.help && tip\.level !== "advanced" && !popMonthPassed_\(\)/);
-  assert.match(watch, /!tip\.help && !popGet_\(POP_AGAIN_KEY_, false\)/);
-  assert.match(app, /if \(!tip\.help && !popDayAllows_\(tip\.key\)\)/);
+  assert.match(watch, /if \(!tip\.help && !tip\.own && !tip\.cont\) \{/);
+  assert.match(watch, /popDaysUsed_\(\) < \(POP_LEVEL_DAYS_\[tip\.level \|\| "super"\]/);
+  assert.match(watch, /!popGet_\(POP_AGAIN_KEY_, false\) && \(popGet_\(POP_VISITS_KEY_/);
+  assert.match(app, /if \(!tip\.help && !tip\.own && !tip\.cont && !popDayAllows_\(tip\.key\)\)/);
   assert.match(section("function watchReviewHint_(", "// ---- First-use practice: Needs review ----"), /help: true/);
+});
+
+test("bubble rules (owner, 2026-11-11): waits by level, kind A on the first visit, series that continue; batch A", () => {
+  assert.match(app, /const POP_LEVEL_DAYS_ = \{ basic: 0, medium: 7, advanced: 14, super: POP_SUPER_DAYS_ \}/);
+  assert.match(app, /POP_SUPER_DAYS_ = 30/);
+  // a series: Got it shows the next part, progress is kept, Practice tips starts every series again
+  assert.match(app, /tip\.steps && tip\.at \+ 1 < tip\.steps\.length\) popTipWatch_\(Object\.assign\(\{\}, tip, \{ at: tip\.at \+ 1, cont: true \}\)\)/);
+  assert.match(section('document.getElementById("tour-choice-tips")', "realTutorialsReset_();"), /popSet_\(POP_SERIES_KEY_, \{\}\)/);
+  const a = section("// ---- Bubbles, batch A", "// The loan form (a new loan)");
+  assert.match(a, /key: "ovTotals", place: "overview", level: "basic"/);
+  assert.match(a, /key: "homeEdit", place: "home", level: "medium"/);
+  assert.match(a, /lastRenderedEntries_ \|\| \[\]\)\.length < 10/);
+  assert.match(a, /key: "profile", place: "myProfile", own: true/);
+  assert.match(a, /key: "theseDays", place: "myProfile", own: true/);
+  assert.match(a, /key: "pace", place: "paceScreen", own: true/);
+  // These days… only from My profile's What fits me (never the welcome); the pace bubbles only on its own screen
+  assert.match(app, /if \(opening\) watchTheseDaysTip_\(\)/);
+  assert.match(section("async function renderPaceScreen_()", "function fillPaceControls_("), /watchPaceTip_\(\)/);
+  for (const k of ["pop.ov.flows", "pop.ov.invLoans", "pop.ov.pendingHere", "pop.ov.pending", "pop.homeEdit", "pop.prof.names", "pop.prof.fits", "pop.prof.dates", "pop.prof.devices", "pop.theseDays.change", "pop.theseDays.choose", "pop.pace.blue", "pop.pace.grey", "pop.pace.cats", "pop.pace.kept"]) {
+    assert.match(stringsText, new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: "[^"]+", es: "[^"]+" \\}'), k);
+  }
 });
 
 test("Change type: picking Income, Investment or Transfer offers its own guide, and the form is left as it was on Exit", () => {
