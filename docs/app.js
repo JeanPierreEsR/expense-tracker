@@ -13280,7 +13280,6 @@ function buildTourSlide_(key, n, total) {
   if (key === "mydata") {
     if (((meta && meta.capabilities) || {}).entriesRestore) body += tr("tour.mydata.deleted");   // the row exists only where the backend can restore
     body += tr("tour.mydata.export") + tr("tour.mydata.pIntro");
-    body += tr("tour.mydata.pTidy");   // + one line for each My data screen that has a practice
     const cp = (meta && meta.capabilities) || {};
     if (cp.entriesRestore && cp.practiceDeleted && cp.entriesBulk) body += tr("tour.mydata.pDeleted");
     if (cp.practiceImport) body += tr("tour.mydata.pImport");
@@ -14586,7 +14585,6 @@ async function showTidyScreen() {
     const wantNoAcct = !!(meta.capabilities && meta.capabilities.noAccountTidy);
     await Promise.all([loadTidy_(), wantNoAcct ? loadNoAccount_() : Promise.resolve()]);
     const fromUpload = tidyFromUpload_;
-    offerTidyTip_();   // only now that the list has arrived (loading standard); a practice card only as the two-week nudge (real tutorial first)
     offerTidyReal_();
     watchTidyTip_(fromUpload);
   } catch (err) {
@@ -14816,7 +14814,6 @@ function offerTidyReal_() {
     if (++tries > 50) { clearInterval(t); return; }
     if (Spotlight.isRunning() || document.getElementById("screen-tidy").hidden) return;
     clearInterval(t);
-    document.getElementById("tidy-tip-invite").hidden = true;
     startTidyReal_();
   }, 100);
 }
@@ -14833,7 +14830,6 @@ function tidyTapAsk_(ev) {
   popSet_(TIDY_TAP_ASKED_KEY_, true);
   if (popOpen_) popOpen_.close();
   const row = t.closest(".tidy-group");
-  document.getElementById("tidy-tip-invite").hidden = true;
   startTidyReal_(row ? row.dataset.key : "");
 }
 ["pointerdown", "mousedown", "touchstart", "click"].forEach((type) => document.getElementById("screen-tidy").addEventListener(type, (ev) => {
@@ -14871,7 +14867,8 @@ function startTidyReal_(startKey) {
     onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("tidy"); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
 }
 
-// ---- First-use practice: Tidy my history (owner's design, 2026-11-03) ----
+// ---- First-use practice: Tidy my history (owner's design, 2026-11-03; REMOVED 2026-11-12, the real tutorial teaches it) ----
+// Only its cleanup stays: a phone that was closed in the middle of the practice still holds made-up entries to delete.
 // Offered on More → My data → Tidy my history. Tidy lists only entries WITHOUT a category, so the practice first adds three made-up
 // ones ("Practice coffee shop", one server call: createPracticeTidy; the list is asked to show that group first, `pinPractice`), then the
 // person looks at the group, shows its lines, picks a category once and taps the real Apply (applyTidyGroups, undoable as always).
@@ -14887,65 +14884,8 @@ function practiceYSave_() {
   try { if (practiceY_) localStorage.setItem(PRACTICE_Y_KEY_, JSON.stringify(practiceY_)); else localStorage.removeItem(PRACTICE_Y_KEY_); } catch (e) { /* ignore */ }
 }
 
-function offerTidyTip_() {
-  const caps = (meta && meta.capabilities) || {};
-  if (!caps.practiceTidy) return;   // an older backend could not make the practice entries or clean them up
-  if (!(meta.categories || []).some((c) => c.type === "expense")) return;   // nothing to pick from
-  offerTip_("tidy", "tidy-tip-invite", tr("spot.y.invite"), startTidyPractice_);
-}
-
 // The practice's own group in the list the phone holds (the server marks it), and its box on screen.
 function practiceYGroup_() { return tidyGroups_.find((g) => g.practice) || null; }
-function practiceYBox_() {
-  const g = practiceYGroup_();
-  return g ? Array.from(document.querySelectorAll("#tidy-list .tidy-group")).find((b) => b.dataset.key === g.key) || null : null;
-}
-
-function practiceYSteps_() {
-  const part = (sel) => () => { const b = practiceYBox_(); return b ? b.querySelector(sel) : null; };
-  const picked = () => { const s = practiceYBox_() && practiceYBox_().querySelector(".tidy-select"); return !!s && !!s.value; };
-  return [
-    { key: "intro", text: () => tr("spot.y.intro"), button: () => tr("spot.y.start") },
-    { target: part(".tidy-lines"), text: () => tr("spot.y.s2"), wait: 30000,
-      before: async () => {
-        if (!(await practiceYMake_())) return false;
-      },
-      until: () => { const b = practiceYBox_(); return !!b && !b.querySelector(".tidy-samples").hidden; } },
-    { key: "pick", target: part(".tidy-select"), text: (fix) => tr(fix ? "spot.y.s3fix" : "spot.y.s3"), until: picked, ok: picked, holdsUntil: "apply" },
-    { key: "apply", target: part(".tidy-apply"), text: () => tr("spot.y.s4"), until: () => !!(practiceY_ && practiceY_.applied) },
-    { text: () => tr("spot.y.s5"), button: () => tr("spot.y.finish") }
-  ];
-}
-
-// Adds the three practice entries and shows the list with their group first. False = it could not (the practice stops, the usual cleanup runs).
-async function practiceYMake_() {
-  practiceY_.made = true;   // (marked BEFORE the call: if the app is closed in the middle, the cleanup is simply a harmless no-op)
-  practiceYSave_();
-  try {
-    await callApi("createPracticeTidy", { lang: I18n.getLang() });
-    await loadTidy_();
-    refreshEntryList().catch(() => {});
-    return true;
-  } catch (err) {
-    alert(tr("spot.y.createFailed", { error: err.message || String(err) }));
-    Spotlight.stop("skipped");
-    return false;
-  }
-}
-
-function startTidyPractice_() {
-  if (practiceYRemoving_) { showToast_(tr("spot.y.stillRemoving")); return false; }
-  const open = ["exchange-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop", "currency-modal-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
-  if (open || newEntrySheetOpen_) { showToast_(tr("spot.x.busy")); return false; }
-  practiceY_ = { made: false, applied: false, startedOn: todayLocalISO() };
-  practiceYSave_();
-  runTip_(practiceYSteps_(), async () => {
-    dropUndoKind_("practice-tidy");
-    showToast_(tr("spot.y.removing"));
-    practiceYRemove_().then((ok) => { if (ok) showToast_(tr("spot.y.removed")); });
-  }, tr("spot.y.note"));
-  return true;
-}
 
 async function practiceYRemove_() {
   if (practiceYRemoving_) return false;
@@ -22799,7 +22739,7 @@ function watchTidyTip_(fromUpload) {
     key: "tidy",
     wanted: () => !document.getElementById("screen-tidy").hidden && !isTaught_("tidy") && !!first(),
     target: () => { const b = first(); return b ? b.querySelector(".tidy-group-top") || b : null; },
-    start: () => { document.getElementById("tidy-tip-invite").hidden = true; startTidyReal_(); }
+    start: () => startTidyReal_()
   });
 }
 // A bank loan's schedule (kind A): "Early payment".
@@ -24223,7 +24163,7 @@ function startInvestmentReal_() {
 }
 
 // A practice is only a nudge where a real tutorial exists (owner, 2026-11-09): shown on Home, one at a time, at most every 3 days, from 14 days after the first opening.
-const REAL_FIRST_ = ["budgets", "programmed", "accounts", "loans", "exchange", "trips", "investments", "loans-bank", "bank", "import", "tidy"];
+const REAL_FIRST_ = ["budgets", "programmed", "accounts", "loans", "exchange", "trips", "investments", "loans-bank", "bank", "import"];
 const NUDGE_DAYS_ = 14, NUDGE_EVERY_ = 3, NUDGE_LAST_KEY_ = "tutorialNudgeLast";
 let nudgeKey_ = "";
 // Only one of practice / real tutorial is ever done with a person; and where a real tutorial exists, the practice only comes as the two-week nudge (or when asked for).
@@ -24236,10 +24176,9 @@ function offerNudge_() {
   if (last && realDaysSince_(last) < NUDGE_EVERY_) return;
   const list = { budgets: ["spot.b.invite", startBudgetPractice_], programmed: ["spot.r.invite", startProgrammedPractice_], accounts: ["spot.a.invite", startAccountsPractice_], loans: ["spot.p.invite", startPractice_],
     exchange: ["spot.x.invite", startExchangePractice_], trips: ["spot.t.invite", startTripsPractice_], investments: ["spot.i.invite", startInvestmentsPractice_],
-    "loans-bank": ["spot.k.nudge", () => startLoansMorePractice_("bank")], bank: ["spot.s.invite", () => window.statementsNudgePractice_("bank")], import: ["spot.f.invite", () => window.statementsNudgePractice_("import")],
-    tidy: ["spot.y.invite", () => { showTidyScreen(); return startTidyPractice_(); }] };   // (its steps need the Tidy screen, as the statements nudge needs its own)
+    "loans-bank": ["spot.k.nudge", () => startLoansMorePractice_("bank")], bank: ["spot.s.invite", () => window.statementsNudgePractice_("bank")], import: ["spot.f.invite", () => window.statementsNudgePractice_("import")] };
   const caps = (meta && meta.capabilities) || {};
-  const can = { "loans-bank": caps.practiceLoansMore, bank: caps.practiceBank, import: caps.practiceImport, tidy: caps.practiceTidy && (meta.categories || []).some((c) => c.type === "expense") };
+  const can = { "loans-bank": caps.practiceLoansMore, bank: caps.practiceBank, import: caps.practiceImport };
   const key = REAL_FIRST_.find((k) => !isTaught_(k) && !tipSeen_(k) && (!(k in can) || can[k]));
   if (!key) return;
   nudgeKey_ = key;

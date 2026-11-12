@@ -168,8 +168,7 @@ test("bubbles batch B: Projections reminder, Tidy (bubble, idle offer, practice 
   assert.match(b, /idleOffer_\(\{\s*key: "tidy"/);
   assert.match(b, /startTidyReal_\(\)/);
   assert.match(section("async function showTidyScreen()", "async function loadTidy_()"), /const fromUpload = tidyFromUpload_;[\s\S]*watchTidyTip_\(fromUpload\)/);
-  assert.match(app, /const REAL_FIRST_ = \[[^\]]*"tidy"\]/);
-  assert.match(app, /tidy: \["spot\.y\.invite", \(\) => \{ showTidyScreen\(\); return startTidyPractice_\(\); \}\]/);
+  assert.doesNotMatch(app, /const REAL_FIRST_ = \[[^\]]*"tidy"/);   // (its practice was removed 2026-11-12: no two-week nudge)
   assert.match(b, /key: "earlyPay", place: "bankSchedule", own: true/);
   assert.match(b, /key: "currencies", place: "currencies", own: true/);
   for (const k of ["pop.projMethod", "pop.tidy", "pop.earlyPay", "pop.cur.add", "pop.cur.history"]) {

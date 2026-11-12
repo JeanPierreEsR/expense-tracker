@@ -12,7 +12,7 @@ const engine = fs.readFileSync(path.join(DOCS, "spotlight.js"), "utf8");
 const html = fs.readFileSync(path.join(DOCS, "index.html"), "utf8");
 const STRINGS = require(path.join(DOCS, "strings.js"));
 
-const PRACTICES = ["p", "b", "i", "t", "r", "l", "k", "a", "x", "y", "d", "f", "s"];
+const PRACTICES = ["p", "b", "i", "t", "r", "l", "k", "a", "x", "d", "f", "s"];
 
 test("every practice intro is two short sentences: what you will do, then that everything is deleted", () => {
   for (const k of PRACTICES) {
@@ -138,12 +138,9 @@ test("Export practice: 5 steps, and while the file is being prepared the step sa
   assert.ok(STRINGS["export.preparing"].en && STRINGS["export.preparing"].es);
 });
 
-test("Tidy my history: 5 steps, the button says the same word as the group's count, the row on two lines", () => {
-  const steps = app.slice(app.indexOf("function practiceYSteps_()"), app.indexOf("// Adds the three practice entries"));
-  assert.equal((steps.match(/^    \{ (key|target|text)/gm) || []).length, 5);
+test("Tidy my history: the button says the same word as the group's count, the row on two lines", () => {
   assert.equal(STRINGS["tidy.showLines"].en, "Show the entries");
   assert.equal(STRINGS["tidy.showLines"].es, "Ver los movimientos");
-  assert.ok(STRINGS["spot.y.s2"].en.includes("“Show the entries”") && STRINGS["spot.y.s2"].es.includes("“Ver los movimientos”"));
   const css = fs.readFileSync(path.join(DOCS, "style.css"), "utf8");
   assert.match(css, /\.tidy-group-row \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto;/);
   for (const k of ["s1", "gotIt"]) assert.ok(!STRINGS[`spot.y.${k}`], k);
