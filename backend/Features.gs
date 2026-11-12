@@ -119,6 +119,7 @@ function getCapabilities_() {
     peopleOneList: true,   // payors and friends are one list; applyPayorMerge answers the one-time question on the owner's copy
     friendsEdit: true,   // listMyFriends + updateFriend / deleteFriend for plain friends in any copy (More → Friends); an older backend lacks it, so the app hides the card
     friendPhone: true,   // setFriendPhone (the loan screen's "Remind on WhatsApp" remembers the number); an older backend lacks it, so the app does not offer to remember it
+    remindTemplate: true,   // setFriendRemind (number + the language the reminder was written in) and setReminderTemplate (the person's own wording, Settings remind_template_en/es); an older backend lacks them, so the app hides "Change my template" and does not remember the language
     friendPhoneEdit: true,   // addFriend / updateFriend take `phone` and listMyFriends returns it (More → Friends shows and edits the number); an older backend ignores it, so the app hides the field
     friendsBulkDelete: true,   // deleteFriends (several at once, More → Friends → Edit); an older backend lacks it, so the app hides the Edit button
     programmedStop: true,   // stopRecurringAtLastPayment / deleteRecurringExpenses / previewProgrammedDelete / convertPausedProgrammedForOwnerOnce + `paid` on one-time items (Programmed items: Stop or Delete); an older backend lacks them, so the app keeps its plain Delete

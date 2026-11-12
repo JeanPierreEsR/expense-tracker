@@ -907,6 +907,56 @@ function setFriendPhone(payload) {
   return { id: payload.id, phone: phone };
 }
 
+// What "Remind on WhatsApp" remembers about a friend when a reminder is sent: the number (`phone`, as setFriendPhone) and the
+// language the message was written in (`lang`, 'en' / 'es', stored in the Friends column `remind_lang`). A field that is not
+// sent is kept. Everything is checked before anything is written. specs/loans.md § Reminders.
+function setFriendRemind(payload) {
+  payload = payload || {};
+  var hasPhone = payload.phone !== undefined && payload.phone !== null;
+  var phone = hasPhone ? normalizeFriendPhone_(payload.phone) : null;
+  var lang = payload.lang === undefined || payload.lang === null ? null : String(payload.lang);
+  if (lang !== null && lang !== '' && REMIND_LANGS_.indexOf(lang) === -1) throw new Error(tr_('err.remindLang'));
+  if (!getAllRows('Friends').some(function (f) { return String(f.id) === String(payload.id); })) throw new Error(tr_('err.friendNotFound'));
+  if (hasPhone) writeFriendPhone_(payload.id, phone);
+  if (lang !== null) {
+    var headers = ensureFriendsColumn_('remind_lang');
+    var sheet = getSheet('Friends');
+    setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, payload.id), 'remind_lang', lang);
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
+  }
+  bumpStructureVersion_();   // the app's friends list (getMeta, cached by structure version) shows it at once
+  var row = getAllRows('Friends').filter(function (f) { return String(f.id) === String(payload.id); })[0] || {};
+  return { id: payload.id, phone: friendPhoneText_(row.phone), remind_lang: String(row.remind_lang || '') };
+}
+
+// The person's own wording of the reminder, one per language (Settings `remind_template_en` / `remind_template_es`). It holds
+// {name}, {list} and {amount} where the app fills in the friend's name, the list of debts and the amount (docs/loan-reminder.js).
+// An empty text goes back to the app's wording.
+var REMIND_LANGS_ = ['en', 'es'];
+var REMIND_TEMPLATE_MAX_ = 2000;
+function setReminderTemplate(payload) {
+  payload = payload || {};
+  var lang = String(payload.lang || '');
+  if (REMIND_LANGS_.indexOf(lang) === -1) throw new Error(tr_('err.remindLang'));
+  var text = String(payload.text === undefined || payload.text === null ? '' : payload.text).replace(/\r\n?/g, '\n').trim();
+  if (text.length > REMIND_TEMPLATE_MAX_) throw new Error(tr_('err.remindTemplateLong', { max: REMIND_TEMPLATE_MAX_ }));
+  if (text && text.indexOf('{list}') === -1 && text.indexOf('{amount}') === -1) throw new Error(tr_('err.remindTemplateNoDebt'));
+  setSetting_('remind_template_' + lang, text);
+  return { lang: lang, text: text };
+}
+
+// Header of one optional Friends column, created on first use.
+function ensureFriendsColumn_(name) {
+  var sheet = getSheet('Friends');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf(name) === -1) {
+    sheet.getRange(1, headers.length + 1).setValue(name);
+    headers.push(name);
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
+  }
+  return headers;
+}
+
 // "+51 987-654-321" → "+51987654321"; "" stays "" (clears it); anything that is not 7-15 digits is refused.
 function normalizeFriendPhone_(raw) {
   raw = String(raw === undefined || raw === null ? '' : raw).trim();

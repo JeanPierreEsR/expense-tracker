@@ -27347,14 +27347,20 @@ document.getElementById("bank-record-save").addEventListener("click", () => {
 // The person reads and edits the text, then WhatsApp opens with it; nothing is sent by the app. A number typed here is remembered on
 // the friend (setFriendPhone) when the backend can; without one, WhatsApp asks which chat.
 let loanRemind_ = null;
+const remindCan_ = () => !!((meta && meta.capabilities) || {}).remindTemplate;
+// The person's own wording for one language (stored form, docs/loan-reminder.js), "" = the app's.
+const remindTemplateFor_ = (lang) => String(((meta && meta.settings) || {})["remind_template_" + lang] || "");
+const remindLangName_ = (lang) => tr("remind.lang." + lang);
 
 function openLoanRemind_(friendId, friendName, loans) {
   const friend = (meta.friends || []).find((f) => f.id === friendId) || {};
-  const text = LoanReminder.build({ name: friendName, loans, today: todayLocalISO() });
-  loanRemind_ = { friendId, text, phone: friend.phone || "" };
+  // The language last used with this friend, otherwise the app's.
+  const lang = LoanReminder.LANGS.indexOf(friend.remind_lang) >= 0 ? friend.remind_lang : I18n.getLang();
+  loanRemind_ = { friendId, friendName, loans, lang, savedLang: friend.remind_lang || "", text: "", phone: friend.phone || "" };
   document.getElementById("loan-remind-title").textContent = tr("remind.title", { name: friendName });
-  document.getElementById("loan-remind-text").value = text;
+  writeLoanRemindText_();
   document.getElementById("loan-remind-phone-hint").textContent = tr(loanRemindPhoneHintKey_());
+  document.getElementById("loan-remind-template").hidden = !remindCan_();
   setPhoneField_("loan-remind-phone", friend.phone || "");
   document.getElementById("loan-remind-error").textContent = "";
   document.getElementById("loan-remind-stuck").hidden = true;
@@ -27362,6 +27368,21 @@ function openLoanRemind_(friendId, friendName, loans) {
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
 }
+
+// (Re)writes the message in the chosen language from the person's template (or the app's), and marks the chosen language.
+function writeLoanRemindText_() {
+  const r = loanRemind_;
+  if (!r) return;
+  r.text = LoanReminder.build({ name: r.friendName, loans: r.loans, today: todayLocalISO(), lang: r.lang, template: remindTemplateFor_(r.lang) });
+  document.getElementById("loan-remind-text").value = r.text;
+  document.querySelectorAll("#loan-remind-langs [data-lang]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.lang === r.lang);
+    b.setAttribute("aria-pressed", b.dataset.lang === r.lang ? "true" : "false");
+  });
+}
+
+// The box still holds what the app wrote (nothing typed into it).
+const loanRemindUntouched_ = () => !!loanRemind_ && document.getElementById("loan-remind-text").value.trim() === loanRemind_.text.trim();
 
 function closeLoanRemind_() {
   document.getElementById("loan-remind-modal-backdrop").hidden = true;
@@ -27371,22 +27392,116 @@ function closeLoanRemind_() {
 // Remembers a new / changed / cleared number in the background; the reminder never waits for it.
 function loanRemindPhoneHintKey_() { return ((meta && meta.capabilities) || {}).friendPhone ? "remind.phoneHint" : "remind.phoneHintNoSave"; }   // an older backend cannot keep the number (Julia, 2026-11-09)
 
-function rememberLoanRemindPhone_(phone) {
+// On Open WhatsApp / Copy: remembers on the friend the number (when changed) and the language the message went in (when it differs
+// from last time), in ONE background call; an older backend keeps only the number (setFriendPhone).
+function rememberLoanRemind_(phone) {
   const r = loanRemind_;
-  if (!r || LoanReminder.phoneDigits(phone) === LoanReminder.phoneDigits(r.phone)) return;
-  if (!((meta && meta.capabilities) || {}).friendPhone) return;
+  if (!r) return;
+  const phoneChanged = phone !== null && LoanReminder.phoneDigits(phone) !== LoanReminder.phoneDigits(r.phone);
+  const langChanged = remindCan_() && r.lang !== r.savedLang;
+  if (!phoneChanged && !langChanged) return;
+  const friend = () => (meta.friends || []).find((x) => x.id === r.friendId);
+  if (remindCan_()) {
+    const payload = { id: r.friendId };
+    if (phoneChanged) { payload.phone = phone; r.phone = phone; }
+    if (langChanged) { payload.lang = r.lang; r.savedLang = r.lang; }
+    callApi("setFriendRemind", payload)
+      .then((res) => { const f = friend(); if (f) { f.phone = res.phone; f.remind_lang = res.remind_lang; } })
+      .catch((err) => alert(tr("common.notSaved", { error: err.message })));
+    return;
+  }
+  if (!phoneChanged || !((meta && meta.capabilities) || {}).friendPhone) return;
   r.phone = phone;
   callApi("setFriendPhone", { id: r.friendId, phone })
-    .then((res) => {
-      const f = (meta.friends || []).find((x) => x.id === r.friendId);
-      if (f) f.phone = res.phone;
-    })
+    .then((res) => { const f = friend(); if (f) f.phone = res.phone; })
     .catch((err) => alert(tr("common.notSaved", { error: err.message })));
 }
 
 document.getElementById("loan-remind-close").addEventListener("click", closeLoanRemind_);
 document.getElementById("loan-remind-reset").addEventListener("click", () => {
   if (loanRemind_) document.getElementById("loan-remind-text").value = loanRemind_.text;
+});
+// English | Español: the message is written again in that language; changes typed into it are lost only after asking.
+document.getElementById("loan-remind-langs").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-lang]");
+  const r = loanRemind_;
+  if (!btn || !r || btn.dataset.lang === r.lang) return;
+  const lang = btn.dataset.lang;
+  if (!loanRemindUntouched_() && !await askConfirmApp_(tr("remind.rewriteAsk", { lang: remindLangName_(lang) }), tr("remind.rewrite"), { plain: true, cancel: tr("remind.keepMine") })) return;
+  if (loanRemind_ !== r) return;   // the sheet was closed meanwhile
+  r.lang = lang;
+  writeLoanRemindText_();
+});
+
+// ---- My reminder template (one per language; Settings remind_template_en / _es through setReminderTemplate) ----
+// The person edits the stored form shown with readable tags ([Name] / [Nombre], [List] / [Lista], [Amount] / [Monto]).
+let remindTpl_ = null;
+const REMIND_TPL_MAX_ = 2000;
+
+function openRemindTemplate_() {
+  if (!loanRemind_) return;
+  const lang = loanRemind_.lang;
+  remindTpl_ = { lang };
+  const t = (k) => LoanReminder.tagLabel(k, lang);
+  document.getElementById("remind-tpl-title").textContent = tr("remind.tplTitle", { lang: remindLangName_(lang) });
+  document.getElementById("remind-tpl-hint").textContent = tr("remind.tplHint", { lang: remindLangName_(lang), tName: t("name"), tList: t("list"), tAmount: t("amount") });
+  document.getElementById("remind-tpl-text").value = LoanReminder.toEditable(remindTemplateFor_(lang) || LoanReminder.defaultTemplate(lang), lang);
+  const tags = document.getElementById("remind-tpl-tags");
+  tags.innerHTML = "";
+  ["name", "list", "amount"].forEach((k) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "currency-chip";
+    b.textContent = "+ " + t(k);
+    b.addEventListener("click", () => insertRemindTag_(t(k)));
+    tags.appendChild(b);
+  });
+  document.getElementById("remind-tpl-error").textContent = "";
+  const backdrop = document.getElementById("remind-tpl-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function insertRemindTag_(label) {
+  const box = document.getElementById("remind-tpl-text");
+  const at = typeof box.selectionStart === "number" ? box.selectionStart : box.value.length;
+  const end = typeof box.selectionEnd === "number" ? box.selectionEnd : at;
+  box.value = box.value.slice(0, at) + label + box.value.slice(end);
+  box.focus();
+  box.setSelectionRange(at + label.length, at + label.length);
+}
+
+function closeRemindTemplate_() {
+  document.getElementById("remind-tpl-modal-backdrop").hidden = true;
+  remindTpl_ = null;
+}
+
+document.getElementById("loan-remind-template").addEventListener("click", openRemindTemplate_);
+document.getElementById("remind-tpl-close").addEventListener("click", closeRemindTemplate_);
+document.getElementById("remind-tpl-default").addEventListener("click", () => {
+  if (!remindTpl_) return;
+  document.getElementById("remind-tpl-text").value = LoanReminder.toEditable(LoanReminder.defaultTemplate(remindTpl_.lang), remindTpl_.lang);
+  document.getElementById("remind-tpl-error").textContent = "";
+});
+document.getElementById("remind-tpl-save").addEventListener("click", () => {
+  const st = remindTpl_;
+  if (!st) return;
+  const lang = st.lang;
+  const error = document.getElementById("remind-tpl-error");
+  let text = LoanReminder.fromEditable(document.getElementById("remind-tpl-text").value);
+  const t = (k) => LoanReminder.tagLabel(k, lang);
+  if (text.length > REMIND_TPL_MAX_) { error.textContent = tr("remind.tplErrLong", { max: REMIND_TPL_MAX_ }); return; }
+  if (text && text.indexOf("{list}") === -1 && text.indexOf("{amount}") === -1) { error.textContent = tr("remind.tplErrNoDebt", { tList: t("list"), tAmount: t("amount") }); return; }
+  if (!text || text === LoanReminder.defaultTemplate(lang)) text = "";   // the app's own wording: stored as "none", so later improvements reach it
+  const before = remindTemplateFor_(lang);
+  closeRemindTemplate_();
+  // Used at once: the reminder underneath is written again from it, unless the person had typed into it.
+  meta.settings = Object.assign({}, meta.settings || {}, { ["remind_template_" + lang]: text });
+  if (loanRemind_ && loanRemind_.lang === lang && loanRemindUntouched_()) writeLoanRemindText_();
+  saveBehindScreen_(async () => {
+    try { await callApi("setReminderTemplate", { lang, text }); }
+    catch (err) { meta.settings = Object.assign({}, meta.settings || {}, { ["remind_template_" + lang]: before }); throw err; }
+  }, null, { done: () => tr("remind.tplSaved", { lang: remindLangName_(lang) }) });
 });
 document.getElementById("loan-remind-send").addEventListener("click", () => {
   const text = document.getElementById("loan-remind-text").value.trim();
@@ -27395,7 +27510,7 @@ document.getElementById("loan-remind-send").addEventListener("click", () => {
   if (!text) { error.textContent = tr("remind.errEmpty"); return; }
   if (phone && !LoanReminder.phoneOk(phone)) { error.textContent = tr("remind.errPhone"); return; }
   error.textContent = "";
-  rememberLoanRemindPhone_(phone);
+  rememberLoanRemind_(phone);
   const homeScreen = isHomeScreenApp_();
   const url = LoanReminder.whatsappUrl(phone, text, homeScreen);
   if (!homeScreen) { window.open(url, "_blank", "noopener"); return; }
@@ -27407,6 +27522,8 @@ document.getElementById("loan-remind-copy").addEventListener("click", async () =
   try {
     await navigator.clipboard.writeText(document.getElementById("loan-remind-text").value);
     showToast_(tr("remind.copied"), false, 4000);
+    const phone = readPhoneField_("loan-remind-phone");
+    rememberLoanRemind_(phone && !LoanReminder.phoneOk(phone) ? null : phone);   // a wrong number is not kept; the language still is
   } catch (err) { /* not allowed: the text is still there to select by hand */ }
 });
 
