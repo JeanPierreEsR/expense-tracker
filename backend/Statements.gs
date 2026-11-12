@@ -543,6 +543,22 @@ function analyzeStatements(payload) {
   var allById = {};
   allEntries.forEach(function (e) { allById[e.id] = e; });
   var balanceChecks = [];
+  // Each account's statements in this upload by closing day: a later one is checked knowing what a same-day one will cover (StatementBalance.gs).
+  var linesByPmDay = {};
+  stmts.forEach(function (s, idx) {
+    var pm = pmFor(s.key);
+    if (!pm || !s.period || !s.period.end) return;
+    var byDay = linesByPmDay[pm.id] || (linesByPmDay[pm.id] = {});
+    (byDay[s.period.end] || (byDay[s.period.end] = [])).push({ idx: idx, lines: out[idx].lines });
+  });
+  var otherLinesByDay = function (pmId, idx) {
+    var res = {}, byDay = linesByPmDay[pmId] || {};
+    Object.keys(byDay).forEach(function (d) {
+      var l = byDay[d].filter(function (x) { return x.idx !== idx; }).map(function (x) { return x.lines; });
+      if (l.length) res[d] = l;
+    });
+    return res;
+  };
   stmts.forEach(function (s, idx) {
     var pm = pmFor(s.key);
     if (!pm || !s.period || !s.period.end || !s.balances) return;
@@ -550,7 +566,8 @@ function analyzeStatements(payload) {
       var b = s.balances[cur];
       if (!b || b.closing === null || b.closing === undefined) return;
       var chk = stmtBalanceCheck_({ pm: pm, currency: cur, closing: b.closing, start: s.period.start, end: s.period.end,
-        lines: out[idx].lines, openings: openingsByPm[pm.id] || [], confirmed: confirmedAll, inboundIds: inboundIds, entryById: allById });
+        lines: out[idx].lines, openings: openingsByPm[pm.id] || [], confirmed: confirmedAll, inboundIds: inboundIds, entryById: allById,
+        sameDayLines: otherLinesByDay(pm.id, idx) });
       chk.stmt = idx;
       chk.verified = s.verified !== false;
       // A "charged differently" option on a purchase inside this account's starting balance (owner, 2026-11-11): picking it also moves
