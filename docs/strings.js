@@ -3297,9 +3297,6 @@
     "fp.extrasBtn": { en: "Manage extra features", es: "Administrar funciones extra" },
     "fp.dataHead": { en: "🔒 How my data is treated", es: "🔒 Cómo se trata mi información" },
     "fp.eraseHead": { en: "🗑️ Removing everything", es: "🗑️ Cómo eliminar todo" },
-    "prof.devicesHead": { en: "📱 Where I'm signed in", es: "📱 Dónde tengo la sesión iniciada" },
-    "prof.devicesHint": { en: "See every phone or browser that can open your app, and end any of them.", es: "Mira cada celular o navegador que puede abrir tu app, y cierra la sesión de cualquiera." },
-    "prof.devicesBtn": { en: "See my devices", es: "Ver mis dispositivos" },
     "prof.title": { en: "My profile", es: "Mi perfil" },
     "prof.fitsHead": { en: "What fits me", es: "Lo que va conmigo" },
     "prof.datesHead": { en: "How I type dates", es: "Cómo escribo las fechas" },
@@ -4604,6 +4601,7 @@
     "bill.tipIs": { en: "{tip} is {pct}% of {bill}{odd}", es: "{tip} es el {pct}% de {bill}{odd}" },
 
     // ---- devices ----
+    "devices.count": { en: { one: "{n} device", other: "{n} devices" }, es: { one: "{n} dispositivo", other: "{n} dispositivos" } },
     "devices.title": { en: "Where I'm signed in", es: "Dónde tengo la sesión iniciada" },
     "devices.hint": { en: "Every phone or computer that has signed in with your access code. Sign out one you've lost or no longer use — it stops working immediately. A device you stop using is removed after 90 days.", es: "Cada celular o computadora que inició sesión con tu código de acceso. Cierra la sesión de uno que perdiste o ya no usas: deja de funcionar al instante. Un dispositivo que dejas de usar se elimina después de 90 días." },
     "devices.signOutOthers": { en: "Sign out all my other devices", es: "Cerrar la sesión de todos mis otros dispositivos" },

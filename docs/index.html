@@ -1399,9 +1399,17 @@
           </div>
 
           <div id="my-profile-devices-card">
-            <h3 class="md-head" data-i18n="prof.devicesHead">📱 Where I'm signed in</h3>
-            <p class="hint" data-i18n="prof.devicesHint">See every phone or browser that can open your app, and end any of them.</p>
-            <button type="button" class="primary" id="my-profile-devices-btn" data-i18n="prof.devicesBtn">See my devices</button>
+            <button type="button" class="more-list-item md-row fits-toggle" id="devices-toggle" aria-expanded="false" aria-controls="devices-body">
+              <span><span class="md-title" data-i18n="devices.title">Where I'm signed in</span><span class="hint md-sub" id="devices-count"></span></span>
+              <span class="more-list-chevron" id="devices-chevron">›</span>
+            </button>
+            <div id="devices-body" hidden>
+              <p class="hint" data-i18n="devices.hint">Every phone or computer that has signed in with your access code. Sign out one you've lost or no longer use — it stops working immediately. A device you stop using is removed after 90 days.</p>
+              <p class="hint" id="devices-status" style="font-weight:600;"></p>
+              <div id="devices-list"></div>
+              <p class="hint" id="devices-error" style="color:#d64545;"></p>
+              <button type="button" class="add-inline" id="devices-signout-others-btn" data-i18n="devices.signOutOthers">Sign out all my other devices</button>
+            </div>
           </div>
         </div>
       </div>
@@ -2911,22 +2919,6 @@
           <button type="button" class="primary" id="ss-done" hidden data-i18n="common.close">Close</button>
         </div>
         <p class="hint" id="ss-msg" role="status"></p>
-      </div>
-    </div>
-  </div>
-
-  <div id="devices-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
-    <div class="currency-modal">
-      <div class="currency-modal-header">
-        <span data-i18n="devices.title">Signed-in devices</span>
-        <button type="button" id="devices-modal-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
-      </div>
-      <div class="budget-modal-body">
-        <p class="hint" data-i18n="devices.hint">Every phone or computer that has signed in with your access code. Sign out one you've lost or no longer use — it stops working immediately. A device you stop using is removed after 90 days.</p>
-        <p class="hint" id="devices-status" style="font-weight:600;"></p>
-        <div id="devices-list"></div>
-        <p class="hint" id="devices-error" style="color:#d64545;"></p>
-        <button type="button" class="add-inline" id="devices-signout-others-btn" data-i18n="devices.signOutOthers">Sign out all my other devices</button>
       </div>
     </div>
   </div>
