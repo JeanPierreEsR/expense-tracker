@@ -137,7 +137,11 @@ function stmtBalanceCheckFrom_(args, out, own, governing) {
   // difference with the statement's own lines that are not in the app yet.
   if (out.direction === 'forward') {
     var after = own ? own.date : '';
-    var insideShift = 0, insideShiftN = 0;
+    var insideShift = 0, insideShiftN = 0, insidePairs = [];
+    var pairOf = function (l, e) {   // a purchase inside the starting balance the card charged differently
+      return { id: e.id, date: String(e.date || '').slice(0, 10), description: String(e.description || ''), type: e.type,
+        recorded: Number(e.amount), charged: Math.round(-Number(l.amount) * 100) / 100, shift: Math.round((Number(l.amount) + Number(e.amount)) * 100) / 100 };
+    };
     var missing = 0, pending = 0, missingN = 0, missingItems = [], pendingN = 0, discounted = 0, discountedN = 0, other = 0, otherN = 0, noAcct = 0, noAcctN = 0;
     // A purchase the card charged in ANOTHER currency (StatementMatch.gs, 'recharge'): until it takes the charge, the line is missing in
     // its currency and the purchase sits in the other one. Both halves are named here instead of looking unexplained.
@@ -163,7 +167,7 @@ function stmtBalanceCheckFrom_(args, out, own, governing) {
         var de = args.entryById[l.discount.entryId];
         // A purchase INSIDE the starting balance (its charge posted after it): taking the bank's amount moves the starting balance, so it
         // is counted with the other starting-balance differences below (insideShift), not as a plain discount.
-        if (de && de.status === 'confirmed' && own && stmtInsideStart_(de, own)) { insideShift += Number(l.amount) + Number(de.amount); insideShiftN++; return; }
+        if (de && de.status === 'confirmed' && own && stmtInsideStart_(de, own)) { insideShift += Number(l.amount) + Number(de.amount); insideShiftN++; insidePairs.push(pairOf(l, de)); return; }
         if (de && de.status === 'confirmed') { discounted += Number(l.amount) + Number(de.amount); discountedN++; return; }
       }
       var entryId = l.entry ? l.entry.id : (l.handled && l.handled.entryId) || '';
@@ -200,6 +204,7 @@ function stmtBalanceCheckFrom_(args, out, own, governing) {
         var se = args.entryById[l.discount.entryId];
         if (!se || se.status !== 'confirmed' || !stmtInsideStart_(se, own)) return;
         shift += Number(l.amount) + Number(se.amount); shiftN++;
+        insidePairs.push(pairOf(l, se));
       });
       if (shiftN) {
         out.startShift = { net: Math.round(shift * 100) / 100, lines: shiftN };
@@ -207,8 +212,14 @@ function stmtBalanceCheckFrom_(args, out, own, governing) {
       }
       // (b) What is left equals, to the cent, recent entries the starting balance took as already in the bank: probably still in process
       // when the balance was typed. Offered as a correction (count them after it, "Not yet"); never applied without the person.
+      // (c) A phone that knows it (`startBank`) also gets each such purchase as a candidate the other way round: ALREADY charged at the
+      // bank's amount when the balance was typed, so the number must not move (owner, 2026-11-11: SIP, PV 134.58 charged 112.33 before
+      // the balance was typed; moving it by 22.25 made the statement disagree). The phone redoes the search with the person's picks.
+      var bank = args.startBank ? insidePairs : [];
+      var cands = stmtStartCands_(args, own, bank);
+      if (args.startBank) out.startCands = cands;
       if (out.unexplained) {
-        var fix = stmtStartFix_(args, own, out.unexplained);
+        var fix = stmtStartFix_(cands, own, out.unexplained);
         if (fix) out.startFix = fix;
       }
     }
@@ -281,8 +292,10 @@ function stmtInsideStart_(e, own) {
 // payment the bank cancelled while in process and a duplicate entry (only one of two twins is ever on a statement line). The 14 newest
 // candidates at most. The number moves by the sum of the weights (StatementApply.gs, start_not_yet).
 var STMT_START_FIX_MAX_ = 14;
-function stmtStartFix_(args, own, unexplained) {
-  var pm = args.pm, cur = args.currency, from = startNotYetFrom_(own.date), target = Math.round(unexplained * 100);
+// The entries a starting-balance correction may be made of (see stmtStartFix_), newest first, at most STMT_START_FIX_MAX_. `bank`: purchases
+// inside the balance the card charged differently, as "already charged" (side 'bank', weight: the shift it would no longer make).
+function stmtStartCands_(args, own, bank) {
+  var pm = args.pm, cur = args.currency, from = startNotYetFrom_(own.date);
   var posted = stmtExplainedIds_(args);
   var cands = [];
   (args.confirmed || []).forEach(function (e) {
@@ -299,8 +312,18 @@ function stmtStartFix_(args, own, unexplained) {
     cands.push({ id: e.id, date: d, description: String(e.description || ''), type: e.type, side: side,
       amount: Math.round(eff * 100) / 100, weight: Math.round(w * 100) / 100, cents: Math.round(w * 100) });
   });
+  (bank || []).forEach(function (b) {
+    if (!b.shift) return;
+    cands.push({ id: b.id, date: b.date, description: b.description, type: b.type, side: 'bank', recorded: b.recorded, charged: b.charged,
+      amount: -b.charged, weight: -b.shift, cents: Math.round(-b.shift * 100) });
+  });
   cands.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
-  cands = cands.slice(0, STMT_START_FIX_MAX_);
+  return cands.slice(0, STMT_START_FIX_MAX_);
+}
+
+// The fewest candidates whose weights add up, to the cent, to what is left unexplained, when exactly ONE such set exists; else null.
+function stmtStartFix_(cands, own, unexplained) {
+  var target = Math.round(unexplained * 100);
   var n = cands.length;
   for (var size = 1; size <= n; size++) {
     var found = [];
@@ -312,7 +335,9 @@ function stmtStartFix_(args, own, unexplained) {
     walk(0, [], 0);
     if (found.length === 1) {
       return { date: own.date, amount: own.amount, items: found[0].map(function (i) {
-        var c = cands[i]; return { id: c.id, date: c.date, description: c.description, type: c.type, side: c.side, amount: c.amount, weight: c.weight }; }) };
+        var c = cands[i], it = { id: c.id, date: c.date, description: c.description, type: c.type, side: c.side, amount: c.amount, weight: c.weight };
+        if (c.side === 'bank') { it.recorded = c.recorded; it.charged = c.charged; }
+        return it; }) };
     }
     if (found.length > 1) return null;
   }

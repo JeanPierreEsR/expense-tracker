@@ -567,7 +567,7 @@ function analyzeStatements(payload) {
       if (!b || b.closing === null || b.closing === undefined) return;
       var chk = stmtBalanceCheck_({ pm: pm, currency: cur, closing: b.closing, start: s.period.start, end: s.period.end,
         lines: out[idx].lines, openings: openingsByPm[pm.id] || [], confirmed: confirmedAll, inboundIds: inboundIds, entryById: allById,
-        sameDayLines: otherLinesByDay(pm.id, idx) });
+        sameDayLines: otherLinesByDay(pm.id, idx), startBank: !!payload.startBank });
       chk.stmt = idx;
       chk.verified = s.verified !== false;
       // A "charged differently" option on a purchase inside this account's starting balance (owner, 2026-11-11): picking it also moves
