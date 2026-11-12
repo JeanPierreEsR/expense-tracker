@@ -13671,6 +13671,7 @@ async function showMyProfileScreen() {
   fitsEl_("fits-msg").textContent = "";
   ownerNamesOpenRow_(false);
   fitsOpen_(false);   // closed every time the screen opens: it is for a one-off choice, and it is long
+  datesOpenRow_(false);   // closed too, like the two rows above it (owner, 2026-11-12)
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
   fitsOcc_ = occupationFromSettings_(String((meta && meta.settings && meta.settings.profile) || "").split(","));
@@ -13701,7 +13702,15 @@ function drawProfileDates_() {
   const now = I18n.effectiveDateOrder();
   document.querySelectorAll("[data-profile-order]").forEach((b) => b.classList.toggle("active", b.dataset.profileOrder === now));
   document.getElementById("my-profile-dates-example").textContent = tr("prof.datesExample", { example: I18n.fmtDateAs(new Date(2026, 8, 25), now) });
+  document.getElementById("dates-count").textContent = tr("prof.datesNow." + now);
 }
+// The "How I type dates" row opens and closes its choices (closed each time the screen opens, like My names and What fits me).
+function datesOpenRow_(open) {
+  document.getElementById("dates-body").hidden = !open;
+  document.getElementById("dates-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  document.getElementById("dates-chevron").textContent = open ? "⌄" : "›";
+}
+document.getElementById("dates-toggle").addEventListener("click", () => datesOpenRow_(document.getElementById("dates-body").hidden));
 document.querySelectorAll("[data-profile-order]").forEach((b) => b.addEventListener("click", async () => {
   const order = b.dataset.profileOrder, msg = document.getElementById("my-profile-dates-example");
   if (order === I18n.effectiveDateOrder() && I18n.getDateOrder() === order) return;
@@ -22675,7 +22684,7 @@ function watchProfileTip_() {
     steps: [
       { target: () => document.getElementById("owner-names-toggle"), text: tr("pop.prof.names") },
       { target: () => document.getElementById("fits-toggle"), text: tr("pop.prof.fits"), when: shown("my-profile-fits-card") },
-      { target: () => document.getElementById("my-profile-dates"), text: tr("pop.prof.dates"), when: shown("my-profile-dates-card") },
+      { target: () => document.getElementById("dates-toggle"), text: tr("pop.prof.dates"), when: shown("my-profile-dates-card") },
       { target: () => document.getElementById("my-profile-devices-btn"), text: tr("pop.prof.devices") }
     ],
     stillWanted: () => !document.getElementById("screen-my-profile").hidden

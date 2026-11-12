@@ -1382,7 +1382,11 @@
           </div>
 
           <div id="my-profile-dates-card">
-            <h3 class="md-head" data-i18n="prof.datesHead">How I type dates</h3>
+            <button type="button" class="more-list-item md-row fits-toggle" id="dates-toggle" aria-expanded="false" aria-controls="dates-body">
+              <span><span class="md-title" data-i18n="prof.datesHead">How I type dates</span><span class="hint md-sub" id="dates-count"></span></span>
+              <span class="more-list-chevron" id="dates-chevron">›</span>
+            </button>
+            <div id="dates-body" hidden>
             <p class="hint" data-i18n="prof.datesHint">Used for the order dates are written in the app and for dates you type to the Telegram bot.</p>
             <div class="welcome-choices" id="my-profile-dates">
               <button type="button" class="welcome-choice" data-profile-order="dmy" data-i18n="welcome.dateDmy">Day first: 3/4/2026 is 3 April</button>
@@ -1391,6 +1395,7 @@
             </div>
             <p class="hint" id="my-profile-dates-example" role="status"></p>
             <p class="hint" data-i18n="prof.datesPickers">The calendar wheels that open when you tap a date follow your iPhone's own setting (Settings → General → Language &amp; Region).</p>
+            </div>
           </div>
 
           <div id="my-profile-devices-card">
