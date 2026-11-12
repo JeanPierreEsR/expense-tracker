@@ -208,6 +208,7 @@ function routeActionSwitch_(action, payload) {
     case 'createEntry': return createEntry(payload);
     case 'saveEntryAll': return saveEntryAll(payload);
     case 'listEntries': return listEntries(payload);
+    case 'listPeriodFlows': return listPeriodFlows(payload);
     case 'getPeriodSummary': return getPeriodSummary(payload);
     case 'getHomeGlance': return getHomeGlance();
     case 'getMonthlyHistory': return getMonthlyHistory(payload);
@@ -1237,6 +1238,12 @@ function listEntries(payload) {
     var annualOnly = annualEntryIdSet_();
     entries = entries.filter(function (e) { return !!annualOnly[e.id]; });
   }
+  // Exactly these entries (Overview's summary list sends one page of ids, Reports.gs listPeriodFlows).
+  if (payload && payload.entryIds && payload.entryIds.length) {
+    var wantedIds = {};
+    payload.entryIds.forEach(function (id) { wantedIds[id] = true; });
+    entries = entries.filter(function (e) { return wantedIds[e.id]; });
+  }
   if (payload && payload.tripId) {
     entries = entries.filter(function (e) { return e.trip_id === payload.tripId; });
   }
@@ -1278,7 +1285,7 @@ function listEntries(payload) {
   // slice — never cap it, even without a date range (e.g. "All-time").
   var hasFilter = payload && (payload.startDate || payload.endDate ||
     payload.categoryId !== undefined || (payload.categoryIds && payload.categoryIds.length) ||
-    payload.tagId || payload.noTag || payload.noAccount || payload.toPaymentMethodId !== undefined || payload.tripId || payload.projectId || payload.companyId || (payload.scope && payload.scope !== 'all') || payload.paymentMethodId || payload.importBatchId);
+    payload.tagId || payload.noTag || payload.noAccount || (payload.entryIds && payload.entryIds.length) || payload.toPaymentMethodId !== undefined || payload.tripId || payload.projectId || payload.companyId || (payload.scope && payload.scope !== 'all') || payload.paymentMethodId || payload.importBatchId);
   var limit = (payload && payload.limit) || (hasFilter ? null : DEFAULT_ENTRY_LIMIT);
   // `offset` (Entries tab's "Load more"): skip that many of the newest rows
   // first, so the next page can be fetched without re-sending earlier ones.

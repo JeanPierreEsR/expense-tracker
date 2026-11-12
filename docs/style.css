@@ -407,6 +407,24 @@ html[lang="es"] .nav-btn { font-size: min(0.65rem, 2.3vw); letter-spacing: -0.01
 .ov-sum-net-label { font-size: 0.8rem; font-weight: 600; color: var(--accent); }
 .ov-sum-net-value { font-size: 1.6rem; font-weight: 700; color: var(--text); white-space: nowrap; }
 .ov-sum-net-eq { font-size: 0.7rem; color: var(--muted); text-align: center; }
+/* Tapping a block opens the list behind it (2026-11-11): a press shows it is a button. */
+.ov-sum-tile.tappable, .ov-sum-net.tappable { cursor: pointer; -webkit-tap-highlight-color: transparent; transition: transform 0.08s; }
+.ov-sum-tile.tappable:active, .ov-sum-net.tappable:active { transform: scale(0.98); }
+/* The chips on top of that list: one per block, each with its number. */
+.flow-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.flow-chip {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-height: 44px;
+  padding: 5px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text);
+  font: inherit; text-align: left;
+}
+.flow-chip-label { font-size: 0.72rem; color: var(--muted); }
+.flow-chip-amt { font-size: 0.82rem; font-weight: 600; white-space: nowrap; }
+.flow-chip.active { border: 2px solid var(--accent); padding: 4px 9px; background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+.flow-chip.active .flow-chip-label { color: var(--accent); font-weight: 600; }
+.flow-chip.flow-income .flow-chip-amt { color: var(--income); }
+.flow-chip.flow-expense .flow-chip-amt { color: var(--expense); }
+.flow-chip.flow-investment .flow-chip-amt { color: var(--investment); }
+.flow-more { display: block; margin: 12px auto; }
 
 /* ---- Breakdown pie charts ---- */
 

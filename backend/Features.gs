@@ -66,6 +66,8 @@ function getCapabilities_() {
     // Dates are read in the Sheet's own time zone (2026-10-25). A server without this reads a Sheet in another zone a day early, and the app then
     // warns the person at once (REQUIRED_BACKEND_CAPS_ in app.js).
     sheetDates: true,
+    // Overview's summary blocks open the list behind them (listPeriodFlows, 2026-11-11); an older backend leaves the blocks as they were.
+    periodFlows: true,
     emailExport: !!PropertiesService.getScriptProperties().getProperty('EXPORT_EMAIL'),
     bankEmails: featureOn_('gmail'),
     keepAwake: featureOn_('keepawake'),
