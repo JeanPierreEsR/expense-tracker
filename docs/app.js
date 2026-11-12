@@ -12495,6 +12495,7 @@ document.getElementById("fp-extras-btn").addEventListener("click", () => {
   document.getElementById("extras-takeback-btn").hidden = false;
   document.getElementById("extras-copy-msg").textContent = "";
   document.getElementById("extras-open-btn").textContent = tr(isHomeScreenApp_() ? "app.openInSafari" : "extras.open");
+  bringModalToFront_(document.getElementById("extras-modal-backdrop"));   // above whatever opened it (the balance window, a sheet)
   document.getElementById("extras-modal-backdrop").hidden = false;
 });
 document.getElementById("extras-takeback-btn").addEventListener("click", () => {
@@ -30186,7 +30187,10 @@ async function openBillModal() {
   recomputeBill_();
   const stale = document.getElementById("bill-stale-note");
   stale.hidden = !(loadedSaved && !billMatchesForm_());
-  document.getElementById("bill-modal-backdrop").hidden = false;
+  // Above whatever opened it (owner's walk, 2026-11-12: it opened UNDER the new-entry form, so the tutorial lit up the form's date instead)
+  const back = document.getElementById("bill-modal-backdrop");
+  bringModalToFront_(back);
+  back.hidden = false;
 }
 
 function closeBillModal() {
@@ -31055,6 +31059,7 @@ function openInprocModal_() {
   document.getElementById("inproc-negative").checked = prefill.startsWith("-") || inprocDebt_;
   inprocSay_("");
   renderInproc_();
+  bringModalToFront_(document.getElementById("inproc-modal-backdrop"));   // above whatever opened it (the balance window, a sheet)
   document.getElementById("inproc-modal-backdrop").hidden = false;
 }
 function closeInprocModal_() {
