@@ -90,7 +90,7 @@ test("the Tidy practice: invitation box, offered after the list loads, flag-gate
   assert.ok(tidyScreen.includes('id="tidy-tip-invite"'));
   const show = app.slice(app.indexOf("async function showTidyScreen()"), app.indexOf("async function loadTidy_()"));
   // (since 2026-11-11 the "Entries with no account" list loads together with it; the tip still waits for both)
-  assert.match(show, /await (?:loadTidy_\(\)|Promise\.all\(\[loadTidy_\(\)[^;]*\));\s*offerTidyTip_\(\)/, "offered only once the list has arrived");
+  assert.match(show, /await (?:loadTidy_\(\)|Promise\.all\(\[loadTidy_\(\)[^;]*\));\s*(?:const fromUpload = tidyFromUpload_;\s*)?offerTidyTip_\(\)/, "offered only once the list has arrived");
   assert.match(app, /offerTip_\("tidy", "tidy-tip-invite", tr\("spot\.y\.invite"\), startTidyPractice_\)/);
   assert.match(app, /if \(!caps\.practiceTidy\) return;/);
   const practice = app.slice(app.indexOf("function practiceYSteps_()"), app.indexOf("// ---- More → My data: one row for everything"));

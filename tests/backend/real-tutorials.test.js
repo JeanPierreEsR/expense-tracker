@@ -127,7 +127,7 @@ test("conversions are not offered to people already using Needs review, nor on t
 
 test("a help bubble skips the 3 visits, the month and the one-a-day limit; the others keep them", () => {
   const watch = section("function popTipWatch_(", "// The moment the field scrolls into view");
-  assert.match(watch, /if \(!tip\.help && !tip\.own && !tip\.cont\) \{/);
+  assert.match(watch, /if \(!tip\.help && !tip\.own && !tip\.cont && !tip\.remind\) \{/);
   assert.match(watch, /popDaysUsed_\(\) < \(POP_LEVEL_DAYS_\[tip\.level \|\| "super"\]/);
   assert.match(watch, /!popGet_\(POP_AGAIN_KEY_, false\) && \(popGet_\(POP_VISITS_KEY_/);
   assert.match(app, /if \(!tip\.help && !tip\.own && !tip\.cont && !popDayAllows_\(tip\.key\)\)/);
@@ -151,6 +151,28 @@ test("bubble rules (owner, 2026-11-11): waits by level, kind A on the first visi
   assert.match(app, /if \(opening\) watchTheseDaysTip_\(\)/);
   assert.match(section("async function renderPaceScreen_()", "function fillPaceControls_("), /watchPaceTip_\(\)/);
   for (const k of ["pop.ov.flows", "pop.ov.invLoans", "pop.ov.pendingHere", "pop.ov.pending", "pop.homeEdit", "pop.prof.names", "pop.prof.fits", "pop.prof.dates", "pop.prof.devices", "pop.theseDays.change", "pop.theseDays.choose", "pop.pace.blue", "pop.pace.grey", "pop.pace.cats", "pop.pace.kept"]) {
+    assert.match(stringsText, new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: "[^"]+", es: "[^"]+" \\}'), k);
+  }
+});
+
+test("bubbles batch B: Projections reminder, Tidy (bubble, idle offer, practice as the nudge), early payment, Currencies", () => {
+  const b = section("// ---- Bubbles, batch B", "// The loan form (a new loan)");
+  assert.match(b, /PROJ_REMIND_DAYS_ = 14/);
+  assert.match(b, /key: "projMethod", place: "projections", remind: true/);
+  assert.match(b, /months < PROJECTIONS_MIN_MONTHS_\) return;/);
+  assert.match(app, /popSet_\(PROJ_METHOD_USED_KEY_, true\); openProjectionMethodModal_/);
+  assert.match(app, /!tip\.help && !tip\.own && !tip\.cont && !tip\.remind\)/);
+  // Tidy: not after an upload (the real tutorial is there), not once taught; idle offers the real tutorial
+  assert.match(b, /if \(fromUpload \|\| !tidyGroups_\.length \|\| isTaught_\("tidy"\)\) return;/);
+  assert.match(b, /key: "tidy", place: "tidy", own: true/);
+  assert.match(b, /idleOffer_\(\{\s*key: "tidy"/);
+  assert.match(b, /startTidyReal_\(\)/);
+  assert.match(section("async function showTidyScreen()", "async function loadTidy_()"), /const fromUpload = tidyFromUpload_;[\s\S]*watchTidyTip_\(fromUpload\)/);
+  assert.match(app, /const REAL_FIRST_ = \[[^\]]*"tidy"\]/);
+  assert.match(app, /tidy: \["spot\.y\.invite", \(\) => \{ showTidyScreen\(\); return startTidyPractice_\(\); \}\]/);
+  assert.match(b, /key: "earlyPay", place: "bankSchedule", own: true/);
+  assert.match(b, /key: "currencies", place: "currencies", own: true/);
+  for (const k of ["pop.projMethod", "pop.tidy", "pop.earlyPay", "pop.cur.add", "pop.cur.history"]) {
     assert.match(stringsText, new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: "[^"]+", es: "[^"]+" \\}'), k);
   }
 });

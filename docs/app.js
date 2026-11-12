@@ -8076,6 +8076,7 @@ function showScreen(name) {
     if (periodType === "alltime" || periodType === "custom") { periodAnchor = new Date(); periodType = "month"; renderPeriodSelector(); }
     ensurePeriodSelectorIn("projections");
     refreshProjectionsScreen();
+    watchProjMethodTip_();
   }
   if (name === "loans") {
     loansLoad_ = refreshLoans();
@@ -8105,7 +8106,7 @@ function showExchangeRatesScreen() {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
   renderCurrenciesMain_();
-  refreshExchangeRates();
+  refreshExchangeRates().then(watchCurrenciesTip_, () => {});
 }
 
 // A tab whose first load failed (no connection, usually) says so instead of looking empty: Overview's zeros and Budgets' blank read as real
@@ -14582,8 +14583,10 @@ async function showTidyScreen() {
     // Both lists arrive before either shows (loading standard); the no-account list only where the backend has it.
     const wantNoAcct = !!(meta.capabilities && meta.capabilities.noAccountTidy);
     await Promise.all([loadTidy_(), wantNoAcct ? loadNoAccount_() : Promise.resolve()]);
-    offerTidyTip_();   // only now that the list has arrived (loading standard)
+    const fromUpload = tidyFromUpload_;
+    offerTidyTip_();   // only now that the list has arrived (loading standard); a practice card only as the two-week nudge (real tutorial first)
     offerTidyReal_();
+    watchTidyTip_(fromUpload);
   } catch (err) {
     list.textContent = err.message || String(err);
   }
@@ -21823,7 +21826,7 @@ async function afterProjectionMethodChange_() {
   if (reopen) reopen();
 }
 
-document.getElementById("projections-method-btn").addEventListener("click", () => openProjectionMethodModal_({}));
+document.getElementById("projections-method-btn").addEventListener("click", () => { popSet_(PROJ_METHOD_USED_KEY_, true); openProjectionMethodModal_({}); });
 document.getElementById("drilldown-projection-method-btn").addEventListener("click", () => {
   if (!drilldownProjection) return;
   openProjectionMethodModal_({ categoryId: drilldownProjection.category_id, categoryName: drilldownProjection.category_name });
@@ -22463,7 +22466,7 @@ function popTipWatch_(tip) {
     tip = Object.assign({}, tip, { at: popGet_(POP_SERIES_KEY_, {})[tip.key] || 0 });
     if (tip.at >= tip.steps.length) return;
   }
-  if (!tip.help && !tip.own && !tip.cont) {
+  if (!tip.help && !tip.own && !tip.cont && !tip.remind) {   // (kind C, a reminder, decides its own moment; it keeps the one-a-day limit)
     if (popDaysUsed_() < (POP_LEVEL_DAYS_[tip.level || "super"] ?? POP_SUPER_DAYS_)) return;   // not before the person had time with the basics
     if (!popGet_(POP_AGAIN_KEY_, false) && (popGet_(POP_VISITS_KEY_, {})[tip.place] || 0) < POP_TIP_VISIT_) return;
   }
@@ -22703,6 +22706,67 @@ function watchPaceTip_() {
       { target: () => back.querySelector("#pace-s-content > p.hint"), text: tr("pop.pace.kept") }
     ],
     stillWanted: () => !back.hidden && !document.getElementById("pace-s-content").hidden
+  });
+}
+// ---- Bubbles, batch B (owner's plan 2026-11-11) ----
+// Projections' method button (kind C, a reminder): 14 days after this phone first saw 6 complete months of data, only if the button was never tapped.
+const PROJ_UNLOCK_KEY_ = "projUnlockedOn", PROJ_METHOD_USED_KEY_ = "projMethodUsed", PROJ_REMIND_DAYS_ = 14;
+async function watchProjMethodTip_() {
+  if (popGet_(PROJ_METHOD_USED_KEY_, false) || popGet_(POP_SEEN_KEY_, []).includes("projMethod")) return;
+  let on = popGet_(PROJ_UNLOCK_KEY_, "");
+  if (!on) {
+    let months = 0;
+    try { months = await completeMonthsWithData_(); } catch (err) { return; }
+    if (months < PROJECTIONS_MIN_MONTHS_) return;
+    on = todayLocalISO();
+    popSet_(PROJ_UNLOCK_KEY_, on);
+  }
+  if (realDaysSince_(on) < PROJ_REMIND_DAYS_ || document.getElementById("screen-projections").hidden) return;
+  const btn = document.getElementById("projections-method-btn");
+  popTipWatch_({
+    key: "projMethod", place: "projections", remind: true, text: tr("pop.projMethod"),
+    target: () => (btn.hidden || !btn.textContent.trim() ? null : btn),
+    stillWanted: () => !document.getElementById("screen-projections").hidden && !popGet_(PROJ_METHOD_USED_KEY_, false),
+    ready: () => document.getElementById("projections-tip-invite").hidden   // the practice card wins
+  });
+}
+// Tidy my history (kind A): the first opening that does not come from an upload (that one has the real tutorial), on the first group.
+// After 20 idle seconds the real tutorial is offered on the person's own groups. Neither once Tidy was taught (rule 1: the tutorial comes first).
+function watchTidyTip_(fromUpload) {
+  if (fromUpload || !tidyGroups_.length || isTaught_("tidy")) return;
+  const first = () => document.querySelector("#tidy-list .tidy-group");
+  popTipWatch_({
+    key: "tidy", place: "tidy", own: true, text: tr("pop.tidy"),
+    target: () => { const b = first(); return b ? b.querySelector(".tidy-group-top") || b : null; },
+    stillWanted: () => !document.getElementById("screen-tidy").hidden && !Spotlight.isRunning()
+  });
+  if (meta && !perfIsOwnerCopy_() && realChanceLeft_("tidy", true)) idleOffer_({
+    key: "tidy",
+    wanted: () => !document.getElementById("screen-tidy").hidden && !isTaught_("tidy") && !!first(),
+    target: () => { const b = first(); return b ? b.querySelector(".tidy-group-top") || b : null; },
+    start: () => { document.getElementById("tidy-tip-invite").hidden = true; startTidyReal_(); }
+  });
+}
+// A bank loan's schedule (kind A): "Early payment".
+function watchEarlyPayTip_() {
+  const btn = document.getElementById("bank-schedule-early");
+  popTipWatch_({
+    key: "earlyPay", place: "bankSchedule", own: true, text: tr("pop.earlyPay"),
+    target: () => (btn.hidden ? null : btn),
+    stillWanted: () => !document.getElementById("bank-schedule-modal-backdrop").hidden
+  });
+}
+// More → Currencies (kind A): adding a rate, then a currency's history.
+function watchCurrenciesTip_() {
+  const screen = document.getElementById("screen-exchange-rates");
+  if (screen.hidden) return;
+  popTipWatch_({
+    key: "currencies", place: "currencies", own: true,
+    steps: [
+      { target: () => document.getElementById("rates-add-btn"), text: tr("pop.cur.add") },
+      { target: () => screen.querySelector(".rates-group-head"), text: tr("pop.cur.history"), when: () => !!screen.querySelector(".rates-group-head") }
+    ],
+    stillWanted: () => !screen.hidden
   });
 }
 // The loan form (a new loan): "This debt is from before I started using the app".
@@ -24103,7 +24167,7 @@ function startInvestmentReal_() {
 }
 
 // A practice is only a nudge where a real tutorial exists (owner, 2026-11-09): shown on Home, one at a time, at most every 3 days, from 14 days after the first opening.
-const REAL_FIRST_ = ["budgets", "programmed", "accounts", "loans", "exchange", "trips", "investments", "loans-bank", "bank", "import"];
+const REAL_FIRST_ = ["budgets", "programmed", "accounts", "loans", "exchange", "trips", "investments", "loans-bank", "bank", "import", "tidy"];
 const NUDGE_DAYS_ = 14, NUDGE_EVERY_ = 3, NUDGE_LAST_KEY_ = "tutorialNudgeLast";
 let nudgeKey_ = "";
 // Only one of practice / real tutorial is ever done with a person; and where a real tutorial exists, the practice only comes as the two-week nudge (or when asked for).
@@ -24116,9 +24180,10 @@ function offerNudge_() {
   if (last && realDaysSince_(last) < NUDGE_EVERY_) return;
   const list = { budgets: ["spot.b.invite", startBudgetPractice_], programmed: ["spot.r.invite", startProgrammedPractice_], accounts: ["spot.a.invite", startAccountsPractice_], loans: ["spot.p.invite", startPractice_],
     exchange: ["spot.x.invite", startExchangePractice_], trips: ["spot.t.invite", startTripsPractice_], investments: ["spot.i.invite", startInvestmentsPractice_],
-    "loans-bank": ["spot.k.nudge", () => startLoansMorePractice_("bank")], bank: ["spot.s.invite", () => window.statementsNudgePractice_("bank")], import: ["spot.f.invite", () => window.statementsNudgePractice_("import")] };
+    "loans-bank": ["spot.k.nudge", () => startLoansMorePractice_("bank")], bank: ["spot.s.invite", () => window.statementsNudgePractice_("bank")], import: ["spot.f.invite", () => window.statementsNudgePractice_("import")],
+    tidy: ["spot.y.invite", () => { showTidyScreen(); return startTidyPractice_(); }] };   // (its steps need the Tidy screen, as the statements nudge needs its own)
   const caps = (meta && meta.capabilities) || {};
-  const can = { "loans-bank": caps.practiceLoansMore, bank: caps.practiceBank, import: caps.practiceImport };
+  const can = { "loans-bank": caps.practiceLoansMore, bank: caps.practiceBank, import: caps.practiceImport, tidy: caps.practiceTidy && (meta.categories || []).some((c) => c.type === "expense") };
   const key = REAL_FIRST_.find((k) => !isTaught_(k) && !tipSeen_(k) && (!(k in can) || can[k]));
   if (!key) return;
   nudgeKey_ = key;
@@ -27155,6 +27220,7 @@ async function openBankSchedule_(loanId, friend) {
   document.getElementById("bank-schedule-early").hidden = !(sched.remaining_principal > 0.004);
   loadingEl.hidden = true;
   contentEl.hidden = false;
+  watchEarlyPayTip_();
 }
 
 document.getElementById("bank-schedule-close").addEventListener("click", () => { document.getElementById("bank-schedule-modal-backdrop").hidden = true; });
