@@ -231,6 +231,25 @@ function loanFlowsForPeriod_(startDate, endDate, scope) {
   };
 }
 
+// Loan movements as the phone shows them, newest first (Overview's summary list and the Loans tab's "All loans and repayments").
+// kind: borrowed / lent / paidBack / receivedBack move money (signed by the owner's pocket); forgiven / canceledOut moved none (signed 0).
+// moves: [{ loan, kind, amount, currency, date, settlement_id }].
+function loanMoveRows_(moves, friendById) {
+  var entryTypeById = {};
+  moves.forEach(function (m) { if (m.loan.origin === 'entry' && m.loan.entry_id) entryTypeById[m.loan.entry_id] = ''; });
+  if (Object.keys(entryTypeById).length) getAllRows('Entries').forEach(function (e) { if (e.id in entryTypeById) entryTypeById[e.id] = e.type; });
+  return moves.map(function (m) {
+    var f = friendById[m.loan.friend_id];
+    var sign = m.kind === 'borrowed' || m.kind === 'receivedBack' ? 1 : (m.kind === 'lent' || m.kind === 'paidBack' ? -1 : 0);
+    return {
+      kind: m.kind, origin: m.loan.origin || 'cash', entry_type: m.loan.origin === 'entry' ? (entryTypeById[m.loan.entry_id] || '') : '',
+      direction: m.loan.direction, friend_id: m.loan.friend_id, friend_name: f ? f.name : '', loan_id: m.loan.id, settlement_id: m.settlement_id || '',
+      amount: Math.round(m.amount * 100) / 100, signed: Math.round(sign * m.amount * 100) / 100,
+      currency: m.currency, date: m.date, description: m.loan.description || ''
+    };
+  }).filter(function (m) { return Math.abs(m.amount) > 0.004; }).sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+}
+
 // Overview's summary blocks open ONE list of what is behind them (owner, 2026-11-11): the period's income, expenses and investments
 // (entries, the same ones the totals count) and the loan movements behind the Loans block, newest first, mixed, 100 at a time.
 // filter: 'all' (What's left) | 'income' | 'expense' | 'investment' | 'loans'. Entries come decorated exactly as listEntries sends them.
@@ -252,22 +271,9 @@ function listPeriodFlows(payload) {
     entries.sort(compareEntriesRecency_);
   }
   var moves = [];
-  var entryTypeById = {};
   if (filter === 'all' || filter === 'loans') {
     var flows = loanFlowsForPeriod_(startDate, endDate, scope);
-    flows.moves.forEach(function (m) { if (m.loan.origin === 'entry' && m.loan.entry_id) entryTypeById[m.loan.entry_id] = ''; });
-    if (Object.keys(entryTypeById).length) getAllRows('Entries').forEach(function (e) { if (e.id in entryTypeById) entryTypeById[e.id] = e.type; });
-    moves = flows.moves.map(function (m) {
-      var f = flows.friendById[m.loan.friend_id];
-      var inflow = m.kind === 'borrowed' || m.kind === 'receivedBack';
-      return {
-        kind: m.kind, origin: m.loan.origin || 'cash', entry_type: m.loan.origin === 'entry' ? (entryTypeById[m.loan.entry_id] || '') : '',
-        friend_id: m.loan.friend_id, friend_name: f ? f.name : '', loan_id: m.loan.id, settlement_id: m.settlement_id,
-        amount: Math.round(m.amount * 100) / 100, signed: Math.round((inflow ? 1 : -1) * m.amount * 100) / 100,
-        currency: m.currency, date: m.date, description: m.loan.description || ''
-      };
-    }).filter(function (m) { return Math.abs(m.amount) > 0.004; });
-    moves.sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+    moves = loanMoveRows_(flows.moves, flows.friendById);
   }
   // Merge newest first (on the same day, entries before loan movements), then take one page.
   var merged = [];

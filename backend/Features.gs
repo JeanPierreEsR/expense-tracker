@@ -68,6 +68,8 @@ function getCapabilities_() {
     sheetDates: true,
     // Overview's summary blocks open the list behind them (listPeriodFlows, 2026-11-11); an older backend leaves the blocks as they were.
     periodFlows: true,
+    // The Loans tab's "All loans and repayments" (listLoanMovements, 2026-11-11).
+    loanMovements: true,
     emailExport: !!PropertiesService.getScriptProperties().getProperty('EXPORT_EMAIL'),
     bankEmails: featureOn_('gmail'),
     keepAwake: featureOn_('keepawake'),

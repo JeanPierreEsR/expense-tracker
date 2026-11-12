@@ -209,6 +209,7 @@ function routeActionSwitch_(action, payload) {
     case 'saveEntryAll': return saveEntryAll(payload);
     case 'listEntries': return listEntries(payload);
     case 'listPeriodFlows': return listPeriodFlows(payload);
+    case 'listLoanMovements': return listLoanMovements(payload);
     case 'getPeriodSummary': return getPeriodSummary(payload);
     case 'getHomeGlance': return getHomeGlance();
     case 'getMonthlyHistory': return getMonthlyHistory(payload);

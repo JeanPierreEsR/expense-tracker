@@ -425,6 +425,7 @@ html[lang="es"] .nav-btn { font-size: min(0.65rem, 2.3vw); letter-spacing: -0.01
 .flow-chip.flow-expense .flow-chip-amt { color: var(--expense); }
 .flow-chip.flow-investment .flow-chip-amt { color: var(--investment); }
 .flow-more { display: block; margin: 12px auto; }
+.flow-loan-quiet .entry-amount, .flow-loan-quiet .entry-category { color: var(--muted); }
 
 /* ---- Breakdown pie charts ---- */
 
