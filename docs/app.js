@@ -9037,6 +9037,8 @@ function paintOverviewSummary_(data) {
     [sgn(data.totals.loans || 0), tr("summary.loans")]
   ];
   document.getElementById("summary-net-eq").textContent = eqParts.map(([s, label], i) => (i === 0 ? label : `${s} ${label}`)).join(" ");
+  markSummaryTappable_();
+  if (flowsState_) renderFlowChips_();
   // Investments always read purple and What's left in the normal text colour (owner, 2026-10-27).
 
   const excludedNote = document.getElementById("overview-excluded-note");
@@ -9412,6 +9414,8 @@ async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
   const subtitle = document.getElementById("drilldown-subtitle");
   const list = document.getElementById("drilldown-list");
 
+  flowsState_ = null;
+  document.getElementById("drilldown-chips").hidden = true;
   title.textContent = titleText;
   subtitle.textContent = subtitleText;
   // A Projections category detail lets the owner tap the period to pick another.
@@ -9462,6 +9466,141 @@ async function openBreakdownDrilldown(kind, item) {
     `${item.icon ? item.icon + " " : ""}${item.name}`,
     `${bounds.label} · ${kind === "platform" ? TYPE_LABELS.investment : TYPE_LABELS[overviewType]}`
   );
+}
+
+// ---- Overview summary blocks: the list behind each number (owner, 2026-11-11) ----
+// Tapping any block (Income, Expenses, Investments, Loans) or What's left opens ONE screen: the drill-down sheet with five chips
+// (All · Income · Expenses · Investments · Loans) on top, starting on the block tapped ("All" for What's left). The list is the
+// period's entries and loan movements, newest first, 100 at a time (backend listPeriodFlows). Each chip shows its block's number,
+// so the lists add up on screen. An entry opens to edit; a loan movement opens that person's loans.
+const FLOW_FILTERS_ = ["all", "income", "expense", "investment", "loans"];
+let flowsState_ = null;   // { filter, items: { [filter]: { items, more } } } while this screen is open
+
+const flowsDrill_ = { refetch: async () => { if (!flowsState_) return; flowsState_.items = {}; renderFlowChips_(); await loadFlows_(false); } };
+function flowsAvailable_() { return !!(meta && meta.capabilities && meta.capabilities.periodFlows); }
+
+function flowChipAmount_(f) {
+  const t = (lastOverviewData && lastOverviewData.totals) || {};
+  if (f === "income") return formatPenSigned_(t.income || 0);
+  if (f === "expense") return formatPenSigned_(-(t.expense || 0));
+  if (f === "investment") return formatPenSigned_(-(t.investment || 0));
+  if (f === "loans") return formatPenSigned_(t.loans || 0);
+  return formatPenSigned_(t.net || 0);
+}
+const flowLabel_ = (f) => tr(f === "all" ? "summary.net" : f === "income" ? "summary.income" : f === "expense" ? "summary.expenses" : f === "investment" ? "summary.investments" : "summary.loans");
+
+function renderFlowChips_() {
+  const box = document.getElementById("drilldown-chips");
+  if (!flowsState_) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = FLOW_FILTERS_.map((f) => `<button type="button" class="flow-chip flow-${f}${f === flowsState_.filter ? " active" : ""}" data-flow="${f}" aria-pressed="${f === flowsState_.filter}">` +
+    `<span class="flow-chip-label">${escapeHtml(f === "all" ? tr("flows.all") : flowLabel_(f))}</span><span class="flow-chip-amt">${escapeHtml(flowChipAmount_(f))}</span></button>`).join("");
+  document.getElementById("drilldown-title").textContent = flowLabel_(flowsState_.filter);
+}
+document.getElementById("drilldown-chips").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-flow]");
+  if (!chip || !flowsState_ || chip.dataset.flow === flowsState_.filter) return;
+  flowsState_.filter = chip.dataset.flow;
+  document.getElementById("drilldown-scroll-area").scrollTop = 0;
+  renderFlowChips_();
+  loadFlows_(false);
+});
+
+// What a loan movement was, in plain words.
+function flowLoanLabel_(m) {
+  if (m.kind === "borrowed") return tr(m.origin === "entry" ? "flows.paidForMe" : "loans.ov.borrowed");
+  if (m.kind === "lent") return tr(m.origin !== "entry" ? "loans.ov.lent" : m.entry_type === "income" ? "flows.notReceived" : "flows.theirShare");
+  return tr(m.kind === "paidBack" ? "loans.ov.paidBack" : "loans.ov.receivedBack");
+}
+
+function buildFlowLoanRow_(m) {
+  const row = document.createElement("div");
+  row.className = "entry flow-loan-row";
+  const plus = m.signed > 0.004;
+  row.innerHTML = `
+    <div class="entry-left">
+      <div class="entry-category">🤝 ${escapeHtml(flowLoanLabel_(m))}</div>
+      <div class="entry-desc">${escapeHtml(m.friend_name)}</div>
+      <div class="entry-meta">${escapeHtml(listDate_(m.date))}${m.description ? " · " + escapeHtml(m.description) : ""}</div>
+    </div>
+    <div class="entry-amount"><div class="${plus ? "pos-green" : ""}">${formatAmount(Math.abs(m.signed), m.currency, plus ? "+" : "−")}</div></div>`;
+  row.addEventListener("click", () => openLoanDetail(m.friend_id, m.friend_name, ""));
+  return row;
+}
+
+function renderFlows_() {
+  const list = document.getElementById("drilldown-list");
+  const got = flowsState_.items[flowsState_.filter];
+  list.innerHTML = "";
+  if (!got.items.length) { list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.noEntries"))}</div>`; return; }
+  // Entries and loan movements mixed, in the server's order (newest first); a run of entries keeps the usual entry rows.
+  let run = [];
+  const flush = () => { if (!run.length) return; const box = document.createElement("div"); renderEntriesInto_(box, run); [...box.children].forEach((c) => list.appendChild(c)); run = []; };
+  got.items.forEach((x) => { if (x.entry) run.push(x.entry); else { flush(); list.appendChild(buildFlowLoanRow_(x.loan)); } });
+  flush();
+  if (got.more) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "add-inline flow-more";
+    btn.textContent = tr("common.loadMore");
+    btn.addEventListener("click", () => { btn.disabled = true; btn.textContent = tr("common.loading"); loadFlows_(true); });
+    list.appendChild(btn);
+  }
+}
+
+async function loadFlows_(more) {
+  const st = flowsState_;
+  const filter = st.filter;
+  const have = st.items[filter];
+  if (have && !more) { renderFlows_(); return; }
+  const list = document.getElementById("drilldown-list");
+  if (!more) list.innerHTML = loadingHtml_();
+  const b = getPeriodBounds();
+  try {
+    const res = await callApi("listPeriodFlows", { startDate: b.startDate, endDate: b.endDate, scope: overviewScopeParam_(), filter, offset: more ? have.items.length : 0, limit: 100 });
+    if (flowsState_ !== st) return;
+    st.items[filter] = { items: (more ? have.items : []).concat(res.items || []), more: !!res.more };
+    if (st.filter === filter) renderFlows_();
+  } catch (err) {
+    if (flowsState_ !== st || st.filter !== filter) return;
+    if (more) renderFlows_();
+    else list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
+  }
+}
+
+function openSummaryFlows_(filter) {
+  if (!flowsAvailable_() || !lastOverviewData) return;
+  currentDrilldown = flowsDrill_;
+  drilldownBudget = null;
+  drilldownProjection = null;
+  drilldownProjectionDetail = null;
+  ["drilldown-period-prev", "drilldown-period-next", "drilldown-menu-btn", "drilldown-menu", "drilldown-categories", "drilldown-chart", "drilldown-projection-row",
+    "drilldown-projection-actual-row", "drilldown-projection-annual-note", "drilldown-projection-total-row", "drilldown-projection-split"].forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
+  const backdrop = document.getElementById("drilldown-modal-backdrop");
+  const subtitle = document.getElementById("drilldown-subtitle");
+  subtitle.textContent = getPeriodBounds().label;
+  subtitle.classList.remove("tappable");
+  flowsState_ = { filter, items: {} };
+  renderFlowChips_();
+  bringModalToFront_(backdrop);
+  if (backdrop.hidden) document.getElementById("drilldown-scroll-area").scrollTop = 0;
+  backdrop.hidden = false;
+  loadFlows_(false);
+}
+
+[["income", ".ov-sum-tile.income"], ["expense", ".ov-sum-tile.expense"], ["investment", ".ov-sum-tile.investment"], ["loans", ".ov-sum-tile.loans"], ["all", ".ov-sum-net"]].forEach(([f, sel]) => {
+  const el = document.querySelector(sel);
+  if (!el) return;
+  el.addEventListener("click", () => openSummaryFlows_(f));
+  el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openSummaryFlows_(f); } });
+});
+// Only a backend that can answer makes the blocks look and act like buttons.
+function markSummaryTappable_() {
+  const on = flowsAvailable_();
+  document.querySelectorAll(".ov-sum-tile, .ov-sum-net").forEach((el) => {
+    el.classList.toggle("tappable", on);
+    if (on) { el.setAttribute("role", "button"); el.tabIndex = 0; } else { el.removeAttribute("role"); el.removeAttribute("tabindex"); }
+  });
 }
 
 // Same drill-down sheet, sourced from a budget row instead of an Overview
@@ -9852,6 +9991,8 @@ function renderEntriesInto_(list, entries, emptyKey) {
 
 function closeDrilldown() {
   document.getElementById("drilldown-modal-backdrop").hidden = true;
+  flowsState_ = null;
+  document.getElementById("drilldown-chips").hidden = true;
   document.getElementById("drilldown-menu").hidden = true;
   collapseDrilldownExpand_();
   drilldownBudget = null;
@@ -27065,6 +27206,8 @@ function closeLoanDetail() {
   document.getElementById("loan-detail-modal-backdrop").hidden = true;
   currentDrilldown = null;
   loanDetailScope_ = { friendId: null, projectId: "" };
+  // Opened from Overview's summary list: that list is underneath again, and a change made here may have moved it.
+  if (flowsState_) { currentDrilldown = flowsDrill_; flowsDrill_.refetch(); }
   // A project screen underneath shows what is owed: it may have just changed.
   if (!document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_();
   if (!document.getElementById("screen-business-people").hidden) refreshPeopleList_();

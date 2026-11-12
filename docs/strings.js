@@ -1018,6 +1018,10 @@
     "summary.investments": { en: "Investments", es: "Inversiones" },
     "summary.net": { en: "What's left", es: "Lo que queda" },
     "summary.loans": { en: "Loans", es: "Préstamos" },
+    "flows.all": { en: "All", es: "Todo" },
+    "flows.paidForMe": { en: "Paid for you", es: "Pagó por ti" },
+    "flows.theirShare": { en: "Their share of an expense", es: "Su parte de un gasto" },
+    "flows.notReceived": { en: "Income not received yet", es: "Ingreso aún no recibido" },
     "home.loansIncluded": { en: "What's left includes loans: {amount}", es: "Lo que queda incluye préstamos: {amount}" },
 
     // ---- overview ----

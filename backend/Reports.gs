@@ -188,8 +188,10 @@ function loanFlowsForPeriod_(startDate, endDate, scope) {
   var totals = {};
   var netPen = 0;
   var excluded = 0;
-  var add = function (loan, kind, amount, date) {
+  var moves = [];
+  var add = function (loan, kind, amount, date, settlementId) {
     var cur = loan.currency || homeCurrency_();
+    moves.push({ loan: loan, kind: kind, amount: amount, currency: cur, date: String(date || '').substring(0, 10), settlement_id: settlementId || '' });
     var rate = getRateForEntryCurrency_(cur, date);
     if (rate == null) excluded++;
     else netPen += (kind === 'borrowed' || kind === 'receivedBack' ? 1 : -1) * amount * rate;
@@ -204,7 +206,7 @@ function loanFlowsForPeriod_(startDate, endDate, scope) {
   getAllRows('Settlements').forEach(function (st) {
     if (st.offset_loan_id || !inRange(st.date)) return;
     var loan = loanById[st.loan_id];
-    if (loan) add(loan, loan.direction === 'i_owe_them' ? 'paidBack' : 'receivedBack', Number(st.amount) || 0, st.date);
+    if (loan) add(loan, loan.direction === 'i_owe_them' ? 'paidBack' : 'receivedBack', Number(st.amount) || 0, st.date, st.id);
   });
   var finish = function (bag) {
     return Object.keys(bag).sort().map(function (cur) {
@@ -223,7 +225,64 @@ function loanFlowsForPeriod_(startDate, endDate, scope) {
     }),
     totals: finish(totals),
     netPen: netPen,
-    excluded: excluded
+    excluded: excluded,
+    moves: moves,
+    friendById: friendById
+  };
+}
+
+// Overview's summary blocks open ONE list of what is behind them (owner, 2026-11-11): the period's income, expenses and investments
+// (entries, the same ones the totals count) and the loan movements behind the Loans block, newest first, mixed, 100 at a time.
+// filter: 'all' (What's left) | 'income' | 'expense' | 'investment' | 'loans'. Entries come decorated exactly as listEntries sends them.
+// Returns { items: [{ entry } | { loan: { kind, origin, entry_type, friend_id, friend_name, amount, currency, date, loan_id, signed } }], more }.
+function listPeriodFlows(payload) {
+  payload = payload || {};
+  var startDate = payload.startDate, endDate = payload.endDate, scope = payload.scope;
+  var filter = String(payload.filter || 'all');
+  var offset = Math.max(0, Number(payload.offset) || 0);
+  var limit = Math.max(1, Math.min(500, Number(payload.limit) || 100));
+  var types = filter === 'all' ? { income: true, expense: true, investment: true } : {};
+  if (filter === 'income' || filter === 'expense' || filter === 'investment') types[filter] = true;
+  var entries = [];
+  if (Object.keys(types).length) {
+    entries = getAllRows('Entries').filter(function (e) {
+      return e.status === 'confirmed' && types[e.type] && (!startDate || e.date >= startDate) && (!endDate || e.date <= endDate);
+    });
+    entries = filterEntriesByScope_(entries, scope);
+    entries.sort(compareEntriesRecency_);
+  }
+  var moves = [];
+  var entryTypeById = {};
+  if (filter === 'all' || filter === 'loans') {
+    var flows = loanFlowsForPeriod_(startDate, endDate, scope);
+    flows.moves.forEach(function (m) { if (m.loan.origin === 'entry' && m.loan.entry_id) entryTypeById[m.loan.entry_id] = ''; });
+    if (Object.keys(entryTypeById).length) getAllRows('Entries').forEach(function (e) { if (e.id in entryTypeById) entryTypeById[e.id] = e.type; });
+    moves = flows.moves.map(function (m) {
+      var f = flows.friendById[m.loan.friend_id];
+      var inflow = m.kind === 'borrowed' || m.kind === 'receivedBack';
+      return {
+        kind: m.kind, origin: m.loan.origin || 'cash', entry_type: m.loan.origin === 'entry' ? (entryTypeById[m.loan.entry_id] || '') : '',
+        friend_id: m.loan.friend_id, friend_name: f ? f.name : '', loan_id: m.loan.id, settlement_id: m.settlement_id,
+        amount: Math.round(m.amount * 100) / 100, signed: Math.round((inflow ? 1 : -1) * m.amount * 100) / 100,
+        currency: m.currency, date: m.date, description: m.loan.description || ''
+      };
+    }).filter(function (m) { return Math.abs(m.amount) > 0.004; });
+    moves.sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+  }
+  // Merge newest first (on the same day, entries before loan movements), then take one page.
+  var merged = [];
+  var i = 0, j = 0;
+  while (i < entries.length || j < moves.length) {
+    if (j >= moves.length || (i < entries.length && String(entries[i].date).substring(0, 10) >= moves[j].date)) merged.push({ e: entries[i++] });
+    else merged.push({ m: moves[j++] });
+  }
+  var page = merged.slice(offset, offset + limit);
+  var ids = page.filter(function (x) { return x.e; }).map(function (x) { return x.e.id; });
+  var decorated = {};
+  if (ids.length) listEntries({ entryIds: ids }).forEach(function (e) { decorated[e.id] = e; });
+  return {
+    items: page.map(function (x) { return x.e ? { entry: decorated[x.e.id] } : { loan: x.m }; }).filter(function (x) { return x.loan || x.entry; }),
+    more: merged.length > offset + limit
   };
 }
 
