@@ -8088,6 +8088,7 @@ function showScreen(name) {
     if (periodType === "alltime" || periodType === "custom") { periodAnchor = new Date(); periodType = "month"; renderPeriodSelector(); }
     ensurePeriodSelectorIn("projections");
     refreshProjectionsScreen();
+    watchProjMethodTip_();
   }
   if (name === "loans") {
     loansLoad_ = refreshLoans();
@@ -8117,7 +8118,7 @@ function showExchangeRatesScreen() {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
   renderCurrenciesMain_();
-  refreshExchangeRates();
+  refreshExchangeRates().then(watchCurrenciesTip_, () => {});
 }
 
 // A tab whose first load failed (no connection, usually) says so instead of looking empty: Overview's zeros and Budgets' blank read as real
@@ -8815,6 +8816,7 @@ async function renderPaceScreen_() {
   loading.hidden = true; body.hidden = false;
   document.getElementById("pace-s-reset").hidden = !view;
   watchPaceTip_();
+  watchPaceKeptTip_();
   if (!r.cur) { document.getElementById("pace-s-lines").innerHTML = `<p class="hint">${escapeHtml(tr("pace.noData"))}</p>`; document.getElementById("pace-s-svg").innerHTML = ""; return; }
   drawPace_({ label: document.getElementById("pace-s-label"), svg: document.getElementById("pace-s-svg"), lines: document.getElementById("pace-s-lines"),
     days: document.getElementById("pace-s-days"), diff: true }, r, view);
@@ -8878,6 +8880,7 @@ function paceViewFromControls_() {
   const blueKey = v.blue === "this" ? (monthsHist_ ? monthsHist_.months[monthsHist_.months.length - 1].month : null) : v.blue;
   if (v.grey.kind === "month" && blueKey && (id === "pace-s-grey" || v.grey.month === blueKey)) v.grey.month = paceShift_(blueKey, -1);
   setPaceView_(v);
+  paceJustChanged_ = true;
   renderPaceScreen_();
   if (monthsHist_) renderPaceBig_();
 }));
@@ -13297,7 +13300,6 @@ function buildTourSlide_(key, n, total) {
   if (key === "mydata") {
     if (((meta && meta.capabilities) || {}).entriesRestore) body += tr("tour.mydata.deleted");   // the row exists only where the backend can restore
     body += tr("tour.mydata.export") + tr("tour.mydata.pIntro");
-    body += tr("tour.mydata.pTidy");   // + one line for each My data screen that has a practice
     const cp = (meta && meta.capabilities) || {};
     if (cp.entriesRestore && cp.practiceDeleted && cp.entriesBulk) body += tr("tour.mydata.pDeleted");
     if (cp.practiceImport) body += tr("tour.mydata.pImport");
@@ -14611,8 +14613,10 @@ async function showTidyScreen() {
     // Both lists arrive before either shows (loading standard); the no-account list only where the backend has it.
     const wantNoAcct = !!(meta.capabilities && meta.capabilities.noAccountTidy);
     await Promise.all([loadTidy_(), wantNoAcct ? loadNoAccount_() : Promise.resolve()]);
-    offerTidyTip_();   // only now that the list has arrived (loading standard)
+    const fromUpload = tidyFromUpload_;
     offerTidyReal_();
+    watchTidyTip_(fromUpload);
+    watchNoAcctIdle_();
   } catch (err) {
     list.textContent = err.message || String(err);
   }
@@ -14681,6 +14685,7 @@ function renderTidy_() {
 
 // ---- Entries with no account (owner, 2026-11-11): newest first, grouped by month; each gets an account, saved together ----
 let noAcctData_ = { entries: [], total: 0, shown: 0 };
+let noAcctLastSave_ = null;   // { ok, count } of the last Save (the real tutorial ends on it)
 const noAcctPicked_ = new Map();   // entry id -> account id picked on the screen (not saved yet)
 
 async function loadNoAccount_() {
@@ -14741,10 +14746,11 @@ document.getElementById("noacct-list").addEventListener("change", (ev) => {
   }
   const all = ev.target.closest(".noacct-month-select");
   if (all && all.value) {
-    // One account for every entry of that month that has nothing picked yet; each can still be changed one by one.
+    // One account for every entry of that month (until saved, a later pick here replaces an earlier one: owner, 2026-11-12, he could not
+    // change his mind); each can still be changed one by one afterwards.
     all.closest(".noacct-month").querySelectorAll(".noacct-row").forEach((row) => {
       const sel = row.querySelector(".noacct-select");
-      if (sel.value || !Array.from(sel.options).some((o) => o.value === all.value)) return;
+      if (!Array.from(sel.options).some((o) => o.value === all.value)) return;
       sel.value = all.value;
       noAcctPicked_.set(row.dataset.id, all.value);
     });
@@ -14761,6 +14767,7 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
   showToast_(tr("common.savingToast"));
   try {
     const res = await callApi("assignEntryAccounts", { items });
+    noAcctLastSave_ = { ok: true, count: res.count || 0 };
     if (!res.count) showToast_(tr("noacct.nothing"));
     else {
       showUndoToast_(tr("noacct.saved", { n: res.count }), async () => {
@@ -14774,6 +14781,8 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
     }
     await loadNoAccount_();
   } catch (err) {
+    noAcctLastSave_ = { ok: false, count: 0 };
+    realNoteFailed_();
     alert(err.message || String(err));
     updateNoAccountSave_();
   }
@@ -14845,11 +14854,29 @@ function offerTidyReal_() {
     if (++tries > 50) { clearInterval(t); return; }
     if (Spotlight.isRunning() || document.getElementById("screen-tidy").hidden) return;
     clearInterval(t);
-    document.getElementById("tidy-tip-invite").hidden = true;
     startTidyReal_();
   }, 100);
 }
-function startTidyReal_() {
+// The first tap that starts filing a group (its category list, Apply, Skip, "Apply all suggestions") is a first use: it does nothing
+// yet and opens the real tutorial (Start / Exit) on that group. Asked once per phone (owner, 2026-11-12).
+const TIDY_TAP_ASKED_KEY_ = "tidyTapAsked";
+function tidyTapAsk_(ev) {
+  const t = ev.target.closest && ev.target.closest(".tidy-select, .tidy-apply, .tidy-skip, #tidy-apply-all-btn");
+  if (!t || !meta || perfIsOwnerCopy_() || Spotlight.isRunning() || isTaught_("tidy") || !realChanceLeft_("tidy")) return;
+  if (popGet_(TIDY_TAP_ASKED_KEY_, false) || document.getElementById("screen-tidy").hidden) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
+  if (t.blur) t.blur();
+  popSet_(TIDY_TAP_ASKED_KEY_, true);
+  if (popOpen_) popOpen_.close();
+  const row = t.closest(".tidy-group");
+  startTidyReal_(row ? row.dataset.key : "");
+}
+["pointerdown", "mousedown", "touchstart", "click"].forEach((type) => document.getElementById("screen-tidy").addEventListener(type, (ev) => {
+  if (type !== "click" && !(ev.target.closest && ev.target.closest(".tidy-select"))) return;   // a list opens on the press; a button acts on the click
+  tidyTapAsk_(ev);
+}, { capture: true, passive: false }));
+function startTidyReal_(startKey) {
   let started = false, key = "", applied = false;
   const box = () => (key ? Array.from(document.querySelectorAll("#tidy-list .tidy-group")).find((b) => b.dataset.key === key) || null : null);
   const part = (sel) => () => { const b = box(); return b ? b.querySelector(sel) : null; };
@@ -14859,12 +14886,17 @@ function startTidyReal_() {
   const steps = [
     { key: "intro", text: () => tr("rt.tidy.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("tidy", "real"); } },
     { target: () => { const b = box(); return b ? [b.querySelector(".tidy-group-top"), b.querySelector(".tidy-group-meta")] : null; }, text: () => tr(sug() ? "rt.tidy.groupSug" : "rt.tidy.group"), button: realNext_,
-      before: async () => { const b = document.querySelector("#tidy-list .tidy-group"); key = b ? b.dataset.key : ""; return !!key; } },
-    { target: part(".tidy-lines"), text: () => tr("rt.tidy.lines"), button: realNext_ },
+      before: async () => {   // the group the person tapped, else the first one
+        const all = Array.from(document.querySelectorAll("#tidy-list .tidy-group"));
+        const b = all.find((x) => startKey && x.dataset.key === startKey) || all[0];
+        key = b ? b.dataset.key : ""; return !!key; } },
+    // Tapping the button is the step (owner's walk, 2026-11-12: no Next beside it), then the lines stay lit to be read.
+    { target: part(".tidy-lines"), text: () => tr("rt.tidy.lines"), until: () => { const s = part(".tidy-samples")(); return !!s && !s.hidden; } },
+    { look: true, target: part(".tidy-samples"), text: () => tr("rt.tidy.linesLook"), button: realNext_, before: async () => { const s = part(".tidy-samples")(); return !!s && !s.hidden; } },
     { key: "pick", target: part(".tidy-select"), text: (fix) => tr(fix ? "rt.tidy.pickFix" : sug() ? "rt.tidy.pickSug" : "rt.tidy.pick"), visit: ".tidy-group[data-key] .tidy-select", button: realNext_,
       ok: () => applied || !!(part(".tidy-select")() || {}).value, holdsUntil: "apply" },
     { key: "apply", target: part(".tidy-apply"), text: () => tr("rt.tidy.apply"), until: () => { if (key && !box()) applied = true; return applied; } },
-    { look: true, target: "#app-undo-toast", text: () => tr("rt.tidy.undo"), button: realNext_, wait: 4000, before: async () => applied },
+    // (no step on the Undo toast: it goes away by itself and left the tutorial waiting; owner 2026-11-12)
     { target: () => [realShown_("tidy-apply-all-btn") ? document.getElementById("tidy-apply-all-btn") : null, document.querySelector("#tidy-list .tidy-group .tidy-skip"), realShown_("tidy-more") ? document.getElementById("tidy-more") : null].filter(Boolean),
       text: () => tr(realShown_("tidy-apply-all-btn") ? "rt.tidy.restAll" : "rt.tidy.rest") + (realShown_("tidy-more") ? " " + tr("rt.tidy.more") : ""), button: realNext_, before: async () => any() },
     { keep: true, look: true, target: "#tidy-empty", text: () => tr("rt.tidy.doneAll"), button: () => tr("spot.g.done"), before: async () => realShown_("tidy-empty") && !any() },
@@ -14872,10 +14904,73 @@ function startTidyReal_() {
   ];
   guided_ = { savedId: "", split: null };
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
-    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("tidy"); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
+    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("tidy"); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); setTimeout(watchNoAcctIdle_, 1500); } });
 }
 
-// ---- First-use practice: Tidy my history (owner's design, 2026-11-03) ----
+// ---- Real tutorial: Entries with no account, on Tidy my history (owner, 2026-11-12) ----
+// On the person's own entries, newest month first. Starts on the first tap on the card's lists or its Save (nothing changes on that
+// tap), or after the idle wait when the card is on screen; entries with no category come first (their tutorial and idle offer win).
+const NOACCT_TAP_ASKED_KEY_ = "noacctTapAsked";
+const noAcctCardShown_ = () => !document.getElementById("noacct-card").hidden && !!document.querySelector("#noacct-list .noacct-month");
+function noAcctTapAsk_(ev) {
+  const t = ev.target.closest && ev.target.closest("#noacct-card select, #noacct-save");
+  if (!t || !meta || perfIsOwnerCopy_() || Spotlight.isRunning() || isTaught_("noacct") || !realChanceLeft_("noacct")) return;
+  if (popGet_(NOACCT_TAP_ASKED_KEY_, false) || document.getElementById("screen-tidy").hidden) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
+  if (t.blur) t.blur();
+  popSet_(NOACCT_TAP_ASKED_KEY_, true);
+  if (popOpen_) popOpen_.close();
+  const m = t.closest(".noacct-month");
+  startNoAcctReal_(m ? m.dataset.month : "");
+}
+["pointerdown", "mousedown", "touchstart", "click"].forEach((type) => document.getElementById("noacct-card").addEventListener(type, (ev) => {
+  if (type !== "click" && !(ev.target.closest && ev.target.closest("select"))) return;   // a list opens on the press; Save acts on the click
+  noAcctTapAsk_(ev);
+}, { capture: true, passive: false }));
+// The idle offer, only while entries with no category are not being offered (owner: categories first, never two offers at once).
+function watchNoAcctIdle_() {
+  if (!meta || perfIsOwnerCopy_() || isTaught_("noacct") || !realChanceLeft_("noacct", true) || !noAcctCardShown_()) return;
+  const catsWaiting = tidyGroups_.length && !isTaught_("tidy") && realChanceLeft_("tidy", true) && !popGet_(IDLE_SEEN_KEY_, []).includes("tidy");
+  if (catsWaiting) return;
+  idleOffer_({
+    key: "noacct",
+    wanted: () => !document.getElementById("screen-tidy").hidden && !isTaught_("noacct") && noAcctCardShown_(),
+    target: () => { const m = document.querySelector("#noacct-list .noacct-month"); return m ? m.querySelector(".tidy-group-top") || m : null; },
+    start: () => startNoAcctReal_()
+  });
+}
+function startNoAcctReal_(startMonth) {
+  let started = false, month = "";
+  const box = () => (month ? document.querySelector(`#noacct-list .noacct-month[data-month="${CSS.escape(month)}"]`) : null);
+  const part = (sel) => () => { const b = box(); return b ? b.querySelector(sel) : null; };
+  const rows = () => { const b = box(); return b ? b.querySelectorAll(".noacct-row").length : 0; };
+  const picked = () => noAcctPicked_.size > 0;
+  const cardLeft = () => noAcctCardShown_();
+  noAcctLastSave_ = null;
+  const steps = [
+    { key: "intro", text: () => tr("rt.noacct.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("noacct", "real"); } },
+    { target: part(".tidy-group-top"), text: () => tr("rt.noacct.month"), button: realNext_,
+      before: async () => {   // the month the person tapped, else the newest
+        const all = Array.from(document.querySelectorAll("#noacct-list .noacct-month"));
+        const b = all.find((x) => startMonth && x.dataset.month === startMonth) || all[0];
+        month = b ? b.dataset.month : ""; return !!month; } },
+    { target: part(".noacct-month-select"), text: () => tr("rt.noacct.allMonth"), button: realNext_, before: async () => rows() >= 2 },
+    { key: "pick", target: part(".tidy-samples"), text: (fix) => tr(fix ? "rt.noacct.pickFix" : rows() >= 2 ? "rt.noacct.pick" : "rt.noacct.pickOne"),
+      visit: "#noacct-list select", button: realNext_, ok: picked, holdsUntil: "save" },
+    { key: "save", target: "#noacct-save", text: () => tr("rt.noacct.save"), until: () => !!noAcctLastSave_ },
+    { keep: true, text: () => tr("rt.notSaved"), button: () => tr("spot.g.done"), before: async () => realSaveFailed_() },
+    { keep: true, text: () => tr("rt.noacct.doneAll"), button: () => tr("spot.g.done"), before: async () => !realSaveFailed_() && !cardLeft() },
+    { keep: true, look: true, target: "#noacct-card", text: () => tr("rt.noacct.rest") + (realShown_("noacct-more") ? " " + tr("rt.noacct.more") : ""), button: () => tr("spot.g.done"),
+      before: async () => !realSaveFailed_() && cardLeft() }
+  ];
+  guided_ = { savedId: "", split: null };
+  Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
+    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("noacct"); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
+}
+
+// ---- First-use practice: Tidy my history (owner's design, 2026-11-03; REMOVED 2026-11-12, the real tutorial teaches it) ----
+// Only its cleanup stays: a phone that was closed in the middle of the practice still holds made-up entries to delete.
 // Offered on More → My data → Tidy my history. Tidy lists only entries WITHOUT a category, so the practice first adds three made-up
 // ones ("Practice coffee shop", one server call: createPracticeTidy; the list is asked to show that group first, `pinPractice`), then the
 // person looks at the group, shows its lines, picks a category once and taps the real Apply (applyTidyGroups, undoable as always).
@@ -14891,65 +14986,8 @@ function practiceYSave_() {
   try { if (practiceY_) localStorage.setItem(PRACTICE_Y_KEY_, JSON.stringify(practiceY_)); else localStorage.removeItem(PRACTICE_Y_KEY_); } catch (e) { /* ignore */ }
 }
 
-function offerTidyTip_() {
-  const caps = (meta && meta.capabilities) || {};
-  if (!caps.practiceTidy) return;   // an older backend could not make the practice entries or clean them up
-  if (!(meta.categories || []).some((c) => c.type === "expense")) return;   // nothing to pick from
-  offerTip_("tidy", "tidy-tip-invite", tr("spot.y.invite"), startTidyPractice_);
-}
-
 // The practice's own group in the list the phone holds (the server marks it), and its box on screen.
 function practiceYGroup_() { return tidyGroups_.find((g) => g.practice) || null; }
-function practiceYBox_() {
-  const g = practiceYGroup_();
-  return g ? Array.from(document.querySelectorAll("#tidy-list .tidy-group")).find((b) => b.dataset.key === g.key) || null : null;
-}
-
-function practiceYSteps_() {
-  const part = (sel) => () => { const b = practiceYBox_(); return b ? b.querySelector(sel) : null; };
-  const picked = () => { const s = practiceYBox_() && practiceYBox_().querySelector(".tidy-select"); return !!s && !!s.value; };
-  return [
-    { key: "intro", text: () => tr("spot.y.intro"), button: () => tr("spot.y.start") },
-    { target: part(".tidy-lines"), text: () => tr("spot.y.s2"), wait: 30000,
-      before: async () => {
-        if (!(await practiceYMake_())) return false;
-      },
-      until: () => { const b = practiceYBox_(); return !!b && !b.querySelector(".tidy-samples").hidden; } },
-    { key: "pick", target: part(".tidy-select"), text: (fix) => tr(fix ? "spot.y.s3fix" : "spot.y.s3"), until: picked, ok: picked, holdsUntil: "apply" },
-    { key: "apply", target: part(".tidy-apply"), text: () => tr("spot.y.s4"), until: () => !!(practiceY_ && practiceY_.applied) },
-    { text: () => tr("spot.y.s5"), button: () => tr("spot.y.finish") }
-  ];
-}
-
-// Adds the three practice entries and shows the list with their group first. False = it could not (the practice stops, the usual cleanup runs).
-async function practiceYMake_() {
-  practiceY_.made = true;   // (marked BEFORE the call: if the app is closed in the middle, the cleanup is simply a harmless no-op)
-  practiceYSave_();
-  try {
-    await callApi("createPracticeTidy", { lang: I18n.getLang() });
-    await loadTidy_();
-    refreshEntryList().catch(() => {});
-    return true;
-  } catch (err) {
-    alert(tr("spot.y.createFailed", { error: err.message || String(err) }));
-    Spotlight.stop("skipped");
-    return false;
-  }
-}
-
-function startTidyPractice_() {
-  if (practiceYRemoving_) { showToast_(tr("spot.y.stillRemoving")); return false; }
-  const open = ["exchange-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop", "currency-modal-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
-  if (open || newEntrySheetOpen_) { showToast_(tr("spot.x.busy")); return false; }
-  practiceY_ = { made: false, applied: false, startedOn: todayLocalISO() };
-  practiceYSave_();
-  runTip_(practiceYSteps_(), async () => {
-    dropUndoKind_("practice-tidy");
-    showToast_(tr("spot.y.removing"));
-    practiceYRemove_().then((ok) => { if (ok) showToast_(tr("spot.y.removed")); });
-  }, tr("spot.y.note"));
-  return true;
-}
 
 async function practiceYRemove_() {
   if (practiceYRemoving_) return false;
@@ -21857,7 +21895,7 @@ async function afterProjectionMethodChange_() {
   if (reopen) reopen();
 }
 
-document.getElementById("projections-method-btn").addEventListener("click", () => openProjectionMethodModal_({}));
+document.getElementById("projections-method-btn").addEventListener("click", () => { popSet_(PROJ_METHOD_USED_KEY_, true); openProjectionMethodModal_({}); });
 document.getElementById("drilldown-projection-method-btn").addEventListener("click", () => {
   if (!drilldownProjection) return;
   openProjectionMethodModal_({ categoryId: drilldownProjection.category_id, categoryName: drilldownProjection.category_name });
@@ -22497,7 +22535,7 @@ function popTipWatch_(tip) {
     tip = Object.assign({}, tip, { at: popGet_(POP_SERIES_KEY_, {})[tip.key] || 0 });
     if (tip.at >= tip.steps.length) return;
   }
-  if (!tip.help && !tip.own && !tip.cont) {
+  if (!tip.help && !tip.own && !tip.cont && !tip.remind) {   // (kind C, a reminder, decides its own moment; it keeps the one-a-day limit)
     if (popDaysUsed_() < (POP_LEVEL_DAYS_[tip.level || "super"] ?? POP_SUPER_DAYS_)) return;   // not before the person had time with the basics
     if (!popGet_(POP_AGAIN_KEY_, false) && (popGet_(POP_VISITS_KEY_, {})[tip.place] || 0) < POP_TIP_VISIT_) return;
   }
@@ -22562,6 +22600,14 @@ function popSeriesDone_(tip) {
   popSet_(POP_SERIES_KEY_, s);
   if (tip.at >= tip.steps.length) popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).concat(tip.key));
 }
+// A heading spans the whole width: point at its words, not at the middle of the line (owner's walk, 2026-11-12: "These days…").
+function popTargetRect_(el) {
+  if (!/^H[1-6]$/.test(el.tagName)) return el.getBoundingClientRect();
+  const r = document.createRange();
+  r.selectNodeContents(el);
+  const t = r.getBoundingClientRect();
+  return t.width > 0 ? t : el.getBoundingClientRect();
+}
 function popTipShow_(tip, el) {
   if (tip.steps) { tip = Object.assign({}, tip, { at: tip.at + 1 }); popSeriesDone_(tip); tip.at--; tip.text = tip.steps[tip.at].text; }   // this part counts as seen
   else if (!tip.offer) popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).concat(tip.key));   // shown = seen, however it is closed (an offer keeps its own count: realChanceLeft_)
@@ -22573,7 +22619,7 @@ function popTipShow_(tip, el) {
   document.body.appendChild(b);
   const place = () => {
     if (!el.isConnected || !el.getClientRects().length) { close(); return; }
-    const pos = Spotlight.placeBubble(el.getBoundingClientRect(), { w: window.innerWidth, h: window.visualViewport ? window.visualViewport.height : window.innerHeight }, { w: b.offsetWidth, h: b.offsetHeight });
+    const pos = Spotlight.placeBubble(popTargetRect_(el), { w: window.innerWidth, h: window.visualViewport ? window.visualViewport.height : window.innerHeight }, { w: b.offsetWidth, h: b.offsetHeight });
     b.style.top = pos.top + "px";
     b.style.left = pos.left + "px";
     b.dataset.side = pos.side;
@@ -22717,12 +22763,19 @@ function watchProfileTip_() {
 }
 // "These days…" (kind A): the first time What fits me is opened in My profile (never on the welcome). Worded by whether something is picked.
 function watchTheseDaysTip_() {
-  const box = document.getElementById("fits-occupation");
+  const occ = document.getElementById("fits-occupation"), body = document.getElementById("fits-body");
   const picked = fitsOcc_.list.length > 0;
+  const head = (n) => (body.hidden ? null : document.querySelectorAll("#fits-chips > h3")[n] || null);   // the group headings: each group is taller than a screen
   popTipWatch_({
-    key: "theseDays", place: "myProfile", own: true, text: tr(picked ? "pop.theseDays.change" : "pop.theseDays.choose"),
-    target: () => (box.hidden || document.getElementById("fits-body").hidden ? null : box.querySelector("h3") || box),   // the heading: the whole group is taller than a screen
-    stillWanted: () => !document.getElementById("screen-my-profile").hidden && !document.getElementById("fits-body").hidden
+    key: "fitsGroups", place: "myProfile", own: true,
+    steps: [
+      // (it was its own bubble in 1.88.0: not shown twice)
+      { target: () => (occ.hidden || body.hidden ? null : occ.querySelector("h3") || occ), text: tr(picked ? "pop.theseDays.change" : "pop.theseDays.choose"),
+        when: () => !occ.hidden && !popGet_(POP_SEEN_KEY_, []).includes("theseDays") },
+      { target: () => head(0), text: tr("pop.fits.resp") },
+      { target: () => head(1), text: tr("pop.fits.life") }
+    ],
+    stillWanted: () => !document.getElementById("screen-my-profile").hidden && !body.hidden
   });
 }
 // The Spending pace screen (kind A, first opening): how to change the view.
@@ -22733,10 +22786,84 @@ function watchPaceTip_() {
     steps: [
       { target: () => document.getElementById("pace-s-blue"), text: tr("pop.pace.blue") },
       { target: () => document.getElementById("pace-s-grey"), text: tr("pop.pace.grey") },
-      { target: () => document.getElementById("pace-s-cats"), text: tr("pop.pace.cats"), when: () => !document.getElementById("pace-s-cats-field").hidden },
-      { target: () => back.querySelector("#pace-s-content > p.hint"), text: tr("pop.pace.kept") }
+      { target: () => document.getElementById("pace-s-cats"), text: tr("pop.pace.cats"), when: () => !document.getElementById("pace-s-cats-field").hidden }
     ],
     stillWanted: () => !back.hidden && !document.getElementById("pace-s-content").hidden
+  });
+}
+// Its last part waits for the person to change the view: only then is the Reset button on screen to point at (owner's walk, 2026-11-12).
+let paceJustChanged_ = false;
+function watchPaceKeptTip_() {
+  const changed = paceJustChanged_;
+  paceJustChanged_ = false;
+  const reset = document.getElementById("pace-s-reset"), back = document.getElementById("pace-screen-backdrop");
+  if (!changed || reset.hidden) return;
+  if (!popGet_(POP_SEEN_KEY_, []).includes("pace") && (popGet_(POP_SERIES_KEY_, {}).pace || 0) < 3) return;   // after the rest of the series
+  popTipWatch_({
+    key: "paceKept", place: "paceScreen", own: true, text: tr("pop.pace.kept"),
+    target: () => (reset.hidden ? null : reset),
+    stillWanted: () => !back.hidden && !reset.hidden
+  });
+}
+// ---- Bubbles, batch B (owner's plan 2026-11-11) ----
+// Projections' method button (kind C, a reminder): 14 days after this phone first saw 6 complete months of data, only if the button was never tapped.
+const PROJ_UNLOCK_KEY_ = "projUnlockedOn", PROJ_METHOD_USED_KEY_ = "projMethodUsed", PROJ_REMIND_DAYS_ = 14;
+async function watchProjMethodTip_() {
+  if (popGet_(PROJ_METHOD_USED_KEY_, false) || popGet_(POP_SEEN_KEY_, []).includes("projMethod")) return;
+  let on = popGet_(PROJ_UNLOCK_KEY_, "");
+  if (!on) {
+    let months = 0;
+    try { months = await completeMonthsWithData_(); } catch (err) { return; }
+    if (months < PROJECTIONS_MIN_MONTHS_) return;
+    on = todayLocalISO();
+    popSet_(PROJ_UNLOCK_KEY_, on);
+  }
+  if (realDaysSince_(on) < PROJ_REMIND_DAYS_ || document.getElementById("screen-projections").hidden) return;
+  const btn = document.getElementById("projections-method-btn");
+  popTipWatch_({
+    key: "projMethod", place: "projections", remind: true, text: tr("pop.projMethod"),
+    target: () => (btn.hidden || !btn.textContent.trim() ? null : btn),
+    stillWanted: () => !document.getElementById("screen-projections").hidden && !popGet_(PROJ_METHOD_USED_KEY_, false),
+    ready: () => document.getElementById("projections-tip-invite").hidden   // the practice card wins
+  });
+}
+// Tidy my history (kind A): the first opening that does not come from an upload (that one has the real tutorial), on the first group.
+// After 20 idle seconds the real tutorial is offered on the person's own groups. Neither once Tidy was taught (rule 1: the tutorial comes first).
+function watchTidyTip_(fromUpload) {
+  if (fromUpload || !tidyGroups_.length || isTaught_("tidy")) return;
+  const first = () => document.querySelector("#tidy-list .tidy-group");
+  popTipWatch_({
+    key: "tidy", place: "tidy", own: true, text: tr("pop.tidy"),
+    target: () => { const b = first(); return b ? b.querySelector(".tidy-group-top") || b : null; },
+    stillWanted: () => !document.getElementById("screen-tidy").hidden && !Spotlight.isRunning()
+  });
+  if (meta && !perfIsOwnerCopy_() && realChanceLeft_("tidy", true)) idleOffer_({
+    key: "tidy",
+    wanted: () => !document.getElementById("screen-tidy").hidden && !isTaught_("tidy") && !!first(),
+    target: () => { const b = first(); return b ? b.querySelector(".tidy-group-top") || b : null; },
+    start: () => startTidyReal_()
+  });
+}
+// A bank loan's schedule (kind A): "Early payment".
+function watchEarlyPayTip_() {
+  const btn = document.getElementById("bank-schedule-early");
+  popTipWatch_({
+    key: "earlyPay", place: "bankSchedule", own: true, text: tr("pop.earlyPay"),
+    target: () => (btn.hidden ? null : btn),
+    stillWanted: () => !document.getElementById("bank-schedule-modal-backdrop").hidden
+  });
+}
+// More → Currencies (kind A): adding a rate, then a currency's history.
+function watchCurrenciesTip_() {
+  const screen = document.getElementById("screen-exchange-rates");
+  if (screen.hidden) return;
+  popTipWatch_({
+    key: "currencies", place: "currencies", own: true,
+    steps: [
+      { target: () => document.getElementById("rates-add-btn"), text: tr("pop.cur.add") },
+      { target: () => screen.querySelector(".rates-group-head"), text: tr("pop.cur.history"), when: () => !!screen.querySelector(".rates-group-head") }
+    ],
+    stillWanted: () => !screen.hidden
   });
 }
 // The loan form (a new loan): "This debt is from before I started using the app".
@@ -23341,6 +23468,7 @@ function keepTaughtPending_() {
 function realAgain_() { return !!popGet_(REAL_AGAIN_KEY_, false); }   // More → Practice tips: run them even for someone who already uses the feature
 function realTutorialsReset_() {
   popSet_(TAUGHT_KEY_, {}); popSet_(TAUGHT_OLD_KEY_, []); popSet_(FIELDS_KEY_, []); popSet_(CHANCES_KEY_, {}); popSet_(REVIEW_TYPES_KEY_, []); popSet_(IDLE_SEEN_KEY_, []);
+  popSet_(TIDY_TAP_ASKED_KEY_, false); popSet_(NOACCT_TAP_ASKED_KEY_, false);
   popSet_(REAL_AGAIN_KEY_, true);
   reviewRealDone_ = false;
 }
@@ -23844,7 +23972,7 @@ function watchReviewHint_() {
 
 // "Idle too long" (owner's plan, 2026-11-09): 20 seconds with no tap, typing or scrolling while the screen is showing, nothing is loading and the file chooser is shut.
 // Time in the background does not count. A bubble then offers the walkthrough; it never starts by itself. Once per screen, per phone (More → Practice tips brings it back).
-const IDLE_SECONDS_ = 20, IDLE_SEEN_KEY_ = "tutorialIdleSeen";
+const IDLE_SECONDS_ = 7, IDLE_SEEN_KEY_ = "tutorialIdleSeen";
 let idleTip_ = null, idleCount_ = 0, idleTimer_ = null, idleChooser_ = false;
 // tip: { key, wanted() → false stops watching, target() → what the bubble points at, start() }
 function idleOffer_(tip) {
@@ -27189,6 +27317,7 @@ async function openBankSchedule_(loanId, friend) {
   document.getElementById("bank-schedule-early").hidden = !(sched.remaining_principal > 0.004);
   loadingEl.hidden = true;
   contentEl.hidden = false;
+  watchEarlyPayTip_();
 }
 
 document.getElementById("bank-schedule-close").addEventListener("click", () => { document.getElementById("bank-schedule-modal-backdrop").hidden = true; });

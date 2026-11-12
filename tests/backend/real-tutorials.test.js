@@ -127,7 +127,7 @@ test("conversions are not offered to people already using Needs review, nor on t
 
 test("a help bubble skips the 3 visits, the month and the one-a-day limit; the others keep them", () => {
   const watch = section("function popTipWatch_(", "// The moment the field scrolls into view");
-  assert.match(watch, /if \(!tip\.help && !tip\.own && !tip\.cont\) \{/);
+  assert.match(watch, /if \(!tip\.help && !tip\.own && !tip\.cont && !tip\.remind\) \{/);
   assert.match(watch, /popDaysUsed_\(\) < \(POP_LEVEL_DAYS_\[tip\.level \|\| "super"\]/);
   assert.match(watch, /!popGet_\(POP_AGAIN_KEY_, false\) && \(popGet_\(POP_VISITS_KEY_/);
   assert.match(app, /if \(!tip\.help && !tip\.own && !tip\.cont && !popDayAllows_\(tip\.key\)\)/);
@@ -145,12 +145,33 @@ test("bubble rules (owner, 2026-11-11): waits by level, kind A on the first visi
   assert.match(a, /key: "homeEdit", place: "home", level: "medium"/);
   assert.match(a, /lastRenderedEntries_ \|\| \[\]\)\.length < 10/);
   assert.match(a, /key: "profile", place: "myProfile", own: true/);
-  assert.match(a, /key: "theseDays", place: "myProfile", own: true/);
+  assert.match(a, /key: "fitsGroups", place: "myProfile", own: true/);
   assert.match(a, /key: "pace", place: "paceScreen", own: true/);
   // These days… only from My profile's What fits me (never the welcome); the pace bubbles only on its own screen
   assert.match(app, /if \(opening\) watchTheseDaysTip_\(\)/);
   assert.match(section("async function renderPaceScreen_()", "function fillPaceControls_("), /watchPaceTip_\(\)/);
-  for (const k of ["pop.ov.flows", "pop.ov.invLoans", "pop.ov.pendingHere", "pop.ov.pending", "pop.homeEdit", "pop.prof.names", "pop.prof.fits", "pop.prof.dates", "pop.prof.devices", "pop.theseDays.change", "pop.theseDays.choose", "pop.pace.blue", "pop.pace.grey", "pop.pace.cats", "pop.pace.kept"]) {
+  for (const k of ["pop.ov.flows", "pop.ov.invLoans", "pop.ov.pendingHere", "pop.ov.pending", "pop.homeEdit", "pop.prof.names", "pop.prof.fits", "pop.prof.dates", "pop.prof.devices", "pop.theseDays.change", "pop.theseDays.choose", "pop.fits.resp", "pop.fits.life", "pop.pace.blue", "pop.pace.grey", "pop.pace.cats", "pop.pace.kept"]) {
+    assert.match(stringsText, new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: "[^"]+", es: "[^"]+" \\}'), k);
+  }
+});
+
+test("bubbles batch B: Projections reminder, Tidy (bubble, idle offer, practice as the nudge), early payment, Currencies", () => {
+  const b = section("// ---- Bubbles, batch B", "// The loan form (a new loan)");
+  assert.match(b, /PROJ_REMIND_DAYS_ = 14/);
+  assert.match(b, /key: "projMethod", place: "projections", remind: true/);
+  assert.match(b, /months < PROJECTIONS_MIN_MONTHS_\) return;/);
+  assert.match(app, /popSet_\(PROJ_METHOD_USED_KEY_, true\); openProjectionMethodModal_/);
+  assert.match(app, /!tip\.help && !tip\.own && !tip\.cont && !tip\.remind\)/);
+  // Tidy: not after an upload (the real tutorial is there), not once taught; idle offers the real tutorial
+  assert.match(b, /if \(fromUpload \|\| !tidyGroups_\.length \|\| isTaught_\("tidy"\)\) return;/);
+  assert.match(b, /key: "tidy", place: "tidy", own: true/);
+  assert.match(b, /idleOffer_\(\{\s*key: "tidy"/);
+  assert.match(b, /startTidyReal_\(\)/);
+  assert.match(section("async function showTidyScreen()", "async function loadTidy_()"), /const fromUpload = tidyFromUpload_;[\s\S]*watchTidyTip_\(fromUpload\)/);
+  assert.doesNotMatch(app, /const REAL_FIRST_ = \[[^\]]*"tidy"/);   // (its practice was removed 2026-11-12: no two-week nudge)
+  assert.match(b, /key: "earlyPay", place: "bankSchedule", own: true/);
+  assert.match(b, /key: "currencies", place: "currencies", own: true/);
+  for (const k of ["pop.projMethod", "pop.tidy", "pop.earlyPay", "pop.cur.add", "pop.cur.history"]) {
     assert.match(stringsText, new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: "[^"]+", es: "[^"]+" \\}'), k);
   }
 });
@@ -233,7 +254,7 @@ test("Needs review's tutorial waits for the person to open the closed row", () =
 
 test("step 5: bank loan, statements and import tutorials, the idle offer, Export without a card", () => {
   assert.match(app, /startFormGuide_\("loans-bank", bankLoanHeld_, "bank-loan-modal-backdrop", "bank-save", "rt\.bank\.intro", bankGuideSteps_\)/);
-  assert.match(app, /const IDLE_SECONDS_ = 20/);
+  assert.match(app, /const IDLE_SECONDS_ = 7/);
   assert.match(app, /function idleTick_[\s\S]*?document\.hidden \|\| idleChooser_ \|\| perfInflight_ > 0/);
   const stm = fs.readFileSync(path.join(__dirname, "../../docs/statements.js"), "utf8");
   const strs = fs.readFileSync(path.join(__dirname, "../../docs/strings.js"), "utf8");
@@ -253,4 +274,19 @@ test("step 5b: no tutorial says Saved for a refused save or a window closed with
   assert.match(app, /offerTidyReal_\(\);/);
   const strs = fs.readFileSync(path.join(__dirname, "../../docs/strings.js"), "utf8");
   for (const k of [...(app + stm).matchAll(/"(rt\.(?:tidy|form|entry|notSaved|closedNoSave)[A-Za-z.]*)"/g)].map((m) => m[1])) assert.match(strs, new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: ".+", es: ".+" \\}'), k);
+});
+
+test("Entries with no account: a real tutorial on Tidy (first tap, idle after categories), and the whole-month list can be changed", () => {
+  const t = section("// ---- Real tutorial: Entries with no account", "// ---- First-use practice: Tidy my history");
+  assert.match(t, /isTaught_\("noacct"\)/);
+  assert.match(t, /if \(catsWaiting\) return;/);   // entries with no category come first: never two idle offers
+  assert.match(t, /key: "pick"[^\n]*\n[^\n]*ok: picked, holdsUntil: "save"/);
+  assert.match(t, /key: "save", target: "#noacct-save"/);
+  assert.match(app, /watchTidyTip_\(fromUpload\);\s*watchNoAcctIdle_\(\);/);
+  // the whole-month list replaces earlier picks (owner, 2026-11-12)
+  const m = section("// One account for every entry of that month", "all.value = \"\";");
+  assert.ok(!/if \(sel\.value \|\|/.test(m));
+  for (const k of ["intro", "month", "allMonth", "pick", "pickOne", "pickFix", "save", "doneAll", "rest", "more"]) {
+    assert.match(stringsText, new RegExp(`"rt\\.noacct\\.${k}": \\{ en: "[^"]+", es: "[^"]+" \\}`), k);
+  }
 });
