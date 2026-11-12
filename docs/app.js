@@ -28203,7 +28203,7 @@ function updateChargeRate_() {
   const say = (x) => (Number(x.v) > 0 ? formatAmount(Number(x.v), x.c) : `${x.c} ?`);
   let text = tr(mode.pm.type === "credit" ? "charge.sentenceCard" : "charge.sentenceAccount", { listed: say(listed), charged: say(charged) });
   const rate = chargeRatePart_(listed.v, listed.c, charged.v, charged.c);
-  text += rate ? ` (${rate})` : " " + tr("charge.fillBoth");
+  text = rate ? text.replace(/\.$/, "") + ` (${rate}).` : text + " " + tr("charge.fillBoth");
   el.textContent = text;
   el.hidden = false;
 }
