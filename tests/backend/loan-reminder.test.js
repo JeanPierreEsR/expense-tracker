@@ -41,8 +41,7 @@ test("what I owe them is taken off; a currency where I owe more is left out; not
   const text = R.build({ name: "Bo", today: "2026-11-02", loans });
   assert.match(text, /^Hola Bo 👋/);
   assert.ok(text.includes("• Cine (30 dic 2025): S/ 100.00"), "another year shows the year");
-  assert.ok(text.includes("En total me debes S/ 70.00."));
-  assert.ok(text.includes("Ya está descontado lo que yo te debo"));
+  assert.ok(text.includes("En total me debes S/ 70.00 (ya descontado lo que yo te debo)."));
   assert.ok(!text.includes("Taxi") && !text.includes("US$"), "USD: I owe more, so it is not mentioned");
   assert.equal(R.canRemind(loans), true);
   assert.equal(R.canRemind([loan({ direction: "i_owe_them", currency: "PEN", remaining: 5 })]), false);
@@ -58,6 +57,57 @@ test("at most five debts are listed, then '… and N more'", () => {
   assert.ok(text.includes("• Item 7 (Oct 8)"), "newest first");
   assert.ok(text.includes("… and 3 more"));
   assert.ok(text.includes("In total you owe me S/ 8.00."));
+});
+
+test("the message can be written in the other language without changing the app's", () => {
+  I18n.setLang("en");
+  const loans = [loan({ direction: "they_owe_me", currency: "PEN", remaining: 85, description: "Cena", date: "2026-10-12" })];
+  const es = R.build({ name: "Ana Test", today: "2026-11-02", loans, lang: "es" });
+  assert.match(es, /^Hola Ana 👋/);
+  assert.ok(es.includes("• Cena (12 oct): S/ 85.00"), "Spanish dates too");
+  assert.ok(es.includes("En total me debes S/ 85.00."));
+  assert.equal(I18n.getLang(), "en", "the app stays in English");
+  assert.match(R.build({ name: "Ana", today: "2026-11-02", loans }), /^Hi Ana/);
+});
+
+test("the person's own template: tags in either language, filled in for each friend", () => {
+  I18n.setLang("en");
+  assert.equal(R.toEditable(R.defaultTemplate("es"), "es").includes("[Lista]"), true);
+  assert.equal(R.fromEditable(R.toEditable(R.defaultTemplate("en"), "en")), R.defaultTemplate("en"), "round trip");
+  const tpl = R.fromEditable("Oye [nombre], son [ Amount ] en total:\n[LIST]\nYapéame al 900 000 000 🙏");
+  assert.equal(tpl, "Oye {name}, son {amount} en total:\n{list}\nYapéame al 900 000 000 🙏");
+  const loans = [
+    loan({ direction: "they_owe_me", currency: "PEN", remaining: 30, description: "Pizza", date: "2026-10-20" }),
+    loan({ direction: "i_owe_them", currency: "PEN", remaining: 10 })
+  ];
+  const text = R.build({ name: "Bo Test", today: "2026-11-02", loans, lang: "es", template: tpl });
+  assert.equal(text, "Oye Bo, son S/ 20.00 (ya descontado lo que yo te debo) en total:\n• Pizza (20 oct): S/ 30.00\nYapéame al 900 000 000 🙏");
+  assert.match(R.build({ name: "Bo", today: "2026-11-02", loans, template: "  " }), /^Hi Bo/, "an empty template is the app's");
+});
+
+test("setFriendRemind keeps the number and the language; setReminderTemplate keeps one wording per language", () => {
+  const rt = freshApp({ entries: 30 }).rt;
+  assert.equal(rt.api("getMeta", {}).capabilities.remindTemplate, true);
+  const ana = rt.api("addFriend", { name: "Ana Test" });
+  let res = rt.api("setFriendRemind", { id: ana.id, lang: "es" });
+  assert.equal(res.remind_lang, "es");
+  assert.equal(res.phone, "");
+  res = rt.api("setFriendRemind", { id: ana.id, phone: "+51 987 654 321" });
+  assert.deepEqual([res.phone, res.remind_lang], ["+51987654321", "es"], "a field not sent is kept");
+  const f = rt.api("getMeta", {}).friends.find((x) => x.id === ana.id);
+  assert.deepEqual([f.phone, f.remind_lang], ["+51987654321", "es"], "the app's friends list carries both at once");
+  assert.throws(() => rt.api("setFriendRemind", { id: ana.id, lang: "fr" }), /language/);
+  assert.throws(() => rt.api("setFriendRemind", { id: ana.id, phone: "12", lang: "en" }), /doesn't look right/);
+  assert.equal(rt.rows("Friends").find((x) => x.id === ana.id).remind_lang, "es", "a refused call changes nothing");
+  assert.throws(() => rt.api("setFriendRemind", { id: "nope", lang: "en" }), /not found/i);
+
+  rt.api("setReminderTemplate", { lang: "es", text: "Hola {name}, me debes {amount}." });
+  assert.equal(rt.api("getMeta", {}).settings.remind_template_es, "Hola {name}, me debes {amount}.");
+  assert.throws(() => rt.api("setReminderTemplate", { lang: "es", text: "Hola {name}" }), /\[List\]/);
+  assert.throws(() => rt.api("setReminderTemplate", { lang: "de", text: "{list}" }), /language/);
+  assert.throws(() => rt.api("setReminderTemplate", { lang: "en", text: "{list}" + "x".repeat(2000) }), /too long/);
+  rt.api("setReminderTemplate", { lang: "es", text: "" });
+  assert.equal(rt.api("getMeta", {}).settings.remind_template_es, "", "empty = back to the app's wording");
 });
 
 test("the WhatsApp link carries the edited text and the number as digits", () => {

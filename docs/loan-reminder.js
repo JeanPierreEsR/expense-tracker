@@ -3,7 +3,8 @@
 //
 // Only what the friend owes the owner is mentioned, per currency, never converted (CLAUDE.md principle 5). A currency where
 // the owner owes MORE than the friend does is left out entirely; where the owner owes a part, the total is the net and the
-// message says it already takes that off. The newest debts are listed first, at most MAX_ITEMS of them.
+// message says it already takes that off. The newest debts are listed first, at most MAX_ITEMS of them. The message can be
+// written in either language whatever the app's own, and from the person's own template (specs/loans.md § Reminders).
 (function (root) {
   "use strict";
   const node = typeof module !== "undefined" && module.exports;
@@ -52,29 +53,61 @@
     return i18n().fmtMonthDay(d, String(iso).slice(0, 4) !== String(today).slice(0, 4));
   }
 
-  // { name, loans (getFriendLoanDetail rows), today: "yyyy-MM-dd" } → the message text, in the app's current language.
-  function build({ name, loans, today }) {
-    const owed = owedByCurrency(loans);
-    const currencies = Object.keys(owed).sort();
-    if (!currencies.length) return "";
-    const items = loans
-      .filter((l) => isOpen(l) && l.direction === "they_owe_me" && owed[l.currency])
-      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
-    const lines = [tr("remind.msg.hello", { name: firstName(name) }), ""];
-    items.slice(0, MAX_ITEMS).forEach((l) => {
-      const desc = String(l.description || "").trim() || tr(l.origin === "entry" ? "remind.msg.sharedExpense" : "remind.msg.loan");
-      const date = itemDate(l.date, today);
-      lines.push(tr("remind.msg.item", { desc: date ? `${desc} (${date})` : desc, amount: money(l.remaining, l.currency) }));
+  const LANGS = ["en", "es"];
+  const TAGS = ["name", "list", "amount"];
+
+  // Runs fn with the texts and dates of `lang` (the message may be in another language than the app), then puts the app's back.
+  function inLang(lang, fn) {
+    const I = i18n();
+    const before = I.getLang();
+    if (!lang || LANGS.indexOf(lang) === -1 || lang === before) return fn();
+    I.setLang(lang);
+    try { return fn(); } finally { I.setLang(before); }
+  }
+
+  // The app's own wording, with {name}, {list} and {amount} where the friend's details go.
+  function defaultTemplate(lang) {
+    return inLang(lang, () => tr("remind.tpl.default"));
+  }
+
+  // Stored form ({list}) ↔ what the person reads and edits ([List] / [Lista]). Either language's tag is understood when saving.
+  function toEditable(template, lang) {
+    return inLang(lang, () => String(template).replace(/\{(name|list|amount)\}/g, (w, k) => "[" + tr("remind.tag." + k) + "]"));
+  }
+  function fromEditable(text) {
+    let out = String(text || "").replace(/\r\n?/g, "\n").trim();
+    TAGS.forEach((k) => LANGS.forEach((l) => {
+      const label = inLang(l, () => tr("remind.tag." + k));
+      out = out.replace(new RegExp("\\[\\s*" + label + "\\s*\\]", "gi"), "{" + k + "}");
+    }));
+    return out;
+  }
+  function tagLabel(k, lang) { return "[" + inLang(lang, () => tr("remind.tag." + k)) + "]"; }
+
+  // { name, loans (getFriendLoanDetail rows), today: "yyyy-MM-dd", lang?, template? } → the message text, in `lang` (the app's
+  // language when not given), from the person's own template when there is one (stored form, see fromEditable).
+  function build({ name, loans, today, lang, template }) {
+    return inLang(lang, () => {
+      const owed = owedByCurrency(loans);
+      const currencies = Object.keys(owed).sort();
+      if (!currencies.length) return "";
+      const items = loans
+        .filter((l) => isOpen(l) && l.direction === "they_owe_me" && owed[l.currency])
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      const lines = [];
+      items.slice(0, MAX_ITEMS).forEach((l) => {
+        const desc = String(l.description || "").trim() || tr(l.origin === "entry" ? "remind.msg.sharedExpense" : "remind.msg.loan");
+        const date = itemDate(l.date, today);
+        lines.push(tr("remind.msg.item", { desc: date ? `${desc} (${date})` : desc, amount: money(l.remaining, l.currency) }));
+      });
+      if (items.length > MAX_ITEMS) lines.push(tr("remind.msg.more", { n: items.length - MAX_ITEMS }));
+      const amounts = currencies.map((cur) => money(owed[cur].net, cur));
+      let amount = amounts.length > 1 ? amounts.slice(0, -1).join(", ") + tr("remind.msg.and") + amounts[amounts.length - 1] : amounts[0];
+      if (currencies.some((cur) => owed[cur].mine > 0.004)) amount += tr("remind.msg.afterMine");
+      const values = { name: firstName(name), list: lines.join("\n"), amount };
+      const tpl = String(template || "").trim() || tr("remind.tpl.default");
+      return tpl.replace(/\{(name|list|amount)\}/g, (w, k) => values[k]);
     });
-    if (items.length > MAX_ITEMS) lines.push(tr("remind.msg.more", { n: items.length - MAX_ITEMS }));
-    const amounts = currencies.map((cur) => money(owed[cur].net, cur));
-    const joined = amounts.length > 1 ? amounts.slice(0, -1).join(", ") + tr("remind.msg.and") + amounts[amounts.length - 1] : amounts[0];
-    lines.push("");
-    lines.push(tr("remind.msg.total", { amounts: joined }));
-    if (currencies.some((cur) => owed[cur].mine > 0.004)) lines.push(tr("remind.msg.afterMine"));
-    lines.push("");
-    lines.push(tr("remind.msg.thanks"));
-    return lines.join("\n");
   }
 
   // The number as WhatsApp wants it in a link: digits only, country code first. "" when there is none.
@@ -94,7 +127,7 @@
     return `https://wa.me/${d}?text=${t}`;
   }
 
-  const api = { build, canRemind, owedByCurrency, phoneDigits, phoneOk, whatsappUrl, money, MAX_ITEMS };
+  const api = { build, defaultTemplate, toEditable, fromEditable, tagLabel, LANGS, canRemind, owedByCurrency, phoneDigits, phoneOk, whatsappUrl, money, MAX_ITEMS };
   if (node) module.exports = api;
   else root.LoanReminder = api;
 })(typeof window !== "undefined" ? window : this);

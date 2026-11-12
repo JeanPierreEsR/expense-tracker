@@ -1880,9 +1880,17 @@
         <button type="button" id="loan-remind-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
+        <label id="loan-remind-lang-label" data-i18n="remind.lang">Language of the message</label>
+        <div class="currency-chips loan-remind-langs" id="loan-remind-langs" role="group" aria-labelledby="loan-remind-lang-label">
+          <button type="button" class="currency-chip" data-lang="en" data-i18n="remind.lang.en">English</button>
+          <button type="button" class="currency-chip" data-lang="es" data-i18n="remind.lang.es">Español</button>
+        </div>
         <label for="loan-remind-text" data-i18n="remind.text">Message (you can change it)</label>
         <textarea id="loan-remind-text" class="loan-remind-text" rows="10"></textarea>
-        <button type="button" class="add-inline" id="loan-remind-reset" data-i18n="remind.reset">↺ Start the message again</button>
+        <div class="loan-remind-text-actions">
+          <button type="button" class="add-inline" id="loan-remind-reset" data-i18n="remind.reset">↺ Start the message again</button>
+          <button type="button" class="add-inline" id="loan-remind-template" hidden data-i18n="remind.editTemplate">✏️ Change my template</button>
+        </div>
 
         <label for="loan-remind-phone" id="loan-remind-phone-label" data-i18n="remind.phone">WhatsApp number (optional)</label>
         <div class="phone-row"><select id="loan-remind-phone-cc" data-i18n-aria-label="phone.country" aria-label="Country"></select><input type="tel" id="loan-remind-phone" maxlength="24" autocomplete="off" inputmode="tel"></div>
@@ -1893,6 +1901,24 @@
         <p class="hint" data-i18n="remind.sendHint">WhatsApp opens with this message. Nothing is sent until you tap Send there.</p>
         <p class="hint" id="loan-remind-stuck" hidden data-i18n="remind.stuck">WhatsApp didn't open? Copy the message and paste it in the chat.</p>
         <button type="button" class="add-inline" id="loan-remind-copy" data-i18n="remind.copy">📋 Copy the message</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="remind-tpl-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="remind-tpl-title"></span>
+        <button type="button" id="remind-tpl-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="remind-tpl-hint"></p>
+        <textarea id="remind-tpl-text" class="loan-remind-text" rows="10" aria-labelledby="remind-tpl-title"></textarea>
+        <p class="hint" data-i18n="remind.tplPutBack">Put a part back where the cursor is:</p>
+        <div class="currency-chips" id="remind-tpl-tags"></div>
+        <p class="hint" id="remind-tpl-error" style="color:#d64545;"></p>
+        <button type="button" class="primary" id="remind-tpl-save" data-i18n="remind.tplSave">Save my template</button>
+        <button type="button" class="add-inline" id="remind-tpl-default" data-i18n="remind.tplDefault">↺ Go back to the app's template</button>
       </div>
     </div>
   </div>
