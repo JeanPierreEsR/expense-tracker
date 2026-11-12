@@ -950,10 +950,12 @@ button.primary.danger {
   padding: 0 4px;
 }
 
+/* Chips wrap to a second line instead of scrolling sideways (2026-11-11): the "More…" chip was off the screen, and on an iPhone a
+   sideways-scrolling row painted over the sheet's scroll bar. */
 .currency-chips {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  overflow-x: auto;
   padding: 2px 0 4px;
   margin-top: 6px;
 }
@@ -1281,9 +1283,11 @@ body.sheet-open {
 .currency-screen #currency-screen-note { margin: 8px 0 0; }
 .currency-screen #currency-screen-done { flex: 0 0 auto; margin-top: 12px; }
 /* A currency box that opens the currency screen: the box stays what the code reads; a clear button on top of it takes the tap. */
-.cur-pick { position: relative; display: block; min-width: 0; }
-.cur-pick > select, .cur-pick > input { width: 100%; pointer-events: none; }
-.cur-pick-btn { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; background: none; border: none; cursor: pointer; }
+/* The button sits on the box by sharing its grid cell, not by position: absolute: on an iPhone a positioned box paints over the sheet's
+   scroll bar (2026-11-11). */
+.cur-pick { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.cur-pick > select, .cur-pick > input { grid-area: 1 / 1; width: 100%; pointer-events: none; }
+.cur-pick-btn { grid-area: 1 / 1; width: 100%; height: 100%; min-height: 0; margin: 0; padding: 0; background: none; border: none; cursor: pointer; }
 .exchange-amount-row .cur-pick { flex: 0 0 34%; width: 34%; }
 .exchange-amount-row .cur-pick > select { flex: none; width: 100%; }
 .balance-form-row-main .cur-pick { flex: 0 0 auto; }
