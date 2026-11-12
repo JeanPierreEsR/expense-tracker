@@ -255,7 +255,7 @@ test("Needs review's tutorial waits for the person to open the closed row", () =
 
 test("step 5: bank loan, statements and import tutorials, the idle offer, Export without a card", () => {
   assert.match(app, /startFormGuide_\("loans-bank", bankLoanHeld_, "bank-loan-modal-backdrop", "bank-save", "rt\.bank\.intro", bankGuideSteps_\)/);
-  assert.match(app, /const IDLE_SECONDS_ = 20/);
+  assert.match(app, /const IDLE_SECONDS_ = 7/);
   assert.match(app, /function idleTick_[\s\S]*?document\.hidden \|\| idleChooser_ \|\| perfInflight_ > 0/);
   const stm = fs.readFileSync(path.join(__dirname, "../../docs/statements.js"), "utf8");
   const strs = fs.readFileSync(path.join(__dirname, "../../docs/strings.js"), "utf8");

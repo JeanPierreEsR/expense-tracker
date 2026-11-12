@@ -23930,7 +23930,7 @@ function watchReviewHint_() {
 
 // "Idle too long" (owner's plan, 2026-11-09): 20 seconds with no tap, typing or scrolling while the screen is showing, nothing is loading and the file chooser is shut.
 // Time in the background does not count. A bubble then offers the walkthrough; it never starts by itself. Once per screen, per phone (More → Practice tips brings it back).
-const IDLE_SECONDS_ = 20, IDLE_SEEN_KEY_ = "tutorialIdleSeen";
+const IDLE_SECONDS_ = 7, IDLE_SEEN_KEY_ = "tutorialIdleSeen";
 let idleTip_ = null, idleCount_ = 0, idleTimer_ = null, idleChooser_ = false;
 // tip: { key, wanted() → false stops watching, target() → what the bubble points at, start() }
 function idleOffer_(tip) {
