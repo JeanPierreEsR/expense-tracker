@@ -1470,7 +1470,7 @@
     $("statement-plan-status").innerHTML = "";
     out.innerHTML = loadingHtml(tr("hist.planning")) + `<p class="hint">${escapeHtml(tr("hist.keepOpen"))}</p>`;
     try {
-      historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
+      historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis(), startBank: true });
       historyPlan.platform = new Map();    // index into summary.aside -> investment platform the person picked (else the guess is used)
       historyPlan.incMode = new Map();     // index into summary.incomeLines -> "transfer" | "investment" | "review" | "leave" (absent = income, the default)
       historyPlan.outMode = new Map();     // index into summary.peopleOut -> "review" or "leave" (absent = spending, the default)
@@ -1515,8 +1515,8 @@
   // A balance check recounted with the person's choices (owner, 2026-11-11): the server counts every statement line not in the app as
   // explained ("from N lines not in the app"), on the idea that it gets added. A line the person leaves out (or that only waits) is not
   // added, so its amount moves to "unexplained" — on screen at once, and in the difference note a set balance saves.
-  function liveCheck(c0, covered) {
-    const c = liveStartFix_(livePicks_(c0), c0);
+  function liveCheck(c0, covered, noFix) {
+    const c = noFix ? livePicks_(c0) : liveStartFix_(livePicks_(c0), c0);
     const items = (c.direction === "forward" && c.notInApp && c.notInApp.items) || [];
     const out = items.filter((it) => !covered[lineKey({ stmt: c.stmt, line: it.line })]);
     if (!out.length) return c;
@@ -1530,16 +1530,81 @@
   // The note's wording by direction: all "taken as inside", all "counted after", or both.
   function startFixKind_(c) {
     const sides = new Set(c.startFix.items.map((it) => it.side || "in"));
-    return sides.size > 1 ? "Mixed" : sides.has("out") ? "Out" : "";
+    return sides.size > 1 ? "Mixed" : sides.has("out") ? "Out" : sides.has("bank") ? "Bank" : "";
+  }
+  // An item's name: a purchase "already charged" shows both amounts (what the app has → what the bank charged).
+  function startFixName_(c, it) {
+    const name = it.description || tr("type." + it.type);
+    return it.side === "bank" ? `${name} ${fmtMoney(c.currency, it.recorded)} → ${fmtMoney(c.currency, it.charged)}` : `${name} ${signed(c.currency, it.amount)}`;
+  }
+  // The correction, searched again on the phone with the person's picks (owner, 2026-11-11): the server sends the candidates
+  // (`startCands`: entries near the starting balance, and purchases inside it that the card charged differently, as "already charged");
+  // a suggestion the person picks on a purchase inside the balance adds its own. The same rule as the server's stmtStartFix_: the fewest
+  // candidates that add up, to the cent, to what is left unexplained, offered only when exactly one such set exists. A correction already
+  // accepted that changes with the picks is no longer accepted (the person sees the new one before it applies).
+  function refreshStartFixes_() {
+    if (!historyPlan || !historyPlan.checks) return;
+    const covered = coveredLines(historyActions(false)), s = historyPlan.summary || {};
+    historyPlan.checks.forEach((c0, i) => {
+      if (!Array.isArray(c0.startCands) || c0.direction !== "forward" || !c0.anchor) return;
+      const cands = c0.startCands.slice();
+      (s.discounts || []).forEach((d, k) => {
+        if (d.clear || d.stmt !== c0.stmt || d.currency !== c0.currency) return;
+        const pick = discountOf(k);
+        const o = pick && pick !== "add" ? (d.options || []).find((x) => x.id === pick) : null;
+        if (!o || !o.insideStart || cands.some((x) => x.id === o.id)) return;
+        const shift = r2_(d.amount + Number(o.amount));
+        if (!shift) return;
+        cands.push({ id: o.id, date: String(o.date || d.date).slice(0, 10), description: o.description || "", type: "expense", side: "bank",
+          recorded: Number(o.amount), charged: r2_(-d.amount), amount: d.amount, weight: -shift, cents: Math.round(-shift * 100) });
+      });
+      cands.sort((a, b) => (a.date < b.date ? 1 : -1));
+      const list = cands.slice(0, 14), n = list.length;   // 14: STMT_START_FIX_MAX_ in StatementBalance.gs
+      const target = Math.round(liveCheck(c0, covered, true).unexplained * 100);
+      let fix = null;
+      if (target) {
+        for (let size = 1; size <= n && !fix; size++) {
+          const found = [];
+          const walk = (start, picked, sum) => {
+            if (found.length > 1) return;
+            if (picked.length === size) { if (sum === target) found.push(picked.slice()); return; }
+            for (let j = start; j < n; j++) { picked.push(j); walk(j + 1, picked, sum + list[j].cents); picked.pop(); }
+          };
+          walk(0, [], 0);
+          if (found.length > 1) break;
+          if (found.length === 1) {
+            fix = { date: c0.anchor.date, amount: c0.anchor.amount, items: found[0].map((j) => {
+              const x = list[j], it = { id: x.id, date: x.date, description: x.description, type: x.type, side: x.side, amount: x.amount, weight: x.weight };
+              if (x.side === "bank") { it.recorded = x.recorded; it.charged = x.charged; }
+              return it;
+            }) };
+          }
+        }
+      }
+      const sig = (f) => (f ? f.items.map((it) => it.side + ":" + it.id).sort().join(",") : "");
+      if (sig(fix) !== sig(c0.startFix)) historyPlan.startFix.delete(i);
+      if (fix) c0.startFix = fix; else delete c0.startFix;
+    });
   }
   // The starting number after this save: the correction's entries, plus any "charged differently" difference on purchases inside it that the
   // same save takes (both move the number; c is a live check).
-  function startFixCorrected_(c) { return r2_(c.startFix.amount + startFixSum_(c) + ((c.startShift && c.startShift.net) || 0)); }
+  // (an accepted "already charged" item was taken out of c.startShift by liveStartFix_: _bankSum puts it back so it is not counted twice)
+  function startFixCorrected_(c) { return r2_(c.startFix.amount + startFixSum_(c) + ((c.startShift && c.startShift.net) || 0) - (c._bankSum || 0)); }
   function startFixOn_(c) { return !!(c.startFix && historyPlan && historyPlan.startFix && historyPlan.startFix.has(historyPlan.checks.indexOf(c))); }
   function liveStartFix_(c, c0) {   // c0: the check as the server sent it (the one in historyPlan.checks)
     if (!startFixOn_(c0)) return c;
-    const sum = startFixSum_(c0);
-    return { ...c, startFixed: { net: sum, lines: c0.startFix.items.length }, unexplained: r2_(c.unexplained - sum), _src: c0 };
+    // "Already charged" purchases no longer move the starting balance: they leave the "inside your starting balance" difference instead
+    // of showing as a correction of their own (owner, 2026-11-11).
+    const items = c0.startFix.items, bank = items.filter((it) => it.side === "bank"), rest = items.filter((it) => it.side !== "bank");
+    const sumOf = (l) => r2_(l.reduce((t, it) => t + (it.weight !== undefined ? it.weight : it.amount), 0));
+    const bankSum = sumOf(bank), restSum = sumOf(rest);
+    const out = { ...c, unexplained: r2_(c.unexplained - bankSum - restSum), _src: c0, _bankSum: bankSum };
+    if (rest.length) out.startFixed = { net: restSum, lines: rest.length };
+    if (bank.length && c.startShift) {
+      const lines = c.startShift.lines - bank.length;
+      out.startShift = lines > 0 ? { net: r2_(c.startShift.net + bankSum), lines } : undefined;
+    }
+    return out;
   }
   // Pairs the person PICKED on screen (a suggestion, or a pair that was not ticked by itself), owner 2026-11-11: the server counted their
   // line as "not in the app" (it could not know the choice). On a pick it is recounted as what it really is — the purchase is already in
@@ -1610,7 +1675,7 @@
     const a = { type: "set_balance", stmt: c.stmt, currency: c.currency, gap: c.unexplained, app_balance: c.appAtEnd };
     // A correction was offered and not taken (Andrés, 2026-11-11): the note names those entries instead of "money the app doesn't know about".
     if (c.startFix && !c.startFixed && Math.abs(c.unexplained - startFixSum_(c)) < 0.005) {
-      a.likely = c.startFix.items.map((it) => `${fmtDate(it.date, true)} · ${it.description || tr("type." + it.type)} ${signed(c.currency, it.amount)}`).join("; ");
+      a.likely = c.startFix.items.map((it) => `${fmtDate(it.date, true)} · ${startFixName_(c, it)}`).join("; ");
     }
     return a;
   }
@@ -1691,7 +1756,8 @@
     const covered = coveredLines(entries);
     const balances = settableChecks().filter(({ i }) => p.bal.has(i)).map(({ c }) => balanceAction(liveCheck(c, covered)));   // after the entries, as the apply expects
     const fixes = (p.checks || []).filter((c, i) => c.startFix && p.startFix.has(i))
-      .map((c) => ({ type: "start_not_yet", stmt: c.stmt, currency: c.currency, ids: c.startFix.items.map((it) => it.id) }));
+      .map((c) => ({ type: "start_not_yet", stmt: c.stmt, currency: c.currency, ids: c.startFix.items.filter((it) => it.side !== "bank").map((it) => it.id),
+        bank_ids: c.startFix.items.filter((it) => it.side === "bank").map((it) => it.id) }));
     return entries.concat(balances, fixes);
   }
   function chargeOf(k) {
@@ -2079,9 +2145,10 @@
   // changes. Accepted, it is saved with the rest (Undo of the upload undoes it too).
   function startFixHtml_(c, i) {
     if (c.direction !== "forward" || !c.startFix) return "";
-    const names = c.startFix.items.map((it) => `${it.description || tr("type." + it.type)} ${signed(c.currency, it.amount)}`).join(tr("common.and"));
+    const names = c.startFix.items.map((it) => startFixName_(c, it)).join(tr("common.and"));
     if (startFixOn_(c._src || c)) {
-      return `<p class="stmt-note ok">${escapeHtml(tr("stmt.startFix.done", { date: fmtDate(c.startFix.date, true), corrected: fmtMoney(c.currency, startFixCorrected_(c)) }))}</p>
+      const corrected = startFixCorrected_(c), keeps = Math.abs(corrected - c.startFix.amount) < 0.005;   // only "already charged": the number stays
+      return `<p class="stmt-note ok">${escapeHtml(tr(keeps ? "stmt.startFix.doneKeep" : "stmt.startFix.done", { date: fmtDate(c.startFix.date, true), corrected: fmtMoney(c.currency, corrected), n: c.startFix.items.length }))}</p>
         <div class="stmt-choices" style="padding-left:0"><button type="button" class="add-inline" data-startfixoff="${i}">${escapeHtml(tr("stmt.startFix.undo"))}</button></div>`;
     }
     if (Math.abs(c.unexplained - startFixSum_(c)) > 0.004) return "";   // the person's other choices changed what is left: it no longer fits
@@ -2102,7 +2169,9 @@
     } else {
       lines.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balInApp"))}</span><span>${escapeHtml(fmtMoney(c.currency, c.appAtEnd))}</span></div>`);
       lines.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balDiff"))}</span><span>${escapeHtml(signed(c.currency, c.diff))}</span></div>`);
-      if (c.diff === 0) {
+      // (a difference of 0 that the person's picks would open, e.g. a purchase inside the starting balance taking the bank's amount, is
+      // explained below like any other: "Matches to the cent" would be wrong next to it)
+      if (c.diff === 0 && !c.unexplained && !(c.startShift && c.startShift.lines) && !c.startFixed) {
         verdict = `<p class="stmt-note ok">${escapeHtml(tr("stmt.balMatches"))}</p>`;
       } else if (c.direction === "forward") {
         const parts = [];
@@ -2193,6 +2262,7 @@
   }
 
   function renderHistoryPlan() {
+    refreshStartFixes_();
     const out = $("statement-history");
     const { actions, summary } = historyPlan;
     const left = summary.leftOut, c = historyCounts();
@@ -2281,7 +2351,9 @@
       : updating ? tr("hist.confirmUpdate", { n: updating }) : tr("hist.confirmKeep");
     // A starting balance this save corrects (owner's plan, step 3): said too, since it moves every balance after it.
     const coveredNow = coveredLines(historyActions(false));
-    const fixes = (historyPlan.checks || []).filter((c, i) => (c.startFix && historyPlan.startFix.has(i)) || ((liveCheck(c, coveredNow).startShift || {}).lines > 0)).length;
+    // (an accepted correction made only of "already charged" purchases leaves the number as typed: not counted as a correction)
+    const fixes = (historyPlan.checks || []).filter((c, i) => (c.startFix && historyPlan.startFix.has(i) && c.startFix.items.some((it) => it.side !== "bank")) ||
+      ((liveCheck(c, coveredNow).startShift || {}).lines > 0)).length;
     const askFull = askText + (fixes ? " " + tr("hist.confirmStartFix", { n: fixes }) : "");
     if (!practiceNoConfirm_(practiceIOwns_(usable.map((u) => u.group || u.file))) && !await askConfirmApp_(askFull + "\n\n" + tr("stmt.confirmUndoable"), tr("confirmBtn.yes"), { plain: true })) return;   // (the practice's own file asks nothing while the walkthrough runs)
     btn.insertAdjacentHTML("afterend", loadingHtml(tr("hist.saving")));   // right where the person tapped, not in a box further down
@@ -2568,12 +2640,16 @@
     if (sfix) {
       const i = Number(sfix.dataset.startfix), c = historyPlan.checks[i];
       if (!c || !c.startFix) return;
-      const line = (it) => `${fmtDate(it.date, true)} · ${it.description || tr("type." + it.type)} ${signed(c.currency, it.amount)}`;
+      const line = (it) => `${fmtDate(it.date, true)} · ${startFixName_(c, it)}`;
       const ins = c.startFix.items.filter((it) => (it.side || "in") === "in"), outs = c.startFix.items.filter((it) => it.side === "out");
+      const banks = c.startFix.items.filter((it) => it.side === "bank");
       const names = [ins.length ? tr("stmt.startFix.whyIn", { n: ins.length }) + "\n" + ins.map(line).join("\n") : "",
-        outs.length ? tr("stmt.startFix.whyOut", { n: outs.length }) + "\n" + outs.map(line).join("\n") : ""].filter(Boolean).join("\n\n");
-      const text = tr("stmt.startFix.window", { account: acctOfCheck(c), date: fmtDate(c.startFix.date, true), amount: fmtMoney(c.currency, c.startFix.amount),
-        corrected: fmtMoney(c.currency, startFixCorrected_(liveCheck(c, coveredLines(historyActions(false))))),
+        outs.length ? tr("stmt.startFix.whyOut", { n: outs.length }) + "\n" + outs.map(line).join("\n") : "",
+        banks.length ? tr("stmt.startFix.whyBank", { n: banks.length }) + "\n" + banks.map(line).join("\n") : ""].filter(Boolean).join("\n\n");
+      const lc = liveCheck(c, coveredLines(historyActions(false))), corrected = startFixCorrected_(lc);
+      const keeps = Math.abs(corrected - c.startFix.amount) < 0.005;   // only "already charged": the number stays as typed
+      const text = tr(keeps ? "stmt.startFix.windowKeep" : "stmt.startFix.window", { account: acctOfCheck(c), date: fmtDate(c.startFix.date, true), amount: fmtMoney(c.currency, c.startFix.amount),
+        corrected: fmtMoney(c.currency, corrected), moved: fmtMoney(c.currency, r2_(c.startFix.amount + ((lc.startShift && lc.startShift.net) || 0))),
         // after everything this upload adds or corrects, plus this correction: the statement minus what would still be unexplained
         items: names, after: fmtMoney(c.currency, r2_(c.closing - (liveCheck(c, coveredLines(historyActions(false))).unexplained - startFixSum_(c)))), closing: fmtMoney(c.currency, c.closing) });
       (async () => {   // the window waits for the answer; this click handler does not

@@ -285,6 +285,10 @@ function applyStatementDecisions(payload) {
   // statement closing on a starting balance's own day moves the entries it covers inside that balance by itself (Balances.gs), so the
   // starting-balance correction must not count them a second time (owner, 2026-11-11).
   var coverBySave = {};
+  // Purchases inside a starting balance that the accepted correction says were ALREADY charged at the bank's amount when it was typed
+  // (start_not_yet's `bank_ids`, owner 2026-11-11): they take the bank's amount, but the starting number does not move for them.
+  var keepStart = {};
+  actions.forEach(function (a) { if (a.type === 'start_not_yet') (a.bank_ids || []).forEach(function (id) { keepStart[String(id)] = true; }); });
   actions.forEach(function (a) {
     if (!(a.type === 'match' || a.type === 'assign_account' || a.type === 'link' || a.type === 'use_bank_amount' || a.type === 'complete_transfer') || !a.entryId || a.stored) return;
     var s = stmts[a.stmt];
@@ -563,7 +567,7 @@ function applyStatementDecisions(payload) {
       // by the same difference (else the app stays off by it, since that purchase is not counted again).
       var ownD = (openingsByPm[pmD.id] || []).find(function (o) { return o.currency === du.l.currency; });
       var entD = ownD ? getEntryById_(String(a.entryId)) : null;
-      if (entD && stmtInsideStart_(entD, ownD)) startOps.push({ pm: pmD, currency: du.l.currency, shift: Math.round((recordedAmt - charged) * 100) / 100, entryId: String(a.entryId) });
+      if (entD && stmtInsideStart_(entD, ownD) && !keepStart[String(a.entryId)]) startOps.push({ pm: pmD, currency: du.l.currency, shift: Math.round((recordedAmt - charged) * 100) / 100, entryId: String(a.entryId) });
       report.discounts = (report.discounts || 0) + 1;
       remember(du, 'matched', a.entryId);
     } else if (a.type === 'complete_transfer') {

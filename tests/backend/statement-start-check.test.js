@@ -275,3 +275,70 @@ test("consecutive statements in one upload (the next one starts after the balanc
   save(rt, [same, next], p.actions.concat([{ type: "set_balance", stmt: 1, currency: "PEN", gap: 0, app_balance: -100 }]));
   assert.equal(bal(), -100);
 });
+
+// ---- a purchase inside the balance, charged differently, that was ALREADY charged when the balance was typed (owner, 2026-11-11, SIP) ----
+const planB = (rt, statements) => run(rt, `planStatementHistory(${JSON.stringify({ statements, startBank: true })})`);
+function chargedSetup() {
+  const { rt, card, add, stmt } = setup();
+  const pv = add("2019-03-09", 50.00, "PV", "agora shop");
+  rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: "2019-03-10" }] });
+  const later = add("2019-03-20", 30.00, "Cafe Tres");
+  return { rt, card, stmt, pv, later };
+}
+
+test("already charged when the balance was typed: offered as a correction, and the save keeps the starting number", () => {
+  const { rt, card, stmt, pv } = chargedSetup();
+  // the bank: −100 typed with the 45.00 already charged, then the 30.00 → −130
+  const s = stmt(-130, [{ date: "2019-03-09", description: "AGORA SHOP COMPANIA FO", amount: -45.00, currency: "PEN" },
+    { date: "2019-03-20", description: "CAFE TRES", amount: -30.00, currency: "PEN" }]);
+  const p = planB(rt, [s]);
+  const c = p.balance_checks[0];
+  assert.deepEqual(c.startShift, { net: 5, lines: 1 });
+  assert.equal(c.unexplained, -5, "moving the number by 5 is what makes it disagree");
+  assert.deepEqual(c.startFix.items.map((i) => [i.id, i.side, i.weight, i.recorded, i.charged]), [[pv, "bank", -5, 50, 45]]);
+  assert.ok(c.startCands.some((x) => x.id === pv && x.side === "bank"), "the phone gets the candidates to redo the search");
+  save(rt, [s], p.actions.concat([{ type: "start_not_yet", stmt: 0, currency: "PEN", ids: [], bank_ids: [pv] }]));
+  assert.equal(Number(rt.rows("Entries").find((e) => e.id === pv).amount), 45, "the purchase takes the bank's amount");
+  assert.equal(opening(rt, card.id).amount, -100, "the starting number stays as typed");
+  assert.equal(planB(rt, [s]).balance_checks[0].diff, 0, "read again: the app agrees with the statement");
+});
+
+test("still pending when the balance was typed (today's assumption): nothing is offered, the number moves as before", () => {
+  const { rt, card, stmt, pv } = chargedSetup();
+  const s = stmt(-125, [{ date: "2019-03-09", description: "AGORA SHOP COMPANIA FO", amount: -45.00, currency: "PEN" },
+    { date: "2019-03-20", description: "CAFE TRES", amount: -30.00, currency: "PEN" }]);
+  const c = planB(rt, [s]).balance_checks[0];
+  assert.equal(c.unexplained, 0);
+  assert.equal(c.startFix, undefined);
+  save(rt, [s], planB(rt, [s]).actions);
+  assert.equal(opening(rt, card.id).amount, -95);
+  assert.equal(Number(rt.rows("Entries").find((e) => e.id === pv).amount), 45);
+});
+
+test("an older phone (no startBank): no 'already charged' candidate, as before", () => {
+  const { rt, stmt } = chargedSetup();
+  const s = stmt(-130, [{ date: "2019-03-09", description: "AGORA SHOP COMPANIA FO", amount: -45.00, currency: "PEN" },
+    { date: "2019-03-20", description: "CAFE TRES", amount: -30.00, currency: "PEN" }]);
+  const c = plan(rt, [s]).balance_checks[0];
+  assert.equal(c.unexplained, -5);
+  assert.equal(c.startFix, undefined);
+  assert.equal(c.startCands, undefined);
+});
+
+test("two purchases charged the same difference: either could be the one, so nothing is offered", () => {
+  const { rt, card, add, stmt } = setup();
+  add("2019-03-08", 50.00, "PV", "agora shop");
+  add("2019-03-09", 60.00, "Tambo", "tambo plus");
+  rt.api("setPaymentMethodOpeningBalance", { id: card.id, balances: [{ currency: "PEN", amount: -100, date: "2019-03-10" }] });
+  const lines = [{ date: "2019-03-08", description: "AGORA SHOP COMPANIA FO", amount: -45.00, currency: "PEN" },
+    { date: "2019-03-09", description: "TAMBO PLUS", amount: -55.00, currency: "PEN" }];
+  // one was already charged, the other still pending: −100 + 5 = −95. Either could be the one.
+  const c = planB(rt, [stmt(-95, lines)]).balance_checks[0];
+  assert.equal(c.startShift.lines, 2);
+  assert.equal(c.unexplained, -5);
+  assert.equal(c.startFix, undefined);
+  // both already charged: −100. Both together is the one combination that fits.
+  const c2 = planB(rt, [stmt(-100, lines)]).balance_checks[0];
+  assert.equal(c2.unexplained, -10);
+  assert.deepEqual(c2.startFix.items.map((i) => i.side), ["bank", "bank"]);
+});
