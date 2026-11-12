@@ -4672,6 +4672,7 @@ function entriesToggle_(id, row) {
   syncEntriesEditBar_();
 }
 function setEntriesEditing_(on, redraw = true) {
+  if (on) popUsed_("homeEdit");
   if (on === entriesEditing_ && redraw) return;
   if (on && reviewEditing_) setReviewEditing_(false);
   entriesEditing_ = on;
@@ -22621,8 +22622,10 @@ function popStruggle_(key) { const s = popGet_(POP_STRUGGLE_KEY_, {}); if (!s[ke
 function popStruggling_(key) { return !!popGet_(POP_STRUGGLE_KEY_, {})[key]; }
 // What a successful save says about the person (owner, 2026-11-12): an active day, one more entry, a feature used, a sign of struggle.
 const POP_USER_SAVE_RE_ = /^(save|record|set|create|forgive|apply|assign|discard|delete|confirm|link|add|update)/i;
+const POP_NOT_THE_PERSON_ = new Set(["setRulePack", "setLanguage", "saveRailLinks", "applyAccountCurrencySuggestions", "saveOnboarding", "saveOnboardingAccounts", "saveOnboardingPlatforms"]);   // automatic or set-up, not a use of the app
 function popAfterSave_(action, payload, out) {
-  if (!POP_USER_SAVE_RE_.test(action) || /[Pp]ractice/.test(action) || Spotlight.isRunning()) return;
+  // A practice's made-up saves never count; a REAL tutorial's do (owner's walk 2026-11-12: features used inside a tutorial showed "not yet").
+  if (!POP_USER_SAVE_RE_.test(action) || POP_NOT_THE_PERSON_.has(action) || /[Pp]ractice/.test(action) || (Spotlight.isRunning() && !guided_)) return;
   popMarkActive_();
   payload = payload || {};
   if (action === "saveEntryAll" || action === "createEntry") {
@@ -22639,13 +22642,14 @@ function popAfterSave_(action, payload, out) {
     receiptJustRead_ = false;
   }
   if (action === "recordRepayment") {
-    popUsed_("overpay");
+    if (out && Number(out.overpaid) > 0) popUsed_("overpay");   // only a repayment above what was owed
     // A repayment to a friend within a day of an expense of the same amount: "Paid by" would have done it in one go.
     const amt = Number(payload.amount), day = Date.parse(payload.date || todayLocalISO());
     if (payload.direction !== "they_owe_me" && amt > 0 && (lastRenderedEntries_ || []).some((e) => e.type === "expense" && Math.abs(Number(e.amount) - amt) < 0.005 &&
       e.currency === payload.currency && Math.abs(Date.parse(e.date) - day) <= 86400000)) popStruggle_("paidBy");
   }
   if (action === "forgiveLoan") popUsed_("forgive");
+  if (action === "recordEarlyPayment") popUsed_("earlyPay");
   if (action === "saveBankLoan" && payload.opening) popUsed_("bankOpening");
   if (action === "setProjectionOverride") popUsed_("overrides");
   if (action === "setPaymentMethodOpeningBalance") popUsed_("startbal");
