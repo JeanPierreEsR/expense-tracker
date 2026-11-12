@@ -420,7 +420,9 @@ function analyzeStatements(payload) {
   ['Loans', 'Settlements'].forEach(function (t) {
     getAllRows(t).forEach(function (r) { if (r.transfer_entry_id) loanTransferIds[r.transfer_entry_id] = true; });
   });
-  var result = matchStatements_(matcherInput, entries, { loanTransferIds: loanTransferIds, repaymentTotals: buildRepaymentTotalsForMatching_(), chargeRatio: chargeExpectedRatio_ });
+  // What forgiving a debt booked moved no money, so no bank line is ever that entry.
+  var forgivenIds = forgivenessEntryIds_();
+  var result = matchStatements_(matcherInput, entries.filter(function (e) { return !forgivenIds[e.id]; }), { loanTransferIds: loanTransferIds, repaymentTotals: buildRepaymentTotalsForMatching_(), chargeRatio: chargeExpectedRatio_ });
   tick('matcher');
   var entryById = {};
   entries.forEach(function (e) { entryById[e.id] = e; });

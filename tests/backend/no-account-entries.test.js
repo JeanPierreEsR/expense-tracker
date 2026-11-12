@@ -63,3 +63,21 @@ test("Statement: a line that IS an entry with no account is listed apart and cou
   run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "v", statements: [s], actions: p.actions })})`);
   assert.equal(row(rt, a).payment_method_id, card.id, "it got the card");
 });
+
+test("Tidy and statements: what forgiving a debt booked is left out (no money moved, so it needs no account)", () => {
+  const { rt, card, friend, add } = setup();
+  const cat = rt.rows("Categories").find((c) => c.type === "expense");
+  const whole = rt.api("addLoan", { friend_id: friend.id, direction: "they_owe_me", amount: 80, currency: "PEN", date: "2019-03-01", payment_method_id: card.id });
+  const part = rt.api("addLoan", { friend_id: friend.id, direction: "they_owe_me", amount: 200, currency: "PEN", date: "2019-03-02", payment_method_id: card.id });
+  const w = rt.api("forgiveLoan", { id: whole.id, category_id: cat.id, date: "2019-03-23" }).entry;
+  const p = rt.api("forgiveLoan", { id: part.id, amount: 50, category_id: cat.id, date: "2019-03-24" }).entry;
+  const plain = add({ date: "2019-03-25", amount: 12, description: "Sin cuenta prueba" });
+  const ids = rt.api("listNoAccountEntries", {}).entries.map((e) => e.id);
+  assert.equal(ids.indexOf(w.id), -1, "a whole forgiveness is left out");
+  assert.equal(ids.indexOf(p.id), -1, "a forgiven part is left out");
+  assert.notEqual(ids.indexOf(plain), -1, "a real entry with no account is still listed");
+  const s = { key: "4545", kind: "visa", verified: true, period: { start: "2019-03-01", end: "2019-03-31" }, balances: { PEN: { opening: 0, closing: -80 } }, file_name: "v.pdf",
+    lines: [{ date: "2019-03-23", description: "COMPRA PRUEBA", amount: -80, currency: "PEN" }] };
+  const plan = run(rt, `planStatementHistory(${JSON.stringify({ statements: [s] })})`);
+  assert.ok(!plan.actions.some((x) => x.entryId === w.id), "a bank line never pairs with a forgiveness entry");
+});
