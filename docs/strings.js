@@ -4253,7 +4253,7 @@
     "noacct.nothing": { en: "Nothing changed: those entries already had an account.", es: "No cambió nada: esos movimientos ya tenían cuenta." },
     "tidy.title": { en: "Tidy my history", es: "Ordenar mi historial" },
     "tidy.hint": { en: "Entries added without a category, grouped by where the money went — the biggest first. Pick a category once and every entry in the group gets it. Nothing here changes a category you already chose.", es: "Movimientos agregados sin categoría, agrupados por dónde fue el dinero, los más grandes primero. Elige una categoría una vez y todos los del grupo la reciben. Aquí nunca se cambia una categoría que ya elegiste." },
-    "tidy.empty": { en: "Everything has a category. Nothing to tidy.", es: "Todo tiene categoría. No hay nada que ordenar." },
+    "tidy.empty": { en: "Every entry has a category.", es: "Todos los movimientos tienen categoría." },
     "tidy.summary": { en: { one: "{n} entry without a category.", other: "{n} entries without a category." }, es: { one: "{n} movimiento sin categoría.", other: "{n} movimientos sin categoría." } },
     "tidy.allSkipped": { en: "You skipped the rest. They will be here next time you open this screen.", es: "Omitiste el resto. Estarán aquí la próxima vez que abras esta pantalla." },
     "tidy.more": { en: "Showing the {shown} biggest groups; the rest will appear as you tidy these.", es: "Se muestran los {shown} grupos más grandes; el resto aparecerá a medida que ordenes estos." },
