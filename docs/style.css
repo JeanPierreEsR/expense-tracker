@@ -3100,8 +3100,10 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .noacct-month:first-child { border-top: none; }
 .noacct-month-select, .noacct-select { width: 100%; }
 .noacct-month .tidy-group-row { display: block; margin: 6px 0 0; }
-.tidy-samples li.noacct-row { flex-wrap: wrap; padding: 8px 0; color: var(--text); }
-.tidy-samples li.noacct-row .noacct-select { margin-top: 6px; }
+/* Each entry sits in its own light box with its own picker, so it is clear which picker belongs to which entry (owner, 2026-11-12). */
+.tidy-samples li.noacct-row { flex-wrap: wrap; padding: 10px 12px; margin-top: 8px; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px; }
+.tidy-samples li.noacct-row .noacct-select { margin-top: 8px; background: var(--card); }
 
 .home-glance { margin: 0 -16px 12px; }   /* full width, so the next card can peek in from the edge */
 .home-glance[hidden] { display: none; }
