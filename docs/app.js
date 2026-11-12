@@ -14820,7 +14820,27 @@ function offerTidyReal_() {
     startTidyReal_();
   }, 100);
 }
-function startTidyReal_() {
+// The first tap that starts filing a group (its category list, Apply, Skip, "Apply all suggestions") is a first use: it does nothing
+// yet and opens the real tutorial (Start / Exit) on that group. Asked once per phone (owner, 2026-11-12).
+const TIDY_TAP_ASKED_KEY_ = "tidyTapAsked";
+function tidyTapAsk_(ev) {
+  const t = ev.target.closest && ev.target.closest(".tidy-select, .tidy-apply, .tidy-skip, #tidy-apply-all-btn");
+  if (!t || !meta || perfIsOwnerCopy_() || Spotlight.isRunning() || isTaught_("tidy") || !realChanceLeft_("tidy")) return;
+  if (popGet_(TIDY_TAP_ASKED_KEY_, false) || document.getElementById("screen-tidy").hidden) return;
+  ev.preventDefault();
+  ev.stopImmediatePropagation();
+  if (t.blur) t.blur();
+  popSet_(TIDY_TAP_ASKED_KEY_, true);
+  if (popOpen_) popOpen_.close();
+  const row = t.closest(".tidy-group");
+  document.getElementById("tidy-tip-invite").hidden = true;
+  startTidyReal_(row ? row.dataset.key : "");
+}
+["pointerdown", "mousedown", "touchstart", "click"].forEach((type) => document.getElementById("screen-tidy").addEventListener(type, (ev) => {
+  if (type !== "click" && !(ev.target.closest && ev.target.closest(".tidy-select"))) return;   // a list opens on the press; a button acts on the click
+  tidyTapAsk_(ev);
+}, { capture: true, passive: false }));
+function startTidyReal_(startKey) {
   let started = false, key = "", applied = false;
   const box = () => (key ? Array.from(document.querySelectorAll("#tidy-list .tidy-group")).find((b) => b.dataset.key === key) || null : null);
   const part = (sel) => () => { const b = box(); return b ? b.querySelector(sel) : null; };
@@ -14830,7 +14850,10 @@ function startTidyReal_() {
   const steps = [
     { key: "intro", text: () => tr("rt.tidy.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("tidy", "real"); } },
     { target: () => { const b = box(); return b ? [b.querySelector(".tidy-group-top"), b.querySelector(".tidy-group-meta")] : null; }, text: () => tr(sug() ? "rt.tidy.groupSug" : "rt.tidy.group"), button: realNext_,
-      before: async () => { const b = document.querySelector("#tidy-list .tidy-group"); key = b ? b.dataset.key : ""; return !!key; } },
+      before: async () => {   // the group the person tapped, else the first one
+        const all = Array.from(document.querySelectorAll("#tidy-list .tidy-group"));
+        const b = all.find((x) => startKey && x.dataset.key === startKey) || all[0];
+        key = b ? b.dataset.key : ""; return !!key; } },
     // Tapping the button is the step (owner's walk, 2026-11-12: no Next beside it), then the lines stay lit to be read.
     { target: part(".tidy-lines"), text: () => tr("rt.tidy.lines"), until: () => { const s = part(".tidy-samples")(); return !!s && !s.hidden; } },
     { look: true, target: part(".tidy-samples"), text: () => tr("rt.tidy.linesLook"), button: realNext_, before: async () => { const s = part(".tidy-samples")(); return !!s && !s.hidden; } },
@@ -23403,6 +23426,7 @@ function keepTaughtPending_() {
 function realAgain_() { return !!popGet_(REAL_AGAIN_KEY_, false); }   // More → Practice tips: run them even for someone who already uses the feature
 function realTutorialsReset_() {
   popSet_(TAUGHT_KEY_, {}); popSet_(TAUGHT_OLD_KEY_, []); popSet_(FIELDS_KEY_, []); popSet_(CHANCES_KEY_, {}); popSet_(REVIEW_TYPES_KEY_, []); popSet_(IDLE_SEEN_KEY_, []);
+  popSet_(TIDY_TAP_ASKED_KEY_, false);
   popSet_(REAL_AGAIN_KEY_, true);
   reviewRealDone_ = false;
 }
