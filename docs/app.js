@@ -6605,10 +6605,9 @@ function reviewHasAccountBox_(entry) {
 // there). Transfers and investment withdrawals already show their accounts in their own boxes; no account = the "Pick the account" box.
 function reviewAccountLine_(entry) {
   if (!entry.payment_method_id) return "";
-  const key = entry.type === "expense" ? "review.accountPaid" : entry.type === "income" ? "review.accountReceived"
-    : entry.type === "investment" && Number(entry.amount) > 0 ? "review.accountFrom" : "";
-  const pm = key && meta.paymentMethods.find((m) => m.id === entry.payment_method_id);
-  return pm ? tr(key, { name: pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "") }) : "";
+  if (!(entry.type === "expense" || entry.type === "income" || (entry.type === "investment" && Number(entry.amount) > 0))) return "";
+  const pm = meta.paymentMethods.find((m) => m.id === entry.payment_method_id);
+  return pm ? pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "") : "";
 }
 
 // A transfer's side on a Needs review card: "Pick the account…" (not answered yet), "Outside my accounts" (on purpose), then the accounts.
