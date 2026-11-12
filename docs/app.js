@@ -1142,6 +1142,23 @@ function syncBeforeAppDate_(input, on) {
   else if (!on && input.value === before) input.value = today;
 }
 
+// The other way round (owner, 2026-11-12): a date typed BEFORE the first day of use ticks "from before the app" by itself, and moving it
+// back to that day or later unticks it again, but only if the app ticked it. A box the person unticked is left alone until the date
+// changes again. `shown()` says whether the box applies right now (a new loan, the backend able to save one); `apply()` redraws the form.
+function beforeAppDay_() { return (meta && meta.firstUseDate) || popFirstUse_(); }
+function beforeAppReset_(box) { delete box.dataset.autoTicked; }
+function autoBeforeApp_(dateId, boxId, shown, apply) {
+  const date = document.getElementById(dateId), box = document.getElementById(boxId);
+  box.addEventListener("change", () => beforeAppReset_(box));   // the person's own choice
+  const check = () => {
+    if (!shown() || box.disabled || !date.value) return;
+    const before = date.value < beforeAppDay_();
+    if (before && !box.checked) { box.checked = true; box.dataset.autoTicked = "1"; apply(); }
+    else if (!before && box.checked && box.dataset.autoTicked) { box.checked = false; beforeAppReset_(box); apply(); }
+  };
+  date.addEventListener("change", check);
+}
+
 function defaultDueDate_(dateStr) {
   const d = new Date(`${dateStr}T00:00:00`);
   d.setDate(d.getDate() + 7);
@@ -2112,6 +2129,7 @@ function syncEntryOpening_(isLoan) {
   document.getElementById("entry-date-label").textContent = tr(on ? "loanModal.openingDate" : "field.date");
 }
 document.getElementById("entry-opening").addEventListener("change", (e) => { syncBeforeAppDate_(document.getElementById("date"), e.target.checked); updateRepaymentUi_(); });
+autoBeforeApp_("date", "entry-opening", () => !document.getElementById("entry-opening-row").hidden, () => updateRepaymentUi_());
 
 // Under the person in Home's "+" → Repayment (owner, 2026-11-12): "Ana owes you nothing in PEN" when nothing is owed that way,
 // so the person knows before Save (which then asks what the money is, askNothingOwed_). From the Loans tab's last list; fetched
@@ -5687,6 +5705,7 @@ function resetEntryFormFields_() {
   selectCurrency(homeCur(), "entry");
   document.getElementById("to_payment_method").value = "";
   document.getElementById("entry-opening").checked = false;
+  beforeAppReset_(document.getElementById("entry-opening"));
   // Back to the first real account, as on a fresh open. An entry with no account, opened and cancelled, must not make "No account" the next default.
   pickDefaultAccount_();
   setInvestmentDirection("deposit");
@@ -24113,12 +24132,15 @@ function startTransferReal_(kind) {
   // Repayment / new loan: who and which way
   steps.push(only(debt, { target: "#repayment-direction-tabs", text: () => tr(is("loan")() ? "rt.loan.direction" : "rt.repay.direction"), tap: "#repayment-direction-tabs", button: next }));
   steps.push(only(debt, { key: "friend", target: () => [el("repayment-friend"), el("repayment-hint")], text: (fix) => tr(fix ? "rt.transfer.friendFix" : is("loan")() ? "rt.loan.friend" : "rt.repay.friend"), visit: "#repayment-friend", button: next, ok: () => submitted || !debt() || friendOk(), holdsUntil: "save" }));
-  steps.push(only(() => is("loan")() && !document.getElementById("entry-opening-row").hidden, { target: "#entry-opening-row", text: () => tr("rt.loan.opening"), button: next }));
-  steps.push(only(() => is("loan")() && !entryOpeningOn_(), { target: "#loan-due-block", text: () => tr("rt.loan.due"), visit: "#loan-due-date", button: next }));
   // Everything except an exchange, which has its own fields. The amount is asked for even when already explained: Save needs it.
   steps.push(only(is("between", "repayment", "loan"), { key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
     until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || !is("between", "repayment", "loan")() || amountOk(), holdsUntil: "save" }));
-  if (isNew("date")) steps.push(only(is("between", "repayment", "loan"), { field: "date", target: "#date", text: () => tr(is("loan")() && entryOpeningOn_() ? "rt.loan.openingDate" : "spot.g.date"), visit: "#date", button: next }));
+  if (isNew("date")) steps.push(only(is("between", "repayment", "loan"), { field: "date", target: "#date", text: () => tr(is("loan")() ? "rt.loan.date" : "spot.g.date"), visit: "#date", button: next }));
+  // Under the date (owner, 2026-11-12): a date before the first day of use has ticked it already; ticking it by hand moves on.
+  steps.push(only(() => is("loan")() && !document.getElementById("entry-opening-row").hidden, { target: "#entry-opening-row",
+    text: () => tr(el("entry-opening").dataset.autoTicked && el("entry-opening").checked ? "rt.loan.openingAuto" : "rt.loan.opening"), button: next,
+    until: () => el("entry-opening").checked && !el("entry-opening").dataset.autoTicked }));
+  steps.push(only(() => is("loan")() && !entryOpeningOn_(), { target: "#loan-due-block", text: () => tr("rt.loan.due"), visit: "#loan-due-date", button: next }));
   steps.push(only(is("between"), { target: "#payment-method-field", text: () => tr("spot.g.accFrom"), visit: "#payment_method", button: next }));
   steps.push(only(is("between"), { target: "#to-payment-method-field", text: () => tr("rt.transfer.to"), visit: "#to_payment_method", button: next }));
   steps.push(only(() => debt() && !entryOpeningOn_(), { target: "#payment-method-field", text: () => tr(is("loan")() ? "rt.loan.account" : "rt.transfer.account"), visit: "#payment_method", button: next }));
@@ -24595,10 +24617,12 @@ function bankGuideSteps_(ctx) {
   return [
     realNameStep_(ctx, "bank-lender", "rt.bank.lender"),
     { target: "#bank-description", text: () => tr("rt.bank.desc"), blurTap: true, visit: "#bank-description", button: realNext_ },
-    { target: "#bank-opening-row .bank-opening-check", text: () => tr("rt.bank.opening"), button: realNext_, until: () => el("bank-opening").checked, before: async () => realShown_("bank-opening-row") },   // ticking it moves on (owner, 2026-11-12); Next is for a loan that is not from before
-    { target: "#bank-opening-how", text: () => tr("rt.bank.openingHow"), button: realNext_, before: async () => realShown_("bank-opening-how") },
     realAmountStep_(ctx, "bank-amount", () => tr("rt.bank.amount"), "rt.bank.amountFix"),
     { target: () => [el("bank-currency"), el("bank-date")], text: () => tr("rt.bank.money"), button: realNext_ },
+    // Under the date (owner, 2026-11-12): a date before the first day of use has ticked it already; ticking it by hand moves on; Next is for a loan that is not from before.
+    { target: "#bank-opening-row .bank-opening-check", text: () => tr(el("bank-opening").checked && el("bank-opening").dataset.autoTicked ? "rt.bank.openingAuto" : "rt.bank.opening"), button: realNext_,
+      until: () => el("bank-opening").checked && !el("bank-opening").dataset.autoTicked, before: async () => realShown_("bank-opening-row") },
+    { target: "#bank-opening-how", text: () => tr("rt.bank.openingHow"), button: realNext_, before: async () => realShown_("bank-opening-how") },
     { target: "#bank-next-number-field", text: () => tr("rt.bank.nextNumber"), blurTap: true, visit: "#bank-next-number", button: realNext_, before: async () => realShown_("bank-next-number-field") },
     { target: "#bank-account-field", text: () => tr("rt.bank.account"), visit: "#bank-account", button: realNext_, before: async () => realShown_("bank-account-field") },
     { target: "#bank-mode-box", text: () => tr("rt.bank.mode"), button: realNext_ },
@@ -27561,6 +27585,7 @@ function bankApplyOpening_() {
   bankRenderRows_();
 }
 document.getElementById("bank-opening").addEventListener("change", (e) => { syncBeforeAppDate_(document.getElementById("bank-date"), e.target.checked); bankApplyOpening_(); });
+autoBeforeApp_("bank-date", "bank-opening", () => !document.getElementById("bank-opening-row").hidden && !!bankDraft_ && bankDraft_.mode === "new", bankApplyOpening_);
 document.querySelectorAll('input[name="bank-opening-how"]').forEach((r) => r.addEventListener("change", bankApplyOpening_));
 document.getElementById("bank-next-number").addEventListener("input", () => bankDraft_ && bankRenderRows_());
 
@@ -27591,6 +27616,7 @@ function openBankLoanForm_() {
   bankPopulateAccounts_("bank-account", "");
   document.getElementById("bank-opening-row").hidden = !((meta && meta.capabilities) || {}).bankOpening;   // an older backend would make a normal loan
   document.getElementById("bank-opening").checked = false;
+  beforeAppReset_(document.getElementById("bank-opening"));
   document.querySelector('input[name="bank-opening-how"][value="start"]').checked = true;
   document.getElementById("bank-next-number").value = "";
   bankApplyOpening_();
@@ -27616,6 +27642,7 @@ function openBankScheduleEditor_(sched, friend) {
   document.getElementById("bank-mode-box").hidden = true;
   document.getElementById("bank-save").textContent = tr("bank.saveSchedule");
   document.getElementById("bank-error").textContent = "";
+  beforeAppReset_(document.getElementById("bank-opening"));
   document.getElementById("bank-opening").checked = false;   // (the "from before the app" labels belong to a NEW loan only)
   bankApplyOpening_();
   bankRenderRows_();
@@ -28285,6 +28312,7 @@ function updateLoanOpeningUi_(fresh) {
   }
 }
 document.getElementById("loan-opening").addEventListener("change", () => updateLoanOpeningUi_(true));
+autoBeforeApp_("loan-date", "loan-opening", () => !document.getElementById("loan-opening-row").hidden, () => updateLoanOpeningUi_(true));
 
 function setLoanDirection_(direction) {
   loanDirection = direction;
@@ -28567,6 +28595,7 @@ function openLoanModal(loan, returnFriend, opts) {
   const openingBox = document.getElementById("loan-opening");
   openingBox.checked = loan ? loan.opening === "1" || loan.opening === 1 : !!(opts && opts.opening);
   openingBox.disabled = !!loan;
+  beforeAppReset_(openingBox);
   const openingOk = !!((meta && meta.capabilities) || {}).openingLoan;   // an older backend would make a normal loan with a money entry
   document.getElementById("loan-opening-row").hidden = !openingOk || (!!loan && !openingBox.checked);   // an ordinary loan being edited: the choice does not apply
   if (!openingOk) openingBox.checked = false;
