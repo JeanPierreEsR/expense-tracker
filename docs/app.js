@@ -14769,9 +14769,10 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
   const btn = ev.currentTarget;
   btn.disabled = true;
   showToast_(tr("common.savingToast"));
+  let saved = null;
   try {
     const res = await callApi("assignEntryAccounts", { items });
-    noAcctLastSave_ = { ok: true, count: res.count || 0 };
+    saved = { ok: true, count: res.count || 0 };
     if (!res.count) showToast_(tr("noacct.nothing"));
     else {
       showUndoToast_(tr("noacct.saved", { n: res.count }), async () => {
@@ -14784,9 +14785,10 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
       refreshHomeGlance_(true);
     }
     await loadNoAccount_();
+    noAcctLastSave_ = saved;   // only once the card shows what is left (the tutorial's last step depends on it; owner's walk 2026-11-12)
   } catch (err) {
-    noAcctLastSave_ = { ok: false, count: 0 };
-    realNoteFailed_();
+    noAcctLastSave_ = saved || { ok: false, count: 0 };
+    if (!saved) realNoteFailed_();
     alert(err.message || String(err));
     updateNoAccountSave_();
   }
@@ -14949,7 +14951,7 @@ function watchNoAcctIdle_() {
   });
 }
 function startNoAcctReal_(startMonth) {
-  let started = false, month = "";
+  let started = false, month = "", restShown = false;
   const box = () => (month ? document.querySelector(`#noacct-list .noacct-month[data-month="${CSS.escape(month)}"]`) : null);
   const part = (sel) => () => { const b = box(); return b ? b.querySelector(sel) : null; };
   const rows = () => { const b = box(); return b ? b.querySelectorAll(".noacct-row").length : 0; };
@@ -14968,9 +14970,10 @@ function startNoAcctReal_(startMonth) {
       visit: "#noacct-list select", button: realNext_, ok: picked, holdsUntil: "save" },
     { key: "save", target: "#noacct-save", text: () => tr("rt.noacct.save"), until: () => !!noAcctLastSave_ },
     { keep: true, text: () => tr("rt.notSaved"), button: () => tr("spot.g.done"), before: async () => realSaveFailed_() },
-    { keep: true, text: () => tr("rt.noacct.doneAll"), button: () => tr("spot.g.done"), before: async () => !realSaveFailed_() && !cardLeft() },
     { keep: true, look: true, target: "#noacct-card", text: () => tr("rt.noacct.rest") + (realShown_("noacct-more") ? " " + tr("rt.noacct.more") : ""), button: () => tr("spot.g.done"),
-      before: async () => !realSaveFailed_() && cardLeft() }
+      giveUp: () => !cardLeft(), after: () => { restShown = true; }, before: async () => !realSaveFailed_() && cardLeft() },
+    // (the card goes away when nothing is left: never wait for it, owner's walk 2026-11-12 stuck on "One moment…")
+    { keep: true, text: () => tr("rt.noacct.doneAll"), button: () => tr("spot.g.done"), before: async () => !realSaveFailed_() && !restShown }
   ];
   guided_ = { savedId: "", split: null };
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
