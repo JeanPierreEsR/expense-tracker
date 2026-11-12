@@ -524,7 +524,9 @@ var EMAIL_RULES = [
         type: own ? 'transfer' : 'expense', needsReview: !own,
         amount: amt.amount, currency: amt.currency,
         description: own ? 'Plin (propio)' : 'Plin a ' + recipient,
-        last4: extractAccountLast4_(body, 'Cuenta cargo'),
+        // "Constancia de Pago Plin TC" (Plin paid with the Interbank credit card) names the card under "Tarjeta cargo"
+        // ("Tarjeta infinite 400000******0000") instead of "Cuenta cargo" (owner, 2026-11-12).
+        last4: extractAccountLast4_(body, 'Cuenta cargo') || extractAccountLast4_(body, 'Tarjeta cargo'),
         externalId: afterLabel_(body, 'Código de operación')
       };
     }
