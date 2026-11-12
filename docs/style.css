@@ -3498,6 +3498,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .bank-row-top input[type="date"] { width: 100%; min-width: 0; box-sizing: border-box; }
 .bank-row-amounts { grid-column: 2; }
 .bank-row-num { font-size: 0.8rem; color: var(--text-muted, #8e8e93); min-width: 22px; }
+.bank-row-total { grid-column: 2; margin: 4px 0 0; }
 .bank-row-amounts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 6px; }
 .bank-row-amounts input { min-width: 0; width: 100%; box-sizing: border-box; }
 .bank-row-remove { background: none; border: none; font-size: 1rem; color: #d64545; padding: 4px 8px; }

@@ -22736,6 +22736,7 @@ function popTipTick_() {
   if (!tip.stillWanted()) { popTipStopWatch_(); return; }
   if (Spotlight.isRunning() || editModeOn_() || !document.getElementById("welcome-overlay").hidden || popTyping_()) return;
   if (tip.ready && !tip.ready()) return;
+  if (realStartPending_ && !tip.help) return;   // the real tutorial comes first (rule 1)
   if (tip.steps) {   // pass over the parts that do not apply here
     while (tip.at < tip.steps.length && tip.steps[tip.at].when && !tip.steps[tip.at].when()) tip.at++;
     if (tip.at >= tip.steps.length) { popSeriesDone_(tip); popTipStopWatch_(); return; }
@@ -22867,6 +22868,7 @@ function watchBankOpeningTip_() {
   if (isTaught_("loans-bank")) return;   // the bank loan tutorial explains the same box (rule 1)
   popTipWatch_({
     key: "bankOpening", place: "bankLoanForm", text: tr("pop.bankOpening"), noGate: true,
+    ready: () => !isTaught_("loans-bank"),   // a tutorial started meanwhile explains the same box
     target: () => { const row = document.getElementById("bank-opening-row"); return row.hidden || !bankDraft_ || bankDraft_.mode !== "new" ? null : row; },
     stillWanted: () => !document.getElementById("bank-loan-modal-backdrop").hidden
   });
@@ -24295,17 +24297,19 @@ window.addEventListener("focus", () => { idleChooser_ = false; });
 
 // Real tutorials on a dedicated "+" (owner's plan, step 4): tapping + is a clear intention, so the window opens as usual and a first screen offers Start / Exit (3 chances, another day each).
 const REAL_SAVE_ = { "bank-save": ["loans-bank", "bank-loan-modal-backdrop"], "budget-save-btn": ["budgets", "budget-modal-backdrop"], "recurring-save-btn": ["programmed", "recurring-modal-backdrop"], "pm-save-btn": ["accounts", "pm-modal-backdrop"], "trip-save-btn": ["trips", "trip-modal-backdrop"] };
-let realFormTimer_ = null;
+let realFormTimer_ = null, realStartPending_ = false;   // a form's real tutorial is about to start: bubbles wait (owner's walk 2026-11-12: the bubble took its place)
 function startFormGuide_(feature, used, backdropId, saveId, introKey, build) {
   if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || isTaught_(feature) || !realChanceLeft_(feature, true)) return;
   if (!realAgain_() && used()) { markTaught_(feature, "used"); return; }
   const back = document.getElementById(backdropId);
   clearInterval(realFormTimer_);
   let tries = 0;
+  realStartPending_ = true;
   const t = realFormTimer_ = setInterval(() => {
-    if (++tries > 150) { clearInterval(t); return; }
-    if (back.hidden || popOpen_) return;
+    if (++tries > 150 || back.hidden) { clearInterval(t); realStartPending_ = false; return; }
+    if (popOpen_) return;
     clearInterval(t);
+    realStartPending_ = false;
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     let started = false, saving = false, lastSaveAt = 0, closedNoSave = false;
     const onSave = () => { saving = true; lastSaveAt = Date.now(); };
@@ -26338,11 +26342,13 @@ function buildLoanDetailRow_(l, friendId, friendName) {
         <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${kind}">${sign}${escapeHtml(l.currency)} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
       </div>
-      <div class="loan-detail-row-meta">${listDate_(l.date)}${l.opening === "1" || l.opening === 1 ? " · " + escapeHtml(tr("loanDetail.fromBefore")) : ""}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
+      <div class="loan-detail-row-meta">${l.schedule ? escapeHtml(tr("loanDetail.received", { date: listDate_(l.date) })) : listDate_(l.date)}${l.opening === "1" || l.opening === 1 ? " · " + escapeHtml(tr("loanDetail.fromBefore")) : ""}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
     </div>
   `;
   const rowMain = row.querySelector(".loan-detail-row-main");
-  if (l.origin === "cash") {
+  if (l.schedule) {   // a bank loan opens in its own layout: its installments, with "Edit the schedule" (owner, 2026-11-12)
+    rowMain.addEventListener("click", () => openBankSchedule_(l.id, { id: friendId, name: friendName }));
+  } else if (l.origin === "cash") {
     rowMain.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
   } else {
     rowMain.addEventListener("click", () => {
@@ -27264,9 +27270,13 @@ function bankRenderRows_() {
         <input type="text" inputmode="decimal" data-f="principal" placeholder="${escapeHtml(tr("bank.principal"))}" value="${row.principal || ""}">
         <input type="text" inputmode="decimal" data-f="interest" placeholder="${escapeHtml(tr("bank.interest"))}" value="${row.interest || ""}">
         <input type="text" inputmode="decimal" data-f="fees" placeholder="${escapeHtml(tr("bank.fees"))}" value="${row.fees || ""}">
-      </div>${past ? `<span class="bank-row-tag">${escapeHtml(tr("bank.paidBefore"))}</span>` : ""}`;
+      </div><div class="hint bank-row-total"></div>${past ? `<span class="bank-row-tag">${escapeHtml(tr("bank.paidBefore"))}</span>` : ""}`;
+    // Each installment's total, the figure on the bank's schedule (owner, 2026-11-12)
+    const showTotal = () => { el.querySelector(".bank-row-total").textContent = tr("bank.rowTotal", { amount: formatAmount(bankR2_((Number(row.principal) || 0) + (Number(row.interest) || 0) + (Number(row.fees) || 0)), bankDraft_.currency || homeCur()) }); };
+    showTotal();
     el.querySelectorAll("input").forEach((input) => input.addEventListener("input", () => {
       row[input.dataset.f] = input.dataset.f === "due_date" ? input.value : bankNum_(input.value);
+      showTotal();
       bankRenderTotals_();
     }));
     // a date moved across today changes whether the row is kept: redraw once the box is left
