@@ -644,6 +644,7 @@ function clearLocalSignIn_() {
   localStorage.removeItem("accessCode");
   localStorage.removeItem(STARTUP_CACHE_KEY);
   localStorage.removeItem(PROJECTIONS_CACHE_KEY);
+  localStorage.removeItem(OVERVIEW_SUMMARY_CACHE_KEY);   // the person's own figures
   localStorage.removeItem(ENTRY_DRAFT_KEY);
   localStorage.removeItem(HOME_GLANCE_CACHE_KEY);   // the Home summary holds the person's own numbers
   clearSearchCache_();
@@ -9078,7 +9079,9 @@ async function refreshOverviewInner_() {
 
   const key = overviewKey_(bounds);
   const token = ++overviewReqToken_;
+  const saved = !overviewCache_[key] && overviewShownKey_ !== key ? loadOverviewSummaryCache_(key) : null;
   if (overviewCache_[key]) { paintOverviewSummary_(overviewCache_[key]); overviewShownKey_ = key; screen.classList.remove("overview-stale"); setLoadFailed_("overview", null); }
+  else if (saved) { paintOverviewSummary_(saved); overviewShownKey_ = key; screen.classList.remove("overview-stale"); setLoadFailed_("overview", null); }
   else if (overviewShownKey_ !== key) {
     screen.querySelectorAll(".card.ov-period").forEach((c) => { c.dataset.loading = tr("common.loading"); });
     screen.classList.add("overview-stale");
@@ -9087,7 +9090,8 @@ async function refreshOverviewInner_() {
   let data;
   try {
     // A neighbour still being fetched in the background (preloadOverviewNeighbour_) is waited for, never asked twice.
-    const inFlight = !overviewCache_[key] && overviewPreloads_[key];
+    // ...unless something was saved since it was asked for: its answer could be from before the save.
+    const inFlight = !overviewCache_[key] && overviewPreloads_[key] && overviewPreloadGen_[key] === apiWriteGen_ && overviewPreloads_[key];
     data = await (inFlight || callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() }));
   } catch (err) {
     if (token === overviewReqToken_) {
@@ -9097,6 +9101,7 @@ async function refreshOverviewInner_() {
     throw err;
   }
   overviewCache_[key] = data;
+  saveOverviewSummaryCache_(key, data);
   if (token !== overviewReqToken_) return;   // the person already moved on to another period
   screen.classList.remove("overview-stale");
   setLoadFailed_("overview", null);
@@ -9105,10 +9110,46 @@ async function refreshOverviewInner_() {
   loadOverviewEntries_(bounds).then(() => { if (token === overviewReqToken_) preloadOverviewNeighbour_(); });
 }
 
+// Overview's summary is ready before the tab is tapped (owner, 2026-11-11): (1) the last figures shown for each period are kept on this
+// phone (a few periods, per language and "Showing" filter; cleared on sign-out) and painted at once, then replaced by the live ones
+// (the spinner by the period picker says it is fetching); (2) once Home has loaded, the figures for the period Overview will open on
+// are fetched in the background (one call), so the live ones are usually there before the tap.
+const OVERVIEW_SUMMARY_CACHE_KEY = "overviewSummaryCache";
+const OVERVIEW_SUMMARY_CACHE_MAX = 4;
+function loadOverviewSummaryCache_(key) {
+  try {
+    const c = JSON.parse(localStorage.getItem(OVERVIEW_SUMMARY_CACHE_KEY));
+    if (!c || c.lang !== I18n.getLang()) return null;   // category names come translated from the server
+    const hit = (c.periods || []).find((x) => x.key === key);
+    return hit ? hit.data : null;
+  } catch (err) { return null; }
+}
+function saveOverviewSummaryCache_(key, data) {
+  try {
+    let c = null;
+    try { c = JSON.parse(localStorage.getItem(OVERVIEW_SUMMARY_CACHE_KEY)); } catch (err) { c = null; }
+    if (!c || c.lang !== I18n.getLang()) c = { lang: I18n.getLang(), periods: [] };
+    c.periods = [{ key, data }].concat((c.periods || []).filter((x) => x.key !== key)).slice(0, OVERVIEW_SUMMARY_CACHE_MAX);
+    localStorage.setItem(OVERVIEW_SUMMARY_CACHE_KEY, JSON.stringify(c));
+  } catch (err) { /* storage full: the tab just loads as before */ }
+}
+function preloadOverviewSummary_() {
+  const b = getPeriodBounds();
+  if (periodType === "custom" && !b.startDate && !b.endDate) return;
+  const key = overviewKey_(b);
+  if (overviewCache_[key] || overviewPreloads_[key]) return;
+  overviewPreloadGen_[key] = apiWriteGen_;
+  overviewPreloads_[key] = callApi("getPeriodSummary", { startDate: b.startDate, endDate: b.endDate, scope: overviewScopeParam_() })
+    .then((d) => { overviewCache_[key] = d; saveOverviewSummaryCache_(key, d); return d; })   // shown at once; opening Overview still asks again
+    .finally(() => { delete overviewPreloads_[key]; });
+  overviewPreloads_[key].catch(() => {});
+}
+
 // Speed (owner, 2026-11-07): once the shown month or year has fully loaded (figures AND entry list), the one before it is fetched in the
 // background (figures only, ONE call, never at the same time as the period being shown), so tapping ‹ shows it at once; it is then
 // fetched fresh as usual and replaced, so a preloaded period never hides a later change.
 const overviewPreloads_ = {};
+const overviewPreloadGen_ = {};   // apiWriteGen_ when each background fetch was asked for
 function preloadOverviewNeighbour_() {
   if (periodType !== "week" && periodType !== "month" && periodType !== "year") return;
   const prev = periodType === "week" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth(), periodAnchor.getDate() - 7)
@@ -9116,6 +9157,7 @@ function preloadOverviewNeighbour_() {
   const b = periodType === "week" ? weekBounds(prev) : periodType === "month" ? monthBounds(prev) : yearBounds(prev);
   const key = overviewKey_(b);
   if (overviewCache_[key] || overviewPreloads_[key]) return;
+  overviewPreloadGen_[key] = apiWriteGen_;
   overviewPreloads_[key] = callApi("getPeriodSummary", { startDate: b.startDate, endDate: b.endDate, scope: overviewScopeParam_() })
     .then((d) => { overviewCache_[key] = d; return d; })
     .finally(() => { delete overviewPreloads_[key]; });
@@ -9529,7 +9571,7 @@ function buildFlowLoanRow_(m) {
       <div class="entry-desc">${escapeHtml(m.friend_name)}</div>
       <div class="entry-meta">${escapeHtml(listDate_(m.date))}${m.description ? " · " + escapeHtml(m.description) : ""}</div>
     </div>
-    <div class="entry-amount"><div class="${plus ? "pos-green" : ""}">${quiet ? formatAmount(m.amount, m.currency) : formatAmount(Math.abs(m.signed), m.currency, plus ? "+" : "−")}</div></div>`;
+    <div class="entry-amount"><span class="primary-amt${plus ? " withdrawal-amt" : ""}">${quiet ? formatAmount(m.amount, m.currency) : formatAmount(Math.abs(m.signed), m.currency, plus ? "+" : "−")}</span></div>`;
   row.addEventListener("click", () => openLoanDetail(m.friend_id, m.friend_name, ""));
   return row;
 }
@@ -11412,6 +11454,7 @@ async function init() {
     }
     checkEmailsNow_(false);   // not awaited: the app is already usable
     loadNotices_(true);       // likewise (and the server looks for new alerts, if it can)
+    preloadOverviewSummary_();   // Overview's figures, before its tab is tapped (owner, 2026-11-11)
   } catch (err) {
     if (err.code === "invalid_access_code" || err.message === "Invalid access code") {
       // Keep showing cached data under a now-invalid code, and every
@@ -27514,14 +27557,16 @@ document.getElementById("payment_method").addEventListener("change", (e) => {
 
 // ---- What the account really charged (owner, 2026-11-06; backend/Charges.gs) ----
 // The form's box. In a currency the account does not have (ARS on a USD card) it asks what was charged; empty = the charge is pending.
-// In a currency it has, a small link offers what was paid, optional. Only for an expense the person paid from a card or account with a
-// known list, never during a practice.
-let chargeEntry_ = null, chargeOpen_ = false, chargeLastCur_ = "";
+// In a currency it has, a small link offers the listed price, optional; Remove takes it away. Only for an expense the person paid from a
+// card or account with a known list, never during a practice. While the box shows, the labels say which amount is which (owner,
+// 2026-11-11): the Amount says "Charged to the card", the box "Listed price" (or the other way round when the box asks for the charge).
+let chargeEntry_ = null, chargeOpen_ = false, chargeRemoved_ = false, chargeLastCur_ = "";
 const chargeOn_ = () => !!((meta && meta.capabilities) || {}).chargeFill;
 const paidByForCharge_ = () => { const el = document.getElementById("paid_by"); return el ? el.value : "me"; };
 function resetChargeBox_(entry) {
   chargeEntry_ = entry && entry.type === "expense" ? entry : null;
   chargeOpen_ = false;
+  chargeRemoved_ = false;
   chargeLastCur_ = "";
   document.getElementById("charge-amount").value = chargeEntry_ && Number(chargeEntry_.paid_amount) > 0 ? chargeEntry_.paid_amount : "";
   document.getElementById("charge-open").hidden = true;
@@ -27539,12 +27584,15 @@ function chargeMode_() {
 function updateChargeBox_() {
   const mode = chargeMode_();
   const open = document.getElementById("charge-open"), box = document.getElementById("charge-box");
-  if (!mode) { open.hidden = true; box.hidden = true; return; }
+  const amountLabel = document.getElementById("amount-label");
+  if (!mode) { open.hidden = true; box.hidden = true; amountLabel.textContent = tr("field.amount"); return; }
   const cur = document.getElementById("currency").value;
-  const hasPaid = !mode.off && chargeEntry_ && Number(chargeEntry_.paid_amount) > 0;
+  const hasPaid = !mode.off && !chargeRemoved_ && chargeEntry_ && Number(chargeEntry_.paid_amount) > 0;
   const showBox = mode.off || chargeOpen_ || hasPaid;
   open.hidden = showBox;
   box.hidden = !showBox;
+  const charged = tr(mode.pm.type === "credit" ? "charge.chargedCard" : "charge.chargedAccount");
+  amountLabel.textContent = !showBox ? tr("field.amount") : mode.off ? tr("charge.paidLabel") : charged;
   if (!showBox) return;
   const sel = document.getElementById("charge-currency");
   const kind = mode.off ? "off:" + mode.list.join(",") : "paid";
@@ -27555,10 +27603,20 @@ function updateChargeBox_() {
     sel.value = mode.off ? mode.list[0] : (paidCur || (cur === homeCur() ? "USD" : homeCur()));
   }
   document.getElementById("charge-label").textContent = tr(mode.off ? (mode.pm.type === "credit" ? "charge.card" : "charge.account") : "charge.paidLabel");
-  document.getElementById("charge-hint").textContent = tr(mode.off ? "charge.hint" : "charge.paidHint");
+  // A friend's share is owed in the listed price's currency (backend/Loans.gs), so that is said only while the expense is split.
+  const split = document.getElementById("split-toggle"), hint = document.getElementById("charge-hint");
+  hint.textContent = mode.off ? tr("charge.hint") : split && split.checked && !split.closest("[hidden]") ? tr("charge.friendsOwe", { currency: sel.value }) : "";
+  hint.hidden = !hint.textContent;
+  document.getElementById("charge-remove").hidden = mode.off;
   updateChargeRate_();
 }
-document.getElementById("charge-open").addEventListener("click", () => { chargeOpen_ = true; updateChargeBox_(); });
+document.getElementById("charge-open").addEventListener("click", () => { chargeOpen_ = true; chargeRemoved_ = false; updateChargeBox_(); });
+document.getElementById("charge-remove").addEventListener("click", () => {
+  chargeOpen_ = false;
+  chargeRemoved_ = true;   // an entry saved with a listed price loses it on Save (chargeForSave_ reads the closed box as empty)
+  document.getElementById("charge-amount").value = "";
+  updateChargeBox_();
+});
 currencyPickOn_(document.getElementById("charge-currency"));
 ["change", "click"].forEach((ev) => document.getElementById("entry-form").addEventListener(ev, () => setTimeout(updateChargeBox_, 0)));
 
