@@ -24461,7 +24461,7 @@ function billGuideSteps_(ctx) {
     { target: () => [el("bill-photo-again"), el("bill-photo-raw")].filter((x) => !x.hidden), text: () => tr("rt.bill.raw"), button: realNext_, before: async () => realShown_("bill-photo-raw") || realShown_("bill-photo-again") },
     { key: "items", target: () => [el("bill-items"), el("bill-add-item")], text: (fix) => tr(fix ? "rt.bill.itemsFix" : "rt.bill.items"), button: realNext_, ok: () => ctx.saving() || items() > 0, holdsUntil: "save" },
     { key: "total", target: "#bill-total", text: (fix) => tr(fix ? "rt.bill.totalFix" : "rt.bill.total"), blurTap: true, visit: "#bill-total", button: realNext_, ok: () => ctx.saving() || total() > 0, holdsUntil: "save" },
-    { key: "people", target: () => [el("bill-people-chips"), el("bill-add-friend")], text: () => tr("rt.bill.people"), until: () => billState.people.size > 0 },
+    { key: "people", target: () => [el("bill-people-chips"), el("bill-add-friend")], text: (fix) => tr(fix && !billState.people.size ? "rt.bill.peopleFix" : "rt.bill.people"), button: realNext_, ok: () => ctx.saving() || billState.people.size > 0, holdsUntil: "save" },   // several people can be tapped; Next goes on (owner, 2026-11-12)
     { target: "#bill-items", text: () => tr("rt.bill.assign"), button: realNext_ },
     { target: () => [el("bill-add-discount"), el("bill-add-charge")], text: () => tr("rt.bill.adjust"), button: realNext_ },
     { target: () => [el("bill-tip-type-tabs"), el("bill-tip-value"), el("bill-tip-preview")], text: () => tr("rt.bill.tip"), button: realNext_ },
