@@ -24488,7 +24488,7 @@ function bankGuideSteps_(ctx) {
   return [
     realNameStep_(ctx, "bank-lender", "rt.bank.lender"),
     { target: "#bank-description", text: () => tr("rt.bank.desc"), blurTap: true, visit: "#bank-description", button: realNext_ },
-    { target: "#bank-opening-row", text: () => tr("rt.bank.opening"), button: realNext_, before: async () => realShown_("bank-opening-row") },
+    { target: "#bank-opening-row .bank-opening-check", text: () => tr("rt.bank.opening"), button: realNext_, until: () => el("bank-opening").checked, before: async () => realShown_("bank-opening-row") },   // ticking it moves on (owner, 2026-11-12); Next is for a loan that is not from before
     { target: "#bank-opening-how", text: () => tr("rt.bank.openingHow"), button: realNext_, before: async () => realShown_("bank-opening-how") },
     realAmountStep_(ctx, "bank-amount", () => tr("rt.bank.amount"), "rt.bank.amountFix"),
     { target: () => [el("bank-currency"), el("bank-date")], text: () => tr("rt.bank.money"), button: realNext_ },
