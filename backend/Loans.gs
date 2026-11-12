@@ -453,6 +453,33 @@ function forgivenessEntryIds_() {
   return ids;
 }
 
+// The day this copy started being used (owner, 2026-11-12): a debt or loan "from before the app" starts on the day before it.
+// The day the welcome questions were first answered; a copy set up before they existed uses its earliest entry recorded
+// through the app (imports — Spendee, statements — and practice entries are history brought in, not use). Found once and
+// kept in Settings (`first_use_date`); '' while nothing tells (a new copy with no entries yet: the phone uses its own first day).
+function firstUseDate_() {
+  var settings = getSettingsMap();
+  if (settings.first_use_date) {   // a sheet turns a stored day into a date: read it back as the day
+    var v = settings.first_use_date;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(v))) return String(v);
+    var asDate = v instanceof Date ? v : new Date(String(v));
+    if (!isNaN(asDate.getTime())) return Utilities.formatDate(asDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+  var found = '';
+  var onboarded = Number(settings.onboarded_at || 0);
+  if (onboarded > 0) {
+    found = Utilities.formatDate(new Date(onboarded), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  } else {
+    getAllRows('Entries').forEach(function (e) {
+      var d = String(e.date || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || String(e.source || '') === 'import' || isPracticeEntry_(e)) return;
+      if (!found || d < found) found = d;
+    });
+  }
+  if (found) setSetting_('first_use_date', found);
+  return found;
+}
+
 // Column marking a loan as "existed before the app" (opening debt): it has no money entry. Self-healing like the other Loans columns.
 function ensureLoansOpeningColumn_() {
   if (memoHasColumns_('Loans', ['opening'])) return;   // already there (read earlier in this request)
