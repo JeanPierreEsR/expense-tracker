@@ -77,7 +77,7 @@ test("the screen: a Change button in the bar (Category is one of its choices), o
   const docs = (f) => fs.readFileSync(path.join(__dirname, "..", "..", "docs", f), "utf8");
   const html = docs("index.html"), app = docs("app.js"), strings = docs("strings.js");
   assert.match(html, /id="entries-change-selected-btn"/);
-  assert.match(app, /callApi\("setEntriesCategory", \{ ids: sendIds, categories \}\)/);
+  assert.match(app, /callApi\("setEntriesCategory", entriesListThen_\(\{ ids: sendIds, categories \}\)\)/);
   assert.match(app, /callApi\("undoSetEntriesCategory"/);
   assert.match(app, /entriesBulk\.catMerge/, "the alert about several categories ending up in one");
   assert.match(app, /busy: "entriesBulk\.changing"/);

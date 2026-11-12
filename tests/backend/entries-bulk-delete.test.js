@@ -102,7 +102,7 @@ test("the screen: pencils on the Home list and the search results, tick rows, on
   const html = docs("index.html"), app = docs("app.js"), strings = docs("strings.js");
   for (const id of ["entries-edit-btn", "search-edit-btn", "entries-editbar", "entries-done-btn", "entries-delete-selected-btn", "entries-selectall-btn"]) assert.match(html, new RegExp(`id="${id}"`), id);
   assert.match(app, /callApi\("previewEntriesDelete", \{ ids \}\)/);
-  assert.match(app, /callApi\("deleteEntries", \{ ids: sendIds \}\)/);
+  assert.match(app, /callApi\("deleteEntries", entriesListThen_\(\{ ids: sendIds \}\)\)/);
   assert.match(app, /busy: "common\.deletingToast"/);
   assert.match(app, /name !== "entries" && entriesEditing_/, "leaving Home ends Edit mode");
   for (const key of ["entriesBulk.title", "entriesBulk.confirm", "entriesBulk.sharedNote", "entriesBulk.keptNote", "entriesBulk.noneDeletable", "entriesBulk.selectAllMatches", "entriesBulk.limit",
