@@ -11828,10 +11828,15 @@ function openPerfShareModal_(onDone) {
   document.getElementById("perf-share-yes").className = !s.asked || s.on ? "primary" : "cancel-edit-btn";
   document.getElementById("perf-share-no").className = s.asked && !s.on ? "primary" : "cancel-edit-btn";
   document.getElementById("perf-share-name").value = s.label || "";
-  document.getElementById("perf-share-close").hidden = !s.asked;   // the first time, the answer is one of the two buttons
   // Someone who agreed to an older version sees what is new, and ✕ means "not now" (asked again later, three times at most).
   perfShareReask_ = !!(s.asked && s.on && (s.scope || 1) < PerfShare.SCOPE);
   document.getElementById("perf-share-new").hidden = !perfShareReask_;
+  // The new question after an update is a forced choice, first thing (owner, 2026-11-12): no ✕, no tap outside; "No" keeps what they agreed to.
+  document.getElementById("perf-share-close").hidden = !s.asked || perfShareReask_;
+  if (perfShareReask_) backdrop.dataset.noDismiss = "1"; else delete backdrop.dataset.noDismiss;
+  document.getElementById("perf-share-yes").textContent = tr(perfShareReask_ ? "perfShare.yesToo" : "perfShare.yes");
+  document.getElementById("perf-share-no").textContent = tr(perfShareReask_ ? "perfShare.keepOld" : "perfShare.no");
+  if (perfShareReask_) { document.getElementById("perf-share-yes").className = "primary"; document.getElementById("perf-share-no").className = "cancel-edit-btn"; }
   bringModalToFront_(backdrop);
   backdrop.style.zIndex = 400;   // above the welcome card (300), which is still open behind it at the end of the welcome questions
   backdrop.hidden = false;
@@ -12116,6 +12121,10 @@ eraseEl_("erase-later-btn").addEventListener("click", () => {
   showSignedOutScreen_(tr("erase.signedOut"));
 });
 
+// While the forced sharing question is on screen nothing else asks anything (owner, 2026-11-12: it is the first thing after the update).
+async function perfShareFirstDone_() {
+  while (perfShareReask_ && !document.getElementById("perf-share-modal-backdrop").hidden) await sleep(300);
+}
 function maybeAskPerfShare_() {
   const caps = (meta && meta.capabilities) || {};
   if (appErased_) return;   // everything was just deleted: no questions for a person who is leaving
@@ -12128,6 +12137,14 @@ document.getElementById("perf-share-yes").addEventListener("click", () => perfSh
 document.getElementById("perf-share-no").addEventListener("click", () => perfShareAnswer_(false));
 function perfShareAnswer_(on) {
   if (welcome_ && welcome_.preview) { closePerfShareModal_(); return; }   // welcome preview: keep the real sharing choice untouched
+  if (perfShareReask_ && !on) {   // "Keep what I agreed to before": nothing changes and the question does not come back
+    const s = perfShareState_();
+    perfShareSave_({ ...s, scopeSkips: PerfShare.MAX_REASKS });
+    perfShareReask_ = false;
+    refreshPerfShareRow_();
+    closePerfShareModal_();
+    return;
+  }
   perfShareSave_({ on, label: PerfShare.cleanLabel(document.getElementById("perf-share-name").value), asked: true, owner: false, scope: PerfShare.SCOPE });
   if (!on) { perfOutbox_.clear(); betaOutbox_.clear(); }
   refreshPerfShareRow_();
@@ -22643,12 +22660,21 @@ let receiptJustRead_ = false;
 // ---- Did it work? (owner, 2026-11-12): for each bubble, the day it showed and whether its feature was used afterwards ----
 // Kept on this phone only (`popStats`), shown in More → Performance log. A feature use calls popUsed_(key) with the bubble's key.
 const POP_STATS_KEY_ = "popStats";
-function popStatShown_(key) { const st = popGet_(POP_STATS_KEY_, {}); if (!st[key]) { st[key] = { shown: todayLocalISO(), used: "" }; popSet_(POP_STATS_KEY_, st); } }
+function popStatShown_(key) { const st = popGet_(POP_STATS_KEY_, {}); if (!st[key]) { st[key] = { shown: todayLocalISO(), used: "" }; popSet_(POP_STATS_KEY_, st); betaRecordTip_(key, "shown"); } }
+// To JP only from a person who agreed to consent version 4 (owner, 2026-11-12): the tip's name and "shown" / "used", nothing else.
+function betaRecordTip_(key, what) {
+  try {
+    const share = perfShareState_();
+    if (!share.on || (share.scope || 1) < 4 || perfIsOwnerCopy_()) return;
+    if (!/^[A-Za-z]{2,30}$/.test(String(key))) return;   // (a help bubble's built name, "hint-…", is not sent)
+    betaOutbox_.appendRaw({ t: Date.now(), k: "tip", n: String(key), d: what, v: 1 });
+  } catch (e) { /* counting never breaks the app */ }
+}
 function popUsed_(key) {
   try {
     const st = popGet_(POP_STATS_KEY_, {});
     const k = String(key || "").split(":")[0];
-    if (st[k] && !st[k].used) { st[k].used = todayLocalISO(); popSet_(POP_STATS_KEY_, st); }
+    if (st[k] && !st[k].used) { st[k].used = todayLocalISO(); popSet_(POP_STATS_KEY_, st); betaRecordTip_(k, "used"); }
     else if (!st[k]) { const u = popGet_("popUsedBefore", {}); if (!u[k]) { u[k] = todayLocalISO(); popSet_("popUsedBefore", u); } }   // used before any bubble
   } catch (e) { /* counting never breaks the app */ }
 }
@@ -26477,7 +26503,7 @@ function askConfirmApp_(text, okLabel, opts) {
   opts = opts || {};
   if (appConfirmOpen_.has(text)) return Promise.resolve(false);
   appConfirmOpen_.add(text);
-  const shown = appConfirmChain_.then(() => new Promise((resolve) => {
+  const shown = appConfirmChain_.then(perfShareFirstDone_).then(() => new Promise((resolve) => {
     const backdrop = document.getElementById("app-confirm-backdrop");
     const ok = document.getElementById("app-confirm-ok"), back = document.getElementById("app-confirm-back");
     document.getElementById("app-confirm-text").textContent = text;

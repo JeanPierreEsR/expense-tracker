@@ -27,6 +27,8 @@ var BETA_SETUP_NAMES_ = { tapped: 1, api_switch_needed: 1, sheet_created: 1, app
   back_from_google: 1, help_card_shown: 1, approved: 1, ready: 1, step_failed: 1 };
 
 // The screens of the app (docs/index.html, id="screen-…", hyphens as underscores) — the only names a "screen" count may carry.
+// Tips (consent version 4, owner 2026-11-12): only the app's own tip names; detail "shown" or "used".
+var BETA_TIP_NAMES_ = { againstMain: 1, annual: 1, bankOpening: 1, bringBack: 1, chargeBox: 1, chargeListed: 1, currencies: 1, dollarLine: 1, earlyPay: 1, fitsGroups: 1, forgive: 1, homeEdit: 1, inProcess: 1, loanOpening: 1, ovTotals: 1, overpay: 1, overrides: 1, pace: 1, paceKept: 1, paidBy: 1, profile: 1, projMethod: 1, receipts: 1, startBal: 1, tags: 1, tagsOv: 1, tapMonth: 1, tidy: 1, tripNudge: 1, tripPick: 1, theseDays: 1 };
 var BETA_SCREENS_ = { entries: 1, overview: 1, budgets: 1, projections: 1, loans: 1, more: 1, recurring: 1, accounts: 1,
   categories: 1, trips: 1, trip_detail: 1, business: 1, business_detail: 1, business_igv: 1, business_features: 1, business_people: 1,
   exchange_rates: 1, friends: 1, perf: 1, export: 1, statements: 1, notauto: 1, bank_emails: 1, my_data: 1, my_profile: 1, feedback_privacy: 1, tidy: 1, deleted_entries: 1 };   // `notauto` stays: reports from phones that still run the old screen
@@ -82,6 +84,8 @@ function betaRow_(e, batch, nowMs, receivedAt) {
   } else if (e.k === 'queue_edit') {
     if (!BETA_QUEUE_FIELDS_.hasOwnProperty(name)) return null;
     detail = betaQueueDetail_(detail);
+  } else if (e.k === 'tip') {
+    if (!BETA_TIP_NAMES_.hasOwnProperty(name) || (detail !== 'shown' && detail !== 'used')) return null;
   } else if (e.k === 'screen') {
     if (!BETA_SCREENS_.hasOwnProperty(name) || !/^w\d{4}_\d{2}$/.test(detail) || n < 1) return null;
   } else {

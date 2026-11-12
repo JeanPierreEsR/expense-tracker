@@ -223,3 +223,12 @@ test("every screen of the app is on the list the backend accepts", () => {
   report(rt, { entries: ids.map((id, i) => screen(i + 1, id)) });
   assert.deepEqual(stored(rt).map((r) => r.name), ids, "none was dropped");
 });
+
+// ---- consent version 4 (owner, 2026-11-12): which tips were shown and whether their feature was used ----
+const tip = (s, name = "tags", d = "shown", extra = {}) => ({ s, t: Date.now() - 1000, k: "tip", n: name, d, v: 1, ...extra });
+
+test("a tip is stored with its name and 'shown' or 'used' only; unknown names and other words are dropped", () => {
+  const { rt } = freshApp({ small: true });
+  report(rt, { entries: [tip(1, "tags", "shown"), tip(2, "tags", "used"), tip(3, "tripNudge", "shown"), tip(4, "Ana Lopez", "shown"), tip(5, "tags", "clicked"), tip(6, "hint-loan", "shown")] });
+  assert.deepEqual(stored(rt).map((r) => [r.kind, r.name, r.detail]), [["tip", "tags", "shown"], ["tip", "tags", "used"], ["tip", "tripNudge", "shown"]]);
+});
