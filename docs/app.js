@@ -8804,6 +8804,7 @@ async function renderPaceScreen_() {
   loading.hidden = true; body.hidden = false;
   document.getElementById("pace-s-reset").hidden = !view;
   watchPaceTip_();
+  watchPaceKeptTip_();
   if (!r.cur) { document.getElementById("pace-s-lines").innerHTML = `<p class="hint">${escapeHtml(tr("pace.noData"))}</p>`; document.getElementById("pace-s-svg").innerHTML = ""; return; }
   drawPace_({ label: document.getElementById("pace-s-label"), svg: document.getElementById("pace-s-svg"), lines: document.getElementById("pace-s-lines"),
     days: document.getElementById("pace-s-days"), diff: true }, r, view);
@@ -8867,6 +8868,7 @@ function paceViewFromControls_() {
   const blueKey = v.blue === "this" ? (monthsHist_ ? monthsHist_.months[monthsHist_.months.length - 1].month : null) : v.blue;
   if (v.grey.kind === "month" && blueKey && (id === "pace-s-grey" || v.grey.month === blueKey)) v.grey.month = paceShift_(blueKey, -1);
   setPaceView_(v);
+  paceJustChanged_ = true;
   renderPaceScreen_();
   if (monthsHist_) renderPaceBig_();
 }));
@@ -22702,10 +22704,23 @@ function watchPaceTip_() {
     steps: [
       { target: () => document.getElementById("pace-s-blue"), text: tr("pop.pace.blue") },
       { target: () => document.getElementById("pace-s-grey"), text: tr("pop.pace.grey") },
-      { target: () => document.getElementById("pace-s-cats"), text: tr("pop.pace.cats"), when: () => !document.getElementById("pace-s-cats-field").hidden },
-      { target: () => back.querySelector("#pace-s-content > p.hint"), text: tr("pop.pace.kept") }
+      { target: () => document.getElementById("pace-s-cats"), text: tr("pop.pace.cats"), when: () => !document.getElementById("pace-s-cats-field").hidden }
     ],
     stillWanted: () => !back.hidden && !document.getElementById("pace-s-content").hidden
+  });
+}
+// Its last part waits for the person to change the view: only then is the Reset button on screen to point at (owner's walk, 2026-11-12).
+let paceJustChanged_ = false;
+function watchPaceKeptTip_() {
+  const changed = paceJustChanged_;
+  paceJustChanged_ = false;
+  const reset = document.getElementById("pace-s-reset"), back = document.getElementById("pace-screen-backdrop");
+  if (!changed || reset.hidden) return;
+  if (!popGet_(POP_SEEN_KEY_, []).includes("pace") && (popGet_(POP_SERIES_KEY_, {}).pace || 0) < 3) return;   // after the rest of the series
+  popTipWatch_({
+    key: "paceKept", place: "paceScreen", own: true, text: tr("pop.pace.kept"),
+    target: () => (reset.hidden ? null : reset),
+    stillWanted: () => !back.hidden && !reset.hidden
   });
 }
 // ---- Bubbles, batch B (owner's plan 2026-11-11) ----

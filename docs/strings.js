@@ -2471,7 +2471,7 @@
     "pop.pace.blue": { en: "The blue line is the month you're looking at. Pick an earlier month here.", es: "La línea azul es el mes que estás viendo. Elige aquí un mes anterior." },
     "pop.pace.grey": { en: "Pick what to compare with: the month before, the same month last year, an average, or any other month.", es: "Elige con qué comparar: el mes anterior, el mismo mes del año pasado, un promedio u otro mes." },
     "pop.pace.cats": { en: "Look at all your expenses, one category, or one budget's categories.", es: "Mira todos tus gastos, una categoría o las categorías de un presupuesto." },
-    "pop.pace.kept": { en: "Your choice stays on this phone and on the Overview card. Reset to the usual view any time.", es: "Tu elección se queda en este celular y en la tarjeta de Resumen. Vuelve a la vista habitual cuando quieras." },
+    "pop.pace.kept": { en: "Your choice stays on this phone and on the Overview card. Tap here to go back to the usual view.", es: "Tu elección se queda en este celular y en la tarjeta de Resumen. Toca aquí para volver a la vista habitual." },
     // Bubbles, batch B (2026-11-11)
     "pop.projMethod": { en: "Your projections use one way of calculating. Tap here to compare the others and pick the one that fits your spending.", es: "Tus proyecciones usan una forma de calcular. Toca aquí para comparar las otras y elegir la que va con tus gastos." },
     "pop.tidy": { en: "Each group gathers entries with no category. Pick one and tap Apply; if it's wrong, Undo shows for a few seconds.", es: "Cada grupo reúne movimientos sin categoría. Elige una y toca Aplicar; si te equivocas, Deshacer aparece unos segundos." },
