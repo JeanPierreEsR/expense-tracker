@@ -41,7 +41,8 @@ function stmtBalanceAt_(pmId, currency, endDate, opening, confirmed, inboundIds)
 
 /**
  * args: { pm, currency, closing, start, end, lines, openings (this account's rows),
- *         confirmed, inboundIds, entryById }
+ *         confirmed, inboundIds, entryById, sameDayLines }
+ * `sameDayLines`: the lines of every OTHER statement of this account in the same upload, grouped by closing day ({ day: [[lines…], …] }).
  * `lines` are the analysis' output lines (status matched / completes /
  * unregistered / handled) for THIS statement.
  */
@@ -61,11 +62,17 @@ function stmtBalanceCheck_(args) {
   // A statement closing on the starting balance's own day: once saved, its lines cover their entries, and an entry such a statement
   // covers is inside that balance (entryCountsAfterOpening_). Everything below is judged as it will be after the save (owner, 2026-11-11:
   // a late bank e-mail the same-day statement shows was corrected AND moved inside by the save, 500 became 564.90).
-  var undoForesee = (own && args.end === own.date) ? stmtForeseeCoverage_(args, own.date) : null;
+  // A LATER statement of the same account in the same upload as such a same-day one (owner, 2026-11-11: both loaded together, the later
+  // one still counted the late e-mail twice) is judged with that statement's coverage too: they are saved together.
+  var undos = [];
+  if (own && args.end === own.date) undos.push(stmtForeseeCoverage_(args, own.date));
+  if (own && args.end > own.date) ((args.sameDayLines || {})[own.date] || []).forEach(function (lines) {
+    undos.push(stmtForeseeCoverage_({ lines: lines }, own.date));
+  });
   try {
     return stmtBalanceCheckFrom_(args, out, own, governing);
   } finally {
-    if (undoForesee) undoForesee();
+    undos.reverse().forEach(function (u) { u(); });
   }
 }
 

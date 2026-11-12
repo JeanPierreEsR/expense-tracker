@@ -241,3 +241,37 @@ test("a later statement, late bank e-mail already in the balance: the correction
   assert.equal(opening(rt, card.id).amount, -35.1);
   assert.equal(bal(), -100);
 });
+
+test("a same-day statement and a later one in the same upload: the later one already counts the late e-mail inside, so it matches", () => {
+  const { rt, card, stmt, bal } = lateMailSetup("mail-late-3", "Tienda Nueve");
+  const line = { date: limaDay(1), description: "TIENDA NUEVE", amount: -64.90, currency: "PEN" };
+  const same = Object.assign(stmt(-100, [line]), { period: { start: limaDay(10), end: limaDay(0) } });
+  const later = Object.assign(stmt(-100, [line]), { period: { start: limaDay(10), end: limaDay(-5) } });
+  // alone, the later statement still sees the double count (the test above)
+  assert.equal(plan(rt, [later]).balance_checks[0].unexplained, 64.9);
+  const p = plan(rt, [same, later]);
+  const cl = p.balance_checks.find((c) => c.stmt === 1);
+  assert.equal(cl.diff, 0, "the same-day statement in the upload puts the e-mail inside the balance");
+  assert.equal(cl.unexplained, 0);
+  assert.equal(cl.startFix, undefined);
+  assert.equal(bal(), -164.9, "the check itself changes nothing");
+  save(rt, [same, later], p.actions.concat([{ type: "set_balance", stmt: 1, currency: "PEN", gap: cl.unexplained, app_balance: cl.appAtEnd }]));
+  assert.equal(bal(), -100);
+});
+
+test("consecutive statements in one upload (the next one starts after the balance's day): the next one counts the late e-mail inside", () => {
+  const { rt, card, stmt, bal } = lateMailSetup("mail-late-4", "Tienda Diez");
+  const same = Object.assign(stmt(-100, [{ date: limaDay(1), description: "TIENDA DIEZ", amount: -64.90, currency: "PEN" }]),
+    { period: { start: limaDay(10), end: limaDay(0) } });
+  const next = Object.assign(stmt(-100, []), { period: { start: limaDay(-1), end: limaDay(-5) } });
+  assert.equal(plan(rt, [next]).balance_checks[0].unexplained, 64.9, "alone, it sees the double count");
+  for (const order of [[same, next], [next, same]]) {
+    const p = plan(rt, order);
+    const cn = p.balance_checks.find((c) => order[c.stmt] === next);
+    assert.equal(cn.diff, 0);
+    assert.equal(cn.startFix, undefined);
+  }
+  const p = plan(rt, [same, next]);
+  save(rt, [same, next], p.actions.concat([{ type: "set_balance", stmt: 1, currency: "PEN", gap: 0, app_balance: -100 }]));
+  assert.equal(bal(), -100);
+});
