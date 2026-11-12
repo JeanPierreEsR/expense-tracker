@@ -644,6 +644,7 @@ function clearLocalSignIn_() {
   localStorage.removeItem("accessCode");
   localStorage.removeItem(STARTUP_CACHE_KEY);
   localStorage.removeItem(PROJECTIONS_CACHE_KEY);
+  localStorage.removeItem(OVERVIEW_SUMMARY_CACHE_KEY);   // the person's own figures
   localStorage.removeItem(ENTRY_DRAFT_KEY);
   localStorage.removeItem(HOME_GLANCE_CACHE_KEY);   // the Home summary holds the person's own numbers
   clearSearchCache_();
@@ -9076,7 +9077,9 @@ async function refreshOverviewInner_() {
 
   const key = overviewKey_(bounds);
   const token = ++overviewReqToken_;
+  const saved = !overviewCache_[key] && overviewShownKey_ !== key ? loadOverviewSummaryCache_(key) : null;
   if (overviewCache_[key]) { paintOverviewSummary_(overviewCache_[key]); overviewShownKey_ = key; screen.classList.remove("overview-stale"); setLoadFailed_("overview", null); }
+  else if (saved) { paintOverviewSummary_(saved); overviewShownKey_ = key; screen.classList.remove("overview-stale"); setLoadFailed_("overview", null); }
   else if (overviewShownKey_ !== key) {
     screen.querySelectorAll(".card.ov-period").forEach((c) => { c.dataset.loading = tr("common.loading"); });
     screen.classList.add("overview-stale");
@@ -9085,7 +9088,8 @@ async function refreshOverviewInner_() {
   let data;
   try {
     // A neighbour still being fetched in the background (preloadOverviewNeighbour_) is waited for, never asked twice.
-    const inFlight = !overviewCache_[key] && overviewPreloads_[key];
+    // ...unless something was saved since it was asked for: its answer could be from before the save.
+    const inFlight = !overviewCache_[key] && overviewPreloads_[key] && overviewPreloadGen_[key] === apiWriteGen_ && overviewPreloads_[key];
     data = await (inFlight || callApi("getPeriodSummary", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() }));
   } catch (err) {
     if (token === overviewReqToken_) {
@@ -9095,6 +9099,7 @@ async function refreshOverviewInner_() {
     throw err;
   }
   overviewCache_[key] = data;
+  saveOverviewSummaryCache_(key, data);
   if (token !== overviewReqToken_) return;   // the person already moved on to another period
   screen.classList.remove("overview-stale");
   setLoadFailed_("overview", null);
@@ -9103,10 +9108,46 @@ async function refreshOverviewInner_() {
   loadOverviewEntries_(bounds).then(() => { if (token === overviewReqToken_) preloadOverviewNeighbour_(); });
 }
 
+// Overview's summary is ready before the tab is tapped (owner, 2026-11-11): (1) the last figures shown for each period are kept on this
+// phone (a few periods, per language and "Showing" filter; cleared on sign-out) and painted at once, then replaced by the live ones
+// (the spinner by the period picker says it is fetching); (2) once Home has loaded, the figures for the period Overview will open on
+// are fetched in the background (one call), so the live ones are usually there before the tap.
+const OVERVIEW_SUMMARY_CACHE_KEY = "overviewSummaryCache";
+const OVERVIEW_SUMMARY_CACHE_MAX = 4;
+function loadOverviewSummaryCache_(key) {
+  try {
+    const c = JSON.parse(localStorage.getItem(OVERVIEW_SUMMARY_CACHE_KEY));
+    if (!c || c.lang !== I18n.getLang()) return null;   // category names come translated from the server
+    const hit = (c.periods || []).find((x) => x.key === key);
+    return hit ? hit.data : null;
+  } catch (err) { return null; }
+}
+function saveOverviewSummaryCache_(key, data) {
+  try {
+    let c = null;
+    try { c = JSON.parse(localStorage.getItem(OVERVIEW_SUMMARY_CACHE_KEY)); } catch (err) { c = null; }
+    if (!c || c.lang !== I18n.getLang()) c = { lang: I18n.getLang(), periods: [] };
+    c.periods = [{ key, data }].concat((c.periods || []).filter((x) => x.key !== key)).slice(0, OVERVIEW_SUMMARY_CACHE_MAX);
+    localStorage.setItem(OVERVIEW_SUMMARY_CACHE_KEY, JSON.stringify(c));
+  } catch (err) { /* storage full: the tab just loads as before */ }
+}
+function preloadOverviewSummary_() {
+  const b = getPeriodBounds();
+  if (periodType === "custom" && !b.startDate && !b.endDate) return;
+  const key = overviewKey_(b);
+  if (overviewCache_[key] || overviewPreloads_[key]) return;
+  overviewPreloadGen_[key] = apiWriteGen_;
+  overviewPreloads_[key] = callApi("getPeriodSummary", { startDate: b.startDate, endDate: b.endDate, scope: overviewScopeParam_() })
+    .then((d) => { overviewCache_[key] = d; saveOverviewSummaryCache_(key, d); return d; })   // shown at once; opening Overview still asks again
+    .finally(() => { delete overviewPreloads_[key]; });
+  overviewPreloads_[key].catch(() => {});
+}
+
 // Speed (owner, 2026-11-07): once the shown month or year has fully loaded (figures AND entry list), the one before it is fetched in the
 // background (figures only, ONE call, never at the same time as the period being shown), so tapping ‹ shows it at once; it is then
 // fetched fresh as usual and replaced, so a preloaded period never hides a later change.
 const overviewPreloads_ = {};
+const overviewPreloadGen_ = {};   // apiWriteGen_ when each background fetch was asked for
 function preloadOverviewNeighbour_() {
   if (periodType !== "week" && periodType !== "month" && periodType !== "year") return;
   const prev = periodType === "week" ? new Date(periodAnchor.getFullYear(), periodAnchor.getMonth(), periodAnchor.getDate() - 7)
@@ -9114,6 +9155,7 @@ function preloadOverviewNeighbour_() {
   const b = periodType === "week" ? weekBounds(prev) : periodType === "month" ? monthBounds(prev) : yearBounds(prev);
   const key = overviewKey_(b);
   if (overviewCache_[key] || overviewPreloads_[key]) return;
+  overviewPreloadGen_[key] = apiWriteGen_;
   overviewPreloads_[key] = callApi("getPeriodSummary", { startDate: b.startDate, endDate: b.endDate, scope: overviewScopeParam_() })
     .then((d) => { overviewCache_[key] = d; return d; })
     .finally(() => { delete overviewPreloads_[key]; });
@@ -9527,7 +9569,7 @@ function buildFlowLoanRow_(m) {
       <div class="entry-desc">${escapeHtml(m.friend_name)}</div>
       <div class="entry-meta">${escapeHtml(listDate_(m.date))}${m.description ? " · " + escapeHtml(m.description) : ""}</div>
     </div>
-    <div class="entry-amount"><div class="${plus ? "pos-green" : ""}">${quiet ? formatAmount(m.amount, m.currency) : formatAmount(Math.abs(m.signed), m.currency, plus ? "+" : "−")}</div></div>`;
+    <div class="entry-amount"><span class="primary-amt${plus ? " withdrawal-amt" : ""}">${quiet ? formatAmount(m.amount, m.currency) : formatAmount(Math.abs(m.signed), m.currency, plus ? "+" : "−")}</span></div>`;
   row.addEventListener("click", () => openLoanDetail(m.friend_id, m.friend_name, ""));
   return row;
 }
@@ -11409,6 +11451,7 @@ async function init() {
     }
     checkEmailsNow_(false);   // not awaited: the app is already usable
     loadNotices_(true);       // likewise (and the server looks for new alerts, if it can)
+    preloadOverviewSummary_();   // Overview's figures, before its tab is tapped (owner, 2026-11-11)
   } catch (err) {
     if (err.code === "invalid_access_code" || err.message === "Invalid access code") {
       // Keep showing cached data under a now-invalid code, and every
