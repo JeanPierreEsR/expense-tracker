@@ -14831,11 +14831,13 @@ function startTidyReal_() {
     { key: "intro", text: () => tr("rt.tidy.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("tidy", "real"); } },
     { target: () => { const b = box(); return b ? [b.querySelector(".tidy-group-top"), b.querySelector(".tidy-group-meta")] : null; }, text: () => tr(sug() ? "rt.tidy.groupSug" : "rt.tidy.group"), button: realNext_,
       before: async () => { const b = document.querySelector("#tidy-list .tidy-group"); key = b ? b.dataset.key : ""; return !!key; } },
-    { target: part(".tidy-lines"), text: () => tr("rt.tidy.lines"), button: realNext_ },
+    // Tapping the button is the step (owner's walk, 2026-11-12: no Next beside it), then the lines stay lit to be read.
+    { target: part(".tidy-lines"), text: () => tr("rt.tidy.lines"), until: () => { const s = part(".tidy-samples")(); return !!s && !s.hidden; } },
+    { look: true, target: part(".tidy-samples"), text: () => tr("rt.tidy.linesLook"), button: realNext_, before: async () => { const s = part(".tidy-samples")(); return !!s && !s.hidden; } },
     { key: "pick", target: part(".tidy-select"), text: (fix) => tr(fix ? "rt.tidy.pickFix" : sug() ? "rt.tidy.pickSug" : "rt.tidy.pick"), visit: ".tidy-group[data-key] .tidy-select", button: realNext_,
       ok: () => applied || !!(part(".tidy-select")() || {}).value, holdsUntil: "apply" },
     { key: "apply", target: part(".tidy-apply"), text: () => tr("rt.tidy.apply"), until: () => { if (key && !box()) applied = true; return applied; } },
-    { look: true, target: "#app-undo-toast", text: () => tr("rt.tidy.undo"), button: realNext_, wait: 4000, before: async () => applied },
+    // (no step on the Undo toast: it goes away by itself and left the tutorial waiting; owner 2026-11-12)
     { target: () => [realShown_("tidy-apply-all-btn") ? document.getElementById("tidy-apply-all-btn") : null, document.querySelector("#tidy-list .tidy-group .tidy-skip"), realShown_("tidy-more") ? document.getElementById("tidy-more") : null].filter(Boolean),
       text: () => tr(realShown_("tidy-apply-all-btn") ? "rt.tidy.restAll" : "rt.tidy.rest") + (realShown_("tidy-more") ? " " + tr("rt.tidy.more") : ""), button: realNext_, before: async () => any() },
     { keep: true, look: true, target: "#tidy-empty", text: () => tr("rt.tidy.doneAll"), button: () => tr("spot.g.done"), before: async () => realShown_("tidy-empty") && !any() },
