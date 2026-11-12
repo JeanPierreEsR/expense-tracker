@@ -22893,6 +22893,11 @@ function watchOverpayTip_() {
     stillWanted: () => !document.getElementById("settlement-modal-backdrop").hidden
   });
 }
+// The split step of the real tutorials: "If a friend paid it all, change Paid by" only while the person still says they paid (owner's walk, 2026-11-12).
+function splitHowText_() {
+  const pb = document.getElementById("paid_by");
+  return tr(pb && pb.value && pb.value !== "me" ? "rt.split.howPaid" : "rt.split.how");
+}
 // ---- Bubbles, batches D and E (owner's plan 2026-11-11; moments agreed 2026-11-12) ----
 // The new-entry form: Tags (30+ entries, or a search for "annual" on Home) and receipt photos (three expenses typed by hand in a row).
 function watchTagsTip_() {
@@ -23686,7 +23691,7 @@ function guidedEntrySteps_() {
       text: () => tr("spot.g.splitFriend"), until: () => splitFriendIds.size > 0, wait: 8000,
       ok: () => !splitOn() || splitFriendIds.size > 0, holdsUntil: "save", available: () => is("expense")() && splitOn(), before: async () => is("expense")() && splitOn() },
     { target: () => [document.getElementById("split-mode-tabs"), document.getElementById("split-rows"), document.getElementById("split-summary")],
-      text: () => tr("rt.split.how"), button: next, available: () => is("expense")() && splitOn() && splitFriendIds.size > 0, before: async () => is("expense")() && splitOn() && splitFriendIds.size > 0 },
+      text: () => splitHowText_(), button: next, available: () => is("expense")() && splitOn() && splitFriendIds.size > 0, before: async () => is("expense")() && splitOn() && splitFriendIds.size > 0 },
     { target: "#tags-field", text: () => tr("spot.g.tags"), tap: "#tags-list", button: next,
       available: is("expense"), before: async () => is("expense")() && shownNow("tags-field") },
     { target: "#trip-field", text: () => tr("spot.g.trip"), visit: "#entry-trip", button: next,
@@ -24237,7 +24242,7 @@ function startSplitReal_() {
   if (!amountOk()) steps.push({ key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
     until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || amountOk(), holdsUntil: "save" });
   steps.push({ key: "splitFriend", target: () => [el("split-friend-chips"), el("split-add-friend-btn")], text: () => tr("spot.g.splitFriend"), until: () => splitFriendIds.size > 0, wait: 8000, ok: () => submitted || splitFriendIds.size > 0, holdsUntil: "save" });
-  steps.push({ target: () => [el("split-mode-tabs"), el("split-rows"), el("split-summary")], text: () => tr("rt.split.how"), button: () => tr("spot.g.next") });
+  steps.push({ target: () => [el("split-mode-tabs"), el("split-rows"), el("split-summary")], text: () => splitHowText_(), button: () => tr("spot.g.next") });
   // An item with no category cannot be saved: it is asked for here, or the Save error would point at a dimmed box.
   if (confirmingPendingId && !getCategoryId()) steps.push({ key: "category", field: "category", target: "#category-select-field", text: () => tr("rt.review.catPick"), until: () => !!getCategoryId() });
   if (confirmingPendingId) steps.push({ target: () => [el("amount"), el("date"), el("payment-method-field")].filter((x) => x && !x.hidden), text: () => tr("rt.review.check"), button: () => tr("spot.g.next") });
