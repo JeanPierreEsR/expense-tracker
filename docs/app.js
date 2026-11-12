@@ -2116,7 +2116,7 @@ function toggleSplitFieldVisibility() {
   document.getElementById("split-field").hidden = !show;
   if (!show) resetSplitState();
   // Only an expense can belong to a trip or event, so the picker follows the same rule.
-  document.getElementById("trip-field").hidden = !show || !(meta.trips || []).length;
+  document.getElementById("trip-field").hidden = !show || (!(meta.trips || []).length && !tripFieldForced_);
   if (!show) document.getElementById("entry-trip").value = "";
   populateBusinessOptions_();   // an expense or an income may belong to a company / project
   updateRepeatField_();
@@ -3284,6 +3284,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const charge = chargeForSave_(amount, currency, splits, selectedType, paidByForCharge_());
     const tagIds = Array.from(selectedTagIds);
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
+    if (tripNudgeHolds_(tripId, currency)) throw new Error("");   // held once: the trip field and its bubble are on screen now
     // Shared with friends inside a trip that has a group (owner, 2026-11-07): when the friends' shares are kept in another app, the group is
     // the right choice. Asked before saving; Cancel goes back to the split with nothing changed.
     const tripGroup = tripId && splits && splits.length && !Spotlight.isRunning() ? (meta.friends || []).find((f) => f.trip_id === tripId) : null;
@@ -7496,6 +7497,8 @@ function openNewEntrySheet_() {
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
   // A new person's first "+": the guided practice starts by itself (owner, 2026-11-04). Never during another practice or "Mark as paid".
   if (!payingRecurringId_ && guidedEntryWanted_()) setTimeout(startGuidedEntry_, 350);
+  tripNudgeAsked_ = false;
+  if (tripFieldForced_) { tripFieldForced_ = false; populateTripOptions_(); }
   if (!payingRecurringId_) { popTipVisit_("entryForm"); setTimeout(watchEntryFormTip_, 450); }
 }
 
@@ -15452,7 +15455,17 @@ function perfReportText_() {
   return lines.join("\n");
 }
 
+// Tips: did they help? (owner, 2026-11-12) — from popStats on this phone.
+function renderPerfTips_() {
+  const box = document.getElementById("perf-tips");
+  const st = popGet_(POP_STATS_KEY_, {}), keys = Object.keys(st).sort((a, b) => String(st[b].shown).localeCompare(String(st[a].shown)));
+  const shown = keys.length, used = keys.filter((k) => st[k].used).length;
+  box.innerHTML = !shown ? `<div class="status-msg">${escapeHtml(tr("perf.tipsNone"))}</div>`
+    : `<p class="hint">${escapeHtml(tr("perf.tipsSum", { shown, used }))}</p>` + keys.map((k) => `<div class="perf-row"><div class="perf-name">${escapeHtml(k)}</div>
+      <div class="hint">${escapeHtml(tr("perf.tipShown", { day: st[k].shown }))} · ${escapeHtml(st[k].used ? tr("perf.tipUsed", { day: st[k].used }) : tr("perf.tipNotUsed"))}</div></div>`).join("");
+}
 function renderPerfScreen() {
+  renderPerfTips_();
   const box = document.getElementById("perf-summary");
   const rows = perfSummaryRows_();
   if (!rows.length) {
@@ -16788,12 +16801,24 @@ function tripPillHtml_(entry) {
 // refresh while an edit is open must not change the pick).
 function populateTripOptions_() {
   const sel = document.getElementById("entry-trip");
-  fillTripOptions_(sel, sel.value);
-  document.getElementById("trip-field").hidden = selectedType !== "expense" || !(meta.trips || []).length;
+  fillTripOptions_(sel, sel.value, true);
+  document.getElementById("trip-field").hidden = selectedType !== "expense" || (!(meta.trips || []).length && !tripFieldForced_);
 }
+// The entry form can add a trip (owner, 2026-11-12): "+ New trip or event…" opens the usual trip window above the form, and the new
+// trip is picked in the entry once saved (what was typed in the entry stays). `tripFieldForced_`: the trip nudge shows the field even
+// before the person has any trip.
+let tripFieldForced_ = false, tripFromEntry_ = false;
+document.getElementById("entry-trip").addEventListener("change", (e) => {
+  if (e.target.value !== "__newtrip__") return;
+  e.target.value = "";
+  tripFromEntry_ = true;
+  openTripModal_(null);
+  const d = document.getElementById("date").value;
+  if (d) { document.getElementById("trip-start").value = d; document.getElementById("trip-end").value = d; }
+});
 
 // Fills any trip/event <select> (the entry form's, the Programmed pop-up's) and keeps `keep` chosen.
-function fillTripOptions_(sel, keep) {
+function fillTripOptions_(sel, keep, withNew) {
   sel.innerHTML = "";
   const none = document.createElement("option");
   none.value = "";
@@ -16810,6 +16835,12 @@ function fillTripOptions_(sel, keep) {
     o.textContent = tripLabel_(t);
     sel.appendChild(o);
   });
+  if (withNew) {
+    const add = document.createElement("option");
+    add.value = "__newtrip__";
+    add.textContent = tr("trips.newFromEntry");
+    sel.appendChild(add);
+  }
   sel.value = keep || "";
   if (sel.value !== (keep || "")) sel.value = "";
 }
@@ -17394,6 +17425,7 @@ document.getElementById("trip-start").addEventListener("change", () => refreshTr
 function closeTripModal_() {
   document.getElementById("trip-modal-backdrop").hidden = true;
   editingTripId_ = null;
+  tripFromEntry_ = false;
 }
 
 // "Find expenses in these dates": lists the trip-less expenses inside the trip's dates, all ticked;
@@ -17531,7 +17563,18 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
     };
     // The server checks everything and answers in the person's language.
     const tripId = editingTripId_;
+    const forEntry = tripFromEntry_ && !tripId && newEntrySheetOpen_;
     closeTripModal_();
+    if (forEntry) {   // made from the new-entry form: once saved, it is picked there
+      saveBehindScreen_(async () => {
+        const made = await callApi("addTrip", fields);
+        meta.trips = await callApi("listTrips", {});
+        populateTripOptions_();
+        const sel = document.getElementById("entry-trip");
+        if (made && made.id && newEntrySheetOpen_) { sel.value = made.id; document.getElementById("trip-field").hidden = false; }
+      });
+      return;
+    }
     saveBehindScreen_(
       practiceTTrack_(() => tripId ? callApi("updateTrip", withThen_(Object.assign({ id: tripId }, fields), [["listTrips", {}]])) : callApi("addTrip", withThen_(fields, [["listTrips", {}]])), fields),
       async () => {
@@ -22917,6 +22960,31 @@ document.getElementById("entry-search").addEventListener("input", (e) => { if (/
 document.getElementById("inproc-open-btn").addEventListener("click", () => popUsed_("inProcess"));
 document.getElementById("rate-via-main-btn").addEventListener("click", () => popUsed_("againstMain"));
 
+// The trip nudge (owner, 2026-11-12): the first Save of a new expense in a third currency (not the main one, not dollars) or for a
+// flight, with no trip picked, is held ONCE; the trip field shows (with "+ New trip or event…") and a bubble explains. Save again = saved.
+const TRIP_FLIGHT_RE_ = /(vuelo|pasaje|boleto a[eé]reo|aerol[ií]nea|aeropuerto|\btuua\b|tasa aeroportuaria|equipaje|maleta|flight|plane ticket|air ticket|airfare|airline|airport|baggage|luggage|\blatam\b|\bsky airline|jetsmart|avianca|copa airlines|american airlines|\bunited\b|\bdelta\b|iberia|air europa|\bklm\b|air france)/i;
+let tripNudgeAsked_ = false;
+function tripNudgeHolds_(tripId, currency) {
+  if (tripId || tripNudgeAsked_ || selectedType !== "expense" || editingEntryId || Spotlight.isRunning() || !newEntrySheetOpen_) return false;
+  if (popGet_(POP_SEEN_KEY_, []).includes("tripNudge")) return false;
+  const third = currency && currency !== homeCur() && currency !== "USD";
+  const flight = TRIP_FLIGHT_RE_.test(document.getElementById("description").value || "");
+  if (!third && !flight) return false;
+  tripNudgeAsked_ = true;
+  tripFieldForced_ = true;
+  populateTripOptions_();
+  const field = document.getElementById("trip-field");
+  field.hidden = false;
+  field.scrollIntoView({ block: "center", behavior: "smooth" });
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  popTipWatch_({
+    key: "tripNudge", place: "entryForm", own: true, noGate: true, text: tr(flight ? "pop.tripFlight" : "pop.tripCurrency"),
+    target: () => (field.hidden ? null : field),
+    stillWanted: () => newEntrySheetOpen_
+  });
+  return true;
+}
+
 // ---- Bubbles, batch A (owner's plan 2026-11-11, "Tutorials from the map" § Step 6) ----
 // Overview's totals (basic, kind B): how each kind of entry counts, and that Needs review does not count yet. A series of three.
 function watchOverviewTotalsTip_() {
@@ -28085,8 +28153,21 @@ function updateChargeBox_() {
   hint.hidden = !hint.textContent;
   document.getElementById("charge-remove").hidden = mode.off;
   updateChargeRate_();
+  if (mode.off && !(popWatch_ && popWatch_.key === "chargeBox") && !popGet_(POP_SEEN_KEY_, []).includes("chargeBox")) popTipWatch_({
+    key: "chargeBox", place: "entryForm", own: true, noGate: true,
+    text: () => tr(mode.pm.type === "credit" ? "pop.chargeBoxCard" : "pop.chargeBoxAccount"),
+    target: () => { const b = document.getElementById("charge-box"); return b.hidden ? null : b; },
+    stillWanted: () => newEntrySheetOpen_ && !document.getElementById("charge-box").hidden
+  });
 }
-document.getElementById("charge-open").addEventListener("click", () => { chargeOpen_ = true; chargeRemoved_ = false; updateChargeBox_(); });
+document.getElementById("charge-open").addEventListener("click", () => {
+  chargeOpen_ = true; chargeRemoved_ = false; updateChargeBox_();
+  popTipWatch_({   // bubble 3 (owner, 2026-11-12): the first time the listed price is opened by hand
+    key: "chargeListed", place: "entryForm", own: true, noGate: true, text: tr("pop.chargeListed"),
+    target: () => { const b = document.getElementById("charge-box"); return b.hidden ? null : b; },
+    stillWanted: () => newEntrySheetOpen_ && !document.getElementById("charge-box").hidden
+  });
+});
 document.getElementById("charge-remove").addEventListener("click", () => {
   chargeOpen_ = false;
   chargeRemoved_ = true;   // an entry saved with a listed price loses it on Save (chargeForSave_ reads the closed box as empty)
@@ -28104,12 +28185,27 @@ function chargeRateText_(amountA, curA, amountB, curB) {
   const shown = rate.toLocaleString("en-US", { maximumFractionDigits: rate >= 100 ? 2 : 4 });
   return tr("charge.rate", { strong, weak, rate: shown });
 }
+// The box's sentence (owner, 2026-11-12): both amounts in words, "?" for what is not typed yet, the rate once both are there.
+// "The listed price was ARS 1,500.00 and your card charged USD 1.00 (USD 1 = ARS 1,500)."
+function chargeRatePart_(amountA, curA, amountB, curB) {
+  const a = Number(amountA), b = Number(amountB);
+  if (!(a > 0) || !(b > 0) || !curA || !curB || curA === curB) return "";
+  const [strong, weak, rate] = b / a >= 1 ? [curA, curB, b / a] : [curB, curA, a / b];
+  return `${strong} 1 = ${weak} ${rate.toLocaleString("en-US", { maximumFractionDigits: rate >= 100 ? 2 : 4 })}`;
+}
 function updateChargeRate_() {
   const el = document.getElementById("charge-rate");
-  const text = document.getElementById("charge-box").hidden ? "" : chargeRateText_(document.getElementById("amount").value, document.getElementById("currency").value,
-    document.getElementById("charge-amount").value, document.getElementById("charge-currency").value);
+  const mode = chargeMode_();
+  if (document.getElementById("charge-box").hidden || !mode) { el.textContent = ""; el.hidden = true; return; }
+  const top = { v: document.getElementById("amount").value, c: document.getElementById("currency").value };
+  const box = { v: document.getElementById("charge-amount").value, c: document.getElementById("charge-currency").value };
+  const [listed, charged] = mode.off ? [top, box] : [box, top];   // the box asks for the charge when the account lacks the currency, else for the listed price
+  const say = (x) => (Number(x.v) > 0 ? formatAmount(Number(x.v), x.c) : `${x.c} ?`);
+  let text = tr(mode.pm.type === "credit" ? "charge.sentenceCard" : "charge.sentenceAccount", { listed: say(listed), charged: say(charged) });
+  const rate = chargeRatePart_(listed.v, listed.c, charged.v, charged.c);
+  text += rate ? ` (${rate})` : " " + tr("charge.fillBoth");
   el.textContent = text;
-  el.hidden = !text;
+  el.hidden = false;
 }
 ["charge-amount", "amount"].forEach((id) => document.getElementById(id).addEventListener("input", updateChargeRate_));
 document.getElementById("charge-currency").addEventListener("change", updateChargeRate_);

@@ -864,6 +864,9 @@
     "charge.hint": { en: "If you don't know yet, leave it empty. It will wait on Home until you fill it in.", es: "Si aún no lo sabes, déjalo vacío. Esperará en Inicio hasta que lo completes." },
     "charge.paidLink": { en: "Listed price in another currency?", es: "¿Precio de lista en otra moneda?" },
     "charge.paidLabel": { en: "Listed price", es: "Precio de lista" },
+    "charge.sentenceCard": { en: "The listed price was {listed} and your card charged {charged}.", es: "El precio de lista fue {listed} y tu tarjeta cobró {charged}." },
+    "charge.sentenceAccount": { en: "The listed price was {listed} and your account was charged {charged}.", es: "El precio de lista fue {listed} y te cobraron {charged} en tu cuenta." },
+    "charge.fillBoth": { en: "Fill in both to check them.", es: "Completa ambos para comprobarlos." },
     "charge.chargedCard": { en: "Charged to the card", es: "Cobrado en la tarjeta" },
     "charge.chargedAccount": { en: "Charged to the account", es: "Cobrado en la cuenta" },
     "charge.friendsOwe": { en: "Friends owe their share in {currency}.", es: "Tus amigos te deben su parte en {currency}." },
@@ -1752,6 +1755,7 @@
     // ---- trips & events (More → Trips & events; see specs/trips-events.md) ----
     "more.trips": { en: "✈️ Trips & events", es: "✈️ Viajes y eventos" },
     "field.trip": { en: "Trip / event", es: "Viaje / evento" },
+    "trips.newFromEntry": { en: "+ New trip or event…", es: "+ Nuevo viaje o evento…" },
     "trips.none": { en: "None", es: "Ninguno" },
     "trips.title": { en: "Trips & events", es: "Viajes y eventos" },
     "trips.hint": { en: "Group the expenses of a trip or an event (a birthday, a party) to see what it cost in total — including what you paid months before. Your own share only. Link an expense by picking the trip or event when you add or edit it.", es: "Agrupa los gastos de un viaje o de un evento (un cumpleaños, una fiesta) para ver cuánto costó en total, incluso lo que pagaste meses antes. Solo tu parte. Vincula un gasto eligiendo el viaje o evento al agregarlo o editarlo." },
@@ -2491,6 +2495,11 @@
     "pop.pace.cats": { en: "Look at all your expenses, one category, or one budget's categories.", es: "Mira todos tus gastos, una categoría o las categorías de un presupuesto." },
     "pop.pace.kept": { en: "Your choice stays until you close the app, on the Overview card too. Tap here to go back to the usual view now.", es: "Tu elección se mantiene hasta que cierres la app, también en la tarjeta de Resumen. Toca aquí para volver ya a la vista habitual." },
     // Bubbles, batch B (2026-11-11)
+    "pop.tripCurrency": { en: "Spending in another currency? If it's from a trip or event, pick it here, or add one, so its expenses add up together. If it isn't, tap Save again.", es: "¿Gastaste en otra moneda? Si es de un viaje o evento, elígelo aquí, o agrega uno, para que sus gastos se sumen juntos. Si no lo es, toca Guardar otra vez." },
+    "pop.tripFlight": { en: "Buying a flight? If it's for a trip or event, pick it here, or add one, so the trip's expenses add up together. If not, tap Save again.", es: "¿Compraste un vuelo? Si es para un viaje o evento, elígelo aquí, o agrega uno, para que los gastos del viaje se sumen juntos. Si no, toca Guardar otra vez." },
+    "pop.chargeBoxCard": { en: "Paid in another currency? Type what the card charged here. Don't know yet? Leave it empty: it waits on Home.", es: "¿Pagaste en otra moneda? Escribe aquí lo que cobró la tarjeta. ¿Aún no lo sabes? Déjalo vacío: esperará en Inicio." },
+    "pop.chargeBoxAccount": { en: "Paid in another currency? Type what the account was charged here. Don't know yet? Leave it empty: it waits on Home.", es: "¿Pagaste en otra moneda? Escribe aquí lo que te cobraron en la cuenta. ¿Aún no lo sabes? Déjalo vacío: esperará en Inicio." },
+    "pop.chargeListed": { en: "Was the price in another currency? Type the listed price here.", es: "¿El precio estaba en otra moneda? Escribe aquí el precio de lista." },
     "pop.tags": { en: "Tags group entries across categories, like “Annual” or “Work”. Search by a tag on Home.", es: "Las etiquetas agrupan movimientos de distintas categorías, como “Anual” o “Trabajo”. Busca por etiqueta en Inicio." },
     "pop.tagsOv": { en: "Your tagged entries add up here, across categories. Tap a tag to see its entries.", es: "Aquí se suman tus movimientos etiquetados, de cualquier categoría. Toca una etiqueta para ver sus movimientos." },
     "pop.receipts": { en: "Take a photo of a receipt or a payment screen: the app fills in what it can read. Check it before saving.", es: "Toma una foto de una boleta o de una pantalla de pago: la app llena lo que puede leer. Revísalo antes de guardar." },
@@ -3912,6 +3921,13 @@
     "notauto.tip.other_manual": { en: "Added by hand although the bank sends emails. Check that the email arrived, or that the bank is set up in Bank emails.", es: "Agregado a mano aunque el banco envía correos. Revisa que el correo haya llegado, o que el banco esté configurado en Correos del banco." },
 
     // ---- perf ----
+    "perf.tipsTitle": { en: "Tips: did they help?", es: "Consejos: ¿sirvieron?" },
+    "perf.tipsHint": { en: "Each tip this phone showed, the day it showed, and whether its feature was used afterwards.", es: "Cada consejo que mostró este celular, el día que salió y si después se usó lo que explicaba." },
+    "perf.tipsNone": { en: "No tips shown on this phone yet.", es: "Este celular aún no mostró consejos." },
+    "perf.tipsSum": { en: "{shown} shown · {used} followed by a use", es: "{shown} mostrados · {used} seguidos de un uso" },
+    "perf.tipShown": { en: "shown {day}", es: "mostrado el {day}" },
+    "perf.tipUsed": { en: "used {day}", es: "usado el {day}" },
+    "perf.tipNotUsed": { en: "not used yet", es: "aún no usado" },
     "perf.title": { en: "Performance log", es: "Registro de rendimiento" },
     "perf.hint": { en: "How long each server call and each app start took on this phone (last ~600 events). \"server\" is time spent inside the backend; the rest is network and wake-up delay. ◆ rows are app-start phases.", es: "Cuánto tardó cada llamada al servidor y cada arranque de la app en este celular (últimos ~600 eventos). \"servidor\" es el tiempo dentro del backend; el resto es la red y el tiempo de arranque del servidor. Las filas ◆ son fases del arranque de la app." },
     "perf.copy": { en: "Copy report", es: "Copiar reporte" },
