@@ -79,3 +79,20 @@ test("saved as an expense / income when nothing was owed: it reads as money to /
   assert.equal(rows[0].type, "expense");
   assert.equal(rows[0].status, "pending");
 });
+
+// "From before the app" dates start the day before first use (owner, 2026-11-12): getMeta's firstUseDate.
+test("first use: the day the welcome was first answered, kept in Settings", () => {
+  const { rt } = setup();
+  rt.run("setSetting_('first_use_date', ''); setSetting_('onboarded_at', String(new Date(2026, 8, 15, 12).getTime()));");
+  assert.equal(rt.api("getMeta").firstUseDate, "2026-09-15");
+  rt.run("setSetting_('onboarded_at', String(new Date(2026, 9, 1, 12).getTime()));");
+  assert.equal(rt.api("getMeta").firstUseDate, "2026-09-15", "found once, then kept");
+});
+
+test("first use without a welcome answer: the earliest entry recorded through the app, imported history left out", () => {
+  const { rt } = setup();
+  const earliest = (pred) => rt.rows("Entries").filter(pred).map((e) => String(e.date).slice(0, 10)).sort()[0];
+  const want = earliest((e) => e.source !== "import" && e.source !== "practice");
+  rt.run("setSetting_('first_use_date', ''); setSetting_('onboarded_at', '');");
+  assert.equal(rt.api("getMeta").firstUseDate, want);
+});

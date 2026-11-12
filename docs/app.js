@@ -1126,6 +1126,20 @@ function todayLocalISO() {
 // saved instead of it materializing invisibly (the backend's own
 // addLoan has the same default as a fallback, for any call that bypasses
 // this form).
+// A debt or loan "from before the app" starts, by default, the day before this copy was first used (owner, 2026-11-12): the
+// server's first-use day (getMeta `firstUseDate`), else this phone's first day. Ticking the box moves a date still on today
+// there; unticking moves it back while untouched.
+function beforeAppDate_() {
+  const d = new Date(`${(meta && meta.firstUseDate) || popFirstUse_()}T00:00:00`);
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function syncBeforeAppDate_(input, on) {
+  const today = todayLocalISO(), before = beforeAppDate_();
+  if (on && input.value === today) input.value = before;
+  else if (!on && input.value === before) input.value = today;
+}
+
 function defaultDueDate_(dateStr) {
   const d = new Date(`${dateStr}T00:00:00`);
   d.setDate(d.getDate() + 7);
@@ -2095,7 +2109,7 @@ function syncEntryOpening_(isLoan) {
   }
   document.getElementById("entry-date-label").textContent = tr(on ? "loanModal.openingDate" : "field.date");
 }
-document.getElementById("entry-opening").addEventListener("change", () => updateRepaymentUi_());
+document.getElementById("entry-opening").addEventListener("change", (e) => { syncBeforeAppDate_(document.getElementById("date"), e.target.checked); updateRepaymentUi_(); });
 
 // Under the person in Home's "+" → Repayment (owner, 2026-11-12): "Ana owes you nothing in PEN" when nothing is owed that way,
 // so the person knows before Save (which then asks what the money is, askNothingOwed_). From the Loans tab's last list; fetched
@@ -26438,7 +26452,8 @@ function askOpeningDebtForRepay_({ friendId, direction, currency, amount, date }
     document.getElementById("loan-amount").value = amount;
     document.getElementById("loan-currency").value = currency;
     renderCurrencyChips("loan");
-    document.getElementById("loan-date").value = date;
+    const before = beforeAppDate_();
+    document.getElementById("loan-date").value = before < date ? before : date;   // never after the repayment
     document.getElementById("loan-project-field").hidden = true;   // the debt takes the repayment's project, if any
     document.getElementById("loan-repay-hint").textContent = tr("owed.formHint", { money: `${currency} ${moneyFmt(amount)}` });
   });
@@ -27245,7 +27260,7 @@ function bankApplyOpening_() {
   document.getElementById("bank-gen-count-label").textContent = tr(today ? "bank.openingTodayCount" : "bank.count");
   bankRenderRows_();
 }
-document.getElementById("bank-opening").addEventListener("change", bankApplyOpening_);
+document.getElementById("bank-opening").addEventListener("change", (e) => { syncBeforeAppDate_(document.getElementById("bank-date"), e.target.checked); bankApplyOpening_(); });
 document.querySelectorAll('input[name="bank-opening-how"]').forEach((r) => r.addEventListener("change", bankApplyOpening_));
 document.getElementById("bank-next-number").addEventListener("input", () => bankDraft_ && bankRenderRows_());
 
@@ -27964,6 +27979,7 @@ function updateLoanOpeningUi_(fresh) {
   const label = document.getElementById("loan-date-label");
   label.textContent = on ? tr("loanModal.openingDate") : tr("field.date");
   if (fresh) {
+    syncBeforeAppDate_(document.getElementById("loan-date"), on);
     const date = document.getElementById("loan-date").value;
     document.getElementById("loan-due-date").value = on ? "" : defaultDueDate_(date);
   }
