@@ -14619,6 +14619,11 @@ function tidyCategoryOptions_(selectedId) {
       .map((c) => `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
 }
 
+// An entry's amount in Tidy my history, with the app-wide sign rule (money out "−", money in a green "+"; owner, 2026-11-12).
+function tidyAmountHtml_(e) {
+  const dir = entryFlowDirection_(e);
+  return `<span class="tidy-amt${dir === "in" ? " tidy-amt-in" : ""}">${formatAmount(Math.abs(Number(e.amount)), e.currency, dir === "in" ? "+" : dir === "out" ? "−" : "")}</span>`;
+}
 function renderTidy_() {
   const data = tidyData_;
   const groups = tidyGroups_.filter((g) => !tidySkipped_.has(g.key));
@@ -14646,7 +14651,7 @@ function renderTidy_() {
     return `<div class="tidy-group" data-key="${escapeHtml(g.key)}">
       <div class="tidy-group-top">
         <span class="tidy-group-name">${escapeHtml(g.label)}</span>
-        <span class="tidy-group-total">${escapeHtml(data.main)} ${moneyFmt(g.totalMain)}</span>
+        <span class="tidy-group-total">${escapeHtml(signedMoney_(-g.totalMain, data.main))}</span>
       </div>
       <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}
         ${sug ? `<br>${escapeHtml(tr(sug.similar ? "tidy.suggestedSimilar" : "tidy.suggested", { category: sug.categoryName, n: sug.n, total: sug.total }))}` : ""}</div>
@@ -14657,7 +14662,7 @@ function renderTidy_() {
         <button type="button" class="add-inline tidy-skip">${escapeHtml(tr("tidy.skip"))}</button>
       </div>
       <ul class="tidy-samples" hidden>${g.samples.map((e) =>
-        `<li><span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description)}</span><span>${formatAmount(e.amount, e.currency)}</span></li>`).join("")}</ul>
+        `<li><span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description)}</span>${tidyAmountHtml_({ ...e, type: "expense" })}</li>`).join("")}</ul>
     </div>`;
   }).join("");
 }
@@ -14697,7 +14702,7 @@ function renderNoAccount_() {
       <div class="tidy-group-row"><select class="noacct-month-select" aria-label="${escapeHtml(tr("noacct.allMonth", { month: title }))}">${noAcctOptions_("", true).replace(escapeHtml(tr("noacct.pick")), escapeHtml(tr("noacct.allMonth", { month: title })))}</select></div>
       <ul class="tidy-samples">${rows.map((e) => `<li class="noacct-row" data-id="${escapeHtml(e.id)}">
         <span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description || tr("type." + e.type))}</span>
-        <span>${formatAmount(e.amount, e.currency)}</span>
+        ${tidyAmountHtml_(e)}
         <select class="noacct-select" aria-label="${escapeHtml(tr("noacct.pick"))}">${noAcctOptions_(noAcctPicked_.get(e.id) || "", e.type === "investment")}</select></li>`).join("")}</ul>
     </div>`;
   }).join("");
