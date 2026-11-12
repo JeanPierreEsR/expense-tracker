@@ -502,12 +502,13 @@ function routeActionSwitch_(action, payload) {
     case 'listDeletedEntries': return listDeletedEntries();
     case 'restoreDeletedEntries': return restoreDeletedEntries(payload);
     case 'forgetDeletedEntries': return forgetDeletedEntries(payload);
-    case 'setEntriesCategory': return setEntriesCategory(payload);
-    case 'setEntriesTrip': return setEntriesTrip(payload);
-    case 'undoSetEntriesTrip': return undoSetEntriesTrip(payload);
-    case 'setEntriesTag': return setEntriesTag(payload);
-    case 'undoSetEntriesTag': return undoSetEntriesTag(payload);
-    case 'undoSetEntriesCategory': return undoSetEntriesCategory(payload);
+    // Each tab read once for the whole action, like the delete above: looking the entries up one by one cost ~4 trips to Google per entry (speed, 2026-11-12).
+    case 'setEntriesCategory': return withRowsMemo_(function () { return setEntriesCategory(payload); });
+    case 'setEntriesTrip': return withRowsMemo_(function () { return setEntriesTrip(payload); });
+    case 'undoSetEntriesTrip': return withRowsMemo_(function () { return undoSetEntriesTrip(payload); });
+    case 'setEntriesTag': return withRowsMemo_(function () { return setEntriesTag(payload); });
+    case 'undoSetEntriesTag': return withRowsMemo_(function () { return undoSetEntriesTag(payload); });
+    case 'undoSetEntriesCategory': return withRowsMemo_(function () { return undoSetEntriesCategory(payload); });
     case 'discardEntries': return discardEntries(payload);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
     case 'checkEntryTypeChange': return checkEntryTypeChange(payload);

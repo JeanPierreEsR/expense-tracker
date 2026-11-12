@@ -182,9 +182,10 @@ function annualForTravelMoves_(ids, categoryId) {
   var added = [];
   ids.forEach(function (id) {
     if (has[id]) return;
-    appendRowObject('Entry Tags', { entry_id: id, tag_id: ANNUAL_TAG_ID });
     added.push(id);
   });
+  // One write for all of them (one row at a time cost a trip to Google per entry; speed, 2026-11-12).
+  appendObjectsBatch_('Entry Tags', added.map(function (id) { return { entry_id: id, tag_id: ANNUAL_TAG_ID }; }));
   return added;
 }
 

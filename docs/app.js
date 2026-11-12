@@ -4756,7 +4756,7 @@ function openEntriesCategorySheet_() {
     setEntriesEditing_(false);
     let result = null;
     saveBehindScreen_(async () => {
-      result = await callApi("setEntriesCategory", { ids: sendIds, categories });
+      result = await callApi("setEntriesCategory", entriesListThen_({ ids: sendIds, categories }));
     }, async () => {
       try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
       if (searchActive) await refreshSearchAfterEdit_();
@@ -4766,7 +4766,7 @@ function openEntriesCategorySheet_() {
       if (left.length) alert(tr("entriesBulk.resultKeptChange", { items: entriesBulkKeptText_(left, (id) => { const e = known.get(id); return e ? entriesBulkLabel_(e) : id; }) }));
       if (!result.changed.length) return;
       showUndoToast_(tr("entriesBulk.catDone", { n: result.changed.length, category: targetNames }), async () => {
-        await callApi("undoSetEntriesCategory", { changes: result.changed, annualIds: result.annualIds });
+        await callApi("undoSetEntriesCategory", entriesListThen_({ changes: result.changed, annualIds: result.annualIds }));
         showToast_(tr("entriesBulk.catUndone"));
         try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
         if (searchActive) await refreshSearchAfterEdit_();
@@ -4777,6 +4777,8 @@ function openEntriesCategorySheet_() {
 }
 
 // ---- Stage 4: link to a trip or event, add / remove a tag, behind one "Change" button ----
+// A bulk change brings Home's list back in its own answer (withThen_), so the reload right after it costs no second trip to Google (speed, 2026-11-12).
+const entriesListThen_ = (payload) => withThen_(payload, [["listEntries", { limit: entriesShown + 1 }]]);
 const entriesChecked_ = () => { const known = entriesKnownMap_(); return [...entriesSelected_].map((id) => known.get(id)).filter(Boolean); };
 function entriesAfterChange_() {   // the lists behind the sheet follow the change (and every other screen that shows entries)
   return (async () => {
@@ -4834,13 +4836,13 @@ function openEntriesTripSheet_() {
     setEntriesEditing_(false);
     let result = null;
     saveBehindScreen_(async () => {
-      result = await callApi("setEntriesTrip", { ids: sendIds, trip_id: tripId });
+      result = await callApi("setEntriesTrip", entriesListThen_({ ids: sendIds, trip_id: tripId }));
     }, async () => {
       await entriesAfterChange_();
       refreshTripsList_().catch(() => {});   // the trip totals follow
       if (!result || !result.changed.length) return;
       showUndoToast_(tripId ? tr("entriesBulk.tripDone", { n: result.changed.length, trip: tripName }) : tr("entriesBulk.tripRemoved", { n: result.changed.length }), async () => {
-        await callApi("undoSetEntriesTrip", { changes: result.changed });
+        await callApi("undoSetEntriesTrip", entriesListThen_({ changes: result.changed }));
         showToast_(tr("entriesBulk.catUndone"));
         await entriesAfterChange_();
         refreshTripsList_().catch(() => {});
@@ -4874,13 +4876,13 @@ function openEntriesTagSheet_() {
     setEntriesEditing_(false);
     let result = null;
     saveBehindScreen_(async () => {
-      result = await callApi("setEntriesTag", { ids: sendIds, tag_id: tagId, mode });
+      result = await callApi("setEntriesTag", entriesListThen_({ ids: sendIds, tag_id: tagId, mode }));
     }, async () => {
       await entriesAfterChange_();
       if (!result) return;
       if (!result.changed.length) { alert(tr("entriesBulk.tagNoChange")); return; }
       showUndoToast_(tr(mode === "add" ? "entriesBulk.tagDoneAdd" : "entriesBulk.tagDoneRemove", { n: result.changed.length, tag: tagName }), async () => {
-        await callApi("undoSetEntriesTag", { ids: result.changed, tag_id: tagId, mode });
+        await callApi("undoSetEntriesTag", entriesListThen_({ ids: result.changed, tag_id: tagId, mode }));
         showToast_(tr("entriesBulk.catUndone"));
         await entriesAfterChange_();
       });
@@ -4970,7 +4972,7 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
     if (searchActive) renderSearchResults_();
     let result = null;
     saveBehindScreen_(async () => {
-      result = await callApi("deleteEntries", { ids: sendIds });
+      result = await callApi("deleteEntries", entriesListThen_({ ids: sendIds }));
     }, async () => {
       try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
       sendIds.forEach((id) => deletingEntryIds_.delete(id));

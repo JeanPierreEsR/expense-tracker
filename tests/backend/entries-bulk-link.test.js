@@ -88,9 +88,9 @@ test("the screen: one Change button with Category, Trip or event and Tag, the th
   const docs = (f) => fs.readFileSync(path.join(__dirname, "..", "..", "docs", f), "utf8");
   const html = docs("index.html"), app = docs("app.js"), strings = docs("strings.js");
   assert.match(html, /id="entries-change-selected-btn"/);
-  assert.match(app, /callApi\("setEntriesTrip", \{ ids: sendIds, trip_id: tripId \}\)/);
+  assert.match(app, /callApi\("setEntriesTrip", entriesListThen_\(\{ ids: sendIds, trip_id: tripId \}\)\)/);
   assert.match(app, /callApi\("undoSetEntriesTrip"/);
-  assert.match(app, /callApi\("setEntriesTag", \{ ids: sendIds, tag_id: tagId, mode \}\)/);
+  assert.match(app, /callApi\("setEntriesTag", entriesListThen_\(\{ ids: sendIds, tag_id: tagId, mode \}\)\)/);
   assert.match(app, /callApi\("undoSetEntriesTag"/);
   assert.match(app, /busy: "entriesBulk\.linking"/);
   for (const key of ["entriesBulk.changeN", "entriesBulk.change", "entriesBulk.changeTitle", "entriesBulk.menuCategory", "entriesBulk.menuTrip", "entriesBulk.menuTag", "entriesBulk.tripTitle", "entriesBulk.tripPick",
