@@ -442,6 +442,17 @@ function forgivenessOfEntry_(entryId) {
   return found;
 }
 
+// The ids of every entry a forgiveness booked (whole or a part). No money moved for them, so they never get an account: Tidy's
+// "Entries with no account" leaves them out and a bank statement line never pairs with one.
+function forgivenessEntryIds_() {
+  var ids = {};
+  getAllRows('Loans').forEach(function (l) {
+    if (l.forgiveness_entry_id) ids[l.forgiveness_entry_id] = true;
+    loanForgivenParts_(l).forEach(function (p) { if (p.entry_id) ids[p.entry_id] = true; });
+  });
+  return ids;
+}
+
 // Column marking a loan as "existed before the app" (opening debt): it has no money entry. Self-healing like the other Loans columns.
 function ensureLoansOpeningColumn_() {
   if (memoHasColumns_('Loans', ['opening'])) return;   // already there (read earlier in this request)

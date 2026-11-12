@@ -4,7 +4,7 @@
  *
  * Listed: confirmed expenses, income and investments with no account, and transfers with neither end (a repayment saved without one),
  * paid by the person. Not listed: what a friend paid (it never touched the person's accounts), an income "not received yet" (no
- * account until the money arrives), the made-up entries of a practice.
+ * account until the money arrives), what forgiving a debt booked (no money moved), the made-up entries of a practice.
  * Saving only fills an account that is STILL empty (a second tap or another phone never overwrites one), and Undo empties only what
  * this save filled and nobody changed since.
  */
@@ -22,7 +22,8 @@ function noAccountCandidate_(e) {
 /** payload: { limit }. Returns { total, shown, entries: [{ id, date, type, description, amount, currency }] } — newest first. */
 function listNoAccountEntries(payload) {
   var limit = (payload && Number(payload.limit)) || NO_ACCOUNT_LIMIT_;
-  var all = getAllRows('Entries').filter(noAccountCandidate_).sort(compareEntriesRecency_);
+  var forgiven = forgivenessEntryIds_();
+  var all = getAllRows('Entries').filter(function (e) { return noAccountCandidate_(e) && !forgiven[e.id]; }).sort(compareEntriesRecency_);
   return {
     total: all.length, shown: Math.min(limit, all.length),
     entries: all.slice(0, limit).map(function (e) {
