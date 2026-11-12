@@ -8569,8 +8569,8 @@ function renderMonthsBars_() {
 document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.addEventListener("click", (e) => {
   e.stopPropagation();   // the card itself opens the Spending pace screen
   // Week: last week / last month, remembered apart from the Month view's choice.
-  if (periodType === "week") { localStorage.setItem("paceRefWeek", b.dataset.paceRef === "year" ? "month" : "last"); renderPaceBig_(); return; }
-  localStorage.setItem("paceRef", b.dataset.paceRef);
+  if (periodType === "week") { paceMem_.set("paceRefWeek", b.dataset.paceRef === "year" ? "month" : "last"); renderPaceBig_(); return; }
+  paceMem_.set("paceRef", b.dataset.paceRef);
   setPaceView_(null);    // the quick switch is the usual view: it ends a custom one
   if (monthsHist_) renderPaceBig_();
 }));
@@ -8582,8 +8582,12 @@ document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.addEventLi
 const paceKey_ = (y, m) => `${y}-${String(m).padStart(2, "0")}`;
 function paceShift_(k, n) { const [y, m] = k.split("-").map(Number); const d = new Date(y, m - 1 + n, 1); return paceKey_(d.getFullYear(), d.getMonth() + 1); }
 function paceMonthName_(k, mid) { const [y, m] = k.split("-").map(Number); return I18n.fmtMonthYear(new Date(y, m - 1, 1), mid); }
-function paceView_() { try { return JSON.parse(localStorage.getItem("paceView") || "null"); } catch (e) { return null; } }
-function setPaceView_(v) { if (v) localStorage.setItem("paceView", JSON.stringify(v)); else localStorage.removeItem("paceView"); }
+// The custom view and the card's switch last only while the app is open (owner, 2026-11-12): reopening it starts from the usual view.
+let paceViewNow_ = null;
+const paceMem_ = new Map();
+try { ["paceView", "paceRef", "paceRefWeek"].forEach((k) => localStorage.removeItem(k)); } catch (e) { /* ignore */ }   // (they used to be kept on the phone)
+function paceView_() { return paceViewNow_; }
+function setPaceView_(v) { paceViewNow_ = v || null; }
 const paceCanFilter_ = () => !!(meta && meta.capabilities && meta.capabilities.paceCategories);
 const paceCatHist_ = {};   // "id,id" -> the month-by-month history of those categories only
 function paceCatIds_(view) { return view && view.cats && view.cats.ids && view.cats.ids.length && paceCanFilter_() ? view.cats.ids : null; }
@@ -8611,7 +8615,7 @@ function paceResolve_(hist, view) {
   if (!view) {
     if (periodType !== "month") return null;
     const selKey = paceKey_(periodAnchor.getFullYear(), periodAnchor.getMonth() + 1);
-    const yearMode = localStorage.getItem("paceRef") === "year";
+    const yearMode = paceMem_.get("paceRef") === "year";
     // "Against earlier months": this month is blue, a picked earlier month grey (else the month before); "Against last year": the picked month against a year earlier.
     curKey = yearMode ? selKey : thisKey;
     const rk = yearMode ? paceShift_(curKey, -12) : (selKey < thisKey ? selKey : paceShift_(thisKey, -1));
@@ -8673,7 +8677,7 @@ function renderPaceBig_() {
   const view = paceView_();
   document.getElementById("pace-ref-switch").hidden = !!view;
   document.getElementById("pace-custom-row").hidden = !view;
-  const yearMode = localStorage.getItem("paceRef") === "year";
+  const yearMode = paceMem_.get("paceRef") === "year";
   document.querySelectorAll("#pace-ref-switch button").forEach((b) => b.classList.toggle("active", b.dataset.paceRef === (yearMode ? "year" : "last")));
   if (periodType !== "month") { renderPaceRange_(); return; }   // Week / Year / Custom: their own ranges; All time: no card
   card.classList.remove("pace-range");
@@ -8707,7 +8711,7 @@ function paceRangeSpec_() {
   if (periodType === "week") {
     // Owner, 2026-11-08: the week's two quick choices are last week and last month (the week holding the date a month before this
     // week's Thursday, so weekdays line up).
-    const monthMode = localStorage.getItem("paceRefWeek") === "month";
+    const monthMode = paceMem_.get("paceRefWeek") === "month";
     let rs = isoShift_(b.startDate, -7);
     if (monthMode) { const t = isoDate_(isoShift_(b.startDate, 3)); rs = isoOf_(mondayDate_(new Date(t.getFullYear(), t.getMonth() - 1, t.getDate()))); }
     const re = isoShift_(rs, 6);
@@ -8735,7 +8739,7 @@ function renderPaceRange_() {
   const sw = document.getElementById("pace-ref-switch");
   sw.hidden = !spec.switchable;
   if (spec.switchable) {
-    const monthMode = localStorage.getItem("paceRefWeek") === "month";
+    const monthMode = paceMem_.get("paceRefWeek") === "month";
     sw.querySelectorAll("button").forEach((b) => {
       b.textContent = tr(b.dataset.paceRef === "year" ? "pace.refLastMonth" : "pace.refWeekBefore");
       b.classList.toggle("active", b.dataset.paceRef === (monthMode ? "year" : "last"));
@@ -14765,9 +14769,10 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
   const btn = ev.currentTarget;
   btn.disabled = true;
   showToast_(tr("common.savingToast"));
+  let saved = null;
   try {
     const res = await callApi("assignEntryAccounts", { items });
-    noAcctLastSave_ = { ok: true, count: res.count || 0 };
+    saved = { ok: true, count: res.count || 0 };
     if (!res.count) showToast_(tr("noacct.nothing"));
     else {
       showUndoToast_(tr("noacct.saved", { n: res.count }), async () => {
@@ -14780,9 +14785,10 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
       refreshHomeGlance_(true);
     }
     await loadNoAccount_();
+    noAcctLastSave_ = saved;   // only once the card shows what is left (the tutorial's last step depends on it; owner's walk 2026-11-12)
   } catch (err) {
-    noAcctLastSave_ = { ok: false, count: 0 };
-    realNoteFailed_();
+    noAcctLastSave_ = saved || { ok: false, count: 0 };
+    if (!saved) realNoteFailed_();
     alert(err.message || String(err));
     updateNoAccountSave_();
   }
@@ -14872,10 +14878,17 @@ function tidyTapAsk_(ev) {
   const row = t.closest(".tidy-group");
   startTidyReal_(row ? row.dataset.key : "");
 }
-["pointerdown", "mousedown", "touchstart", "click"].forEach((type) => document.getElementById("screen-tidy").addEventListener(type, (ev) => {
-  if (type !== "click" && !(ev.target.closest && ev.target.closest(".tidy-select"))) return;   // a list opens on the press; a button acts on the click
-  tidyTapAsk_(ev);
-}, { capture: true, passive: false }));
+// A first TAP, never a finger that scrolls (owner, 2026-11-12: a scroll that started on a list opened the tutorial). On a phone a list
+// opens when the finger lifts, so a touch is judged then (moved more than 10 px = a scroll, let through); a mouse opens it on the press.
+function firstTapGuard_(root, listSel, ask) {
+  let start = null;
+  root.addEventListener("touchstart", (ev) => { const t = ev.touches[0]; start = t ? { x: t.clientX, y: t.clientY } : null; }, { capture: true, passive: true });
+  root.addEventListener("touchmove", (ev) => { const t = ev.touches[0]; if (start && t && Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) start = null; }, { capture: true, passive: true });
+  root.addEventListener("touchend", (ev) => { const tapped = !!start; start = null; if (tapped) ask(ev); }, { capture: true, passive: false });   // (a tap stopped here sends no click)
+  root.addEventListener("mousedown", (ev) => { if (!ev.sourceCapabilities || !ev.sourceCapabilities.firesTouchEvents) { if (ev.target.closest && ev.target.closest(listSel)) ask(ev); } }, { capture: true, passive: false });
+  root.addEventListener("click", ask, { capture: true, passive: false });   // a button (Apply, Skip, Save) acts on the click
+}
+firstTapGuard_(document.getElementById("screen-tidy"), ".tidy-select", tidyTapAsk_);
 function startTidyReal_(startKey) {
   let started = false, key = "", applied = false;
   const box = () => (key ? Array.from(document.querySelectorAll("#tidy-list .tidy-group")).find((b) => b.dataset.key === key) || null : null);
@@ -14924,10 +14937,7 @@ function noAcctTapAsk_(ev) {
   const m = t.closest(".noacct-month");
   startNoAcctReal_(m ? m.dataset.month : "");
 }
-["pointerdown", "mousedown", "touchstart", "click"].forEach((type) => document.getElementById("noacct-card").addEventListener(type, (ev) => {
-  if (type !== "click" && !(ev.target.closest && ev.target.closest("select"))) return;   // a list opens on the press; Save acts on the click
-  noAcctTapAsk_(ev);
-}, { capture: true, passive: false }));
+firstTapGuard_(document.getElementById("noacct-card"), "select", noAcctTapAsk_);
 // The idle offer, only while entries with no category are not being offered (owner: categories first, never two offers at once).
 function watchNoAcctIdle_() {
   if (!meta || perfIsOwnerCopy_() || isTaught_("noacct") || !realChanceLeft_("noacct", true) || !noAcctCardShown_()) return;
@@ -14941,7 +14951,7 @@ function watchNoAcctIdle_() {
   });
 }
 function startNoAcctReal_(startMonth) {
-  let started = false, month = "";
+  let started = false, month = "", restShown = false;
   const box = () => (month ? document.querySelector(`#noacct-list .noacct-month[data-month="${CSS.escape(month)}"]`) : null);
   const part = (sel) => () => { const b = box(); return b ? b.querySelector(sel) : null; };
   const rows = () => { const b = box(); return b ? b.querySelectorAll(".noacct-row").length : 0; };
@@ -14960,9 +14970,10 @@ function startNoAcctReal_(startMonth) {
       visit: "#noacct-list select", button: realNext_, ok: picked, holdsUntil: "save" },
     { key: "save", target: "#noacct-save", text: () => tr("rt.noacct.save"), until: () => !!noAcctLastSave_ },
     { keep: true, text: () => tr("rt.notSaved"), button: () => tr("spot.g.done"), before: async () => realSaveFailed_() },
-    { keep: true, text: () => tr("rt.noacct.doneAll"), button: () => tr("spot.g.done"), before: async () => !realSaveFailed_() && !cardLeft() },
     { keep: true, look: true, target: "#noacct-card", text: () => tr("rt.noacct.rest") + (realShown_("noacct-more") ? " " + tr("rt.noacct.more") : ""), button: () => tr("spot.g.done"),
-      before: async () => !realSaveFailed_() && cardLeft() }
+      giveUp: () => !cardLeft(), after: () => { restShown = true; }, before: async () => !realSaveFailed_() && cardLeft() },
+    // (the card goes away when nothing is left: never wait for it, owner's walk 2026-11-12 stuck on "One moment…")
+    { keep: true, text: () => tr("rt.noacct.doneAll"), button: () => tr("spot.g.done"), before: async () => !realSaveFailed_() && !restShown }
   ];
   guided_ = { savedId: "", split: null };
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
