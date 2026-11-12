@@ -22889,7 +22889,8 @@ function watchForgiveTip_(outstanding) {
 }
 // The repayment form (a new repayment): what happens to an amount above the debt.
 function watchOverpayTip_() {
-  if (!(repaymentLoans_ || []).some((l) => Number(l.paid) > 0.004 || Number(l.offset) > 0.004)) return;   // its moment: a debt already partly repaid
+  // Its moment: a debt already partly repaid (the person's loans carry `settled`; owner's walk 2026-11-12 found `paid` was never there)
+  if (!(repaymentLoans_ || []).some((l) => Number(l.settled) > 0.004 || Number(l.paid) > 0.004)) return;
   popTipWatch_({
     key: "overpay", place: "repaymentForm", text: tr("pop.overpay"),
     target: () => (editingSettlementId || document.getElementById("settlement-form").hidden ? null : document.getElementById("settlement-amount")),
