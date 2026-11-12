@@ -3915,3 +3915,19 @@ body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: 216px; }
 
 /* A row Save refused (blank amount): outlined in red. */
 .balance-form-row.bad { outline: 2px solid #d64545; outline-offset: 2px; border-radius: 10px; }
+
+/* ---- One look for every amount (owner, 2026-11-12) ----
+   An amount that stands on its own on a row or as a total is bold (600) at the size of Home's entries (1rem), on every
+   screen. Two exceptions on purpose: a screen's one big headline figure (Overview's net, a trip's total) and the small grey
+   second lines under an amount ("Total …", the original currency, .original-amt / .hint). Amounts inside a sentence stay plain.
+   A new amount on its own gets one of these classes (or is added here). Kept last so it wins over the older per-screen sizes. */
+.entry-amount .primary-amt, .day-head .day-total, .expected-recurring-amount .primary-amt, .expected-recurring-item-amount,
+.summary-value, .ov-sum-tile .summary-value, .loans-ov-owed-row b, .home-pace-lines .pace-col > b,
+.balance-row-amount, .balances-totals-line, .budgets-summary-value, .loan-total-values, .loan-row-amount, .loan-detail-row-amount,
+.recurring-row-amount, .review-item-amount, .drilldown-projection-amount, .tidy-group-total, .trip-phase-value, .notyet-amount,
+.inproc-total, .charge-line-amount, .tidy-samples .tidy-amt {
+  font-weight: 600;
+  font-size: 1rem;
+}
+.tidy-samples .tidy-amt { color: var(--text); white-space: nowrap; }
+.tidy-samples .tidy-amt.tidy-amt-in { color: var(--income); }

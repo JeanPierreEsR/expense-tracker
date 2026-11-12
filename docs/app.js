@@ -11618,30 +11618,40 @@ function formatSessionTime_(ts) {
   return isNaN(d) ? ts : I18n.fmtDateTime(d);
 }
 
-async function openDevicesModal_() {
-  const backdrop = document.getElementById("devices-modal-backdrop");
+// More → My profile → Where I'm signed in (2026-11-12, owner): a closed row like the three above it ("Where I'm signed in · 2 devices ›");
+// opening it shows the list right there (it used to be a pop-up). The list is fetched with the screen, so the row's count and the
+// opened list are ready together (loading standard); if that fetch failed, opening the row tries again.
+let devicesSessions_ = null;
+async function loadDevices_() {
+  if (!getSessionToken() && getAccessCode()) await migrateLegacyCodeToSession_();   // still on the old stored code? switch now, so the list is right
+  devicesSessions_ = await callApi("listSessions", {});
+  document.getElementById("devices-count").textContent = tr("devices.count", { n: devicesSessions_.length });
+  return devicesSessions_;
+}
+function devicesOpenRow_(open) {
+  document.getElementById("devices-body").hidden = !open;
+  document.getElementById("devices-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  document.getElementById("devices-chevron").textContent = open ? "⌄" : "›";
+  if (open) drawDevices_(!devicesSessions_);
+}
+document.getElementById("devices-toggle").addEventListener("click", () => devicesOpenRow_(document.getElementById("devices-body").hidden));
+async function drawDevices_(reload) {
   const list = document.getElementById("devices-list");
   const errorEl = document.getElementById("devices-error");
   const statusEl = document.getElementById("devices-status");
   errorEl.textContent = "";
   statusEl.textContent = "";
-  list.innerHTML = loadingHtml_();
-  bringModalToFront_(backdrop);
-  backdrop.hidden = false;
-  // Still holding the old stored code (the background switch-over hasn't worked
-  // yet)? Try it now, so the list below is right.
-  if (!getSessionToken() && getAccessCode()) await migrateLegacyCodeToSession_();
-  statusEl.textContent = getSessionToken()
-    ? tr("devices.statusSession")
-    : tr("devices.statusCode");
-  let sessions;
-  try {
-    sessions = await callApi("listSessions", {});
-  } catch (err) {
-    list.innerHTML = "";
-    errorEl.textContent = tr("devices.loadFailed", { error: err.message });
-    return;
+  let sessions = devicesSessions_;
+  if (reload || !sessions) {
+    list.innerHTML = loadingHtml_();
+    try { sessions = await loadDevices_(); }
+    catch (err) {
+      list.innerHTML = "";
+      errorEl.textContent = tr("devices.loadFailed", { error: err.message });
+      return;
+    }
   }
+  statusEl.textContent = getSessionToken() ? tr("devices.statusSession") : tr("devices.statusCode");
   list.innerHTML = "";
   if (!sessions.length) {
     list.innerHTML = `<p class="hint">${escapeHtml(tr("devices.empty"))}</p>`;
@@ -11660,7 +11670,7 @@ async function openDevicesModal_() {
       if (s.current) { await signOutThisDevice_(); return; }
       try {
         await callApi("revokeSession", { id: s.id });
-        openDevicesModal_();
+        drawDevices_(true);
       } catch (err) {
         errorEl.textContent = err.message;
       }
@@ -11668,8 +11678,6 @@ async function openDevicesModal_() {
     list.appendChild(row);
   });
 }
-
-document.getElementById("my-profile-devices-btn").addEventListener("click", openDevicesModal_);   // a card in More → My profile (2026-11-03)
 
 // "Extra features": only on a copy that was given fewer abilities at setup (friends' copies; the owner's has all of them).
 // The setup page cannot run inside the Home Screen icon (Google's sign-in window), so the person copies its address into Safari.
@@ -13683,13 +13691,18 @@ async function showMyProfileScreen() {
   fitsEl_("fits-msg").textContent = "";
   ownerNamesOpenRow_(false);
   fitsOpen_(false);   // closed every time the screen opens: it is for a one-off choice, and it is long
+  datesOpenRow_(false);   // closed too, like the two rows above it (owner, 2026-11-12)
+  devicesSessions_ = null;
+  document.getElementById("devices-count").textContent = "";
+  devicesOpenRow_(false);
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
   fitsOcc_ = occupationFromSettings_(String((meta && meta.settings && meta.settings.profile) || "").split(","));
   try {
     const [names, state] = await Promise.all([
       callApi("getOwnerNames", {}),
-      caps.profileState && caps.profile ? callApi("getProfileState", {}) : Promise.resolve(null)
+      caps.profileState && caps.profile ? callApi("getProfileState", {}) : Promise.resolve(null),
+      loadDevices_().catch(() => null)   // a failure here only leaves the row without its count; opening it tries again
     ]);
     renderOwnerNames_(names);
     // A saved pick shows as clicked only while its category still exists (hidden or deleted ones are not clicked any more).
@@ -13713,7 +13726,15 @@ function drawProfileDates_() {
   const now = I18n.effectiveDateOrder();
   document.querySelectorAll("[data-profile-order]").forEach((b) => b.classList.toggle("active", b.dataset.profileOrder === now));
   document.getElementById("my-profile-dates-example").textContent = tr("prof.datesExample", { example: I18n.fmtDateAs(new Date(2026, 8, 25), now) });
+  document.getElementById("dates-count").textContent = tr("prof.datesNow." + now);
 }
+// The "How I type dates" row opens and closes its choices (closed each time the screen opens, like My names and What fits me).
+function datesOpenRow_(open) {
+  document.getElementById("dates-body").hidden = !open;
+  document.getElementById("dates-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  document.getElementById("dates-chevron").textContent = open ? "⌄" : "›";
+}
+document.getElementById("dates-toggle").addEventListener("click", () => datesOpenRow_(document.getElementById("dates-body").hidden));
 document.querySelectorAll("[data-profile-order]").forEach((b) => b.addEventListener("click", async () => {
   const order = b.dataset.profileOrder, msg = document.getElementById("my-profile-dates-example");
   if (order === I18n.effectiveDateOrder() && I18n.getDateOrder() === order) return;
@@ -13787,7 +13808,6 @@ ownerNamesEl_("owner-names-list").addEventListener("click", (e) => {
     window.location.reload();
   });
 })();
-document.getElementById("devices-modal-close").addEventListener("click", () => { document.getElementById("devices-modal-backdrop").hidden = true; });
 
 // ---- More → Bank emails: which Google account's inbox is read, and how to get a bank's emails there ----
 // (specs/review-telegram-email.md § Bank emails guide). The same sheet is the "Got it" screen at the end of the welcome questions.
@@ -13936,14 +13956,11 @@ function fillBankNote_(el, bankNames, inWelcome) {
   btn.addEventListener("click", openBankSampleModal_);
   el.appendChild(btn);
 }
-document.getElementById("devices-modal-backdrop").addEventListener("click", (e) => {
-  if (e.target.id === "devices-modal-backdrop") e.target.hidden = true;
-});
 document.getElementById("devices-signout-others-btn").addEventListener("click", async () => {
   if (!await askConfirmApp_(tr("devices.confirmOthers"), tr("devices.signOut"))) return;
   try {
     await callApi("revokeOtherSessions", {});
-    openDevicesModal_();
+    drawDevices_(true);
   } catch (err) {
     document.getElementById("devices-error").textContent = err.message;
   }
@@ -14614,6 +14631,11 @@ function tidyCategoryOptions_(selectedId) {
       .map((c) => `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
 }
 
+// An entry's amount in Tidy my history, with the app-wide sign rule (money out "−", money in a green "+"; owner, 2026-11-12).
+function tidyAmountHtml_(e) {
+  const dir = entryFlowDirection_(e);
+  return `<span class="tidy-amt${dir === "in" ? " tidy-amt-in" : ""}">${formatAmount(Math.abs(Number(e.amount)), e.currency, dir === "in" ? "+" : dir === "out" ? "−" : "")}</span>`;
+}
 function renderTidy_() {
   const data = tidyData_;
   const groups = tidyGroups_.filter((g) => !tidySkipped_.has(g.key));
@@ -14641,7 +14663,7 @@ function renderTidy_() {
     return `<div class="tidy-group" data-key="${escapeHtml(g.key)}">
       <div class="tidy-group-top">
         <span class="tidy-group-name">${escapeHtml(g.label)}</span>
-        <span class="tidy-group-total">${escapeHtml(data.main)} ${moneyFmt(g.totalMain)}</span>
+        <span class="tidy-group-total">${escapeHtml(signedMoney_(-g.totalMain, data.main))}</span>
       </div>
       <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}
         ${sug ? `<br>${escapeHtml(tr(sug.similar ? "tidy.suggestedSimilar" : "tidy.suggested", { category: sug.categoryName, n: sug.n, total: sug.total }))}` : ""}</div>
@@ -14652,7 +14674,7 @@ function renderTidy_() {
         <button type="button" class="add-inline tidy-skip">${escapeHtml(tr("tidy.skip"))}</button>
       </div>
       <ul class="tidy-samples" hidden>${g.samples.map((e) =>
-        `<li><span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description)}</span><span>${formatAmount(e.amount, e.currency)}</span></li>`).join("")}</ul>
+        `<li><span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description)}</span>${tidyAmountHtml_({ ...e, type: "expense" })}</li>`).join("")}</ul>
     </div>`;
   }).join("");
 }
@@ -14692,7 +14714,7 @@ function renderNoAccount_() {
       <div class="tidy-group-row"><select class="noacct-month-select" aria-label="${escapeHtml(tr("noacct.allMonth", { month: title }))}">${noAcctOptions_("", true).replace(escapeHtml(tr("noacct.pick")), escapeHtml(tr("noacct.allMonth", { month: title })))}</select></div>
       <ul class="tidy-samples">${rows.map((e) => `<li class="noacct-row" data-id="${escapeHtml(e.id)}">
         <span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description || tr("type." + e.type))}</span>
-        <span>${formatAmount(e.amount, e.currency)}</span>
+        ${tidyAmountHtml_(e)}
         <select class="noacct-select" aria-label="${escapeHtml(tr("noacct.pick"))}">${noAcctOptions_(noAcctPicked_.get(e.id) || "", e.type === "investment")}</select></li>`).join("")}</ul>
     </div>`;
   }).join("");
@@ -22687,8 +22709,8 @@ function watchProfileTip_() {
     steps: [
       { target: () => document.getElementById("owner-names-toggle"), text: tr("pop.prof.names") },
       { target: () => document.getElementById("fits-toggle"), text: tr("pop.prof.fits"), when: shown("my-profile-fits-card") },
-      { target: () => document.getElementById("my-profile-dates"), text: tr("pop.prof.dates"), when: shown("my-profile-dates-card") },
-      { target: () => document.getElementById("my-profile-devices-btn"), text: tr("pop.prof.devices") }
+      { target: () => document.getElementById("dates-toggle"), text: tr("pop.prof.dates"), when: shown("my-profile-dates-card") },
+      { target: () => document.getElementById("devices-toggle"), text: tr("pop.prof.devices") }
     ],
     stillWanted: () => !document.getElementById("screen-my-profile").hidden
   });

@@ -40,18 +40,19 @@ test("Extra features keeps its pop-up but loses the second 'Change what I share'
   assert.ok(!app.includes('"extras-share-btn"'));
 });
 
-test("My profile has a fourth card, Where I'm signed in, whose button opens the same devices pop-up; the More row is gone", () => {
+test("My profile has a fourth card, Where I'm signed in: a closed row that shows the devices list inside it (no pop-up); the More row is gone", () => {
   const prof = html.slice(html.indexOf('id="screen-my-profile"'), html.indexOf('id="screen-feedback-privacy"'));
-  assert.ok(prof.includes('id="my-profile-devices-card"') && prof.includes('id="my-profile-devices-btn"'));
+  assert.ok(prof.includes('id="my-profile-devices-card"') && prof.includes('id="devices-toggle"'));
   assert.ok(prof.indexOf('id="my-profile-dates-card"') < prof.indexOf('id="my-profile-devices-card"'));
-  assert.match(app, /my-profile-devices-btn"\)\.addEventListener\("click", openDevicesModal_\)/);
-  assert.ok(html.includes('id="devices-modal-backdrop"'));
-  assert.equal(STRINGS["prof.devicesHead"].en, "📱 Where I'm signed in");
+  assert.ok(/id="devices-body" hidden/.test(prof) && prof.includes('id="devices-list"') && prof.includes('id="devices-signout-others-btn"'));
+  assert.ok(!html.includes('id="devices-modal-backdrop"'));
+  assert.match(app, /devicesOpenRow_\(false\)/);
+  assert.equal(STRINGS["devices.title"].en, "Where I'm signed in");
 });
 
 test("the devices card is on every copy (the owner's too), because the owner has no Feedback & privacy row", () => {
   const prof = html.slice(html.indexOf('id="my-profile-devices-card"'), html.indexOf('id="screen-feedback-privacy"'));
-  assert.ok(!/hidden/.test(prof.slice(0, prof.indexOf("</div>"))), "no hidden attribute on the card");
+  assert.ok(!/hidden/.test(prof.slice(0, prof.indexOf(">"))), "no hidden attribute on the card");
   assert.ok(!/devices-card"\)\.hidden/.test(app));
 });
 
@@ -78,7 +79,7 @@ test("no text sends the person to a row that no longer exists, in either languag
 
 test("every new text exists in both languages", () => {
   ["more.feedbackPrivacy", "fp.title", "fp.feedbackHead", "fp.feedbackHint", "fp.feedbackBtn", "fp.shareHead", "fp.extrasHead", "fp.extrasHint", "fp.extrasBtn", "fp.dataHead",
-    "fp.eraseHead", "prof.devicesHead", "prof.devicesHint", "prof.devicesBtn"].forEach((k) => {
+    "fp.eraseHead", "devices.title", "devices.count"].forEach((k) => {
     assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
   });
   assert.equal(STRINGS["more.feedbackPrivacy"].en, "💬 Feedback & privacy");
