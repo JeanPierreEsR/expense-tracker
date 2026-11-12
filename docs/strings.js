@@ -1022,6 +1022,12 @@
     "flows.paidForMe": { en: "Paid for you", es: "Pagó por ti" },
     "flows.theirShare": { en: "Their share of an expense", es: "Su parte de un gasto" },
     "flows.notReceived": { en: "Income not received yet", es: "Ingreso aún no recibido" },
+    "flows.youForgave": { en: "You forgave it", es: "Lo perdonaste" },
+    "flows.theyForgave": { en: "They forgave it", es: "Te lo perdonaron" },
+    "flows.canceledOut": { en: "Canceled out against what you owed them", es: "Compensado con lo que le debías" },
+    "loans.moves.show": { en: "📜 All loans and repayments", es: "📜 Todos los préstamos y repagos" },
+    "loans.moves.hide": { en: "Hide all loans and repayments", es: "Ocultar todos los préstamos y repagos" },
+    "loans.moves.none": { en: "No loans or repayments yet.", es: "Aún no hay préstamos ni repagos." },
     "home.loansIncluded": { en: "What's left includes loans: {amount}", es: "Lo que queda incluye préstamos: {amount}" },
 
     // ---- overview ----

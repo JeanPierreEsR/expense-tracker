@@ -3161,6 +3161,46 @@ function listSettledLoanFriends(payload) {
     .sort(function (a, b) { return a.friend_name.toLowerCase() < b.friend_name.toLowerCase() ? -1 : 1; });
 }
 
+// The Loans tab's "All loans and repayments" (owner, 2026-11-11): every loan and repayment ever, newest first, 50 at a time,
+// in the tab's scope. Besides the money movements (the same ones Overview's Loans block counts), the history also shows what
+// moved no money: a debt forgiven (whole or in parts) and debts canceled out against each other (one line per pair, from the
+// side of what they owed). Returns { items: [loanMoveRows_ rows], more }.
+function listLoanMovements(payload) {
+  var scope = loanProjectScope_(payload);
+  var loans = getAllRows('Loans').filter(function (l) { return loanInProjectScope_(l, scope); });
+  var loanById = rowsById_(loans);
+  var entryById = null;
+  var entryOf = function (id) {
+    if (!entryById) entryById = rowsById_(getAllRows('Entries'));
+    return entryById[id];
+  };
+  var moves = [];
+  var push = function (loan, kind, amount, date, settlementId) {
+    moves.push({ loan: loan, kind: kind, amount: Number(amount) || 0, currency: loan.currency || homeCurrency_(), date: String(date || '').substring(0, 10), settlement_id: settlementId || '' });
+  };
+  loans.forEach(function (l) {
+    push(l, l.direction === 'i_owe_them' ? 'borrowed' : 'lent', l.amount, l.date);
+    loanForgivenParts_(l).forEach(function (part) { push(l, 'forgiven', part.amount, part.date); });
+    if (l.status === 'forgiven' && l.forgiveness_entry_id) {
+      var fe = entryOf(l.forgiveness_entry_id);
+      if (fe) push(l, 'forgiven', fe.amount, fe.date);
+    }
+  });
+  getAllRows('Settlements').forEach(function (st) {
+    var loan = loanById[st.loan_id];
+    if (!loan) return;
+    if (st.offset_loan_id) {
+      if (loan.direction === 'they_owe_me') push(loan, 'canceledOut', st.amount, st.date, st.id);
+      return;
+    }
+    push(loan, loan.direction === 'i_owe_them' ? 'paidBack' : 'receivedBack', st.amount, st.date, st.id);
+  });
+  var rows = loanMoveRows_(moves, rowsById_(getAllRows('Friends')));
+  var offset = Math.max(0, Number(payload && payload.offset) || 0);
+  var limit = Math.max(1, Math.min(500, Number(payload && payload.limit) || 50));
+  return { items: rows.slice(offset, offset + limit), more: rows.length > offset + limit };
+}
+
 // Full loan history for one friend — outstanding, settled, and forgiven —
 // for the Loans tab's per-friend detail. Not filtered or netted; that's
 // what listLoanBalances is for.

@@ -9508,6 +9508,8 @@ document.getElementById("drilldown-chips").addEventListener("click", (e) => {
 
 // What a loan movement was, in plain words.
 function flowLoanLabel_(m) {
+  if (m.kind === "forgiven") return tr(m.direction === "i_owe_them" ? "flows.theyForgave" : "flows.youForgave");
+  if (m.kind === "canceledOut") return tr("flows.canceledOut");
   if (m.kind === "borrowed") return tr(m.origin === "entry" ? "flows.paidForMe" : "loans.ov.borrowed");
   if (m.kind === "lent") return tr(m.origin !== "entry" ? "loans.ov.lent" : m.entry_type === "income" ? "flows.notReceived" : "flows.theirShare");
   return tr(m.kind === "paidBack" ? "loans.ov.paidBack" : "loans.ov.receivedBack");
@@ -9515,7 +9517,9 @@ function flowLoanLabel_(m) {
 
 function buildFlowLoanRow_(m) {
   const row = document.createElement("div");
-  row.className = "entry flow-loan-row";
+  // Forgiven / canceled out moved no money: grey, no sign.
+  const quiet = m.kind === "forgiven" || m.kind === "canceledOut";
+  row.className = quiet ? "entry flow-loan-row flow-loan-quiet" : "entry flow-loan-row";
   const plus = m.signed > 0.004;
   row.innerHTML = `
     <div class="entry-left">
@@ -9523,7 +9527,7 @@ function buildFlowLoanRow_(m) {
       <div class="entry-desc">${escapeHtml(m.friend_name)}</div>
       <div class="entry-meta">${escapeHtml(listDate_(m.date))}${m.description ? " · " + escapeHtml(m.description) : ""}</div>
     </div>
-    <div class="entry-amount"><div class="${plus ? "pos-green" : ""}">${formatAmount(Math.abs(m.signed), m.currency, plus ? "+" : "−")}</div></div>`;
+    <div class="entry-amount"><div class="${plus ? "pos-green" : ""}">${quiet ? formatAmount(m.amount, m.currency) : formatAmount(Math.abs(m.signed), m.currency, plus ? "+" : "−")}</div></div>`;
   row.addEventListener("click", () => openLoanDetail(m.friend_id, m.friend_name, ""));
   return row;
 }
@@ -25485,7 +25489,8 @@ async function refreshLoans() {
 
   const owedToMe = sectionFor(1);
   const iOwe = sectionFor(-1);
-  loansOwingIds_ = new Set(balances.filter((b) => (b.balances || []).some((l) => Math.abs(l.net) > 0.004)).map((b) => b.friend_id));   // for the first-use practice
+  loansOwingIds_ = new Set(balances.filter((b) => (b.balances || []).some((l) => Math.abs(l.net) > 0.004)).map((b) => b.friend_id));
+  loansHasPeople_ = balances.length > 0;   // for the first-use practice
 
   renderLoanBalanceList_("loans-owed-to-me-list", "loans-owed-to-me-empty-note", owedToMe, "owed-to-me");
   renderLoanBalanceList_("loans-i-owe-list", "loans-i-owe-empty-note", iOwe, "i-owe");
@@ -26420,6 +26425,7 @@ async function renderSettledPeople_() {
   list.innerHTML = "";
   list.hidden = true;
   toggle.textContent = tr("loans.settledPeople", { n: people.length });
+  renderLoanMovesCard_(loansHasPeople_ || people.length > 0);
   toggle.onclick = () => {
     list.hidden = !list.hidden;
     toggle.textContent = list.hidden ? tr("loans.settledPeople", { n: people.length }) : tr("loans.hideSettledPeople");
@@ -26431,6 +26437,67 @@ async function renderSettledPeople_() {
     row.addEventListener("click", () => openLoanDetail(f.friend_id, f.friend_name));
     list.appendChild(row);
   });
+}
+
+// "All loans and repayments" (owner, 2026-11-11): the last card of the Loans tab, below the settled people. Closed until tapped;
+// the phone remembers it open (`loansMovesOpen`). Every loan and repayment ever, newest first, 50 at a time (backend
+// listLoanMovements, in the tab's scope); forgiven and canceled-out debts in grey with no sign. A line opens that person's loans.
+let loansHasPeople_ = false;   // someone owes or is owed (refreshLoans); with the settled people, decides whether the card shows
+let loansMovesState_ = null;   // { items, more } once loaded
+let loansMovesSeq_ = 0;
+
+function loanMovesOpen_() { return localStorage.getItem("loansMovesOpen") === "1"; }
+
+function renderLoanMovesCard_(hasAny) {
+  const card = document.getElementById("loans-moves-card");
+  const list = document.getElementById("loans-moves-list");
+  const on = !!(meta && meta.capabilities && meta.capabilities.loanMovements) && hasAny;
+  card.hidden = !on;
+  if (!on) return;
+  const open = loanMovesOpen_();
+  document.getElementById("loans-moves-toggle").textContent = tr(open ? "loans.moves.hide" : "loans.moves.show");
+  list.hidden = !open;
+  if (open) loadLoanMoves_(false);   // a refresh keeps what is shown until the new list replaces it
+}
+
+document.getElementById("loans-moves-toggle").addEventListener("click", () => {
+  localStorage.setItem("loansMovesOpen", loanMovesOpen_() ? "0" : "1");
+  if (loanMovesOpen_() && !loansMovesState_) document.getElementById("loans-moves-list").innerHTML = loadingHtml_();
+  renderLoanMovesCard_(true);
+});
+
+function drawLoanMoves_() {
+  const list = document.getElementById("loans-moves-list");
+  const st = loansMovesState_;
+  list.innerHTML = "";
+  if (!st.items.length) { list.innerHTML = `<div class="status-msg">${escapeHtml(tr("loans.moves.none"))}</div>`; return; }
+  st.items.forEach((m) => list.appendChild(buildFlowLoanRow_(m)));
+  if (st.more) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "add-inline flow-more";
+    btn.textContent = tr("common.loadMore");
+    btn.addEventListener("click", () => { btn.disabled = true; btn.textContent = tr("common.loading"); loadLoanMoves_(true); });
+    list.appendChild(btn);
+  }
+}
+
+async function loadLoanMoves_(more) {
+  const seq = ++loansMovesSeq_;
+  const have = more && loansMovesState_ ? loansMovesState_.items : [];
+  const list = document.getElementById("loans-moves-list");
+  try {
+    // A refresh asks again for as many lines as were shown, so "Load more" pages are not lost.
+    const limit = more ? 50 : Math.max(50, loansMovesState_ ? loansMovesState_.items.length : 0);
+    const res = await callApi("listLoanMovements", { ...loansScopePayload_(), offset: have.length, limit });
+    if (seq !== loansMovesSeq_) return;
+    loansMovesState_ = { items: have.concat(res.items || []), more: !!res.more };
+    drawLoanMoves_();
+  } catch (err) {
+    if (seq !== loansMovesSeq_) return;
+    if (loansMovesState_) drawLoanMoves_();
+    else list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
+  }
 }
 
 // ---- Bank loans (owner's request, 2026-10-29) ----
