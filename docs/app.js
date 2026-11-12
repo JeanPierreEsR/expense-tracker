@@ -14872,10 +14872,17 @@ function tidyTapAsk_(ev) {
   const row = t.closest(".tidy-group");
   startTidyReal_(row ? row.dataset.key : "");
 }
-["pointerdown", "mousedown", "touchstart", "click"].forEach((type) => document.getElementById("screen-tidy").addEventListener(type, (ev) => {
-  if (type !== "click" && !(ev.target.closest && ev.target.closest(".tidy-select"))) return;   // a list opens on the press; a button acts on the click
-  tidyTapAsk_(ev);
-}, { capture: true, passive: false }));
+// A first TAP, never a finger that scrolls (owner, 2026-11-12: a scroll that started on a list opened the tutorial). On a phone a list
+// opens when the finger lifts, so a touch is judged then (moved more than 10 px = a scroll, let through); a mouse opens it on the press.
+function firstTapGuard_(root, listSel, ask) {
+  let start = null;
+  root.addEventListener("touchstart", (ev) => { const t = ev.touches[0]; start = t ? { x: t.clientX, y: t.clientY } : null; }, { capture: true, passive: true });
+  root.addEventListener("touchmove", (ev) => { const t = ev.touches[0]; if (start && t && Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) start = null; }, { capture: true, passive: true });
+  root.addEventListener("touchend", (ev) => { const tapped = !!start; start = null; if (tapped) ask(ev); }, { capture: true, passive: false });   // (a tap stopped here sends no click)
+  root.addEventListener("mousedown", (ev) => { if (!ev.sourceCapabilities || !ev.sourceCapabilities.firesTouchEvents) { if (ev.target.closest && ev.target.closest(listSel)) ask(ev); } }, { capture: true, passive: false });
+  root.addEventListener("click", ask, { capture: true, passive: false });   // a button (Apply, Skip, Save) acts on the click
+}
+firstTapGuard_(document.getElementById("screen-tidy"), ".tidy-select", tidyTapAsk_);
 function startTidyReal_(startKey) {
   let started = false, key = "", applied = false;
   const box = () => (key ? Array.from(document.querySelectorAll("#tidy-list .tidy-group")).find((b) => b.dataset.key === key) || null : null);
@@ -14924,10 +14931,7 @@ function noAcctTapAsk_(ev) {
   const m = t.closest(".noacct-month");
   startNoAcctReal_(m ? m.dataset.month : "");
 }
-["pointerdown", "mousedown", "touchstart", "click"].forEach((type) => document.getElementById("noacct-card").addEventListener(type, (ev) => {
-  if (type !== "click" && !(ev.target.closest && ev.target.closest("select"))) return;   // a list opens on the press; Save acts on the click
-  noAcctTapAsk_(ev);
-}, { capture: true, passive: false }));
+firstTapGuard_(document.getElementById("noacct-card"), "select", noAcctTapAsk_);
 // The idle offer, only while entries with no category are not being offered (owner: categories first, never two offers at once).
 function watchNoAcctIdle_() {
   if (!meta || perfIsOwnerCopy_() || isTaught_("noacct") || !realChanceLeft_("noacct", true) || !noAcctCardShown_()) return;
