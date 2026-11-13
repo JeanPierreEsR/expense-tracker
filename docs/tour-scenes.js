@@ -50,6 +50,7 @@
   function playManual(scene, key, stage, ctx, reduce) {
     stage.hidden = false; stage.innerHTML = ""; stage.onclick = null;
     const parts = scene.build(stage, ctx);
+    if (scene.initial) scene.initial(parts, ctx);   // its starting picture at once, as the swipe preview shows it (no blank second)
     const total = scene.steps.length;
     const bar = h("div", "ts-stepper", null, stage);
     const btn = h("button", "ts-step-btn", null, bar);
@@ -97,7 +98,14 @@
       const steps = scene.timeline(parts, ctx);
       if (reduce) { steps.forEach((s) => s[1](true)); return; }
       let end = 0;
-      steps.forEach((s) => { end = Math.max(end, s[0]); timers.push(setTimeout(() => s[1](false), s[0])); });
+      // The first picture is drawn at once (design review 2026-11-12: a card opened blank for about a second while the first
+      // step waited for its timer); the rest plays on its timeline.
+      const first = steps.reduce((m, s) => Math.min(m, s[0]), Infinity);
+      steps.forEach((s) => {
+        end = Math.max(end, s[0]);
+        if (s[0] === first) s[1](true);
+        else timers.push(setTimeout(() => s[1](false), s[0]));
+      });
       // ctx.onEnd: told once, when the first run has played to its end (the tour's first card then hints that swiping goes on)
       if (ctx.onEnd && !ended) timers.push(setTimeout(() => { if (!ended) { ended = true; ctx.onEnd(); } }, end + 400));
       timers.push(setTimeout(run, end + (scene.hold || 1500)));

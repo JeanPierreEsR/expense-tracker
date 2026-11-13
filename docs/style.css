@@ -4105,3 +4105,8 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .row-icon { display: inline-flex; flex: none; width: 28px; color: var(--muted); }
 .row-icon svg { width: 22px; height: 22px; }
 .more-list-item > .row-icon + span { flex: 1; min-width: 0; }
+
+/* Tour: "Skip all" is a link at the top right, with a full tap area (design review). No "Next" button: some scenes have their
+   own "Next step" inside the picture, and a second Next would be confused with it (owner, 2026-11-12). */
+#welcome-tour { position: relative; }
+#tour-skip-btn { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 4px); right: 4px; z-index: 4; min-height: 44px; min-width: 44px; padding: 0 12px; font-size: 0.875rem; color: var(--muted); }
