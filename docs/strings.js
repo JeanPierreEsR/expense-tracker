@@ -482,14 +482,10 @@
     "entry.undone": { en: "Undone: the entry was removed.", es: "Deshecho: se quitó el movimiento." },
 
     // ---- Home tab: the quick glance at the top, and the entries grouped by day ----
-    "home.spentThisMonth": { en: "Spent this month", es: "Gastado este mes" },
     "home.leftThisMonth": { en: "What's left this month", es: "Lo que queda este mes" },
     "home.leftIn": { en: "What was left in {month}", es: "Lo que quedó en {month}" },
     "home.barsTitle": { en: "Income and expenses by month", es: "Ingresos y gastos por mes" },
     "home.barAria": { en: "{month}: income {income}, expenses {expenses}", es: "{month}: ingresos {income}, gastos {expenses}" },
-    "home.spentIn": { en: "Spent in {month}", es: "Gastado en {month}" },
-    "home.vsSameDay": { en: "{arrow} {pct}% vs last month so far", es: "{arrow} {pct}% vs. el mes pasado a esta fecha" },
-    "home.vsLast": { en: "{arrow} {pct}% vs last month", es: "{arrow} {pct}% vs. el mes pasado" },
     "home.last6": { en: "Last 6 months", es: "Últimos 6 meses" },
     "monthsHist.title": { en: "Month by month", es: "Mes a mes" },
     "monthsHist.hint": { en: "Income and expenses for every month with entries. Tap a month to see it below.", es: "Ingresos y gastos de cada mes con movimientos. Toca un mes para verlo abajo." },
@@ -1084,7 +1080,6 @@
     "loans.moves.show": { en: "📜 All loans and repayments", es: "📜 Todos los préstamos y repagos" },
     "loans.moves.hide": { en: "Hide all loans and repayments", es: "Ocultar todos los préstamos y repagos" },
     "loans.moves.none": { en: "No loans or repayments yet.", es: "Aún no hay préstamos ni repagos." },
-    "home.loansIncluded": { en: "What's left includes loans: {amount}", es: "Lo que queda incluye préstamos: {amount}" },
 
     // ---- overview ----
     "overview.empty": { en: "No entries in this period yet.", es: "Aún no hay movimientos en este periodo." },
@@ -1467,7 +1462,6 @@
     "loanDetail.forgiven": { en: "Forgiven", es: "Perdonado" },
     "loanDetail.fullyRepaid": { en: "Fully repaid", es: "Repagado por completo" },
     "loanDetail.overdueSince": { en: "⚠️ Overdue since {date}", es: "⚠️ Vencido desde el {date}" },
-    "loanDetail.repaidSoFar": { en: "{cur} {amount} repaid so far", es: "{cur} {amount} repagados hasta ahora" },
     "loanDetail.leftOf": { en: "{cur} {left} left of {cur} {total}", es: "Quedan {cur} {left} de {cur} {total}" },
     "loanDetail.sharedExpense": { en: "Shared expense", es: "Gasto compartido" },
     "loanDetail.confirmDeleteOrphan": { en: "The expense behind this loan ({amount}, {date}) was deleted. Delete the loan too?", es: "El gasto de este préstamo ({amount}, {date}) fue eliminado. ¿Eliminar también el préstamo?" },
