@@ -1197,7 +1197,7 @@ document.getElementById("install-copy-btn").addEventListener("click", async () =
     note.style.color = "";
     note.textContent = tr("link.copied");
   } catch (err) {
-    note.style.color = "#d64545";
+    note.style.color = "var(--danger)";
     note.textContent = tr("link.copyBlocked");
   }
 });
@@ -3207,7 +3207,7 @@ function showFormNotice_(text) {
   setTimeout(() => {
     if (el.textContent === text) {
       el.textContent = "";
-      el.style.color = "#d64545";
+      el.style.color = "var(--danger)";
     }
   }, 6000);
 }
@@ -4843,7 +4843,7 @@ function openEntriesCategorySheet_() {
   body.innerHTML = `
     ${types.map(pickerHtml).join("")}
     ${leftOut > 0 ? `<p class="hint">${escapeHtml(tr("entriesBulk.catLeftOut", { n: leftOut }))}</p>` : ""}
-    <p class="hint" id="entries-bulk-cat-error" style="color:#d64545;"></p>
+    <p class="hint" id="entries-bulk-cat-error" style="color:var(--danger);"></p>
     <button type="button" class="primary" id="entries-bulk-cat-go">${escapeHtml(tr("entriesBulk.catGo"))}</button>
     <p class="hint">${escapeHtml(tr("entriesBulk.catUndoHint"))}</p>`;
   bringModalToFront_(backdrop);
@@ -4926,7 +4926,7 @@ function openEntriesTripSheet_() {
       ${inOther ? `<div class="cat-bulk-alert">${escapeHtml(tr("entriesBulk.tripMoveNote", { n: inOther }))}</div>` : ""}
     </div>
     ${leftOut > 0 ? `<p class="hint">${escapeHtml(tr("entriesBulk.tripLeftOut", { n: leftOut }))}</p>` : ""}
-    <p class="hint" id="entries-bulk-trip-error" style="color:#d64545;"></p>
+    <p class="hint" id="entries-bulk-trip-error" style="color:var(--danger);"></p>
     <button type="button" class="primary" id="entries-bulk-trip-go">${escapeHtml(tr("entriesBulk.tripGo"))}</button>
     <p class="hint">${escapeHtml(tr("entriesBulk.linkUndoHint"))}</p>`;
   document.getElementById("entries-bulk-trip-go").addEventListener("click", () => {
@@ -4965,7 +4965,7 @@ function openEntriesTagSheet_() {
       <label for="entries-bulk-tag"><b>${escapeHtml(tr("entriesBulk.tagLabel", { n: checked.length }))}</b></label>
       <select id="entries-bulk-tag"><option value="">${escapeHtml(tr("entriesBulk.tagPick"))}</option>${tags.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)}</option>`).join("")}</select>
     </div>
-    <p class="hint" id="entries-bulk-tag-error" style="color:#d64545;"></p>
+    <p class="hint" id="entries-bulk-tag-error" style="color:var(--danger);"></p>
     <button type="button" class="primary" id="entries-bulk-tag-add">${escapeHtml(tr("entriesBulk.tagGoAdd", { n: checked.length }))}</button>
     <button type="button" class="primary danger" id="entries-bulk-tag-remove">${escapeHtml(tr("entriesBulk.tagGoRemove", { n: checked.length }))}</button>
     <p class="hint">${escapeHtml(tr("entriesBulk.linkUndoHint"))}</p>`;
@@ -5035,7 +5035,7 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
     entriesDeletePreviewAhead_ = null;
     preview = ahead && ahead.key === key && Date.now() - ahead.at < 60000 ? await ahead.promise : await callApi("previewEntriesDelete", { ids });
   } catch (err) {
-    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    body.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
   }
   const items = preview.items || [];
@@ -13843,7 +13843,7 @@ async function showMyProfileScreen() {
     body.hidden = false;
     watchProfileTip_();
   } catch (e) {
-    loading.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(e.message)}</p>`;
+    loading.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(e.message)}</p>`;
   }
 }
 document.getElementById("more-my-profile-btn").addEventListener("click", showMyProfileScreen);
@@ -14192,7 +14192,7 @@ function exportRequest_() {
   if (!cards.length) return null;
   const range = exportDateRange_();
   if (cards.includes("entries") && exportEl_("export-range").value === "custom" && !range.startDate && !range.endDate) {
-    status.style.color = "#d64545";
+    status.style.color = "var(--danger)";
     status.textContent = tr("export.pickDates");
     return null;
   }
@@ -14231,7 +14231,7 @@ async function getExportFiles_() {
     });
     ready.hidden = false;
   } catch (err) {
-    status.style.color = "#d64545";
+    status.style.color = "var(--danger)";
     status.textContent = err.message;
   } finally {
     refreshExportScreen_();
@@ -14263,7 +14263,7 @@ async function saveExportFile_(f) {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (err) {
-    status.style.color = "#d64545";
+    status.style.color = "var(--danger)";
     status.textContent = err.message;
   }
 }
@@ -14281,7 +14281,7 @@ async function sendExport_() {
     const parts = res.files.map(exportFileLabel_);
     status.textContent = tr("export.sent", { files: parts.join(tr("export.and")) });
   } catch (err) {
-    status.style.color = "#d64545";
+    status.style.color = "var(--danger)";
     status.textContent = err.message;
   } finally {
     refreshExportScreen_();
@@ -16522,7 +16522,7 @@ async function startCategoriesBulkDelete_(chosen) {
   try {
     preview = await callApi("previewCategoryDelete", { ids });
   } catch (err) {
-    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    body.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
   }
   const usedBy = new Map(preview.items.map((i) => [i.id, i]));
@@ -17300,7 +17300,7 @@ function renderTripGroupForm_(form, d) {
       <select id="trip-group-category"></select>
       <p class="hint" id="trip-group-cat-hint"></p>
     </div>
-    <p class="hint" id="trip-group-error" style="color:#d64545;"></p>
+    <p class="hint" id="trip-group-error" style="color:var(--danger);"></p>
     <button type="button" class="primary" id="trip-group-save">${escapeHtml(tr("trips.groupSave"))}</button>`;
   const dirSel = form.querySelector("#trip-group-dir");
   dirSel.value = pending >= 0 ? "received" : "paid";
@@ -17607,7 +17607,7 @@ async function loadTripFinder_(lookBack) {
     });
     box.appendChild(addBtn);
   } catch (err) {
-    box.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("trips.loadFailed", { error: err.message }))}</p>`;
+    box.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(tr("trips.loadFailed", { error: err.message }))}</p>`;
   }
 }
 
@@ -20801,7 +20801,7 @@ async function startRecurringDelete_(re) {
     effect = ((out.items || [])[0] || {}).monthlyEffectPen || 0;
     lastPaid = ((out.items || [])[0] || {}).lastPaid || "";
   } catch (err) {
-    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    body.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
   }
   const amount = `${homeCur()} ${moneyFmt(Math.round(effect))}`;
@@ -20849,7 +20849,7 @@ async function startRecurringBulkDelete_(items) {
   try {
     preview = await callApi("previewProgrammedDelete", { ids });
   } catch (err) {
-    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    body.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
   }
   const effectOf = {}, lastPaidOf = {};
@@ -21045,9 +21045,9 @@ async function renderPausedDecision_() {
       <div class="paused-actions">
         <button type="button" class="add-inline" data-act="reactivate">${escapeHtml(tr("paused.reactivate"))}</button>
         ${stoppable ? `<button type="button" class="add-inline" data-act="stop">${escapeHtml(tr("paused.stop"))}</button>` : ""}
-        <button type="button" class="add-inline" data-act="delete" style="color:#d64545;">${escapeHtml(tr("paused.delete"))}</button>
+        <button type="button" class="add-inline" data-act="delete" style="color:var(--danger);">${escapeHtml(tr("paused.delete"))}</button>
       </div>
-      <p class="hint paused-error" style="color:#d64545;"></p>`;
+      <p class="hint paused-error" style="color:var(--danger);"></p>`;
     // Runs one of the three answers, then takes the row out of the sheet (and closes the sheet when it was the last).
     const run = async (work) => {
       row.querySelectorAll("button").forEach((b) => { b.disabled = true; });
@@ -22614,7 +22614,7 @@ function offerTip_(key, boxId, inviteText, start, after) {
   if (realHoldsPractice_(key)) return;
   if (!box.hidden) return;   // already on offer
   if (!tipDayAllows_(key)) return;
-  box.innerHTML = `<p>${escapeHtml(inviteText)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-no">${escapeHtml(tr("spot.dismiss"))}</button><button type="button" class="tip-invite-go">${escapeHtml(tr("spot.showMe"))}</button></div>`;
+  box.innerHTML = `<span class="tip-invite-label"><span aria-hidden="true">💡</span> ${escapeHtml(tr("spot.tipLabel"))}</span><p>${escapeHtml(inviteText)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-no">${escapeHtml(tr("spot.dismiss"))}</button><button type="button" class="tip-invite-go">${escapeHtml(tr("spot.showMe"))}</button></div>`;
   box.hidden = false;
   box.querySelector(".tip-invite-no").addEventListener("click", () => {
     markTipSeen_(key);
@@ -29872,7 +29872,7 @@ document.getElementById("balance-check-input").addEventListener("input", (e) => 
     result.style.color = "var(--income)";
     result.textContent = tr("balance.matches");
   } else {
-    result.style.color = "#d64545";
+    result.style.color = "var(--danger)";
     result.textContent = diff > 0
       ? tr("balance.more", { cur: main.currency, amount: moneyFmt(diff) })
       : tr("balance.less", { cur: main.currency, amount: moneyFmt(-diff) });

@@ -532,6 +532,8 @@
     "nav.overview": { en: "Overview", es: "Resumen" },
     "nav.budgets": { en: "Budgets", es: "Presupuestos" },
     "nav.projections": { en: "Projections", es: "Proyecciones" },
+    "nav.budgetsTab": { en: "Budgets", es: "Presup." },          // the tab bar's short label (the full name is its spoken name)
+    "nav.projectionsTab": { en: "Projections", es: "Proyec." },
     "nav.loans": { en: "Loans", es: "Préstamos" },
     "nav.more": { en: "More", es: "Más" },
 
@@ -2496,6 +2498,7 @@
     "spot.cleaning": { en: "Removing the practice data…", es: "Quitando los datos de práctica…" },
     "spot.showMe": { en: "Show me", es: "Muéstrame" },
     "spot.dismiss": { en: "Not now", es: "Ahora no" },
+    "spot.tipLabel": { en: "Tip", es: "Consejo" },   // the label on every yellow tip card (tells a tip from a warning)
     "spot.editOn": { en: "Turn off Edit first (tap the pencil), then try again.", es: "Primero apaga Editar (toca el lápiz) y vuelve a intentarlo." },
     "spot.dismissed": { en: "If you want to do this practice later, go to More → How to use the app → 💡 Practice tips.", es: "Si quieres hacer esta práctica más adelante, ve a Más → Cómo usar la app → 💡 Prácticas." },
     "pop.gotIt": { en: "Got it", es: "Entendido" },
