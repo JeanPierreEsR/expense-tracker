@@ -434,15 +434,12 @@ function renderCurrencyChips(target) {
   const current = document.getElementById(ids.input).value;
   container.innerHTML = "";
 
-  // The "+" form shows three in ONE row with "More…" (owner, 2026-11-13): the main currency, USD and the most recent other one
-  // (the one just chosen with More… lands there, so the choice always shows). Other places keep up to five.
-  let codes = getRecentCurrencies();
-  if (target === "entry") {
-    const base = [homeCur(), "USD"].filter((c, i, a) => a.indexOf(c) === i);
-    const recent = (current && !base.includes(current) ? [current] : []).concat(codes.filter((c) => !base.includes(c)));
-    codes = base.concat(recent.slice(0, 3 - base.length));
-  }
-  container.classList.toggle("currency-row3", target === "entry");
+  // Every currency row shows three in ONE row with "More…" (owner, 2026-11-13; the "+" form first, then every form): the main
+  // currency, USD and the most recent other one (the one just chosen with More… lands there, so the choice always shows).
+  const base = [homeCur(), "USD"].filter((c, i, a) => a.indexOf(c) === i);
+  const recent = (current && !base.includes(current) ? [current] : []).concat(getRecentCurrencies().filter((c) => !base.includes(c)));
+  const codes = base.concat(recent.slice(0, 3 - base.length));
+  container.classList.add("currency-row3");
   codes.forEach((code) => {
     const cur = findCurrency(code);
     const chip = document.createElement("button");
@@ -23086,6 +23083,7 @@ Object.assign(LINE_ICONS_, {
   skip: '<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>',
   pin: '<path d="M12 22v-6"/><path d="M8 3h8l-1 6 3 3H6l3-3z"/>',
   bank: '<path d="M3 10l9-6 9 6"/><line x1="5" y1="10" x2="5" y2="18"/><line x1="10" y1="10" x2="10" y2="18"/><line x1="14" y1="10" x2="14" y2="18"/><line x1="19" y1="10" x2="19" y2="18"/><line x1="3" y1="21" x2="21" y2="21"/>',
+  gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/>',
   moneyIn: '<line x1="17" y1="7" x2="7" y2="17"/><polyline points="17 17 7 17 7 7"/>',
   moneyOut: '<line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/>'
 });
@@ -23099,7 +23097,7 @@ const EMOJI_ICON_ = {
   "✗": ["cross", "bad"], "❌": ["cross", "bad"], "✖️": ["cross", "bad"], "✖": ["cross", "bad"], "🔄": ["refresh"], "🔒": ["lock"],
   "⬆️": ["up"], "⬇️": ["down"], "📈": ["trend"], "💬": ["message"], "🧾": ["file"], "⚠️": ["warning", "warn"], "⚠": ["warning", "warn"],
   "💡": ["bulb", "warn"], "🧹": ["broom"], "👀": ["eye"], "⏭️": ["skip"], "⏭": ["skip"], "💰": ["coin"], "🔁": ["swap"], "🧮": ["calc"], "📅": ["calendar"],
-  "📌": ["pin"], "🏦": ["bank"], "💸": ["moneyIn", "ok"], "📉": ["moneyOut"], "📜": ["file"], "🔀": ["swap"], "📷": ["eye"]
+  "📌": ["pin"], "🏦": ["bank"], "💸": ["moneyIn", "ok"], "📉": ["moneyOut"], "📜": ["file"], "🔀": ["swap"], "📷": ["eye"], "🎁": ["gift"]
 };
 const EMOJI_ICON_RE_ = new RegExp("^(\\s*)(" + Object.keys(EMOJI_ICON_).sort((a, b) => b.length - a.length).map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\uFE0F?\\s+(?=\\S)");
 let contentNamesAt_ = null, contentNames__ = [];
@@ -23119,7 +23117,7 @@ function contentNames_() {
 }
 // Every "loading" kind of line gets the moving circle Budgets has (owner, 2026-11-13: "in all loading status"), wherever the
 // code wrote it as plain text; a line that already has its circle (loadingHtml_) is left alone.
-const LOADING_RE_ = /^\s*(Loading|Cargando|Updating|Actualizando|Connecting|Conectando|Checking|Revisando|Reading|Leyendo|One moment|Un momento)\b/;
+const LOADING_RE_ = /^\s*(Loading|Cargando|Updating|Actualizando|Connecting|Conectando|Checking|Revisando|Buscando|Searching|Reading|Leyendo|One moment|Un momento)\b/;
 function spinLoadingText_(node) {
   const parent = node.parentNode;
   if (!parent || parent.nodeType !== 1 || !LOADING_RE_.test(node.nodeValue)) return;
@@ -23142,6 +23140,8 @@ function iconizeTextNode_(node) {
   // are a category's, a trip's or an account's name.
   const rest = node.nodeValue.slice(m[0].length).trim().toLowerCase();
   if (rest && contentNames_().some((n) => rest === n || rest.startsWith(n + " ") || rest.startsWith(n + " ·") || rest.startsWith(n + ","))) return;
+  // A loading line keeps only its moving circle (owner, 2026-11-13): its marker (🔄 Checking…) is dropped, not drawn.
+  if (LOADING_RE_.test(node.nodeValue.slice(m[0].length))) { node.nodeValue = m[1] + node.nodeValue.slice(m[0].length); spinLoadingText_(node); return; }
   const [name, tone] = EMOJI_ICON_[m[2]] || EMOJI_ICON_[m[2] + "\uFE0F"];
   const span = document.createElement("span");
   span.className = "ico" + (tone ? " ico-" + tone : "");
@@ -27005,7 +27005,7 @@ function loanProjectPillHtml_(l) {
 // Shared by openLoanDetail's two sections (pending / already paid) so a
 // row looks and behaves identically in either — only which list it lands
 // in differs.
-// One grey "Forgive part or all of a debt…" at the bottom of the person's screen (owner, 2026-11-12). One debt: it opens the
+// One "Forgive a debt" button at the bottom of the person's screen (owner, 2026-11-12). One debt: it opens the
 // Forgive window for it; several: a short list under the button to pick which one.
 function renderForgiveAny_(forgivable, friendId, friendName) {
   const box = document.getElementById("loan-forgive-any");
@@ -27017,6 +27017,11 @@ function renderForgiveAny_(forgivable, friendId, friendName) {
   if (!forgivable.length) return;
   const friend = { id: friendId, name: friendName };
   btn.dataset.direction = forgivable[0].direction;   // the bubble words it by who owes whom
+  // A real button that says who lets whom off, with one line on what it means (owner, 2026-11-13: the grey line was confusing).
+  const dirs = new Set(forgivable.map((l) => l.direction));
+  const both = dirs.size > 1, iOwe = !both && dirs.has("i_owe_them");
+  btn.textContent = tr(iOwe ? "loanDetail.forgiveAnyIOwe" : "loanDetail.forgiveAny");
+  document.getElementById("loan-forgive-any-hint").textContent = tr(both ? "loanDetail.forgiveHintBoth" : iOwe ? "loanDetail.forgiveHintIOwe" : "loanDetail.forgiveHintTheyOwe");
   btn.setAttribute("aria-expanded", "false");
   btn.onclick = () => {
     if (forgivable.length === 1) { openForgiveModal(forgivable[0], friend); return; }

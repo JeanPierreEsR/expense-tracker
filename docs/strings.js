@@ -228,14 +228,14 @@
     // ---- loan ----
     "loan.dueDateOptional": { en: "Due date (optional)", es: "Fecha de vencimiento (opcional)" },
     "loan.dueDateHint": { en: "Optional. Without a date there is no overdue reminder.", es: "Opcional. Sin fecha, no recibirás aviso de vencimiento." },
-    "loan.recordMyRepayment": { en: "Record my repayment", es: "Registrar mi repago" },
+    "loan.recordMyRepayment": { en: "💰 Record my repayment", es: "💰 Registrar mi repago" },
     "loans.overdueAria": { en: "Overdue", es: "Vencido" },
     "loans.unreadable": { en: "⚠️ These rows of your Loans sheet can't be read, so they are not counted. Fix them in the Sheet: {list}", es: "⚠️ Estas filas de tu pestaña Loans no se pueden leer, así que no se cuentan. Corrígelas en el archivo: {list}" },
     "loanModal.pickOrAddFriend": { en: "Pick or add a friend…", es: "Elige o agrega un amigo…" },
     "settle.overpayNoteTheyOwe": { en: "{name} only owes {cur} {owed}; the extra {cur} {extra} will be recorded as income, waiting in Needs review.", es: "{name} solo debe {cur} {owed}; los {cur} {extra} de más se registrarán como ingreso, esperando en Por revisar." },
     "settle.overpayNoteIOwe": { en: "You only owe {cur} {owed}; the extra {cur} {extra} will be recorded as an expense, waiting in Needs review.", es: "Solo debes {cur} {owed}; los {cur} {extra} de más se registrarán como gasto, esperando en Por revisar." },
     "review.overpayNote": { en: "This is money paid beyond what was owed. Pick a category and confirm, or change it if it was something else.", es: "Es dinero pagado de más sobre lo que se debía. Elige una categoría y confirma, o cámbialo si era otra cosa." },
-    "loan.recordRepayment": { en: "Record repayment", es: "Registrar repago" },
+    "loan.recordRepayment": { en: "💰 Record repayment", es: "💰 Registrar repago" },
     "loan.word": { en: "Loan", es: "Préstamo" },
 
     // ---- investment ----
@@ -1405,7 +1405,7 @@
     "drill.how.receivedAsOwed": { en: "canceled out against what I owed them", es: "compensado con lo que yo le debía" },
 
     // ---- remind (the person's loan screen → "Remind on WhatsApp", docs/loan-reminder.js) ----
-    "remind.button": { en: "Remind on WhatsApp", es: "Recordar por WhatsApp" },
+    "remind.button": { en: "💬 Remind on WhatsApp", es: "💬 Recordar por WhatsApp" },
     "remind.title": { en: "💬 Remind {name}", es: "💬 Recordarle a {name}" },
     "remind.phone": { en: "WhatsApp number (optional)", es: "Número de WhatsApp (opcional)" },
     "phone.country": { en: "Country", es: "País" },
@@ -1466,7 +1466,11 @@
     "loanDetail.sharedExpense": { en: "Shared expense", es: "Gasto compartido" },
     "loanDetail.confirmDeleteOrphan": { en: "The expense behind this loan ({amount}, {date}) was deleted. Delete the loan too?", es: "El gasto de este préstamo ({amount}, {date}) fue eliminado. ¿Eliminar también el préstamo?" },
     "loanDetail.forgive": { en: "🙏 Forgive", es: "🙏 Perdonar" },
-    "loanDetail.forgiveAny": { en: "Forgive part or all of a debt…", es: "Perdonar parte o toda una deuda…" },
+    "loanDetail.forgiveAny": { en: "🎁 Forgive a debt", es: "🎁 Perdonar una deuda" },
+    "loanDetail.forgiveAnyIOwe": { en: "🎁 They forgave me a debt", es: "🎁 Me perdonaron una deuda" },
+    "loanDetail.forgiveHintTheyOwe": { en: "For when they won't pay you back part or all of it. No money moves.", es: "Para cuando no te devolverá una parte o todo. No se mueve dinero." },
+    "loanDetail.forgiveHintIOwe": { en: "For when they tell you not to pay back part or all of it. No money moves.", es: "Para cuando te dice que no le devuelvas una parte o todo. No se mueve dinero." },
+    "loanDetail.forgiveHintBoth": { en: "For a debt, or part of it, that won't be paid back. No money moves.", es: "Para una deuda, o una parte, que no se devolverá. No se mueve dinero." },
     "loanDetail.forgiveThis": { en: "Forgive part or all of it…", es: "Perdonar una parte o toda…" },
     "loanDetail.expenseNotFound": { en: "That expense couldn't be found — it may have been deleted.", es: "No se encontró ese gasto: puede que se haya eliminado." },
 
@@ -1579,7 +1583,7 @@
     "loanConv.doneExpense": { en: "Done — the loan is now an expense.", es: "Listo: el préstamo ahora es un gasto." },
     "loanConv.doneIncome": { en: "Done — the loan is now an income.", es: "Listo: el préstamo ahora es un ingreso." },
     "repayChoice.cancelHint": { en: "The repayments and their money movements are canceled too.", es: "Los repagos y sus movimientos de dinero también se cancelan." },
-    "history.button": { en: "Repayment history", es: "Historial de repagos" },
+    "history.button": { en: "🕒 Repayment history", es: "🕒 Historial de repagos" },
     "history.title": { en: "{name} · Repayment history", es: "{name} · Historial de repagos" },
     "history.repayments": { en: "Repayments", es: "Repagos" },
     "history.loans": { en: "Loans", es: "Préstamos" },
