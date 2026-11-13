@@ -31,5 +31,5 @@ test("Home: the summary card leads with What's left of the month it shows; no '%
   const card = /function homeMainCard_\(g\) \{([\s\S]*?)\n\}/.exec(app)[1];
   assert.ok(card.includes('tr("home.leftThisMonth")') && card.includes('tr("home.leftIn"'));
   assert.ok(!card.includes("home.vsSameDay") && !card.includes("home.vsLast"));
-  assert.match(strings, /"home\.leftThisMonth": \{ en: "What's left this month", es: "Lo que queda este mes" \}/);
+  assert.match(strings, /"home\.leftThisMonth": \{ en: "Result this month", es: "Resultado del mes" \}/);   // renamed from "What's left" (owner, 2026-11-13)
 });

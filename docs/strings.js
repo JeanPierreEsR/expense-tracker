@@ -482,8 +482,8 @@
     "entry.undone": { en: "Undone: the entry was removed.", es: "Deshecho: se quitó el movimiento." },
 
     // ---- Home tab: the quick glance at the top, and the entries grouped by day ----
-    "home.leftThisMonth": { en: "What's left this month", es: "Lo que queda este mes" },
-    "home.leftIn": { en: "What was left in {month}", es: "Lo que quedó en {month}" },
+    "home.leftThisMonth": { en: "Result this month", es: "Resultado del mes" },   // money in − out ± loans; not a balance (owner, 2026-11-13)
+    "home.leftIn": { en: "Result in {month}", es: "Resultado de {month}" },
     "home.barsTitle": { en: "Income and expenses by month", es: "Ingresos y gastos por mes" },
     "home.barAria": { en: "{month}: income {income}, expenses {expenses}", es: "{month}: ingresos {income}, gastos {expenses}" },
     "home.last6": { en: "Last 6 months", es: "Últimos 6 meses" },
@@ -1066,7 +1066,7 @@
     "summary.income": { en: "Income", es: "Ingresos" },
     "summary.expenses": { en: "Expenses", es: "Gastos" },
     "summary.investments": { en: "Investments", es: "Inversiones" },
-    "summary.net": { en: "What's left", es: "Lo que queda" },
+    "summary.net": { en: "Result", es: "Resultado" },
     "projections.netMonthEnd": { en: "Expected at month end", es: "Esperado a fin de mes" },
     "projections.netPeriodEnd": { en: "Expected at the end", es: "Esperado al final" },
     "summary.loans": { en: "Loans", es: "Préstamos" },
@@ -1090,7 +1090,7 @@
     "overview.nothingYet": { en: "Nothing here yet.", es: "Aún no hay nada aquí." },
     "overview.entriesTitle": { en: "Entries in this period", es: "Movimientos de este periodo" },
     "overview.others": { en: "Others ({n})", es: "Otros ({n})" },
-    "overview.noIncome": { en: "No income recorded in this period yet: What's left only counts what went out.", es: "Aún no hay ingresos registrados en este periodo: Lo que queda solo cuenta lo que salió." },
+    "overview.noIncome": { en: "No income recorded in this period yet: the result only counts what went out.", es: "Aún no hay ingresos registrados en este periodo: el resultado solo cuenta lo que salió." },
     "overview.zeroLine": { en: "Investments {inv} · Loans {loans}", es: "Inversiones {inv} · Préstamos {loans}" },
     "overview.vsYearFull": { en: "Against {prev}: expenses {exp} · income {inc}", es: "Frente a {prev}: gastos {exp} · ingresos {inc}" },
     "overview.vsYearPart": { en: "{range}, against the same months of {prev}: expenses {exp} · income {inc}", es: "{range}, frente a los mismos meses de {prev}: gastos {exp} · ingresos {inc}" },
@@ -1108,7 +1108,7 @@
     "balances.add": { en: "+ Add balance", es: "+ Agregar saldo" },
     "balances.addAria": { en: "Add balance", es: "Agregar saldo" },
     "balances.hint": { en: "What each account should hold right now ({date}), from its starting balance plus every entry since. Not affected by the period above.", es: "Lo que debería tener cada cuenta ahora ({date}), a partir de su saldo inicial más cada movimiento desde entonces. No depende del periodo de arriba." },
-    "balances.netByCurrency": { en: "What's left by currency", es: "Lo que queda por moneda" },
+    "balances.netByCurrency": { en: "Result by currency", es: "Resultado por moneda" },
     "balances.showAccounts": { en: "Show accounts ({n}) ›", es: "Ver cuentas ({n}) ›" },
     "balances.missingRow": { en: "⚠️ No starting balance in {cur}: tap to add it", es: "⚠️ Sin saldo inicial en {cur}: toca para agregarlo" },
     "balances.missingNote": { en: { one: "⚠️ {n} account has movements in a currency with no starting balance, so the app counts it from 0. Show it ›", other: "⚠️ {n} accounts have movements in a currency with no starting balance, so the app counts it from 0. Show them ›" }, es: { one: "⚠️ {n} cuenta tiene movimientos en una moneda sin saldo inicial, así que la app la cuenta desde 0. Verla ›", other: "⚠️ {n} cuentas tienen movimientos en una moneda sin saldo inicial, así que la app la cuenta desde 0. Verlas ›" } },
@@ -2546,7 +2546,7 @@
     "pop.gotIt": { en: "Got it", es: "Entendido" },
     // Bubbles, batch A (2026-11-11)
     "pop.ov.flows": { en: "Income and expenses count here on their date. Moving money between your own accounts, or changing currency, never counts.", es: "Aquí cuentan tus ingresos y gastos en su fecha. Pasar dinero entre tus propias cuentas o cambiar de moneda nunca cuenta." },
-    "pop.ov.invLoans": { en: "Investments and loans have their own lines: money put into a platform or lent to someone comes off What's left, and is added back when it returns.", es: "Inversiones y préstamos tienen su propia línea: lo que pones en una plataforma o le prestas a alguien se resta de Lo que queda, y se vuelve a sumar cuando regresa." },
+    "pop.ov.invLoans": { en: "Investments and loans have their own lines: money put into a platform or lent to someone comes off the Result, and is added back when it returns.", es: "Inversiones y préstamos tienen su propia línea: lo que pones en una plataforma o le prestas a alguien se resta del Resultado, y se vuelve a sumar cuando regresa." },
     "pop.ov.pendingHere": { en: "These are still in Needs review, so they don't count yet. Tap here to confirm them, and they're added.", es: "Estos siguen en Por revisar, así que aún no cuentan. Toca aquí para confirmarlos y se suman." },
     "pop.ov.pending": { en: "Anything still waiting in Needs review on Home doesn't count here until you confirm it.", es: "Lo que sigue esperando en Por revisar, en Inicio, no cuenta aquí hasta que lo confirmes." },
     "pop.homeEdit": { en: "Tap the pencil to pick several entries at once: delete them, or change their category or trip together.", es: "Toca el lápiz para elegir varios movimientos a la vez: bórralos o cámbiales la categoría o el viaje juntos." },

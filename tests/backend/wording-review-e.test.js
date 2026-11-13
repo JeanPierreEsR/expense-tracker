@@ -99,7 +99,8 @@ test("B14, B15, B16, B17: currency hint, shared amount, discount buttons, 'What'
   assert.match(read("docs", "app.js"), /original-amt">\$\{tr\("common.total"\)/);   // the grey "Total" really is what the hint describes
   assert.match(get("bill.discountLine").en, /Discount on this item/);
   assert.match(get("bill.addDiscount").en, /Discount on the whole bill/);
-  assert.equal(get("summary.net").en, JSON.stringify("What's left"));
-  assert.equal(get("summary.net").es, JSON.stringify("Lo que queda"));
+  // Still never "Net": renamed from "What's left" to "Result" (owner, 2026-11-13: "What's left" read like an account balance).
+  assert.equal(get("summary.net").en, JSON.stringify("Result"));
+  assert.equal(get("summary.net").es, JSON.stringify("Resultado"));
   for (const k of ["scene.flow.s1", "scene.flow.s2", "scene.flow.s3", "scene.flow.s4", "tour.overview.body"]) assert.ok(!/\bNet\b|\bNeto\b/.test(get(k).en + get(k).es), k);
 });
