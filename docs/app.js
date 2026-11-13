@@ -100,7 +100,9 @@ function pmPickLabel_(pm) {
   if (String(settings.yape_pen || "") === String(pm.id) || String(settings.yape_usd || "") === String(pm.id)) wallets.push("Yape");
   if (String(settings.plin_pen || "") === String(pm.id) || String(settings.plin_usd || "") === String(pm.id) || plinMoreIds_().includes(String(pm.id))) wallets.push("Plin");
   const shown = wallets.filter((w) => !String(pm.nickname || "").toLowerCase().includes(w.toLowerCase()));
-  return pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "") + (shown.length ? " · " + shown.join(" · ") : "");
+  const bank = !String(pm.nickname || "").trim() && meta && (meta.banks || []).find((b) => String(b.id) === String(pm.bank_id));
+  const name = String(pm.nickname || "").trim() || (bank ? bank.name : "") || tr("accounts.unnamed");   // never an empty row
+  return name + (pm.last_4 ? ` (${pm.last_4})` : "") + (shown.length ? " · " + shown.join(" · ") : "");
 }
 
 // Asks for one name in the app's own small window (owner, 2026-11-04: the phone's plain "prompt" box looked out of place). Resolves
@@ -1368,7 +1370,9 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   renderOwnNameCard_();
   maybeAskPausedProgrammed_();
   maybeAskPayorMerge_();
-  if (skipFormPopulate) return;
+  // Even while a form is in use, the account lists take in accounts added since they were built (what is chosen stays chosen):
+  // an unfinished entry restored on its account must find it there (owner, 2026-11-13: a new account "CTS" showed as a blank row).
+  if (skipFormPopulate) { whenPickersClosed_(["payment_method", "to_payment_method"], rebuildAccountPickers_); return; }
   // Rebuilding the pickers resets them to their first option. A refresh
   // (pull-down, or any reload of the lists) while an edit screen is open must
   // not change what is already chosen there — it once flipped a pending card
@@ -5493,8 +5497,8 @@ function applyEntryDraft_(d) {
   if (d.paidBy) document.getElementById("paid_by").value = d.paidBy;
   togglePaymentMethodVisibility();
   // A transfer's "From" may legitimately be None (blank).
-  if (d.paymentMethodId || d.type === "transfer") document.getElementById("payment_method").value = d.paymentMethodId || "";
-  document.getElementById("to_payment_method").value = d.toPaymentMethodId || "";
+  if (d.paymentMethodId || d.type === "transfer") setAccountPick_("payment_method", d.paymentMethodId || "");
+  setAccountPick_("to_payment_method", d.toPaymentMethodId || "");
   selectedTagIds.clear();
   (d.tagIds || []).forEach((id) => selectedTagIds.add(id));
   populateTags();
@@ -13362,14 +13366,14 @@ function renderWaWalletQuestion_() {
     row.appendChild(b);
   });
   box.appendChild(row);
-  // Plin: which bank it is on (any bank but BCP).
+  // Plin: which bank it is on (Scotiabank, BBVA or Interbank).
   if (welcome_.plinAsk && !plinOn) {
     const lab = document.createElement("label");
     lab.textContent = tr("wa.plinWhich");
     const sel = document.createElement("select");
     const cat = waCatalog_();
     const first = document.createElement("option"); first.value = ""; first.textContent = tr("wa.plinPick"); sel.appendChild(first);
-    cat.main.concat(cat.other).filter((bk) => !isBcp_(bk.name)).forEach((bk) => { const o = document.createElement("option"); o.value = bk.name; o.textContent = bk.name; sel.appendChild(o); });
+    cat.main.concat(cat.other).filter((bk) => plinBank_(bk.name)).forEach((bk) => { const o = document.createElement("option"); o.value = bk.name; o.textContent = bk.name; sel.appendChild(o); });
     sel.addEventListener("change", () => { if (!sel.value) return; welcome_.plinAsk = false; waSetWallet_("plin_pen", sel.value); renderWelcomeAccounts_(); });
     box.appendChild(lab);
     box.appendChild(sel);
@@ -13381,8 +13385,11 @@ function renderWaWalletQuestion_() {
 
 // Yape works only with BCP accounts; Plin works with other banks, never BCP. Soles accounts for the _pen links, dollar accounts for _usd.
 const isBcp_ = (bankName) => String(bankName || "").trim().toLowerCase() === "bcp";
+// Plin works only with these banks (owner, 2026-11-13); the server has the same list (PLIN_BANKS_ in backend/Accounts.gs).
+const PLIN_BANKS_ = ["scotiabank", "bbva", "interbank"];
+const plinBank_ = (bankName) => PLIN_BANKS_.includes(String(bankName || "").trim().toLowerCase());
 // Which wallet checkboxes an account offers (owner, 2026-10-23): Yape only on a BCP debit account (soles, and optionally dollars);
-// Plin only in soles, on another bank's debit account or on an Interbank credit card (no other card offers a wallet). `kind` is the welcome kind (debit_pen, debit_usd, sueldo,
+// Plin only in soles, on a Scotiabank, BBVA or Interbank debit account or an Interbank credit card (no other card offers a wallet). `kind` is the welcome kind (debit_pen, debit_usd, sueldo,
 // credit) or, in the More window for an account made before kinds existed, empty - then a BCP debit account offers both Yape slots.
 function walletSlots_(bankName, type, kind) {
   if (type === "credit") {
@@ -13394,7 +13401,7 @@ function walletSlots_(bankName, type, kind) {
   const cur = kindCurrency_(kind), usd = cur === "USD", pen = cur === "PEN";
   if (cur && !usd && !pen) return [];   // Yape and Plin move only soles and dollars
   if (isBcp_(bankName)) return usd ? ["yape_usd"] : pen ? ["yape_pen"] : ["yape_pen", "yape_usd"];
-  return usd ? [] : ["plin_pen"];
+  return usd || !plinBank_(bankName) ? [] : ["plin_pen"];
 }
 // Tick boxes for `slots`. `ticked` is an array of keys; `onToggle(key, checked)` may return false to refuse (the box is put back).
 function renderWalletBoxes_(box, slots, ticked, onToggle) {
@@ -16528,20 +16535,39 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       else if (String(settings[k] || "") === String(saved.id)) links[k] = "";
     });
     if (Object.keys(links).length) { await callApi("saveRailLinks", links); Object.assign(settings, links); }
-    // Rebuild the entry form's pickers without losing what's already chosen there.
-    const keep = ["payment_method", "to_payment_method"].map((id) => document.getElementById(id).value);
-    populatePaymentMethodOptions();
-    populateToPaymentMethodOptions();
-    ["payment_method", "to_payment_method"].forEach((id, k) => {
-      const sel = document.getElementById(id);
-      if (keep[k] && Array.from(sel.options).some((o) => o.value === keep[k])) sel.value = keep[k];
+    // Rebuild the entry form's pickers without losing what's already chosen there (once their list is closed: see whenPickersClosed_).
+    whenPickersClosed_(["payment_method", "to_payment_method"], () => {
+      rebuildAccountPickers_();
+      if (state.selectIn) { const sel = document.getElementById(state.selectIn); sel.value = saved.id; sel.dispatchEvent(new Event("change")); }
     });
-    if (state.selectIn) { const sel = document.getElementById(state.selectIn); sel.value = saved.id; sel.dispatchEvent(new Event("change")); }
   }, { nickname, type }), nickname), () => renderAccountsList_());
 });
 
 // After a hide / show / delete the pickers are rebuilt the same way a save does it.
+// An iPhone draws a row added to a list WHILE that list is open as a blank row (owner, 2026-11-13: an account saved in the
+// background landed while the account list was open and showed as an empty, ticked row). So a list that is open (focused) is
+// rebuilt only once it closes.
+function whenPickersClosed_(ids, fn) {
+  const open = ids.map((id) => document.getElementById(id)).filter((el) => el && document.activeElement === el);
+  if (!open.length) { fn(); return; }
+  let done = false;
+  const run = () => { if (done) return; done = true; open.forEach((el) => el.removeEventListener("blur", run)); setTimeout(fn, 0); };
+  open.forEach((el) => el.addEventListener("blur", run));
+}
+// Picks an account in one of the form's account lists. An account the list does not hold yet (added after the list was built)
+// is brought in first; one that no longer exists falls back to the first account (the "from" list) or none, never to the empty
+// "nothing chosen" state an iPhone shows as a blank ticked row.
+function setAccountPick_(selectId, id) {
+  const sel = document.getElementById(selectId);
+  const has = () => Array.from(sel.options).some((o) => o.value === id);
+  if (id && !has()) { rebuildAccountPickers_(); keepHiddenAccountOption_(selectId, id); }
+  sel.value = id;
+  if (sel.selectedIndex === -1) { if (selectId === "payment_method") pickDefaultAccount_(); else sel.value = ""; }
+}
 function refreshAccountPickers_() {
+  whenPickersClosed_(["payment_method", "to_payment_method"], rebuildAccountPickers_);
+}
+function rebuildAccountPickers_() {
   const keep = ["payment_method", "to_payment_method"].map((id) => document.getElementById(id).value);
   populatePaymentMethodOptions();
   populateToPaymentMethodOptions();

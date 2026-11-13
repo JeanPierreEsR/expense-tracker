@@ -3466,7 +3466,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
    the faded old numbers with a small ring did not read as loading). The text comes from data-loading (set in app.js, both languages). */
 .overview-stale > .card.ov-period { pointer-events: none; }
 .overview-stale > .card.ov-period > *, #pace-card.ov-loading > *, #balances-card.ov-loading > * { display: none !important; }
-.overview-stale > .card.ov-period::before, #pace-card.ov-loading::before, #balances-card.ov-loading::before { content: attr(data-loading); display: block; padding: 6px 0; color: var(--muted); font-size: 1rem; }
+/* The moving circle in front of it, like every loading line (owner, 2026-11-13): ::before is the circle, ::after the text. */
+.overview-stale > .card.ov-period::before, #pace-card.ov-loading::before, #balances-card.ov-loading::before { content: ""; display: inline-block; width: 14px; height: 14px; box-sizing: border-box; margin: 6px 0.45em 6px 0; vertical-align: -0.2em; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: stmt-spin 0.8s linear infinite; }
+.overview-stale > .card.ov-period::after, #pace-card.ov-loading::after, #balances-card.ov-loading::after { content: attr(data-loading); display: inline; color: var(--muted); font-size: 1rem; }
 @keyframes ov-appear { from { opacity: 0; } to { opacity: 1; } }
 
 /* Overview: the period picker stays at the top while the screen scrolls. */

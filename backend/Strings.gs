@@ -296,7 +296,7 @@ var BACKEND_STRINGS_ = {
   "export.h.merchant": { en: "Merchant", es: "Comercio" },
   "err.pmPlin": { en: "Plin isn't an account. Open the bank account you use for Plin and check Plin there.", es: "Plin no es una cuenta. Abre la cuenta del banco que usas para Plin y marca Plin allí." },
   "err.railYape": { en: "Yape only works with BCP accounts.", es: "Yape solo funciona con cuentas BCP." },
-  "err.railPlin": { en: "Plin doesn't work with BCP accounts. Pick an account at another bank.", es: "Plin no funciona con cuentas BCP. Elige una cuenta de otro banco." },
+  "err.railPlin": { en: "Plin only works with Scotiabank, BBVA and Interbank accounts. Pick an account at one of them.", es: "Plin solo funciona con cuentas de Scotiabank, BBVA e Interbank. Elige una cuenta de uno de ellos." },
   "err.tooManyAccounts": { en: "Too many accounts at once.", es: "Demasiadas cuentas a la vez." },
   "err.tooManyPlatforms": { en: "Too many platforms at once.", es: "Demasiadas plataformas a la vez." },
   "err.rateMain": { en: "The main currency has no rate of its own.", es: "La moneda principal no tiene un tipo de cambio propio." },

@@ -11,7 +11,8 @@
  * so that when EVERY bank account still has an automatic name, changing the app's language renames them all in the new
  * language. As soon as one name was typed or edited by hand, nothing is renamed automatically.
  *
- * Yape and Plin are not accounts: they ride on a bank account. Yape works ONLY with BCP accounts; Plin works with other banks and NOT
+ * Yape and Plin are not accounts: they ride on a bank account. Yape works ONLY with BCP accounts; Plin only with Scotiabank, BBVA and
+ * Interbank (PLIN_BANKS_; owner 2026-11-13), and NOT
  * with BCP. (Wallets of other banks behave the same way: no money of their own, so linking them is never needed.) Settings `yape_pen`, `yape_usd`, `plin_pen`, `plin_usd`
  * hold the id of the account each one is linked to, per currency (changeable any time). An account that is not linked
  * falls back to the owner's original names (BCP_ACCOUNTS / PLIN_ACCOUNTS), which `ensureRailDefaults_` also writes into
@@ -324,6 +325,9 @@ function saveOnboardingPlatforms(payload) {
 
 // Yape works ONLY with BCP debit accounts. Plin works with other banks' accounts and NOT with BCP debit accounts — but an INTERBANK CREDIT CARD
 // can pay through Plin (owner, 2026-10-19; narrowed 2026-10-23: only Interbank cards, no other card offers Yape or Plin).
+// Plin works only with these banks (owner, 2026-11-13: not SIP, nor any bank outside this list). Same list in docs/app.js (PLIN_BANKS_).
+var PLIN_BANKS_ = ['scotiabank', 'bbva', 'interbank'];
+function plinBank_(name) { return PLIN_BANKS_.indexOf(String(name || '').trim().toLowerCase()) >= 0; }
 function railAllowsAccount_(rail, pm) {
   if (isPracticeAccount_(pm)) return false;   // the practice account never carries Yape / Plin payments
   var banks = getAllRows('Banks');
@@ -331,7 +335,7 @@ function railAllowsAccount_(rail, pm) {
   var isBcp = !!bank && String(bank.name).trim().toLowerCase() === 'bcp';
   if (rail === 'yape') return isBcp && pm.type !== 'credit';
   if (pm.type === 'credit') return !!bank && String(bank.name).trim().toLowerCase() === 'interbank';
-  return !isBcp;
+  return !!bank && plinBank_(bank.name);
 }
 
 // Yape and Plin ride on an account (a different one per currency); more → Accounts & cards changes it any time.
