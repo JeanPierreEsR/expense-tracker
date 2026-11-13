@@ -23625,11 +23625,16 @@ function watchAnnualTip_() {
 function watchTripPickTip_() {
   popTipWatch_({
     key: "tripPick", place: "entryForm", noGate: true,
-    text: () => tr(document.getElementById("entry-trip").value ? "pop.tripPicked" : "pop.tripPick"),   // the form often picks the trip by itself
+    // The form often picks the trip by itself: it then shows as a chip at the top, and the bubble points there (owner, 2026-11-13).
+    text: () => {
+      if (tripChipShown_()) return tr("pop.tripPickedChip");
+      return foldedNote_(document.getElementById("trip-field"), tr(document.getElementById("entry-trip").value ? "pop.tripPicked" : "pop.tripPick"));
+    },
     target: () => {
       const field = document.getElementById("trip-field"), date = document.getElementById("date").value;
       if (selectedType !== "expense" || field.hidden || !(meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date)) return null;
-      return field;
+      if (tripChipShown_()) return document.getElementById("trip-auto-chip");
+      return foldedTarget_(field);
     },
     stillWanted: () => newEntrySheetOpen_,
     ready: () => !guidedEntryWanted_()
@@ -23649,10 +23654,16 @@ function watchEntryFormTip_() {
   ].find(([k, want]) => !seen.includes(k) && want());
   if (pick) pick[2]();
 }
+// A bubble about a field folded inside "More details" (a new entry) points at the More details row and says so (owner, 2026-11-13);
+// once the row is open it points at the field itself.
+function fieldFolded_(el) { const body = document.getElementById("more-details-body"); return !!(el && body && moreDetailsFolded_() && body.contains(el)); }
+function foldedTarget_(el) { return fieldFolded_(el) ? document.getElementById("more-details-toggle") : el; }
+function foldedNote_(el, text) { return fieldFolded_(el) ? text + " " + tr("pop.inMoreDetails") : text; }
+function tripChipShown_() { const c = document.getElementById("trip-auto-chip"); return !!(c && !c.hidden && c.getClientRects().length); }
 function watchPaidByTip_() {
   popTipWatch_({
-    key: "paidBy", place: "entryForm", text: tr("pop.paidBy"), struggle: () => popStruggling_("paidBy"),
-    target: () => (selectedType !== "expense" || document.getElementById("paid-by-label").hidden || !(meta.friends || []).length ? null : document.getElementById("paid_by")),
+    key: "paidBy", place: "entryForm", text: () => foldedNote_(document.getElementById("paid_by"), tr("pop.paidBy")), struggle: () => popStruggling_("paidBy"),
+    target: () => (selectedType !== "expense" || document.getElementById("paid-by-label").hidden || !(meta.friends || []).length ? null : foldedTarget_(document.getElementById("paid_by"))),
     stillWanted: () => newEntrySheetOpen_,
     ready: () => !guidedEntryWanted_()
   });
@@ -23708,13 +23719,15 @@ function splitHowText_() {
 // The new-entry form: Tags (30+ entries, or a search for "annual" on Home) and receipt photos (three expenses typed by hand in a row).
 function watchTagsTip_() {
   popTipWatch_({
-    key: "tags", place: "entryForm", text: tr("pop.tags"), struggle: () => popStruggling_("tags"),
+    key: "tags", place: "entryForm", text: () => foldedNote_(document.getElementById("tags-field"), tr("pop.tags")), struggle: () => popStruggling_("tags"),
     // Never on an entry that belongs to a trip or event (owner, 2026-11-12: trips & events are for that, not tags); judged as the form
     // changes, so moving the date out of a trip lets it show.
     target: () => {
       const f = document.getElementById("tags-field"), date = document.getElementById("date").value;
       if (document.getElementById("entry-trip").value || (meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date)) return null;
-      return f && !f.hidden && f.getClientRects().length ? f : null;
+      if (!f || f.hidden) return null;
+      const t = foldedTarget_(f);
+      return t && t.getClientRects().length ? t : null;
     },
     stillWanted: () => newEntrySheetOpen_, ready: () => !guidedEntryWanted_()
   });
