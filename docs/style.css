@@ -32,7 +32,7 @@
   --positive: #2e9e5b;
   --income-bg: #e3f4e6;
   --income-bg-soft: #eaf6ee;
-  --fab: #3dba84;
+  --fab: #0071e3;   /* the "+" is the app blue (owner, 2026-11-13; it was green) */
   --investment-muted: #7b5ea7;
   --warn: #e0932a;
   --warn-bg: #fff4e5;
@@ -2655,7 +2655,7 @@ html:has(#welcome-overlay:not([hidden])), html:has(#welcome-overlay:not([hidden]
 .ts-types { display: flex; gap: 6px; margin-bottom: 8px; }
 .ts-types[hidden] { display: none; }
 /* The green "+" of Home, as the tour draws it (the finger taps it to open the new-entry sheet). */
-.ts-fab { position: absolute; right: 12px; bottom: 12px; width: 34px; height: 34px; border-radius: 50%; background: var(--fab); color: var(--white); font-size: 24px; line-height: 1; display: flex; align-items: center; justify-content: center; padding-bottom: 2px; box-shadow: 0 4px 10px rgba(30, 120, 80, 0.35); }
+.ts-fab { position: absolute; right: 12px; bottom: 12px; width: 34px; height: 34px; border-radius: 50%; background: var(--fab); color: var(--white); font-size: 24px; line-height: 1; display: flex; align-items: center; justify-content: center; padding-bottom: 2px; box-shadow: 0 4px 10px rgba(0, 80, 170, 0.32); }
 .ts-fab[hidden] { display: none; }
 .ts-pill { flex: 1; text-align: center; padding: 6px 2px; border-radius: 8px; background: var(--bg); color: var(--muted); font-weight: 600; font-size: 11px; }
 .ts-pill.on { background: var(--expense); color: var(--white); }
@@ -3099,7 +3099,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 6px 18px rgba(30, 120, 80, 0.38);
+  box-shadow: 0 6px 18px rgba(0, 80, 170, 0.36);
   cursor: pointer;
   z-index: var(--z-fab);   /* above the nav bar (150), below every pop-up (250+) */
   -webkit-tap-highlight-color: transparent;
@@ -4113,3 +4113,10 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
    own "Next step" inside the picture, and a second Next would be confused with it (owner, 2026-11-12). */
 #welcome-tour { position: relative; }
 #tour-skip-btn { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 4px); right: 4px; z-index: 4; min-height: 44px; min-width: 44px; padding: 0 12px; font-size: 0.875rem; color: var(--muted); }
+
+/* "+" form currencies: main, USD and the most recent, with "More…" the same size, in one row (owner, 2026-11-13). */
+.currency-chips.currency-row3 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; flex-wrap: nowrap; }
+.currency-chips.currency-row3 .currency-chip { padding: 8px 4px; justify-content: center; gap: 4px; min-width: 0; }
+.currency-chips.currency-row3 .currency-chip.more { border: 1px solid var(--border); background: var(--white); color: var(--accent); font-size: 0.875rem; font-weight: 600; }
+.md-row > .row-icon + span { flex: 1; min-width: 0; }
+.md-row > .row-icon { align-self: center; }

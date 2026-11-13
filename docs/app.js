@@ -434,7 +434,16 @@ function renderCurrencyChips(target) {
   const current = document.getElementById(ids.input).value;
   container.innerHTML = "";
 
-  getRecentCurrencies().forEach((code) => {
+  // The "+" form shows three in ONE row with "More…" (owner, 2026-11-13): the main currency, USD and the most recent other one
+  // (the one just chosen with More… lands there, so the choice always shows). Other places keep up to five.
+  let codes = getRecentCurrencies();
+  if (target === "entry") {
+    const base = [homeCur(), "USD"].filter((c, i, a) => a.indexOf(c) === i);
+    const recent = (current && !base.includes(current) ? [current] : []).concat(codes.filter((c) => !base.includes(c)));
+    codes = base.concat(recent.slice(0, 3 - base.length));
+  }
+  container.classList.toggle("currency-row3", target === "entry");
+  codes.forEach((code) => {
     const cur = findCurrency(code);
     const chip = document.createElement("button");
     chip.type = "button";
@@ -7782,7 +7791,7 @@ let newEntrySheetOpen_ = false;
 
 let entryFormLeftOpen_ = false;
 // ---- "More details": the optional fields folded on a new expense or income (owner, 2026-11-12) ----
-// Paid by, account, "not received yet", split, tags, trip and company sit behind one row with a summary of what they are set
+// Paid by, "not received yet", split, tags, trip and company sit behind one row (the account stays outside, owner 2026-11-13) with a summary of what they are set
 // to. Only a NEW expense or income folds them; an edit, a Needs review confirmation, a transfer or an investment shows them.
 let moreDetailsOpen_ = false;
 function moreDetailsFoldable_() {
@@ -7795,7 +7804,6 @@ function moreDetailsSummary_() {
   const opt = (id) => { const sel = el(id); return sel && sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent.trim() : ""; };
   const parts = [];
   if (shown("paid_by") && opt("paid_by")) parts.push(opt("paid_by"));
-  if (shown("payment-method-field") && el("payment_method").value) parts.push(opt("payment_method"));
   if (shown("split-field") && el("split-toggle").checked) parts.push(tr("entry.moreSplit", { n: splitFriendIds.size }));
   if (shown("trip-field") && el("entry-trip").value) parts.push(opt("entry-trip"));
   if (selectedTagIds.size) parts.push(tr("entry.moreTags", { n: selectedTagIds.size }));
@@ -23049,7 +23057,10 @@ const LINE_ICONS_ = {
   toggle: '<rect x="1" y="6" width="22" height="12" rx="6"/><circle cx="17" cy="12" r="3"/>',
   eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
   book: '<path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/>',
-  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>'
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>',
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
+  trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>'
 };
 function lineIcon_(name) {
   return `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LINE_ICONS_[name] || ""}</svg>`;
@@ -24016,10 +24027,10 @@ function practiceSteps_() {
         // "Paid by" stays "Me" (the person paid the bill): no step of its own any more (owner's plan 2026-11-05).
         const el = document.getElementById("paid_by"); if (el.value !== "me") { el.value = "me"; el.dispatchEvent(new Event("change", { bubbles: true })); }
       } },
-    { key: "unfold", target: "#more-details-toggle", text: () => tr("spot.g.moreDetails"), tap: "#more-details-toggle", until: () => !moreDetailsFolded_(),
-      before: async () => moreDetailsFolded_() },   // the details are folded on a new entry: the person opens them (owner, 2026-11-12)
     { key: "account", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.p.s6fix" : "spot.p.s6"), visit: "#payment_method",
       ok: () => !hasAccounts() || !!document.getElementById("payment_method").value, holdsUntil: "save" },
+    { key: "unfold", target: "#more-details-toggle", text: () => tr("spot.g.moreDetails"), tap: "#more-details-toggle", until: () => !moreDetailsFolded_(),
+      before: async () => moreDetailsFolded_() },   // the details are folded on a new entry: the person opens them (owner, 2026-11-12)
     { key: "toggle", target: "#split-field .checkbox-row", text: () => tr("spot.p.s7"), until: () => document.getElementById("split-toggle").checked,
       ok: () => document.getElementById("split-toggle").checked, holdsUntil: "save" },
     { key: "friend", target: () => [document.getElementById("split-friend-chips"), document.getElementById("split-add-friend-btn")], text: () => practiceHint_ || tr("spot.p.s8"),

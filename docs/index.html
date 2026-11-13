@@ -279,6 +279,12 @@
             <button type="button" class="add-inline" id="payee-suggest-apply" data-i18n="payee.use">Use this</button>
           </div>
 
+          <!-- The account stays with the main fields (owner, 2026-11-13); the rest folds below. -->
+          <div id="payment-method-field">
+            <label for="payment_method" id="payment-method-label" data-i18n="field.paymentMethod">Payment method</label>
+            <select id="payment_method"></select>
+          </div>
+
           <!-- Optional details folded behind one row on a NEW expense or income (owner, 2026-11-12): a summary of what they are set
                to, and a tap opens them. Edits, Needs review confirmations, transfers and investments always show them. -->
           <button type="button" class="more-details-toggle" id="more-details-toggle" aria-expanded="true" aria-controls="more-details-body" hidden>
@@ -300,11 +306,6 @@
               <label for="income-waiting-due" data-i18n="income.waitingDue">Expected by (optional)</label>
               <input type="date" id="income-waiting-due">
             </div>
-          </div>
-
-          <div id="payment-method-field">
-            <label for="payment_method" id="payment-method-label" data-i18n="field.paymentMethod">Payment method</label>
-            <select id="payment_method"></select>
           </div>
 
           <div id="to-payment-method-field" hidden>
@@ -1365,25 +1366,25 @@
         <h2 style="margin-top:0;" data-i18n="md.title">My data</h2>
         <h3 class="md-head" data-i18n="md.bringIn">Bring in</h3>
         <button type="button" class="more-list-item md-row" id="data-statements-btn">
-          <span><span class="md-title">🏦 <span data-i18n="md.bank">Bank statements</span></span><span class="hint md-sub" data-i18n="md.bankSub">Read your bank's PDFs or files and find what is missing.</span></span>
+          <span class="row-icon" data-icon="file" aria-hidden="true"></span><span><span class="md-title"><span data-i18n="md.bank">Bank statements</span></span><span class="hint md-sub" data-i18n="md.bankSub">Read your bank's PDFs or files and find what is missing.</span></span>
           <span class="more-list-chevron">›</span>
         </button>
         <button type="button" class="more-list-item md-row" id="data-import-btn">
-          <span><span class="md-title">📥 <span data-i18n="md.import">Import from another app</span></span><span class="hint md-sub" data-i18n="md.importSub">Bring in a CSV or Excel export from another app.</span></span>
+          <span class="row-icon" data-icon="download" aria-hidden="true"></span><span><span class="md-title"><span data-i18n="md.import">Import from another app</span></span><span class="hint md-sub" data-i18n="md.importSub">Bring in a CSV or Excel export from another app.</span></span>
           <span class="more-list-chevron">›</span>
         </button>
         <h3 class="md-head" data-i18n="md.tidyHead">Then tidy</h3>
         <button type="button" class="more-list-item md-row" id="data-tidy-btn">
-          <span><span class="md-title">🧹 <span data-i18n="md.tidy">Tidy my history</span></span><span class="hint md-sub" data-i18n="md.tidySub">Give the entries that came in without a category their category.</span></span>
+          <span class="row-icon" data-icon="tag" aria-hidden="true"></span><span><span class="md-title"><span data-i18n="md.tidy">Tidy my history</span></span><span class="hint md-sub" data-i18n="md.tidySub">Give the entries that came in without a category their category.</span></span>
           <span class="more-list-chevron">›</span>
         </button>
         <button type="button" class="more-list-item md-row" id="more-deleted-btn" hidden>
-          <span><span class="md-title">🗑️ <span data-i18n="md.deleted">Recently deleted</span></span><span class="hint md-sub" data-i18n="md.deletedSub">Entries you deleted several at a time wait here for 30 days.</span></span>
+          <span class="row-icon" data-icon="trash" aria-hidden="true"></span><span><span class="md-title"><span data-i18n="md.deleted">Recently deleted</span></span><span class="hint md-sub" data-i18n="md.deletedSub">Entries you deleted several at a time wait here for 30 days.</span></span>
           <span class="more-list-chevron">›</span>
         </button>
         <h3 class="md-head" data-i18n="md.takeOut">Take out</h3>
         <button type="button" class="more-list-item md-row" id="data-export-btn">
-          <span><span class="md-title">📤 <span data-i18n="md.export">Export my data</span></span><span class="hint md-sub" data-i18n="md.exportSub">Get your entries as files, or a backup copy.</span></span>
+          <span class="row-icon" data-icon="upload" aria-hidden="true"></span><span><span class="md-title"><span data-i18n="md.export">Export my data</span></span><span class="hint md-sub" data-i18n="md.exportSub">Get your entries as files, or a backup copy.</span></span>
           <span class="more-list-chevron">›</span>
         </button>
       </div>
