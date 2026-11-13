@@ -4081,3 +4081,14 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .more-details-toggle[hidden] { display: none; }
 .more-details-title { font-weight: 600; }
 .more-details-sum { font-size: 0.8125rem; color: var(--muted); }
+
+/* Needs review short rows (owner, 2026-11-12). */
+.review-quick { display: none; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; }
+.review-collapsed .review-quick { display: flex; }
+.review-collapsed .review-item-fields, .review-collapsed .review-item-actions, .review-collapsed .review-item-secondary-actions, .review-collapsed .review-more-actions { display: none; }
+.review-collapsed .review-item-top { cursor: pointer; }
+.review-quick-cat { font-size: 0.875rem; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-quick-confirm { flex: none; min-height: 44px; padding: 0 16px; border: none; border-radius: var(--r-pill); background: var(--accent); color: var(--white); font: inherit; font-weight: 600; cursor: pointer; }
+.review-more-closed .review-item-secondary-actions { display: none; }
+.review-item .review-more-actions { display: block; margin-top: 8px; }
+.review-item.review-collapsed .review-more-actions { display: none; }

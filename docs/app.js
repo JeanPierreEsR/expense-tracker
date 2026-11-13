@@ -7060,6 +7060,7 @@ document.getElementById("review-discard-selected-btn").addEventListener("click",
   });
 });
 
+let reviewExpanded_ = new Set(), reviewMoreOpen_ = new Set();   // Needs review items the person opened / whose extra actions are showing
 async function refreshReviewQueue(prefetchedPending, skipFlush) {
   if (!skipFlush) await flushQueuedReviewActions_();
   const queuedIds = new Set(getQueuedReviewActions_().map((a) => a.id));
@@ -7088,7 +7089,11 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   entries.forEach((entry) => {
     if (reviewEditing_) { list.appendChild(compactReviewRow_(entry)); return; }   // Edit mode: a tick row instead of the whole card
     const item = document.createElement("div");
-    item.className = "review-item";
+    // Short rows (owner, 2026-11-12): an item starts closed (its top, warnings, category and a ✓ that confirms it as it is);
+    // a tap opens the full form; the extra actions sit behind "More actions" (open by themselves when the app suspects one).
+    const open = reviewExpanded_.has(entry.id) || Spotlight.isRunning();   // a list redrawn during a walkthrough keeps its items open
+    const moreOpen = reviewMoreOpen_.has(entry.id) || !!entry.loan_hint;
+    item.className = "review-item" + (open ? "" : " review-collapsed") + (moreOpen ? "" : " review-more-closed");
     item.dataset.entryId = entry.id;
 
     const categoryOptions = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === entry.type), entry.category_id))
@@ -7110,6 +7115,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       ${entry.waiting_match ? `<div class="review-charge-match"><div>${escapeHtml(tr("income.matchAsk", { name: entry.waiting_match.friend_name, amount: formatAmount(entry.waiting_match.remaining, entry.waiting_match.currency) }))}</div><button type="button" class="stmt-choice review-waiting-btn">${escapeHtml(tr("income.matchYes"))}</button></div>` : ""}
       ${/^(Overpayment (from|to) |Pago de más (de|a) )/.test(entry.description || "") ? `<p class="hint review-overpay-note">${escapeHtml(tr("review.overpayNote"))}</p>` : ""}
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
+      <div class="review-quick">
+        <span class="review-quick-cat">${escapeHtml(entry.type === "investment" ? (TYPE_LABELS.investment || "") : (entry.category_id ? categoryName(entry.category_id) : tr("review.pickCategory")))}</span>
+        <button type="button" class="review-quick-confirm">${tr("review.confirm")}</button>
+      </div>
       <div class="review-item-fields">
         ${entry.type === "investment" ? "" : `<div class="review-field review-field-wide">
           <label class="review-field-label">${escapeHtml(tr("field.category"))}</label>
@@ -7146,6 +7155,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
       </div>
       ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" || entry.type === "investment" ? `
+      <button type="button" class="add-inline review-more-actions" aria-expanded="${moreOpen}">${tr("review.moreActions")}</button>
       <div class="review-item-secondary-actions">
         <button type="button" class="add-inline review-type-btn">${tr("review.changeType")}</button>
         ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
@@ -7164,6 +7174,23 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
 
     const confirmBtn = item.querySelector(".review-confirm-btn");
     const discardBtn = item.querySelector(".review-discard-btn");
+    item.querySelector(".review-item-top").addEventListener("click", (ev) => {
+      if (ev.target.closest("button, a, select, input")) return;
+      const nowOpen = item.classList.toggle("review-collapsed") === false;
+      if (nowOpen) reviewExpanded_.add(entry.id); else reviewExpanded_.delete(entry.id);
+    });
+    item.querySelector(".review-quick-confirm").addEventListener("click", () => {
+      // One tap: the same Confirm, with what the item already holds. Anything missing opens the item with the message.
+      item.classList.remove("review-collapsed");
+      reviewExpanded_.add(entry.id);
+      confirmBtn.click();
+    });
+    const moreBtn = item.querySelector(".review-more-actions");
+    if (moreBtn) moreBtn.addEventListener("click", () => {
+      const nowOpen = item.classList.toggle("review-more-closed") === false;
+      moreBtn.setAttribute("aria-expanded", String(nowOpen));
+      if (nowOpen) reviewMoreOpen_.add(entry.id); else reviewMoreOpen_.delete(entry.id);
+    });
     const chargeBtn = item.querySelector(".review-charge-btn");
     if (chargeBtn) chargeBtn.addEventListener("click", () => {
       item.remove();
@@ -23948,11 +23975,16 @@ function startReviewReal_() {
   const hadCategory = !!category();
   let started = false;
   const steps = [{ key: "intro", look: true, target: row, text: () => tr("rt.review.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("review", "real"); } }];
+  // The item is a short row: the person opens it (owner, 2026-11-12: a step to tap, not opened for them).
+  steps.push({ key: "openItem", target: part(".review-item-top"), text: () => tr("rt.review.openItem"), until: () => { const r = row(); return !!r && !r.classList.contains("review-collapsed"); },
+    before: async () => { const r = row(); return !!r && r.classList.contains("review-collapsed"); } });
   steps.push(...reviewSpecialSteps_(entry, id));
   if (type !== "investment" && !hadCategory) steps.push({ key: "category", field: "category", target: () => fieldOf(".review-category"), text: (fix) => tr(fix ? "rt.review.catFix" : "rt.review.catPick"), until: () => !!category(), ok: () => !!category(), holdsUntil: "decide" });
   // Always shown: an item that came in wrong is fixed here, never thrown away (owner's walk, 2026-11-09).
   steps.push({ field: "amount", target: part(".review-item-fields"), text: () => tr("rt.review.check"), button: next, after: () => { noteField_("description"); if (type !== "investment") noteField_("category"); } });
   steps.push(...reviewTypeSteps_(id, type, { must: true }));
+  steps.push({ key: "moreActions", target: part(".review-more-actions"), text: () => tr("rt.review.moreActions"), until: () => { const r = row(); return !!r && !r.classList.contains("review-more-closed"); },
+    before: async () => { const r = row(); return !!r && r.classList.contains("review-more-closed") && !!part(".review-more-actions")(); } });
   steps.push({ key: "decide", target: () => { const els = [part(".review-item-actions")(), part(".review-item-secondary-actions")()].filter(Boolean); return els.length ? els : null; }, text: () => tr(reviewSpecialKind_(entry) === "extra" ? "rt.review.decideExtra" : "rt.review.decide"), until: () => !row(), wait: 10000,
     before: async () => { if (!row()) return false; reviewDecideOn_ = true; }, after: () => { reviewDecideOn_ = false; } });
   steps.push(...realWhereSteps_(() => realEntryRow_(id), () => tr("rt.review.where"), { otherwise: () => tr("rt.review.done"), before: async () => { if (reviewConfirmedId_ !== id) return false; return realOnHome_(); }, poke: () => { refreshEntryList().catch(() => {}); } }));
