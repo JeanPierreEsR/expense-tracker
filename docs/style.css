@@ -628,6 +628,14 @@ input, select, textarea {
   appearance: none;
 }
 
+/* The focused box (owner, 2026-11-13): the phone's own focus ring is drawn OUTSIDE the box, so a scrolling form cut it off at its
+   edges and the box looked as if it ran off the screen. One look everywhere instead, drawn inside the border: never clipped. */
+input:not([type="checkbox"]):not([type="radio"]):focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 input[type="date"] {
   /* iOS Safari renders its own control chrome behind the box unless the
      native appearance is fully stripped, which looks like a doubled
@@ -3973,7 +3981,7 @@ body.fab-room:has(#app-undo-toast:not([hidden])) #app-toast { bottom: calc(216px
 .payor-merge-result { margin: 6px 0 0; }
 #loan-detail-list.is-updating { opacity: 0.45; }   /* an installment or early payment is being saved: the old lines stay, dimmed (1.76.1) */
 /* A field that must be filled before its button works (showFieldError_, owner 2026-11-11) */
-.field-invalid { border-color: var(--danger) !important; box-shadow: 0 0 0 1px var(--danger); }
+.field-invalid { border-color: var(--danger) !important; box-shadow: inset 0 0 0 1px var(--danger) !important; }
 .field-error-msg { color: var(--danger); font-size: 0.875rem; margin: 4px 0 0; }
 
 /* A tracked account moving in a currency with no starting balance of its own (owner, 2026-11-11). */
