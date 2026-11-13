@@ -122,7 +122,7 @@ test("every conversion that deletes and re-creates goes through callConversion_,
   assert.match(app, /const conversionAction = fromRepayment \? "convertRepaymentToLoan"/);
   assert.match(app, /result = popupHiddenEarly \? await callApi\(conversionAction, conversionPayload\) : await callConversion_\(conversionAction, conversionPayload\)/);
   assert.match(app, /if \(popupHiddenEarly && !writesDone\) document\.getElementById\("edit-entry-modal-backdrop"\)\.hidden = false;/, "a refusal brings the form back");
-  assert.match(app, /async function callConversion_[\s\S]{0,200}alert\(err\.message\)/, "a failure is shown as a message, not only a red line");
+  assert.match(app, /async function callConversion_[\s\S]{0,200}showAppMessage_\(err\.message\)/, "a failure is shown as a message, not only a red line");
 });
 
 // ---- A repayment with an EXTRA entry (the part beyond the debt): it is ONE total, so it all goes together ----

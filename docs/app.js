@@ -3267,7 +3267,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     refreshHomeGlance_(true);   // foreign amounts are worth something else in the main currency now
     refreshEntryList().catch(() => {});
   } catch (err) {
-    alert(tr("common.notSaved", { error: err.message }));
+    showAppMessage_(tr("common.notSaved", { error: err.message }));
     resolve(null);
   }
 });
@@ -3337,7 +3337,7 @@ async function reopenRefusedConfirm_(id, action, reason) {
   refreshReviewQueue(undefined, true).catch(() => {});
   const base = lastConfirmPendingEntry_ && lastConfirmPendingEntry_.id === id ? lastConfirmPendingEntry_ : null;
   const busy = newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId;
-  if (!base || busy) { alert(reason); return; }
+  if (!base || busy) { showAppMessage_(reason); return; }
   await openConfirmPendingPopup(Object.assign({}, base, action.fields, { splits: action.splits || [], tagIds: action.tagIds || [] }));
   document.getElementById("form-error").textContent = reason;
 }
@@ -4051,9 +4051,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       afterNewEntrySaved_();
     }
     if (splitSaveFailed) {
-      alert(tr("entry.splitSaveFailed"));
+      showAppMessage_(tr("entry.splitSaveFailed"));
     } else if (billSaveFailed) {
-      alert(tr("entry.billSaveFailed"));
+      showAppMessage_(tr("entry.billSaveFailed"));
     }
   } catch (err) {
     if (popupHiddenEarly && !writesDone) document.getElementById("edit-entry-modal-backdrop").hidden = false;
@@ -4547,7 +4547,7 @@ document.getElementById("xpair-delete-btn").addEventListener("click", async () =
     await callApi("discardEntry", { id: p.out.id });
     await callApi("discardEntry", { id: p.in.id });
   } catch (err) {
-    alert(tr("common.notSaved", { error: err.message }));
+    showAppMessage_(tr("common.notSaved", { error: err.message }));
   }
   await refreshEntryList().catch(() => {});
   [p.out.id, p.in.id].forEach((id) => deletingEntryIds_.delete(id));
@@ -4908,7 +4908,7 @@ function openEntriesCategorySheet_() {
   const known = entriesKnownMap_();
   const picked = [...entriesSelected_].map((id) => known.get(id)).filter(Boolean);
   const byType = { expense: picked.filter((e) => e.type === "expense"), income: picked.filter((e) => e.type === "income") };
-  if (!byType.expense.length && !byType.income.length) { alert(tr("entriesBulk.catNothingEligible")); return; }
+  if (!byType.expense.length && !byType.income.length) { showAppMessage_(tr("entriesBulk.catNothingEligible")); return; }
   const leftOut = entriesSelected_.size - byType.expense.length - byType.income.length;
   const types = ["expense", "income"].filter((t) => byType[t].length);
   const backdrop = document.getElementById("entries-bulk-backdrop");
@@ -4949,7 +4949,7 @@ function openEntriesCategorySheet_() {
       afterNewEntrySaved_();
       if (!result) return;
       const left = result.kept.filter((k) => k.reason !== "same");
-      if (left.length) alert(tr("entriesBulk.resultKeptChange", { items: entriesBulkKeptText_(left, (id) => { const e = known.get(id); return e ? entriesBulkLabel_(e) : id; }) }));
+      if (left.length) showAppMessage_(tr("entriesBulk.resultKeptChange", { items: entriesBulkKeptText_(left, (id) => { const e = known.get(id); return e ? entriesBulkLabel_(e) : id; }) }));
       if (!result.changed.length) return;
       showUndoToast_(tr("entriesBulk.catDone", { n: result.changed.length, category: targetNames }), async () => {
         await callApi("undoSetEntriesCategory", entriesListThen_({ changes: result.changed, annualIds: result.annualIds }));
@@ -4992,8 +4992,8 @@ document.getElementById("entries-change-selected-btn").addEventListener("click",
 
 function openEntriesTripSheet_() {
   const expenses = entriesChecked_().filter((e) => e.type === "expense");   // only expenses belong to a trip or event (as in the entry form)
-  if (!expenses.length) { alert(tr("entriesBulk.tripNothingEligible")); return; }
-  if (!(meta.trips || []).length) { alert(tr("entriesBulk.tripNoTrips")); return; }
+  if (!expenses.length) { showAppMessage_(tr("entriesBulk.tripNothingEligible")); return; }
+  if (!(meta.trips || []).length) { showAppMessage_(tr("entriesBulk.tripNoTrips")); return; }
   const leftOut = entriesSelected_.size - expenses.length;
   const inOther = expenses.filter((e) => e.trip_id && e.trip_id !== "-none-").length;
   const today = todayLocalISO();
@@ -5040,7 +5040,7 @@ function openEntriesTripSheet_() {
 
 function openEntriesTagSheet_() {
   const tags = (meta.tags || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  if (!tags.length) { alert(tr("entriesBulk.tagNone")); return; }
+  if (!tags.length) { showAppMessage_(tr("entriesBulk.tagNone")); return; }
   const checked = entriesChecked_();
   const body = document.getElementById("entries-bulk-body");
   document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.tagTitle");
@@ -5066,7 +5066,7 @@ function openEntriesTagSheet_() {
     }, async () => {
       await entriesAfterChange_();
       if (!result) return;
-      if (!result.changed.length) { alert(tr("entriesBulk.tagNoChange")); return; }
+      if (!result.changed.length) { showAppMessage_(tr("entriesBulk.tagNoChange")); return; }
       showUndoToast_(tr(mode === "add" ? "entriesBulk.tagDoneAdd" : "entriesBulk.tagDoneRemove", { n: result.changed.length, tag: tagName }), async () => {
         await callApi("undoSetEntriesTag", entriesListThen_({ ids: result.changed, tag_id: tagId, mode }));
         showToast_(tr("entriesBulk.catUndone"));
@@ -5167,7 +5167,7 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
       refreshExpectedRecurring().catch(() => {});
       afterNewEntrySaved_();
       refreshLoans().catch(() => {});
-      if (result && result.kept.length) alert(tr("entriesBulk.resultKept", { items: entriesBulkKeptText_(result.kept, infoOf) }));
+      if (result && result.kept.length) showAppMessage_(tr("entriesBulk.resultKept", { items: entriesBulkKeptText_(result.kept, infoOf) }));
       // A safety copy was kept (stage 3): the toast offers Undo for 10 seconds, and the entries wait in More → Recently deleted for 30 days.
       if (result && result.batch_id && result.deleted.length) {
         practiceDNote_("deleted", result.deleted);
@@ -5844,7 +5844,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed, s
       confirmText = tr(f.direction === "they_owe_me" ? "delete.forgivenessTheyOweMe" : "delete.forgivenessIOweThem", { friend: f.friend });
     }
     if (links.loan) {
-      alert(tr("delete.isLoan"));
+      showAppMessage_(tr("delete.isLoan"));
       return false;
     }
     if (links.refunds && links.refunds.length) {
@@ -5884,7 +5884,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed, s
   await callApi("discardEntry", { id, repayments: repaymentsChoice });
   if (partner) {
     try { await callApi("discardEntry", { id: partner.id }); }
-    catch (err) { alert(tr("delete.exchangeBothFailed", { error: err.message })); }
+    catch (err) { showAppMessage_(tr("delete.exchangeBothFailed", { error: err.message })); }
   }
   refreshLoans().catch(() => {});
   refreshHomeGlance_(true);   // the totals at the top of Home no longer include it
@@ -5918,7 +5918,7 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
     deletingEntryIds_.delete(id);
     renderEntryListFromCache_();
     await refreshAfterPopupEdit();
-    alert(err.message);
+    showAppMessage_(err.message);
     return;
   } finally {
     delBtnBack();
@@ -6234,7 +6234,7 @@ function markQueuedEditStatus_(id, status, error, waitingNet) {
 function blockedWhileSavingEdit_(id) {
   const q = findQueuedEdit_(id);
   if (q && q.status === "saving" && !q.waitingNet) {
-    alert(tr("entry.stillSaving"));
+    showAppMessage_(tr("entry.stillSaving"));
     return true;
   }
   return false;
@@ -6462,7 +6462,7 @@ async function flushEntryEdit_(id) {
           if (linkFailed) showToast_(tr("paid.linkFailed"));
           else if (created && created.guessed_category_name) showToast_(tr("entry.savedGuessed", { category: created.guessed_category_name }));
           else if (created && edit.fields.type === "expense" && !created.category_id) showToast_(tr("entry.savedNoCategory"));
-          else showToast_(tr("entry.savedToast"));
+          else showSavedWithUndo_(edit);
         }
         break;
       }
@@ -6778,7 +6778,7 @@ document.getElementById("save-failed-banner").addEventListener("click", async ()
       return;
     }
   } else {
-    alert(tr("entry.notInListFailed", { what, error: f.lastError || "" }));
+    showAppMessage_(tr("entry.notInListFailed", { what, error: f.lastError || "" }));
   }
   if (await askConfirmApp_(tr("money.failedDiscard", { what }), tr("confirmBtn.discard"))) {
     unqueueEntryEdit_(f.id);
@@ -6998,7 +6998,7 @@ document.getElementById("review-confirm-selected-btn").addEventListener("click",
   const ready = chosen.filter((e) => !reviewIssue_(e));
   const notReady = chosen.filter((e) => reviewIssue_(e));
   const notReadyText = notReady.map((e) => reviewIssueText_(e, reviewIssue_(e))).join(", ");
-  if (!ready.length) { alert(tr("reviewBulk.noneReady", { items: notReadyText })); return; }
+  if (!ready.length) { showAppMessage_(tr("reviewBulk.noneReady", { items: notReadyText })); return; }
   const left = notReady.length ? tr("reviewBulk.leftNote", { items: notReadyText }) : "";
   if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }), tr("confirmBtn.yes"), { plain: true })) return;
   const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (e.trip_id || e.suggested_trip_id || "") : undefined }));
@@ -7019,7 +7019,7 @@ document.getElementById("review-confirm-selected-btn").addEventListener("click",
     refreshHomeGlance_(true);
     await refreshReviewQueue(undefined, true).catch(() => {});
     if (!result || !result.kept.length) return;
-    alert(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
+    showAppMessage_(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
   }, {
     busy: "reviewBulk.confirming",
     done: () => result && result.confirmed.length && !result.kept.length ? tr("reviewBulk.doneConfirmed", { n: result.confirmed.length, names: reviewNames_(result.confirmed.map((id) => byId.get(id)).filter(Boolean)) }) : "",
@@ -7031,7 +7031,7 @@ document.getElementById("review-discard-selected-btn").addEventListener("click",
   if (!chosen.length) return;
   const parts = chosen.filter(reviewIsRepaymentPart_);
   const ready = chosen.filter((e) => !reviewIsRepaymentPart_(e));
-  if (!ready.length) { alert(tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }).trim()); return; }
+  if (!ready.length) { showAppMessage_(tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }).trim()); return; }
   const note = parts.length ? tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }) : "";
   const safe = !!(meta && meta.capabilities && meta.capabilities.entriesRestore);   // a backend with the safety copy: Discard can be undone
   if (!await askConfirmApp_(tr(safe ? "reviewBulk.discardAskSafe" : "reviewBulk.discardAsk", { n: ready.length, list: reviewListText_(ready), note }), tr("confirmBtn.discard"))) return;
@@ -7051,7 +7051,7 @@ document.getElementById("review-discard-selected-btn").addEventListener("click",
       showUndoToast_(tr("reviewBulk.doneUndo", { n: result.discarded.length, names: reviewNames_(result.discarded.map((id) => byId.get(id)).filter(Boolean)) }), () => restoreDeletedBatch_({ batch_id: result.batch_id, ids: result.discarded }), "review");
     }
     if (!result || !result.kept.length) return;
-    alert(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
+    showAppMessage_(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
   }, {
     busy: "reviewBulk.discarding",
     done: () => result && result.discarded.length && !result.kept.length && !result.batch_id ? tr("reviewBulk.doneDiscarded", { n: result.discarded.length, names: reviewNames_(result.discarded.map((id) => byId.get(id)).filter(Boolean)) }) : "",
@@ -7190,7 +7190,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         return;
       }
       if (!amountStr || isNaN(amount) || amount <= 0) {
-        alert(tr("error.validAmount"));
+        showAppMessage_(tr("error.validAmount"));
         return;
       }
 
@@ -7204,11 +7204,11 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const fromVal = item.querySelector(".review-from").value, toVal = item.querySelector(".review-to").value;
         // Each side is an account or, said on purpose, "Outside my accounts": a box left on "Pick the account…" used to be saved
         // quietly as someone else's account (1.76.1).
-        if (!fromVal || !toVal) { alert(tr("review.pickBothSides")); return; }
+        if (!fromVal || !toVal) { showAppMessage_(tr("review.pickBothSides")); return; }
         const fromId = fromVal === REVIEW_OUTSIDE_ ? "" : fromVal, toId = toVal === REVIEW_OUTSIDE_ ? "" : toVal;
-        if (!fromId && !toId) { alert(tr("error.pickAccount")); return; }
+        if (!fromId && !toId) { showAppMessage_(tr("error.pickAccount")); return; }
         if (fromId && toId && fromId === toId) {
-          alert(tr("error.sameAccount"));
+          showAppMessage_(tr("error.sameAccount"));
           return;
         }
         fields.payment_method_id = fromId;
@@ -7217,7 +7217,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (entry.type === "investment") {
         const platformId = item.querySelector(".review-platform").value;
         if (!platformId) {
-          alert(tr("review.pickPlatformFirst"));
+          showAppMessage_(tr("review.pickPlatformFirst"));
           return;
         }
         fields.to_payment_method_id = platformId;
@@ -7260,7 +7260,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         if (partOf.friend_id && transferId && await askConfirmApp_(tr("delete.openRepaymentAsk", { friend: partOf.friend }), tr("confirmBtn.yes"), { plain: true })) {
           await openRepaymentEditorForEntry_(partOf.friend_id, partOf.friend, transferId);
         } else if (!partOf.friend_id || !transferId) {
-          alert(tr("review.partOfRepayment"));
+          showAppMessage_(tr("review.partOfRepayment"));
         }
         return;
       }
@@ -7305,7 +7305,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           fresh = await callApi("getEntry", { id: entry.id });
         } catch (err) { /* offline / slow: fall back to what the row has */ }
         if (!fresh || fresh.status !== "pending") {
-          alert(tr("review.alreadyHandled"));
+          showAppMessage_(tr("review.alreadyHandled"));
           refreshReviewQueue().catch(() => {});
           return null;
         }
@@ -8239,6 +8239,7 @@ function holdScroll_(name, whereY) {
   TOUCHES.forEach((t) => window.addEventListener(t, endTabScrollHold_, { capture: true, passive: true }));
 }
 function showScreen(name) {
+  teachVisit_++;   // the daily teaching budget allows one unasked thing per screen visit
   rememberTabScroll_(name);
   if (name !== "budgets" && budgetsEditing_) setBudgetsEditing_(false, false);
   if (name !== "accounts" && accountsEditing_) setAccountsEditing_(false);
@@ -8346,7 +8347,14 @@ function setLoadFailed_(name, err) {
     const selector = document.getElementById("period-selector-card");
     if (selector.parentElement === screen) selector.after(note); else screen.prepend(note);
   }
-  note.textContent = tr("business.loadFailed", { error: err.message || String(err) });
+  // One error block for every screen (design review 2026-11-12): a sentence at full size and a "Try again" button where the
+  // content would be (it was a small grey line with nothing to tap).
+  note.innerHTML = `<span class="state-error-icon" aria-hidden="true">⚠️</span><p class="state-error-text"></p><button type="button" class="secondary-btn state-error-retry"></button>`;
+  note.setAttribute("role", "alert");
+  note.querySelector(".state-error-text").textContent = tr("business.loadFailed", { error: err.message || String(err) });
+  const retry = note.querySelector(".state-error-retry");
+  retry.textContent = tr("common.tryAgain");
+  retry.onclick = () => { retry.disabled = true; retry.textContent = tr("common.loading"); showScreen(name); };
 }
 // The connection is back: the open screen tries again by itself.
 window.addEventListener("online", () => {
@@ -10884,7 +10892,7 @@ async function removeBudget_(b, full, name) {
   closeBudgetModal();
   closeDrilldown();
   try { await callApi(end ? "endBudget" : "deleteBudget", { id }); }
-  catch (err) { unmarkDeleting_("budget:" + id); alert(tr("budget.deleteFailed", { error: err.message })); }
+  catch (err) { unmarkDeleting_("budget:" + id); showAppMessage_(tr("budget.deleteFailed", { error: err.message })); }
   refreshBudgetsInBackground_();
 }
 document.getElementById("budget-delete-btn").addEventListener("click", () => removeBudgetFromForm_(false));
@@ -11204,7 +11212,7 @@ function offerBulkUndo_(deletedNames, hiddenNames, undo, kind) {
 }
 // A server answer to a restore that could not bring some back (their name is in use again).
 function alertNotRestored_(skipped) {
-  if (skipped && skipped.length) alert(tr("bulkUndo.skipped", { names: skipped.join(", ") }));
+  if (skipped && skipped.length) showAppMessage_(tr("bulkUndo.skipped", { names: skipped.join(", ") }));
 }
 // "Undone" only when everything came back; a partial restore says so.
 const undoneText_ = (skipped) => tr(skipped && skipped.length ? "bulkUndo.partial" : "tidy.undone");
@@ -11276,7 +11284,7 @@ document.getElementById("budgets-delete-selected-btn").addEventListener("click",
   }, async () => {
     try { await refreshBudgets(); }
     catch (err) { document.getElementById("budgets-list").innerHTML = `<div class="status-msg">${escapeHtml(tr("budget.refreshFailed", { error: err.message }))}</div>`; }
-    if (result && result.missing.length) alert(tr("budgets.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
+    if (result && result.missing.length) showAppMessage_(tr("budgets.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
   }, {
     busy: "common.deletingToast", release: delKeys,
     done: () => {
@@ -14536,6 +14544,27 @@ function dismissUndoToast_() {
     if (swallowClick) { swallowClick = false; e.stopImmediatePropagation(); e.preventDefault(); }
   }, true);
 })();
+// "Saved: −PEN 23.50 · Restaurants [Undo]" (design review 2026-11-12: the toast said only "Entry saved" and the new row
+// could be screens away). Undo = delete it, offered only for a plain expense or income (no split, friend, link or repeat),
+// where deleting touches nothing else.
+function showSavedWithUndo_(edit) {
+  const f = edit.fields || {};
+  const plain = (f.type === "expense" || f.type === "income") && (!f.paid_by || f.paid_by === "me") && !(edit.splits && edit.splits.length)
+    && !edit.linkRecurringId && !edit.repeat && !edit.bill;
+  const sign = f.type === "income" ? "+" : "−";
+  const what = [formatAmount(Number(f.amount) || 0, f.currency || homeCur(), sign), f.category_id ? categoryName(f.category_id) : (f.description || "")].filter(Boolean).join(" · ");
+  const text = tr("entry.savedWhat", { what });
+  if (!plain) { showToast_(text); return; }
+  showUndoToast_(text, async () => {
+    try {
+      await callApi("discardEntry", { id: edit.id });
+      showToast_(tr("entry.undone"));
+      refreshEntryList().catch(() => {});
+      refreshHomeGlance_(true);
+    } catch (err) { showAppMessage_(err.message); }
+  }, "entry-save");
+}
+
 function showUndoToast_(text, onUndo, kind) {
   appUndoStack_.unshift({ text, action: onUndo, kind: kind || "", at: Date.now() });
   if (appUndoStack_.length > UNDO_STACK_MAX_) appUndoStack_.length = UNDO_STACK_MAX_;
@@ -14550,7 +14579,7 @@ document.getElementById("app-undo-btn").addEventListener("click", async () => {
   document.getElementById("app-undo-toast").hidden = true;
   clearTimeout(appUndoTimer_);
   if (!entry) return;
-  try { await entry.action(); } catch (err) { alert(err.message || String(err)); }
+  try { await entry.action(); } catch (err) { showAppMessage_(err.message || String(err)); }
   appUndoStack_ = appUndoStack_.filter((e) => Date.now() - e.at < UNDO_STACK_FRESH_MS_);
   paintUndoToast_();   // the one before it, if any
 });
@@ -14578,7 +14607,7 @@ async function restoreDeletedBatch_(payload) {
   const out = await callApi("restoreDeletedEntries", payload);
   practiceDNote_("restored", out.restored);
   showToast_(out.restored.length ? tr("deleted.restored", { n: out.restored.length }) : tr("deleted.restoredNone"), false, 6000);   // (everything was already back)
-  if (out.lostDebt && out.lostDebt.length) alert(tr("deleted.lostDebt", { n: out.lostDebt.length }));
+  if (out.lostDebt && out.lostDebt.length) showAppMessage_(tr("deleted.lostDebt", { n: out.lostDebt.length }));
   try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
   if (searchActive) await refreshSearchAfterEdit_();
   afterNewEntrySaved_();
@@ -14735,7 +14764,7 @@ function practiceDSteps_() {
     { target: restoreBtn, text: () => tr("spot.d.s12"), until: () => !!(practiceD_ && (practiceD_.restored || practiceD_.restoreTapped)), wait: 20000, poke: pokeDeleted,
       before: async () => {
         for (let i = 0; i < 100 && !(practiceD_ && practiceD_.deleted); i++) await sleep(400);   // up to 40 s for the server (usually long done)
-        if (!(practiceD_ && practiceD_.deleted)) { alert(tr("spot.d.deleteFailed")); Spotlight.stop("skipped"); return false; }
+        if (!(practiceD_ && practiceD_.deleted)) { showAppMessage_(tr("spot.d.deleteFailed")); Spotlight.stop("skipped"); return false; }
         if (!batch()) pokeDeleted();   // the screen opened before the delete landed
         return true;
       } },
@@ -14756,7 +14785,7 @@ async function practiceDMake_() {
     await refreshEntryList();
     return true;
   } catch (err) {
-    alert(tr("spot.d.createFailed", { error: err.message || String(err) }));
+    showAppMessage_(tr("spot.d.createFailed", { error: err.message || String(err) }));
     Spotlight.stop("skipped");
     return false;
   }
@@ -14991,7 +15020,7 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
   } catch (err) {
     noAcctLastSave_ = saved || { ok: false, count: 0 };
     if (!saved) realNoteFailed_();
-    alert(err.message || String(err));
+    showAppMessage_(err.message || String(err));
     updateNoAccountSave_();
   }
 });
@@ -15019,7 +15048,7 @@ async function applyTidy_(items, buttons) {
     }
     await loadTidy_();
   } catch (err) {
-    alert(err.message || String(err));
+    showAppMessage_(err.message || String(err));
   } finally {
     buttons.forEach((b) => { b.disabled = false; });
   }
@@ -15119,7 +15148,7 @@ function startTidyReal_(startKey) {
   ];
   guided_ = { savedId: "", split: null };
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
-    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("tidy"); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); setTimeout(watchNoAcctIdle_, 1500); } });
+    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("tidy"); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); setTimeout(watchNoAcctIdle_, 1500); } });
 }
 
 // ---- Real tutorial: Entries with no account, on Tidy my history (owner, 2026-11-12) ----
@@ -15179,7 +15208,7 @@ function startNoAcctReal_(startMonth) {
   ];
   guided_ = { savedId: "", split: null };
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
-    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("noacct"); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
+    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("noacct"); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); } });
 }
 
 // ---- First-use practice: Tidy my history (owner's design, 2026-11-03; REMOVED 2026-11-12, the real tutorial teaches it) ----
@@ -15485,7 +15514,7 @@ function beWhySave_(kind, reason, note) {
   }).catch((err) => {
     data.reasons = before;
     renderBeTx_(data);
-    alert(tr("common.notSaved", { error: err.message || String(err) }));
+    showAppMessage_(tr("common.notSaved", { error: err.message || String(err) }));
   });
 }
 beEl_("be-groups").addEventListener("click", (ev) => {
@@ -15505,7 +15534,7 @@ beEl_("be-groups").addEventListener("click", (ev) => {
   if (save) {
     const kind = save.dataset.whySave;
     const note = save.closest(".be-why-other").querySelector("textarea").value.trim();
-    if (!note) { alert(tr("be.why.needNote")); return; }
+    if (!note) { showAppMessage_(tr("be.why.needNote")); return; }
     beWhySave_(kind, "other", note);
   }
 });
@@ -16313,7 +16342,7 @@ document.getElementById("pm-delete-btn").addEventListener("click", async () => {
     renderAccountsList_();
   } catch (err) {
     unmarkDeleting_("pm:" + pm.id);
-    alert(err.message);   // in use: the message says so and points to Hide
+    showAppMessage_(err.message);   // in use: the message says so and points to Hide
   }
 });
 
@@ -16401,7 +16430,7 @@ document.getElementById("accounts-delete-selected-btn").addEventListener("click"
       if (by("rail").length) lines.push(tr("accounts.resultRail", { names: by("rail").join(", ") }));
       if (by("hiddenAlready").length) lines.push(tr("accounts.resultHiddenAlready", { names: by("hiddenAlready").join(", ") }));
       if (other.length) lines.push(tr("accounts.resultKept", { names: other.join(", ") }));
-      alert(lines.join("\n\n"));
+      showAppMessage_(lines.join("\n\n"));
     }
     if (canUndo) offerBulkUndo_(result.deleted.map((d) => d.name), result.hidden.map((h) => h.name), async () => {
       const back = await callApi("restorePaymentMethods", { show: result.hidden.map((h) => h.id), rows: deletedRows });
@@ -16696,7 +16725,7 @@ function runCategoriesDelete_(chosen, opts) {
     if (keptBy("hiddenAlready").length) lines.push(tr("catBulk.resultHiddenAlready", { names: namesOf(keptBy("hiddenAlready")) }));
     const other = result.kept.filter((k) => (k.reason === "protected" || k.reason === "missing") && k.name);
     if (other.length) lines.push(tr("catBulk.resultKept", { names: namesOf(other) }));
-    alert(lines.join("\n\n"));
+    showAppMessage_(lines.join("\n\n"));
     if (canUndo) offerCategoryUndo_();
   }, {
     busy: "common.deletingToast", release: delKeys,
@@ -17209,7 +17238,7 @@ document.getElementById("trips-delete-selected-btn").addEventListener("click", a
     const lines = [];
     if (result && result.missing.length) lines.push(tr("trips.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
     if (result && (result.groupsKept || []).length) lines.push(tr("trips.resultGroupKept", { n: result.groupsKept.length, names: result.groupsKept.map((g) => g.friend).join(", ") }));
-    if (lines.length) alert(lines.join("\n\n"));
+    if (lines.length) showAppMessage_(lines.join("\n\n"));
   }, {
     busy: "common.deletingToast", release: delKeys,
     done: () => result && result.deleted.length ? tr("trips.resultDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((d) => nameOf.get(d.id))) }) : "",
@@ -17762,7 +17791,7 @@ document.getElementById("trip-delete-btn").addEventListener("click", async () =>
     if (practiceT_ && isPracticeTripName_(trip.name)) { practiceT_.deleted = true; practiceTSave_(); }   // (first-use practice: the real delete is its last step)
   } catch (err) {
     unmarkDeleting_("trip:" + trip.id);
-    alert(err.message);
+    showAppMessage_(err.message);
   }
   await listShown;
   await showTripsScreen();
@@ -18139,7 +18168,7 @@ document.getElementById("business-delete-selected-btn").addEventListener("click"
     if (keptBy("projects").length) lines.push(tr("bizBulk.resultKeptProjects", { names: names(keptBy("projects")) }));
     if (keptBy("entries").length) lines.push(tr("bizBulk.resultKeptEntries", { names: names(keptBy("entries")) }));
     if (result.projects.missing.length || keptBy("missing").length) lines.push(tr("bizBulk.resultMissing", { names: [...result.projects.missing, ...keptBy("missing").map((k) => k.id)].map((id) => nameOf.get(id) || id).join(", ") }));
-    alert(lines.join("\n\n"));
+    showAppMessage_(lines.join("\n\n"));
   }, {
     busy: "common.deletingToast", release: delKeys,
     done: () => {
@@ -18761,7 +18790,7 @@ function addProjectBudgetRow_(currency, amount) {
 }
 
 function openProjectModal_(project, companyId, budgets) {
-  if (!(meta.companies || []).length) { alert(tr("business.needCompany")); return; }
+  if (!(meta.companies || []).length) { showAppMessage_(tr("business.needCompany")); return; }
   editingProjectId_ = project ? project.id : null;
   document.getElementById("project-modal-title").textContent = tr(project ? "business.projectEditTitle" : "business.projectAddTitle");
   document.getElementById("project-form-error").textContent = "";
@@ -18986,7 +19015,7 @@ document.getElementById("people-delete-selected-btn").addEventListener("click", 
     if (keptBy("group").length) lines.push(tr("bizBulk.resultPeopleGroup", { names: keptBy("group").join(", ") }));
     const other = [...keptBy("notPerson"), ...result.kept.filter((k) => k.reason === "missing").map((k) => nameOf.get(k.id) || k.id)];
     if (other.length) lines.push(tr("bizBulk.resultKept", { names: other.join(", ") }));
-    alert(lines.join("\n\n"));
+    showAppMessage_(lines.join("\n\n"));
   }, {
     busy: "common.deletingToast", release: delKeys,
     done: () => result && result.deleted.length && !result.kept.length ? tr("bizBulk.doneDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((d) => d.name)) }) : "",
@@ -19161,7 +19190,7 @@ function deleteFriendsFlow_(chosen) {
       if (deletedNames.length) lines.push(tr("friends.resultDeleted", { n: deletedNames.length, names: deletedNames.join(", ") }));
       if (hidden.length) lines.push(tr("friends.resultHidden", { names: hidden.map((h) => h.name).join(", ") }));
       if (kept.length) lines.push(tr("friends.resultKept", { names: kept.join(", ") }));
-      alert(lines.join("\n\n"));
+      showAppMessage_(lines.join("\n\n"));
     }
     if (canUndo) offerBulkUndo_(deletedNames, hidden.map((h) => h.name), async () => {
       const back = await callApi("restoreFriends", { show: hidden.map((h) => h.id), rows: deletedRows });
@@ -20417,7 +20446,7 @@ function renderRecurringSkips_(re) {
         // Shown as an alert too — the line under the form is below the fold in
         // this tall modal, so a failed undo looked like "it just didn't save".
         document.getElementById("recurring-form-error").textContent = err.message;
-        alert(tr("recModal.undoSkipFailed", { error: err.message }));
+        showAppMessage_(tr("recModal.undoSkipFailed", { error: err.message }));
       }
     });
     list.appendChild(row);
@@ -20749,7 +20778,7 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
         }
       } catch (err) {
         practiceRFailed_ = err.message || String(err);
-        alert(tr("recModal.saveFailed", { error: err.message }));
+        showAppMessage_(tr("recModal.saveFailed", { error: err.message }));
       }
       practiceDone();
       refreshRecurringExpenses();
@@ -20991,7 +21020,7 @@ async function startRecurringBulkDelete_(items) {
       if (stopped.length) lines.push(tr("recBulk.resultStopped", { n: stopped.length, names: stopped.join(", ") }));
       if (rest.length) lines.push(tr("recBulk.resultDeleted", { n: rest.length, names: rest.map(nameOf).join(", ") }));
       if (left.length) lines.push(tr("recBulk.leftAsIs", { names: left.map(nameOf).join(", ") }));
-      if (lines.length) alert(lines.join("\n\n"));
+      if (lines.length) showAppMessage_(lines.join("\n\n"));
     }, { busy: "common.stoppingToast" });
   });
 }
@@ -21342,7 +21371,7 @@ async function skipRecurringThisMonth_(item) {
     await refreshExpectedRecurring();
     refreshRecurringExpenses();
   } catch (err) {
-    alert(tr("expected.skipFailed", { error: err.message }));
+    showAppMessage_(tr("expected.skipFailed", { error: err.message }));
   }
 }
 
@@ -22678,10 +22707,10 @@ function clearHomeSearchForPractice_() {
 function runTip_(steps, afterFinish, note) {
   clearHomeSearchForPractice_();
   return Spotlight.run(steps, {
-    labels: { note: note || "", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
+    labels: { note: note || "", mode: "practice", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
     onFinish: async (how) => {
       markPracticeDeleting_();
-      if (how === "lost") setTimeout(() => alert(tr("spot.lost")), 0);   // the engine stopped it (see spotlight.js go()): say why, then clean up as usual
+      if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.lost")), 0);   // the engine stopped it (see spotlight.js go()): say why, then clean up as usual
       if (how === "done" && tipRunningKey_) markTaught_(tipRunningKey_, "practice");   // only a practice done to the end teaches (Not now, Exit and a lost one do not)
       tipRunningKey_ = "";
       await afterFinish(how);
@@ -22695,7 +22724,31 @@ function runTip_(steps, afterFinish, note) {
 // Practice tips the person asked for them on purpose: no limit for the rest of that day.
 const TIP_DAY_KEY_ = "tipCardsToday";
 const TIP_CARDS_PER_DAY_ = 2;
+// ONE daily budget for everything that appears without being asked for (owner, 2026-11-12, design review): yellow cards,
+// bubbles of every kind, idle offers, nudges. 3 a day per phone (2 on the first day), counted when shown (the same thing
+// again that day is free), at most one per screen visit, 2 minutes apart, and none on a screen visit where a real tutorial
+// ran. Anything the person asked for (Show me, Guide me, Practice tips, How to use the app) is not counted; after More →
+// Practice tips the limit is lifted for the rest of the day. It replaces "2 cards a day" and "1 bubble a day" as the cap.
+const TEACH_DAY_KEY_ = "teachToday", TEACH_PER_DAY_ = 3, TEACH_FIRST_DAY_ = 2, TEACH_GAP_MS_ = 120000;
+let teachVisit_ = 0, teachSpotVisit_ = -1;   // screen visits (showScreen counts them); the visit a tutorial ran on
+function teachAllows_(key) {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(TEACH_DAY_KEY_) || "null"); } catch (e) { d = null; }
+  const today = todayLocalISO();
+  if (!d || d.day !== today) d = { day: today, keys: [], last: 0, visit: -1, open: false };
+  let tipOpen = false;
+  try { const t = JSON.parse(localStorage.getItem(TIP_DAY_KEY_) || "null"); tipOpen = !!(t && t.day === today && t.open); } catch (e) { /* ignore */ }
+  if (d.open || tipOpen || d.keys.includes(key)) return true;
+  const cap = popFirstUse_() === today ? TEACH_FIRST_DAY_ : TEACH_PER_DAY_;
+  if (d.keys.length >= cap || Date.now() - d.last < TEACH_GAP_MS_ || d.visit === teachVisit_ || teachSpotVisit_ === teachVisit_) return false;
+  d.keys.push(key);
+  d.last = Date.now();
+  d.visit = teachVisit_;
+  try { localStorage.setItem(TEACH_DAY_KEY_, JSON.stringify(d)); } catch (e) { /* no storage: no limit */ }
+  return true;
+}
 function tipDayAllows_(key) {
+  if (!teachAllows_("card:" + key)) return false;
   let d = null;
   try { d = JSON.parse(localStorage.getItem(TIP_DAY_KEY_) || "null"); } catch (e) { d = null; }
   const today = todayLocalISO();
@@ -22829,7 +22882,8 @@ function popTipTick_() {
   if (!tip) { popTipStopWatch_(); return; }
   if (popOpen_) return;
   if (!tip.stillWanted()) { popTipStopWatch_(); return; }
-  if (Spotlight.isRunning() || editModeOn_() || !document.getElementById("welcome-overlay").hidden || popTyping_()) return;
+  if (Spotlight.isRunning()) { teachSpotVisit_ = teachVisit_; return; }   // nothing else unasked on the visit a tutorial ran
+  if (editModeOn_() || !document.getElementById("welcome-overlay").hidden || popTyping_()) return;
   if (tip.ready && !tip.ready()) return;
   if (tip.steps) {   // pass over the parts that do not apply here
     while (tip.at < tip.steps.length && tip.steps[tip.at].when && !tip.steps[tip.at].when()) tip.at++;
@@ -22837,7 +22891,7 @@ function popTipTick_() {
   }
   const el = (tip.steps ? tip.steps[tip.at] : tip).target();
   if (!popInView_(el)) return;
-  if (!tip.help && !tip.own && !tip.cont && !popDayAllows_(tip.key)) { popTipStopWatch_(); return; }
+  if (!tip.own && !tip.cont && ((!tip.help && !popDayAllows_(tip.key)) || !teachAllows_("pop:" + tip.key))) { popTipStopWatch_(); return; }
   popTipStopWatch_();
   popTipShow_(tip, el);
 }
@@ -23169,7 +23223,7 @@ function practiceSaveFailed_() {
   const bad = getQueuedEdits_().find((e) => e.id === practice_.entryId && e.status === "failed") ||
     getMoneyQueue_().find((i) => i.status === "failed" && i.action === "recordRepayment" && i.ctx && i.ctx.friendId === practice_.friendId);
   if (!bad) return false;
-  alert(tr("spot.p.saveFailed", { error: bad.lastError || bad.error || "" }));
+  showAppMessage_(tr("spot.p.saveFailed", { error: bad.lastError || bad.error || "" }));
   Spotlight.stop("skipped");
   return true;
 }
@@ -23289,7 +23343,7 @@ function practiceNewFriendNames_(p) {
 }
 function practiceRemovedToast_(key) {
   const kept = practiceFriendsKept_; practiceFriendsKept_ = [];
-  if (kept.length) alert(tr("spot.p.removedFriend", { name: kept.join(", ") }));
+  if (kept.length) showAppMessage_(tr("spot.p.removedFriend", { name: kept.join(", ") }));
   else showToast_(tr(key));
 }
 async function practiceDeleteNewFriends_(p) {
@@ -23325,7 +23379,7 @@ function practiceCleanupFailed_(key, err) {
     return;
   }
   practiceDueSet_(key, false);
-  alert(tr(`spot.${key}.removeFailed`, { error: err.message }));
+  showAppMessage_(tr(`spot.${key}.removeFailed`, { error: err.message }));
 }
 const PRACTICE_RETRY_ = {
   p: () => practiceRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.p.removed"); return ok; }),
@@ -23595,7 +23649,7 @@ function startGuidedEntry_() {
     labels: { exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },   // (no "this is real" line: its first card says so; it was said twice, Wilmer)
     onFinish: async (how) => {
       guidedAnswered_();   // finished or Exit (any step) counts; closing the app midway does not (Sol, Rosa, 2026-11-09)
-      if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0);
+      if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0);
       if (guided_ && guided_.split) { try { localStorage.setItem(GUIDED_SPLIT_KEY_, JSON.stringify(guided_.split)); } catch (e) { /* ignore */ } }
       guided_ = null;   // nothing to remove: what the person saved is theirs
     },
@@ -23725,7 +23779,7 @@ function realSteps_(steps) {
   steps.forEach((s) => { if (s.field) { const after = s.after; s.after = () => { if (after) after(); noteField_(s.field); }; } });
   return steps;
 }
-function realLabels_() { return { note: tr("spot.g.note"), noteOnce: true, exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) }; }
+function realLabels_() { return { note: tr("spot.g.note"), noteOnce: false, mode: "real", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) }; }
 // "A look is not a use": up to 3 chances to accept; `perDay` also keeps a tutorial that opens by itself to once a day.
 function realChanceLeft_(feature, perDay) {
   const c = popGet_(CHANCES_KEY_, {})[feature] || { n: 0, day: "" };
@@ -23842,7 +23896,7 @@ function startReviewReal_() {
     onFinish: async (how) => {
       reviewDecideOn_ = false;
       if (!started) { spendRealChance_("review"); return; }   // Exit on its first screen is a "not now"
-      if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0);
+      if (how === "lost") setTimeout(() => showAppMessage_(tr("rt.review.lost")), 0);
     },
     busy: () => perfInflight_ > 0
   });
@@ -23991,7 +24045,7 @@ function startTransferReal_(kind) {
       before: async () => { if (chosen === "repayment" && lastNothingOwedChoice_ === "entry") return false; friend = el("repayment-friend").value; if (debt()) { showScreen("loans"); return true; } return realOnHome_(); }, poke: () => { (debt() ? refreshLoans() : refreshEntryList()).catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), {
     labels: realLabels_(),
-    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); guided_ = null; },
+    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); guided_ = null; },
     busy: () => perfInflight_ > 0
   });
 }
@@ -24018,7 +24072,7 @@ function offerConvGuide_(feature, textKey, isOpen, target, start) {
 }
 function convRun_(steps) {
   guided_ = { savedId: "", split: null };   // (a window opened during it, such as Add friend, goes above its dimmed screen)
-  Spotlight.run(realSteps_(steps), { labels: realLabels_(), onFinish: async (how) => { guided_ = null; if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0); }, busy: () => perfInflight_ > 0 });
+  Spotlight.run(realSteps_(steps), { labels: realLabels_(), onFinish: async (how) => { guided_ = null; if (how === "lost") setTimeout(() => showAppMessage_(tr("rt.review.lost")), 0); }, busy: () => perfInflight_ > 0 });
 }
 function startConvDebt_(mode) {
   if (Spotlight.isRunning()) return;
@@ -24152,7 +24206,7 @@ function startConvType_(type) {
   steps.push(...realWhereSteps_(() => realEntryRow_(itemId), () => tr({ expense: "rt.conv.expenseDone", income: "rt.conv.incomeDone", investment: "rt.conv.investDone", transfer: "rt.transfer.done" }[type]), { before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), {
     labels: realLabels_(),
-    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0); },
+    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => showAppMessage_(tr("rt.review.lost")), 0); },
     busy: () => perfInflight_ > 0
   });
 }
@@ -24209,7 +24263,7 @@ function startSplitReal_() {
   const itemId = confirmingPendingId;
   steps.push(...realWhereSteps_(() => realEntryRow_((guided_ && guided_.savedId) || itemId), () => tr("rt.split.done"), { unsaved: () => !(guided_ && guided_.savedId) && !newEntrySheetOpen_ && !confirmingPendingId && !itemId, before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
-    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
+    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); } });
 }
 // When the app already suspects it ("Looks like a payment from … again"): one bubble per kind at the highlighted button.
 function watchReviewHint_() {
@@ -24239,14 +24293,38 @@ function idleTick_() {
   const tip = idleTip_;
   if (!tip || !tip.wanted()) { idleStop_(); return; }
   if (document.hidden || idleChooser_ || perfInflight_ > 0 || popTyping_() || !realScreenFree_()) return;
-  if (++idleCount_ < IDLE_SECONDS_) return;
+  if (Date.now() - idleScrollAt_ < 1000) return;   // scrolling pauses the count (owner, 2026-11-12); it does not restart it
+  if (++idleCount_ < idleNeeded_()) return;
   const el = tip.target();
   if (!popInView_(el)) return;
+  if (!teachAllows_("idle:" + tip.key)) { idleStop_(); return; }
   popSet_(IDLE_SEEN_KEY_, popGet_(IDLE_SEEN_KEY_, []).concat(tip.key));
   idleStop_();
   popTipShow_({ key: "idle-" + tip.key, text: tr("rt.idle.offer"), offer: tip.start, offerLabel: tr("spot.showMe") }, el);
 }
-["pointerdown", "keydown", "input", "scroll", "touchstart"].forEach((ev) => document.addEventListener(ev, () => { idleCount_ = 0; if (ev === "pointerdown") idleChooser_ = false; }, { capture: true, passive: true }));
+// Owner's rules (2026-11-12): scrolling pauses the count (aimless scrolling must not postpone the offer forever); scrolling
+// back and forth with no tap (3 changes of direction within 15 s) reads as "looking for something": the offer comes as soon
+// as the scrolling stops; a screen with a lot of text waits longer (7 s plus 1 s per 25 words on screen, up to 20 s).
+let idleScrollAt_ = 0, idleScrollY_ = 0, idleScrollDir_ = 0, idleTurns_ = [];
+function idleNeeded_() {
+  if (idleTurns_.filter((t) => Date.now() - t < 15000).length >= 3) return 1;
+  let words = 0;
+  document.querySelectorAll(".screen:not([hidden]) p, .screen:not([hidden]) li, .currency-modal-backdrop:not([hidden]) p").forEach((el) => {
+    const r = el.getBoundingClientRect();
+    if (r.bottom > 0 && r.top < window.innerHeight && r.height) words += (el.textContent.match(/\S+/g) || []).length;
+  });
+  return Math.min(20, IDLE_SECONDS_ + Math.floor(words / 25));
+}
+// A finger that only scrolls is not a tap: a completed tap (click), a key or typing restarts the count; a touch does not.
+["click", "keydown", "input"].forEach((ev) => document.addEventListener(ev, () => { idleCount_ = 0; idleTurns_ = []; }, { capture: true, passive: true }));
+document.addEventListener("pointerdown", () => { idleChooser_ = false; }, { capture: true, passive: true });
+document.addEventListener("scroll", () => {
+  idleScrollAt_ = Date.now();
+  const y = window.scrollY, dir = Math.sign(y - idleScrollY_);
+  if (dir && idleScrollDir_ && dir !== idleScrollDir_) idleTurns_.push(Date.now());
+  if (dir) idleScrollDir_ = dir;
+  idleScrollY_ = y;
+}, { capture: true, passive: true });
 document.addEventListener("click", (e) => { if (e.target.matches && e.target.matches('input[type="file"]')) idleChooser_ = true; }, true);
 ["change", "cancel"].forEach((ev) => document.addEventListener(ev, (e) => { if (e.target.matches && e.target.matches('input[type="file"]')) idleChooser_ = false; }, true));
 window.addEventListener("focus", () => { idleChooser_ = false; });
@@ -24277,7 +24355,7 @@ function startFormGuide_(feature, used, backdropId, saveId, introKey, build) {
     const steps = [{ key: "intro", text: () => tr(introKey), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_(feature, "real"); } }].concat(build(ctx));
     Spotlight.run(realSteps_(steps), {
       labels: realLabels_(), busy: () => perfInflight_ > 0,
-      onFinish: async (how) => { watchClose.disconnect(); if (saveBtn) saveBtn.removeEventListener("click", onSave, true); guided_ = null; if (!started) spendRealChance_(feature); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); }
+      onFinish: async (how) => { watchClose.disconnect(); if (saveBtn) saveBtn.removeEventListener("click", onSave, true); guided_ = null; if (!started) spendRealChance_(feature); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); }
     });
   }, 100);
 }
@@ -24514,7 +24592,7 @@ function startInvestmentReal_() {
     known("description") ? [] : [{ field: "description", target: "#description", text: () => tr("spot.g.desc"), blurTap: true, visit: "#description", button: realNext_ }]
   ).concat(realSaveSteps_({ open: () => newEntrySheetOpen_ && !(guided_ && guided_.savedId) }, "submit-btn", "form-error", "rt.invest.done", { unsaved: () => !(guided_ && guided_.savedId) && !newEntrySheetOpen_ && !confirmingPendingId, find: () => realEntryRow_(guided_ && guided_.savedId), before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
-    onFinish: async (how) => { form.removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
+    onFinish: async (how) => { form.removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); } });
 }
 
 // A practice is only a nudge where a real tutorial exists (owner, 2026-11-09): shown on Home, one at a time, at most every 3 days, from 14 days after the first opening.
@@ -24582,7 +24660,7 @@ function practiceNEntryRow_() {
 function practiceNActionFailed_(id, err) {
   if (!practiceN_ || !id || (id !== practiceN_.purchaseId && id !== practiceN_.chargeId) || !Spotlight.isRunning()) return;
   unqueueReviewAction_(id);
-  alert(tr("spot.n.actionFailed", { error: (err && err.message) || String(err) }));
+  showAppMessage_(tr("spot.n.actionFailed", { error: (err && err.message) || String(err) }));
   Spotlight.stop("skipped");
 }
 
@@ -24592,7 +24670,7 @@ async function practiceNReady_() {
   if (practiceNFailed_) {
     const msg = practiceNFailed_;
     practiceNFailed_ = "";
-    alert(tr("spot.n.createFailed", { error: msg }));
+    showAppMessage_(tr("spot.n.createFailed", { error: msg }));
     setTimeout(() => Spotlight.stop("skipped"), 0);
     return false;
   }
@@ -24756,7 +24834,7 @@ function practiceMSaveFailed_() {
   if (!practiceM_ || !Spotlight.isRunning()) return false;
   const bad = getMoneyQueue_().find((i) => i.status === "failed" && i.action === "addLoan" && isPracticeLoanText_(i.payload && i.payload.description));
   if (bad) {
-    alert(tr("spot.l.saveFailed", { error: bad.lastError || "" }));
+    showAppMessage_(tr("spot.l.saveFailed", { error: bad.lastError || "" }));
     Spotlight.stop("skipped");
     return true;
   }
@@ -25017,7 +25095,7 @@ function practiceISaveFailed_() {
   const bad = practiceIFailed_ ? { lastError: practiceIFailed_ }
     : getQueuedEdits_().find((e) => (e.id === practiceI_.depositId || e.id === practiceI_.withdrawalId) && e.status === "failed");
   if (!bad) return false;
-  alert(tr("spot.i.saveFailed", { error: bad.lastError || bad.error || practiceIFailed_ || "" }));
+  showAppMessage_(tr("spot.i.saveFailed", { error: bad.lastError || bad.error || practiceIFailed_ || "" }));
   Spotlight.stop("skipped");
   return true;
 }
@@ -25136,7 +25214,7 @@ async function startInvestmentsPractice_() {
   const open = ["pm-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
   if (open || newEntrySheetOpen_) { showToast_(tr("spot.i.busy")); return false; }
   if (practicePlatform_()) {   // only a platform THIS phone's earlier try made (it kept a note) is removed; a real one with that name is never touched
-    if (!practiceILoad_()) { alert(tr("spot.i.exists")); return false; }
+    if (!practiceILoad_()) { showAppMessage_(tr("spot.i.exists")); return false; }
     showToast_(tr("spot.i.stillRemoving"));
     practiceIRemove_(true).then((ok) => { if (ok) showToast_(tr("spot.i.removed")); });
     return false;
@@ -25334,7 +25412,7 @@ function startAccountsPractice_() {
   if (practiceAPm_()) {
     // Only an account that THIS phone's earlier try made (it kept a note) is removed as a leftover. One with the same name that the person made
     // himself is never touched: the practice just does not start (the cleanup deletes by name, so it must never meet a real account).
-    if (!practiceALoad_()) { alert(tr("spot.a.exists")); return false; }
+    if (!practiceALoad_()) { showAppMessage_(tr("spot.a.exists")); return false; }
     showToast_(tr("spot.a.alreadyThere"));
     practiceARemove_(true).then((ok) => { if (ok) showToast_(tr("spot.a.removed")); });
     return false;
@@ -25510,7 +25588,7 @@ async function startTripsPractice_() {
   // The two made-up past expenses the person will find, made while they read and fill in the trip.
   practiceTMaking_ = callApi("createPracticeTripExpenses", { lang: I18n.getLang() })
     .then((res) => { if (practiceT_) { practiceT_.pastIds = (res.ids || []).map(String); practiceTSave_(); } return true; })
-    .catch((err) => { alert(tr("spot.t.createFailed", { error: err.message })); return false; });
+    .catch((err) => { showAppMessage_(tr("spot.t.createFailed", { error: err.message })); return false; });
   runTip_(practiceTSteps_(), async () => {
     if (document.getElementById("screen-trips").hidden) showTripsScreen().catch(() => {});
     showToast_(tr("spot.t.removing"));
@@ -25614,7 +25692,7 @@ function practiceXSaveFailed_() {
   if (!practiceX_ || !Spotlight.isRunning()) return false;
   const bad = practiceXFailedItem_();
   if (!bad) return false;
-  alert(tr("spot.x.saveFailed", { error: bad.lastError || "" }));
+  showAppMessage_(tr("spot.x.saveFailed", { error: bad.lastError || "" }));
   Spotlight.stop("skipped");
   return true;
 }
@@ -26396,7 +26474,7 @@ async function openLinkedEntryFromLoan_(entryId) {
     if (blockedWhileSavingEdit_(entry.id)) return;
     openEditPopup(entry);
   } catch (err) {
-    alert(err.message);
+    showAppMessage_(err.message);
   }
 }
 
@@ -26407,7 +26485,7 @@ async function callConversion_(action, payload) {
   try {
     return await callApi(action, payload);
   } catch (err) {
-    alert(err.message);
+    showAppMessage_(err.message);
     throw err;
   }
 }
@@ -26493,6 +26571,13 @@ async function askTextApp_(text, okLabel) {
   input.hidden = true;
   return yes ? input.value : null;
 }
+// A message in the app's own window (design review 2026-11-12), never the phone's own alert box: that one speaks the phone's language,
+// shows the web address as its title and has a bare "OK" (the same reasons the phone's yes/no box was banned). One button, "Got it".
+// It does not pause the code the way the old box did; callers that must wait can await it.
+function showAppMessage_(text) {
+  return askConfirmApp_(String(text == null ? "" : text), tr("common.gotIt"), { plain: true, noCancel: true });
+}
+
 function askConfirmApp_(text, okLabel, opts) {
   opts = opts || {};
   if (appConfirmOpen_.has(text)) return Promise.resolve(false);
@@ -26669,7 +26754,7 @@ async function deleteOrphanLoan_(l, friend) {
     await openLoanDetail(friend.id, friend.name);
     refreshLoans();
   } catch (err) {
-    alert(err.message);
+    showAppMessage_(err.message);
   }
 }
 
@@ -26775,7 +26860,7 @@ async function openRepaymentEditorForEntry_(friendId, friendName, transferEntryI
   } catch (err) {
     sheet.hidden = true;
     sheet.classList.remove("reassign-loading");
-    alert(err.message);
+    showAppMessage_(err.message);
     return;
   }
   const line = h.repayments.find((r) => r.transfer_entry_id === transferEntryId);
@@ -26807,7 +26892,7 @@ async function undoCancelOut_(r) {
   try {
     await callApi("undoCancelOut", { id: r.id });
   } catch (err) {
-    alert(err.message);
+    showAppMessage_(err.message);
     return;
   }
   refreshEntriesInBackground_();
@@ -26947,7 +27032,7 @@ async function openApplyUnapplied_(l, friend) {
   try {
     loans = await callApi("getFriendLoanDetail", { friendId: friend.id });
   } catch (err) {
-    alert(err.message);
+    showAppMessage_(err.message);
     return;
   }
   const targetDir = l.direction === "i_owe_them" ? "they_owe_me" : "i_owe_them";
@@ -27928,14 +28013,14 @@ function rememberLoanRemind_(phone) {
     if (langChanged) { payload.lang = r.lang; r.savedLang = r.lang; }
     callApi("setFriendRemind", payload)
       .then((res) => { const f = friend(); if (f) { f.phone = res.phone; f.remind_lang = res.remind_lang; } })
-      .catch((err) => alert(tr("common.notSaved", { error: err.message })));
+      .catch((err) => showAppMessage_(tr("common.notSaved", { error: err.message })));
     return;
   }
   if (!phoneChanged || !((meta && meta.capabilities) || {}).friendPhone) return;
   r.phone = phone;
   callApi("setFriendPhone", { id: r.friendId, phone })
     .then((res) => { const f = friend(); if (f) f.phone = res.phone; })
-    .catch((err) => alert(tr("common.notSaved", { error: err.message })));
+    .catch((err) => showAppMessage_(tr("common.notSaved", { error: err.message })));
 }
 
 document.getElementById("loan-remind-close").addEventListener("click", closeLoanRemind_);
@@ -28598,7 +28683,7 @@ document.getElementById("loan-delete-btn").addEventListener("click", async () =>
     catch (e) { unmarkDeleting_("loan:" + loanId); throw e; }
     await refreshAfterLoanModalChange_();
   } catch (err) {
-    if (document.getElementById("loan-modal-backdrop").hidden) alert(err.message);   // the form already closed
+    if (document.getElementById("loan-modal-backdrop").hidden) showAppMessage_(err.message);   // the form already closed
     else errorEl.textContent = err.message;
   }
 });
@@ -28987,7 +29072,7 @@ function closeSettlementModal() {
   if (pendingOverpay) {
     const p = pendingOverpay;
     pendingOverpay = null;
-    alert(tr(p.entryType === "income" ? "settle.extraSavedIncome" : "settle.extraSavedExpense", { cur: p.currency, amount: moneyFmt(p.amount) }));
+    showAppMessage_(tr(p.entryType === "income" ? "settle.extraSavedIncome" : "settle.extraSavedExpense", { cur: p.currency, amount: moneyFmt(p.amount) }));
     refreshReviewQueue().catch(() => {});
   }
 }
@@ -29112,7 +29197,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       backdrop.hidden = false;
     }
   } catch (err) {
-    alert(tr("settle.saveFailed", { error: err.message }));
+    showAppMessage_(tr("settle.saveFailed", { error: err.message }));
     refreshAfterSettlementChange_().catch(() => {});
   }
 });
@@ -29130,7 +29215,7 @@ document.getElementById("settlement-delete-btn").addEventListener("click", async
     await callApi("deleteSettlement", { id: settlementId });   // the whole repayment goes; a failure is undone and announced just below
     await refreshAfterSettlementChange_();
   } catch (err) {
-    alert(tr("settle.saveFailed", { error: err.message }));
+    showAppMessage_(tr("settle.saveFailed", { error: err.message }));
     refreshAfterSettlementChange_().catch(() => {});
   }
 });
@@ -29559,7 +29644,7 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
       });
       if (result.overpaid > 0.004) {
         convDebtOutcome_ = "over";
-        alert(tr(incoming ? "review.overpaidIncoming" : "review.overpaidOutgoing", { name: friendName, cur: currency, amount: moneyFmt(result.overpaid) }));
+        showAppMessage_(tr(incoming ? "review.overpaidIncoming" : "review.overpaidOutgoing", { name: friendName, cur: currency, amount: moneyFmt(result.overpaid) }));
       }
     } else {
       await callApi("convertEntryToLoan", {
@@ -29698,7 +29783,7 @@ async function openBalanceModal(pmId) {
       picker.appendChild(opt);
     });
     if (!meta.paymentMethods.length) {
-      alert(tr("balance.noAccounts"));
+      showAppMessage_(tr("balance.noAccounts"));
       return;
     }
     pickerWrap.hidden = false;

@@ -10,6 +10,8 @@ test("no screen uses the phone's own yes/no dialog", () => {
   for (const f of fs.readdirSync(docs).filter((n) => n.endsWith(".js"))) {
     fs.readFileSync(path.join(docs, f), "utf8").split("\n").forEach((line, i) => {
       assert.ok(!/(^|[^\w.$"'`-])(window\.)?confirm\(/.test(line), `${f}:${i + 1} uses confirm(): use askConfirmApp_`);
+      // The same for messages (design review 2026-11-12): the app's own window, showAppMessage_.
+      assert.ok(!/(^|[^\w.$"'`-])(window\.)?alert\(/.test(line), `${f}:${i + 1} uses alert(): use showAppMessage_`);
     });
   }
 });

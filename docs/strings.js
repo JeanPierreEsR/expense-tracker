@@ -469,6 +469,8 @@
     "fab.new": { en: "New entry", es: "Nuevo movimiento" },
     "entry.newTitle": { en: "New entry", es: "Nuevo movimiento" },
     "entry.savedToast": { en: "Entry saved", es: "Movimiento guardado" },
+    "entry.savedWhat": { en: "Saved: {what}", es: "Guardado: {what}" },
+    "entry.undone": { en: "Undone: the entry was removed.", es: "Deshecho: se quitó el movimiento." },
 
     // ---- Home tab: the quick glance at the top, and the entries grouped by day ----
     "home.spentThisMonth": { en: "Spent this month", es: "Gastado este mes" },

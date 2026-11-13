@@ -3785,7 +3785,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 
 #review-list > [hidden] { display: none; }
 /* A tab whose first load failed: the message instead of zeros or stale rows (setLoadFailed_). */
-.screen-load-failed { margin: 0 0 12px; }
+.screen-load-failed { margin: 0 0 12px; padding: 16px; background: var(--card); border-radius: var(--r-lg); text-align: center; }
+.state-error-icon { font-size: 1.5rem; }
+.state-error-text { margin: 6px 0 10px; font-size: 1rem; color: var(--text); }
 #screen-overview.load-failed > .card:not(#period-selector-card),
 #screen-budgets.load-failed > .card:not(#period-selector-card) { display: none; }
 /* Overview, Custom with no dates chosen: only the date choice and its line, no figures (testers, 2026-11-07) */
@@ -4069,3 +4071,7 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .expected-head-h { margin: 0; }
 .expected-head { font-weight: 700; }
 .expected-head-sum { font-size: 0.875rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+
+/* Real tutorial vs practice, on every step (design review batch 7): green = this stays, purple = deleted at the end. */
+.spot-note[data-mode="real"] { color: var(--income-dark); font-weight: 600; }
+.spot-note[data-mode="practice"] { color: var(--investment); font-weight: 600; }

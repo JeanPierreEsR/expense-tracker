@@ -130,7 +130,8 @@ test("a help bubble skips the 3 visits, the month and the one-a-day limit; the o
   assert.match(watch, /if \(!tip\.help && !tip\.own && !tip\.cont && !tip\.remind\) \{/);
   assert.match(watch, /popDaysUsed_\(\) < \(POP_LEVEL_DAYS_\[tip\.level \|\| "super"\]/);
   assert.match(watch, /!popGet_\(POP_AGAIN_KEY_, false\) && \(popGet_\(POP_VISITS_KEY_/);
-  assert.match(app, /if \(!tip\.help && !tip\.own && !tip\.cont && !popDayAllows_\(tip\.key\)\)/);
+  // ...but every bubble, help ones included, counts in the one daily teaching budget (owner, 2026-11-12).
+  assert.match(app, /if \(!tip\.own && !tip\.cont && \(\(!tip\.help && !popDayAllows_\(tip\.key\)\) \|\| !teachAllows_\("pop:" \+ tip\.key\)\)\)/);
   assert.match(section("function watchReviewHint_(", "// ---- First-use practice: Needs review ----"), /help: true/);
 });
 

@@ -318,7 +318,7 @@
       await fetchAndReadInboxItem(id);
       $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
-      alert(tr("stmt.fetchFailed", { error: err && err.message ? err.message : err }));
+      showAppMessage_(tr("stmt.fetchFailed", { error: err && err.message ? err.message : err }));
     }
     btn.disabled = false; btn.textContent = tr("stmt.open");
   }
@@ -340,7 +340,7 @@
     }
     btn.disabled = false; btn.textContent = label;
     $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
-    if (failed.length) alert(tr("stmt.fetchFailedList") + "\n" + failed.join("\n"));
+    if (failed.length) showAppMessage_(tr("stmt.fetchFailedList") + "\n" + failed.join("\n"));
   }
 
   // ---- find statements in Gmail (on demand: pick a period, tick what to read) ----
@@ -426,7 +426,7 @@
     updateStepUi();
     let added;
     try { added = await callApi("addStatementsToInbox", { items: picks.map((p) => ({ message_id: p.message_id, attachment_name: p.attachment_name })) }); }
-    catch (err) { filesQueued -= picks.length; updateStepUi(); delete btn.dataset.busy; updateFindReadButton(); alert(tr("find.addFailed", { error: err && err.message ? err.message : err })); return; }
+    catch (err) { filesQueued -= picks.length; updateStepUi(); delete btn.dataset.busy; updateFindReadButton(); showAppMessage_(tr("find.addFailed", { error: err && err.message ? err.message : err })); return; }
     filesQueued -= picks.length - added.ids.length;   // only what really went into the Inbox is read
     updateStepUi();
     await refreshStatementInbox();
@@ -440,7 +440,7 @@
     delete btn.dataset.busy;
     updateFindReadButton();
     $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
-    if (failed.length) alert(tr("stmt.fetchFailedList") + "\n" + failed.join("\n"));
+    if (failed.length) showAppMessage_(tr("stmt.fetchFailedList") + "\n" + failed.join("\n"));
   }
 
   $("statement-find-btn").addEventListener("click", findStatements);
@@ -519,7 +519,7 @@
     }
     btn.disabled = true;
     try { await callApi("resolveStatementGap", payload); }
-    catch (err) { alert(tr("gaps.failed", { error: err.message })); }
+    catch (err) { showAppMessage_(tr("gaps.failed", { error: err.message })); }
     coverage = null;
     refreshStatementGaps();
     refreshStatementCoverage();
@@ -2269,7 +2269,7 @@
     } catch (err) {
       btn.disabled = false;
       btn.textContent = tr("acct.addBtn", { n: proposals.length });
-      alert(err.message || String(err));
+      showAppMessage_(err.message || String(err));
     }
   }
 
@@ -2601,7 +2601,7 @@
     const mv = e.target.closest(".stmt-move-row");
     if (mv) {   // a spreadsheet upload filed on the wrong side: move it to the other list (the entries it made are not touched)
       mv.disabled = true;
-      try { await callApi("setBatchOrigin", { batchId: mv.dataset.batch, origin: screenMode === "import" ? "statement" : "import" }); } catch (err) { alert(err.message || String(err)); }
+      try { await callApi("setBatchOrigin", { batchId: mv.dataset.batch, origin: screenMode === "import" ? "statement" : "import" }); } catch (err) { showAppMessage_(err.message || String(err)); }
       refreshStatementBatches();
       refreshStatementCoverage();
       return;
@@ -2793,7 +2793,7 @@
       // Right after OK: the row's buttons give way to a "Removing…" line (the server call takes a moment; a second tap must not be possible).
       const buttons = dis.closest(".stmt-choices");
       if (buttons) buttons.innerHTML = loadingHtml(tr("stmt.removing"));
-      try { await callApi("dismissStatement", { id: dis.dataset.id }); } catch (err) { alert(tr("stmt.dismissFailed", { error: err.message })); }
+      try { await callApi("dismissStatement", { id: dis.dataset.id }); } catch (err) { showAppMessage_(tr("stmt.dismissFailed", { error: err.message })); }
       refreshStatementInbox(); refreshStatementCoverage();
     }
   });
@@ -2873,7 +2873,7 @@
     const part = (sel) => () => { const r = root(); return r ? r.querySelector(sel) : null; };
     const top = () => { const r = root(); return r && r.querySelector(".tm-preview") ? [r.querySelector(".stmt-note"), r.querySelector(".tm-single")].filter(Boolean) : null; };   // (the layout note and the account list; the lines below are the next step)
     const waitFor = async (cond, ms) => { for (let i = 0; i < ms / 400 && !cond(); i++) await sleep(400); return cond(); };
-    const failed = (key) => { alert(tr(key)); Spotlight.stop("skipped"); return false; };
+    const failed = (key) => { showAppMessage_(tr(key)); Spotlight.stop("skipped"); return false; };
     const preview = () => ($("statement-history-save") ? Array.from($("statement-history").children).filter((c) => c.id !== "statement-history-save") : null);   // (not its button: the next step taps that)
     return { root, part, top, waitFor, failed, preview };
   }
@@ -2973,7 +2973,7 @@
     practiceISave_();
     try {
       const res = await callApi("createPracticeBankAccount", { lang: I18n.getLang() });
-      if (res.existed) { practiceI_.accountMade = false; practiceISave_(); alert(tr("spot.s.accountExists")); Spotlight.stop("skipped"); return false; }
+      if (res.existed) { practiceI_.accountMade = false; practiceISave_(); showAppMessage_(tr("spot.s.accountExists")); Spotlight.stop("skipped"); return false; }
       practiceI_.accountId = String(res.id);
       practiceISave_();
       if (typeof loadMeta === "function") await loadMeta();
@@ -2984,7 +2984,7 @@
       try { if (typeof loadMeta === "function") await loadMeta(); } catch (e) { /* keep what we know */ }
       const there = ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).some((pm) => /^(Practice account|Cuenta de práctica)$/i.test(String(pm.nickname || "").trim()));
       if (!there) { practiceI_.accountMade = false; practiceISave_(); }
-      alert(tr("spot.s.createFailed", { error: err.message || String(err) }));
+      showAppMessage_(tr("spot.s.createFailed", { error: err.message || String(err) }));
       Spotlight.stop("skipped");
       return false;
     }
@@ -3077,7 +3077,7 @@
     const intro = { key: "intro", text: () => tr(mode === "import" ? "rt.imp.intro" : "rt.stmt.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_(f, "real"); } };
     Spotlight.run(realSteps_([intro].concat(realStmtSteps_(mode, fromStart))), {
       labels: realLabels_(), busy: () => perfInflight_ > 0,
-      onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_(f); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); }
+      onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_(f); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); }
     });
   }
   // The practice brought from the two-week nudge on Home.
@@ -3099,7 +3099,7 @@
       } catch (e) { /* no key: the cleanup just has no layout to forget */ }
       await handleStatementFiles([new File([f.text], f.name, { type: "text/csv" })]);
     } catch (err) {
-      alert(tr(practiceI_ && practiceI_.kind === "bank" ? "spot.s.fileFailed" : "spot.f.fileFailed", { error: err.message || String(err) }));
+      showAppMessage_(tr(practiceI_ && practiceI_.kind === "bank" ? "spot.s.fileFailed" : "spot.f.fileFailed", { error: err.message || String(err) }));
       Spotlight.stop("skipped");
     }
   }
