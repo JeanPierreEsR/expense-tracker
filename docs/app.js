@@ -7849,6 +7849,11 @@ function openNewEntrySheet_() {
     if (ICON_PICKER_TYPES.includes(selectedType)) showCategoryPicker();
   }
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
+  // Always opens at its top (owner, 2026-11-13): the trip chip, the type tabs and the banner show first, also when an
+  // entry closed with ✕ comes back filled in. Again on the next frame, after the form has drawn its fields.
+  const sheetBody = document.getElementById("edit-entry-modal-body");
+  sheetBody.scrollTop = 0;
+  requestAnimationFrame(() => { sheetBody.scrollTop = 0; });
   // A new person's first "+": the guided practice starts by itself (owner, 2026-11-04). Never during another practice or "Mark as paid".
   if (!payingRecurringId_ && guidedEntryWanted_()) setTimeout(startGuidedEntry_, 350);
   tripNudgeAsked_ = false;
