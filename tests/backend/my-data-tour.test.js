@@ -50,8 +50,8 @@ test("the card's texts name today's rows and the way back to the practices", () 
   const all = (lang) => ["body", "deleted", "export", "pIntro", "pExport"].map((k) => STRINGS["tour.mydata." + k][lang]).join("");
   assert.match(all("en"), /More → My data/);
   assert.match(all("es"), /Más → Mis datos/);
-  assert.match(all("en"), /More → How to use the app → 💡 Practice tips/);
-  assert.match(all("es"), /Más → Cómo usar la app → 💡 Prácticas/);
+  assert.match(all("en"), /More → How to use the app → Practice tips/);
+  assert.match(all("es"), /Más → Cómo usar la app → Prácticas/);
   // the row names the card quotes are the hub's own
   for (const [lang, rows] of [["en", ["Bank statements", "Import from another app", "Tidy my history", "Recently deleted", "Export my data"]], ["es", ["Estados de cuenta", "Importar de otra app", "Ordenar mi historial", "Eliminados recientemente", "Exportar mis datos"]]]) {
     for (const r of rows) assert.ok(all(lang).includes(r), `${lang}: the card never names “${r}”`);
