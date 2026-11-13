@@ -2150,6 +2150,7 @@
     "expected.day": { en: "Day {day}", es: "Día {day}" },
     "expected.markPaid": { en: "Mark as paid…", es: "Marcar como pagado…" },
     "expected.skipMonth": { en: "Skip this month", es: "Omitir este mes" },
+    "expected.openFailed": { en: "Couldn't open it ({error}).", es: "No se pudo abrir ({error})." },
     "expected.countPending": { en: "⏳ {kind} · {n}", es: "⏳ {kind} · {n}" },
     "expected.count": { en: "🔁 {kind} · {n}", es: "🔁 {kind} · {n}" },
     "expected.confirmSkip": { en: "Skip \"{label}\" for this month? It stops counting as expected for this month only. You can undo it from the item's edit screen.", es: "¿Omitir \"{label}\" este mes? Solo este mes deja de contar como esperado. Puedes deshacerlo desde la pantalla de edición del movimiento." },

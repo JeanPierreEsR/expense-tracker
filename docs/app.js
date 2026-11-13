@@ -6927,6 +6927,7 @@ function transferAccountOptions_(selectedId, blankLabel) {
 // cache-painted path — see init().
 function setCheckStatus_(elementId, state, noun) {
   const el = document.getElementById(elementId);
+  el.dataset.state = state;
   if (state === "checking") {
     el.textContent = tr("check.checking." + noun);
     el.hidden = false;
@@ -11863,6 +11864,7 @@ async function init() {
       // same as a failed pull-to-refresh: fail quietly, keep it on screen.
       console.error("Background startup refresh failed:", err);
       setBundleCheckStatuses_("failed");
+      scheduleBundleRetry_();   // tries again by itself (owner, 2026-11-13: new entries never came in after one failure)
       return;
     }
     document.getElementById("loading-screen").hidden = true;
@@ -11872,6 +11874,39 @@ async function init() {
       `<div class="status-msg">${escapeHtml(tr("error.loadData", { error: err.message }))}</div>`;
   }
 }
+
+// After the startup check failed, the app tries again by itself: 20 s later, then each time it comes back to the front
+// or the connection returns, until one works. A success hides the "Couldn't check" lines (a pull-down does too).
+let bundleRetryTimer_ = null, bundleRetrying_ = false;
+function bundleCheckFailed_() {
+  const el = document.getElementById("entries-check-status");
+  return !!el && !el.hidden && el.dataset.state === "failed";
+}
+function scheduleBundleRetry_(ms = 20000) {
+  clearTimeout(bundleRetryTimer_);
+  bundleRetryTimer_ = setTimeout(retryBundleCheck_, ms);
+}
+async function retryBundleCheck_() {
+  if (bundleRetrying_ || !bundleCheckFailed_() || document.hidden) return;
+  bundleRetrying_ = true;
+  setBundleCheckStatuses_("checking");
+  try {
+    // like the startup check: a form being typed in keeps its dropdowns
+    const typing = (document.activeElement && document.activeElement.closest("#entry-form")) ||
+      !!(document.getElementById("amount").value.trim() || document.getElementById("description").value.trim());
+    await loadMeta(undefined, typing);
+    await refreshEntryList();
+    await refreshExpectedRecurring();
+    setBundleCheckStatuses_("hidden");
+  } catch (err) {
+    console.error("Startup refresh retry failed:", err);
+    setBundleCheckStatuses_("failed");
+  } finally {
+    bundleRetrying_ = false;
+  }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && bundleCheckFailed_()) scheduleBundleRetry_(1000); });
+window.addEventListener("online", () => { if (bundleCheckFailed_()) scheduleBundleRetry_(1000); });
 
 // ---- Pull to refresh ----
 // PWAs in standalone mode lose Safari's native pull-to-refresh, so this
@@ -11932,6 +11967,8 @@ async function init() {
       if (!document.getElementById("screen-loans").hidden) {
         await refreshLoans();
       }
+      setBundleCheckStatuses_("hidden");   // a pull that worked clears an earlier "Couldn't check…"
+      setReviewCheckStatus_("hidden");
     } catch (err) {
       // Data just doesn't refresh this time — the user can pull again.
     }
@@ -21565,14 +21602,14 @@ async function refreshExpectedRecurring(prefetchedGroups) {
       }
       const itemAmt = `${item.overdue ? "⚠️ " : ""}${tr("expected.day", { day: item.day })} · ${escapeHtml(g.currency)} ${item.estimated ? "≈ " : ""}${moneyFmt(item.amount)}`;
       return `
-      <div class="expected-recurring-entry${item.overdue ? " overdue" : ""}">
+      <div class="expected-recurring-entry expected-recurring-editable${item.overdue ? " overdue" : ""}" data-id="${item.id}" role="button" tabindex="0">
         <div class="expected-recurring-item">
           <span class="expected-recurring-item-label">${item.category_icon ? item.category_icon + " " : ""}${escapeHtml(item.category_name)}${item.description ? " — " + escapeHtml(item.description) : ""}</span>
           <span class="expected-recurring-item-amount">${isIncome ? sensitiveHtml_(itemAmt) : itemAmt}</span>
         </div>
         <div class="expected-recurring-actions">
           <button type="button" data-act="paid" data-id="${item.id}">${tr("expected.markPaid")}</button>
-          <button type="button" data-act="skip" data-id="${item.id}">${tr("expected.skipMonth")}</button>
+          ${item.once ? "" : `<button type="button" data-act="skip" data-id="${item.id}">${tr("expected.skipMonth")}</button>`}
         </div>
       </div>`;
     }).join("");
@@ -21588,6 +21625,11 @@ async function refreshExpectedRecurring(prefetchedGroups) {
       });
     });
 
+    // A tap on the item's box (not its buttons) opens the Programmed item to edit it (owner, 2026-11-13).
+    detail.querySelectorAll(".expected-recurring-editable").forEach((box) => {
+      box.addEventListener("click", () => openRecurringById_(box.dataset.id, box));
+    });
+
     const summary = document.createElement("div");
     summary.className = "expected-recurring-summary";
     summary.innerHTML = `
@@ -21600,6 +21642,24 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     group.appendChild(detail);
     container.appendChild(group);
   });
+}
+
+// Opens a Programmed item's edit window from anywhere, by id: from the list the phone already has, else asked from the server
+// (the box shows the moving circle meanwhile).
+async function openRecurringById_(id, box) {
+  let item = (recurringItems_ || []).find((x) => x.id === id);
+  if (!item) {
+    if (box) box.classList.add("is-loading");
+    try {
+      const items = await callApi("listRecurringExpenses");
+      item = items.find((x) => x.id === id);
+    } catch (err) {
+      showAppMessage_(tr("expected.openFailed", { error: err.message }));
+    } finally {
+      if (box) box.classList.remove("is-loading");
+    }
+  }
+  if (item) openRecurringModal(item);
 }
 
 // "Skip this month": that one occurrence stops counting as expected (here, in
