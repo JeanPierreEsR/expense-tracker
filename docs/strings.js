@@ -20,7 +20,7 @@
     "app.title": { en: "Expense Tracker", es: "Expense Tracker" },
 
     // ---- search ----
-    "search.placeholder": { en: "🔍 Search entries…", es: "🔍 Buscar movimientos…" },
+    "search.placeholder": { en: "Search entries…", es: "Buscar movimientos…" },   // the magnifier is drawn inside the box
     "search.aria": { en: "Search entries", es: "Buscar movimientos" },
     "search.clear": { en: "Clear search", es: "Borrar búsqueda" },
     "search.reloadAll": { en: "Reload all entries", es: "Recargar todos los movimientos" },

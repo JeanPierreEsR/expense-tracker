@@ -4120,3 +4120,13 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .currency-chips.currency-row3 .currency-chip.more { border: 1px solid var(--border); background: var(--white); color: var(--accent); font-size: 0.875rem; font-weight: 600; }
 .md-row > .row-icon + span { flex: 1; min-width: 0; }
 .md-row > .row-icon { align-self: center; }
+
+/* Line icons in front of status lines, messages, hints, warnings, titles and tutorial texts (owner, 2026-11-13).
+   Colour rule: blue = tappable (icon buttons), green = done, red = failed, amber = warning / tip; otherwise the text's colour. */
+.ico { display: inline-flex; vertical-align: -0.15em; margin-right: 0.3em; color: inherit; }
+.ico svg { width: 1.05em; height: 1.05em; stroke-width: 2.1; }
+.ico-ok { color: var(--income); }
+.ico-bad { color: var(--danger); }
+.ico-warn { color: var(--warn-text); }
+.app-toast .ico-ok, .app-toast .ico-bad, .app-toast .ico-warn { color: inherit; }   /* on the dark toast every icon is white */
+#entry-search { padding-left: 38px; background: var(--white) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cline x1='21' y1='21' x2='16.6' y2='16.6'/%3E%3C/svg%3E") no-repeat 12px center / 18px 18px; }
