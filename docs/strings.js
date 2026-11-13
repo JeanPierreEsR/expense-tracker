@@ -3771,6 +3771,7 @@
     "accounts.addTitle": { en: "Add account or card", es: "Agregar cuenta o tarjeta" },
     "accounts.editPlatformTitle": { en: "Edit platform", es: "Editar plataforma" },
     "accounts.type.other": { en: "Other", es: "Otro" },
+    "accounts.unnamed": { en: "Account with no name", es: "Cuenta sin nombre" },
     "common.noName": { en: "(no name)", es: "(sin nombre)" },
     "categories.dupTag": { en: "same name as another", es: "mismo nombre que otra" },
     "accounts.editTitle": { en: "Edit account or card", es: "Editar cuenta o tarjeta" },

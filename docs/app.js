@@ -100,7 +100,9 @@ function pmPickLabel_(pm) {
   if (String(settings.yape_pen || "") === String(pm.id) || String(settings.yape_usd || "") === String(pm.id)) wallets.push("Yape");
   if (String(settings.plin_pen || "") === String(pm.id) || String(settings.plin_usd || "") === String(pm.id) || plinMoreIds_().includes(String(pm.id))) wallets.push("Plin");
   const shown = wallets.filter((w) => !String(pm.nickname || "").toLowerCase().includes(w.toLowerCase()));
-  return pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "") + (shown.length ? " · " + shown.join(" · ") : "");
+  const bank = !String(pm.nickname || "").trim() && meta && (meta.banks || []).find((b) => String(b.id) === String(pm.bank_id));
+  const name = String(pm.nickname || "").trim() || (bank ? bank.name : "") || tr("accounts.unnamed");   // never an empty row
+  return name + (pm.last_4 ? ` (${pm.last_4})` : "") + (shown.length ? " · " + shown.join(" · ") : "");
 }
 
 // Asks for one name in the app's own small window (owner, 2026-11-04: the phone's plain "prompt" box looked out of place). Resolves
@@ -1368,7 +1370,9 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   renderOwnNameCard_();
   maybeAskPausedProgrammed_();
   maybeAskPayorMerge_();
-  if (skipFormPopulate) return;
+  // Even while a form is in use, the account lists take in accounts added since they were built (what is chosen stays chosen):
+  // an unfinished entry restored on its account must find it there (owner, 2026-11-13: a new account "CTS" showed as a blank row).
+  if (skipFormPopulate) { whenPickersClosed_(["payment_method", "to_payment_method"], rebuildAccountPickers_); return; }
   // Rebuilding the pickers resets them to their first option. A refresh
   // (pull-down, or any reload of the lists) while an edit screen is open must
   // not change what is already chosen there — it once flipped a pending card
@@ -5493,8 +5497,8 @@ function applyEntryDraft_(d) {
   if (d.paidBy) document.getElementById("paid_by").value = d.paidBy;
   togglePaymentMethodVisibility();
   // A transfer's "From" may legitimately be None (blank).
-  if (d.paymentMethodId || d.type === "transfer") document.getElementById("payment_method").value = d.paymentMethodId || "";
-  document.getElementById("to_payment_method").value = d.toPaymentMethodId || "";
+  if (d.paymentMethodId || d.type === "transfer") setAccountPick_("payment_method", d.paymentMethodId || "");
+  setAccountPick_("to_payment_method", d.toPaymentMethodId || "");
   selectedTagIds.clear();
   (d.tagIds || []).forEach((id) => selectedTagIds.add(id));
   populateTags();
@@ -16549,6 +16553,16 @@ function whenPickersClosed_(ids, fn) {
   let done = false;
   const run = () => { if (done) return; done = true; open.forEach((el) => el.removeEventListener("blur", run)); setTimeout(fn, 0); };
   open.forEach((el) => el.addEventListener("blur", run));
+}
+// Picks an account in one of the form's account lists. An account the list does not hold yet (added after the list was built)
+// is brought in first; one that no longer exists falls back to the first account (the "from" list) or none, never to the empty
+// "nothing chosen" state an iPhone shows as a blank ticked row.
+function setAccountPick_(selectId, id) {
+  const sel = document.getElementById(selectId);
+  const has = () => Array.from(sel.options).some((o) => o.value === id);
+  if (id && !has()) { rebuildAccountPickers_(); keepHiddenAccountOption_(selectId, id); }
+  sel.value = id;
+  if (sel.selectedIndex === -1) { if (selectId === "payment_method") pickDefaultAccount_(); else sel.value = ""; }
 }
 function refreshAccountPickers_() {
   whenPickersClosed_(["payment_method", "to_payment_method"], rebuildAccountPickers_);
