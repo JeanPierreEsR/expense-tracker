@@ -3007,12 +3007,22 @@ async function ensureExchangeRate(currency, dateStr) {
 let rateModalState = null; // { currency, month, inverted, resolve, existingRate }
 
 function renderRateModalLabels_() {
-  const { currency, inverted, existingRate, usd, viaMain, viaInv } = rateModalState;
-  document.getElementById("rate-invert-btn").hidden = !!usd;   // through the dollar it is always asked against the dollar, stronger side as 1 (owner, 2026-11-07)
+  const { currency, inverted, existingRate, usd, viaMain, viaInv, viaUsd, viaUsdInv } = rateModalState;
+  document.getElementById("rate-invert-btn").hidden = !!usd || !!viaUsd;   // through the dollar it is always asked against the dollar, stronger side as 1 (owner, 2026-11-07)
   // "I know it against PEN instead" (owner, 2026-11-07): typed against the main currency, saved in dollars with the month's dollar rate.
+  // Its mirror (owner, 2026-11-13): rates kept against the main currency can be typed against the dollar, turned with the month's dollar rate.
   const via = document.getElementById("rate-via-main-btn");
-  via.hidden = !(usd && currency !== "USD" && homeCur() !== "USD");
-  via.textContent = viaMain ? tr("rateModal.backToUsd") : tr("rateModal.viaMain", { main: homeCur() });
+  via.hidden = !(currency !== "USD" && homeCur() !== "USD");
+  via.textContent = usd ? (viaMain ? tr("rateModal.backToUsd") : tr("rateModal.viaMain", { main: homeCur() }))
+    : (viaUsd ? tr("rateModal.backToMain", { main: homeCur() }) : tr("rateModal.viaUsd"));
+  if (!usd && viaUsd) {
+    // "USD 1 = ARS ?", or "EUR 1 = USD ?" for a currency worth more than a dollar.
+    document.getElementById("rate-left-label").textContent = viaUsdInv ? `${currency} 1` : "USD 1";
+    document.getElementById("rate-right-label").textContent = viaUsdInv ? "USD" : currency;
+    document.getElementById("rate-value-input").value = "";
+    renderRateMeaning_();
+    return;
+  }
   if (usd && viaMain) {
     document.getElementById("rate-left-label").textContent = viaInv ? `${homeCur()} 1` : `${currency} 1`;
     document.getElementById("rate-right-label").textContent = viaInv ? currency : homeCur();
@@ -3054,6 +3064,16 @@ function renderRateMeaning_() {
     if (!(u > 0)) { el.textContent = tr("rateModal.viaMainNoUsd", { month: st.monthWords }); el.hidden = false; return; }
     if (!(raw > 0)) { el.hidden = true; return; }
     el.textContent = tr("rateModal.viaMainSaved", { line: strongRateLine_("USD", st.currency, u / (st.viaInv ? 1 / raw : raw)), usd: rateLine_("USD", homeCur(), u) });
+    el.hidden = false;
+    return;
+  }
+  if (st && !st.usd && st.viaUsd) {
+    // Typed against the dollar: say what will be stored, against the main currency, and with which dollar rate.
+    const u = st.usdInMain;
+    if (u === undefined) { el.textContent = tr("common.loading"); el.hidden = false; return; }
+    if (!(u > 0)) { el.textContent = tr("rateModal.viaUsdNoUsd", { month: st.monthWords, main: homeCur() }); el.hidden = false; return; }
+    if (!(raw > 0)) { el.hidden = true; return; }
+    el.textContent = tr("rateModal.viaMainSaved", { line: strongRateLine_(st.currency, homeCur(), u / (st.viaUsdInv ? 1 / raw : raw)), usd: rateLine_("USD", homeCur(), u) });
     el.hidden = false;
     return;
   }
@@ -3115,9 +3135,11 @@ function closeRateModal_(result) {
 document.getElementById("rate-via-main-btn").addEventListener("click", () => {
   const st = rateModalState;
   if (!st) return;
-  st.viaMain = !st.viaMain;
-  if (st.viaMain) {
+  if (st.usd) st.viaMain = !st.viaMain;
+  else st.viaUsd = !st.viaUsd;
+  if (st.viaMain || st.viaUsd) {
     st.viaInv = weakerThanMain_(st.currency, null);   // "PEN 1 = ARS ?", the stronger one as 1
+    st.viaUsdInv = strongerThanUsd_(st.currency, null);   // "EUR 1 = USD ?" for a currency worth more than a dollar
     if (st.usdInMain === undefined && !st.usdInMainAsked) {
       st.usdInMainAsked = true;
       // The dollar's own rate for that month (latest on or before): what turns the typed rate into dollars.
@@ -3161,7 +3183,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     return;
   }
 
-  const { currency, month, inverted, prevRate, usd, viaMain, viaInv, usdInMain } = rateModalState;
+  const { currency, month, inverted, prevRate, usd, viaMain, viaInv, viaUsd, viaUsdInv, usdInMain } = rateModalState;
   // Through the dollar: compared and sent as "1 USD = rate X"; else "1 X = rate main". toShown turns such a value into the window's number.
   let rate, toShown;
   if (usd && viaMain) {
@@ -3172,6 +3194,14 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     const mainPer = viaInv ? 1 / raw : raw;   // 1 X = mainPer main
     rate = usdInMain / mainPer;
     toShown = (p) => (viaInv ? p / usdInMain : usdInMain / p);
+  } else if (!usd && viaUsd) {
+    if (!(usdInMain > 0)) {
+      errorEl.textContent = usdInMain === undefined ? tr("common.loading") : tr("rateModal.viaUsdNoUsd", { month: rateModalState.monthWords, main: homeCur() });
+      return;
+    }
+    const perUsd = viaUsdInv ? 1 / raw : raw;   // 1 USD = perUsd X
+    rate = usdInMain / perUsd;   // 1 X = rate main
+    toShown = (p) => (viaUsdInv ? p / usdInMain : usdInMain / p);
   } else {
     rate = inverted ? 1 / raw : raw;
     toShown = (p) => (inverted ? 1 / p : p);
@@ -23139,7 +23169,7 @@ function watchAgainstMainTip_() {
   const via = document.getElementById("rate-via-main-btn");
   popTipWatch_({
     key: "againstMain", place: "rateWindow", text: () => tr("pop.againstMain", { main: homeCur() }),
-    target: () => (via.hidden ? null : via),
+    target: () => (via.hidden || !ratesUsdOn_() ? null : via),
     stillWanted: () => !document.getElementById("rate-modal-backdrop").hidden
   });
 }
