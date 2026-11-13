@@ -1216,7 +1216,7 @@ document.getElementById("install-copy-btn").addEventListener("click", async () =
     note.style.color = "";
     note.textContent = tr("link.copied");
   } catch (err) {
-    note.style.color = "#d64545";
+    note.style.color = "var(--danger)";
     note.textContent = tr("link.copyBlocked");
   }
 });
@@ -2006,7 +2006,11 @@ function populateRepaymentFriendOptions_() {
   select.innerHTML = "";
   // The trips' hidden group friends come last, so a group settlement or group cash loan can also be entered
   // from here (the trip screen's "Group settlement" does the same through the same repayment engine).
-  plainFriends_().concat(groupFriendsNewestFirst_()).forEach((f) => {
+  // People with something owed either way come first (design review 2026-11-12); the rest keep their order. Names only:
+  // the phone's own picker cuts long lines, so the balance shows in one line under it once a person is picked.
+  const hasBalance = (f) => !!loansLastBalances_ && loansLastBalances_.some((b) => b.friend_id === f.id && (b.balances || []).some((x) => Math.abs(Number(x.net) || 0) > 0.004));
+  const plain = plainFriends_();
+  plain.filter(hasBalance).concat(plain.filter((f) => !hasBalance(f))).concat(groupFriendsNewestFirst_()).forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
     opt.textContent = friendLabel_(f);
@@ -2140,13 +2144,23 @@ function syncNothingOwedLine_() {
   const friendId = document.getElementById("repayment-friend").value;
   const show = repaymentActive_() && transferKind_() === "repayment" && entryFormIsNewEntry_() && !!((meta && meta.capabilities) || {}).repayNothingOwed &&
     friendId && friendId !== "__add__";
-  if (!show) { line.hidden = true; return; }
+  if (!show) { line.hidden = true; line.classList.remove("owed-some"); return; }
   if (!loansLastBalances_) {
-    line.hidden = true;
+    line.hidden = false;
+    line.classList.remove("owed-some");
+    line.textContent = tr("common.loading");   // the balance takes a moment the first time (owner: a short wait is fine)
     if (!nothingOwedFetching_) {
       nothingOwedFetching_ = true;
-      callApi("listLoanBalances", {}).then((b) => { if (!loansLastBalances_) loansLastBalances_ = (b && b.balances) || b; syncNothingOwedLine_(); })
-        .catch(() => {}).finally(() => { nothingOwedFetching_ = false; });
+      callApi("listLoanBalances", {}).then((b) => {
+        if (!loansLastBalances_) loansLastBalances_ = (b && b.balances) || b;
+        if (!repaymentFriendTouched_ && !repaymentAutoPickedId_) {   // now the people with a balance can go first
+          populateRepaymentFriendOptions_();
+          const sel = document.getElementById("repayment-friend");
+          if (sel.options.length && sel.options[0].value !== "__add__") sel.value = sel.options[0].value;
+          updateAutoTransferDescription_();
+        }
+        syncNothingOwedLine_();
+      }).catch(() => { line.hidden = true; }).finally(() => { nothingOwedFetching_ = false; });
     }
     return;
   }
@@ -2156,11 +2170,47 @@ function syncNothingOwedLine_() {
   const row = b && (b.balances || []).find((l) => String(l.currency).toUpperCase() === currency);
   // `open` (each way separately) where the server sends it: a debt both ways nets out in `net`.
   const owed = row && row.open ? Number(row.open[dir] || 0) > 0.004 : !!row && (dir === "they_owe_me" ? row.net : -row.net) > 0.004;
-  line.hidden = owed;
+  const f = (meta.friends || []).find((x) => x.id === friendId);
+  line.hidden = false;
+  line.classList.toggle("owed-some", owed);
   if (!owed) {
-    const f = (meta.friends || []).find((x) => x.id === friendId);
     line.textContent = tr(dir === "they_owe_me" ? "owed.lineTheyOwe" : "owed.lineIOwe", { friend: f ? f.name : "", cur: currency });
+    fillRepaymentAmount_(0);
+    return;
   }
+  // What is owed that way, said under the person and filled in as the amount (the same as Loans → Record repayment).
+  const amount = row.open ? Number(row.open[dir] || 0) : Math.abs(Number(row.net) || 0);
+  line.textContent = tr(dir === "they_owe_me" ? "owed.lineOwesYou" : "owed.lineYouOwe", { amount: formatAmount(amount, currency) });
+  fillRepaymentAmount_(amount);
+}
+
+// The amount the form filled in itself (never over one the person typed), and when: a Save within 3 s of it, untouched,
+// asks for a second tap first (the same safeguard as the Loans repayment window).
+let entryRepayFill_ = null;   // { value, at, armed }
+function fillRepaymentAmount_(amount) {
+  const box = document.getElementById("amount");
+  const mine = entryRepayFill_ && box.value === entryRepayFill_.value;
+  if (box.value.trim() && !mine) return;   // the person typed their own amount
+  if (amount > 0.004) {
+    box.value = amount.toFixed(2);
+    entryRepayFill_ = { value: box.value, at: Date.now(), armed: false };
+  } else if (mine) {
+    box.value = "";
+    entryRepayFill_ = null;
+  }
+}
+document.getElementById("amount").addEventListener("input", () => {
+  if (entryRepayFill_ && entryRepayFill_.armed) document.getElementById("submit-btn").textContent = tr("entry.save");   // only new entries arm it
+  entryRepayFill_ = null;
+});
+// True when this Save tap should only arm the second-tap safeguard.
+function entryRepayTooQuick_() {
+  const g = entryRepayFill_;
+  if (!g || g.armed || !repaymentActive_() || transferKind_() !== "repayment") return false;
+  if (document.getElementById("amount").value !== g.value || Date.now() - g.at > REPAY_QUICK_MS_) return false;
+  g.armed = true;
+  document.getElementById("submit-btn").textContent = tr("settle.tapAgainAll", { amount: formatAmount(parseFloat(g.value), document.getElementById("currency").value.toUpperCase()) });
+  return true;
 }
 
 document.getElementById("transfer-kind").addEventListener("change", () => {
@@ -2316,7 +2366,25 @@ function splitFriendsList_() {
 }
 
 // The trip pick changed (by hand or by date): a group that isn't this trip's can't stay in the split.
+// The trip the form filled in by itself shows as a chip near the top (design review 2026-11-12): the Trip field is far down,
+// so a running trip was applied unseen (and then the trip-group question after Save came as a surprise). ✕ = not part of it.
+function syncTripAutoChip_() {
+  const chip = document.getElementById("trip-auto-chip");
+  const sel = document.getElementById("entry-trip");
+  const on = selectedType === "expense" && entryFormIsNewEntry_() && !!tripAutoPickedId_ && sel.value === tripAutoPickedId_;
+  chip.hidden = !on;
+  if (!on) return;
+  const trip = (meta.trips || []).find((t) => t.id === sel.value);
+  document.getElementById("trip-auto-chip-name").textContent = trip ? tripLabel_(trip) : "";
+}
+document.getElementById("trip-auto-chip-x").addEventListener("click", () => {
+  const sel = document.getElementById("entry-trip");
+  sel.value = "";
+  sel.dispatchEvent(new Event("change"));   // the same as choosing "None" by hand: it stays off for this entry
+});
+
 function syncSplitToTrip_() {
+  syncTripAutoChip_();
   const ok = new Set(splitFriendsList_().map((f) => f.id));
   Array.from(splitFriendIds).forEach((id) => {
     if (!ok.has(id)) { splitFriendIds.delete(id); delete customSplitAmounts[id]; }
@@ -2673,8 +2741,12 @@ document.getElementById("split-toggle").addEventListener("change", (e) => {
   renderSplitSummary();
 });
 
+// One "Split with friends" control (owner, 2026-11-12): Equal / % / Custom, and "By items", which opens the bill splitter
+// through its own (now hidden) button, so everything that listens to that button (its tutorial too) works as before.
+document.getElementById("split-items-tab").addEventListener("click", () => document.getElementById("bill-open-btn").click());
 document.querySelectorAll("#split-mode-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
+    if (!tab.dataset.mode) return;   // "By items" is not a mode of its own
     splitMode = tab.dataset.mode;
     document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
     renderSplitRows();
@@ -2722,10 +2794,19 @@ document.querySelectorAll("#investment-direction-tabs .type-tab").forEach((tab) 
 
 // ---- Type tabs ----
 
+// Tabs that are real buttons say which one is chosen to the screen reader (design review 2026-11-12): whatever code
+// toggles their "active" look, aria-pressed follows it.
+(function syncTabPressed_() {
+  const sync = (b) => b.setAttribute("aria-pressed", String(b.classList.contains("active")));
+  document.querySelectorAll("button.type-tab").forEach(sync);
+  new MutationObserver((list) => list.forEach((m) => { if (m.target.matches && m.target.matches("button.type-tab")) sync(m.target); }))
+    .observe(document.body, { subtree: true, attributes: true, attributeFilter: ["class"] });
+})();
 document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     selectedType = tab.dataset.type;
     document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    syncTripAutoChip_();
     populateCategoryOptions();
     populatePaidByOptions();
     if (ICON_PICKER_TYPES.includes(selectedType)) {
@@ -3241,7 +3322,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     refreshHomeGlance_(true);   // foreign amounts are worth something else in the main currency now
     refreshEntryList().catch(() => {});
   } catch (err) {
-    alert(tr("common.notSaved", { error: err.message }));
+    showAppMessage_(tr("common.notSaved", { error: err.message }));
     resolve(null);
   }
 });
@@ -3258,7 +3339,7 @@ function showFormNotice_(text) {
   setTimeout(() => {
     if (el.textContent === text) {
       el.textContent = "";
-      el.style.color = "#d64545";
+      el.style.color = "var(--danger)";
     }
   }, 6000);
 }
@@ -3311,7 +3392,7 @@ async function reopenRefusedConfirm_(id, action, reason) {
   refreshReviewQueue(undefined, true).catch(() => {});
   const base = lastConfirmPendingEntry_ && lastConfirmPendingEntry_.id === id ? lastConfirmPendingEntry_ : null;
   const busy = newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId;
-  if (!base || busy) { alert(reason); return; }
+  if (!base || busy) { showAppMessage_(reason); return; }
   await openConfirmPendingPopup(Object.assign({}, base, action.fields, { splits: action.splits || [], tagIds: action.tagIds || [] }));
   document.getElementById("form-error").textContent = reason;
 }
@@ -3321,6 +3402,7 @@ async function reopenRefusedConfirm_(id, action, reason) {
 document.getElementById("entry-form").addEventListener("submit", async (e) => {
   if (document.getElementById("entry-card").classList.contains("entry-loading")) { e.preventDefault(); return; }
   e.preventDefault();
+  if (entryRepayTooQuick_()) return;   // a repayment amount the form filled in, saved too quickly to have been read
   const submitBtn = document.getElementById("submit-btn");
   const errorEl = document.getElementById("form-error");
   errorEl.textContent = "";
@@ -3406,9 +3488,15 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // Shared with friends inside a trip that has a group (owner, 2026-11-07): when the friends' shares are kept in another app, the group is
     // the right choice. Asked before saving; Cancel goes back to the split with nothing changed.
     const tripGroup = tripId && splits && splits.length && !Spotlight.isRunning() ? (meta.friends || []).find((f) => f.trip_id === tripId) : null;
-    if (tripGroup && !splits.some((s) => s.friend_id === tripGroup.id)) {
+    // A question after Save is a safeguard (owner's rule), and it stops once answered "Save it as it is" twice for the same
+    // trip: that person clearly splits with friends directly on it (design review 2026-11-12).
+    let asIsCounts = {};
+    try { asIsCounts = JSON.parse(localStorage.getItem("tripGroupAsIs") || "{}") || {}; } catch (err) { asIsCounts = {}; }
+    if (tripGroup && !splits.some((s) => s.friend_id === tripGroup.id) && (asIsCounts[tripId] || 0) < 2) {
       const trip = (meta.trips || []).find((t) => t.id === tripId);
       if (!await askConfirmApp_(tr("split.groupAsk", { trip: trip ? trip.name : "", kind: tr(trip && trip.kind === "event" ? "split.groupKind.event" : "split.groupKind.trip"), group: tripGroup.name }), tr("confirmBtn.saveAsIs"), { plain: true, cancel: tr("confirmBtn.chooseGroup") })) throw new Error(tr("split.groupPick", { group: tripGroup.name }));
+      asIsCounts[tripId] = (asIsCounts[tripId] || 0) + 1;
+      try { localStorage.setItem("tripGroupAsIs", JSON.stringify(asIsCounts)); } catch (err) { /* only a convenience */ }
     }
     const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
     if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
@@ -4019,15 +4107,19 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       afterNewEntrySaved_();
     }
     if (splitSaveFailed) {
-      alert(tr("entry.splitSaveFailed"));
+      showAppMessage_(tr("entry.splitSaveFailed"));
     } else if (billSaveFailed) {
-      alert(tr("entry.billSaveFailed"));
+      showAppMessage_(tr("entry.billSaveFailed"));
     }
   } catch (err) {
     if (popupHiddenEarly && !writesDone) document.getElementById("edit-entry-modal-backdrop").hidden = false;
     errorEl.textContent = writesDone
       ? tr("entry.savedNotRefreshed", { error: err.message })
       : err.message;
+    // A refused save may be about a folded field (an account, a split): show them.
+    if (errorEl.textContent && moreDetailsFolded_()) setMoreDetailsOpen_(true);
+    // The message sits next to Save: bring it into view so it is never off-screen (design review 2026-11-12).
+    if (errorEl.textContent && errorEl.scrollIntoView) errorEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   } finally {
     submitBtn.disabled = false;
   }
@@ -4513,7 +4605,7 @@ document.getElementById("xpair-delete-btn").addEventListener("click", async () =
     await callApi("discardEntry", { id: p.out.id });
     await callApi("discardEntry", { id: p.in.id });
   } catch (err) {
-    alert(tr("common.notSaved", { error: err.message }));
+    showAppMessage_(tr("common.notSaved", { error: err.message }));
   }
   await refreshEntryList().catch(() => {});
   [p.out.id, p.in.id].forEach((id) => deletingEntryIds_.delete(id));
@@ -4875,7 +4967,7 @@ function openEntriesCategorySheet_() {
   const known = entriesKnownMap_();
   const picked = [...entriesSelected_].map((id) => known.get(id)).filter(Boolean);
   const byType = { expense: picked.filter((e) => e.type === "expense"), income: picked.filter((e) => e.type === "income") };
-  if (!byType.expense.length && !byType.income.length) { alert(tr("entriesBulk.catNothingEligible")); return; }
+  if (!byType.expense.length && !byType.income.length) { showAppMessage_(tr("entriesBulk.catNothingEligible")); return; }
   const leftOut = entriesSelected_.size - byType.expense.length - byType.income.length;
   const types = ["expense", "income"].filter((t) => byType[t].length);
   const backdrop = document.getElementById("entries-bulk-backdrop");
@@ -4894,7 +4986,7 @@ function openEntriesCategorySheet_() {
   body.innerHTML = `
     ${types.map(pickerHtml).join("")}
     ${leftOut > 0 ? `<p class="hint">${escapeHtml(tr("entriesBulk.catLeftOut", { n: leftOut }))}</p>` : ""}
-    <p class="hint" id="entries-bulk-cat-error" style="color:#d64545;"></p>
+    <p class="hint" id="entries-bulk-cat-error" style="color:var(--danger);"></p>
     <button type="button" class="primary" id="entries-bulk-cat-go">${escapeHtml(tr("entriesBulk.catGo"))}</button>
     <p class="hint">${escapeHtml(tr("entriesBulk.catUndoHint"))}</p>`;
   bringModalToFront_(backdrop);
@@ -4916,7 +5008,7 @@ function openEntriesCategorySheet_() {
       afterNewEntrySaved_();
       if (!result) return;
       const left = result.kept.filter((k) => k.reason !== "same");
-      if (left.length) alert(tr("entriesBulk.resultKeptChange", { items: entriesBulkKeptText_(left, (id) => { const e = known.get(id); return e ? entriesBulkLabel_(e) : id; }) }));
+      if (left.length) showAppMessage_(tr("entriesBulk.resultKeptChange", { items: entriesBulkKeptText_(left, (id) => { const e = known.get(id); return e ? entriesBulkLabel_(e) : id; }) }));
       if (!result.changed.length) return;
       showUndoToast_(tr("entriesBulk.catDone", { n: result.changed.length, category: targetNames }), async () => {
         await callApi("undoSetEntriesCategory", entriesListThen_({ changes: result.changed, annualIds: result.annualIds }));
@@ -4959,8 +5051,8 @@ document.getElementById("entries-change-selected-btn").addEventListener("click",
 
 function openEntriesTripSheet_() {
   const expenses = entriesChecked_().filter((e) => e.type === "expense");   // only expenses belong to a trip or event (as in the entry form)
-  if (!expenses.length) { alert(tr("entriesBulk.tripNothingEligible")); return; }
-  if (!(meta.trips || []).length) { alert(tr("entriesBulk.tripNoTrips")); return; }
+  if (!expenses.length) { showAppMessage_(tr("entriesBulk.tripNothingEligible")); return; }
+  if (!(meta.trips || []).length) { showAppMessage_(tr("entriesBulk.tripNoTrips")); return; }
   const leftOut = entriesSelected_.size - expenses.length;
   const inOther = expenses.filter((e) => e.trip_id && e.trip_id !== "-none-").length;
   const today = todayLocalISO();
@@ -4977,7 +5069,7 @@ function openEntriesTripSheet_() {
       ${inOther ? `<div class="cat-bulk-alert">${escapeHtml(tr("entriesBulk.tripMoveNote", { n: inOther }))}</div>` : ""}
     </div>
     ${leftOut > 0 ? `<p class="hint">${escapeHtml(tr("entriesBulk.tripLeftOut", { n: leftOut }))}</p>` : ""}
-    <p class="hint" id="entries-bulk-trip-error" style="color:#d64545;"></p>
+    <p class="hint" id="entries-bulk-trip-error" style="color:var(--danger);"></p>
     <button type="button" class="primary" id="entries-bulk-trip-go">${escapeHtml(tr("entriesBulk.tripGo"))}</button>
     <p class="hint">${escapeHtml(tr("entriesBulk.linkUndoHint"))}</p>`;
   document.getElementById("entries-bulk-trip-go").addEventListener("click", () => {
@@ -5007,7 +5099,7 @@ function openEntriesTripSheet_() {
 
 function openEntriesTagSheet_() {
   const tags = (meta.tags || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  if (!tags.length) { alert(tr("entriesBulk.tagNone")); return; }
+  if (!tags.length) { showAppMessage_(tr("entriesBulk.tagNone")); return; }
   const checked = entriesChecked_();
   const body = document.getElementById("entries-bulk-body");
   document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.tagTitle");
@@ -5016,7 +5108,7 @@ function openEntriesTagSheet_() {
       <label for="entries-bulk-tag"><b>${escapeHtml(tr("entriesBulk.tagLabel", { n: checked.length }))}</b></label>
       <select id="entries-bulk-tag"><option value="">${escapeHtml(tr("entriesBulk.tagPick"))}</option>${tags.map((t) => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)}</option>`).join("")}</select>
     </div>
-    <p class="hint" id="entries-bulk-tag-error" style="color:#d64545;"></p>
+    <p class="hint" id="entries-bulk-tag-error" style="color:var(--danger);"></p>
     <button type="button" class="primary" id="entries-bulk-tag-add">${escapeHtml(tr("entriesBulk.tagGoAdd", { n: checked.length }))}</button>
     <button type="button" class="primary danger" id="entries-bulk-tag-remove">${escapeHtml(tr("entriesBulk.tagGoRemove", { n: checked.length }))}</button>
     <p class="hint">${escapeHtml(tr("entriesBulk.linkUndoHint"))}</p>`;
@@ -5033,7 +5125,7 @@ function openEntriesTagSheet_() {
     }, async () => {
       await entriesAfterChange_();
       if (!result) return;
-      if (!result.changed.length) { alert(tr("entriesBulk.tagNoChange")); return; }
+      if (!result.changed.length) { showAppMessage_(tr("entriesBulk.tagNoChange")); return; }
       showUndoToast_(tr(mode === "add" ? "entriesBulk.tagDoneAdd" : "entriesBulk.tagDoneRemove", { n: result.changed.length, tag: tagName }), async () => {
         await callApi("undoSetEntriesTag", entriesListThen_({ ids: result.changed, tag_id: tagId, mode }));
         showToast_(tr("entriesBulk.catUndone"));
@@ -5086,7 +5178,7 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
     entriesDeletePreviewAhead_ = null;
     preview = ahead && ahead.key === key && Date.now() - ahead.at < 60000 ? await ahead.promise : await callApi("previewEntriesDelete", { ids });
   } catch (err) {
-    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    body.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
   }
   const items = preview.items || [];
@@ -5134,7 +5226,7 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
       refreshExpectedRecurring().catch(() => {});
       afterNewEntrySaved_();
       refreshLoans().catch(() => {});
-      if (result && result.kept.length) alert(tr("entriesBulk.resultKept", { items: entriesBulkKeptText_(result.kept, infoOf) }));
+      if (result && result.kept.length) showAppMessage_(tr("entriesBulk.resultKept", { items: entriesBulkKeptText_(result.kept, infoOf) }));
       // A safety copy was kept (stage 3): the toast offers Undo for 10 seconds, and the entries wait in More → Recently deleted for 30 days.
       if (result && result.batch_id && result.deleted.length) {
         practiceDNote_("deleted", result.deleted);
@@ -5351,11 +5443,25 @@ function restoreEntryDraft_() {
   let d = null;
   try { d = JSON.parse(localStorage.getItem(ENTRY_DRAFT_KEY) || "null"); } catch (err) { d = null; }
   if (!d || d.v !== 1 || !(Date.now() - d.savedAt < ENTRY_DRAFT_MAX_AGE_MS)) { clearEntryDraft_(); return false; }
-  if (document.getElementById("amount").value.trim() || document.getElementById("description").value.trim()) return false;
+  if (document.getElementById("amount").value.trim() || document.getElementById("description").value.trim()) {
+    // Still in the form from before the ✕ (same visit): it is the same unsaved entry, so it is announced the same way.
+    if (!payingRecurringId_) document.getElementById("draft-banner").hidden = false;
+    return false;
+  }
   applyEntryDraft_(d);
-  showFormNotice_(tr("entry.draftRestored"));
+  document.getElementById("draft-banner").hidden = false;
   return true;
 }
+
+// "Start over" on the restored-draft banner: the person asked for a blank form, so no question first.
+document.getElementById("draft-start-over-btn").addEventListener("click", () => {
+  selectedTagIds.clear();
+  populateTags();
+  resetSplitState();
+  entryDateTouched_ = false;
+  resetToFreshEntryScreen_();   // also clears the unsaved draft and hides the banner
+  document.getElementById("form-error").textContent = "";
+});
 
 // Fills the new-entry form from a draft (a saved one, or the income the "Received" button prepares).
 function applyEntryDraft_(d) {
@@ -5750,6 +5856,7 @@ function resetEntryFormFields_() {
 // same type/account/currency selected on purpose (see
 // resetEntryFormFields_ above) so logging several in a row stays fast.
 function resetToFreshEntryScreen_() {
+  document.getElementById("draft-banner").hidden = true;
   selectedType = "expense";
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === "expense"));
   resetEntryFormFields_();
@@ -5797,7 +5904,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed, s
       confirmText = tr(f.direction === "they_owe_me" ? "delete.forgivenessTheyOweMe" : "delete.forgivenessIOweThem", { friend: f.friend });
     }
     if (links.loan) {
-      alert(tr("delete.isLoan"));
+      showAppMessage_(tr("delete.isLoan"));
       return false;
     }
     if (links.refunds && links.refunds.length) {
@@ -5837,7 +5944,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed, s
   await callApi("discardEntry", { id, repayments: repaymentsChoice });
   if (partner) {
     try { await callApi("discardEntry", { id: partner.id }); }
-    catch (err) { alert(tr("delete.exchangeBothFailed", { error: err.message })); }
+    catch (err) { showAppMessage_(tr("delete.exchangeBothFailed", { error: err.message })); }
   }
   refreshLoans().catch(() => {});
   refreshHomeGlance_(true);   // the totals at the top of Home no longer include it
@@ -5871,7 +5978,7 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
     deletingEntryIds_.delete(id);
     renderEntryListFromCache_();
     await refreshAfterPopupEdit();
-    alert(err.message);
+    showAppMessage_(err.message);
     return;
   } finally {
     delBtnBack();
@@ -6071,6 +6178,22 @@ async function applyReviewAction_(a) {
 
 // Safe to call anytime, including at the top of every refresh — an
 // action already applied server-side just no-ops the second time.
+// Undo of a Needs review Confirm (owner, 2026-11-12): "Confirmed: −PEN 12.00 · Restaurants [Undo]" sends it back to waiting.
+// Only a plain expense or income (the server refuses a split one) and only where the backend has unconfirmEntry.
+function offerUnconfirmUndo_(entry, fields) {
+  if (!((meta && meta.capabilities) || {}).unconfirmEntry || (entry.type !== "expense" && entry.type !== "income") || isPracticeReviewEntry_(entry)) return;
+  const what = [formatAmount(Number(fields.amount) || 0, entry.currency, entry.type === "income" ? "+" : "−"), fields.category_id ? categoryName(fields.category_id) : ""].filter(Boolean).join(" · ");
+  showUndoToast_(tr("review.confirmedWhat", { what }), async () => {
+    try {
+      await callApi("unconfirmEntry", { id: entry.id });
+      showToast_(tr("review.unconfirmed"));
+      refreshReviewQueue().catch(() => {});
+      refreshEntryList().catch(() => {});
+      refreshHomeGlance_(true);
+    } catch (err) { showAppMessage_(err.message); }
+  }, "review-confirm");
+}
+
 async function flushQueuedReviewActions_() {
   for (const a of getQueuedReviewActions_()) {
     try {
@@ -6187,7 +6310,7 @@ function markQueuedEditStatus_(id, status, error, waitingNet) {
 function blockedWhileSavingEdit_(id) {
   const q = findQueuedEdit_(id);
   if (q && q.status === "saving" && !q.waitingNet) {
-    alert(tr("entry.stillSaving"));
+    showAppMessage_(tr("entry.stillSaving"));
     return true;
   }
   return false;
@@ -6415,7 +6538,7 @@ async function flushEntryEdit_(id) {
           if (linkFailed) showToast_(tr("paid.linkFailed"));
           else if (created && created.guessed_category_name) showToast_(tr("entry.savedGuessed", { category: created.guessed_category_name }));
           else if (created && edit.fields.type === "expense" && !created.category_id) showToast_(tr("entry.savedNoCategory"));
-          else showToast_(tr("entry.savedToast"));
+          else showSavedWithUndo_(edit);
         }
         break;
       }
@@ -6731,7 +6854,7 @@ document.getElementById("save-failed-banner").addEventListener("click", async ()
       return;
     }
   } else {
-    alert(tr("entry.notInListFailed", { what, error: f.lastError || "" }));
+    showAppMessage_(tr("entry.notInListFailed", { what, error: f.lastError || "" }));
   }
   if (await askConfirmApp_(tr("money.failedDiscard", { what }), tr("confirmBtn.discard"))) {
     unqueueEntryEdit_(f.id);
@@ -6951,7 +7074,7 @@ document.getElementById("review-confirm-selected-btn").addEventListener("click",
   const ready = chosen.filter((e) => !reviewIssue_(e));
   const notReady = chosen.filter((e) => reviewIssue_(e));
   const notReadyText = notReady.map((e) => reviewIssueText_(e, reviewIssue_(e))).join(", ");
-  if (!ready.length) { alert(tr("reviewBulk.noneReady", { items: notReadyText })); return; }
+  if (!ready.length) { showAppMessage_(tr("reviewBulk.noneReady", { items: notReadyText })); return; }
   const left = notReady.length ? tr("reviewBulk.leftNote", { items: notReadyText }) : "";
   if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }), tr("confirmBtn.yes"), { plain: true })) return;
   const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (e.trip_id || e.suggested_trip_id || "") : undefined }));
@@ -6972,7 +7095,7 @@ document.getElementById("review-confirm-selected-btn").addEventListener("click",
     refreshHomeGlance_(true);
     await refreshReviewQueue(undefined, true).catch(() => {});
     if (!result || !result.kept.length) return;
-    alert(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
+    showAppMessage_(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
   }, {
     busy: "reviewBulk.confirming",
     done: () => result && result.confirmed.length && !result.kept.length ? tr("reviewBulk.doneConfirmed", { n: result.confirmed.length, names: reviewNames_(result.confirmed.map((id) => byId.get(id)).filter(Boolean)) }) : "",
@@ -6984,7 +7107,7 @@ document.getElementById("review-discard-selected-btn").addEventListener("click",
   if (!chosen.length) return;
   const parts = chosen.filter(reviewIsRepaymentPart_);
   const ready = chosen.filter((e) => !reviewIsRepaymentPart_(e));
-  if (!ready.length) { alert(tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }).trim()); return; }
+  if (!ready.length) { showAppMessage_(tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }).trim()); return; }
   const note = parts.length ? tr("reviewBulk.repaymentNote", { names: parts.map(reviewShortName_).join(", ") }) : "";
   const safe = !!(meta && meta.capabilities && meta.capabilities.entriesRestore);   // a backend with the safety copy: Discard can be undone
   if (!await askConfirmApp_(tr(safe ? "reviewBulk.discardAskSafe" : "reviewBulk.discardAsk", { n: ready.length, list: reviewListText_(ready), note }), tr("confirmBtn.discard"))) return;
@@ -7004,13 +7127,14 @@ document.getElementById("review-discard-selected-btn").addEventListener("click",
       showUndoToast_(tr("reviewBulk.doneUndo", { n: result.discarded.length, names: reviewNames_(result.discarded.map((id) => byId.get(id)).filter(Boolean)) }), () => restoreDeletedBatch_({ batch_id: result.batch_id, ids: result.discarded }), "review");
     }
     if (!result || !result.kept.length) return;
-    alert(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
+    showAppMessage_(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
   }, {
     busy: "reviewBulk.discarding",
     done: () => result && result.discarded.length && !result.kept.length && !result.batch_id ? tr("reviewBulk.doneDiscarded", { n: result.discarded.length, names: reviewNames_(result.discarded.map((id) => byId.get(id)).filter(Boolean)) }) : "",
   });
 });
 
+let reviewExpanded_ = new Set(), reviewMoreOpen_ = new Set();   // Needs review items the person opened / whose extra actions are showing
 async function refreshReviewQueue(prefetchedPending, skipFlush) {
   if (!skipFlush) await flushQueuedReviewActions_();
   const queuedIds = new Set(getQueuedReviewActions_().map((a) => a.id));
@@ -7039,7 +7163,11 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   entries.forEach((entry) => {
     if (reviewEditing_) { list.appendChild(compactReviewRow_(entry)); return; }   // Edit mode: a tick row instead of the whole card
     const item = document.createElement("div");
-    item.className = "review-item";
+    // Short rows (owner, 2026-11-12): an item starts closed (its top, warnings, category and a ✓ that confirms it as it is);
+    // a tap opens the full form; the extra actions sit behind "More actions" (open by themselves when the app suspects one).
+    const open = reviewExpanded_.has(entry.id) || Spotlight.isRunning();   // a list redrawn during a walkthrough keeps its items open
+    const moreOpen = reviewMoreOpen_.has(entry.id) || !!entry.loan_hint;
+    item.className = "review-item" + (open ? "" : " review-collapsed") + (moreOpen ? "" : " review-more-closed");
     item.dataset.entryId = entry.id;
 
     const categoryOptions = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === entry.type), entry.category_id))
@@ -7061,6 +7189,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       ${entry.waiting_match ? `<div class="review-charge-match"><div>${escapeHtml(tr("income.matchAsk", { name: entry.waiting_match.friend_name, amount: formatAmount(entry.waiting_match.remaining, entry.waiting_match.currency) }))}</div><button type="button" class="stmt-choice review-waiting-btn">${escapeHtml(tr("income.matchYes"))}</button></div>` : ""}
       ${/^(Overpayment (from|to) |Pago de más (de|a) )/.test(entry.description || "") ? `<p class="hint review-overpay-note">${escapeHtml(tr("review.overpayNote"))}</p>` : ""}
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
+      <div class="review-quick">
+        <span class="review-quick-cat">${escapeHtml(entry.type === "investment" ? (TYPE_LABELS.investment || "") : (entry.category_id ? categoryName(entry.category_id) : tr("review.pickCategory")))}</span>
+        <button type="button" class="review-quick-confirm">${tr("review.confirm")}</button>
+      </div>
       <div class="review-item-fields">
         ${entry.type === "investment" ? "" : `<div class="review-field review-field-wide">
           <label class="review-field-label">${escapeHtml(tr("field.category"))}</label>
@@ -7097,6 +7229,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
       </div>
       ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" || entry.type === "investment" ? `
+      <button type="button" class="add-inline review-more-actions" aria-expanded="${moreOpen}">${tr("review.moreActions")}</button>
       <div class="review-item-secondary-actions">
         <button type="button" class="add-inline review-type-btn">${tr("review.changeType")}</button>
         ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
@@ -7115,6 +7248,23 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
 
     const confirmBtn = item.querySelector(".review-confirm-btn");
     const discardBtn = item.querySelector(".review-discard-btn");
+    item.querySelector(".review-item-top").addEventListener("click", (ev) => {
+      if (ev.target.closest("button, a, select, input")) return;
+      const nowOpen = item.classList.toggle("review-collapsed") === false;
+      if (nowOpen) reviewExpanded_.add(entry.id); else reviewExpanded_.delete(entry.id);
+    });
+    item.querySelector(".review-quick-confirm").addEventListener("click", () => {
+      // One tap: the same Confirm, with what the item already holds. Anything missing opens the item with the message.
+      item.classList.remove("review-collapsed");
+      reviewExpanded_.add(entry.id);
+      confirmBtn.click();
+    });
+    const moreBtn = item.querySelector(".review-more-actions");
+    if (moreBtn) moreBtn.addEventListener("click", () => {
+      const nowOpen = item.classList.toggle("review-more-closed") === false;
+      moreBtn.setAttribute("aria-expanded", String(nowOpen));
+      if (nowOpen) reviewMoreOpen_.add(entry.id); else reviewMoreOpen_.delete(entry.id);
+    });
     const chargeBtn = item.querySelector(".review-charge-btn");
     if (chargeBtn) chargeBtn.addEventListener("click", () => {
       item.remove();
@@ -7143,7 +7293,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         return;
       }
       if (!amountStr || isNaN(amount) || amount <= 0) {
-        alert(tr("error.validAmount"));
+        showAppMessage_(tr("error.validAmount"));
         return;
       }
 
@@ -7157,11 +7307,11 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const fromVal = item.querySelector(".review-from").value, toVal = item.querySelector(".review-to").value;
         // Each side is an account or, said on purpose, "Outside my accounts": a box left on "Pick the account…" used to be saved
         // quietly as someone else's account (1.76.1).
-        if (!fromVal || !toVal) { alert(tr("review.pickBothSides")); return; }
+        if (!fromVal || !toVal) { showAppMessage_(tr("review.pickBothSides")); return; }
         const fromId = fromVal === REVIEW_OUTSIDE_ ? "" : fromVal, toId = toVal === REVIEW_OUTSIDE_ ? "" : toVal;
-        if (!fromId && !toId) { alert(tr("error.pickAccount")); return; }
+        if (!fromId && !toId) { showAppMessage_(tr("error.pickAccount")); return; }
         if (fromId && toId && fromId === toId) {
-          alert(tr("error.sameAccount"));
+          showAppMessage_(tr("error.sameAccount"));
           return;
         }
         fields.payment_method_id = fromId;
@@ -7170,7 +7320,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (entry.type === "investment") {
         const platformId = item.querySelector(".review-platform").value;
         if (!platformId) {
-          alert(tr("review.pickPlatformFirst"));
+          showAppMessage_(tr("review.pickPlatformFirst"));
           return;
         }
         fields.to_payment_method_id = platformId;
@@ -7197,6 +7347,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         refreshExpectedRecurring();
         refreshHomeGlance_(true);   // a confirmed entry now counts in the totals at the top of Home
         if (followed) onCategoryFollowed_(followed);
+        else offerUnconfirmUndo_(entry, fields);
       } catch (err) {
         // Stays queued — the next refreshReviewQueue (including on the
         // next app open) retries it automatically, no action needed here.
@@ -7213,7 +7364,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         if (partOf.friend_id && transferId && await askConfirmApp_(tr("delete.openRepaymentAsk", { friend: partOf.friend }), tr("confirmBtn.yes"), { plain: true })) {
           await openRepaymentEditorForEntry_(partOf.friend_id, partOf.friend, transferId);
         } else if (!partOf.friend_id || !transferId) {
-          alert(tr("review.partOfRepayment"));
+          showAppMessage_(tr("review.partOfRepayment"));
         }
         return;
       }
@@ -7258,7 +7409,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           fresh = await callApi("getEntry", { id: entry.id });
         } catch (err) { /* offline / slow: fall back to what the row has */ }
         if (!fresh || fresh.status !== "pending") {
-          alert(tr("review.alreadyHandled"));
+          showAppMessage_(tr("review.alreadyHandled"));
           refreshReviewQueue().catch(() => {});
           return null;
         }
@@ -7630,8 +7781,52 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
 let newEntrySheetOpen_ = false;
 
 let entryFormLeftOpen_ = false;
+// ---- "More details": the optional fields folded on a new expense or income (owner, 2026-11-12) ----
+// Paid by, account, "not received yet", split, tags, trip and company sit behind one row with a summary of what they are set
+// to. Only a NEW expense or income folds them; an edit, a Needs review confirmation, a transfer or an investment shows them.
+let moreDetailsOpen_ = false;
+function moreDetailsFoldable_() {
+  return (selectedType === "expense" || selectedType === "income") && entryFormIsNewEntry_() && !confirmingPendingId && !editingEntryId;
+}
+function moreDetailsFolded_() { return moreDetailsFoldable_() && !moreDetailsOpen_; }
+function moreDetailsSummary_() {
+  const el = (id) => document.getElementById(id);
+  const shown = (id) => { const e = el(id); return !!e && !e.hidden && !(e.closest("[hidden]") && e.closest("[hidden]") !== el("more-details-body")); };
+  const opt = (id) => { const sel = el(id); return sel && sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent.trim() : ""; };
+  const parts = [];
+  if (shown("paid_by") && opt("paid_by")) parts.push(opt("paid_by"));
+  if (shown("payment-method-field") && el("payment_method").value) parts.push(opt("payment_method"));
+  if (shown("split-field") && el("split-toggle").checked) parts.push(tr("entry.moreSplit", { n: splitFriendIds.size }));
+  if (shown("trip-field") && el("entry-trip").value) parts.push(opt("entry-trip"));
+  if (selectedTagIds.size) parts.push(tr("entry.moreTags", { n: selectedTagIds.size }));
+  return parts.join(" · ");
+}
+function syncMoreDetails_() {
+  const toggle = document.getElementById("more-details-toggle");
+  const body = document.getElementById("more-details-body");
+  const fold = moreDetailsFoldable_();
+  const closed = fold && !moreDetailsOpen_;
+  if (toggle.hidden !== !fold) toggle.hidden = !fold;
+  if (body.hidden !== closed) body.hidden = closed;
+  const expanded = String(!closed);
+  if (toggle.getAttribute("aria-expanded") !== expanded) toggle.setAttribute("aria-expanded", expanded);
+  const sum = (moreDetailsSummary_() || "") + (closed ? " ›" : "");
+  const sumEl = document.getElementById("more-details-sum");
+  if (sumEl.textContent !== sum) sumEl.textContent = sum;
+}
+function setMoreDetailsOpen_(open) { moreDetailsOpen_ = open; syncMoreDetails_(); }
+document.getElementById("more-details-toggle").addEventListener("click", () => setMoreDetailsOpen_(!moreDetailsOpen_));
+// The form changes from many places (type tabs, category, edits, restores): follow it, writing only what really changed.
+(function watchMoreDetails_() {
+  let queued = false;
+  new MutationObserver(() => { if (queued) return; queued = true; requestAnimationFrame(() => { queued = false; syncMoreDetails_(); }); })
+    .observe(document.getElementById("entry-card"), { subtree: true, childList: true, attributes: true, attributeFilter: ["hidden", "class"] });
+  document.getElementById("entry-card").addEventListener("change", () => syncMoreDetails_());
+})();
+
 function openNewEntrySheet_() {
   if (newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId) return;
+  moreDetailsOpen_ = false;   // each new entry starts with its details folded
   const backdrop = document.getElementById("edit-entry-modal-backdrop");
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
   document.getElementById("edit-entry-modal-title").textContent = tr("entry.newTitle");
@@ -7654,6 +7849,7 @@ function openNewEntrySheet_() {
 }
 
 function closeNewEntrySheet_() {
+  document.getElementById("draft-banner").hidden = true;   // shown again by restoreEntryDraft_ on the next "+"
   if (payingRecurringId_) {
     // Opened from Mark as paid: the item's values are not a draft to come back to.
     payingRecurringId_ = null;
@@ -7811,6 +8007,8 @@ function syncFab_() {
   const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
   const name = visible ? visible.id.replace(/^screen-/, "") : "";
   fab.hidden = nav.hidden || reviewEditing_ || entriesEditing_ || !(name === "entries" || name === "overview");
+  // While the "+" shows, the page ends with room for it, so it never covers the last button of a list (design review 2026-11-12).
+  document.body.classList.toggle("fab-room", !fab.hidden);
   // The bar's height WITHOUT its bottom safe-area padding: the stylesheet adds the safe area
   // itself (env()), which the browser updates live. Measuring it here was the bug: the phone
   // reports the safe area as 0 for a moment after opening, so the "+" landed on the bar.
@@ -7931,6 +8129,9 @@ function homeCardEl_(cls, html) {
 }
 
 function homeMainCard_(g) {
+  // Owner's redesign (2026-11-12): What's left is the headline, with its currency; four boxes under it (Income, Expenses,
+  // Investments, Loans) that ADD UP to it, the Income and Expenses boxes carrying the bars' colours so they are the
+  // legend; a grey title over the bars. "Spent this month" and "% vs last month" left (Spending pace covers them).
   const months = g.months;
   let idx = months.findIndex((m) => m.month === homeSelectedMonth_);
   if (idx < 0) idx = months.length - 1;
@@ -7938,50 +8139,34 @@ function homeMainCard_(g) {
   const isCurrent = idx === months.length - 1;
   const [y, mo] = m.month.split("-").map(Number);
   const label = isCurrent
-    ? tr("home.spentThisMonth")
-    : tr("home.spentIn", { month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), true) });
-
-  // This month is compared with the same day of last month (a half month against a whole one would
-  // always look like a saving); an earlier month, with the month before it.
-  let base = null;
-  if (isCurrent) {
-    const p = g.pace.prev;
-    base = p.length ? p[Math.min(g.pace.curDay, p.length) - 1] : null;
-  } else if (idx > 0) {
-    base = months[idx - 1].expense;
-  }
-  let delta = "";
-  if (base != null && base > 0.005) {
-    const pct = Math.round(((m.expense - base) / base) * 100);
-    const arrow = pct > 0 ? "↑" : pct < 0 ? "↓" : "→";
-    delta = `<div class="home-delta ${pct > 0 ? "bad" : pct < 0 ? "good" : ""}">${escapeHtml(tr(isCurrent ? "home.vsSameDay" : "home.vsLast", { arrow, pct: Math.abs(pct) }))}</div>`;
-  }
-
+    ? tr("home.leftThisMonth")
+    : tr("home.leftIn", { month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), true) });
   const net = m.net;
+  const signed = (v) => `${Math.round(v) > 0 ? "+" : Math.round(v) < 0 ? "−" : ""}${homeShort_(v)}`;
   const four = `
     <div class="home-four">
-      <div class="home-four-box"><span>${escapeHtml(tr("summary.income"))}</span><b class="income">${homeShort_(m.income)}</b></div>
-      <div class="home-four-box"><span>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${homeShort_(m.expense)}</b></div>
-      <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${homeShort_(m.investment)}</b></div>
-      <div class="home-four-box"><span>${escapeHtml(tr("summary.net"))}</span><b class="${net < 0 ? "expense" : ""}">${net < 0 ? "−" : ""}${homeShort_(net)}</b></div>
-    </div>${Math.abs(m.loans || 0) >= 0.005 ? `<p class="hint home-loans-note">${escapeHtml(tr("home.loansIncluded", { amount: homeWholeSigned_(m.loans) }))}</p>` : ""}`;
+      <div class="home-four-box"><span><i class="home-key" style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><b class="income">${signed(m.income)}</b></div>
+      <div class="home-four-box"><span><i class="home-key" style="background:var(--expense)"></i>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${signed(-m.expense)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${signed(-m.investment)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.loans"))}</span><b class="${(m.loans || 0) > 0.5 ? "income" : ""}">${signed(m.loans || 0)}</b></div>
+    </div>`;
 
   const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
   const bars = months.map((x, i) => {
     const mi = Number(x.month.split("-")[1]) - 1;
     const h = (v) => Math.max(2, Math.round((v / top) * 84));
-    return `<button type="button" class="home-bar-col${i === idx ? " on" : ""}" data-month="${x.month}">
-      <span class="home-bar-pair"><span class="home-bar income" style="height:${h(x.income)}px"></span><span class="home-bar expense" style="height:${h(x.expense)}px"></span></span>
-      <span>${escapeHtml(I18n.monthShort(mi, true))}</span></button>`;
+    return `<button type="button" class="home-bar-col${i === idx ? " on" : ""}" data-month="${x.month}" aria-label="${escapeHtml(tr("home.barAria", { month: I18n.fmtMonthYear(new Date(Number(x.month.slice(0, 4)), mi, 1), true), income: homeWhole_(x.income), expenses: homeWhole_(x.expense) }))}">
+      <span class="home-bar-pair" aria-hidden="true"><span class="home-bar income" style="height:${h(x.income)}px"></span><span class="home-bar expense" style="height:${h(x.expense)}px"></span></span>
+      <span aria-hidden="true">${escapeHtml(I18n.monthShort(mi, true))}</span></button>`;
   }).join("");
 
   const el = homeCardEl_("home-card-main", `
     <div class="home-card-label">${escapeHtml(label)}</div>
-    <div class="home-big">${escapeHtml(homeWhole_(m.expense))}</div>
-    ${delta}
+    <div class="home-big">${escapeHtml(homeWholeSigned_(net))}</div>
     ${four}
+    <div class="home-bars-title">${escapeHtml(tr("home.barsTitle"))}</div>
     <div class="home-bars">${bars}</div>
-    <div class="home-legend"><span><i style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><span><i style="background:var(--expense)"></i>${escapeHtml(tr("summary.expenses"))}</span><span>${escapeHtml(tr("home.allMonths"))} ›</span></div>`);
+    <div class="home-legend"><span>${escapeHtml(tr("home.allMonths"))} ›</span></div>`);
   el.classList.add("home-card-tap");
   el.addEventListener("click", (ev) => { if (!ev.target.closest(".home-bar-col")) openOverviewAt_("months-card"); });
   el.querySelectorAll(".home-bar-col").forEach((b) => b.addEventListener("click", () => {
@@ -8204,6 +8389,7 @@ function holdScroll_(name, whereY) {
   TOUCHES.forEach((t) => window.addEventListener(t, endTabScrollHold_, { capture: true, passive: true }));
 }
 function showScreen(name) {
+  teachVisit_++;   // the daily teaching budget allows one unasked thing per screen visit
   rememberTabScroll_(name);
   if (name !== "budgets" && budgetsEditing_) setBudgetsEditing_(false, false);
   if (name !== "accounts" && accountsEditing_) setAccountsEditing_(false);
@@ -8313,7 +8499,14 @@ function setLoadFailed_(name, err) {
     const selector = document.getElementById("period-selector-card");
     if (selector.parentElement === screen) selector.after(note); else screen.prepend(note);
   }
-  note.textContent = tr("business.loadFailed", { error: err.message || String(err) });
+  // One error block for every screen (design review 2026-11-12): a sentence at full size and a "Try again" button where the
+  // content would be (it was a small grey line with nothing to tap).
+  note.innerHTML = `<span class="state-error-icon" aria-hidden="true">⚠️</span><p class="state-error-text"></p><button type="button" class="secondary-btn state-error-retry"></button>`;
+  note.setAttribute("role", "alert");
+  note.querySelector(".state-error-text").textContent = tr("business.loadFailed", { error: err.message || String(err) });
+  const retry = note.querySelector(".state-error-retry");
+  retry.textContent = tr("common.tryAgain");
+  retry.onclick = () => { retry.disabled = true; retry.textContent = tr("common.loading"); showScreen(name); };
 }
 // The connection is back: the open screen tries again by itself.
 window.addEventListener("online", () => {
@@ -10852,7 +11045,7 @@ async function removeBudget_(b, full, name) {
   closeBudgetModal();
   closeDrilldown();
   try { await callApi(end ? "endBudget" : "deleteBudget", { id }); }
-  catch (err) { unmarkDeleting_("budget:" + id); alert(tr("budget.deleteFailed", { error: err.message })); }
+  catch (err) { unmarkDeleting_("budget:" + id); showAppMessage_(tr("budget.deleteFailed", { error: err.message })); }
   refreshBudgetsInBackground_();
 }
 document.getElementById("budget-delete-btn").addEventListener("click", () => removeBudgetFromForm_(false));
@@ -11173,7 +11366,7 @@ function offerBulkUndo_(deletedNames, hiddenNames, undo, kind) {
 }
 // A server answer to a restore that could not bring some back (their name is in use again).
 function alertNotRestored_(skipped) {
-  if (skipped && skipped.length) alert(tr("bulkUndo.skipped", { names: skipped.join(", ") }));
+  if (skipped && skipped.length) showAppMessage_(tr("bulkUndo.skipped", { names: skipped.join(", ") }));
 }
 // "Undone" only when everything came back; a partial restore says so.
 const undoneText_ = (skipped) => tr(skipped && skipped.length ? "bulkUndo.partial" : "tidy.undone");
@@ -11245,7 +11438,7 @@ document.getElementById("budgets-delete-selected-btn").addEventListener("click",
   }, async () => {
     try { await refreshBudgets(); }
     catch (err) { document.getElementById("budgets-list").innerHTML = `<div class="status-msg">${escapeHtml(tr("budget.refreshFailed", { error: err.message }))}</div>`; }
-    if (result && result.missing.length) alert(tr("budgets.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
+    if (result && result.missing.length) showAppMessage_(tr("budgets.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
   }, {
     busy: "common.deletingToast", release: delKeys,
     done: () => {
@@ -11403,6 +11596,14 @@ function renderNotices_() {
   card.hidden = !notices_.length;
   const list = document.getElementById("notices-list");
   list.innerHTML = "";
+  // One line that counts them by kind ("Budgets: 6 · Loans: 1 ›"); the list opens on a tap and stays open this visit.
+  const counts = {};
+  notices_.forEach((n) => { const k = ["budget", "loan", "trip"].includes(n.kind) ? n.kind : "other"; counts[k] = (counts[k] || 0) + 1; });
+  const summary = document.getElementById("notices-summary");
+  summary.textContent = ["budget", "loan", "trip", "other"].filter((k) => counts[k]).map((k) => tr("notices.count." + k, { n: counts[k] })).join(" · ") + (noticesOpen_ ? "" : " ›");
+  summary.setAttribute("aria-expanded", String(noticesOpen_));
+  list.hidden = !noticesOpen_;
+  document.getElementById("notices-dismiss-all").hidden = !noticesOpen_;
   notices_.forEach((n) => {
     const li = document.createElement("li");
     const body = document.createElement("div");
@@ -11430,7 +11631,7 @@ function renderNotices_() {
     list.appendChild(li);
   });
   const more = document.getElementById("notices-more");
-  more.hidden = !noticesMore_;
+  more.hidden = !noticesMore_ || !noticesOpen_;
   if (noticesMore_) more.textContent = tr("notices.more", { n: noticesMore_ });
 }
 async function dismissNotices_(payload) {
@@ -11441,6 +11642,8 @@ async function dismissNotices_(payload) {
   if (noticesMore_) loadNotices_();   // dismissing may let notices beyond the first 20 appear
 }
 document.getElementById("notices-dismiss-all").addEventListener("click", () => dismissNotices_({ all: true }));
+let noticesOpen_ = false;
+document.getElementById("notices-summary").addEventListener("click", () => { noticesOpen_ = !noticesOpen_; renderNotices_(); });
 
 // An alert hint says "It also arrives on Telegram" only when a Telegram chat is linked; a friend's copy has none.
 function refreshAlertHints_() {
@@ -12748,7 +12951,7 @@ function renderWelcomeQuestions_() {
   } }));
   box.appendChild(more);
   welcomeEl_("welcome-error").textContent = "";
-  welcomeEl_("wq-step").textContent = tr("welcome.step", { n: 1 });
+  welcomeEl_("wq-step").textContent = tr("welcome.step", { n: 1, total: welcomeSteps_() });
 }
 // The MAIN currency has its own explicit row (a list, since 2026-10-28; it used to be a hidden double-tap on a chip). It is
 // always one of the quick currencies, and the old main one stays in the list as an ordinary currency.
@@ -13014,7 +13217,7 @@ const payFromSetting_ = (v) => { const [pay, kinds] = String(v || "").split(":")
 const payVaries_ = () => { const p = payFromSetting_(meta && meta.settings && meta.settings.pay); return p.varies && !p.salary; };
 function renderWelcomeFits_() {
   I18n.applyStatic(welcomeEl_("welcome-fits"));
-  welcomeEl_("wf-step").textContent = tr("welcome.step", { n: 2 });
+  welcomeEl_("wf-step").textContent = tr("welcome.step", { n: 2, total: welcomeSteps_() });
   const occOn = !!(meta && meta.capabilities && meta.capabilities.occupation);
   welcomeEl_("wpay-block").hidden = !occOn;
   if (occOn) fillOccupationChips_(welcomeEl_("wpay-box"), welcome_.occ || { list: [], kinds: [] }, (c) => { welcome_.occ = c; renderWelcomeFits_(); });
@@ -13035,7 +13238,7 @@ function renderWelcomeAccounts_() {
   waEl_("wa-root").hidden = inBank;
   waEl_("wa-bank").hidden = !inBank;
   if (inBank) { renderWaBank_(); return; }
-  waEl_("wa-step").textContent = tr("welcome.step", { n: 3 });
+  waEl_("wa-step").textContent = tr("welcome.step", { n: 3, total: welcomeSteps_() });
   waEl_("wa-name-block").hidden = !(meta && meta.capabilities && meta.capabilities.ownName);   // an older backend cannot take the answer
   waEl_("wa-name").value = welcome_.ownName;
   const cat = waCatalog_();
@@ -13325,7 +13528,7 @@ const WP_GROUPS = [
 const wpAllNames_ = () => WP_GROUPS.flatMap((g) => g.names()).concat(welcome_.platformsCustom);
 function renderWelcomePlatforms_() {
   I18n.applyStatic(waEl_("welcome-platforms"));
-  waEl_("wp-step").textContent = tr("welcome.step", { n: 4 });
+  waEl_("wp-step").textContent = tr("welcome.step", { n: 4, total: welcomeSteps_() });
   const box = waEl_("wp-chips");
   box.innerHTML = "";
   const chip = (name) => {
@@ -13370,6 +13573,24 @@ waEl_("wp-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { 
 waEl_("wp-back-btn").addEventListener("click", () => showWelcomeStep_(3));
 
 // The end of step 4: save the accounts, the platforms, the Business answer, the category picks, then the answers of step 1 (marked "answered" last, so an interrupted save asks again).
+// The welcome counts every screen it shows (design review 2026-11-12: "Step 1 of 4", then an uncounted 5th, the sharing
+// question): 5 while that question is still to come, else 4.
+function welcomeSteps_() { return perfShareState_().asked && !perfIsOwnerCopy_() ? 4 : 5; }
+// The tour is offered, not started (owner, 2026-11-12): "Want a 1-minute tour?" Show me / Skip. Skipping ends the welcome the
+// way the tour's own end does (a reload when the answers changed the app).
+async function offerTour_(reloadAfter) {
+  const yes = await askConfirmApp_(tr("welcome.tourAsk"), tr("welcome.tourYes"), { plain: true, cancel: tr("welcome.tourSkip") });
+  if (yes) { openTour_(reloadAfter); return; }
+  welcomeEl_("welcome-overlay").hidden = true;
+  if (reloadAfter) window.location.reload();
+}
+function openWelcomeShare_(then) {
+  const step = document.getElementById("perf-share-step");
+  step.textContent = tr("welcome.step", { n: 5, total: 5 });
+  step.hidden = false;
+  openPerfShareModal_(() => { step.hidden = true; then(); });
+}
+
 async function finishWelcome_() {
   const btn = waEl_("wp-next-btn");
   btn.disabled = true; btn.textContent = tr("welcome.saving");
@@ -13380,8 +13601,8 @@ async function finishWelcome_() {
     welcomeEl_("welcome-accounts").hidden = true;
     welcomeEl_("welcome-platforms").hidden = true;
     const toTourPreview = () => {
-      if (perfShareState_().asked && !perfIsOwnerCopy_()) openTour_(true);
-      else openPerfShareModal_(() => openTour_(true));
+      if (perfShareState_().asked && !perfIsOwnerCopy_()) offerTour_(true);
+      else openWelcomeShare_(() => offerTour_(true));
     };
     toTourPreview();   // the Bank emails sheet is a "Getting started" step on Home now, not a sheet after the welcome
     return;
@@ -13421,8 +13642,8 @@ async function finishWelcome_() {
   // The new accounts, platforms and categories must show up in the app right away (entry form, Accounts & cards): reload on the way out.
   const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName || !!(welcome_.occ && welcome_.occ.list.length);
   const toTour = () => {
-    if (perfShareState_().asked) openTour_(reloadAfter);
-    else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
+    if (perfShareState_().asked) offerTour_(reloadAfter);
+    else openWelcomeShare_(() => offerTour_(reloadAfter));   // the last welcome question (step 5 of 5): share app speed with the owner
   };
   // Which inbox is read, and how other banks' e-mails get there, is a "Getting started" step on Home (renderFirstSteps_), not a sheet here.
   toTour();
@@ -13901,7 +14122,7 @@ async function showMyProfileScreen() {
     body.hidden = false;
     watchProfileTip_();
   } catch (e) {
-    loading.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(e.message)}</p>`;
+    loading.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(e.message)}</p>`;
   }
 }
 document.getElementById("more-my-profile-btn").addEventListener("click", showMyProfileScreen);
@@ -14250,7 +14471,7 @@ function exportRequest_() {
   if (!cards.length) return null;
   const range = exportDateRange_();
   if (cards.includes("entries") && exportEl_("export-range").value === "custom" && !range.startDate && !range.endDate) {
-    status.style.color = "#d64545";
+    status.style.color = "var(--danger)";
     status.textContent = tr("export.pickDates");
     return null;
   }
@@ -14289,7 +14510,7 @@ async function getExportFiles_() {
     });
     ready.hidden = false;
   } catch (err) {
-    status.style.color = "#d64545";
+    status.style.color = "var(--danger)";
     status.textContent = err.message;
   } finally {
     refreshExportScreen_();
@@ -14321,7 +14542,7 @@ async function saveExportFile_(f) {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (err) {
-    status.style.color = "#d64545";
+    status.style.color = "var(--danger)";
     status.textContent = err.message;
   }
 }
@@ -14339,7 +14560,7 @@ async function sendExport_() {
     const parts = res.files.map(exportFileLabel_);
     status.textContent = tr("export.sent", { files: parts.join(tr("export.and")) });
   } catch (err) {
-    status.style.color = "#d64545";
+    status.style.color = "var(--danger)";
     status.textContent = err.message;
   } finally {
     refreshExportScreen_();
@@ -14513,6 +14734,27 @@ function dismissUndoToast_() {
     if (swallowClick) { swallowClick = false; e.stopImmediatePropagation(); e.preventDefault(); }
   }, true);
 })();
+// "Saved: −PEN 23.50 · Restaurants [Undo]" (design review 2026-11-12: the toast said only "Entry saved" and the new row
+// could be screens away). Undo = delete it, offered only for a plain expense or income (no split, friend, link or repeat),
+// where deleting touches nothing else.
+function showSavedWithUndo_(edit) {
+  const f = edit.fields || {};
+  const plain = (f.type === "expense" || f.type === "income") && (!f.paid_by || f.paid_by === "me") && !(edit.splits && edit.splits.length)
+    && !edit.linkRecurringId && !edit.repeat && !edit.bill;
+  const sign = f.type === "income" ? "+" : "−";
+  const what = [formatAmount(Number(f.amount) || 0, f.currency || homeCur(), sign), f.category_id ? categoryName(f.category_id) : (f.description || "")].filter(Boolean).join(" · ");
+  const text = tr("entry.savedWhat", { what });
+  if (!plain) { showToast_(text); return; }
+  showUndoToast_(text, async () => {
+    try {
+      await callApi("discardEntry", { id: edit.id });
+      showToast_(tr("entry.undone"));
+      refreshEntryList().catch(() => {});
+      refreshHomeGlance_(true);
+    } catch (err) { showAppMessage_(err.message); }
+  }, "entry-save");
+}
+
 function showUndoToast_(text, onUndo, kind) {
   appUndoStack_.unshift({ text, action: onUndo, kind: kind || "", at: Date.now() });
   if (appUndoStack_.length > UNDO_STACK_MAX_) appUndoStack_.length = UNDO_STACK_MAX_;
@@ -14527,7 +14769,7 @@ document.getElementById("app-undo-btn").addEventListener("click", async () => {
   document.getElementById("app-undo-toast").hidden = true;
   clearTimeout(appUndoTimer_);
   if (!entry) return;
-  try { await entry.action(); } catch (err) { alert(err.message || String(err)); }
+  try { await entry.action(); } catch (err) { showAppMessage_(err.message || String(err)); }
   appUndoStack_ = appUndoStack_.filter((e) => Date.now() - e.at < UNDO_STACK_FRESH_MS_);
   paintUndoToast_();   // the one before it, if any
 });
@@ -14555,7 +14797,7 @@ async function restoreDeletedBatch_(payload) {
   const out = await callApi("restoreDeletedEntries", payload);
   practiceDNote_("restored", out.restored);
   showToast_(out.restored.length ? tr("deleted.restored", { n: out.restored.length }) : tr("deleted.restoredNone"), false, 6000);   // (everything was already back)
-  if (out.lostDebt && out.lostDebt.length) alert(tr("deleted.lostDebt", { n: out.lostDebt.length }));
+  if (out.lostDebt && out.lostDebt.length) showAppMessage_(tr("deleted.lostDebt", { n: out.lostDebt.length }));
   try { await refreshEntryList(); } catch (e) { /* the list shows its own error */ }
   if (searchActive) await refreshSearchAfterEdit_();
   afterNewEntrySaved_();
@@ -14712,7 +14954,7 @@ function practiceDSteps_() {
     { target: restoreBtn, text: () => tr("spot.d.s12"), until: () => !!(practiceD_ && (practiceD_.restored || practiceD_.restoreTapped)), wait: 20000, poke: pokeDeleted,
       before: async () => {
         for (let i = 0; i < 100 && !(practiceD_ && practiceD_.deleted); i++) await sleep(400);   // up to 40 s for the server (usually long done)
-        if (!(practiceD_ && practiceD_.deleted)) { alert(tr("spot.d.deleteFailed")); Spotlight.stop("skipped"); return false; }
+        if (!(practiceD_ && practiceD_.deleted)) { showAppMessage_(tr("spot.d.deleteFailed")); Spotlight.stop("skipped"); return false; }
         if (!batch()) pokeDeleted();   // the screen opened before the delete landed
         return true;
       } },
@@ -14733,7 +14975,7 @@ async function practiceDMake_() {
     await refreshEntryList();
     return true;
   } catch (err) {
-    alert(tr("spot.d.createFailed", { error: err.message || String(err) }));
+    showAppMessage_(tr("spot.d.createFailed", { error: err.message || String(err) }));
     Spotlight.stop("skipped");
     return false;
   }
@@ -14968,7 +15210,7 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
   } catch (err) {
     noAcctLastSave_ = saved || { ok: false, count: 0 };
     if (!saved) realNoteFailed_();
-    alert(err.message || String(err));
+    showAppMessage_(err.message || String(err));
     updateNoAccountSave_();
   }
 });
@@ -14996,7 +15238,7 @@ async function applyTidy_(items, buttons) {
     }
     await loadTidy_();
   } catch (err) {
-    alert(err.message || String(err));
+    showAppMessage_(err.message || String(err));
   } finally {
     buttons.forEach((b) => { b.disabled = false; });
   }
@@ -15096,7 +15338,7 @@ function startTidyReal_(startKey) {
   ];
   guided_ = { savedId: "", split: null };
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
-    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("tidy"); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); setTimeout(watchNoAcctIdle_, 1500); } });
+    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("tidy"); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); setTimeout(watchNoAcctIdle_, 1500); } });
 }
 
 // ---- Real tutorial: Entries with no account, on Tidy my history (owner, 2026-11-12) ----
@@ -15156,7 +15398,7 @@ function startNoAcctReal_(startMonth) {
   ];
   guided_ = { savedId: "", split: null };
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
-    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("noacct"); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
+    onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_("noacct"); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); } });
 }
 
 // ---- First-use practice: Tidy my history (owner's design, 2026-11-03; REMOVED 2026-11-12, the real tutorial teaches it) ----
@@ -15462,7 +15704,7 @@ function beWhySave_(kind, reason, note) {
   }).catch((err) => {
     data.reasons = before;
     renderBeTx_(data);
-    alert(tr("common.notSaved", { error: err.message || String(err) }));
+    showAppMessage_(tr("common.notSaved", { error: err.message || String(err) }));
   });
 }
 beEl_("be-groups").addEventListener("click", (ev) => {
@@ -15482,7 +15724,7 @@ beEl_("be-groups").addEventListener("click", (ev) => {
   if (save) {
     const kind = save.dataset.whySave;
     const note = save.closest(".be-why-other").querySelector("textarea").value.trim();
-    if (!note) { alert(tr("be.why.needNote")); return; }
+    if (!note) { showAppMessage_(tr("be.why.needNote")); return; }
     beWhySave_(kind, "other", note);
   }
 });
@@ -16300,7 +16542,7 @@ document.getElementById("pm-delete-btn").addEventListener("click", async () => {
     renderAccountsList_();
   } catch (err) {
     unmarkDeleting_("pm:" + pm.id);
-    alert(err.message);   // in use: the message says so and points to Hide
+    showAppMessage_(err.message);   // in use: the message says so and points to Hide
   }
 });
 
@@ -16388,7 +16630,7 @@ document.getElementById("accounts-delete-selected-btn").addEventListener("click"
       if (by("rail").length) lines.push(tr("accounts.resultRail", { names: by("rail").join(", ") }));
       if (by("hiddenAlready").length) lines.push(tr("accounts.resultHiddenAlready", { names: by("hiddenAlready").join(", ") }));
       if (other.length) lines.push(tr("accounts.resultKept", { names: other.join(", ") }));
-      alert(lines.join("\n\n"));
+      showAppMessage_(lines.join("\n\n"));
     }
     if (canUndo) offerBulkUndo_(result.deleted.map((d) => d.name), result.hidden.map((h) => h.name), async () => {
       const back = await callApi("restorePaymentMethods", { show: result.hidden.map((h) => h.id), rows: deletedRows });
@@ -16590,7 +16832,7 @@ async function startCategoriesBulkDelete_(chosen) {
   try {
     preview = await callApi("previewCategoryDelete", { ids });
   } catch (err) {
-    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    body.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
   }
   const usedBy = new Map(preview.items.map((i) => [i.id, i]));
@@ -16683,7 +16925,7 @@ function runCategoriesDelete_(chosen, opts) {
     if (keptBy("hiddenAlready").length) lines.push(tr("catBulk.resultHiddenAlready", { names: namesOf(keptBy("hiddenAlready")) }));
     const other = result.kept.filter((k) => (k.reason === "protected" || k.reason === "missing") && k.name);
     if (other.length) lines.push(tr("catBulk.resultKept", { names: namesOf(other) }));
-    alert(lines.join("\n\n"));
+    showAppMessage_(lines.join("\n\n"));
     if (canUndo) offerCategoryUndo_();
   }, {
     busy: "common.deletingToast", release: delKeys,
@@ -17087,6 +17329,13 @@ async function showTripsScreen() {
 async function refreshTripsList_() {
   const errorEl = document.getElementById("trips-error");
   errorEl.textContent = "";
+  // Loading standard: the first load shows "Loading…" in the list's place (a title over an empty body read as "no trips");
+  // a refresh keeps what is on screen until the new list replaces it.
+  const list = document.getElementById("trips-list");
+  if (!list.querySelector(".recurring-row")) {
+    list.innerHTML = loadingHtml_();
+    document.getElementById("trips-empty-note").hidden = true;
+  }
   try {
     const trips = await callApi("listTrips", {});
     meta.trips = trips;
@@ -17094,6 +17343,7 @@ async function refreshTripsList_() {
     renderTripsList_(trips);
     offerTripsTip_();   // only now that everything has arrived (loading standard)
   } catch (err) {
+    if (list.querySelector(".stmt-loading")) list.innerHTML = "";
     errorEl.textContent = tr("trips.loadFailed", { error: err.message });
   }
 }
@@ -17206,7 +17456,7 @@ document.getElementById("trips-delete-selected-btn").addEventListener("click", a
     const lines = [];
     if (result && result.missing.length) lines.push(tr("trips.resultMissing", { names: result.missing.map((id) => nameOf.get(id)).join(", ") }));
     if (result && (result.groupsKept || []).length) lines.push(tr("trips.resultGroupKept", { n: result.groupsKept.length, names: result.groupsKept.map((g) => g.friend).join(", ") }));
-    if (lines.length) alert(lines.join("\n\n"));
+    if (lines.length) showAppMessage_(lines.join("\n\n"));
   }, {
     busy: "common.deletingToast", release: delKeys,
     done: () => result && result.deleted.length ? tr("trips.resultDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((d) => nameOf.get(d.id))) }) : "",
@@ -17378,7 +17628,7 @@ function renderTripGroupForm_(form, d) {
       <select id="trip-group-category"></select>
       <p class="hint" id="trip-group-cat-hint"></p>
     </div>
-    <p class="hint" id="trip-group-error" style="color:#d64545;"></p>
+    <p class="hint" id="trip-group-error" style="color:var(--danger);"></p>
     <button type="button" class="primary" id="trip-group-save">${escapeHtml(tr("trips.groupSave"))}</button>`;
   const dirSel = form.querySelector("#trip-group-dir");
   dirSel.value = pending >= 0 ? "received" : "paid";
@@ -17686,7 +17936,7 @@ async function loadTripFinder_(lookBack) {
     });
     box.appendChild(addBtn);
   } catch (err) {
-    box.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("trips.loadFailed", { error: err.message }))}</p>`;
+    box.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(tr("trips.loadFailed", { error: err.message }))}</p>`;
   }
 }
 
@@ -17771,7 +18021,7 @@ document.getElementById("trip-delete-btn").addEventListener("click", async () =>
     if (practiceT_ && isPracticeTripName_(trip.name)) { practiceT_.deleted = true; practiceTSave_(); }   // (first-use practice: the real delete is its last step)
   } catch (err) {
     unmarkDeleting_("trip:" + trip.id);
-    alert(err.message);
+    showAppMessage_(err.message);
   }
   await listShown;
   await showTripsScreen();
@@ -18148,7 +18398,7 @@ document.getElementById("business-delete-selected-btn").addEventListener("click"
     if (keptBy("projects").length) lines.push(tr("bizBulk.resultKeptProjects", { names: names(keptBy("projects")) }));
     if (keptBy("entries").length) lines.push(tr("bizBulk.resultKeptEntries", { names: names(keptBy("entries")) }));
     if (result.projects.missing.length || keptBy("missing").length) lines.push(tr("bizBulk.resultMissing", { names: [...result.projects.missing, ...keptBy("missing").map((k) => k.id)].map((id) => nameOf.get(id) || id).join(", ") }));
-    alert(lines.join("\n\n"));
+    showAppMessage_(lines.join("\n\n"));
   }, {
     busy: "common.deletingToast", release: delKeys,
     done: () => {
@@ -18770,7 +19020,7 @@ function addProjectBudgetRow_(currency, amount) {
 }
 
 function openProjectModal_(project, companyId, budgets) {
-  if (!(meta.companies || []).length) { alert(tr("business.needCompany")); return; }
+  if (!(meta.companies || []).length) { showAppMessage_(tr("business.needCompany")); return; }
   editingProjectId_ = project ? project.id : null;
   document.getElementById("project-modal-title").textContent = tr(project ? "business.projectEditTitle" : "business.projectAddTitle");
   document.getElementById("project-form-error").textContent = "";
@@ -18995,7 +19245,7 @@ document.getElementById("people-delete-selected-btn").addEventListener("click", 
     if (keptBy("group").length) lines.push(tr("bizBulk.resultPeopleGroup", { names: keptBy("group").join(", ") }));
     const other = [...keptBy("notPerson"), ...result.kept.filter((k) => k.reason === "missing").map((k) => nameOf.get(k.id) || k.id)];
     if (other.length) lines.push(tr("bizBulk.resultKept", { names: other.join(", ") }));
-    alert(lines.join("\n\n"));
+    showAppMessage_(lines.join("\n\n"));
   }, {
     busy: "common.deletingToast", release: delKeys,
     done: () => result && result.deleted.length && !result.kept.length ? tr("bizBulk.doneDeleted", { n: result.deleted.length, names: shortNames_(result.deleted.map((d) => d.name)) }) : "",
@@ -19170,7 +19420,7 @@ function deleteFriendsFlow_(chosen) {
       if (deletedNames.length) lines.push(tr("friends.resultDeleted", { n: deletedNames.length, names: deletedNames.join(", ") }));
       if (hidden.length) lines.push(tr("friends.resultHidden", { names: hidden.map((h) => h.name).join(", ") }));
       if (kept.length) lines.push(tr("friends.resultKept", { names: kept.join(", ") }));
-      alert(lines.join("\n\n"));
+      showAppMessage_(lines.join("\n\n"));
     }
     if (canUndo) offerBulkUndo_(deletedNames, hidden.map((h) => h.name), async () => {
       const back = await callApi("restoreFriends", { show: hidden.map((h) => h.id), rows: deletedRows });
@@ -20426,7 +20676,7 @@ function renderRecurringSkips_(re) {
         // Shown as an alert too — the line under the form is below the fold in
         // this tall modal, so a failed undo looked like "it just didn't save".
         document.getElementById("recurring-form-error").textContent = err.message;
-        alert(tr("recModal.undoSkipFailed", { error: err.message }));
+        showAppMessage_(tr("recModal.undoSkipFailed", { error: err.message }));
       }
     });
     list.appendChild(row);
@@ -20758,7 +21008,7 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
         }
       } catch (err) {
         practiceRFailed_ = err.message || String(err);
-        alert(tr("recModal.saveFailed", { error: err.message }));
+        showAppMessage_(tr("recModal.saveFailed", { error: err.message }));
       }
       practiceDone();
       refreshRecurringExpenses();
@@ -20891,7 +21141,7 @@ async function startRecurringDelete_(re) {
     effect = ((out.items || [])[0] || {}).monthlyEffectPen || 0;
     lastPaid = ((out.items || [])[0] || {}).lastPaid || "";
   } catch (err) {
-    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    body.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
   }
   const amount = `${homeCur()} ${moneyFmt(Math.round(effect))}`;
@@ -20939,7 +21189,7 @@ async function startRecurringBulkDelete_(items) {
   try {
     preview = await callApi("previewProgrammedDelete", { ids });
   } catch (err) {
-    body.innerHTML = `<p class="hint" style="color:#d64545;">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
+    body.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
   }
   const effectOf = {}, lastPaidOf = {};
@@ -21000,7 +21250,7 @@ async function startRecurringBulkDelete_(items) {
       if (stopped.length) lines.push(tr("recBulk.resultStopped", { n: stopped.length, names: stopped.join(", ") }));
       if (rest.length) lines.push(tr("recBulk.resultDeleted", { n: rest.length, names: rest.map(nameOf).join(", ") }));
       if (left.length) lines.push(tr("recBulk.leftAsIs", { names: left.map(nameOf).join(", ") }));
-      if (lines.length) alert(lines.join("\n\n"));
+      if (lines.length) showAppMessage_(lines.join("\n\n"));
     }, { busy: "common.stoppingToast" });
   });
 }
@@ -21135,9 +21385,9 @@ async function renderPausedDecision_() {
       <div class="paused-actions">
         <button type="button" class="add-inline" data-act="reactivate">${escapeHtml(tr("paused.reactivate"))}</button>
         ${stoppable ? `<button type="button" class="add-inline" data-act="stop">${escapeHtml(tr("paused.stop"))}</button>` : ""}
-        <button type="button" class="add-inline" data-act="delete" style="color:#d64545;">${escapeHtml(tr("paused.delete"))}</button>
+        <button type="button" class="add-inline" data-act="delete" style="color:var(--danger);">${escapeHtml(tr("paused.delete"))}</button>
       </div>
-      <p class="hint paused-error" style="color:#d64545;"></p>`;
+      <p class="hint paused-error" style="color:var(--danger);"></p>`;
     // Runs one of the three answers, then takes the row out of the sheet (and closes the sheet when it was the last).
     const run = async (work) => {
       row.querySelectorAll("button").forEach((b) => { b.disabled = true; });
@@ -21203,6 +21453,31 @@ document.querySelectorAll(".income-toggle-btn").forEach((btn) => {
 // heads-up of what the server hasn't matched to a real entry yet, and it
 // drops off there on its own once that match exists.
 // prefetchedGroups: see loadMeta's comment above.
+// The card's closed row: how many items and their total in the main currency (money in +, out −). A group with no rate
+// for its currency makes the total "≈" and says how many need a rate, so it never looks exact when it isn't.
+let expectedOpen_ = false;
+function renderExpectedHead_(groups) {
+  let count = 0, total = 0, noRate = 0;
+  groups.forEach((g) => {
+    count += g.items.length;
+    const sign = g.type === "income" ? 1 : -1;
+    if (g.currency === homeCur()) total += sign * g.total;
+    else if (g.totalPen != null) total += sign * g.totalPen;
+    else noRate += g.items.length;
+  });
+  const money = `${noRate ? "≈ " : ""}${total > 0.004 ? "+" : total < -0.004 ? "−" : ""}${homeCur()} ${moneyFmt(Math.abs(total))}`;
+  document.getElementById("expected-head-sum").textContent =
+    `${count} · ${money}${noRate ? " · " + tr("expected.needRate", { n: noRate }) : ""}${expectedOpen_ ? "" : " ›"}`;
+}
+function setExpectedOpen_(open) {
+  expectedOpen_ = open;
+  document.getElementById("expected-recurring-body").hidden = !open;
+  document.getElementById("expected-head").setAttribute("aria-expanded", String(open));
+  const sum = document.getElementById("expected-head-sum");
+  sum.textContent = sum.textContent.replace(/ ›$/, "") + (open ? "" : " ›");
+}
+document.getElementById("expected-head").addEventListener("click", () => setExpectedOpen_(!expectedOpen_));
+
 async function refreshExpectedRecurring(prefetchedGroups) {
   refreshBusinessHomeCard_();   // the separate business card under this one follows the same refreshes (hidden unless the pack is on)
   const card = document.getElementById("expected-recurring-card");
@@ -21232,6 +21507,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
   }
   card.hidden = false;
   container.innerHTML = "";
+  renderExpectedHead_(groups);
   document.getElementById("expected-income-toggle").hidden = !groups.some((g) => g.type === "income");
   syncIncomeToggles_();
 
@@ -21325,7 +21601,7 @@ async function skipRecurringThisMonth_(item) {
     await refreshExpectedRecurring();
     refreshRecurringExpenses();
   } catch (err) {
-    alert(tr("expected.skipFailed", { error: err.message }));
+    showAppMessage_(tr("expected.skipFailed", { error: err.message }));
   }
 }
 
@@ -21631,7 +21907,7 @@ function renderProjectionsSummary_(p) {
         <span class="summary-value${p.loans > 0.004 ? " pos-green" : ""}">${formatPenSigned_(p.loans)}</span>
       </div>` : ""}
       <div class="summary-item">
-        <span class="summary-label">${tr("summary.net")}</span>
+        <span class="summary-label">${tr(periodType === "month" ? "projections.netMonthEnd" : "projections.netPeriodEnd")}</span>
         <span class="summary-value">${formatPenSigned_(p.net)}</span>
       </div>
     </div>
@@ -22661,10 +22937,10 @@ function clearHomeSearchForPractice_() {
 function runTip_(steps, afterFinish, note) {
   clearHomeSearchForPractice_();
   return Spotlight.run(steps, {
-    labels: { note: note || "", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
+    labels: { note: note || "", mode: "practice", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
     onFinish: async (how) => {
       markPracticeDeleting_();
-      if (how === "lost") setTimeout(() => alert(tr("spot.lost")), 0);   // the engine stopped it (see spotlight.js go()): say why, then clean up as usual
+      if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.lost")), 0);   // the engine stopped it (see spotlight.js go()): say why, then clean up as usual
       if (how === "done" && tipRunningKey_) markTaught_(tipRunningKey_, "practice");   // only a practice done to the end teaches (Not now, Exit and a lost one do not)
       tipRunningKey_ = "";
       await afterFinish(how);
@@ -22678,7 +22954,31 @@ function runTip_(steps, afterFinish, note) {
 // Practice tips the person asked for them on purpose: no limit for the rest of that day.
 const TIP_DAY_KEY_ = "tipCardsToday";
 const TIP_CARDS_PER_DAY_ = 2;
+// ONE daily budget for everything that appears without being asked for (owner, 2026-11-12, design review): yellow cards,
+// bubbles of every kind, idle offers, nudges. 3 a day per phone (2 on the first day), counted when shown (the same thing
+// again that day is free), at most one per screen visit, 2 minutes apart, and none on a screen visit where a real tutorial
+// ran. Anything the person asked for (Show me, Guide me, Practice tips, How to use the app) is not counted; after More →
+// Practice tips the limit is lifted for the rest of the day. It replaces "2 cards a day" and "1 bubble a day" as the cap.
+const TEACH_DAY_KEY_ = "teachToday", TEACH_PER_DAY_ = 3, TEACH_FIRST_DAY_ = 2, TEACH_GAP_MS_ = 120000;
+let teachVisit_ = 0, teachSpotVisit_ = -1;   // screen visits (showScreen counts them); the visit a tutorial ran on
+function teachAllows_(key) {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(TEACH_DAY_KEY_) || "null"); } catch (e) { d = null; }
+  const today = todayLocalISO();
+  if (!d || d.day !== today) d = { day: today, keys: [], last: 0, visit: -1, open: false };
+  let tipOpen = false;
+  try { const t = JSON.parse(localStorage.getItem(TIP_DAY_KEY_) || "null"); tipOpen = !!(t && t.day === today && t.open); } catch (e) { /* ignore */ }
+  if (d.open || tipOpen || d.keys.includes(key)) return true;
+  const cap = popFirstUse_() === today ? TEACH_FIRST_DAY_ : TEACH_PER_DAY_;
+  if (d.keys.length >= cap || Date.now() - d.last < TEACH_GAP_MS_ || d.visit === teachVisit_ || teachSpotVisit_ === teachVisit_) return false;
+  d.keys.push(key);
+  d.last = Date.now();
+  d.visit = teachVisit_;
+  try { localStorage.setItem(TEACH_DAY_KEY_, JSON.stringify(d)); } catch (e) { /* no storage: no limit */ }
+  return true;
+}
 function tipDayAllows_(key) {
+  if (!teachAllows_("card:" + key)) return false;
   let d = null;
   try { d = JSON.parse(localStorage.getItem(TIP_DAY_KEY_) || "null"); } catch (e) { d = null; }
   const today = todayLocalISO();
@@ -22704,7 +23004,7 @@ function offerTip_(key, boxId, inviteText, start, after) {
   if (realHoldsPractice_(key)) return;
   if (!box.hidden) return;   // already on offer
   if (!tipDayAllows_(key)) return;
-  box.innerHTML = `<p>${escapeHtml(inviteText)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-no">${escapeHtml(tr("spot.dismiss"))}</button><button type="button" class="tip-invite-go">${escapeHtml(tr("spot.showMe"))}</button></div>`;
+  box.innerHTML = `<span class="tip-invite-label"><span aria-hidden="true">💡</span> ${escapeHtml(tr("spot.tipLabel"))}</span><p>${escapeHtml(inviteText)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-no">${escapeHtml(tr("spot.dismiss"))}</button><button type="button" class="tip-invite-go">${escapeHtml(tr("spot.showMe"))}</button></div>`;
   box.hidden = false;
   box.querySelector(".tip-invite-no").addEventListener("click", () => {
     popSet_("tipNotNowCount", popGet_("tipNotNowCount", 0) + 1);   // (the "bring practices back" bubble waits for two)
@@ -22723,6 +23023,38 @@ function offerTip_(key, boxId, inviteText, start, after) {
     if (after) after();
   });
 }
+
+// Line icons (design review, owner's option C, 2026-11-12): navigation and actions use one set of line drawings in the style of
+// the header's pencil and "+"; emoji stay only on the person's own content (categories, trips, accounts). [data-icon] = name.
+const LINE_ICONS_ = {
+  home: '<path d="M3 10l9-7 9 7v10a2 2 0 0 1-2 2h-4v-7H9v7H5a2 2 0 0 1-2-2z"/>',
+  chart: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  trend: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+  swap: '<polyline points="17 2 21 6 17 10"/><path d="M3 12v-2a4 4 0 0 1 4-4h14"/><polyline points="7 22 3 18 7 14"/><path d="M21 12v2a4 4 0 0 1-4 4H3"/>',
+  dots: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  map: '<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>',
+  briefcase: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+  card: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+  mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22 6 12 13 2 6"/>',
+  tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
+  coin: '<circle cx="12" cy="12" r="9"/><path d="M15 9.5a3 3 0 0 0-3-1.5c-1.7 0-3 .9-3 2s1.3 1.7 3 2 3 .9 3 2-1.3 2-3 2a3 3 0 0 1-3-1.5"/><line x1="12" y1="6" x2="12" y2="18"/>',
+  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/>',
+  database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.7-4 3-9 3s-9-1.3-9-3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  message: '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.5 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.2A8.4 8.4 0 0 1 3 11.5 8.5 8.5 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5z"/>',
+  toggle: '<rect x="1" y="6" width="22" height="12" rx="6"/><circle cx="17" cy="12" r="3"/>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  book: '<path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>'
+};
+function lineIcon_(name) {
+  return `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LINE_ICONS_[name] || ""}</svg>`;
+}
+document.querySelectorAll("[data-icon]").forEach((el) => { el.innerHTML = lineIcon_(el.dataset.icon); });
 
 // ---- Pop-up tips (owner's plan, 2026-11-08: "Pop-up tips series - plan (DRAFT 2026-11-08).md") ----
 // One bubble pointing at the field it is about, for an optional extra (the features list marks which). Shown once per tip on this phone,
@@ -22889,7 +23221,8 @@ function popTipTick_() {
   if (!tip) { popTipStopWatch_(); return; }
   if (popOpen_) return;
   if (!tip.stillWanted()) { popTipStopWatch_(); return; }
-  if (Spotlight.isRunning() || editModeOn_() || !document.getElementById("welcome-overlay").hidden || popTyping_()) return;
+  if (Spotlight.isRunning()) { teachSpotVisit_ = teachVisit_; return; }   // nothing else unasked on the visit a tutorial ran
+  if (editModeOn_() || !document.getElementById("welcome-overlay").hidden || popTyping_()) return;
   if (tip.ready && !tip.ready()) return;
   if (realStartPending_ && !tip.help) return;   // the real tutorial comes first (rule 1)
   if (tip.steps) {   // pass over the parts that do not apply here
@@ -22898,7 +23231,7 @@ function popTipTick_() {
   }
   const el = (tip.steps ? tip.steps[tip.at] : tip).target();
   if (!popInView_(el)) return;
-  if (!tip.help && !tip.own && !tip.cont && !popDayAllows_(tip.key)) { popTipStopWatch_(); return; }
+  if (!tip.own && !tip.cont && ((!tip.help && !popDayAllows_(tip.key)) || !teachAllows_("pop:" + tip.key))) { popTipStopWatch_(); return; }
   popTipStopWatch_();
   popTipShow_(tip, el);
 }
@@ -23411,7 +23744,7 @@ function practiceSaveFailed_() {
   const bad = getQueuedEdits_().find((e) => e.id === practice_.entryId && e.status === "failed") ||
     getMoneyQueue_().find((i) => i.status === "failed" && i.action === "recordRepayment" && i.ctx && i.ctx.friendId === practice_.friendId);
   if (!bad) return false;
-  alert(tr("spot.p.saveFailed", { error: bad.lastError || bad.error || "" }));
+  showAppMessage_(tr("spot.p.saveFailed", { error: bad.lastError || bad.error || "" }));
   Spotlight.stop("skipped");
   return true;
 }
@@ -23531,7 +23864,7 @@ function practiceNewFriendNames_(p) {
 }
 function practiceRemovedToast_(key) {
   const kept = practiceFriendsKept_; practiceFriendsKept_ = [];
-  if (kept.length) alert(tr("spot.p.removedFriend", { name: kept.join(", ") }));
+  if (kept.length) showAppMessage_(tr("spot.p.removedFriend", { name: kept.join(", ") }));
   else showToast_(tr(key));
 }
 async function practiceDeleteNewFriends_(p) {
@@ -23567,7 +23900,7 @@ function practiceCleanupFailed_(key, err) {
     return;
   }
   practiceDueSet_(key, false);
-  alert(tr(`spot.${key}.removeFailed`, { error: err.message }));
+  showAppMessage_(tr(`spot.${key}.removeFailed`, { error: err.message }));
 }
 const PRACTICE_RETRY_ = {
   p: () => practiceRemove_().then((ok) => { if (ok) practiceRemovedToast_("spot.p.removed"); return ok; }),
@@ -23683,6 +24016,8 @@ function practiceSteps_() {
         // "Paid by" stays "Me" (the person paid the bill): no step of its own any more (owner's plan 2026-11-05).
         const el = document.getElementById("paid_by"); if (el.value !== "me") { el.value = "me"; el.dispatchEvent(new Event("change", { bubbles: true })); }
       } },
+    { key: "unfold", target: "#more-details-toggle", text: () => tr("spot.g.moreDetails"), tap: "#more-details-toggle", until: () => !moreDetailsFolded_(),
+      before: async () => moreDetailsFolded_() },   // the details are folded on a new entry: the person opens them (owner, 2026-11-12)
     { key: "account", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.p.s6fix" : "spot.p.s6"), visit: "#payment_method",
       ok: () => !hasAccounts() || !!document.getElementById("payment_method").value, holdsUntil: "save" },
     { key: "toggle", target: "#split-field .checkbox-row", text: () => tr("spot.p.s7"), until: () => document.getElementById("split-toggle").checked,
@@ -23835,10 +24170,10 @@ function startGuidedEntry_() {
   if (!newEntrySheetOpen_ || Spotlight.isRunning()) return;
   guided_ = { savedId: "", split: null };
   Spotlight.run(realSteps_(guidedEntrySteps_()), {
-    labels: { exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },   // (no "this is real" line: its first card says so; it was said twice, Wilmer)
+    labels: realLabels_(),   // the green "this is real" note on every step (owner, 2026-11-12; it was left out to avoid saying it twice with the first card, Wilmer — the first card's wording is for the tutorial rework)
     onFinish: async (how) => {
       guidedAnswered_();   // finished or Exit (any step) counts; closing the app midway does not (Sol, Rosa, 2026-11-09)
-      if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0);
+      if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0);
       if (guided_ && guided_.split) { try { localStorage.setItem(GUIDED_SPLIT_KEY_, JSON.stringify(guided_.split)); } catch (e) { /* ignore */ } }
       guided_ = null;   // nothing to remove: what the person saved is theirs
     },
@@ -23869,6 +24204,9 @@ function guidedEntrySteps_() {
     { field: "currency", target: "#currency-chips", text: () => tr("spot.g.currency"), tap: "#currency-chips", button: next },
     { field: "description", target: "#description", text: () => tr("spot.g.desc"), blurTap: true, visit: "#description", button: next },
     { field: "date", target: "#date", text: () => tr("spot.g.date"), visit: "#date", button: next },
+    // The optional details are folded on a new entry: the person taps to open them (owner, 2026-11-12).
+    { key: "unfold", target: "#more-details-toggle", text: () => tr("spot.g.moreDetails"), tap: "#more-details-toggle", until: () => !moreDetailsFolded_(),
+      available: () => is("expense")() || is("income")(), before: async () => moreDetailsFolded_() },
     { target: "#paid_by", text: () => tr(selectedType === "income" ? "spot.g.payer" : "spot.g.paidBy"), visit: "#paid_by", button: next,
       available: () => is("expense")() || is("income")(), before: async () => (is("expense")() || is("income")()) && shownNow("paid_by") },
     { field: selectedType === "income" ? "accountIn" : "account", target: "#payment-method-field", text: () => tr(accountText[selectedType] || "spot.g.accExp"), visit: "#payment_method", button: next,
@@ -23968,7 +24306,7 @@ function realSteps_(steps) {
   steps.forEach((s) => { if (s.field) { const after = s.after; s.after = () => { if (after) after(); noteField_(s.field); }; } });
   return steps;
 }
-function realLabels_() { return { note: tr("spot.g.note"), noteOnce: true, exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) }; }
+function realLabels_() { return { note: tr("spot.g.note"), noteOnce: false, mode: "real", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) }; }
 // "A look is not a use": up to 3 chances to accept; `perDay` also keeps a tutorial that opens by itself to once a day.
 function realChanceLeft_(feature, perDay) {
   const c = popGet_(CHANCES_KEY_, {})[feature] || { n: 0, day: "" };
@@ -24068,11 +24406,16 @@ function startReviewReal_() {
   const hadCategory = !!category();
   let started = false;
   const steps = [{ key: "intro", look: true, target: row, text: () => tr("rt.review.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("review", "real"); } }];
+  // The item is a short row: the person opens it (owner, 2026-11-12: a step to tap, not opened for them).
+  steps.push({ key: "openItem", target: part(".review-item-top"), text: () => tr("rt.review.openItem"), until: () => { const r = row(); return !!r && !r.classList.contains("review-collapsed"); },
+    before: async () => { const r = row(); return !!r && r.classList.contains("review-collapsed"); } });
   steps.push(...reviewSpecialSteps_(entry, id));
   if (type !== "investment" && !hadCategory) steps.push({ key: "category", field: "category", target: () => fieldOf(".review-category"), text: (fix) => tr(fix ? "rt.review.catFix" : "rt.review.catPick"), until: () => !!category(), ok: () => !!category(), holdsUntil: "decide" });
   // Always shown: an item that came in wrong is fixed here, never thrown away (owner's walk, 2026-11-09).
   steps.push({ field: "amount", target: part(".review-item-fields"), text: () => tr("rt.review.check"), button: next, after: () => { noteField_("description"); if (type !== "investment") noteField_("category"); } });
   steps.push(...reviewTypeSteps_(id, type, { must: true }));
+  steps.push({ key: "moreActions", target: part(".review-more-actions"), text: () => tr("rt.review.moreActions"), until: () => { const r = row(); return !!r && !r.classList.contains("review-more-closed"); },
+    before: async () => { const r = row(); return !!r && r.classList.contains("review-more-closed") && !!part(".review-more-actions")(); } });
   steps.push({ key: "decide", target: () => { const els = [part(".review-item-actions")(), part(".review-item-secondary-actions")()].filter(Boolean); return els.length ? els : null; }, text: () => tr(reviewSpecialKind_(entry) === "extra" ? "rt.review.decideExtra" : "rt.review.decide"), until: () => !row(), wait: 10000,
     before: async () => { if (!row()) return false; reviewDecideOn_ = true; }, after: () => { reviewDecideOn_ = false; } });
   steps.push(...realWhereSteps_(() => realEntryRow_(id), () => tr("rt.review.where"), { otherwise: () => tr("rt.review.done"), before: async () => { if (reviewConfirmedId_ !== id) return false; return realOnHome_(); }, poke: () => { refreshEntryList().catch(() => {}); } }));
@@ -24085,7 +24428,7 @@ function startReviewReal_() {
     onFinish: async (how) => {
       reviewDecideOn_ = false;
       if (!started) { spendRealChance_("review"); return; }   // Exit on its first screen is a "not now"
-      if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0);
+      if (how === "lost") setTimeout(() => showAppMessage_(tr("rt.review.lost")), 0);
     },
     busy: () => perfInflight_ > 0
   });
@@ -24237,7 +24580,7 @@ function startTransferReal_(kind) {
       before: async () => { if (chosen === "repayment" && lastNothingOwedChoice_ === "entry") return false; friend = el("repayment-friend").value; if (debt()) { showScreen("loans"); return true; } return realOnHome_(); }, poke: () => { (debt() ? refreshLoans() : refreshEntryList()).catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), {
     labels: realLabels_(),
-    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); guided_ = null; },
+    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); guided_ = null; },
     busy: () => perfInflight_ > 0
   });
 }
@@ -24264,7 +24607,7 @@ function offerConvGuide_(feature, textKey, isOpen, target, start) {
 }
 function convRun_(steps) {
   guided_ = { savedId: "", split: null };   // (a window opened during it, such as Add friend, goes above its dimmed screen)
-  Spotlight.run(realSteps_(steps), { labels: realLabels_(), onFinish: async (how) => { guided_ = null; if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0); }, busy: () => perfInflight_ > 0 });
+  Spotlight.run(realSteps_(steps), { labels: realLabels_(), onFinish: async (how) => { guided_ = null; if (how === "lost") setTimeout(() => showAppMessage_(tr("rt.review.lost")), 0); }, busy: () => perfInflight_ > 0 });
 }
 function startConvDebt_(mode) {
   if (Spotlight.isRunning()) return;
@@ -24398,7 +24741,7 @@ function startConvType_(type) {
   steps.push(...realWhereSteps_(() => realEntryRow_(itemId), () => tr({ expense: "rt.conv.expenseDone", income: "rt.conv.incomeDone", investment: "rt.conv.investDone", transfer: "rt.transfer.done" }[type]), { before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), {
     labels: realLabels_(),
-    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => alert(tr("rt.review.lost")), 0); },
+    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => showAppMessage_(tr("rt.review.lost")), 0); },
     busy: () => perfInflight_ > 0
   });
 }
@@ -24442,6 +24785,7 @@ function startSplitReal_() {
   const onSubmit = () => { submitted = true; };
   el("entry-form").addEventListener("submit", onSubmit, true);
   const steps = [];
+  if (moreDetailsFolded_()) steps.push({ target: "#more-details-toggle", text: () => tr("spot.g.moreDetails"), tap: "#more-details-toggle", until: () => !moreDetailsFolded_() });
   if (!splitOn()) steps.push({ target: "#split-field .checkbox-row", text: () => tr("rt.split.toggle"), until: splitOn });
   if (!amountOk()) steps.push({ key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
     until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || amountOk(), holdsUntil: "save" });
@@ -24455,7 +24799,7 @@ function startSplitReal_() {
   const itemId = confirmingPendingId;
   steps.push(...realWhereSteps_(() => realEntryRow_((guided_ && guided_.savedId) || itemId), () => tr("rt.split.done"), { unsaved: () => !(guided_ && guided_.savedId) && !newEntrySheetOpen_ && !confirmingPendingId && !itemId, before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
-    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
+    onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); } });
 }
 // When the app already suspects it ("Looks like a payment from … again"): one bubble per kind at the highlighted button.
 function watchReviewHint_() {
@@ -24485,14 +24829,38 @@ function idleTick_() {
   const tip = idleTip_;
   if (!tip || !tip.wanted()) { idleStop_(); return; }
   if (document.hidden || idleChooser_ || perfInflight_ > 0 || popTyping_() || !realScreenFree_()) return;
-  if (++idleCount_ < IDLE_SECONDS_) return;
+  if (Date.now() - idleScrollAt_ < 1000) return;   // scrolling pauses the count (owner, 2026-11-12); it does not restart it
+  if (++idleCount_ < idleNeeded_()) return;
   const el = tip.target();
   if (!popInView_(el)) return;
+  if (!teachAllows_("idle:" + tip.key)) { idleStop_(); return; }
   popSet_(IDLE_SEEN_KEY_, popGet_(IDLE_SEEN_KEY_, []).concat(tip.key));
   idleStop_();
   popTipShow_({ key: "idle-" + tip.key, text: tr("rt.idle.offer"), offer: tip.start, offerLabel: tr("spot.showMe") }, el);
 }
-["pointerdown", "keydown", "input", "scroll", "touchstart"].forEach((ev) => document.addEventListener(ev, () => { idleCount_ = 0; if (ev === "pointerdown") idleChooser_ = false; }, { capture: true, passive: true }));
+// Owner's rules (2026-11-12): scrolling pauses the count (aimless scrolling must not postpone the offer forever); scrolling
+// back and forth with no tap (3 changes of direction within 15 s) reads as "looking for something": the offer comes as soon
+// as the scrolling stops; a screen with a lot of text waits longer (7 s plus 1 s per 25 words on screen, up to 20 s).
+let idleScrollAt_ = 0, idleScrollY_ = 0, idleScrollDir_ = 0, idleTurns_ = [];
+function idleNeeded_() {
+  if (idleTurns_.filter((t) => Date.now() - t < 15000).length >= 3) return 1;
+  let words = 0;
+  document.querySelectorAll(".screen:not([hidden]) p, .screen:not([hidden]) li, .currency-modal-backdrop:not([hidden]) p").forEach((el) => {
+    const r = el.getBoundingClientRect();
+    if (r.bottom > 0 && r.top < window.innerHeight && r.height) words += (el.textContent.match(/\S+/g) || []).length;
+  });
+  return Math.min(20, IDLE_SECONDS_ + Math.floor(words / 25));
+}
+// A finger that only scrolls is not a tap: a completed tap (click), a key or typing restarts the count; a touch does not.
+["click", "keydown", "input"].forEach((ev) => document.addEventListener(ev, () => { idleCount_ = 0; idleTurns_ = []; }, { capture: true, passive: true }));
+document.addEventListener("pointerdown", () => { idleChooser_ = false; }, { capture: true, passive: true });
+document.addEventListener("scroll", () => {
+  idleScrollAt_ = Date.now();
+  const y = window.scrollY, dir = Math.sign(y - idleScrollY_);
+  if (dir && idleScrollDir_ && dir !== idleScrollDir_) idleTurns_.push(Date.now());
+  if (dir) idleScrollDir_ = dir;
+  idleScrollY_ = y;
+}, { capture: true, passive: true });
 document.addEventListener("click", (e) => { if (e.target.matches && e.target.matches('input[type="file"]')) idleChooser_ = true; }, true);
 ["change", "cancel"].forEach((ev) => document.addEventListener(ev, (e) => { if (e.target.matches && e.target.matches('input[type="file"]')) idleChooser_ = false; }, true));
 window.addEventListener("focus", () => { idleChooser_ = false; });
@@ -24525,7 +24893,7 @@ function startFormGuide_(feature, used, backdropId, saveId, introKey, build) {
     const steps = [{ key: "intro", text: () => tr(introKey), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_(feature, "real"); } }].concat(build(ctx));
     Spotlight.run(realSteps_(steps), {
       labels: realLabels_(), busy: () => perfInflight_ > 0,
-      onFinish: async (how) => { watchClose.disconnect(); if (saveBtn) saveBtn.removeEventListener("click", onSave, true); guided_ = null; if (!started) spendRealChance_(feature); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); }
+      onFinish: async (how) => { watchClose.disconnect(); if (saveBtn) saveBtn.removeEventListener("click", onSave, true); guided_ = null; if (!started) spendRealChance_(feature); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); }
     });
   }, 100);
 }
@@ -24764,7 +25132,7 @@ function startInvestmentReal_() {
     known("description") ? [] : [{ field: "description", target: "#description", text: () => tr("spot.g.desc"), blurTap: true, visit: "#description", button: realNext_ }]
   ).concat(realSaveSteps_({ open: () => newEntrySheetOpen_ && !(guided_ && guided_.savedId) }, "submit-btn", "form-error", "rt.invest.done", { unsaved: () => !(guided_ && guided_.savedId) && !newEntrySheetOpen_ && !confirmingPendingId, find: () => realEntryRow_(guided_ && guided_.savedId), before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
-    onFinish: async (how) => { form.removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); } });
+    onFinish: async (how) => { form.removeEventListener("submit", onSubmit, true); guided_ = null; if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); } });
 }
 
 // A practice is only a nudge where a real tutorial exists (owner, 2026-11-09): shown on Home, one at a time, at most every 3 days, from 14 days after the first opening.
@@ -24832,7 +25200,7 @@ function practiceNEntryRow_() {
 function practiceNActionFailed_(id, err) {
   if (!practiceN_ || !id || (id !== practiceN_.purchaseId && id !== practiceN_.chargeId) || !Spotlight.isRunning()) return;
   unqueueReviewAction_(id);
-  alert(tr("spot.n.actionFailed", { error: (err && err.message) || String(err) }));
+  showAppMessage_(tr("spot.n.actionFailed", { error: (err && err.message) || String(err) }));
   Spotlight.stop("skipped");
 }
 
@@ -24842,7 +25210,7 @@ async function practiceNReady_() {
   if (practiceNFailed_) {
     const msg = practiceNFailed_;
     practiceNFailed_ = "";
-    alert(tr("spot.n.createFailed", { error: msg }));
+    showAppMessage_(tr("spot.n.createFailed", { error: msg }));
     setTimeout(() => Spotlight.stop("skipped"), 0);
     return false;
   }
@@ -25006,7 +25374,7 @@ function practiceMSaveFailed_() {
   if (!practiceM_ || !Spotlight.isRunning()) return false;
   const bad = getMoneyQueue_().find((i) => i.status === "failed" && i.action === "addLoan" && isPracticeLoanText_(i.payload && i.payload.description));
   if (bad) {
-    alert(tr("spot.l.saveFailed", { error: bad.lastError || "" }));
+    showAppMessage_(tr("spot.l.saveFailed", { error: bad.lastError || "" }));
     Spotlight.stop("skipped");
     return true;
   }
@@ -25043,7 +25411,7 @@ function practiceMLoanRow_() {
   return Array.from(document.querySelectorAll("#loan-detail-list .loan-detail-row-main")).find((r) => /Practice (bank )?loan|Préstamo (bancario )?de práctica/.test(r.textContent)) || null;
 }
 function practiceMSchedBtn_() {
-  return Array.from(document.querySelectorAll("#loan-detail-list .loan-detail-forgive-btn")).find((b) => b.textContent.includes("📅")) || null;
+  return document.querySelector("#loan-detail-list .loan-sched-btn");   // (it was found by its 📅 emoji; buttons carry no emoji since 2026-11-12)
 }
 
 function practiceMOpen_(id) { const el = document.getElementById(id); return !!el && !el.hidden; }
@@ -25267,7 +25635,7 @@ function practiceISaveFailed_() {
   const bad = practiceIFailed_ ? { lastError: practiceIFailed_ }
     : getQueuedEdits_().find((e) => (e.id === practiceI_.depositId || e.id === practiceI_.withdrawalId) && e.status === "failed");
   if (!bad) return false;
-  alert(tr("spot.i.saveFailed", { error: bad.lastError || bad.error || practiceIFailed_ || "" }));
+  showAppMessage_(tr("spot.i.saveFailed", { error: bad.lastError || bad.error || practiceIFailed_ || "" }));
   Spotlight.stop("skipped");
   return true;
 }
@@ -25386,7 +25754,7 @@ async function startInvestmentsPractice_() {
   const open = ["pm-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop"].some((id) => { const el = document.getElementById(id); return el && !el.hidden; });
   if (open || newEntrySheetOpen_) { showToast_(tr("spot.i.busy")); return false; }
   if (practicePlatform_()) {   // only a platform THIS phone's earlier try made (it kept a note) is removed; a real one with that name is never touched
-    if (!practiceILoad_()) { alert(tr("spot.i.exists")); return false; }
+    if (!practiceILoad_()) { showAppMessage_(tr("spot.i.exists")); return false; }
     showToast_(tr("spot.i.stillRemoving"));
     practiceIRemove_(true).then((ok) => { if (ok) showToast_(tr("spot.i.removed")); });
     return false;
@@ -25584,7 +25952,7 @@ function startAccountsPractice_() {
   if (practiceAPm_()) {
     // Only an account that THIS phone's earlier try made (it kept a note) is removed as a leftover. One with the same name that the person made
     // himself is never touched: the practice just does not start (the cleanup deletes by name, so it must never meet a real account).
-    if (!practiceALoad_()) { alert(tr("spot.a.exists")); return false; }
+    if (!practiceALoad_()) { showAppMessage_(tr("spot.a.exists")); return false; }
     showToast_(tr("spot.a.alreadyThere"));
     practiceARemove_(true).then((ok) => { if (ok) showToast_(tr("spot.a.removed")); });
     return false;
@@ -25760,7 +26128,7 @@ async function startTripsPractice_() {
   // The two made-up past expenses the person will find, made while they read and fill in the trip.
   practiceTMaking_ = callApi("createPracticeTripExpenses", { lang: I18n.getLang() })
     .then((res) => { if (practiceT_) { practiceT_.pastIds = (res.ids || []).map(String); practiceTSave_(); } return true; })
-    .catch((err) => { alert(tr("spot.t.createFailed", { error: err.message })); return false; });
+    .catch((err) => { showAppMessage_(tr("spot.t.createFailed", { error: err.message })); return false; });
   runTip_(practiceTSteps_(), async () => {
     if (document.getElementById("screen-trips").hidden) showTripsScreen().catch(() => {});
     showToast_(tr("spot.t.removing"));
@@ -25864,7 +26232,7 @@ function practiceXSaveFailed_() {
   if (!practiceX_ || !Spotlight.isRunning()) return false;
   const bad = practiceXFailedItem_();
   if (!bad) return false;
-  alert(tr("spot.x.saveFailed", { error: bad.lastError || "" }));
+  showAppMessage_(tr("spot.x.saveFailed", { error: bad.lastError || "" }));
   Spotlight.stop("skipped");
   return true;
 }
@@ -26010,6 +26378,7 @@ function practiceRRow_() {
 
 // On Home: the card's group (expense side) that holds the practice item, its summary line and the item's own box.
 function practiceRCardEntry_() {
+  if (!expectedOpen_) setExpectedOpen_(true);   // the card is a closed row by default: the practice opens it to show its item
   return Array.from(document.querySelectorAll("#expected-recurring-groups .expected-recurring-entry")).find((e) => /Practice item|Elemento de práctica/.test(e.textContent)) || null;
 }
 function practiceRCardSummary_() {
@@ -26422,13 +26791,22 @@ async function openLoanDetail(friendId, friendName, projectId) {
       return (n > 0 ? "+" : "−") + `${cur} ${moneyFmt(Math.abs(n))}`;
     });
   // In words, not "Net" (Rosa, Marta, 2026-11-09).
-  const netSide = (sign, key) => {
-    const parts = Object.keys(netByCurrency).filter((cur) => sign * netByCurrency[cur] > 0.004).map((cur) => `${sign > 0 ? "+" : "−"}${cur} ${moneyFmt(Math.abs(netByCurrency[cur]))}`);
-    return parts.length ? tr(key, { parts: parts.join(" · ") }) : "";
-  };
-  document.getElementById("loan-detail-subtitle").textContent = netParts.length
-    ? [netSide(1, "loanDetail.owesYou"), netSide(-1, "loanDetail.youOweThem")].filter(Boolean).join(" · ")
-    : tr("loanDetail.settled");
+  // The person's total is the screen's headline (design review 2026-11-12: it was small grey text under big debt rows):
+  // a small label, then each currency's amount large. Its text reads the same as before (the repayment history reuses it).
+  const sub = document.getElementById("loan-detail-subtitle");
+  if (netParts.length) {
+    const side = (sign, key) => {
+      const curs = Object.keys(netByCurrency).filter((cur) => sign * netByCurrency[cur] > 0.004);
+      if (!curs.length) return "";
+      const amts = curs.map((cur) => `<span class="ld-head-amt${sign > 0 ? " pos" : ""}">${sign > 0 ? "+" : "−"}${escapeHtml(cur)} ${moneyFmt(Math.abs(netByCurrency[cur]))}</span>`).join(" ");
+      return `<span class="ld-head-side"><span class="ld-head-label">${escapeHtml(tr(key))}</span> ${amts}</span>`;
+    };
+    sub.innerHTML = [side(1, "loanDetail.owesYouLabel"), side(-1, "loanDetail.youOweThemLabel")].filter(Boolean).join(" ");
+    sub.classList.add("ld-headline");
+  } else {
+    sub.textContent = tr("loanDetail.settled");
+    sub.classList.remove("ld-headline");
+  }
 
   // Friend-level, not per-loan — recordRepayment (Loans.gs) figures out
   // on its own which loan(s) an amount actually applies to (see
@@ -26495,6 +26873,8 @@ async function openLoanDetail(friendId, friendName, projectId) {
     }
   };
 
+  renderForgiveAny_(pending.filter((l) => !l.schedule), friendId, friendName);   // a bank does not forgive: never a loan with a schedule
+
   detailActions.hidden = false;
   if (firstOpen) { popTipVisit_("loanScreen"); watchForgiveTip_(outstanding); return; }
   const backdrop = document.getElementById("loan-detail-modal-backdrop");
@@ -26513,6 +26893,36 @@ function loanProjectPillHtml_(l) {
 // Shared by openLoanDetail's two sections (pending / already paid) so a
 // row looks and behaves identically in either — only which list it lands
 // in differs.
+// One grey "Forgive part or all of a debt…" at the bottom of the person's screen (owner, 2026-11-12). One debt: it opens the
+// Forgive window for it; several: a short list under the button to pick which one.
+function renderForgiveAny_(forgivable, friendId, friendName) {
+  const box = document.getElementById("loan-forgive-any");
+  const btn = document.getElementById("loan-forgive-any-btn");
+  const pick = document.getElementById("loan-forgive-pick");
+  pick.hidden = true;
+  pick.innerHTML = "";
+  box.hidden = !forgivable.length;
+  if (!forgivable.length) return;
+  const friend = { id: friendId, name: friendName };
+  btn.dataset.direction = forgivable[0].direction;   // the bubble words it by who owes whom
+  btn.setAttribute("aria-expanded", "false");
+  btn.onclick = () => {
+    if (forgivable.length === 1) { openForgiveModal(forgivable[0], friend); return; }
+    pick.hidden = !pick.hidden;
+    btn.setAttribute("aria-expanded", String(!pick.hidden));
+    if (pick.children.length) return;
+    forgivable.forEach((l) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "more-list-item loan-forgive-choice";
+      const sign = l.direction === "they_owe_me" ? "+" : "−";
+      b.innerHTML = `<span>${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="hint md-sub">${listDate_(l.date)}</span></span><span class="loan-detail-row-amount ${l.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${sign}${escapeHtml(l.currency)} ${moneyFmt(l.remaining)}</span>`;
+      b.addEventListener("click", () => openForgiveModal(l, friend));
+      pick.appendChild(b);
+    });
+  };
+}
+
 function buildLoanDetailRow_(l, friendId, friendName) {
   const kind = l.direction === "they_owe_me" ? "owed-to-me" : "i-owe";
   const sign = l.direction === "they_owe_me" ? "+" : "−";
@@ -26522,7 +26932,8 @@ function buildLoanDetailRow_(l, friendId, friendName) {
       ? tr("loanDetail.fullyRepaid")
       : [
           l.overdue ? tr("loanDetail.overdueSince", { date: listDate_(l.due_date) }) : "",
-          l.settled - (l.forgiven_so_far || 0) > 0.004 ? tr("loanDetail.repaidSoFar", { cur: l.currency, amount: moneyFmt(l.settled - (l.forgiven_so_far || 0)) }) : "",
+          // "left of" the original amount, so the big figure on the right reads as what is still owed (design review 2026-11-12).
+          l.settled > 0.004 ? tr("loanDetail.leftOf", { cur: l.currency, left: moneyFmt(l.remaining), total: moneyFmt(l.amount) }) : "",
           l.forgiven_so_far > 0.004 ? tr("loanDetail.forgivenSoFar", { cur: l.currency, amount: moneyFmt(l.forgiven_so_far) }) : ""
         ].filter(Boolean).join(" · ");
 
@@ -26564,7 +26975,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   if (l.schedule) {
     const schedBtn = document.createElement("button");
     schedBtn.type = "button";
-    schedBtn.className = "add-inline loan-detail-forgive-btn";
+    schedBtn.className = "add-inline loan-detail-forgive-btn loan-sched-btn";
     schedBtn.textContent = tr("bank.scheduleButton", { paid: l.schedule.paid, count: l.schedule.count });
     schedBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -26589,20 +27000,8 @@ function buildLoanDetailRow_(l, friendId, friendName) {
     });
     row.appendChild(applyBtn);
   }
-  if (l.status !== "forgiven" && l.remaining > 0.004 && !l.schedule) {   // a bank does not forgive: no Forgive on a loan with a schedule
-    const forgiveBtn = document.createElement("button");
-    forgiveBtn.type = "button";
-    forgiveBtn.className = "add-inline loan-detail-forgive-btn loan-forgive-btn";
-    forgiveBtn.dataset.direction = l.direction;
-    forgiveBtn.textContent = tr(l.direction === "i_owe_them" ? "loanDetail.theyForgave" : "loanDetail.forgive");
-    forgiveBtn.setAttribute("aria-label", `${forgiveBtn.textContent}: ${l.description || tr("loan.word")}`);
-    forgiveBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openForgiveModal(l, { id: friendId, name: friendName });
-    });
-    row.appendChild(forgiveBtn);
-  }
-
+  // Forgive is no longer on every row (design review 2026-11-12: it looked like the main action): one button at the bottom of
+  // the person's screen (renderForgiveAny_) and one in the loan's own window.
   return row;
 }
 
@@ -26617,7 +27016,7 @@ async function openLinkedEntryFromLoan_(entryId) {
     if (blockedWhileSavingEdit_(entry.id)) return;
     openEditPopup(entry);
   } catch (err) {
-    alert(err.message);
+    showAppMessage_(err.message);
   }
 }
 
@@ -26628,7 +27027,7 @@ async function callConversion_(action, payload) {
   try {
     return await callApi(action, payload);
   } catch (err) {
-    alert(err.message);
+    showAppMessage_(err.message);
     throw err;
   }
 }
@@ -26714,6 +27113,13 @@ async function askTextApp_(text, okLabel) {
   input.hidden = true;
   return yes ? input.value : null;
 }
+// A message in the app's own window (design review 2026-11-12), never the phone's own alert box: that one speaks the phone's language,
+// shows the web address as its title and has a bare "OK" (the same reasons the phone's yes/no box was banned). One button, "Got it".
+// It does not pause the code the way the old box did; callers that must wait can await it.
+function showAppMessage_(text) {
+  return askConfirmApp_(String(text == null ? "" : text), tr("common.gotIt"), { plain: true, noCancel: true });
+}
+
 function askConfirmApp_(text, okLabel, opts) {
   opts = opts || {};
   if (appConfirmOpen_.has(text)) return Promise.resolve(false);
@@ -26890,7 +27296,7 @@ async function deleteOrphanLoan_(l, friend) {
     await openLoanDetail(friend.id, friend.name);
     refreshLoans();
   } catch (err) {
-    alert(err.message);
+    showAppMessage_(err.message);
   }
 }
 
@@ -26996,7 +27402,7 @@ async function openRepaymentEditorForEntry_(friendId, friendName, transferEntryI
   } catch (err) {
     sheet.hidden = true;
     sheet.classList.remove("reassign-loading");
-    alert(err.message);
+    showAppMessage_(err.message);
     return;
   }
   const line = h.repayments.find((r) => r.transfer_entry_id === transferEntryId);
@@ -27028,7 +27434,7 @@ async function undoCancelOut_(r) {
   try {
     await callApi("undoCancelOut", { id: r.id });
   } catch (err) {
-    alert(err.message);
+    showAppMessage_(err.message);
     return;
   }
   refreshEntriesInBackground_();
@@ -27168,7 +27574,7 @@ async function openApplyUnapplied_(l, friend) {
   try {
     loans = await callApi("getFriendLoanDetail", { friendId: friend.id });
   } catch (err) {
-    alert(err.message);
+    showAppMessage_(err.message);
     return;
   }
   const targetDir = l.direction === "i_owe_them" ? "they_owe_me" : "i_owe_them";
@@ -28209,14 +28615,14 @@ function rememberLoanRemind_(phone) {
     if (langChanged) { payload.lang = r.lang; r.savedLang = r.lang; }
     callApi("setFriendRemind", payload)
       .then((res) => { const f = friend(); if (f) { f.phone = res.phone; f.remind_lang = res.remind_lang; } })
-      .catch((err) => alert(tr("common.notSaved", { error: err.message })));
+      .catch((err) => showAppMessage_(tr("common.notSaved", { error: err.message })));
     return;
   }
   if (!phoneChanged || !((meta && meta.capabilities) || {}).friendPhone) return;
   r.phone = phone;
   callApi("setFriendPhone", { id: r.friendId, phone })
     .then((res) => { const f = friend(); if (f) f.phone = res.phone; })
-    .catch((err) => alert(tr("common.notSaved", { error: err.message })));
+    .catch((err) => showAppMessage_(tr("common.notSaved", { error: err.message })));
 }
 
 document.getElementById("loan-remind-close").addEventListener("click", closeLoanRemind_);
@@ -28695,6 +29101,7 @@ function openLoanModal(loan, returnFriend, opts) {
   document.getElementById("loan-delete-btn").hidden = !loan;
   // A "paid earlier, no loan" payment can be put on loans from here too (same as the button on the person's screen).
   document.getElementById("loan-apply-btn").hidden = !(loan && returnFriend && (loan.unapplied || loan.unapplied_sources) && loan.status !== "forgiven" && loan.remaining > 0.004);
+  document.getElementById("loan-forgive-btn").hidden = !(loan && returnFriend && loan.status !== "forgiven" && loan.remaining > 0.004 && !loan.schedule);
   document.getElementById("loan-form-error").textContent = "";
   document.getElementById("loan-friend-error").hidden = true;
   populateLoanFriendOptions();
@@ -28776,6 +29183,13 @@ document.getElementById("loan-apply-btn").addEventListener("click", () => {
   if (!loan || !friend) return;
   closeLoanModal();
   openApplyUnapplied_(loan, friend);
+});
+document.getElementById("loan-forgive-btn").addEventListener("click", () => {
+  const loan = loanModalApplyLoan_;
+  const friend = loanModalReturnFriend;
+  if (!loan || !friend) return;
+  closeLoanModal();
+  openForgiveModal(loan, friend);
 });
 document.getElementById("add-loan-btn").addEventListener("click", () => openLoanModal(null, null));
 document.getElementById("add-loan-owe-btn").addEventListener("click", () => openLoanModal(null, null, { direction: "i_owe_them" }));
@@ -28901,7 +29315,7 @@ document.getElementById("loan-delete-btn").addEventListener("click", async () =>
     catch (e) { unmarkDeleting_("loan:" + loanId); throw e; }
     await refreshAfterLoanModalChange_();
   } catch (err) {
-    if (document.getElementById("loan-modal-backdrop").hidden) alert(err.message);   // the form already closed
+    if (document.getElementById("loan-modal-backdrop").hidden) showAppMessage_(err.message);   // the form already closed
     else errorEl.textContent = err.message;
   }
 });
@@ -28989,6 +29403,27 @@ function defaultRepaymentAccount_() {
   return ids.includes(last) ? last : (ids[0] || "");
 }
 
+// The whole balance is filled in on purpose (fewer taps, owner 2026-11-12), with two safeguards: Save names the amount it
+// records, and a Save within 3 s of the window appearing, with that amount untouched, asks for a second tap first
+// (a tap too quick to have read it). Editing a recorded repayment keeps "Save changes".
+let repayQuickGuard_ = null;   // { value: the amount filled in, at: when the form was shown, armed: waiting for the 2nd tap }
+const REPAY_QUICK_MS_ = 3000;
+function updateRepaySaveLabel_() {
+  if (editingSettlementId) return;
+  const btn = document.getElementById("settlement-save-btn");
+  const v = parseFloat(document.getElementById("settlement-amount").value);
+  btn.textContent = v > 0 ? tr("settle.recordAmount", { amount: formatAmount(v, repaymentCurrency) }) : tr("settle.save");
+}
+// True when this tap should only arm the second-tap safeguard.
+function repayTooQuick_() {
+  const g = repayQuickGuard_;
+  if (editingSettlementId || !g || g.armed) return false;
+  if (document.getElementById("settlement-amount").value !== g.value || Date.now() - g.at > REPAY_QUICK_MS_) return false;
+  g.armed = true;
+  document.getElementById("settlement-save-btn").textContent = tr("settle.tapAgainAll", { amount: formatAmount(parseFloat(g.value), repaymentCurrency) });
+  return true;
+}
+
 // Back to "add a new repayment" — the default state the form opens in,
 // and where "Cancel edit" returns it to without closing the whole modal.
 function resetSettlementForm_() {
@@ -28998,6 +29433,8 @@ function resetSettlementForm_() {
   document.getElementById("settlement-delete-btn").hidden = true;
   document.getElementById("settlement-form-error").textContent = "";
   document.getElementById("settlement-amount").value = Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0).toFixed(2);
+  repayQuickGuard_ = { value: document.getElementById("settlement-amount").value, at: Date.now(), armed: false };
+  updateRepaySaveLabel_();
   document.getElementById("settlement-date").value = todayLocalISO();
   document.getElementById("settlement-payment-method").value = defaultRepaymentAccount_();
   document.getElementById("settlement-description").value = "";
@@ -29133,6 +29570,8 @@ document.getElementById("settlement-choose-btn").addEventListener("click", () =>
   renderSettlementChooseSummary_();
 });
 document.getElementById("settlement-amount").addEventListener("input", () => {
+  if (repayQuickGuard_) repayQuickGuard_.armed = false;
+  updateRepaySaveLabel_();
   if (!document.getElementById("settlement-choose-panel").hidden) renderSettlementChooseSummary_();
   updateSettlementOverpayNote_();
 });
@@ -29251,6 +29690,7 @@ async function openRepaymentModal(friendId, friendName, netByCurrency, projectId
   if (seq !== repaymentOpenSeq_) return;
   loading.hidden = true;
   backdrop.classList.remove("sheet-loading");
+  if (repayQuickGuard_) repayQuickGuard_.at = Date.now();   // the 3 s count from when the person can see the amount
   popTipVisit_("repaymentForm");
   watchOverpayTip_();
 }
@@ -29264,7 +29704,7 @@ function closeSettlementModal() {
   if (pendingOverpay) {
     const p = pendingOverpay;
     pendingOverpay = null;
-    alert(tr(p.entryType === "income" ? "settle.extraSavedIncome" : "settle.extraSavedExpense", { cur: p.currency, amount: moneyFmt(p.amount) }));
+    showAppMessage_(tr(p.entryType === "income" ? "settle.extraSavedIncome" : "settle.extraSavedExpense", { cur: p.currency, amount: moneyFmt(p.amount) }));
     refreshReviewQueue().catch(() => {});
   }
 }
@@ -29293,6 +29733,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   const description = document.getElementById("settlement-description").value.trim();
   if (!amount || amount <= 0) { errorEl.textContent = tr("error.validAmount"); return; }
   if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
+  if (repayTooQuick_()) return;   // first tap of a too-quick Save: the button now asks for a second one
   // "Choose which loans this pays" (only when the person opened it and typed amounts): otherwise FIFO, exactly as before.
   let allocations = !editingSettlementId && !document.getElementById("settlement-choose-panel").hidden ? settlementAssignments_() : [];
   if (repaymentTargetLoan_ && !editingSettlementId && !allocations.length && amount <= repaymentTargetLoan_.remaining + 0.004) allocations = [{ loan_id: repaymentTargetLoan_.loan_id, amount }];
@@ -29388,7 +29829,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       backdrop.hidden = false;
     }
   } catch (err) {
-    alert(tr("settle.saveFailed", { error: err.message }));
+    showAppMessage_(tr("settle.saveFailed", { error: err.message }));
     refreshAfterSettlementChange_().catch(() => {});
   }
 });
@@ -29406,7 +29847,7 @@ document.getElementById("settlement-delete-btn").addEventListener("click", async
     await callApi("deleteSettlement", { id: settlementId });   // the whole repayment goes; a failure is undone and announced just below
     await refreshAfterSettlementChange_();
   } catch (err) {
-    alert(tr("settle.saveFailed", { error: err.message }));
+    showAppMessage_(tr("settle.saveFailed", { error: err.message }));
     refreshAfterSettlementChange_().catch(() => {});
   }
 });
@@ -29835,7 +30276,7 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
       });
       if (result.overpaid > 0.004) {
         convDebtOutcome_ = "over";
-        alert(tr(incoming ? "review.overpaidIncoming" : "review.overpaidOutgoing", { name: friendName, cur: currency, amount: moneyFmt(result.overpaid) }));
+        showAppMessage_(tr(incoming ? "review.overpaidIncoming" : "review.overpaidOutgoing", { name: friendName, cur: currency, amount: moneyFmt(result.overpaid) }));
       }
     } else {
       await callApi("convertEntryToLoan", {
@@ -29974,7 +30415,7 @@ async function openBalanceModal(pmId) {
       picker.appendChild(opt);
     });
     if (!meta.paymentMethods.length) {
-      alert(tr("balance.noAccounts"));
+      showAppMessage_(tr("balance.noAccounts"));
       return;
     }
     pickerWrap.hidden = false;
@@ -30323,7 +30764,7 @@ document.getElementById("balance-check-input").addEventListener("input", (e) => 
     result.style.color = "var(--income)";
     result.textContent = tr("balance.matches");
   } else {
-    result.style.color = "#d64545";
+    result.style.color = "var(--danger)";
     result.textContent = diff > 0
       ? tr("balance.more", { cur: main.currency, amount: moneyFmt(diff) })
       : tr("balance.less", { cur: main.currency, amount: moneyFmt(-diff) });

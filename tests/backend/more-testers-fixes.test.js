@@ -21,7 +21,9 @@ test("an icon or color typed by hand in the Sheet cannot run as code on Overview
 });
 
 test("banners stay under every pop-up window", () => {
-  assert.match(read("docs", "style.css"), /\.update-banner \{[^}]*z-index: 240;/);
+  const css = read("docs", "style.css");
+  assert.match(css, /\.update-banner \{[^}]*z-index: var\(--z-update\);/);
+  assert.match(css, /--z-update: 240;/);   // under every pop-up window (250 and up)
 });
 
 test("a lost connection offers Try again instead of losing what was typed; no phone alert in the save path", () => {

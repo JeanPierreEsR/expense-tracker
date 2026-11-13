@@ -19,8 +19,8 @@ test("the More row is My profile, in group (2) after My data, and the two old po
   assert.ok(html.includes('id="more-my-profile-btn"') && !html.includes("more-owner-names-btn"));
   assert.ok(html.indexOf('id="more-my-data-btn"') < html.indexOf('id="more-my-profile-btn"'));
   assert.ok(!html.includes('id="owner-names-backdrop"') && !html.includes('id="fits-modal-backdrop"'));
-  assert.equal(STRINGS["more.myProfile"].en, "👤 My profile");
-  assert.equal(STRINGS["more.myProfile"].es, "👤 Mi perfil");
+  assert.equal(STRINGS["more.myProfile"].en, "My profile");
+  assert.equal(STRINGS["more.myProfile"].es, "Mi perfil");
 });
 
 test("the screen has the three cards, opens with Loading… and shows them only when the names have arrived", () => {

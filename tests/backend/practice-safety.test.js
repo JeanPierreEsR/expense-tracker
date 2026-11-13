@@ -23,7 +23,7 @@ test("Accounts and Investments practices only remove a same-named leftover THIS 
     const guard = body.indexOf("if (!" + loader + "())");
     const removal = body.search(/practice[AI]Remove_\(true\)/);
     assert.ok(guard > 0 && guard < removal, starter + ": the note this phone kept is checked BEFORE any removal");
-    assert.ok(body.includes(`alert(tr("${key}"))`), starter + ": refuses with its own message");
+    assert.ok(body.includes(`showAppMessage_(tr("${key}"))`), starter + ": refuses with its own message");
     assert.ok(STRINGS[key] && STRINGS[key].en && STRINGS[key].es, key + " exists in both languages");
   }
 });
@@ -59,7 +59,7 @@ test("'Nothing was kept' is only said when every friend the practice added is re
   const names = fn(app, "practiceNewFriendNames_"), toast = fn(app, "practiceRemovedToast_");
   const make = (friends) => {
     const shown = { toast: [], alert: [] };
-    const run = new Function("meta", "tr", "showToast_", "alert", "let practiceFriendsKept_ = [];" + names + toast + "return { names: practiceNewFriendNames_, toast: practiceRemovedToast_, keep(v) { practiceFriendsKept_ = v; } };")(
+    const run = new Function("meta", "tr", "showToast_", "showAppMessage_", "let practiceFriendsKept_ = [];" + names + toast + "return { names: practiceNewFriendNames_, toast: practiceRemovedToast_, keep(v) { practiceFriendsKept_ = v; } };")(
       { friends }, (k, v) => k + (v ? JSON.stringify(v) : ""), (m) => shown.toast.push(m), (m) => shown.alert.push(m));
     return { run, shown };
   };

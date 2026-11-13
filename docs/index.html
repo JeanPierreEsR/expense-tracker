@@ -52,7 +52,7 @@
   <meta name="apple-mobile-web-app-title" content="Expenses">
 </head>
 <body>
-  <button type="button" id="update-banner" class="update-banner" aria-live="polite" hidden data-i18n="banner.update">🔄 New version available — tap to reload</button>
+  <button type="button" id="update-banner" class="update-banner" aria-live="polite" hidden data-i18n="banner.update">New version available — tap to reload</button>
   <div id="backend-update-banner" class="update-banner backend-update-banner" hidden>
     <button type="button" id="backend-update-open" class="backend-update-open"></button>
     <button type="button" id="backend-update-close" class="backend-update-close">✕</button>
@@ -98,7 +98,7 @@
         <button type="submit" class="primary" data-i18n="signin.connect">Connect</button>
       </form>
     </div>
-    <p class="hint" id="setup-error" style="color:#d64545;"></p>
+    <p class="hint error-text" id="setup-error"></p>
   </div>
 
   <div id="loading-screen" class="status-msg" hidden data-i18n="signin.loading">
@@ -111,11 +111,11 @@
       <div class="card tip-invite" id="home-tip-invite" hidden></div>
       <div class="card entry-search-card">
         <div class="entry-search-row">
-          <input type="search" id="entry-search" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" placeholder="🔍 Search entries…" autocomplete="off" autocapitalize="off" enterkeyhint="search">
+          <input type="search" id="entry-search" data-i18n-aria-label="search.aria" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" placeholder="🔍 Search entries…" autocomplete="off" autocapitalize="off" enterkeyhint="search">
           <button type="button" id="entry-search-clear" class="entry-search-clear" data-i18n-aria-label="search.clear" data-i18n-aria-label="search.clear" data-i18n-aria-label="search.clear" data-i18n-aria-label="search.clear" aria-label="Clear search" hidden>✕</button>
         </div>
         <p class="hint" id="entry-search-hint" hidden></p>
-        <button type="button" class="add-inline" id="entry-search-refresh" hidden data-i18n="search.reloadAll">↻ Reload all entries</button>
+        <button type="button" class="add-inline" id="entry-search-refresh" hidden data-i18n="search.reloadAll">Reload all entries</button>
       </div>
 
       <div class="card search-results-card" id="search-results-card" hidden>
@@ -128,11 +128,22 @@
            confirmation, and back here when that closes. -->
       <div id="entry-card-home" hidden>
       <div class="card" id="entry-card">
+        <!-- A restored unsaved entry is announced HERE, at the top of the form (design review 2026-11-12): the old
+             notice printed above Save, off-screen, and faded after 6 s. -->
+        <div class="draft-banner" id="draft-banner" role="status" hidden>
+          <span data-i18n="entry.draftRestored">This is the entry you hadn't saved yet.</span>
+          <button type="button" class="add-inline" id="draft-start-over-btn" data-i18n="entry.startOver">Start over</button>
+        </div>
+        <!-- The trip the form picked by itself, where it can be seen and removed (design review 2026-11-12). -->
+        <div class="trip-auto-chip" id="trip-auto-chip" hidden>
+          <span id="trip-auto-chip-name"></span>
+          <button type="button" class="trip-auto-chip-x" id="trip-auto-chip-x" data-i18n-aria-label="trip.notPartOf" aria-label="Not part of this trip">✕</button>
+        </div>
         <div class="type-tabs" id="entry-type-tabs">
-          <div class="type-tab active" data-type="expense" data-i18n="type.expense">Expense</div>
-          <div class="type-tab" data-type="income" data-i18n="type.income">Income</div>
-          <div class="type-tab" data-type="investment" data-i18n="type.investment">Investment</div>
-          <div class="type-tab" data-type="transfer" data-i18n="type.transfer">Transfer</div>
+          <button type="button" class="type-tab active" data-type="expense" data-i18n="type.expense">Expense</button>
+          <button type="button" class="type-tab" data-type="income" data-i18n="type.income">Income</button>
+          <button type="button" class="type-tab" data-type="investment" data-i18n="type.investment">Investment</button>
+          <button type="button" class="type-tab" data-type="transfer" data-i18n="type.transfer">Transfer</button>
         </div>
 
         <p class="hint" id="meta-check-status" hidden></p>
@@ -142,7 +153,7 @@
         <div id="edit-mode-banner" class="edit-mode-banner" hidden data-i18n="entry.editing">✏️ Editing entry</div>
         <p id="entry-load-msg" class="status-msg" hidden></p>
 
-        <form id="entry-form" hidden>
+        <form id="entry-form" novalidate hidden>   <!-- novalidate: the app checks amount, category and date itself, in its own words (the phone's "Please fill out this field" bubble spoke the phone's language) -->
           <div id="selected-category-banner" class="category-banner" hidden>
             <span id="selected-category-icon" class="category-banner-icon"></span>
             <span id="selected-category-name"></span>
@@ -165,8 +176,8 @@
             <p class="hint" id="exchange-leg-hint" hidden></p>
             <div id="repayment-detail" hidden>
               <div class="type-tabs budget-period-tabs" id="repayment-direction-tabs">
-                <div class="type-tab active" data-direction="i_owe_them" data-i18n="transfer.iPaid">I paid them</div>
-                <div class="type-tab" data-direction="they_owe_me" data-i18n="transfer.theyPaid">They paid me</div>
+                <button type="button" class="type-tab active" data-direction="i_owe_them" data-i18n="transfer.iPaid">I paid them</button>
+                <button type="button" class="type-tab" data-direction="they_owe_me" data-i18n="transfer.theyPaid">They paid me</button>
               </div>
               <label for="repayment-friend" data-i18n="common.friend">Friend</label>
               <select id="repayment-friend"></select>
@@ -198,7 +209,7 @@
 
           <div id="entry-standard-fields">
           <div id="receipt-read-field" hidden>
-            <button type="button" class="add-inline" id="receipt-read-btn" data-i18n="receipt.button">📷 Read a receipt or payment</button>
+            <button type="button" class="add-inline" id="receipt-read-btn" data-i18n="receipt.button">Read a receipt or payment</button>
             <input type="file" id="receipt-read-input" accept="image/*" hidden>
             <p class="hint" id="receipt-read-status" hidden></p>
             <details id="receipt-read-raw" hidden>
@@ -220,7 +231,7 @@
             <p class="hint" id="entry-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
           </div>
           <div id="repeat-field" hidden>
-            <button type="button" class="add-inline" id="repeat-open-btn" data-i18n="repeat.add">🔁 Repeat…</button>
+            <button type="button" class="add-inline" id="repeat-open-btn" data-i18n="repeat.add">Repeat…</button>
             <div id="repeat-detail" hidden>
               <label data-i18n="repeat.label">Repeats</label>
               <div class="type-tabs budget-period-tabs" id="repeat-tabs">
@@ -268,6 +279,13 @@
             <button type="button" class="add-inline" id="payee-suggest-apply" data-i18n="payee.use">Use this</button>
           </div>
 
+          <!-- Optional details folded behind one row on a NEW expense or income (owner, 2026-11-12): a summary of what they are set
+               to, and a tap opens them. Edits, Needs review confirmations, transfers and investments always show them. -->
+          <button type="button" class="more-details-toggle" id="more-details-toggle" aria-expanded="true" aria-controls="more-details-body" hidden>
+            <span class="more-details-title" data-i18n="entry.moreDetails">More details</span>
+            <span class="more-details-sum" id="more-details-sum"></span>
+          </button>
+          <div id="more-details-body">
           <label for="paid_by" id="paid-by-label" data-i18n="field.paidBy">Paid by</label>
           <select id="paid_by"></select>
           <p class="hint" id="paid-by-friend-hint" hidden></p>
@@ -296,19 +314,20 @@
           </div>
 
           <div id="split-field" hidden>
-            <button type="button" class="add-inline" id="bill-open-btn" data-i18n="split.openBill">🧾 Split a bill by items…</button>
+            <button type="button" class="add-inline" id="bill-open-btn" data-i18n="split.openBill">Split a bill by items…</button>
             <label class="checkbox-row">
               <input type="checkbox" id="split-toggle">
               <span data-i18n="split.toggle">Split this expense</span>
             </label>
-            <button type="button" class="add-inline" id="split-client-btn" hidden data-i18n="split.clientRepays">🏢 Client will repay this</button>
+            <button type="button" class="add-inline" id="split-client-btn" hidden data-i18n="split.clientRepays">Client will repay this</button>
             <select id="split-client-select" hidden aria-label="Who will repay it?"></select>
 
             <div id="split-detail" hidden>
               <div class="type-tabs budget-period-tabs" id="split-mode-tabs">
-                <div class="type-tab active" data-mode="equal" data-i18n="split.equal">Equal</div>
-                <div class="type-tab" data-mode="percent" data-i18n="split.percent">%</div>
-                <div class="type-tab" data-mode="custom" data-i18n="split.custom">Custom</div>
+                <button type="button" class="type-tab active" data-mode="equal" data-i18n="split.equal">Equal</button>
+                <button type="button" class="type-tab" data-mode="percent" data-i18n="split.percent">%</button>
+                <button type="button" class="type-tab" data-mode="custom" data-i18n="split.custom">Custom</button>
+                <button type="button" class="type-tab split-items-tab" id="split-items-tab" data-i18n="split.byItems">By items</button>
               </div>
 
               <label data-i18n="split.sharedWith">Shared with</label>
@@ -318,7 +337,7 @@
 
               <div id="split-rows"></div>
               <p class="hint" id="split-summary"></p>
-              <p class="hint" id="split-error" style="color:#d64545;"></p>
+              <p class="hint error-text" id="split-error"></p>
 
               <div class="add-inline" id="split-due-add" data-i18n="split.addDue">+ Add due date</div>
               <div id="split-due-block" hidden>
@@ -351,6 +370,7 @@
             <select id="entry-business"></select>
           </div>
 
+          </div>
           <div id="expected-field" hidden>
             <label for="entry-expected" data-i18n="field.expected">Pays expected payment</label>
             <select id="entry-expected"></select>
@@ -370,8 +390,12 @@
 
           </div>
 
-          <p class="hint" id="form-error" style="color:#d64545;"></p>
-          <button type="submit" class="primary" id="submit-btn" data-i18n="entry.save">Save entry</button>
+          <!-- Save is always in reach (design review 2026-11-12): this bar stays at the bottom of the sheet while it scrolls,
+               with the form's message right above the button. -->
+          <div class="entry-save-bar">
+            <p class="hint error-text" id="form-error"></p>
+            <button type="submit" class="primary" id="submit-btn" data-i18n="entry.save">Save entry</button>
+          </div>
           <button type="button" class="cancel-edit-btn" id="cancel-new-entry-btn" hidden data-i18n="entry.cancelNew">Cancel entry</button>
           <button type="button" class="cancel-edit-btn" id="cancel-edit-btn-2" hidden data-i18n="entry.cancelEdit">Cancel edit</button>
           <button type="button" class="delete-entry-btn" id="delete-entry-btn" hidden data-i18n="entry.delete">Delete this entry</button>
@@ -405,7 +429,10 @@
           <h2 data-i18n="notices.title">Alerts</h2>
           <button type="button" class="add-inline" id="notices-dismiss-all" data-i18n="notices.dismissAll">Dismiss all</button>
         </div>
-        <ul class="notices-list" id="notices-list"></ul>
+        <!-- Folded to one line that counts them by kind; a tap shows the list (design review 2026-11-12: 9 full alerts sat
+             above everything on Home). -->
+        <button type="button" class="notices-summary" id="notices-summary" aria-expanded="false" aria-controls="notices-list"></button>
+        <ul class="notices-list" id="notices-list" hidden></ul>
         <p class="hint" id="notices-more" hidden></p>
       </div>
 
@@ -414,10 +441,10 @@
         <p class="own-name-name" id="own-name-name"></p>
         <p class="hint" data-i18n="ownName.hint">We saw this name on your bank statements or emails. If it is you, the app can tell your own transfers apart from payments to other people.</p>
         <div class="own-name-actions">
-          <button type="button" class="primary" id="own-name-yes" data-i18n="ownName.yes">✓ Yes, it's me</button>
-          <button type="button" id="own-name-no" data-i18n="ownName.no">✗ Not me</button>
+          <button type="button" class="primary" id="own-name-yes" data-i18n="ownName.yes">Yes, it's me</button>
+          <button type="button" id="own-name-no" data-i18n="ownName.no">Not me</button>
         </div>
-        <p class="hint" id="own-name-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="own-name-error"></p>
       </div>
 
       <p class="hint review-check-status" id="review-check-status" hidden></p>
@@ -444,14 +471,20 @@
       <p class="hint review-check-status" id="recurring-check-status" hidden></p>
 
       <div class="card" id="expected-recurring-card" hidden>
-        <h2 data-i18n="programmed.title">🔁 Programmed this month</h2>
-        <p class="hint" data-i18n="programmed.hint">From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).</p>
-        <button type="button" class="add-inline income-toggle-btn" id="expected-income-toggle" hidden></button>
-        <div id="expected-recurring-groups"></div>
+        <!-- A closed row by default: "Programmed this month · 5 · −PEN 1,240 ›" (design review 2026-11-12). -->
+        <h2 class="expected-head-h"><button type="button" class="expected-head" id="expected-head" aria-expanded="false" aria-controls="expected-recurring-body">
+          <span data-i18n="programmed.title">Programmed this month</span>
+          <span class="expected-head-sum" id="expected-head-sum"></span>
+        </button></h2>
+        <div id="expected-recurring-body" hidden>
+          <p class="hint" data-i18n="programmed.hint">From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).</p>
+          <button type="button" class="add-inline income-toggle-btn" id="expected-income-toggle" hidden></button>
+          <div id="expected-recurring-groups"></div>
+        </div>
       </div>
 
       <div class="card business-expected-card" id="business-expected-card" hidden>
-        <h2 data-i18n="bx.title">💼 Business · expected this month</h2>
+        <h2 data-i18n="bx.title">Business · expected this month</h2>
         <p class="hint" data-i18n="bx.hint">Payments clients still owe you, due this month or overdue.</p>
         <div id="business-expected-list"></div>
       </div>
@@ -689,7 +722,7 @@
       <p class="hint loans-unreadable" id="loans-unreadable" hidden></p>
       <div class="card" id="loans-owed-card">
         <div class="budgets-header">
-          <h2 data-i18n="loans.owesYou">💸 Owes you</h2>
+          <h2 data-i18n="loans.owesYou">Owes you</h2>
           <div class="loans-head-actions">
             <button type="button" class="icon-btn" id="add-loan-btn" data-i18n-aria-label="loans.addAria" aria-label="Add loan"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </div>
@@ -705,9 +738,9 @@
       <!-- A bank loan is money the person OWES, so its button sits on this card (owner, 2026-11-04). -->
       <div class="card" id="loans-i-owe-card">
         <div class="budgets-header">
-          <h2 data-i18n="loans.youOwe">📉 You owe</h2>
+          <h2 data-i18n="loans.youOwe">You owe</h2>
           <div class="loans-head-actions">
-            <button type="button" class="add-inline" id="add-bank-loan-btn" data-i18n="bank.addButton">🏦 Bank loan</button>
+            <button type="button" class="add-inline" id="add-bank-loan-btn" data-i18n="bank.addButton">Bank loan</button>
             <button type="button" class="icon-btn" id="add-loan-owe-btn" data-i18n-aria-label="loans.addOweAria" aria-label="Add money you owe"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </div>
         </div>
@@ -734,75 +767,75 @@
       <div class="card more-group">
         <h2 data-i18n="nav.more">More</h2>
           <button type="button" class="more-list-item" id="more-recurring-btn">
-            <span data-i18n="more.programmed">🔁 Programmed income/expenses</span>
+            <span class="row-icon" data-icon="calendar" aria-hidden="true"></span><span data-i18n="more.programmed">Programmed income/expenses</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-trips-btn">
-            <span data-i18n="more.trips">✈️ Trips &amp; events</span>
+            <span class="row-icon" data-icon="map" aria-hidden="true"></span><span data-i18n="more.trips">Trips &amp; events</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-business-btn" hidden>
-            <span data-i18n="more.business">🏢 Companies &amp; projects</span>
+            <span class="row-icon" data-icon="briefcase" aria-hidden="true"></span><span data-i18n="more.business">Companies &amp; projects</span>
             <span class="more-list-chevron">›</span>
           </button>
       </div>
       <div class="card more-group more-group-az">
           <button type="button" class="more-list-item" id="more-accounts-btn">
-            <span data-i18n="more.accounts">💳 Accounts, cards &amp; platforms</span>
+            <span class="row-icon" data-icon="card" aria-hidden="true"></span><span data-i18n="more.accounts">Accounts, cards &amp; platforms</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-bank-mail-btn" hidden>
-            <span data-i18n="more.bankEmails">📧 Bank emails</span>
+            <span class="row-icon" data-icon="mail" aria-hidden="true"></span><span data-i18n="more.bankEmails">Bank emails</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-categories-btn">
-            <span data-i18n="more.categories">🏷️ Categories</span>
+            <span class="row-icon" data-icon="tag" aria-hidden="true"></span><span data-i18n="more.categories">Categories</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-exchange-rates-btn">
-            <span data-i18n="more.currencies">💱 Currencies</span>
+            <span class="row-icon" data-icon="coin" aria-hidden="true"></span><span data-i18n="more.currencies">Currencies</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-friends-btn" hidden>
-            <span data-i18n="more.friends">👥 Friends</span>
+            <span class="row-icon" data-icon="users" aria-hidden="true"></span><span data-i18n="more.friends">Friends</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-my-data-btn">
-            <span data-i18n="more.myData">🗂️ My data</span>
+            <span class="row-icon" data-icon="database" aria-hidden="true"></span><span data-i18n="more.myData">My data</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-my-profile-btn">
-            <span data-i18n="more.myProfile">👤 My profile</span>
+            <span class="row-icon" data-icon="user" aria-hidden="true"></span><span data-i18n="more.myProfile">My profile</span>
             <span class="more-list-chevron">›</span>
           </button>
       </div>
       <div class="card more-group">
           <button type="button" class="more-list-item" id="more-update-btn" hidden>
-            <span data-i18n="more.update">⬆️ Update available</span>
+            <span class="row-icon" data-icon="download" aria-hidden="true"></span><span data-i18n="more.update">Update available</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-perf-btn">
-            <span data-i18n="more.perf">⏱ Performance log</span>
+            <span class="row-icon" data-icon="activity" aria-hidden="true"></span><span data-i18n="more.perf">Performance log</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-feedback-privacy-btn" hidden>
-            <span data-i18n="more.feedbackPrivacy">💬 Feedback &amp; privacy</span>
+            <span class="row-icon" data-icon="message" aria-hidden="true"></span><span data-i18n="more.feedbackPrivacy">Feedback &amp; privacy</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-business-features-btn" hidden>
-            <span><span data-i18n="more.businessFeatures">🏢 Business features</span> <span class="original-amt" id="more-business-features-state"></span></span>
+            <span class="row-icon" data-icon="toggle" aria-hidden="true"></span><span><span data-i18n="more.businessFeatures">Business features</span> <span class="original-amt" id="more-business-features-state"></span></span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-preview-welcome-btn" hidden>
-            <span data-i18n="more.previewWelcome">👀 Preview the welcome flow</span>
+            <span class="row-icon" data-icon="eye" aria-hidden="true"></span><span data-i18n="more.previewWelcome">Preview the welcome flow</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-tour-btn">
-            <span data-i18n="more.tour">📖 How to use the app</span>
+            <span class="row-icon" data-icon="book" aria-hidden="true"></span><span data-i18n="more.tour">How to use the app</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-signout-btn">
-            <span data-i18n="more.signout">🚪 Sign out of this device</span>
+            <span class="row-icon" data-icon="logout" aria-hidden="true"></span><span data-i18n="more.signout">Sign out of this device</span>
             <span class="more-list-chevron">›</span>
           </button>
         <!-- Fixed bilingual label on purpose: it must stay readable in either language. -->
@@ -834,7 +867,7 @@
         <h2 class="recurring-kind-title" id="recurring-expenses-title" data-i18n="recurring.expensesTitle">Expenses</h2>
 
         <div class="breakdown-section">
-          <h3 data-i18n="recurring.recurring">🔁 Recurring</h3>
+          <h3 data-i18n="recurring.recurring">Recurring</h3>
           <p class="hint" data-i18n="recurring.recurringHint">Repeats on a schedule — rent, subscriptions, gym, salary.</p>
           <div id="recurring-list"></div>
           <p class="hint" id="recurring-empty-note" hidden data-i18n="recurring.empty">No recurring items yet.</p>
@@ -846,15 +879,15 @@
         </div>
 
         <div class="breakdown-section">
-          <h3 data-i18n="recurring.suggestTitle">💡 Variable-amount payments</h3>
+          <h3 data-i18n="recurring.suggestTitle">Variable-amount payments</h3>
           <p class="hint" data-i18n="recurring.suggestHint">Payments that happen every month but never cost the same — electricity, gas, building fees. This looks through your last 6 months for ones that aren't programmed yet.</p>
-          <button type="button" class="add-inline" id="recurring-suggest-btn" data-i18n="recurring.suggestBtn">🔎 Look for variable payments</button>
+          <button type="button" class="add-inline" id="recurring-suggest-btn" data-i18n="recurring.suggestBtn">Look for variable payments</button>
           <div id="recurring-suggest-list"></div>
           <p class="hint" id="recurring-suggest-empty" hidden data-i18n="recurring.suggestNone">Nothing new found. A payment shows up here when it appears in at least 4 of the last 6 months, at most twice a month, with an amount that changes.</p>
         </div>
 
         <div class="breakdown-section">
-          <h3 data-i18n="recurring.oneTime">📌 Programmed, one-time</h3>
+          <h3 data-i18n="recurring.oneTime">Programmed, one-time</h3>
           <p class="hint" data-i18n="recurring.oneTimeHint">A single known future payment — stays out of "Recent entries" until it actually happens and gets confirmed for real.</p>
           <div id="recurring-onetime-list"></div>
           <p class="hint" id="recurring-onetime-empty-note" hidden data-i18n="recurring.oneTimeEmpty">No one-time programmed items yet.</p>
@@ -865,7 +898,7 @@
           <button type="button" class="add-inline income-toggle-btn" id="recurring-income-toggle"></button>
 
           <div class="breakdown-section">
-            <h3 data-i18n="recurring.recurring">🔁 Recurring</h3>
+            <h3 data-i18n="recurring.recurring">Recurring</h3>
             <p class="hint" data-i18n="recurring.recurringHint">Repeats on a schedule — rent, subscriptions, gym, salary.</p>
             <div id="recurring-inc-list"></div>
             <p class="hint" id="recurring-inc-empty-note" hidden data-i18n="recurring.noCurrentIncome">No current programmed income.</p>
@@ -877,7 +910,7 @@
           </div>
 
           <div class="breakdown-section">
-            <h3 data-i18n="recurring.oneTime">📌 Programmed, one-time</h3>
+            <h3 data-i18n="recurring.oneTime">Programmed, one-time</h3>
             <div id="recurring-inc-onetime-list"></div>
             <p class="hint" id="recurring-inc-onetime-empty-note" hidden data-i18n="recurring.oneTimeEmpty">No one-time programmed items yet.</p>
           </div>
@@ -953,7 +986,7 @@
         <p class="hint" data-i18n="trips.hint">Group the expenses of a trip or an event.</p>
         <div id="trips-list"></div>
         <p class="hint" id="trips-empty-note" hidden data-i18n="trips.empty">No trips or events yet.</p>
-        <p class="hint" id="trips-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="trips-error"></p>
         <div class="friends-editbar" id="trips-editbar" hidden>
           <button type="button" class="add-inline" id="trips-selectall-btn" data-i18n="friends.selectAll">Select all</button>
           <button type="button" class="add-inline" id="trips-done-btn" data-i18n="friends.done">Done</button>
@@ -971,11 +1004,11 @@
         <h2 style="margin-top:0;" id="trip-detail-title"></h2>
         <p class="hint" id="trip-detail-sub"></p>
         <div id="trip-detail-body"></div>
-        <p class="hint" id="trip-detail-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="trip-detail-error"></p>
       </div>
       <div class="card" id="trip-detail-entries-card" hidden>
         <h3 style="margin-top:0;" data-i18n="trips.expenses">Expenses</h3>
-        <button type="button" class="add-inline" id="trip-find-btn" data-i18n="trips.find">🔎 Find expenses in these dates</button>
+        <button type="button" class="add-inline" id="trip-find-btn" data-i18n="trips.find">Find expenses in these dates</button>
         <div id="trip-find-box" hidden></div>
         <div id="trip-detail-entries"></div>
       </div>
@@ -999,7 +1032,7 @@
           <span data-i18n="bf.toggle">Use business features</span>
         </label>
         <p class="hint" data-i18n="bf.offNote">If you turn them off, they are hidden but nothing is deleted. Turn them on again and everything comes back.</p>
-        <p class="hint" id="bf-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="bf-error"></p>
       </div>
     </div>
 
@@ -1012,14 +1045,14 @@
             <button type="button" class="icon-btn" id="business-add-company-btn" data-i18n-aria-label="business.addCompanyAria" aria-label="Add company"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
-        <button type="button" class="add-inline" id="business-people-btn" data-i18n="business.people">👥 People</button>
+        <button type="button" class="add-inline" id="business-people-btn" data-i18n="business.people">People</button>
         <h2 style="margin-top:0;" data-i18n="business.title">Companies &amp; projects</h2>
         <p class="hint" data-i18n="business.hint">Group your business income and costs by company and project. Each currency is always kept apart.</p>
         <select id="business-period" class="business-period-select"></select>
         <div id="business-list"></div>
         <p class="hint" id="business-empty-note" hidden data-i18n="business.empty">No company yet. A company can be your own practice or any business you earn from.</p>
         <button type="button" class="primary" id="business-first-btn" hidden data-i18n="business.setupFirst">Set up my first company</button>
-        <p class="hint" id="business-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="business-error"></p>
         <div class="friends-editbar" id="business-editbar" hidden>
           <button type="button" class="add-inline" id="business-selectall-btn" data-i18n="friends.selectAll">Select all</button>
           <button type="button" class="add-inline" id="business-done-btn" data-i18n="friends.done">Done</button>
@@ -1041,7 +1074,7 @@
         <p class="hint" data-i18n="people.hint">Clients, suppliers and partners. What each one owes you (or you owe them) is kept per project and per currency.</p>
         <div id="people-list"></div>
         <p class="hint" id="people-empty-note" hidden data-i18n="people.empty">No one yet. Add a client, a supplier or a partner.</p>
-        <p class="hint" id="people-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="people-error"></p>
         <div class="friends-editbar" id="people-editbar" hidden>
           <button type="button" class="add-inline" id="people-selectall-btn" data-i18n="friends.selectAll">Select all</button>
           <button type="button" class="add-inline" id="people-done-btn" data-i18n="friends.done">Done</button>
@@ -1060,7 +1093,7 @@
         <p class="hint" id="igv-sub"></p>
         <select id="igv-year" class="igv-year-select"></select>
         <div id="igv-body"></div>
-        <p class="hint" id="igv-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="igv-error"></p>
       </div>
     </div>
 
@@ -1074,7 +1107,7 @@
         <p class="hint" id="business-detail-sub"></p>
         <select id="business-detail-period" class="business-period-select"></select>
         <div id="business-detail-body"></div>
-        <p class="hint" id="business-detail-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="business-detail-error"></p>
       </div>
       <div class="card" id="business-detail-entries-card" hidden>
         <h3 style="margin-top:0;" data-i18n="business.entries">Entries</h3>
@@ -1100,7 +1133,7 @@
           <p class="hint" id="friends-hidden-hint" hidden data-i18n="friends.hiddenHint">These friends are hidden from your lists. Their history stays. Adding the same name again also brings them back.</p>
           <div id="friends-hidden-list"></div>
         </div>
-        <p class="hint" id="friends-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="friends-error"></p>
         <div class="friends-editbar" id="friends-editbar" hidden>
           <button type="button" class="add-inline" id="friends-selectall-btn" data-i18n="friends.selectAll">Select all</button>
           <button type="button" class="add-inline" id="friends-done-btn" data-i18n="friends.done">Done</button>
@@ -1170,7 +1203,7 @@
         <p class="hint" data-i18n="deleted.hint">Entries you delete several at a time wait here for 30 days. Restore them, or delete them for good.</p>
         <div id="deleted-list"></div>
         <p class="hint" id="deleted-empty" hidden data-i18n="deleted.empty">Nothing here. Entries you delete several at a time wait here for 30 days.</p>
-        <p class="hint" id="deleted-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="deleted-error"></p>
       </div>
     </div>
 
@@ -1375,7 +1408,7 @@
           <div class="stmt-loading" id="owner-names-status" role="status" aria-live="polite" hidden><span class="stmt-spinner" aria-hidden="true"></span><span data-i18n="ownerNames.saving">Saving…</span></div>
           <label for="owner-names-input" data-i18n="ownerNames.addLabel">Add a name as it appears on your accounts</label>
           <input type="text" id="owner-names-input" autocomplete="off" data-i18n-placeholder="ownerNames.placeholder" placeholder="First and last names">
-          <p class="hint" id="owner-names-error" style="color:#d64545;"></p>
+          <p class="hint error-text" id="owner-names-error"></p>
           <button type="button" class="primary" id="owner-names-add-btn" data-i18n="common.add">+ Add</button>
           </div>
 
@@ -1419,7 +1452,7 @@
               <p class="hint" data-i18n="devices.hint">Every phone or computer that has signed in with your access code. Sign out one you've lost or no longer use — it stops working immediately. A device you stop using is removed after 90 days.</p>
               <p class="hint" id="devices-status" style="font-weight:600;"></p>
               <div id="devices-list"></div>
-              <p class="hint" id="devices-error" style="color:#d64545;"></p>
+              <p class="hint error-text" id="devices-error"></p>
               <button type="button" class="add-inline" id="devices-signout-others-btn" data-i18n="devices.signOutOthers">Sign out all my other devices</button>
             </div>
           </div>
@@ -1434,24 +1467,24 @@
         </div>
         <h2 style="margin-top:0;" data-i18n="fp.title">Feedback &amp; privacy</h2>
 
-        <h3 class="md-head" data-i18n="fp.feedbackHead">💬 Send feedback to JP</h3>
+        <h3 class="md-head" data-i18n="fp.feedbackHead">Send feedback to JP</h3>
         <p class="hint" data-i18n="fp.feedbackHint">Tell me what broke, what confuses you or what you would like. You see exactly what is sent before it goes.</p>
         <button type="button" class="primary" id="fp-feedback-btn" data-i18n="fp.feedbackBtn">Write a note</button>
 
         <div class="fp-card">
-          <h3 class="md-head" data-i18n="fp.shareHead">📊 What I share with JP</h3>
+          <h3 class="md-head" data-i18n="fp.shareHead">What I share with JP</h3>
           <p class="hint" id="privacy-share-status"></p>
           <button type="button" class="primary" id="privacy-change-btn" data-i18n="privacy.change">Change what I share</button>
         </div>
 
         <div class="fp-card">
-          <h3 class="md-head" data-i18n="fp.extrasHead">⚡ Extra features</h3>
+          <h3 class="md-head" data-i18n="fp.extrasHead">Extra features</h3>
           <p class="hint" data-i18n="fp.extrasHint">Switch optional extras, like reading your bank emails, on or off, and see or take back the permissions your Google account gave the app.</p>
           <button type="button" class="primary" id="fp-extras-btn" data-i18n="fp.extrasBtn">Manage extra features</button>
         </div>
 
         <div class="fp-card">
-          <h3 class="md-head" data-i18n="fp.dataHead">🔒 How my data is treated</h3>
+          <h3 class="md-head" data-i18n="fp.dataHead">How my data is treated</h3>
         <p class="hint" data-i18n="privacy.intro">Your money is private. Here, in plain words, is where your information lives and what little can reach JP, who made this app.</p>
 
         <p class="hint"><strong data-i18n="privacy.liveTitle">Where your data lives</strong></p>
@@ -1477,9 +1510,9 @@
         </div>
 
         <div class="fp-card">
-          <h3 class="md-head" data-i18n="fp.eraseHead">🗑️ Removing everything</h3>
+          <h3 class="md-head" data-i18n="fp.eraseHead">Removing everything</h3>
           <p class="hint" data-i18n="privacy.remove">Tap Delete everything below.</p>
-          <button type="button" class="primary danger" id="fp-erase-btn" data-i18n="more.erase">🗑️ Delete everything</button>
+          <button type="button" class="primary danger" id="fp-erase-btn" data-i18n="more.erase">Delete everything</button>
         </div>
       </div>
     </div>
@@ -1582,7 +1615,7 @@
         <div class="card" id="statement-review-card">
           <h2 style="margin-top:0;" data-i18n="stmt.s3.title">Preview what will be saved</h2>
           <p class="hint" data-i18n="stmt.s3.hint">Nothing is saved until you tap the final button. You can undo it in one step.</p>
-          <button type="button" class="primary" id="statement-history-btn" hidden data-i18n="hist.button">📚 Read my statements</button>
+          <button type="button" class="primary" id="statement-history-btn" hidden data-i18n="hist.button">Read my statements</button>
           <div id="statement-plan-status"></div>
           <div id="statement-history"></div>
           <div class="stmt-stepnav">
@@ -1629,22 +1662,22 @@
 
   <nav id="bottom-nav" class="bottom-nav" hidden>
     <button type="button" class="nav-btn active" data-screen="entries">
-      <span class="nav-icon">🏠</span><span data-i18n="nav.home">Home</span>
+      <span class="nav-icon" data-icon="home" aria-hidden="true"></span><span data-i18n="nav.home">Home</span>
     </button>
     <button type="button" class="nav-btn" data-screen="overview">
-      <span class="nav-icon">📊</span><span data-i18n="nav.overview">Overview</span>
+      <span class="nav-icon" data-icon="chart" aria-hidden="true"></span><span data-i18n="nav.overview">Overview</span>
     </button>
-    <button type="button" class="nav-btn" data-screen="budgets">
-      <span class="nav-icon">🎯</span><span data-i18n="nav.budgets">Budgets</span>
+    <button type="button" class="nav-btn" data-screen="budgets" data-i18n-aria-label="nav.budgets">
+      <span class="nav-icon" data-icon="target" aria-hidden="true"></span><span data-i18n="nav.budgetsTab">Budgets</span>
     </button>
-    <button type="button" class="nav-btn" data-screen="projections">
-      <span class="nav-icon">🔮</span><span data-i18n="nav.projections">Projections</span>
+    <button type="button" class="nav-btn" data-screen="projections" data-i18n-aria-label="nav.projections">
+      <span class="nav-icon" data-icon="trend" aria-hidden="true"></span><span data-i18n="nav.projectionsTab">Projections</span>
     </button>
     <button type="button" class="nav-btn" data-screen="loans">
-      <span class="nav-icon">🤝</span><span data-i18n="nav.loans">Loans</span>
+      <span class="nav-icon" data-icon="swap" aria-hidden="true"></span><span data-i18n="nav.loans">Loans</span>
     </button>
     <button type="button" class="nav-btn" data-screen="more">
-      <span class="nav-icon">⋯</span><span data-i18n="nav.more">More</span>
+      <span class="nav-icon" data-icon="dots" aria-hidden="true"></span><span data-i18n="nav.more">More</span>
     </button>
   </nav>
 
@@ -1710,7 +1743,7 @@
       <select id="rates-add-currency"></select>
       <label for="rates-add-month" data-i18n="rates.addMonth">Month</label>
       <input type="month" id="rates-add-month">
-      <p class="hint" id="rates-add-error" style="color:#d64545;"></p>
+      <p class="hint error-text" id="rates-add-error"></p>
       <button type="button" class="primary" id="rates-add-next" data-i18n="rates.addNext">Next: type the rate</button>
     </div>
   </div>
@@ -1753,8 +1786,8 @@
           <div class="drilldown-menu-wrap">
             <button type="button" id="drilldown-menu-btn" class="drilldown-menu-btn" data-i18n-aria-label="drill.budgetOptions" aria-label="Budget options" hidden>⋯</button>
             <div id="drilldown-menu" class="drilldown-menu" hidden>
-              <button type="button" id="drilldown-menu-edit" class="drilldown-menu-item" data-i18n="drill.modifyBudget">✏️ Modify budget</button>
-              <button type="button" id="drilldown-menu-delete" class="drilldown-menu-item delete" data-i18n="drill.deleteBudget">🗑️ Delete budget</button>
+              <button type="button" id="drilldown-menu-edit" class="drilldown-menu-item" data-i18n="drill.modifyBudget">Modify budget</button>
+              <button type="button" id="drilldown-menu-delete" class="drilldown-menu-item delete" data-i18n="drill.deleteBudget">Delete budget</button>
             </div>
           </div>
           <button type="button" id="drilldown-modal-close" class="currency-modal-close">✕</button>
@@ -1821,15 +1854,15 @@
         <button type="button" id="bill-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="bill-scroll">
-        <button type="button" class="add-inline" id="bill-photo-btn" data-i18n="bill.photo">📷 Read the items from a photo</button>
+        <button type="button" class="add-inline" id="bill-photo-btn" data-i18n="bill.photo">Read the items from a photo</button>
         <input type="file" id="bill-photo-input" accept="image/*" hidden>
         <p class="hint" id="bill-photo-status" hidden></p>
-        <button type="button" class="add-inline" id="bill-photo-again" hidden data-i18n="bill.photoAgain">↻ Read the entry's photo again for the items</button>
+        <button type="button" class="add-inline" id="bill-photo-again" hidden data-i18n="bill.photoAgain">Read the entry's photo again for the items</button>
         <details id="bill-photo-raw" hidden>
           <summary class="hint" data-i18n="bill.rawSummary">What the phone read — you can correct it here</summary>
           <p class="hint" data-i18n="bill.rawHint">Fix a garbled line or number in this text, then tap the button: the items, discounts and total are worked out again from it. Who shared what is kept for lines you didn't change.</p>
           <textarea id="bill-photo-text" class="bill-photo-text" rows="9" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
-          <button type="button" class="add-inline" id="bill-photo-reparse" data-i18n="bill.reparse">↻ Work out the items again from this text</button>
+          <button type="button" class="add-inline" id="bill-photo-reparse" data-i18n="bill.reparse">Work out the items again from this text</button>
         </details>
         <p class="hint bill-check-bad" id="bill-stale-note" hidden data-i18n="bill.stale">This entry's amount or split was changed after the bill was saved, so the bill below no longer matches it. Tapping “Use this split” will replace the amount and the split with the bill's numbers.</p>
         <label for="bill-total"><span data-i18n="bill.totalBefore">Bill total before discounts</span> (<span id="bill-currency">PEN</span>)</label>
@@ -1868,7 +1901,7 @@
         <p class="hint" id="bill-check"></p>
         <div id="bill-result"></div>
       </div>
-      <p class="hint" id="bill-error" style="color:#d64545;"></p>
+      <p class="hint error-text" id="bill-error"></p>
       <button type="button" class="primary" id="bill-apply" data-i18n="bill.apply">Use this split</button>
     </div>
   </div>
@@ -1881,13 +1914,13 @@
       </div>
       <p class="hint" id="loan-detail-subtitle"></p>
       <div class="loan-detail-actions">
-        <button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">💰 Record repayment</button>
-        <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">📜 Repayment history</button>
-        <button type="button" class="add-inline" id="loan-remind-btn" hidden data-i18n="remind.button">💬 Remind on WhatsApp</button>
+        <button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">Record repayment</button>
+        <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">Repayment history</button>
+        <button type="button" class="add-inline" id="loan-remind-btn" hidden data-i18n="remind.button">Remind on WhatsApp</button>
       </div>
       <div class="loan-opening-offer" id="loan-detail-opening" hidden>
         <p class="hint" data-i18n="loanDetail.openingHint">Was there a debt with them from before you started using the app? Add it here, then record its repayment as usual.</p>
-        <button type="button" class="add-inline" id="loan-detail-opening-btn" data-i18n="loanDetail.openingBtn">➕ Add a debt from before</button>
+        <button type="button" class="add-inline" id="loan-detail-opening-btn" data-i18n="loanDetail.openingBtn">Add a debt from before</button>
       </div>
       <div class="money-queue-strip" id="loan-detail-queue" hidden></div>
       <div class="currency-option-list" id="loan-detail-list"></div>
@@ -1895,6 +1928,11 @@
 
       <button type="button" class="add-inline loan-detail-paid-toggle" id="loan-detail-paid-toggle" hidden></button>
       <div class="currency-option-list" id="loan-detail-paid-list" hidden></div>
+      <!-- Forgive, once for the whole screen and kept quiet (design review 2026-11-12); renderForgiveAny_ in app.js. -->
+      <div class="loan-forgive-any" id="loan-forgive-any" hidden>
+        <button type="button" class="add-inline loan-forgive-btn" id="loan-forgive-any-btn" data-i18n="loanDetail.forgiveAny">Forgive part or all of a debt…</button>
+        <div class="loan-forgive-pick" id="loan-forgive-pick" hidden></div>
+      </div>
     </div>
   </div>
 
@@ -1913,19 +1951,19 @@
         <label for="loan-remind-text" data-i18n="remind.text">Message (you can change it)</label>
         <textarea id="loan-remind-text" class="loan-remind-text" rows="10"></textarea>
         <div class="loan-remind-text-actions">
-          <button type="button" class="add-inline" id="loan-remind-reset" data-i18n="remind.reset">↺ Start the message again</button>
-          <button type="button" class="add-inline" id="loan-remind-template" hidden data-i18n="remind.editTemplate">✏️ Change my template</button>
+          <button type="button" class="add-inline" id="loan-remind-reset" data-i18n="remind.reset">Start the message again</button>
+          <button type="button" class="add-inline" id="loan-remind-template" hidden data-i18n="remind.editTemplate">Change my template</button>
         </div>
 
         <label for="loan-remind-phone" id="loan-remind-phone-label" data-i18n="remind.phone">WhatsApp number (optional)</label>
         <div class="phone-row"><select id="loan-remind-phone-cc" data-i18n-aria-label="phone.country" aria-label="Country"></select><input type="tel" id="loan-remind-phone" maxlength="24" autocomplete="off" inputmode="tel"></div>
         <p class="hint" id="loan-remind-phone-hint" data-i18n="remind.phoneHint">With the country code, e.g. +51 987 654 321. Saved for next time. Leave it empty to pick the chat in WhatsApp.</p>
 
-        <p class="hint" id="loan-remind-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="loan-remind-error"></p>
         <button type="button" class="primary" id="loan-remind-send" data-i18n="remind.send">Open WhatsApp</button>
         <p class="hint" data-i18n="remind.sendHint">WhatsApp opens with this message. Nothing is sent until you tap Send there.</p>
         <p class="hint" id="loan-remind-stuck" hidden data-i18n="remind.stuck">WhatsApp didn't open? Copy the message and paste it in the chat.</p>
-        <button type="button" class="add-inline" id="loan-remind-copy" data-i18n="remind.copy">📋 Copy the message</button>
+        <button type="button" class="add-inline" id="loan-remind-copy" data-i18n="remind.copy">Copy the message</button>
       </div>
     </div>
   </div>
@@ -1941,9 +1979,9 @@
         <textarea id="remind-tpl-text" class="loan-remind-text" rows="10" aria-labelledby="remind-tpl-title"></textarea>
         <p class="hint" data-i18n="remind.tplPutBack">Put a part back where the cursor is:</p>
         <div class="currency-chips" id="remind-tpl-tags"></div>
-        <p class="hint" id="remind-tpl-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="remind-tpl-error"></p>
         <button type="button" class="primary" id="remind-tpl-save" data-i18n="remind.tplSave">Save my template</button>
-        <button type="button" class="add-inline" id="remind-tpl-default" data-i18n="remind.tplDefault">↺ Go back to the app's template</button>
+        <button type="button" class="add-inline" id="remind-tpl-default" data-i18n="remind.tplDefault">Go back to the app's template</button>
       </div>
     </div>
   </div>
@@ -2043,7 +2081,7 @@
         <button type="button" class="add-inline" id="bank-add-row" data-i18n="bank.addRow">+ Add installment</button>
         <p class="hint" id="bank-totals"></p>
         <p class="hint bank-opening-summary" id="bank-opening-summary" hidden></p>
-        <p class="hint" id="bank-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="bank-error"></p>
         <button type="button" class="primary" id="bank-save" data-i18n="bank.save">Save bank loan</button>
         <button type="button" class="cancel-edit-btn" id="bank-cancel" data-i18n="common.cancel">Cancel</button>
       </div>
@@ -2092,7 +2130,7 @@
         <p class="hint" data-i18n="bank.earlyEstimate">The interest is worked out from the rate your schedule implies. If the bank's new schedule differs, use "Edit the schedule" and type its numbers.</p>
         <p class="hint" id="bank-early-preview"></p>
         <p class="hint" id="bank-early-total"></p>
-        <p class="hint" id="bank-early-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="bank-early-error"></p>
         <button type="button" class="primary" id="bank-early-save" data-i18n="bank.earlySave">Record early payment</button>
         <button type="button" class="cancel-edit-btn" id="bank-early-cancel" data-i18n="common.cancel">Cancel</button>
       </div>
@@ -2120,7 +2158,7 @@
         <label for="bank-record-category" data-i18n="bank.recordCategory">Category of the interest and fees</label>
         <select id="bank-record-category"></select>
         <p class="hint" id="bank-record-total"></p>
-        <p class="hint" id="bank-record-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="bank-record-error"></p>
         <button type="button" class="primary" id="bank-record-save" data-i18n="bank.recordSave">Record installment</button>
         <button type="button" class="cancel-edit-btn" id="bank-record-cancel" data-i18n="common.cancel">Cancel</button>
       </div>
@@ -2160,7 +2198,7 @@
           <p class="hint" data-i18n="reassign.recordEntryHint">x</p>
           <button type="button" class="add-inline" id="reassign-record-btn" data-i18n="reassign.recordEntry">Record in my accounts</button>
         </div>
-        <p class="hint" id="reassign-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="reassign-error"></p>
         <button type="button" class="primary" id="reassign-save" data-i18n="common.save">Save</button>
         <button type="button" class="cancel-edit-btn" id="reassign-cancel" data-i18n="common.cancel">Cancel</button>
         <button type="button" class="delete-entry-btn" id="reassign-delete" hidden data-i18n="reassign.delete">Delete this repayment</button>
@@ -2216,13 +2254,13 @@
           <p data-i18n="balance.stmtTip">📄 Have a statement for this account? Starting from its closing balance is the most exact: only what the bank already posted, discounts included.</p>
           <button type="button" class="add-inline" id="balance-stmt-tip-btn" data-i18n="balance.stmtTipBtn">Read a statement ›</button>
         </div>
-        <button type="button" class="add-inline" id="inproc-open-btn" data-i18n="inproc.open">🕒 Add up payments in process…</button>
+        <button type="button" class="add-inline" id="inproc-open-btn" data-i18n="inproc.open">Add up payments in process…</button>
         <h3 class="balance-section-title" data-i18n="balance.starting">Starting balances</h3>
         <p class="hint" id="balance-starting-hint" data-i18n="balance.startingHint">One per currency the account holds. Type what the account holds at that moment: for today, that is right now, at this time of day. Only entries after that moment change the balance; earlier ones are ignored.</p>
         <div id="balance-rows"></div>
         <button type="button" class="add-inline" id="balance-add-row-btn" data-i18n="balance.addCurrency">+ Add another currency</button>
 
-        <p class="hint" id="balance-form-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="balance-form-error"></p>
         <button type="button" class="primary" id="balance-save-btn" data-i18n="balance.save">Save starting balances</button>
         <button type="button" class="delete-entry-btn" id="balance-clear-btn" hidden data-i18n="balance.stop">Stop tracking this account</button>
 
@@ -2250,7 +2288,7 @@
       </div>
       <div class="bill-scroll">
         <p class="hint" data-i18n="inproc.hint">Your bank app's balance leaves out payments still "in process". Add screenshots of its movements list and the app adds up the ones marked "En proceso". Nothing is saved, and the photos never leave your phone.</p>
-        <button type="button" class="add-inline" id="inproc-pick" data-i18n="inproc.pick">📷 Add screenshots</button>
+        <button type="button" class="add-inline" id="inproc-pick" data-i18n="inproc.pick">Add screenshots</button>
         <input type="file" id="inproc-input" accept="image/*" multiple hidden>
         <p class="hint" id="inproc-status" hidden></p>
         <details id="inproc-raw" hidden>
@@ -2306,7 +2344,7 @@
         <input type="text" id="exchange-house" data-i18n-placeholder="common.optional" placeholder="Optional">
 
         <p class="stmt-note warn" id="exchange-account-note" hidden></p>
-        <p class="hint" id="exchange-form-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="exchange-form-error"></p>
         <button type="button" class="primary" id="exchange-save-btn" data-i18n="xch.save">Save exchange</button>
        </div>
       </div>
@@ -2338,7 +2376,7 @@
       <div class="budget-modal-body">
         <label for="loan-friend" data-i18n="common.friend">Friend</label>
         <select id="loan-friend"></select>
-        <p class="hint form-error" id="loan-friend-error" hidden style="color:#d64545;"></p>
+        <p class="hint form-error error-text" id="loan-friend-error" hidden></p>
 
         <div id="loan-project-field" hidden>
           <label for="loan-project" data-i18n="business.loanProject">Project (optional)</label>
@@ -2383,9 +2421,10 @@
         <label for="loan-description" data-i18n="field.description">Description</label>
         <input type="text" id="loan-description" data-i18n-placeholder="common.optional" placeholder="Optional">
 
-        <p class="hint" id="loan-form-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="loan-form-error"></p>
         <button type="button" class="primary" id="loan-save-btn" data-i18n="loanModal.save">Save loan</button>
-        <button type="button" class="add-inline" id="loan-apply-btn" hidden data-i18n="apply.button">↩ Apply to a loan</button>
+        <button type="button" class="add-inline" id="loan-apply-btn" hidden data-i18n="apply.button">Apply to a loan</button>
+        <button type="button" class="secondary-btn loan-forgive-in-modal" id="loan-forgive-btn" hidden data-i18n="loanDetail.forgiveThis">Forgive part or all of it…</button>
         <button type="button" class="delete-entry-btn" id="loan-delete-btn" hidden data-i18n="loanModal.delete">Delete this loan</button>
       </div>
     </div>
@@ -2504,7 +2543,7 @@
             </div>
           </div>
 
-          <p class="hint" id="settlement-form-error" style="color:#d64545;"></p>
+          <p class="hint error-text" id="settlement-form-error"></p>
           <button type="button" class="primary" id="settlement-save-btn" data-i18n="settle.save">Save repayment</button>
           <button type="button" class="cancel-edit-btn" id="settlement-cancel-edit-btn" hidden data-i18n="entry.cancelEdit">Cancel edit</button>
           <button type="button" class="delete-entry-btn" id="settlement-delete-btn" hidden data-i18n="settle.delete">Delete this repayment</button>
@@ -2514,7 +2553,7 @@
           <p class="hint" id="settlement-overpay-note"></p>
           <label for="settlement-overpay-category" id="settlement-overpay-category-label" data-i18n="field.category">Category</label>
           <select id="settlement-overpay-category"></select>
-          <p class="hint" id="settlement-overpay-error" style="color:#d64545;"></p>
+          <p class="hint error-text" id="settlement-overpay-error"></p>
           <button type="button" class="primary" id="settlement-overpay-save-btn" data-i18n="common.save">Save</button>
         </div>
       </div>
@@ -2540,7 +2579,7 @@
             <input type="number" id="main-currency-rate" data-amount-kind="rate" inputmode="decimal" step="any" min="0">
           </div>
           <p class="hint" id="main-currency-estimate"></p>
-          <p class="hint" id="main-currency-error" style="color:#d64545;"></p>
+          <p class="hint error-text" id="main-currency-error"></p>
           <button type="button" class="primary" id="main-currency-apply-btn" data-i18n="mainCur.apply">Switch main currency</button>
           <button type="button" class="add-inline" id="main-currency-cancel-btn" data-i18n="common.cancel">Cancel</button>
         </div>
@@ -2578,7 +2617,7 @@
         <p class="hint" id="welcome-main-label" data-i18n="welcome.curHint">Tap the ones you use. They become quick buttons when you add an entry.</p>
         <div id="welcome-currencies" class="welcome-currencies"></div>
 
-        <p class="hint" id="welcome-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="welcome-error"></p>
         <button type="button" class="primary" id="welcome-continue-btn" data-i18n="welcome.next">Next</button>
       </div>
 
@@ -2626,7 +2665,7 @@
             <p class="hint" data-i18n="wa.nameHint">Optional. Type it as your bank prints it. It helps the app tell your own transfers apart from payments to other people. You can add or change it later in More → My names.</p>
             <input type="text" id="wa-name" autocomplete="name" autocapitalize="words" data-i18n-placeholder="wa.namePlaceholder" placeholder="First and last names">
           </div>
-          <p class="hint" id="wa-error" style="color:#d64545;"></p>
+          <p class="hint error-text" id="wa-error"></p>
           <div class="welcome-tour-buttons">
             <button type="button" id="wa-back-btn" data-i18n="tour.back">Back</button>
             <button type="button" class="primary" id="wa-next-btn" data-i18n="welcome.next">Next</button>
@@ -2659,7 +2698,7 @@
             </div>
             <label class="checkbox-row"><input type="checkbox" id="wa-show4"><span data-i18n="wa.showLast4">Show the last 4 digits in the name</span></label>
             <p class="hint" id="wa-preview" style="font-weight:600;"></p>
-            <p class="hint" id="wa-form-error" style="color:#d64545;"></p>
+            <p class="hint error-text" id="wa-form-error"></p>
             <button type="button" class="primary" id="wa-save-account-btn" data-i18n="wa.saveAccount">Save account</button>
             <button type="button" class="cancel-edit-btn" id="wa-cancel-account-btn" data-i18n="common.cancel">Cancel</button>
           </div>
@@ -2677,7 +2716,7 @@
           <input type="text" id="wp-input" maxlength="40" autocomplete="off" data-i18n-placeholder="wp.placeholder" placeholder="Platform name">
           <button type="button" class="primary" id="wp-add-btn" data-i18n="common.add">+ Add</button>
         </div>
-        <p class="hint" id="wp-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="wp-error"></p>
         <div class="welcome-tour-buttons">
           <button type="button" id="wp-back-btn" data-i18n="tour.back">Back</button>
           <button type="button" class="primary" id="wp-next-btn" data-i18n="welcome.next">Next</button>
@@ -2685,13 +2724,14 @@
       </div>
 
       <div id="welcome-tour" hidden>
+        <button type="button" class="add-inline" id="tour-skip-btn" data-i18n="tour.skip">Skip all</button>
         <div id="tour-track" class="tour-track"></div>
         <div class="tour-foot">
           <div id="tour-bubble" class="tour-bubble" hidden></div>
           <div class="tour-foot-row">
             <span></span>
             <div id="tour-dots" class="welcome-dots"></div>
-            <button type="button" class="add-inline" id="tour-skip-btn" data-i18n="tour.skip">Skip all</button>
+            <span></span>
           </div>
           <p class="hint tour-hint" id="tour-hint" data-i18n="tour.swipe">Swipe to continue ›</p>
         </div>
@@ -2751,7 +2791,7 @@
       </div>
       <div class="budget-modal-body">
         <input type="text" id="name-ask-input" maxlength="60" autocomplete="off" autocapitalize="words">
-        <p class="hint" id="name-ask-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="name-ask-error"></p>
         <button type="button" class="primary" id="name-ask-ok" data-i18n="common.add">+ Add</button>
         <button type="button" class="cancel-edit-btn" id="name-ask-cancel" data-i18n="common.cancel">Cancel</button>
       </div>
@@ -2765,6 +2805,7 @@
         <button type="button" id="perf-share-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
+        <p class="hint" id="perf-share-step" hidden></p>
         <p class="hint" id="perf-share-new" data-i18n="perfShare.newNote" hidden>New since you last agreed: your phone can now also tell me which tips it showed you and whether you then used what they explain — never what is inside.</p>
         <!-- Two short lines and two answers (2026-11-04): the long letter is behind "What exactly is sent". -->
         <p class="hint" data-i18n="perfShare.short">I'm JP, who made this app. May your phone send me small counts (speed, problems, screens you use) so I can improve it? Never your expenses, amounts, names or anything you type.</p>
@@ -2857,7 +2898,7 @@
           <p class="hint"><strong data-i18n="feedback.previewTitle">This is exactly what JP will receive</strong></p>
           <div id="fb-preview" class="hint" style="white-space:pre-wrap"></div>
           <p class="hint" id="fb-also"></p>
-          <p class="hint" id="fb-error" style="color:var(--danger,#b3261e)" hidden></p>
+          <p class="hint error-text" id="fb-error" hidden></p>
           <button type="button" class="primary" id="fb-send" data-i18n="feedback.send">Send to JP</button>
           <button type="button" class="cancel-edit-btn" id="fb-back" data-i18n="feedback.back">Back</button>
         </div>
@@ -2882,7 +2923,7 @@
           <label for="bs-sender" data-i18n="bankSample.senderLabel">Which address does your bank send emails from?</label>
           <input type="email" id="bs-sender" autocomplete="off" autocapitalize="off" spellcheck="false" data-i18n-placeholder="bankSample.senderPlaceholder" placeholder="e.g. alerts@yourbank.com">
           <p class="hint" data-i18n="bankSample.senderHint">Open one of its emails and look at who sent it.</p>
-          <p class="hint" id="bs-msg-1" role="status" style="color:#d64545;font-weight:600;"></p>
+          <p class="hint error-text" id="bs-msg-1" role="status" style="font-weight:600;"></p>
           <button type="button" class="primary" id="bs-find" data-i18n="bankSample.find">Find my emails</button>
           <p class="hint" id="bs-find-hint" data-i18n="bankSample.findHint">The app looks in this Gmail for emails from that address.</p>
           <button type="button" class="cancel-edit-btn" id="bs-paste" data-i18n="bankSample.pasteInstead">My emails are in another inbox</button>
@@ -2890,7 +2931,7 @@
           <p class="hint" data-i18n="bankSample.statementHint">Is it a bank statement the app cannot read? Open More → Statements, choose the PDF, and you will find the button to send it.</p>
         </div>
         <div id="bs-step-2" hidden>
-          <p class="hint" id="bs-msg-2" role="status" style="color:#d64545;font-weight:600;"></p>
+          <p class="hint error-text" id="bs-msg-2" role="status" style="font-weight:600;"></p>
           <p id="bs-kind-line"><strong></strong></p>
           <div id="bs-pick">
             <p class="hint" data-i18n="bankSample.pickTitle">Pick one of your emails below.</p>
@@ -2905,7 +2946,7 @@
           <button type="button" class="cancel-edit-btn" id="bs-back-2"data-i18n="bankSample.back">Back</button>
         </div>
         <div id="bs-step-3" hidden>
-          <p class="hint" id="bs-msg-3" role="status" style="color:#d64545;font-weight:600;"></p>
+          <p class="hint error-text" id="bs-msg-3" role="status" style="font-weight:600;"></p>
           <p class="hint"><strong data-i18n="bankSample.previewTitle">Ready to send to JP</strong></p>
           <label for="bs-name" data-i18n="bankSample.nameLabel">Your first name, so JP can tell you when your bank is ready</label>
           <input type="text" id="bs-name" maxlength="30" autocomplete="off" data-i18n-placeholder="perfShare.namePlaceholder" placeholder="e.g. Ana">
@@ -3037,7 +3078,7 @@
         <p class="hint" style="margin:10px 0 0;font-weight:600;" data-i18n="paid.orPick">Or pick an entry you already logged</p>
         <div id="paid-picker-list"></div>
         <p class="hint" id="paid-picker-empty" hidden data-i18n="paid.empty">No confirmed entries this month yet.</p>
-        <p class="hint" id="paid-picker-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="paid-picker-error"></p>
       </div>
     </div>
   </div>
@@ -3071,7 +3112,7 @@
         </div>
         <p class="hint" id="forgive-budget-note" hidden></p>
 
-        <p class="hint" id="forgive-form-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="forgive-form-error"></p>
         <button type="button" class="primary" id="forgive-save-btn" data-i18n="forgive.title">Forgive loan</button>
       </div>
     </div>
@@ -3103,7 +3144,7 @@
           <input type="text" id="review-transfer-description" data-i18n-placeholder="common.optional" placeholder="Optional">
         </div>
 
-        <p class="hint" id="review-transfer-form-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="review-transfer-form-error"></p>
         <button type="button" class="primary" id="review-transfer-save-btn" data-i18n="common.save">Save</button>
       </div>
     </div>
@@ -3168,7 +3209,7 @@
         </div>
 
         <p class="hint" id="budget-ended-note" hidden></p>
-        <p class="hint" id="budget-form-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="budget-form-error"></p>
         <button type="button" class="primary" id="budget-save-btn" data-i18n="budgetModal.save">Save budget</button>
         <button type="button" class="delete-entry-btn" id="budget-delete-btn" hidden data-i18n="budgetModal.delete">Delete this budget</button>
         <button type="button" class="delete-entry-btn" id="budget-delete-full-btn" hidden data-i18n="budgetModal.deleteFull">Delete completely</button>
@@ -3217,7 +3258,7 @@
         <p class="hint" data-alert-hint="trips.alertHint">Comma-separated percentages of the trip budget. Leave blank for the usual ones. You'll get an alert the first time it crosses each one.</p>
         </div>
 
-        <p class="hint" id="trip-form-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="trip-form-error"></p>
         <button type="button" class="primary" id="trip-save-btn" data-i18n="trips.save">Save</button>
         <button type="button" class="delete-entry-btn" id="trip-delete-btn" hidden data-i18n="trips.delete">Delete this trip or event</button>
       </div>
@@ -3246,7 +3287,7 @@
         <label for="company-tax-id"><span data-i18n="igv.taxId">Tax ID (RUC)</span> (<span data-i18n="common.optional">Optional</span>)</label>
         <input type="text" id="company-tax-id" maxlength="30" inputmode="numeric" autocomplete="off">
 
-        <p class="hint" id="company-form-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="company-form-error"></p>
         <button type="button" class="primary" id="company-save-btn" data-i18n="business.save">Save</button>
         <button type="button" class="delete-entry-btn" id="company-delete-btn" hidden data-i18n="business.deleteCompany">Delete this company</button>
       </div>
@@ -3274,7 +3315,7 @@
         <label for="igv-payment-note"><span data-i18n="xp.note">Note</span> (<span data-i18n="common.optional">Optional</span>)</label>
         <input type="text" id="igv-payment-note" maxlength="200">
 
-        <p class="hint" id="igv-payment-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="igv-payment-error"></p>
         <button type="button" class="primary" id="igv-payment-save-btn" data-i18n="business.save">Save</button>
         <button type="button" class="delete-entry-btn" id="igv-payment-delete-btn" hidden data-i18n="igv.paymentDelete">Delete this IGV payment</button>
       </div>
@@ -3300,7 +3341,7 @@
         <label for="person-role" id="person-role-label" data-i18n="people.role">Role</label>
         <select id="person-role"></select>
 
-        <p class="hint" id="person-form-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="person-form-error"></p>
         <button type="button" class="primary" id="person-save-btn" data-i18n="business.save">Save</button>
         <button type="button" class="add-inline" id="person-debts-btn" hidden data-i18n="people.debts">See debts</button>
         <button type="button" class="delete-entry-btn" id="person-delete-btn" hidden data-i18n="people.delete">Delete this person</button>
@@ -3338,7 +3379,7 @@
           <span data-i18n="igv.expectedIncludes">This amount includes IGV</span>
         </label>
 
-        <p class="hint" id="expected-form-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="expected-form-error"></p>
         <button type="button" class="primary" id="expected-save-btn" data-i18n="business.save">Save</button>
         <button type="button" class="delete-entry-btn" id="expected-delete-btn" hidden data-i18n="xp.delete">Delete this expected payment</button>
       </div>
@@ -3369,7 +3410,7 @@
         <button type="button" class="add-inline" id="project-add-budget-btn" data-i18n="business.addBudget">+ Add a currency</button>
         <p class="hint" data-i18n="business.budgetsHint">One per currency. Only a guide: it shows how much of it your costs have used.</p>
 
-        <p class="hint" id="project-form-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="project-form-error"></p>
         <button type="button" class="primary" id="project-save-btn" data-i18n="business.save">Save</button>
         <button type="button" class="delete-entry-btn" id="project-delete-btn" hidden data-i18n="business.deleteProject">Delete this project</button>
       </div>
@@ -3411,7 +3452,7 @@
           <label for="pmm-years" data-i18n="pmm.seasonFrom">Time-of-year pattern from</label>
           <select id="pmm-years"></select>
         </div>
-        <p class="hint" id="pmm-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="pmm-error"></p>
         <button type="button" class="primary" id="pmm-save" data-i18n="common.save">Save</button>
         <button type="button" class="add-inline" id="pmm-apply-all" hidden data-i18n="pmm.applyAll">Use this for every category</button>
 
@@ -3481,7 +3522,7 @@
 
             <div id="recurring-split-rows"></div>
             <p class="hint" id="recurring-split-summary"></p>
-            <p class="hint" id="recurring-split-error" style="color:#d64545;"></p>
+            <p class="hint error-text" id="recurring-split-error"></p>
           </div>
         </div>
 
@@ -3542,7 +3583,7 @@
             <p class="hint" id="recurring-pay-status"></p>
             <div id="recurring-pay-list"></div>
           </div>
-          <button type="button" class="add-inline" id="recurring-find-matches-btn" data-i18n="recModal.findMatches">🔎 Find past entries for this</button>
+          <button type="button" class="add-inline" id="recurring-find-matches-btn" data-i18n="recModal.findMatches">Find past entries for this</button>
           <div id="recurring-link-results" hidden>
             <p class="hint" data-i18n="recModal.linkHint">Not linked automatically — review and adjust, then link. Sorted by how likely a match, best first; confident matches start checked, "less certain" ones don't.</p>
             <p class="hint" id="recurring-link-empty-note" hidden data-i18n="recModal.linkEmpty">No unlinked past entries look like a match.</p>
@@ -3551,9 +3592,9 @@
           </div>
         </div>
 
-        <p class="hint" id="recurring-form-error" style="color:#d64545;"></p>
+        <p class="hint error-text" id="recurring-form-error"></p>
         <button type="button" class="primary" id="recurring-save-btn" data-i18n="common.save">Save</button>
-        <button type="button" class="add-inline" id="recurring-restart-btn" hidden data-i18n="recModal.restart">🔁 Start again</button>
+        <button type="button" class="add-inline" id="recurring-restart-btn" hidden data-i18n="recModal.restart">Start again</button>
         <button type="button" class="delete-entry-btn" id="recurring-delete-btn" hidden data-i18n="recModal.delete">Delete this item</button>
       </div>
     </div>
@@ -3650,7 +3691,7 @@
         <div id="pm-wallet-boxes"></div>
       </div>
 
-      <p class="hint" id="pm-form-error" style="color:#d64545;"></p>
+      <p class="hint error-text" id="pm-form-error"></p>
       <button type="button" class="primary" id="pm-save-btn" data-i18n="common.save">Save</button>
       <button type="button" class="cancel-edit-btn" id="pm-cancel-btn" data-i18n="common.cancel">Cancel</button>
       <div id="pm-manage" hidden>
@@ -3702,7 +3743,7 @@
       <label data-i18n="categories.color">Color</label>
       <div class="cat-swatches" id="cat-swatches"></div>
 
-      <p class="hint" id="cat-form-error" style="color:#d64545;"></p>
+      <p class="hint error-text" id="cat-form-error"></p>
       <button type="button" class="primary" id="cat-save-btn" data-i18n="common.save">Save</button>
       <button type="button" class="cancel-edit-btn" id="cat-cancel-btn" data-i18n="common.cancel">Cancel</button>
       <div id="cat-manage" hidden>
@@ -3734,9 +3775,9 @@
       </div>
       <p class="hint" id="rate-meaning" hidden></p>
       <button type="button" class="add-inline" id="rate-via-main-btn" hidden></button>
-      <button type="button" class="add-inline" id="rate-invert-btn" data-i18n="rateModal.invert">⇅ Enter it the other way around</button>
+      <button type="button" class="add-inline" id="rate-invert-btn" data-i18n="rateModal.invert">Enter it the other way around</button>
 
-      <p class="hint" id="rate-form-error" style="color:#d64545;"></p>
+      <p class="hint error-text" id="rate-form-error"></p>
       <button type="button" class="primary" id="rate-save-btn" data-i18n="rateModal.save">Save rate</button>
       <button type="button" class="cancel-edit-btn" id="rate-cancel-btn" data-i18n="rateModal.skip">Skip for now</button>
     </div>
@@ -3761,7 +3802,7 @@
       </div>
       <p class="hint" id="projection-override-mode-hint"></p>
 
-      <p class="hint" id="projection-override-form-error" style="color:#d64545;"></p>
+      <p class="hint error-text" id="projection-override-form-error"></p>
       <button type="button" class="primary" id="projection-override-save-btn" data-i18n="common.save">Save</button>
       <button type="button" class="add-inline" id="projection-override-reset-btn" data-i18n="projOverride.reset">Reset to calculated</button>
       <button type="button" class="cancel-edit-btn" id="projection-override-cancel-btn" data-i18n="common.cancel">Cancel</button>
@@ -3772,9 +3813,9 @@
     <div class="currency-modal">
       <div class="currency-modal-header"><span data-i18n="tourChoice.title">How to use the app</span><button type="button" class="currency-modal-close" data-click="tour-choice-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button></div>
       <div class="welcome-choices">
-        <button type="button" class="welcome-choice" id="tour-choice-basic"><b data-i18n="tourChoice.basic">📖 The basics</b><br><span class="hint" data-i18n="tourChoice.basicHint">Recording, moving money, Overview and budgets.</span></button>
-        <button type="button" class="welcome-choice" id="tour-choice-pro"><b data-i18n="tourChoice.pro">🚀 Advanced features</b><br><span class="hint" data-i18n="tourChoice.proHint">Investments, loans, programmed items, trips, projections and statements.</span></button>
-        <button type="button" class="welcome-choice" id="tour-choice-tips"><b data-i18n="tourChoice.tips">💡 Practice tips</b><br><span class="hint" data-i18n="tourChoice.tipsHint">Show the hands-on practice tips again, like the one in Loans.</span></button>
+        <button type="button" class="more-list-item md-row" id="tour-choice-basic"><span><span class="md-title" data-i18n="tourChoice.basic">📖 The basics</span><span class="hint md-sub" data-i18n="tourChoice.basicHint">Recording, moving money, Overview and budgets.</span></span><span class="more-list-chevron" aria-hidden="true">›</span></button>
+        <button type="button" class="more-list-item md-row" id="tour-choice-pro"><span><span class="md-title" data-i18n="tourChoice.pro">🚀 Advanced features</span><span class="hint md-sub" data-i18n="tourChoice.proHint">Investments, loans, programmed items, trips, projections and statements.</span></span><span class="more-list-chevron" aria-hidden="true">›</span></button>
+        <button type="button" class="more-list-item md-row" id="tour-choice-tips"><span><span class="md-title" data-i18n="tourChoice.tips">💡 Practice tips</span><span class="hint md-sub" data-i18n="tourChoice.tipsHint">Show the hands-on practice tips again, like the one in Loans.</span></span><span class="more-list-chevron" aria-hidden="true">›</span></button>
       </div>
       <button type="button" class="cancel-edit-btn" id="tour-choice-close" hidden data-i18n="common.close">Close</button>
     </div>

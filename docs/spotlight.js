@@ -123,7 +123,8 @@
     var blockers = Array.prototype.slice.call(root.querySelectorAll(".spot-blk")).slice(0, 4);
     var hole = $(".spot-hole"), bubble = $(".spot-bubble"), arrow = $(".spot-arrow");
     $(".spot-exit").textContent = L.exit;
-    if (L.note) { $(".spot-note").textContent = L.note; $(".spot-note").hidden = false; }
+    // The kind shows on every step, in its own colour: real (stays) or practice (deleted at the end) (owner, 2026-11-12).
+    if (L.note) { $(".spot-note").textContent = L.note; $(".spot-note").hidden = false; $(".spot-note").setAttribute("data-mode", L.mode || ""); }
     var lookcover = $(".spot-lookcover");
     $(".spot-stuck").textContent = L.stuck;
 

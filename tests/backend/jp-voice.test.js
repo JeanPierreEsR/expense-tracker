@@ -47,7 +47,7 @@ test("the Privacy card informs: it never speaks as JP, it names JP in the third 
 });
 
 test("rows, buttons and labels that name the recipient say JP", () => {
-  assert.deepEqual(text("fp.feedbackHead"), { en: "💬 Send feedback to JP", es: "💬 Enviar comentarios a JP" });
+  assert.deepEqual(text("fp.feedbackHead"), { en: "Send feedback to JP", es: "Enviar comentarios a JP" });
   assert.deepEqual(text("feedback.title"), { en: "Send feedback to JP", es: "Enviar comentarios a JP" });
   assert.deepEqual(text("feedback.send"), { en: "Send to JP", es: "Enviar a JP" });
   assert.deepEqual(text("bankSample.send"), { en: "Send to JP", es: "Enviar a JP" });

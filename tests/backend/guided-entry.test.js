@@ -58,9 +58,9 @@ test("a file picked while Bank statements still says Loading… waits for it ins
   assert.match(fn, /for \(const f of picked\)/);
 });
 
-test("the step counter never jumps, and a real tutorial says 'this is real' on its first step only", () => {
+test("the step counter never jumps, and a real tutorial says 'this is real' on every step, in green (owner, 2026-11-12)", () => {
   const sp = read("spotlight.js");
   assert.match(sp, /function stepNumber\(i\) \{ return Math\.max\(1, seen\.filter/);
-  assert.match(sp, /if \(L\.note && L\.noteOnce\) \$\("\.spot-note"\)\.hidden = seen\.length > 1;/);
-  assert.match(app, /function realLabels_\(\) \{ return \{ note: tr\("spot\.g\.note"\), noteOnce: true,/);
+  assert.match(sp, /\$\("\.spot-note"\)\.setAttribute\("data-mode", L\.mode \|\| ""\)/);
+  assert.match(app, /function realLabels_\(\) \{ return \{ note: tr\("spot\.g\.note"\), noteOnce: false, mode: "real",/);
 });
