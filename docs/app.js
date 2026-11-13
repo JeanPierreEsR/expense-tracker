@@ -434,7 +434,16 @@ function renderCurrencyChips(target) {
   const current = document.getElementById(ids.input).value;
   container.innerHTML = "";
 
-  getRecentCurrencies().forEach((code) => {
+  // The "+" form shows three in ONE row with "More…" (owner, 2026-11-13): the main currency, USD and the most recent other one
+  // (the one just chosen with More… lands there, so the choice always shows). Other places keep up to five.
+  let codes = getRecentCurrencies();
+  if (target === "entry") {
+    const base = [homeCur(), "USD"].filter((c, i, a) => a.indexOf(c) === i);
+    const recent = (current && !base.includes(current) ? [current] : []).concat(codes.filter((c) => !base.includes(c)));
+    codes = base.concat(recent.slice(0, 3 - base.length));
+  }
+  container.classList.toggle("currency-row3", target === "entry");
+  codes.forEach((code) => {
     const cur = findCurrency(code);
     const chip = document.createElement("button");
     chip.type = "button";
@@ -7782,7 +7791,7 @@ let newEntrySheetOpen_ = false;
 
 let entryFormLeftOpen_ = false;
 // ---- "More details": the optional fields folded on a new expense or income (owner, 2026-11-12) ----
-// Paid by, account, "not received yet", split, tags, trip and company sit behind one row with a summary of what they are set
+// Paid by, "not received yet", split, tags, trip and company sit behind one row (the account stays outside, owner 2026-11-13) with a summary of what they are set
 // to. Only a NEW expense or income folds them; an edit, a Needs review confirmation, a transfer or an investment shows them.
 let moreDetailsOpen_ = false;
 function moreDetailsFoldable_() {
@@ -7795,7 +7804,6 @@ function moreDetailsSummary_() {
   const opt = (id) => { const sel = el(id); return sel && sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent.trim() : ""; };
   const parts = [];
   if (shown("paid_by") && opt("paid_by")) parts.push(opt("paid_by"));
-  if (shown("payment-method-field") && el("payment_method").value) parts.push(opt("payment_method"));
   if (shown("split-field") && el("split-toggle").checked) parts.push(tr("entry.moreSplit", { n: splitFriendIds.size }));
   if (shown("trip-field") && el("entry-trip").value) parts.push(opt("entry-trip"));
   if (selectedTagIds.size) parts.push(tr("entry.moreTags", { n: selectedTagIds.size }));
@@ -7841,6 +7849,11 @@ function openNewEntrySheet_() {
     if (ICON_PICKER_TYPES.includes(selectedType)) showCategoryPicker();
   }
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
+  // Always opens at its top (owner, 2026-11-13): the trip chip, the type tabs and the banner show first, also when an
+  // entry closed with ✕ comes back filled in. Again on the next frame, after the form has drawn its fields.
+  const sheetBody = document.getElementById("edit-entry-modal-body");
+  sheetBody.scrollTop = 0;
+  requestAnimationFrame(() => { sheetBody.scrollTop = 0; });
   // A new person's first "+": the guided practice starts by itself (owner, 2026-11-04). Never during another practice or "Mark as paid".
   if (!payingRecurringId_ && guidedEntryWanted_()) setTimeout(startGuidedEntry_, 350);
   tripNudgeAsked_ = false;
@@ -23004,7 +23017,7 @@ function offerTip_(key, boxId, inviteText, start, after) {
   if (realHoldsPractice_(key)) return;
   if (!box.hidden) return;   // already on offer
   if (!tipDayAllows_(key)) return;
-  box.innerHTML = `<span class="tip-invite-label"><span aria-hidden="true">💡</span> ${escapeHtml(tr("spot.tipLabel"))}</span><p>${escapeHtml(inviteText)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-no">${escapeHtml(tr("spot.dismiss"))}</button><button type="button" class="tip-invite-go">${escapeHtml(tr("spot.showMe"))}</button></div>`;
+  box.innerHTML = `<span class="tip-invite-label"><span class="ico ico-warn">${lineIcon_("bulb")}</span>${escapeHtml(tr("spot.tipLabel"))}</span><p>${escapeHtml(inviteText)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-no">${escapeHtml(tr("spot.dismiss"))}</button><button type="button" class="tip-invite-go">${escapeHtml(tr("spot.showMe"))}</button></div>`;
   box.hidden = false;
   box.querySelector(".tip-invite-no").addEventListener("click", () => {
     popSet_("tipNotNowCount", popGet_("tipNotNowCount", 0) + 1);   // (the "bring practices back" bubble waits for two)
@@ -23049,12 +23062,71 @@ const LINE_ICONS_ = {
   toggle: '<rect x="1" y="6" width="22" height="12" rx="6"/><circle cx="17" cy="12" r="3"/>',
   eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
   book: '<path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/>',
-  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>'
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>',
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
+  trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>'
 };
+// More line icons for status lines, messages, hints, warnings and tutorials (owner, 2026-11-13).
+Object.assign(LINE_ICONS_, {
+  save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
+  pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.6" y2="16.6"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  cross: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  refresh: '<polyline points="23 4 23 10 17 10"/><path d="M20.5 15a9 9 0 1 1-2.1-9.4L23 10"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  up: '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>',
+  down: '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
+  warning: '<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  bulb: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/>',
+  broom: '<line x1="19" y1="3" x2="11" y2="11"/><path d="M11 11l-4 1-4 9h11l2-6z"/><line x1="7" y1="16" x2="6" y2="21"/><line x1="11" y1="16" x2="10.5" y2="21"/>',
+  calc: '<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="11" x2="8.01" y2="11"/><line x1="12" y1="11" x2="12.01" y2="11"/><line x1="16" y1="11" x2="16.01" y2="11"/><line x1="8" y1="15" x2="8.01" y2="15"/><line x1="12" y1="15" x2="12.01" y2="15"/><line x1="16" y1="15" x2="16" y2="18"/>',
+  skip: '<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>'
+});
+// The emoji that stand in front of words in a status line, message, hint, warning, title or tutorial text, and the line icon
+// that replaces them on screen, with its colour (owner's rule, 2026-11-13): blue = you can tap it; green = done; red =
+// failed; amber = warning (and the tip's bulb); otherwise the colour of its own text (just information). The texts keep the
+// emoji as a marker; an emoji standing alone (a category's or trip's own icon) is the person's content and is never touched.
+const EMOJI_ICON_ = {
+  "💾": ["save"], "✏️": ["pencil"], "✏": ["pencil"], "🔍": ["search"], "🔎": ["search"], "🗑️": ["trash"], "🗑": ["trash"],
+  "⏳": ["clock"], "⌛": ["clock"], "🕒": ["clock"], "✓": ["check", "ok"], "✔️": ["check", "ok"], "✔": ["check", "ok"], "✅": ["check", "ok"],
+  "✗": ["cross", "bad"], "❌": ["cross", "bad"], "✖️": ["cross", "bad"], "✖": ["cross", "bad"], "🔄": ["refresh"], "🔒": ["lock"],
+  "⬆️": ["up"], "⬇️": ["down"], "📈": ["trend"], "💬": ["message"], "🧾": ["file"], "⚠️": ["warning", "warn"], "⚠": ["warning", "warn"],
+  "💡": ["bulb", "warn"], "🧹": ["broom"], "👀": ["eye"], "⏭️": ["skip"], "⏭": ["skip"], "💰": ["coin"], "🔁": ["swap"], "🧮": ["calc"], "📅": ["calendar"]
+};
+const EMOJI_ICON_RE_ = new RegExp("^(\\s*)(" + Object.keys(EMOJI_ICON_).sort((a, b) => b.length - a.length).map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\uFE0F?\\s+(?=\\S)");
+function iconizeTextNode_(node) {
+  const m = EMOJI_ICON_RE_.exec(node.nodeValue);
+  if (!m) return;
+  const parent = node.parentNode;
+  if (!parent || parent.closest("option, select, textarea, .category-tile, .ico")) return;
+  const [name, tone] = EMOJI_ICON_[m[2]] || EMOJI_ICON_[m[2] + "\uFE0F"];
+  const span = document.createElement("span");
+  span.className = "ico" + (tone ? " ico-" + tone : "");
+  span.innerHTML = lineIcon_(name);
+  node.nodeValue = m[1] + node.nodeValue.slice(m[0].length);
+  parent.insertBefore(span, node);
+}
+function iconizeUnder_(root) {
+  if (root.nodeType === 3) { iconizeTextNode_(root); return; }
+  if (root.nodeType !== 1) return;
+  const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walk.nextNode()) nodes.push(walk.currentNode);
+  nodes.forEach(iconizeTextNode_);
+}
 function lineIcon_(name) {
   return `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LINE_ICONS_[name] || ""}</svg>`;
 }
 document.querySelectorAll("[data-icon]").forEach((el) => { el.innerHTML = lineIcon_(el.dataset.icon); });
+// Every text the app draws, now and later, gets its icon (one watcher; it only looks at the first characters of new text).
+iconizeUnder_(document.body);
+new MutationObserver((list) => list.forEach((rec) => {
+  if (rec.type === "characterData") iconizeTextNode_(rec.target);
+  else rec.addedNodes.forEach(iconizeUnder_);
+})).observe(document.body, { subtree: true, childList: true, characterData: true });
 
 // ---- Pop-up tips (owner's plan, 2026-11-08: "Pop-up tips series - plan (DRAFT 2026-11-08).md") ----
 // One bubble pointing at the field it is about, for an optional extra (the features list marks which). Shown once per tip on this phone,
@@ -24016,10 +24088,10 @@ function practiceSteps_() {
         // "Paid by" stays "Me" (the person paid the bill): no step of its own any more (owner's plan 2026-11-05).
         const el = document.getElementById("paid_by"); if (el.value !== "me") { el.value = "me"; el.dispatchEvent(new Event("change", { bubbles: true })); }
       } },
-    { key: "unfold", target: "#more-details-toggle", text: () => tr("spot.g.moreDetails"), tap: "#more-details-toggle", until: () => !moreDetailsFolded_(),
-      before: async () => moreDetailsFolded_() },   // the details are folded on a new entry: the person opens them (owner, 2026-11-12)
     { key: "account", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.p.s6fix" : "spot.p.s6"), visit: "#payment_method",
       ok: () => !hasAccounts() || !!document.getElementById("payment_method").value, holdsUntil: "save" },
+    { key: "unfold", target: "#more-details-toggle", text: () => tr("spot.g.moreDetails"), tap: "#more-details-toggle", until: () => !moreDetailsFolded_(),
+      before: async () => moreDetailsFolded_() },   // the details are folded on a new entry: the person opens them (owner, 2026-11-12)
     { key: "toggle", target: "#split-field .checkbox-row", text: () => tr("spot.p.s7"), until: () => document.getElementById("split-toggle").checked,
       ok: () => document.getElementById("split-toggle").checked, holdsUntil: "save" },
     { key: "friend", target: () => [document.getElementById("split-friend-chips"), document.getElementById("split-add-friend-btn")], text: () => practiceHint_ || tr("spot.p.s8"),
