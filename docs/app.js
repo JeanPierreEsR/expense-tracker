@@ -16531,20 +16531,29 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       else if (String(settings[k] || "") === String(saved.id)) links[k] = "";
     });
     if (Object.keys(links).length) { await callApi("saveRailLinks", links); Object.assign(settings, links); }
-    // Rebuild the entry form's pickers without losing what's already chosen there.
-    const keep = ["payment_method", "to_payment_method"].map((id) => document.getElementById(id).value);
-    populatePaymentMethodOptions();
-    populateToPaymentMethodOptions();
-    ["payment_method", "to_payment_method"].forEach((id, k) => {
-      const sel = document.getElementById(id);
-      if (keep[k] && Array.from(sel.options).some((o) => o.value === keep[k])) sel.value = keep[k];
+    // Rebuild the entry form's pickers without losing what's already chosen there (once their list is closed: see whenPickersClosed_).
+    whenPickersClosed_(["payment_method", "to_payment_method"], () => {
+      rebuildAccountPickers_();
+      if (state.selectIn) { const sel = document.getElementById(state.selectIn); sel.value = saved.id; sel.dispatchEvent(new Event("change")); }
     });
-    if (state.selectIn) { const sel = document.getElementById(state.selectIn); sel.value = saved.id; sel.dispatchEvent(new Event("change")); }
   }, { nickname, type }), nickname), () => renderAccountsList_());
 });
 
 // After a hide / show / delete the pickers are rebuilt the same way a save does it.
+// An iPhone draws a row added to a list WHILE that list is open as a blank row (owner, 2026-11-13: an account saved in the
+// background landed while the account list was open and showed as an empty, ticked row). So a list that is open (focused) is
+// rebuilt only once it closes.
+function whenPickersClosed_(ids, fn) {
+  const open = ids.map((id) => document.getElementById(id)).filter((el) => el && document.activeElement === el);
+  if (!open.length) { fn(); return; }
+  let done = false;
+  const run = () => { if (done) return; done = true; open.forEach((el) => el.removeEventListener("blur", run)); setTimeout(fn, 0); };
+  open.forEach((el) => el.addEventListener("blur", run));
+}
 function refreshAccountPickers_() {
+  whenPickersClosed_(["payment_method", "to_payment_method"], rebuildAccountPickers_);
+}
+function rebuildAccountPickers_() {
   const keep = ["payment_method", "to_payment_method"].map((id) => document.getElementById(id).value);
   populatePaymentMethodOptions();
   populateToPaymentMethodOptions();
