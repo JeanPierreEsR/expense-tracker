@@ -23083,7 +23083,11 @@ Object.assign(LINE_ICONS_, {
   bulb: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/>',
   broom: '<line x1="19" y1="3" x2="11" y2="11"/><path d="M11 11l-4 1-4 9h11l2-6z"/><line x1="7" y1="16" x2="6" y2="21"/><line x1="11" y1="16" x2="10.5" y2="21"/>',
   calc: '<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="11" x2="8.01" y2="11"/><line x1="12" y1="11" x2="12.01" y2="11"/><line x1="16" y1="11" x2="16.01" y2="11"/><line x1="8" y1="15" x2="8.01" y2="15"/><line x1="12" y1="15" x2="12.01" y2="15"/><line x1="16" y1="15" x2="16" y2="18"/>',
-  skip: '<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>'
+  skip: '<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>',
+  pin: '<path d="M12 22v-6"/><path d="M8 3h8l-1 6 3 3H6l3-3z"/>',
+  bank: '<path d="M3 10l9-6 9 6"/><line x1="5" y1="10" x2="5" y2="18"/><line x1="10" y1="10" x2="10" y2="18"/><line x1="14" y1="10" x2="14" y2="18"/><line x1="19" y1="10" x2="19" y2="18"/><line x1="3" y1="21" x2="21" y2="21"/>',
+  moneyIn: '<line x1="17" y1="7" x2="7" y2="17"/><polyline points="17 17 7 17 7 7"/>',
+  moneyOut: '<line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/>'
 });
 // The emoji that stand in front of words in a status line, message, hint, warning, title or tutorial text, and the line icon
 // that replaces them on screen, with its colour (owner's rule, 2026-11-13): blue = you can tap it; green = done; red =
@@ -23094,14 +23098,50 @@ const EMOJI_ICON_ = {
   "⏳": ["clock"], "⌛": ["clock"], "🕒": ["clock"], "✓": ["check", "ok"], "✔️": ["check", "ok"], "✔": ["check", "ok"], "✅": ["check", "ok"],
   "✗": ["cross", "bad"], "❌": ["cross", "bad"], "✖️": ["cross", "bad"], "✖": ["cross", "bad"], "🔄": ["refresh"], "🔒": ["lock"],
   "⬆️": ["up"], "⬇️": ["down"], "📈": ["trend"], "💬": ["message"], "🧾": ["file"], "⚠️": ["warning", "warn"], "⚠": ["warning", "warn"],
-  "💡": ["bulb", "warn"], "🧹": ["broom"], "👀": ["eye"], "⏭️": ["skip"], "⏭": ["skip"], "💰": ["coin"], "🔁": ["swap"], "🧮": ["calc"], "📅": ["calendar"]
+  "💡": ["bulb", "warn"], "🧹": ["broom"], "👀": ["eye"], "⏭️": ["skip"], "⏭": ["skip"], "💰": ["coin"], "🔁": ["swap"], "🧮": ["calc"], "📅": ["calendar"],
+  "📌": ["pin"], "🏦": ["bank"], "💸": ["moneyIn", "ok"], "📉": ["moneyOut"], "📜": ["file"], "🔀": ["swap"], "📷": ["eye"]
 };
 const EMOJI_ICON_RE_ = new RegExp("^(\\s*)(" + Object.keys(EMOJI_ICON_).sort((a, b) => b.length - a.length).map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\uFE0F?\\s+(?=\\S)");
+let contentNamesAt_ = null, contentNames__ = [];
+function contentNames_() {
+  const key = meta && (meta.categories || []).length + "|" + (meta.trips || []).length + "|" + I18n.getLang();
+  if (contentNamesAt_ === meta && contentNames__.key === key) return contentNames__;
+  contentNamesAt_ = meta;
+  const names = [];
+  if (meta) {
+    (meta.categories || []).forEach((c) => names.push(c.name, categoryName(c.id)));
+    (meta.trips || []).forEach((t) => names.push(t.name));
+    (meta.paymentMethods || meta.payment_methods || []).forEach((p) => names.push(p.nickname || p.name));
+  }
+  contentNames__ = names.filter((n) => n && typeof n === "string").map((n) => n.replace(/^\S+\s/u, (w) => (/\p{Extended_Pictographic}/u.test(w) ? "" : w)).trim().toLowerCase());
+  contentNames__.key = key;
+  return contentNames__;
+}
+// Every "loading" kind of line gets the moving circle Budgets has (owner, 2026-11-13: "in all loading status"), wherever the
+// code wrote it as plain text; a line that already has its circle (loadingHtml_) is left alone.
+const LOADING_RE_ = /^\s*(Loading|Cargando|Updating|Actualizando|Connecting|Conectando|Checking|Revisando|Reading|Leyendo|One moment|Un momento)\b/;
+function spinLoadingText_(node) {
+  const parent = node.parentNode;
+  if (!parent || parent.nodeType !== 1 || !LOADING_RE_.test(node.nodeValue)) return;
+  if (parent.closest("option, select, textarea, button, .stmt-loading, .ts-stage") || parent.querySelector(":scope > .stmt-spinner")) return;
+  if (node.previousSibling && node.previousSibling.nodeType === 1 && node.previousSibling.classList.contains("stmt-spinner")) return;
+  if (parent.previousElementSibling && parent.previousElementSibling.classList.contains("stmt-spinner")) return;
+  const spin = document.createElement("span");
+  spin.className = "stmt-spinner";
+  spin.setAttribute("aria-hidden", "true");
+  parent.insertBefore(spin, node);
+  parent.classList.add("has-spinner");
+}
 function iconizeTextNode_(node) {
+  spinLoadingText_(node);
   const m = EMOJI_ICON_RE_.exec(node.nodeValue);
   if (!m) return;
   const parent = node.parentNode;
   if (!parent || parent.closest("option, select, textarea, .category-tile, .ico")) return;
+  // The person's content keeps its own emoji (owner, 2026-11-13: "💰 Salary", "🧾 Bank fees" are categories): the words after it
+  // are a category's, a trip's or an account's name.
+  const rest = node.nodeValue.slice(m[0].length).trim().toLowerCase();
+  if (rest && contentNames_().some((n) => rest === n || rest.startsWith(n + " ") || rest.startsWith(n + " ·") || rest.startsWith(n + ","))) return;
   const [name, tone] = EMOJI_ICON_[m[2]] || EMOJI_ICON_[m[2] + "\uFE0F"];
   const span = document.createElement("span");
   span.className = "ico" + (tone ? " ico-" + tone : "");

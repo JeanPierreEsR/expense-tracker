@@ -557,12 +557,12 @@
         </div>
         <div class="ov-sum-eq" aria-hidden="true">=</div>
         <div class="ov-sum-net">
-          <span class="ov-sum-net-label" data-i18n="summary.net">What's left</span>
+          <span class="ov-sum-net-label" data-i18n="summary.net">Result</span>
           <span class="ov-sum-net-value" id="summary-net">0.00</span>
           <span class="ov-sum-net-eq" id="summary-net-eq"></span>
         </div>
         <p class="hint ov-sum-zero-line" id="summary-zero-line" hidden></p>
-        <p class="hint" id="overview-noincome-note" hidden data-i18n="overview.noIncome">No income recorded in this period yet: What's left only counts what went out.</p>
+        <p class="hint" id="overview-noincome-note" hidden data-i18n="overview.noIncome">No income recorded in this period yet: the result only counts what went out.</p>
         <p class="hint" id="overview-year-compare" hidden></p>
         <p class="hint" id="overview-excluded-note" hidden></p>
         <p class="hint" id="overview-empty-note" hidden data-i18n="overview.empty">No entries in this period yet.</p>
@@ -575,7 +575,7 @@
         </div>
         <p class="hint" id="balances-hint"></p>
         <div id="balances-totals" class="balances-totals" hidden>
-          <div class="balances-totals-title" data-i18n="balances.netByCurrency">What's left by currency</div>
+          <div class="balances-totals-title" data-i18n="balances.netByCurrency">Result by currency</div>
           <div id="balances-totals-lines"></div>
           <button type="button" class="balances-toggle" id="balances-toggle" aria-expanded="false"></button>
         </div>
@@ -860,7 +860,7 @@
             <button type="button" class="icon-btn" id="add-recurring-btn" data-i18n-aria-label="recurring.addAria" aria-label="Add programmed item"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
-        <h2 style="margin-top:0;" data-i18n="recurring.title">Programmed income/expenses</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="recurring.title">Programmed income/expenses</h2>
         <p class="hint" data-i18n="recurring.intro">Known amounts you want accounted for ahead of time — Budgets and Projections use these to tell known, certain amounts apart from the rest.</p>
 
         <div id="recurring-opening" hidden></div>
@@ -938,7 +938,7 @@
             <button type="button" class="icon-btn" id="accounts-add-btn" data-i18n-aria-label="accounts.addAria" aria-label="Add account or card"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
-        <h2 style="margin-top:0;" data-i18n="accounts.title">Accounts, cards &amp; platforms</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="accounts.title">Accounts, cards &amp; platforms</h2>
         <p class="hint" data-i18n="accounts.hint">Every account and card you can pay with. Tap one to change it — past entries stay linked to it, even if you rename it. The last 4 digits are what lets the email reader match a purchase to the right card.</p>
         <div id="accounts-bank-note"></div>
         <div id="accounts-list"></div>
@@ -960,7 +960,7 @@
             <button type="button" class="icon-btn" id="categories-add-btn" data-i18n-aria-label="categories.addAria" aria-label="New category"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
-        <h2 style="margin-top:0;" data-i18n="categories.title">Categories</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="categories.title">Categories</h2>
         <p class="hint" data-i18n="categories.hint">Create your own categories and choose their emoji and color. Tap one to change it. Past entries stay linked to a category, even if you rename it.</p>
         <button type="button" class="add-inline" id="categories-suggest-btn" hidden data-i18n="categories.suggest">Pick what fits you ›</button>
         <div id="categories-list"></div>
@@ -983,7 +983,7 @@
             <button type="button" class="icon-btn" id="trips-add-btn" data-i18n-aria-label="trips.addAria" aria-label="Add trip or event"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
-        <h2 style="margin-top:0;" data-i18n="trips.title">Trips &amp; events</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="trips.title">Trips &amp; events</h2>
         <p class="hint" data-i18n="trips.hint">Group the expenses of a trip or an event.</p>
         <div id="trips-list"></div>
         <p class="hint" id="trips-empty-note" hidden data-i18n="trips.empty">No trips or events yet.</p>
@@ -1002,7 +1002,7 @@
           <button type="button" class="icon-btn back-btn" id="trip-detail-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
           <button type="button" class="add-inline" id="trip-detail-edit-btn" data-i18n="trips.edit">Edit</button>
         </div>
-        <h2 style="margin-top:0;" id="trip-detail-title"></h2>
+        <h2 class="screen-title" style="margin-top:0;" id="trip-detail-title"></h2>
         <p class="hint" id="trip-detail-sub"></p>
         <div id="trip-detail-body"></div>
         <p class="hint error-text" id="trip-detail-error"></p>
@@ -1026,7 +1026,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="bf-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="bf.title">Business features</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="bf.title">Business features</h2>
         <p class="hint" data-i18n="bf.hint">Optional. They add companies and projects to the app, so you can see the income, the costs and the margin of each one, in each currency. The rest of the app stays exactly as it is.</p>
         <label class="checkbox-row">
           <input type="checkbox" id="bf-toggle">
@@ -1047,7 +1047,7 @@
           </span>
         </div>
         <button type="button" class="add-inline" id="business-people-btn" data-i18n="business.people">People</button>
-        <h2 style="margin-top:0;" data-i18n="business.title">Companies &amp; projects</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="business.title">Companies &amp; projects</h2>
         <p class="hint" data-i18n="business.hint">Group your business income and costs by company and project. Each currency is always kept apart.</p>
         <select id="business-period" class="business-period-select"></select>
         <div id="business-list"></div>
@@ -1071,7 +1071,7 @@
             <button type="button" class="icon-btn" id="people-add-btn" data-i18n-aria-label="people.addPersonAria" aria-label="Add person"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
-        <h2 style="margin-top:0;" data-i18n="people.title">People</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="people.title">People</h2>
         <p class="hint" data-i18n="people.hint">Clients, suppliers and partners. What each one owes you (or you owe them) is kept per project and per currency.</p>
         <div id="people-list"></div>
         <p class="hint" id="people-empty-note" hidden data-i18n="people.empty">No one yet. Add a client, a supplier or a partner.</p>
@@ -1090,7 +1090,7 @@
           <button type="button" class="icon-btn back-btn" id="igv-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
           <button type="button" class="icon-btn" id="igv-add-payment-btn" data-i18n-aria-label="igv.addPaymentAria" aria-label="Add IGV payment"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
-        <h2 style="margin-top:0;" id="igv-title"></h2>
+        <h2 class="screen-title" style="margin-top:0;" id="igv-title"></h2>
         <p class="hint" id="igv-sub"></p>
         <select id="igv-year" class="igv-year-select"></select>
         <div id="igv-body"></div>
@@ -1104,7 +1104,7 @@
           <button type="button" class="icon-btn back-btn" id="business-detail-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
           <button type="button" class="add-inline" id="business-detail-edit-btn" data-i18n="business.edit">Edit</button>
         </div>
-        <h2 style="margin-top:0;" id="business-detail-title"></h2>
+        <h2 class="screen-title" style="margin-top:0;" id="business-detail-title"></h2>
         <p class="hint" id="business-detail-sub"></p>
         <select id="business-detail-period" class="business-period-select"></select>
         <div id="business-detail-body"></div>
@@ -1125,7 +1125,7 @@
             <button type="button" class="icon-btn" id="friends-add-btn" data-i18n-aria-label="friends.addAria" aria-label="Add friend"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
-        <h2 style="margin-top:0;" data-i18n="friends.title">Friends</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="friends.title">Friends</h2>
         <p class="hint" data-i18n="friends.hint">The people you share expenses and loans with. Tap one to rename them or see what they owe. A new friend is also added when you split an expense.</p>
         <div id="friends-list"></div>
         <p class="hint" id="friends-empty-note" hidden data-i18n="friends.empty">No friends yet. Add one here, or when you split an expense.</p>
@@ -1150,7 +1150,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="exchange-rates-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="cur.title">Currencies</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="cur.title">Currencies</h2>
         <h3 data-i18n="mainCur.title">Main currency</h3>
         <p id="currencies-main-code" style="font-weight:700;font-size:1.1em;margin:4px 0;"></p>
         <p class="hint" data-i18n="mainCur.reversible">You can change this at any time, and switching back restores exactly what you had. Nothing in your data is rewritten: your entries keep their own currencies, and only the totals are shown in the main currency.</p>
@@ -1178,7 +1178,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="perf-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="perf.title">Performance log</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="perf.title">Performance log</h2>
         <p class="hint" data-i18n="perf.hint">How long each server call and each app start took on this phone (last ~600 events). "server" is time spent inside the backend; the rest is network and wake-up delay. ◆ rows are app-start phases.</p>
         <div id="perf-summary"></div>
         <div style="display:flex;gap:8px;margin-top:12px;">
@@ -1200,7 +1200,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="deleted-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="deleted.title">Recently deleted</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="deleted.title">Recently deleted</h2>
         <p class="hint" data-i18n="deleted.hint">Entries you delete several at a time wait here for 30 days. Restore them, or delete them for good.</p>
         <div id="deleted-list"></div>
         <p class="hint" id="deleted-empty" hidden data-i18n="deleted.empty">Nothing here. Entries you delete several at a time wait here for 30 days.</p>
@@ -1214,7 +1214,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="tidy-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="tidy.title">Tidy my history</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="tidy.title">Tidy my history</h2>
         <p class="hint" data-i18n="tidy.hint">Entries added without a category, grouped by where the money went — the biggest first. Pick a category once and every entry in the group gets it. Nothing here changes a category you already chose.</p>
         <p class="hint" id="tidy-summary" hidden></p>
         <button type="button" class="add-inline" id="tidy-apply-all-btn" hidden></button>
@@ -1237,7 +1237,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="be-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="bankMail.title">Bank emails</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="bankMail.title">Bank emails</h2>
         <p class="hint" id="be-loading" data-i18n="common.loading">Loading…</p>
         <div id="be-body" hidden>
           <div class="bm-reading">
@@ -1315,7 +1315,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="export-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="export.title">Export data</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="export.title">Export data</h2>
         <p class="hint" data-i18n="export.hint">Pick what you want, then tap Get my files. Each file then gets a Save button. In the menu that opens, pick Files to keep it on your phone, or another app (such as Mail) to send it somewhere.</p>
 
         <div class="export-option">
@@ -1363,7 +1363,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="my-data-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="md.title">My data</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="md.title">My data</h2>
         <h3 class="md-head" data-i18n="md.bringIn">Bring in</h3>
         <button type="button" class="more-list-item md-row" id="data-statements-btn">
           <span class="row-icon" data-icon="file" aria-hidden="true"></span><span><span class="md-title"><span data-i18n="md.bank">Bank statements</span></span><span class="hint md-sub" data-i18n="md.bankSub">Read your bank's PDFs or files and find what is missing.</span></span>
@@ -1395,7 +1395,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="my-profile-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="prof.title">My profile</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="prof.title">My profile</h2>
         <div id="my-profile-loading"></div>
         <div id="my-profile-body" hidden>
           <button type="button" class="more-list-item md-row fits-toggle" id="owner-names-toggle" aria-expanded="false" aria-controls="owner-names-body">
@@ -1466,7 +1466,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="fp-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 style="margin-top:0;" data-i18n="fp.title">Feedback &amp; privacy</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="fp.title">Feedback &amp; privacy</h2>
 
         <h3 class="md-head" data-i18n="fp.feedbackHead">Send feedback to JP</h3>
         <p class="hint" data-i18n="fp.feedbackHint">Tell me what broke, what confuses you or what you would like. You see exactly what is sent before it goes.</p>
@@ -1523,8 +1523,8 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="statements-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.title">Statements</h2>
-        <h2 style="margin-top:0;" class="stmt-import-only" data-i18n="imp.title">Import data from another app</h2>
+        <h2 style="margin-top:0;" class="screen-title stmt-bank-only" data-i18n="stmt.title">Statements</h2>
+        <h2 style="margin-top:0;" class="screen-title stmt-import-only" data-i18n="imp.title">Import data from another app</h2>
         <div class="be-tabs" id="stmt-mode-tabs" role="tablist">
           <button type="button" class="be-tab active" id="stmt-mode-bank" role="tab" aria-selected="true" data-mode="bank" data-i18n="md.bank">Bank statements</button>
           <button type="button" class="be-tab" id="stmt-mode-import" role="tab" aria-selected="false" data-mode="import" data-i18n="md.import">Import from another app</button>
