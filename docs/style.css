@@ -3210,9 +3210,10 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-delta.good { color: var(--income); }
 .home-delta.bad { color: var(--expense); }
 
-.home-four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 14px 0 10px; }
-.home-four-box { background: var(--bg); border-radius: var(--r-md); padding: 7px 6px; min-width: 0; display: flex; flex-direction: column; }
-.home-four-box span { display: block; font-size: 0.6875rem; line-height: 1.15; color: var(--muted); }   /* "Lo que queda" wraps to two lines */
+/* Each box as wide as its own label needs (owner, 2026-11-13: "Expenses" with its dot wrapped in an equal quarter); labels stay on one line. */
+.home-four { display: grid; grid-template-columns: repeat(4, minmax(max-content, auto)); gap: 5px; margin: 14px 0 10px; }
+.home-four-box { background: var(--bg); border-radius: var(--r-md); padding: 7px 5px; min-width: 0; display: flex; flex-direction: column; }
+.home-four-box span { display: block; font-size: 0.6875rem; line-height: 1.15; color: var(--muted); white-space: nowrap; }
 .home-loans-note { margin: -4px 0 8px; font-size: 0.75rem; }
 .home-four-box b { display: block; font-size: 0.75rem; margin-top: auto; padding-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-four-box b.income { color: var(--income); }
