@@ -41,6 +41,7 @@ var BACKEND_STRINGS_ = {
   "err.dateRequired": { en: "Date is required.", es: "La fecha es obligatoria." },
   "err.pickCategory": { en: "Pick a category.", es: "Elige una categoría." },
   "err.entryNotFound": { en: "Entry not found", es: "No se encontró el movimiento" },
+  "err.cannotUnconfirm": { en: "This one can't go back to Needs review (it is split with friends or was not brought in automatically).", es: "Este no puede volver a Por revisar (está repartido con amigos o no llegó automáticamente)." },
   "review.alreadyHandled": { en: "This entry was already confirmed, changed or removed elsewhere — refreshing the list.", es: "Este movimiento ya se confirmó, cambió o eliminó en otro lugar: se está actualizando la lista." },
   "err.loanNotFound": { en: "Loan not found", es: "No se encontró el préstamo" },
   "err.repaymentNotFound": { en: "Repayment not found", es: "No se encontró el repago" },

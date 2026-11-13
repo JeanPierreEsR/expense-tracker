@@ -82,7 +82,7 @@ test("every new text exists in both languages", () => {
     "fp.eraseHead", "devices.title", "devices.count"].forEach((k) => {
     assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
   });
-  assert.equal(STRINGS["more.feedbackPrivacy"].en, "💬 Feedback & privacy");
-  assert.equal(STRINGS["more.feedbackPrivacy"].es, "💬 Comentarios y privacidad");
+  assert.equal(STRINGS["more.feedbackPrivacy"].en, "Feedback & privacy");
+  assert.equal(STRINGS["more.feedbackPrivacy"].es, "Comentarios y privacidad");
   ["more.privacy", "more.perfShare", "more.feedback", "more.extras", "more.devices", "privacy.title", "privacy.choiceTitle"].forEach((k) => assert.ok(!(k in STRINGS), k + " went with its row"));
 });

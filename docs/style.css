@@ -4092,3 +4092,16 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .review-more-closed .review-item-secondary-actions { display: none; }
 .review-item .review-more-actions { display: block; margin-top: 8px; }
 .review-item.review-collapsed .review-more-actions { display: none; }
+
+/* One split control: "By items" is the fourth choice; the old separate link stays in the page, hidden (design review). */
+#split-field > #bill-open-btn { display: none; }
+#split-mode-tabs { grid-template-columns: repeat(4, 1fr); }
+
+/* Line icons (option C): the tab bar and More rows. The active tab's icon is drawn in the app blue, a little bolder. */
+.nav-btn .nav-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.nav-btn .nav-icon svg { width: 24px; height: 24px; }
+.nav-btn.active .nav-icon { color: var(--accent); }
+.nav-btn.active .nav-icon svg { stroke-width: 2.3; }
+.row-icon { display: inline-flex; flex: none; width: 28px; color: var(--muted); }
+.row-icon svg { width: 22px; height: 22px; }
+.more-list-item > .row-icon + span { flex: 1; min-width: 0; }

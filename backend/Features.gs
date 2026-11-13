@@ -137,6 +137,7 @@ function getCapabilities_() {
     businessBulkDelete: true,   // deleteBusinessItems + deleteBusinessPeople (several companies / projects / people at once, Edit on the Business screens); an older backend lacks them, so the app hides the Edit buttons
     reviewBulk: true,   // confirmEntries + discardEntries (several waiting entries at once, Home → Needs review → Edit); an older backend lacks them, so the app hides the Edit button
     entriesBulk: true,   // previewEntriesDelete + deleteEntries (several Home entries at once, Home / search → Edit); an older backend lacks them, so the app hides the Edit buttons
+    unconfirmEntry: true,   // Undo of a Needs review Confirm (design review 2026-11-12): unconfirmEntry sends a plain confirmed entry back to waiting
     entriesRestore: true,   // a bulk delete keeps a 30-day safety copy: listDeletedEntries / restoreDeletedEntries / forgetDeletedEntries (Undo + More → Recently deleted); an older backend lacks them, so the app shows no Undo and no card
     entriesBulkLink: true,   // setEntriesTrip / setEntriesTag + their undo (link several Home entries to a trip or event, add / remove a tag); an older backend lacks them, so the app hides those two choices
     entriesBulkCategory: true,   // setEntriesCategory + undoSetEntriesCategory (change the category of several Home entries at once); an older backend lacks them, so the app hides the Category button

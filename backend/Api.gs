@@ -477,6 +477,7 @@ function routeActionSwitch_(action, payload) {
     case 'listSupportedSenders': return listSupportedSenders();
     case 'setRulePack': return setRulePack(payload);
     case 'confirmEntry': return confirmEntryFromApp_(payload);
+    case 'unconfirmEntry': return unconfirmEntry_(payload);
     case 'createPracticePending': return createPracticePending(payload);
     case 'removePracticeReview': return removePracticeReview(payload);
     case 'createPracticeTidy': return createPracticeTidy(payload);
@@ -1044,6 +1045,21 @@ function confirmEntryFromApp_(payload) {
   var followed = null;
   try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }
   return followed ? { done: true, follow: followed } : { done: true };
+}
+
+// Undo of a Needs review Confirm (owner, 2026-11-12): the entry goes back to waiting. Only a plain one (an expense or income
+// that came in automatically, with no split): a split made debts at confirm time, and "waiting" cannot hold a debt. What the
+// confirm taught the email rules is kept (the next e-mail from that shop still gets its category).
+function unconfirmEntry_(payload) {
+  var id = String((payload && payload.id) || '');
+  var entry = getEntryById_(id);
+  if (!entry) throw new Error(tr_('err.entryNotFound'));
+  if (entry.status !== 'confirmed') return { done: true, already: true };
+  if (entry.source === 'manual' || (entry.type !== 'expense' && entry.type !== 'income')) throw new Error(tr_('err.cannotUnconfirm'));
+  var hasSplits = getAllRows('Entry Splits').some(function (sp) { return sp.entry_id === id; });
+  if (hasSplits) throw new Error(tr_('err.cannotUnconfirm'));
+  setEntryField_(id, 'status', 'pending');
+  return { done: true };
 }
 
 // ---- Needs review: several entries at once (Home → Needs review → Edit, owner's request 2026-11-03) ----

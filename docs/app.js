@@ -2721,8 +2721,12 @@ document.getElementById("split-toggle").addEventListener("change", (e) => {
   renderSplitSummary();
 });
 
+// One "Split with friends" control (owner, 2026-11-12): Equal / % / Custom, and "By items", which opens the bill splitter
+// through its own (now hidden) button, so everything that listens to that button (its tutorial too) works as before.
+document.getElementById("split-items-tab").addEventListener("click", () => document.getElementById("bill-open-btn").click());
 document.querySelectorAll("#split-mode-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
+    if (!tab.dataset.mode) return;   // "By items" is not a mode of its own
     splitMode = tab.dataset.mode;
     document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
     renderSplitRows();
@@ -6120,6 +6124,22 @@ async function applyReviewAction_(a) {
 
 // Safe to call anytime, including at the top of every refresh — an
 // action already applied server-side just no-ops the second time.
+// Undo of a Needs review Confirm (owner, 2026-11-12): "Confirmed: −PEN 12.00 · Restaurants [Undo]" sends it back to waiting.
+// Only a plain expense or income (the server refuses a split one) and only where the backend has unconfirmEntry.
+function offerUnconfirmUndo_(entry, fields) {
+  if (!((meta && meta.capabilities) || {}).unconfirmEntry || (entry.type !== "expense" && entry.type !== "income") || isPracticeReviewEntry_(entry)) return;
+  const what = [formatAmount(Number(fields.amount) || 0, entry.currency, entry.type === "income" ? "+" : "−"), fields.category_id ? categoryName(fields.category_id) : ""].filter(Boolean).join(" · ");
+  showUndoToast_(tr("review.confirmedWhat", { what }), async () => {
+    try {
+      await callApi("unconfirmEntry", { id: entry.id });
+      showToast_(tr("review.unconfirmed"));
+      refreshReviewQueue().catch(() => {});
+      refreshEntryList().catch(() => {});
+      refreshHomeGlance_(true);
+    } catch (err) { showAppMessage_(err.message); }
+  }, "review-confirm");
+}
+
 async function flushQueuedReviewActions_() {
   for (const a of getQueuedReviewActions_()) {
     try {
@@ -7273,6 +7293,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         refreshExpectedRecurring();
         refreshHomeGlance_(true);   // a confirmed entry now counts in the totals at the top of Home
         if (followed) onCategoryFollowed_(followed);
+        else offerUnconfirmUndo_(entry, fields);
       } catch (err) {
         // Stays queued — the next refreshReviewQueue (including on the
         // next app open) retries it automatically, no action needed here.
@@ -22884,6 +22905,38 @@ function offerTip_(key, boxId, inviteText, start, after) {
   });
 }
 
+// Line icons (design review, owner's option C, 2026-11-12): navigation and actions use one set of line drawings in the style of
+// the header's pencil and "+"; emoji stay only on the person's own content (categories, trips, accounts). [data-icon] = name.
+const LINE_ICONS_ = {
+  home: '<path d="M3 10l9-7 9 7v10a2 2 0 0 1-2 2h-4v-7H9v7H5a2 2 0 0 1-2-2z"/>',
+  chart: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  trend: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+  swap: '<polyline points="17 2 21 6 17 10"/><path d="M3 12v-2a4 4 0 0 1 4-4h14"/><polyline points="7 22 3 18 7 14"/><path d="M21 12v2a4 4 0 0 1-4 4H3"/>',
+  dots: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
+  calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  map: '<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>',
+  briefcase: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+  card: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+  mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22 6 12 13 2 6"/>',
+  tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
+  coin: '<circle cx="12" cy="12" r="9"/><path d="M15 9.5a3 3 0 0 0-3-1.5c-1.7 0-3 .9-3 2s1.3 1.7 3 2 3 .9 3 2-1.3 2-3 2a3 3 0 0 1-3-1.5"/><line x1="12" y1="6" x2="12" y2="18"/>',
+  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/>',
+  database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.7-4 3-9 3s-9-1.3-9-3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  message: '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.5 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.2A8.4 8.4 0 0 1 3 11.5 8.5 8.5 0 0 1 12 3a8.5 8.5 0 0 1 9 8.5z"/>',
+  toggle: '<rect x="1" y="6" width="22" height="12" rx="6"/><circle cx="17" cy="12" r="3"/>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  book: '<path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>'
+};
+function lineIcon_(name) {
+  return `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LINE_ICONS_[name] || ""}</svg>`;
+}
+document.querySelectorAll("[data-icon]").forEach((el) => { el.innerHTML = lineIcon_(el.dataset.icon); });
+
 // ---- Pop-up tips (owner's plan, 2026-11-08: "Pop-up tips series - plan (DRAFT 2026-11-08).md") ----
 // One bubble pointing at the field it is about, for an optional extra (the features list marks which). Shown once per tip on this phone,
 // only from the 3rd time its place (a screen or a form) is opened, at most one a day (it also takes one of the day's two yellow-card
@@ -24973,7 +25026,7 @@ function practiceMLoanRow_() {
   return Array.from(document.querySelectorAll("#loan-detail-list .loan-detail-row-main")).find((r) => /Practice (bank )?loan|Préstamo (bancario )?de práctica/.test(r.textContent)) || null;
 }
 function practiceMSchedBtn_() {
-  return Array.from(document.querySelectorAll("#loan-detail-list .loan-detail-forgive-btn")).find((b) => b.textContent.includes("📅")) || null;
+  return document.querySelector("#loan-detail-list .loan-sched-btn");   // (it was found by its 📅 emoji; buttons carry no emoji since 2026-11-12)
 }
 
 function practiceMOpen_(id) { const el = document.getElementById(id); return !!el && !el.hidden; }
@@ -26535,7 +26588,7 @@ function buildLoanDetailRow_(l, friendId, friendName) {
   if (l.schedule) {
     const schedBtn = document.createElement("button");
     schedBtn.type = "button";
-    schedBtn.className = "add-inline loan-detail-forgive-btn";
+    schedBtn.className = "add-inline loan-detail-forgive-btn loan-sched-btn";
     schedBtn.textContent = tr("bank.scheduleButton", { paid: l.schedule.paid, count: l.schedule.count });
     schedBtn.addEventListener("click", (e) => {
       e.stopPropagation();
