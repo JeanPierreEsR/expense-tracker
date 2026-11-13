@@ -3525,6 +3525,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .settle-choose-row span { flex: 1; }
 .settle-choose-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 20px; height: 20px; min-height: 0; flex: none; }
 .settle-choose-row span { min-width: 0; }
+.bank-early-effect { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8125rem; }
+.bank-early-effect:empty { display: none; }
 /* "Pay only the selected loans": a separate option under the loan list, not one more loan row */
 .reassign-limit-box { margin: 14px 0 6px; padding: 10px 12px; border: 1px solid var(--border, var(--border-strong)); border-radius: var(--r-md); background: var(--card-alt, rgba(120,120,128,0.08)); }
 .reassign-limit-box[hidden] { display: none; }
@@ -3558,6 +3560,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .bank-row-top input[type="date"] { width: 100%; min-width: 0; box-sizing: border-box; }
 .bank-row-amounts { grid-column: 2; }
 .bank-row-num { font-size: 0.8125rem; color: var(--text-muted, var(--muted-2)); min-width: 22px; }
+.bank-row-total { grid-column: 2; margin: 4px 0 0; }
 .bank-row-amounts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 6px; }
 .bank-row-amounts input { min-width: 0; width: 100%; box-sizing: border-box; }
 .bank-row-remove { background: none; border: none; font-size: 1rem; color: var(--danger); padding: 4px 8px; }

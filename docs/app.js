@@ -759,7 +759,9 @@ async function callApi(action, payload, attempt = 1, startedAt = performance.now
   apiPrefill_.clear();
   const reads = payload && payload._then;
   try {
-    return await callApiCounted_(action, payload, attempt, startedAt);
+    const out = await callApiCounted_(action, payload, attempt, startedAt);
+    try { popAfterSave_(action, payload, out); } catch (e) { /* counting never breaks a save */ }
+    return out;
   } finally {
     apiWriteGen_++;
     const answers = reads && apiThenAnswers_.get(reads);
@@ -1138,6 +1140,23 @@ function syncBeforeAppDate_(input, on) {
   const today = todayLocalISO(), before = beforeAppDate_();
   if (on && input.value === today) input.value = before;
   else if (!on && input.value === before) input.value = today;
+}
+
+// The other way round (owner, 2026-11-12): a date typed BEFORE the first day of use ticks "from before the app" by itself, and moving it
+// back to that day or later unticks it again, but only if the app ticked it. A box the person unticked is left alone until the date
+// changes again. `shown()` says whether the box applies right now (a new loan, the backend able to save one); `apply()` redraws the form.
+function beforeAppDay_() { return (meta && meta.firstUseDate) || popFirstUse_(); }
+function beforeAppReset_(box) { delete box.dataset.autoTicked; }
+function autoBeforeApp_(dateId, boxId, shown, apply) {
+  const date = document.getElementById(dateId), box = document.getElementById(boxId);
+  box.addEventListener("change", () => beforeAppReset_(box));   // the person's own choice
+  const check = () => {
+    if (!shown() || box.disabled || !date.value) return;
+    const before = date.value < beforeAppDay_();
+    if (before && !box.checked) { box.checked = true; box.dataset.autoTicked = "1"; apply(); }
+    else if (!before && box.checked && box.dataset.autoTicked) { box.checked = false; beforeAppReset_(box); apply(); }
+  };
+  date.addEventListener("change", check);
 }
 
 function defaultDueDate_(dateStr) {
@@ -2114,6 +2133,7 @@ function syncEntryOpening_(isLoan) {
   document.getElementById("entry-date-label").textContent = tr(on ? "loanModal.openingDate" : "field.date");
 }
 document.getElementById("entry-opening").addEventListener("change", (e) => { syncBeforeAppDate_(document.getElementById("date"), e.target.checked); updateRepaymentUi_(); });
+autoBeforeApp_("date", "entry-opening", () => !document.getElementById("entry-opening-row").hidden, () => updateRepaymentUi_());
 
 // Under the person in Home's "+" → Repayment (owner, 2026-11-12): "Ana owes you nothing in PEN" when nothing is owed that way,
 // so the person knows before Save (which then asks what the money is, askNothingOwed_). From the Loans tab's last list; fetched
@@ -2232,7 +2252,7 @@ function toggleSplitFieldVisibility() {
   document.getElementById("split-field").hidden = !show;
   if (!show) resetSplitState();
   // Only an expense can belong to a trip or event, so the picker follows the same rule.
-  document.getElementById("trip-field").hidden = !show || !(meta.trips || []).length;
+  document.getElementById("trip-field").hidden = !show || (!(meta.trips || []).length && !tripFieldForced_);
   if (!show) document.getElementById("entry-trip").value = "";
   populateBusinessOptions_();   // an expense or an income may belong to a company / project
   updateRepeatField_();
@@ -3068,12 +3088,22 @@ async function ensureExchangeRate(currency, dateStr) {
 let rateModalState = null; // { currency, month, inverted, resolve, existingRate }
 
 function renderRateModalLabels_() {
-  const { currency, inverted, existingRate, usd, viaMain, viaInv } = rateModalState;
-  document.getElementById("rate-invert-btn").hidden = !!usd;   // through the dollar it is always asked against the dollar, stronger side as 1 (owner, 2026-11-07)
+  const { currency, inverted, existingRate, usd, viaMain, viaInv, viaUsd, viaUsdInv } = rateModalState;
+  document.getElementById("rate-invert-btn").hidden = !!usd || !!viaUsd;   // through the dollar it is always asked against the dollar, stronger side as 1 (owner, 2026-11-07)
   // "I know it against PEN instead" (owner, 2026-11-07): typed against the main currency, saved in dollars with the month's dollar rate.
+  // Its mirror (owner, 2026-11-13): rates kept against the main currency can be typed against the dollar, turned with the month's dollar rate.
   const via = document.getElementById("rate-via-main-btn");
-  via.hidden = !(usd && currency !== "USD" && homeCur() !== "USD");
-  via.textContent = viaMain ? tr("rateModal.backToUsd") : tr("rateModal.viaMain", { main: homeCur() });
+  via.hidden = !(currency !== "USD" && homeCur() !== "USD");
+  via.textContent = usd ? (viaMain ? tr("rateModal.backToUsd") : tr("rateModal.viaMain", { main: homeCur() }))
+    : (viaUsd ? tr("rateModal.backToMain", { main: homeCur() }) : tr("rateModal.viaUsd"));
+  if (!usd && viaUsd) {
+    // "USD 1 = ARS ?", or "EUR 1 = USD ?" for a currency worth more than a dollar.
+    document.getElementById("rate-left-label").textContent = viaUsdInv ? `${currency} 1` : "USD 1";
+    document.getElementById("rate-right-label").textContent = viaUsdInv ? "USD" : currency;
+    document.getElementById("rate-value-input").value = "";
+    renderRateMeaning_();
+    return;
+  }
   if (usd && viaMain) {
     document.getElementById("rate-left-label").textContent = viaInv ? `${homeCur()} 1` : `${currency} 1`;
     document.getElementById("rate-right-label").textContent = viaInv ? currency : homeCur();
@@ -3115,6 +3145,16 @@ function renderRateMeaning_() {
     if (!(u > 0)) { el.textContent = tr("rateModal.viaMainNoUsd", { month: st.monthWords }); el.hidden = false; return; }
     if (!(raw > 0)) { el.hidden = true; return; }
     el.textContent = tr("rateModal.viaMainSaved", { line: strongRateLine_("USD", st.currency, u / (st.viaInv ? 1 / raw : raw)), usd: rateLine_("USD", homeCur(), u) });
+    el.hidden = false;
+    return;
+  }
+  if (st && !st.usd && st.viaUsd) {
+    // Typed against the dollar: say what will be stored, against the main currency, and with which dollar rate.
+    const u = st.usdInMain;
+    if (u === undefined) { el.textContent = tr("common.loading"); el.hidden = false; return; }
+    if (!(u > 0)) { el.textContent = tr("rateModal.viaUsdNoUsd", { month: st.monthWords, main: homeCur() }); el.hidden = false; return; }
+    if (!(raw > 0)) { el.hidden = true; return; }
+    el.textContent = tr("rateModal.viaMainSaved", { line: strongRateLine_(st.currency, homeCur(), u / (st.viaUsdInv ? 1 / raw : raw)), usd: rateLine_("USD", homeCur(), u) });
     el.hidden = false;
     return;
   }
@@ -3162,6 +3202,7 @@ function openRateModal(currency, month, required, existingRate) {
     bringModalToFront_(backdrop);
     backdrop.hidden = false;
     document.getElementById("rate-value-input").focus();
+    popTipVisit_("rateWindow"); watchAgainstMainTip_();
   });
 }
 
@@ -3175,9 +3216,11 @@ function closeRateModal_(result) {
 document.getElementById("rate-via-main-btn").addEventListener("click", () => {
   const st = rateModalState;
   if (!st) return;
-  st.viaMain = !st.viaMain;
-  if (st.viaMain) {
+  if (st.usd) st.viaMain = !st.viaMain;
+  else st.viaUsd = !st.viaUsd;
+  if (st.viaMain || st.viaUsd) {
     st.viaInv = weakerThanMain_(st.currency, null);   // "PEN 1 = ARS ?", the stronger one as 1
+    st.viaUsdInv = strongerThanUsd_(st.currency, null);   // "EUR 1 = USD ?" for a currency worth more than a dollar
     if (st.usdInMain === undefined && !st.usdInMainAsked) {
       st.usdInMainAsked = true;
       // The dollar's own rate for that month (latest on or before): what turns the typed rate into dollars.
@@ -3221,7 +3264,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     return;
   }
 
-  const { currency, month, inverted, prevRate, usd, viaMain, viaInv, usdInMain } = rateModalState;
+  const { currency, month, inverted, prevRate, usd, viaMain, viaInv, viaUsd, viaUsdInv, usdInMain } = rateModalState;
   // Through the dollar: compared and sent as "1 USD = rate X"; else "1 X = rate main". toShown turns such a value into the window's number.
   let rate, toShown;
   if (usd && viaMain) {
@@ -3232,6 +3275,14 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
     const mainPer = viaInv ? 1 / raw : raw;   // 1 X = mainPer main
     rate = usdInMain / mainPer;
     toShown = (p) => (viaInv ? p / usdInMain : usdInMain / p);
+  } else if (!usd && viaUsd) {
+    if (!(usdInMain > 0)) {
+      errorEl.textContent = usdInMain === undefined ? tr("common.loading") : tr("rateModal.viaUsdNoUsd", { month: rateModalState.monthWords, main: homeCur() });
+      return;
+    }
+    const perUsd = viaUsdInv ? 1 / raw : raw;   // 1 USD = perUsd X
+    rate = usdInMain / perUsd;   // 1 X = rate main
+    toShown = (p) => (viaUsdInv ? p / usdInMain : usdInMain / p);
   } else {
     rate = inverted ? 1 / raw : raw;
     toShown = (p) => (inverted ? 1 / p : p);
@@ -3433,6 +3484,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const charge = chargeForSave_(amount, currency, splits, selectedType, paidByForCharge_());
     const tagIds = Array.from(selectedTagIds);
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
+    if (tripNudgeHolds_(tripId, currency)) throw new Error("");   // held once: the trip field and its bubble are on screen now
     // Shared with friends inside a trip that has a group (owner, 2026-11-07): when the friends' shares are kept in another app, the group is
     // the right choice. Asked before saving; Cancel goes back to the split with nothing changed.
     const tripGroup = tripId && splits && splits.length && !Spotlight.isRunning() ? (meta.friends || []).find((f) => f.trip_id === tripId) : null;
@@ -4860,6 +4912,7 @@ function entriesToggle_(id, row) {
   syncEntriesEditBar_();
 }
 function setEntriesEditing_(on, redraw = true) {
+  if (on) popUsed_("homeEdit");
   if (on === entriesEditing_ && redraw) return;
   if (on && reviewEditing_) setReviewEditing_(false);
   entriesEditing_ = on;
@@ -5788,6 +5841,7 @@ function resetEntryFormFields_() {
   selectCurrency(homeCur(), "entry");
   document.getElementById("to_payment_method").value = "";
   document.getElementById("entry-opening").checked = false;
+  beforeAppReset_(document.getElementById("entry-opening"));
   // Back to the first real account, as on a fresh open. An entry with no account, opened and cancelled, must not make "No account" the next default.
   pickDefaultAccount_();
   setInvestmentDirection("deposit");
@@ -7789,6 +7843,8 @@ function openNewEntrySheet_() {
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
   // A new person's first "+": the guided practice starts by itself (owner, 2026-11-04). Never during another practice or "Mark as paid".
   if (!payingRecurringId_ && guidedEntryWanted_()) setTimeout(startGuidedEntry_, 350);
+  tripNudgeAsked_ = false;
+  if (tripFieldForced_) { tripFieldForced_ = false; populateTripOptions_(); }
   if (!payingRecurringId_) { popTipVisit_("entryForm"); setTimeout(watchEntryFormTip_, 450); }
 }
 
@@ -8353,7 +8409,7 @@ function showScreen(name) {
   });
   if (name === "entries") {
     refreshHomeGlance_(false);   // skipped when fetched less than a minute ago
-    if (homeTipsReady_) { offerReviewTip_(); popTipVisit_("home"); watchHomeEditTip_(); }
+    if (homeTipsReady_) { offerReviewTip_(); watchHomeTips_(); }
 
   }
   if (name === "overview") {
@@ -8361,7 +8417,7 @@ function showScreen(name) {
     refreshOverview();
     trackOverviewLoad_(refreshMonthsHistory_());
     refreshBalances().catch(() => {});
-    popTipVisit_("overview"); watchOverviewTotalsTip_();
+    popTipVisit_("overview"); watchOverviewTips_();
   }
   if (name === "budgets") {
     ensurePeriodSelectorIn("budgets");
@@ -8375,6 +8431,7 @@ function showScreen(name) {
     if (periodType === "alltime" || periodType === "custom") { periodAnchor = new Date(); periodType = "month"; renderPeriodSelector(); }
     ensurePeriodSelectorIn("projections");
     refreshProjectionsScreen();
+    popTipVisit_("projections");
     watchProjMethodTip_();
   }
   if (name === "loans") {
@@ -8382,6 +8439,7 @@ function showScreen(name) {
   }
   if (name === "more") {
     applyBusinessVisibility_();
+    popTipVisit_("more"); watchBringBackTip_();
   }
 }
 
@@ -8851,6 +8909,7 @@ function renderMonthsBars_() {
       <span>${escapeHtml(I18n.monthShort(mo - 1, true))} ${String(y).slice(2)}</span></button>`;
   }).join("");
   box.querySelectorAll(".home-bar-col").forEach((b) => b.addEventListener("click", () => {
+    popSet_("popMonthTapped", true); popUsed_("tapMonth");
     const [y, mo] = b.dataset.month.split("-").map(Number);
     periodType = "month";
     renderPeriodSelector();
@@ -9814,7 +9873,7 @@ async function openBreakdownDrilldown(kind, item) {
 
   const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType, scope: overviewScopeParam_() };
   if (kind === "category") payload.categoryId = item.id;
-  else if (kind === "tag") { if (item.id) payload.tagId = item.id; else payload.noTag = true; }
+  else if (kind === "tag") { if (item.id) { payload.tagId = item.id; popUsed_("tagsOv"); } else payload.noTag = true; }
   else if (kind === "paymentMethod") { if (item.id) payload.paymentMethodId = item.id; else payload.noAccount = true; }
   else if (kind === "platform") { payload.type = "investment"; payload.toPaymentMethodId = item.id; }
 
@@ -11197,6 +11256,7 @@ function drawBudgets_() {
     delKey_(row, "budget:" + b.id);
     row.dataset.budgetName = b.name || "";
     row.dataset.periodType = b.period_type || "";
+    row.dataset.budgetId = String(b.id);
     const rowName = p.category_name || b.category_name, rowIcon = String((p.category_name ? p.category_icon : b.category_icon) || "").replace(/[<>&"'`]/g, "");   // categories then
     const nameHtml = `<div class="budget-row-name">${rowIcon ? rowIcon + " " : ""}${escapeHtml(rowName)}</div>`;
     const leadHtml = budgetsEditing_
@@ -11749,7 +11809,7 @@ async function init() {
     if (paintedFromCache) setRecurringCheckStatus_("hidden");
     homeTipsReady_ = true;
     offerReviewTip_();   // only now that Needs review and the lists have arrived (loading standard)
-    popTipVisit_("home"); watchHomeEditTip_();
+    watchHomeTips_();
 
     if (!paintedFromCache) {
       if (ICON_PICKER_TYPES.includes(selectedType)) {
@@ -12122,10 +12182,15 @@ function openPerfShareModal_(onDone) {
   document.getElementById("perf-share-yes").className = !s.asked || s.on ? "primary" : "cancel-edit-btn";
   document.getElementById("perf-share-no").className = s.asked && !s.on ? "primary" : "cancel-edit-btn";
   document.getElementById("perf-share-name").value = s.label || "";
-  document.getElementById("perf-share-close").hidden = !s.asked;   // the first time, the answer is one of the two buttons
   // Someone who agreed to an older version sees what is new, and ✕ means "not now" (asked again later, three times at most).
   perfShareReask_ = !!(s.asked && s.on && (s.scope || 1) < PerfShare.SCOPE);
   document.getElementById("perf-share-new").hidden = !perfShareReask_;
+  // The new question after an update is a forced choice, first thing (owner, 2026-11-12): no ✕, no tap outside; "No" keeps what they agreed to.
+  document.getElementById("perf-share-close").hidden = !s.asked || perfShareReask_;
+  if (perfShareReask_) backdrop.dataset.noDismiss = "1"; else delete backdrop.dataset.noDismiss;
+  document.getElementById("perf-share-yes").textContent = tr(perfShareReask_ ? "perfShare.yesToo" : "perfShare.yes");
+  document.getElementById("perf-share-no").textContent = tr(perfShareReask_ ? "perfShare.keepOld" : "perfShare.no");
+  if (perfShareReask_) { document.getElementById("perf-share-yes").className = "primary"; document.getElementById("perf-share-no").className = "cancel-edit-btn"; }
   bringModalToFront_(backdrop);
   backdrop.style.zIndex = 400;   // above the welcome card (300), which is still open behind it at the end of the welcome questions
   backdrop.hidden = false;
@@ -12410,6 +12475,10 @@ eraseEl_("erase-later-btn").addEventListener("click", () => {
   showSignedOutScreen_(tr("erase.signedOut"));
 });
 
+// While the forced sharing question is on screen nothing else asks anything (owner, 2026-11-12: it is the first thing after the update).
+async function perfShareFirstDone_() {
+  while (perfShareReask_ && !document.getElementById("perf-share-modal-backdrop").hidden) await sleep(300);
+}
 function maybeAskPerfShare_() {
   const caps = (meta && meta.capabilities) || {};
   if (appErased_) return;   // everything was just deleted: no questions for a person who is leaving
@@ -12422,6 +12491,14 @@ document.getElementById("perf-share-yes").addEventListener("click", () => perfSh
 document.getElementById("perf-share-no").addEventListener("click", () => perfShareAnswer_(false));
 function perfShareAnswer_(on) {
   if (welcome_ && welcome_.preview) { closePerfShareModal_(); return; }   // welcome preview: keep the real sharing choice untouched
+  if (perfShareReask_ && !on) {   // "Keep what I agreed to before": nothing changes and the question does not come back
+    const s = perfShareState_();
+    perfShareSave_({ ...s, scopeSkips: PerfShare.MAX_REASKS });
+    perfShareReask_ = false;
+    refreshPerfShareRow_();
+    closePerfShareModal_();
+    return;
+  }
   perfShareSave_({ on, label: PerfShare.cleanLabel(document.getElementById("perf-share-name").value), asked: true, owner: false, scope: PerfShare.SCOPE });
   if (!on) { perfOutbox_.clear(); betaOutbox_.clear(); }
   refreshPerfShareRow_();
@@ -12772,6 +12849,7 @@ document.getElementById("fp-extras-btn").addEventListener("click", () => {
   document.getElementById("extras-takeback-btn").hidden = false;
   document.getElementById("extras-copy-msg").textContent = "";
   document.getElementById("extras-open-btn").textContent = tr(isHomeScreenApp_() ? "app.openInSafari" : "extras.open");
+  bringModalToFront_(document.getElementById("extras-modal-backdrop"));   // above whatever opened it (the balance window, a sheet)
   document.getElementById("extras-modal-backdrop").hidden = false;
 });
 document.getElementById("extras-takeback-btn").addEventListener("click", () => {
@@ -15788,7 +15866,17 @@ function perfReportText_() {
   return lines.join("\n");
 }
 
+// Tips: did they help? (owner, 2026-11-12) — from popStats on this phone.
+function renderPerfTips_() {
+  const box = document.getElementById("perf-tips");
+  const st = popGet_(POP_STATS_KEY_, {}), keys = Object.keys(st).sort((a, b) => String(st[b].shown).localeCompare(String(st[a].shown)));
+  const shown = keys.length, used = keys.filter((k) => st[k].used).length;
+  box.innerHTML = !shown ? `<div class="status-msg">${escapeHtml(tr("perf.tipsNone"))}</div>`
+    : `<p class="hint">${escapeHtml(tr("perf.tipsSum", { shown, used }))}</p>` + keys.map((k) => `<div class="perf-row"><div class="perf-name">${escapeHtml(k)}</div>
+      <div class="hint">${escapeHtml(tr("perf.tipShown", { day: st[k].shown }))} · ${escapeHtml(st[k].used ? tr("perf.tipUsed", { day: st[k].used }) : tr("perf.tipNotUsed"))}</div></div>`).join("");
+}
 function renderPerfScreen() {
+  renderPerfTips_();
   const box = document.getElementById("perf-summary");
   const rows = perfSummaryRows_();
   if (!rows.length) {
@@ -17124,12 +17212,24 @@ function tripPillHtml_(entry) {
 // refresh while an edit is open must not change the pick).
 function populateTripOptions_() {
   const sel = document.getElementById("entry-trip");
-  fillTripOptions_(sel, sel.value);
-  document.getElementById("trip-field").hidden = selectedType !== "expense" || !(meta.trips || []).length;
+  fillTripOptions_(sel, sel.value, true);
+  document.getElementById("trip-field").hidden = selectedType !== "expense" || (!(meta.trips || []).length && !tripFieldForced_);
 }
+// The entry form can add a trip (owner, 2026-11-12): "+ New trip or event…" opens the usual trip window above the form, and the new
+// trip is picked in the entry once saved (what was typed in the entry stays). `tripFieldForced_`: the trip nudge shows the field even
+// before the person has any trip.
+let tripFieldForced_ = false, tripFromEntry_ = false;
+document.getElementById("entry-trip").addEventListener("change", (e) => {
+  if (e.target.value !== "__newtrip__") return;
+  e.target.value = "";
+  tripFromEntry_ = true;
+  openTripModal_(null);
+  const d = document.getElementById("date").value;
+  if (d) { document.getElementById("trip-start").value = d; document.getElementById("trip-end").value = d; }
+});
 
 // Fills any trip/event <select> (the entry form's, the Programmed pop-up's) and keeps `keep` chosen.
-function fillTripOptions_(sel, keep) {
+function fillTripOptions_(sel, keep, withNew) {
   sel.innerHTML = "";
   const none = document.createElement("option");
   none.value = "";
@@ -17146,6 +17246,12 @@ function fillTripOptions_(sel, keep) {
     o.textContent = tripLabel_(t);
     sel.appendChild(o);
   });
+  if (withNew) {
+    const add = document.createElement("option");
+    add.value = "__newtrip__";
+    add.textContent = tr("trips.newFromEntry");
+    sel.appendChild(add);
+  }
   sel.value = keep || "";
   if (sel.value !== (keep || "")) sel.value = "";
 }
@@ -17738,6 +17844,7 @@ document.getElementById("trip-start").addEventListener("change", () => refreshTr
 function closeTripModal_() {
   document.getElementById("trip-modal-backdrop").hidden = true;
   editingTripId_ = null;
+  tripFromEntry_ = false;
 }
 
 // "Find expenses in these dates": lists the trip-less expenses inside the trip's dates, all ticked;
@@ -17875,7 +17982,18 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
     };
     // The server checks everything and answers in the person's language.
     const tripId = editingTripId_;
+    const forEntry = tripFromEntry_ && !tripId && newEntrySheetOpen_;
     closeTripModal_();
+    if (forEntry) {   // made from the new-entry form: once saved, it is picked there
+      saveBehindScreen_(async () => {
+        const made = await callApi("addTrip", fields);
+        meta.trips = await callApi("listTrips", {});
+        populateTripOptions_();
+        const sel = document.getElementById("entry-trip");
+        if (made && made.id && newEntrySheetOpen_) { sel.value = made.id; document.getElementById("trip-field").hidden = false; }
+      });
+      return;
+    }
     saveBehindScreen_(
       practiceTTrack_(() => tripId ? callApi("updateTrip", withThen_(Object.assign({ id: tripId }, fields), [["listTrips", {}]])) : callApi("addTrip", withThen_(fields, [["listTrips", {}]])), fields),
       async () => {
@@ -22889,6 +23007,7 @@ function offerTip_(key, boxId, inviteText, start, after) {
   box.innerHTML = `<span class="tip-invite-label"><span aria-hidden="true">💡</span> ${escapeHtml(tr("spot.tipLabel"))}</span><p>${escapeHtml(inviteText)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-no">${escapeHtml(tr("spot.dismiss"))}</button><button type="button" class="tip-invite-go">${escapeHtml(tr("spot.showMe"))}</button></div>`;
   box.hidden = false;
   box.querySelector(".tip-invite-no").addEventListener("click", () => {
+    popSet_("tipNotNowCount", popGet_("tipNotNowCount", 0) + 1);   // (the "bring practices back" bubble waits for two)
     markTipSeen_(key);
     box.hidden = true;
     appMessage_(tr("spot.dismissed"));   // say once how to bring the practice back
@@ -22967,10 +23086,87 @@ popFirstUse_();   // stamp the first day as early as possible
 // - kind A (`own: true`), on a screen of its own the person reached by themselves: the FIRST visit, any level, outside the one-a-day limit;
 // - a series (`steps: [{ target, text, when? }]`): "Got it" shows the next part; the whole series counts as one; leaving stops it and the
 //   next visit continues where it stopped (`popTipSeries`). A step whose `when()` is false is passed over.
-const POP_LEVEL_DAYS_ = { basic: 0, medium: 7, advanced: 14, super: POP_SUPER_DAYS_ };
+const POP_LEVEL_DAYS_ = { basic: 0, medium: 7, advanced: 14, super: POP_SUPER_DAYS_ };   // (the calendar waits before 2026-11-12; kept for reference)
 const POP_SERIES_KEY_ = "popTipSeries";
+// ---- Moments and the basics gate (owner, 2026-11-12: instead of calendar days) ----
+// A kind-B bubble shows at ITS MOMENT (its target appears only when the feature would help) once the person has the basics:
+// basic none · medium 3 active days · advanced 5 · super advanced 20 entries over 7 active days. An active day = a day with a save.
+// A sign of struggle (`struggle()`, the person working around the feature) skips the basics, never the moment. `noGate: true` = the
+// moment alone decides (useful right then, or it would never come again: a first loan, the trip at Save).
+const POP_ACTIVE_KEY_ = "popActiveDays", POP_SAVES_KEY_ = "popEntrySaves", POP_STRUGGLE_KEY_ = "popStruggle";
+function popMarkActive_() { const d = todayLocalISO(), a = popGet_(POP_ACTIVE_KEY_, []); if (!a.includes(d)) popSet_(POP_ACTIVE_KEY_, a.concat(d).slice(-60)); }
+function popActiveDays_() { return popGet_(POP_ACTIVE_KEY_, []).length; }
+function popEntriesKnown_() { return Math.max((lastRenderedEntries_ || []).length, popGet_(POP_SAVES_KEY_, 0)); }
+const POP_GATE_ = { basic: () => true, medium: () => popActiveDays_() >= 3, advanced: () => popActiveDays_() >= 5,
+  super: () => popActiveDays_() >= 7 && popEntriesKnown_() >= 20 };
+function popBasicsOk_(level) { return (POP_GATE_[level || "super"] || POP_GATE_.super)(); }
+function popStruggle_(key) { const s = popGet_(POP_STRUGGLE_KEY_, {}); if (!s[key]) { s[key] = todayLocalISO(); popSet_(POP_STRUGGLE_KEY_, s); } }
+function popStruggling_(key) { return !!popGet_(POP_STRUGGLE_KEY_, {})[key]; }
+// What a successful save says about the person (owner, 2026-11-12): an active day, one more entry, a feature used, a sign of struggle.
+const POP_USER_SAVE_RE_ = /^(save|record|set|create|forgive|apply|assign|discard|delete|confirm|link|add|update)/i;
+const POP_NOT_THE_PERSON_ = new Set(["setRulePack", "setLanguage", "saveRailLinks", "applyAccountCurrencySuggestions", "saveOnboarding", "saveOnboardingAccounts", "saveOnboardingPlatforms"]);   // automatic or set-up, not a use of the app
+function popAfterSave_(action, payload, out) {
+  // A practice's made-up saves never count; a REAL tutorial's do (owner's walk 2026-11-12: features used inside a tutorial showed "not yet").
+  if (!POP_USER_SAVE_RE_.test(action) || POP_NOT_THE_PERSON_.has(action) || /[Pp]ractice/.test(action) || (Spotlight.isRunning() && !guided_)) return;
+  popMarkActive_();
+  payload = payload || {};
+  if (action === "saveEntryAll" || action === "createEntry") {
+    const create = action === "createEntry" || payload.kind === "create";
+    const fields = action === "createEntry" ? payload : (payload.fields || {});
+    if (create) popSet_(POP_SAVES_KEY_, popGet_(POP_SAVES_KEY_, 0) + 1);
+    const tags = fields.tag_ids || payload.tag_ids;
+    if (fields.paid_by && fields.paid_by !== "me") popUsed_("paidBy");
+    if (tags && tags.length) popUsed_("tags");
+    if (fields.trip_id) { popUsed_("tripPick"); popUsed_("tripNudge"); }
+    if (Number(fields.paid_amount) > 0 || String(fields.charge_pending || "") === "1") { popUsed_("chargeBox"); popUsed_("chargeListed"); }
+    // Receipts: several expenses typed by hand in a row (no photo read for them).
+    if (create && fields.type === "expense") popSet_("popManualRun", receiptJustRead_ ? 0 : popGet_("popManualRun", 0) + 1);
+    receiptJustRead_ = false;
+  }
+  if (action === "recordRepayment") {
+    if (out && Number(out.overpaid) > 0) popUsed_("overpay");   // only a repayment above what was owed
+    // A repayment to a friend within a day of an expense of the same amount: "Paid by" would have done it in one go.
+    const amt = Number(payload.amount), day = Date.parse(payload.date || todayLocalISO());
+    if (payload.direction !== "they_owe_me" && amt > 0 && (lastRenderedEntries_ || []).some((e) => e.type === "expense" && Math.abs(Number(e.amount) - amt) < 0.005 &&
+      e.currency === payload.currency && Math.abs(Date.parse(e.date) - day) <= 86400000)) popStruggle_("paidBy");
+  }
+  if (action === "forgiveLoan") popUsed_("forgive");
+  if (action === "recordEarlyPayment") popUsed_("earlyPay");
+  if (action === "saveBankLoan" && payload.opening) popUsed_("bankOpening");
+  if (action === "setProjectionOverride") popUsed_("overrides");
+  if (action === "setPaymentMethodOpeningBalance") popUsed_("startbal");
+  if (action === "discardEntry") {   // two entries deleted one by one within a few minutes: Edit mode would do it at once
+    const t = popGet_("popOneDeletes", []).filter((x) => Date.now() - x < 5 * 60000).concat(Date.now());
+    popSet_("popOneDeletes", t);
+    if (t.length >= 2) popStruggle_("homeEdit");
+  }
+  if (action === "deleteEntries") popUsed_("homeEdit");
+}
+let receiptJustRead_ = false;
+
+// ---- Did it work? (owner, 2026-11-12): for each bubble, the day it showed and whether its feature was used afterwards ----
+// Kept on this phone only (`popStats`), shown in More → Performance log. A feature use calls popUsed_(key) with the bubble's key.
+const POP_STATS_KEY_ = "popStats";
+function popStatShown_(key) { const st = popGet_(POP_STATS_KEY_, {}); if (!st[key]) { st[key] = { shown: todayLocalISO(), used: "" }; popSet_(POP_STATS_KEY_, st); betaRecordTip_(key, "shown"); } }
+// To JP only from a person who agreed to consent version 4 (owner, 2026-11-12): the tip's name and "shown" / "used", nothing else.
+function betaRecordTip_(key, what) {
+  try {
+    const share = perfShareState_();
+    if (!share.on || (share.scope || 1) < 4 || perfIsOwnerCopy_()) return;
+    if (!/^[A-Za-z]{2,30}$/.test(String(key))) return;   // (a help bubble's built name, "hint-…", is not sent)
+    betaOutbox_.appendRaw({ t: Date.now(), k: "tip", n: String(key), d: what, v: 1 });
+  } catch (e) { /* counting never breaks the app */ }
+}
+function popUsed_(key) {
+  try {
+    const st = popGet_(POP_STATS_KEY_, {});
+    const k = String(key || "").split(":")[0];
+    if (st[k] && !st[k].used) { st[k].used = todayLocalISO(); popSet_(POP_STATS_KEY_, st); betaRecordTip_(k, "used"); }
+    else if (!st[k]) { const u = popGet_("popUsedBefore", {}); if (!u[k]) { u[k] = todayLocalISO(); popSet_("popUsedBefore", u); } }   // used before any bubble
+  } catch (e) { /* counting never breaks the app */ }
+}
 // Built but switched off by the owner (2026-11-09): real tutorials come first, then bubbles from most basic to super advanced. Empty this list to bring them back.
-const POP_PAUSED_ = ["paidBy", "bankOpening", "forgive", "overpay"];
+const POP_PAUSED_ = [];   // (the four paused on 2026-11-09 came back with their moments, 2026-11-12)
 function popTipWatch_(tip) {
   if (POP_PAUSED_.includes(tip.key)) return;
   if (popGet_(POP_SEEN_KEY_, []).includes(tip.key)) return;
@@ -22979,9 +23175,8 @@ function popTipWatch_(tip) {
     tip = Object.assign({}, tip, { at: popGet_(POP_SERIES_KEY_, {})[tip.key] || 0 });
     if (tip.at >= tip.steps.length) return;
   }
-  if (!tip.help && !tip.own && !tip.cont && !tip.remind) {   // (kind C, a reminder, decides its own moment; it keeps the one-a-day limit)
-    if (popDaysUsed_() < (POP_LEVEL_DAYS_[tip.level || "super"] ?? POP_SUPER_DAYS_)) return;   // not before the person had time with the basics
-    if (!popGet_(POP_AGAIN_KEY_, false) && (popGet_(POP_VISITS_KEY_, {})[tip.place] || 0) < POP_TIP_VISIT_) return;
+  if (!tip.help && !tip.own && !tip.cont && !tip.remind && !tip.noGate) {   // (kind C, a reminder, decides its own moment; it keeps the one-a-day limit)
+    if (!popBasicsOk_(tip.level) && !(tip.struggle && tip.struggle())) return;   // not before the person has the basics (owner, 2026-11-12)
   }
   popWatch_ = tip;
   if (!popWatchTimer_) popWatchTimer_ = setInterval(popTipTick_, 250);
@@ -23029,6 +23224,7 @@ function popTipTick_() {
   if (Spotlight.isRunning()) { teachSpotVisit_ = teachVisit_; return; }   // nothing else unasked on the visit a tutorial ran
   if (editModeOn_() || !document.getElementById("welcome-overlay").hidden || popTyping_()) return;
   if (tip.ready && !tip.ready()) return;
+  if (realStartPending_ && !tip.help) return;   // the real tutorial comes first (rule 1)
   if (tip.steps) {   // pass over the parts that do not apply here
     while (tip.at < tip.steps.length && tip.steps[tip.at].when && !tip.steps[tip.at].when()) tip.at++;
     if (tip.at >= tip.steps.length) { popSeriesDone_(tip); popTipStopWatch_(); return; }
@@ -23053,9 +23249,29 @@ function popTargetRect_(el) {
   const t = r.getBoundingClientRect();
   return t.width > 0 ? t : el.getBoundingClientRect();
 }
+// Seen = it was really on screen (owner's walk, 2026-11-12: a bubble shown while its row was scrolled away, or closed at once by a
+// redraw or by the keyboard, counted as seen and never came back). Closed within POP_BLINK_MS_ of appearing by its row vanishing or by
+// typing, it is not seen and comes back on a later visit.
+const POP_BLINK_MS_ = 1500;
 function popTipShow_(tip, el) {
-  if (tip.steps) { tip = Object.assign({}, tip, { at: tip.at + 1 }); popSeriesDone_(tip); tip.at--; tip.text = tip.steps[tip.at].text; }   // this part counts as seen
-  else if (!tip.offer) popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).concat(tip.key));   // shown = seen, however it is closed (an offer keeps its own count: realChanceLeft_)
+  if (tip.steps) tip = Object.assign({}, tip, { text: tip.steps[tip.at].text });
+  let seenAt = 0;
+  const markSeen = () => {
+    if (seenAt) return;
+    seenAt = Date.now();
+    if (tip.steps) { const t = Object.assign({}, tip, { at: tip.at + 1 }); popSeriesDone_(t); }   // this part counts as seen
+    else if (!tip.offer) popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).concat(tip.key));   // (an offer keeps its own count: realChanceLeft_)
+    if (!tip.offer && !tip.cont) popStatShown_(tip.key);
+  };
+  const unSee = () => {   // only a single bubble (a series part stays counted: its next part follows anyway)
+    if (!seenAt || tip.steps || tip.offer || Date.now() - seenAt >= POP_BLINK_MS_) return;
+    popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).filter((k) => k !== tip.key));
+  };
+  // The row it points at can be drawn again (a list refreshed by a late server answer): find it again instead of closing.
+  const refind = () => {
+    const t = tip.steps ? tip.steps[tip.at].target : tip.target;
+    try { return typeof t === "function" ? t() : typeof t === "string" ? document.querySelector(t) : null; } catch (e) { return null; }
+  };
   const b = document.createElement("div");
   b.className = "pop-tip";
   b.setAttribute("role", "dialog");
@@ -23063,7 +23279,8 @@ function popTipShow_(tip, el) {
   b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons"><button type="button" class="pop-tip-ok">${escapeHtml(tip.offer ? (tip.offerLabel || tr("rt.guideMe")) : tr("pop.gotIt"))}</button></div>`;
   document.body.appendChild(b);
   const place = () => {
-    if (!el.isConnected || !el.getClientRects().length) { close(); return; }
+    if (!el.isConnected) { const n = refind(); if (n && n.isConnected) el = n; }
+    if (!el.isConnected || !el.getClientRects().length) { unSee(); close(); return; }
     const pos = Spotlight.placeBubble(popTargetRect_(el), { w: window.innerWidth, h: window.visualViewport ? window.visualViewport.height : window.innerHeight }, { w: b.offsetWidth, h: b.offsetHeight });
     b.style.top = pos.top + "px";
     b.style.left = pos.left + "px";
@@ -23071,14 +23288,16 @@ function popTipShow_(tip, el) {
     const arrow = b.querySelector(".pop-tip-arrow");
     arrow.hidden = pos.arrowLeft == null;
     if (pos.arrowLeft != null) arrow.style.left = pos.arrowLeft + "px";
-    b.style.visibility = popFieldShowing_(el, b) ? "" : "hidden";   // scrolled away: it waits unseen and comes back with the field
+    const showing = popFieldShowing_(el, b);
+    b.style.visibility = showing ? "" : "hidden";   // scrolled away: it waits unseen and comes back with the field
+    if (showing) markSeen();
   };
   // A tap elsewhere closes it (the tap itself still goes through); a finger that scrolls does not (owner's walk, 2026-11-09). A phone ends a scroll with pointercancel.
   let downAt = null;
   const outsideDown = (ev) => { downAt = b.contains(ev.target) ? null : { x: ev.clientX, y: ev.clientY }; };
   const outsideUp = (ev) => { if (downAt && Math.hypot(ev.clientX - downAt.x, ev.clientY - downAt.y) < 10) close(); downAt = null; };
   const outsideCancel = () => { downAt = null; };
-  const typing = () => setTimeout(() => { if (popTyping_()) close(); }, 0);
+  const typing = () => setTimeout(() => { if (popTyping_()) { unSee(); close(); } }, 0);
   let frame = 0;
   const follow = () => { place(); if (popOpen_ && popOpen_.close === close) frame = requestAnimationFrame(follow); };   // every frame: no lag behind a scroll
   function close() {
@@ -23106,9 +23325,14 @@ function popTipClose_() { if (popOpen_) popOpen_.close(); }
 
 // Batch 1 (the three taken out of the practices). Budgets: the "Annual" tag, at the first monthly budget (the practice card wins).
 function watchAnnualTip_() {
+  // Its moment: a monthly budget where one expense is more than half the budget (a yearly payment, usually).
+  const month = todayLocalISO().slice(0, 7);
+  const big = (budgetsLoaded_ || []).find((b) => b.period_type === "monthly" && Number(b.amount) > 0 && (lastRenderedEntries_ || []).some((e) =>
+    e.type === "expense" && String(e.date).slice(0, 7) === month && (b.category_ids || [b.category_id]).includes(e.category_id) && Number(e.amount_pen) > Number(b.amount) / 2));
+  if (!big) return;
   popTipWatch_({
     key: "annual", place: "budgets", text: tr("pop.annual"),
-    target: () => document.querySelector('#budgets-list .budget-row[data-period-type="monthly"]'),
+    target: () => document.querySelector(`#budgets-list .budget-row[data-budget-id="${CSS.escape(String(big.id))}"]`) || document.querySelector('#budgets-list .budget-row[data-period-type="monthly"]'),
     stillWanted: () => !document.getElementById("screen-budgets").hidden,
     ready: () => document.getElementById("budgets-tip-invite").hidden
   });
@@ -23116,7 +23340,7 @@ function watchAnnualTip_() {
 // The new-entry form: the "Trip / event" field, when the entry's date falls during a trip or event.
 function watchTripPickTip_() {
   popTipWatch_({
-    key: "tripPick", place: "entryForm",
+    key: "tripPick", place: "entryForm", noGate: true,
     text: () => tr(document.getElementById("entry-trip").value ? "pop.tripPicked" : "pop.tripPick"),   // the form often picks the trip by itself
     target: () => {
       const field = document.getElementById("trip-field"), date = document.getElementById("date").value;
@@ -23131,12 +23355,19 @@ function watchTripPickTip_() {
 function watchEntryFormTip_() {
   if (!meta) return;   // the app's data has not arrived yet
   const date = document.getElementById("date").value;
-  const tripDue = !popGet_(POP_SEEN_KEY_, []).includes("tripPick") && (meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date);
-  if (tripDue) watchTripPickTip_(); else watchPaidByTip_();
+  const seen = popGet_(POP_SEEN_KEY_, []);
+  // One bubble at a time: the first whose moment has come (owner, 2026-11-12).
+  const pick = [
+    ["tripPick", () => (meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date), watchTripPickTip_],
+    ["paidBy", () => (meta.friends || []).length && (popBasicsOk_() || popStruggling_("paidBy")), watchPaidByTip_],
+    ["tags", () => popEntriesKnown_() >= 30 || popStruggling_("tags"), watchTagsTip_],
+    ["receipts", () => businessOn() && popGet_("popManualRun", 0) >= 3 && !fieldsKnown_().includes("receipt") && popBasicsOk_(), watchReceiptsTip_]   // its button is part of the Business pack
+  ].find(([k, want]) => !seen.includes(k) && want());
+  if (pick) pick[2]();
 }
 function watchPaidByTip_() {
   popTipWatch_({
-    key: "paidBy", place: "entryForm", text: tr("pop.paidBy"),
+    key: "paidBy", place: "entryForm", text: tr("pop.paidBy"), struggle: () => popStruggling_("paidBy"),
     target: () => (selectedType !== "expense" || document.getElementById("paid-by-label").hidden || !(meta.friends || []).length ? null : document.getElementById("paid_by")),
     stillWanted: () => newEntrySheetOpen_,
     ready: () => !guidedEntryWanted_()
@@ -23144,14 +23375,19 @@ function watchPaidByTip_() {
 }
 // The form for a new bank loan: "This loan is from before I started using the app".
 function watchBankOpeningTip_() {
+  if (isTaught_("loans-bank")) return;   // the bank loan tutorial explains the same box (rule 1)
   popTipWatch_({
-    key: "bankOpening", place: "bankLoanForm", text: tr("pop.bankOpening"),
+    key: "bankOpening", place: "bankLoanForm", text: tr("pop.bankOpening"), noGate: true,
+    ready: () => !isTaught_("loans-bank"),   // a tutorial started meanwhile explains the same box
     target: () => { const row = document.getElementById("bank-opening-row"); return row.hidden || !bankDraft_ || bankDraft_.mode !== "new" ? null : row; },
     stillWanted: () => !document.getElementById("bank-loan-modal-backdrop").hidden
   });
 }
 // The person's loan screen: "Forgive", worded by who owes whom (the same button does both).
-function watchForgiveTip_() {
+function watchForgiveTip_(outstanding) {
+  // Its moment: something owed, either way, for 30 days or more.
+  const old = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  if (!(outstanding || []).some((l) => l.date && l.date <= old)) return;
   const btn = () => document.querySelector("#loan-detail-modal-backdrop .loan-forgive-btn");
   popTipWatch_({
     key: "forgive", place: "loanScreen",
@@ -23160,14 +23396,154 @@ function watchForgiveTip_() {
     stillWanted: () => !document.getElementById("loan-detail-modal-backdrop").hidden
   });
 }
-// The repayment form (a new repayment): what happens to an amount above the debt.
+// The repayment form (a new repayment): what happens to an amount above the debt. Its moment (owner, 2026-11-13): an amount above
+// what is owed has been typed and the person has left the box; it says whether the extra becomes income or an expense.
+function settlementExtra_() {
+  const owed = Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0);
+  const paid = parseFloat(sanitizeAmountInputValue(document.getElementById("settlement-amount").value)) || 0;
+  return paid - owed;
+}
 function watchOverpayTip_() {
   popTipWatch_({
-    key: "overpay", place: "repaymentForm", text: tr("pop.overpay"),
-    target: () => (editingSettlementId || document.getElementById("settlement-form").hidden ? null : document.getElementById("settlement-amount")),
+    key: "overpay", place: "repaymentForm",
+    text: () => tr(repaymentDirection === "they_owe_me" ? "pop.overpayIncome" : "pop.overpayExpense"),
+    target: () => {
+      const amt = document.getElementById("settlement-amount");
+      if (editingSettlementId || document.getElementById("settlement-form").hidden || document.activeElement === amt) return null;
+      return settlementExtra_() > 0.004 ? amt : null;
+    },
     stillWanted: () => !document.getElementById("settlement-modal-backdrop").hidden
   });
 }
+// The split step of the real tutorials: "If a friend paid it all, change Paid by" only while the person still says they paid (owner's walk, 2026-11-12).
+function splitHowText_() {
+  const pb = document.getElementById("paid_by");
+  return tr(pb && pb.value && pb.value !== "me" ? "rt.split.howPaid" : "rt.split.how");
+}
+// ---- Bubbles, batches D and E (owner's plan 2026-11-11; moments agreed 2026-11-12) ----
+// The new-entry form: Tags (30+ entries, or a search for "annual" on Home) and receipt photos (three expenses typed by hand in a row).
+function watchTagsTip_() {
+  popTipWatch_({
+    key: "tags", place: "entryForm", text: tr("pop.tags"), struggle: () => popStruggling_("tags"),
+    // Never on an entry that belongs to a trip or event (owner, 2026-11-12: trips & events are for that, not tags); judged as the form
+    // changes, so moving the date out of a trip lets it show.
+    target: () => {
+      const f = document.getElementById("tags-field"), date = document.getElementById("date").value;
+      if (document.getElementById("entry-trip").value || (meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date)) return null;
+      return f && !f.hidden && f.getClientRects().length ? f : null;
+    },
+    stillWanted: () => newEntrySheetOpen_, ready: () => !guidedEntryWanted_()
+  });
+}
+function watchReceiptsTip_() {
+  popTipWatch_({
+    key: "receipts", place: "entryForm", text: tr("pop.receipts"),
+    target: () => { const f = document.getElementById("receipt-read-field"); return f && !f.hidden && f.getClientRects().length ? f : null; },
+    stillWanted: () => newEntrySheetOpen_, ready: () => !guidedEntryWanted_()
+  });
+}
+// Home: the pencil, else the dollar line of a third-currency entry on screen.
+function watchHomeTips_() {
+  popTipVisit_("home");
+  if (!popGet_(POP_SEEN_KEY_, []).includes("homeEdit") && ((lastRenderedEntries_ || []).length >= 10)) { watchHomeEditTip_(); if (popWatch_ && popWatch_.key === "homeEdit") return; }
+  popTipWatch_({
+    key: "dollarLine", place: "home", text: tr("pop.dollarLine"),
+    target: () => Array.from(document.querySelectorAll("#entry-list .usd-share-amt")).find((e) => e.getClientRects().length) || null,
+    stillWanted: () => !document.getElementById("screen-entries").hidden
+  });
+}
+// Overview: the totals series first; then By tag (once a tag is used and the Tags bubble was seen); then the month bars reminder.
+function watchOverviewTips_() {
+  const seen = popGet_(POP_SEEN_KEY_, []);
+  if (!seen.includes("ovTotals")) { watchOverviewTotalsTip_(); return; }
+  const tagRow = () => Array.from(document.querySelectorAll("#list-tag > *")).find((r) => r.getClientRects().length && !/^(—|-)?$/.test(r.textContent.trim())) || null;
+  if (seen.includes("tags") && !seen.includes("tagsOv")) {
+    popTipWatch_({ key: "tagsOv", place: "overview", text: tr("pop.tagsOv"), target: () => (document.querySelector("#list-tag") && document.querySelector("#list-tag").children.length ? tagRow() : null),
+      stillWanted: () => !document.getElementById("screen-overview").hidden });
+    if (popWatch_ && popWatch_.key === "tagsOv") return;
+  }
+  // A reminder (kind C): the month bars are shown, Overview was opened 3 times, and no bar was ever tapped.
+  if (!popGet_("popMonthTapped", false) && (popGet_(POP_VISITS_KEY_, {}).overview || 0) >= 3) popTipWatch_({
+    key: "tapMonth", place: "overview", remind: true, text: tr("pop.tapMonth"),
+    target: () => { const c = document.getElementById("months-card"); return c && !c.hidden ? c.querySelector(".home-bar-col.on") || c.querySelector(".home-bar-col") : null; },
+    stillWanted: () => !document.getElementById("screen-overview").hidden && !popGet_("popMonthTapped", false)
+  });
+}
+// Projections: a category's own projected amount, once Projections was opened 3 times and its method bubble was seen.
+function watchOverridesTip_() {
+  if ((popGet_(POP_VISITS_KEY_, {}).projections || 0) < 3 || !popGet_(POP_SEEN_KEY_, []).includes("projMethod")) return;
+  popTipWatch_({
+    key: "overrides", place: "projections", text: tr("pop.overrides"),
+    target: () => document.querySelector("#screen-projections .projection-row-expanded .recurring-row-amount"),
+    stillWanted: () => !document.getElementById("screen-projections").hidden,
+    ready: () => document.getElementById("projections-tip-invite").hidden
+  });
+}
+// The balance window: starting balances (an account with 10+ movements and a currency with no starting balance), else payments in process.
+function watchBalanceTips_() {
+  const back = document.getElementById("balance-modal-backdrop");
+  const missing = balanceModalData && balanceMissingCurrencies_(balanceModalData).length;
+  if (missing && !popGet_(POP_SEEN_KEY_, []).includes("startBal")) {
+    popTipWatch_({
+      key: "startBal", place: "balanceWindow", text: tr("pop.startBal"),
+      target: () => (document.querySelectorAll("#balance-movements > .loan-detail-row").length >= 10 ? document.getElementById("balance-starting-hint") : null),
+      stillWanted: () => !back.hidden
+    });
+    if (popWatch_ && popWatch_.key === "startBal") return;
+  }
+  popTipWatch_({
+    key: "inProcess", place: "balanceWindow", text: tr("pop.inProcess"), noGate: true,   // (approved 2026-11-11: shown where its button shows)
+    target: () => { const b = document.getElementById("inproc-open-btn"); return b.hidden ? null : b; },
+    stillWanted: () => !back.hidden
+  });
+}
+// The rate window: "I know it against {main} instead", only for a currency other than dollars.
+function watchAgainstMainTip_() {
+  const via = document.getElementById("rate-via-main-btn");
+  popTipWatch_({
+    key: "againstMain", place: "rateWindow", text: () => tr("pop.againstMain", { main: homeCur() }),
+    target: () => (via.hidden || !ratesUsdOn_() ? null : via),
+    stillWanted: () => !document.getElementById("rate-modal-backdrop").hidden
+  });
+}
+// More: bringing practices back, for someone who said "Not now" to practice cards at least twice.
+function watchBringBackTip_() {
+  if (popGet_("tipNotNowCount", 0) < 2) return;
+  popTipWatch_({
+    key: "bringBack", place: "more", text: tr("pop.bringBack"), noGate: true,
+    target: () => document.getElementById("more-tour-btn"),
+    stillWanted: () => !document.getElementById("screen-more").hidden
+  });
+}
+document.getElementById("entry-search").addEventListener("input", (e) => { if (/\b(annual|anual|yearly|anualidad)/i.test(e.target.value)) popStruggle_("tags"); });
+document.getElementById("inproc-open-btn").addEventListener("click", () => popUsed_("inProcess"));
+document.getElementById("rate-via-main-btn").addEventListener("click", () => popUsed_("againstMain"));
+
+// The trip nudge (owner, 2026-11-12): the first Save of a new expense in a third currency (not the main one, not dollars) or for a
+// flight, with no trip picked, is held ONCE; the trip field shows (with "+ New trip or event…") and a bubble explains. Save again = saved.
+const TRIP_FLIGHT_RE_ = /(vuelo|pasaje|boleto a[eé]reo|aerol[ií]nea|aeropuerto|\btuua\b|tasa aeroportuaria|equipaje|maleta|flight|plane ticket|air ticket|airfare|airline|airport|baggage|luggage|\blatam\b|\bsky airline|jetsmart|avianca|copa airlines|american airlines|\bunited\b|\bdelta\b|iberia|air europa|\bklm\b|air france)/i;
+let tripNudgeAsked_ = false;
+function tripNudgeHolds_(tripId, currency) {
+  if (tripId || tripNudgeAsked_ || selectedType !== "expense" || editingEntryId || Spotlight.isRunning() || !newEntrySheetOpen_) return false;
+  if (popGet_(POP_SEEN_KEY_, []).includes("tripNudge")) return false;
+  const third = currency && currency !== homeCur() && currency !== "USD";
+  const flight = TRIP_FLIGHT_RE_.test(document.getElementById("description").value || "");
+  if (!third && !flight) return false;
+  tripNudgeAsked_ = true;
+  tripFieldForced_ = true;
+  populateTripOptions_();
+  const field = document.getElementById("trip-field");
+  field.hidden = false;
+  field.scrollIntoView({ block: "center", behavior: "smooth" });
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  popTipWatch_({
+    key: "tripNudge", place: "entryForm", own: true, noGate: true, text: tr(flight ? "pop.tripFlight" : "pop.tripCurrency"),
+    target: () => (field.hidden ? null : field),
+    stillWanted: () => newEntrySheetOpen_
+  });
+  return true;
+}
+
 // ---- Bubbles, batch A (owner's plan 2026-11-11, "Tutorials from the map" § Step 6) ----
 // Overview's totals (basic, kind B): how each kind of entry counts, and that Needs review does not count yet. A series of three.
 function watchOverviewTotalsTip_() {
@@ -23176,7 +23552,7 @@ function watchOverviewTotalsTip_() {
   popTipWatch_({
     key: "ovTotals", place: "overview", level: "basic",
     steps: [
-      { target: () => screen.querySelector(".ov-sum-tile.expense"), text: tr("pop.ov.flows") },
+      { target: () => (popEntriesKnown_() >= 5 ? screen.querySelector(".ov-sum-tile.expense") : null), text: tr("pop.ov.flows") },
       { target: () => screen.querySelector(".ov-sum-tile.loans"), text: tr("pop.ov.invLoans") },
       { target: () => pending() || screen.querySelector(".ov-sum-net"), get text() { return tr(pending() ? "pop.ov.pendingHere" : "pop.ov.pending"); } }
     ],
@@ -23187,7 +23563,7 @@ function watchOverviewTotalsTip_() {
 // Home's Edit mode (medium, kind B): the pencil, once there are enough entries for it to help.
 function watchHomeEditTip_() {
   popTipWatch_({
-    key: "homeEdit", place: "home", level: "medium", text: tr("pop.homeEdit"),
+    key: "homeEdit", place: "home", level: "medium", text: tr("pop.homeEdit"), struggle: () => popStruggling_("homeEdit"),
     target: () => { const b = document.getElementById("entries-edit-btn"); return b.hidden || (lastRenderedEntries_ || []).length < 10 ? null : b; },
     stillWanted: () => !document.getElementById("screen-entries").hidden
   });
@@ -23254,7 +23630,7 @@ function watchPaceKeptTip_() {
 // Projections' method button (kind C, a reminder): 14 days after this phone first saw 6 complete months of data, only if the button was never tapped.
 const PROJ_UNLOCK_KEY_ = "projUnlockedOn", PROJ_METHOD_USED_KEY_ = "projMethodUsed", PROJ_REMIND_DAYS_ = 14;
 async function watchProjMethodTip_() {
-  if (popGet_(PROJ_METHOD_USED_KEY_, false) || popGet_(POP_SEEN_KEY_, []).includes("projMethod")) return;
+  if (popGet_(PROJ_METHOD_USED_KEY_, false) || popGet_(POP_SEEN_KEY_, []).includes("projMethod")) { watchOverridesTip_(); return; }
   let on = popGet_(PROJ_UNLOCK_KEY_, "");
   if (!on) {
     let months = 0;
@@ -23313,8 +23689,9 @@ function watchCurrenciesTip_() {
 }
 // The loan form (a new loan): "This debt is from before I started using the app".
 function watchLoanOpeningTip_() {
+  if (loansLastBalances_ && loansLastBalances_.length) return;   // its moment: the first loan
   popTipWatch_({
-    key: "loanOpening", place: "loanForm", text: tr("pop.loanOpening"),
+    key: "loanOpening", place: "loanForm", text: tr("pop.loanOpening"), noGate: true,
     target: () => { const row = document.getElementById("loan-opening-row"); return row.hidden || editingLoanId ? null : row; },
     stillWanted: () => !document.getElementById("loan-modal-backdrop").hidden
   });
@@ -23736,6 +24113,7 @@ function offerLoansMoreLine_() {
 
 // More → How to use the app → Practice tips: clears the "seen" list so each tip is offered again.
 document.getElementById("tour-choice-tips").addEventListener("click", () => {
+  popUsed_("bringBack");
   try { Spotlight.resetSeen(localStorage); } catch (e) { /* ignore */ }
   tipDayOpen_();   // asked for on purpose: today every card may show
   popSet_(POP_SEEN_KEY_, []);   // the pop-up tips too, each on the next visit to its place (no 3-visit wait any more)
@@ -23836,7 +24214,7 @@ function guidedEntrySteps_() {
     { target: "#to-payment-method-field", text: () => tr("spot.g.accTo"), visit: "#to_payment_method", button: next,
       available: is("transfer"), before: async () => is("transfer")() && shownNow("to-payment-method-field") },
     { target: "#income-waiting-field", text: () => tr("rt.entry.waiting"), button: next, available: is("income"), before: async () => is("income")() && shownNow("income-waiting-field") },
-    { target: "#receipt-read-field", text: () => tr("rt.entry.receipt"), button: next, available: is("expense"), before: async () => is("expense")() && shownNow("receipt-read-field") },
+    { field: "receipt", target: "#receipt-read-field", text: () => tr("rt.entry.receipt"), button: next, available: is("expense"), before: async () => is("expense")() && shownNow("receipt-read-field") },
     { key: "platform", target: "#to-payment-method-field", text: () => tr("spot.g.platform"), visit: "#to_payment_method",
       ok: () => !is("investment")() || !!document.getElementById("to_payment_method").value, holdsUntil: "save",
       available: is("investment"), before: async () => is("investment")() && shownNow("to-payment-method-field") },
@@ -23846,7 +24224,7 @@ function guidedEntrySteps_() {
       text: () => tr("spot.g.splitFriend"), until: () => splitFriendIds.size > 0, wait: 8000,
       ok: () => !splitOn() || splitFriendIds.size > 0, holdsUntil: "save", available: () => is("expense")() && splitOn(), before: async () => is("expense")() && splitOn() },
     { target: () => [document.getElementById("split-mode-tabs"), document.getElementById("split-rows"), document.getElementById("split-summary")],
-      text: () => tr("rt.split.how"), button: next, available: () => is("expense")() && splitOn() && splitFriendIds.size > 0, before: async () => is("expense")() && splitOn() && splitFriendIds.size > 0 },
+      text: () => splitHowText_(), button: next, available: () => is("expense")() && splitOn() && splitFriendIds.size > 0, before: async () => is("expense")() && splitOn() && splitFriendIds.size > 0 },
     { target: "#tags-field", text: () => tr("spot.g.tags"), tap: "#tags-list", button: next,
       available: is("expense"), before: async () => is("expense")() && shownNow("tags-field") },
     { target: "#trip-field", text: () => tr("spot.g.trip"), visit: "#entry-trip", button: next,
@@ -24164,12 +24542,15 @@ function startTransferReal_(kind) {
   // Repayment / new loan: who and which way
   steps.push(only(debt, { target: "#repayment-direction-tabs", text: () => tr(is("loan")() ? "rt.loan.direction" : "rt.repay.direction"), tap: "#repayment-direction-tabs", button: next }));
   steps.push(only(debt, { key: "friend", target: () => [el("repayment-friend"), el("repayment-hint")], text: (fix) => tr(fix ? "rt.transfer.friendFix" : is("loan")() ? "rt.loan.friend" : "rt.repay.friend"), visit: "#repayment-friend", button: next, ok: () => submitted || !debt() || friendOk(), holdsUntil: "save" }));
-  steps.push(only(() => is("loan")() && !document.getElementById("entry-opening-row").hidden, { target: "#entry-opening-row", text: () => tr("rt.loan.opening"), button: next }));
-  steps.push(only(() => is("loan")() && !entryOpeningOn_(), { target: "#loan-due-block", text: () => tr("rt.loan.due"), visit: "#loan-due-date", button: next }));
   // Everything except an exchange, which has its own fields. The amount is asked for even when already explained: Save needs it.
   steps.push(only(is("between", "repayment", "loan"), { key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
     until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || !is("between", "repayment", "loan")() || amountOk(), holdsUntil: "save" }));
-  if (isNew("date")) steps.push(only(is("between", "repayment", "loan"), { field: "date", target: "#date", text: () => tr(is("loan")() && entryOpeningOn_() ? "rt.loan.openingDate" : "spot.g.date"), visit: "#date", button: next }));
+  if (isNew("date")) steps.push(only(is("between", "repayment", "loan"), { field: "date", target: "#date", text: () => tr(is("loan")() ? "rt.loan.date" : "spot.g.date"), visit: "#date", button: next }));
+  // Under the date (owner, 2026-11-12): a date before the first day of use has ticked it already; ticking it by hand moves on.
+  steps.push(only(() => is("loan")() && !document.getElementById("entry-opening-row").hidden, { target: "#entry-opening-row",
+    text: () => tr(el("entry-opening").dataset.autoTicked && el("entry-opening").checked ? "rt.loan.openingAuto" : "rt.loan.opening"), button: next,
+    until: () => el("entry-opening").checked && !el("entry-opening").dataset.autoTicked }));
+  steps.push(only(() => is("loan")() && !entryOpeningOn_(), { target: "#loan-due-block", text: () => tr("rt.loan.due"), visit: "#loan-due-date", button: next }));
   steps.push(only(is("between"), { target: "#payment-method-field", text: () => tr("spot.g.accFrom"), visit: "#payment_method", button: next }));
   steps.push(only(is("between"), { target: "#to-payment-method-field", text: () => tr("rt.transfer.to"), visit: "#to_payment_method", button: next }));
   steps.push(only(() => debt() && !entryOpeningOn_(), { target: "#payment-method-field", text: () => tr(is("loan")() ? "rt.loan.account" : "rt.transfer.account"), visit: "#payment_method", button: next }));
@@ -24409,7 +24790,7 @@ function startSplitReal_() {
   if (!amountOk()) steps.push({ key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
     until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || amountOk(), holdsUntil: "save" });
   steps.push({ key: "splitFriend", target: () => [el("split-friend-chips"), el("split-add-friend-btn")], text: () => tr("spot.g.splitFriend"), until: () => splitFriendIds.size > 0, wait: 8000, ok: () => submitted || splitFriendIds.size > 0, holdsUntil: "save" });
-  steps.push({ target: () => [el("split-mode-tabs"), el("split-rows"), el("split-summary")], text: () => tr("rt.split.how"), button: () => tr("spot.g.next") });
+  steps.push({ target: () => [el("split-mode-tabs"), el("split-rows"), el("split-summary")], text: () => splitHowText_(), button: () => tr("spot.g.next") });
   // An item with no category cannot be saved: it is asked for here, or the Save error would point at a dimmed box.
   if (confirmingPendingId && !getCategoryId()) steps.push({ key: "category", field: "category", target: "#category-select-field", text: () => tr("rt.review.catPick"), until: () => !!getCategoryId() });
   if (confirmingPendingId) steps.push({ target: () => [el("amount"), el("date"), el("payment-method-field")].filter((x) => x && !x.hidden), text: () => tr("rt.review.check"), button: () => tr("spot.g.next") });
@@ -24486,17 +24867,19 @@ window.addEventListener("focus", () => { idleChooser_ = false; });
 
 // Real tutorials on a dedicated "+" (owner's plan, step 4): tapping + is a clear intention, so the window opens as usual and a first screen offers Start / Exit (3 chances, another day each).
 const REAL_SAVE_ = { "bank-save": ["loans-bank", "bank-loan-modal-backdrop"], "budget-save-btn": ["budgets", "budget-modal-backdrop"], "recurring-save-btn": ["programmed", "recurring-modal-backdrop"], "pm-save-btn": ["accounts", "pm-modal-backdrop"], "trip-save-btn": ["trips", "trip-modal-backdrop"] };
-let realFormTimer_ = null;
+let realFormTimer_ = null, realStartPending_ = false;   // a form's real tutorial is about to start: bubbles wait (owner's walk 2026-11-12: the bubble took its place)
 function startFormGuide_(feature, used, backdropId, saveId, introKey, build) {
   if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || isTaught_(feature) || !realChanceLeft_(feature, true)) return;
   if (!realAgain_() && used()) { markTaught_(feature, "used"); return; }
   const back = document.getElementById(backdropId);
   clearInterval(realFormTimer_);
   let tries = 0;
+  realStartPending_ = true;
   const t = realFormTimer_ = setInterval(() => {
-    if (++tries > 150) { clearInterval(t); return; }
-    if (back.hidden || popOpen_) return;
+    if (++tries > 150 || back.hidden) { clearInterval(t); realStartPending_ = false; return; }
+    if (popOpen_) return;
     clearInterval(t);
+    realStartPending_ = false;
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     let started = false, saving = false, lastSaveAt = 0, closedNoSave = false;
     const onSave = () => { saving = true; lastSaveAt = Date.now(); };
@@ -24642,7 +25025,7 @@ function billGuideSteps_(ctx) {
     { target: () => [el("bill-photo-again"), el("bill-photo-raw")].filter((x) => !x.hidden), text: () => tr("rt.bill.raw"), button: realNext_, before: async () => realShown_("bill-photo-raw") || realShown_("bill-photo-again") },
     { key: "items", target: () => [el("bill-items"), el("bill-add-item")], text: (fix) => tr(fix ? "rt.bill.itemsFix" : "rt.bill.items"), button: realNext_, ok: () => ctx.saving() || items() > 0, holdsUntil: "save" },
     { key: "total", target: "#bill-total", text: (fix) => tr(fix ? "rt.bill.totalFix" : "rt.bill.total"), blurTap: true, visit: "#bill-total", button: realNext_, ok: () => ctx.saving() || total() > 0, holdsUntil: "save" },
-    { key: "people", target: () => [el("bill-people-chips"), el("bill-add-friend")], text: () => tr("rt.bill.people"), until: () => billState.people.size > 0 },
+    { key: "people", target: () => [el("bill-people-chips"), el("bill-add-friend")], text: (fix) => tr(fix && !billState.people.size ? "rt.bill.peopleFix" : "rt.bill.people"), button: realNext_, ok: () => ctx.saving() || billState.people.size > 0, holdsUntil: "save" },   // several people can be tapped; Next goes on (owner, 2026-11-12)
     { target: "#bill-items", text: () => tr("rt.bill.assign"), button: realNext_ },
     { target: () => [el("bill-add-discount"), el("bill-add-charge")], text: () => tr("rt.bill.adjust"), button: realNext_ },
     { target: () => [el("bill-tip-type-tabs"), el("bill-tip-value"), el("bill-tip-preview")], text: () => tr("rt.bill.tip"), button: realNext_ },
@@ -24669,10 +25052,12 @@ function bankGuideSteps_(ctx) {
   return [
     realNameStep_(ctx, "bank-lender", "rt.bank.lender"),
     { target: "#bank-description", text: () => tr("rt.bank.desc"), blurTap: true, visit: "#bank-description", button: realNext_ },
-    { target: "#bank-opening-row", text: () => tr("rt.bank.opening"), button: realNext_, before: async () => realShown_("bank-opening-row") },
-    { target: "#bank-opening-how", text: () => tr("rt.bank.openingHow"), button: realNext_, before: async () => realShown_("bank-opening-how") },
     realAmountStep_(ctx, "bank-amount", () => tr("rt.bank.amount"), "rt.bank.amountFix"),
     { target: () => [el("bank-currency"), el("bank-date")], text: () => tr("rt.bank.money"), button: realNext_ },
+    // Under the date (owner, 2026-11-12): a date before the first day of use has ticked it already; ticking it by hand moves on; Next is for a loan that is not from before.
+    { target: "#bank-opening-row .bank-opening-check", text: () => tr(el("bank-opening").checked && el("bank-opening").dataset.autoTicked ? "rt.bank.openingAuto" : "rt.bank.opening"), button: realNext_,
+      until: () => el("bank-opening").checked && !el("bank-opening").dataset.autoTicked, before: async () => realShown_("bank-opening-row") },
+    { target: "#bank-opening-how", text: () => tr("rt.bank.openingHow"), button: realNext_, before: async () => realShown_("bank-opening-how") },
     { target: "#bank-next-number-field", text: () => tr("rt.bank.nextNumber"), blurTap: true, visit: "#bank-next-number", button: realNext_, before: async () => realShown_("bank-next-number-field") },
     { target: "#bank-account-field", text: () => tr("rt.bank.account"), visit: "#bank-account", button: realNext_, before: async () => realShown_("bank-account-field") },
     { target: "#bank-mode-box", text: () => tr("rt.bank.mode"), button: realNext_ },
@@ -24687,7 +25072,7 @@ function bankGuideSteps_(ctx) {
     { target: "#bank-gen-rate-type", text: () => tr("rt.bank.rateType"), visit: "#bank-gen-rate-type", button: realNext_, before: async () => byRate() },
     { target: "#bank-gen-fee", text: () => tr("rt.bank.fee"), blurTap: true, visit: "#bank-gen-fee", button: realNext_, before: async () => auto() },
     { key: "fill", target: () => realSaveTarget_("bank-gen-btn", "bank-error"), text: () => { const e = (el("bank-error").textContent || "").trim(); return e ? tr("rt.bank.fillErr", { error: e }) : tr("rt.bank.fill"); },
-      available: auto, before: async () => { fillBase = bankFillClicks_; return auto(); }, until: () => bankFillClicks_ > fillBase && rowsOk(), ok: () => ctx.saving() || !auto() || bankDraft_.rows.length > 0, holdsUntil: "save" },
+      available: auto, before: async () => { fillBase = bankFillClicks_; return auto(); }, until: () => bankFillClicks_ > fillBase && !!bankDraft_ && bankDraft_.rows.length > 0, ok: () => ctx.saving() || !auto() || bankDraft_.rows.length > 0, holdsUntil: "save" },
     { target: () => [el("bank-rows"), el("bank-add-row"), el("bank-totals")], text: () => tr("rt.bank.manual"), blurTap: true, until: () => rowsOk() && !popTyping_(), before: async () => !auto() },
     { key: "check", target: () => [el("bank-rows"), el("bank-totals"), el("bank-opening-summary")].filter((x) => !x.hidden), text: (fix) => tr(el("bank-opening-summary").textContent === tr("bank.openingAllBefore") ? "rt.bank.allBefore" : fix ? "rt.bank.checkFix" : "rt.bank.check"), blurTap: true, button: realNext_, ok: () => ctx.saving() || rowsOk(), holdsUntil: "save" }
   ].concat(realSaveSteps_(ctx, "bank-save", "bank-error", "rt.bank.done", { find: practiceMSchedBtn_, wait: 45000 }));
@@ -26491,7 +26876,7 @@ async function openLoanDetail(friendId, friendName, projectId) {
   renderForgiveAny_(pending.filter((l) => !l.schedule), friendId, friendName);   // a bank does not forgive: never a loan with a schedule
 
   detailActions.hidden = false;
-  if (firstOpen) { popTipVisit_("loanScreen"); watchForgiveTip_(); return; }
+  if (firstOpen) { popTipVisit_("loanScreen"); watchForgiveTip_(outstanding); return; }
   const backdrop = document.getElementById("loan-detail-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -26572,11 +26957,13 @@ function buildLoanDetailRow_(l, friendId, friendName) {
         <span class="loan-detail-row-desc">${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="loan-detail-row-chevron">›</span></span>
         <span class="loan-detail-row-amount ${kind}">${sign}${escapeHtml(l.currency)} ${moneyFmt(l.remaining > 0.004 ? l.remaining : l.amount)}</span>
       </div>
-      <div class="loan-detail-row-meta">${listDate_(l.date)}${l.opening === "1" || l.opening === 1 ? " · " + escapeHtml(tr("loanDetail.fromBefore")) : ""}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
+      <div class="loan-detail-row-meta">${l.schedule ? escapeHtml(tr("loanDetail.received", { date: listDate_(l.date) })) : listDate_(l.date)}${l.opening === "1" || l.opening === 1 ? " · " + escapeHtml(tr("loanDetail.fromBefore")) : ""}${statusNote ? " · " + statusNote : ""}${loanProjectPillHtml_(l)}</div>
     </div>
   `;
   const rowMain = row.querySelector(".loan-detail-row-main");
-  if (l.origin === "cash") {
+  if (l.schedule) {   // a bank loan opens in its own layout: its installments, with "Edit the schedule" (owner, 2026-11-12)
+    rowMain.addEventListener("click", () => openBankSchedule_(l.id, { id: friendId, name: friendName }));
+  } else if (l.origin === "cash") {
     rowMain.addEventListener("click", () => openLoanModal(l, { id: friendId, name: friendName }));
   } else {
     rowMain.addEventListener("click", () => {
@@ -26737,7 +27124,7 @@ function askConfirmApp_(text, okLabel, opts) {
   opts = opts || {};
   if (appConfirmOpen_.has(text)) return Promise.resolve(false);
   appConfirmOpen_.add(text);
-  const shown = appConfirmChain_.then(() => new Promise((resolve) => {
+  const shown = appConfirmChain_.then(perfShareFirstDone_).then(() => new Promise((resolve) => {
     const backdrop = document.getElementById("app-confirm-backdrop");
     const ok = document.getElementById("app-confirm-ok"), back = document.getElementById("app-confirm-back");
     document.getElementById("app-confirm-text").textContent = text;
@@ -27567,9 +27954,13 @@ function bankRenderRows_() {
         <input type="text" inputmode="decimal" data-f="principal" placeholder="${escapeHtml(tr("bank.principal"))}" value="${row.principal || ""}">
         <input type="text" inputmode="decimal" data-f="interest" placeholder="${escapeHtml(tr("bank.interest"))}" value="${row.interest || ""}">
         <input type="text" inputmode="decimal" data-f="fees" placeholder="${escapeHtml(tr("bank.fees"))}" value="${row.fees || ""}">
-      </div>${past ? `<span class="bank-row-tag">${escapeHtml(tr("bank.paidBefore"))}</span>` : ""}`;
+      </div><div class="hint bank-row-total"></div>${past ? `<span class="bank-row-tag">${escapeHtml(tr("bank.paidBefore"))}</span>` : ""}`;
+    // Each installment's total, the figure on the bank's schedule (owner, 2026-11-12)
+    const showTotal = () => { el.querySelector(".bank-row-total").textContent = tr("bank.rowTotal", { amount: formatAmount(bankR2_((Number(row.principal) || 0) + (Number(row.interest) || 0) + (Number(row.fees) || 0)), bankDraft_.currency || homeCur()) }); };
+    showTotal();
     el.querySelectorAll("input").forEach((input) => input.addEventListener("input", () => {
       row[input.dataset.f] = input.dataset.f === "due_date" ? input.value : bankNum_(input.value);
+      showTotal();
       bankRenderTotals_();
     }));
     // a date moved across today changes whether the row is kept: redraw once the box is left
@@ -27666,7 +28057,8 @@ function bankApplyOpening_() {
   document.getElementById("bank-gen-count-label").textContent = tr(today ? "bank.openingTodayCount" : "bank.count");
   bankRenderRows_();
 }
-document.getElementById("bank-opening").addEventListener("change", (e) => { syncBeforeAppDate_(document.getElementById("bank-date"), e.target.checked); bankApplyOpening_(); });
+document.getElementById("bank-opening").addEventListener("change", (e) => { syncBeforeAppDate_(document.getElementById("bank-date"), e.target.checked); bankFirstFollowsDate_(); bankApplyOpening_(); });
+autoBeforeApp_("bank-date", "bank-opening", () => !document.getElementById("bank-opening-row").hidden && !!bankDraft_ && bankDraft_.mode === "new", bankApplyOpening_);
 document.querySelectorAll('input[name="bank-opening-how"]').forEach((r) => r.addEventListener("change", bankApplyOpening_));
 document.getElementById("bank-next-number").addEventListener("input", () => bankDraft_ && bankRenderRows_());
 
@@ -27679,6 +28071,7 @@ function openBankLoanForm_() {
   ["bank-lender", "bank-description", "bank-amount", "bank-gen-count", "bank-gen-payment", "bank-gen-rate", "bank-gen-fee"].forEach((id) => { document.getElementById(id).value = ""; });
   document.getElementById("bank-date").value = todayLocalISO();
   document.getElementById("bank-gen-first").value = bankAddMonths_(todayLocalISO(), 1);
+  delete document.getElementById("bank-gen-first").dataset.touched;
   document.querySelector('input[name="bank-mode"][value="rate"]').checked = true;
   document.getElementById("bank-gen-rate-type").value = "tea";
   document.getElementById("bank-mode-box").hidden = false;
@@ -27697,6 +28090,7 @@ function openBankLoanForm_() {
   bankPopulateAccounts_("bank-account", "");
   document.getElementById("bank-opening-row").hidden = !((meta && meta.capabilities) || {}).bankOpening;   // an older backend would make a normal loan
   document.getElementById("bank-opening").checked = false;
+  beforeAppReset_(document.getElementById("bank-opening"));
   document.querySelector('input[name="bank-opening-how"][value="start"]').checked = true;
   document.getElementById("bank-next-number").value = "";
   bankApplyOpening_();
@@ -27722,6 +28116,7 @@ function openBankScheduleEditor_(sched, friend) {
   document.getElementById("bank-mode-box").hidden = true;
   document.getElementById("bank-save").textContent = tr("bank.saveSchedule");
   document.getElementById("bank-error").textContent = "";
+  beforeAppReset_(document.getElementById("bank-opening"));
   document.getElementById("bank-opening").checked = false;   // (the "from before the app" labels belong to a NEW loan only)
   bankApplyOpening_();
   bankRenderRows_();
@@ -27767,6 +28162,17 @@ function bankApplyMode_() {
 }
 document.querySelectorAll('input[name="bank-mode"]').forEach((r) => r.addEventListener("change", bankApplyMode_));
 
+// The first installment starts one period after the date received, until the person sets it (owner, 2026-11-12: a loan dated years back kept
+// its first installment a month from today, and that whole wait became the first row's interest).
+function bankFirstFollowsDate_() {
+  const first = document.getElementById("bank-gen-first"), date = document.getElementById("bank-date").value;
+  if (first.dataset.touched || !date) return;
+  first.value = bankAddPeriod_(date, document.getElementById("bank-gen-freq").value || "monthly", 1);
+}
+document.getElementById("bank-gen-first").addEventListener("change", (e) => { e.target.dataset.touched = "1"; });
+document.getElementById("bank-date").addEventListener("change", bankFirstFollowsDate_);
+document.getElementById("bank-gen-freq").addEventListener("change", bankFirstFollowsDate_);
+
 document.getElementById("bank-gen-btn").addEventListener("click", async () => {
   const amount = bankNum_(document.getElementById("bank-amount").value);
   const count = Math.round(bankNum_(document.getElementById("bank-gen-count").value));
@@ -27811,6 +28217,12 @@ document.getElementById("bank-gen-btn").addEventListener("click", async () => {
     if (!await bankRateLooksRight_(Math.pow(1 + typedRate / 100, perYear) - 1)) return;
     // a rate per payment period: the same rate every period, no day count
     bankDraft_.rows = bankGenerateRows_(amount, count, first, 0, typedRate, fee, freq, grace, graceType);
+  }
+  if (bankDraft_.rows.some((r) => Number(r.principal) < 0)) {   // the wait before the first installment costs more interest than an installment pays
+    bankDraft_.rows = [];
+    bankRenderRows_();
+    errEl.textContent = tr("bank.firstTooFar");
+    return;
   }
   bankRenderRows_();
 });
@@ -27929,32 +28341,65 @@ function bankEarlyMode_() {
   const picked = document.querySelector('input[name="bank-early-mode"]:checked');
   return picked ? picked.value : "shorten";
 }
-// How many installments are left after an early payment: mirrors recalculateInstallmentsAfterEarly_ (BankLoans.gs), where the
+// What the unpaid installments become after an early payment: mirrors recalculateInstallmentsAfterEarly_ (BankLoans.gs), where the
 // interest is recalculated on the lower balance at the TEA the schedule itself implies (actual days / 360). `prevDate` is the date
-// before the first unpaid installment (the previous installment's, or the loan date).
-function bankRecalcCount_(open, after, mode, prevDate) {
-  if (after <= 0.004 || !open.length) return 0;
-  if (mode === "reduce") return open.length;
+// before the first unpaid installment (the previous installment's, or the loan date). Returns [{ row, principal, interest }] for the
+// rows that stay, in order (rows not returned are removed); fees stay as they are.
+function bankRecalcPlan_(open, after, mode, prevDate) {
+  if (after <= 0.004 || !open.length) return [];
   const before = open.reduce((n, r) => n + r.principal, 0);
   const daysOf = (i) => {
-    const d = (i === 0 ? prevDate : open[i - 1].due_date) ? bankDays_(i === 0 ? prevDate : open[i - 1].due_date, open[i].due_date) : 0;
+    const from = i === 0 ? prevDate : open[i - 1].due_date;
+    const d = from ? bankDays_(from, open[i].due_date) : 0;
     return d > 0 ? d : 30;
   };
   const t = before > 0 && open[0].interest > 0 ? Math.pow(1 + open[0].interest / before, 360 / daysOf(0)) - 1 : 0;
   const n = open.length;
+  let lastAmortizing = -1, firstAmortizing = -1;
+  open.forEach((r, idx) => { if (r.principal > 0.004) { lastAmortizing = idx; if (firstAmortizing < 0) firstAmortizing = idx; } });
+  let payment = 0;
+  if (mode === "reduce" && firstAmortizing >= 0) {
+    const originDate = firstAmortizing === 0 ? prevDate : open[firstAmortizing - 1].due_date;
+    let amortizing = 0, factor = 0;
+    for (let k = firstAmortizing; k < n; k++) {
+      if (open[k].principal <= 0.004) continue;
+      amortizing++;
+      factor += 1 / bankGrow_(t, originDate ? Math.max(bankDays_(originDate, open[k].due_date), 1) : 30 * (k - firstAmortizing + 1));
+    }
+    payment = t > 0 ? after / factor : after / amortizing;
+  }
+  const out = [];
   let balance = after;
-  let count = 0;
-  let lastAmortizing = -1;
-  open.forEach((r, idx) => { if (r.principal > 0.004) lastAmortizing = idx; });
   for (let i = 0; i < n && balance > 0.004; i++) {
     const interest = bankR2_(balance * (bankGrow_(t, daysOf(i)) - 1));
-    if (open[i].principal <= 0.004) { count++; continue; }   // an interest-only row of a grace period stays
-    let p = bankR2_(open[i].principal + open[i].interest - interest);
+    if (open[i].principal <= 0.004) { out.push({ row: open[i], principal: 0, interest }); continue; }   // an interest-only row of a grace period stays
+    let p = bankR2_((mode === "reduce" ? payment : open[i].principal + open[i].interest) - interest);
     if (i === lastAmortizing || p >= balance - 0.004 || p <= 0) p = bankR2_(balance);
+    out.push({ row: open[i], principal: p, interest });
     balance = bankR2_(balance - p);
-    count++;
   }
-  return count;
+  return out;
+}
+
+// One short line under each choice: how it would change THIS loan's schedule (owner's request, 2026-11-12).
+function bankEarlyEffect_(open, plan, mode, cur) {
+  if (!plan.length) return "";
+  const money = (x) => `${cur} ${moneyFmt(x)}`;
+  const monthOf = (iso) => { const [y, m] = String(iso).slice(0, 10).split("-").map(Number); return I18n.fmtMonthYear(new Date(y, m - 1, 1), true); };
+  const saved = bankR2_(open.reduce((s, r) => s + r.interest, 0) - plan.reduce((s, x) => s + x.interest, 0));
+  let line;
+  if (mode === "reduce") {
+    const first = plan.find((x) => x.principal > 0.004);
+    if (!first) return "";
+    const fee = Number(first.row.fees) || 0;
+    line = tr("bank.earlyEffectReduce", { from: money(first.row.principal + first.row.interest + fee), to: money(first.principal + first.interest + fee) });
+  } else {
+    const fewer = open.length - plan.length;
+    const from = monthOf(open[open.length - 1].due_date), to = monthOf(plan[plan.length - 1].row.due_date);
+    line = fewer <= 0 || from === to ? tr("bank.earlyEffectSameEnd", { to })
+      : tr(fewer === 1 ? "bank.earlyEffectShorten1" : "bank.earlyEffectShorten", { from, to, n: fewer });
+  }
+  return saved > 0.004 ? `${line} ${tr("bank.earlyEffectSaves", { amount: money(saved) })}` : line;
 }
 
 // Mirrors recordEarlyPayment (BankLoans.gs), only to show what the schedule will look like.
@@ -27964,6 +28409,8 @@ function bankEarlyPreview_() {
   const principal = bankNum_(document.getElementById("bank-early-principal").value);
   const fee = bankNum_(document.getElementById("bank-early-fee").value);
   const prev = document.getElementById("bank-early-preview");
+  const effects = { shorten: document.getElementById("bank-early-effect-shorten"), reduce: document.getElementById("bank-early-effect-reduce") };
+  Object.values(effects).forEach((el) => { el.textContent = ""; });
   document.getElementById("bank-early-total").textContent = tr("bank.earlyTotal", { amount: `${cur} ${moneyFmt(principal + fee)}` });
   const open = sched.installments.filter((r) => !r.paid);
   const after = bankR2_(sched.remaining_principal - principal);
@@ -27971,8 +28418,8 @@ function bankEarlyPreview_() {
   if (after <= 0.004) { prev.textContent = tr("bank.earlyPreviewDone"); return; }
   const firstOpen = sched.installments.indexOf(open[0]);
   const prevDate = firstOpen > 0 ? sched.installments[firstOpen - 1].due_date : String(sched.loan.date || "").slice(0, 10);
-  const n = bankRecalcCount_(open, after, bankEarlyMode_(), prevDate);
-  prev.textContent = tr("bank.earlyPreview", { left: `${cur} ${moneyFmt(Math.max(after, 0))}`, n });
+  Object.keys(effects).forEach((mode) => { effects[mode].textContent = bankEarlyEffect_(open, bankRecalcPlan_(open, after, mode, prevDate), mode, cur); });
+  prev.textContent = tr("bank.earlyPreview", { left: `${cur} ${moneyFmt(Math.max(after, 0))}` });
 }
 
 function openBankEarly_(sched) {
@@ -28391,6 +28838,7 @@ function updateLoanOpeningUi_(fresh) {
   }
 }
 document.getElementById("loan-opening").addEventListener("change", () => updateLoanOpeningUi_(true));
+autoBeforeApp_("loan-date", "loan-opening", () => !document.getElementById("loan-opening-row").hidden, () => updateLoanOpeningUi_(true));
 
 function setLoanDirection_(direction) {
   loanDirection = direction;
@@ -28488,8 +28936,21 @@ function updateChargeBox_() {
   hint.hidden = !hint.textContent;
   document.getElementById("charge-remove").hidden = mode.off;
   updateChargeRate_();
+  if (mode.off && !(popWatch_ && popWatch_.key === "chargeBox") && !popGet_(POP_SEEN_KEY_, []).includes("chargeBox")) popTipWatch_({
+    key: "chargeBox", place: "entryForm", own: true, noGate: true,
+    text: () => tr(mode.pm.type === "credit" ? "pop.chargeBoxCard" : "pop.chargeBoxAccount"),
+    target: () => { const b = document.getElementById("charge-box"); return b.hidden ? null : b; },
+    stillWanted: () => newEntrySheetOpen_ && !document.getElementById("charge-box").hidden
+  });
 }
-document.getElementById("charge-open").addEventListener("click", () => { chargeOpen_ = true; chargeRemoved_ = false; updateChargeBox_(); });
+document.getElementById("charge-open").addEventListener("click", () => {
+  chargeOpen_ = true; chargeRemoved_ = false; updateChargeBox_();
+  popTipWatch_({   // bubble 3 (owner, 2026-11-12): the first time the listed price is opened by hand
+    key: "chargeListed", place: "entryForm", own: true, noGate: true, text: tr("pop.chargeListed"),
+    target: () => { const b = document.getElementById("charge-box"); return b.hidden ? null : b; },
+    stillWanted: () => newEntrySheetOpen_ && !document.getElementById("charge-box").hidden
+  });
+});
 document.getElementById("charge-remove").addEventListener("click", () => {
   chargeOpen_ = false;
   chargeRemoved_ = true;   // an entry saved with a listed price loses it on Save (chargeForSave_ reads the closed box as empty)
@@ -28507,12 +28968,27 @@ function chargeRateText_(amountA, curA, amountB, curB) {
   const shown = rate.toLocaleString("en-US", { maximumFractionDigits: rate >= 100 ? 2 : 4 });
   return tr("charge.rate", { strong, weak, rate: shown });
 }
+// The box's sentence (owner, 2026-11-12): both amounts in words, "?" for what is not typed yet, the rate once both are there.
+// "The listed price was ARS 1,500.00 and your card charged USD 1.00 (USD 1 = ARS 1,500)."
+function chargeRatePart_(amountA, curA, amountB, curB) {
+  const a = Number(amountA), b = Number(amountB);
+  if (!(a > 0) || !(b > 0) || !curA || !curB || curA === curB) return "";
+  const [strong, weak, rate] = b / a >= 1 ? [curA, curB, b / a] : [curB, curA, a / b];
+  return `${strong} 1 = ${weak} ${rate.toLocaleString("en-US", { maximumFractionDigits: rate >= 100 ? 2 : 4 })}`;
+}
 function updateChargeRate_() {
   const el = document.getElementById("charge-rate");
-  const text = document.getElementById("charge-box").hidden ? "" : chargeRateText_(document.getElementById("amount").value, document.getElementById("currency").value,
-    document.getElementById("charge-amount").value, document.getElementById("charge-currency").value);
+  const mode = chargeMode_();
+  if (document.getElementById("charge-box").hidden || !mode) { el.textContent = ""; el.hidden = true; return; }
+  const top = { v: document.getElementById("amount").value, c: document.getElementById("currency").value };
+  const box = { v: document.getElementById("charge-amount").value, c: document.getElementById("charge-currency").value };
+  const [listed, charged] = mode.off ? [top, box] : [box, top];   // the box asks for the charge when the account lacks the currency, else for the listed price
+  const say = (x) => (Number(x.v) > 0 ? formatAmount(Number(x.v), x.c) : `${x.c} ?`);
+  let text = tr(mode.pm.type === "credit" ? "charge.sentenceCard" : "charge.sentenceAccount", { listed: say(listed), charged: say(charged) });
+  const rate = chargeRatePart_(listed.v, listed.c, charged.v, charged.c);
+  text = rate ? text.replace(/\.$/, "") + ` (${rate}).` : text + " " + tr("charge.fillBoth");
   el.textContent = text;
-  el.hidden = !text;
+  el.hidden = false;
 }
 ["charge-amount", "amount"].forEach((id) => document.getElementById(id).addEventListener("input", updateChargeRate_));
 document.getElementById("charge-currency").addEventListener("change", updateChargeRate_);
@@ -28646,6 +29122,7 @@ function openLoanModal(loan, returnFriend, opts) {
   const openingBox = document.getElementById("loan-opening");
   openingBox.checked = loan ? loan.opening === "1" || loan.opening === 1 : !!(opts && opts.opening);
   openingBox.disabled = !!loan;
+  beforeAppReset_(openingBox);
   const openingOk = !!((meta && meta.capabilities) || {}).openingLoan;   // an older backend would make a normal loan with a money entry
   document.getElementById("loan-opening-row").hidden = !openingOk || (!!loan && !openingBox.checked);   // an ordinary loan being edited: the choice does not apply
   if (!openingOk) openingBox.checked = false;
@@ -29965,6 +30442,8 @@ async function openBalanceModal(pmId) {
   backdrop.hidden = false;
 
   if (pmId) await loadBalanceMovements_(pmId);
+  popTipVisit_("balanceWindow");
+  watchBalanceTips_();
 }
 
 function renderBalanceCurrentLines_() {
@@ -30499,7 +30978,10 @@ async function openBillModal() {
   recomputeBill_();
   const stale = document.getElementById("bill-stale-note");
   stale.hidden = !(loadedSaved && !billMatchesForm_());
-  document.getElementById("bill-modal-backdrop").hidden = false;
+  // Above whatever opened it (owner's walk, 2026-11-12: it opened UNDER the new-entry form, so the tutorial lit up the form's date instead)
+  const back = document.getElementById("bill-modal-backdrop");
+  bringModalToFront_(back);
+  back.hidden = false;
 }
 
 function closeBillModal() {
@@ -31368,6 +31850,7 @@ function openInprocModal_() {
   document.getElementById("inproc-negative").checked = prefill.startsWith("-") || inprocDebt_;
   inprocSay_("");
   renderInproc_();
+  bringModalToFront_(document.getElementById("inproc-modal-backdrop"));   // above whatever opened it (the balance window, a sheet)
   document.getElementById("inproc-modal-backdrop").hidden = false;
 }
 function closeInprocModal_() {
@@ -31543,6 +32026,7 @@ function applyReceiptFields_(f) {
 async function readReceiptPhoto_(file) {
   const btn = document.getElementById("receipt-read-btn");
   btn.disabled = true;
+  popUsed_("receipts"); receiptJustRead_ = true;
   try {
     receiptReadSay_(tr("photo.preparing"));
     const best = await readReceiptFields_(file, receiptReadSay_);
