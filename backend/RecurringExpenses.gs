@@ -1810,7 +1810,8 @@ function listExpectedRecurringItems() {
       // (e.g. 31) got clamped to a shorter month's real last day.
       day: Number(entry.occurrenceDate.slice(8, 10)),
       sort_date: entry.occurrenceDate,
-      overdue: entry.occurrenceDate < todayStr
+      overdue: entry.occurrenceDate < todayStr,
+      once: normalizeRecurringFrequency_(r.frequency) === 'once'   // a one-time item has no "Skip this month" (it is not monthly)
     });
   });
 

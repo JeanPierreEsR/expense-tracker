@@ -230,3 +230,11 @@ test("a hand link counts for the occurrence near it, not for the whole month", (
   assert.equal(left.length, dates.length - 1);
   assert.ok(!left.includes(Number(dates[2].slice(8, 10))));
 });
+
+test("'Programmed this month' marks a one-time item, so the card offers no 'Skip this month' for it", () => {
+  const { rt } = setup();
+  const once = rt.api("addRecurringExpense", { category_id: CAT, description: "One-off suit", amount: 300, currency: "PEN", frequency: "once", date: monthEnd() });
+  const monthly = rt.api("addRecurringExpense", { category_id: CAT, description: "Phone plan", amount: 40, currency: "PEN", frequency: "monthly", day: Number(monthEnd().slice(8)) });
+  assert.equal(expectedFor(rt, once.id)[0].once, true);
+  assert.equal(expectedFor(rt, monthly.id)[0].once, false);
+});

@@ -1629,6 +1629,11 @@ body.sheet-open {
 }
 
 .expected-recurring-entry.overdue { border-color: var(--warn); }
+/* The item's box opens it for editing (owner, 2026-11-13); the ›, as on a person's loan rows, says it can be tapped. */
+.expected-recurring-editable { cursor: pointer; }
+.expected-recurring-editable .expected-recurring-item-label::after { content: " ›"; color: var(--muted); }
+.expected-recurring-editable:active { background: var(--border); }
+.expected-recurring-editable.is-loading { opacity: 0.6; pointer-events: none; }
 
 .expected-recurring-item {
   display: flex;
