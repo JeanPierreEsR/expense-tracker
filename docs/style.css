@@ -223,6 +223,7 @@ main {
   cursor: pointer;
 }
 
+button.type-tab { font: inherit; font-size: 0.75rem; color: var(--text); width: 100%; margin: 0; }
 .type-tab.active[data-type="expense"] { background: var(--expense); color: white; border-color: var(--expense); }
 .type-tab.active[data-type="income"] { background: var(--income); color: white; border-color: var(--income); }
 .type-tab.active[data-type="investment"] { background: var(--investment); color: white; border-color: var(--investment); }
@@ -4042,3 +4043,14 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 
 /* "+" → Repayment: what is owed, under the person (design review batch 3). */
 .repayment-nothing-owed.owed-some { color: var(--text); font-weight: 600; }
+
+/* The "+" form's Save stays at the bottom of the sheet while it scrolls (design review batch 4). */
+.edit-entry-modal-body .entry-save-bar { position: sticky; bottom: 0; z-index: 2; background: var(--card); padding: 8px 0 6px; margin-top: 4px; box-shadow: 0 -10px 12px -10px rgba(0, 0, 0, 0.18); }
+.entry-save-bar #form-error:empty { display: none; }
+.entry-save-bar #submit-btn { margin-top: 0; }
+
+/* The trip the "+" form picked by itself: a removable chip near the top (design review batch 4). */
+.trip-auto-chip { display: inline-flex; align-items: center; gap: 4px; margin: 0 0 10px; padding: 0 0 0 12px; border-radius: var(--r-pill); background: var(--accent-bg); font-size: 0.875rem; font-weight: 600; max-width: 100%; }
+.trip-auto-chip[hidden] { display: none; }
+.trip-auto-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.trip-auto-chip-x { flex: none; width: 44px; height: 36px; border: none; background: none; color: var(--muted); font: inherit; cursor: pointer; }

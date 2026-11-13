@@ -134,11 +134,16 @@
           <span data-i18n="entry.draftRestored">This is the entry you hadn't saved yet.</span>
           <button type="button" class="add-inline" id="draft-start-over-btn" data-i18n="entry.startOver">Start over</button>
         </div>
+        <!-- The trip the form picked by itself, where it can be seen and removed (design review 2026-11-12). -->
+        <div class="trip-auto-chip" id="trip-auto-chip" hidden>
+          <span id="trip-auto-chip-name"></span>
+          <button type="button" class="trip-auto-chip-x" id="trip-auto-chip-x" data-i18n-aria-label="trip.notPartOf" aria-label="Not part of this trip">✕</button>
+        </div>
         <div class="type-tabs" id="entry-type-tabs">
-          <div class="type-tab active" data-type="expense" data-i18n="type.expense">Expense</div>
-          <div class="type-tab" data-type="income" data-i18n="type.income">Income</div>
-          <div class="type-tab" data-type="investment" data-i18n="type.investment">Investment</div>
-          <div class="type-tab" data-type="transfer" data-i18n="type.transfer">Transfer</div>
+          <button type="button" class="type-tab active" data-type="expense" data-i18n="type.expense">Expense</button>
+          <button type="button" class="type-tab" data-type="income" data-i18n="type.income">Income</button>
+          <button type="button" class="type-tab" data-type="investment" data-i18n="type.investment">Investment</button>
+          <button type="button" class="type-tab" data-type="transfer" data-i18n="type.transfer">Transfer</button>
         </div>
 
         <p class="hint" id="meta-check-status" hidden></p>
@@ -171,8 +176,8 @@
             <p class="hint" id="exchange-leg-hint" hidden></p>
             <div id="repayment-detail" hidden>
               <div class="type-tabs budget-period-tabs" id="repayment-direction-tabs">
-                <div class="type-tab active" data-direction="i_owe_them" data-i18n="transfer.iPaid">I paid them</div>
-                <div class="type-tab" data-direction="they_owe_me" data-i18n="transfer.theyPaid">They paid me</div>
+                <button type="button" class="type-tab active" data-direction="i_owe_them" data-i18n="transfer.iPaid">I paid them</button>
+                <button type="button" class="type-tab" data-direction="they_owe_me" data-i18n="transfer.theyPaid">They paid me</button>
               </div>
               <label for="repayment-friend" data-i18n="common.friend">Friend</label>
               <select id="repayment-friend"></select>
@@ -312,9 +317,9 @@
 
             <div id="split-detail" hidden>
               <div class="type-tabs budget-period-tabs" id="split-mode-tabs">
-                <div class="type-tab active" data-mode="equal" data-i18n="split.equal">Equal</div>
-                <div class="type-tab" data-mode="percent" data-i18n="split.percent">%</div>
-                <div class="type-tab" data-mode="custom" data-i18n="split.custom">Custom</div>
+                <button type="button" class="type-tab active" data-mode="equal" data-i18n="split.equal">Equal</button>
+                <button type="button" class="type-tab" data-mode="percent" data-i18n="split.percent">%</button>
+                <button type="button" class="type-tab" data-mode="custom" data-i18n="split.custom">Custom</button>
               </div>
 
               <label data-i18n="split.sharedWith">Shared with</label>
@@ -376,8 +381,12 @@
 
           </div>
 
-          <p class="hint error-text" id="form-error"></p>
-          <button type="submit" class="primary" id="submit-btn" data-i18n="entry.save">Save entry</button>
+          <!-- Save is always in reach (design review 2026-11-12): this bar stays at the bottom of the sheet while it scrolls,
+               with the form's message right above the button. -->
+          <div class="entry-save-bar">
+            <p class="hint error-text" id="form-error"></p>
+            <button type="submit" class="primary" id="submit-btn" data-i18n="entry.save">Save entry</button>
+          </div>
           <button type="button" class="cancel-edit-btn" id="cancel-new-entry-btn" hidden data-i18n="entry.cancelNew">Cancel entry</button>
           <button type="button" class="cancel-edit-btn" id="cancel-edit-btn-2" hidden data-i18n="entry.cancelEdit">Cancel edit</button>
           <button type="button" class="delete-entry-btn" id="delete-entry-btn" hidden data-i18n="entry.delete">Delete this entry</button>

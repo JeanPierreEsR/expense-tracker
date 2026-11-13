@@ -84,6 +84,7 @@
     "entry.saveFailedRetry": { en: "⚠️ Couldn't save — tap to retry", es: "⚠️ No se pudo guardar: toca para reintentar" },
     "entry.draftRestored": { en: "↩️ This is the entry you hadn't saved yet.", es: "↩️ Es el movimiento que no llegaste a guardar." },
     "entry.startOver": { en: "Start over", es: "Empezar de nuevo" },
+    "trip.notPartOf": { en: "Not part of this trip", es: "No es parte de este viaje" },
     "entry.confirmCancelNew": { en: "Cancel this entry? What you've typed will be discarded.", es: "¿Cancelar este movimiento? Lo que escribiste se descartará." },
     "entry.update": { en: "Update entry", es: "Actualizar movimiento" },
     "entry.confirmButton": { en: "Confirm entry", es: "Confirmar movimiento" },

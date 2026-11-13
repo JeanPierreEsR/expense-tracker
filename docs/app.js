@@ -2346,7 +2346,25 @@ function splitFriendsList_() {
 }
 
 // The trip pick changed (by hand or by date): a group that isn't this trip's can't stay in the split.
+// The trip the form filled in by itself shows as a chip near the top (design review 2026-11-12): the Trip field is far down,
+// so a running trip was applied unseen (and then the trip-group question after Save came as a surprise). ✕ = not part of it.
+function syncTripAutoChip_() {
+  const chip = document.getElementById("trip-auto-chip");
+  const sel = document.getElementById("entry-trip");
+  const on = selectedType === "expense" && entryFormIsNewEntry_() && !!tripAutoPickedId_ && sel.value === tripAutoPickedId_;
+  chip.hidden = !on;
+  if (!on) return;
+  const trip = (meta.trips || []).find((t) => t.id === sel.value);
+  document.getElementById("trip-auto-chip-name").textContent = trip ? tripLabel_(trip) : "";
+}
+document.getElementById("trip-auto-chip-x").addEventListener("click", () => {
+  const sel = document.getElementById("entry-trip");
+  sel.value = "";
+  sel.dispatchEvent(new Event("change"));   // the same as choosing "None" by hand: it stays off for this entry
+});
+
 function syncSplitToTrip_() {
+  syncTripAutoChip_();
   const ok = new Set(splitFriendsList_().map((f) => f.id));
   Array.from(splitFriendIds).forEach((id) => {
     if (!ok.has(id)) { splitFriendIds.delete(id); delete customSplitAmounts[id]; }
@@ -2752,10 +2770,19 @@ document.querySelectorAll("#investment-direction-tabs .type-tab").forEach((tab) 
 
 // ---- Type tabs ----
 
+// Tabs that are real buttons say which one is chosen to the screen reader (design review 2026-11-12): whatever code
+// toggles their "active" look, aria-pressed follows it.
+(function syncTabPressed_() {
+  const sync = (b) => b.setAttribute("aria-pressed", String(b.classList.contains("active")));
+  document.querySelectorAll("button.type-tab").forEach(sync);
+  new MutationObserver((list) => list.forEach((m) => { if (m.target.matches && m.target.matches("button.type-tab")) sync(m.target); }))
+    .observe(document.body, { subtree: true, attributes: true, attributeFilter: ["class"] });
+})();
 document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     selectedType = tab.dataset.type;
     document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
+    syncTripAutoChip_();
     populateCategoryOptions();
     populatePaidByOptions();
     if (ICON_PICKER_TYPES.includes(selectedType)) {
@@ -3405,9 +3432,15 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // Shared with friends inside a trip that has a group (owner, 2026-11-07): when the friends' shares are kept in another app, the group is
     // the right choice. Asked before saving; Cancel goes back to the split with nothing changed.
     const tripGroup = tripId && splits && splits.length && !Spotlight.isRunning() ? (meta.friends || []).find((f) => f.trip_id === tripId) : null;
-    if (tripGroup && !splits.some((s) => s.friend_id === tripGroup.id)) {
+    // A question after Save is a safeguard (owner's rule), and it stops once answered "Save it as it is" twice for the same
+    // trip: that person clearly splits with friends directly on it (design review 2026-11-12).
+    let asIsCounts = {};
+    try { asIsCounts = JSON.parse(localStorage.getItem("tripGroupAsIs") || "{}") || {}; } catch (err) { asIsCounts = {}; }
+    if (tripGroup && !splits.some((s) => s.friend_id === tripGroup.id) && (asIsCounts[tripId] || 0) < 2) {
       const trip = (meta.trips || []).find((t) => t.id === tripId);
       if (!await askConfirmApp_(tr("split.groupAsk", { trip: trip ? trip.name : "", kind: tr(trip && trip.kind === "event" ? "split.groupKind.event" : "split.groupKind.trip"), group: tripGroup.name }), tr("confirmBtn.saveAsIs"), { plain: true, cancel: tr("confirmBtn.chooseGroup") })) throw new Error(tr("split.groupPick", { group: tripGroup.name }));
+      asIsCounts[tripId] = (asIsCounts[tripId] || 0) + 1;
+      try { localStorage.setItem("tripGroupAsIs", JSON.stringify(asIsCounts)); } catch (err) { /* only a convenience */ }
     }
     const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
     if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
