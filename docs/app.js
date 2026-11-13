@@ -3976,6 +3976,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     errorEl.textContent = writesDone
       ? tr("entry.savedNotRefreshed", { error: err.message })
       : err.message;
+    // The message sits next to Save: bring it into view so it is never off-screen (design review 2026-11-12).
+    if (errorEl.textContent && errorEl.scrollIntoView) errorEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   } finally {
     submitBtn.disabled = false;
   }
@@ -5298,11 +5300,25 @@ function restoreEntryDraft_() {
   let d = null;
   try { d = JSON.parse(localStorage.getItem(ENTRY_DRAFT_KEY) || "null"); } catch (err) { d = null; }
   if (!d || d.v !== 1 || !(Date.now() - d.savedAt < ENTRY_DRAFT_MAX_AGE_MS)) { clearEntryDraft_(); return false; }
-  if (document.getElementById("amount").value.trim() || document.getElementById("description").value.trim()) return false;
+  if (document.getElementById("amount").value.trim() || document.getElementById("description").value.trim()) {
+    // Still in the form from before the ✕ (same visit): it is the same unsaved entry, so it is announced the same way.
+    if (!payingRecurringId_) document.getElementById("draft-banner").hidden = false;
+    return false;
+  }
   applyEntryDraft_(d);
-  showFormNotice_(tr("entry.draftRestored"));
+  document.getElementById("draft-banner").hidden = false;
   return true;
 }
+
+// "Start over" on the restored-draft banner: the person asked for a blank form, so no question first.
+document.getElementById("draft-start-over-btn").addEventListener("click", () => {
+  selectedTagIds.clear();
+  populateTags();
+  resetSplitState();
+  entryDateTouched_ = false;
+  resetToFreshEntryScreen_();   // also clears the unsaved draft and hides the banner
+  document.getElementById("form-error").textContent = "";
+});
 
 // Fills the new-entry form from a draft (a saved one, or the income the "Received" button prepares).
 function applyEntryDraft_(d) {
@@ -5696,6 +5712,7 @@ function resetEntryFormFields_() {
 // same type/account/currency selected on purpose (see
 // resetEntryFormFields_ above) so logging several in a row stays fast.
 function resetToFreshEntryScreen_() {
+  document.getElementById("draft-banner").hidden = true;
   selectedType = "expense";
   document.querySelectorAll("#entry-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === "expense"));
   resetEntryFormFields_();
@@ -7598,6 +7615,7 @@ function openNewEntrySheet_() {
 }
 
 function closeNewEntrySheet_() {
+  document.getElementById("draft-banner").hidden = true;   // shown again by restoreEntryDraft_ on the next "+"
   if (payingRecurringId_) {
     // Opened from Mark as paid: the item's values are not a draft to come back to.
     payingRecurringId_ = null;
@@ -7755,6 +7773,8 @@ function syncFab_() {
   const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
   const name = visible ? visible.id.replace(/^screen-/, "") : "";
   fab.hidden = nav.hidden || reviewEditing_ || entriesEditing_ || !(name === "entries" || name === "overview");
+  // While the "+" shows, the page ends with room for it, so it never covers the last button of a list (design review 2026-11-12).
+  document.body.classList.toggle("fab-room", !fab.hidden);
   // The bar's height WITHOUT its bottom safe-area padding: the stylesheet adds the safe area
   // itself (env()), which the browser updates live. Measuring it here was the bug: the phone
   // reports the safe area as 0 for a moment after opening, so the "+" landed on the bar.
@@ -16981,6 +17001,13 @@ async function showTripsScreen() {
 async function refreshTripsList_() {
   const errorEl = document.getElementById("trips-error");
   errorEl.textContent = "";
+  // Loading standard: the first load shows "Loading…" in the list's place (a title over an empty body read as "no trips");
+  // a refresh keeps what is on screen until the new list replaces it.
+  const list = document.getElementById("trips-list");
+  if (!list.querySelector(".recurring-row")) {
+    list.innerHTML = loadingHtml_();
+    document.getElementById("trips-empty-note").hidden = true;
+  }
   try {
     const trips = await callApi("listTrips", {});
     meta.trips = trips;
@@ -16988,6 +17015,7 @@ async function refreshTripsList_() {
     renderTripsList_(trips);
     offerTripsTip_();   // only now that everything has arrived (loading standard)
   } catch (err) {
+    if (list.querySelector(".stmt-loading")) list.innerHTML = "";
     errorEl.textContent = tr("trips.loadFailed", { error: err.message });
   }
 }
