@@ -23033,13 +23033,22 @@ function watchForgiveTip_(outstanding) {
     stillWanted: () => !document.getElementById("loan-detail-modal-backdrop").hidden
   });
 }
-// The repayment form (a new repayment): what happens to an amount above the debt.
+// The repayment form (a new repayment): what happens to an amount above the debt. Its moment (owner, 2026-11-13): an amount above
+// what is owed has been typed and the person has left the box; it says whether the extra becomes income or an expense.
+function settlementExtra_() {
+  const owed = Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0);
+  const paid = parseFloat(sanitizeAmountInputValue(document.getElementById("settlement-amount").value)) || 0;
+  return paid - owed;
+}
 function watchOverpayTip_() {
-  // Its moment: a debt already partly repaid (the person's loans carry `settled`; owner's walk 2026-11-12 found `paid` was never there)
-  if (!(repaymentLoans_ || []).some((l) => Number(l.settled) > 0.004 || Number(l.paid) > 0.004)) return;
   popTipWatch_({
-    key: "overpay", place: "repaymentForm", text: tr("pop.overpay"),
-    target: () => (editingSettlementId || document.getElementById("settlement-form").hidden ? null : document.getElementById("settlement-amount")),
+    key: "overpay", place: "repaymentForm",
+    text: () => tr(repaymentDirection === "they_owe_me" ? "pop.overpayIncome" : "pop.overpayExpense"),
+    target: () => {
+      const amt = document.getElementById("settlement-amount");
+      if (editingSettlementId || document.getElementById("settlement-form").hidden || document.activeElement === amt) return null;
+      return settlementExtra_() > 0.004 ? amt : null;
+    },
     stillWanted: () => !document.getElementById("settlement-modal-backdrop").hidden
   });
 }
