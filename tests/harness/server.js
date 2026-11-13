@@ -42,6 +42,32 @@ function boot() {
     const rates = rt.sheet("Exchange Rates").rows, col = rates[0].indexOf("currency");
     rates.splice(0, rates.length, ...rates.filter((r, i) => i === 0 || String(r[col]).toUpperCase() === "USD"));
   }
+  // BUBBLE_EXTRAS=1 (owner, 2026-11-12): what the bubbles of batches D/E need and the demo lacks. The Business pack is offered and on
+  // (receipt photos), "Travel card" only charges in USD (a PEN expense opens the charged-amount box by itself) and "Shop card" in PEN and
+  // USD (the "Listed price in another currency?" link), "Daily debit" (Interbank) has a PEN starting balance (its balance window: starting
+  // balances, payments in process), and the rates go through the dollar (the dollar line under third-currency entries). Runs before
+  // FRIEND_COPY marks the copy as a friend's (moving the rates to the dollar is refused there).
+  if (process.env.BUBBLE_EXTRAS) {
+    rt.run(`(function () {
+      setSetting_('business_offered', 'yes'); setSetting_('business_features', 'yes');
+      var sh = getSheet('Payment Methods'); var h = getHeaders(sh); var v = sh.getRange(2, 1, sh.getLastRow() - 1, h.length).getValues();
+      var col = function (n) { return h.indexOf(n) + 1; };
+      var start = new Date(); start.setFullYear(start.getFullYear() - 1);
+      var startDay = Utilities.formatDate(start, 'America/Lima', 'yyyy-MM-dd');
+      v.forEach(function (r, i) {
+        var row = i + 2, name = r[h.indexOf('nickname')];
+        if (name === 'Travel card') sh.getRange(row, col('currencies')).setValue('USD');
+        if (name === 'Shop card') sh.getRange(row, col('currencies')).setValue('PEN,USD');
+        if (name === 'Daily debit') {
+          sh.getRange(row, col('opening_balance')).setValue(5000);
+          sh.getRange(row, col('opening_balance_date')).setValue(startDay);
+          sh.getRange(row, col('opening_balance_currency')).setValue('PEN');
+        }
+      });
+      ROWS_MEMO_ = null;
+      convertRatesToUsd();
+    })()`);
+  }
   // Export data: mail goes nowhere here; GET /__mail lists what "would have been" sent.
   rt.api("admin_setExportEmail", { email: "owner@example.com" });
   // FRIEND_COPY=1 behaves like an app made by the installer (FEATURES set), e.g. to check what a new person does not see.
@@ -78,7 +104,7 @@ http.createServer((req, res) => {
   // counts as the OWNER's (perfIsOwnerCopy_), which hid Feedback & privacy and every other friends-only row on the friend-style copy.
   if (url === "/login") {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-    res.end(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:18px -apple-system,sans-serif;padding:24px">Signing in to the test copy…<script>localStorage.setItem("accessCode", ${JSON.stringify(ACCESS_CODE)}); localStorage.setItem("etChannel", "live"); if (!localStorage.getItem("lang") && /^es/i.test(navigator.language || "")) localStorage.setItem("lang", "es"); ${process.env.FRIEND_COPY ? 'localStorage.setItem("apiUrl", location.origin + "/api");' : ""} ${process.env.POP_MONTH_OLD ? 'localStorage.setItem("popFirstUse", JSON.stringify(new Date(Date.now() - 40 * 86400000).toISOString().slice(0, 10))); (function(){var n=new Date(),day=n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0")+"-"+String(n.getDate()).padStart(2,"0");localStorage.setItem("tipCardsToday",JSON.stringify({day:day,keys:[],open:true}));})(); localStorage.setItem("popTipsAgain","true"); localStorage.setItem("popTipsSeen","[]"); localStorage.removeItem("popTipDay"); localStorage.setItem("popTipSeries","{}"); localStorage.setItem("projUnlockedOn", JSON.stringify(new Date(Date.now() - 20 * 86400000).toISOString().slice(0, 10))); localStorage.removeItem("projMethodUsed"); localStorage.setItem("tutorialIdleSeen","[]");' : ""} ${process.env.SKIP_WELCOME ? 'localStorage.setItem("etOnboarded","1");' : ""} ${process.env.REAL_NEW ? 'localStorage.setItem("etOnboarded","1"); localStorage.setItem("tutorialAgain","true"); localStorage.setItem("tutorialTaughtOld","[]"); localStorage.setItem("tutorialTaught","{}"); localStorage.setItem("tutorialChances","{}"); localStorage.setItem("tutorialIdleSeen","[]"); localStorage.removeItem("tidyTapAsked"); localStorage.removeItem("noacctTapAsked"); localStorage.setItem("tutorialReviewTypes","[]"); localStorage.setItem("tutorialFields",JSON.stringify(["category","amount","currency","description","date","account"])); localStorage.setItem("tipsSeen",JSON.stringify(["guided-entry"]));' : ""} localStorage.removeItem("startupCache"); location.replace("/");</script>`);
+    res.end(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:18px -apple-system,sans-serif;padding:24px">Signing in to the test copy…<script>localStorage.setItem("accessCode", ${JSON.stringify(ACCESS_CODE)}); localStorage.setItem("etChannel", "live"); if (!localStorage.getItem("lang") && /^es/i.test(navigator.language || "")) localStorage.setItem("lang", "es"); ${process.env.FRIEND_COPY ? 'localStorage.setItem("apiUrl", location.origin + "/api");' : ""} ${process.env.POP_MONTH_OLD ? 'localStorage.setItem("popFirstUse", JSON.stringify(new Date(Date.now() - 40 * 86400000).toISOString().slice(0, 10))); (function(){var n=new Date(),day=n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0")+"-"+String(n.getDate()).padStart(2,"0");localStorage.setItem("tipCardsToday",JSON.stringify({day:day,keys:[],open:true}));})(); localStorage.setItem("popTipsAgain","true"); localStorage.setItem("popTipsSeen","[]"); localStorage.removeItem("popTipDay"); localStorage.setItem("popTipSeries","{}"); localStorage.setItem("projUnlockedOn", JSON.stringify(new Date(Date.now() - 20 * 86400000).toISOString().slice(0, 10))); localStorage.removeItem("projMethodUsed"); localStorage.setItem("tutorialIdleSeen","[]"); (function(){var a=[];for(var i=1;i<=8;i++){var d=new Date(Date.now()-i*86400000);a.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"));}localStorage.setItem("popActiveDays",JSON.stringify(a.reverse()));})(); localStorage.setItem("popEntrySaves","40"); localStorage.setItem("popManualRun","3"); localStorage.setItem("tipNotNowCount","2"); localStorage.setItem("popTipVisits",JSON.stringify({overview:2,projections:2})); ["popMonthTapped","popStats","popStruggle","popOneDeletes","popUsedBefore"].forEach(function(k){localStorage.removeItem(k);});' : ""} ${process.env.SKIP_WELCOME ? 'localStorage.setItem("etOnboarded","1");' : ""} ${process.env.REAL_NEW ? 'localStorage.setItem("etOnboarded","1"); localStorage.setItem("tutorialAgain","true"); localStorage.setItem("tutorialTaughtOld","[]"); localStorage.setItem("tutorialTaught","{}"); localStorage.setItem("tutorialChances","{}"); localStorage.setItem("tutorialIdleSeen","[]"); localStorage.removeItem("tidyTapAsked"); localStorage.removeItem("noacctTapAsked"); localStorage.setItem("tutorialReviewTypes","[]"); localStorage.setItem("tutorialFields",JSON.stringify(["category","amount","currency","description","date","account"])); localStorage.setItem("tipsSeen",JSON.stringify(["guided-entry"]));' : ""} localStorage.removeItem("startupCache"); location.replace("/");</script>`);
     return;
   }
   if (url === "/__mail") {

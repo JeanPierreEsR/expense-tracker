@@ -40,7 +40,9 @@
   // 3 = also what they did with each pending entry (confirmed / edited / discarded, and which field — never its content)
   // and how often they open each screen. A person who agreed to an older version is asked again (needsAsk) — an agreement
   // is never widened silently. Each kind is recorded only from the version that announced it (errors from 2, the rest from 3).
-  var SCOPE = 3;
+  // 4 (owner, 2026-11-12) = also which tips the app showed and whether their feature was used afterwards (the tip's name only).
+  // From 4 the new question is a forced choice ("Yes, share this too" / "Keep what I agreed to before"), shown before anything else.
+  var SCOPE = 4;
   var MAX_REASKS = 3;               // "not now" on the new question is respected three times, then it stays at what they agreed to
   var ERR_DAY_MAX = 40;             // error entries one phone records per day …
   var ERR_PER_KIND_MAX = 5;         // … and per (action, code) per day, so one broken screen cannot flood the outbox
@@ -267,7 +269,7 @@
 
   return {
     bankSlug: bankSlug, queueEvents: queueEvents, weekKey: weekKey, screenName: screenName, recordScreen: recordScreen, cleanFeedback: cleanFeedback,
-    OUTBOX_KEY: OUTBOX_KEY, SEQ_KEY: SEQ_KEY, MAX_CHARS: MAX_CHARS, SCOPE: SCOPE, create: create, shouldSend: shouldSend,
+    OUTBOX_KEY: OUTBOX_KEY, SEQ_KEY: SEQ_KEY, MAX_CHARS: MAX_CHARS, SCOPE: SCOPE, MAX_REASKS: MAX_REASKS, create: create, shouldSend: shouldSend,
     cleanLabel: cleanLabel, deviceKind: deviceKind, needsAsk: needsAsk, stateFromSignin: stateFromSignin, showImproveRow: showImproveRow, errorCode: errorCode, shouldRecordError: shouldRecordError
   };
 });

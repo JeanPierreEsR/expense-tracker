@@ -172,13 +172,6 @@
               <select id="repayment-friend"></select>
               <p class="hint" id="repayment-hint"></p>
               <p class="hint repayment-nothing-owed" id="repayment-nothing-owed" hidden></p>
-              <div id="entry-opening-row" hidden>
-                <label class="checkbox-row">
-                  <input type="checkbox" id="entry-opening">
-                  <span data-i18n="loanModal.opening">This debt is from before I started using the app</span>
-                </label>
-                <p class="hint" id="entry-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
-              </div>
               <div id="repayment-overpay-block">
                 <label for="repayment-overpay-category" id="repayment-overpay-category-label" data-i18n="transfer.overpayCategory">Category if you paid extra</label>
                 <select id="repayment-overpay-category"></select>
@@ -219,6 +212,13 @@
 
           <label for="date" id="entry-date-label" data-i18n="field.date">Date</label>
           <input type="date" id="date" required>
+          <div id="entry-opening-row" hidden>
+            <label class="checkbox-row">
+              <input type="checkbox" id="entry-opening">
+              <span data-i18n="loanModal.opening">This debt is from before I started using the app</span>
+            </label>
+            <p class="hint" id="entry-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
+          </div>
           <div id="repeat-field" hidden>
             <button type="button" class="add-inline" id="repeat-open-btn" data-i18n="repeat.add">🔁 Repeat…</button>
             <div id="repeat-detail" hidden>
@@ -1152,6 +1152,11 @@
           <button type="button" class="add-inline" id="perf-clear-btn" data-i18n="perf.clear">Clear</button>
         </div>
       </div>
+      <div class="card">
+        <h2 style="margin-top:0;" data-i18n="perf.tipsTitle">Tips: did they help?</h2>
+        <p class="hint" data-i18n="perf.tipsHint">Each tip this phone showed, the day it showed, and whether its feature was used afterwards.</p>
+        <div id="perf-tips"></div>
+      </div>
     </div>
 
     <div id="screen-deleted-entries" class="screen" hidden>
@@ -1954,6 +1959,14 @@
           <label for="bank-lender" data-i18n="bank.lender">Bank (who lent it)</label>
           <input type="text" id="bank-lender" list="bank-lender-list" data-i18n-placeholder="bank.lenderPlaceholder" placeholder="The bank's name">
           <datalist id="bank-lender-list"></datalist>
+          <label for="bank-description" data-i18n="field.description">Description</label>
+          <input type="text" id="bank-description" data-i18n-placeholder="common.optional" placeholder="Optional">
+          <label for="bank-amount" id="bank-amount-label" data-i18n="field.amount">Amount</label>
+          <input type="text" inputmode="decimal" id="bank-amount" placeholder="0.00">
+          <label for="bank-currency" data-i18n="field.currency">Currency</label>
+          <select id="bank-currency"></select>
+          <label for="bank-date" id="bank-date-label" data-i18n="bank.receivedOn">Date received</label>
+          <input type="date" id="bank-date">
           <!-- A loan from before the app (owner, 2026-11-08): only what is still owed is saved, no money entry, no account. -->
           <div id="bank-opening-row" hidden>
             <label class="settle-choose-row bank-opening-check"><input type="checkbox" id="bank-opening"><span data-i18n="bank.opening">This loan is from before I started using the app</span></label>
@@ -1965,14 +1978,6 @@
               <p class="hint" id="bank-opening-how-hint"></p>
             </div>
           </div>
-          <label for="bank-description" data-i18n="field.description">Description</label>
-          <input type="text" id="bank-description" data-i18n-placeholder="common.optional" placeholder="Optional">
-          <label for="bank-amount" id="bank-amount-label" data-i18n="field.amount">Amount</label>
-          <input type="text" inputmode="decimal" id="bank-amount" placeholder="0.00">
-          <label for="bank-currency" data-i18n="field.currency">Currency</label>
-          <select id="bank-currency"></select>
-          <label for="bank-date" id="bank-date-label" data-i18n="bank.receivedOn">Date received</label>
-          <input type="date" id="bank-date">
           <div id="bank-next-number-field" hidden>
             <label for="bank-next-number" data-i18n="bank.openingNextNumber">Number of the next installment (as on the bank's schedule)</label>
             <input type="text" inputmode="numeric" id="bank-next-number" placeholder="1">
@@ -2347,11 +2352,6 @@
         </div>
 
         <p class="hint loan-repay-hint" id="loan-repay-hint"></p>
-        <label class="checkbox-row" id="loan-opening-row">
-          <input type="checkbox" id="loan-opening">
-          <span data-i18n="loanModal.opening">This debt is from before I started using the app</span>
-        </label>
-        <p class="hint" id="loan-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
 
         <label for="loan-amount" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="loan-amount" placeholder="0.00">
@@ -2362,6 +2362,11 @@
 
         <label for="loan-date" id="loan-date-label" data-i18n="field.date">Date</label>
         <input type="date" id="loan-date">
+        <label class="checkbox-row" id="loan-opening-row">
+          <input type="checkbox" id="loan-opening">
+          <span data-i18n="loanModal.opening">This debt is from before I started using the app</span>
+        </label>
+        <p class="hint" id="loan-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
 
         <div id="loan-due-wrap">
         <label for="loan-due-date" data-i18n="loanModal.dueDate">Due date</label>
@@ -2760,7 +2765,7 @@
         <button type="button" id="perf-share-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
-        <p class="hint" id="perf-share-new" data-i18n="perfShare.newNote" hidden>New since you last agreed: your phone can now also tell me which actions failed, whether each bank email was confirmed, changed or discarded, and which screens you open — never what is inside. Read the text below, then keep this checked or uncheck it.</p>
+        <p class="hint" id="perf-share-new" data-i18n="perfShare.newNote" hidden>New since you last agreed: your phone can now also tell me which tips it showed you and whether you then used what they explain — never what is inside.</p>
         <!-- Two short lines and two answers (2026-11-04): the long letter is behind "What exactly is sent". -->
         <p class="hint" data-i18n="perfShare.short">I'm JP, who made this app. May your phone send me small counts (speed, problems, screens you use) so I can improve it? Never your expenses, amounts, names or anything you type.</p>
         <details class="perf-share-more">
