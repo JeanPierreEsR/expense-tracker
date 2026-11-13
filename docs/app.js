@@ -2218,7 +2218,7 @@ document.getElementById("amount").addEventListener("input", () => {
 // True when this Save tap should only arm the second-tap safeguard.
 function entryRepayTooQuick_() {
   const g = entryRepayFill_;
-  if (!g || g.armed || !repaymentActive_() || transferKind_() !== "repayment") return false;
+  if (!g || g.armed || practiceRunning_ || !repaymentActive_() || transferKind_() !== "repayment") return false;
   if (document.getElementById("amount").value !== g.value || Date.now() - g.at > REPAY_QUICK_MS_) return false;
   g.armed = true;
   document.getElementById("submit-btn").textContent = tr("settle.tapAgainAll", { amount: formatAmount(parseFloat(g.value), document.getElementById("currency").value.toUpperCase()) });
@@ -23032,11 +23032,16 @@ function clearHomeSearchForPractice_() {
   input.value = "";
   input.dispatchEvent(new Event("input"));
 }
+// A practice tutorial (made-up data) is running: the repayment form's "Tap again to record all" check stays off during it,
+// since the practice fills in the amount on purpose (owner, 2026-11-13; a real tutorial keeps the check: it is real money).
+let practiceRunning_ = false;
 function runTip_(steps, afterFinish, note) {
   clearHomeSearchForPractice_();
+  practiceRunning_ = true;
   return Spotlight.run(steps, {
     labels: { note: note || "", mode: "practice", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
     onFinish: async (how) => {
+      practiceRunning_ = false;
       markPracticeDeleting_();
       if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.lost")), 0);   // the engine stopped it (see spotlight.js go()): say why, then clean up as usual
       if (how === "done" && tipRunningKey_) markTaught_(tipRunningKey_, "practice");   // only a practice done to the end teaches (Not now, Exit and a lost one do not)
@@ -26657,7 +26662,6 @@ function practiceRRow_() {
 
 // On Home: the card's group (expense side) that holds the practice item, its summary line and the item's own box.
 function practiceRCardEntry_() {
-  if (!expectedOpen_) setExpectedOpen_(true);   // the card is a closed row by default: the practice opens it to show its item
   return Array.from(document.querySelectorAll("#expected-recurring-groups .expected-recurring-entry")).find((e) => /Practice item|Elemento de práctica/.test(e.textContent)) || null;
 }
 function practiceRCardSummary_() {
@@ -26695,11 +26699,20 @@ function practiceRSteps_() {
       until: () => !itemOpen() },
     { target: '.nav-btn[data-screen="entries"]', text: () => tr("spot.r.s7"), tap: '.nav-btn[data-screen="entries"]',
       poke: () => { if (practiceRFailed_) Spotlight.stop("skipped"); } },   // the server refused it (an alert already said why): clean up and stop
-    { target: practiceRCardSummary_, text: () => tr("spot.r.s8"), wait: 45000,
-      tap: practiceRCardSummary_,
+    // "Programmed this month" is a closed row: the person opens it (owner's rule on folds, 2026-11-13), never the practice.
+    { target: () => (practiceRCardEntry_() ? document.getElementById("expected-head") : null), text: () => tr("spot.r.s8"), wait: 45000,
+      tap: "#expected-head", until: () => expectedOpen_,
       before: async () => {
         if (practiceRFailed_) { Spotlight.stop("skipped"); return false; }
         try { await refreshExpectedRecurring(); } catch (e) { /* the card keeps what it shows */ }
+        return !expectedOpen_;   // already open: nothing to tap
+      },
+      poke: () => { if (practiceRFailed_) { Spotlight.stop("skipped"); return; } refreshExpectedRecurring().catch(() => {}); } },
+    { target: practiceRCardSummary_, text: () => tr("spot.r.s8b"), wait: 45000,
+      tap: practiceRCardSummary_,
+      before: async () => {
+        if (practiceRFailed_) { Spotlight.stop("skipped"); return false; }
+        if (!expectedOpen_) setExpectedOpen_(true);   // (only if the row was closed again by hand after the step above)
       },
       poke: () => { if (practiceRFailed_) { Spotlight.stop("skipped"); return; } refreshExpectedRecurring().catch(() => {}); } },
     { target: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; }, text: () => tr("spot.r.s9"), wait: 15000,
@@ -29701,7 +29714,7 @@ function updateRepaySaveLabel_() {
 // True when this tap should only arm the second-tap safeguard.
 function repayTooQuick_() {
   const g = repayQuickGuard_;
-  if (editingSettlementId || !g || g.armed) return false;
+  if (editingSettlementId || !g || g.armed || practiceRunning_) return false;
   if (document.getElementById("settlement-amount").value !== g.value || Date.now() - g.at > REPAY_QUICK_MS_) return false;
   g.armed = true;
   document.getElementById("settlement-save-btn").textContent = tr("settle.tapAgainAll", { amount: formatAmount(parseFloat(g.value), repaymentCurrency) });
