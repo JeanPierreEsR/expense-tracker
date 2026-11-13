@@ -390,13 +390,15 @@ function bumpRecentCurrency(code) {
 // when a result gets picked.
 let currencyPickerTarget = "entry";
 
+// THE currency block (a building block, owner 2026-11-13): one row with the main currency, USD, the most recent other one and
+// "More…" (the full currency screen). To put it on a new form, copy this into the form's HTML, with a name of your own:
+//   <input type="hidden" id="NAME-currency"><div class="currency-chips" id="NAME-currency-chips"></div>
+// then call renderCurrencyChips("NAME") when the form opens; the chosen code is in #NAME-currency, and selectCurrency runs on
+// each pick (add a line there if the form must react). tests/backend/currency-block.test.js checks every such pair.
+// The "+" form is the one older exception to the names: "currency" / "currency-chips".
 function currencyFieldIds(target) {
-  if (target === "budget") return { input: "budget-currency", chips: "budget-currency-chips" };
-  if (target === "recurring") return { input: "recurring-currency", chips: "recurring-currency-chips" };
-  if (target === "loan") return { input: "loan-currency", chips: "loan-currency-chips" };
-  if (target === "balance") return { input: "balance-currency", chips: "balance-currency-chips" };
-  if (target === "trip") return { input: "trip-currency", chips: "trip-currency-chips" };
-  return { input: "currency", chips: "currency-chips" };
+  if (!target || target === "entry") return { input: "currency", chips: "currency-chips" };
+  return { input: target + "-currency", chips: target + "-currency-chips" };
 }
 
 // True once the person tapped a currency for the entry being typed (then picking an account never changes it).
@@ -23083,6 +23085,13 @@ Object.assign(LINE_ICONS_, {
   skip: '<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>',
   pin: '<path d="M12 22v-6"/><path d="M8 3h8l-1 6 3 3H6l3-3z"/>',
   bank: '<path d="M3 10l9-6 9 6"/><line x1="5" y1="10" x2="5" y2="18"/><line x1="10" y1="10" x2="10" y2="18"/><line x1="14" y1="10" x2="14" y2="18"/><line x1="19" y1="10" x2="19" y2="18"/><line x1="3" y1="21" x2="21" y2="21"/>',
+  plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  undo: '<polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/>',
+  send: '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+  camera: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>',
+  external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+  eyeOff: '<path d="M17.9 17.9A10 10 0 0 1 12 20c-7 0-11-8-11-8a18 18 0 0 1 5.1-5.9"/><path d="M9.9 4.2A9 9 0 0 1 12 4c7 0 11 8 11 8a18 18 0 0 1-2.2 3.2"/><line x1="1" y1="1" x2="23" y2="23"/>',
   gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/>',
   moneyIn: '<line x1="17" y1="7" x2="7" y2="17"/><polyline points="17 17 7 17 7 7"/>',
   moneyOut: '<line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/>'
@@ -23130,8 +23139,80 @@ function spinLoadingText_(node) {
   parent.insertBefore(spin, node);
   parent.classList.add("has-spinner");
 }
+// Every text link (a `.add-inline` or `.wa-link` button) starts with a line icon that says what it does (owner, 2026-11-13: "add
+// icons to all link texts"). The building block: LINK_ICON_RULES_ reads the link's words, in either language, and picks the icon;
+// a new link gets its icon by itself when its first words say what it does, and tests/backend/link-icons.test.js stops a ship whose
+// link matches no rule (add a rule, or a rule with null for a link that keeps no icon). Order matters: the first match wins.
+// LINK_ICON_RULES_ start
+const LINK_ICON_RULES_ = [
+  // No icon, on purpose: Cancel / Not now / Save / Done / Select all are plain answers or edit-bar buttons; a link that starts
+  // with its own arrow (‹ Back, ▸ Hidden) already has one; a link that is a whole sentence about an amount stays a sentence.
+  [/^(cancel|cancelar|not now|ahora no|save|guardar|done|listo|select all|seleccionar todo)$/i, null],
+  [/^[‹›▸▾⌄✕]/, null],
+  [/^\S+ [\d.,]+ (tagged|con la etiqueta)/i, null],
+  [/^(replaced by|reemplazada por)/i, null],
+  [/^(add up|sumar|fill the rows|llenar las filas)/i, "calc"],
+  [/^(add screenshots|agregar capturas)/i, "camera"],
+  [/^\d+ (emails?|correos?)\b/i, "mail"],
+  [/^(add|agregar|añadir)\b|^\+ /i, "plus"],
+  [/^(copy|copiar)\b/i, "copy"],
+  [/^(send|enviar|envíalo|still doesn't add up|¿sigue sin cuadrar)/i, "send"],
+  [/^(undo|deshacer|restore|restaurar|don't correct|no corregirlo)/i, "undo"],
+  [/^(delete|eliminar|clear|borrar|forget|olvidar)\b/i, "trash"],
+  [/^(remove|quitar|don't repeat|no repetir|dismiss|descartar|stop it|detenerlo)\b/i, "cross"],
+  [/^(hide|ocultar)\b/i, "eyeOff"],
+  [/^(open my google|abrir las apps)/i, "external"],
+  [/^(read|leer|volver a leer)\b.*(photo|foto|receipt|comprobante)/i, "camera"],
+  [/^(read|leer)\b/i, "file"],
+  [/^(find|buscar|look|check now|revisar ahora|also look)/i, "search"],
+  [/^(switch direction|cambiar el sentido|repeat|repetir|convert|convertir|make it a transfer|pasar a transferencia|currency exchange|cambio de moneda)/i, "swap"],
+  [/^(more actions|más acciones|more…|más…)$|^(more actions|más acciones)/i, "dots"],
+  [/^(load more|cargar más)/i, "down"],
+  [/^(edit|editar|change|cambiar|method|método)\b/i, "pencil"],
+  [/^(reset|restablecer|start|empezar|volver|go back|reload|recargar|reactivate|reactivar|work out|recalcular)/i, "refresh"],
+  [/^(skip|omitir)\b/i, "skip"],
+  [/^(use|usar|apply|aplicar|match|emparejar|choose|elegir|record|registrar|mark|marcar|keep|dejar)\b/i, "check"],
+  [/^(split|repartir|people|personas|shared with a group|¿compartido con un grupo|group|liquidación)/i, "users"],
+  [/^(client|el cliente)/i, "briefcase"],
+  [/^(sign out|cerrar (la )?sesión|take back|retirar)/i, "logout"],
+  [/^(teach|enseñar|my bank isn't|mi banco no)/i, "mail"],
+  [/^(listed price|¿precio de lista|early payment|pago anticipado|see debts|ver deudas)/i, "coin"],
+  [/^(installments|cuotas)\b/i, "calendar"],
+  [/^(which would|¿cuál habría)/i, "chart"],
+  [/^(what fits me|lo que va conmigo)/i, "user"],
+  [/^(past uploads|past imports|cargas anteriores|importaciones anteriores|already read|ya leídos)/i, "clock"],
+  [/^(igv|all loans|todos los préstamos)/i, "file"],
+  [/^(show|mostrar|see|ver|view|unhide|review|revisar\w*|open|abrir)\b/i, "eye"]
+];
+// LINK_ICON_RULES_ end
+function linkIconFor_(text) {
+  const t = String(text || "").replace(/\s+/g, " ").trim();
+  const rule = LINK_ICON_RULES_.find(([re]) => re.test(t));
+  return rule ? rule[1] : null;
+}
+function linkIconize_(btn) {
+  if (!btn || btn.dataset.noIcon != null || btn.closest(".friends-editbar, .ts-stage")) return;
+  const old = btn.querySelector(":scope > .link-ico");
+  if (btn.querySelector(":scope > .ico:not(.link-ico), .stmt-spinner")) { if (old) old.remove(); return; }
+  // "+ Add…" texts: the plus icon replaces the typed "+".
+  const first = [...btn.childNodes].find((n) => n !== old && (n.nodeType !== 3 || n.nodeValue.trim()));
+  const plus = !!(first && first.nodeType === 3 && /^\s*\+\s/.test(first.nodeValue));
+  if (plus) first.nodeValue = first.nodeValue.replace(/^\s*\+\s+/, "");
+  const name = plus ? "plus" : linkIconFor_(btn.innerText || btn.textContent);
+  if (old && old.dataset.name === name) return;
+  if (old) old.remove();
+  if (!name) return;
+  const span = document.createElement("span");
+  span.className = "ico link-ico";
+  span.dataset.name = name;
+  span.setAttribute("aria-hidden", "true");
+  span.innerHTML = lineIcon_(name);
+  btn.insertBefore(span, btn.firstChild);
+}
 function iconizeTextNode_(node) {
   spinLoadingText_(node);
+  const linkBtn = node.parentNode && node.parentNode.nodeType === 1 && node.parentNode.closest("button.add-inline, button.wa-link");
+  if (linkBtn) queueMicrotask(() => linkIconize_(linkBtn));
   const m = EMOJI_ICON_RE_.exec(node.nodeValue);
   if (!m) return;
   const parent = node.parentNode;
