@@ -2547,7 +2547,8 @@ body.income-revealed .sens-mask { display: none; }
 .perf-name { font-weight: 600; }
 
 /* Entries-tab search bar */
-.entry-search-card { padding: 10px 12px; position: sticky; top: 0; z-index: 5; }
+/* Only the box is pinned, on the page's own grey: no white card band over the list (design review batch 5). */
+.entry-search-card { padding: 6px 0; position: sticky; top: 0; z-index: 5; background: var(--bg); box-shadow: none; border-radius: 0; }
 .entry-search-row { position: relative; }
 .entry-search-row input { margin: 0; padding-right: 40px; min-height: 44px; }
 .entry-search-clear {
@@ -3216,7 +3217,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-bar.expense { background: var(--expense); }
 .home-bar-col.on { color: var(--text); font-weight: 600; }
 .home-bar-col.on .home-bar-pair { opacity: 1; }
-.home-legend { display: flex; gap: 12px; justify-content: center; margin-top: 8px; font-size: 0.75rem; color: var(--muted); }
+.home-legend { display: flex; gap: 12px; justify-content: flex-end; margin-top: 8px; font-size: 0.75rem; color: var(--muted); }
 .home-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
 
 .home-line-svg { width: 100%; height: 110px; margin-top: 8px; display: block; }
@@ -4054,3 +4055,17 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .trip-auto-chip[hidden] { display: none; }
 .trip-auto-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .trip-auto-chip-x { flex: none; width: 44px; height: 36px; border: none; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+
+/* Home summary card (owner's redesign, design review batch 5): What's left as the headline, the boxes as the bars' legend. */
+.home-key { display: inline-block; width: 8px; height: 8px; border-radius: var(--r-xs); margin-right: 4px; vertical-align: 0; }
+.home-bars-title { font-size: 0.75rem; color: var(--muted); margin: 4px 0 6px; }
+
+/* Home alerts folded to one line (design review batch 5). */
+.notices-summary { display: block; width: 100%; min-height: 44px; margin: 4px 0 0; padding: 8px 0; border: none; background: none; text-align: left; font: inherit; font-weight: 600; color: var(--warn-text); cursor: pointer; }
+.notices-list[hidden] { display: none; }
+
+/* "Programmed this month" as a closed row (design review batch 5). */
+.expected-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; width: 100%; min-height: 44px; padding: 0; border: none; background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.expected-head-h { margin: 0; }
+.expected-head { font-weight: 700; }
+.expected-head-sum { font-size: 0.875rem; font-weight: 600; color: var(--muted); white-space: nowrap; }

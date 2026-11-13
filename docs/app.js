@@ -7979,6 +7979,9 @@ function homeCardEl_(cls, html) {
 }
 
 function homeMainCard_(g) {
+  // Owner's redesign (2026-11-12): What's left is the headline, with its currency; four boxes under it (Income, Expenses,
+  // Investments, Loans) that ADD UP to it, the Income and Expenses boxes carrying the bars' colours so they are the
+  // legend; a grey title over the bars. "Spent this month" and "% vs last month" left (Spending pace covers them).
   const months = g.months;
   let idx = months.findIndex((m) => m.month === homeSelectedMonth_);
   if (idx < 0) idx = months.length - 1;
@@ -7986,50 +7989,34 @@ function homeMainCard_(g) {
   const isCurrent = idx === months.length - 1;
   const [y, mo] = m.month.split("-").map(Number);
   const label = isCurrent
-    ? tr("home.spentThisMonth")
-    : tr("home.spentIn", { month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), true) });
-
-  // This month is compared with the same day of last month (a half month against a whole one would
-  // always look like a saving); an earlier month, with the month before it.
-  let base = null;
-  if (isCurrent) {
-    const p = g.pace.prev;
-    base = p.length ? p[Math.min(g.pace.curDay, p.length) - 1] : null;
-  } else if (idx > 0) {
-    base = months[idx - 1].expense;
-  }
-  let delta = "";
-  if (base != null && base > 0.005) {
-    const pct = Math.round(((m.expense - base) / base) * 100);
-    const arrow = pct > 0 ? "↑" : pct < 0 ? "↓" : "→";
-    delta = `<div class="home-delta ${pct > 0 ? "bad" : pct < 0 ? "good" : ""}">${escapeHtml(tr(isCurrent ? "home.vsSameDay" : "home.vsLast", { arrow, pct: Math.abs(pct) }))}</div>`;
-  }
-
+    ? tr("home.leftThisMonth")
+    : tr("home.leftIn", { month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), true) });
   const net = m.net;
+  const signed = (v) => `${Math.round(v) > 0 ? "+" : Math.round(v) < 0 ? "−" : ""}${homeShort_(v)}`;
   const four = `
     <div class="home-four">
-      <div class="home-four-box"><span>${escapeHtml(tr("summary.income"))}</span><b class="income">${homeShort_(m.income)}</b></div>
-      <div class="home-four-box"><span>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${homeShort_(m.expense)}</b></div>
-      <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${homeShort_(m.investment)}</b></div>
-      <div class="home-four-box"><span>${escapeHtml(tr("summary.net"))}</span><b class="${net < 0 ? "expense" : ""}">${net < 0 ? "−" : ""}${homeShort_(net)}</b></div>
-    </div>${Math.abs(m.loans || 0) >= 0.005 ? `<p class="hint home-loans-note">${escapeHtml(tr("home.loansIncluded", { amount: homeWholeSigned_(m.loans) }))}</p>` : ""}`;
+      <div class="home-four-box"><span><i class="home-key" style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><b class="income">${signed(m.income)}</b></div>
+      <div class="home-four-box"><span><i class="home-key" style="background:var(--expense)"></i>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${signed(-m.expense)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${signed(-m.investment)}</b></div>
+      <div class="home-four-box"><span>${escapeHtml(tr("summary.loans"))}</span><b class="${(m.loans || 0) > 0.5 ? "income" : ""}">${signed(m.loans || 0)}</b></div>
+    </div>`;
 
   const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
   const bars = months.map((x, i) => {
     const mi = Number(x.month.split("-")[1]) - 1;
     const h = (v) => Math.max(2, Math.round((v / top) * 84));
-    return `<button type="button" class="home-bar-col${i === idx ? " on" : ""}" data-month="${x.month}">
-      <span class="home-bar-pair"><span class="home-bar income" style="height:${h(x.income)}px"></span><span class="home-bar expense" style="height:${h(x.expense)}px"></span></span>
-      <span>${escapeHtml(I18n.monthShort(mi, true))}</span></button>`;
+    return `<button type="button" class="home-bar-col${i === idx ? " on" : ""}" data-month="${x.month}" aria-label="${escapeHtml(tr("home.barAria", { month: I18n.fmtMonthYear(new Date(Number(x.month.slice(0, 4)), mi, 1), true), income: homeWhole_(x.income), expenses: homeWhole_(x.expense) }))}">
+      <span class="home-bar-pair" aria-hidden="true"><span class="home-bar income" style="height:${h(x.income)}px"></span><span class="home-bar expense" style="height:${h(x.expense)}px"></span></span>
+      <span aria-hidden="true">${escapeHtml(I18n.monthShort(mi, true))}</span></button>`;
   }).join("");
 
   const el = homeCardEl_("home-card-main", `
     <div class="home-card-label">${escapeHtml(label)}</div>
-    <div class="home-big">${escapeHtml(homeWhole_(m.expense))}</div>
-    ${delta}
+    <div class="home-big">${escapeHtml(homeWholeSigned_(net))}</div>
     ${four}
+    <div class="home-bars-title">${escapeHtml(tr("home.barsTitle"))}</div>
     <div class="home-bars">${bars}</div>
-    <div class="home-legend"><span><i style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><span><i style="background:var(--expense)"></i>${escapeHtml(tr("summary.expenses"))}</span><span>${escapeHtml(tr("home.allMonths"))} ›</span></div>`);
+    <div class="home-legend"><span>${escapeHtml(tr("home.allMonths"))} ›</span></div>`);
   el.classList.add("home-card-tap");
   el.addEventListener("click", (ev) => { if (!ev.target.closest(".home-bar-col")) openOverviewAt_("months-card"); });
   el.querySelectorAll(".home-bar-col").forEach((b) => b.addEventListener("click", () => {
@@ -11447,6 +11434,14 @@ function renderNotices_() {
   card.hidden = !notices_.length;
   const list = document.getElementById("notices-list");
   list.innerHTML = "";
+  // One line that counts them by kind ("Budgets: 6 · Loans: 1 ›"); the list opens on a tap and stays open this visit.
+  const counts = {};
+  notices_.forEach((n) => { const k = ["budget", "loan", "trip"].includes(n.kind) ? n.kind : "other"; counts[k] = (counts[k] || 0) + 1; });
+  const summary = document.getElementById("notices-summary");
+  summary.textContent = ["budget", "loan", "trip", "other"].filter((k) => counts[k]).map((k) => tr("notices.count." + k, { n: counts[k] })).join(" · ") + (noticesOpen_ ? "" : " ›");
+  summary.setAttribute("aria-expanded", String(noticesOpen_));
+  list.hidden = !noticesOpen_;
+  document.getElementById("notices-dismiss-all").hidden = !noticesOpen_;
   notices_.forEach((n) => {
     const li = document.createElement("li");
     const body = document.createElement("div");
@@ -11474,7 +11469,7 @@ function renderNotices_() {
     list.appendChild(li);
   });
   const more = document.getElementById("notices-more");
-  more.hidden = !noticesMore_;
+  more.hidden = !noticesMore_ || !noticesOpen_;
   if (noticesMore_) more.textContent = tr("notices.more", { n: noticesMore_ });
 }
 async function dismissNotices_(payload) {
@@ -11485,6 +11480,8 @@ async function dismissNotices_(payload) {
   if (noticesMore_) loadNotices_();   // dismissing may let notices beyond the first 20 appear
 }
 document.getElementById("notices-dismiss-all").addEventListener("click", () => dismissNotices_({ all: true }));
+let noticesOpen_ = false;
+document.getElementById("notices-summary").addEventListener("click", () => { noticesOpen_ = !noticesOpen_; renderNotices_(); });
 
 // An alert hint says "It also arrives on Telegram" only when a Telegram chat is linked; a friend's copy has none.
 function refreshAlertHints_() {
@@ -21197,6 +21194,31 @@ document.querySelectorAll(".income-toggle-btn").forEach((btn) => {
 // heads-up of what the server hasn't matched to a real entry yet, and it
 // drops off there on its own once that match exists.
 // prefetchedGroups: see loadMeta's comment above.
+// The card's closed row: how many items and their total in the main currency (money in +, out −). A group with no rate
+// for its currency makes the total "≈" and says how many need a rate, so it never looks exact when it isn't.
+let expectedOpen_ = false;
+function renderExpectedHead_(groups) {
+  let count = 0, total = 0, noRate = 0;
+  groups.forEach((g) => {
+    count += g.items.length;
+    const sign = g.type === "income" ? 1 : -1;
+    if (g.currency === homeCur()) total += sign * g.total;
+    else if (g.totalPen != null) total += sign * g.totalPen;
+    else noRate += g.items.length;
+  });
+  const money = `${noRate ? "≈ " : ""}${total > 0.004 ? "+" : total < -0.004 ? "−" : ""}${homeCur()} ${moneyFmt(Math.abs(total))}`;
+  document.getElementById("expected-head-sum").textContent =
+    `${count} · ${money}${noRate ? " · " + tr("expected.needRate", { n: noRate }) : ""}${expectedOpen_ ? "" : " ›"}`;
+}
+function setExpectedOpen_(open) {
+  expectedOpen_ = open;
+  document.getElementById("expected-recurring-body").hidden = !open;
+  document.getElementById("expected-head").setAttribute("aria-expanded", String(open));
+  const sum = document.getElementById("expected-head-sum");
+  sum.textContent = sum.textContent.replace(/ ›$/, "") + (open ? "" : " ›");
+}
+document.getElementById("expected-head").addEventListener("click", () => setExpectedOpen_(!expectedOpen_));
+
 async function refreshExpectedRecurring(prefetchedGroups) {
   refreshBusinessHomeCard_();   // the separate business card under this one follows the same refreshes (hidden unless the pack is on)
   const card = document.getElementById("expected-recurring-card");
@@ -21226,6 +21248,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
   }
   card.hidden = false;
   container.innerHTML = "";
+  renderExpectedHead_(groups);
   document.getElementById("expected-income-toggle").hidden = !groups.some((g) => g.type === "income");
   syncIncomeToggles_();
 
@@ -25737,6 +25760,7 @@ function practiceRRow_() {
 
 // On Home: the card's group (expense side) that holds the practice item, its summary line and the item's own box.
 function practiceRCardEntry_() {
+  if (!expectedOpen_) setExpectedOpen_(true);   // the card is a closed row by default: the practice opens it to show its item
   return Array.from(document.querySelectorAll("#expected-recurring-groups .expected-recurring-entry")).find((e) => /Practice item|Elemento de práctica/.test(e.textContent)) || null;
 }
 function practiceRCardSummary_() {

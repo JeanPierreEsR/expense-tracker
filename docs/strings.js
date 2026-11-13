@@ -21,6 +21,7 @@
 
     // ---- search ----
     "search.placeholder": { en: "🔍 Search entries…", es: "🔍 Buscar movimientos…" },
+    "search.aria": { en: "Search entries", es: "Buscar movimientos" },
     "search.clear": { en: "Clear search", es: "Borrar búsqueda" },
     "search.reloadAll": { en: "↻ Reload all entries", es: "↻ Recargar todos los movimientos" },
     "search.updating": { en: "Updating…", es: "Actualizando…" },
@@ -471,6 +472,10 @@
 
     // ---- Home tab: the quick glance at the top, and the entries grouped by day ----
     "home.spentThisMonth": { en: "Spent this month", es: "Gastado este mes" },
+    "home.leftThisMonth": { en: "What's left this month", es: "Lo que queda este mes" },
+    "home.leftIn": { en: "What was left in {month}", es: "Lo que quedó en {month}" },
+    "home.barsTitle": { en: "Income and expenses by month", es: "Ingresos y gastos por mes" },
+    "home.barAria": { en: "{month}: income {income}, expenses {expenses}", es: "{month}: ingresos {income}, gastos {expenses}" },
     "home.spentIn": { en: "Spent in {month}", es: "Gastado en {month}" },
     "home.vsSameDay": { en: "{arrow} {pct}% vs last month so far", es: "{arrow} {pct}% vs. el mes pasado a esta fecha" },
     "home.vsLast": { en: "{arrow} {pct}% vs last month", es: "{arrow} {pct}% vs. el mes pasado" },
@@ -1879,6 +1884,11 @@
     "notices.dismiss": { en: "Dismiss", es: "Descartar" },
     "notices.dismissAll": { en: "Dismiss all", es: "Descartar todos" },
     "notices.more": { en: "+{n} more", es: "+{n} más" },
+    "expected.needRate": { en: "{n} need a rate", es: "{n} sin tipo de cambio" },
+    "notices.count.budget": { en: "Budgets: {n}", es: "Presupuestos: {n}" },
+    "notices.count.loan": { en: "Loans: {n}", es: "Préstamos: {n}" },
+    "notices.count.trip": { en: "Trips: {n}", es: "Viajes: {n}" },
+    "notices.count.other": { en: "Other: {n}", es: "Otros: {n}" },
     "trips.save": { en: "Save", es: "Guardar" },
     "trips.delete": { en: "Delete this trip or event", es: "Eliminar este viaje o evento" },
     "trips.confirmDelete": { en: "Delete \"{name}\"? Its expenses are not deleted — they just stop being linked to it.", es: "¿Eliminar \"{name}\"? Sus gastos no se eliminan: solo dejan de estar vinculados." },

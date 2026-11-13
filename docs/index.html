@@ -111,7 +111,7 @@
       <div class="card tip-invite" id="home-tip-invite" hidden></div>
       <div class="card entry-search-card">
         <div class="entry-search-row">
-          <input type="search" id="entry-search" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" placeholder="🔍 Search entries…" autocomplete="off" autocapitalize="off" enterkeyhint="search">
+          <input type="search" id="entry-search" data-i18n-aria-label="search.aria" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" data-i18n-placeholder="search.placeholder" placeholder="🔍 Search entries…" autocomplete="off" autocapitalize="off" enterkeyhint="search">
           <button type="button" id="entry-search-clear" class="entry-search-clear" data-i18n-aria-label="search.clear" data-i18n-aria-label="search.clear" data-i18n-aria-label="search.clear" data-i18n-aria-label="search.clear" aria-label="Clear search" hidden>✕</button>
         </div>
         <p class="hint" id="entry-search-hint" hidden></p>
@@ -420,7 +420,10 @@
           <h2 data-i18n="notices.title">Alerts</h2>
           <button type="button" class="add-inline" id="notices-dismiss-all" data-i18n="notices.dismissAll">Dismiss all</button>
         </div>
-        <ul class="notices-list" id="notices-list"></ul>
+        <!-- Folded to one line that counts them by kind; a tap shows the list (design review 2026-11-12: 9 full alerts sat
+             above everything on Home). -->
+        <button type="button" class="notices-summary" id="notices-summary" aria-expanded="false" aria-controls="notices-list"></button>
+        <ul class="notices-list" id="notices-list" hidden></ul>
         <p class="hint" id="notices-more" hidden></p>
       </div>
 
@@ -459,10 +462,16 @@
       <p class="hint review-check-status" id="recurring-check-status" hidden></p>
 
       <div class="card" id="expected-recurring-card" hidden>
-        <h2 data-i18n="programmed.title">🔁 Programmed this month</h2>
-        <p class="hint" data-i18n="programmed.hint">From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).</p>
-        <button type="button" class="add-inline income-toggle-btn" id="expected-income-toggle" hidden></button>
-        <div id="expected-recurring-groups"></div>
+        <!-- A closed row by default: "Programmed this month · 5 · −PEN 1,240 ›" (design review 2026-11-12). -->
+        <h2 class="expected-head-h"><button type="button" class="expected-head" id="expected-head" aria-expanded="false" aria-controls="expected-recurring-body">
+          <span data-i18n="programmed.title">🔁 Programmed this month</span>
+          <span class="expected-head-sum" id="expected-head-sum"></span>
+        </button></h2>
+        <div id="expected-recurring-body" hidden>
+          <p class="hint" data-i18n="programmed.hint">From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).</p>
+          <button type="button" class="add-inline income-toggle-btn" id="expected-income-toggle" hidden></button>
+          <div id="expected-recurring-groups"></div>
+        </div>
       </div>
 
       <div class="card business-expected-card" id="business-expected-card" hidden>
