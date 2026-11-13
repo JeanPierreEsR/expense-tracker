@@ -4044,7 +4044,8 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 /* Forgive on the person's screen: one quiet grey line at the bottom, with a short list when there are several debts. */
 .loan-forgive-any { margin-top: 18px; padding-top: 6px; border-top: 1px solid var(--border); }
 .loan-forgive-any[hidden] { display: none; }
-#loan-forgive-any-btn { color: var(--muted); }
+.loan-forgive-any .loan-forgive-hint { margin: 6px 0 0; text-align: center; }
+#loan-forgive-any-btn { color: var(--text); }
 .loan-forgive-pick .loan-forgive-choice > span:first-child { display: flex; flex-direction: column; min-width: 0; }
 
 /* "+" → Repayment: what is owed, under the person (design review batch 3). */
