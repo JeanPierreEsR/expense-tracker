@@ -22886,10 +22886,29 @@ function popTargetRect_(el) {
   const t = r.getBoundingClientRect();
   return t.width > 0 ? t : el.getBoundingClientRect();
 }
+// Seen = it was really on screen (owner's walk, 2026-11-12: a bubble shown while its row was scrolled away, or closed at once by a
+// redraw or by the keyboard, counted as seen and never came back). Closed within POP_BLINK_MS_ of appearing by its row vanishing or by
+// typing, it is not seen and comes back on a later visit.
+const POP_BLINK_MS_ = 1500;
 function popTipShow_(tip, el) {
-  if (tip.steps) { tip = Object.assign({}, tip, { at: tip.at + 1 }); popSeriesDone_(tip); tip.at--; tip.text = tip.steps[tip.at].text; }   // this part counts as seen
-  else if (!tip.offer) popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).concat(tip.key));   // shown = seen, however it is closed (an offer keeps its own count: realChanceLeft_)
-  if (!tip.offer && !tip.cont) popStatShown_(tip.key);
+  if (tip.steps) tip = Object.assign({}, tip, { text: tip.steps[tip.at].text });
+  let seenAt = 0;
+  const markSeen = () => {
+    if (seenAt) return;
+    seenAt = Date.now();
+    if (tip.steps) { const t = Object.assign({}, tip, { at: tip.at + 1 }); popSeriesDone_(t); }   // this part counts as seen
+    else if (!tip.offer) popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).concat(tip.key));   // (an offer keeps its own count: realChanceLeft_)
+    if (!tip.offer && !tip.cont) popStatShown_(tip.key);
+  };
+  const unSee = () => {   // only a single bubble (a series part stays counted: its next part follows anyway)
+    if (!seenAt || tip.steps || tip.offer || Date.now() - seenAt >= POP_BLINK_MS_) return;
+    popSet_(POP_SEEN_KEY_, popGet_(POP_SEEN_KEY_, []).filter((k) => k !== tip.key));
+  };
+  // The row it points at can be drawn again (a list refreshed by a late server answer): find it again instead of closing.
+  const refind = () => {
+    const t = tip.steps ? tip.steps[tip.at].target : tip.target;
+    try { return typeof t === "function" ? t() : typeof t === "string" ? document.querySelector(t) : null; } catch (e) { return null; }
+  };
   const b = document.createElement("div");
   b.className = "pop-tip";
   b.setAttribute("role", "dialog");
@@ -22897,7 +22916,8 @@ function popTipShow_(tip, el) {
   b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons"><button type="button" class="pop-tip-ok">${escapeHtml(tip.offer ? (tip.offerLabel || tr("rt.guideMe")) : tr("pop.gotIt"))}</button></div>`;
   document.body.appendChild(b);
   const place = () => {
-    if (!el.isConnected || !el.getClientRects().length) { close(); return; }
+    if (!el.isConnected) { const n = refind(); if (n && n.isConnected) el = n; }
+    if (!el.isConnected || !el.getClientRects().length) { unSee(); close(); return; }
     const pos = Spotlight.placeBubble(popTargetRect_(el), { w: window.innerWidth, h: window.visualViewport ? window.visualViewport.height : window.innerHeight }, { w: b.offsetWidth, h: b.offsetHeight });
     b.style.top = pos.top + "px";
     b.style.left = pos.left + "px";
@@ -22905,14 +22925,16 @@ function popTipShow_(tip, el) {
     const arrow = b.querySelector(".pop-tip-arrow");
     arrow.hidden = pos.arrowLeft == null;
     if (pos.arrowLeft != null) arrow.style.left = pos.arrowLeft + "px";
-    b.style.visibility = popFieldShowing_(el, b) ? "" : "hidden";   // scrolled away: it waits unseen and comes back with the field
+    const showing = popFieldShowing_(el, b);
+    b.style.visibility = showing ? "" : "hidden";   // scrolled away: it waits unseen and comes back with the field
+    if (showing) markSeen();
   };
   // A tap elsewhere closes it (the tap itself still goes through); a finger that scrolls does not (owner's walk, 2026-11-09). A phone ends a scroll with pointercancel.
   let downAt = null;
   const outsideDown = (ev) => { downAt = b.contains(ev.target) ? null : { x: ev.clientX, y: ev.clientY }; };
   const outsideUp = (ev) => { if (downAt && Math.hypot(ev.clientX - downAt.x, ev.clientY - downAt.y) < 10) close(); downAt = null; };
   const outsideCancel = () => { downAt = null; };
-  const typing = () => setTimeout(() => { if (popTyping_()) close(); }, 0);
+  const typing = () => setTimeout(() => { if (popTyping_()) { unSee(); close(); } }, 0);
   let frame = 0;
   const follow = () => { place(); if (popOpen_ && popOpen_.close === close) frame = requestAnimationFrame(follow); };   // every frame: no lag behind a scroll
   function close() {
@@ -22976,7 +22998,7 @@ function watchEntryFormTip_() {
     ["tripPick", () => (meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date), watchTripPickTip_],
     ["paidBy", () => (meta.friends || []).length && (popBasicsOk_() || popStruggling_("paidBy")), watchPaidByTip_],
     ["tags", () => popEntriesKnown_() >= 30 || popStruggling_("tags"), watchTagsTip_],
-    ["receipts", () => popGet_("popManualRun", 0) >= 3 && !fieldsKnown_().includes("receipt") && popBasicsOk_(), watchReceiptsTip_]
+    ["receipts", () => businessOn() && popGet_("popManualRun", 0) >= 3 && !fieldsKnown_().includes("receipt") && popBasicsOk_(), watchReceiptsTip_]   // its button is part of the Business pack
   ].find(([k, want]) => !seen.includes(k) && want());
   if (pick) pick[2]();
 }
@@ -23031,7 +23053,13 @@ function splitHowText_() {
 function watchTagsTip_() {
   popTipWatch_({
     key: "tags", place: "entryForm", text: tr("pop.tags"), struggle: () => popStruggling_("tags"),
-    target: () => { const f = document.getElementById("tags-field"); return f && !f.hidden && f.getClientRects().length ? f : null; },
+    // Never on an entry that belongs to a trip or event (owner, 2026-11-12: trips & events are for that, not tags); judged as the form
+    // changes, so moving the date out of a trip lets it show.
+    target: () => {
+      const f = document.getElementById("tags-field"), date = document.getElementById("date").value;
+      if (document.getElementById("entry-trip").value || (meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date)) return null;
+      return f && !f.hidden && f.getClientRects().length ? f : null;
+    },
     stillWanted: () => newEntrySheetOpen_, ready: () => !guidedEntryWanted_()
   });
 }

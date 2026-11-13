@@ -42,6 +42,32 @@ function boot() {
     const rates = rt.sheet("Exchange Rates").rows, col = rates[0].indexOf("currency");
     rates.splice(0, rates.length, ...rates.filter((r, i) => i === 0 || String(r[col]).toUpperCase() === "USD"));
   }
+  // BUBBLE_EXTRAS=1 (owner, 2026-11-12): what the bubbles of batches D/E need and the demo lacks. The Business pack is offered and on
+  // (receipt photos), "Travel card" only charges in USD (a PEN expense opens the charged-amount box by itself) and "Shop card" in PEN and
+  // USD (the "Listed price in another currency?" link), "Daily debit" (Interbank) has a PEN starting balance (its balance window: starting
+  // balances, payments in process), and the rates go through the dollar (the dollar line under third-currency entries). Runs before
+  // FRIEND_COPY marks the copy as a friend's (moving the rates to the dollar is refused there).
+  if (process.env.BUBBLE_EXTRAS) {
+    rt.run(`(function () {
+      setSetting_('business_offered', 'yes'); setSetting_('business_features', 'yes');
+      var sh = getSheet('Payment Methods'); var h = getHeaders(sh); var v = sh.getRange(2, 1, sh.getLastRow() - 1, h.length).getValues();
+      var col = function (n) { return h.indexOf(n) + 1; };
+      var start = new Date(); start.setFullYear(start.getFullYear() - 1);
+      var startDay = Utilities.formatDate(start, 'America/Lima', 'yyyy-MM-dd');
+      v.forEach(function (r, i) {
+        var row = i + 2, name = r[h.indexOf('nickname')];
+        if (name === 'Travel card') sh.getRange(row, col('currencies')).setValue('USD');
+        if (name === 'Shop card') sh.getRange(row, col('currencies')).setValue('PEN,USD');
+        if (name === 'Daily debit') {
+          sh.getRange(row, col('opening_balance')).setValue(5000);
+          sh.getRange(row, col('opening_balance_date')).setValue(startDay);
+          sh.getRange(row, col('opening_balance_currency')).setValue('PEN');
+        }
+      });
+      ROWS_MEMO_ = null;
+      convertRatesToUsd();
+    })()`);
+  }
   // Export data: mail goes nowhere here; GET /__mail lists what "would have been" sent.
   rt.api("admin_setExportEmail", { email: "owner@example.com" });
   // FRIEND_COPY=1 behaves like an app made by the installer (FEATURES set), e.g. to check what a new person does not see.
