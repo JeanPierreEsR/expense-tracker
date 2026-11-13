@@ -1058,7 +1058,7 @@
     "status.discarded": { en: "discarded", es: "descartado" },
 
     // ---- programmed ----
-    "programmed.title": { en: "Programmed this month", es: "Programado este mes" },
+    "programmed.title": { en: "🔁 Programmed this month", es: "🔁 Programado este mes" },
     "programmed.hint": { en: "From your programmed income/expenses, not yet matched to a real entry — these will drop off on their own once the real payment is confirmed (from email, same as always).", es: "De tus ingresos y gastos programados que aún no se emparejan con un movimiento real: desaparecerán solos cuando se confirme el movimiento real (por correo, como siempre)." },
 
     // ---- summary ----
@@ -1224,25 +1224,25 @@
     "projections.daysLeft": { en: { one: "{amount} projected for the {n} day left.", other: "{amount} projected for the {n} days left." }, es: { one: "{amount} proyectados para el día que queda.", other: "{amount} proyectados para los {n} días que quedan." } },
 
     // ---- loans ----
-    "loans.owesYou": { en: "Owes you", es: "Te deben" },
+    "loans.owesYou": { en: "💸 Owes you", es: "💸 Te deben" },
     "loans.add": { en: "+ Add loan", es: "+ Agregar préstamo" },
     "loans.addOweAria": { en: "Add money you owe", es: "Agregar dinero que debes" },
     "loans.addAria": { en: "Add loan", es: "Agregar préstamo" },
     "loans.totalOwed": { en: "Total owed to you", es: "Total que te deben" },
     "loans.noneOwed": { en: "No one owes you anything right now.", es: "Nadie te debe nada por ahora." },
-    "loans.youOwe": { en: "You owe", es: "Debes" },
+    "loans.youOwe": { en: "📉 You owe", es: "📉 Debes" },
     "loans.totalYouOwe": { en: "Total you owe", es: "Total que debes" },
     "loans.noneYouOwe": { en: "You don't owe anyone right now.", es: "No le debes nada a nadie por ahora." },
 
     // ---- recurring ----
     "recurring.title": { en: "Programmed income/expenses", es: "Ingresos y gastos programados" },
     "recurring.intro": { en: "Known amounts you want accounted for ahead of time — Budgets and Projections use these to tell known, certain amounts apart from the rest. The app does not make these payments: it only keeps them in mind.", es: "Montos conocidos que quieres tener en cuenta con anticipación: Presupuestos y Proyecciones los usan para distinguir los montos seguros del resto. La app no hace estos pagos: solo los tiene en cuenta." },
-    "recurring.recurring": { en: "Recurring", es: "Recurrentes" },
+    "recurring.recurring": { en: "🔁 Recurring", es: "🔁 Recurrentes" },
     "recurring.freqOtherHint": { en: "Every day or every week? Choose Custom.", es: "¿Cada día o cada semana? Elige Personalizada." },
     "recurring.recurringHint": { en: "Repeats on a schedule — rent, subscriptions, gym, salary, daily income.", es: "Se repiten según un calendario: alquiler, suscripciones, gimnasio, sueldo, ingreso diario." },
     "recurring.empty": { en: "No programmed items yet.", es: "Aún no hay movimientos programados." },
     "recurring.pastHint": { en: "Ended, or one-time items already paid — not counted in Programmed this month, Budgets or Projections. Tap one to edit it, start it again or delete it.", es: "Terminados, o de una sola vez ya pagados: no se cuentan en Programado este mes, Presupuestos ni Proyecciones. Toca uno para editarlo, volver a empezarlo o eliminarlo." },
-    "recurring.oneTime": { en: "Programmed, one-time", es: "Programados, una sola vez" },
+    "recurring.oneTime": { en: "📌 Programmed, one-time", es: "📌 Programados, una sola vez" },
     "recurring.oneTimeHint": { en: "A single known future payment — stays out of \"Recent entries\" until it actually happens and gets confirmed for real.", es: "Un pago futuro conocido y único: no aparece en \"Movimientos recientes\" hasta que ocurre de verdad y se confirma." },
     "recurring.oneTimeEmpty": { en: "No one-time programmed items yet.", es: "Aún no hay movimientos programados de una sola vez." },
     "recurring.freqYearly": { en: "Yearly, {month} {day}", es: "Anual, {day} {month}" },
@@ -1263,7 +1263,7 @@
     "recurring.every.years": { en: { one: "Every year", other: "Every {n} years" }, es: { one: "Cada año", other: "Cada {n} años" } },
     "recurring.fromDate": { en: ", from {date}", es: ", desde el {date}" },
     "recurring.variableTag": { en: " · Variable", es: " · Variable" },
-    "recurring.suggestTitle": { en: "Variable-amount payments", es: "Pagos de monto variable" },
+    "recurring.suggestTitle": { en: "💡 Variable-amount payments", es: "💡 Pagos de monto variable" },
     "recurring.suggestHint": { en: "Payments that happen every month but never cost the same — electricity, gas, building fees. This looks through your last 6 months for ones that aren't programmed yet.", es: "Pagos que ocurren todos los meses pero nunca cuestan lo mismo: luz, gas, mantenimiento. Esto revisa tus últimos 6 meses y busca los que aún no están programados." },
     "recurring.suggestBtn": { en: "Look for variable payments", es: "Buscar pagos variables" },
     "recurring.suggestNone": { en: "Nothing new found. A payment shows up here when it appears in at least 4 of the last 6 months, at most twice a month, with an amount that changes.", es: "No se encontró nada nuevo. Un pago aparece aquí cuando está en al menos 4 de los últimos 6 meses, como máximo dos veces al mes, con un monto que cambia." },
@@ -1603,7 +1603,7 @@
     "history.status.partially_repaid": { en: "Partly repaid", es: "Repagado en parte" },
     "history.status.repaid": { en: "Fully repaid", es: "Repagado por completo" },
     "history.status.forgiven": { en: "Forgiven", es: "Perdonado" },
-    "loans.settledPeople": { en: "Settled people ({n})", es: "Personas al día ({n})" },
+    "loans.settledPeople": { en: "✅ Settled people ({n})", es: "✅ Personas al día ({n})" },
     "loans.hideSettledPeople": { en: "Hide settled people", es: "Ocultar personas al día" },
     "apply.button": { en: "Apply to a loan", es: "Aplicar a un préstamo" },
     "apply.title": { en: "Apply to a loan", es: "Aplicar a un préstamo" },
@@ -1623,7 +1623,7 @@
     "delete.repaymentExtra": { en: "This {cur} {amount} is part of a repayment from {friend} (the part that was not on a loan). Deleting it takes it out of that repayment's total. Delete it?", es: "Estos {cur} {amount} son parte de un repago de {friend} (la parte que no estaba en un préstamo). Al borrarlos salen del total de ese repago. ¿Borrarlos?" },
     "repay.extraCurrency": { en: "This is the extra part of a repayment. To change its currency, open the repayment's own entry (the money that moved) and change the currency there: the whole repayment is recorded again.", es: "Esta es la parte extra de un repago. Para cambiar su moneda, abre el movimiento del repago (el dinero que se movió) y cambia la moneda ahí: todo el repago se vuelve a registrar." },
     "repay.openHistoryAsk": { en: "The amount of this repayment is changed from {friend}'s repayment history, where it is split between loans and the extra income/expense. Open that repayment now?", es: "El monto de este repago se cambia desde el historial de repagos de {friend}, donde se reparte entre préstamos y el ingreso/gasto extra. ¿Abrir ese repago ahora?" },
-    "bank.addButton": { en: "Bank loan", es: "Préstamo bancario" },
+    "bank.addButton": { en: "🏦 Bank loan", es: "🏦 Préstamo bancario" },
     "bank.formTitle": { en: "Bank loan", es: "Préstamo bancario" },
     "bank.editTitle": { en: "Edit the schedule", es: "Editar el cronograma" },
     "bank.lender": { en: "Bank (who lent it)", es: "Banco (quién lo prestó)" },

@@ -239,7 +239,7 @@ button.type-tab { font: inherit; font-size: 0.75rem; color: var(--text); width: 
    1.25rem, every card title 1rem, a section heading inside a card 0.875rem. Before, a card title fell back to the
    browser's 24px wherever no rule set it, so 16px and 24px titles sat one scroll apart. Specific rules below still win. */
 .screen .card h2 { font-size: 1rem; font-weight: 700; }
-.screen .card .budgets-header + h2 { font-size: 1.25rem; }
+.screen .card .budgets-header + h2, .screen .card h2.screen-title { font-size: 1.25rem; }   /* every sub-screen title is marked screen-title */
 .screen h3 { font-size: 0.875rem; font-weight: 600; }
 
 .bottom-nav {
@@ -374,7 +374,7 @@ button.type-tab { font: inherit; font-size: 0.75rem; color: var(--text); width: 
 
 .period-type-chips {
   display: flex;
-  gap: 8px;
+  gap: 4px;   /* all five fit without scrolling, Spanish "Personalizado" included, down to a 375px phone (owner, 2026-11-13) */
   overflow-x: auto;
   padding: 2px 0;
 }
@@ -389,7 +389,7 @@ button.type-tab { font: inherit; font-size: 0.75rem; color: var(--text); width: 
   border: 1px solid var(--border);
   background: white;
   border-radius: var(--r-pill);
-  padding: 8px 10px;
+  padding: 8px 5px;
   text-align: center;
   font-size: 0.875rem;
   font-family: inherit;
@@ -4130,3 +4130,7 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .ico-warn { color: var(--warn-text); }
 .app-toast .ico-ok, .app-toast .ico-bad, .app-toast .ico-warn { color: inherit; }   /* on the dark toast every icon is white */
 #entry-search { padding-left: 38px; background: var(--white) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236e6e73' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cline x1='21' y1='21' x2='16.6' y2='16.6'/%3E%3C/svg%3E") no-repeat 12px center / 18px 18px; }
+
+/* A loading line written as plain text gets the moving circle too (spinLoadingText_, owner 2026-11-13). */
+.has-spinner > .stmt-spinner { display: inline-block; vertical-align: -0.2em; margin-right: 0.45em; }
+#screen-statements.stmt-opening > #stmt-head-card::after { padding-left: 1.6em; background: no-repeat left center / 1.1em 1.1em url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%23d1d1d6' stroke-width='3'/%3E%3Cpath d='M12 3a9 9 0 0 1 9 9' fill='none' stroke='%230071e3' stroke-width='3'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='0.9s' repeatCount='indefinite'/%3E%3C/path%3E%3C/svg%3E"); }
