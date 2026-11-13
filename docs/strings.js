@@ -1705,6 +1705,7 @@
     "bank.paymentRequired": { en: "Installment total (what the bank charges each time)", es: "Total de la cuota (lo que cobra el banco cada vez)" },
     "bank.needPayment": { en: "Enter the installment total to work out the rate.", es: "Escribe el total de la cuota para calcular la tasa." },
     "bank.impliedRate": { en: "Rate worked out: {tea}% a year (TEA)", es: "Tasa calculada: {tea}% al año (TEA)" },
+    "bank.firstTooFar": { en: "The first installment is too far from the day you received the money: the interest for that wait is more than an installment pays. Check the date of the first installment.", es: "La primera cuota está muy lejos del día en que recibiste el dinero: el interés de esa espera es más de lo que paga una cuota. Revisa la fecha de la primera cuota." },
     "bank.firstAfterStart": { en: "The first installment must be after the loan date.", es: "La primera cuota debe ser posterior a la fecha del préstamo." },
     "bank.noRateFits": { en: "Those installments add up to less than the loan: check the numbers.", es: "Esas cuotas suman menos que el préstamo: revisa los números." },
     "history.splitLoans": { en: "On loans: {amount}", es: "En préstamos: {amount}" },

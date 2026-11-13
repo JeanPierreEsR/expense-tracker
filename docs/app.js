@@ -24637,7 +24637,7 @@ function bankGuideSteps_(ctx) {
     { target: "#bank-gen-rate-type", text: () => tr("rt.bank.rateType"), visit: "#bank-gen-rate-type", button: realNext_, before: async () => byRate() },
     { target: "#bank-gen-fee", text: () => tr("rt.bank.fee"), blurTap: true, visit: "#bank-gen-fee", button: realNext_, before: async () => auto() },
     { key: "fill", target: () => realSaveTarget_("bank-gen-btn", "bank-error"), text: () => { const e = (el("bank-error").textContent || "").trim(); return e ? tr("rt.bank.fillErr", { error: e }) : tr("rt.bank.fill"); },
-      available: auto, before: async () => { fillBase = bankFillClicks_; return auto(); }, until: () => bankFillClicks_ > fillBase && rowsOk(), ok: () => ctx.saving() || !auto() || bankDraft_.rows.length > 0, holdsUntil: "save" },
+      available: auto, before: async () => { fillBase = bankFillClicks_; return auto(); }, until: () => bankFillClicks_ > fillBase && !!bankDraft_ && bankDraft_.rows.length > 0, ok: () => ctx.saving() || !auto() || bankDraft_.rows.length > 0, holdsUntil: "save" },
     { target: () => [el("bank-rows"), el("bank-add-row"), el("bank-totals")], text: () => tr("rt.bank.manual"), blurTap: true, until: () => rowsOk() && !popTyping_(), before: async () => !auto() },
     { key: "check", target: () => [el("bank-rows"), el("bank-totals"), el("bank-opening-summary")].filter((x) => !x.hidden), text: (fix) => tr(el("bank-opening-summary").textContent === tr("bank.openingAllBefore") ? "rt.bank.allBefore" : fix ? "rt.bank.checkFix" : "rt.bank.check"), blurTap: true, button: realNext_, ok: () => ctx.saving() || rowsOk(), holdsUntil: "save" }
   ].concat(realSaveSteps_(ctx, "bank-save", "bank-error", "rt.bank.done", { find: practiceMSchedBtn_, wait: 45000 }));
@@ -27584,7 +27584,7 @@ function bankApplyOpening_() {
   document.getElementById("bank-gen-count-label").textContent = tr(today ? "bank.openingTodayCount" : "bank.count");
   bankRenderRows_();
 }
-document.getElementById("bank-opening").addEventListener("change", (e) => { syncBeforeAppDate_(document.getElementById("bank-date"), e.target.checked); bankApplyOpening_(); });
+document.getElementById("bank-opening").addEventListener("change", (e) => { syncBeforeAppDate_(document.getElementById("bank-date"), e.target.checked); bankFirstFollowsDate_(); bankApplyOpening_(); });
 autoBeforeApp_("bank-date", "bank-opening", () => !document.getElementById("bank-opening-row").hidden && !!bankDraft_ && bankDraft_.mode === "new", bankApplyOpening_);
 document.querySelectorAll('input[name="bank-opening-how"]').forEach((r) => r.addEventListener("change", bankApplyOpening_));
 document.getElementById("bank-next-number").addEventListener("input", () => bankDraft_ && bankRenderRows_());
@@ -27598,6 +27598,7 @@ function openBankLoanForm_() {
   ["bank-lender", "bank-description", "bank-amount", "bank-gen-count", "bank-gen-payment", "bank-gen-rate", "bank-gen-fee"].forEach((id) => { document.getElementById(id).value = ""; });
   document.getElementById("bank-date").value = todayLocalISO();
   document.getElementById("bank-gen-first").value = bankAddMonths_(todayLocalISO(), 1);
+  delete document.getElementById("bank-gen-first").dataset.touched;
   document.querySelector('input[name="bank-mode"][value="rate"]').checked = true;
   document.getElementById("bank-gen-rate-type").value = "tea";
   document.getElementById("bank-mode-box").hidden = false;
@@ -27688,6 +27689,17 @@ function bankApplyMode_() {
 }
 document.querySelectorAll('input[name="bank-mode"]').forEach((r) => r.addEventListener("change", bankApplyMode_));
 
+// The first installment starts one period after the date received, until the person sets it (owner, 2026-11-12: a loan dated years back kept
+// its first installment a month from today, and that whole wait became the first row's interest).
+function bankFirstFollowsDate_() {
+  const first = document.getElementById("bank-gen-first"), date = document.getElementById("bank-date").value;
+  if (first.dataset.touched || !date) return;
+  first.value = bankAddPeriod_(date, document.getElementById("bank-gen-freq").value || "monthly", 1);
+}
+document.getElementById("bank-gen-first").addEventListener("change", (e) => { e.target.dataset.touched = "1"; });
+document.getElementById("bank-date").addEventListener("change", bankFirstFollowsDate_);
+document.getElementById("bank-gen-freq").addEventListener("change", bankFirstFollowsDate_);
+
 document.getElementById("bank-gen-btn").addEventListener("click", async () => {
   const amount = bankNum_(document.getElementById("bank-amount").value);
   const count = Math.round(bankNum_(document.getElementById("bank-gen-count").value));
@@ -27732,6 +27744,12 @@ document.getElementById("bank-gen-btn").addEventListener("click", async () => {
     if (!await bankRateLooksRight_(Math.pow(1 + typedRate / 100, perYear) - 1)) return;
     // a rate per payment period: the same rate every period, no day count
     bankDraft_.rows = bankGenerateRows_(amount, count, first, 0, typedRate, fee, freq, grace, graceType);
+  }
+  if (bankDraft_.rows.some((r) => Number(r.principal) < 0)) {   // the wait before the first installment costs more interest than an installment pays
+    bankDraft_.rows = [];
+    bankRenderRows_();
+    errEl.textContent = tr("bank.firstTooFar");
+    return;
   }
   bankRenderRows_();
 });
