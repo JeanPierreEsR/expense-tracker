@@ -4075,3 +4075,9 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 /* Real tutorial vs practice, on every step (design review batch 7): green = this stays, purple = deleted at the end. */
 .spot-note[data-mode="real"] { color: var(--income-dark); font-weight: 600; }
 .spot-note[data-mode="practice"] { color: var(--investment); font-weight: 600; }
+
+/* "More details" on a new expense or income (design review batch 8). */
+.more-details-toggle { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 52px; margin: 12px 0 4px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); font: inherit; text-align: left; color: var(--text); cursor: pointer; }
+.more-details-toggle[hidden] { display: none; }
+.more-details-title { font-weight: 600; }
+.more-details-sum { font-size: 0.8125rem; color: var(--muted); }

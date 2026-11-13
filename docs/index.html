@@ -279,6 +279,13 @@
             <button type="button" class="add-inline" id="payee-suggest-apply" data-i18n="payee.use">Use this</button>
           </div>
 
+          <!-- Optional details folded behind one row on a NEW expense or income (owner, 2026-11-12): a summary of what they are set
+               to, and a tap opens them. Edits, Needs review confirmations, transfers and investments always show them. -->
+          <button type="button" class="more-details-toggle" id="more-details-toggle" aria-expanded="true" aria-controls="more-details-body" hidden>
+            <span class="more-details-title" data-i18n="entry.moreDetails">More details</span>
+            <span class="more-details-sum" id="more-details-sum"></span>
+          </button>
+          <div id="more-details-body">
           <label for="paid_by" id="paid-by-label" data-i18n="field.paidBy">Paid by</label>
           <select id="paid_by"></select>
           <p class="hint" id="paid-by-friend-hint" hidden></p>
@@ -362,6 +369,7 @@
             <select id="entry-business"></select>
           </div>
 
+          </div>
           <div id="expected-field" hidden>
             <label for="entry-expected" data-i18n="field.expected">Pays expected payment</label>
             <select id="entry-expected"></select>
@@ -2790,6 +2798,7 @@
         <button type="button" id="perf-share-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
       </div>
       <div class="budget-modal-body">
+        <p class="hint" id="perf-share-step" hidden></p>
         <p class="hint" id="perf-share-new" data-i18n="perfShare.newNote" hidden>New since you last agreed: your phone can now also tell me which actions failed, whether each bank email was confirmed, changed or discarded, and which screens you open — never what is inside. Read the text below, then keep this checked or uncheck it.</p>
         <!-- Two short lines and two answers (2026-11-04): the long letter is behind "What exactly is sent". -->
         <p class="hint" data-i18n="perfShare.short">I'm JP, who made this app. May your phone send me small counts (speed, problems, screens you use) so I can improve it? Never your expenses, amounts, names or anything you type.</p>

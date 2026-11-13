@@ -4060,6 +4060,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     errorEl.textContent = writesDone
       ? tr("entry.savedNotRefreshed", { error: err.message })
       : err.message;
+    // A refused save may be about a folded field (an account, a split): show them.
+    if (errorEl.textContent && moreDetailsFolded_()) setMoreDetailsOpen_(true);
     // The message sits next to Save: bring it into view so it is never off-screen (design review 2026-11-12).
     if (errorEl.textContent && errorEl.scrollIntoView) errorEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   } finally {
@@ -7677,8 +7679,52 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
 let newEntrySheetOpen_ = false;
 
 let entryFormLeftOpen_ = false;
+// ---- "More details": the optional fields folded on a new expense or income (owner, 2026-11-12) ----
+// Paid by, account, "not received yet", split, tags, trip and company sit behind one row with a summary of what they are set
+// to. Only a NEW expense or income folds them; an edit, a Needs review confirmation, a transfer or an investment shows them.
+let moreDetailsOpen_ = false;
+function moreDetailsFoldable_() {
+  return (selectedType === "expense" || selectedType === "income") && entryFormIsNewEntry_() && !confirmingPendingId && !editingEntryId;
+}
+function moreDetailsFolded_() { return moreDetailsFoldable_() && !moreDetailsOpen_; }
+function moreDetailsSummary_() {
+  const el = (id) => document.getElementById(id);
+  const shown = (id) => { const e = el(id); return !!e && !e.hidden && !(e.closest("[hidden]") && e.closest("[hidden]") !== el("more-details-body")); };
+  const opt = (id) => { const sel = el(id); return sel && sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent.trim() : ""; };
+  const parts = [];
+  if (shown("paid_by") && opt("paid_by")) parts.push(opt("paid_by"));
+  if (shown("payment-method-field") && el("payment_method").value) parts.push(opt("payment_method"));
+  if (shown("split-field") && el("split-toggle").checked) parts.push(tr("entry.moreSplit", { n: splitFriendIds.size }));
+  if (shown("trip-field") && el("entry-trip").value) parts.push(opt("entry-trip"));
+  if (selectedTagIds.size) parts.push(tr("entry.moreTags", { n: selectedTagIds.size }));
+  return parts.join(" · ");
+}
+function syncMoreDetails_() {
+  const toggle = document.getElementById("more-details-toggle");
+  const body = document.getElementById("more-details-body");
+  const fold = moreDetailsFoldable_();
+  const closed = fold && !moreDetailsOpen_;
+  if (toggle.hidden !== !fold) toggle.hidden = !fold;
+  if (body.hidden !== closed) body.hidden = closed;
+  const expanded = String(!closed);
+  if (toggle.getAttribute("aria-expanded") !== expanded) toggle.setAttribute("aria-expanded", expanded);
+  const sum = (moreDetailsSummary_() || "") + (closed ? " ›" : "");
+  const sumEl = document.getElementById("more-details-sum");
+  if (sumEl.textContent !== sum) sumEl.textContent = sum;
+}
+function setMoreDetailsOpen_(open) { moreDetailsOpen_ = open; syncMoreDetails_(); }
+document.getElementById("more-details-toggle").addEventListener("click", () => setMoreDetailsOpen_(!moreDetailsOpen_));
+// The form changes from many places (type tabs, category, edits, restores): follow it, writing only what really changed.
+(function watchMoreDetails_() {
+  let queued = false;
+  new MutationObserver(() => { if (queued) return; queued = true; requestAnimationFrame(() => { queued = false; syncMoreDetails_(); }); })
+    .observe(document.getElementById("entry-card"), { subtree: true, childList: true, attributes: true, attributeFilter: ["hidden", "class"] });
+  document.getElementById("entry-card").addEventListener("change", () => syncMoreDetails_());
+})();
+
 function openNewEntrySheet_() {
   if (newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId) return;
+  moreDetailsOpen_ = false;   // each new entry starts with its details folded
   const backdrop = document.getElementById("edit-entry-modal-backdrop");
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
   document.getElementById("edit-entry-modal-title").textContent = tr("entry.newTitle");
@@ -12779,7 +12825,7 @@ function renderWelcomeQuestions_() {
   } }));
   box.appendChild(more);
   welcomeEl_("welcome-error").textContent = "";
-  welcomeEl_("wq-step").textContent = tr("welcome.step", { n: 1 });
+  welcomeEl_("wq-step").textContent = tr("welcome.step", { n: 1, total: welcomeSteps_() });
 }
 // The MAIN currency has its own explicit row (a list, since 2026-10-28; it used to be a hidden double-tap on a chip). It is
 // always one of the quick currencies, and the old main one stays in the list as an ordinary currency.
@@ -13045,7 +13091,7 @@ const payFromSetting_ = (v) => { const [pay, kinds] = String(v || "").split(":")
 const payVaries_ = () => { const p = payFromSetting_(meta && meta.settings && meta.settings.pay); return p.varies && !p.salary; };
 function renderWelcomeFits_() {
   I18n.applyStatic(welcomeEl_("welcome-fits"));
-  welcomeEl_("wf-step").textContent = tr("welcome.step", { n: 2 });
+  welcomeEl_("wf-step").textContent = tr("welcome.step", { n: 2, total: welcomeSteps_() });
   const occOn = !!(meta && meta.capabilities && meta.capabilities.occupation);
   welcomeEl_("wpay-block").hidden = !occOn;
   if (occOn) fillOccupationChips_(welcomeEl_("wpay-box"), welcome_.occ || { list: [], kinds: [] }, (c) => { welcome_.occ = c; renderWelcomeFits_(); });
@@ -13066,7 +13112,7 @@ function renderWelcomeAccounts_() {
   waEl_("wa-root").hidden = inBank;
   waEl_("wa-bank").hidden = !inBank;
   if (inBank) { renderWaBank_(); return; }
-  waEl_("wa-step").textContent = tr("welcome.step", { n: 3 });
+  waEl_("wa-step").textContent = tr("welcome.step", { n: 3, total: welcomeSteps_() });
   waEl_("wa-name-block").hidden = !(meta && meta.capabilities && meta.capabilities.ownName);   // an older backend cannot take the answer
   waEl_("wa-name").value = welcome_.ownName;
   const cat = waCatalog_();
@@ -13356,7 +13402,7 @@ const WP_GROUPS = [
 const wpAllNames_ = () => WP_GROUPS.flatMap((g) => g.names()).concat(welcome_.platformsCustom);
 function renderWelcomePlatforms_() {
   I18n.applyStatic(waEl_("welcome-platforms"));
-  waEl_("wp-step").textContent = tr("welcome.step", { n: 4 });
+  waEl_("wp-step").textContent = tr("welcome.step", { n: 4, total: welcomeSteps_() });
   const box = waEl_("wp-chips");
   box.innerHTML = "";
   const chip = (name) => {
@@ -13401,6 +13447,24 @@ waEl_("wp-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { 
 waEl_("wp-back-btn").addEventListener("click", () => showWelcomeStep_(3));
 
 // The end of step 4: save the accounts, the platforms, the Business answer, the category picks, then the answers of step 1 (marked "answered" last, so an interrupted save asks again).
+// The welcome counts every screen it shows (design review 2026-11-12: "Step 1 of 4", then an uncounted 5th, the sharing
+// question): 5 while that question is still to come, else 4.
+function welcomeSteps_() { return perfShareState_().asked && !perfIsOwnerCopy_() ? 4 : 5; }
+// The tour is offered, not started (owner, 2026-11-12): "Want a 1-minute tour?" Show me / Skip. Skipping ends the welcome the
+// way the tour's own end does (a reload when the answers changed the app).
+async function offerTour_(reloadAfter) {
+  const yes = await askConfirmApp_(tr("welcome.tourAsk"), tr("welcome.tourYes"), { plain: true, cancel: tr("welcome.tourSkip") });
+  if (yes) { openTour_(reloadAfter); return; }
+  welcomeEl_("welcome-overlay").hidden = true;
+  if (reloadAfter) window.location.reload();
+}
+function openWelcomeShare_(then) {
+  const step = document.getElementById("perf-share-step");
+  step.textContent = tr("welcome.step", { n: 5, total: 5 });
+  step.hidden = false;
+  openPerfShareModal_(() => { step.hidden = true; then(); });
+}
+
 async function finishWelcome_() {
   const btn = waEl_("wp-next-btn");
   btn.disabled = true; btn.textContent = tr("welcome.saving");
@@ -13411,8 +13475,8 @@ async function finishWelcome_() {
     welcomeEl_("welcome-accounts").hidden = true;
     welcomeEl_("welcome-platforms").hidden = true;
     const toTourPreview = () => {
-      if (perfShareState_().asked && !perfIsOwnerCopy_()) openTour_(true);
-      else openPerfShareModal_(() => openTour_(true));
+      if (perfShareState_().asked && !perfIsOwnerCopy_()) offerTour_(true);
+      else openWelcomeShare_(() => offerTour_(true));
     };
     toTourPreview();   // the Bank emails sheet is a "Getting started" step on Home now, not a sheet after the welcome
     return;
@@ -13452,8 +13516,8 @@ async function finishWelcome_() {
   // The new accounts, platforms and categories must show up in the app right away (entry form, Accounts & cards): reload on the way out.
   const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName || !!(welcome_.occ && welcome_.occ.list.length);
   const toTour = () => {
-    if (perfShareState_().asked) openTour_(reloadAfter);
-    else openPerfShareModal_(() => openTour_(reloadAfter));   // the last welcome question: share app speed with the owner
+    if (perfShareState_().asked) offerTour_(reloadAfter);
+    else openWelcomeShare_(() => offerTour_(reloadAfter));   // the last welcome question (step 5 of 5): share app speed with the owner
   };
   // Which inbox is read, and how other banks' e-mails get there, is a "Getting started" step on Home (renderFirstSteps_), not a sheet here.
   toTour();
@@ -23495,6 +23559,8 @@ function practiceSteps_() {
         // "Paid by" stays "Me" (the person paid the bill): no step of its own any more (owner's plan 2026-11-05).
         const el = document.getElementById("paid_by"); if (el.value !== "me") { el.value = "me"; el.dispatchEvent(new Event("change", { bubbles: true })); }
       } },
+    { key: "unfold", target: "#more-details-toggle", text: () => tr("spot.g.moreDetails"), tap: "#more-details-toggle", until: () => !moreDetailsFolded_(),
+      before: async () => moreDetailsFolded_() },   // the details are folded on a new entry: the person opens them (owner, 2026-11-12)
     { key: "account", target: "#payment-method-field", text: (fix) => tr(fix ? "spot.p.s6fix" : "spot.p.s6"), visit: "#payment_method",
       ok: () => !hasAccounts() || !!document.getElementById("payment_method").value, holdsUntil: "save" },
     { key: "toggle", target: "#split-field .checkbox-row", text: () => tr("spot.p.s7"), until: () => document.getElementById("split-toggle").checked,
@@ -23646,7 +23712,7 @@ function startGuidedEntry_() {
   if (!newEntrySheetOpen_ || Spotlight.isRunning()) return;
   guided_ = { savedId: "", split: null };
   Spotlight.run(realSteps_(guidedEntrySteps_()), {
-    labels: { exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },   // (no "this is real" line: its first card says so; it was said twice, Wilmer)
+    labels: realLabels_(),   // the green "this is real" note on every step (owner, 2026-11-12; it was left out to avoid saying it twice with the first card, Wilmer — the first card's wording is for the tutorial rework)
     onFinish: async (how) => {
       guidedAnswered_();   // finished or Exit (any step) counts; closing the app midway does not (Sol, Rosa, 2026-11-09)
       if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0);
@@ -23680,6 +23746,9 @@ function guidedEntrySteps_() {
     { field: "currency", target: "#currency-chips", text: () => tr("spot.g.currency"), tap: "#currency-chips", button: next },
     { field: "description", target: "#description", text: () => tr("spot.g.desc"), blurTap: true, visit: "#description", button: next },
     { field: "date", target: "#date", text: () => tr("spot.g.date"), visit: "#date", button: next },
+    // The optional details are folded on a new entry: the person taps to open them (owner, 2026-11-12).
+    { key: "unfold", target: "#more-details-toggle", text: () => tr("spot.g.moreDetails"), tap: "#more-details-toggle", until: () => !moreDetailsFolded_(),
+      available: () => is("expense")() || is("income")(), before: async () => moreDetailsFolded_() },
     { target: "#paid_by", text: () => tr(selectedType === "income" ? "spot.g.payer" : "spot.g.paidBy"), visit: "#paid_by", button: next,
       available: () => is("expense")() || is("income")(), before: async () => (is("expense")() || is("income")()) && shownNow("paid_by") },
     { field: selectedType === "income" ? "accountIn" : "account", target: "#payment-method-field", text: () => tr(accountText[selectedType] || "spot.g.accExp"), visit: "#payment_method", button: next,
@@ -24250,6 +24319,7 @@ function startSplitReal_() {
   const onSubmit = () => { submitted = true; };
   el("entry-form").addEventListener("submit", onSubmit, true);
   const steps = [];
+  if (moreDetailsFolded_()) steps.push({ target: "#more-details-toggle", text: () => tr("spot.g.moreDetails"), tap: "#more-details-toggle", until: () => !moreDetailsFolded_() });
   if (!splitOn()) steps.push({ target: "#split-field .checkbox-row", text: () => tr("rt.split.toggle"), until: splitOn });
   if (!amountOk()) steps.push({ key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
     until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || amountOk(), holdsUntil: "save" });

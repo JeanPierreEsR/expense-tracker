@@ -145,5 +145,6 @@ test("the welcome has the 'What fits you?' screen with two groups; the Business 
   assert.match(app, /\(welcome_\.fits\.length \|\| occ\) && meta && meta\.capabilities && meta\.capabilities\.profile/, "an older backend is never asked");
   assert.match(app, /categories-suggest-btn"\)\.hidden = !\(meta && meta\.capabilities && meta\.capabilities\.profile\)/);
   assert.match(app, /FITS_GROUPS_ = \[\s*\{ title: "fits\.g\.life"[\s\S]*"fits\.g\.spheres"/);
-  assert.match(doc("docs", "strings.js"), /"welcome\.step": \{ en: "Step \{n\} of 4"/);
+  // Every screen is counted, the sharing question included (owner, 2026-11-12): "Step {n} of {total}", 5 while it is still to come.
+  assert.match(doc("docs", "strings.js"), /"welcome\.step": \{ en: "Step \{n\} of \{total\}"/);
 });
