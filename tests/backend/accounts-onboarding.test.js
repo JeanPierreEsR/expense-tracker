@@ -125,12 +125,21 @@ test("Yape and Plin links: saved per currency, changeable, and the app finds the
   assert.ok(pms.length >= 3);
 });
 
+test("Plin works only with Scotiabank, BBVA and Interbank accounts (owner, 2026-11-13: not SIP)", () => {
+  const rt = friendCopy();
+  const r = save(rt, [acct("s", "SIP", "debit_pen"), acct("c", "Scotiabank", "debit_pen")], {}, "es");
+  const id = Object.fromEntries(r.accounts.map((a) => [a.cid, a.id]));
+  assert.throws(() => rt.api("saveRailLinks", { plin_pen: id.s }), /solo funciona con cuentas de Scotiabank|only works with Scotiabank/);
+  rt.api("saveRailLinks", { plin_pen: id.c });
+  assert.equal(rt.api("getMeta").settings.plin_pen, id.c);
+});
+
 test("Yape works only with BCP accounts and Plin only with other banks (never BCP)", () => {
   const rt = friendCopy();
   const r = save(rt, [acct("b", "BCP", "debit_pen"), acct("i", "Interbank", "debit_pen"), acct("v", "BBVA", "sueldo")], {}, "es");
   const id = Object.fromEntries(r.accounts.map((a) => [a.cid, a.id]));
   assert.throws(() => rt.api("saveRailLinks", { yape_pen: id.i }), /solo funciona con cuentas BCP|only works with BCP/);
-  assert.throws(() => rt.api("saveRailLinks", { plin_pen: id.b }), /no funciona con cuentas BCP|doesn't work with BCP/);
+  assert.throws(() => rt.api("saveRailLinks", { plin_pen: id.b }), /solo funciona con cuentas de Scotiabank|only works with Scotiabank/);
   rt.api("saveRailLinks", { yape_pen: id.b, plin_pen: id.v });
   const s = rt.api("getMeta").settings;
   assert.equal(s.yape_pen, id.b); assert.equal(s.plin_pen, id.v);
@@ -151,7 +160,7 @@ test("Only Interbank credit cards can use Plin; no other card uses Yape or Plin"
   assert.throws(() => rt.api("saveRailLinks", { plin_pen: id.c2 }));
   assert.throws(() => rt.api("saveRailLinks", { plin_pen: id.c3 }));
   assert.throws(() => rt.api("saveRailLinks", { yape_pen: id.c2 }), /solo funciona con cuentas BCP|only works with BCP/);
-  assert.throws(() => rt.api("saveRailLinks", { plin_pen: id.b }), /no funciona con cuentas BCP|doesn't work with BCP/, "a BCP DEBIT account still cannot");
+  assert.throws(() => rt.api("saveRailLinks", { plin_pen: id.b }), /solo funciona con cuentas de Scotiabank|only works with Scotiabank/, "a BCP DEBIT account still cannot");
   // the welcome step saves an Interbank card link too, and drops any other card's
   const rt2 = friendCopy();
   const r2 = save(rt2, [acct("k", "Interbank", "credit")], { plin_pen: "k" }, "es");
@@ -301,7 +310,7 @@ test("Plin rides on several accounts: a savings account and an Interbank card; p
   assert.equal(rt.run(`railAccount_('plin', 'PEN', getAllRows('Payment Methods')).id`), id.s);
   // the same rules as the main link
   assert.throws(() => rt.api("saveRailLinks", { plin_pen_more: id.c + "," + id.o }));
-  assert.throws(() => rt.api("saveRailLinks", { plin_pen_more: id.b }), /no funciona con cuentas BCP|doesn't work with BCP/);
+  assert.throws(() => rt.api("saveRailLinks", { plin_pen_more: id.b }), /solo funciona con cuentas de Scotiabank|only works with Scotiabank/);
   assert.equal(rt.api("getMeta").settings.plin_pen_more, id.c);
   // an account with Plin is not deleted while it is linked, also when it is not the main one
   assert.throws(() => rt.api("deletePaymentMethod", { id: id.c }));

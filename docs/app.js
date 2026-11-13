@@ -13362,14 +13362,14 @@ function renderWaWalletQuestion_() {
     row.appendChild(b);
   });
   box.appendChild(row);
-  // Plin: which bank it is on (any bank but BCP).
+  // Plin: which bank it is on (Scotiabank, BBVA or Interbank).
   if (welcome_.plinAsk && !plinOn) {
     const lab = document.createElement("label");
     lab.textContent = tr("wa.plinWhich");
     const sel = document.createElement("select");
     const cat = waCatalog_();
     const first = document.createElement("option"); first.value = ""; first.textContent = tr("wa.plinPick"); sel.appendChild(first);
-    cat.main.concat(cat.other).filter((bk) => !isBcp_(bk.name)).forEach((bk) => { const o = document.createElement("option"); o.value = bk.name; o.textContent = bk.name; sel.appendChild(o); });
+    cat.main.concat(cat.other).filter((bk) => plinBank_(bk.name)).forEach((bk) => { const o = document.createElement("option"); o.value = bk.name; o.textContent = bk.name; sel.appendChild(o); });
     sel.addEventListener("change", () => { if (!sel.value) return; welcome_.plinAsk = false; waSetWallet_("plin_pen", sel.value); renderWelcomeAccounts_(); });
     box.appendChild(lab);
     box.appendChild(sel);
@@ -13381,8 +13381,11 @@ function renderWaWalletQuestion_() {
 
 // Yape works only with BCP accounts; Plin works with other banks, never BCP. Soles accounts for the _pen links, dollar accounts for _usd.
 const isBcp_ = (bankName) => String(bankName || "").trim().toLowerCase() === "bcp";
+// Plin works only with these banks (owner, 2026-11-13); the server has the same list (PLIN_BANKS_ in backend/Accounts.gs).
+const PLIN_BANKS_ = ["scotiabank", "bbva", "interbank"];
+const plinBank_ = (bankName) => PLIN_BANKS_.includes(String(bankName || "").trim().toLowerCase());
 // Which wallet checkboxes an account offers (owner, 2026-10-23): Yape only on a BCP debit account (soles, and optionally dollars);
-// Plin only in soles, on another bank's debit account or on an Interbank credit card (no other card offers a wallet). `kind` is the welcome kind (debit_pen, debit_usd, sueldo,
+// Plin only in soles, on a Scotiabank, BBVA or Interbank debit account or an Interbank credit card (no other card offers a wallet). `kind` is the welcome kind (debit_pen, debit_usd, sueldo,
 // credit) or, in the More window for an account made before kinds existed, empty - then a BCP debit account offers both Yape slots.
 function walletSlots_(bankName, type, kind) {
   if (type === "credit") {
@@ -13394,7 +13397,7 @@ function walletSlots_(bankName, type, kind) {
   const cur = kindCurrency_(kind), usd = cur === "USD", pen = cur === "PEN";
   if (cur && !usd && !pen) return [];   // Yape and Plin move only soles and dollars
   if (isBcp_(bankName)) return usd ? ["yape_usd"] : pen ? ["yape_pen"] : ["yape_pen", "yape_usd"];
-  return usd ? [] : ["plin_pen"];
+  return usd || !plinBank_(bankName) ? [] : ["plin_pen"];
 }
 // Tick boxes for `slots`. `ticked` is an array of keys; `onToggle(key, checked)` may return false to refuse (the box is put back).
 function renderWalletBoxes_(box, slots, ticked, onToggle) {
