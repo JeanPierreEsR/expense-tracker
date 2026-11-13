@@ -13832,7 +13832,7 @@ function tourChrome_(i) {
   // "Skip all" from the second card on (owner, 2026-11-04): on the first one it read as the way forward, before the person had seen any card.
   welcomeEl_("tour-skip-btn").style.visibility = last ? "hidden" : "visible";
 }
-function tourSceneCtx_() { return { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label, restore: !!((meta && meta.capabilities) || {}).entriesRestore }; }
+function tourSceneCtx_() { return { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label, restore: !!((meta && meta.capabilities) || {}).entriesRestore, icon: lineIcon_ }; }
 function previewTourSlide_(sl) {
   if (typeof TourScenes !== "undefined") TourScenes.preview(sl.key, sl.stage, tourSceneCtx_());
 }

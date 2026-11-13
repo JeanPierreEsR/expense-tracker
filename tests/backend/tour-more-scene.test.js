@@ -13,32 +13,19 @@ const app = fs.readFileSync(path.join(DOCS, "app.js"), "utf8");
 const STRINGS = require(path.join(DOCS, "strings.js"));
 
 const scene = scenes.slice(scenes.indexOf("SCENES.more = {"), scenes.indexOf("SCENES.statements = {"));
-const drawn = [...scene.matchAll(/card\(\[([^\]]*)\]/g)].flatMap((m) => [...m[1].matchAll(/"([A-Za-z]+)"/g)].map((k) => k[1]));
-const moreScreen = html.slice(html.indexOf('id="screen-more"'), html.indexOf('id="screen-recurring"'));
 
-test("the More scene draws rows (it was not emptied by accident)", () => {
-  assert.ok(drawn.length >= 10, drawn.join(","));
-  assert.ok(drawn.includes("currencies") && drawn.includes("myData") && drawn.includes("myProfile") && drawn.includes("bankEmails"));
+// Since 2026-11-13 the scene COPIES the person's live More tab (its rows, groups, icons and words) instead of drawing its own list: it
+// can no longer ask for removed rows or draw owner-only rows on a friend's copy. These checks keep it that way.
+test("the More scene copies the live More tab, only its cards on show", () => {
+  assert.match(scene, /document\.getElementById\("screen-more"\)/);
+  assert.match(scene, /!c\.hidden && c\.classList\.contains\("card"\)/);
+  assert.ok(!/tr\("more\./.test(scene), "no row is drawn from its own text any more");
+  assert.ok(html.includes('<div id="screen-more" class="screen"'), "the More tab is still there to copy");
 });
 
-test("every row the scene draws is a text in both languages and a real row of the More tab", () => {
-  for (const k of drawn) {
-    const t = STRINGS["more." + k];
-    assert.ok(t && t.en && t.es, `more.${k} has no text`);
-    assert.ok(moreScreen.includes(`data-i18n="more.${k}"`), `more.${k} is not a row of More any more`);
-  }
-});
-
-test("the rows the scene does not draw (owner-only and friend-only) are not drawn by mistake", () => {
-  for (const gone of ["exchangeRates", "mainCurrency", "statements", "export", "devices", "privacy", "feedback", "extras", "perfShare", "ownerNames"]) {
-    assert.ok(!drawn.includes(gone), gone + " no longer exists as a More row");
-  }
-  for (const friendsOnly of ["feedbackPrivacy", "friends", "perf"]) assert.ok(!drawn.includes(friendsOnly), friendsOnly + " is not on every copy");
-});
-
-test("the finger taps a row that is drawn", () => {
-  const timeline = scene.slice(scene.indexOf("timeline(p, ctx)"));
-  for (const m of timeline.matchAll(/p\.rows\.([A-Za-z]+)/g)) assert.ok(drawn.includes(m[1]), m[1]);
+test("a copy is only a picture: no ids, translation hooks or screen names of its own", () => {
+  const strip = scenes.slice(scenes.indexOf("function strip(el)"), scenes.indexOf("function copyOf("));
+  for (const a of ["id", "data-i18n", "data-screen"]) assert.ok(strip.includes(`"${a}"`), a);
 });
 
 test("the More card's texts name today's things, and friends' copies get the Feedback & privacy sentence", () => {

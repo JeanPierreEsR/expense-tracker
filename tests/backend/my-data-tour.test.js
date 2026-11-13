@@ -1,6 +1,6 @@
-// The My data tour card and the Export practice (owner's plan, 2026-11-03). The scene draws the hub's rows from text keys "md.<name>" built piece
-// by piece (the plain "every text exists" test cannot see those), so these checks close the gap: every row the scene draws is a text in both
-// languages AND a real row of the My data hub; the card is in the Advanced list; the Export practice is wired to its screen and its texts exist.
+// The My data tour card and the Export practice (owner's plan, 2026-11-03). Since 2026-11-13 the scene COPIES the live hub (its rows, icons
+// and words, Recently deleted only where the app shows it) instead of drawing its own list, so it cannot fall behind the hub; these checks keep
+// it that way. The card is in the Advanced list; the Export practice is wired to its screen and its texts exist.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -14,27 +14,17 @@ const STRINGS = require(path.join(DOCS, "strings.js"));
 
 const scene = scenes.slice(scenes.indexOf("SCENES.mydata = {"), scenes.indexOf("// ---- The big picture, as a flow chart"));
 const hub = html.slice(html.indexOf('id="screen-my-data"'), html.indexOf('id="screen-my-profile"'));
-const drawn = [...new Set([...scene.matchAll(/\["([a-z]+)", "[^"\w]+"\]/g)].map((m) => m[1]))];   // (tidy appears in both branches of the Recently deleted choice)
-
-test("the My data scene draws the hub's five rows (it was not emptied by accident)", () => {
-  assert.deepEqual(drawn.sort(), ["bank", "deleted", "export", "import", "tidy"]);
-});
-
-test("every row and heading the scene draws is a text in both languages and a real part of the hub", () => {
-  for (const k of drawn) {
-    const t = STRINGS["md." + k];
-    assert.ok(t && t.en && t.es, `md.${k} has no text`);
-    assert.ok(hub.includes(`data-i18n="md.${k}"`), `md.${k} is not a row of the My data hub`);
-  }
-  for (const head of ["md.title", "md.bringIn", "md.tidyHead", "md.takeOut"]) {
+test("the My data scene copies the live hub and the finger visits only the rows on show", () => {
+  assert.match(scene, /document\.querySelector\("#screen-my-data \.card"\)/);
+  assert.match(scene, /\.md-row:not\(\[hidden\]\)/, "a hidden row (Recently deleted on a copy that cannot restore) is never visited");
+  for (const head of ["md.title", "md.bringIn", "md.tidyHead", "md.takeOut", "md.bank", "md.import", "md.tidy", "md.deleted", "md.export"]) {
     assert.ok(STRINGS[head].en && STRINGS[head].es, head);
     assert.ok(hub.includes(`data-i18n="${head}"`), head + " is not on the hub");
   }
+  assert.ok(hub.includes('class="card"'), "the hub is one card the scene can copy");
 });
 
-test("Recently deleted is drawn only where the app shows it, and the finger only taps drawn rows", () => {
-  assert.match(scene, /ctx\.restore \?/);
-  assert.match(app, /restore: !!\(\(meta && meta\.capabilities\) \|\| \{\}\)\.entriesRestore/);
+test("the card mentions Recently deleted only where the app shows it", () => {
   assert.match(app, /entriesRestore\) body \+= tr\("tour\.mydata\.deleted"\)/);
 });
 
