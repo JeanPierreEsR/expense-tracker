@@ -1987,7 +1987,11 @@ function populateRepaymentFriendOptions_() {
   select.innerHTML = "";
   // The trips' hidden group friends come last, so a group settlement or group cash loan can also be entered
   // from here (the trip screen's "Group settlement" does the same through the same repayment engine).
-  plainFriends_().concat(groupFriendsNewestFirst_()).forEach((f) => {
+  // People with something owed either way come first (design review 2026-11-12); the rest keep their order. Names only:
+  // the phone's own picker cuts long lines, so the balance shows in one line under it once a person is picked.
+  const hasBalance = (f) => !!loansLastBalances_ && loansLastBalances_.some((b) => b.friend_id === f.id && (b.balances || []).some((x) => Math.abs(Number(x.net) || 0) > 0.004));
+  const plain = plainFriends_();
+  plain.filter(hasBalance).concat(plain.filter((f) => !hasBalance(f))).concat(groupFriendsNewestFirst_()).forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
     opt.textContent = friendLabel_(f);
@@ -2120,13 +2124,23 @@ function syncNothingOwedLine_() {
   const friendId = document.getElementById("repayment-friend").value;
   const show = repaymentActive_() && transferKind_() === "repayment" && entryFormIsNewEntry_() && !!((meta && meta.capabilities) || {}).repayNothingOwed &&
     friendId && friendId !== "__add__";
-  if (!show) { line.hidden = true; return; }
+  if (!show) { line.hidden = true; line.classList.remove("owed-some"); return; }
   if (!loansLastBalances_) {
-    line.hidden = true;
+    line.hidden = false;
+    line.classList.remove("owed-some");
+    line.textContent = tr("common.loading");   // the balance takes a moment the first time (owner: a short wait is fine)
     if (!nothingOwedFetching_) {
       nothingOwedFetching_ = true;
-      callApi("listLoanBalances", {}).then((b) => { if (!loansLastBalances_) loansLastBalances_ = (b && b.balances) || b; syncNothingOwedLine_(); })
-        .catch(() => {}).finally(() => { nothingOwedFetching_ = false; });
+      callApi("listLoanBalances", {}).then((b) => {
+        if (!loansLastBalances_) loansLastBalances_ = (b && b.balances) || b;
+        if (!repaymentFriendTouched_ && !repaymentAutoPickedId_) {   // now the people with a balance can go first
+          populateRepaymentFriendOptions_();
+          const sel = document.getElementById("repayment-friend");
+          if (sel.options.length && sel.options[0].value !== "__add__") sel.value = sel.options[0].value;
+          updateAutoTransferDescription_();
+        }
+        syncNothingOwedLine_();
+      }).catch(() => { line.hidden = true; }).finally(() => { nothingOwedFetching_ = false; });
     }
     return;
   }
@@ -2136,11 +2150,47 @@ function syncNothingOwedLine_() {
   const row = b && (b.balances || []).find((l) => String(l.currency).toUpperCase() === currency);
   // `open` (each way separately) where the server sends it: a debt both ways nets out in `net`.
   const owed = row && row.open ? Number(row.open[dir] || 0) > 0.004 : !!row && (dir === "they_owe_me" ? row.net : -row.net) > 0.004;
-  line.hidden = owed;
+  const f = (meta.friends || []).find((x) => x.id === friendId);
+  line.hidden = false;
+  line.classList.toggle("owed-some", owed);
   if (!owed) {
-    const f = (meta.friends || []).find((x) => x.id === friendId);
     line.textContent = tr(dir === "they_owe_me" ? "owed.lineTheyOwe" : "owed.lineIOwe", { friend: f ? f.name : "", cur: currency });
+    fillRepaymentAmount_(0);
+    return;
   }
+  // What is owed that way, said under the person and filled in as the amount (the same as Loans → Record repayment).
+  const amount = row.open ? Number(row.open[dir] || 0) : Math.abs(Number(row.net) || 0);
+  line.textContent = tr(dir === "they_owe_me" ? "owed.lineOwesYou" : "owed.lineYouOwe", { amount: formatAmount(amount, currency) });
+  fillRepaymentAmount_(amount);
+}
+
+// The amount the form filled in itself (never over one the person typed), and when: a Save within 3 s of it, untouched,
+// asks for a second tap first (the same safeguard as the Loans repayment window).
+let entryRepayFill_ = null;   // { value, at, armed }
+function fillRepaymentAmount_(amount) {
+  const box = document.getElementById("amount");
+  const mine = entryRepayFill_ && box.value === entryRepayFill_.value;
+  if (box.value.trim() && !mine) return;   // the person typed their own amount
+  if (amount > 0.004) {
+    box.value = amount.toFixed(2);
+    entryRepayFill_ = { value: box.value, at: Date.now(), armed: false };
+  } else if (mine) {
+    box.value = "";
+    entryRepayFill_ = null;
+  }
+}
+document.getElementById("amount").addEventListener("input", () => {
+  if (entryRepayFill_ && entryRepayFill_.armed) document.getElementById("submit-btn").textContent = tr("entry.save");   // only new entries arm it
+  entryRepayFill_ = null;
+});
+// True when this Save tap should only arm the second-tap safeguard.
+function entryRepayTooQuick_() {
+  const g = entryRepayFill_;
+  if (!g || g.armed || !repaymentActive_() || transferKind_() !== "repayment") return false;
+  if (document.getElementById("amount").value !== g.value || Date.now() - g.at > REPAY_QUICK_MS_) return false;
+  g.armed = true;
+  document.getElementById("submit-btn").textContent = tr("settle.tapAgainAll", { amount: formatAmount(parseFloat(g.value), document.getElementById("currency").value.toUpperCase()) });
+  return true;
 }
 
 document.getElementById("transfer-kind").addEventListener("change", () => {
@@ -3270,6 +3320,7 @@ async function reopenRefusedConfirm_(id, action, reason) {
 document.getElementById("entry-form").addEventListener("submit", async (e) => {
   if (document.getElementById("entry-card").classList.contains("entry-loading")) { e.preventDefault(); return; }
   e.preventDefault();
+  if (entryRepayTooQuick_()) return;   // a repayment amount the form filled in, saved too quickly to have been read
   const submitBtn = document.getElementById("submit-btn");
   const errorEl = document.getElementById("form-error");
   errorEl.textContent = "";
@@ -21541,7 +21592,7 @@ function renderProjectionsSummary_(p) {
         <span class="summary-value${p.loans > 0.004 ? " pos-green" : ""}">${formatPenSigned_(p.loans)}</span>
       </div>` : ""}
       <div class="summary-item">
-        <span class="summary-label">${tr("summary.net")}</span>
+        <span class="summary-label">${tr(periodType === "month" ? "projections.netMonthEnd" : "projections.netPeriodEnd")}</span>
         <span class="summary-value">${formatPenSigned_(p.net)}</span>
       </div>
     </div>
@@ -26065,13 +26116,22 @@ async function openLoanDetail(friendId, friendName, projectId) {
       return (n > 0 ? "+" : "−") + `${cur} ${moneyFmt(Math.abs(n))}`;
     });
   // In words, not "Net" (Rosa, Marta, 2026-11-09).
-  const netSide = (sign, key) => {
-    const parts = Object.keys(netByCurrency).filter((cur) => sign * netByCurrency[cur] > 0.004).map((cur) => `${sign > 0 ? "+" : "−"}${cur} ${moneyFmt(Math.abs(netByCurrency[cur]))}`);
-    return parts.length ? tr(key, { parts: parts.join(" · ") }) : "";
-  };
-  document.getElementById("loan-detail-subtitle").textContent = netParts.length
-    ? [netSide(1, "loanDetail.owesYou"), netSide(-1, "loanDetail.youOweThem")].filter(Boolean).join(" · ")
-    : tr("loanDetail.settled");
+  // The person's total is the screen's headline (design review 2026-11-12: it was small grey text under big debt rows):
+  // a small label, then each currency's amount large. Its text reads the same as before (the repayment history reuses it).
+  const sub = document.getElementById("loan-detail-subtitle");
+  if (netParts.length) {
+    const side = (sign, key) => {
+      const curs = Object.keys(netByCurrency).filter((cur) => sign * netByCurrency[cur] > 0.004);
+      if (!curs.length) return "";
+      const amts = curs.map((cur) => `<span class="ld-head-amt${sign > 0 ? " pos" : ""}">${sign > 0 ? "+" : "−"}${escapeHtml(cur)} ${moneyFmt(Math.abs(netByCurrency[cur]))}</span>`).join(" ");
+      return `<span class="ld-head-side"><span class="ld-head-label">${escapeHtml(tr(key))}</span> ${amts}</span>`;
+    };
+    sub.innerHTML = [side(1, "loanDetail.owesYouLabel"), side(-1, "loanDetail.youOweThemLabel")].filter(Boolean).join(" ");
+    sub.classList.add("ld-headline");
+  } else {
+    sub.textContent = tr("loanDetail.settled");
+    sub.classList.remove("ld-headline");
+  }
 
   // Friend-level, not per-loan — recordRepayment (Loans.gs) figures out
   // on its own which loan(s) an amount actually applies to (see
@@ -26138,6 +26198,8 @@ async function openLoanDetail(friendId, friendName, projectId) {
     }
   };
 
+  renderForgiveAny_(pending.filter((l) => !l.schedule), friendId, friendName);   // a bank does not forgive: never a loan with a schedule
+
   detailActions.hidden = false;
   if (firstOpen) { popTipVisit_("loanScreen"); watchForgiveTip_(); return; }
   const backdrop = document.getElementById("loan-detail-modal-backdrop");
@@ -26156,6 +26218,36 @@ function loanProjectPillHtml_(l) {
 // Shared by openLoanDetail's two sections (pending / already paid) so a
 // row looks and behaves identically in either — only which list it lands
 // in differs.
+// One grey "Forgive part or all of a debt…" at the bottom of the person's screen (owner, 2026-11-12). One debt: it opens the
+// Forgive window for it; several: a short list under the button to pick which one.
+function renderForgiveAny_(forgivable, friendId, friendName) {
+  const box = document.getElementById("loan-forgive-any");
+  const btn = document.getElementById("loan-forgive-any-btn");
+  const pick = document.getElementById("loan-forgive-pick");
+  pick.hidden = true;
+  pick.innerHTML = "";
+  box.hidden = !forgivable.length;
+  if (!forgivable.length) return;
+  const friend = { id: friendId, name: friendName };
+  btn.dataset.direction = forgivable[0].direction;   // the bubble words it by who owes whom
+  btn.setAttribute("aria-expanded", "false");
+  btn.onclick = () => {
+    if (forgivable.length === 1) { openForgiveModal(forgivable[0], friend); return; }
+    pick.hidden = !pick.hidden;
+    btn.setAttribute("aria-expanded", String(!pick.hidden));
+    if (pick.children.length) return;
+    forgivable.forEach((l) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "more-list-item loan-forgive-choice";
+      const sign = l.direction === "they_owe_me" ? "+" : "−";
+      b.innerHTML = `<span>${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="hint md-sub">${listDate_(l.date)}</span></span><span class="loan-detail-row-amount ${l.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${sign}${escapeHtml(l.currency)} ${moneyFmt(l.remaining)}</span>`;
+      b.addEventListener("click", () => openForgiveModal(l, friend));
+      pick.appendChild(b);
+    });
+  };
+}
+
 function buildLoanDetailRow_(l, friendId, friendName) {
   const kind = l.direction === "they_owe_me" ? "owed-to-me" : "i-owe";
   const sign = l.direction === "they_owe_me" ? "+" : "−";
@@ -26165,7 +26257,8 @@ function buildLoanDetailRow_(l, friendId, friendName) {
       ? tr("loanDetail.fullyRepaid")
       : [
           l.overdue ? tr("loanDetail.overdueSince", { date: listDate_(l.due_date) }) : "",
-          l.settled - (l.forgiven_so_far || 0) > 0.004 ? tr("loanDetail.repaidSoFar", { cur: l.currency, amount: moneyFmt(l.settled - (l.forgiven_so_far || 0)) }) : "",
+          // "left of" the original amount, so the big figure on the right reads as what is still owed (design review 2026-11-12).
+          l.settled > 0.004 ? tr("loanDetail.leftOf", { cur: l.currency, left: moneyFmt(l.remaining), total: moneyFmt(l.amount) }) : "",
           l.forgiven_so_far > 0.004 ? tr("loanDetail.forgivenSoFar", { cur: l.currency, amount: moneyFmt(l.forgiven_so_far) }) : ""
         ].filter(Boolean).join(" · ");
 
@@ -26230,20 +26323,8 @@ function buildLoanDetailRow_(l, friendId, friendName) {
     });
     row.appendChild(applyBtn);
   }
-  if (l.status !== "forgiven" && l.remaining > 0.004 && !l.schedule) {   // a bank does not forgive: no Forgive on a loan with a schedule
-    const forgiveBtn = document.createElement("button");
-    forgiveBtn.type = "button";
-    forgiveBtn.className = "add-inline loan-detail-forgive-btn loan-forgive-btn";
-    forgiveBtn.dataset.direction = l.direction;
-    forgiveBtn.textContent = tr(l.direction === "i_owe_them" ? "loanDetail.theyForgave" : "loanDetail.forgive");
-    forgiveBtn.setAttribute("aria-label", `${forgiveBtn.textContent}: ${l.description || tr("loan.word")}`);
-    forgiveBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openForgiveModal(l, { id: friendId, name: friendName });
-    });
-    row.appendChild(forgiveBtn);
-  }
-
+  // Forgive is no longer on every row (design review 2026-11-12: it looked like the main action): one button at the bottom of
+  // the person's screen (renderForgiveAny_) and one in the loan's own window.
   return row;
 }
 
@@ -28247,6 +28328,7 @@ function openLoanModal(loan, returnFriend, opts) {
   document.getElementById("loan-delete-btn").hidden = !loan;
   // A "paid earlier, no loan" payment can be put on loans from here too (same as the button on the person's screen).
   document.getElementById("loan-apply-btn").hidden = !(loan && returnFriend && (loan.unapplied || loan.unapplied_sources) && loan.status !== "forgiven" && loan.remaining > 0.004);
+  document.getElementById("loan-forgive-btn").hidden = !(loan && returnFriend && loan.status !== "forgiven" && loan.remaining > 0.004 && !loan.schedule);
   document.getElementById("loan-form-error").textContent = "";
   document.getElementById("loan-friend-error").hidden = true;
   populateLoanFriendOptions();
@@ -28327,6 +28409,13 @@ document.getElementById("loan-apply-btn").addEventListener("click", () => {
   if (!loan || !friend) return;
   closeLoanModal();
   openApplyUnapplied_(loan, friend);
+});
+document.getElementById("loan-forgive-btn").addEventListener("click", () => {
+  const loan = loanModalApplyLoan_;
+  const friend = loanModalReturnFriend;
+  if (!loan || !friend) return;
+  closeLoanModal();
+  openForgiveModal(loan, friend);
 });
 document.getElementById("add-loan-btn").addEventListener("click", () => openLoanModal(null, null));
 document.getElementById("add-loan-owe-btn").addEventListener("click", () => openLoanModal(null, null, { direction: "i_owe_them" }));
@@ -28540,6 +28629,27 @@ function defaultRepaymentAccount_() {
   return ids.includes(last) ? last : (ids[0] || "");
 }
 
+// The whole balance is filled in on purpose (fewer taps, owner 2026-11-12), with two safeguards: Save names the amount it
+// records, and a Save within 3 s of the window appearing, with that amount untouched, asks for a second tap first
+// (a tap too quick to have read it). Editing a recorded repayment keeps "Save changes".
+let repayQuickGuard_ = null;   // { value: the amount filled in, at: when the form was shown, armed: waiting for the 2nd tap }
+const REPAY_QUICK_MS_ = 3000;
+function updateRepaySaveLabel_() {
+  if (editingSettlementId) return;
+  const btn = document.getElementById("settlement-save-btn");
+  const v = parseFloat(document.getElementById("settlement-amount").value);
+  btn.textContent = v > 0 ? tr("settle.recordAmount", { amount: formatAmount(v, repaymentCurrency) }) : tr("settle.save");
+}
+// True when this tap should only arm the second-tap safeguard.
+function repayTooQuick_() {
+  const g = repayQuickGuard_;
+  if (editingSettlementId || !g || g.armed) return false;
+  if (document.getElementById("settlement-amount").value !== g.value || Date.now() - g.at > REPAY_QUICK_MS_) return false;
+  g.armed = true;
+  document.getElementById("settlement-save-btn").textContent = tr("settle.tapAgainAll", { amount: formatAmount(parseFloat(g.value), repaymentCurrency) });
+  return true;
+}
+
 // Back to "add a new repayment" — the default state the form opens in,
 // and where "Cancel edit" returns it to without closing the whole modal.
 function resetSettlementForm_() {
@@ -28549,6 +28659,8 @@ function resetSettlementForm_() {
   document.getElementById("settlement-delete-btn").hidden = true;
   document.getElementById("settlement-form-error").textContent = "";
   document.getElementById("settlement-amount").value = Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0).toFixed(2);
+  repayQuickGuard_ = { value: document.getElementById("settlement-amount").value, at: Date.now(), armed: false };
+  updateRepaySaveLabel_();
   document.getElementById("settlement-date").value = todayLocalISO();
   document.getElementById("settlement-payment-method").value = defaultRepaymentAccount_();
   document.getElementById("settlement-description").value = "";
@@ -28684,6 +28796,8 @@ document.getElementById("settlement-choose-btn").addEventListener("click", () =>
   renderSettlementChooseSummary_();
 });
 document.getElementById("settlement-amount").addEventListener("input", () => {
+  if (repayQuickGuard_) repayQuickGuard_.armed = false;
+  updateRepaySaveLabel_();
   if (!document.getElementById("settlement-choose-panel").hidden) renderSettlementChooseSummary_();
   updateSettlementOverpayNote_();
 });
@@ -28802,6 +28916,7 @@ async function openRepaymentModal(friendId, friendName, netByCurrency, projectId
   if (seq !== repaymentOpenSeq_) return;
   loading.hidden = true;
   backdrop.classList.remove("sheet-loading");
+  if (repayQuickGuard_) repayQuickGuard_.at = Date.now();   // the 3 s count from when the person can see the amount
   popTipVisit_("repaymentForm");
   watchOverpayTip_();
 }
@@ -28844,6 +28959,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   const description = document.getElementById("settlement-description").value.trim();
   if (!amount || amount <= 0) { errorEl.textContent = tr("error.validAmount"); return; }
   if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
+  if (repayTooQuick_()) return;   // first tap of a too-quick Save: the button now asks for a second one
   // "Choose which loans this pays" (only when the person opened it and typed amounts): otherwise FIFO, exactly as before.
   let allocations = !editingSettlementId && !document.getElementById("settlement-choose-panel").hidden ? settlementAssignments_() : [];
   if (repaymentTargetLoan_ && !editingSettlementId && !allocations.length && amount <= repaymentTargetLoan_.remaining + 0.004) allocations = [{ loan_id: repaymentTargetLoan_.loan_id, amount }];

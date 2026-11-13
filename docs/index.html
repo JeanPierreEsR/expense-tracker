@@ -1896,6 +1896,11 @@
 
       <button type="button" class="add-inline loan-detail-paid-toggle" id="loan-detail-paid-toggle" hidden></button>
       <div class="currency-option-list" id="loan-detail-paid-list" hidden></div>
+      <!-- Forgive, once for the whole screen and kept quiet (design review 2026-11-12); renderForgiveAny_ in app.js. -->
+      <div class="loan-forgive-any" id="loan-forgive-any" hidden>
+        <button type="button" class="add-inline loan-forgive-btn" id="loan-forgive-any-btn" data-i18n="loanDetail.forgiveAny">Forgive part or all of a debt…</button>
+        <div class="loan-forgive-pick" id="loan-forgive-pick" hidden></div>
+      </div>
     </div>
   </div>
 
@@ -2387,6 +2392,7 @@
         <p class="hint error-text" id="loan-form-error"></p>
         <button type="button" class="primary" id="loan-save-btn" data-i18n="loanModal.save">Save loan</button>
         <button type="button" class="add-inline" id="loan-apply-btn" hidden data-i18n="apply.button">↩ Apply to a loan</button>
+        <button type="button" class="secondary-btn loan-forgive-in-modal" id="loan-forgive-btn" hidden data-i18n="loanDetail.forgiveThis">Forgive part or all of it…</button>
         <button type="button" class="delete-entry-btn" id="loan-delete-btn" hidden data-i18n="loanModal.delete">Delete this loan</button>
       </div>
     </div>
