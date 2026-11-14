@@ -37,6 +37,22 @@ function boot() {
   // Made-up demo scenarios to try the newest features by hand (friends to delete/hide, programmed items in every state, legacy paused items for the
   // heal). NO_DEMO=1 leaves them out. The automated tests never go through this file.
   if (!process.env.NO_DEMO && !process.env.EMPTY) require("./demo-data").seedDemo(rt, data);
+  // No Yape / Plin accounts on the test copies (owner, 2026-11-14): in the app they show next to their bank account, never as an
+  // account of their own. Their made-up entries move to "Main debit". KEEP_WALLETS=1 keeps them. (The automated tests keep their own seed.)
+  if (!process.env.EMPTY && !process.env.KEEP_WALLETS) {
+    const pmRows = rt.sheet("Payment Methods").rows, ph = pmRows[0];
+    const wallets = new Set(pmRows.slice(1).filter((r) => r[ph.indexOf("type")] === "wallet").map((r) => r[ph.indexOf("id")]));
+    const main = pmRows.slice(1).find((r) => r[ph.indexOf("nickname")] === "Main debit");
+    if (wallets.size && main) {
+      const mainId = main[ph.indexOf("id")];
+      rt.svc.ss.getSheets().forEach((sh) => {
+        if (!sh.rows || !sh.rows.length || sh === rt.sheet("Payment Methods")) return;
+        const cols = sh.rows[0].map((c, i) => (/payment_method_id$/.test(String(c)) ? i : -1)).filter((i) => i >= 0);
+        if (cols.length) sh.rows.slice(1).forEach((r) => cols.forEach((i) => { if (wallets.has(r[i])) r[i] = mainId; }));
+      });
+      pmRows.splice(0, pmRows.length, ...pmRows.filter((r, i) => i === 0 || !wallets.has(r[ph.indexOf("id")])));
+    }
+  }
   // USD_RATES_ONLY=1: the owner-style copy keeps only its dollar rates (a copy whose move to the dollar changes nothing visible).
   if (process.env.USD_RATES_ONLY) {
     const rates = rt.sheet("Exchange Rates").rows, col = rates[0].indexOf("currency");

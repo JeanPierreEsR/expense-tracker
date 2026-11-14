@@ -17,7 +17,7 @@ function text(key) {
 const privacyKeys = [...strings.matchAll(/"(privacy\.[A-Za-z]+)":/g)].map((m) => m[1]);
 
 test("the messages that ask for help speak as JP and say so: they end with '— JP'", () => {
-  for (const k of ["perfShare.body", "bankSample.intro", "bankSample.doneBody", "stmtSample.intro", "stmtSample.doneBody", "tour.statements.bankHelp", "feedback.intro", "feedback.thanks"]) {
+  for (const k of ["perfShare.body", "bankSample.intro", "bankSample.doneBody", "stmtSample.intro", "stmtSample.doneBody", "feedback.intro", "feedback.thanks"]) {
     const t = text(k);
     assert.ok(t.en.trimEnd().endsWith("— JP"), `${k} (en)`);
     assert.ok(t.es.trimEnd().endsWith("— JP"), `${k} (es)`);

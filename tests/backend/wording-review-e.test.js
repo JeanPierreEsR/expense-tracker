@@ -84,7 +84,6 @@ test("B10: money back on a card is a 'refund' (no 'reversal', no 'negative expen
 test("B11, B12, B13: the long texts are split into short sentences, and statement checks are in plain words", () => {
   assert.match(get("projections.method").en, /Each figure has three parts\. Confirmed:.*Programmed:.*Expected/);
   assert.match(get("projections.seasonHigh").en, /Calculation:/);
-  assert.ok(get("tour.statements.body").en.length < 460, "tour statements card");
   assert.ok(get("stmt.balBackward").en.split(". ").length >= 2);
   assert.match(get("sp.runningBreaks").en, /The balance stops adding up at/);
   assert.ok(!/≠/.test(ALL.filter((e) => e.key.startsWith("sp.")).map((e) => e.en + e.es).join("")), "no ≠ in the statement checks");
@@ -102,5 +101,5 @@ test("B14, B15, B16, B17: currency hint, shared amount, discount buttons, 'What'
   // Still never "Net": renamed from "What's left" to "Result" (owner, 2026-11-13: "What's left" read like an account balance).
   assert.equal(get("summary.net").en, JSON.stringify("Result"));
   assert.equal(get("summary.net").es, JSON.stringify("Resultado"));
-  for (const k of ["scene.flow.s1", "scene.flow.s2", "scene.flow.s3", "scene.flow.s4", "tour.overview.body"]) assert.ok(!/\bNet\b|\bNeto\b/.test(get(k).en + get(k).es), k);
+  for (const k of ["tour.flow.body", "tour.overview.body"]) assert.ok(!/\bNet\b|\bNeto\b/.test(get(k).en + get(k).es), k);
 });

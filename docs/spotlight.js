@@ -85,7 +85,10 @@
   }
   function isTyping(step, doc) {
     var el = doc.activeElement;
-    return !!(step && step.blurTap && el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && /^(text|number|search|tel|email|url|password|)$/i.test(el.type || ""))));
+    if (!(step && el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && /^(text|number|search|tel|email|url|password|)$/i.test(el.type || ""))))) return false;
+    // A typing step, or a text box inside what the step lights up (the bill's items, a tip, split amounts): the keyboard moves the page
+    // the same way, so the same typing look applies (owner, 2026-11-14: "+ Add item" opened the keyboard and the cut-out stayed behind).
+    return !!(step.blurTap || (step.__lit || []).some(function (t) { return t && t.contains && t.contains(el); }));
   }
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   function frames(n) {
@@ -122,6 +125,17 @@
     var $ = function (sel) { return root.querySelector(sel); };
     var blockers = Array.prototype.slice.call(root.querySelectorAll(".spot-blk")).slice(0, 4);
     var hole = $(".spot-hole"), bubble = $(".spot-bubble"), arrow = $(".spot-arrow");
+    var lastTouchAt = 0;   // when a finger last touched the screen (a half-hidden lit thing is brought back only once it is still)
+    function noteTouch() { lastTouchAt = Date.now(); }
+    // A field the app is still asking about (data-spot-hold="1": "Use this credit card anyway?", or the person chose to change it) keeps its visit step open.
+    function held(el) { return !!(el && el.dataset && el.dataset.spotHold === "1"); }
+    function blockEarlySave(e) {
+      var b = e.target && e.target.closest ? e.target.closest("button[id]") : null;
+      if (!b || !/^submit-btn$|-(save|save-btn|record|apply)$/.test(b.id) || !cur || !cur.step) return;
+      var lit = (cur.targets || []).filter(Boolean);
+      if (lit.some(function (t) { return t === b || (t.contains && t.contains(b)) || (b.contains && b.contains(t)); })) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+    }
     $(".spot-exit").textContent = L.exit;
     // The kind shows on every step, in its own colour: real (stays) or practice (deleted at the end) (owner, 2026-11-12).
     if (L.note) { $(".spot-note").textContent = L.note; $(".spot-note").hidden = false; $(".spot-note").setAttribute("data-mode", L.mode || ""); }
@@ -219,7 +233,7 @@
       layoutQueued = true;
       requestAnimationFrame(function () {
         layoutQueued = false;
-        if (cur && cur.step) cur.targets = targetsOf(cur.step);
+        if (cur && cur.step) cur.targets = cur.step.__lit = targetsOf(cur.step);
         layout();
       });
     }
@@ -234,6 +248,8 @@
       window.removeEventListener("orientationchange", layoutSoon);
       doc.removeEventListener("scroll", layoutSoon, true);
       doc.removeEventListener("keydown", onKey, true);
+      doc.removeEventListener("touchmove", noteTouch, { capture: true });
+      doc.removeEventListener("click", blockEarlySave, true);
       if (window.visualViewport) { window.visualViewport.removeEventListener("resize", layoutSoon); window.visualViewport.removeEventListener("scroll", layoutSoon); }
       // Cleanup (removing the practice data) can take a moment: the bubble says so and the screen stays blocked meanwhile.
       cur = null;
@@ -367,7 +383,7 @@
             if (step.until && (await step.until())) { end("done"); return; }
             if (step.visit) {
               var el = doc.querySelector(step.visit);
-              if (el && visited && doc.activeElement !== el && (!step.ok || step.ok())) { end("done"); return; }
+              if (el && visited && doc.activeElement !== el && !held(el) && (!step.ok || step.ok())) { end("done"); return; }
             }
             // Not done: something an earlier step collected no longer holds (an error on Save): go back to that step.
             for (var k = 0; k < i; k++) {
@@ -382,7 +398,7 @@
         if (step.visit) {
           // In a field and out again; a drop-down that was changed counts too (a phone's picker does not always report leaving it).
           on(doc, "focusin", function (e) { var el = doc.querySelector(step.visit); if (el && (e.target === el || el.contains(e.target))) visited = true; }, true);
-          on(doc, "change", function (e) { var el = doc.querySelector(step.visit); if (el && (e.target === el || el.contains(e.target))) { visited = true; setTimeout(function () { if (!finished) end("done"); }, 150); } }, true);
+          on(doc, "change", function (e) { var el = doc.querySelector(step.visit); if (el && (e.target === el || el.contains(e.target))) { visited = true; setTimeout(function () { if (!finished && !held(el) && (!step.ok || step.ok())) end("done"); }, 150); } }, true);
         }
         if (step.tap) {
           on(doc, "click", function (e) {
@@ -394,13 +410,13 @@
         // A tap on the dimmed area does nothing, except on a typing step, where it closes the keyboard (that is how the person says "done").
         on(root, "pointerdown", function (e) {
           if (e.target.closest && e.target.closest(".spot-bubble")) return;
-          if (step.blurTap && doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();
+          if ((step.blurTap || isTyping(step, doc)) && doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();
           e.preventDefault();
         }, true);
         timers.push(setInterval(check, 300));
         timers.push(setInterval(function () {
           if (finished || closed || !cur || !cur.step) return;
-          var t = targetsOf(cur.step), r = t.length ? unionRect(t) : null;
+          var t = cur.step.__lit = targetsOf(cur.step), r = t.length ? unionRect(t) : null;
           if (cur.step.target && !t.length) {
             var nowMs = Date.now();
             if (!goneSince) goneSince = nowMs;
@@ -413,6 +429,15 @@
           // Something above it finished loading and pushed it off the screen (the Overview's cards arrive one by one): bring it back.
           var viewH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
           if (r && (r.bottom < 0 || r.top > viewH) && !isTyping(cur.step, doc) && t[0].scrollIntoView) t[0].scrollIntoView({ block: "center", inline: "nearest" });
+          // Scrolled too far, so the lit thing is half off the screen: once the finger has been still for a moment, bring it back
+          // (owner, 2026-11-14: an over-scroll in the Programmed tutorial left the person unable to get back).
+          else if (r && r.bottom - r.top < viewH * 0.8 && !isTyping(cur.step, doc) && Date.now() - lastTouchAt > 1500 && t[0].scrollIntoView) {
+            var box = scrollerOf(t[0]), b = box === (doc.scrollingElement || doc.documentElement) ? { top: 0, bottom: viewH } : box.getBoundingClientRect();
+            var lo = Math.max(0, b.top), hi = Math.min(viewH, b.bottom), shown = Math.min(r.bottom, hi) - Math.max(r.top, lo);
+            // less than half of it shows (cut off by the screen or by the sheet it scrolls in): the person lost it. A lit list taller than
+            // the sheet that the person is reading through on purpose keeps most of the sheet filled, so it is never pulled back.
+            if (shown < Math.min(r.bottom - r.top, hi - lo) * 0.5) t[0].scrollIntoView({ block: "center", inline: "nearest" });
+          }
           var key = (isTyping(cur.step, doc) ? "T" : "") + (r ? [r.top, r.left, r.bottom, r.right].map(Math.round).join(",") + "|" + bubble.offsetHeight : "none|" + bubble.offsetHeight) + "|" + (window.visualViewport ? Math.round(window.visualViewport.offsetTop + window.visualViewport.height) : "");
           if (key !== lastBox) { lastBox = key; cur.targets = t; layout(); }
         }, 100));
@@ -477,8 +502,31 @@
     }
 
     $(".spot-exit").addEventListener("click", function () { finish("skipped"); });
-    // Nothing behind the dim can be scrolled; inside the cut-out the person can scroll as usual.
-    root.addEventListener("touchmove", function (e) { if (e.target.classList && e.target.classList.contains("spot-blk")) e.preventDefault(); }, { passive: false });
+    // Inside the cut-out the person scrolls as usual. A finger dragged on the dim scrolls whatever holds the lit thing (a sheet's
+    // body, or the page), never the page behind a sheet: after scrolling too far the person can always drag it back (owner, 2026-11-14).
+    var dragY = null;
+    function scrollerOf(el) {
+      for (var n = el && el.parentElement; n && n !== doc.body; n = n.parentElement) {
+        var oy = getComputedStyle(n).overflowY;
+        if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight + 1) return n;
+      }
+      return doc.scrollingElement || doc.documentElement;
+    }
+    root.addEventListener("touchstart", function (e) { lastTouchAt = Date.now(); dragY = e.touches && e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true, capture: true });
+    root.addEventListener("touchend", function () { lastTouchAt = Date.now(); dragY = null; }, { passive: true, capture: true });
+    doc.addEventListener("touchmove", noteTouch, { passive: true, capture: true });
+    // A save button is used only at the step that lights it up (owner, 2026-11-14: Save, pinned at the bottom of the "+" form, sat
+    // inside a tall lit area — the friend list of a split — and saved the entry halfway through the tutorial). Same id shape as the
+    // app's double-tap guard: submit-btn, …-save, …-save-btn, …-record, …-apply.
+    doc.addEventListener("click", blockEarlySave, true);
+    root.addEventListener("touchmove", function (e) {
+      if (!(e.target.classList && e.target.classList.contains("spot-blk"))) return;
+      e.preventDefault();
+      if (dragY == null || !e.touches || e.touches.length !== 1) return;
+      var y = e.touches[0].clientY, t = cur && cur.targets && cur.targets[0];
+      if (t) scrollerOf(t).scrollTop -= (y - dragY);
+      dragY = y;
+    }, { passive: false });
 
     active = { finish: finish };
     doc.body.appendChild(root);

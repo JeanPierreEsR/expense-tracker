@@ -92,7 +92,6 @@ test("C22: 'Confirmed' (not 'Actual'/'Real') in labels; 'entry/movimiento' (not 
     assert.match(get(k).es, /Confirmado/i, k);
     assert.ok(!/\bActual\b|\bReal\b|\breal\b/.test(get(k).en + get(k).es), k);
   }
-  assert.ok(!/✅ (Actual|Real)/.test(get("scene.proj.s2").en + get("scene.proj.s2").es + get("scene.proj.s3").en + get("scene.proj.s3").es));
   assert.ok(!/\b(past|every|\{n\}) records?\b/i.test(ALL.map((e) => e.en).join("\n")), "records");
   assert.ok(!/\bregistros? (anteriores|la usa|la usan)\b|Cada registro/.test(ALL.map((e) => e.es).join("\n")), "registros");
   assert.match(get("err.catInUse").en, /entries use it/);

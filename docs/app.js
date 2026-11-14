@@ -2220,7 +2220,7 @@ document.getElementById("amount").addEventListener("input", () => {
 // True when this Save tap should only arm the second-tap safeguard.
 function entryRepayTooQuick_() {
   const g = entryRepayFill_;
-  if (!g || g.armed || !repaymentActive_() || transferKind_() !== "repayment") return false;
+  if (!g || g.armed || practiceRunning_ || !repaymentActive_() || transferKind_() !== "repayment") return false;
   if (document.getElementById("amount").value !== g.value || Date.now() - g.at > REPAY_QUICK_MS_) return false;
   g.armed = true;
   document.getElementById("submit-btn").textContent = tr("settle.tapAgainAll", { amount: formatAmount(parseFloat(g.value), document.getElementById("currency").value.toUpperCase()) });
@@ -4097,6 +4097,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // or event: say so instead of silently dropping the pick.
       showFormNotice_(tr(tripId ? "entry.programmedTripNotice" : "entry.programmedNotice", { date: listDate_(date) }));
       entryFormLeftOpen_ = true;
+      if (guided_ && Spotlight.isRunning()) guided_.programmed = date;   // the first-entry tutorial ends by saying so (never "nothing was added")
     } else if (wasEditingExistingEntry) {
       // Finishing an edit (as opposed to creating a brand-new entry)
       // returns the screen to exactly what a fresh app open looks like,
@@ -6677,7 +6678,9 @@ function queueMoneyAction_(action, payload, label, ctx, replaces) {
   setMoneyQueue_(items);
   renderSaveFailedBanner_();
   showToast_(tr("common.savingToast"));
+  if (guided_ && guided_.watchMoney === action && Spotlight.isRunning()) guided_.moneyId = id;   // the Record repayment tutorial follows this save
   flushMoneyQueue_();
+  return id;
 }
 
 function setMoneyItemStatus_(id, status, error) {
@@ -6738,9 +6741,11 @@ async function flushMoneyQueue_() {
       } catch (err) {
         if (saveMayWait_(err)) { noteSaveWaiting_(); break; }   // stays in line, in its order
         setMoneyItemStatus_(item.id, "failed", err.message || String(err));
+        if (guided_ && guided_.moneyId === item.id) realNoteFailed_();
         continue;
       }
       removeMoneyItem_(item.id);
+      if (guided_ && guided_.moneyId === item.id) guided_.moneyLanded = { overpaid: (result && result.overpaid) || 0 };
       if (item.action === "recordRepayment" && result && result.overpaid > 0.004) {
         showToast_(tr("money.repaidExtra", { cur: result.currency, amount: moneyFmt(result.overpaid) }));
       } else {
@@ -13804,21 +13809,14 @@ let tour_ = null;
 function tourCards_(part) {
   if (part === "pro") {
     const caps = (meta && meta.capabilities) || {};
-    const cards = ["invest", "loan", "repay", "bill", "programmed", "trips", "projections"];
+    const cards = ["invest", "friends", "bill", "programmed", "trips", "projections"];
     if (caps.bankEmails) cards.push("bank");
-    cards.push("statements");
-    cards.push("mydata");   // one card for the whole My data hub; it gains a line for each screen that has a practice
+    cards.push("mydata");   // one card for the whole My data hub (bank statements included)
     return cards;
   }
   return ["flow", "add", "transfer", "overview", "budgets", "more"];
 }
-// The entry form's fields, explained under the first card: [the app's own field label, what it is for].
-const TOUR_ITEMS = {
-  add: [["field.amount", "tour.f.amount"], ["field.date", "tour.f.date"], ["field.currency", "tour.f.currency"], ["field.description", "tour.f.description"],
-    ["field.paidBy", "tour.f.paidBy"], ["field.paymentMethod", "tour.f.paymentMethod"], ["split.toggle", "tour.f.split"], ["field.tags", "tour.f.tags"]]
-};
-// The tour is a row of cards the person swipes through sideways (scroll-snap); there is no Next button, so "Next step" inside the
-// step-by-step card cannot be confused with it. Each card scrolls up and down on its own (so the next card always appears at its top),
+// The tour is a row of cards the person swipes through sideways (scroll-snap); there is no Next button. Each card scrolls up and down on its own (so the next card always appears at its top),
 // the dots stay fixed at the bottom (tap one to jump; press and hold them and slide your finger along them to scrub through the cards),
 // the last card has the Done button, and only the card on screen plays its animation.
 function openTour_(reloadAfter, part) {
@@ -13835,40 +13833,11 @@ function buildTourSlide_(key, n, total) {
   const add = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; slide.appendChild(e); return e; };
   add("p", "hint", tourStepLabel_(n, total));
   add("h2", "", tr(`tour.${key}.title`));
-  let body = tr(`tour.${key}.body`);
-  if (key === "more" && !perfIsOwnerCopy_()) body += tr("tour.more.feedback");   // friends' copies only: the owner's has no Feedback & privacy row
-  if (key === "more" && extrasOff_().length) body += tr("tour.more.extras");
-  if (key === "statements" && !perfIsOwnerCopy_()) body += tr("tour.statements.bankHelp");   // the owner's own banks are already built in
-  if (key === "mydata") {
-    if (((meta && meta.capabilities) || {}).entriesRestore) body += tr("tour.mydata.deleted");   // the row exists only where the backend can restore
-    body += tr("tour.mydata.export") + tr("tour.mydata.pIntro");
-    const cp = (meta && meta.capabilities) || {};
-    if (cp.entriesRestore && cp.practiceDeleted && cp.entriesBulk) body += tr("tour.mydata.pDeleted");
-    if (cp.practiceImport) body += tr("tour.mydata.pImport");
-    if (cp.practiceBank) body += tr("tour.mydata.pBank");
-    body += tr("tour.mydata.pExport");
-  }
-  // Only a short lead (the first sentence or two, a couple of lines) goes above the animation; the rest of the explanation sits below it.
-  let lead = "";
-  while (body && lead.length < 60) {
-    const m = body.match(/^.*?[.!?](\s+|$)/);
-    if (!m) { lead += body; body = ""; break; }
-    lead += m[0]; body = body.slice(m[0].length);
-  }
-  add("p", "welcome-body", lead.trim());
+  // Cards only say that a feature exists and where it lives (owner, 2026-11-14): one or two short sentences above the picture.
+  // How to use it is taught by the real tutorials, practices and bubbles.
+  add("p", "welcome-body", tr(`tour.${key}.body`));
   const stage = add("div", "ts-stage");
   stage.hidden = true; stage.setAttribute("role", "img"); stage.setAttribute("aria-hidden", "true");
-  if (body.trim()) add("p", "welcome-body tour-more-text", body.trim());
-  const items = TOUR_ITEMS[key] || [];
-  if (items.length) {
-    const ul = add("ul", "welcome-items");
-    items.forEach(([label, what]) => {
-      const li = document.createElement("li");
-      const b = document.createElement("b"); b.textContent = tr(label);
-      li.appendChild(b); li.appendChild(document.createTextNode(": " + tr(what)));
-      ul.appendChild(li);
-    });
-  }
   if (n === total - 1) {
     const done = add("button", "primary tour-done-btn", tr(tour_.part === "pro" ? "tour.doneShort" : "tour.done"));
     done.type = "button";
@@ -13915,7 +13884,7 @@ function tourChrome_(i) {
   // "Skip all" from the second card on (owner, 2026-11-04): on the first one it read as the way forward, before the person had seen any card.
   welcomeEl_("tour-skip-btn").style.visibility = last ? "hidden" : "visible";
 }
-function tourSceneCtx_() { return { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label, restore: !!((meta && meta.capabilities) || {}).entriesRestore }; }
+function tourSceneCtx_() { return { tr, home: homeCur(), money: moneyFmt, period: monthBounds(new Date()).label, restore: !!((meta && meta.capabilities) || {}).entriesRestore, icon: lineIcon_ }; }
 function previewTourSlide_(sl) {
   if (typeof TourScenes !== "undefined") TourScenes.preview(sl.key, sl.stage, tourSceneCtx_());
 }
@@ -20640,6 +20609,9 @@ function toggleRecurringSplitFieldVisibility() {
   // (owner, 2026-10-19). Hidden only once an income category is picked.
   const show = !cat || cat.type === "expense";
   document.getElementById("recurring-split-field").hidden = !show;
+  // "The amount changes each time": income examples once an income category is picked, the expense ones otherwise (owner, 2026-11-14).
+  const varLabel = document.querySelector("#recurring-variable-field [data-i18n^='recModal.variable']");
+  if (varLabel) { varLabel.dataset.i18n = cat && cat.type === "income" ? "recModal.variableIncome" : "recModal.variable"; varLabel.textContent = tr(varLabel.dataset.i18n); }
   if (!show) resetRecurringSplitState();
   syncRecurringTripField_();
 }
@@ -21930,7 +21902,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
           <span class="expected-recurring-item-amount">${sensitiveHtml_(waitAmt)}</span>
         </div>
         <div class="expected-recurring-actions">
-          <button type="button" data-act="paid" data-id="${item.id}">${tr("expected.markPaid")}</button>
+          <button type="button" data-act="paid" data-id="${item.id}"><span class="ico">${lineIcon_("check")}</span>${tr("expected.markPaid")}</button>
         </div>
       </div>`;
       }
@@ -21942,8 +21914,8 @@ async function refreshExpectedRecurring(prefetchedGroups) {
           <span class="expected-recurring-item-amount">${isIncome ? sensitiveHtml_(itemAmt) : itemAmt}</span>
         </div>
         <div class="expected-recurring-actions">
-          <button type="button" data-act="paid" data-id="${item.id}">${tr("expected.markPaid")}</button>
-          ${item.once ? "" : `<button type="button" data-act="skip" data-id="${item.id}">${tr("expected.skipMonth")}</button>`}
+          <button type="button" data-act="paid" data-id="${item.id}"><span class="ico">${lineIcon_("check")}</span>${tr("expected.markPaid")}</button>
+          ${item.once ? "" : `<button type="button" data-act="skip" data-id="${item.id}"><span class="ico">${lineIcon_("skip")}</span>${tr("expected.skipMonth")}</button>`}
         </div>
       </div>`;
     }).join("");
@@ -23340,11 +23312,16 @@ function clearHomeSearchForPractice_() {
   input.value = "";
   input.dispatchEvent(new Event("input"));
 }
+// A practice tutorial (made-up data) is running: the repayment form's "Tap again to record all" check stays off during it,
+// since the practice fills in the amount on purpose (owner, 2026-11-13; a real tutorial keeps the check: it is real money).
+let practiceRunning_ = false;
 function runTip_(steps, afterFinish, note) {
   clearHomeSearchForPractice_();
+  practiceRunning_ = true;
   return Spotlight.run(steps, {
     labels: { note: note || "", mode: "practice", exit: tr("spot.exit"), waiting: tr("spot.waiting"), cleaning: tr("spot.cleaning"), stuck: tr("spot.stuck"), step: (n, total) => tr("spot.step", { n, total }) },
     onFinish: async (how) => {
+      practiceRunning_ = false;
       markPracticeDeleting_();
       if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.lost")), 0);   // the engine stopped it (see spotlight.js go()): say why, then clean up as usual
       if (how === "done" && tipRunningKey_) markTaught_(tipRunningKey_, "practice");   // only a practice done to the end teaches (Not now, Exit and a lost one do not)
@@ -23473,6 +23450,7 @@ Object.assign(LINE_ICONS_, {
   up: '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>',
   down: '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
   warning: '<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  rocket: '<path d="M4.5 16.5c-1.5 1.3-2 5-2 5s3.7-.5 5-2c.7-.8.7-2.1-.1-2.9a2.2 2.2 0 0 0-2.9-.1z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.9A12.9 12.9 0 0 1 22 2c0 2.7-.8 7.5-6 11a22.4 22.4 0 0 1-4 2z"/><path d="M9 12H4s.6-3 2-4c1.6-1.1 5 0 5 0"/><path d="M12 15v5s3-.6 4-2c1.1-1.6 0-5 0-5"/>',
   bulb: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/>',
   broom: '<line x1="19" y1="3" x2="11" y2="11"/><path d="M11 11l-4 1-4 9h11l2-6z"/><line x1="7" y1="16" x2="6" y2="21"/><line x1="11" y1="16" x2="10.5" y2="21"/>',
   calc: '<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="11" x2="8.01" y2="11"/><line x1="12" y1="11" x2="12.01" y2="11"/><line x1="16" y1="11" x2="16.01" y2="11"/><line x1="8" y1="15" x2="8.01" y2="15"/><line x1="12" y1="15" x2="12.01" y2="15"/><line x1="16" y1="15" x2="16" y2="18"/>',
@@ -23500,7 +23478,8 @@ const EMOJI_ICON_ = {
   "✗": ["cross", "bad"], "❌": ["cross", "bad"], "✖️": ["cross", "bad"], "✖": ["cross", "bad"], "🔄": ["refresh"], "🔒": ["lock"],
   "⬆️": ["up"], "⬇️": ["down"], "📈": ["trend"], "💬": ["message"], "🧾": ["file"], "⚠️": ["warning", "warn"], "⚠": ["warning", "warn"],
   "💡": ["bulb", "warn"], "🧹": ["broom"], "👀": ["eye"], "⏭️": ["skip"], "⏭": ["skip"], "💰": ["coin"], "🔁": ["swap"], "🧮": ["calc"], "📅": ["calendar"],
-  "📌": ["pin"], "🏦": ["bank"], "💸": ["moneyIn", "ok"], "📉": ["moneyOut"], "📜": ["file"], "🔀": ["swap"], "📷": ["eye"], "🎁": ["gift"]
+  "📌": ["pin"], "🏦": ["bank"], "💸": ["moneyIn", "ok"], "📉": ["moneyOut"], "📜": ["file"], "🔀": ["swap"], "📷": ["eye"], "🎁": ["gift"],
+  "📖": ["book"], "🚀": ["rocket"]
 };
 const EMOJI_ICON_RE_ = new RegExp("^(\\s*)(" + Object.keys(EMOJI_ICON_).sort((a, b) => b.length - a.length).map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\uFE0F?\\s+(?=\\S)");
 let contentNamesAt_ = null, contentNames__ = [];
@@ -23966,11 +23945,16 @@ async function openTripForBudgets_(tripId) {
 function watchTripPickTip_() {
   popTipWatch_({
     key: "tripPick", place: "entryForm", noGate: true,
-    text: () => tr(document.getElementById("entry-trip").value ? "pop.tripPicked" : "pop.tripPick"),   // the form often picks the trip by itself
+    // The form often picks the trip by itself: it then shows as a chip at the top, and the bubble points there (owner, 2026-11-13).
+    text: () => {
+      if (tripChipShown_()) return tr("pop.tripPickedChip");
+      return foldedNote_(document.getElementById("trip-field"), tr(document.getElementById("entry-trip").value ? "pop.tripPicked" : "pop.tripPick"));
+    },
     target: () => {
       const field = document.getElementById("trip-field"), date = document.getElementById("date").value;
       if (selectedType !== "expense" || field.hidden || !(meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date)) return null;
-      return field;
+      if (tripChipShown_()) return document.getElementById("trip-auto-chip");
+      return foldedTarget_(field);
     },
     stillWanted: () => newEntrySheetOpen_,
     ready: () => !guidedEntryWanted_()
@@ -23990,10 +23974,16 @@ function watchEntryFormTip_() {
   ].find(([k, want]) => !seen.includes(k) && want());
   if (pick) pick[2]();
 }
+// A bubble about a field folded inside "More details" (a new entry) points at the More details row and says so (owner, 2026-11-13);
+// once the row is open it points at the field itself.
+function fieldFolded_(el) { const body = document.getElementById("more-details-body"); return !!(el && body && moreDetailsFolded_() && body.contains(el)); }
+function foldedTarget_(el) { return fieldFolded_(el) ? document.getElementById("more-details-toggle") : el; }
+function foldedNote_(el, text) { return fieldFolded_(el) ? text + " " + tr("pop.inMoreDetails") : text; }
+function tripChipShown_() { const c = document.getElementById("trip-auto-chip"); return !!(c && !c.hidden && c.getClientRects().length); }
 function watchPaidByTip_() {
   popTipWatch_({
-    key: "paidBy", place: "entryForm", text: tr("pop.paidBy"), struggle: () => popStruggling_("paidBy"),
-    target: () => (selectedType !== "expense" || document.getElementById("paid-by-label").hidden || !(meta.friends || []).length ? null : document.getElementById("paid_by")),
+    key: "paidBy", place: "entryForm", text: () => foldedNote_(document.getElementById("paid_by"), tr("pop.paidBy")), struggle: () => popStruggling_("paidBy"),
+    target: () => (selectedType !== "expense" || document.getElementById("paid-by-label").hidden || !(meta.friends || []).length ? null : foldedTarget_(document.getElementById("paid_by"))),
     stillWanted: () => newEntrySheetOpen_,
     ready: () => !guidedEntryWanted_()
   });
@@ -24049,13 +24039,15 @@ function splitHowText_() {
 // The new-entry form: Tags (30+ entries, or a search for "annual" on Home) and receipt photos (three expenses typed by hand in a row).
 function watchTagsTip_() {
   popTipWatch_({
-    key: "tags", place: "entryForm", text: tr("pop.tags"), struggle: () => popStruggling_("tags"),
+    key: "tags", place: "entryForm", text: () => foldedNote_(document.getElementById("tags-field"), tr("pop.tags")), struggle: () => popStruggling_("tags"),
     // Never on an entry that belongs to a trip or event (owner, 2026-11-12: trips & events are for that, not tags); judged as the form
     // changes, so moving the date out of a trip lets it show.
     target: () => {
       const f = document.getElementById("tags-field"), date = document.getElementById("date").value;
       if (document.getElementById("entry-trip").value || (meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date)) return null;
-      return f && !f.hidden && f.getClientRects().length ? f : null;
+      if (!f || f.hidden) return null;
+      const t = foldedTarget_(f);
+      return t && t.getClientRects().length ? t : null;
     },
     stillWanted: () => newEntrySheetOpen_, ready: () => !guidedEntryWanted_()
   });
@@ -24829,16 +24821,17 @@ function guidedEntrySteps_() {
     { field: "currency", target: "#currency-chips", text: () => tr("spot.g.currency"), tap: "#currency-chips", button: next },
     { field: "description", target: "#description", text: () => tr("spot.g.desc"), blurTap: true, visit: "#description", button: next },
     { field: "date", target: "#date", text: () => tr("spot.g.date"), visit: "#date", button: next },
+    // The account is a main field, above "More details" (owner, 2026-11-13): it comes before the fold is opened.
+    { field: selectedType === "income" ? "accountIn" : "account", target: "#payment-method-field", text: () => tr(accountText[selectedType] || "spot.g.accExp"), visit: "#payment_method", button: next,
+      before: async () => shownNow("payment-method-field") },
     // The optional details are folded on a new entry: the person taps to open them (owner, 2026-11-12).
     { key: "unfold", target: "#more-details-toggle", text: () => tr("spot.g.moreDetails"), tap: "#more-details-toggle", until: () => !moreDetailsFolded_(),
       available: () => is("expense")() || is("income")(), before: async () => moreDetailsFolded_() },
     { target: "#paid_by", text: () => tr(selectedType === "income" ? "spot.g.payer" : "spot.g.paidBy"), visit: "#paid_by", button: next,
       available: () => is("expense")() || is("income")(), before: async () => (is("expense")() || is("income")()) && shownNow("paid_by") },
-    { field: selectedType === "income" ? "accountIn" : "account", target: "#payment-method-field", text: () => tr(accountText[selectedType] || "spot.g.accExp"), visit: "#payment_method", button: next,
-      before: async () => shownNow("payment-method-field") },
     { target: "#to-payment-method-field", text: () => tr("spot.g.accTo"), visit: "#to_payment_method", button: next,
       available: is("transfer"), before: async () => is("transfer")() && shownNow("to-payment-method-field") },
-    { target: "#income-waiting-field", text: () => tr("rt.entry.waiting"), button: next, available: is("income"), before: async () => is("income")() && shownNow("income-waiting-field") },
+    { target: "#income-waiting-field", text: () => tr("rt.entry.waiting", { date: listDate_(document.getElementById("date").value) }), button: next, available: is("income"), before: async () => is("income")() && shownNow("income-waiting-field") },
     { field: "receipt", target: "#receipt-read-field", text: () => tr("rt.entry.receipt"), button: next, available: is("expense"), before: async () => is("expense")() && shownNow("receipt-read-field") },
     { key: "platform", target: "#to-payment-method-field", text: () => tr("spot.g.platform"), visit: "#to_payment_method",
       ok: () => !is("investment")() || !!document.getElementById("to_payment_method").value, holdsUntil: "save",
@@ -24857,9 +24850,12 @@ function guidedEntrySteps_() {
     { key: "save", target: () => realSaveTarget_("submit-btn", "form-error"),
       text: () => { const err = lastError(); return err ? tr("spot.g.saveErr", { error: err }) : tr("spot.g.save"); },
       before: async () => { document.getElementById("form-error").textContent = ""; },
-      until: () => !!(guided_ && guided_.savedId) || !newEntrySheetOpen_ },
+      until: () => !!(guided_ && (guided_.savedId || guided_.programmed)) || !newEntrySheetOpen_ },
+    // A date in the future is saved as a Programmed item, not an entry: the ending says so and where it is (no row to point at).
     ...realWhereSteps_(() => (guided_ && guided_.savedId ? document.querySelector(`#entry-list .entry[data-entry-id="${CSS.escape(guided_.savedId)}"]`) : null), () => tr("spot.g.where"),
-      { unsaved: () => !(guided_ && guided_.savedId) && !newEntrySheetOpen_ && !confirmingPendingId, before: async () => { showScreen("entries"); await new Promise((r) => setTimeout(r, 600)); return true; }, poke: () => { refreshEntryList().catch(() => {}); } })
+      { unsaved: () => !(guided_ && (guided_.savedId || guided_.programmed)) && !newEntrySheetOpen_ && !confirmingPendingId,
+        otherwise: () => (guided_ && guided_.programmed ? tr("spot.g.programmed", { date: listDate_(guided_.programmed) }) : tr("spot.g.where")),
+        before: async () => { if (guided_ && guided_.programmed) return false; showScreen("entries"); await new Promise((r) => setTimeout(r, 600)); return true; }, poke: () => { refreshEntryList().catch(() => {}); } })
   ];
 }
 
@@ -25491,7 +25487,7 @@ document.addEventListener("click", (e) => { if (e.target.matches && e.target.mat
 window.addEventListener("focus", () => { idleChooser_ = false; });
 
 // Real tutorials on a dedicated "+" (owner's plan, step 4): tapping + is a clear intention, so the window opens as usual and a first screen offers Start / Exit (3 chances, another day each).
-const REAL_SAVE_ = { "bank-save": ["loans-bank", "bank-loan-modal-backdrop"], "budget-save-btn": ["budgets", "budget-modal-backdrop"], "recurring-save-btn": ["programmed", "recurring-modal-backdrop"], "pm-save-btn": ["accounts", "pm-modal-backdrop"], "trip-save-btn": ["trips", "trip-modal-backdrop"] };
+const REAL_SAVE_ = { "settlement-save-btn": ["repay", "settlement-modal-backdrop"], "bank-save": ["loans-bank", "bank-loan-modal-backdrop"], "budget-save-btn": ["budgets", "budget-modal-backdrop"], "recurring-save-btn": ["programmed", "recurring-modal-backdrop"], "pm-save-btn": ["accounts", "pm-modal-backdrop"], "trip-save-btn": ["trips", "trip-modal-backdrop"] };
 let realFormTimer_ = null, realStartPending_ = false;   // a form's real tutorial is about to start: bubbles wait (owner's walk 2026-11-12: the bubble took its place)
 function startFormGuide_(feature, used, backdropId, saveId, introKey, build) {
   if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || isTaught_(feature) || !realChanceLeft_(feature, true)) return;
@@ -25600,7 +25596,7 @@ function programmedGuideSteps_(ctx) {
     { key: "category", target: "#recurring-category-chips", text: () => tr("rt.prog.category"), until: () => !!selectedRecurringCategoryId, ok: () => ctx.saving() || !!selectedRecurringCategoryId, holdsUntil: "save" },
     realAmountStep_(ctx, "recurring-amount", () => tr("rt.prog.amount"), "spot.r.s3fix"),
     realCurrencyStep_("recurring-currency-chips"),
-    { target: "#recurring-variable-field", text: () => tr("rt.prog.variable"), button: realNext_, before: async () => realShown_("recurring-variable-field") },
+    { target: "#recurring-variable-field", text: () => tr((meta.categories.find((c) => c.id === selectedRecurringCategoryId) || {}).type === "income" ? "rt.prog.variableIncome" : "rt.prog.variable"), button: realNext_, before: async () => realShown_("recurring-variable-field") },
     { target: "#recurring-split-field", text: () => tr("rt.prog.split"), button: realNext_, before: async () => realShown_("recurring-split-field") },
     { target: "#recurring-frequency-tabs", text: () => tr("rt.prog.freq"), tap: "#recurring-frequency-tabs", button: realNext_ },
     { target: "#recurring-custom-fields", text: () => tr("rt.prog.custom"), button: realNext_, before: async () => realShown_("recurring-custom-fields") },
@@ -25648,8 +25644,8 @@ function billGuideSteps_(ctx) {
     { target: "#bill-stale-note", text: () => tr("rt.bill.stale"), button: realNext_, before: async () => realShown_("bill-stale-note") },
     { key: "photo", target: () => [el("bill-photo-btn"), el("bill-photo-status")].filter((x) => !x.hidden), text: () => tr("rt.bill.photo"), button: realNext_, until: () => items() > 0 },
     { target: () => [el("bill-photo-again"), el("bill-photo-raw")].filter((x) => !x.hidden), text: () => tr("rt.bill.raw"), button: realNext_, before: async () => realShown_("bill-photo-raw") || realShown_("bill-photo-again") },
-    { key: "items", target: () => [el("bill-items"), el("bill-add-item")], text: (fix) => tr(fix ? "rt.bill.itemsFix" : "rt.bill.items"), button: realNext_, ok: () => ctx.saving() || items() > 0, holdsUntil: "save" },
-    { key: "total", target: "#bill-total", text: (fix) => tr(fix ? "rt.bill.totalFix" : "rt.bill.total"), blurTap: true, visit: "#bill-total", button: realNext_, ok: () => ctx.saving() || total() > 0, holdsUntil: "save" },
+    { key: "items", target: () => [el("bill-items"), el("bill-add-item")], text: (fix) => tr(fix && !items() ? "rt.bill.itemsFix" : "rt.bill.items"), button: realNext_, ok: () => ctx.saving() || items() > 0, holdsUntil: "save" },
+    { key: "total", target: "#bill-total", text: (fix) => tr(fix && !(total() > 0) ? "rt.bill.totalFix" : "rt.bill.total"), blurTap: true, visit: "#bill-total", button: realNext_, ok: () => ctx.saving() || total() > 0, holdsUntil: "save" },
     { key: "people", target: () => [el("bill-people-chips"), el("bill-add-friend")], text: (fix) => tr(fix && !billState.people.size ? "rt.bill.peopleFix" : "rt.bill.people"), button: realNext_, ok: () => ctx.saving() || billState.people.size > 0, holdsUntil: "save" },   // several people can be tapped; Next goes on (owner, 2026-11-12)
     { target: "#bill-items", text: () => tr("rt.bill.assign"), button: realNext_ },
     { target: () => [el("bill-add-discount"), el("bill-add-charge")], text: () => tr("rt.bill.adjust"), button: realNext_ },
@@ -25702,9 +25698,47 @@ function bankGuideSteps_(ctx) {
     { key: "check", target: () => [el("bank-rows"), el("bank-totals"), el("bank-opening-summary")].filter((x) => !x.hidden), text: (fix) => tr(el("bank-opening-summary").textContent === tr("bank.openingAllBefore") ? "rt.bank.allBefore" : fix ? "rt.bank.checkFix" : "rt.bank.check"), blurTap: true, button: realNext_, ok: () => ctx.saving() || rowsOk(), holdsUntil: "save" }
   ].concat(realSaveSteps_(ctx, "bank-save", "bank-error", "rt.bank.done", { find: practiceMSchedBtn_, wait: 45000 }));
 }
+// Loans → a friend → Record repayment (owner's plan, 2026-11-14). The whole debt comes filled in; the save goes through the money queue,
+// which tells the tutorial when it landed (guided_.moneyLanded) or was refused (realNoteFailed_), so the ending never says "Saved" too early.
+function settleGuideSteps_(ctx) {
+  const el = (id) => document.getElementById(id);
+  const theyOwe = () => repaymentDirection === "they_owe_me";
+  const amountNow = () => parseFloat(sanitizeAmountInputValue(el("settlement-amount").value)) || 0;
+  const only = (cond, step) => { const before = step.before; step.available = cond; step.before = async () => (cond() ? (before ? before() : true) : false); return step; };
+  let done = null;   // what was sent: { name, cur, owed, paid, theyOwe }
+  guided_.watchMoney = "recordRepayment";
+  ctx.capture = () => { done = { name: repaymentFriendName, cur: repaymentCurrency, owed: Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0), paid: amountNow(), theyOwe: theyOwe() }; };
+  const landed = () => !!(guided_ && guided_.moneyLanded);
+  const doneText = () => {
+    if (!done) return tr("rt.repay.done");
+    const left = Math.max(0, done.owed - done.paid), p = { name: done.name, cur: done.cur, left: moneyFmt(left), extra: moneyFmt(done.paid - done.owed) };
+    if (done.paid > done.owed + 0.004) return tr("rt.settle.doneOver", p);
+    if (left < 0.005) return tr(done.theyOwe ? "rt.settle.doneAllTheyOwe" : "rt.settle.doneAllIOwe", p);
+    return tr(done.theyOwe ? "rt.settle.donePartTheyOwe" : "rt.settle.donePartIOwe", p);
+  };
+  const save = { key: "save", target: () => realSaveTarget_("settlement-save-btn", "settlement-form-error"),
+    text: () => {
+      const e = (el("settlement-form-error").textContent || "").trim();
+      if (e) return tr("spot.g.saveErr", { error: e });
+      return repayQuickGuard_ && repayQuickGuard_.armed ? tr("rt.settle.saveAgain") : tr("rt.settle.save", { label: el("settlement-save-btn").textContent.trim() });
+    },
+    before: async () => { ctx.capture(); return true; }, until: () => !ctx.open() };
+  return [
+    { target: "#settlement-friend-context", text: () => tr(theyOwe() ? "rt.settle.whoTheyOwe" : "rt.settle.whoIOwe", { name: repaymentFriendName, cur: repaymentCurrency, amount: moneyFmt(Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0)) }), button: realNext_ },
+    only(() => realShown_("settlement-currency-chips"), { target: "#settlement-currency-chips", text: () => tr("rt.settle.currency"), tap: "#settlement-currency-chips", button: realNext_ }),
+    { key: "amount", field: "amount", target: "#settlement-amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "rt.settle.amount"), blurTap: true, visit: "#settlement-amount", button: realNext_,
+      ok: () => ctx.saving() || amountNow() > 0, holdsUntil: "save" },
+    only(() => realShown_("settlement-overpay-note"), { target: () => [el("settlement-amount"), el("settlement-overpay-note")], text: () => tr("rt.settle.over"), button: realNext_ }),
+    only(() => !fieldsKnown_().includes("date"), { field: "date", target: "#settlement-date", text: () => tr("rt.settle.date"), visit: "#settlement-date", button: realNext_ }),
+    { field: "account", target: "#settlement-payment-method", text: () => tr(theyOwe() ? "rt.settle.accIn" : "rt.settle.accOut"), visit: "#settlement-payment-method", button: realNext_ },
+    only(() => realShown_("settlement-choose"), { target: "#settlement-choose", text: () => tr("rt.settle.choose"), button: realNext_ }),
+    save
+  ].concat(realWhereSteps_(() => (landed() && !el("loan-detail-modal-backdrop").hidden ? el("loan-detail-subtitle") : null), doneText,
+    { unsaved: ctx.unsaved, otherwise: () => (landed() ? doneText() : tr("rt.settle.waiting")) }));
+}
 document.addEventListener("click", (e) => {
   if (!e.target.closest) return;
-  const b = e.target.closest("#add-budget-btn, #add-recurring-btn, #accounts-add-btn, #trips-add-btn, #bill-open-btn, #add-bank-loan-btn, #bank-save, #budget-save-btn, #recurring-save-btn, #pm-save-btn, #trip-save-btn");
+  const b = e.target.closest("#add-budget-btn, #add-recurring-btn, #accounts-add-btn, #trips-add-btn, #bill-open-btn, #add-bank-loan-btn, #bank-save, #budget-save-btn, #recurring-save-btn, #pm-save-btn, #trip-save-btn, #settlement-save-btn");
   if (!b || Spotlight.isRunning()) return;
   if (REAL_SAVE_[b.id]) {   // saved without the guide: the offer ends
     const [feature, backId] = REAL_SAVE_[b.id];
@@ -27003,7 +27037,6 @@ function practiceRRow_() {
 
 // On Home: the card's group (expense side) that holds the practice item, its summary line and the item's own box.
 function practiceRCardEntry_() {
-  if (!expectedOpen_) setExpectedOpen_(true);   // the card is a closed row by default: the practice opens it to show its item
   return Array.from(document.querySelectorAll("#expected-recurring-groups .expected-recurring-entry")).find((e) => /Practice item|Elemento de práctica/.test(e.textContent)) || null;
 }
 function practiceRCardSummary_() {
@@ -27041,13 +27074,24 @@ function practiceRSteps_() {
       until: () => !itemOpen() },
     { target: '.nav-btn[data-screen="entries"]', text: () => tr("spot.r.s7"), tap: '.nav-btn[data-screen="entries"]',
       poke: () => { if (practiceRFailed_) Spotlight.stop("skipped"); } },   // the server refused it (an alert already said why): clean up and stop
-    { target: practiceRCardSummary_, text: () => tr("spot.r.s8"), wait: 45000,
-      tap: practiceRCardSummary_,
+    // "Programmed this month" is a closed row: the person opens it (owner's rule on folds, 2026-11-13), never the practice.
+    { target: () => (practiceRCardEntry_() ? document.getElementById("expected-head") : null), text: () => tr("spot.r.s8"), wait: 45000,
+      tap: "#expected-head", until: () => expectedOpen_,
       before: async () => {
         if (practiceRFailed_) { Spotlight.stop("skipped"); return false; }
         try { await refreshExpectedRecurring(); } catch (e) { /* the card keeps what it shows */ }
+        return !expectedOpen_;   // already open: nothing to tap
       },
       poke: () => { if (practiceRFailed_) { Spotlight.stop("skipped"); return; } refreshExpectedRecurring().catch(() => {}); } },
+    { target: practiceRCardSummary_, text: () => tr("spot.r.s8b"), wait: 45000,
+      tap: practiceRCardSummary_,
+      before: async () => {
+        if (practiceRFailed_) { Spotlight.stop("skipped"); return false; }
+        if (!expectedOpen_) setExpectedOpen_(true);   // (only if the row was closed again by hand after the step above)
+      },
+      poke: () => { if (practiceRFailed_) { Spotlight.stop("skipped"); return; } refreshExpectedRecurring().catch(() => {}); } },
+    // A look at the whole item first, so the person knows how a programmed item shows on Home (owner, 2026-11-14).
+    { look: true, target: practiceRCardEntry_, text: () => tr("spot.r.s8c"), button: () => tr("spot.p.gotIt"), wait: 15000 },
     { target: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; }, text: () => tr("spot.r.s9"), wait: 15000,
       tap: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; } },
     { target: () => (document.querySelector("#paid-picker-list .stmt-loading") ? null : document.getElementById("paid-new-save")), text: () => tr("spot.r.s11"), tap: "#paid-new-save", wait: 30000 },   // (once the sheet's list has loaded)
@@ -29487,8 +29531,11 @@ document.querySelectorAll("#loan-direction-tabs .type-tab").forEach((tab) => {
 // back. Only a pick by hand asks: an account already saved on an entry never does, and nothing is ever blocked.
 async function warnCreditCardPick_(select, moneyComesIn) {
   const pm = (meta.paymentMethods || []).find((p) => p.id === select.value);
+  delete select.dataset.spotHold;
   if (!pm || pm.type !== "credit") { select.dataset.prev = select.value; return; }
-  if (await askConfirmApp_(tr(moneyComesIn ? "creditCard.warnIn" : "creditCard.warnOut", { name: pm.nickname }), tr("confirmBtn.useAnyway"), { plain: true, cancel: tr("confirmBtn.changeAccount") })) { select.dataset.prev = select.value; return; }
+  // A tutorial step on this box waits while it asks and, after "Change account", until another account is picked (owner's walk, 2026-11-14).
+  select.dataset.spotHold = "1";
+  if (await askConfirmApp_(tr(moneyComesIn ? "creditCard.warnIn" : "creditCard.warnOut", { name: pm.nickname }), tr("confirmBtn.useAnyway"), { plain: true, cancel: tr("confirmBtn.changeAccount") })) { delete select.dataset.spotHold; select.dataset.prev = select.value; return; }
   select.value = select.dataset.prev || "";
 }
 function watchCreditCardPick_(selectId, moneyComesIn) {
@@ -30047,7 +30094,7 @@ function updateRepaySaveLabel_() {
 // True when this tap should only arm the second-tap safeguard.
 function repayTooQuick_() {
   const g = repayQuickGuard_;
-  if (editingSettlementId || !g || g.armed) return false;
+  if (editingSettlementId || !g || g.armed || practiceRunning_) return false;
   if (document.getElementById("settlement-amount").value !== g.value || Date.now() - g.at > REPAY_QUICK_MS_) return false;
   g.armed = true;
   document.getElementById("settlement-save-btn").textContent = tr("settle.tapAgainAll", { amount: formatAmount(parseFloat(g.value), repaymentCurrency) });
@@ -30323,6 +30370,9 @@ async function openRepaymentModal(friendId, friendName, netByCurrency, projectId
   if (repayQuickGuard_) repayQuickGuard_.at = Date.now();   // the 3 s count from when the person can see the amount
   popTipVisit_("repaymentForm");
   watchOverpayTip_();
+  // Its real tutorial: a dedicated button, so Start / Exit. Not for a project's debts, nor where the money queue is missing (an older server).
+  if (!projectId && moneyBackground_()) startFormGuide_("repay", () => transferKindTaught_("repayment") || (lastRenderedEntries_ || []).some((x) => x.link && x.link.kind === "repayment"),
+    "settlement-modal-backdrop", "settlement-save-btn", "rt.settle.intro", settleGuideSteps_);
 }
 
 function closeSettlementModal() {

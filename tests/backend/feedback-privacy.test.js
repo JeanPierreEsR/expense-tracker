@@ -71,9 +71,6 @@ test("no text sends the person to a row that no longer exists, in either languag
   assert.match(STRINGS["mailHealth.problem.auth"].es, /Más → Comentarios y privacidad → Funciones extra/);
   assert.match(STRINGS["privacy.signin"].en, /More → My profile → Where I'm signed in/);
   assert.match(STRINGS["privacy.signin"].es, /Más → Mi perfil → Dónde tengo la sesión iniciada/);
-  assert.match(STRINGS["tour.more.feedback"].en, /Feedback & privacy/);
-  assert.match(STRINGS["tour.more.feedback"].es, /Comentarios y privacidad/);
-  assert.match(STRINGS["tour.more.extras"].en, /^ There, “Extra features”/, "it follows the Feedback & privacy sentence");
   assert.match(serverStrings, /More → Feedback & privacy → Extra features/);
 });
 
