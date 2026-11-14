@@ -1213,8 +1213,8 @@
           const n = info.entries ? ` · ${tr("categories.entryCount", { n: info.entries })}` : "";
           // The suggested category (or the one a remembered choice renames) is offered twice: renamed to the file's name, and as it is.
           const renamable = (c.id === it.categoryId || selVal === "ren:" + c.id) && !info.protected && info.names && info.names.indexOf(norm) === -1;
-          return (renamable ? `<option value="ren:${escapeHtml(c.id)}"${selVal === "ren:" + c.id ? " selected" : ""}>${escapeHtml(tr("table.catOptRename", { from: c.name, to: shownName(it.name, it.type) }) + n)}</option>` : "") +
-            `<option value="${escapeHtml(c.id)}"${selVal === c.id ? " selected" : ""}>${escapeHtml(c.name + n)}</option>`;
+          return (renamable ? `<option value="ren:${escapeHtml(c.id)}"${selVal === "ren:" + c.id ? " selected" : ""}>${escapeHtml(tr("table.catOptRename", { from: catOptionText_(c), to: shownName(it.name, it.type) }) + n)}</option>` : "") +
+            `<option value="${escapeHtml(c.id)}"${selVal === c.id ? " selected" : ""}>${escapeHtml(catOptionText_(c) + n)}</option>`;
         }).join("");
         const nameInput = selVal === "custom" ? `<label>${escapeHtml(tr("table.catCustomLabel"))}</label><input type="text" class="tm-cname" maxlength="40" aria-label="${escapeHtml(tr("table.catName"))}" value="${escapeHtml(state.catNames[it.key] || "")}">` : "";
         const note = it.why === "retired" ? `<p class="stmt-note warn" style="margin:6px 0">${escapeHtml(tr("table.catLoanNote"))}</p>` : "";

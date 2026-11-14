@@ -1413,6 +1413,8 @@ function sortedCategories_(list) {
 // A hidden category (More → Categories) is left out of every "pick a category" list, but one
 // already chosen on the record being edited (`keep`: an id, or a Set of ids) stays listed.
 function catHidden_(c) { return String(c.hidden || "") === "yes"; }
+// A category as every category list shows it: its emoji, then its name (owner, 2026-11-14: Tidy my history showed names only).
+function catOptionText_(c) { return `${c.icon ? c.icon + " " : ""}${c.name}`; }
 function pickableCategories_(list, keep) {
   const kept = (c) => (keep instanceof Set ? keep.has(c.id) : keep != null && keep === c.id);
   return list.filter((c) => !catHidden_(c) || kept(c));
@@ -1434,7 +1436,7 @@ function populateCategoryOptions() {
     .forEach((c) => {
       const opt = document.createElement("option");
       opt.value = c.id;
-      opt.textContent = c.name;
+      opt.textContent = catOptionText_(c);
       select.appendChild(opt);
     });
 }
@@ -7196,7 +7198,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     item.dataset.entryId = entry.id;
 
     const categoryOptions = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === entry.type), entry.category_id))
-      .map((c) => `<option value="${c.id}" ${c.id === entry.category_id ? "selected" : ""}>${escapeHtml(c.name)}</option>`)
+      .map((c) => `<option value="${c.id}" ${c.id === entry.category_id ? "selected" : ""}>${escapeHtml(catOptionText_(c))}</option>`)
       .join("");
 
     item.innerHTML = `
@@ -15197,7 +15199,7 @@ function tidyCategoryOptions_(selectedId, leaveOut) {
   const out = new Set([].concat(leaveOut || []));
   return `<option value="">${escapeHtml(tr("tidy.pick"))}</option>` +
     sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" && !out.has(c.id)), selectedId))
-      .map((c) => `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
+      .map((c) => `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? " selected" : ""}>${escapeHtml(catOptionText_(c))}</option>`).join("");
 }
 
 // An entry's amount in Tidy my history, with the app-wide sign rule (money out "−", money in a green "+"; owner, 2026-11-12).
