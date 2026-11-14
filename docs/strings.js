@@ -416,6 +416,7 @@
     "entriesBulk.menuCategory": { en: "Category", es: "Categoría" },
     "entriesBulk.menuTrip": { en: "Trip or event", es: "Viaje o evento" },
     "entriesBulk.menuTag": { en: "Tag", es: "Etiqueta" },
+    "entriesBulk.menuTakeOut": { en: "Take out of {name}", es: "Sacar de {name}" },
     "entriesBulk.tripTitle": { en: "Trip or event", es: "Viaje o evento" },
     "entriesBulk.tripLabel": { en: {"one": "Link this expense to:", "other": "Link these {n} expenses to:"}, es: {"one": "Vincular este gasto a:", "other": "Vincular estos {n} gastos a:"} },
     "entriesBulk.tripPick": { en: "— pick a trip or event —", es: "— elige un viaje o evento —" },

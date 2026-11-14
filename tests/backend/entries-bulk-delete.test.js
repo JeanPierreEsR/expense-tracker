@@ -104,7 +104,10 @@ test("the screen: pencils on the Home list and the search results, tick rows, on
   assert.match(app, /callApi\("previewEntriesDelete", \{ ids \}\)/);
   assert.match(app, /callApi\("deleteEntries", entriesListThen_\(\{ ids: sendIds \}\)\)/);
   assert.match(app, /busy: "common\.deletingToast"/);
-  assert.match(app, /name !== "entries" && entriesEditing_/, "leaving Home ends Edit mode");
+  assert.match(app, /\(name !== "entries" \|\| entriesWhere_ === "trip"\) && entriesEditing_/, "leaving Home (or a trip's screen) ends Edit mode");
+  // A trip's screen has the same Edit mode on its Expenses (owner, 2026-11-14), with a one-tap "Take out of <trip>".
+  assert.match(app, /setEntriesEditing_\(!entriesEditing_, true, "trip"\)/);
+  assert.match(app, /entriesWhere_ === "trip" && \["↩️", "entriesBulk\.menuTakeOut", takeOutOfTrip_\]/);
   for (const key of ["entriesBulk.title", "entriesBulk.confirm", "entriesBulk.sharedNote", "entriesBulk.keptNote", "entriesBulk.noneDeletable", "entriesBulk.selectAllMatches", "entriesBulk.limit",
     "entriesBulk.done", "entriesBulk.resultKept", "entriesBulk.why.repayment", "entriesBulk.why.loanMovement", "entriesBulk.why.repaidLoans", "entriesBulk.why.exchange", "entriesBulk.why.forgiveness", "entriesBulk.why.missing"]) {
     assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: .+, es: .+ \\}`), key);
