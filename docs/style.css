@@ -3206,17 +3206,17 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 
 .home-card-label { color: var(--muted); font-size: 0.875rem; }
 .home-big { font-size: 2rem; font-weight: 700; margin: 2px 0; letter-spacing: -0.5px; }
+.home-card-main .home-big { font-size: 1.5rem; }   /* smaller, so the two rows of boxes below cost little height */
 .home-delta { font-size: 0.875rem; color: var(--muted); }
 .home-delta.good { color: var(--income); }
 .home-delta.bad { color: var(--expense); }
 
-/* Four equal boxes (owner, 2026-11-13): the row reaches 10px into the card's padding and the boxes' own padding is tight, so the
-   longest label ("Investments", "Expenses" with its dot) stays on one line at 375px: label + amount = two lines, never three. */
-.home-four { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin: 14px -10px 10px; }
-.home-four-box { background: var(--bg); border-radius: var(--r-md); padding: 7px 4px; min-width: 0; display: flex; flex-direction: column; }
-.home-four-box span { display: block; font-size: 0.6875rem; line-height: 1.15; letter-spacing: -0.01em; color: var(--muted); white-space: nowrap; }
+/* Two rows of two equal boxes (owner, 2026-11-13), lined up with the card's title; label above its amount. */
+.home-four { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 12px 0 10px; }
+.home-four-box { background: var(--bg); border-radius: var(--r-md); padding: 7px 10px; min-width: 0; }
+.home-four-box span { display: block; font-size: 0.75rem; line-height: 1.15; color: var(--muted); white-space: nowrap; }
 .home-loans-note { margin: -4px 0 8px; font-size: 0.75rem; }
-.home-four-box b { display: block; font-size: 0.75rem; margin-top: auto; padding-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-four-box b { display: block; font-size: 0.8125rem; padding-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-four-box b.income { color: var(--income); }
 .home-four-box b.expense { color: var(--expense); }
 
