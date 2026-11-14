@@ -168,7 +168,7 @@ test("a bank that sends the same statement twice gives one row and one nudge, ev
   linkTelegram(rt);
   warmUp(rt);
   const DIN = "Diners <estadodecuenta@dinersonline.com.pe>";
-  const mail = () => rt.svc.gmail.addEmail({ from: DIN, subject: "Estado de Cuenta", body: "", attachments: [{ name: "EECC_DINERS_0000.pdf", size: 90000 }] });
+  const mail = () => rt.svc.gmail.addEmail({ from: DIN, subject: "Estado de Cuenta", body: "", attachments: [{ name: "EECC_DINERS_0000.pdf", size: 90000, bytes: [37, 80, 68, 70, 1, 2, 3] }] });
   mail(); mail();
   assert.equal(scan(rt).found, 1);
   assert.equal((sentText(rt).match(/New Diners statement/g) || []).length, 1);
@@ -187,4 +187,18 @@ test("a different file, or the same name a month later, is still a new statement
   rt.run(`ensureStatementInboxSheet_(); appendRowsBulk_('Statement Inbox', [{ id: 'old', message_id: 'old', attachment_name: 'EECC.pdf', sender_key: 'estadodecuenta@dinersonline.com.pe',
     bank_label: 'Diners', bank_keyword: 'diners', received: '2026-01-01', status: 'processed', size_kb: 88, notified: 'true', created_at: '2026-01-01' }])`);
   assert.equal(scan(rt).found, 2);   // the 40-day-old one is outside the 6-day window; both of today's differ in size
+});
+
+test("statements the owner mails himself under one file name: different contents stay, an identical re-send is skipped", () => {
+  const { rt } = freshApp({ entries: 50 });
+  linkTelegram(rt);
+  warmUp(rt);
+  const send = (bytes) => rt.svc.gmail.addEmail({ from: ME, subject: "IBK ahorros", body: "", attachments: [{ name: "account_summary.pdf", size: 50000, bytes }] });
+  send([37, 80, 68, 70, 10]);   // savings in soles
+  send([37, 80, 68, 70, 20]);   // savings in dollars: same name, same size, different file
+  assert.equal(scan(rt).found, 2);
+  send([37, 80, 68, 70, 10]);   // the soles one mailed again by mistake, in a later scan
+  assert.equal(scan(rt).found, 0);
+  assert.equal(inbox(rt).length, 2);
+  assert.equal((sentText(rt).match(/New Interbank statement/g) || []).length, 2);
 });
