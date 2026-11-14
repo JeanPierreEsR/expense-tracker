@@ -24,6 +24,7 @@ function ensureTripsSheet_() {
       tripsColumnsChecked_ = true;
       ensureColumn_('Trips', 'alert_thresholds');   // a tab made before the alerts existed
       ensureColumn_('Trips', 'currency');           // ... and before each trip had its own currency
+      ensureColumn_('Trips', 'in_budgets');         // ... and before "In my budgets" (2026-11-14)
     }
     return;
   }
@@ -98,11 +99,47 @@ function cleanTripInput_(p) {
   // Alert percentages (only meaningful with a budget). Blank = the usual budget ones; anything else is checked.
   var thresholdsRaw = String(p.alert_thresholds === undefined || p.alert_thresholds === null ? '' : p.alert_thresholds).trim();
   var thresholds = amount !== '' && thresholdsRaw !== '' ? normalizeBudgetThresholds_(thresholdsRaw) : '';
-  return {
+  var out = {
     name: name, kind: kind, start_date: start, end_date: end,
     emoji: String(p.emoji || '').trim(), budget_amount: amount, budget_currency: amount !== '' ? currency : '',
     alert_thresholds: thresholds, currency: currency
   };
+  // Left out when the caller did not send it (an older screen), so an edit keeps what was chosen.
+  if (p.in_budgets !== undefined && p.in_budgets !== null) out.in_budgets = cleanTripInBudgets_(p.in_budgets);
+  return out;
+}
+
+// "In my budgets" (owner, 2026-11-14): '' = as usual (each expense counts in its category's budgets), 'none' = left out of every
+// budget, else the comma-separated ids of the only budgets its expenses count in, whatever their category.
+function cleanTripInBudgets_(raw) {
+  var text = String(raw).trim();
+  if (!text) return '';
+  if (text === TRIP_BUDGETS_NONE_) return text;
+  var present = {};
+  getAllRows('Budgets').forEach(function (b) { present[String(b.id)] = true; });
+  var seen = {}, ids = [];
+  text.split(',').forEach(function (id) { id = id.trim(); if (id && present[id] && !seen[id]) { seen[id] = true; ids.push(id); } });
+  if (!ids.length) throw new Error(tr_('trip.errInBudgets'));
+  return ids.join(',');
+}
+
+var TRIP_BUDGETS_NONE_ = 'none';
+
+// trip id -> where its expenses count in budgets, only for trips that are not "as usual": {} = in none, { budgetId: true } = only
+// those. A list whose budgets were all deleted counts as usual again (the trip pop-up says so: listTrips' in_budgets_lost).
+function tripBudgetRoutes_(budgets) {
+  var present = {};
+  (budgets || getAllRows('Budgets')).forEach(function (b) { present[String(b.id)] = true; });
+  var routes = {};
+  getTripRows_().forEach(function (t) {
+    var raw = String(t.in_budgets || '').trim();
+    if (!raw) return;
+    if (raw === TRIP_BUDGETS_NONE_) { routes[t.id] = { route: {}, name: t.name }; return; }
+    var set = {}, any = false;
+    raw.split(',').forEach(function (id) { id = id.trim(); if (present[id]) { set[id] = true; any = true; } });
+    if (any) routes[t.id] = { route: set, name: t.name };
+  });
+  return routes;
 }
 
 function addTrip(payload) {
@@ -316,6 +353,7 @@ function tripAllRows_(onlyTripId) {
 // For the Trips & events list: every trip with its running total (real + estimated), in its own currency.
 function listTrips() {
   var trips = getTripRows_().map(function (t) { return Object.assign({}, t); });
+  var routes = tripBudgetRoutes_();
   var byTrip = {};
   tripAllRows_(null).forEach(function (r) {
     var id = r.entry ? r.entry.trip_id : r.item.trip_id;
@@ -337,6 +375,9 @@ function listTrips() {
     t.spentMain = total;
     t.estimatedMain = estimated;
     t.budgetSpent = Number(t.budget_amount) > 0 ? total : null;
+    // "In my budgets" named budgets that were all deleted since: it counts as usual again, and the pop-up says so.
+    var inBudgets = String(t.in_budgets || '').trim();
+    t.in_budgets_lost = !!inBudgets && inBudgets !== TRIP_BUDGETS_NONE_ && !routes[t.id];
   });
   return trips;
 }

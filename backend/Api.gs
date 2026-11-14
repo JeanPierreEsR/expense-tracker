@@ -1232,10 +1232,19 @@ function listEntries(payload) {
   // Multi-category budget drill-down (see openBudgetDrilldown in app.js) —
   // an "ALL categories" budget passes neither this nor categoryId, so
   // every category matches, same as no filter at all.
+  // A budget's drill-down sends budgetId: a trip set to "Leave out of my budgets" or "Count only in…" (Trips.gs tripBudgetRoutes_)
+  // decides for its own expenses, whatever their category, so the list adds up to the budget's "spent".
+  var budgetTripRoutes = payload && payload.budgetId ? tripBudgetRoutes_() : null;
+  var routedHere = function (e) {
+    var t = budgetTripRoutes && e.trip_id ? budgetTripRoutes[e.trip_id] : null;
+    return t ? (t.route[String(payload.budgetId)] === true) : null;   // null = as usual
+  };
   if (payload && payload.categoryIds && payload.categoryIds.length) {
     var wantedCategoryIds = {};
     payload.categoryIds.forEach(function (id) { wantedCategoryIds[id] = true; });
-    entries = entries.filter(function (e) { return wantedCategoryIds[e.category_id]; });
+    entries = entries.filter(function (e) { var r = routedHere(e); return r === null ? !!wantedCategoryIds[e.category_id] : r; });
+  } else if (budgetTripRoutes) {
+    entries = entries.filter(function (e) { return routedHere(e) !== false; });
   }
   // Overview "By account or card" slices (only Overview sends these): an account, a special slice ("Not repaid yet", …) or
   // "No account" — the same split the pie uses (AccountSlices.gs), each entry with its part in that slice.

@@ -26,7 +26,7 @@ var TABLE_DEFINITIONS = {
   // budget ones); the column is added to an existing tab by ensureTripsSheet_. Self-heals via ensureTripsSheet_.
   // `currency` (2026-10-19): the trip's OWN main currency — every total, phase, category/day figure and its
   // budget are shown in it. Blank = budget_currency (older trips) or else the app's main currency.
-  Trips: ['id', 'name', 'kind', 'start_date', 'end_date', 'emoji', 'budget_amount', 'budget_currency', 'alert_thresholds', 'currency'],
+  Trips: ['id', 'name', 'kind', 'start_date', 'end_date', 'emoji', 'budget_amount', 'budget_currency', 'alert_thresholds', 'currency', 'in_budgets'],
   'Entry Tags': ['entry_id', 'tag_id'],
   // Not part of the original spec — the bill behind a split expense (see
   // EntryBills.gs). Self-heals via ensureEntryBillsSheet_ on first save.
