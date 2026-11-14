@@ -139,7 +139,7 @@ function buildMonthlySeries_(categoryIds, excludeRecurringIds) {
     var rate = rateToMain_(ratesByCurrency, currency, String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
-  var annualEntryIds = annualEntryIdSet_();
+  var annualEntryIds = annualMarkedIdSet_();
   var installmentEntryIds = bankInstallmentEntryIds_();   // a bank loan's interest: its schedule says what comes next (BankLoans.gs)
   var todayStr = formatCalendarDate_(new Date());
 

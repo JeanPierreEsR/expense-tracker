@@ -1247,6 +1247,11 @@ function listEntries(payload) {
   } else if (budgetTripRoutes) {
     entries = entries.filter(function (e) { return routedHere(e) !== false; });
   }
+  // An "Annual expenses" budget's drill-down: every annual expense (AnnualTag.gs § What counts as ANNUAL) it counts.
+  if (payload && payload.annualKind) {
+    var markedAnnual = annualMarkedIdSet_();
+    entries = entries.filter(function (e) { return routedHere(e) === true || (routedHere(e) === null && !!markedAnnual[e.id]); });
+  }
   // Overview "By account or card" slices (only Overview sends these): an account, a special slice ("Not repaid yet", …) or
   // "No account" — the same split the pie uses (AccountSlices.gs), each entry with its part in that slice.
   if (payload && payload.paymentMethodId) {
@@ -1262,12 +1267,12 @@ function listEntries(payload) {
   // adds up to the budget's own "spent" figure (Annual-tagged ones don't count
   // against a monthly budget — see excludeAnnual in Budgets.gs).
   if (payload && payload.excludeAnnual) {
-    var annualIds = annualEntryIdSet_();
+    var annualIds = annualMarkedIdSet_();
     entries = entries.filter(function (e) { return !annualIds[e.id]; });
   }
   // The other way round: only the Annual-tagged ones (a monthly budget's "… tagged Annual, not counted ›", 2026-11-07).
   if (payload && payload.onlyAnnual) {
-    var annualOnly = annualEntryIdSet_();
+    var annualOnly = annualMarkedIdSet_();
     entries = entries.filter(function (e) { return !!annualOnly[e.id]; });
   }
   // Exactly these entries (Overview's summary list sends one page of ids, Reports.gs listPeriodFlows).

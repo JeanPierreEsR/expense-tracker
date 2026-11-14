@@ -57,7 +57,7 @@ function getHomeGlance() {
   function insideBudgets_(categoryId) {
     return budgetIds.some(function (ids) { return categoryIdMatches_(ids, categoryId); });
   }
-  var annual = monthlyBudgets.length ? annualEntryIdSet_() : {};
+  var annual = monthlyBudgets.length ? annualMarkedIdSet_() : {};
   // A trip's "In my budgets" (Trips.gs): left out of every budget, or counted only in the budgets picked, whatever the category.
   var tripRoutes = monthlyBudgets.length ? tripBudgetRoutes_() : {};
   function countsInBudgets_(e) {

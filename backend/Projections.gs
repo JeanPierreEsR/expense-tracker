@@ -239,7 +239,7 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
   var recurringSplitSums = getRecurringExpenseSplitSums_();
   // Entries tagged Annual are one-off lumps, not part of the monthly rate
   // (see the YTD pool below). They still count as "actual" in their own month.
-  var annualEntryIds = annualEntryIdSet_();
+  var annualEntryIds = annualMarkedIdSet_();
 
   var splitSumByEntry = {};
   getAllRows('Entry Splits').forEach(function (s) {
@@ -557,7 +557,7 @@ function getCategoryProjectionDetail(payload) {
 
   var dailyActualPen = {};
   var annualLeftOut = bounds.periodType === 'monthly' && category && category.type !== 'income';
-  var annualIdsInDetail = annualLeftOut ? annualEntryIdSet_() : {};
+  var annualIdsInDetail = annualLeftOut ? annualMarkedIdSet_() : {};
   getAllRows('Entries')
     .filter(function (e) {
       return e.status === 'confirmed' && e.category_id === payload.categoryId &&
