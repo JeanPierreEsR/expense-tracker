@@ -183,6 +183,15 @@
               <select id="repayment-friend"></select>
               <p class="hint" id="repayment-hint"></p>
               <p class="hint repayment-nothing-owed" id="repayment-nothing-owed" hidden></p>
+              <!-- "Choose which loans this pays" on a new repayment, like Loans → Record repayment (owner, 2026-11-14). -->
+              <div id="entry-repay-choose" hidden>
+                <button type="button" class="add-inline" id="entry-repay-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
+                <div id="entry-repay-choose-panel" hidden>
+                  <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
+                  <div id="entry-repay-choose-list"></div>
+                  <p class="hint" id="entry-repay-choose-summary"></p>
+                </div>
+              </div>
               <div id="repayment-overpay-block">
                 <label for="repayment-overpay-category" id="repayment-overpay-category-label" data-i18n="transfer.overpayCategory">Category if you paid extra</label>
                 <select id="repayment-overpay-category"></select>

@@ -119,7 +119,16 @@ test("step 3A: the income form sends the expected payment only for an income on 
 test("step 3A: the repayment sends the chosen loans only when the panel was opened, never while fixing a recorded repayment", () => {
   assert.match(app, /let allocations = !editingSettlementId && !document\.getElementById\("settlement-choose-panel"\)\.hidden \? settlementAssignments_\(\) : \[\];/);
   assert.match(app, /allocations: allocations\.length \? allocations : undefined/);
-  assert.match(app, /wrap\.hidden = !!editingSettlementId \|\| settlementChoosableLoans_\(\)\.length < 2;/);
+  assert.match(app, /resetChoose_\(CHOOSE_SHEET_, !editingSettlementId && settlementChoosableLoans_\(\)\.length >= 2\);/);
+});
+
+test("Home's \"+\" → Repayment offers the same choice (owner, 2026-11-14): new entries only, two or more open loans, sent as allocations", () => {
+  const html = read("docs", "index.html");
+  assert.match(html, /<div id="entry-repay-choose" hidden>/);
+  assert.match(app, /const on = repaymentActive_\(\) && transferKind_\(\) === "repayment" && entryFormIsNewEntry_\(\) && !entryOpeningOn_\(\)/);
+  assert.match(app, /resetChoose_\(CHOOSE_ENTRY_, CHOOSE_ENTRY_\.loans\(\)\.length >= 2\);/);
+  assert.match(app, /if \(chosen && chosen\.length\) repayPayload\.allocations = chosen;/);
+  assert.match(app, /resetEntryRepayChoose_\(\);   \/\/ "Choose which loans this pays"/);
 });
 
 test("step 3A: the loan picker shows only while fixing a recorded repayment, and its choice is sent as loan_id", () => {
