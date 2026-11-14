@@ -152,10 +152,47 @@ function scanStatementInbox_() {
   var window = ' has:attachment filename:pdf newer_than:' + (first ? '75d' : '6d');
   var tz = Session.getScriptTimeZone();
   var added = [];
+  // A bank that sends the same statement twice (Diners, 2026-11-13: two identical e-mails a minute apart)
+  // must give ONE row and ONE nudge. A file is a repeat only when its CONTENT is identical to one already
+  // listed (or added in this scan) from the same sender within 7 days. Name and size only pick the
+  // candidates to compare: statements the owner mails himself all share one file name (account_summary.pdf),
+  // so two different statements must never be taken for one. If the earlier file cannot be read, it is
+  // NOT a repeat (a second message is better than a lost statement).
+  var seenFile = {};
+  function fileKey(senderKey, name, sizeKb) { return senderKey + '|' + name + '|' + sizeKb; }
+  function rememberFile(r, att) {
+    if (stmtIsLinkItem_(r)) return;
+    var k = fileKey(r.sender_key, r.attachment_name, r.size_kb);
+    (seenFile[k] = seenFile[k] || []).push({ received: String(r.received), message_id: r.message_id, name: r.attachment_name, att: att || null });
+  }
+  function dayNum(d) { var p = String(d).split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000; }
+  function bytesOf(c) {
+    try {
+      var a = c.att || gmailGetMessage_(c.message_id).getAttachments({ includeInlineImages: false })
+        .filter(function (x) { return x.getName() === c.name; })[0];
+      return a ? a.getBytes() : null;
+    } catch (e) { return null; }
+  }
+  function sameBytes(x, y) {
+    if (!x || !y || x.length !== y.length) return false;
+    for (var i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+    return true;
+  }
+  rows.forEach(function (r) { rememberFile(r); });
   function note(m, sender, att, selfSent) {
-    added.push({ id: Utilities.getUuid(), message_id: m.getId(), attachment_name: att.getName(), sender_key: selfSent ? 'self' : sender.address,
-      bank_label: sender.label, bank_keyword: sender.bank, received: Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd'),
-      status: 'new', size_kb: Math.round(att.getSize() / 1024), notified: first ? 'true' : '', created_at: nowTimestamp_() });
+    var senderKey = selfSent ? 'self' : sender.address;
+    var sizeKb = Math.round(att.getSize() / 1024);
+    var received = Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd');
+    var near = (seenFile[fileKey(senderKey, att.getName(), sizeKb)] || [])
+      .filter(function (c) { return Math.abs(dayNum(c.received) - dayNum(received)) <= 7; });
+    if (near.length) {
+      var mine = att.getBytes();
+      if (near.some(function (c) { return sameBytes(mine, bytesOf(c)); })) return;
+    }
+    added.push({ id: Utilities.getUuid(), message_id: m.getId(), attachment_name: att.getName(), sender_key: senderKey,
+      bank_label: sender.label, bank_keyword: sender.bank, received: received,
+      status: 'new', size_kb: sizeKb, notified: first ? 'true' : '', created_at: nowTimestamp_() });
+    rememberFile(added[added.length - 1], att);
   }
   // Download-link statements first (they carry no attachment, so the search below never sees them).
   STATEMENT_LINK_SENDERS_.forEach(function (spec) {
