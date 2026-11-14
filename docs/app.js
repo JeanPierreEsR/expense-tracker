@@ -13828,7 +13828,8 @@ function tourChrome_(i) {
   const dots = welcomeEl_("tour-dots");
   if (dots.children.length !== tour_.cards.length) dots.innerHTML = tour_.cards.map((_, n) => `<button type="button" class="welcome-dot" data-tour-dot="${n}" aria-label="${n + 1}"></button>`).join("");
   [...dots.children].forEach((d, n) => d.classList.toggle("active", n === i));
-  welcomeEl_("tour-hint").style.visibility = i === 0 ? "visible" : "hidden";
+  // "Swipe to continue" under the dots on every card (owner, 2026-11-14), except the last one, which ends with its Done button.
+  welcomeEl_("tour-hint").style.visibility = last ? "hidden" : "visible";
   // "Skip all" from the second card on (owner, 2026-11-04): on the first one it read as the way forward, before the person had seen any card.
   welcomeEl_("tour-skip-btn").style.visibility = last ? "hidden" : "visible";
 }
@@ -13860,19 +13861,30 @@ function showTourCard_(i, scroll) {
   if (i > 0) { try { localStorage.setItem(TOUR_SWIPE_KNOWN_KEY_, "1"); } catch (e) { /* storage blocked: it may nudge again next time */ } }
   const ctx = tourSceneCtx_();
   if (i === 0 && !tourSwipeKnown_()) {
-    ctx.onEnd = () => tourNudgeLater_(7000);
-    tourNudgeLater_(25000);
-    tour_.slides[0].stage.addEventListener("click", () => { if (tour_ && tour_.i === 0) tourNudgeLater_(15000); });
+    const shownAt = Date.now(), read = tourReadMs_(tour_.slides[0].el);
+    const anim = typeof TourScenes !== "undefined" && TourScenes.length ? TourScenes.length(tour_.slides[0].key, ctx) : 0;
+    tourNudgeLater_(read + anim);
+    // A tap replays the animation: the nudge waits for that replay too, never coming before the card's own minimum.
+    tour_.slides[0].stage.addEventListener("click", () => {
+      if (tour_ && tour_.i === 0) tourNudgeLater_(Math.max(shownAt + read + anim - Date.now(), anim + TOUR_AFTER_REPLAY_MS_));
+    });
   }
   if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, ctx);
 }
 // "Swipe to go on" (owner, 2026-11-03; 2026-11-06: no limit, and not only after the animation's last step): while the person stays on the first card
 // the card slides a little to the left, the next one peeks in, the "Swipe to continue" line moves along, and it springs back. No button, because
 // "Next step" already belongs to the animation (owner). It waited for that animation's last step, so someone who never tapped it got no nudge at all.
-// Timed so that it never interrupts someone reading: reading the card and its 4 steps takes about 45 s, 13.6 s of it the animation itself. First 25 s
-// after the card appears, 15 s after a tap on the animation, 7 s after its last step, then every 8 s. Never again once they have reached
-// another card (TOUR_SWIPE_KNOWN_KEY_), and never with reduced motion.
+// Timed by a measured minimum (owner, 2026-11-14; it used fixed waits of 25 s, 15 s after a tap, 7 s after the animation): the time to
+// read the card's words at a calm phone pace (TOUR_WORDS_PER_MIN_, plus a moment to take in the screen) PLUS one full run of its animation.
+// The first nudge comes as soon as that has passed, a tap on the animation (a replay) puts it after the replay, then every 8 s. Never again
+// once they have reached another card (TOUR_SWIPE_KNOWN_KEY_), and never with reduced motion.
 const TOUR_SWIPE_KNOWN_KEY_ = "tourSwipeKnown";
+const TOUR_WORDS_PER_MIN_ = 180, TOUR_GLANCE_MS_ = 2000, TOUR_AFTER_REPLAY_MS_ = 1500;
+function tourReadMs_(slide) {
+  const text = [...slide.querySelectorAll("h2, .welcome-body, .welcome-items")].map((el) => el.textContent).join(" ");
+  const words = text.split(/\s+/).filter(Boolean).length;
+  return TOUR_GLANCE_MS_ + Math.round(words * 60000 / TOUR_WORDS_PER_MIN_);
+}
 function tourSwipeKnown_() { try { return localStorage.getItem(TOUR_SWIPE_KNOWN_KEY_) === "1"; } catch (e) { return false; } }
 function tourNudgeLater_(ms) {
   if (!tour_) return;

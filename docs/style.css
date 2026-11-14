@@ -2633,6 +2633,9 @@ body.income-revealed .sens-mask { display: none; }
    the keyboard opens shows plain background. */
 html:has(#welcome-overlay:not([hidden])), html:has(#welcome-overlay:not([hidden])) body { overflow: hidden; }
 .welcome-overlay { box-shadow: 0 0 0 100vmax var(--bg, var(--surface-warm)); }
+/* The shadow alone was not enough on the owner's iPhone (2026-11-14: Home's "Getting started" card showed under "Your full name"
+   with the keyboard up), so the app's own screen is made invisible while the welcome screens are open (it keeps its size). */
+html:has(#welcome-overlay:not([hidden])) :is(body > header, #app, #bottom-nav, #fab-new-entry) { visibility: hidden; }
 .welcome-card { max-width: 520px; margin: 0 auto; padding: 24px 18px 40px; }
 .welcome-card h2 { margin: 6px 0 6px; line-height: 1.25; }
 .welcome-card h3 { margin: 22px 0 8px; font-size: 1em; }
