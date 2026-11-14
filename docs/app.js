@@ -18455,6 +18455,8 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
       async () => {
         await refreshTripsList_();
         if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
+        // "In my budgets" changes the budgets: a trip saved from the Budgets tab (its bubble) shows the new figures at once.
+        if (!document.getElementById("screen-budgets").hidden) refreshBudgetsInBackground_();
       });
   } catch (err) {
     errorEl.textContent = err.message;
@@ -24089,13 +24091,59 @@ function watchTripBudgetsTip_() {
   const tripId = hit.trip.trip_id;
   popTipWatch_({
     key: "tripBudgets", place: "budgets", level: "advanced",
-    text: () => tr("pop.tripBudgets", { name: hit.trip.name, budget: hit.budget.progress.category_name || hit.budget.category_name }),
+    text: () => tr(tripGuideAnnualBudget_() ? "pop.tripBudgetsAnnual" : "pop.tripBudgets", { name: hit.trip.name, budget: hit.budget.progress.category_name || hit.budget.category_name }),
     target: () => document.querySelector(`#budgets-list .budget-row[data-budget-id="${CSS.escape(String(hit.budget.id))}"]`),
     stillWanted: () => !document.getElementById("screen-budgets").hidden,
     ready: () => document.getElementById("budgets-tip-invite").hidden,
-    act: { label: tr(((meta.trips || []).find((t) => t.id === tripId) || {}).kind === "event" ? "pop.tripBudgetsOpenEvent" : "pop.tripBudgetsOpen"), run: () => openTripForBudgets_(tripId) }
+    // "Show me" opens the trip and guides the person through "In my budgets"; the bubble itself never changes anything (owner, 2026-11-14).
+    act: { label: tr("spot.showMe"), run: () => startTripBudgetsGuide_(tripId, hit.budget.id) }
   });
   return true;
+}
+// The person's "Everything marked Annual" budget, if they have one running (the guide then points at it).
+function tripGuideAnnualBudget_() { return (budgetsLoaded_ || []).find((b) => b.annual_kind && !b.ended) || null; }
+// Real tutorial: "In my budgets" from the Budgets bubble (owner, 2026-11-14; outcome map in "Tutorials from the map - plan").
+// The person makes every choice and taps Save; nothing is changed for them. Ends on the budget the trip now counts in (Budgets is
+// refreshed after the save), or says plainly that nothing changed (refused, or the window closed without saving).
+async function startTripBudgetsGuide_(tripId, fromBudgetId) {
+  if (Spotlight.isRunning()) return;
+  await openTripForBudgets_(tripId);
+  const back = document.getElementById("trip-modal-backdrop");
+  if (back.hidden || document.getElementById("trip-inbudgets-field").hidden) return;
+  const annual = tripGuideAnnualBudget_();
+  const tripName = document.getElementById("trip-name").value.trim();
+  let lastSaveAt = 0, closedNoSave = false, shown = false, saved = { mode: "", ids: [] };
+  const saveBtn = document.getElementById("trip-save-btn");
+  const onSave = () => { lastSaveAt = Date.now(); saved = { mode: tripInBudgetsMode_(), ids: [...tripInBudgetIds_] }; };
+  saveBtn.addEventListener("click", onSave, true);
+  const watchClose = new MutationObserver(() => { if (back.hidden && Date.now() - lastSaveAt > 2000) closedNoSave = true; });
+  watchClose.observe(back, { attributes: true, attributeFilter: ["hidden"] });
+  const radio = (v) => { const r = document.querySelector(`input[name="trip-inbudgets"][value="${v}"]`); return r ? r.closest("label") : null; };
+  const failed = () => realSaveFailed_(), unsaved = () => closedNoSave;
+  const err = () => (document.getElementById("trip-form-error").textContent || "").trim();
+  const budgetRow = (id) => (id ? document.querySelector(`#budgets-list .budget-row[data-budget-id="${CSS.escape(String(id))}"]`) : null);
+  const budgetName = (id) => { const b = (budgetsLoaded_ || []).find((x) => x.id === id) || (tripBudgetChoices_ || []).find((x) => x.id === id); return b ? (b.category_name || b.name) : ""; };
+  const doneText = () => saved.mode === "none" ? tr("rt.tb.doneNone", { name: tripName })
+    : saved.mode === "only" ? tr("rt.tb.doneOnly", { name: tripName, budgets: saved.ids.map(budgetName).filter(Boolean).join(", ") })
+    : tr("rt.tb.doneUsual", { name: tripName });
+  guided_ = { savedId: "", split: null };
+  const steps = [
+    { target: "#trip-inbudgets-field", text: () => tr("rt.tb.what", { name: tripName }), button: realNext_, after: () => markTaught_("tripBudgets", "real") },
+    { target: () => radio(annual ? "only" : "none"), text: () => tr(annual ? "rt.tb.pickOnly" : "rt.tb.pickNone"), until: () => tripInBudgetsMode_() !== "usual",
+      before: async () => tripInBudgetsMode_() === "usual" },
+    { target: () => { const c = document.getElementById("trip-inbudgets-chips"); return c && c.querySelector(".tag-chip") ? c : null; },
+      text: () => tr(annual ? "rt.tb.chipAnnual" : "rt.tb.chip", { budget: annual ? (annual.name || annual.category_name) : "" }),
+      until: () => tripInBudgetIds_.size > 0, before: async () => tripInBudgetsMode_() === "only" && !tripInBudgetIds_.size },
+    { key: "save", target: () => realSaveTarget_("trip-save-btn", "trip-form-error"), text: () => (err() ? tr("spot.g.saveErr", { error: err() }) : tr("rt.tb.save")), until: () => back.hidden },
+    { keep: true, look: true, target: () => budgetRow(saved.mode === "only" ? saved.ids[0] : fromBudgetId), text: doneText, button: () => tr("spot.g.done"),
+      wait: 30000, waitText: () => tr("rt.saving"), after: () => { shown = true; }, giveUp: () => failed() || unsaved(),
+      before: async () => { if (failed() || unsaved()) return false; if (document.getElementById("screen-budgets").hidden) showScreen("budgets"); return true; } },
+    { keep: true, text: () => (failed() ? tr("rt.tb.notSaved") : unsaved() ? tr("rt.tb.closed") : doneText()), button: () => tr("spot.g.done"), before: async () => !shown }
+  ];
+  Spotlight.run(realSteps_(steps), {
+    labels: realLabels_(), busy: () => perfInflight_ > 0,
+    onFinish: async (how) => { watchClose.disconnect(); saveBtn.removeEventListener("click", onSave, true); guided_ = null; if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); }
+  });
 }
 // Opens a trip's pop-up from the Budgets tab, scrolled to "In my budgets" (the trips list itself is not opened).
 async function openTripForBudgets_(tripId) {
