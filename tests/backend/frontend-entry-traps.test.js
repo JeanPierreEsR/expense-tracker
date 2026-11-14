@@ -34,7 +34,15 @@ test("a friend added inside a split can be chosen in Paid by at once", () => {
 });
 
 test("the first tour card nudges with no limit, without waiting for the animation's last step, and the hint moves too", () => {
-  assert.match(app, /tourNudgeLater_\(25000\)/);
+  // first nudge once the card has been read and its animation watched once (measured, owner 2026-11-14), not a fixed wait
+  assert.match(app, /tourNudgeLater_\(read \+ anim\)/);
+  assert.match(app, /TourScenes\.length\(/);
   assert.match(app, /tourNudge_\(\);\s*tourNudgeLater_\(8000\);/);
   assert.match(/function tourNudge_\(\) \{[\s\S]*?\n\}/.exec(app)[0], /welcomeEl_\("tour-hint"\)/);
+});
+
+test("a tour animation restarting never makes its card shorter (the page would jump back up; owner, 2026-11-14)", () => {
+  const scenes = fs.readFileSync(path.join(__dirname, "../../docs/tour-scenes.js"), "utf8");
+  assert.match(scenes, /function holdHeight\(stage, key\)/);
+  assert.match(/function play\(key, stage, ctx\) \{[\s\S]*?\n  \}/.exec(scenes)[0], /holdHeight\(stage, key\);/);
 });
