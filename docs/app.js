@@ -6676,7 +6676,9 @@ function queueMoneyAction_(action, payload, label, ctx, replaces) {
   setMoneyQueue_(items);
   renderSaveFailedBanner_();
   showToast_(tr("common.savingToast"));
+  if (guided_ && guided_.watchMoney === action && Spotlight.isRunning()) guided_.moneyId = id;   // the Record repayment tutorial follows this save
   flushMoneyQueue_();
+  return id;
 }
 
 function setMoneyItemStatus_(id, status, error) {
@@ -6737,9 +6739,11 @@ async function flushMoneyQueue_() {
       } catch (err) {
         if (saveMayWait_(err)) { noteSaveWaiting_(); break; }   // stays in line, in its order
         setMoneyItemStatus_(item.id, "failed", err.message || String(err));
+        if (guided_ && guided_.moneyId === item.id) realNoteFailed_();
         continue;
       }
       removeMoneyItem_(item.id);
+      if (guided_ && guided_.moneyId === item.id) guided_.moneyLanded = { overpaid: (result && result.overpaid) || 0 };
       if (item.action === "recordRepayment" && result && result.overpaid > 0.004) {
         showToast_(tr("money.repaidExtra", { cur: result.currency, amount: moneyFmt(result.overpaid) }));
       } else {
@@ -25137,7 +25141,7 @@ document.addEventListener("click", (e) => { if (e.target.matches && e.target.mat
 window.addEventListener("focus", () => { idleChooser_ = false; });
 
 // Real tutorials on a dedicated "+" (owner's plan, step 4): tapping + is a clear intention, so the window opens as usual and a first screen offers Start / Exit (3 chances, another day each).
-const REAL_SAVE_ = { "bank-save": ["loans-bank", "bank-loan-modal-backdrop"], "budget-save-btn": ["budgets", "budget-modal-backdrop"], "recurring-save-btn": ["programmed", "recurring-modal-backdrop"], "pm-save-btn": ["accounts", "pm-modal-backdrop"], "trip-save-btn": ["trips", "trip-modal-backdrop"] };
+const REAL_SAVE_ = { "settlement-save-btn": ["repay", "settlement-modal-backdrop"], "bank-save": ["loans-bank", "bank-loan-modal-backdrop"], "budget-save-btn": ["budgets", "budget-modal-backdrop"], "recurring-save-btn": ["programmed", "recurring-modal-backdrop"], "pm-save-btn": ["accounts", "pm-modal-backdrop"], "trip-save-btn": ["trips", "trip-modal-backdrop"] };
 let realFormTimer_ = null, realStartPending_ = false;   // a form's real tutorial is about to start: bubbles wait (owner's walk 2026-11-12: the bubble took its place)
 function startFormGuide_(feature, used, backdropId, saveId, introKey, build) {
   if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || isTaught_(feature) || !realChanceLeft_(feature, true)) return;
@@ -25348,9 +25352,47 @@ function bankGuideSteps_(ctx) {
     { key: "check", target: () => [el("bank-rows"), el("bank-totals"), el("bank-opening-summary")].filter((x) => !x.hidden), text: (fix) => tr(el("bank-opening-summary").textContent === tr("bank.openingAllBefore") ? "rt.bank.allBefore" : fix ? "rt.bank.checkFix" : "rt.bank.check"), blurTap: true, button: realNext_, ok: () => ctx.saving() || rowsOk(), holdsUntil: "save" }
   ].concat(realSaveSteps_(ctx, "bank-save", "bank-error", "rt.bank.done", { find: practiceMSchedBtn_, wait: 45000 }));
 }
+// Loans → a friend → Record repayment (owner's plan, 2026-11-14). The whole debt comes filled in; the save goes through the money queue,
+// which tells the tutorial when it landed (guided_.moneyLanded) or was refused (realNoteFailed_), so the ending never says "Saved" too early.
+function settleGuideSteps_(ctx) {
+  const el = (id) => document.getElementById(id);
+  const theyOwe = () => repaymentDirection === "they_owe_me";
+  const amountNow = () => parseFloat(sanitizeAmountInputValue(el("settlement-amount").value)) || 0;
+  const only = (cond, step) => { const before = step.before; step.available = cond; step.before = async () => (cond() ? (before ? before() : true) : false); return step; };
+  let done = null;   // what was sent: { name, cur, owed, paid, theyOwe }
+  guided_.watchMoney = "recordRepayment";
+  ctx.capture = () => { done = { name: repaymentFriendName, cur: repaymentCurrency, owed: Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0), paid: amountNow(), theyOwe: theyOwe() }; };
+  const landed = () => !!(guided_ && guided_.moneyLanded);
+  const doneText = () => {
+    if (!done) return tr("rt.repay.done");
+    const left = Math.max(0, done.owed - done.paid), p = { name: done.name, cur: done.cur, left: moneyFmt(left), extra: moneyFmt(done.paid - done.owed) };
+    if (done.paid > done.owed + 0.004) return tr("rt.settle.doneOver", p);
+    if (left < 0.005) return tr(done.theyOwe ? "rt.settle.doneAllTheyOwe" : "rt.settle.doneAllIOwe", p);
+    return tr(done.theyOwe ? "rt.settle.donePartTheyOwe" : "rt.settle.donePartIOwe", p);
+  };
+  const save = { key: "save", target: () => realSaveTarget_("settlement-save-btn", "settlement-form-error"),
+    text: () => {
+      const e = (el("settlement-form-error").textContent || "").trim();
+      if (e) return tr("spot.g.saveErr", { error: e });
+      return repayQuickGuard_ && repayQuickGuard_.armed ? tr("rt.settle.saveAgain") : tr("rt.settle.save", { label: el("settlement-save-btn").textContent.trim() });
+    },
+    before: async () => { ctx.capture(); return true; }, until: () => !ctx.open() };
+  return [
+    { target: "#settlement-friend-context", text: () => tr(theyOwe() ? "rt.settle.whoTheyOwe" : "rt.settle.whoIOwe", { name: repaymentFriendName, cur: repaymentCurrency, amount: moneyFmt(Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0)) }), button: realNext_ },
+    only(() => realShown_("settlement-currency-chips"), { target: "#settlement-currency-chips", text: () => tr("rt.settle.currency"), tap: "#settlement-currency-chips", button: realNext_ }),
+    { key: "amount", field: "amount", target: "#settlement-amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "rt.settle.amount"), blurTap: true, visit: "#settlement-amount", button: realNext_,
+      ok: () => ctx.saving() || amountNow() > 0, holdsUntil: "save" },
+    only(() => realShown_("settlement-overpay-note"), { target: () => [el("settlement-amount"), el("settlement-overpay-note")], text: () => tr("rt.settle.over"), button: realNext_ }),
+    only(() => !fieldsKnown_().includes("date"), { field: "date", target: "#settlement-date", text: () => tr("rt.settle.date"), visit: "#settlement-date", button: realNext_ }),
+    { field: "account", target: "#settlement-payment-method", text: () => tr(theyOwe() ? "rt.settle.accIn" : "rt.settle.accOut"), visit: "#settlement-payment-method", button: realNext_ },
+    only(() => realShown_("settlement-choose"), { target: "#settlement-choose", text: () => tr("rt.settle.choose"), button: realNext_ }),
+    save
+  ].concat(realWhereSteps_(() => (landed() && !el("loan-detail-modal-backdrop").hidden ? el("loan-detail-subtitle") : null), doneText,
+    { unsaved: ctx.unsaved, otherwise: () => (landed() ? doneText() : tr("rt.settle.waiting")) }));
+}
 document.addEventListener("click", (e) => {
   if (!e.target.closest) return;
-  const b = e.target.closest("#add-budget-btn, #add-recurring-btn, #accounts-add-btn, #trips-add-btn, #bill-open-btn, #add-bank-loan-btn, #bank-save, #budget-save-btn, #recurring-save-btn, #pm-save-btn, #trip-save-btn");
+  const b = e.target.closest("#add-budget-btn, #add-recurring-btn, #accounts-add-btn, #trips-add-btn, #bill-open-btn, #add-bank-loan-btn, #bank-save, #budget-save-btn, #recurring-save-btn, #pm-save-btn, #trip-save-btn, #settlement-save-btn");
   if (!b || Spotlight.isRunning()) return;
   if (REAL_SAVE_[b.id]) {   // saved without the guide: the offer ends
     const [feature, backId] = REAL_SAVE_[b.id];
@@ -29979,6 +30021,9 @@ async function openRepaymentModal(friendId, friendName, netByCurrency, projectId
   if (repayQuickGuard_) repayQuickGuard_.at = Date.now();   // the 3 s count from when the person can see the amount
   popTipVisit_("repaymentForm");
   watchOverpayTip_();
+  // Its real tutorial: a dedicated button, so Start / Exit. Not for a project's debts, nor where the money queue is missing (an older server).
+  if (!projectId && moneyBackground_()) startFormGuide_("repay", () => transferKindTaught_("repayment") || (lastRenderedEntries_ || []).some((x) => x.link && x.link.kind === "repayment"),
+    "settlement-modal-backdrop", "settlement-save-btn", "rt.settle.intro", settleGuideSteps_);
 }
 
 function closeSettlementModal() {
