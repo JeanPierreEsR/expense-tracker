@@ -85,7 +85,10 @@
   }
   function isTyping(step, doc) {
     var el = doc.activeElement;
-    return !!(step && step.blurTap && el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && /^(text|number|search|tel|email|url|password|)$/i.test(el.type || ""))));
+    if (!(step && el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && /^(text|number|search|tel|email|url|password|)$/i.test(el.type || ""))))) return false;
+    // A typing step, or a text box inside what the step lights up (the bill's items, a tip, split amounts): the keyboard moves the page
+    // the same way, so the same typing look applies (owner, 2026-11-14: "+ Add item" opened the keyboard and the cut-out stayed behind).
+    return !!(step.blurTap || (step.__lit || []).some(function (t) { return t && t.contains && t.contains(el); }));
   }
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   function frames(n) {
@@ -228,7 +231,7 @@
       layoutQueued = true;
       requestAnimationFrame(function () {
         layoutQueued = false;
-        if (cur && cur.step) cur.targets = targetsOf(cur.step);
+        if (cur && cur.step) cur.targets = cur.step.__lit = targetsOf(cur.step);
         layout();
       });
     }
@@ -405,13 +408,13 @@
         // A tap on the dimmed area does nothing, except on a typing step, where it closes the keyboard (that is how the person says "done").
         on(root, "pointerdown", function (e) {
           if (e.target.closest && e.target.closest(".spot-bubble")) return;
-          if (step.blurTap && doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();
+          if ((step.blurTap || isTyping(step, doc)) && doc.activeElement && doc.activeElement.blur) doc.activeElement.blur();
           e.preventDefault();
         }, true);
         timers.push(setInterval(check, 300));
         timers.push(setInterval(function () {
           if (finished || closed || !cur || !cur.step) return;
-          var t = targetsOf(cur.step), r = t.length ? unionRect(t) : null;
+          var t = cur.step.__lit = targetsOf(cur.step), r = t.length ? unionRect(t) : null;
           if (cur.step.target && !t.length) {
             var nowMs = Date.now();
             if (!goneSince) goneSince = nowMs;
