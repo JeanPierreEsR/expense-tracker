@@ -247,7 +247,7 @@ function routeActionSwitch_(action, payload) {
     case 'saveGapReason': return saveGapReason(payload);
     case 'listTrips': return listTrips();
     case 'getTripDetail': return getTripDetail(payload);
-    case 'addTrip': return addTrip(payload);
+    case 'addTrip': return addTripAndOpen_(payload);
     case 'updateTrip': return updateTrip(payload);
     case 'deleteTrip': return deleteTrip(payload);
     case 'deleteTrips': return deleteTrips(payload);

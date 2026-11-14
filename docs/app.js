@@ -17945,7 +17945,7 @@ function renderTripEntries_() {
 
 async function refreshTripDetail_() {
   const id = tripDetailId_;
-  if (!id) return;
+  if (!id || id === NEW_TRIP_PENDING_) return;
   const errorEl = document.getElementById("trip-detail-error");
   errorEl.textContent = "";
   try {
@@ -18388,7 +18388,7 @@ function closeTripModal_() {
 // only the ones still ticked when "Add selected" is tapped are linked.
 document.getElementById("trip-find-btn").addEventListener("click", () => {
   const box = document.getElementById("trip-find-box");
-  if (!tripDetailId_) return;
+  if (!tripDetailId_ || tripDetailId_ === NEW_TRIP_PENDING_) return;
   if (!box.hidden) { box.hidden = true; return; }
   box.hidden = false;
   loadTripFinder_(false);
@@ -18402,16 +18402,50 @@ async function openNewTripFinder_(trip) {
   if (Spotlight.isRunning() || document.getElementById("screen-trips").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])")) return;
   await showTripDetail_(trip.id);
   if (tripDetailId_ !== trip.id) return;
+  await openTripFinderNow_(trip, String(trip.start_date || "") > todayLocalISO());
+}
+// The fast way (backend tripOpenOnCreate): the screen shows at once while the trip saves...
+const NEW_TRIP_PENDING_ = "new-trip-pending";
+function showNewTripPending_(fields) {
+  if (entriesEditing_ && entriesWhere_ === "trip") setEntriesEditing_(false, false);
+  tripDetailId_ = NEW_TRIP_PENDING_;
+  tripEntriesShown_ = [];
+  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-trip-detail"; });
+  document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
+  window.scrollTo(0, 0);
+  document.getElementById("trip-detail-title").textContent = tripLabel_(fields);
+  document.getElementById("trip-detail-sub").textContent = `${tr(`trips.kind.${fields.kind === "event" ? "event" : "trip"}`)} · ${tripDatesText_(fields)}`;
+  document.getElementById("trip-detail-body").innerHTML = loadingHtml_();
+  document.getElementById("trip-detail-error").textContent = "";
+  document.getElementById("trip-detail-entries-card").hidden = true;
+  document.getElementById("trip-find-box").hidden = true;
+}
+// ...and everything appears together once the save's answer is back (loading standard): its totals, its (empty) list and the finder.
+async function showNewTripOpened_(made, lookBack) {
+  const o = made.opened;
+  if (!o || !o.detail || !o.found) {   // (the server could not add them: the usual loads)
+    await showTripDetail_(made.id);
+    if (tripDetailId_ === made.id) await openTripFinderNow_(made, lookBack);
+    return;
+  }
+  tripDetailId_ = made.id;
+  tripEntriesShown_ = [];
+  renderTripDetail_(o.detail);
+  document.getElementById("trip-detail-entries-card").hidden = false;
+  renderTripEntries_();
+  await openTripFinderNow_(made, lookBack, o.found);
+}
+async function openTripFinderNow_(trip, lookBack, found) {
   const box = document.getElementById("trip-find-box");
   box.hidden = false;
-  await loadTripFinder_(String(trip.start_date || "") > todayLocalISO());
+  await loadTripFinder_(lookBack, found);
   // The finder sits under the totals: on a small phone it would start below the screen's edge.
   const top = document.getElementById("trip-find-btn").getBoundingClientRect().top;
   if (tripDetailId_ === trip.id && top > innerHeight * 0.45) window.scrollBy({ top: top - innerHeight * 0.2, behavior: "smooth" });
 }
 
 // lookBack: also include the 12 months before the trip starts (offered by a button inside the box).
-async function loadTripFinder_(lookBack) {
+async function loadTripFinder_(lookBack, preFound) {
   const id = tripDetailId_;
   const box = document.getElementById("trip-find-box");
   box.innerHTML = loadingHtml_();
@@ -18424,7 +18458,7 @@ async function loadTripFinder_(lookBack) {
     return btn;
   };
   try {
-    const found = await callApi("findTripCandidates", { id, lookBack: lookBack ? 12 : 0 });
+    const found = preFound || await callApi("findTripCandidates", { id, lookBack: lookBack ? 12 : 0 });
     if (tripDetailId_ !== id) return;
     if (!found.entries.length) {
       box.innerHTML = `<p class="hint">${escapeHtml(tr("trips.findNone"))}</p>`;
@@ -18553,11 +18587,29 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
       });
       return;
     }
-    const send = practiceTTrack_(() => tripId ? callApi("updateTrip", withThen_(Object.assign({ id: tripId }, fields), [["listTrips", {}]])) : callApi("addTrip", withThen_(fields, [["listTrips", {}]])), fields);
+    // A new trip from the Trips list: its screen opens NOW ("Loading…"), and the save's own answer brings that screen and the
+    // "Find expenses" list (one call instead of four one after another: ~16 s → one save's time; owner, 2026-11-14).
+    const opensNow = !tripId && !!((meta.capabilities || {}).tripOpenOnCreate) && !Spotlight.isRunning() && !isPracticeTripName_(fields.name) &&
+      !document.getElementById("screen-trips").hidden;
+    const lookBack = String(fields.start_date || "") > todayLocalISO();   // a trip still to come: the 12 months before
+    if (opensNow) showNewTripPending_(fields);
+    const addFields = opensNow ? Object.assign({}, fields, { _open: { lookBack: lookBack ? 12 : 0 } }) : fields;
+    const send = practiceTTrack_(() => tripId ? callApi("updateTrip", withThen_(Object.assign({ id: tripId }, fields), [["listTrips", {}]])) : callApi("addTrip", opensNow ? addFields : withThen_(addFields, [["listTrips", {}]])), fields);
     let made = null;
     saveBehindScreen_(
       async () => { const r = await send(); if (!tripId) made = r; },
       async () => {
+        if (opensNow) {
+          if (made && made.id && !(meta.trips || []).some((t) => t.id === made.id)) meta.trips = (meta.trips || []).concat([made]);
+          refreshTripsList_().catch(() => {});   // (in the background: the list is behind this screen; asking for it with the save made the save ~4 s later)
+          if (tripDetailId_ !== NEW_TRIP_PENDING_ || document.getElementById("screen-trip-detail").hidden) {   // the person went elsewhere meanwhile: not pulled back
+            if (tripDetailId_ === NEW_TRIP_PENDING_) tripDetailId_ = null;
+            return;
+          }
+          if (!made || !made.id) { tripDetailId_ = null; showTripsScreen(); return; }   // not saved: back to the list (the message says why)
+          await showNewTripOpened_(made, lookBack);
+          return;
+        }
         await refreshTripsList_();
         // A NEW trip opens its own screen with "Find expenses in these dates" already open, so its expenses can be linked right away
         // (owner, 2026-11-14). Not after an edit, never for the Trips practice; a first trip's real tutorial ends first (it shows the new row).
