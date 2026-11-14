@@ -1670,7 +1670,27 @@
         changed = true;
       }
     });
-    return changed ? { ...c, notInApp: notIn, discounted: disc, otherCurrency: other, startShift: shift, unexplained } : c;
+    // A purchase the person paired with a line is no longer "in the app but not on this statement" (nor "probably on the next
+    // statement"): the server could only leave out the pairs it ticked itself (owner, 2026-11-14: Amazon, fixed to USD, stayed listed and
+    // "Still unexplained after it" took it off a second time).
+    const paired = new Set();
+    const pick_ = (list, of) => (list || []).forEach((d, k) => { const id = d.clear ? "" : of(k); if (id && id !== "add") paired.add(String(id)); });
+    pick_(s.discounts, discountOf); pick_(s.recharges, rechargeOf); pick_(s.charges, chargeOf);
+    let appOnly = c.appOnly, late = c.late;
+    if (paired.size && appOnly && appOnly.items && appOnly.items.some((it) => paired.has(String(it.id)))) {
+      const gone = appOnly.items.filter((it) => paired.has(String(it.id)));
+      appOnly = { ...appOnly, items: appOnly.items.filter((it) => !paired.has(String(it.id))), n: appOnly.n - gone.length,
+        net: round(appOnly.net - gone.reduce((t, it) => t + it.amount, 0)) };
+      changed = true;
+    }
+    if (paired.size && late && late.items && late.items.some((it) => paired.has(String(it.id)))) {
+      // the server had taken these off "unexplained" as next-statement purchases; the pick above explains them instead
+      const gone = late.items.filter((it) => paired.has(String(it.id))), back = round(-gone.reduce((t, it) => t + it.amount, 0));
+      late = { ...late, items: late.items.filter((it) => !paired.has(String(it.id))), lines: late.lines - gone.length, net: round(late.net - back) };
+      unexplained = round(unexplained + back);
+      changed = true;
+    }
+    return changed ? { ...c, notInApp: notIn, discounted: disc, otherCurrency: other, startShift: shift, unexplained, appOnly, late } : c;
   }
   // Lines an action adds to the app (an entry, a transfer, an exchange, a Needs review item); "ignore" and "wait" add nothing.
   function coveredLines(actions) {
