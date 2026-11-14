@@ -433,6 +433,10 @@ function routeActionSwitch_(action, payload) {
     case 'listBudgets': return listBudgets(payload);
     case 'listBudgetChoices': return listBudgetChoices();
     case 'setOverviewCategoryView': return setOverviewCategoryView(payload);
+    case 'listAnnualCleanup': return listAnnualCleanup();
+    case 'applyAnnualCleanup': return applyAnnualCleanup(payload);
+    case 'undoAnnualCleanup': return undoAnnualCleanup(payload);
+    case 'finishAnnualCleanup': return finishAnnualCleanup();
     case 'addBudget': return addBudget(payload);
     case 'updateBudget': return updateBudget(payload);
     case 'deleteBudget': return deleteBudget(payload.id);
