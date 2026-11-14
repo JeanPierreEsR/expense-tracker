@@ -9697,7 +9697,7 @@ function ovCategoryItems_(items) {
   }
   const rest = items.map((it) => Object.assign({}, it, { amount_pen: it.amount_pen - (it.annual_pen || 0), annual_pen: 0, annualView: "rest" }))
     .filter((it) => it.amount_pen > 0.005);
-  if (annualTotal > 0.005) rest.push({ id: OV_ANNUAL_ID_, name: tr("overview.annualLine"), icon: "🗂️", color: OTHERS_COLOR, amount_pen: annualTotal, annual_pen: 0 });
+  if (annualTotal > 0.005) rest.push({ id: OV_ANNUAL_ID_, name: tr("overview.annualLine"), icon: "🗂️", color: "", amount_pen: annualTotal, annual_pen: 0 });
   return rest.sort((a, b) => b.amount_pen - a.amount_pen).map((it) => Object.assign(it, { percent: total > 0 ? it.amount_pen / total * 100 : 0 }));
 }
 function renderOvCategory_(items) {
