@@ -84,6 +84,22 @@ function boot() {
       convertRatesToUsd();
     })()`);
   }
+  // ANNUAL_DEMO=1 (2026-11-14): an owner-style "Annual budget" category (key annual_budget) holding some made-up expenses (a flight
+  // booked twice, a TV, one with no description, one waiting in Needs review) and a yearly budget on it, to try the owner's one-time
+  // clean-up card in More → My data → Tidy my history (AnnualCleanup.gs). Owner's copy only (not with FRIEND_COPY).
+  if (process.env.ANNUAL_DEMO) {
+    rt.run(`(function () {
+      appendRowObject('Categories', { id: 'demo-annual-budget', key: 'annual_budget', name: 'Annual budget', type: 'expense', icon: '🗓️', color: '#8E7CC3', parent_id: '' });
+      var day = function (back) { var d = new Date(); d.setDate(d.getDate() - back); return Utilities.formatDate(d, 'America/Lima', 'yyyy-MM-dd'); };
+      [['Demo Air Lima-Cusco', 820, 40, 'confirmed'], ['Demo Air Lima-Cusco', 760, 200, 'confirmed'], ['Demo TV store', 2400, 25, 'confirmed'],
+       ['', 150, 10, 'confirmed'], ['Demo hotel Cusco', 600, 3, 'pending']].forEach(function (r, i) {
+        appendRowObject('Entries', { id: 'demo-ab-' + i, type: 'expense', date: day(r[2]), amount: r[1], currency: 'PEN', category_id: 'demo-annual-budget',
+          description: r[0], paid_by: 'me', status: r[3], source: 'manual' });
+      });
+      ROWS_MEMO_ = null;
+      addBudget({ category_id: 'demo-annual-budget', amount: 12000, currency: 'PEN', period_type: 'yearly', start: 'always' });
+    })()`);
+  }
   // Export data: mail goes nowhere here; GET /__mail lists what "would have been" sent.
   rt.api("admin_setExportEmail", { email: "owner@example.com" });
   // FRIEND_COPY=1 behaves like an app made by the installer (FEATURES set), e.g. to check what a new person does not see.

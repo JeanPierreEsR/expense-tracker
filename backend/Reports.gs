@@ -44,7 +44,7 @@ function getPeriodSummary(payload) {
 
   var totals = { income: 0, expense: 0, investment: 0 };
   var excludedCount = 0;
-  var annualIds = annualEntryIdSet_();
+  var annualIds = annualMarkedIdSet_();
   var annualByCategory = {};
   // Investments are flows per platform in each entry's OWN currency (no conversion).
   var investmentFlows = {};

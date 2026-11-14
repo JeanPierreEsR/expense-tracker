@@ -431,6 +431,12 @@ function routeActionSwitch_(action, payload) {
       appendRowObject('Category Keywords', kw);
       return kw;
     case 'listBudgets': return listBudgets(payload);
+    case 'listBudgetChoices': return listBudgetChoices();
+    case 'setOverviewCategoryView': return setOverviewCategoryView(payload);
+    case 'listAnnualCleanup': return listAnnualCleanup();
+    case 'applyAnnualCleanup': return applyAnnualCleanup(payload);
+    case 'undoAnnualCleanup': return undoAnnualCleanup(payload);
+    case 'finishAnnualCleanup': return finishAnnualCleanup();
     case 'addBudget': return addBudget(payload);
     case 'updateBudget': return updateBudget(payload);
     case 'deleteBudget': return deleteBudget(payload.id);
@@ -932,6 +938,16 @@ function getStartupBundle(payload) {
 }
 
 // What the phone gets of the Settings: all of them except the rule pack, which can be 40,000 characters and only the backend reads.
+// Overview "By category" view (owner, 2026-11-14): Everything / Annual as one line / Only annual. Kept in Settings, so reopening the
+// app (or another phone) shows the same view; it comes back in getMeta's settings.
+var OVERVIEW_CATEGORY_VIEWS_ = { all: true, oneLine: true, onlyAnnual: true };
+function setOverviewCategoryView(payload) {
+  var view = String((payload && payload.view) || '');
+  if (!OVERVIEW_CATEGORY_VIEWS_[view]) throw new Error(tr_('err.validView'));
+  setSetting_('overview_category_view', view);
+  return { view: view };
+}
+
 function settingsForApp_() {
   var map = getSettingsMap();
   delete map[RULE_PACK_SETTING_];
@@ -1232,10 +1248,24 @@ function listEntries(payload) {
   // Multi-category budget drill-down (see openBudgetDrilldown in app.js) —
   // an "ALL categories" budget passes neither this nor categoryId, so
   // every category matches, same as no filter at all.
+  // A budget's drill-down sends budgetId: a trip set to "Leave out of my budgets" or "Count only in…" (Trips.gs tripBudgetRoutes_)
+  // decides for its own expenses, whatever their category, so the list adds up to the budget's "spent".
+  var budgetTripRoutes = payload && payload.budgetId ? tripBudgetRoutes_() : null;
+  var routedHere = function (e) {
+    var t = budgetTripRoutes && e.trip_id ? budgetTripRoutes[e.trip_id] : null;
+    return t ? (t.route[String(payload.budgetId)] === true) : null;   // null = as usual
+  };
   if (payload && payload.categoryIds && payload.categoryIds.length) {
     var wantedCategoryIds = {};
     payload.categoryIds.forEach(function (id) { wantedCategoryIds[id] = true; });
-    entries = entries.filter(function (e) { return wantedCategoryIds[e.category_id]; });
+    entries = entries.filter(function (e) { var r = routedHere(e); return r === null ? !!wantedCategoryIds[e.category_id] : r; });
+  } else if (budgetTripRoutes) {
+    entries = entries.filter(function (e) { return routedHere(e) !== false; });
+  }
+  // An "Annual expenses" budget's drill-down: every annual expense (AnnualTag.gs § What counts as ANNUAL) it counts.
+  if (payload && payload.annualKind) {
+    var markedAnnual = annualMarkedIdSet_();
+    entries = entries.filter(function (e) { return routedHere(e) === true || (routedHere(e) === null && !!markedAnnual[e.id]); });
   }
   // Overview "By account or card" slices (only Overview sends these): an account, a special slice ("Not repaid yet", …) or
   // "No account" — the same split the pie uses (AccountSlices.gs), each entry with its part in that slice.
@@ -1252,12 +1282,12 @@ function listEntries(payload) {
   // adds up to the budget's own "spent" figure (Annual-tagged ones don't count
   // against a monthly budget — see excludeAnnual in Budgets.gs).
   if (payload && payload.excludeAnnual) {
-    var annualIds = annualEntryIdSet_();
+    var annualIds = annualMarkedIdSet_();
     entries = entries.filter(function (e) { return !annualIds[e.id]; });
   }
   // The other way round: only the Annual-tagged ones (a monthly budget's "… tagged Annual, not counted ›", 2026-11-07).
   if (payload && payload.onlyAnnual) {
-    var annualOnly = annualEntryIdSet_();
+    var annualOnly = annualMarkedIdSet_();
     entries = entries.filter(function (e) { return !!annualOnly[e.id]; });
   }
   // Exactly these entries (Overview's summary list sends one page of ids, Reports.gs listPeriodFlows).

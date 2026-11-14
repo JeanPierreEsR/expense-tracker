@@ -132,6 +132,9 @@ function getCapabilities_() {
     budgetsBulkDelete: true,   // deleteBudgets (several at once, Budgets → Edit); an older backend lacks it, so the app hides the Edit button
     bulkShowAgain: true,   // restoreFriends / restorePaymentMethods / showCategories + `deletedRows` in deleteFriends / removePaymentMethods (Undo after a bulk delete or hide, and a bulk "Show again" in Edit mode); an older backend lacks them, so the app shows no Undo and no Show again button
     pmBulkRemove: true,   // removePaymentMethods (several accounts at once, More → Accounts → Edit); an older backend lacks it, so the app hides the Edit button
+    annualCleanup: true,   // listAnnualCleanup / applyAnnualCleanup / undoAnnualCleanup / finishAnnualCleanup: the owner's one-time move out of the old "Annual budget" category (AnnualCleanup.gs); the card shows only where this exists AND listAnnualCleanup says available
+    annualBudgets: true,   // "Everything marked Annual" yearly budgets (category_id ANNUAL) + one rule for what counts as annual (AnnualTag.gs); an older backend lacks it, so the budget form hides that choice
+    tripBudgets: true,   // Trips.in_budgets ("In my budgets": as usual / left out / only in chosen budgets) counted by every budget sum; an older backend lacks it, so the trip pop-up hides the field
     tripsBulkDelete: true,   // deleteTrips (several trips / events at once, More → Trips & events → Edit); an older backend lacks it, so the app hides the Edit button
     categoriesBulkDelete: true,   // previewCategoryDelete + deleteCategories (several categories at once: move into one, or hide; More → Categories → Edit); an older backend lacks them, so the app hides the Edit button
     businessBulkDelete: true,   // deleteBusinessItems + deleteBusinessPeople (several companies / projects / people at once, Edit on the Business screens); an older backend lacks them, so the app hides the Edit buttons

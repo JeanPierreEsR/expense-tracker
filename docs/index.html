@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.2.3"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="2.4.1"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-13T21:35:19Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-14T15:52:55Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -626,6 +626,11 @@
 
         <div class="breakdown-section">
           <h3 data-i18n="overview.byCategory">By category</h3>
+          <div class="currency-chips ov-annual-views" id="ov-annual-views" role="group" data-i18n-aria-label="overview.annualViews" aria-label="Annual expenses" hidden>
+            <button type="button" class="currency-chip" data-view="all" data-i18n="overview.viewAll">Everything</button>
+            <button type="button" class="currency-chip" data-view="oneLine" data-i18n="overview.viewOneLine">Annual as one line</button>
+            <button type="button" class="currency-chip" data-view="onlyAnnual" data-i18n="overview.viewOnlyAnnual">Only annual</button>
+          </div>
           <div class="pie-chart-wrap" id="pie-wrap-category">
             <div class="pie-chart" id="pie-category"></div>
           </div>
@@ -1221,6 +1226,19 @@
         <div id="tidy-list"></div>
         <p class="hint" id="tidy-more" hidden></p>
         <p class="hint" id="tidy-empty" hidden data-i18n="tidy.empty">Everything has a category. Nothing to tidy.</p>
+      </div>
+      <!-- The owner's one-time move out of the old "Annual budget" category (AnnualCleanup.gs): only where listAnnualCleanup says available. -->
+      <div class="card" id="annualcu-card" hidden>
+        <h3 style="margin-top:0;" id="annualcu-title"></h3>
+        <p class="hint" data-i18n="annualcu.hint">Being annual is now a tag, not a category. Give each group its real category: it gets the Annual tag, so it still counts as annual.</p>
+        <p class="hint error-text" id="annualcu-error" hidden></p>
+        <p class="hint" id="annualcu-summary"></p>
+        <button type="button" class="add-inline" id="annualcu-apply-all-btn" hidden></button>
+        <div id="annualcu-list"></div>
+        <div id="annualcu-finish" hidden>
+          <p class="hint" id="annualcu-finish-text"></p>
+          <button type="button" class="primary" id="annualcu-finish-btn" data-i18n="annualcu.finishBtn">Finish</button>
+        </div>
       </div>
       <!-- Entries with no account (NoAccount.gs): shown only where the backend says noAccountTidy, and only when there are some. -->
       <div class="card" id="noacct-card" hidden>
@@ -3177,6 +3195,11 @@
           <input type="checkbox" id="budget-all-categories-checkbox">
           <span data-i18n="budgetModal.allCategories">All expense categories</span>
         </label>
+        <label class="checkbox-row" id="budget-annual-kind-row" hidden>
+          <input type="checkbox" id="budget-annual-kind-checkbox">
+          <span data-i18n="budgetModal.annualKind">Everything marked Annual (yearly)</span>
+        </label>
+        <p class="hint" id="budget-annual-kind-hint" hidden data-i18n="budgetModal.annualKindHint">Counts every expense tagged Annual, and trips or events you send to this budget, whatever their category.</p>
         <div class="tags-list" id="budget-category-chips"></div>
 
         <label for="budget-amount" data-i18n="field.amount">Amount</label>
@@ -3258,6 +3281,17 @@
         <label for="trip-alerts" data-i18n="budgetModal.alertAt">Alert at (%)</label>
         <input type="text" id="trip-alerts" placeholder="50, 75, 100, 110, 125, 150">
         <p class="hint" data-alert-hint="trips.alertHint">Comma-separated percentages of the trip budget. Leave blank for the usual ones. You'll get an alert the first time it crosses each one.</p>
+        </div>
+
+        <div id="trip-inbudgets-field" hidden>
+          <label id="trip-inbudgets-label" data-i18n="trips.inBudgets">In my budgets</label>
+          <div role="radiogroup" aria-labelledby="trip-inbudgets-label">
+            <label class="settle-choose-row"><input type="radio" name="trip-inbudgets" value="usual" checked><span data-i18n="trips.inBudgetsUsual">As usual: each expense counts in its category's budgets</span></label>
+            <label class="settle-choose-row"><input type="radio" name="trip-inbudgets" value="none"><span data-i18n="trips.inBudgetsNone">Leave out of my budgets</span></label>
+            <label class="settle-choose-row"><input type="radio" name="trip-inbudgets" value="only"><span data-i18n="trips.inBudgetsOnly">Count only in…</span></label>
+          </div>
+          <div class="tags-list" id="trip-inbudgets-chips" hidden></div>
+          <p class="hint" id="trip-inbudgets-hint"></p>
         </div>
 
         <p class="hint error-text" id="trip-form-error"></p>
@@ -3880,24 +3914,24 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="i18n.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="tour-scenes.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="signin-link.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="country-guess.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="rate-quotes.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="bank-sample.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="perf-share.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="spotlight.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="receipt-parse.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="receipt-fields.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="in-process.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="bill-split.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="loan-reminder.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="app.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="statement-sample.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="statement-table.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="statement-parsers.js?v=2026-11-13T21:35:19Z"></script>
-  <script src="statements.js?v=2026-11-13T21:35:19Z"></script>
+  <script src="strings.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="i18n.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="tour-scenes.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="signin-link.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="country-guess.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="rate-quotes.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="bank-sample.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="perf-share.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="spotlight.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="receipt-parse.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="receipt-fields.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="in-process.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="bill-split.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="loan-reminder.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="app.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="statement-sample.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="statement-table.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="statement-parsers.js?v=2026-11-14T15:52:55Z"></script>
+  <script src="statements.js?v=2026-11-14T15:52:55Z"></script>
 </body>
 </html>

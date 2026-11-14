@@ -2633,6 +2633,9 @@ body.income-revealed .sens-mask { display: none; }
    the keyboard opens shows plain background. */
 html:has(#welcome-overlay:not([hidden])), html:has(#welcome-overlay:not([hidden])) body { overflow: hidden; }
 .welcome-overlay { box-shadow: 0 0 0 100vmax var(--bg, var(--surface-warm)); }
+/* The shadow alone was not enough on the owner's iPhone (2026-11-14: Home's "Getting started" card showed under "Your full name"
+   with the keyboard up), so the app's own screen is made invisible while the welcome screens are open (it keeps its size). */
+html:has(#welcome-overlay:not([hidden])) :is(body > header, #app, #bottom-nav, #fab-new-entry) { visibility: hidden; }
 .welcome-card { max-width: 520px; margin: 0 auto; padding: 24px 18px 40px; }
 .welcome-card h2 { margin: 6px 0 6px; line-height: 1.25; }
 .welcome-card h3 { margin: 22px 0 8px; font-size: 1em; }
@@ -3029,9 +3032,10 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-delta.good { color: var(--income); }
 .home-delta.bad { color: var(--expense); }
 
-.home-four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 14px 0 10px; }
-.home-four-box { background: var(--bg); border-radius: var(--r-md); padding: 7px 6px; min-width: 0; display: flex; flex-direction: column; }
-.home-four-box span { display: block; font-size: 0.6875rem; line-height: 1.15; color: var(--muted); }   /* "Lo que queda" wraps to two lines */
+/* Each box as wide as its own label needs (owner, 2026-11-13: he tried four equal boxes and a 2 x 2 grid and prefers this); labels stay on one line. */
+.home-four { display: grid; grid-template-columns: repeat(4, minmax(max-content, auto)); gap: 5px; margin: 14px 0 10px; }
+.home-four-box { background: var(--bg); border-radius: var(--r-md); padding: 7px 5px; min-width: 0; display: flex; flex-direction: column; }
+.home-four-box span { display: block; font-size: 0.6875rem; line-height: 1.15; color: var(--muted); white-space: nowrap; }
 .home-loans-note { margin: -4px 0 8px; font-size: 0.75rem; }
 .home-four-box b { display: block; font-size: 0.75rem; margin-top: auto; padding-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .home-four-box b.income { color: var(--income); }
@@ -3745,6 +3749,8 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 .pop-tip-buttons { display: flex; justify-content: flex-end; }
 .pop-tip-ok { min-height: 44px; padding: 0 18px; border-radius: var(--r-pill); border: 1px solid var(--accent); background: var(--accent); color: var(--white); font: inherit; font-weight: 600; }
 .pop-tip-buttons { margin-bottom: 4px; }
+.pop-tip-buttons { gap: 8px; }
+.pop-tip-act { min-height: 44px; padding: 0 14px; border-radius: var(--r-pill); border: 1px solid var(--accent); background: transparent; color: var(--accent); font: inherit; font-weight: 600; }
 .pop-tip-arrow { position: absolute; width: 14px; height: 14px; background: var(--tip-bg); transform: translateX(-50%) rotate(45deg); }
 .pop-tip-arrow[hidden] { display: none; }
 .pop-tip[data-side="below"] .pop-tip-arrow { top: -7px; }
@@ -3964,3 +3970,8 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 /* A loading line written as plain text gets the moving circle too (spinLoadingText_, owner 2026-11-13). */
 .has-spinner > .stmt-spinner { display: inline-block; vertical-align: -0.2em; margin-right: 0.45em; }
 #screen-statements.stmt-opening > #stmt-head-card::after { padding-left: 1.6em; background: no-repeat left center / 1.1em 1.1em url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%23d1d1d6' stroke-width='3'/%3E%3Cpath d='M12 3a9 9 0 0 1 9 9' fill='none' stroke='%230071e3' stroke-width='3'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='0.9s' repeatCount='indefinite'/%3E%3C/path%3E%3C/svg%3E"); }
+
+/* Entries with no account: each month starts closed (owner, 2026-11-14); its header is the tap to open it. */
+.noacct-month-head { width: 100%; min-height: 44px; padding: 0; border: 0; background: none; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.noacct-chev { display: inline-block; margin-left: 4px; transition: transform 0.15s; }
+.noacct-month.open .noacct-chev { transform: rotate(90deg); }

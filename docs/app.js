@@ -685,12 +685,14 @@ const ONCE_ACTIONS = new Set([
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
   "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
-  "applyTidyGroups"   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
+  "applyTidyGroups",   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
+  "applyAnnualCleanup", "finishAnnualCleanup"   // the owner's move out of the old "Annual budget" category (AnnualCleanup.gs)
 ]);
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
 const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, removePracticeImport: 150000, removePracticeBank: 150000, planStatementHistory: 90000, analyzeStatements: 90000,
   applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000,
+  applyAnnualCleanup: 90000, undoAnnualCleanup: 90000, listAnnualCleanup: 60000,
   checkEmailsNow: 120000,   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
   checkAlertsNow: 60000 };   // the three alert checks can take 10-20 s on a big Sheet; a long wait is not a lost connection, so no six resends
 
@@ -9681,8 +9683,55 @@ function renderYearCompare_() {
   el.hidden = false;
 }
 
+// Overview "By category" for expenses (owner, 2026-11-14): Everything · Annual as one line · Only annual. Built on the phone from the
+// same data (each category's annual part, `annual_pen`, follows the server's one rule, AnnualTag.gs). The chips show only for
+// expenses, where the backend has the rule, and when the period has annual expenses or another view than Everything was chosen. The
+// choice is saved in Settings (setOverviewCategoryView) and comes back with meta.settings.
+function ovCategoryView_() {
+  const v = meta && meta.settings && meta.settings.overview_category_view;
+  return v === "oneLine" || v === "onlyAnnual" ? v : "all";
+}
+const OV_ANNUAL_ID_ = "__annual__";
+function ovCategoryItems_(items) {
+  const view = ovCategoryView_();
+  if (overviewType !== "expense" || view === "all") return items;
+  const total = items.reduce((s, it) => s + it.amount_pen, 0);
+  const annualTotal = items.reduce((s, it) => s + (it.annual_pen || 0), 0);
+  if (view === "onlyAnnual") {
+    return items.filter((it) => it.annual_pen > 0.005)
+      .map((it) => Object.assign({}, it, { amount_pen: it.annual_pen, percent: annualTotal > 0 ? it.annual_pen / annualTotal * 100 : 0, annual_pen: 0, annualView: "only" }))
+      .sort((a, b) => b.amount_pen - a.amount_pen);
+  }
+  const rest = items.map((it) => Object.assign({}, it, { amount_pen: it.amount_pen - (it.annual_pen || 0), annual_pen: 0, annualView: "rest" }))
+    .filter((it) => it.amount_pen > 0.005);
+  if (annualTotal > 0.005) rest.push({ id: OV_ANNUAL_ID_, name: tr("overview.annualLine"), icon: "🗂️", color: "", amount_pen: annualTotal, annual_pen: 0 });
+  return rest.sort((a, b) => b.amount_pen - a.amount_pen).map((it) => Object.assign(it, { percent: total > 0 ? it.amount_pen / total * 100 : 0 }));
+}
+function renderOvCategory_(items) {
+  const chips = document.getElementById("ov-annual-views");
+  const view = ovCategoryView_();
+  const hasAnnual = overviewType === "expense" && items.some((it) => it.annual_pen > 0.005);
+  chips.hidden = !(meta && meta.capabilities && meta.capabilities.annualBudgets) || overviewType !== "expense" || (!hasAnnual && view === "all");
+  chips.querySelectorAll("[data-view]").forEach((b) => { b.classList.toggle("active", b.dataset.view === view); b.setAttribute("aria-pressed", b.dataset.view === view ? "true" : "false"); });
+  const shown = ovCategoryItems_(items);
+  renderPie("category", shown);
+  if (!shown.length && items.length && view === "onlyAnnual" && overviewType === "expense") {
+    document.getElementById("list-category").innerHTML = `<div class="status-msg">${escapeHtml(tr("overview.noAnnual"))}</div>`;
+  }
+}
+function setOvCategoryView_(view) {
+  if (view === ovCategoryView_()) return;
+  meta.settings = Object.assign({}, meta.settings, { overview_category_view: view });
+  if (lastOverviewData && lastOverviewData.breakdowns) renderOvCategory_(lastOverviewData.breakdowns[overviewType].byCategory);
+  callApi("setOverviewCategoryView", { view }).catch(() => {});   // a preference: a lost save only means the old view next time
+}
+document.getElementById("ov-annual-views").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-view]");
+  if (b) setOvCategoryView_(b.dataset.view);
+});
+
 function renderBreakdowns(breakdown) {
-  renderPie("category", breakdown.byCategory);
+  renderOvCategory_(breakdown.byCategory);
   renderPie("tag", breakdown.byTag);
   renderPie("paymentMethod", breakdown.byPaymentMethod);
 }
@@ -9826,7 +9875,7 @@ function appendLegendRow_(listEl, key, item) {
         ? tr("overview.allAnnual") : tr("overview.inclAnnual", { amount: formatPen(item.annual_pen) }))}</div>` : ""}
     </div>
   `;
-  row.addEventListener("click", () => openBreakdownDrilldown(key, item));
+  row.addEventListener("click", () => key === "category" && item.id === OV_ANNUAL_ID_ ? setOvCategoryView_("onlyAnnual") : openBreakdownDrilldown(key, item));
   listEl.appendChild(row);
 }
 
@@ -9894,7 +9943,12 @@ async function openBreakdownDrilldown(kind, item) {
   const bounds = getPeriodBounds();
 
   const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType, scope: overviewScopeParam_() };
-  if (kind === "category") payload.categoryId = item.id;
+  if (kind === "category") {
+    payload.categoryId = item.id;
+    // "Annual as one line" / "Only annual": the list behind the row shown (Api.gs listEntries excludeAnnual / onlyAnnual).
+    if (item.annualView === "rest") payload.excludeAnnual = true;
+    else if (item.annualView === "only") payload.onlyAnnual = true;
+  }
   else if (kind === "tag") { if (item.id) { payload.tagId = item.id; popUsed_("tagsOv"); } else payload.noTag = true; }
   else if (kind === "paymentMethod") { if (item.id) payload.paymentMethodId = item.id; else payload.noAccount = true; }
   else if (kind === "platform") { payload.type = "investment"; payload.toPaymentMethodId = item.id; }
@@ -10105,6 +10159,9 @@ async function openBudgetDrilldown(budget) {
   if (p.countFrom && p.countFrom + "-01" > payload.startDate) payload.startDate = p.countFrom + "-01";
   if (p.countTo && p.monthsCounted < 12) { const [cy, cm] = p.countTo.split("-").map(Number); const last = `${p.countTo}-${String(new Date(cy, cm, 0).getDate()).padStart(2, "0")}`; if (last < payload.endDate) payload.endDate = last; }
   if (periodCats) payload.categoryIds = periodCats;
+  // Trips set to leave budgets out, or to count only in some, decide for their own expenses (Api.gs listEntries).
+  payload.budgetId = budget.id;
+  if (budget.annual_kind) payload.annualKind = true;   // "Annual expenses": every annual expense, whatever the category
   // A monthly budget doesn't count Annual-tagged expenses (a yearly one does).
   if (budget.period_type !== "yearly") payload.excludeAnnual = true;
 
@@ -10766,6 +10823,7 @@ const DEFAULT_BUDGET_THRESHOLDS_DISPLAY = "50, 75, 100, 110, 125, 150";
 document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     budgetPeriodType = tab.dataset.period;
+    if (budgetPeriodType !== "yearly" && budgetAnnualKind_) setBudgetAnnualKind_(false);   // "Everything marked Annual" is yearly only
     budgetPeriodTouched_ = true;   // (the first-use practice waits for this)
     document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
     updateBudgetForwardHint_();
@@ -10811,6 +10869,24 @@ function populateBudgetCategoryChips() {
     });
   updateBudgetAllCategoriesCheckbox_();
 }
+
+// "Everything marked Annual" (owner, 2026-11-14): a yearly budget of every annual expense, whatever the category (Budgets.gs ANNUAL).
+// Ticking it hides the categories and makes the budget yearly; picking Weekly or Monthly unticks it. Only where the backend has it.
+let budgetAnnualKind_ = false;
+function setBudgetAnnualKind_(on) {
+  budgetAnnualKind_ = !!on;
+  document.getElementById("budget-annual-kind-checkbox").checked = budgetAnnualKind_;
+  document.getElementById("budget-annual-kind-hint").hidden = !budgetAnnualKind_;
+  document.getElementById("budget-category-chips").hidden = budgetAnnualKind_;
+  document.getElementById("budget-all-categories-checkbox").closest("label").hidden = budgetAnnualKind_;
+  if (budgetAnnualKind_ && budgetPeriodType !== "yearly") {
+    budgetPeriodType = "yearly";
+    document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.period === "yearly"));
+    updateBudgetForwardHint_();
+    fillBudgetStart_();
+  }
+}
+document.getElementById("budget-annual-kind-checkbox").addEventListener("change", (e) => setBudgetAnnualKind_(e.target.checked));
 
 document.getElementById("budget-all-categories-checkbox").addEventListener("change", (e) => {
   selectedBudgetCategoryIds = new Set(e.target.checked ? allExpenseCategoryIds_() : []);
@@ -10897,6 +10973,8 @@ function openBudgetModal(budget) {
   document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.period === budgetPeriodType));
   updateBudgetForwardHint_(budget);
   fillBudgetStart_();
+  document.getElementById("budget-annual-kind-row").hidden = !(meta && meta.capabilities && meta.capabilities.annualBudgets);
+  setBudgetAnnualKind_(!!(budget && budget.annual_kind));
 
   document.getElementById("budget-thresholds").value = budget ? budget.thresholds : DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
   // Ending (forward only) or deleting completely, where the backend knows budget history; an ended budget can be started again.
@@ -10948,7 +11026,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     const currency = document.getElementById("budget-currency").value.toUpperCase();
     const thresholds = document.getElementById("budget-thresholds").value.trim() || DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
 
-    if (selectedBudgetCategoryIds.size === 0) {
+    if (selectedBudgetCategoryIds.size === 0 && !budgetAnnualKind_) {
       throw new Error(tr("budget.pickCategory"));
     }
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
@@ -10959,7 +11037,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     // category added later is automatically included too.
     const allIds = allExpenseCategoryIds_();
     const isEveryCategory = allIds.length > 0 && allIds.every((id) => selectedBudgetCategoryIds.has(id));
-    const categoryId = isEveryCategory ? "ALL" : Array.from(selectedBudgetCategoryIds).join(",");
+    const categoryId = budgetAnnualKind_ ? "ANNUAL" : isEveryCategory ? "ALL" : Array.from(selectedBudgetCategoryIds).join(",");
     const fields = { category_id: categoryId, amount, currency, period_type: budgetPeriodType, thresholds, name };
 
     // The sheet (and, if this was opened from one, its drill-down) closes
@@ -10971,7 +11049,8 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     let startsLater = "";
     // Already a budget of this kind for exactly these categories (one shown now, or one that starts later): say which, and offer to
     // open it, while the form is still open (owner, 2026-11-08). The server checks again.
-    const sameSet = (b) => (b.all_categories ? "ALL" : (b.category_ids || []).slice().sort().join(",")) === (isEveryCategory ? "ALL" : Array.from(selectedBudgetCategoryIds).sort().join(","));
+    const setKey = (b) => b.annual_kind ? "ANNUAL" : b.all_categories ? "ALL" : (b.category_ids || []).slice().sort().join(",");
+    const sameSet = (b) => setKey(b) === (budgetAnnualKind_ ? "ANNUAL" : isEveryCategory ? "ALL" : Array.from(selectedBudgetCategoryIds).sort().join(","));
     const twin = budgetsLoaded_.concat(budgetsLater_).find((b) => b.id !== budgetId && !b.ended && b.period_type === budgetPeriodType && sameSet(b));
     if (twin) {
       errorEl.textContent = tr(twin.start_later ? "budget.dupLater" : "budget.dupNow", { kind: tr("budget.adj." + budgetPeriodType), name: twin.category_name, when: twin.start_later ? budgetPeriodName_(twin.period_type, twin.start_later, true) : "" });
@@ -10995,7 +11074,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
       const cur = budgetPeriodKey_(budgetPeriodType, 0), prev = budgetPeriodKey_(budgetPeriodType, -1);
       const start = fields.start || budgetEditingStart_;
       const amountCh = Math.abs(amount - Number(ob.amount)) > 0.004 || currency !== ob.currency;
-      const setOf = (raw) => String(raw || "") === "ALL" ? "ALL" : String(raw || "").split(",").filter(Boolean).sort().join(",");
+      const setOf = (raw) => ["ALL", "ANNUAL"].includes(String(raw || "")) ? String(raw) : String(raw || "").split(",").filter(Boolean).sort().join(",");
       const catsCh = setOf(categoryId) !== setOf(ob.category_id);
       if ((amountCh || catsCh) && (start === "always" || start < cur)) {
         const name = ob.category_name, now = budgetPeriodName_(budgetPeriodType, cur, true);
@@ -11125,7 +11204,7 @@ async function refreshBudgets() {
   budgetsCache_[budgetsKey] = data;
   drawBudgets_();
   offerBudgetsTip_();   // only now that everything has arrived (loading standard)
-  watchAnnualTip_();
+  if (!watchTripBudgetsTip_()) watchAnnualTip_();
   if (budgetsKey === JSON.stringify(projectionPeriodPayload_())) preloadBudgetsNeighbour_();
 }
 
@@ -11254,6 +11333,9 @@ function drawBudgets_() {
     }
     const annualNote = p.annualLeftOut > 0.005
       ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: pc, amount: moneyFmt(p.annualLeftOut) }))}</div>` : "";
+    // Trips & events set to leave this budget out, or to count only in it ("In my budgets").
+    const tripNotes = (p.tripsLeftOut || []).map((t) => `<div class="budget-row-annual hint">${escapeHtml(tr("budget.tripLeftOut", { cur: pc, amount: moneyFmt(t.amount), name: t.name }))}</div>`).join("")
+      + (p.tripsCounted || []).map((t) => `<div class="budget-row-annual hint">${escapeHtml(tr("budget.tripCounted", { cur: pc, amount: moneyFmt(t.amount), name: t.name }))}</div>`).join("");
 
     const amountLabel = `${pc} ${moneyFmt(p.effectiveAmount)}`;
     const subLabel = pct == null
@@ -11299,7 +11381,7 @@ function drawBudgets_() {
         <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
       </div>
       ${progLine}
-      ${annualNote}
+      ${annualNote}${tripNotes}
     `;
     // Editing/deleting now lives behind the drill-down's ⋮ menu (see
     // openBudgetDrilldown) rather than a second tap target on the row.
@@ -13797,7 +13879,8 @@ function tourChrome_(i) {
   const dots = welcomeEl_("tour-dots");
   if (dots.children.length !== tour_.cards.length) dots.innerHTML = tour_.cards.map((_, n) => `<button type="button" class="welcome-dot" data-tour-dot="${n}" aria-label="${n + 1}"></button>`).join("");
   [...dots.children].forEach((d, n) => d.classList.toggle("active", n === i));
-  welcomeEl_("tour-hint").style.visibility = i === 0 ? "visible" : "hidden";
+  // "Swipe to continue" under the dots on every card (owner, 2026-11-14), except the last one, which ends with its Done button.
+  welcomeEl_("tour-hint").style.visibility = last ? "hidden" : "visible";
   // "Skip all" from the second card on (owner, 2026-11-04): on the first one it read as the way forward, before the person had seen any card.
   welcomeEl_("tour-skip-btn").style.visibility = last ? "hidden" : "visible";
 }
@@ -13829,19 +13912,30 @@ function showTourCard_(i, scroll) {
   if (i > 0) { try { localStorage.setItem(TOUR_SWIPE_KNOWN_KEY_, "1"); } catch (e) { /* storage blocked: it may nudge again next time */ } }
   const ctx = tourSceneCtx_();
   if (i === 0 && !tourSwipeKnown_()) {
-    ctx.onEnd = () => tourNudgeLater_(7000);
-    tourNudgeLater_(25000);
-    tour_.slides[0].stage.addEventListener("click", () => { if (tour_ && tour_.i === 0) tourNudgeLater_(15000); });
+    const shownAt = Date.now(), read = tourReadMs_(tour_.slides[0].el);
+    const anim = typeof TourScenes !== "undefined" && TourScenes.length ? TourScenes.length(tour_.slides[0].key, ctx) : 0;
+    tourNudgeLater_(read + anim);
+    // A tap replays the animation: the nudge waits for that replay too, never coming before the card's own minimum.
+    tour_.slides[0].stage.addEventListener("click", () => {
+      if (tour_ && tour_.i === 0) tourNudgeLater_(Math.max(shownAt + read + anim - Date.now(), anim + TOUR_AFTER_REPLAY_MS_));
+    });
   }
   if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, ctx);
 }
 // "Swipe to go on" (owner, 2026-11-03; 2026-11-06: no limit, and not only after the animation's last step): while the person stays on the first card
 // the card slides a little to the left, the next one peeks in, the "Swipe to continue" line moves along, and it springs back. No button, because
 // "Next step" already belongs to the animation (owner). It waited for that animation's last step, so someone who never tapped it got no nudge at all.
-// Timed so that it never interrupts someone reading: reading the card and its 4 steps takes about 45 s, 13.6 s of it the animation itself. First 25 s
-// after the card appears, 15 s after a tap on the animation, 7 s after its last step, then every 8 s. Never again once they have reached
-// another card (TOUR_SWIPE_KNOWN_KEY_), and never with reduced motion.
+// Timed by a measured minimum (owner, 2026-11-14; it used fixed waits of 25 s, 15 s after a tap, 7 s after the animation): the time to
+// read the card's words at a calm phone pace (TOUR_WORDS_PER_MIN_, plus a moment to take in the screen) PLUS one full run of its animation.
+// The first nudge comes as soon as that has passed, a tap on the animation (a replay) puts it after the replay, then every 8 s. Never again
+// once they have reached another card (TOUR_SWIPE_KNOWN_KEY_), and never with reduced motion.
 const TOUR_SWIPE_KNOWN_KEY_ = "tourSwipeKnown";
+const TOUR_WORDS_PER_MIN_ = 180, TOUR_GLANCE_MS_ = 2000, TOUR_AFTER_REPLAY_MS_ = 1500;
+function tourReadMs_(slide) {
+  const text = [...slide.querySelectorAll("h2, .welcome-body, .welcome-items")].map((el) => el.textContent).join(" ");
+  const words = text.split(/\s+/).filter(Boolean).length;
+  return TOUR_GLANCE_MS_ + Math.round(words * 60000 / TOUR_WORDS_PER_MIN_);
+}
 function tourSwipeKnown_() { try { return localStorage.getItem(TOUR_SWIPE_KNOWN_KEY_) === "1"; } catch (e) { return false; } }
 function tourNudgeLater_(ms) {
   if (!tour_) return;
@@ -15062,7 +15156,8 @@ async function showTidyScreen() {
   try {
     // Both lists arrive before either shows (loading standard); the no-account list only where the backend has it.
     const wantNoAcct = !!(meta.capabilities && meta.capabilities.noAccountTidy);
-    await Promise.all([loadTidy_(), wantNoAcct ? loadNoAccount_() : Promise.resolve()]);
+    const wantAnnual = !!(meta.capabilities && meta.capabilities.annualCleanup) && perfIsOwnerCopy_();
+    await Promise.all([loadTidy_(), wantNoAcct ? loadNoAccount_() : Promise.resolve(), wantAnnual ? loadAnnualCleanup_() : Promise.resolve()]);
     const fromUpload = tidyFromUpload_;
     offerTidyReal_();
     watchTidyTip_(fromUpload);
@@ -15079,9 +15174,10 @@ async function loadTidy_() {
   renderTidy_();
 }
 
-function tidyCategoryOptions_(selectedId) {
+function tidyCategoryOptions_(selectedId, leaveOut) {
+  const out = new Set([].concat(leaveOut || []));
   return `<option value="">${escapeHtml(tr("tidy.pick"))}</option>` +
-    sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense"), selectedId))
+    sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" && !out.has(c.id)), selectedId))
       .map((c) => `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
 }
 
@@ -15137,6 +15233,7 @@ function renderTidy_() {
 let noAcctData_ = { entries: [], total: 0, shown: 0 };
 let noAcctLastSave_ = null;   // { ok, count } of the last Save (the real tutorial ends on it)
 const noAcctPicked_ = new Map();   // entry id -> account id picked on the screen (not saved yet)
+const noAcctOpen_ = new Set();   // months opened on the screen ('YYYY-MM'); every month starts closed
 
 async function loadNoAccount_() {
   noAcctData_ = await callApi("listNoAccountEntries", {});
@@ -15164,10 +15261,13 @@ function renderNoAccount_() {
   });
   document.getElementById("noacct-list").innerHTML = months.map(({ m, rows }) => {
     const title = I18n.fmtMonthYear(new Date(m + "-01T00:00:00"));
-    return `<div class="noacct-month" data-month="${escapeHtml(m)}">
-      <div class="tidy-group-top"><span class="tidy-group-name">${escapeHtml(title)}</span><span class="hint">${escapeHtml(tr("noacct.count", { n: rows.length }))}</span></div>
+    // Closed at first (owner, 2026-11-14): the month's own "One account for the whole month" stays in reach; a tap on the month
+    // opens its entries one by one. What is open stays open when the list is drawn again (after a Save).
+    const open = noAcctOpen_.has(m);
+    return `<div class="noacct-month${open ? " open" : ""}" data-month="${escapeHtml(m)}">
+      <button type="button" class="tidy-group-top noacct-month-head" aria-expanded="${open}"><span class="tidy-group-name">${escapeHtml(title)}</span><span class="hint">${escapeHtml(tr("noacct.count", { n: rows.length }))} <span class="noacct-chev" aria-hidden="true">›</span></span></button>
       <div class="tidy-group-row"><select class="noacct-month-select" aria-label="${escapeHtml(tr("noacct.allMonth", { month: title }))}">${noAcctOptions_("", true).replace(escapeHtml(tr("noacct.pick")), escapeHtml(tr("noacct.allMonth", { month: title })))}</select></div>
-      <ul class="tidy-samples">${rows.map((e) => `<li class="noacct-row" data-id="${escapeHtml(e.id)}">
+      <ul class="tidy-samples"${open ? "" : " hidden"}>${rows.map((e) => `<li class="noacct-row" data-id="${escapeHtml(e.id)}">
         <span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description || tr("type." + e.type))}</span>
         ${tidyAmountHtml_(e)}
         <select class="noacct-select" aria-label="${escapeHtml(tr("noacct.pick"))}">${noAcctOptions_(noAcctPicked_.get(e.id) || "", e.type === "investment")}</select></li>`).join("")}</ul>
@@ -15186,6 +15286,15 @@ function updateNoAccountSave_() {
   btn.textContent = n ? tr("noacct.save", { n }) : tr("noacct.saveNone");
 }
 
+document.getElementById("noacct-list").addEventListener("click", (ev) => {
+  const head = ev.target.closest(".noacct-month-head");
+  if (!head) return;
+  const box = head.closest(".noacct-month"), m = box.dataset.month, open = !noAcctOpen_.has(m);
+  if (open) noAcctOpen_.add(m); else noAcctOpen_.delete(m);
+  box.classList.toggle("open", open);
+  head.setAttribute("aria-expanded", String(open));
+  box.querySelector(".tidy-samples").hidden = !open;
+});
 document.getElementById("noacct-list").addEventListener("change", (ev) => {
   const one = ev.target.closest(".noacct-select");
   if (one) {
@@ -15237,6 +15346,119 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
     if (!saved) realNoteFailed_();
     showAppMessage_(err.message || String(err));
     updateNoAccountSave_();
+  }
+});
+
+// ---- The owner's one-time move out of the old "Annual budget" category (owner, 2026-11-14; AnnualCleanup.gs) ----
+// Every expense in it, grouped like Tidy; a group gets its real category and the Annual tag (Undo puts it back). When none is left,
+// Finish turns the yearly budget on it into "Everything marked Annual" and hides the category. Owner's copy only (the server checks too).
+let annualCu_ = null;
+async function loadAnnualCleanup_() {
+  // A failed load says why on the card (owner's copy only), instead of leaving it hidden (owner's walk, 2026-11-14).
+  try { annualCu_ = await callApi("listAnnualCleanup", {}); }
+  catch (err) { annualCu_ = { available: true, error: err.message || String(err), groups: [] }; }
+  renderAnnualCleanup_();
+}
+function renderAnnualCleanup_() {
+  const card = document.getElementById("annualcu-card");
+  const d = annualCu_;
+  card.hidden = !(d && d.available);
+  if (card.hidden) return;
+  const errEl = document.getElementById("annualcu-error");
+  errEl.hidden = !d.error;
+  errEl.textContent = d.error ? tr("annualcu.loadFailed", { error: d.error }) : "";
+  if (d.error) {
+    document.getElementById("annualcu-title").textContent = tr("annualcu.titlePlain");
+    ["annualcu-summary", "annualcu-apply-all-btn", "annualcu-finish"].forEach((id) => { document.getElementById(id).hidden = true; });
+    document.getElementById("annualcu-list").innerHTML = "";
+    return;
+  }
+  document.getElementById("annualcu-title").textContent = tr("annualcu.title", { name: d.categoryName });
+  const groups = d.groups || [];
+  const summary = document.getElementById("annualcu-summary");
+  summary.hidden = !groups.length;
+  summary.textContent = tr("annualcu.summary", { n: d.total, g: groups.length });
+  const sugg = groups.filter((g) => g.suggestion);
+  const allBtn = document.getElementById("annualcu-apply-all-btn");
+  allBtn.hidden = !sugg.length;
+  allBtn.textContent = tr("tidy.applyAll", { n: sugg.length });
+  document.getElementById("annualcu-list").innerHTML = groups.map((g) => {
+    const dates = g.firstDate === g.lastDate ? I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"))
+      : I18n.fmtDateMedium(new Date(g.firstDate + "T00:00:00")) + " – " + I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"));
+    return `<div class="tidy-group" data-key="${escapeHtml(g.key)}">
+      <div class="tidy-group-top">
+        <span class="tidy-group-name">${escapeHtml(g.label)}</span>
+        <span class="tidy-group-total">${escapeHtml(signedMoney_(-g.totalMain, d.main))}</span>
+      </div>
+      <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}</div>
+      <div class="tidy-group-row">
+        <select class="tidy-select" aria-label="${escapeHtml(tr("tidy.pick"))}">${tidyCategoryOptions_(g.suggestion ? g.suggestion.categoryId : "", d.categoryIds || [d.categoryId])}</select>
+        <button type="button" class="add-inline tidy-apply">${escapeHtml(tr("tidy.apply"))}</button>
+        <button type="button" class="add-inline tidy-lines">${escapeHtml(tr("tidy.showLines"))}</button>
+      </div>
+      <ul class="tidy-samples" hidden>${g.samples.map((e) =>
+        `<li><span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description || tr("annualcu.noDescription"))}${e.pending ? ` · ${escapeHtml(tr("annualcu.pendingMark"))}` : ""}</span>${tidyAmountHtml_({ ...e, type: "expense" })}</li>`).join("")}</ul>
+    </div>`;
+  }).join("");
+  const fin = document.getElementById("annualcu-finish");
+  fin.hidden = groups.length > 0;
+  if (!fin.hidden) {
+    const yearly = (d.budgets || []).filter((b) => b.period_type === "yearly");
+    document.getElementById("annualcu-finish-text").textContent = yearly.length
+      ? tr("annualcu.finishText", { name: d.categoryName, budgets: yearly.map((b) => `“${b.name || d.categoryName}” (${formatAmount(b.amount, b.currency)})`).join(", ") })
+      : tr("annualcu.finishNoBudget", { name: d.categoryName });
+  }
+}
+async function applyAnnualCleanup_(items, buttons) {
+  buttons.forEach((b) => { b.disabled = true; });
+  showToast_(tr("common.savingToast"));
+  try {
+    const res = await callApi("applyAnnualCleanup", { items });
+    if (!res.count) showToast_(tr("tidy.nothingApplied"));
+    else {
+      showUndoToast_(tr("annualcu.applied", { n: res.count }), async () => {
+        await callApi("undoAnnualCleanup", { changes: res.changes, annualIds: res.annualIds });
+        showToast_(tr("tidy.undone"));
+        await loadAnnualCleanup_();
+        refreshEntryList().catch(() => {});
+      });
+      refreshEntryList().catch(() => {});
+    }
+    await loadAnnualCleanup_();
+  } catch (err) {
+    showAppMessage_(err.message || String(err));
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+document.getElementById("annualcu-list").addEventListener("click", (ev) => {
+  const row = ev.target.closest(".tidy-group");
+  if (!row) return;
+  if (ev.target.closest(".tidy-lines")) { const s = row.querySelector(".tidy-samples"); s.hidden = !s.hidden; return; }
+  if (ev.target.closest(".tidy-apply")) {
+    const categoryId = row.querySelector(".tidy-select").value;
+    if (!categoryId) { showFieldError_(row.querySelector(".tidy-select"), tr("review.pickCategoryFirst"), row.querySelector(".tidy-group-row")); return; }
+    applyAnnualCleanup_([{ key: row.dataset.key, categoryId }], [ev.target.closest(".tidy-apply")]);
+  }
+});
+document.getElementById("annualcu-apply-all-btn").addEventListener("click", (ev) => {
+  const items = ((annualCu_ && annualCu_.groups) || []).filter((g) => g.suggestion).map((g) => ({ key: g.key, categoryId: g.suggestion.categoryId }));
+  if (items.length) applyAnnualCleanup_(items, [ev.currentTarget]);
+});
+document.getElementById("annualcu-finish-btn").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget;   // (read before the question: an event loses its currentTarget once handled)
+  if (!(await askConfirmApp_(tr("annualcu.finishAsk"), tr("annualcu.finishBtn"), { plain: true }))) return;
+  btn.disabled = true;
+  try {
+    const res = await callApi("finishAnnualCleanup", {});
+    showToast_(res.leftAlone && res.leftAlone.length ? tr("annualcu.finishedLeft", { names: res.leftAlone.join(", ") }) : tr("annualcu.finished"));
+    await loadMeta().catch(() => {});   // the old category is hidden now
+    await loadAnnualCleanup_();
+    refreshBudgetsInBackground_();
+  } catch (err) {
+    showAppMessage_(err.message || String(err));
+  } finally {
+    btn.disabled = false;
   }
 });
 
@@ -15412,6 +15634,9 @@ function startNoAcctReal_(startMonth) {
         const b = all.find((x) => startMonth && x.dataset.month === startMonth) || all[0];
         month = b ? b.dataset.month : ""; return !!month; } },
     { target: part(".noacct-month-select"), text: () => tr("rt.noacct.allMonth"), button: realNext_, before: async () => rows() >= 2 },
+    // The month is closed at first: the person opens it (folds are never opened for them, specs/design-system.md § Folds).
+    { target: part(".noacct-month-head"), text: () => tr("rt.noacct.open"), until: () => { const b = box(); return !!b && b.classList.contains("open"); },
+      before: async () => { const b = box(); return !!b && !b.classList.contains("open"); } },
     { key: "pick", target: part(".tidy-samples"), text: (fix) => tr(fix ? "rt.noacct.pickFix" : rows() >= 2 ? "rt.noacct.pick" : "rt.noacct.pickOne"),
       visit: "#noacct-list select", button: realNext_, ok: picked, holdsUntil: "save" },
     { key: "save", target: "#noacct-save", text: () => tr("rt.noacct.save"), until: () => !!noAcctLastSave_ },
@@ -17843,10 +18068,87 @@ function openTripModal_(trip) {
   document.getElementById("trip-alerts").value = trip && trip.alert_thresholds ? trip.alert_thresholds.split(",").join(", ") : "";
   renderCurrencyChips("trip");
   refreshTripRateWarning_(false);
+  setTripInBudgets_(trip);
   document.getElementById("trip-delete-btn").hidden = !trip;
   const backdrop = document.getElementById("trip-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+}
+
+// "In my budgets" (owner, 2026-11-14): as usual, left out of every budget, or counted only in the budgets picked (whatever the
+// category). Shown only where the backend counts it (capability tripBudgets). The budget names arrive with listBudgetChoices; until
+// then the chips say "Loading…" (loading standard).
+let tripInBudgetIds_ = new Set();
+let tripBudgetChoices_ = null;   // [{id, name, icon, period_type}] once loaded
+let tripBudgetChoicesLoad_ = null;
+let tripInBudgetsLost_ = false;
+function tripInBudgetsMode_() {
+  const r = document.querySelector('input[name="trip-inbudgets"]:checked');
+  return r ? r.value : "usual";
+}
+function setTripInBudgets_(trip) {
+  const field = document.getElementById("trip-inbudgets-field");
+  field.hidden = !(meta && meta.capabilities && meta.capabilities.tripBudgets);
+  const raw = String((trip && trip.in_budgets) || "").trim();
+  tripInBudgetsLost_ = !!(trip && trip.in_budgets_lost);
+  const mode = !raw || tripInBudgetsLost_ ? "usual" : raw === "none" ? "none" : "only";
+  tripInBudgetIds_ = new Set(mode === "only" ? raw.split(",").map((x) => x.trim()).filter(Boolean) : []);
+  document.querySelectorAll('input[name="trip-inbudgets"]').forEach((r) => { r.checked = r.value === mode; });
+  tripBudgetChoices_ = null;
+  tripBudgetChoicesLoad_ = null;
+  if (!field.hidden) loadTripBudgetChoices_();
+  renderTripInBudgets_();
+}
+function loadTripBudgetChoices_() {
+  if (tripBudgetChoicesLoad_) return tripBudgetChoicesLoad_;
+  tripBudgetChoicesLoad_ = callApi("listBudgetChoices", {}).then((list) => {
+    tripBudgetChoices_ = list || [];
+    // A budget deleted since it was picked is simply no longer offered.
+    const known = new Set(tripBudgetChoices_.map((b) => b.id));
+    tripInBudgetIds_ = new Set([...tripInBudgetIds_].filter((id) => known.has(id)));
+    renderTripInBudgets_();
+  }).catch(() => { tripBudgetChoicesLoad_ = null; tripBudgetChoices_ = null; renderTripInBudgets_(true); });
+  return tripBudgetChoicesLoad_;
+}
+function renderTripInBudgets_(failed) {
+  const mode = tripInBudgetsMode_();
+  const chips = document.getElementById("trip-inbudgets-chips");
+  const hint = document.getElementById("trip-inbudgets-hint");
+  chips.hidden = mode !== "only";
+  chips.innerHTML = "";
+  let hintText = mode === "none" ? tr("trips.inBudgetsNoneHint") : mode === "only" ? tr("trips.inBudgetsOnlyHint") : (tripInBudgetsLost_ ? tr("trips.inBudgetsLost") : "");
+  if (mode === "only") {
+    if (failed) chips.textContent = tr("trips.inBudgetsLoadFailed");
+    else if (!tripBudgetChoices_) chips.textContent = tr("common.loading");
+    else if (!tripBudgetChoices_.length) hintText = tr("trips.inBudgetsNoBudgets");
+    else tripBudgetChoices_.forEach((b) => {
+      const chip = document.createElement("div");
+      chip.className = "tag-chip" + (tripInBudgetIds_.has(b.id) ? " selected" : "");
+      chip.setAttribute("role", "checkbox");
+      chip.setAttribute("aria-checked", tripInBudgetIds_.has(b.id) ? "true" : "false");
+      chip.textContent = (b.icon ? b.icon + " " : "") + b.name + " · " + tr("period." + b.period_type);
+      chip.addEventListener("click", () => {
+        if (tripInBudgetIds_.has(b.id)) tripInBudgetIds_.delete(b.id); else tripInBudgetIds_.add(b.id);
+        renderTripInBudgets_();
+      });
+      chips.appendChild(chip);
+    });
+  }
+  hint.textContent = hintText;
+  hint.hidden = !hintText;
+}
+document.querySelectorAll('input[name="trip-inbudgets"]').forEach((r) => r.addEventListener("change", () => {
+  tripInBudgetsLost_ = false;
+  if (tripInBudgetsMode_() === "only") loadTripBudgetChoices_();
+  renderTripInBudgets_();
+}));
+// What the save sends: undefined where the field is not shown (an older backend), so nothing is overwritten.
+function tripInBudgetsValue_() {
+  if (document.getElementById("trip-inbudgets-field").hidden) return undefined;
+  const mode = tripInBudgetsMode_();
+  if (mode === "none") return "none";
+  if (mode === "only") return [...tripInBudgetIds_].join(",");
+  return "";
 }
 
 // A trip in a currency other than the app's main one converts everything else through the exchange rates, so
@@ -18010,6 +18312,10 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
   errorEl.textContent = "";
   const saveBtn = document.getElementById("trip-save-btn");
   if (!document.getElementById("trip-name").value.trim()) { errorEl.textContent = tr("accounts.errName"); return; }
+  if (!document.getElementById("trip-inbudgets-field").hidden && tripInBudgetsMode_() === "only" && !tripInBudgetIds_.size) {
+    errorEl.textContent = tr(tripBudgetChoices_ && !tripBudgetChoices_.length ? "trips.inBudgetsNoBudgets" : "trips.inBudgetsPick");
+    return;
+  }
   saveBtn.disabled = true;
   try {
     const budget = document.getElementById("trip-budget").value.trim();
@@ -18024,6 +18330,8 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
       budget_currency: budget ? document.getElementById("trip-currency").value : "",
       alert_thresholds: budget ? document.getElementById("trip-alerts").value.trim() : ""
     };
+    const inBudgets = tripInBudgetsValue_();
+    if (inBudgets !== undefined) fields.in_budgets = inBudgets;
     // The server checks everything and answers in the person's language.
     const tripId = editingTripId_;
     const forEntry = tripFromEntry_ && !tripId && newEntrySheetOpen_;
@@ -23362,7 +23670,7 @@ function popStruggle_(key) { const s = popGet_(POP_STRUGGLE_KEY_, {}); if (!s[ke
 function popStruggling_(key) { return !!popGet_(POP_STRUGGLE_KEY_, {})[key]; }
 // What a successful save says about the person (owner, 2026-11-12): an active day, one more entry, a feature used, a sign of struggle.
 const POP_USER_SAVE_RE_ = /^(save|record|set|create|forgive|apply|assign|discard|delete|confirm|link|add|update)/i;
-const POP_NOT_THE_PERSON_ = new Set(["setRulePack", "setLanguage", "saveRailLinks", "applyAccountCurrencySuggestions", "saveOnboarding", "saveOnboardingAccounts", "saveOnboardingPlatforms"]);   // automatic or set-up, not a use of the app
+const POP_NOT_THE_PERSON_ = new Set(["setOverviewCategoryView", "setRulePack", "setLanguage", "saveRailLinks", "applyAccountCurrencySuggestions", "saveOnboarding", "saveOnboardingAccounts", "saveOnboardingPlatforms"]);   // automatic or set-up, not a use of the app
 function popAfterSave_(action, payload, out) {
   // A practice's made-up saves never count; a REAL tutorial's do (owner's walk 2026-11-12: features used inside a tutorial showed "not yet").
   if (!POP_USER_SAVE_RE_.test(action) || POP_NOT_THE_PERSON_.has(action) || /[Pp]ractice/.test(action) || (Spotlight.isRunning() && !guided_)) return;
@@ -23388,6 +23696,7 @@ function popAfterSave_(action, payload, out) {
     if (payload.direction !== "they_owe_me" && amt > 0 && (lastRenderedEntries_ || []).some((e) => e.type === "expense" && Math.abs(Number(e.amount) - amt) < 0.005 &&
       e.currency === payload.currency && Math.abs(Date.parse(e.date) - day) <= 86400000)) popStruggle_("paidBy");
   }
+  if ((action === "addTrip" || action === "updateTrip") && payload.in_budgets) popUsed_("tripBudgets");
   if (action === "forgiveLoan") popUsed_("forgive");
   if (action === "recordEarlyPayment") popUsed_("earlyPay");
   if (action === "saveBankLoan" && payload.opening) popUsed_("bankOpening");
@@ -23489,7 +23798,9 @@ function popTipTick_() {
   }
   const el = (tip.steps ? tip.steps[tip.at] : tip).target();
   if (!popInView_(el)) return;
-  if (!tip.own && !tip.cont && ((!tip.help && !popDayAllows_(tip.key)) || !teachAllows_("pop:" + tip.key))) { popTipStopWatch_(); return; }
+  // Counted ONCE in the day's teaching budget: popDayAllows_ already counts it (through tipDayAllows_). Asking teachAllows_ again under
+  // another name was always refused by the 2-minute gap it had just started, so no everyday bubble ever showed (found 2026-11-14).
+  if (!tip.own && !tip.cont && (tip.help ? !teachAllows_("pop:" + tip.key) : !popDayAllows_(tip.key))) { popTipStopWatch_(); return; }
   popTipStopWatch_();
   popTipShow_(tip, el);
 }
@@ -23534,7 +23845,7 @@ function popTipShow_(tip, el) {
   b.className = "pop-tip";
   b.setAttribute("role", "dialog");
   b.dataset.tip = tip.key;
-  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons"><button type="button" class="pop-tip-ok">${escapeHtml(tip.offer ? (tip.offerLabel || tr("rt.guideMe")) : tr("pop.gotIt"))}</button></div>`;
+  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons">${tip.act ? `<button type="button" class="pop-tip-act">${escapeHtml(tip.act.label)}</button>` : ""}<button type="button" class="pop-tip-ok">${escapeHtml(tip.offer ? (tip.offerLabel || tr("rt.guideMe")) : tr("pop.gotIt"))}</button></div>`;
   document.body.appendChild(b);
   const place = () => {
     if (!el.isConnected) { const n = refind(); if (n && n.isConnected) el = n; }
@@ -23567,6 +23878,8 @@ function popTipShow_(tip, el) {
     b.remove();
     popOpen_ = null;
   }
+  // A second button that takes the person straight to the feature (tip.act = { label, run }); the bubble still counts as seen.
+  if (tip.act) b.querySelector(".pop-tip-act").addEventListener("click", () => { close(); tip.act.run(); });
   b.querySelector(".pop-tip-ok").addEventListener("click", () => {
     close();
     if (tip.offer) tip.offer();
@@ -23594,6 +23907,39 @@ function watchAnnualTip_() {
     stillWanted: () => !document.getElementById("screen-budgets").hidden,
     ready: () => document.getElementById("budgets-tip-invite").hidden
   });
+}
+// Budgets: a trip's "In my budgets" (owner, 2026-11-14, the only teaching he chose for it). Its moment: a budget at 75 % or more
+// of its limit, in the period shown, where a trip or event still "as usual" makes up at least a fifth of what it spent. The bubble
+// points at that row, names the trip, and its "Open the trip" button opens the trip's pop-up, where the choice is.
+function watchTripBudgetsTip_() {
+  if (!(meta && meta.capabilities && meta.capabilities.tripBudgets)) return false;
+  let hit = null;
+  (budgetsLoaded_ || []).forEach((b) => {
+    const p = b.progress;
+    if (hit || !p || !p.exists || p.percent == null || p.percent < 75 || !(p.spent > 0)) return;
+    const t = (p.tripsInside || [])[0];
+    if (t && t.amount >= p.spent / 5) hit = { budget: b, trip: t };
+  });
+  if (!hit) return false;
+  const tripId = hit.trip.trip_id;
+  popTipWatch_({
+    key: "tripBudgets", place: "budgets", level: "advanced",
+    text: () => tr("pop.tripBudgets", { name: hit.trip.name, budget: hit.budget.progress.category_name || hit.budget.category_name }),
+    target: () => document.querySelector(`#budgets-list .budget-row[data-budget-id="${CSS.escape(String(hit.budget.id))}"]`),
+    stillWanted: () => !document.getElementById("screen-budgets").hidden,
+    ready: () => document.getElementById("budgets-tip-invite").hidden,
+    act: { label: tr(((meta.trips || []).find((t) => t.id === tripId) || {}).kind === "event" ? "pop.tripBudgetsOpenEvent" : "pop.tripBudgetsOpen"), run: () => openTripForBudgets_(tripId) }
+  });
+  return true;
+}
+// Opens a trip's pop-up from the Budgets tab, scrolled to "In my budgets" (the trips list itself is not opened).
+async function openTripForBudgets_(tripId) {
+  let trip = (meta.trips || []).find((t) => t.id === tripId);
+  try { const all = await callApi("listTrips", {}); meta.trips = all; trip = all.find((t) => t.id === tripId) || trip; } catch (e) { /* the copy on the phone will do */ }
+  if (!trip) return;
+  openTripModal_(trip);
+  const field = document.getElementById("trip-inbudgets-field");
+  if (!field.hidden) field.scrollIntoView({ block: "center" });
 }
 // The new-entry form: the "Trip / event" field, when the entry's date falls during a trip or event.
 function watchTripPickTip_() {

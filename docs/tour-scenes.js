@@ -29,11 +29,23 @@
     return e;
   }
 
+  // The animation never makes its card shorter while it plays (owner, 2026-11-14): when a scene looped it was emptied and rebuilt,
+  // the card shrank for an instant and the phone pulled the person reading below it back up to the animation. The stage keeps the
+  // tallest height it has had for this scene, so nothing under it moves and the page never scrolls by itself.
+  function holdHeight(stage, key) {
+    if (stage.dataset.tsKey !== key) { stage.dataset.tsKey = key; stage.style.minHeight = ""; }
+    if (stage._tsHold) return;
+    const grow = () => { const hgt = stage.offsetHeight; if (hgt > (parseFloat(stage.style.minHeight) || 0)) stage.style.minHeight = hgt + "px"; };
+    stage._tsHold = root.ResizeObserver ? new ResizeObserver(grow) : null;
+    if (stage._tsHold) stage._tsHold.observe(stage);
+  }
+
   function play(key, stage, ctx) {
     stop();
     const scene = SCENES[key];
     if (!scene) { stage.hidden = true; stage.innerHTML = ""; return false; }
     stage.hidden = false;
+    holdHeight(stage, key);
     const reduce = !!(root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
     const run = () => {
       stage.innerHTML = "";
@@ -724,5 +736,22 @@
     return true;
   }
 
-  root.TourScenes = { play, preview, stop, has: (key) => !!SCENES[key] };
+  // How long a scene takes to watch once, in ms (its timeline), measured on a copy nobody sees. The tour times its swipe nudge with it.
+  function length(key, ctx) {
+    const scene = SCENES[key];
+    if (!scene) return 0;
+    const saved = timers;
+    timers = [];
+    try {
+      const parts = scene.build(document.createElement("div"), ctx);
+      return scene.timeline(parts, ctx).reduce((m, s) => Math.max(m, s[0]), 0);
+    } catch (e) {
+      return 0;
+    } finally {
+      timers.forEach(clearTimeout);
+      timers = saved;
+    }
+  }
+
+  root.TourScenes = { play, preview, stop, length, has: (key) => !!SCENES[key] };
 })(typeof window !== "undefined" ? window : this);
