@@ -99,3 +99,16 @@ test("found by name when it has no key, sub-categories included; undo puts each 
   assert.equal(cat(rt, a), "cat-ab2-trips");
   assert.equal(cat(rt, b), "cat-ab2");
 });
+
+test("apply answers per group, so each row can show its own result and undo only itself", () => {
+  const rt = setup();
+  const a = add(rt, "Flight A", 900); const b = add(rt, "Hotel B", 300);
+  const g = rt.api("listAnnualCleanup", {}).groups;
+  const ka = g.find((x) => x.label === "Flight A").key, kb = g.find((x) => x.label === "Hotel B").key;
+  const res = rt.api("applyAnnualCleanup", { items: [{ key: ka, categoryId: "cat-tix" }, { key: kb, categoryId: "cat-tv" }] });
+  assert.equal(res.groups[ka].count, 1);
+  assert.equal(res.groups[kb].changes[0].categoryId, "cat-tv");
+  rt.api("undoAnnualCleanup", res.groups[ka]);
+  assert.equal(cat(rt, a), "cat-ab");
+  assert.equal(cat(rt, b), "cat-tv", "the other row is untouched");
+});

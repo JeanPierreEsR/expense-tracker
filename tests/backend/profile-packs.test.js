@@ -36,12 +36,12 @@ test("the basic lists: 8 expense categories (owner's list) and 5 income ones, ea
   assert.ok(exp.some((c) => c[0] === "Other") && inc.some((c) => c[0] === "Other") && inc.some((c) => c[0] === "Refunds"), "names the code looks up stay");
 });
 
-test("two question groups (8 + 7 answers); each answer adds exactly one category with an emoji and a Spanish name, and has a label in both languages", () => {
+test("two question groups (8 + 8 answers); each answer adds exactly one category (Trips adds three) with an emoji and a Spanish name, and has a label in both languages", () => {
   const rt = freshApp({ small: true }).rt;
   const packs = run(rt, "PROFILE_PACKS_");
   const groups = run(rt, "PROFILE_GROUPS_");
   assert.deepEqual(groups.life, ["car", "kids", "pets", "study", "health", "selfemployed", "family", "debt"]);
-  assert.deepEqual(groups.spheres, ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "gifts"]);
+  assert.deepEqual(groups.spheres, ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "gifts", "trips"]);
   assert.deepEqual(run(rt, "PROFILE_ORDER_"), groups.life.concat(groups.spheres));
   assert.deepEqual(Object.keys(packs).sort(), groups.life.concat(groups.spheres).sort());
   const strings = doc("docs", "strings.js");
@@ -50,12 +50,14 @@ test("two question groups (8 + 7 answers); each answer adds exactly one category
     assert.match(strings, new RegExp(`"fits\\.a\\.${a}": \\{ en: .+, es: `), `label for ${a}`);
     assert.ok(app.includes(`"${a}"`), `${a} is drawn by the app`);
     const all = (packs[a].expense || []).concat(packs[a].income || []);
-    assert.equal(all.length, 1, `${a} adds exactly one category`);
-    const [name, icon] = all[0];
-    assert.ok(icon, `${name} has an emoji`);
-    const key = rt.run(`categoryKeyFromName_(${JSON.stringify(name)})`);
-    const t = run(rt, `CATEGORY_TRANSLATIONS_[${JSON.stringify(key)}] || null`);
-    assert.ok(t && t.en === name && t.es, `${name} has a Spanish name`);
+    // One category per answer; the one exception (owner, 2026-11-14): Trips adds Flights, Lodging and Tours & activities.
+    assert.equal(all.length, a === "trips" ? 3 : 1, `${a} adds ${a === "trips" ? "three categories" : "exactly one category"}`);
+    for (const [name, icon] of all) {
+      assert.ok(icon, `${name} has an emoji`);
+      const key = rt.run(`categoryKeyFromName_(${JSON.stringify(name)})`);
+      const t = run(rt, `CATEGORY_TRANSLATIONS_[${JSON.stringify(key)}] || null`);
+      assert.ok(t && t.en === name && t.es, `${name} has a Spanish name`);
+    }
   }
   assert.match(strings, /"fits\.g\.life": \{ en: "My responsibilities"/);
   assert.match(strings, /"fits\.g\.spheres": \{ en: "My lifestyle"/);
@@ -91,17 +93,17 @@ test("a pick adds only its one category, in the person's language, and the answe
   assert.equal(meta.settings.profile, "car,selfemployed", "the app can see the answers");
 });
 
-test("every answer together adds 15 categories; running it again adds nothing", () => {
+test("every answer together adds 18 categories; running it again adds nothing", () => {
   const rt = friendCopy();
   const all = run(rt, "PROFILE_ORDER_");
   const first = post(rt, "applyProfile", { answers: all }).data;
-  assert.equal(first.added.length, 15);
+  assert.equal(first.added.length, 18);
   const before = rt.rows("Categories").length;
   const again = post(rt, "applyProfile", { answers: all }).data;
   assert.equal(again.added.length, 0);
   assert.equal(rt.rows("Categories").length, before);
   assert.equal(new Set(catNames(rt, "expense")).size, catNames(rt, "expense").length, "no duplicate names");
-  assert.ok(["Education", "Shopping", "Entertainment", "Going out", "Hobbies", "Subscriptions"].every((n) => catNames(rt, "expense").includes(n)));
+  assert.ok(["Education", "Shopping", "Entertainment", "Going out", "Hobbies", "Subscriptions", "Flights", "Lodging", "Tours & activities"].every((n) => catNames(rt, "expense").includes(n)));
 });
 
 test("people who already use the app: nothing they have is duplicated, changed or removed; the gaps are filled", () => {

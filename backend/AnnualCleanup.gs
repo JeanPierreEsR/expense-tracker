@@ -120,7 +120,7 @@ function applyAnnualCleanup(payload) {
   var entries = annualCleanupEntries_(cat);
   var byKey = {};
   entries.forEach(function (e) { (byKey[annualCleanupKey_(e)] = byKey[annualCleanupKey_(e)] || []).push(e); });
-  var plan = [], byCat = {}, from = {};
+  var plan = [], byCat = {}, from = {}, keyOf = {};
   ((payload && payload.items) || []).forEach(function (it) {
     var list = byKey[it.key];
     if (!list) return;
@@ -128,6 +128,7 @@ function applyAnnualCleanup(payload) {
     list.forEach(function (e) {
       plan.push({ id: e.id, categoryId: it.categoryId, expect: String(e.category_id) });
       from[e.id] = String(e.category_id);
+      keyOf[e.id] = it.key;
       (byCat[it.categoryId] = byCat[it.categoryId] || []).push(e.id);
     });
   });
@@ -144,7 +145,23 @@ function applyAnnualCleanup(payload) {
     if (ids.length) changes.push({ categoryId: catId, ids: ids, from: ids.map(function (id) { return from[id]; }) });
   });
   var count = changes.reduce(function (n, c) { return n + c.ids.length; }, 0);
-  return { count: count, changes: changes, annualIds: annualIds, left: entries.length - count };
+  // The same, per group (owner, 2026-11-14: each row shows its own result and has its own Undo).
+  var groups = {};
+  changes.forEach(function (c) {
+    c.ids.forEach(function (id, i) {
+      var g = groups[keyOf[id]] || (groups[keyOf[id]] = { count: 0, changes: {}, annualIds: [] });
+      var ch = g.changes[c.categoryId] || (g.changes[c.categoryId] = { categoryId: c.categoryId, ids: [], from: [] });
+      ch.ids.push(id); ch.from.push(c.from[i]); g.count++;
+    });
+  });
+  var tagAdded = {};
+  annualIds.forEach(function (id) { tagAdded[id] = true; });
+  Object.keys(groups).forEach(function (k) {
+    var g = groups[k];
+    g.changes = Object.keys(g.changes).map(function (c) { return g.changes[c]; });
+    g.changes.forEach(function (ch) { ch.ids.forEach(function (id) { if (tagAdded[id]) g.annualIds.push(id); }); });
+  });
+  return { count: count, changes: changes, annualIds: annualIds, left: entries.length - count, groups: groups };
 }
 
 // Undo: each expense back into the (sub-)category it came from (only those that still carry the category this put them in), and

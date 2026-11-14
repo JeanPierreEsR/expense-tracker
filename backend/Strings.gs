@@ -679,6 +679,9 @@ var CATEGORY_TRANSLATIONS_ = {
   // Legacy: the old name of 'restaurants' (renamed 2026-10-14). A sheet that has
   // not run adminMigrateCategories yet still holds it; this keeps it translated.
   food_drink: { en: 'Food & Drink', es: 'Restaurantes' },
+  flights: { en: 'Flights', es: 'Vuelos' },
+  lodging: { en: 'Lodging', es: 'Alojamiento' },
+  tours_activities: { en: 'Tours & activities', es: 'Tours y actividades' },
   family_personal: { en: 'Family & Personal', es: 'Familia y personal' },
   entertainment: { en: 'Entertainment', es: 'Entretenimiento' },
   home: { en: 'Home', es: 'Hogar' },
