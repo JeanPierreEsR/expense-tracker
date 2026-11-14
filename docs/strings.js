@@ -2604,6 +2604,7 @@
     "pop.pace.kept": { en: "Your choice stays until you close the app, on the Overview card too. Tap here to go back to the usual view now.", es: "Tu elección se mantiene hasta que cierres la app, también en la tarjeta de Resumen. Toca aquí para volver ya a la vista habitual." },
     // Bubbles, batch B (2026-11-11)
     "pop.tripCurrency": { en: "Spending in another currency? If it's from a trip or event, pick it here, or add one, so its expenses add up together. If it isn't, tap Save again.", es: "¿Gastaste en otra moneda? Si es de un viaje o evento, elígelo aquí, o agrega uno, para que sus gastos se sumen juntos. Si no lo es, toca Guardar otra vez." },
+    "pop.tripCategory": { en: "Part of a trip or event? Pick it here, or add one, so the trip's expenses add up together. If not, tap Save again.", es: "¿Es parte de un viaje o evento? Elígelo aquí, o agrega uno, para que los gastos del viaje se sumen juntos. Si no, toca Guardar otra vez." },
     "pop.tripFlight": { en: "Buying a flight? If it's for a trip or event, pick it here, or add one, so the trip's expenses add up together. If not, tap Save again.", es: "¿Compraste un vuelo? Si es para un viaje o evento, elígelo aquí, o agrega uno, para que los gastos del viaje se sumen juntos. Si no, toca Guardar otra vez." },
     "pop.chargeBoxCard": { en: "Paid in another currency? Type what the card charged here. Don't know yet? Leave it empty: it waits on Home.", es: "¿Pagaste en otra moneda? Escribe aquí lo que cobró la tarjeta. ¿Aún no lo sabes? Déjalo vacío: esperará en Inicio." },
     "pop.chargeBoxAccount": { en: "Paid in another currency? Type what the account was charged here. Don't know yet? Leave it empty: it waits on Home.", es: "¿Pagaste en otra moneda? Escribe aquí lo que te cobraron en la cuenta. ¿Aún no lo sabes? Déjalo vacío: esperará en Inicio." },
@@ -3844,6 +3845,7 @@
     "fits.a.personal": { en: "💇 Personal care", es: "💇 Cuidado personal" },
     "fits.a.subscriptions": { en: "🔁 Subscriptions (streaming, apps)", es: "🔁 Suscripciones (streaming, apps)" },
     "fits.a.hobbies": { en: "🎨 Hobbies (games too)", es: "🎨 Pasatiempos (juegos también)" },
+    "fits.a.trips": { en: "✈️ Trips (flights, lodging, tours)", es: "✈️ Viajes (vuelos, alojamiento, tours)" },
     "fits.a.gifts": { en: "🎁 Gifts & donations", es: "🎁 Regalos y donaciones" },
     "categories.add": { en: "+ New category", es: "+ Nueva categoría" },
     "categories.addAria": { en: "New category", es: "Nueva categoría" },

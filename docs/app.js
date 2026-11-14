@@ -7946,13 +7946,14 @@ let appToastTimer_ = null;
 function showToast_(text, sticky, ms) {
   const el = document.getElementById("app-toast");
   el.textContent = text;
+  el.dataset.msg = text;   // the words as given: a leading emoji is swapped for a line icon on screen (EMOJI_ICON_), so the text changes
   el.hidden = false;
   clearTimeout(appToastTimer_);
   if (!sticky) appToastTimer_ = setTimeout(() => { el.hidden = true; }, ms || 3500);
 }
 function hideToast_(text) {
   const el = document.getElementById("app-toast");
-  if (!text || el.textContent === text) { clearTimeout(appToastTimer_); el.hidden = true; }
+  if (!text || el.dataset.msg === text) { clearTimeout(appToastTimer_); el.hidden = true; }
 }
 
 // The standard for a plain "save, then refresh" form (owner's rule,
@@ -7983,8 +7984,11 @@ document.addEventListener("click", (e) => {
 
 function saveBehindScreen_(work, after, opts) {
   holdTaps_();
+  // "Saving…" stays until the save AND its refresh are done (owner, 2026-11-14: a new category showed no saving status: the message
+  // went away after 3.5 s while the real server was still saving, and the list changed seconds later). Then a short "Saved".
   const busyText = opts && opts.busy ? tr(opts.busy) : "";
-  showToast_(busyText || tr("common.savingToast"), !!busyText);
+  const shownText = busyText || tr("common.savingToast");
+  showToast_(shownText, true);
   (async () => {
     let ok = true;
     for (;;) {
@@ -7995,11 +7999,11 @@ function saveBehindScreen_(work, after, opts) {
       } catch (err) {
         ok = false;
         // No connection is not a refusal: what was typed is still here, so the person can send it again (a person decides, so a reply lost on its way can't silently make a second one).
-        if (!err || err.code !== "unreachable") { appMessage_(tr("common.notSaved", { error: err.message })); break; }
+        if (!err || err.code !== "unreachable") { hideToast_(shownText); appMessage_(tr("common.notSaved", { error: err.message })); break; }
         const text = tr("common.noConnectionRetry");
         while (appConfirmOpen_.has(text)) await sleep(300);   // two saves at once: one question at a time, neither answered for the person
         if (!await askConfirmApp_(text, tr("common.tryAgain"), { plain: true, cancel: tr("confirmBtn.discard") })) break;
-        showToast_(busyText || tr("common.savingToast"), !!busyText);
+        showToast_(shownText, true);
       }
     }
     if (!ok) realNoteFailed_();   // (a real tutorial then ends by saying it was not saved)
@@ -8007,11 +8011,14 @@ function saveBehindScreen_(work, after, opts) {
     // A bulk delete greys every ticked row ("Deleting…"): the ones that really went are gone from the list by now, the ones that were kept / hidden / not
     // deleted come back to normal (before this, a kept or hidden friend stayed grey and untappable until the app was reloaded).
     if (opts && opts.release) { opts.release.forEach((k) => deletingKeys_.delete(k)); paintDeleting_(); }
-    if (busyText) hideToast_(busyText);
+    const toastEl = document.getElementById("app-toast");
+    const stillOurs = !toastEl.hidden && toastEl.dataset.msg === shownText;   // (another message since is left alone)
+    if (stillOurs) hideToast_(shownText);
     if (ok && opts && opts.done) {
       const text = typeof opts.done === "function" ? opts.done() : tr(opts.done);
       if (text) showToast_(text, false, 6000);
-    }
+      else if (stillOurs) showToast_(tr("common.savedToast"), false, 1800);
+    } else if (ok && stillOurs) showToast_(tr("common.savedToast"), false, 1800);
   })();
 }
 
@@ -13272,7 +13279,7 @@ function showWelcomeStep_(step) {
 // welcome is saved). The same chips are used by More → My profile → What fits me.
 const FITS_GROUPS_ = [
   { title: "fits.g.life", answers: ["car", "kids", "pets", "study", "health", "family", "debt"] },
-  { title: "fits.g.spheres", answers: ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "gifts"] }
+  { title: "fits.g.spheres", answers: ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "gifts", "trips"] }
 ];
 const FITS_ANSWERS_ = FITS_GROUPS_.flatMap((g) => g.answers);
 function fillFitsChips_(box, selected, onToggle, compact) {
@@ -24140,22 +24147,33 @@ document.getElementById("rate-via-main-btn").addEventListener("click", () => pop
 // flight, with no trip picked, is held ONCE; the trip field shows (with "+ New trip or event…") and a bubble explains. Save again = saved.
 const TRIP_FLIGHT_RE_ = /(vuelo|pasaje|boleto a[eé]reo|aerol[ií]nea|aeropuerto|\btuua\b|tasa aeroportuaria|equipaje|maleta|flight|plane ticket|air ticket|airfare|airline|airport|baggage|luggage|\blatam\b|\bsky airline|jetsmart|avianca|copa airlines|american airlines|\bunited\b|\bdelta\b|iberia|air europa|\bklm\b|air france)/i;
 let tripNudgeAsked_ = false;
+// The trip categories of What fits me's "Trips" (Profile.gs): by their key, or by name in either language for ones made by hand.
+const TRIP_CATEGORY_KEYS_ = new Set(["flights", "lodging", "tours_activities"]);
+const TRIP_CATEGORY_NAMES_ = new Set(["flights", "lodging", "tours & activities", "vuelos", "alojamiento", "tours y actividades"]);
+function isTripCategory_(id) {
+  const c = id && meta && (meta.categories || []).find((x) => x.id === id);
+  return !!c && (TRIP_CATEGORY_KEYS_.has(String(c.key || "")) || TRIP_CATEGORY_NAMES_.has(String(c.name || "").trim().toLowerCase()));
+}
 function tripNudgeHolds_(tripId, currency) {
   if (tripId || tripNudgeAsked_ || selectedType !== "expense" || editingEntryId || Spotlight.isRunning() || !newEntrySheetOpen_) return false;
   if (popGet_(POP_SEEN_KEY_, []).includes("tripNudge")) return false;
   const third = currency && currency !== homeCur() && currency !== "USD";
   const flight = TRIP_FLIGHT_RE_.test(document.getElementById("description").value || "");
-  if (!third && !flight) return false;
+  const tripCat = isTripCategory_(selectedCategoryId);   // Flights, Lodging, Tours & activities (owner, 2026-11-14)
+  if (!third && !flight && !tripCat) return false;
   tripNudgeAsked_ = true;
   tripFieldForced_ = true;
   populateTripOptions_();
   const field = document.getElementById("trip-field");
   field.hidden = false;
-  field.scrollIntoView({ block: "center", behavior: "smooth" });
+  foldedTarget_(field).scrollIntoView({ block: "center", behavior: "smooth" });   // (the closed "More details" row, when the field is folded)
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   popTipWatch_({
-    key: "tripNudge", place: "entryForm", own: true, noGate: true, text: tr(flight ? "pop.tripFlight" : "pop.tripCurrency"),
-    target: () => (field.hidden ? null : field),
+    // The trip field sits in the closed "More details" of a new entry (2026-11-13): the bubble points at that row and says so, like the
+    // other folded fields (found 2026-11-14: it pointed at a field with no size, so it never showed).
+    key: "tripNudge", place: "entryForm", own: true, noGate: true,
+    text: () => foldedNote_(field, tr(flight ? "pop.tripFlight" : tripCat ? "pop.tripCategory" : "pop.tripCurrency")),
+    target: () => (field.hidden ? null : foldedTarget_(field)),
     stillWanted: () => newEntrySheetOpen_
   });
   return true;

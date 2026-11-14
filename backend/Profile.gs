@@ -27,11 +27,11 @@ var STARTER_INCOME_CATEGORIES_ = [
 ];
 
 // The two questions, in the order the app shows them ("My responsibilities", "My lifestyle"). Each answer adds EXACTLY ONE category (owner's design
-// of 2026-10-29): the picks describe parts of a person's life, never personality traits. Household bills (electricity, water, internet,
+// of 2026-10-29; one exception since 2026-11-14: Trips adds Flights, Lodging and Tours & activities): the picks describe parts of a person's life, never personality traits. Household bills (electricity, water, internet,
 // phone) belong in Home; streaming belongs in Subscriptions, games in Hobbies, and Entertainment means live shows and concerts.
 var PROFILE_GROUPS_ = {
   life: ['car', 'kids', 'pets', 'study', 'health', 'selfemployed', 'family', 'debt'],
-  spheres: ['shopping', 'goingout', 'entertainment', 'personal', 'subscriptions', 'hobbies', 'gifts']
+  spheres: ['shopping', 'goingout', 'entertainment', 'personal', 'subscriptions', 'hobbies', 'gifts', 'trips']
 };
 var PROFILE_PACKS_ = {
   car: { expense: [['Vehicle', '🚗']] },
@@ -48,7 +48,11 @@ var PROFILE_PACKS_ = {
   personal: { expense: [['Personal care', '💇']] },
   subscriptions: { expense: [['Subscriptions', '🔁']] },
   hobbies: { expense: [['Hobbies', '🎨']] },
-  gifts: { expense: [['Gifts & donations', '🎁']] }
+  gifts: { expense: [['Gifts & donations', '🎁']] },
+  // Trips (owner, 2026-11-14): the one pick that adds three, so a trip's screen splits into the blocks a new trip is planned with
+  // (getting there, where you sleep, what you do); food, local transport and shopping stay in their everyday categories, and
+  // Travel keeps everything else (visas, travel insurance, SIM cards…).
+  trips: { expense: [['Flights', '🛫'], ['Lodging', '🏨'], ['Tours & activities', '🎟️']] }
 };
 var PROFILE_ORDER_ = PROFILE_GROUPS_.life.concat(PROFILE_GROUPS_.spheres);
 
