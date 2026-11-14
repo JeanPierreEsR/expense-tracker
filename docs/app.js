@@ -2934,7 +2934,7 @@ document.getElementById("add-tag-btn").addEventListener("click", async () => {
   const name = await askName_(tr("prompt.tagName"));
   if (name && name.trim()) {
     const tag = await callApi("addTag", { name: name.trim() });
-    meta.tags.push(tag);
+    if (!meta.tags.some((t) => t.id === tag.id)) meta.tags.push(tag);   // a tag of that name already there is reused
     selectedTagIds.add(tag.id);
     populateTags();
   }
@@ -17120,8 +17120,110 @@ function showCategoriesScreen() {
   document.getElementById("categories-suggest-btn").hidden = !(meta && meta.capabilities && meta.capabilities.profile);   // an older backend cannot do it
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-categories"; });
   document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
+  catFoldOpen_("cats", false);   // both parts closed each time the screen opens (owner, 2026-11-14)
+  catFoldOpen_("tags", false);
   renderCategoriesList_();
+  renderTagsList_();
 }
+
+// ---- Categories & tags: the two folded parts (owner, 2026-11-14) ----
+// "Categories · 24 ›" and "Tags · 5 ›" open and close like the cards of My profile.
+function catFoldOpen_(part, open) {
+  document.getElementById(`${part}-fold-body`).hidden = !open;
+  document.getElementById(`${part}-fold-toggle`).setAttribute("aria-expanded", open ? "true" : "false");
+  document.getElementById(`${part}-fold-chevron`).textContent = open ? "⌄" : "›";
+}
+["cats", "tags"].forEach((part) => document.getElementById(`${part}-fold-toggle`).addEventListener("click", () =>
+  catFoldOpen_(part, document.getElementById(`${part}-fold-body`).hidden)));
+
+// ---- Tags: list with entry counts, add, rename, delete (getTagCounts / renameTag / deleteTag, capability tagsManage) ----
+// Deleting a tag only takes the label off its entries. The built-in Annual tag cannot be renamed or deleted (budgets and Travel use it).
+let tagCounts_ = null;   // tag id -> entries carrying it; null until the server answered (or on an older backend)
+let tagModalTag_ = null;
+const tagsManageOn_ = () => !!(meta && meta.capabilities && meta.capabilities.tagsManage);
+const tagsSorted_ = () => ((meta && meta.tags) || []).slice().sort((a, b) =>
+  (a.id === "system-annual" ? -1 : b.id === "system-annual" ? 1 : String(a.name).localeCompare(String(b.name))));
+const tagCountText_ = (id) => (tagCounts_ ? tr("categories.entryCount", { n: tagCounts_[id] || 0 }) : "");
+const tagNameKey_ = (name) => String(name || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+function renderTagsList_() {
+  const list = document.getElementById("tags-manage-list");
+  const tags = tagsSorted_();
+  const manage = tagsManageOn_();
+  document.getElementById("tags-fold-count").textContent = tags.length ? tr("tagsScreen.count", { n: tags.length }) : tr("tagsScreen.none");
+  document.querySelector("#tags-fold-body > .hint").textContent = tr(manage ? "tagsScreen.hint" : "tagsScreen.hintOld");
+  list.innerHTML = "";
+  tags.forEach((t) => {
+    const builtIn = t.id === "system-annual";
+    const row = document.createElement("div");
+    row.className = "recurring-row";
+    delKey_(row, "tag:" + t.id);
+    const sub = [tagCountText_(t.id), builtIn ? tr("tagsScreen.builtIn") : ""].filter(Boolean).join(" · ");
+    row.innerHTML = `<div><div class="recurring-row-name">${escapeHtml(t.name)}</div><div class="recurring-row-sub">${escapeHtml(sub)}</div></div>`;
+    if (manage && !builtIn) row.addEventListener("click", () => openTagModal_(t));
+    else row.style.cursor = "default";
+    list.appendChild(row);
+  });
+  if (manage && !tagCounts_) loadTagCounts_();
+}
+async function loadTagCounts_() {
+  try {
+    const res = await callApi("getTagCounts");
+    tagCounts_ = (res && res.counts) || {};
+    renderTagsList_();
+  } catch (err) { /* counts are a nicety: the list works without them */ }
+}
+async function refreshTagsAfterChange_() {
+  tagCounts_ = null;
+  await loadMeta();
+  renderTagsList_();
+}
+function openTagModal_(t) {
+  tagModalTag_ = t;
+  const backdrop = document.getElementById("tag-modal-backdrop");
+  I18n.applyStatic(backdrop);
+  document.getElementById("tag-modal-name").value = t.name;
+  document.getElementById("tag-modal-error").textContent = "";
+  document.getElementById("tag-modal-count").textContent = tagCountText_(t.id);
+  backdrop.hidden = false;
+}
+function closeTagModal_() { document.getElementById("tag-modal-backdrop").hidden = true; tagModalTag_ = null; }
+document.getElementById("tag-modal-close").addEventListener("click", closeTagModal_);
+// Another tag already called this (any case, accents; "annual"/"anual" is the built-in one).
+function tagNameTakenApp_(name, exceptId) {
+  const k = tagNameKey_(name);
+  if (k === "annual" || k === "anual") return true;
+  return ((meta && meta.tags) || []).some((t) => t.id !== exceptId && tagNameKey_(t.name) === k);
+}
+document.getElementById("tag-modal-save").addEventListener("click", () => {
+  const t = tagModalTag_;
+  if (!t) return;
+  const name = document.getElementById("tag-modal-name").value.replace(/\s+/g, " ").trim();
+  const err = document.getElementById("tag-modal-error");
+  if (!name) { err.textContent = tr("accounts.errName"); return; }
+  if (name === t.name) { closeTagModal_(); return; }
+  if (tagNameTakenApp_(name, t.id)) { err.textContent = tr("tagsScreen.exists", { name }); return; }
+  closeTagModal_();
+  saveBehindScreen_(() => callApi("renameTag", { id: t.id, name }), refreshTagsAfterChange_);
+});
+document.getElementById("tag-modal-delete").addEventListener("click", async () => {
+  const t = tagModalTag_;
+  if (!t) return;
+  const n = tagCounts_ ? tagCounts_[t.id] || 0 : null;
+  const ask = n === 0 ? tr("tagsScreen.deleteAskUnused", { name: t.name }) : tr("tagsScreen.deleteAsk", { name: t.name, n: n == null ? "?" : n });
+  if (!await askConfirmApp_(ask, tr("confirmBtn.delete"))) return;
+  closeTagModal_();
+  markDeleting_("tag:" + t.id);
+  saveBehindScreen_(() => callApi("deleteTag", { id: t.id }), async () => {
+    unmarkDeleting_("tag:" + t.id);
+    await refreshTagsAfterChange_();
+  });
+});
+document.getElementById("tags-add-btn").addEventListener("click", async () => {
+  const name = await askName_(tr("prompt.tagName"));
+  if (!name) return;
+  if (tagNameTakenApp_(name)) { appMessage_(tr("tagsScreen.exists", { name })); return; }
+  saveBehindScreen_(() => callApi("addTag", { name }), refreshTagsAfterChange_);
+});
 
 function catCountText_(id) {
   return id in categoryCounts_ || Object.keys(categoryCounts_).length ? escapeHtml(tr("categories.entryCount", { n: categoryCounts_[id] || 0 })) : "";
@@ -17197,6 +17299,8 @@ function renderCategoriesList_() {
   });
   syncCategoriesEditBar_();
   loadCategoryCounts_();
+  const shown = meta.categories.filter((c) => categoryListed_(c) && !catHidden_(c)).length;
+  document.getElementById("cats-fold-count").textContent = tr("categories.foldCount", { n: shown });
 }
 
 // ---- Categories: Edit mode (tick several, delete them at once; owner's request, 2026-11-03) ----
@@ -17230,7 +17334,10 @@ function syncCategoriesEditBar_() {
   syncOneKindBar_(document.getElementById("categories-delete-selected-btn"), document.getElementById("categories-selectall-btn"), n, hiddenKind,
     hiddenKind ? categoriesSelectable_().filter((c) => categoryTickHidden_(c.id)).length : bulkShowAgain_() ? categoriesSelectable_().filter((c) => !catHidden_(c)).length : categoriesSelectable_().length);
 }
-document.getElementById("categories-edit-btn").addEventListener("click", () => setCategoriesEditing_(!categoriesEditing_));
+document.getElementById("categories-edit-btn").addEventListener("click", () => {
+  if (!categoriesEditing_) catFoldOpen_("cats", true);   // the pencil is for categories: show them when it is turned on
+  setCategoriesEditing_(!categoriesEditing_);
+});
 document.getElementById("categories-done-btn").addEventListener("click", () => setCategoriesEditing_(false));
 document.getElementById("categories-back-btn").addEventListener("click", () => setCategoriesEditing_(false));
 document.getElementById("categories-selectall-btn").addEventListener("click", () => {

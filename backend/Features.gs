@@ -138,6 +138,7 @@ function getCapabilities_() {
     tripOpenOnCreate: true,   // addTrip with _open brings the new trip's screen and its "Find expenses" list in the same answer (one call: save → link)
     tripBudgets: true,   // Trips.in_budgets ("In my budgets": as usual / left out / only in chosen budgets) counted by every budget sum; an older backend lacks it, so the trip pop-up hides the field
     tripsBulkDelete: true,   // deleteTrips (several trips / events at once, More → Trips & events → Edit); an older backend lacks it, so the app hides the Edit button
+    tagsManage: true,   // getTagCounts + renameTag + deleteTag (the Tags part of More → Categories & tags); an older backend lacks them, so the app shows the list and Add only
     categoriesBulkDelete: true,   // previewCategoryDelete + deleteCategories (several categories at once: move into one, or hide; More → Categories → Edit); an older backend lacks them, so the app hides the Edit button
     businessBulkDelete: true,   // deleteBusinessItems + deleteBusinessPeople (several companies / projects / people at once, Edit on the Business screens); an older backend lacks them, so the app hides the Edit buttons
     reviewBulk: true,   // confirmEntries + discardEntries (several waiting entries at once, Home → Needs review → Edit); an older backend lacks them, so the app hides the Edit button

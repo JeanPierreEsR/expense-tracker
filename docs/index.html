@@ -974,10 +974,26 @@
             <button type="button" class="icon-btn" id="categories-add-btn" data-i18n-aria-label="categories.addAria" aria-label="New category"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
           </span>
         </div>
-        <h2 class="screen-title" style="margin-top:0;" data-i18n="categories.title">Categories</h2>
+        <h2 class="screen-title" style="margin-top:0;" data-i18n="categories.title">Categories &amp; tags</h2>
+        <!-- Two folded parts, both closed each time the screen opens (owner, 2026-11-14). -->
+        <button type="button" class="more-list-item md-row fits-toggle" id="cats-fold-toggle" aria-expanded="false" aria-controls="cats-fold-body">
+          <span><span class="md-title" data-i18n="categories.foldTitle">Categories</span><span class="hint md-sub" id="cats-fold-count"></span></span>
+          <span class="more-list-chevron" id="cats-fold-chevron">›</span>
+        </button>
+        <div id="cats-fold-body" hidden>
         <p class="hint" data-i18n="categories.hint">Create your own categories and choose their emoji and color. Tap one to change it. Past entries stay linked to a category, even if you rename it.</p>
         <button type="button" class="add-inline" id="categories-suggest-btn" hidden data-i18n="categories.suggest">Pick what fits you ›</button>
         <div id="categories-list"></div>
+        </div>
+        <button type="button" class="more-list-item md-row fits-toggle" id="tags-fold-toggle" aria-expanded="false" aria-controls="tags-fold-body">
+          <span><span class="md-title" data-i18n="tagsScreen.title">Tags</span><span class="hint md-sub" id="tags-fold-count"></span></span>
+          <span class="more-list-chevron" id="tags-fold-chevron">›</span>
+        </button>
+        <div id="tags-fold-body" hidden>
+          <p class="hint" data-i18n="tagsScreen.hint">A tag is an extra label that works across categories. Tap one to rename or delete it.</p>
+          <div id="tags-manage-list"></div>
+          <button type="button" class="add-inline" id="tags-add-btn" data-i18n="common.addTag">+ Add tag…</button>
+        </div>
         <div class="friends-editbar" id="categories-editbar" hidden>
           <button type="button" class="add-inline" id="categories-selectall-btn" data-i18n="friends.selectAll">Select all</button>
           <button type="button" class="add-inline" id="categories-done-btn" data-i18n="friends.done">Done</button>
@@ -3804,6 +3820,22 @@
           <button type="button" class="delete-entry-btn" id="cat-reassign-btn" data-i18n="categories.moveAndDelete">Move and delete</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- One tag: rename or delete (More → Categories & tags). -->
+  <div id="tag-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="tagsScreen.editTitle">Tag</span>
+        <button type="button" id="tag-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <label for="tag-modal-name" data-i18n="categories.name">Name</label>
+      <input type="text" id="tag-modal-name" maxlength="40">
+      <p class="hint" id="tag-modal-count"></p>
+      <p class="hint error-text" id="tag-modal-error"></p>
+      <button type="button" class="primary" id="tag-modal-save" data-i18n="common.save">Save</button>
+      <button type="button" class="delete-entry-btn" id="tag-modal-delete" data-i18n="tagsScreen.delete">Delete tag</button>
     </div>
   </div>
 
