@@ -17737,12 +17737,23 @@ function renderTripsList_(trips) {
   groups.active.sort((a, b) => a.end_date.localeCompare(b.end_date));
   groups.upcoming.sort((a, b) => a.start_date.localeCompare(b.start_date));
   groups.past.sort((a, b) => b.end_date.localeCompare(a.end_date));
+  let lastYear = "";
   ["active", "upcoming", "past"].forEach((g) => groups[g].forEach((t, i) => {
     if (i === 0) {
       const head = document.createElement("h3");
       head.className = "accounts-group-title";
       head.textContent = tr(`trips.group.${g}`);
       list.appendChild(head);
+      lastYear = "";
+    }
+    // Upcoming and Past are split by the year each trip starts in, with a small line (owner, 2026-11-14). Not a heading: a label.
+    const year = String(t.start_date || "").slice(0, 4);
+    if (g !== "active" && year && year !== lastYear) {
+      const y = document.createElement("p");
+      y.className = "trips-year-label";
+      y.textContent = year;
+      list.appendChild(y);
+      lastYear = year;
     }
     const row = document.createElement("div");
     row.className = "recurring-row" + (tripsEditing_ ? " friends-check-row" : "");

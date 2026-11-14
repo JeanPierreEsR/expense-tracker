@@ -3981,3 +3981,7 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .annualcu-status.ok { margin: 0; color: var(--income-dark); font-weight: 600; flex: 1; min-width: 0; }
 .annualcu-busy { opacity: 0.7; }
 .annualcu-done .tidy-group-row { align-items: center; }
+
+/* Trips & events: the year a run of trips starts in, inside Upcoming and Past (owner, 2026-11-14). */
+.trips-year-label { margin: 12px 0 2px; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
+.accounts-group-title + .trips-year-label { margin-top: 2px; }
