@@ -14,7 +14,7 @@ const STRINGS = require(path.join(DOCS, "strings.js"));
 
 const scene = scenes.slice(scenes.indexOf("SCENES.mydata = {"), scenes.indexOf("// ---- The big picture, as a flow chart"));
 const hub = html.slice(html.indexOf('id="screen-my-data"'), html.indexOf('id="screen-my-profile"'));
-test("the My data scene copies the live hub and the finger visits only the rows on show", () => {
+test("the My data scene copies the live hub and lights only the rows on show", () => {
   assert.match(scene, /document\.querySelector\("#screen-my-data \.card"\)/);
   assert.match(scene, /\.md-row:not\(\[hidden\]\)/, "a hidden row (Recently deleted on a copy that cannot restore) is never visited");
   for (const head of ["md.title", "md.bringIn", "md.tidyHead", "md.takeOut", "md.bank", "md.import", "md.tidy", "md.deleted", "md.export"]) {
@@ -24,28 +24,12 @@ test("the My data scene copies the live hub and the finger visits only the rows 
   assert.ok(hub.includes('class="card"'), "the hub is one card the scene can copy");
 });
 
-test("the card mentions Recently deleted only where the app shows it", () => {
-  assert.match(app, /entriesRestore\) body \+= tr\("tour\.mydata\.deleted"\)/);
-});
-
-test("the My data card follows the Bank statements card in the Advanced list and its texts exist in both languages", () => {
-  assert.match(app, /cards\.push\("statements"\);\s*cards\.push\("mydata"\)/);
-  for (const k of ["title", "body", "deleted", "export", "pIntro", "pExport"]) {
-    const t = STRINGS["tour.mydata." + k];
-    assert.ok(t && t.en && t.es, "tour.mydata." + k);
-  }
-});
-
-test("the card's texts name today's rows and the way back to the practices", () => {
-  const all = (lang) => ["body", "deleted", "export", "pIntro", "pExport"].map((k) => STRINGS["tour.mydata." + k][lang]).join("");
-  assert.match(all("en"), /More → My data/);
-  assert.match(all("es"), /Más → Mis datos/);
-  assert.match(all("en"), /More → How to use the app → Practice tips/);
-  assert.match(all("es"), /Más → Cómo usar la app → Prácticas/);
-  // the row names the card quotes are the hub's own
-  for (const [lang, rows] of [["en", ["Bank statements", "Import from another app", "Tidy my history", "Recently deleted", "Export my data"]], ["es", ["Estados de cuenta", "Importar de otra app", "Ordenar mi historial", "Eliminados recientemente", "Exportar mis datos"]]]) {
-    for (const r of rows) assert.ok(all(lang).includes(r), `${lang}: the card never names “${r}”`);
-  }
+test("the My data card is last in the Advanced list and says only what the hub holds (shorter cards, owner 2026-11-14)", () => {
+  assert.match(app, /cards\.push\("mydata"\);/);
+  assert.ok(!/"statements"\s*[,\]]/.test(app.slice(app.indexOf("function tourCards_("), app.indexOf("function openTour_("))), "no separate statements card");
+  const t = STRINGS["tour.mydata.body"];
+  assert.match(t.en, /More → My data/); assert.match(t.es, /Más → Mis datos/);
+  for (const k of ["deleted", "export", "pIntro", "pExport", "pDeleted", "pImport", "pBank"]) assert.ok(!STRINGS["tour.mydata." + k], "tour.mydata." + k + " is gone");
 });
 
 test("the Export walkthrough: no yellow card, offered by the idle bubble, texts in both languages", () => {
@@ -82,7 +66,6 @@ test("the Tidy practice is gone (owner, 2026-11-12: the real tutorial teaches it
   assert.match(app, /async function practiceYRemove_\(\)/);
   assert.match(app, /async function practiceYLeftover_\(\)/);
   assert.ok(STRINGS["spot.y.leftover"] && STRINGS["spot.y.removed"] && STRINGS["spot.y.removeFailed"]);
-  assert.match(app, /tr\("tour\.mydata\.export"\) \+ tr\("tour\.mydata\.pIntro"\);[\s\S]{0,200}tr\("tour\.mydata\.pDeleted"\);[\s\S]{0,120}tr\("tour\.mydata\.pImport"\);[\s\S]{0,120}tr\("tour\.mydata\.pBank"\);\s*body \+= tr\("tour\.mydata\.pExport"\)/);
 });
 
 test("the Recently deleted practice: invitation box, offered after the list loads, flag-gated, texts in both languages, one cleanup call", () => {
@@ -114,12 +97,6 @@ test("the Recently deleted practice: invitation box, offered after the list load
   assert.match(practice, /practiceDIds_\(\)/);
 });
 
-test("the Recently deleted tour line names the screen, only where the screen exists", () => {
-  assert.match(STRINGS["tour.mydata.pDeleted"].en, /Recently deleted/);
-  assert.match(STRINGS["tour.mydata.pDeleted"].es, /Eliminados recientemente/);
-  assert.match(app, /cp\.entriesRestore && cp\.practiceDeleted && cp\.entriesBulk\) body \+= tr\("tour\.mydata\.pDeleted"\)/);
-});
-
 test("the Import practice: invitation box in Import mode, offered when the screen opens, flag-gated, texts in both languages, one cleanup call", () => {
   const stm = fs.readFileSync(path.join(__dirname, "../../docs/statements.js"), "utf8");
   assert.ok(html.includes('id="import-tip-invite"'));
@@ -145,12 +122,6 @@ test("the Import practice: invitation box in Import mode, offered when the scree
   assert.match(stm, /handleStatementFiles\(\[new File\(\[f\.text\], f\.name/);
 });
 
-test("the Import tour line names the screen and only shows where the cleanup exists", () => {
-  assert.match(STRINGS["tour.mydata.pImport"].en, /Import from another app/);
-  assert.match(STRINGS["tour.mydata.pImport"].es, /Importar de otra app/);
-  assert.match(app, /if \(cp\.practiceImport\) body \+= tr\("tour\.mydata\.pImport"\)/);
-});
-
 test("the Bank statements practice: invitation box in Bank mode, offered after the screen has loaded, flag-gated, texts in both languages, one cleanup call, account made by one call", () => {
   const stm = fs.readFileSync(path.join(__dirname, "../../docs/statements.js"), "utf8");
   assert.match(html, /class="card tip-invite stmt-bank-only" id="bank-tip-invite"/, "shown in Bank mode only");
@@ -172,12 +143,6 @@ test("the Bank statements practice: invitation box in Bank mode, offered after t
   assert.match(stm, /account: !!p\.accountMade/);
   assert.match(stm, /isPracticeAccountName_\(pm\.nickname\)\)\) \{ showToast_\(tr\("spot\.s\.accountExists"\)\)/);
   assert.match(stm, /if \(res\.existed\) \{ practiceI_\.accountMade = false;/);
-});
-
-test("the Bank statements tour line names the screen and only shows where the cleanup exists", () => {
-  assert.match(STRINGS["tour.mydata.pBank"].en, /Bank statements/);
-  assert.match(STRINGS["tour.mydata.pBank"].es, /Estados de cuenta/);
-  assert.match(app, /if \(cp\.practiceBank\) body \+= tr\("tour\.mydata\.pBank"\)/);
 });
 
 test("statements.js never replaces a global that app.js already defines (the Import hook once overwrote the Investments leftover prompt)", () => {

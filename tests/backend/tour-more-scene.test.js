@@ -12,7 +12,7 @@ const html = fs.readFileSync(path.join(DOCS, "index.html"), "utf8");
 const app = fs.readFileSync(path.join(DOCS, "app.js"), "utf8");
 const STRINGS = require(path.join(DOCS, "strings.js"));
 
-const scene = scenes.slice(scenes.indexOf("SCENES.more = {"), scenes.indexOf("SCENES.statements = {"));
+const scene = scenes.slice(scenes.indexOf("SCENES.more = {"), scenes.indexOf("SCENES.mydata = {"));
 
 // Since 2026-11-13 the scene COPIES the person's live More tab (its rows, groups, icons and words) instead of drawing its own list: it
 // can no longer ask for removed rows or draw owner-only rows on a friend's copy. These checks keep it that way.
@@ -24,16 +24,15 @@ test("the More scene copies the live More tab, only its cards on show", () => {
 });
 
 test("a copy is only a picture: no ids, translation hooks or screen names of its own", () => {
-  const strip = scenes.slice(scenes.indexOf("function strip(el)"), scenes.indexOf("function copyOf("));
+  const strip = scenes.slice(scenes.indexOf("function strip(el)"), scenes.indexOf("function device("));
   for (const a of ["id", "data-i18n", "data-screen"]) assert.ok(strip.includes(`"${a}"`), a);
 });
 
-test("the More card's texts name today's things, and friends' copies get the Feedback & privacy sentence", () => {
+test("the More card's text names today's things", () => {
   assert.ok(!/exchange rates|tipos de cambio/.test(STRINGS["tour.more.body"].en + STRINGS["tour.more.body"].es));
   assert.match(STRINGS["tour.more.body"].en, /currencies/);
   assert.match(STRINGS["tour.more.body"].es, /monedas/);
   assert.match(STRINGS["tour.more.body"].en, /your profile/);
-  assert.match(app, /key === "more" && !perfIsOwnerCopy_\(\)\) body \+= tr\("tour\.more\.feedback"\)/);
   assert.match(STRINGS["wf.intro"].en, /More → My profile/);
   assert.match(STRINGS["wf.intro"].es, /Más → Mi perfil/);
 });

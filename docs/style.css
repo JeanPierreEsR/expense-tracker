@@ -2662,8 +2662,9 @@ html:has(#welcome-overlay:not([hidden])), html:has(#welcome-overlay:not([hidden]
 .welcome-currencies .welcome-choice.main { border-color: var(--warn); background: rgba(216, 155, 0, 0.14); font-weight: 700; }
 
 /* Tour pictures (tour-scenes.js, owner 2026-11-13): each picture IS the app, drawn with its own classes at its real size (390 px) and
-   shrunk to fit the card, so a change to the app's look reaches the pictures by itself. Only the frame, the shrinking, the finger, the
-   sheets' motion and what a picture adds (a lit row, a pressed button, a typing box) are styled here. Nothing inside can be tapped. */
+   shrunk to fit the card, so a change to the app's look reaches the pictures by itself. Each picture shows only the RESULT of a feature
+   (owner 2026-11-14). Only the frame, the shrinking, the sheets and what a picture adds (a lit row, a new row arriving) are styled here.
+   Nothing inside can be tapped. */
 .ts-stage { position: relative; margin: 16px auto 0; max-width: 320px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .ts-device { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: var(--r-xl); background: var(--bg); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08); }
 .ts-app { position: absolute; top: 0; left: 0; width: 390px; display: flex; flex-direction: column; background: var(--bg); color: var(--text); transform-origin: 0 0; overflow: hidden; pointer-events: none; user-select: none; -webkit-user-select: none; }
@@ -2686,64 +2687,23 @@ html:has(#welcome-overlay:not([hidden])), html:has(#welcome-overlay:not([hidden]
 .ts-sheet-body { transition: transform .8s ease; }
 .ts-sheet-foot { flex: none; padding-top: 8px; }
 .ts-sheet-foot button.primary { margin: 0; }
-/* what a picture adds: a box being typed in (the app's focused look), a pressed button, a lit row, a new row arriving */
-.ts-field.focus input, .ts-field.focus select { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-.ts-pressed { transform: scale(0.96); opacity: 0.85; transition: transform .15s, opacity .15s; }
+/* what a picture adds: a lit row, a new row arriving */
 .ts-lit, .ts-now { background: rgba(0, 113, 227, 0.12); border-radius: var(--r-sm); transition: background .3s; }
 .ts-enter { animation: ts-enter .5s ease both; background: rgba(46, 158, 91, 0.12); }
 @keyframes ts-enter { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
 .ts-pop { animation: ts-pop .5s ease both; }
 @keyframes ts-pop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
-.ts-off { opacity: 0.45; }
 .ts-ok { color: var(--income-dark); font-weight: 600; }
-.ts-bad { color: var(--danger); font-weight: 600; }
-.ts-dim { opacity: 0.35; transition: opacity .4s; }
 .ts-big { font-size: 1.75rem; font-weight: 700; margin: 6px 0 0; }
 .ts-phases { display: flex; gap: 8px; margin: 12px 0 4px; }
 .ts-phase { flex: 1; border: 1px solid var(--border); border-radius: var(--r-md); padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; }
-/* the finger */
-.ts-finger { position: absolute; top: 0; left: 0; width: 24px; height: 24px; pointer-events: none; opacity: 0; transition: transform .6s ease, opacity .3s; z-index: 4; }
-.ts-finger-dot { width: 24px; height: 24px; border-radius: 50%; background: rgba(40, 40, 40, 0.35); border: 2px solid rgba(255, 255, 255, 0.9); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3); position: relative; }
-.ts-finger.ts-tap .ts-finger-dot::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid var(--accent); animation: ts-ring .45s ease-out; }
-@keyframes ts-ring { from { transform: scale(0.8); opacity: 1; } to { transform: scale(2.2); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .ts-stage * { transition: none !important; animation: none !important; } }
-/* step-by-step pictures: the numbered explanations under the picture and the Next step button */
-.ts-captions { list-style: none; margin: 6px 0 0; padding: 0; font-size: 0.75rem; line-height: 1.35; }
-.ts-captions li { display: none; gap: 8px; align-items: flex-start; padding: 5px 4px; border-radius: var(--r-sm); opacity: 0.6; }
-.ts-captions li.show { display: flex; }
-.ts-captions li.now { opacity: 1; background: rgba(0, 113, 227, 0.1); animation: ts-pop .5s ease both; }
-.ts-stepnum { flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--white); font-weight: 700; font-size: 0.6875rem; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
-.ts-stepper { display: flex; justify-content: center; margin-top: 12px; scroll-margin-bottom: 16px; }
-.ts-step-btn { min-height: 44px; padding: 11px 26px; border: none; border-radius: var(--r-md); background: var(--accent); color: var(--white); font: inherit; font-weight: 700; cursor: pointer; }
-.ts-step-btn:disabled { opacity: 0.45; cursor: default; }
-/* Projections: the category's chart and its sums */
-.ts-pchart { width: 100%; height: 90px; display: block; margin: 4px 0; }
-.ts-pl-actual { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; }
-.ts-pl-proj { fill: none; stroke: var(--muted); stroke-width: 2; stroke-dasharray: 5 4; }
-.ts-drow { display: flex; justify-content: space-between; gap: 8px; font-size: 0.875rem; padding: 8px 6px; border-top: 1px solid var(--border); border-radius: var(--r-sm); }
-.ts-drow.edit { margin-top: 6px; border: 1px dashed var(--border); background: var(--bg); font-weight: 600; }
-.ts-trace { font-size: 0.8125rem; color: var(--muted); line-height: 1.35; padding: 2px 6px 6px; display: flex; flex-direction: column; gap: 4px; }
-.ts-trace[hidden] { display: none; }
 /* the bill split: its dishes and who pays what */
 .ts-bill-item:not([hidden]) { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; margin-top: 8px; }
 .ts-bill-line { display: flex; justify-content: space-between; }
 .ts-bill-price { border-radius: var(--r-xs); padding: 0 4px; font-weight: 600; }
-.ts-bill-price.focus { box-shadow: 0 0 0 2px var(--accent); }
-.ts-bill-adj { display: flex; gap: 16px; }
 .ts-bill-res { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .ts-bill-resrow { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
-/* Bank statements: the reading result, the summary's groups, the save bar */
-.ts-stmt-result { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
-.ts-stmt-card { border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px; }
-.ts-stmt-card .hint { margin: 2px 0; }
-.ts-sg { border-top: 1px solid var(--border); padding: 4px 0 8px; transition: opacity .4s; }
-.ts-sl { padding: 6px 0; border-bottom: 1px solid var(--border); }
-.ts-sline { display: grid; grid-template-columns: 56px 1fr auto; gap: 8px; font-size: 0.875rem; }
-.ts-kv { display: flex; justify-content: space-between; gap: 8px; font-size: 0.875rem; padding: 2px 0; }
-.ts-kv span:first-child { color: var(--muted); }
-.ts-stmt-bar { position: absolute; left: 0; right: 0; bottom: 69px; z-index: 2; background: var(--card); border-top: 1px solid var(--border); padding: 8px 16px 10px; }
-.ts-stmt-bar[hidden] { display: none; }
-.ts-stmt-bar .hint { margin: 0 0 6px; }
 /* Bank emails: the e-mail, an arrow, then Needs review */
 .ts-mail { display: flex; align-items: center; gap: 10px; }
 .ts-mail-who { flex: 1; min-width: 0; }
@@ -2765,15 +2725,11 @@ html:has(#welcome-overlay:not([hidden])), html:has(#welcome-overlay:not([hidden]
 .ts-col.left { transform: translateX(-86px); }
 .ts-fl { opacity: 0; transition: opacity .5s; }
 .ts-fl.on { opacity: 1; }
-.ts-fl.on.past { opacity: 0.4; }
 .ts-fl-line { stroke-width: 3; stroke-dasharray: 6 5; fill: none; }
 .ts-fl-line.run { animation: ts-dash .45s linear infinite; }
 @keyframes ts-dash { to { stroke-dashoffset: -11; } }
 .ts-blink { animation: ts-blink .9s ease; }
 @keyframes ts-blink { 0% { opacity: 0.15; } 100% { opacity: 1; } }
-.ts-stepdot circle { fill: var(--accent); stroke: var(--white); stroke-width: 2; }
-.ts-stepdot text { fill: var(--white); font-size: 11px; font-weight: 700; }
-/* The green "+" of Home, as the tour draws it (the finger taps it to open the new-entry sheet). */
 
 .welcome-items { margin: 8px 0 0; padding-left: 20px; font-size: 1em; line-height: 1.45; }
 .welcome-items li { margin: 3px 0; }

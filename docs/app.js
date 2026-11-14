@@ -13722,21 +13722,14 @@ let tour_ = null;
 function tourCards_(part) {
   if (part === "pro") {
     const caps = (meta && meta.capabilities) || {};
-    const cards = ["invest", "loan", "repay", "bill", "programmed", "trips", "projections"];
+    const cards = ["invest", "friends", "bill", "programmed", "trips", "projections"];
     if (caps.bankEmails) cards.push("bank");
-    cards.push("statements");
-    cards.push("mydata");   // one card for the whole My data hub; it gains a line for each screen that has a practice
+    cards.push("mydata");   // one card for the whole My data hub (bank statements included)
     return cards;
   }
   return ["flow", "add", "transfer", "overview", "budgets", "more"];
 }
-// The entry form's fields, explained under the first card: [the app's own field label, what it is for].
-const TOUR_ITEMS = {
-  add: [["field.amount", "tour.f.amount"], ["field.date", "tour.f.date"], ["field.currency", "tour.f.currency"], ["field.description", "tour.f.description"],
-    ["field.paidBy", "tour.f.paidBy"], ["field.paymentMethod", "tour.f.paymentMethod"], ["split.toggle", "tour.f.split"], ["field.tags", "tour.f.tags"]]
-};
-// The tour is a row of cards the person swipes through sideways (scroll-snap); there is no Next button, so "Next step" inside the
-// step-by-step card cannot be confused with it. Each card scrolls up and down on its own (so the next card always appears at its top),
+// The tour is a row of cards the person swipes through sideways (scroll-snap); there is no Next button. Each card scrolls up and down on its own (so the next card always appears at its top),
 // the dots stay fixed at the bottom (tap one to jump; press and hold them and slide your finger along them to scrub through the cards),
 // the last card has the Done button, and only the card on screen plays its animation.
 function openTour_(reloadAfter, part) {
@@ -13753,40 +13746,11 @@ function buildTourSlide_(key, n, total) {
   const add = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; slide.appendChild(e); return e; };
   add("p", "hint", tourStepLabel_(n, total));
   add("h2", "", tr(`tour.${key}.title`));
-  let body = tr(`tour.${key}.body`);
-  if (key === "more" && !perfIsOwnerCopy_()) body += tr("tour.more.feedback");   // friends' copies only: the owner's has no Feedback & privacy row
-  if (key === "more" && extrasOff_().length) body += tr("tour.more.extras");
-  if (key === "statements" && !perfIsOwnerCopy_()) body += tr("tour.statements.bankHelp");   // the owner's own banks are already built in
-  if (key === "mydata") {
-    if (((meta && meta.capabilities) || {}).entriesRestore) body += tr("tour.mydata.deleted");   // the row exists only where the backend can restore
-    body += tr("tour.mydata.export") + tr("tour.mydata.pIntro");
-    const cp = (meta && meta.capabilities) || {};
-    if (cp.entriesRestore && cp.practiceDeleted && cp.entriesBulk) body += tr("tour.mydata.pDeleted");
-    if (cp.practiceImport) body += tr("tour.mydata.pImport");
-    if (cp.practiceBank) body += tr("tour.mydata.pBank");
-    body += tr("tour.mydata.pExport");
-  }
-  // Only a short lead (the first sentence or two, a couple of lines) goes above the animation; the rest of the explanation sits below it.
-  let lead = "";
-  while (body && lead.length < 60) {
-    const m = body.match(/^.*?[.!?](\s+|$)/);
-    if (!m) { lead += body; body = ""; break; }
-    lead += m[0]; body = body.slice(m[0].length);
-  }
-  add("p", "welcome-body", lead.trim());
+  // Cards only say that a feature exists and where it lives (owner, 2026-11-14): one or two short sentences above the picture.
+  // How to use it is taught by the real tutorials, practices and bubbles.
+  add("p", "welcome-body", tr(`tour.${key}.body`));
   const stage = add("div", "ts-stage");
   stage.hidden = true; stage.setAttribute("role", "img"); stage.setAttribute("aria-hidden", "true");
-  if (body.trim()) add("p", "welcome-body tour-more-text", body.trim());
-  const items = TOUR_ITEMS[key] || [];
-  if (items.length) {
-    const ul = add("ul", "welcome-items");
-    items.forEach(([label, what]) => {
-      const li = document.createElement("li");
-      const b = document.createElement("b"); b.textContent = tr(label);
-      li.appendChild(b); li.appendChild(document.createTextNode(": " + tr(what)));
-      ul.appendChild(li);
-    });
-  }
   if (n === total - 1) {
     const done = add("button", "primary tour-done-btn", tr(tour_.part === "pro" ? "tour.doneShort" : "tour.done"));
     done.type = "button";
@@ -24511,7 +24475,7 @@ function guidedEntrySteps_() {
       available: () => is("expense")() || is("income")(), before: async () => (is("expense")() || is("income")()) && shownNow("paid_by") },
     { target: "#to-payment-method-field", text: () => tr("spot.g.accTo"), visit: "#to_payment_method", button: next,
       available: is("transfer"), before: async () => is("transfer")() && shownNow("to-payment-method-field") },
-    { target: "#income-waiting-field", text: () => tr("rt.entry.waiting"), button: next, available: is("income"), before: async () => is("income")() && shownNow("income-waiting-field") },
+    { target: "#income-waiting-field", text: () => tr("rt.entry.waiting", { date: listDate_(document.getElementById("date").value) }), button: next, available: is("income"), before: async () => is("income")() && shownNow("income-waiting-field") },
     { field: "receipt", target: "#receipt-read-field", text: () => tr("rt.entry.receipt"), button: next, available: is("expense"), before: async () => is("expense")() && shownNow("receipt-read-field") },
     { key: "platform", target: "#to-payment-method-field", text: () => tr("spot.g.platform"), visit: "#to_payment_method",
       ok: () => !is("investment")() || !!document.getElementById("to_payment_method").value, holdsUntil: "save",
