@@ -18320,6 +18320,22 @@ document.getElementById("trip-find-btn").addEventListener("click", () => {
   loadTripFinder_(false);
 });
 
+// A trip just made: its screen, with the finder open. A trip still to come has nothing inside its dates yet, so it lists the 12 months
+// before (unticked, as always for those): a flight or a booking paid in advance.
+// Only while the person is still on the Trips list with nothing open over it: someone who already moved on is not pulled back.
+async function openNewTripFinder_(trip) {
+  for (let i = 0; i < 600 && Spotlight.isRunning(); i++) await sleep(500);   // (a tutorial still on screen: up to 5 minutes)
+  if (Spotlight.isRunning() || document.getElementById("screen-trips").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])")) return;
+  await showTripDetail_(trip.id);
+  if (tripDetailId_ !== trip.id) return;
+  const box = document.getElementById("trip-find-box");
+  box.hidden = false;
+  await loadTripFinder_(String(trip.start_date || "") > todayLocalISO());
+  // The finder sits under the totals: on a small phone it would start below the screen's edge.
+  const top = document.getElementById("trip-find-btn").getBoundingClientRect().top;
+  if (tripDetailId_ === trip.id && top > innerHeight * 0.45) window.scrollBy({ top: top - innerHeight * 0.2, behavior: "smooth" });
+}
+
 // lookBack: also include the 12 months before the trip starts (offered by a button inside the box).
 async function loadTripFinder_(lookBack) {
   const id = tripDetailId_;
@@ -18463,10 +18479,15 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
       });
       return;
     }
+    const send = practiceTTrack_(() => tripId ? callApi("updateTrip", withThen_(Object.assign({ id: tripId }, fields), [["listTrips", {}]])) : callApi("addTrip", withThen_(fields, [["listTrips", {}]])), fields);
+    let made = null;
     saveBehindScreen_(
-      practiceTTrack_(() => tripId ? callApi("updateTrip", withThen_(Object.assign({ id: tripId }, fields), [["listTrips", {}]])) : callApi("addTrip", withThen_(fields, [["listTrips", {}]])), fields),
+      async () => { const r = await send(); if (!tripId) made = r; },
       async () => {
         await refreshTripsList_();
+        // A NEW trip opens its own screen with "Find expenses in these dates" already open, so its expenses can be linked right away
+        // (owner, 2026-11-14). Not after an edit, never for the Trips practice; a first trip's real tutorial ends first (it shows the new row).
+        if (made && made.id && !isPracticeTripName_(made.name)) { openNewTripFinder_(made); return; }
         if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
         // "In my budgets" changes the budgets: a trip saved from the Budgets tab (its bubble) shows the new figures at once.
         if (!document.getElementById("screen-budgets").hidden) refreshBudgetsInBackground_();
