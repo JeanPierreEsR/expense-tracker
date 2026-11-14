@@ -26702,6 +26702,8 @@ function practiceRSteps_() {
         if (!expectedOpen_) setExpectedOpen_(true);   // (only if the row was closed again by hand after the step above)
       },
       poke: () => { if (practiceRFailed_) { Spotlight.stop("skipped"); return; } refreshExpectedRecurring().catch(() => {}); } },
+    // A look at the whole item first, so the person knows how a programmed item shows on Home (owner, 2026-11-14).
+    { look: true, target: practiceRCardEntry_, text: () => tr("spot.r.s8c"), button: () => tr("spot.p.gotIt"), wait: 15000 },
     { target: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; }, text: () => tr("spot.r.s9"), wait: 15000,
       tap: () => { const e = practiceRCardEntry_(); return e ? e.querySelector('button[data-act="paid"]') : null; } },
     { target: () => (document.querySelector("#paid-picker-list .stmt-loading") ? null : document.getElementById("paid-new-save")), text: () => tr("spot.r.s11"), tap: "#paid-new-save", wait: 30000 },   // (once the sheet's list has loaded)
