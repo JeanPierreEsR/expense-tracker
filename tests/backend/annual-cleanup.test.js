@@ -81,3 +81,21 @@ test("a friend's copy never gets it", () => {
   assert.equal(rt.api("listAnnualCleanup", {}).available, false);
   assert.throws(() => rt.api("finishAnnualCleanup", {}), /already tidied/);
 });
+
+test("found by name when it has no key, sub-categories included; undo puts each expense back where it was", () => {
+  const { rt } = freshApp({ small: true });
+  rt.run(`appendRowObject('Categories', { id: 'cat-ab2', key: '', name: 'Annual Budget', type: 'expense', icon: '', color: '#ccc', parent_id: '' });`);
+  rt.run(`appendRowObject('Categories', { id: 'cat-ab2-trips', key: '', name: 'Trips', type: 'expense', icon: '', color: '#ccc', parent_id: 'cat-ab2' });`);
+  rt.run(`appendRowObject('Categories', { id: 'cat-food', name: 'Food test', type: 'expense', icon: '', color: '#ccc', parent_id: '' });`);
+  const a = add(rt, "Flight", 900, "cat-ab2-trips");
+  const b = add(rt, "Flight", 700, "cat-ab2");
+  const r = rt.api("listAnnualCleanup", {});
+  assert.equal(r.available, true);
+  assert.equal(r.total, 2);
+  assert.ok(r.categoryIds.includes("cat-ab2-trips"));
+  const res = rt.api("applyAnnualCleanup", { items: [{ key: r.groups[0].key, categoryId: "cat-food" }] });
+  assert.equal(res.count, 2);
+  rt.api("undoAnnualCleanup", res);
+  assert.equal(cat(rt, a), "cat-ab2-trips");
+  assert.equal(cat(rt, b), "cat-ab2");
+});
