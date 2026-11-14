@@ -687,7 +687,10 @@ const ONCE_ACTIONS = new Set([
   "exportData",
   "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
   "applyTidyGroups",   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
-  "applyAnnualCleanup", "finishAnnualCleanup"   // the owner's move out of the old "Annual budget" category (AnnualCleanup.gs)
+  "applyAnnualCleanup", "finishAnnualCleanup",   // the owner's move out of the old "Annual budget" category (AnnualCleanup.gs)
+  // Everything else that creates something (owner, 2026-11-14: a trip saved while the phone was locked was made three times)
+  "addTrip", "addBudget", "addPaymentMethod", "savePaymentMethod", "addTag", "addBank", "addPayor", "saveCategory",
+  "saveBankLoan", "recordEarlyPayment", "recordInstallment", "recordRecurringPayment", "recordRepaymentEntry", "createStatementAccounts"
 ]);
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
@@ -751,7 +754,15 @@ function preloadReads_(calls, ttl) {
     }).catch(() => { /* the screen asks again by itself */ });
   });
 }
+// A save behind the screen keeps ONE request id per call across its "Try again"s (saveBehindScreen_ sets this while its work starts):
+// the server then answers a repeat with the first one's result instead of doing it again (owner, 2026-11-14: a trip made three times).
+let saveRetryCtx_ = null;
 async function callApi(action, payload, attempt = 1, startedAt = performance.now()) {
+  if (attempt === 1 && saveRetryCtx_ && ONCE_ACTIONS.has(action) && !(payload && payload._requestId)) {
+    const ctx = saveRetryCtx_, i = ctx.seq++;
+    if (!ctx.ids[i]) ctx.ids[i] = newRequestId_();
+    payload = { ...(payload || {}), _requestId: ctx.ids[i] };
+  }
   if (attempt > 1 || API_NEUTRAL_.has(action)) return callApiCounted_(action, payload, attempt, startedAt);
   if (API_READ_RE_.test(action)) {
     const key = apiReadKey_(action, payload);
@@ -1413,6 +1424,8 @@ function sortedCategories_(list) {
 // A hidden category (More → Categories) is left out of every "pick a category" list, but one
 // already chosen on the record being edited (`keep`: an id, or a Set of ids) stays listed.
 function catHidden_(c) { return String(c.hidden || "") === "yes"; }
+// A category as every category list shows it: its emoji, then its name (owner, 2026-11-14: Tidy my history showed names only).
+function catOptionText_(c) { return `${c.icon ? c.icon + " " : ""}${c.name}`; }
 function pickableCategories_(list, keep) {
   const kept = (c) => (keep instanceof Set ? keep.has(c.id) : keep != null && keep === c.id);
   return list.filter((c) => !catHidden_(c) || kept(c));
@@ -1434,7 +1447,7 @@ function populateCategoryOptions() {
     .forEach((c) => {
       const opt = document.createElement("option");
       opt.value = c.id;
-      opt.textContent = c.name;
+      opt.textContent = catOptionText_(c);
       select.appendChild(opt);
     });
 }
@@ -7196,7 +7209,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     item.dataset.entryId = entry.id;
 
     const categoryOptions = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === entry.type), entry.category_id))
-      .map((c) => `<option value="${c.id}" ${c.id === entry.category_id ? "selected" : ""}>${escapeHtml(c.name)}</option>`)
+      .map((c) => `<option value="${c.id}" ${c.id === entry.category_id ? "selected" : ""}>${escapeHtml(catOptionText_(c))}</option>`)
       .join("");
 
     item.innerHTML = `
@@ -7997,10 +8010,15 @@ function saveBehindScreen_(work, after, opts) {
   showToast_(shownText, true);
   (async () => {
     let ok = true;
+    const retry = { ids: [], seq: 0 };   // the request ids of this save, kept for its retries (see saveRetryCtx_)
     for (;;) {
       try {
         ok = true;
-        await work();
+        retry.seq = 0;
+        saveRetryCtx_ = retry;
+        let started;
+        try { started = work(); } finally { saveRetryCtx_ = null; }   // (only the calls the work starts right away share the ids)
+        await started;
         break;
       } catch (err) {
         ok = false;
@@ -15197,7 +15215,7 @@ function tidyCategoryOptions_(selectedId, leaveOut) {
   const out = new Set([].concat(leaveOut || []));
   return `<option value="">${escapeHtml(tr("tidy.pick"))}</option>` +
     sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" && !out.has(c.id)), selectedId))
-      .map((c) => `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
+      .map((c) => `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? " selected" : ""}>${escapeHtml(catOptionText_(c))}</option>`).join("");
 }
 
 // An entry's amount in Tidy my history, with the app-wide sign rule (money out "−", money in a green "+"; owner, 2026-11-12).
@@ -18320,6 +18338,22 @@ document.getElementById("trip-find-btn").addEventListener("click", () => {
   loadTripFinder_(false);
 });
 
+// A trip just made: its screen, with the finder open. A trip still to come has nothing inside its dates yet, so it lists the 12 months
+// before (unticked, as always for those): a flight or a booking paid in advance.
+// Only while the person is still on the Trips list with nothing open over it: someone who already moved on is not pulled back.
+async function openNewTripFinder_(trip) {
+  for (let i = 0; i < 600 && Spotlight.isRunning(); i++) await sleep(500);   // (a tutorial still on screen: up to 5 minutes)
+  if (Spotlight.isRunning() || document.getElementById("screen-trips").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])")) return;
+  await showTripDetail_(trip.id);
+  if (tripDetailId_ !== trip.id) return;
+  const box = document.getElementById("trip-find-box");
+  box.hidden = false;
+  await loadTripFinder_(String(trip.start_date || "") > todayLocalISO());
+  // The finder sits under the totals: on a small phone it would start below the screen's edge.
+  const top = document.getElementById("trip-find-btn").getBoundingClientRect().top;
+  if (tripDetailId_ === trip.id && top > innerHeight * 0.45) window.scrollBy({ top: top - innerHeight * 0.2, behavior: "smooth" });
+}
+
 // lookBack: also include the 12 months before the trip starts (offered by a button inside the box).
 async function loadTripFinder_(lookBack) {
   const id = tripDetailId_;
@@ -18463,10 +18497,15 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
       });
       return;
     }
+    const send = practiceTTrack_(() => tripId ? callApi("updateTrip", withThen_(Object.assign({ id: tripId }, fields), [["listTrips", {}]])) : callApi("addTrip", withThen_(fields, [["listTrips", {}]])), fields);
+    let made = null;
     saveBehindScreen_(
-      practiceTTrack_(() => tripId ? callApi("updateTrip", withThen_(Object.assign({ id: tripId }, fields), [["listTrips", {}]])) : callApi("addTrip", withThen_(fields, [["listTrips", {}]])), fields),
+      async () => { const r = await send(); if (!tripId) made = r; },
       async () => {
         await refreshTripsList_();
+        // A NEW trip opens its own screen with "Find expenses in these dates" already open, so its expenses can be linked right away
+        // (owner, 2026-11-14). Not after an edit, never for the Trips practice; a first trip's real tutorial ends first (it shows the new row).
+        if (made && made.id && !isPracticeTripName_(made.name)) { openNewTripFinder_(made); return; }
         if (!document.getElementById("screen-trip-detail").hidden) await refreshTripDetail_();
         // "In my budgets" changes the budgets: a trip saved from the Budgets tab (its bubble) shows the new figures at once.
         if (!document.getElementById("screen-budgets").hidden) refreshBudgetsInBackground_();
