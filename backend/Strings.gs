@@ -124,6 +124,7 @@ var BACKEND_STRINGS_ = {
   "trip.notFound": { en: "Trip or event not found", es: "No se encontró el viaje o evento" },
   "trip.errDates": { en: "Enter a start date and an end date (the end date can be the same day).", es: "Ingresa una fecha de inicio y una de fin (la de fin puede ser el mismo día)." },
   "trip.errEndBeforeStart": { en: "The end date can't be before the start date.", es: "La fecha de fin no puede ser anterior a la de inicio." },
+  "trip.errInBudgets": { en: "Pick at least one budget, or choose another option under \"In my budgets\".", es: "Elige al menos un presupuesto, o escoge otra opción en \"En mis presupuestos\"." },
   "trip.errBudget": { en: "The budget must be a number greater than 0 (or leave it blank).", es: "El presupuesto debe ser un número mayor que 0 (o déjalo en blanco)." },
 
   // ---- loan ----

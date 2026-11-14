@@ -3935,6 +3935,8 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 .pop-tip-buttons { display: flex; justify-content: flex-end; }
 .pop-tip-ok { min-height: 44px; padding: 0 18px; border-radius: var(--r-pill); border: 1px solid var(--accent); background: var(--accent); color: var(--white); font: inherit; font-weight: 600; }
 .pop-tip-buttons { margin-bottom: 4px; }
+.pop-tip-buttons { gap: 8px; }
+.pop-tip-act { min-height: 44px; padding: 0 14px; border-radius: var(--r-pill); border: 1px solid var(--accent); background: transparent; color: var(--accent); font: inherit; font-weight: 600; }
 .pop-tip-arrow { position: absolute; width: 14px; height: 14px; background: var(--tip-bg); transform: translateX(-50%) rotate(45deg); }
 .pop-tip-arrow[hidden] { display: none; }
 .pop-tip[data-side="below"] .pop-tip-arrow { top: -7px; }

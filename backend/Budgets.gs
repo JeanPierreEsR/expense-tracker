@@ -82,6 +82,8 @@ function buildBudgetContext_(opts) {
   // Entries tagged Annual don't count against a MONTHLY budget (they do count
   // against a yearly one) — flagged here, decided per budget below.
   var annualEntryIds = annualEntryIdSet_();
+  // Trips & events whose "In my budgets" is not "as usual" (Trips.gs tripBudgetRoutes_): their expenses count only where it says.
+  var tripRoutes = tripBudgetRoutes_();
 
   var spendEntries = entries.map(function (e) {
     var entryMonth = String(e.date).substring(0, 7);
@@ -93,11 +95,13 @@ function buildBudgetContext_(opts) {
       date: e.date,
       currency: e.currency,
       ownAmount: ownAmount, // in the entry's own original currency
-      ownAmountPen: rate != null ? ownAmount * rate : null
+      ownAmountPen: rate != null ? ownAmount * rate : null,
+      trip_id: e.trip_id || '',
+      route: e.trip_id && tripRoutes[e.trip_id] ? tripRoutes[e.trip_id].route : null   // null = as usual
     };
   });
 
-  return { spendEntries: spendEntries, ratesByCurrency: ratesByCurrency, budgetHistory: budgetHistory_() };
+  return { spendEntries: spendEntries, ratesByCurrency: ratesByCurrency, budgetHistory: budgetHistory_(), tripRoutes: tripRoutes };
 }
 
 // A budget's `category_id` column holds either a single id, a
@@ -119,6 +123,63 @@ function categoryIdMatches_(categoryIds, entryCategoryId) {
 // period being shown (budgetPlan_, a monthly budget shown by year).
 function entryInBudget_(categoryIds, e) {
   return typeof categoryIds === 'function' ? categoryIds(e) : categoryIdMatches_(categoryIds, e.category_id);
+}
+
+// What a budget counts, trips included (owner, 2026-11-14): an expense of a trip set to "Leave out of my budgets" counts nowhere; one
+// set to "Count only in…" counts in the budgets picked there, whatever its category, and in no other. Everything else goes by
+// category as before. plan = the budget's plan for the range (budgetPlanForRange_); existsAt keeps a routed expense out of a
+// month (week) the budget did not exist in.
+function budgetEntryMatcher_(budgetId, plan) {
+  var base = plan.match, id = String(budgetId);
+  return function (e) {
+    if (!e.route) return entryInBudget_(base, e);
+    return e.route[id] === true && (!plan.existsAt || plan.existsAt(e));
+  };
+}
+
+// Where a Programmed item (a trip's estimate) counts: the same rule, read from its own trip.
+function recurringInBudget_(ctx, budgetId, categoryIds, r) {
+  var t = r.trip_id && ctx && ctx.tripRoutes ? ctx.tripRoutes[r.trip_id] : null;
+  if (t) return t.route[String(budgetId)] === true;
+  return categoryIdMatches_(categoryIds, r.category_id);
+}
+
+// An expense's own share in a budget's currency (null: no rate on file), the conversion every sum below uses.
+function spendEntryIn_(e, currency, rate) {
+  if (e.currency === currency) return e.ownAmount;
+  if (e.ownAmountPen == null) return null;
+  if (currency === homeCurrency_()) return e.ownAmountPen;
+  return rate != null ? e.ownAmountPen / rate : null;
+}
+
+// The trips that moved money out of / into this budget in the range, in its currency, so the row can say why its figure differs
+// from the category total: out = left out although its category is in the budget, in = counted although its category is not.
+// inside = trips still "as usual" whose expenses count here by category (the moment for the app's "In my budgets" bubble).
+function budgetTripMoves_(ctx, budgetId, plan, startDate, endDate, currency, rate, excludeAnnual) {
+  var out = {}, inn = {}, inside = {}, names = {}, id = String(budgetId);
+  ctx.spendEntries.forEach(function (e) {
+    if (!e.trip_id || (excludeAnnual && e.annual) || e.date < startDate || e.date > endDate) return;
+    var byCategory = entryInBudget_(plan.match, e);
+    var bucket;
+    if (!e.route) {
+      if (!byCategory) return;
+      bucket = inside;
+    } else {
+      var routed = e.route[id] === true && (!plan.existsAt || plan.existsAt(e));
+      if (byCategory === routed) return;
+      bucket = routed ? inn : out;
+    }
+    var amt = spendEntryIn_(e, currency, rate);
+    if (amt == null) return;
+    bucket[e.trip_id] = (bucket[e.trip_id] || 0) + amt;
+  });
+  if (Object.keys(inside).length) getTripRows_().forEach(function (t) { names[t.id] = t.name; });
+  var list = function (bucket) {
+    return Object.keys(bucket).filter(function (t) { return bucket[t] > 0.005; }).map(function (t) {
+      return { trip_id: t, name: ctx.tripRoutes[t] ? ctx.tripRoutes[t].name : (names[t] || ''), amount: Math.round(bucket[t] * 100) / 100 };
+    }).sort(function (a, b) { return b.amount - a.amount; });
+  };
+  return { out: list(out), in: list(inn), inside: list(inside) };
 }
 
 function categorySpendPenFromContext_(ctx, categoryIds, startDate, endDate, excludeAnnual) {
@@ -259,16 +320,17 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
   // A budget's own period_type decides (not the widened display period): a
   // monthly budget never counts Annual-tagged expenses, even when browsed by year.
   var excludeAnnual = budgetExcludesAnnual_(budget);
-  var spentPen = categorySpendPenFromContext_(ctx, plan.match, bounds.startDate, bounds.endDate, excludeAnnual);
+  var match = budgetEntryMatcher_(budget.id, plan);
+  var spentPen = categorySpendPenFromContext_(ctx, match, bounds.startDate, bounds.endDate, excludeAnnual);
   var effectiveAmount = plan.amount;
   var currency = plan.currency;
   var cutoffMonth = bounds.endDate.substring(0, 7);
-  var spent = categorySpendInCurrencyFromContext_(ctx, plan.match, bounds.startDate, bounds.endDate, currency, cutoffMonth, excludeAnnual);
+  var spent = categorySpendInCurrencyFromContext_(ctx, match, bounds.startDate, bounds.endDate, currency, cutoffMonth, excludeAnnual);
   // What the Annual tag kept out of a monthly budget, in the budget's currency, so the row can say so: Overview's category total
   // counts those entries and the two numbers looked like a mismatch (testers, 2026-11-07). 0 for a yearly budget.
   var annualLeftOut = 0;
   if (excludeAnnual && spent != null) {
-    var withAnnual = categorySpendInCurrencyFromContext_(ctx, plan.match, bounds.startDate, bounds.endDate, currency, cutoffMonth, false);
+    var withAnnual = categorySpendInCurrencyFromContext_(ctx, match, bounds.startDate, bounds.endDate, currency, cutoffMonth, false);
     if (withAnnual != null && withAnnual - spent > 0.005) annualLeftOut = withAnnual - spent;
   }
   var percent = (spent != null && effectiveAmount > 0) ? (spent / effectiveAmount) * 100 : null;
@@ -278,6 +340,8 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
   // conversion invisible — see categorySpendInCurrencyFromContext_ for how
   // it's applied (only entries NOT already in this currency go through it).
   var rate = latestRateAtOrBefore_(ctx, currency, cutoffMonth);
+  // Trips set to leave this budget out, or to count only in it (Trips & events "In my budgets").
+  var tripMoves = spent != null ? budgetTripMoves_(ctx, budget.id, plan, bounds.startDate, bounds.endDate, currency, rate, excludeAnnual) : { out: [], in: [], inside: [] };
 
   return {
     exists: true,
@@ -300,9 +364,30 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
     countTo: plan.lastMonth || null,
     percent: percent,
     annualLeftOut: annualLeftOut,
+    tripsLeftOut: tripMoves.out,
+    tripsCounted: tripMoves.in,
+    tripsInside: tripMoves.inside,   // trips "as usual" counted here by category, largest first
     rateAvailable: spent != null,
     rate: rate
   };
+}
+
+// The budgets a trip can count in ("In my budgets", Trips.gs): names only, no sums, so the trip pop-up gets them quickly. Ended
+// budgets are left out (a trip's expenses would count nowhere), except the ones a trip already chose (the pop-up keeps them ticked).
+function listBudgetChoices() {
+  var categoryById = rowsById_(getAllRows('Categories'));
+  var hist = budgetHistory_();
+  var chosen = {};
+  getTripRows_().forEach(function (t) { String(t.in_budgets || '').split(',').forEach(function (id) { chosen[id.trim()] = true; }); });
+  var kindOrder = { yearly: 0, monthly: 1, weekly: 2 };
+  return getAllRows('Budgets').filter(function (b) {
+    return !isPracticeBudget_(b) && (chosen[String(b.id)] || !budgetEndedNow_(b, hist[String(b.id)]));
+  }).map(function (b) {
+    var display = resolveBudgetCategoryDisplay_(parseBudgetCategoryIds_(b.category_id), categoryById);
+    return { id: b.id, name: resolveBudgetDisplayName_(b, display.name), icon: display.icon, period_type: budgetKind_(b.period_type) };
+  }).sort(function (a, b) {
+    return (kindOrder[a.period_type] - kindOrder[b.period_type]) || String(a.name).localeCompare(String(b.name));
+  });
 }
 
 // displayPeriodType/anchorDate come from the app's shared period selector
@@ -355,7 +440,7 @@ function listBudgets(payload) {
   budgets.forEach(function (x) {
     var p = x.progress;
     if (!p.exists) return;
-    p.programmed = budgetProgrammedLeft_(programmedPre, ctx, p.category_ids !== undefined ? p.category_ids : x.category_ids, p.currency || x.currency, p.startDate, p.endDate, todayIso);
+    p.programmed = budgetProgrammedLeft_(programmedPre, ctx, x.id, p.category_ids !== undefined ? p.category_ids : x.category_ids, p.currency || x.currency, p.startDate, p.endDate, todayIso);
   });
   // The period's own categories name the row when they were different then (a change of categories counts forward only).
   budgets.forEach(function (x) {
@@ -502,13 +587,13 @@ function budgetProgrammedPrep_() {
   });
   return pre;
 }
-function budgetProgrammedLeft_(pre, ctx, categoryIds, currency, startDate, endDate, today) {
+function budgetProgrammedLeft_(pre, ctx, budgetId, categoryIds, currency, startDate, endDate, today) {
   if (!pre.recurring.length || !startDate || !endDate || endDate < today) return 0;
   var from = startDate < today ? today : startDate;
   var rate = latestRateAtOrBefore_(ctx, currency, endDate.substring(0, 7));
   var total = 0;
   pre.recurring.forEach(function (r) {
-    if (!categoryIdMatches_(categoryIds, r.category_id)) return;
+    if (!recurringInBudget_(ctx, budgetId, categoryIds, r)) return;
     var reCurrency = r.currency || homeCurrency_();
     var own = recurringOwnAmount_(r, pre.splitSums);
     var amt = null;
@@ -549,7 +634,7 @@ function getBudgetChartSeries(payload) {
   var plan = budgetPlanForRange_(rawBudget, ctx, startDate, endDate);
   var currency = plan.exists ? plan.currency : (rawBudget.currency || homeCurrency_());
   var categoryIds = plan.exists ? plan.categoryIds : parseBudgetCategoryIds_(rawBudget.category_id);   // programmed / expected: the latest
-  var match = plan.exists ? plan.match : function () { return false; };
+  var match = plan.exists ? budgetEntryMatcher_(rawBudget.id, plan) : function () { return false; };
   var cutoffMonth = endDate.substring(0, 7);
   var rate = latestRateAtOrBefore_(ctx, currency, cutoffMonth);
 
@@ -580,8 +665,11 @@ function getBudgetChartSeries(payload) {
   // rather than reshaping that shared context.
   // Any date, not just the period: an occurrence counts as paid when an entry
   // near ITS date exists, and a custom item's window can reach outside the period.
+  // A trip's estimate can count here outside the budget's categories ("In my budgets"): its own category's entries are read too.
+  var extraCats = {};
+  getRecurringExpenseRows_().forEach(function (r) { if (r.trip_id && ctx.tripRoutes[r.trip_id]) extraCats[r.category_id] = true; });
   var entriesInRange = getAllRows('Entries').filter(function (e) {
-    return e.status === 'confirmed' && categoryIdMatches_(categoryIds, e.category_id);
+    return e.status === 'confirmed' && (categoryIdMatches_(categoryIds, e.category_id) || extraCats[e.category_id] === true);
   });
 
   // Only occurrences WITHOUT a matching confirmed entry become a bump —
@@ -592,7 +680,7 @@ function getBudgetChartSeries(payload) {
   // sitting in the actual line).
   var recurringOccurrences = [];
   getRecurringExpenseRows_().forEach(function (r) {
-    if (String(r.active) === 'false' || !categoryIdMatches_(categoryIds, r.category_id)) return;
+    if (String(r.active) === 'false' || !recurringInBudget_(ctx, rawBudget.id, categoryIds, r)) return;
     var reCurrency = r.currency || homeCurrency_();
     var ownAmount = recurringOwnAmount_(r, recurringSplitSums);
     var amt = null;
@@ -987,9 +1075,12 @@ function computeCategoryMonthlyAverages_(startDate, endDate, monthCount) {
 
   // These averages suggest MONTHLY budgets, which don't count Annual-tagged expenses.
   var annualEntryIds = annualEntryIdSet_();
+  // A trip kept out of category budgets ("In my budgets" not as usual) would only inflate the suggestion.
+  var tripRoutes = tripBudgetRoutes_();
   var totals = {};
   entries.forEach(function (e) {
     if (annualEntryIds[e.id]) return;
+    if (e.trip_id && tripRoutes[e.trip_id]) return;
     var rate = getRateForEntryCurrency_(e.currency, e.date);
     if (rate == null) return;
     var ownAmount = Number(e.amount) - (splitSumByEntry[e.id] || 0);
@@ -1311,7 +1402,8 @@ function budgetPlan_(budget, ctx, yearOfMonthly, key) {
     var at = states[String(e.date).substring(0, 7)];
     return !!at && categoryIdMatches_(at.ids, e.category_id);
   };
-  return { exists: true, amount: total, currency: last.currency, categoryIds: last.ids, categoryRaw: last.category_id, match: match,
+  var existsAt = months.length === 12 ? null : function (e) { return !!states[String(e.date).substring(0, 7)]; };
+  return { exists: true, amount: total, currency: last.currency, categoryIds: last.ids, categoryRaw: last.category_id, match: match, existsAt: existsAt,
     firstMonth: months[0], lastMonth: months[months.length - 1],
     changed: Math.abs(total - Number(budget.amount) * 12) > 0.005 || last.currency !== (budget.currency || homeCurrency_()) || last.category_id !== todayCats,
     monthsCounted: months.length };
@@ -1453,7 +1545,8 @@ function weeklyBudgetAcross_(budget, ctx, startDate, endDate) {
     var at = states[weekOf[d] || (weekOf[d] = mondayOf_(d))];
     return !!at && categoryIdMatches_(at.ids, e.category_id);
   };
-  return { exists: true, amount: total, currency: last.currency, categoryIds: last.ids, categoryRaw: last.category_id, match: match,
+  var existsAt = weeks.length === overlapping ? null : function (e) { var d = String(e.date); return !!states[weekOf[d] || (weekOf[d] = mondayOf_(d))]; };
+  return { exists: true, amount: total, currency: last.currency, categoryIds: last.ids, categoryRaw: last.category_id, match: match, existsAt: existsAt,
     firstMonth: (weeks[0] < startDate ? startDate : weeks[0]).substring(0, 7), lastMonth: (isoAddDays_(weeks[weeks.length - 1], 6) > endDate ? endDate : isoAddDays_(weeks[weeks.length - 1], 6)).substring(0, 7),
     changed: last.category_id !== String(budget.category_id || '') || last.currency !== (budget.currency || homeCurrency_()),
     weeksCounted: Math.round(counted * 10) / 10 };

@@ -58,6 +58,13 @@ function getHomeGlance() {
     return budgetIds.some(function (ids) { return categoryIdMatches_(ids, categoryId); });
   }
   var annual = monthlyBudgets.length ? annualEntryIdSet_() : {};
+  // A trip's "In my budgets" (Trips.gs): left out of every budget, or counted only in the budgets picked, whatever the category.
+  var tripRoutes = monthlyBudgets.length ? tripBudgetRoutes_() : {};
+  function countsInBudgets_(e) {
+    var t = e.trip_id ? tripRoutes[e.trip_id] : null;
+    if (!t) return insideBudgets_(e.category_id);
+    return monthlyBudgets.some(function (b) { return t.route[String(b.id)] === true; });
+  }
   var budgetSpent = 0;
 
   var splitSum = {};
@@ -79,7 +86,7 @@ function getHomeGlance() {
     if (e.type === 'expense') {
       bucket.expense += pen;
       if (key === curKey || key === prevKey) dayExpense[e.date] = (dayExpense[e.date] || 0) + pen;
-      if (key === curKey && monthlyBudgets.length && !annual[e.id] && insideBudgets_(e.category_id)) budgetSpent += pen;
+      if (key === curKey && monthlyBudgets.length && !annual[e.id] && countsInBudgets_(e)) budgetSpent += pen;
     } else if (e.type === 'income') {
       bucket.income += pen;
     } else if (e.type === 'investment') {

@@ -129,7 +129,10 @@ test("a help bubble skips the 3 visits, the month and the one-a-day limit; the o
   assert.match(watch, /if \(!tip\.help && !tip\.own && !tip\.cont && !tip\.remind && !tip\.noGate\) \{/);
   assert.match(watch, /if \(!popBasicsOk_\(tip\.level\) && !\(tip\.struggle && tip\.struggle\(\)\)\) return;/);
   // ...and every bubble, help ones included, counts in the one daily teaching budget (owner, 2026-11-12).
-  assert.match(app, /if \(!tip\.own && !tip\.cont && \(\(!tip\.help && !popDayAllows_\(tip\.key\)\) \|\| !teachAllows_\("pop:" \+ tip\.key\)\)\)/);
+  // ...counted ONCE: a help bubble directly, the others through popDayAllows_ → tipDayAllows_ → teachAllows_ (asking twice under two
+  // names was always refused by the 2-minute gap, so no everyday bubble showed; fixed 2026-11-14).
+  assert.match(app, /if \(!tip\.own && !tip\.cont && \(tip\.help \? !teachAllows_\("pop:" \+ tip\.key\) : !popDayAllows_\(tip\.key\)\)\)/);
+  assert.match(section("function tipDayAllows_(", "function popDayAllows_") || app, /if \(!teachAllows_\("card:" \+ key\)\) return false;/);
   assert.match(section("function watchReviewHint_(", "// ---- First-use practice: Needs review ----"), /help: true/);
 });
 

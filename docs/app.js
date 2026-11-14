@@ -10100,6 +10100,8 @@ async function openBudgetDrilldown(budget) {
   if (p.countFrom && p.countFrom + "-01" > payload.startDate) payload.startDate = p.countFrom + "-01";
   if (p.countTo && p.monthsCounted < 12) { const [cy, cm] = p.countTo.split("-").map(Number); const last = `${p.countTo}-${String(new Date(cy, cm, 0).getDate()).padStart(2, "0")}`; if (last < payload.endDate) payload.endDate = last; }
   if (periodCats) payload.categoryIds = periodCats;
+  // Trips set to leave budgets out, or to count only in some, decide for their own expenses (Api.gs listEntries).
+  payload.budgetId = budget.id;
   // A monthly budget doesn't count Annual-tagged expenses (a yearly one does).
   if (budget.period_type !== "yearly") payload.excludeAnnual = true;
 
@@ -11120,7 +11122,7 @@ async function refreshBudgets() {
   budgetsCache_[budgetsKey] = data;
   drawBudgets_();
   offerBudgetsTip_();   // only now that everything has arrived (loading standard)
-  watchAnnualTip_();
+  if (!watchTripBudgetsTip_()) watchAnnualTip_();
   if (budgetsKey === JSON.stringify(projectionPeriodPayload_())) preloadBudgetsNeighbour_();
 }
 
@@ -11249,6 +11251,9 @@ function drawBudgets_() {
     }
     const annualNote = p.annualLeftOut > 0.005
       ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: pc, amount: moneyFmt(p.annualLeftOut) }))}</div>` : "";
+    // Trips & events set to leave this budget out, or to count only in it ("In my budgets").
+    const tripNotes = (p.tripsLeftOut || []).map((t) => `<div class="budget-row-annual hint">${escapeHtml(tr("budget.tripLeftOut", { cur: pc, amount: moneyFmt(t.amount), name: t.name }))}</div>`).join("")
+      + (p.tripsCounted || []).map((t) => `<div class="budget-row-annual hint">${escapeHtml(tr("budget.tripCounted", { cur: pc, amount: moneyFmt(t.amount), name: t.name }))}</div>`).join("");
 
     const amountLabel = `${pc} ${moneyFmt(p.effectiveAmount)}`;
     const subLabel = pct == null
@@ -11294,7 +11299,7 @@ function drawBudgets_() {
         <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
       </div>
       ${progLine}
-      ${annualNote}
+      ${annualNote}${tripNotes}
     `;
     // Editing/deleting now lives behind the drill-down's ⋮ menu (see
     // openBudgetDrilldown) rather than a second tap target on the row.
@@ -17886,10 +17891,87 @@ function openTripModal_(trip) {
   document.getElementById("trip-alerts").value = trip && trip.alert_thresholds ? trip.alert_thresholds.split(",").join(", ") : "";
   renderCurrencyChips("trip");
   refreshTripRateWarning_(false);
+  setTripInBudgets_(trip);
   document.getElementById("trip-delete-btn").hidden = !trip;
   const backdrop = document.getElementById("trip-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+}
+
+// "In my budgets" (owner, 2026-11-14): as usual, left out of every budget, or counted only in the budgets picked (whatever the
+// category). Shown only where the backend counts it (capability tripBudgets). The budget names arrive with listBudgetChoices; until
+// then the chips say "Loading…" (loading standard).
+let tripInBudgetIds_ = new Set();
+let tripBudgetChoices_ = null;   // [{id, name, icon, period_type}] once loaded
+let tripBudgetChoicesLoad_ = null;
+let tripInBudgetsLost_ = false;
+function tripInBudgetsMode_() {
+  const r = document.querySelector('input[name="trip-inbudgets"]:checked');
+  return r ? r.value : "usual";
+}
+function setTripInBudgets_(trip) {
+  const field = document.getElementById("trip-inbudgets-field");
+  field.hidden = !(meta && meta.capabilities && meta.capabilities.tripBudgets);
+  const raw = String((trip && trip.in_budgets) || "").trim();
+  tripInBudgetsLost_ = !!(trip && trip.in_budgets_lost);
+  const mode = !raw || tripInBudgetsLost_ ? "usual" : raw === "none" ? "none" : "only";
+  tripInBudgetIds_ = new Set(mode === "only" ? raw.split(",").map((x) => x.trim()).filter(Boolean) : []);
+  document.querySelectorAll('input[name="trip-inbudgets"]').forEach((r) => { r.checked = r.value === mode; });
+  tripBudgetChoices_ = null;
+  tripBudgetChoicesLoad_ = null;
+  if (!field.hidden) loadTripBudgetChoices_();
+  renderTripInBudgets_();
+}
+function loadTripBudgetChoices_() {
+  if (tripBudgetChoicesLoad_) return tripBudgetChoicesLoad_;
+  tripBudgetChoicesLoad_ = callApi("listBudgetChoices", {}).then((list) => {
+    tripBudgetChoices_ = list || [];
+    // A budget deleted since it was picked is simply no longer offered.
+    const known = new Set(tripBudgetChoices_.map((b) => b.id));
+    tripInBudgetIds_ = new Set([...tripInBudgetIds_].filter((id) => known.has(id)));
+    renderTripInBudgets_();
+  }).catch(() => { tripBudgetChoicesLoad_ = null; tripBudgetChoices_ = null; renderTripInBudgets_(true); });
+  return tripBudgetChoicesLoad_;
+}
+function renderTripInBudgets_(failed) {
+  const mode = tripInBudgetsMode_();
+  const chips = document.getElementById("trip-inbudgets-chips");
+  const hint = document.getElementById("trip-inbudgets-hint");
+  chips.hidden = mode !== "only";
+  chips.innerHTML = "";
+  let hintText = mode === "none" ? tr("trips.inBudgetsNoneHint") : mode === "only" ? tr("trips.inBudgetsOnlyHint") : (tripInBudgetsLost_ ? tr("trips.inBudgetsLost") : "");
+  if (mode === "only") {
+    if (failed) chips.textContent = tr("trips.inBudgetsLoadFailed");
+    else if (!tripBudgetChoices_) chips.textContent = tr("common.loading");
+    else if (!tripBudgetChoices_.length) hintText = tr("trips.inBudgetsNoBudgets");
+    else tripBudgetChoices_.forEach((b) => {
+      const chip = document.createElement("div");
+      chip.className = "tag-chip" + (tripInBudgetIds_.has(b.id) ? " selected" : "");
+      chip.setAttribute("role", "checkbox");
+      chip.setAttribute("aria-checked", tripInBudgetIds_.has(b.id) ? "true" : "false");
+      chip.textContent = (b.icon ? b.icon + " " : "") + b.name + " · " + tr("period." + b.period_type);
+      chip.addEventListener("click", () => {
+        if (tripInBudgetIds_.has(b.id)) tripInBudgetIds_.delete(b.id); else tripInBudgetIds_.add(b.id);
+        renderTripInBudgets_();
+      });
+      chips.appendChild(chip);
+    });
+  }
+  hint.textContent = hintText;
+  hint.hidden = !hintText;
+}
+document.querySelectorAll('input[name="trip-inbudgets"]').forEach((r) => r.addEventListener("change", () => {
+  tripInBudgetsLost_ = false;
+  if (tripInBudgetsMode_() === "only") loadTripBudgetChoices_();
+  renderTripInBudgets_();
+}));
+// What the save sends: undefined where the field is not shown (an older backend), so nothing is overwritten.
+function tripInBudgetsValue_() {
+  if (document.getElementById("trip-inbudgets-field").hidden) return undefined;
+  const mode = tripInBudgetsMode_();
+  if (mode === "none") return "none";
+  if (mode === "only") return [...tripInBudgetIds_].join(",");
+  return "";
 }
 
 // A trip in a currency other than the app's main one converts everything else through the exchange rates, so
@@ -18053,6 +18135,10 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
   errorEl.textContent = "";
   const saveBtn = document.getElementById("trip-save-btn");
   if (!document.getElementById("trip-name").value.trim()) { errorEl.textContent = tr("accounts.errName"); return; }
+  if (!document.getElementById("trip-inbudgets-field").hidden && tripInBudgetsMode_() === "only" && !tripInBudgetIds_.size) {
+    errorEl.textContent = tr(tripBudgetChoices_ && !tripBudgetChoices_.length ? "trips.inBudgetsNoBudgets" : "trips.inBudgetsPick");
+    return;
+  }
   saveBtn.disabled = true;
   try {
     const budget = document.getElementById("trip-budget").value.trim();
@@ -18067,6 +18153,8 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
       budget_currency: budget ? document.getElementById("trip-currency").value : "",
       alert_thresholds: budget ? document.getElementById("trip-alerts").value.trim() : ""
     };
+    const inBudgets = tripInBudgetsValue_();
+    if (inBudgets !== undefined) fields.in_budgets = inBudgets;
     // The server checks everything and answers in the person's language.
     const tripId = editingTripId_;
     const forEntry = tripFromEntry_ && !tripId && newEntrySheetOpen_;
@@ -23421,6 +23509,7 @@ function popAfterSave_(action, payload, out) {
     if (payload.direction !== "they_owe_me" && amt > 0 && (lastRenderedEntries_ || []).some((e) => e.type === "expense" && Math.abs(Number(e.amount) - amt) < 0.005 &&
       e.currency === payload.currency && Math.abs(Date.parse(e.date) - day) <= 86400000)) popStruggle_("paidBy");
   }
+  if ((action === "addTrip" || action === "updateTrip") && payload.in_budgets) popUsed_("tripBudgets");
   if (action === "forgiveLoan") popUsed_("forgive");
   if (action === "recordEarlyPayment") popUsed_("earlyPay");
   if (action === "saveBankLoan" && payload.opening) popUsed_("bankOpening");
@@ -23522,7 +23611,9 @@ function popTipTick_() {
   }
   const el = (tip.steps ? tip.steps[tip.at] : tip).target();
   if (!popInView_(el)) return;
-  if (!tip.own && !tip.cont && ((!tip.help && !popDayAllows_(tip.key)) || !teachAllows_("pop:" + tip.key))) { popTipStopWatch_(); return; }
+  // Counted ONCE in the day's teaching budget: popDayAllows_ already counts it (through tipDayAllows_). Asking teachAllows_ again under
+  // another name was always refused by the 2-minute gap it had just started, so no everyday bubble ever showed (found 2026-11-14).
+  if (!tip.own && !tip.cont && (tip.help ? !teachAllows_("pop:" + tip.key) : !popDayAllows_(tip.key))) { popTipStopWatch_(); return; }
   popTipStopWatch_();
   popTipShow_(tip, el);
 }
@@ -23567,7 +23658,7 @@ function popTipShow_(tip, el) {
   b.className = "pop-tip";
   b.setAttribute("role", "dialog");
   b.dataset.tip = tip.key;
-  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons"><button type="button" class="pop-tip-ok">${escapeHtml(tip.offer ? (tip.offerLabel || tr("rt.guideMe")) : tr("pop.gotIt"))}</button></div>`;
+  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons">${tip.act ? `<button type="button" class="pop-tip-act">${escapeHtml(tip.act.label)}</button>` : ""}<button type="button" class="pop-tip-ok">${escapeHtml(tip.offer ? (tip.offerLabel || tr("rt.guideMe")) : tr("pop.gotIt"))}</button></div>`;
   document.body.appendChild(b);
   const place = () => {
     if (!el.isConnected) { const n = refind(); if (n && n.isConnected) el = n; }
@@ -23600,6 +23691,8 @@ function popTipShow_(tip, el) {
     b.remove();
     popOpen_ = null;
   }
+  // A second button that takes the person straight to the feature (tip.act = { label, run }); the bubble still counts as seen.
+  if (tip.act) b.querySelector(".pop-tip-act").addEventListener("click", () => { close(); tip.act.run(); });
   b.querySelector(".pop-tip-ok").addEventListener("click", () => {
     close();
     if (tip.offer) tip.offer();
@@ -23627,6 +23720,39 @@ function watchAnnualTip_() {
     stillWanted: () => !document.getElementById("screen-budgets").hidden,
     ready: () => document.getElementById("budgets-tip-invite").hidden
   });
+}
+// Budgets: a trip's "In my budgets" (owner, 2026-11-14, the only teaching he chose for it). Its moment: a budget at 75 % or more
+// of its limit, in the period shown, where a trip or event still "as usual" makes up at least a fifth of what it spent. The bubble
+// points at that row, names the trip, and its "Open the trip" button opens the trip's pop-up, where the choice is.
+function watchTripBudgetsTip_() {
+  if (!(meta && meta.capabilities && meta.capabilities.tripBudgets)) return false;
+  let hit = null;
+  (budgetsLoaded_ || []).forEach((b) => {
+    const p = b.progress;
+    if (hit || !p || !p.exists || p.percent == null || p.percent < 75 || !(p.spent > 0)) return;
+    const t = (p.tripsInside || [])[0];
+    if (t && t.amount >= p.spent / 5) hit = { budget: b, trip: t };
+  });
+  if (!hit) return false;
+  const tripId = hit.trip.trip_id;
+  popTipWatch_({
+    key: "tripBudgets", place: "budgets", level: "advanced",
+    text: () => tr("pop.tripBudgets", { name: hit.trip.name, budget: hit.budget.progress.category_name || hit.budget.category_name }),
+    target: () => document.querySelector(`#budgets-list .budget-row[data-budget-id="${CSS.escape(String(hit.budget.id))}"]`),
+    stillWanted: () => !document.getElementById("screen-budgets").hidden,
+    ready: () => document.getElementById("budgets-tip-invite").hidden,
+    act: { label: tr(((meta.trips || []).find((t) => t.id === tripId) || {}).kind === "event" ? "pop.tripBudgetsOpenEvent" : "pop.tripBudgetsOpen"), run: () => openTripForBudgets_(tripId) }
+  });
+  return true;
+}
+// Opens a trip's pop-up from the Budgets tab, scrolled to "In my budgets" (the trips list itself is not opened).
+async function openTripForBudgets_(tripId) {
+  let trip = (meta.trips || []).find((t) => t.id === tripId);
+  try { const all = await callApi("listTrips", {}); meta.trips = all; trip = all.find((t) => t.id === tripId) || trip; } catch (e) { /* the copy on the phone will do */ }
+  if (!trip) return;
+  openTripModal_(trip);
+  const field = document.getElementById("trip-inbudgets-field");
+  if (!field.hidden) field.scrollIntoView({ block: "center" });
 }
 // The new-entry form: the "Trip / event" field, when the entry's date falls during a trip or event.
 function watchTripPickTip_() {
