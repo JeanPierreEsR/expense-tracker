@@ -685,12 +685,14 @@ const ONCE_ACTIONS = new Set([
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
   "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
-  "applyTidyGroups"   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
+  "applyTidyGroups",   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
+  "applyAnnualCleanup", "finishAnnualCleanup"   // the owner's move out of the old "Annual budget" category (AnnualCleanup.gs)
 ]);
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
 const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, removePracticeImport: 150000, removePracticeBank: 150000, planStatementHistory: 90000, analyzeStatements: 90000,
   applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000,
+  applyAnnualCleanup: 90000, undoAnnualCleanup: 90000, listAnnualCleanup: 60000,
   checkEmailsNow: 120000,   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
   checkAlertsNow: 60000 };   // the three alert checks can take 10-20 s on a big Sheet; a long wait is not a lost connection, so no six resends
 
@@ -9676,8 +9678,55 @@ function renderYearCompare_() {
   el.hidden = false;
 }
 
+// Overview "By category" for expenses (owner, 2026-11-14): Everything · Annual as one line · Only annual. Built on the phone from the
+// same data (each category's annual part, `annual_pen`, follows the server's one rule, AnnualTag.gs). The chips show only for
+// expenses, where the backend has the rule, and when the period has annual expenses or another view than Everything was chosen. The
+// choice is saved in Settings (setOverviewCategoryView) and comes back with meta.settings.
+function ovCategoryView_() {
+  const v = meta && meta.settings && meta.settings.overview_category_view;
+  return v === "oneLine" || v === "onlyAnnual" ? v : "all";
+}
+const OV_ANNUAL_ID_ = "__annual__";
+function ovCategoryItems_(items) {
+  const view = ovCategoryView_();
+  if (overviewType !== "expense" || view === "all") return items;
+  const total = items.reduce((s, it) => s + it.amount_pen, 0);
+  const annualTotal = items.reduce((s, it) => s + (it.annual_pen || 0), 0);
+  if (view === "onlyAnnual") {
+    return items.filter((it) => it.annual_pen > 0.005)
+      .map((it) => Object.assign({}, it, { amount_pen: it.annual_pen, percent: annualTotal > 0 ? it.annual_pen / annualTotal * 100 : 0, annual_pen: 0, annualView: "only" }))
+      .sort((a, b) => b.amount_pen - a.amount_pen);
+  }
+  const rest = items.map((it) => Object.assign({}, it, { amount_pen: it.amount_pen - (it.annual_pen || 0), annual_pen: 0, annualView: "rest" }))
+    .filter((it) => it.amount_pen > 0.005);
+  if (annualTotal > 0.005) rest.push({ id: OV_ANNUAL_ID_, name: tr("overview.annualLine"), icon: "🗂️", color: "", amount_pen: annualTotal, annual_pen: 0 });
+  return rest.sort((a, b) => b.amount_pen - a.amount_pen).map((it) => Object.assign(it, { percent: total > 0 ? it.amount_pen / total * 100 : 0 }));
+}
+function renderOvCategory_(items) {
+  const chips = document.getElementById("ov-annual-views");
+  const view = ovCategoryView_();
+  const hasAnnual = overviewType === "expense" && items.some((it) => it.annual_pen > 0.005);
+  chips.hidden = !(meta && meta.capabilities && meta.capabilities.annualBudgets) || overviewType !== "expense" || (!hasAnnual && view === "all");
+  chips.querySelectorAll("[data-view]").forEach((b) => { b.classList.toggle("active", b.dataset.view === view); b.setAttribute("aria-pressed", b.dataset.view === view ? "true" : "false"); });
+  const shown = ovCategoryItems_(items);
+  renderPie("category", shown);
+  if (!shown.length && items.length && view === "onlyAnnual" && overviewType === "expense") {
+    document.getElementById("list-category").innerHTML = `<div class="status-msg">${escapeHtml(tr("overview.noAnnual"))}</div>`;
+  }
+}
+function setOvCategoryView_(view) {
+  if (view === ovCategoryView_()) return;
+  meta.settings = Object.assign({}, meta.settings, { overview_category_view: view });
+  if (lastOverviewData && lastOverviewData.breakdowns) renderOvCategory_(lastOverviewData.breakdowns[overviewType].byCategory);
+  callApi("setOverviewCategoryView", { view }).catch(() => {});   // a preference: a lost save only means the old view next time
+}
+document.getElementById("ov-annual-views").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-view]");
+  if (b) setOvCategoryView_(b.dataset.view);
+});
+
 function renderBreakdowns(breakdown) {
-  renderPie("category", breakdown.byCategory);
+  renderOvCategory_(breakdown.byCategory);
   renderPie("tag", breakdown.byTag);
   renderPie("paymentMethod", breakdown.byPaymentMethod);
 }
@@ -9821,7 +9870,7 @@ function appendLegendRow_(listEl, key, item) {
         ? tr("overview.allAnnual") : tr("overview.inclAnnual", { amount: formatPen(item.annual_pen) }))}</div>` : ""}
     </div>
   `;
-  row.addEventListener("click", () => openBreakdownDrilldown(key, item));
+  row.addEventListener("click", () => key === "category" && item.id === OV_ANNUAL_ID_ ? setOvCategoryView_("onlyAnnual") : openBreakdownDrilldown(key, item));
   listEl.appendChild(row);
 }
 
@@ -9889,7 +9938,12 @@ async function openBreakdownDrilldown(kind, item) {
   const bounds = getPeriodBounds();
 
   const payload = { startDate: bounds.startDate, endDate: bounds.endDate, type: overviewType, scope: overviewScopeParam_() };
-  if (kind === "category") payload.categoryId = item.id;
+  if (kind === "category") {
+    payload.categoryId = item.id;
+    // "Annual as one line" / "Only annual": the list behind the row shown (Api.gs listEntries excludeAnnual / onlyAnnual).
+    if (item.annualView === "rest") payload.excludeAnnual = true;
+    else if (item.annualView === "only") payload.onlyAnnual = true;
+  }
   else if (kind === "tag") { if (item.id) { payload.tagId = item.id; popUsed_("tagsOv"); } else payload.noTag = true; }
   else if (kind === "paymentMethod") { if (item.id) payload.paymentMethodId = item.id; else payload.noAccount = true; }
   else if (kind === "platform") { payload.type = "investment"; payload.toPaymentMethodId = item.id; }
@@ -10102,6 +10156,7 @@ async function openBudgetDrilldown(budget) {
   if (periodCats) payload.categoryIds = periodCats;
   // Trips set to leave budgets out, or to count only in some, decide for their own expenses (Api.gs listEntries).
   payload.budgetId = budget.id;
+  if (budget.annual_kind) payload.annualKind = true;   // "Annual expenses": every annual expense, whatever the category
   // A monthly budget doesn't count Annual-tagged expenses (a yearly one does).
   if (budget.period_type !== "yearly") payload.excludeAnnual = true;
 
@@ -10763,6 +10818,7 @@ const DEFAULT_BUDGET_THRESHOLDS_DISPLAY = "50, 75, 100, 110, 125, 150";
 document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     budgetPeriodType = tab.dataset.period;
+    if (budgetPeriodType !== "yearly" && budgetAnnualKind_) setBudgetAnnualKind_(false);   // "Everything marked Annual" is yearly only
     budgetPeriodTouched_ = true;   // (the first-use practice waits for this)
     document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t === tab));
     updateBudgetForwardHint_();
@@ -10808,6 +10864,24 @@ function populateBudgetCategoryChips() {
     });
   updateBudgetAllCategoriesCheckbox_();
 }
+
+// "Everything marked Annual" (owner, 2026-11-14): a yearly budget of every annual expense, whatever the category (Budgets.gs ANNUAL).
+// Ticking it hides the categories and makes the budget yearly; picking Weekly or Monthly unticks it. Only where the backend has it.
+let budgetAnnualKind_ = false;
+function setBudgetAnnualKind_(on) {
+  budgetAnnualKind_ = !!on;
+  document.getElementById("budget-annual-kind-checkbox").checked = budgetAnnualKind_;
+  document.getElementById("budget-annual-kind-hint").hidden = !budgetAnnualKind_;
+  document.getElementById("budget-category-chips").hidden = budgetAnnualKind_;
+  document.getElementById("budget-all-categories-checkbox").closest("label").hidden = budgetAnnualKind_;
+  if (budgetAnnualKind_ && budgetPeriodType !== "yearly") {
+    budgetPeriodType = "yearly";
+    document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.period === "yearly"));
+    updateBudgetForwardHint_();
+    fillBudgetStart_();
+  }
+}
+document.getElementById("budget-annual-kind-checkbox").addEventListener("change", (e) => setBudgetAnnualKind_(e.target.checked));
 
 document.getElementById("budget-all-categories-checkbox").addEventListener("change", (e) => {
   selectedBudgetCategoryIds = new Set(e.target.checked ? allExpenseCategoryIds_() : []);
@@ -10894,6 +10968,8 @@ function openBudgetModal(budget) {
   document.querySelectorAll("#budget-period-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.period === budgetPeriodType));
   updateBudgetForwardHint_(budget);
   fillBudgetStart_();
+  document.getElementById("budget-annual-kind-row").hidden = !(meta && meta.capabilities && meta.capabilities.annualBudgets);
+  setBudgetAnnualKind_(!!(budget && budget.annual_kind));
 
   document.getElementById("budget-thresholds").value = budget ? budget.thresholds : DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
   // Ending (forward only) or deleting completely, where the backend knows budget history; an ended budget can be started again.
@@ -10945,7 +11021,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     const currency = document.getElementById("budget-currency").value.toUpperCase();
     const thresholds = document.getElementById("budget-thresholds").value.trim() || DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
 
-    if (selectedBudgetCategoryIds.size === 0) {
+    if (selectedBudgetCategoryIds.size === 0 && !budgetAnnualKind_) {
       throw new Error(tr("budget.pickCategory"));
     }
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
@@ -10956,7 +11032,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     // category added later is automatically included too.
     const allIds = allExpenseCategoryIds_();
     const isEveryCategory = allIds.length > 0 && allIds.every((id) => selectedBudgetCategoryIds.has(id));
-    const categoryId = isEveryCategory ? "ALL" : Array.from(selectedBudgetCategoryIds).join(",");
+    const categoryId = budgetAnnualKind_ ? "ANNUAL" : isEveryCategory ? "ALL" : Array.from(selectedBudgetCategoryIds).join(",");
     const fields = { category_id: categoryId, amount, currency, period_type: budgetPeriodType, thresholds, name };
 
     // The sheet (and, if this was opened from one, its drill-down) closes
@@ -10968,7 +11044,8 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     let startsLater = "";
     // Already a budget of this kind for exactly these categories (one shown now, or one that starts later): say which, and offer to
     // open it, while the form is still open (owner, 2026-11-08). The server checks again.
-    const sameSet = (b) => (b.all_categories ? "ALL" : (b.category_ids || []).slice().sort().join(",")) === (isEveryCategory ? "ALL" : Array.from(selectedBudgetCategoryIds).sort().join(","));
+    const setKey = (b) => b.annual_kind ? "ANNUAL" : b.all_categories ? "ALL" : (b.category_ids || []).slice().sort().join(",");
+    const sameSet = (b) => setKey(b) === (budgetAnnualKind_ ? "ANNUAL" : isEveryCategory ? "ALL" : Array.from(selectedBudgetCategoryIds).sort().join(","));
     const twin = budgetsLoaded_.concat(budgetsLater_).find((b) => b.id !== budgetId && !b.ended && b.period_type === budgetPeriodType && sameSet(b));
     if (twin) {
       errorEl.textContent = tr(twin.start_later ? "budget.dupLater" : "budget.dupNow", { kind: tr("budget.adj." + budgetPeriodType), name: twin.category_name, when: twin.start_later ? budgetPeriodName_(twin.period_type, twin.start_later, true) : "" });
@@ -10992,7 +11069,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
       const cur = budgetPeriodKey_(budgetPeriodType, 0), prev = budgetPeriodKey_(budgetPeriodType, -1);
       const start = fields.start || budgetEditingStart_;
       const amountCh = Math.abs(amount - Number(ob.amount)) > 0.004 || currency !== ob.currency;
-      const setOf = (raw) => String(raw || "") === "ALL" ? "ALL" : String(raw || "").split(",").filter(Boolean).sort().join(",");
+      const setOf = (raw) => ["ALL", "ANNUAL"].includes(String(raw || "")) ? String(raw) : String(raw || "").split(",").filter(Boolean).sort().join(",");
       const catsCh = setOf(categoryId) !== setOf(ob.category_id);
       if ((amountCh || catsCh) && (start === "always" || start < cur)) {
         const name = ob.category_name, now = budgetPeriodName_(budgetPeriodType, cur, true);
@@ -15110,7 +15187,8 @@ async function showTidyScreen() {
   try {
     // Both lists arrive before either shows (loading standard); the no-account list only where the backend has it.
     const wantNoAcct = !!(meta.capabilities && meta.capabilities.noAccountTidy);
-    await Promise.all([loadTidy_(), wantNoAcct ? loadNoAccount_() : Promise.resolve()]);
+    const wantAnnual = !!(meta.capabilities && meta.capabilities.annualCleanup) && perfIsOwnerCopy_();
+    await Promise.all([loadTidy_(), wantNoAcct ? loadNoAccount_() : Promise.resolve(), wantAnnual ? loadAnnualCleanup_().catch(() => {}) : Promise.resolve()]);
     const fromUpload = tidyFromUpload_;
     offerTidyReal_();
     watchTidyTip_(fromUpload);
@@ -15127,9 +15205,9 @@ async function loadTidy_() {
   renderTidy_();
 }
 
-function tidyCategoryOptions_(selectedId) {
+function tidyCategoryOptions_(selectedId, leaveOutId) {
   return `<option value="">${escapeHtml(tr("tidy.pick"))}</option>` +
-    sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense"), selectedId))
+    sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" && c.id !== leaveOutId), selectedId))
       .map((c) => `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
 }
 
@@ -15285,6 +15363,108 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
     if (!saved) realNoteFailed_();
     showAppMessage_(err.message || String(err));
     updateNoAccountSave_();
+  }
+});
+
+// ---- The owner's one-time move out of the old "Annual budget" category (owner, 2026-11-14; AnnualCleanup.gs) ----
+// Every expense in it, grouped like Tidy; a group gets its real category and the Annual tag (Undo puts it back). When none is left,
+// Finish turns the yearly budget on it into "Everything marked Annual" and hides the category. Owner's copy only (the server checks too).
+let annualCu_ = null;
+async function loadAnnualCleanup_() {
+  annualCu_ = await callApi("listAnnualCleanup", {});
+  renderAnnualCleanup_();
+}
+function renderAnnualCleanup_() {
+  const card = document.getElementById("annualcu-card");
+  const d = annualCu_;
+  card.hidden = !(d && d.available);
+  if (card.hidden) return;
+  document.getElementById("annualcu-title").textContent = tr("annualcu.title", { name: d.categoryName });
+  const groups = d.groups || [];
+  const summary = document.getElementById("annualcu-summary");
+  summary.hidden = !groups.length;
+  summary.textContent = tr("annualcu.summary", { n: d.total, g: groups.length });
+  const sugg = groups.filter((g) => g.suggestion);
+  const allBtn = document.getElementById("annualcu-apply-all-btn");
+  allBtn.hidden = !sugg.length;
+  allBtn.textContent = tr("tidy.applyAll", { n: sugg.length });
+  document.getElementById("annualcu-list").innerHTML = groups.map((g) => {
+    const dates = g.firstDate === g.lastDate ? I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"))
+      : I18n.fmtDateMedium(new Date(g.firstDate + "T00:00:00")) + " – " + I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"));
+    return `<div class="tidy-group" data-key="${escapeHtml(g.key)}">
+      <div class="tidy-group-top">
+        <span class="tidy-group-name">${escapeHtml(g.label)}</span>
+        <span class="tidy-group-total">${escapeHtml(signedMoney_(-g.totalMain, d.main))}</span>
+      </div>
+      <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}</div>
+      <div class="tidy-group-row">
+        <select class="tidy-select" aria-label="${escapeHtml(tr("tidy.pick"))}">${tidyCategoryOptions_(g.suggestion ? g.suggestion.categoryId : "", d.categoryId)}</select>
+        <button type="button" class="add-inline tidy-apply">${escapeHtml(tr("tidy.apply"))}</button>
+        <button type="button" class="add-inline tidy-lines">${escapeHtml(tr("tidy.showLines"))}</button>
+      </div>
+      <ul class="tidy-samples" hidden>${g.samples.map((e) =>
+        `<li><span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description || tr("annualcu.noDescription"))}${e.pending ? ` · ${escapeHtml(tr("annualcu.pendingMark"))}` : ""}</span>${tidyAmountHtml_({ ...e, type: "expense" })}</li>`).join("")}</ul>
+    </div>`;
+  }).join("");
+  const fin = document.getElementById("annualcu-finish");
+  fin.hidden = groups.length > 0;
+  if (!fin.hidden) {
+    const yearly = (d.budgets || []).filter((b) => b.period_type === "yearly");
+    document.getElementById("annualcu-finish-text").textContent = yearly.length
+      ? tr("annualcu.finishText", { name: d.categoryName, budgets: yearly.map((b) => `“${b.name || d.categoryName}” (${formatAmount(b.amount, b.currency)})`).join(", ") })
+      : tr("annualcu.finishNoBudget", { name: d.categoryName });
+  }
+}
+async function applyAnnualCleanup_(items, buttons) {
+  buttons.forEach((b) => { b.disabled = true; });
+  showToast_(tr("common.savingToast"));
+  try {
+    const res = await callApi("applyAnnualCleanup", { items });
+    if (!res.count) showToast_(tr("tidy.nothingApplied"));
+    else {
+      showUndoToast_(tr("annualcu.applied", { n: res.count }), async () => {
+        await callApi("undoAnnualCleanup", { changes: res.changes, annualIds: res.annualIds });
+        showToast_(tr("tidy.undone"));
+        await loadAnnualCleanup_();
+        refreshEntryList().catch(() => {});
+      });
+      refreshEntryList().catch(() => {});
+    }
+    await loadAnnualCleanup_();
+  } catch (err) {
+    showAppMessage_(err.message || String(err));
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+document.getElementById("annualcu-list").addEventListener("click", (ev) => {
+  const row = ev.target.closest(".tidy-group");
+  if (!row) return;
+  if (ev.target.closest(".tidy-lines")) { const s = row.querySelector(".tidy-samples"); s.hidden = !s.hidden; return; }
+  if (ev.target.closest(".tidy-apply")) {
+    const categoryId = row.querySelector(".tidy-select").value;
+    if (!categoryId) { showFieldError_(row.querySelector(".tidy-select"), tr("review.pickCategoryFirst"), row.querySelector(".tidy-group-row")); return; }
+    applyAnnualCleanup_([{ key: row.dataset.key, categoryId }], [ev.target.closest(".tidy-apply")]);
+  }
+});
+document.getElementById("annualcu-apply-all-btn").addEventListener("click", (ev) => {
+  const items = ((annualCu_ && annualCu_.groups) || []).filter((g) => g.suggestion).map((g) => ({ key: g.key, categoryId: g.suggestion.categoryId }));
+  if (items.length) applyAnnualCleanup_(items, [ev.currentTarget]);
+});
+document.getElementById("annualcu-finish-btn").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget;   // (read before the question: an event loses its currentTarget once handled)
+  if (!(await askConfirmApp_(tr("annualcu.finishAsk"), tr("annualcu.finishBtn"), { plain: true }))) return;
+  btn.disabled = true;
+  try {
+    const res = await callApi("finishAnnualCleanup", {});
+    showToast_(res.leftAlone && res.leftAlone.length ? tr("annualcu.finishedLeft", { names: res.leftAlone.join(", ") }) : tr("annualcu.finished"));
+    await loadMeta().catch(() => {});   // the old category is hidden now
+    await loadAnnualCleanup_();
+    refreshBudgetsInBackground_();
+  } catch (err) {
+    showAppMessage_(err.message || String(err));
+  } finally {
+    btn.disabled = false;
   }
 });
 
@@ -23483,7 +23663,7 @@ function popStruggle_(key) { const s = popGet_(POP_STRUGGLE_KEY_, {}); if (!s[ke
 function popStruggling_(key) { return !!popGet_(POP_STRUGGLE_KEY_, {})[key]; }
 // What a successful save says about the person (owner, 2026-11-12): an active day, one more entry, a feature used, a sign of struggle.
 const POP_USER_SAVE_RE_ = /^(save|record|set|create|forgive|apply|assign|discard|delete|confirm|link|add|update)/i;
-const POP_NOT_THE_PERSON_ = new Set(["setRulePack", "setLanguage", "saveRailLinks", "applyAccountCurrencySuggestions", "saveOnboarding", "saveOnboardingAccounts", "saveOnboardingPlatforms"]);   // automatic or set-up, not a use of the app
+const POP_NOT_THE_PERSON_ = new Set(["setOverviewCategoryView", "setRulePack", "setLanguage", "saveRailLinks", "applyAccountCurrencySuggestions", "saveOnboarding", "saveOnboardingAccounts", "saveOnboardingPlatforms"]);   // automatic or set-up, not a use of the app
 function popAfterSave_(action, payload, out) {
   // A practice's made-up saves never count; a REAL tutorial's do (owner's walk 2026-11-12: features used inside a tutorial showed "not yet").
   if (!POP_USER_SAVE_RE_.test(action) || POP_NOT_THE_PERSON_.has(action) || /[Pp]ractice/.test(action) || (Spotlight.isRunning() && !guided_)) return;

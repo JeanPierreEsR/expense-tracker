@@ -62,6 +62,38 @@ function annualEntryIdSet_() {
   return set;
 }
 
+// ---- What counts as ANNUAL (owner, 2026-11-14; plan "Annual expenses") ----
+// One rule everywhere (budgets, Overview, Projections, lists): an expense is annual when its trip's "In my budgets" counts it in an
+// "Annual expenses" budget (category_id ANNUAL), or when it is tagged Annual and its trip (if any) is "as usual". A trip's own
+// choice wins: a trip sent only to another budget, or left out of budgets, is not annual even if its expenses carry the tag (Travel
+// tags itself).
+function annualKindBudgetIdSet_(budgets) {
+  var set = {};
+  (budgets || getAllRows('Budgets')).forEach(function (b) { if (String(b.category_id) === ANNUAL_BUDGET_CATEGORY_) set[String(b.id)] = true; });
+  return set;
+}
+// trip id -> true/false, only for trips that are not "as usual" (tripBudgetRoutes_ in Trips.gs).
+function annualTripsFromRoutes_(routes, budgets) {
+  var annualBudgets = annualKindBudgetIdSet_(budgets), out = {};
+  Object.keys(routes).forEach(function (t) {
+    out[t] = Object.keys(routes[t].route).some(function (id) { return annualBudgets[id] === true; });
+  });
+  return out;
+}
+// The entry ids that count as annual (the tag decides only for entries outside a trip with its own choice).
+function annualMarkedIdSet_() {
+  var tagged = annualEntryIdSet_();
+  var routes = tripBudgetRoutes_();
+  if (!Object.keys(routes).length) return tagged;
+  var tripAnnual = annualTripsFromRoutes_(routes);
+  var out = {};
+  getAllRows('Entries').forEach(function (e) {
+    var t = e.trip_id && routes[e.trip_id] ? e.trip_id : '';
+    if (t ? tripAnnual[t] : tagged[e.id]) out[e.id] = true;
+  });
+  return out;
+}
+
 // ---- Travel is Annual by default (2026-10-19) ----
 // A trip is a lump, not month-to-month spend, so every confirmed Travel
 // expense carries the Annual tag. Past entries get it once through the sheet

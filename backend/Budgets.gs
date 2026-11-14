@@ -81,9 +81,10 @@ function buildBudgetContext_(opts) {
 
   // Entries tagged Annual don't count against a MONTHLY budget (they do count
   // against a yearly one) — flagged here, decided per budget below.
-  var annualEntryIds = annualEntryIdSet_();
+  var annualEntryIds = annualEntryIdSet_();   // the tag; the trip's own choice is applied per entry below
   // Trips & events whose "In my budgets" is not "as usual" (Trips.gs tripBudgetRoutes_): their expenses count only where it says.
   var tripRoutes = tripBudgetRoutes_();
+  var tripAnnual = annualTripsFromRoutes_(tripRoutes);
 
   var spendEntries = entries.map(function (e) {
     var entryMonth = String(e.date).substring(0, 7);
@@ -91,7 +92,8 @@ function buildBudgetContext_(opts) {
     var ownAmount = Number(e.amount) - (splitSumByEntry[e.id] || 0);
     return {
       category_id: e.category_id,
-      annual: annualEntryIds[e.id] === true,
+      // Annual (AnnualTag.gs § What counts as ANNUAL): the tag, unless the expense's trip made its own choice.
+      annual: e.trip_id && tripRoutes[e.trip_id] ? tripAnnual[e.trip_id] === true : annualEntryIds[e.id] === true,
       date: e.date,
       currency: e.currency,
       ownAmount: ownAmount, // in the entry's own original currency
@@ -110,8 +112,15 @@ function buildBudgetContext_(opts) {
 // anything", an array means "match only these". Existing budgets already
 // hold exactly one id, which is just a one-item list under this reading,
 // so no migration was needed to support this.
+// 'ANNUAL' (owner, 2026-11-14): a yearly "Annual expenses" budget — every annual expense, whatever its category. It comes back as
+// the one shared array ANNUAL_BUDGET_IDS_ (no real category has its id, so a category-only check never matches it); entryInBudget_
+// and the display know it by identity.
+var ANNUAL_BUDGET_CATEGORY_ = 'ANNUAL';
+var ANNUAL_BUDGET_IDS_ = ['__annual__'];
+function isAnnualBudgetIds_(ids) { return ids === ANNUAL_BUDGET_IDS_; }
 function parseBudgetCategoryIds_(raw) {
   if (raw === 'ALL') return null;
+  if (String(raw) === ANNUAL_BUDGET_CATEGORY_) return ANNUAL_BUDGET_IDS_;
   return String(raw || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
 }
 
@@ -122,6 +131,7 @@ function categoryIdMatches_(categoryIds, entryCategoryId) {
 // categoryIds as above, or a function(entry) -> true/false when the budget's categories (or its existence) changed inside the
 // period being shown (budgetPlan_, a monthly budget shown by year).
 function entryInBudget_(categoryIds, e) {
+  if (isAnnualBudgetIds_(categoryIds)) return e.annual === true;
   return typeof categoryIds === 'function' ? categoryIds(e) : categoryIdMatches_(categoryIds, e.category_id);
 }
 
@@ -234,6 +244,7 @@ function resolveBudgetCategoryDisplay_(categoryIds, categoryById) {
   if (categoryIds === null) {
     return { name: tr_('budget.allExpense'), icon: '🗂️', color: '' };
   }
+  if (isAnnualBudgetIds_(categoryIds)) return { name: tr_('budget.annualKind'), icon: '🗂️', color: '' };
   if (categoryIds.length === 1) {
     var cat = categoryById[categoryIds[0]];
     return {
@@ -354,7 +365,7 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
     spent: spent,
     effectiveAmount: effectiveAmount,
     currency: currency,
-    category_ids: plan.categoryIds,       // the period's own categories (null = all expense categories)
+    category_ids: isAnnualBudgetIds_(plan.categoryIds) ? [] : plan.categoryIds,   // the period's own categories (null = all expense categories; [] = "Annual expenses")
     category_id: plan.categoryRaw,
     amountChanged: plan.changed,
     monthsCounted: plan.monthsCounted,    // a monthly budget shown by year: the months it existed in (12 = the whole year)
@@ -415,8 +426,9 @@ function listBudgets(payload) {
     return {
       id: b.id,
       category_id: b.category_id,
-      category_ids: categoryIds, // array of specific ids, or null for "ALL"
+      category_ids: isAnnualBudgetIds_(categoryIds) ? [] : categoryIds, // array of specific ids, or null for "ALL" ([] for "Annual expenses")
       all_categories: categoryIds === null,
+      annual_kind: isAnnualBudgetIds_(categoryIds),   // "Everything marked Annual" (owner, 2026-11-14)
       name: b.name || '', // raw, for the edit form's own input
       category_name: resolveBudgetDisplayName_(b, display.name), // custom name if set, else the category name
       category_icon: display.icon,
@@ -792,13 +804,20 @@ function assertNoDuplicateBudget_(categoryRaw, periodType, excludeId) {
     if (key(parseBudgetCategoryIds_(other.category_id)) !== myKey) return;
     var what = mine === null
       ? tr_('budget.allExpenseLower')
+      : isAnnualBudgetIds_(mine) ? tr_('budget.annualKindLower')
       : mine.map(function (id) { return '"' + (names[id] || tr_('budget.thisCategory')) + '"'; }).join(' + ');
     throw new Error(tr_('budget.duplicate', { period: tr_(periodType === 'yearly' ? 'budget.yearly' : periodType === 'weekly' ? 'budget.weekly' : 'budget.monthly'), what: what }));
   });
 }
 
+// An "Annual expenses" budget is yearly only (monthly budgets leave annual expenses out).
+function assertAnnualKindYearly_(categoryRaw, periodType) {
+  if (String(categoryRaw) === ANNUAL_BUDGET_CATEGORY_ && budgetKind_(periodType) !== 'yearly') throw new Error(tr_('budget.annualKindYearly'));
+}
+
 function addBudget(payload) {
   validateBudgetAmount_(payload.amount);
+  assertAnnualKindYearly_(payload.category_id, payload.period_type);
   assertNoDuplicateBudget_(payload.category_id, budgetKind_(payload.period_type), null);
   var budget = {
     id: Utilities.getUuid(),
@@ -827,6 +846,7 @@ function updateBudget(payload) {
   if (payload.category_id !== undefined || payload.period_type !== undefined) {
     var current = getAllRows('Budgets').find(function (b) { return b.id === payload.id; });
     var newPeriod = payload.period_type !== undefined ? payload.period_type : current.period_type;
+    assertAnnualKindYearly_(payload.category_id !== undefined ? payload.category_id : current.category_id, newPeriod);
     assertNoDuplicateBudget_(
       payload.category_id !== undefined ? payload.category_id : current.category_id,
       budgetKind_(newPeriod),
@@ -1074,7 +1094,7 @@ function computeCategoryMonthlyAverages_(startDate, endDate, monthCount) {
   });
 
   // These averages suggest MONTHLY budgets, which don't count Annual-tagged expenses.
-  var annualEntryIds = annualEntryIdSet_();
+  var annualEntryIds = annualMarkedIdSet_();
   // A trip kept out of category budgets ("In my budgets" not as usual) would only inflate the suggestion.
   var tripRoutes = tripBudgetRoutes_();
   var totals = {};

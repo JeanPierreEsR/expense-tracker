@@ -626,6 +626,11 @@
 
         <div class="breakdown-section">
           <h3 data-i18n="overview.byCategory">By category</h3>
+          <div class="currency-chips ov-annual-views" id="ov-annual-views" role="group" data-i18n-aria-label="overview.annualViews" aria-label="Annual expenses" hidden>
+            <button type="button" class="currency-chip" data-view="all" data-i18n="overview.viewAll">Everything</button>
+            <button type="button" class="currency-chip" data-view="oneLine" data-i18n="overview.viewOneLine">Annual as one line</button>
+            <button type="button" class="currency-chip" data-view="onlyAnnual" data-i18n="overview.viewOnlyAnnual">Only annual</button>
+          </div>
           <div class="pie-chart-wrap" id="pie-wrap-category">
             <div class="pie-chart" id="pie-category"></div>
           </div>
@@ -1221,6 +1226,18 @@
         <div id="tidy-list"></div>
         <p class="hint" id="tidy-more" hidden></p>
         <p class="hint" id="tidy-empty" hidden data-i18n="tidy.empty">Everything has a category. Nothing to tidy.</p>
+      </div>
+      <!-- The owner's one-time move out of the old "Annual budget" category (AnnualCleanup.gs): only where listAnnualCleanup says available. -->
+      <div class="card" id="annualcu-card" hidden>
+        <h3 style="margin-top:0;" id="annualcu-title"></h3>
+        <p class="hint" data-i18n="annualcu.hint">Being annual is now a tag, not a category. Give each group its real category: it gets the Annual tag, so it still counts as annual.</p>
+        <p class="hint" id="annualcu-summary"></p>
+        <button type="button" class="add-inline" id="annualcu-apply-all-btn" hidden></button>
+        <div id="annualcu-list"></div>
+        <div id="annualcu-finish" hidden>
+          <p class="hint" id="annualcu-finish-text"></p>
+          <button type="button" class="primary" id="annualcu-finish-btn" data-i18n="annualcu.finishBtn">Finish</button>
+        </div>
       </div>
       <!-- Entries with no account (NoAccount.gs): shown only where the backend says noAccountTidy, and only when there are some. -->
       <div class="card" id="noacct-card" hidden>
@@ -3177,6 +3194,11 @@
           <input type="checkbox" id="budget-all-categories-checkbox">
           <span data-i18n="budgetModal.allCategories">All expense categories</span>
         </label>
+        <label class="checkbox-row" id="budget-annual-kind-row" hidden>
+          <input type="checkbox" id="budget-annual-kind-checkbox">
+          <span data-i18n="budgetModal.annualKind">Everything marked Annual (yearly)</span>
+        </label>
+        <p class="hint" id="budget-annual-kind-hint" hidden data-i18n="budgetModal.annualKindHint">Counts every expense tagged Annual, and trips or events you send to this budget, whatever their category.</p>
         <div class="tags-list" id="budget-category-chips"></div>
 
         <label for="budget-amount" data-i18n="field.amount">Amount</label>
