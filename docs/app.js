@@ -10720,7 +10720,9 @@ document.getElementById("drilldown-menu-btn").addEventListener("click", (e) => {
   // "End budget" where the backend knows budget history (forward only); an ended budget has nothing to end.
   const del = document.getElementById("drilldown-menu-delete");
   const hist = budgetHistoryOn_();
-  del.textContent = tr(hist ? "drill.endBudget" : "drill.deleteBudget");
+  // A line icon, never an emoji, in a menu (owner, 2026-11-14): a stop sign to end, a trash can to delete.
+  document.getElementById("drilldown-menu-delete-label").textContent = tr(hist ? "drill.endBudget" : "drill.deleteBudget");
+  document.getElementById("drilldown-menu-delete-ico").innerHTML = lineIcon_(hist ? "stop" : "trash");
   del.hidden = !!(hist && drilldownBudget && drilldownBudget.ended);
   menu.hidden = !menu.hidden;
 });
@@ -23545,6 +23547,7 @@ const LINE_ICONS_ = {
 };
 // More line icons for status lines, messages, hints, warnings and tutorials (owner, 2026-11-13).
 Object.assign(LINE_ICONS_, {
+  stop: '<circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
   save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
   pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
   search: '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.6" y2="16.6"/>',

@@ -1305,7 +1305,7 @@
     "drill.budgetOptions": { en: "Budget options", es: "Opciones del presupuesto" },
     "drill.modifyBudget": { en: "Modify budget", es: "Modificar presupuesto" },
     "drill.deleteBudget": { en: "Delete budget", es: "Eliminar presupuesto" },
-    "drill.endBudget": { en: "⏹️ End budget", es: "⏹️ Terminar presupuesto" },
+    "drill.endBudget": { en: "End budget", es: "Terminar presupuesto" },
     "drill.actualSpend": { en: "Confirmed spend", es: "Gasto confirmado" },
     "drill.pace": { en: "Pace to stay in budget", es: "Ritmo para no pasarte del presupuesto" },
     "drill.programmed": { en: "🔁 Programmed", es: "🔁 Programado" },
