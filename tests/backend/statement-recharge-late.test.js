@@ -121,3 +121,36 @@ test("A: one company under several names: an iCloud or App Store purchase pairs 
   assert.equal(p.summary.recharges.length, 2);
   assert.deepEqual(p.summary.recharges.map((r) => r.entryId || (r.options && r.options[0] && r.options[0].entryId)).sort(), [ic, as].sort());
 });
+
+test("A: a purchase recorded in the wrong currency (same digits) is offered, never ticked; fixing it keeps nothing as paid; Undo puts it back", () => {
+  const { rt, add, stmt } = setup();
+  const id = add("2019-03-27", 76.46, "Amazon");          // typed as PEN, the card charged USD 76.46
+  const s = stmt([{ date: "2019-03-26", description: "AMAZON MKTPL", amount: -76.46, currency: "USD" }]);
+  const p = plan(rt, [s]);
+  assert.equal(p.summary.recharges.length, 1);
+  const r = p.summary.recharges[0];
+  assert.ok(!r.clear, "a guess: the person decides");
+  assert.equal(r.options[0].wrong, true);
+  assert.ok(!p.actions.some((a) => a.type === "use_bank_charge" || a.type === "add_history_expense"), "nothing chosen for it yet");
+  const res = save(rt, [s], [...p.actions, { type: "use_bank_charge", stmt: 0, line: 0, entryId: id, wrong: true }]);
+  const e = row(rt, id);
+  assert.equal(e.currency, "USD");
+  assert.equal(Number(e.amount), 76.46);
+  assert.ok(!e.paid_amount && !e.paid_currency, "no 'paid in PEN' left behind");
+  run(rt, `undoStatementBatch({ batchId: ${JSON.stringify(res.batchId)} })`);
+  const u = row(rt, id);
+  assert.equal(u.currency, "PEN");
+  assert.equal(Number(u.amount), 76.46);
+  assert.ok(!u.paid_amount && !u.charge_pending);
+});
+
+test("A: same digits but no shared shop word, or 4 days apart, is not offered", () => {
+  const { rt, add, stmt } = setup();
+  add("2019-03-20", 40.00, "Tienda");
+  add("2019-03-10", 12.50, "Uber");
+  const p = plan(rt, [stmt([
+    { date: "2019-03-20", description: "Amazon Prime", amount: -40.00, currency: "USD" },
+    { date: "2019-03-14", description: "UBER TRIP", amount: -12.50, currency: "USD" }
+  ])]);
+  assert.equal(p.summary.recharges.length, 0);
+});
