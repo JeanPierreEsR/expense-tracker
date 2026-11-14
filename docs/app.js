@@ -17918,7 +17918,7 @@ function renderTripDetail_(d) {
   }
 
   const phase = (key, value) => `
-    <div class="trip-phase"><div class="trip-phase-label">${escapeHtml(tr(key))}</div><div class="trip-phase-value">${cur} ${moneyFmt(value)}</div></div>`;
+    <div class="trip-phase"><div class="trip-phase-label">${escapeHtml(tr(key))}</div><div class="trip-phase-value">${moneyFmt(value)}</div></div>`;   // no currency: the total above names it, and the three tiles fit (owner, 2026-11-14)
   const cats = d.byCategory.map((c) => `
     <div class="recurring-row trip-static-row">
       <div class="recurring-row-name">${c.icon ? escapeHtml(c.icon) + " " : ""}${escapeHtml(c.name)}</div>
