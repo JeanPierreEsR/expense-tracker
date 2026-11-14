@@ -2511,6 +2511,7 @@ body.income-revealed .sens-mask { display: none; }
 .stmt-group summary { cursor: pointer; font-weight: 600; font-size: 0.875rem; padding: 4px 0; }
 /* A person inside "Payments with people" sits one step in, so the names read as part of that group (owner, 2026-11-11). */
 .stmt-group[data-ppkey] { margin-left: 16px; }
+.stmt-sum-sub { list-style: circle; margin: 2px 0; padding-left: 18px; }
 .stmt-count {
   display: inline-block;
   min-width: 22px;

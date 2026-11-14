@@ -454,7 +454,7 @@ function analyzeStatements(payload) {
       }
       if (r.status === 'recharge') {
         o.recharge = { clear: r.recharge.clear, entryId: r.recharge.entryId, options: r.recharge.options.map(function (c) {
-          return Object.assign(stmtEntrySummary_(entryById[c.entryId], catsById, pmsById), { dayDiff: c.dd }); }) };
+          return Object.assign(stmtEntrySummary_(entryById[c.entryId], catsById, pmsById), { dayDiff: c.dd, wrong: !!c.wrong }); }) };
         counts.recharges = (counts.recharges || 0) + 1;
         return o;
       }

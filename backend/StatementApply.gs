@@ -36,7 +36,8 @@
  *   match            { stmt, line, entryId, overwriteAccount? } line IS that entry
  *   complete_transfer{ stmt, line, entryId, side } fills the blank end of a transfer
  *   fill_charge      { stmt, line, entryId }  the line is what the card charged for a purchase left pending in what was paid
- *   use_bank_charge  { stmt, line, entryId }  the card charged this purchase in another currency: it takes the charge, keeps what was paid
+ *   use_bank_charge  { stmt, line, entryId, wrong? }  the card charged this purchase in another currency: it takes the charge, keeps what was paid
+ *                    (wrong: recorded in the wrong currency, same digits: it keeps nothing as paid)
  *   use_bank_amount  { stmt, line, entryId }  the card charged LESS than this purchase (a discount): it takes the line's amount
  *                    (Charges.gs fillEntryCharge); Undo puts it back to pending
  *   assign_account   { stmt, line, entryId }  entry has no account yet
@@ -542,8 +543,10 @@ function applyStatementDecisions(payload) {
       if (re.type !== 'expense' || !re.currency || re.currency === rc.l.currency || String(re.charge_pending || '') === '1' || re.paid_currency ||
           (re.payment_method_id && re.payment_method_id !== pmR.id) || repaymentOfEntry_(re.id)) throw new Error(tr_('sa.discountMismatch'));
       if (chargeFills.some(function (x) { return x.entryId === String(a.entryId); })) throw new Error(tr_('sa.chargeTwice'));
+      // Recorded in the wrong currency (same digits): only when the digits really are the same; it keeps no "paid" amount.
+      var wrongCur = !!a.wrong && Math.abs(Math.abs(rc.l.amount) - Number(re.amount)) < 0.005;
       if (!re.payment_method_id && !pmR.noAccount) setCell(a.entryId, 'payment_method_id', pmR.id);
-      chargeFills.push({ entryId: String(a.entryId), amount: Math.abs(rc.l.amount), currency: rc.l.currency, force: true });
+      chargeFills.push({ entryId: String(a.entryId), amount: Math.abs(rc.l.amount), currency: rc.l.currency, force: true, wrong: wrongCur });
       report.recharges = (report.recharges || 0) + 1;
       remember(rc, 'charge_filled', a.entryId);
     } else if (a.type === 'use_bank_amount') {
@@ -727,6 +730,7 @@ function applyStatementDecisions(payload) {
       // so the same code fills it in; Undo then finds the cells as they were before (no marker), and '__recharge__' brings the split back.
       if (f.force) { ensureEntriesChargeColumns_(); updateEntryFields(f.entryId, { charge_pending: '1' }); }
       fillEntryCharge({ id: f.entryId, amount: f.amount, currency: f.currency });
+      if (f.wrong) updateEntryFields(f.entryId, { paid_amount: '', paid_currency: '' });
       var after = getEntryById_(f.entryId);
       ['amount', 'currency', 'paid_amount', 'paid_currency', 'charge_pending', 'charge_told'].forEach(function (field) {
         var o = before[field], n = after[field];

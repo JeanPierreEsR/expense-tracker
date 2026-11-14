@@ -1737,7 +1737,10 @@
       chargeKeys[lineKey(d)] = true;
       const pick = rechargeOf(k);
       if (pick === "add") chargeActions.push({ type: "add_history_expense", stmt: d.stmt, line: d.line });
-      else if (pick) chargeActions.push({ type: "use_bank_charge", stmt: d.stmt, line: d.line, entryId: pick });
+      else if (pick) {
+        const o = (d.options || []).find((x) => x.id === pick);
+        chargeActions.push({ type: "use_bank_charge", stmt: d.stmt, line: d.line, entryId: pick, ...(o && o.wrong ? { wrong: true } : {}) });
+      }
     });
     // A card charge lower than a purchase in the app (a discount): the purchase takes the bank's amount, or the line is a new purchase.
     (p.summary.discounts || []).forEach((d, k) => {
@@ -1814,12 +1817,12 @@
     const rows = items.map(({ d, k }) => {
       const pick = rechargeOf(k);
       const option = (o) => `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`;
-      const change = (o) => `<div class="hint">${escapeHtml(tr("hist.rech.change", { from: fmtMoney(o.currency, o.amount), to: fmtMoney(d.currency, Math.abs(d.amount)) }))}</div>`;
+      const change = (o) => `<div class="hint">${escapeHtml(tr(o.wrong ? "hist.rech.wrong" : "hist.rech.change", { from: fmtMoney(o.currency, o.amount), to: fmtMoney(d.currency, Math.abs(d.amount)), cur: d.currency }))}</div>`;
       let body;
       if (d.options.length === 1) {
         const o = d.options[0];
         body = `<div>${escapeHtml(tr("hist.charge.recorded", { entry: option(o) }))}</div>${change(o)}
-          <div class="stmt-choices" style="padding-left:0">${modeButton(`data-rech="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr("hist.rech.use"))}${modeButton(`data-rech="${k}" data-pick="add"`, pick === "add", tr("hist.disc.not"))}</div>`;
+          <div class="stmt-choices" style="padding-left:0">${modeButton(`data-rech="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr(o.wrong ? "hist.rech.fix" : "hist.rech.use"))}${modeButton(`data-rech="${k}" data-pick="add"`, pick === "add", tr("hist.disc.not"))}</div>`;
       } else {
         body = `<div>${escapeHtml(tr("hist.charge.pick"))}</div>` + d.options.map((o) => `<div class="stmt-charge-option"><div>${escapeHtml(option(o))}</div>${change(o)}
           <div class="stmt-choices" style="padding-left:0">${modeButton(`data-rech="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr("hist.charge.this"))}</div></div>`).join("")
@@ -1829,7 +1832,7 @@
       return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}${unpicked}`);
     }).join("");
     return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.rech.title"))} <span class="stmt-count">${items.length}</span>${toDecideBadge_(todo)}</summary>
-      <p class="hint">${escapeHtml(tr("hist.rech.hint"))}</p>${rows}</details>`;
+      <p class="hint">${escapeHtml(tr("hist.rech.hint"))}${items.some(({ d }) => (d.options || []).some((o) => o.wrong)) ? " " + escapeHtml(tr("hist.rech.wrongHint")) : ""}</p>${rows}</details>`;
   }
 
   function discountOf(k) {
@@ -1901,7 +1904,7 @@
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
-    const c = { charges: 0, discounts: 0, recharges: 0, accountsFilled: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
+    const c = { charges: 0, discounts: 0, recharges: 0, currencyFixed: 0, accountsFilled: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
         const l = usable[a.stmt].result.lines[a.line];
@@ -1920,7 +1923,7 @@
       else if (a.type === "set_balance") c.balances++;
       else if (a.type === "fill_charge") c.charges++;
       else if (a.type === "use_bank_amount") c.discounts++;
-      else if (a.type === "use_bank_charge") c.recharges++;
+      else if (a.type === "use_bank_charge") { c.recharges++; if (a.wrong) c.currencyFixed++; }
       else if (a.type === "assign_account") c.accountsFilled++;
       else if (["link", "complete_transfer"].includes(a.type)) c.linked++;
     });
@@ -2273,6 +2276,40 @@
     }
   }
 
+  // One summary bullet; a {text, sub} item puts its sub-lines under it (the per-currency totals of the expenses).
+  function sumLi_(t) {
+    if (typeof t === "string") return `<li>${escapeHtml(t)}</li>`;
+    return `<li>${escapeHtml(t.text)}<ul class="stmt-sum-sub">${t.sub.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul></li>`;
+  }
+
+  // Every line that becomes a NEW entry, so the person can see them before saving (owner, 2026-11-14): folded, oldest first, each
+  // with its account. Worked out from the same final actions as the counters, so the list and "N new" always agree.
+  const NEW_LINE_ACTIONS_ = ["add_history_expense", "add_history_income", "add_history_reversal", "add_history_refund", "record_transfer",
+    "record_transfer_leg", "add_history_investment", "add_history_pending", "record_exchange", "record_fee"];
+  // The account a statement belongs to, as the plan names it (any of its lines the plan lists carries it).
+  function stmtAccountName_(stmt) {
+    const sm = historyPlan.summary;
+    const hit = [sm.candidates, sm.recharges, sm.discounts, sm.charges, sm.aside, sm.noAccount].flat().find((x) => x && x.stmt === stmt && x.account);
+    return hit ? hit.account : "";
+  }
+  function newLinesHtml_() {
+    const seen = {}, items = [];
+    historyActions().filter((a) => NEW_LINE_ACTIONS_.includes(a.type)).forEach((a) => {
+      [a, a.out, a.in].forEach((ref) => {
+        if (!ref || ref.stmt === undefined || ref.line === undefined || !usable[ref.stmt]) return;
+        const key = lineKey(ref);
+        const l = usable[ref.stmt].result.lines[ref.line];
+        if (seen[key] || !l) return;
+        seen[key] = true;
+        items.push({ stmt: ref.stmt, line: ref.line, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: stmtAccountName_(ref.stmt) });
+      });
+    });
+    if (!items.length) return "";
+    const id = "statement-history-newlines";
+    const rows = items.sort(byDate_).map((x) => lineRow(x, x.account ? escapeHtml(x.account) : "")).join("");
+    return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.newLines", { n: items.length }))}</summary>${rows}</details>`;
+  }
+
   function renderHistoryPlan() {
     refreshStartFixes_();
     const out = $("statement-history");
@@ -2282,7 +2319,7 @@
     // Same order as the groups below: new entries, then what changes in entries you have, then what is only remembered.
     if (c.expenses) {
       const totals = moneyTotals(c.spent).split(" + ");
-      if (totals.length > 1) lines.push(tr("hist.sum.expensesMany", { n: c.expenses }), ...totals);   // one line per currency: never added together
+      if (totals.length > 1) lines.push({ text: tr("hist.sum.expensesMany", { n: c.expenses }), sub: totals });   // one line per currency, under it: never added together
       else lines.push(tr("hist.sum.expenses", { n: c.expenses, total: totals[0] }));
     }
     if (c.income) lines.push(tr("hist.sum.income", { n: c.income }));
@@ -2296,7 +2333,8 @@
     if (c.pending) lines.push(tr("hist.sum.pending", { n: c.pending }));
     if (c.accountsFilled) lines.push(tr("hist.sum.accountsFilled", { n: c.accountsFilled }));
     if (c.charges) lines.push(tr("hist.sum.charges", { n: c.charges }));
-    if (c.recharges) lines.push(tr("hist.sum.recharges", { n: c.recharges }));
+    if (c.recharges - c.currencyFixed) lines.push(tr("hist.sum.recharges", { n: c.recharges - c.currencyFixed }));
+    if (c.currencyFixed) lines.push(tr("hist.sum.currencyFixed", { n: c.currencyFixed }));
     if (c.discounts) lines.push(tr("hist.sum.discounts", { n: c.discounts }));
     if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
     if (c.left) lines.push(tr("hist.sum.left", { n: c.left }));
@@ -2324,7 +2362,7 @@
     }
     if (!c.entries && !c.charges && !c.discounts && !c.recharges) {
       // Nothing to add. Lines waiting for their other statement can still be remembered so they pair up later, and balances set.
-      out.innerHTML = pre + `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : ""}${noteHtml}
+      out.innerHTML = pre + `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map(sumLi_).join("")}</ul>` : ""}${noteHtml}
         ${historyActions().length ? `<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
       return;
     }
@@ -2339,8 +2377,8 @@
       `<span>✏️ ${escapeHtml(tr("hist.cnt.updated", { n: nUpdated }))}</span>`,
       `<span>❓ ${escapeHtml(tr("hist.cnt.decide", { n: nDecide }))}</span>`].join(" · ")}</p>`;
     out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>${counters}
-      <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
-      ${range}<p class="hint">${escapeHtml(tr(usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategoryUnlessNamed" : "hist.noCategory"))}</p>${noteHtml}
+      <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map(sumLi_).join("")}</ul>
+      ${newLinesHtml_()}${range}<p class="hint">${escapeHtml(tr(usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategoryUnlessNamed" : "hist.noCategory"))}</p>${noteHtml}
       <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;
   }
 

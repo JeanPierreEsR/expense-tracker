@@ -306,8 +306,11 @@ function matchStatements_(statements, entries, opts) {
   // say soles, the card bills dollars. Card statements only; an expense on this card (or with no account yet) that is NOT a "charge to
   // fill in" (those are paired above), paid by the person, up to STMT_DISCOUNT_WINDOW_DAYS apart, a distinctive word in common, and the
   // two amounts within STMT_CHARGE_RATE_SLACK of the rate table (no rate on file = no pair). Same CLEAR rule as the discounts.
+  // Also a purchase recorded in the WRONG currency (owner, 2026-11-14: Amazon typed as PEN 76.46, the card charged USD 76.46): the same
+  // digits in another currency, same window and shop word, with or without a rate. Such a pair is never ticked by itself (a guess);
+  // saving it changes the purchase's currency and keeps no "paid" amount (StatementApply.gs, `wrong`).
   statements.forEach(function (st) {
-    if (!st.card || String(st.pmId).indexOf('unknown:') === 0 || !opts.chargeRatio) return;
+    if (!st.card || String(st.pmId).indexOf('unknown:') === 0) return;
     var cands = {}, perEntry = {};
     st.lines.forEach(function (l, li) {
       var r = perLine[st.key][li];
@@ -321,23 +324,24 @@ function matchStatements_(statements, entries, opts) {
         if (String(e.charge_pending || '') === '1' || e.paid_currency || stmtFromStatement_(e) || (e.paid_by && e.paid_by !== 'me')) return;
         var dd = Math.abs(index.days[ei] - ld);
         if (dd > STMT_DISCOUNT_WINDOW_DAYS || !(Number(e.amount) > 0)) return;
-        var expected = opts.chargeRatio(e.currency, l.currency, e.date);
-        if (!expected) return;
-        var off = Math.abs(charged / Number(e.amount) / expected - 1);
-        if (off > STMT_CHARGE_RATE_SLACK) return;
+        var wrong = Math.abs(charged - Number(e.amount)) < 0.005;
+        var expected = opts.chargeRatio ? opts.chargeRatio(e.currency, l.currency, e.date) : null;
+        var off = expected ? Math.abs(charged / Number(e.amount) / expected - 1) : null;
+        if (!wrong && !(off !== null && off <= STMT_CHARGE_RATE_SLACK)) return;
+        if (wrong && off !== null && off <= STMT_CHARGE_RATE_SLACK) wrong = false;   // the rate explains it (two currencies close in value)
         var ew = stmtDistinctWords_(e.description + ' ' + (e.merchant || ''));
         if (!lw.some(function (w) { return ew.indexOf(w) !== -1; })) return;
-        list.push({ entryId: e.id, dd: dd, off: off });
+        list.push({ entryId: e.id, dd: dd, off: wrong ? 9 : off, wrong: wrong });
         perEntry[e.id] = (perEntry[e.id] || 0) + 1;
       });
       if (list.length) cands[li] = list.sort(function (a, b) { return (a.dd - b.dd) || (a.off - b.off); });
     });
     Object.keys(cands).forEach(function (li) {
       var list = cands[li], best = list[0];
-      var clear = list.length === 1 && perEntry[best.entryId] === 1;
+      var clear = list.length === 1 && perEntry[best.entryId] === 1 && !best.wrong;
       if (clear) used[best.entryId] = true;
       perLine[st.key][li] = { status: 'recharge', recharge: { entryId: clear ? best.entryId : '', clear: clear,
-        options: list.map(function (c) { return { entryId: c.entryId, dd: c.dd }; }) }, guess: 'expense' };
+        options: list.map(function (c) { return { entryId: c.entryId, dd: c.dd, wrong: !!c.wrong }; }) }, guess: 'expense' };
     });
   });
 
