@@ -151,6 +151,25 @@ function addTrip(payload) {
   return trip;
 }
 
+// A new trip saved from the Trips list opens at once on its own screen with "Find expenses in these dates" open (owner, 2026-11-14:
+// save → link took ~16 s as four calls one after another). `_open` = { lookBack }: the same answer brings the trip's screen and the
+// finder's list, so the phone needs this ONE call. A failure there never undoes the save: the phone then loads them itself.
+function addTripAndOpen_(payload) {
+  var open = payload && payload._open;
+  if (payload) delete payload._open;
+  var trip = addTrip(payload);
+  if (!open) return trip;
+  var out = {};
+  Object.keys(trip).forEach(function (k) { out[k] = trip[k]; });
+  try {
+    // (both read Entries: inside one memory they read each sheet once, as a get… action does)
+    out.opened = withRowsMemo_(function () {
+      return { detail: getTripDetail({ id: trip.id }), found: findTripCandidates({ id: trip.id, lookBack: open.lookBack }) };
+    });
+  } catch (e) { /* the phone loads them itself */ }
+  return out;
+}
+
 function updateTrip(payload) {
   ensureTripsSheet_();
   var sheet = getSheet('Trips');
