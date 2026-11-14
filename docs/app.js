@@ -424,6 +424,7 @@ function selectCurrency(code, target, byPerson) {
   } else if (resolvedTarget === "entry") {
     renderSplitSummary();
     if (typeof syncNothingOwedLine_ === "function") syncNothingOwedLine_();   // "Ana owes you nothing in USD" follows the currency
+    if (typeof syncEntryRepayChoose_ === "function") syncEntryRepayChoose_();   // and so do the loans offered in "Choose which loans this pays"
     // An expected payment is in one currency: a new currency means a new list to choose from.
     expectedPick_ = ""; expectedPickTouched_ = false;
     syncExpectedField_();
@@ -2127,6 +2128,7 @@ function updateRepaymentUi_() {
   document.getElementById("payment-method-label").textContent = iPaid ? tr("field.paidFromAccount") : tr("field.receivedIntoAccount");
   syncEntryOpening_(isLoan);
   syncNothingOwedLine_();
+  syncEntryRepayChoose_();
 }
 
 // Home's "+" → Transfer → New loan can be a debt from before the app (owner, 2026-11-12), as in Loans → + Add loan: only the
@@ -3668,6 +3670,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         // (writing nothing) and the person picks what the money is (owner, 2026-11-12): a debt from before the app (saved
         // with this repayment in one request), an expense / income, or back to the form.
         const repayPayload = { ...fields, overpay_category_id: overpayCategoryId };
+        // "Choose which loans this pays" (owner, 2026-11-14): the loans ticked get the payment, oldest first; none = oldest first overall.
+        const chosen = entryRepayAllocations_();
+        if (chosen && chosen.length) repayPayload.allocations = chosen;
         if (((meta && meta.capabilities) || {}).repayNothingOwed) {
           result = await callApi("recordRepayment", { ...repayPayload, ask_if_nothing_owed: true });
           if (result && result.nothing_owed) {
@@ -7868,6 +7873,7 @@ function openNewEntrySheet_() {
   // A new person's first "+": the guided practice starts by itself (owner, 2026-11-04). Never during another practice or "Mark as paid".
   if (!payingRecurringId_ && guidedEntryWanted_()) setTimeout(startGuidedEntry_, 350);
   tripNudgeAsked_ = false;
+  resetEntryRepayChoose_();   // "Choose which loans this pays": a fresh list and nothing ticked for each new entry
   if (tripFieldForced_) { tripFieldForced_ = false; populateTripOptions_(); }
   if (!payingRecurringId_) { popTipVisit_("entryForm"); setTimeout(watchEntryFormTip_, 450); }
 }
@@ -30338,45 +30344,56 @@ function renderSettlementLoanField_(s) {
 }
 
 // ---- "Choose which loans this pays": FIFO (oldest first) unless the person assigns amounts to particular loans ----
+// One piece of code for the two places that offer it (owner, 2026-11-14: Home's "+" → Repayment too, like the Loans tab): `ctx`
+// says where its fields are and where the loans, the amount, the currency and the direction come from.
 
 function settlementChoosableLoans_() {
   return repaymentLoans_
     .filter((l) => l.direction === repaymentDirection && l.currency === repaymentCurrency && l.status !== "forgiven" && l.remaining > 0.004)
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }
+const CHOOSE_SHEET_ = {
+  id: "settlement",
+  loans: () => settlementChoosableLoans_(),
+  amount: () => parseFloat(document.getElementById("settlement-amount").value) || 0,
+  cur: () => repaymentCurrency,
+  dir: () => repaymentDirection
+};
+const chooseEl_ = (ctx, part) => document.getElementById(`${ctx.id}-choose${part ? "-" + part : ""}`);
 
 // The ticked loans are paid in order (oldest first) until the payment runs out: no amounts to type per loan.
-function settlementAssignments_() {
-  const paid = parseFloat(document.getElementById("settlement-amount").value) || 0;
+function chooseAssignments_(ctx) {
+  const paid = ctx.amount();
   const open = {};
-  settlementChoosableLoans_().forEach((l) => { open[l.id] = l.remaining; });
+  ctx.loans().forEach((l) => { open[l.id] = l.remaining; });
   const out = [];
   let left = paid;
-  document.querySelectorAll("#settlement-choose-list input[data-loan]").forEach((input) => {
+  chooseEl_(ctx, "list").querySelectorAll("input[data-loan]").forEach((input) => {
     if (!input.checked || left <= 0.004) return;
     const amount = Math.round(Math.min(open[input.dataset.loan] || 0, left) * 100) / 100;
     if (amount > 0) { out.push({ loan_id: input.dataset.loan, amount }); left -= amount; }
   });
   return out;
 }
+function settlementAssignments_() { return chooseAssignments_(CHOOSE_SHEET_); }
 
-function renderSettlementChooseSummary_() {
-  const paid = parseFloat(document.getElementById("settlement-amount").value) || 0;
-  const assignments = settlementAssignments_();
+function renderChooseSummary_(ctx) {
+  const paid = ctx.amount();
+  const assignments = chooseAssignments_(ctx);
   const assigned = assignments.reduce((n, a) => n + a.amount, 0);
+  const cur = ctx.cur();
   // Each ticked loan shows how much of the payment it takes.
-  document.querySelectorAll("#settlement-choose-list input[data-loan]").forEach((input) => {
+  chooseEl_(ctx, "list").querySelectorAll("input[data-loan]").forEach((input) => {
     const a = assignments.find((x) => x.loan_id === input.dataset.loan);
-    input.closest("label").querySelector(".settle-choose-assigned").textContent = a ? `${repaymentCurrency} ${moneyFmt(a.amount)}` : "";
+    input.closest("label").querySelector(".settle-choose-assigned").textContent = a ? `${cur} ${moneyFmt(a.amount)}` : "";
   });
   // What is left of the payment continues oldest-first over the loans that were not selected: name them, so nothing surprises.
-  const cur = repaymentCurrency;
   let rest = Math.round(Math.max(0, paid - assigned) * 100) / 100;
   const parts = [tr("settle.chooseAssigned", { assigned: `${cur} ${moneyFmt(assigned)}` })];
   if (rest > 0.004) {
     const picked = new Set(assignments.map((a) => a.loan_id));
     const others = [];
-    for (const l of settlementChoosableLoans_()) {
+    for (const l of ctx.loans()) {
       if (rest <= 0.004) break;
       if (picked.has(l.id)) continue;
       const take = Math.round(Math.min(l.remaining, rest) * 100) / 100;
@@ -30384,28 +30401,25 @@ function renderSettlementChooseSummary_() {
       rest = Math.round((rest - take) * 100) / 100;
     }
     if (others.length) parts.push(tr("settle.chooseRestTo", { list: others.join(", ") }));
-    if (rest > 0.004) parts.push(tr(repaymentDirection === "they_owe_me" ? "settle.chooseExtraIncome" : "settle.chooseExtraExpense", { extra: `${cur} ${moneyFmt(rest)}` }));
+    if (rest > 0.004) parts.push(tr(ctx.dir() === "they_owe_me" ? "settle.chooseExtraIncome" : "settle.chooseExtraExpense", { extra: `${cur} ${moneyFmt(rest)}` }));
   }
-  document.getElementById("settlement-choose-summary").textContent = parts.join(" · ");
+  chooseEl_(ctx, "summary").textContent = parts.join(" · ");
 }
+function renderSettlementChooseSummary_() { renderChooseSummary_(CHOOSE_SHEET_); }
 
-// Shown only when there is a real choice (two or more open loans in the direction and currency being paid) and not while fixing
-// one recorded repayment. Closed and empty each time the sheet is reset, so a choice never leaks into the next repayment.
-function renderSettlementChoose_() {
-  const wrap = document.getElementById("settlement-choose");
-  if (!wrap) return;
-  document.getElementById("settlement-choose-panel").hidden = true;
-  document.getElementById("settlement-choose-list").innerHTML = "";
-  document.getElementById("settlement-choose-btn").textContent = tr("settle.chooseLoans");
-  wrap.hidden = !!editingSettlementId || settlementChoosableLoans_().length < 2;
+// Closed and empty: "oldest first" again. `show` = whether the button is offered at all.
+function resetChoose_(ctx, show) {
+  chooseEl_(ctx, "panel").hidden = true;
+  chooseEl_(ctx, "list").innerHTML = "";
+  chooseEl_(ctx, "btn").textContent = tr("settle.chooseLoans");
+  chooseEl_(ctx).hidden = !show;
 }
-
-document.getElementById("settlement-choose-btn").addEventListener("click", () => {
-  const panel = document.getElementById("settlement-choose-panel");
-  if (!panel.hidden) { renderSettlementChoose_(); return; }   // "Back to oldest first"
-  const list = document.getElementById("settlement-choose-list");
+function chooseOpenOrClose_(ctx) {
+  const panel = chooseEl_(ctx, "panel");
+  if (!panel.hidden) { resetChoose_(ctx, true); return; }   // "Back to oldest first"
+  const list = chooseEl_(ctx, "list");
   list.innerHTML = "";
-  settlementChoosableLoans_().forEach((l) => {
+  ctx.loans().forEach((l) => {
     const row = document.createElement("label");
     row.className = "settle-choose-row";
     const text = document.createElement("span");
@@ -30413,7 +30427,7 @@ document.getElementById("settlement-choose-btn").addEventListener("click", () =>
     const input = document.createElement("input");
     input.type = "checkbox";
     input.dataset.loan = l.id;
-    input.addEventListener("change", renderSettlementChooseSummary_);
+    input.addEventListener("change", () => renderChooseSummary_(ctx));
     const assignedEl = document.createElement("span");
     assignedEl.className = "settle-choose-assigned";
     row.appendChild(input);
@@ -30422,9 +30436,64 @@ document.getElementById("settlement-choose-btn").addEventListener("click", () =>
     list.appendChild(row);
   });
   panel.hidden = false;
-  document.getElementById("settlement-choose-btn").textContent = tr("settle.chooseOff");
-  renderSettlementChooseSummary_();
-});
+  chooseEl_(ctx, "btn").textContent = tr("settle.chooseOff");
+  renderChooseSummary_(ctx);
+}
+
+// Shown only when there is a real choice (two or more open loans in the direction and currency being paid) and not while fixing
+// one recorded repayment. Closed and empty each time the sheet is reset, so a choice never leaks into the next repayment.
+function renderSettlementChoose_() {
+  if (!document.getElementById("settlement-choose")) return;
+  resetChoose_(CHOOSE_SHEET_, !editingSettlementId && settlementChoosableLoans_().length >= 2);
+}
+document.getElementById("settlement-choose-btn").addEventListener("click", () => chooseOpenOrClose_(CHOOSE_SHEET_));
+
+// Home's "+" → Transfer → Repayment (owner, 2026-11-14): the same choice, on a NEW repayment, from the person's open loans
+// (getFriendLoanDetail, fetched when the person is picked and kept while the form is open). It appears once they have arrived and
+// only when there are two or more in the direction and currency typed; any change of person, direction or currency starts over.
+const entryRepayLoans_ = new Map();   // friend id -> their loans (null while loading)
+let entryRepayKey_ = "";
+const CHOOSE_ENTRY_ = {
+  id: "entry-repay",
+  loans: () => {
+    const f = document.getElementById("repayment-friend").value, cur = document.getElementById("currency").value.toUpperCase();
+    return (entryRepayLoans_.get(f) || [])
+      .filter((l) => l.direction === repaymentDirectionChoice && String(l.currency).toUpperCase() === cur && l.status !== "forgiven" && l.remaining > 0.004)
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  },
+  amount: () => parseFloat(document.getElementById("amount").value) || 0,
+  cur: () => document.getElementById("currency").value.toUpperCase(),
+  dir: () => repaymentDirectionChoice
+};
+function syncEntryRepayChoose_() {
+  const wrap = document.getElementById("entry-repay-choose");
+  if (!wrap) return;
+  const friendId = document.getElementById("repayment-friend").value;
+  const on = repaymentActive_() && transferKind_() === "repayment" && entryFormIsNewEntry_() && !entryOpeningOn_() && friendId && friendId !== "__add__";
+  if (!on) { resetChoose_(CHOOSE_ENTRY_, false); entryRepayKey_ = ""; return; }
+  const key = `${friendId}|${repaymentDirectionChoice}|${CHOOSE_ENTRY_.cur()}`;
+  if (!entryRepayLoans_.has(friendId)) {
+    entryRepayLoans_.set(friendId, null);
+    callApi("getFriendLoanDetail", { friendId }).then((loans) => { entryRepayLoans_.set(friendId, loans || []); syncEntryRepayChoose_(); })
+      .catch(() => { entryRepayLoans_.delete(friendId); });
+  }
+  if (entryRepayLoans_.get(friendId) === null) { resetChoose_(CHOOSE_ENTRY_, false); return; }
+  if (key === entryRepayKey_) return;   // same person, direction and currency: keep what was ticked
+  entryRepayKey_ = key;
+  resetChoose_(CHOOSE_ENTRY_, CHOOSE_ENTRY_.loans().length >= 2);
+}
+// Each new entry starts with a fresh list (the loans change after a repayment) and nothing ticked. Called by the form's reset, which
+// can run while the app is still starting, before these lines have run: then there is nothing to reset yet.
+function resetEntryRepayChoose_() {
+  try { entryRepayLoans_.clear(); entryRepayKey_ = ""; resetChoose_(CHOOSE_ENTRY_, false); } catch (e) { /* not set up yet */ }
+}
+// What the save sends: the chosen loans, or none (oldest first). Null when the panel is closed.
+function entryRepayAllocations_() {
+  if (document.getElementById("entry-repay-choose").hidden || document.getElementById("entry-repay-choose-panel").hidden) return null;
+  return chooseAssignments_(CHOOSE_ENTRY_);
+}
+document.getElementById("entry-repay-choose-btn").addEventListener("click", () => chooseOpenOrClose_(CHOOSE_ENTRY_));
+document.getElementById("amount").addEventListener("input", () => { if (!document.getElementById("entry-repay-choose-panel").hidden) renderChooseSummary_(CHOOSE_ENTRY_); });
 document.getElementById("settlement-amount").addEventListener("input", () => {
   if (repayQuickGuard_) repayQuickGuard_.armed = false;
   updateRepaySaveLabel_();
