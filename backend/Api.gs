@@ -430,6 +430,9 @@ function routeActionSwitch_(action, payload) {
     case 'previewCategoryDelete': return previewCategoryDelete(payload);
     case 'deleteCategories': return deleteCategories(payload);
     case 'getCategoryCounts': return getCategoryCounts();
+    case 'getTagCounts': return getTagCounts();
+    case 'renameTag': return renameTag(payload);
+    case 'deleteTag': return deleteTag(payload);
     case 'setCategoryHidden': return setCategoryHidden(payload);
     case 'showCategories': return showCategories(payload);
     case 'addCategoryKeyword':
@@ -1865,6 +1868,10 @@ function addTag(payload) {
     ensureAnnualTag_();
     return localizeTags_(getAllRows('Tags').filter(function (t) { return t.id === ANNUAL_TAG_ID; }))[0];
   }
+  // A tag of the same name (any case, accents) is reused, never a second one (More → Categories & tags adds tags too).
+  var wanted = searchNormalize_(String(payload.name || '').trim());
+  var same = getAllRows('Tags').find(function (t) { return searchNormalize_(String(t.name).trim()) === wanted; });
+  if (same) return same;
   var tag = { id: Utilities.getUuid(), name: payload.name, color: payload.color || '' };
   appendRowObject('Tags', tag);
   return tag;
