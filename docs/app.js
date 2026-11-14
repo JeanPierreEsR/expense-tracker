@@ -15360,11 +15360,77 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
 // Every expense in it, grouped like Tidy; a group gets its real category and the Annual tag (Undo puts it back). When none is left,
 // Finish turns the yearly budget on it into "Everything marked Annual" and hides the category. Owner's copy only (the server checks too).
 let annualCu_ = null;
+// Each row keeps the person's own pick and its own state (owner, 2026-11-14: "it doesn't remember the past categories and while it's
+// saving, it doesn't show status for each transaction"). Picks survive every redraw and reload until the app is closed; a row that was
+// applied shows "Saving…" on itself, then one line "✓ Moved to …" with its own Undo, in place (nothing moves under the finger). Applies
+// wait in line and go to the server together, one call at a time; the list reloads only when every row has finished.
+const cuPicked_ = new Map();   // group key -> category id picked on the screen
+const cuState_ = new Map();    // group key -> { status: "queued" | "saving" | "done" | "failed", categoryId, res, error }
+let cuQueue_ = [], cuRunning_ = false;
 async function loadAnnualCleanup_() {
   // A failed load says why on the card (owner's copy only), instead of leaving it hidden (owner's walk, 2026-11-14).
   try { annualCu_ = await callApi("listAnnualCleanup", {}); }
   catch (err) { annualCu_ = { available: true, error: err.message || String(err), groups: [] }; }
+  // A reload shows what is still in the old category: rows saved earlier are gone from it, their state with them.
+  const present = new Set(((annualCu_ && annualCu_.groups) || []).map((g) => g.key));
+  [...cuState_.keys()].forEach((k) => { if (!present.has(k) && cuState_.get(k).status === "done") cuState_.delete(k); });
   renderAnnualCleanup_();
+}
+function cuCategoryName_(id) { const c = (meta.categories || []).find((x) => x.id === id); return c ? c.name : ""; }
+function cuRowHtml_(g) {
+  const d = annualCu_;
+  const st = cuState_.get(g.key) || {};
+  const total = `<span class="tidy-group-total">${escapeHtml(signedMoney_(-g.totalMain, d.main))}</span>`;
+  if (st.status === "done") {
+    return `<div class="tidy-group annualcu-done" data-key="${escapeHtml(g.key)}">
+      <div class="tidy-group-top"><span class="tidy-group-name">${escapeHtml(g.label)}</span>${total}</div>
+      <div class="tidy-group-row"><span class="annualcu-status ok">${escapeHtml(tr("annualcu.rowDone", { category: cuCategoryName_(st.categoryId) }))}</span>
+        <button type="button" class="add-inline annualcu-undo">${escapeHtml(tr("tidy.undo"))}</button></div>
+    </div>`;
+  }
+  const dates = g.firstDate === g.lastDate ? I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"))
+    : I18n.fmtDateMedium(new Date(g.firstDate + "T00:00:00")) + " – " + I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"));
+  const busy = st.status === "queued" || st.status === "saving";
+  const pick = cuPicked_.has(g.key) ? cuPicked_.get(g.key) : (g.suggestion ? g.suggestion.categoryId : "");
+  const status = busy ? `<p class="annualcu-status">${escapeHtml(tr(st.status === "saving" ? "annualcu.rowSaving" : "annualcu.rowWaiting", { category: cuCategoryName_(st.categoryId) }))}</p>`
+    : st.status === "failed" ? `<p class="annualcu-status error-text">${escapeHtml(tr("common.notSaved", { error: st.error }))}</p>` : "";
+  return `<div class="tidy-group${busy ? " annualcu-busy" : ""}" data-key="${escapeHtml(g.key)}">
+      <div class="tidy-group-top"><span class="tidy-group-name">${escapeHtml(g.label)}</span>${total}</div>
+      <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}</div>
+      <div class="tidy-group-row">
+        <select class="tidy-select" aria-label="${escapeHtml(tr("tidy.pick"))}"${busy ? " disabled" : ""}>${tidyCategoryOptions_(pick, d.categoryIds || [d.categoryId])}</select>
+        <button type="button" class="add-inline tidy-apply"${busy ? " disabled" : ""}>${escapeHtml(tr("tidy.apply"))}</button>
+        <button type="button" class="add-inline tidy-lines">${escapeHtml(tr("tidy.showLines"))}</button>
+      </div>
+      ${status}
+      <ul class="tidy-samples" hidden>${g.samples.map((e) =>
+        `<li><span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description || tr("annualcu.noDescription"))}${e.pending ? ` · ${escapeHtml(tr("annualcu.pendingMark"))}` : ""}</span>${tidyAmountHtml_({ ...e, type: "expense" })}</li>`).join("")}</ul>
+    </div>`;
+}
+// Redraws one row in place (its lines stay open if they were).
+function cuRedrawRow_(key) {
+  const g = ((annualCu_ && annualCu_.groups) || []).find((x) => x.key === key);
+  const row = document.querySelector(`#annualcu-list .tidy-group[data-key="${CSS.escape(key)}"]`);
+  if (!g || !row) return;
+  const linesOpen = row.querySelector(".tidy-samples") && !row.querySelector(".tidy-samples").hidden;
+  row.outerHTML = cuRowHtml_(g);
+  if (linesOpen) { const n = document.querySelector(`#annualcu-list .tidy-group[data-key="${CSS.escape(key)}"] .tidy-samples`); if (n) n.hidden = false; }
+  cuSummary_();
+}
+// The line at the top: how many are left, saving and moved.
+function cuSummary_() {
+  const d = annualCu_, groups = (d && d.groups) || [];
+  const count = (st) => groups.filter((g) => (cuState_.get(g.key) || {}).status === st).length;
+  const saving = count("saving") + count("queued"), done = count("done");
+  const left = groups.length - done;
+  const summary = document.getElementById("annualcu-summary");
+  summary.hidden = !groups.length;
+  summary.textContent = tr("annualcu.summary", { n: d.total, g: groups.length }) +
+    (done || saving ? " " + tr(saving ? "annualcu.progress" : "annualcu.progressDone", { done, saving, left }) : "");
+  const sugg = groups.filter((g) => g.suggestion && !cuState_.has(g.key));
+  const allBtn = document.getElementById("annualcu-apply-all-btn");
+  allBtn.hidden = !sugg.length;
+  allBtn.textContent = tr("tidy.applyAll", { n: sugg.length });
 }
 function renderAnnualCleanup_() {
   const card = document.getElementById("annualcu-card");
@@ -15382,31 +15448,8 @@ function renderAnnualCleanup_() {
   }
   document.getElementById("annualcu-title").textContent = tr("annualcu.title", { name: d.categoryName });
   const groups = d.groups || [];
-  const summary = document.getElementById("annualcu-summary");
-  summary.hidden = !groups.length;
-  summary.textContent = tr("annualcu.summary", { n: d.total, g: groups.length });
-  const sugg = groups.filter((g) => g.suggestion);
-  const allBtn = document.getElementById("annualcu-apply-all-btn");
-  allBtn.hidden = !sugg.length;
-  allBtn.textContent = tr("tidy.applyAll", { n: sugg.length });
-  document.getElementById("annualcu-list").innerHTML = groups.map((g) => {
-    const dates = g.firstDate === g.lastDate ? I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"))
-      : I18n.fmtDateMedium(new Date(g.firstDate + "T00:00:00")) + " – " + I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"));
-    return `<div class="tidy-group" data-key="${escapeHtml(g.key)}">
-      <div class="tidy-group-top">
-        <span class="tidy-group-name">${escapeHtml(g.label)}</span>
-        <span class="tidy-group-total">${escapeHtml(signedMoney_(-g.totalMain, d.main))}</span>
-      </div>
-      <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}</div>
-      <div class="tidy-group-row">
-        <select class="tidy-select" aria-label="${escapeHtml(tr("tidy.pick"))}">${tidyCategoryOptions_(g.suggestion ? g.suggestion.categoryId : "", d.categoryIds || [d.categoryId])}</select>
-        <button type="button" class="add-inline tidy-apply">${escapeHtml(tr("tidy.apply"))}</button>
-        <button type="button" class="add-inline tidy-lines">${escapeHtml(tr("tidy.showLines"))}</button>
-      </div>
-      <ul class="tidy-samples" hidden>${g.samples.map((e) =>
-        `<li><span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description || tr("annualcu.noDescription"))}${e.pending ? ` · ${escapeHtml(tr("annualcu.pendingMark"))}` : ""}</span>${tidyAmountHtml_({ ...e, type: "expense" })}</li>`).join("")}</ul>
-    </div>`;
-  }).join("");
+  document.getElementById("annualcu-list").innerHTML = groups.map(cuRowHtml_).join("");
+  cuSummary_();
   const fin = document.getElementById("annualcu-finish");
   fin.hidden = groups.length > 0;
   if (!fin.hidden) {
@@ -15416,41 +15459,77 @@ function renderAnnualCleanup_() {
       : tr("annualcu.finishNoBudget", { name: d.categoryName });
   }
 }
-async function applyAnnualCleanup_(items, buttons) {
-  buttons.forEach((b) => { b.disabled = true; });
-  showToast_(tr("common.savingToast"));
-  try {
-    const res = await callApi("applyAnnualCleanup", { items });
-    if (!res.count) showToast_(tr("tidy.nothingApplied"));
-    else {
-      showUndoToast_(tr("annualcu.applied", { n: res.count }), async () => {
-        await callApi("undoAnnualCleanup", { changes: res.changes, annualIds: res.annualIds });
-        showToast_(tr("tidy.undone"));
-        await loadAnnualCleanup_();
-        refreshEntryList().catch(() => {});
-      });
-      refreshEntryList().catch(() => {});
-    }
-    await loadAnnualCleanup_();
-  } catch (err) {
-    showAppMessage_(err.message || String(err));
-  } finally {
-    buttons.forEach((b) => { b.disabled = false; });
-  }
+// Puts rows in line; everything waiting goes to the server in ONE call (speed rules: fewer calls).
+function cuEnqueue_(items) {
+  items.forEach((it) => { cuState_.set(it.key, { status: "queued", categoryId: it.categoryId }); cuQueue_.push(it); cuRedrawRow_(it.key); });
+  cuRun_();
 }
-document.getElementById("annualcu-list").addEventListener("click", (ev) => {
+async function cuRun_() {
+  if (cuRunning_) return;
+  cuRunning_ = true;
+  try {
+    while (cuQueue_.length) {
+      const batch = cuQueue_.splice(0);
+      batch.forEach((it) => { cuState_.set(it.key, { status: "saving", categoryId: it.categoryId }); cuRedrawRow_(it.key); });
+      try {
+        const res = await callApi("applyAnnualCleanup", { items: batch });
+        batch.forEach((it) => {
+          const r = res.groups && res.groups[it.key];
+          if (r && r.count) cuState_.set(it.key, { status: "done", categoryId: it.categoryId, res: r });
+          else cuState_.set(it.key, { status: "failed", categoryId: it.categoryId, error: tr("annualcu.rowNothing") });
+          cuRedrawRow_(it.key);
+        });
+        refreshEntryList().catch(() => {});
+      } catch (err) {
+        batch.forEach((it) => { cuState_.set(it.key, { status: "failed", categoryId: it.categoryId, error: err.message || String(err) }); cuRedrawRow_(it.key); });
+      }
+    }
+  } finally { cuRunning_ = false; }
+  // Every row finished and moved: reload, so the Finish step shows.
+  const groups = (annualCu_ && annualCu_.groups) || [];
+  if (groups.length && groups.every((g) => (cuState_.get(g.key) || {}).status === "done")) await loadAnnualCleanup_();
+}
+document.getElementById("annualcu-list").addEventListener("change", (ev) => {
+  const sel = ev.target.closest(".tidy-select");
+  if (!sel) return;
+  const key = sel.closest(".tidy-group").dataset.key;
+  if (sel.value) cuPicked_.set(key, sel.value); else cuPicked_.delete(key);
+  if ((cuState_.get(key) || {}).status === "failed") { cuState_.delete(key); cuRedrawRow_(key); }
+});
+document.getElementById("annualcu-list").addEventListener("click", async (ev) => {
   const row = ev.target.closest(".tidy-group");
   if (!row) return;
+  const key = row.dataset.key;
   if (ev.target.closest(".tidy-lines")) { const s = row.querySelector(".tidy-samples"); s.hidden = !s.hidden; return; }
+  if (ev.target.closest(".annualcu-undo")) {
+    const st = cuState_.get(key);
+    if (!st || !st.res) return;
+    cuState_.set(key, { status: "saving", categoryId: st.categoryId });
+    cuRedrawRow_(key);
+    const row2 = document.querySelector(`#annualcu-list .tidy-group[data-key="${CSS.escape(key)}"] .annualcu-status`);
+    if (row2) row2.textContent = tr("annualcu.rowUndoing");
+    try {
+      await callApi("undoAnnualCleanup", { changes: st.res.changes, annualIds: st.res.annualIds });
+      cuState_.delete(key);
+      refreshEntryList().catch(() => {});
+    } catch (err) {
+      cuState_.set(key, Object.assign({}, st));
+      showAppMessage_(err.message || String(err));
+    }
+    cuRedrawRow_(key);
+    return;
+  }
   if (ev.target.closest(".tidy-apply")) {
     const categoryId = row.querySelector(".tidy-select").value;
     if (!categoryId) { showFieldError_(row.querySelector(".tidy-select"), tr("review.pickCategoryFirst"), row.querySelector(".tidy-group-row")); return; }
-    applyAnnualCleanup_([{ key: row.dataset.key, categoryId }], [ev.target.closest(".tidy-apply")]);
+    cuPicked_.set(key, categoryId);
+    cuEnqueue_([{ key, categoryId }]);
   }
 });
-document.getElementById("annualcu-apply-all-btn").addEventListener("click", (ev) => {
-  const items = ((annualCu_ && annualCu_.groups) || []).filter((g) => g.suggestion).map((g) => ({ key: g.key, categoryId: g.suggestion.categoryId }));
-  if (items.length) applyAnnualCleanup_(items, [ev.currentTarget]);
+document.getElementById("annualcu-apply-all-btn").addEventListener("click", () => {
+  const items = ((annualCu_ && annualCu_.groups) || []).filter((g) => g.suggestion && !cuState_.has(g.key))
+    .map((g) => ({ key: g.key, categoryId: cuPicked_.get(g.key) || g.suggestion.categoryId }));
+  if (items.length) cuEnqueue_(items);
 });
 document.getElementById("annualcu-finish-btn").addEventListener("click", async (ev) => {
   const btn = ev.currentTarget;   // (read before the question: an event loses its currentTarget once handled)
