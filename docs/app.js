@@ -685,12 +685,14 @@ const ONCE_ACTIONS = new Set([
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
   "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
-  "applyTidyGroups"   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
+  "applyTidyGroups",   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
+  "applyAnnualCleanup", "finishAnnualCleanup"   // the owner's move out of the old "Annual budget" category (AnnualCleanup.gs)
 ]);
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
 const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 150000, removePracticeImport: 150000, removePracticeBank: 150000, planStatementHistory: 90000, analyzeStatements: 90000,
   applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000,
+  applyAnnualCleanup: 90000, undoAnnualCleanup: 90000, listAnnualCleanup: 60000,
   checkEmailsNow: 120000,   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
   checkAlertsNow: 60000 };   // the three alert checks can take 10-20 s on a big Sheet; a long wait is not a lost connection, so no six resends
 
@@ -15185,7 +15187,8 @@ async function showTidyScreen() {
   try {
     // Both lists arrive before either shows (loading standard); the no-account list only where the backend has it.
     const wantNoAcct = !!(meta.capabilities && meta.capabilities.noAccountTidy);
-    await Promise.all([loadTidy_(), wantNoAcct ? loadNoAccount_() : Promise.resolve()]);
+    const wantAnnual = !!(meta.capabilities && meta.capabilities.annualCleanup) && perfIsOwnerCopy_();
+    await Promise.all([loadTidy_(), wantNoAcct ? loadNoAccount_() : Promise.resolve(), wantAnnual ? loadAnnualCleanup_().catch(() => {}) : Promise.resolve()]);
     const fromUpload = tidyFromUpload_;
     offerTidyReal_();
     watchTidyTip_(fromUpload);
@@ -15202,9 +15205,9 @@ async function loadTidy_() {
   renderTidy_();
 }
 
-function tidyCategoryOptions_(selectedId) {
+function tidyCategoryOptions_(selectedId, leaveOutId) {
   return `<option value="">${escapeHtml(tr("tidy.pick"))}</option>` +
-    sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense"), selectedId))
+    sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" && c.id !== leaveOutId), selectedId))
       .map((c) => `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
 }
 
@@ -15360,6 +15363,108 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
     if (!saved) realNoteFailed_();
     showAppMessage_(err.message || String(err));
     updateNoAccountSave_();
+  }
+});
+
+// ---- The owner's one-time move out of the old "Annual budget" category (owner, 2026-11-14; AnnualCleanup.gs) ----
+// Every expense in it, grouped like Tidy; a group gets its real category and the Annual tag (Undo puts it back). When none is left,
+// Finish turns the yearly budget on it into "Everything marked Annual" and hides the category. Owner's copy only (the server checks too).
+let annualCu_ = null;
+async function loadAnnualCleanup_() {
+  annualCu_ = await callApi("listAnnualCleanup", {});
+  renderAnnualCleanup_();
+}
+function renderAnnualCleanup_() {
+  const card = document.getElementById("annualcu-card");
+  const d = annualCu_;
+  card.hidden = !(d && d.available);
+  if (card.hidden) return;
+  document.getElementById("annualcu-title").textContent = tr("annualcu.title", { name: d.categoryName });
+  const groups = d.groups || [];
+  const summary = document.getElementById("annualcu-summary");
+  summary.hidden = !groups.length;
+  summary.textContent = tr("annualcu.summary", { n: d.total, g: groups.length });
+  const sugg = groups.filter((g) => g.suggestion);
+  const allBtn = document.getElementById("annualcu-apply-all-btn");
+  allBtn.hidden = !sugg.length;
+  allBtn.textContent = tr("tidy.applyAll", { n: sugg.length });
+  document.getElementById("annualcu-list").innerHTML = groups.map((g) => {
+    const dates = g.firstDate === g.lastDate ? I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"))
+      : I18n.fmtDateMedium(new Date(g.firstDate + "T00:00:00")) + " – " + I18n.fmtDateMedium(new Date(g.lastDate + "T00:00:00"));
+    return `<div class="tidy-group" data-key="${escapeHtml(g.key)}">
+      <div class="tidy-group-top">
+        <span class="tidy-group-name">${escapeHtml(g.label)}</span>
+        <span class="tidy-group-total">${escapeHtml(signedMoney_(-g.totalMain, d.main))}</span>
+      </div>
+      <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}</div>
+      <div class="tidy-group-row">
+        <select class="tidy-select" aria-label="${escapeHtml(tr("tidy.pick"))}">${tidyCategoryOptions_(g.suggestion ? g.suggestion.categoryId : "", d.categoryId)}</select>
+        <button type="button" class="add-inline tidy-apply">${escapeHtml(tr("tidy.apply"))}</button>
+        <button type="button" class="add-inline tidy-lines">${escapeHtml(tr("tidy.showLines"))}</button>
+      </div>
+      <ul class="tidy-samples" hidden>${g.samples.map((e) =>
+        `<li><span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description || tr("annualcu.noDescription"))}${e.pending ? ` · ${escapeHtml(tr("annualcu.pendingMark"))}` : ""}</span>${tidyAmountHtml_({ ...e, type: "expense" })}</li>`).join("")}</ul>
+    </div>`;
+  }).join("");
+  const fin = document.getElementById("annualcu-finish");
+  fin.hidden = groups.length > 0;
+  if (!fin.hidden) {
+    const yearly = (d.budgets || []).filter((b) => b.period_type === "yearly");
+    document.getElementById("annualcu-finish-text").textContent = yearly.length
+      ? tr("annualcu.finishText", { name: d.categoryName, budgets: yearly.map((b) => `“${b.name || d.categoryName}” (${formatAmount(b.amount, b.currency)})`).join(", ") })
+      : tr("annualcu.finishNoBudget", { name: d.categoryName });
+  }
+}
+async function applyAnnualCleanup_(items, buttons) {
+  buttons.forEach((b) => { b.disabled = true; });
+  showToast_(tr("common.savingToast"));
+  try {
+    const res = await callApi("applyAnnualCleanup", { items });
+    if (!res.count) showToast_(tr("tidy.nothingApplied"));
+    else {
+      showUndoToast_(tr("annualcu.applied", { n: res.count }), async () => {
+        await callApi("undoAnnualCleanup", { changes: res.changes, annualIds: res.annualIds });
+        showToast_(tr("tidy.undone"));
+        await loadAnnualCleanup_();
+        refreshEntryList().catch(() => {});
+      });
+      refreshEntryList().catch(() => {});
+    }
+    await loadAnnualCleanup_();
+  } catch (err) {
+    showAppMessage_(err.message || String(err));
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+  }
+}
+document.getElementById("annualcu-list").addEventListener("click", (ev) => {
+  const row = ev.target.closest(".tidy-group");
+  if (!row) return;
+  if (ev.target.closest(".tidy-lines")) { const s = row.querySelector(".tidy-samples"); s.hidden = !s.hidden; return; }
+  if (ev.target.closest(".tidy-apply")) {
+    const categoryId = row.querySelector(".tidy-select").value;
+    if (!categoryId) { showFieldError_(row.querySelector(".tidy-select"), tr("review.pickCategoryFirst"), row.querySelector(".tidy-group-row")); return; }
+    applyAnnualCleanup_([{ key: row.dataset.key, categoryId }], [ev.target.closest(".tidy-apply")]);
+  }
+});
+document.getElementById("annualcu-apply-all-btn").addEventListener("click", (ev) => {
+  const items = ((annualCu_ && annualCu_.groups) || []).filter((g) => g.suggestion).map((g) => ({ key: g.key, categoryId: g.suggestion.categoryId }));
+  if (items.length) applyAnnualCleanup_(items, [ev.currentTarget]);
+});
+document.getElementById("annualcu-finish-btn").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget;   // (read before the question: an event loses its currentTarget once handled)
+  if (!(await askConfirmApp_(tr("annualcu.finishAsk"), tr("annualcu.finishBtn"), { plain: true }))) return;
+  btn.disabled = true;
+  try {
+    const res = await callApi("finishAnnualCleanup", {});
+    showToast_(res.leftAlone && res.leftAlone.length ? tr("annualcu.finishedLeft", { names: res.leftAlone.join(", ") }) : tr("annualcu.finished"));
+    await loadMeta().catch(() => {});   // the old category is hidden now
+    await loadAnnualCleanup_();
+    refreshBudgetsInBackground_();
+  } catch (err) {
+    showAppMessage_(err.message || String(err));
+  } finally {
+    btn.disabled = false;
   }
 });
 
