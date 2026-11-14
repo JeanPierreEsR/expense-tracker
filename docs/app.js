@@ -11122,7 +11122,7 @@ async function refreshBudgets() {
   budgetsCache_[budgetsKey] = data;
   drawBudgets_();
   offerBudgetsTip_();   // only now that everything has arrived (loading standard)
-  watchAnnualTip_();
+  if (!watchTripBudgetsTip_()) watchAnnualTip_();
   if (budgetsKey === JSON.stringify(projectionPeriodPayload_())) preloadBudgetsNeighbour_();
 }
 
@@ -23497,6 +23497,7 @@ function popAfterSave_(action, payload, out) {
     if (payload.direction !== "they_owe_me" && amt > 0 && (lastRenderedEntries_ || []).some((e) => e.type === "expense" && Math.abs(Number(e.amount) - amt) < 0.005 &&
       e.currency === payload.currency && Math.abs(Date.parse(e.date) - day) <= 86400000)) popStruggle_("paidBy");
   }
+  if ((action === "addTrip" || action === "updateTrip") && payload.in_budgets) popUsed_("tripBudgets");
   if (action === "forgiveLoan") popUsed_("forgive");
   if (action === "recordEarlyPayment") popUsed_("earlyPay");
   if (action === "saveBankLoan" && payload.opening) popUsed_("bankOpening");
@@ -23598,7 +23599,9 @@ function popTipTick_() {
   }
   const el = (tip.steps ? tip.steps[tip.at] : tip).target();
   if (!popInView_(el)) return;
-  if (!tip.own && !tip.cont && ((!tip.help && !popDayAllows_(tip.key)) || !teachAllows_("pop:" + tip.key))) { popTipStopWatch_(); return; }
+  // Counted ONCE in the day's teaching budget: popDayAllows_ already counts it (through tipDayAllows_). Asking teachAllows_ again under
+  // another name was always refused by the 2-minute gap it had just started, so no everyday bubble ever showed (found 2026-11-14).
+  if (!tip.own && !tip.cont && (tip.help ? !teachAllows_("pop:" + tip.key) : !popDayAllows_(tip.key))) { popTipStopWatch_(); return; }
   popTipStopWatch_();
   popTipShow_(tip, el);
 }
@@ -23643,7 +23646,7 @@ function popTipShow_(tip, el) {
   b.className = "pop-tip";
   b.setAttribute("role", "dialog");
   b.dataset.tip = tip.key;
-  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons"><button type="button" class="pop-tip-ok">${escapeHtml(tip.offer ? (tip.offerLabel || tr("rt.guideMe")) : tr("pop.gotIt"))}</button></div>`;
+  b.innerHTML = `<div class="pop-tip-arrow"></div><p>${escapeHtml(typeof tip.text === "function" ? tip.text() : tip.text)}</p><div class="pop-tip-buttons">${tip.act ? `<button type="button" class="pop-tip-act">${escapeHtml(tip.act.label)}</button>` : ""}<button type="button" class="pop-tip-ok">${escapeHtml(tip.offer ? (tip.offerLabel || tr("rt.guideMe")) : tr("pop.gotIt"))}</button></div>`;
   document.body.appendChild(b);
   const place = () => {
     if (!el.isConnected) { const n = refind(); if (n && n.isConnected) el = n; }
@@ -23676,6 +23679,8 @@ function popTipShow_(tip, el) {
     b.remove();
     popOpen_ = null;
   }
+  // A second button that takes the person straight to the feature (tip.act = { label, run }); the bubble still counts as seen.
+  if (tip.act) b.querySelector(".pop-tip-act").addEventListener("click", () => { close(); tip.act.run(); });
   b.querySelector(".pop-tip-ok").addEventListener("click", () => {
     close();
     if (tip.offer) tip.offer();
@@ -23703,6 +23708,39 @@ function watchAnnualTip_() {
     stillWanted: () => !document.getElementById("screen-budgets").hidden,
     ready: () => document.getElementById("budgets-tip-invite").hidden
   });
+}
+// Budgets: a trip's "In my budgets" (owner, 2026-11-14, the only teaching he chose for it). Its moment: a budget at 75 % or more
+// of its limit, in the period shown, where a trip or event still "as usual" makes up at least a fifth of what it spent. The bubble
+// points at that row, names the trip, and its "Open the trip" button opens the trip's pop-up, where the choice is.
+function watchTripBudgetsTip_() {
+  if (!(meta && meta.capabilities && meta.capabilities.tripBudgets)) return false;
+  let hit = null;
+  (budgetsLoaded_ || []).forEach((b) => {
+    const p = b.progress;
+    if (hit || !p || !p.exists || p.percent == null || p.percent < 75 || !(p.spent > 0)) return;
+    const t = (p.tripsInside || [])[0];
+    if (t && t.amount >= p.spent / 5) hit = { budget: b, trip: t };
+  });
+  if (!hit) return false;
+  const tripId = hit.trip.trip_id;
+  popTipWatch_({
+    key: "tripBudgets", place: "budgets", level: "advanced",
+    text: () => tr("pop.tripBudgets", { name: hit.trip.name, budget: hit.budget.progress.category_name || hit.budget.category_name }),
+    target: () => document.querySelector(`#budgets-list .budget-row[data-budget-id="${CSS.escape(String(hit.budget.id))}"]`),
+    stillWanted: () => !document.getElementById("screen-budgets").hidden,
+    ready: () => document.getElementById("budgets-tip-invite").hidden,
+    act: { label: tr(((meta.trips || []).find((t) => t.id === tripId) || {}).kind === "event" ? "pop.tripBudgetsOpenEvent" : "pop.tripBudgetsOpen"), run: () => openTripForBudgets_(tripId) }
+  });
+  return true;
+}
+// Opens a trip's pop-up from the Budgets tab, scrolled to "In my budgets" (the trips list itself is not opened).
+async function openTripForBudgets_(tripId) {
+  let trip = (meta.trips || []).find((t) => t.id === tripId);
+  try { const all = await callApi("listTrips", {}); meta.trips = all; trip = all.find((t) => t.id === tripId) || trip; } catch (e) { /* the copy on the phone will do */ }
+  if (!trip) return;
+  openTripModal_(trip);
+  const field = document.getElementById("trip-inbudgets-field");
+  if (!field.hidden) field.scrollIntoView({ block: "center" });
 }
 // The new-entry form: the "Trip / event" field, when the entry's date falls during a trip or event.
 function watchTripPickTip_() {

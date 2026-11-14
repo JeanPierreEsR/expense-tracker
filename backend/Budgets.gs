@@ -154,25 +154,32 @@ function spendEntryIn_(e, currency, rate) {
 
 // The trips that moved money out of / into this budget in the range, in its currency, so the row can say why its figure differs
 // from the category total: out = left out although its category is in the budget, in = counted although its category is not.
+// inside = trips still "as usual" whose expenses count here by category (the moment for the app's "In my budgets" bubble).
 function budgetTripMoves_(ctx, budgetId, plan, startDate, endDate, currency, rate, excludeAnnual) {
-  var out = {}, inn = {}, id = String(budgetId);
-  if (!ctx.tripRoutes || !Object.keys(ctx.tripRoutes).length) return { out: [], in: [] };
+  var out = {}, inn = {}, inside = {}, names = {}, id = String(budgetId);
   ctx.spendEntries.forEach(function (e) {
-    if (!e.route || (excludeAnnual && e.annual) || e.date < startDate || e.date > endDate) return;
+    if (!e.trip_id || (excludeAnnual && e.annual) || e.date < startDate || e.date > endDate) return;
     var byCategory = entryInBudget_(plan.match, e);
-    var routed = e.route[id] === true && (!plan.existsAt || plan.existsAt(e));
-    if (byCategory === routed) return;
+    var bucket;
+    if (!e.route) {
+      if (!byCategory) return;
+      bucket = inside;
+    } else {
+      var routed = e.route[id] === true && (!plan.existsAt || plan.existsAt(e));
+      if (byCategory === routed) return;
+      bucket = routed ? inn : out;
+    }
     var amt = spendEntryIn_(e, currency, rate);
     if (amt == null) return;
-    var bucket = routed ? inn : out;
     bucket[e.trip_id] = (bucket[e.trip_id] || 0) + amt;
   });
+  if (Object.keys(inside).length) getTripRows_().forEach(function (t) { names[t.id] = t.name; });
   var list = function (bucket) {
     return Object.keys(bucket).filter(function (t) { return bucket[t] > 0.005; }).map(function (t) {
-      return { trip_id: t, name: ctx.tripRoutes[t].name, amount: Math.round(bucket[t] * 100) / 100 };
-    });
+      return { trip_id: t, name: ctx.tripRoutes[t] ? ctx.tripRoutes[t].name : (names[t] || ''), amount: Math.round(bucket[t] * 100) / 100 };
+    }).sort(function (a, b) { return b.amount - a.amount; });
   };
-  return { out: list(out), in: list(inn) };
+  return { out: list(out), in: list(inn), inside: list(inside) };
 }
 
 function categorySpendPenFromContext_(ctx, categoryIds, startDate, endDate, excludeAnnual) {
@@ -334,7 +341,7 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
   // it's applied (only entries NOT already in this currency go through it).
   var rate = latestRateAtOrBefore_(ctx, currency, cutoffMonth);
   // Trips set to leave this budget out, or to count only in it (Trips & events "In my budgets").
-  var tripMoves = spent != null ? budgetTripMoves_(ctx, budget.id, plan, bounds.startDate, bounds.endDate, currency, rate, excludeAnnual) : { out: [], in: [] };
+  var tripMoves = spent != null ? budgetTripMoves_(ctx, budget.id, plan, bounds.startDate, bounds.endDate, currency, rate, excludeAnnual) : { out: [], in: [], inside: [] };
 
   return {
     exists: true,
@@ -359,6 +366,7 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
     annualLeftOut: annualLeftOut,
     tripsLeftOut: tripMoves.out,
     tripsCounted: tripMoves.in,
+    tripsInside: tripMoves.inside,   // trips "as usual" counted here by category, largest first
     rateAvailable: spent != null,
     rate: rate
   };

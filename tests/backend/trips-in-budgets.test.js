@@ -95,3 +95,13 @@ test("the trip pop-up's list of budgets: names, yearly first", () => {
   assert.ok(choices.some((c) => c.id === food.id && c.name === "Food test"));
   assert.ok(choices.some((c) => c.id === vac.id));
 });
+
+test("a trip still 'as usual' is reported inside the budget it counts in (the bubble's moment)", () => {
+  const { rt, food } = setup();
+  const t = trip(rt);
+  spend(rt, 300, "cat-food", t.id);
+  spend(rt, 50, "cat-food");
+  const p = progress(rt, food.id);
+  assert.deepEqual(p.tripsInside.map((x) => [x.trip_id, x.name, x.amount]), [[t.id, "Beach trip", 300]]);
+  assert.deepEqual(p.tripsLeftOut, []);
+});
