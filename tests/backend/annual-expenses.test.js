@@ -82,3 +82,20 @@ test("nobody gets one by default: a fresh copy has no Annual expenses budget", (
   const any = rt.api("listBudgets", {}).budgets.some((b) => b.annual_kind);
   assert.equal(any, false);
 });
+
+test("Overview: each category's annual part follows the same rule, and the chosen view is kept in Settings", () => {
+  const { rt, annual } = setup();
+  const t = trip(rt, { in_budgets: annual.id });
+  spend(rt, 200, "cat-food", { tripId: t.id });
+  spend(rt, 30, "cat-food");
+  spend(rt, 50, "cat-tix", { annual: true });
+  const ym = today().slice(0, 7);
+  const r = rt.api("getPeriodSummary", { startDate: ym + "-01", endDate: today() });
+  const cats = r.breakdowns.expense.byCategory;
+  const food = cats.find((c) => c.id === "cat-food"), tix = cats.find((c) => c.id === "cat-tix");
+  assert.equal(Math.round(food.annual_pen), 200);
+  assert.equal(Math.round(tix.annual_pen), 50);
+  rt.api("setOverviewCategoryView", { view: "oneLine" });
+  assert.equal(rt.api("getMeta", {}).settings.overview_category_view, "oneLine");
+  assert.throws(() => rt.api("setOverviewCategoryView", { view: "nope" }), /not available/);
+});

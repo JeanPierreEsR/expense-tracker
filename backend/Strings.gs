@@ -36,6 +36,7 @@ var BACKEND_STRINGS_ = {
   "err.validDate": { en: "Enter a valid date.", es: "Ingresa una fecha válida." },
   "err.validCurrency": { en: "Pick a valid currency.", es: "Elige una moneda válida." },
   "err.categoryNotFound": { en: "That category no longer exists.", es: "Esa categoría ya no existe." },
+  "err.validView": { en: "That view is not available.", es: "Esa vista no está disponible." },
   "err.validPeriod": { en: "That period is not valid.", es: "Ese periodo no es válido." },
   "err.validAmount": { en: "Enter a valid amount.", es: "Ingresa un monto válido." },
   "err.dateRequired": { en: "Date is required.", es: "La fecha es obligatoria." },

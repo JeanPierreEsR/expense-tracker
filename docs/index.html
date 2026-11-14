@@ -626,6 +626,11 @@
 
         <div class="breakdown-section">
           <h3 data-i18n="overview.byCategory">By category</h3>
+          <div class="currency-chips ov-annual-views" id="ov-annual-views" role="group" data-i18n-aria-label="overview.annualViews" aria-label="Annual expenses" hidden>
+            <button type="button" class="currency-chip" data-view="all" data-i18n="overview.viewAll">Everything</button>
+            <button type="button" class="currency-chip" data-view="oneLine" data-i18n="overview.viewOneLine">Annual as one line</button>
+            <button type="button" class="currency-chip" data-view="onlyAnnual" data-i18n="overview.viewOnlyAnnual">Only annual</button>
+          </div>
           <div class="pie-chart-wrap" id="pie-wrap-category">
             <div class="pie-chart" id="pie-category"></div>
           </div>
@@ -3177,6 +3182,11 @@
           <input type="checkbox" id="budget-all-categories-checkbox">
           <span data-i18n="budgetModal.allCategories">All expense categories</span>
         </label>
+        <label class="checkbox-row" id="budget-annual-kind-row" hidden>
+          <input type="checkbox" id="budget-annual-kind-checkbox">
+          <span data-i18n="budgetModal.annualKind">Everything marked Annual (yearly)</span>
+        </label>
+        <p class="hint" id="budget-annual-kind-hint" hidden data-i18n="budgetModal.annualKindHint">Counts every expense tagged Annual, and trips or events you send to this budget, whatever their category.</p>
         <div class="tags-list" id="budget-category-chips"></div>
 
         <label for="budget-amount" data-i18n="field.amount">Amount</label>

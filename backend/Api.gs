@@ -432,6 +432,7 @@ function routeActionSwitch_(action, payload) {
       return kw;
     case 'listBudgets': return listBudgets(payload);
     case 'listBudgetChoices': return listBudgetChoices();
+    case 'setOverviewCategoryView': return setOverviewCategoryView(payload);
     case 'addBudget': return addBudget(payload);
     case 'updateBudget': return updateBudget(payload);
     case 'deleteBudget': return deleteBudget(payload.id);
@@ -933,6 +934,16 @@ function getStartupBundle(payload) {
 }
 
 // What the phone gets of the Settings: all of them except the rule pack, which can be 40,000 characters and only the backend reads.
+// Overview "By category" view (owner, 2026-11-14): Everything / Annual as one line / Only annual. Kept in Settings, so reopening the
+// app (or another phone) shows the same view; it comes back in getMeta's settings.
+var OVERVIEW_CATEGORY_VIEWS_ = { all: true, oneLine: true, onlyAnnual: true };
+function setOverviewCategoryView(payload) {
+  var view = String((payload && payload.view) || '');
+  if (!OVERVIEW_CATEGORY_VIEWS_[view]) throw new Error(tr_('err.validView'));
+  setSetting_('overview_category_view', view);
+  return { view: view };
+}
+
 function settingsForApp_() {
   var map = getSettingsMap();
   delete map[RULE_PACK_SETTING_];
