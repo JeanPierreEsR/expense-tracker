@@ -127,6 +127,8 @@
     var hole = $(".spot-hole"), bubble = $(".spot-bubble"), arrow = $(".spot-arrow");
     var lastTouchAt = 0;   // when a finger last touched the screen (a half-hidden lit thing is brought back only once it is still)
     function noteTouch() { lastTouchAt = Date.now(); }
+    // A field the app is still asking about (data-spot-hold="1": "Use this credit card anyway?", or the person chose to change it) keeps its visit step open.
+    function held(el) { return !!(el && el.dataset && el.dataset.spotHold === "1"); }
     function blockEarlySave(e) {
       var b = e.target && e.target.closest ? e.target.closest("button[id]") : null;
       if (!b || !/^submit-btn$|-(save|save-btn|record|apply)$/.test(b.id) || !cur || !cur.step) return;
@@ -381,7 +383,7 @@
             if (step.until && (await step.until())) { end("done"); return; }
             if (step.visit) {
               var el = doc.querySelector(step.visit);
-              if (el && visited && doc.activeElement !== el && (!step.ok || step.ok())) { end("done"); return; }
+              if (el && visited && doc.activeElement !== el && !held(el) && (!step.ok || step.ok())) { end("done"); return; }
             }
             // Not done: something an earlier step collected no longer holds (an error on Save): go back to that step.
             for (var k = 0; k < i; k++) {
@@ -396,7 +398,7 @@
         if (step.visit) {
           // In a field and out again; a drop-down that was changed counts too (a phone's picker does not always report leaving it).
           on(doc, "focusin", function (e) { var el = doc.querySelector(step.visit); if (el && (e.target === el || el.contains(e.target))) visited = true; }, true);
-          on(doc, "change", function (e) { var el = doc.querySelector(step.visit); if (el && (e.target === el || el.contains(e.target))) { visited = true; setTimeout(function () { if (!finished) end("done"); }, 150); } }, true);
+          on(doc, "change", function (e) { var el = doc.querySelector(step.visit); if (el && (e.target === el || el.contains(e.target))) { visited = true; setTimeout(function () { if (!finished && !held(el) && (!step.ok || step.ok())) end("done"); }, 150); } }, true);
         }
         if (step.tap) {
           on(doc, "click", function (e) {

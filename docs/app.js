@@ -29185,8 +29185,11 @@ document.querySelectorAll("#loan-direction-tabs .type-tab").forEach((tab) => {
 // back. Only a pick by hand asks: an account already saved on an entry never does, and nothing is ever blocked.
 async function warnCreditCardPick_(select, moneyComesIn) {
   const pm = (meta.paymentMethods || []).find((p) => p.id === select.value);
+  delete select.dataset.spotHold;
   if (!pm || pm.type !== "credit") { select.dataset.prev = select.value; return; }
-  if (await askConfirmApp_(tr(moneyComesIn ? "creditCard.warnIn" : "creditCard.warnOut", { name: pm.nickname }), tr("confirmBtn.useAnyway"), { plain: true, cancel: tr("confirmBtn.changeAccount") })) { select.dataset.prev = select.value; return; }
+  // A tutorial step on this box waits while it asks and, after "Change account", until another account is picked (owner's walk, 2026-11-14).
+  select.dataset.spotHold = "1";
+  if (await askConfirmApp_(tr(moneyComesIn ? "creditCard.warnIn" : "creditCard.warnOut", { name: pm.nickname }), tr("confirmBtn.useAnyway"), { plain: true, cancel: tr("confirmBtn.changeAccount") })) { delete select.dataset.spotHold; select.dataset.prev = select.value; return; }
   select.value = select.dataset.prev || "";
 }
 function watchCreditCardPick_(selectId, moneyComesIn) {
