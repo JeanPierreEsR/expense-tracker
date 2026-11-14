@@ -4411,6 +4411,7 @@
     "tidy.apply": { en: "Apply", es: "Aplicar" },
     "tidy.applyAll": { en: "Apply all suggestions ({n})", es: "Aplicar todas las sugerencias ({n})" },
     "tidy.skip": { en: "Skip", es: "Omitir" },
+    "tidy.hideLines": { en: "Hide the entries", es: "Ocultar los movimientos" },
     "tidy.showLines": { en: "Show the entries", es: "Ver los movimientos" },
     "tidy.applied": { en: { one: "✓ {n} entry filed", other: "✓ {n} entries filed" }, es: { one: "✓ {n} movimiento ordenado", other: "✓ {n} movimientos ordenados" } },
     "tidy.nothingApplied": { en: "Nothing changed — those entries already have a category.", es: "No cambió nada: esos movimientos ya tienen categoría." },

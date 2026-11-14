@@ -15407,6 +15407,15 @@ function cuRowHtml_(g) {
         `<li><span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description || tr("annualcu.noDescription"))}${e.pending ? ` · ${escapeHtml(tr("annualcu.pendingMark"))}` : ""}</span>${tidyAmountHtml_({ ...e, type: "expense" })}</li>`).join("")}</ul>
     </div>`;
 }
+// "Show the entries" / "Hide the entries" (owner, 2026-11-14: the button kept saying Show while they were open). Both Tidy lists.
+function tidyLinesToggle_(row, open) {
+  const s = row.querySelector(".tidy-samples"), btn = row.querySelector(".tidy-lines");
+  if (!s || !btn) return;
+  s.hidden = open === undefined ? !s.hidden : !open;
+  btn.textContent = tr(s.hidden ? "tidy.showLines" : "tidy.hideLines");
+  btn.setAttribute("aria-expanded", String(!s.hidden));
+  linkIconize_(btn);   // the eye / crossed-out eye follows the words
+}
 // Redraws one row in place (its lines stay open if they were).
 function cuRedrawRow_(key) {
   const g = ((annualCu_ && annualCu_.groups) || []).find((x) => x.key === key);
@@ -15414,7 +15423,7 @@ function cuRedrawRow_(key) {
   if (!g || !row) return;
   const linesOpen = row.querySelector(".tidy-samples") && !row.querySelector(".tidy-samples").hidden;
   row.outerHTML = cuRowHtml_(g);
-  if (linesOpen) { const n = document.querySelector(`#annualcu-list .tidy-group[data-key="${CSS.escape(key)}"] .tidy-samples`); if (n) n.hidden = false; }
+  if (linesOpen) { const n = document.querySelector(`#annualcu-list .tidy-group[data-key="${CSS.escape(key)}"]`); if (n) tidyLinesToggle_(n, true); }
   cuSummary_();
 }
 // The line at the top: how many are left, saving and moved.
@@ -15500,7 +15509,7 @@ document.getElementById("annualcu-list").addEventListener("click", async (ev) =>
   const row = ev.target.closest(".tidy-group");
   if (!row) return;
   const key = row.dataset.key;
-  if (ev.target.closest(".tidy-lines")) { const s = row.querySelector(".tidy-samples"); s.hidden = !s.hidden; return; }
+  if (ev.target.closest(".tidy-lines")) { tidyLinesToggle_(row); return; }
   if (ev.target.closest(".annualcu-undo")) {
     const st = cuState_.get(key);
     if (!st || !st.res) return;
@@ -15582,8 +15591,7 @@ document.getElementById("tidy-list").addEventListener("click", (ev) => {
   if (!row) return;
   const key = row.dataset.key;
   if (ev.target.closest(".tidy-lines")) {
-    const samples = row.querySelector(".tidy-samples");
-    samples.hidden = !samples.hidden;
+    tidyLinesToggle_(row);
   } else if (ev.target.closest(".tidy-skip")) {
     tidySkipped_.add(key);
     renderTidy_();
