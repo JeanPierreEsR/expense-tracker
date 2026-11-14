@@ -687,7 +687,10 @@ const ONCE_ACTIONS = new Set([
   "exportData",
   "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
   "applyTidyGroups",   // the bulk category fill of Tidy my history (see CategoryFollow.gs)
-  "applyAnnualCleanup", "finishAnnualCleanup"   // the owner's move out of the old "Annual budget" category (AnnualCleanup.gs)
+  "applyAnnualCleanup", "finishAnnualCleanup",   // the owner's move out of the old "Annual budget" category (AnnualCleanup.gs)
+  // Everything else that creates something (owner, 2026-11-14: a trip saved while the phone was locked was made three times)
+  "addTrip", "addBudget", "addPaymentMethod", "savePaymentMethod", "addTag", "addBank", "addPayor", "saveCategory",
+  "saveBankLoan", "recordEarlyPayment", "recordInstallment", "recordRecurringPayment", "recordRepaymentEntry", "createStatementAccounts"
 ]);
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
@@ -751,7 +754,15 @@ function preloadReads_(calls, ttl) {
     }).catch(() => { /* the screen asks again by itself */ });
   });
 }
+// A save behind the screen keeps ONE request id per call across its "Try again"s (saveBehindScreen_ sets this while its work starts):
+// the server then answers a repeat with the first one's result instead of doing it again (owner, 2026-11-14: a trip made three times).
+let saveRetryCtx_ = null;
 async function callApi(action, payload, attempt = 1, startedAt = performance.now()) {
+  if (attempt === 1 && saveRetryCtx_ && ONCE_ACTIONS.has(action) && !(payload && payload._requestId)) {
+    const ctx = saveRetryCtx_, i = ctx.seq++;
+    if (!ctx.ids[i]) ctx.ids[i] = newRequestId_();
+    payload = { ...(payload || {}), _requestId: ctx.ids[i] };
+  }
   if (attempt > 1 || API_NEUTRAL_.has(action)) return callApiCounted_(action, payload, attempt, startedAt);
   if (API_READ_RE_.test(action)) {
     const key = apiReadKey_(action, payload);
@@ -7999,10 +8010,15 @@ function saveBehindScreen_(work, after, opts) {
   showToast_(shownText, true);
   (async () => {
     let ok = true;
+    const retry = { ids: [], seq: 0 };   // the request ids of this save, kept for its retries (see saveRetryCtx_)
     for (;;) {
       try {
         ok = true;
-        await work();
+        retry.seq = 0;
+        saveRetryCtx_ = retry;
+        let started;
+        try { started = work(); } finally { saveRetryCtx_ = null; }   // (only the calls the work starts right away share the ids)
+        await started;
         break;
       } catch (err) {
         ok = false;

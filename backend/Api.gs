@@ -134,7 +134,12 @@ var ONCE_ACTIONS_ = {
   // next to the first (the lock below makes it wait, then get the first one's answer).
   applyStatementDecisions: 1, undoStatementBatch: 1,
   applyTidyGroups: 1,   // a resend must not run a second copy next to the first
-  assignEntryAccounts: 1   // the same for filling accounts (NoAccount.gs)
+  assignEntryAccounts: 1,   // the same for filling accounts (NoAccount.gs)
+  // Everything else that CREATES something (owner, 2026-11-14: a trip saved while the phone was locked was made three times: the
+  // answer was lost, and each "try again" made it again). With the phone keeping one id per save across its retries, a repeat
+  // gets the first one's answer instead of a second copy.
+  addTrip: 1, addBudget: 1, addPaymentMethod: 1, savePaymentMethod: 1, addTag: 1, addBank: 1, addPayor: 1, saveCategory: 1,
+  saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1
 };
 
 // Speed (2026-11-02): the app can ask a save to bring back the lists it reloads right after (payload._then =
