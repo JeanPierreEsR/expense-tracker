@@ -4095,6 +4095,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // or event: say so instead of silently dropping the pick.
       showFormNotice_(tr(tripId ? "entry.programmedTripNotice" : "entry.programmedNotice", { date: listDate_(date) }));
       entryFormLeftOpen_ = true;
+      if (guided_ && Spotlight.isRunning()) guided_.programmed = date;   // the first-entry tutorial ends by saying so (never "nothing was added")
     } else if (wasEditingExistingEntry) {
       // Finishing an edit (as opposed to creating a brand-new entry)
       // returns the screen to exactly what a fresh app open looks like,
@@ -24499,9 +24500,12 @@ function guidedEntrySteps_() {
     { key: "save", target: () => realSaveTarget_("submit-btn", "form-error"),
       text: () => { const err = lastError(); return err ? tr("spot.g.saveErr", { error: err }) : tr("spot.g.save"); },
       before: async () => { document.getElementById("form-error").textContent = ""; },
-      until: () => !!(guided_ && guided_.savedId) || !newEntrySheetOpen_ },
+      until: () => !!(guided_ && (guided_.savedId || guided_.programmed)) || !newEntrySheetOpen_ },
+    // A date in the future is saved as a Programmed item, not an entry: the ending says so and where it is (no row to point at).
     ...realWhereSteps_(() => (guided_ && guided_.savedId ? document.querySelector(`#entry-list .entry[data-entry-id="${CSS.escape(guided_.savedId)}"]`) : null), () => tr("spot.g.where"),
-      { unsaved: () => !(guided_ && guided_.savedId) && !newEntrySheetOpen_ && !confirmingPendingId, before: async () => { showScreen("entries"); await new Promise((r) => setTimeout(r, 600)); return true; }, poke: () => { refreshEntryList().catch(() => {}); } })
+      { unsaved: () => !(guided_ && (guided_.savedId || guided_.programmed)) && !newEntrySheetOpen_ && !confirmingPendingId,
+        otherwise: () => (guided_ && guided_.programmed ? tr("spot.g.programmed", { date: listDate_(guided_.programmed) }) : tr("spot.g.where")),
+        before: async () => { if (guided_ && guided_.programmed) return false; showScreen("entries"); await new Promise((r) => setTimeout(r, 600)); return true; }, poke: () => { refreshEntryList().catch(() => {}); } })
   ];
 }
 

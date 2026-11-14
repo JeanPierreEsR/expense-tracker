@@ -2641,6 +2641,7 @@
     "spot.g.save": { en: "All set: tap Save entry.", es: "Todo listo: toca Guardar movimiento." },
     "spot.g.saveErr": { en: "It could not be saved: {error} Fix it and tap Save again.", es: "No se pudo guardar: {error} Corrígelo y vuelve a tocar Guardar." },
     "spot.g.where": { en: "Saved! Here is your entry. Tap it any time to fix or delete it.", es: "¡Guardado! Aquí está tu movimiento. Tócalo cuando quieras para corregirlo o borrarlo." },
+    "spot.g.programmed": { en: "Saved! Its date ({date}) is in the future, so it was saved as a Programmed item: you'll find it in More → Programmed income/expenses. It becomes a real entry once it happens.", es: "¡Guardado! Su fecha ({date}) está en el futuro, así que se guardó como movimiento programado: lo encuentras en Más → Ingresos y gastos programados. Se convierte en un movimiento real cuando ocurra." },
     "spot.g.lost": { en: "The guide lost its place and stopped. What you typed is still in the form.", es: "La guía perdió su lugar y se detuvo. Lo que escribiste sigue en el formulario." },
     "rt.guideMe": { en: "Guide me", es: "Guíame" },
     "rt.review.intro": { en: "Your first item is waiting in Needs review. It doesn't count in your totals until you confirm it. Let's go through it together.", es: "Tu primer movimiento te espera en Por revisar. No cuenta en tus totales hasta que lo confirmes. Veámoslo juntos." },
