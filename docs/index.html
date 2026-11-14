@@ -3260,6 +3260,17 @@
         <p class="hint" data-alert-hint="trips.alertHint">Comma-separated percentages of the trip budget. Leave blank for the usual ones. You'll get an alert the first time it crosses each one.</p>
         </div>
 
+        <div id="trip-inbudgets-field" hidden>
+          <label id="trip-inbudgets-label" data-i18n="trips.inBudgets">In my budgets</label>
+          <div role="radiogroup" aria-labelledby="trip-inbudgets-label">
+            <label class="settle-choose-row"><input type="radio" name="trip-inbudgets" value="usual" checked><span data-i18n="trips.inBudgetsUsual">As usual: each expense counts in its category's budgets</span></label>
+            <label class="settle-choose-row"><input type="radio" name="trip-inbudgets" value="none"><span data-i18n="trips.inBudgetsNone">Leave out of my budgets</span></label>
+            <label class="settle-choose-row"><input type="radio" name="trip-inbudgets" value="only"><span data-i18n="trips.inBudgetsOnly">Count only in…</span></label>
+          </div>
+          <div class="tags-list" id="trip-inbudgets-chips" hidden></div>
+          <p class="hint" id="trip-inbudgets-hint"></p>
+        </div>
+
         <p class="hint error-text" id="trip-form-error"></p>
         <button type="button" class="primary" id="trip-save-btn" data-i18n="trips.save">Save</button>
         <button type="button" class="delete-entry-btn" id="trip-delete-btn" hidden data-i18n="trips.delete">Delete this trip or event</button>

@@ -431,6 +431,7 @@ function routeActionSwitch_(action, payload) {
       appendRowObject('Category Keywords', kw);
       return kw;
     case 'listBudgets': return listBudgets(payload);
+    case 'listBudgetChoices': return listBudgetChoices();
     case 'addBudget': return addBudget(payload);
     case 'updateBudget': return updateBudget(payload);
     case 'deleteBudget': return deleteBudget(payload.id);

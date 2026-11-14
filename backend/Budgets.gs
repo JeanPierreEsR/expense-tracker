@@ -364,6 +364,24 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
   };
 }
 
+// The budgets a trip can count in ("In my budgets", Trips.gs): names only, no sums, so the trip pop-up gets them quickly. Ended
+// budgets are left out (a trip's expenses would count nowhere), except the ones a trip already chose (the pop-up keeps them ticked).
+function listBudgetChoices() {
+  var categoryById = rowsById_(getAllRows('Categories'));
+  var hist = budgetHistory_();
+  var chosen = {};
+  getTripRows_().forEach(function (t) { String(t.in_budgets || '').split(',').forEach(function (id) { chosen[id.trim()] = true; }); });
+  var kindOrder = { yearly: 0, monthly: 1, weekly: 2 };
+  return getAllRows('Budgets').filter(function (b) {
+    return !isPracticeBudget_(b) && (chosen[String(b.id)] || !budgetEndedNow_(b, hist[String(b.id)]));
+  }).map(function (b) {
+    var display = resolveBudgetCategoryDisplay_(parseBudgetCategoryIds_(b.category_id), categoryById);
+    return { id: b.id, name: resolveBudgetDisplayName_(b, display.name), icon: display.icon, period_type: budgetKind_(b.period_type) };
+  }).sort(function (a, b) {
+    return (kindOrder[a.period_type] - kindOrder[b.period_type]) || String(a.name).localeCompare(String(b.name));
+  });
+}
+
 // displayPeriodType/anchorDate come from the app's shared period selector
 // (the same one Overview uses) — omitted, budgets fall back to their own
 // native period as of right now, e.g. for the automation trigger (see

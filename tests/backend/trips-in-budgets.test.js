@@ -85,3 +85,13 @@ test("Home's budget card follows the same rule", () => {
   const glance = rt.api("getHomeGlance", {});
   assert.equal(Math.round(glance.budget.spentPen), 50);
 });
+
+test("the trip pop-up's list of budgets: names, yearly first", () => {
+  const { rt, food, vac } = setup();
+  rt.api("addBudget", { category_id: "cat-fun", amount: 9000, currency: "PEN", period_type: "yearly", start: "always" });
+  const choices = rt.api("listBudgetChoices", {});
+  assert.equal(choices.length, 3);
+  assert.equal(choices[0].period_type, "yearly");
+  assert.ok(choices.some((c) => c.id === food.id && c.name === "Food test"));
+  assert.ok(choices.some((c) => c.id === vac.id));
+});

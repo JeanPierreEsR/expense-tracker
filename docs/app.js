@@ -10100,6 +10100,8 @@ async function openBudgetDrilldown(budget) {
   if (p.countFrom && p.countFrom + "-01" > payload.startDate) payload.startDate = p.countFrom + "-01";
   if (p.countTo && p.monthsCounted < 12) { const [cy, cm] = p.countTo.split("-").map(Number); const last = `${p.countTo}-${String(new Date(cy, cm, 0).getDate()).padStart(2, "0")}`; if (last < payload.endDate) payload.endDate = last; }
   if (periodCats) payload.categoryIds = periodCats;
+  // Trips set to leave budgets out, or to count only in some, decide for their own expenses (Api.gs listEntries).
+  payload.budgetId = budget.id;
   // A monthly budget doesn't count Annual-tagged expenses (a yearly one does).
   if (budget.period_type !== "yearly") payload.excludeAnnual = true;
 
@@ -11249,6 +11251,9 @@ function drawBudgets_() {
     }
     const annualNote = p.annualLeftOut > 0.005
       ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: pc, amount: moneyFmt(p.annualLeftOut) }))}</div>` : "";
+    // Trips & events set to leave this budget out, or to count only in it ("In my budgets").
+    const tripNotes = (p.tripsLeftOut || []).map((t) => `<div class="budget-row-annual hint">${escapeHtml(tr("budget.tripLeftOut", { cur: pc, amount: moneyFmt(t.amount), name: t.name }))}</div>`).join("")
+      + (p.tripsCounted || []).map((t) => `<div class="budget-row-annual hint">${escapeHtml(tr("budget.tripCounted", { cur: pc, amount: moneyFmt(t.amount), name: t.name }))}</div>`).join("");
 
     const amountLabel = `${pc} ${moneyFmt(p.effectiveAmount)}`;
     const subLabel = pct == null
@@ -11294,7 +11299,7 @@ function drawBudgets_() {
         <span class="budget-row-pct">${pct == null ? "" : pct.toFixed(0) + "%"}</span>
       </div>
       ${progLine}
-      ${annualNote}
+      ${annualNote}${tripNotes}
     `;
     // Editing/deleting now lives behind the drill-down's ⋮ menu (see
     // openBudgetDrilldown) rather than a second tap target on the row.
@@ -17874,10 +17879,87 @@ function openTripModal_(trip) {
   document.getElementById("trip-alerts").value = trip && trip.alert_thresholds ? trip.alert_thresholds.split(",").join(", ") : "";
   renderCurrencyChips("trip");
   refreshTripRateWarning_(false);
+  setTripInBudgets_(trip);
   document.getElementById("trip-delete-btn").hidden = !trip;
   const backdrop = document.getElementById("trip-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+}
+
+// "In my budgets" (owner, 2026-11-14): as usual, left out of every budget, or counted only in the budgets picked (whatever the
+// category). Shown only where the backend counts it (capability tripBudgets). The budget names arrive with listBudgetChoices; until
+// then the chips say "Loading…" (loading standard).
+let tripInBudgetIds_ = new Set();
+let tripBudgetChoices_ = null;   // [{id, name, icon, period_type}] once loaded
+let tripBudgetChoicesLoad_ = null;
+let tripInBudgetsLost_ = false;
+function tripInBudgetsMode_() {
+  const r = document.querySelector('input[name="trip-inbudgets"]:checked');
+  return r ? r.value : "usual";
+}
+function setTripInBudgets_(trip) {
+  const field = document.getElementById("trip-inbudgets-field");
+  field.hidden = !(meta && meta.capabilities && meta.capabilities.tripBudgets);
+  const raw = String((trip && trip.in_budgets) || "").trim();
+  tripInBudgetsLost_ = !!(trip && trip.in_budgets_lost);
+  const mode = !raw || tripInBudgetsLost_ ? "usual" : raw === "none" ? "none" : "only";
+  tripInBudgetIds_ = new Set(mode === "only" ? raw.split(",").map((x) => x.trim()).filter(Boolean) : []);
+  document.querySelectorAll('input[name="trip-inbudgets"]').forEach((r) => { r.checked = r.value === mode; });
+  tripBudgetChoices_ = null;
+  tripBudgetChoicesLoad_ = null;
+  if (!field.hidden) loadTripBudgetChoices_();
+  renderTripInBudgets_();
+}
+function loadTripBudgetChoices_() {
+  if (tripBudgetChoicesLoad_) return tripBudgetChoicesLoad_;
+  tripBudgetChoicesLoad_ = callApi("listBudgetChoices", {}).then((list) => {
+    tripBudgetChoices_ = list || [];
+    // A budget deleted since it was picked is simply no longer offered.
+    const known = new Set(tripBudgetChoices_.map((b) => b.id));
+    tripInBudgetIds_ = new Set([...tripInBudgetIds_].filter((id) => known.has(id)));
+    renderTripInBudgets_();
+  }).catch(() => { tripBudgetChoicesLoad_ = null; tripBudgetChoices_ = null; renderTripInBudgets_(true); });
+  return tripBudgetChoicesLoad_;
+}
+function renderTripInBudgets_(failed) {
+  const mode = tripInBudgetsMode_();
+  const chips = document.getElementById("trip-inbudgets-chips");
+  const hint = document.getElementById("trip-inbudgets-hint");
+  chips.hidden = mode !== "only";
+  chips.innerHTML = "";
+  let hintText = mode === "none" ? tr("trips.inBudgetsNoneHint") : mode === "only" ? tr("trips.inBudgetsOnlyHint") : (tripInBudgetsLost_ ? tr("trips.inBudgetsLost") : "");
+  if (mode === "only") {
+    if (failed) chips.textContent = tr("trips.inBudgetsLoadFailed");
+    else if (!tripBudgetChoices_) chips.textContent = tr("common.loading");
+    else if (!tripBudgetChoices_.length) hintText = tr("trips.inBudgetsNoBudgets");
+    else tripBudgetChoices_.forEach((b) => {
+      const chip = document.createElement("div");
+      chip.className = "tag-chip" + (tripInBudgetIds_.has(b.id) ? " selected" : "");
+      chip.setAttribute("role", "checkbox");
+      chip.setAttribute("aria-checked", tripInBudgetIds_.has(b.id) ? "true" : "false");
+      chip.textContent = (b.icon ? b.icon + " " : "") + b.name + " · " + tr("period." + b.period_type);
+      chip.addEventListener("click", () => {
+        if (tripInBudgetIds_.has(b.id)) tripInBudgetIds_.delete(b.id); else tripInBudgetIds_.add(b.id);
+        renderTripInBudgets_();
+      });
+      chips.appendChild(chip);
+    });
+  }
+  hint.textContent = hintText;
+  hint.hidden = !hintText;
+}
+document.querySelectorAll('input[name="trip-inbudgets"]').forEach((r) => r.addEventListener("change", () => {
+  tripInBudgetsLost_ = false;
+  if (tripInBudgetsMode_() === "only") loadTripBudgetChoices_();
+  renderTripInBudgets_();
+}));
+// What the save sends: undefined where the field is not shown (an older backend), so nothing is overwritten.
+function tripInBudgetsValue_() {
+  if (document.getElementById("trip-inbudgets-field").hidden) return undefined;
+  const mode = tripInBudgetsMode_();
+  if (mode === "none") return "none";
+  if (mode === "only") return [...tripInBudgetIds_].join(",");
+  return "";
 }
 
 // A trip in a currency other than the app's main one converts everything else through the exchange rates, so
@@ -18041,6 +18123,10 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
   errorEl.textContent = "";
   const saveBtn = document.getElementById("trip-save-btn");
   if (!document.getElementById("trip-name").value.trim()) { errorEl.textContent = tr("accounts.errName"); return; }
+  if (!document.getElementById("trip-inbudgets-field").hidden && tripInBudgetsMode_() === "only" && !tripInBudgetIds_.size) {
+    errorEl.textContent = tr(tripBudgetChoices_ && !tripBudgetChoices_.length ? "trips.inBudgetsNoBudgets" : "trips.inBudgetsPick");
+    return;
+  }
   saveBtn.disabled = true;
   try {
     const budget = document.getElementById("trip-budget").value.trim();
@@ -18055,6 +18141,8 @@ document.getElementById("trip-save-btn").addEventListener("click", async () => {
       budget_currency: budget ? document.getElementById("trip-currency").value : "",
       alert_thresholds: budget ? document.getElementById("trip-alerts").value.trim() : ""
     };
+    const inBudgets = tripInBudgetsValue_();
+    if (inBudgets !== undefined) fields.in_budgets = inBudgets;
     // The server checks everything and answers in the person's language.
     const tripId = editingTripId_;
     const forEntry = tripFromEntry_ && !tripId && newEntrySheetOpen_;
