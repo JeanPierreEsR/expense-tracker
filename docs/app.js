@@ -21590,7 +21590,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
           <span class="expected-recurring-item-amount">${sensitiveHtml_(waitAmt)}</span>
         </div>
         <div class="expected-recurring-actions">
-          <button type="button" data-act="paid" data-id="${item.id}">${tr("expected.markPaid")}</button>
+          <button type="button" data-act="paid" data-id="${item.id}"><span class="ico">${lineIcon_("check")}</span>${tr("expected.markPaid")}</button>
         </div>
       </div>`;
       }
@@ -21602,8 +21602,8 @@ async function refreshExpectedRecurring(prefetchedGroups) {
           <span class="expected-recurring-item-amount">${isIncome ? sensitiveHtml_(itemAmt) : itemAmt}</span>
         </div>
         <div class="expected-recurring-actions">
-          <button type="button" data-act="paid" data-id="${item.id}">${tr("expected.markPaid")}</button>
-          ${item.once ? "" : `<button type="button" data-act="skip" data-id="${item.id}">${tr("expected.skipMonth")}</button>`}
+          <button type="button" data-act="paid" data-id="${item.id}"><span class="ico">${lineIcon_("check")}</span>${tr("expected.markPaid")}</button>
+          ${item.once ? "" : `<button type="button" data-act="skip" data-id="${item.id}"><span class="ico">${lineIcon_("skip")}</span>${tr("expected.skipMonth")}</button>`}
         </div>
       </div>`;
     }).join("");
