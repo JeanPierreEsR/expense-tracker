@@ -173,3 +173,22 @@ function menuTagTravelAnnualApply() {
   if (answer !== ui.Button.YES) return;
   ui.alert('Tag Travel as Annual', travelAnnualText_(adminTagTravelAnnual({ dryRun: false })), ui.ButtonSet.OK);
 }
+
+// ---- What the Annual expenses bubbles need (owner, 2026-11-14) ----
+// usual: each expense category's usual month in the main currency = its average over the last 3 COMPLETE months, annual expenses
+// and trips kept out of category budgets left out (the same sum as the suggested budgets, Budgets.gs); count: how many expenses this
+// year are annual (the one rule, annualMarkedIdSet_). Read-only; the phone asks once per session, only when a bubble could still show.
+function getAnnualHints() {
+  var today = new Date();
+  var end = new Date(today.getFullYear(), today.getMonth(), 0);   // last day of last month
+  var start = new Date(end.getFullYear(), end.getMonth() - 2, 1);
+  var iso = function (x) { return x.getFullYear() + '-' + pad2_(x.getMonth() + 1) + '-' + pad2_(x.getDate()); };
+  var usual = computeCategoryMonthlyAverages_(iso(start), iso(end), 3);
+  Object.keys(usual).forEach(function (k) { usual[k] = Math.round(usual[k] * 100) / 100; });
+  var year = String(today.getFullYear());
+  var marked = annualMarkedIdSet_();
+  var count = getAllRows('Entries').filter(function (e) {
+    return marked[e.id] && e.type === 'expense' && e.status === 'confirmed' && String(e.date).slice(0, 4) === year;
+  }).length;
+  return { usual: usual, count: count };
+}

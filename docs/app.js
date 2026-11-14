@@ -9721,6 +9721,7 @@ function renderOvCategory_(items) {
 }
 function setOvCategoryView_(view) {
   if (view === ovCategoryView_()) return;
+  if (view !== "all") popUsed_("annualViews");
   meta.settings = Object.assign({}, meta.settings, { overview_category_view: view });
   if (lastOverviewData && lastOverviewData.breakdowns) renderOvCategory_(lastOverviewData.breakdowns[overviewType].byCategory);
   callApi("setOverviewCategoryView", { view }).catch(() => {});   // a preference: a lost save only means the old view next time
@@ -11204,7 +11205,10 @@ async function refreshBudgets() {
   budgetsCache_[budgetsKey] = data;
   drawBudgets_();
   offerBudgetsTip_();   // only now that everything has arrived (loading standard)
-  if (!watchTripBudgetsTip_()) watchAnnualTip_();
+  // One bubble at a time: each claims the place only if it really waits (one already seen passes it on).
+  watchTripBudgetsTip_();
+  if (!popWatch_) watchAnnualBudgetTip_();
+  if (!popWatch_) watchAnnualTip_();
   if (budgetsKey === JSON.stringify(projectionPeriodPayload_())) preloadBudgetsNeighbour_();
 }
 
@@ -23683,6 +23687,7 @@ function popAfterSave_(action, payload, out) {
     const tags = fields.tag_ids || payload.tag_ids;
     if (fields.paid_by && fields.paid_by !== "me") popUsed_("paidBy");
     if (tags && tags.length) popUsed_("tags");
+    if (tags && tags.includes("system-annual")) popUsed_("annualBig");
     if (fields.trip_id) { popUsed_("tripPick"); popUsed_("tripNudge"); }
     if (Number(fields.paid_amount) > 0 || String(fields.charge_pending || "") === "1") { popUsed_("chargeBox"); popUsed_("chargeListed"); }
     // Receipts: several expenses typed by hand in a row (no photo read for them).
@@ -23697,6 +23702,7 @@ function popAfterSave_(action, payload, out) {
       e.currency === payload.currency && Math.abs(Date.parse(e.date) - day) <= 86400000)) popStruggle_("paidBy");
   }
   if ((action === "addTrip" || action === "updateTrip") && payload.in_budgets) popUsed_("tripBudgets");
+  if (/^(add|update)Budget$/.test(action) && String(payload.category_id || "") === "ANNUAL") popUsed_("annualBudget");
   if (action === "forgiveLoan") popUsed_("forgive");
   if (action === "recordEarlyPayment") popUsed_("earlyPay");
   if (action === "saveBankLoan" && payload.opening) popUsed_("bankOpening");
@@ -23908,6 +23914,65 @@ function watchAnnualTip_() {
     ready: () => document.getElementById("budgets-tip-invite").hidden
   });
 }
+// ---- Annual expenses (owner, 2026-11-14: three bubbles, each at its moment; super advanced) ----
+// A. Overview: the share of this period's expense total that is annual (the server's one rule, each category's `annual_pen`).
+function ovAnnualShare_() {
+  const b = lastOverviewData && lastOverviewData.breakdowns && lastOverviewData.breakdowns.expense;
+  const items = (b && b.byCategory) || [];
+  const total = items.reduce((s, it) => s + (Number(it.amount_pen) || 0), 0);
+  const annual = items.reduce((s, it) => s + (Number(it.annual_pen) || 0), 0);
+  return total > 0 ? annual / total : 0;
+}
+// B and C need history the phone does not hold (it keeps the last 100 entries): the server's getAnnualHints, asked at most once per
+// session and only when one of the two bubbles could still show. { usual: { categoryId: usual month in the main currency }, count }.
+let annualHints_ = null, annualHintsAsked_ = false;
+function annualHintsWanted_(key) { return !!(meta && meta.capabilities && meta.capabilities.annualHints) && !popGet_(POP_SEEN_KEY_, []).includes(key); }
+function loadAnnualHints_(then) {
+  if (annualHints_ || annualHintsAsked_) return;
+  annualHintsAsked_ = true;
+  callApi("getAnnualHints", {}).then((h) => { annualHints_ = h || { usual: {}, count: 0 }; if (then) then(); }).catch(() => { annualHintsAsked_ = false; });
+}
+// B. Budgets: three or more expenses this year that count as annual, and no "Everything marked Annual" budget. "Make one" opens the
+// budget form with that choice ticked (the person still sees it and taps Save; owner, 2026-11-14). Returns whether it is now waiting.
+function watchAnnualBudgetTip_() {
+  if (!annualHintsWanted_("annualBudget") || (budgetsLoaded_ || []).some((b) => b.annual_kind)) return false;
+  if (!annualHints_) {   // asked now; the bubble can come once the answer is in, if Budgets is still on screen and nothing else waits
+    loadAnnualHints_(() => { if (!document.getElementById("screen-budgets").hidden && !popWatch_ && !popOpen_) watchAnnualBudgetTip_(); });
+    return false;
+  }
+  if (annualHints_.count < 3) return false;
+  popTipWatch_({
+    key: "annualBudget", place: "budgets", text: tr("pop.annualBudget"),
+    target: () => document.getElementById("add-budget-btn"),
+    stillWanted: () => !document.getElementById("screen-budgets").hidden && !(budgetsLoaded_ || []).some((b) => b.annual_kind),
+    ready: () => document.getElementById("budgets-tip-invite").hidden,
+    act: { label: tr("pop.annualBudgetMake"), run: () => { openBudgetModal(null); setBudgetAnnualKind_(true); } }
+  });
+  return !!(popWatch_ && popWatch_.key === "annualBudget");
+}
+// C. The entry form: an expense at least 3 times what its category usually costs in a month (the server's average of the last 3
+// complete months, annual ones left out), not yet tagged Annual. Main currency only; never on an entry of a trip (trips have their own way).
+function categoryUsualMonth_(catId) { return annualHints_ ? Number((annualHints_.usual || {})[catId]) || 0 : 0; }
+function annualBigMoment_() {
+  if (selectedType !== "expense" || selectedTagIds.has("system-annual") || document.getElementById("entry-trip").value) return false;
+  if (document.getElementById("currency").value !== homeCur()) return false;
+  const cat = getCategoryId(), amount = parseFloat(sanitizeAmountInputValue(document.getElementById("amount").value)) || 0;
+  if (!cat || !(amount > 0)) return false;
+  const usual = categoryUsualMonth_(cat);
+  return usual > 0 && amount >= usual * 3;
+}
+function watchAnnualBigTip_() {
+  popTipWatch_({
+    key: "annualBig", place: "entryForm", text: () => foldedNote_(document.getElementById("tags-field"), tr("pop.annualBig")),
+    target: () => {
+      const f = document.getElementById("tags-field");
+      if (!f || f.hidden || document.activeElement === document.getElementById("amount") || !annualBigMoment_()) return null;
+      const t = foldedTarget_(f);
+      return t && t.getClientRects().length ? t : null;
+    },
+    stillWanted: () => newEntrySheetOpen_, ready: () => !guidedEntryWanted_()
+  });
+}
 // Budgets: a trip's "In my budgets" (owner, 2026-11-14, the only teaching he chose for it). Its moment: a budget at 75 % or more
 // of its limit, in the period shown, where a trip or event still "as usual" makes up at least a fifth of what it spent. The bubble
 // points at that row, names the trip, and its "Open the trip" button opens the trip's pop-up, where the choice is.
@@ -23970,6 +24035,8 @@ function watchEntryFormTip_() {
     ["tripPick", () => (meta.trips || []).some((t) => date >= t.start_date && date <= t.end_date), watchTripPickTip_],
     ["paidBy", () => (meta.friends || []).length && (popBasicsOk_() || popStruggling_("paidBy")), watchPaidByTip_],
     ["tags", () => popEntriesKnown_() >= 30 || popStruggling_("tags"), watchTagsTip_],
+    ["annualBig", () => annualHintsWanted_("annualBig") && (meta.tags || []).some((t) => t.id === "system-annual") && popBasicsOk_() &&
+      (annualHints_ ? true : (loadAnnualHints_(() => { if (newEntrySheetOpen_ && !popWatch_ && !popOpen_) watchEntryFormTip_(); }), false)), watchAnnualBigTip_],
     ["receipts", () => businessOn() && popGet_("popManualRun", 0) >= 3 && !fieldsKnown_().includes("receipt") && popBasicsOk_(), watchReceiptsTip_]   // its button is part of the Business pack
   ].find(([k, want]) => !seen.includes(k) && want());
   if (pick) pick[2]();
@@ -24078,6 +24145,13 @@ function watchOverviewTips_() {
     popTipWatch_({ key: "tagsOv", place: "overview", text: tr("pop.tagsOv"), target: () => (document.querySelector("#list-tag") && document.querySelector("#list-tag").children.length ? tagRow() : null),
       stillWanted: () => !document.getElementById("screen-overview").hidden });
     if (popWatch_ && popWatch_.key === "tagsOv") return;
+  }
+  // Annual expenses (owner, 2026-11-14): the three By category views, when this period's annual expenses are a fifth or more of its spending.
+  if (!seen.includes("annualViews") && ovAnnualShare_() >= 0.2) {
+    popTipWatch_({ key: "annualViews", place: "overview", text: tr("pop.annualViews"),
+      target: () => { const c = document.getElementById("ov-annual-views"); return c && !c.hidden && overviewType === "expense" && ovAnnualShare_() >= 0.2 ? c : null; },
+      stillWanted: () => !document.getElementById("screen-overview").hidden && ovCategoryView_() === "all" });
+    if (popWatch_ && popWatch_.key === "annualViews") return;
   }
   // A reminder (kind C): the month bars are shown, Overview was opened 3 times, and no bar was ever tapped.
   if (!popGet_("popMonthTapped", false) && (popGet_(POP_VISITS_KEY_, {}).overview || 0) >= 3) popTipWatch_({

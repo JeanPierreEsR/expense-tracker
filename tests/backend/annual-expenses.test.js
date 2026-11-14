@@ -99,3 +99,20 @@ test("Overview: each category's annual part follows the same rule, and the chose
   assert.equal(rt.api("getMeta", {}).settings.overview_category_view, "oneLine");
   assert.throws(() => rt.api("setOverviewCategoryView", { view: "nope" }), /not available/);
 });
+
+test("getAnnualHints: a category's usual month over the last 3 full months (annual left out), and this year's annual count", () => {
+  const { rt } = setup();
+  const now = new Date();
+  const monthsAgo = (k) => { const d = new Date(now.getFullYear(), now.getMonth() - k, 10); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-10"; };
+  const put = (amount, date, annual) => {
+    const id = "ah" + ++n;
+    rt.run(`appendRowObject('Entries', ${JSON.stringify({ id, type: "expense", date, amount, currency: "PEN", category_id: "cat-food", description: "h" + n, paid_by: "me", status: "confirmed", source: "manual" })});`);
+    if (annual) rt.run(`ensureAnnualTag_(); ensureAnnualOnEntry_('${id}');`);
+  };
+  put(90, monthsAgo(1)); put(60, monthsAgo(2)); put(30, monthsAgo(3));
+  put(500, monthsAgo(2), true);   // annual: never part of the usual month
+  put(999, monthsAgo(0));          // this month is not complete: left out
+  const h = rt.api("getAnnualHints", {});
+  assert.equal(h.usual["cat-food"], 60);
+  assert.equal(h.count, monthsAgo(2).startsWith(String(now.getFullYear())) ? 1 : 0);
+});

@@ -410,6 +410,7 @@ function routeActionSwitch_(action, payload) {
     case 'answerOwnName': return answerOwnName(payload);
     case 'applyProfile': return applyProfile(payload);
     case 'getProfileState': return getProfileState();
+    case 'getAnnualHints': return getAnnualHints();
     case 'listStatementGaps': return listStatementGaps();
     case 'resolveStatementGap': return resolveStatementGap(payload);
     case 'getEntriesNear': return getEntriesNear(payload);
