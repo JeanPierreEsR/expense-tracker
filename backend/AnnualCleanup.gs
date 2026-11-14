@@ -11,16 +11,27 @@
 var ANNUAL_CLEANUP_KEY_ = 'annual_budget';
 var ANNUAL_CLEANUP_BLANK_ = '__blank__';   // the group of expenses with no description
 
-// The old category's id, only on the owner's copy (no installer FEATURES) and only while that category exists and is shown.
+// The old category, only on the owner's copy (no installer FEATURES). Found by its key, else by its name (owner's walk, 2026-11-14:
+// the card did not show on his phone; a renamed or imported category may carry no key). Its sub-categories come with it. A hidden one
+// counts only while it still holds expenses (Finish hides it when empty, and the card then goes away).
+var ANNUAL_CLEANUP_NAMES_ = { 'annual budget': true, 'presupuesto anual': true, 'annual': true, 'anual': true };
 function annualCleanupCategory_() {
   if (isFriendCopy_()) return null;
-  var cat = getAllRows('Categories').find(function (c) { return String(c.key || '') === ANNUAL_CLEANUP_KEY_; });
-  if (!cat || String(cat.hidden || '') === 'yes') return null;
+  var cats = getAllRows('Categories').filter(function (c) { return c.type === 'expense'; });
+  var cat = cats.find(function (c) { return String(c.key || '') === ANNUAL_CLEANUP_KEY_; }) ||
+    cats.find(function (c) { return ANNUAL_CLEANUP_NAMES_[String(c.name || '').trim().toLowerCase()] === true; });
+  if (!cat) return null;
+  var ids = {};
+  ids[String(cat.id)] = true;
+  cats.forEach(function (c) { if (String(c.parent_id || '') === String(cat.id)) ids[String(c.id)] = true; });
+  cat = Object.assign({}, cat, { ids: ids });
+  if (String(cat.hidden || '') === 'yes' && !annualCleanupEntries_(cat).length) return null;
   return cat;
 }
 
-function annualCleanupEntries_(catId) {
-  return getAllRows('Entries').filter(function (e) { return String(e.category_id) === String(catId); });
+// Every entry in the old category or one of its sub-categories.
+function annualCleanupEntries_(cat) {
+  return getAllRows('Entries').filter(function (e) { return cat.ids[String(e.category_id)] === true; });
 }
 
 function annualCleanupKey_(e) {
@@ -28,11 +39,13 @@ function annualCleanupKey_(e) {
 }
 
 // Tidy's scan, without the old category: it must never be suggested as where an expense belongs.
-function annualCleanupScan_(catId) {
+function annualCleanupScan_(cat) {
   var scan = scanFollow_();
   var strip = function (x) {
-    var n = x.counts[catId];
-    if (n) { delete x.counts[catId]; x.total -= n; }
+    Object.keys(cat.ids).forEach(function (catId) {
+      var n = x.counts[catId];
+      if (n) { delete x.counts[catId]; x.total -= n; }
+    });
   };
   Object.keys(scan.groups).forEach(function (k) { strip(scan.groups[k]); });
   Object.keys(scan.families).forEach(function (k) { strip(scan.families[k]); });
@@ -48,7 +61,7 @@ function annualCleanupScan_(catId) {
 function listAnnualCleanup() {
   var cat = annualCleanupCategory_();
   if (!cat) return { available: false };
-  var entries = annualCleanupEntries_(cat.id);
+  var entries = annualCleanupEntries_(cat);
   var rates = buildRatesByCurrency_(), main = homeCurrency_();
   var toMain = function (e) {
     var amount = Number(e.amount) || 0;
@@ -58,7 +71,7 @@ function listAnnualCleanup() {
   };
   var byKey = {};
   entries.forEach(function (e) { (byKey[annualCleanupKey_(e)] = byKey[annualCleanupKey_(e)] || []).push(e); });
-  var scan = entries.length ? annualCleanupScan_(cat.id) : null;
+  var scan = entries.length ? annualCleanupScan_(cat) : null;
   var groups = Object.keys(byKey).map(function (key) {
     var list = byKey[key].slice().sort(compareEntriesRecency_);
     var labels = {}, total = 0;
@@ -68,15 +81,15 @@ function listAnnualCleanup() {
     return {
       key: key, label: label, count: list.length, totalMain: Math.round(total * 100) / 100,
       firstDate: list[list.length - 1].date, lastDate: list[0].date,
-      suggestion: s && String(s.categoryId) !== String(cat.id) ? { categoryId: s.categoryId, categoryName: categoryNameForMessage_(s.categoryId) } : null,
+      suggestion: s && !cat.ids[String(s.categoryId)] ? { categoryId: s.categoryId, categoryName: categoryNameForMessage_(s.categoryId) } : null,
       samples: list.slice(0, FOLLOW_SAMPLES).map(function (e) {
         return { id: e.id, date: e.date, description: e.description || '', amount: Number(e.amount), currency: e.currency, pending: e.status !== 'confirmed' };
       })
     };
   }).sort(function (a, b) { return b.totalMain - a.totalMain || b.count - a.count; });
   return {
-    available: true, categoryId: cat.id, categoryName: categoryLabel_(cat), total: entries.length, groups: groups, main: main,
-    budgets: annualCleanupBudgets_(cat.id).map(function (b) {
+    available: true, categoryId: cat.id, categoryIds: Object.keys(cat.ids), categoryName: categoryLabel_(cat), total: entries.length, groups: groups, main: main,
+    budgets: annualCleanupBudgetsOf_(cat).map(function (b) {
       return { id: b.id, name: b.name || '', period_type: budgetKind_(b.period_type), amount: Number(b.amount), currency: b.currency || main };
     })
   };
@@ -85,6 +98,13 @@ function listAnnualCleanup() {
 // The budgets on exactly the old category (Finish turns the yearly ones into "Everything marked Annual").
 function annualCleanupBudgets_(catId) {
   return getAllRows('Budgets').filter(function (b) { return String(b.category_id) === String(catId); });
+}
+// (a budget on the old category together with its sub-categories, e.g. "id1,id2", counts as one on it too)
+function annualCleanupBudgetsOf_(cat) {
+  return getAllRows('Budgets').filter(function (b) {
+    var ids = String(b.category_id || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+    return ids.length > 0 && ids.indexOf(String(cat.id)) !== -1 && ids.every(function (id) { return cat.ids[id] === true; });
+  });
 }
 
 /**
@@ -96,17 +116,18 @@ function applyAnnualCleanup(payload) {
   var cat = annualCleanupCategory_();
   if (!cat) throw new Error(tr_('annualCleanup.gone'));
   var expenseCatIds = {};
-  getAllRows('Categories').forEach(function (c) { if (c.type === 'expense' && String(c.id) !== String(cat.id)) expenseCatIds[c.id] = true; });
-  var entries = annualCleanupEntries_(cat.id);
+  getAllRows('Categories').forEach(function (c) { if (c.type === 'expense' && !cat.ids[String(c.id)]) expenseCatIds[c.id] = true; });
+  var entries = annualCleanupEntries_(cat);
   var byKey = {};
   entries.forEach(function (e) { (byKey[annualCleanupKey_(e)] = byKey[annualCleanupKey_(e)] || []).push(e); });
-  var plan = [], byCat = {};
+  var plan = [], byCat = {}, from = {};
   ((payload && payload.items) || []).forEach(function (it) {
     var list = byKey[it.key];
     if (!list) return;
     if (!expenseCatIds[it.categoryId]) throw new Error(tr_('err.categoryNotFound'));
     list.forEach(function (e) {
-      plan.push({ id: e.id, categoryId: it.categoryId, expect: String(cat.id) });
+      plan.push({ id: e.id, categoryId: it.categoryId, expect: String(e.category_id) });
+      from[e.id] = String(e.category_id);
       (byCat[it.categoryId] = byCat[it.categoryId] || []).push(e.id);
     });
   });
@@ -120,19 +141,23 @@ function applyAnnualCleanup(payload) {
   var changes = [];
   Object.keys(byCat).forEach(function (catId) {
     var ids = byCat[catId].filter(function (id) { return done[id]; });
-    if (ids.length) changes.push({ categoryId: catId, ids: ids });
+    if (ids.length) changes.push({ categoryId: catId, ids: ids, from: ids.map(function (id) { return from[id]; }) });
   });
   var count = changes.reduce(function (n, c) { return n + c.ids.length; }, 0);
   return { count: count, changes: changes, annualIds: annualIds, left: entries.length - count };
 }
 
-// Undo: back into the old category (only expenses that still carry the category this put them in), and the tags this added go.
+// Undo: each expense back into the (sub-)category it came from (only those that still carry the category this put them in), and
+// the tags this added go.
 function undoAnnualCleanup(payload) {
   var cat = annualCleanupCategory_();
   if (!cat) throw new Error(tr_('annualCleanup.gone'));
   var plan = [];
   ((payload && payload.changes) || []).forEach(function (c) {
-    (c.ids || []).forEach(function (id) { plan.push({ id: id, categoryId: String(cat.id), expect: c.categoryId }); });
+    (c.ids || []).forEach(function (id, i) {
+      var back = c.from && c.from[i] && cat.ids[String(c.from[i])] ? String(c.from[i]) : String(cat.id);
+      plan.push({ id: id, categoryId: back, expect: c.categoryId });
+    });
   });
   var reverted = bulkSetEntryCategories_(plan);
   var added = {};
@@ -149,21 +174,21 @@ function undoAnnualCleanup(payload) {
 function finishAnnualCleanup() {
   var cat = annualCleanupCategory_();
   if (!cat) throw new Error(tr_('annualCleanup.gone'));
-  if (annualCleanupEntries_(cat.id).length) throw new Error(tr_('annualCleanup.notEmpty'));
+  if (annualCleanupEntries_(cat).length) throw new Error(tr_('annualCleanup.notEmpty'));
   var converted = [], leftAlone = [];
   var name = function (b) { return String(b.name || '').trim() || categoryLabel_(cat); };
   withWriteBatch_(function () {
-    annualCleanupBudgets_(cat.id).forEach(function (b) {
+    annualCleanupBudgetsOf_(cat).forEach(function (b) {
       if (budgetKind_(b.period_type) !== 'yearly') { leftAlone.push(name(b)); return; }
       updateRowFields_('Budgets', b.id, { category_id: ANNUAL_BUDGET_CATEGORY_ });
       if (budgetHistorySheetExists_()) {
         getAllRows('Budget History').forEach(function (h) {
-          if (String(h.budget_id) === String(b.id) && String(h.category_id) === String(cat.id)) updateRowFields_('Budget History', h.id, { category_id: ANNUAL_BUDGET_CATEGORY_ });
+          if (String(h.budget_id) === String(b.id) && String(h.category_id) === String(b.category_id)) updateRowFields_('Budget History', h.id, { category_id: ANNUAL_BUDGET_CATEGORY_ });
         });
       }
       converted.push(name(b));
     });
   });
-  setCategoryHidden({ id: String(cat.id), hidden: true });
+  Object.keys(cat.ids).forEach(function (id) { setCategoryHidden({ id: id, hidden: true }); });
   return { converted: converted, leftAlone: leftAlone };
 }

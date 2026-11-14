@@ -15188,7 +15188,7 @@ async function showTidyScreen() {
     // Both lists arrive before either shows (loading standard); the no-account list only where the backend has it.
     const wantNoAcct = !!(meta.capabilities && meta.capabilities.noAccountTidy);
     const wantAnnual = !!(meta.capabilities && meta.capabilities.annualCleanup) && perfIsOwnerCopy_();
-    await Promise.all([loadTidy_(), wantNoAcct ? loadNoAccount_() : Promise.resolve(), wantAnnual ? loadAnnualCleanup_().catch(() => {}) : Promise.resolve()]);
+    await Promise.all([loadTidy_(), wantNoAcct ? loadNoAccount_() : Promise.resolve(), wantAnnual ? loadAnnualCleanup_() : Promise.resolve()]);
     const fromUpload = tidyFromUpload_;
     offerTidyReal_();
     watchTidyTip_(fromUpload);
@@ -15205,9 +15205,10 @@ async function loadTidy_() {
   renderTidy_();
 }
 
-function tidyCategoryOptions_(selectedId, leaveOutId) {
+function tidyCategoryOptions_(selectedId, leaveOut) {
+  const out = new Set([].concat(leaveOut || []));
   return `<option value="">${escapeHtml(tr("tidy.pick"))}</option>` +
-    sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" && c.id !== leaveOutId), selectedId))
+    sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" && !out.has(c.id)), selectedId))
       .map((c) => `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
 }
 
@@ -15263,6 +15264,7 @@ function renderTidy_() {
 let noAcctData_ = { entries: [], total: 0, shown: 0 };
 let noAcctLastSave_ = null;   // { ok, count } of the last Save (the real tutorial ends on it)
 const noAcctPicked_ = new Map();   // entry id -> account id picked on the screen (not saved yet)
+const noAcctOpen_ = new Set();   // months opened on the screen ('YYYY-MM'); every month starts closed
 
 async function loadNoAccount_() {
   noAcctData_ = await callApi("listNoAccountEntries", {});
@@ -15290,10 +15292,13 @@ function renderNoAccount_() {
   });
   document.getElementById("noacct-list").innerHTML = months.map(({ m, rows }) => {
     const title = I18n.fmtMonthYear(new Date(m + "-01T00:00:00"));
-    return `<div class="noacct-month" data-month="${escapeHtml(m)}">
-      <div class="tidy-group-top"><span class="tidy-group-name">${escapeHtml(title)}</span><span class="hint">${escapeHtml(tr("noacct.count", { n: rows.length }))}</span></div>
+    // Closed at first (owner, 2026-11-14): the month's own "One account for the whole month" stays in reach; a tap on the month
+    // opens its entries one by one. What is open stays open when the list is drawn again (after a Save).
+    const open = noAcctOpen_.has(m);
+    return `<div class="noacct-month${open ? " open" : ""}" data-month="${escapeHtml(m)}">
+      <button type="button" class="tidy-group-top noacct-month-head" aria-expanded="${open}"><span class="tidy-group-name">${escapeHtml(title)}</span><span class="hint">${escapeHtml(tr("noacct.count", { n: rows.length }))} <span class="noacct-chev" aria-hidden="true">›</span></span></button>
       <div class="tidy-group-row"><select class="noacct-month-select" aria-label="${escapeHtml(tr("noacct.allMonth", { month: title }))}">${noAcctOptions_("", true).replace(escapeHtml(tr("noacct.pick")), escapeHtml(tr("noacct.allMonth", { month: title })))}</select></div>
-      <ul class="tidy-samples">${rows.map((e) => `<li class="noacct-row" data-id="${escapeHtml(e.id)}">
+      <ul class="tidy-samples"${open ? "" : " hidden"}>${rows.map((e) => `<li class="noacct-row" data-id="${escapeHtml(e.id)}">
         <span>${escapeHtml(I18n.fmtDateMedium(new Date(e.date + "T00:00:00")))} · ${escapeHtml(e.description || tr("type." + e.type))}</span>
         ${tidyAmountHtml_(e)}
         <select class="noacct-select" aria-label="${escapeHtml(tr("noacct.pick"))}">${noAcctOptions_(noAcctPicked_.get(e.id) || "", e.type === "investment")}</select></li>`).join("")}</ul>
@@ -15312,6 +15317,15 @@ function updateNoAccountSave_() {
   btn.textContent = n ? tr("noacct.save", { n }) : tr("noacct.saveNone");
 }
 
+document.getElementById("noacct-list").addEventListener("click", (ev) => {
+  const head = ev.target.closest(".noacct-month-head");
+  if (!head) return;
+  const box = head.closest(".noacct-month"), m = box.dataset.month, open = !noAcctOpen_.has(m);
+  if (open) noAcctOpen_.add(m); else noAcctOpen_.delete(m);
+  box.classList.toggle("open", open);
+  head.setAttribute("aria-expanded", String(open));
+  box.querySelector(".tidy-samples").hidden = !open;
+});
 document.getElementById("noacct-list").addEventListener("change", (ev) => {
   const one = ev.target.closest(".noacct-select");
   if (one) {
@@ -15371,7 +15385,9 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
 // Finish turns the yearly budget on it into "Everything marked Annual" and hides the category. Owner's copy only (the server checks too).
 let annualCu_ = null;
 async function loadAnnualCleanup_() {
-  annualCu_ = await callApi("listAnnualCleanup", {});
+  // A failed load says why on the card (owner's copy only), instead of leaving it hidden (owner's walk, 2026-11-14).
+  try { annualCu_ = await callApi("listAnnualCleanup", {}); }
+  catch (err) { annualCu_ = { available: true, error: err.message || String(err), groups: [] }; }
   renderAnnualCleanup_();
 }
 function renderAnnualCleanup_() {
@@ -15379,6 +15395,15 @@ function renderAnnualCleanup_() {
   const d = annualCu_;
   card.hidden = !(d && d.available);
   if (card.hidden) return;
+  const errEl = document.getElementById("annualcu-error");
+  errEl.hidden = !d.error;
+  errEl.textContent = d.error ? tr("annualcu.loadFailed", { error: d.error }) : "";
+  if (d.error) {
+    document.getElementById("annualcu-title").textContent = tr("annualcu.titlePlain");
+    ["annualcu-summary", "annualcu-apply-all-btn", "annualcu-finish"].forEach((id) => { document.getElementById(id).hidden = true; });
+    document.getElementById("annualcu-list").innerHTML = "";
+    return;
+  }
   document.getElementById("annualcu-title").textContent = tr("annualcu.title", { name: d.categoryName });
   const groups = d.groups || [];
   const summary = document.getElementById("annualcu-summary");
@@ -15398,7 +15423,7 @@ function renderAnnualCleanup_() {
       </div>
       <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}</div>
       <div class="tidy-group-row">
-        <select class="tidy-select" aria-label="${escapeHtml(tr("tidy.pick"))}">${tidyCategoryOptions_(g.suggestion ? g.suggestion.categoryId : "", d.categoryId)}</select>
+        <select class="tidy-select" aria-label="${escapeHtml(tr("tidy.pick"))}">${tidyCategoryOptions_(g.suggestion ? g.suggestion.categoryId : "", d.categoryIds || [d.categoryId])}</select>
         <button type="button" class="add-inline tidy-apply">${escapeHtml(tr("tidy.apply"))}</button>
         <button type="button" class="add-inline tidy-lines">${escapeHtml(tr("tidy.showLines"))}</button>
       </div>
@@ -15640,6 +15665,9 @@ function startNoAcctReal_(startMonth) {
         const b = all.find((x) => startMonth && x.dataset.month === startMonth) || all[0];
         month = b ? b.dataset.month : ""; return !!month; } },
     { target: part(".noacct-month-select"), text: () => tr("rt.noacct.allMonth"), button: realNext_, before: async () => rows() >= 2 },
+    // The month is closed at first: the person opens it (folds are never opened for them, specs/design-system.md § Folds).
+    { target: part(".noacct-month-head"), text: () => tr("rt.noacct.open"), until: () => { const b = box(); return !!b && b.classList.contains("open"); },
+      before: async () => { const b = box(); return !!b && !b.classList.contains("open"); } },
     { key: "pick", target: part(".tidy-samples"), text: (fix) => tr(fix ? "rt.noacct.pickFix" : rows() >= 2 ? "rt.noacct.pick" : "rt.noacct.pickOne"),
       visit: "#noacct-list select", button: realNext_, ok: picked, holdsUntil: "save" },
     { key: "save", target: "#noacct-save", text: () => tr("rt.noacct.save"), until: () => !!noAcctLastSave_ },
