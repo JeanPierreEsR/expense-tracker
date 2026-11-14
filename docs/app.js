@@ -20296,6 +20296,9 @@ function toggleRecurringSplitFieldVisibility() {
   // (owner, 2026-10-19). Hidden only once an income category is picked.
   const show = !cat || cat.type === "expense";
   document.getElementById("recurring-split-field").hidden = !show;
+  // "The amount changes each time": income examples once an income category is picked, the expense ones otherwise (owner, 2026-11-14).
+  const varLabel = document.querySelector("#recurring-variable-field [data-i18n^='recModal.variable']");
+  if (varLabel) { varLabel.dataset.i18n = cat && cat.type === "income" ? "recModal.variableIncome" : "recModal.variable"; varLabel.textContent = tr(varLabel.dataset.i18n); }
   if (!show) resetRecurringSplitState();
   syncRecurringTripField_();
 }
@@ -25237,7 +25240,7 @@ function programmedGuideSteps_(ctx) {
     { key: "category", target: "#recurring-category-chips", text: () => tr("rt.prog.category"), until: () => !!selectedRecurringCategoryId, ok: () => ctx.saving() || !!selectedRecurringCategoryId, holdsUntil: "save" },
     realAmountStep_(ctx, "recurring-amount", () => tr("rt.prog.amount"), "spot.r.s3fix"),
     realCurrencyStep_("recurring-currency-chips"),
-    { target: "#recurring-variable-field", text: () => tr("rt.prog.variable"), button: realNext_, before: async () => realShown_("recurring-variable-field") },
+    { target: "#recurring-variable-field", text: () => tr((meta.categories.find((c) => c.id === selectedRecurringCategoryId) || {}).type === "income" ? "rt.prog.variableIncome" : "rt.prog.variable"), button: realNext_, before: async () => realShown_("recurring-variable-field") },
     { target: "#recurring-split-field", text: () => tr("rt.prog.split"), button: realNext_, before: async () => realShown_("recurring-split-field") },
     { target: "#recurring-frequency-tabs", text: () => tr("rt.prog.freq"), tap: "#recurring-frequency-tabs", button: realNext_ },
     { target: "#recurring-custom-fields", text: () => tr("rt.prog.custom"), button: realNext_, before: async () => realShown_("recurring-custom-fields") },

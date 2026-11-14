@@ -122,6 +122,8 @@
     var $ = function (sel) { return root.querySelector(sel); };
     var blockers = Array.prototype.slice.call(root.querySelectorAll(".spot-blk")).slice(0, 4);
     var hole = $(".spot-hole"), bubble = $(".spot-bubble"), arrow = $(".spot-arrow");
+    var lastTouchAt = 0;   // when a finger last touched the screen (a half-hidden lit thing is brought back only once it is still)
+    function noteTouch() { lastTouchAt = Date.now(); }
     $(".spot-exit").textContent = L.exit;
     // The kind shows on every step, in its own colour: real (stays) or practice (deleted at the end) (owner, 2026-11-12).
     if (L.note) { $(".spot-note").textContent = L.note; $(".spot-note").hidden = false; $(".spot-note").setAttribute("data-mode", L.mode || ""); }
@@ -234,6 +236,7 @@
       window.removeEventListener("orientationchange", layoutSoon);
       doc.removeEventListener("scroll", layoutSoon, true);
       doc.removeEventListener("keydown", onKey, true);
+      doc.removeEventListener("touchmove", noteTouch, { capture: true });
       if (window.visualViewport) { window.visualViewport.removeEventListener("resize", layoutSoon); window.visualViewport.removeEventListener("scroll", layoutSoon); }
       // Cleanup (removing the practice data) can take a moment: the bubble says so and the screen stays blocked meanwhile.
       cur = null;
@@ -413,6 +416,15 @@
           // Something above it finished loading and pushed it off the screen (the Overview's cards arrive one by one): bring it back.
           var viewH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
           if (r && (r.bottom < 0 || r.top > viewH) && !isTyping(cur.step, doc) && t[0].scrollIntoView) t[0].scrollIntoView({ block: "center", inline: "nearest" });
+          // Scrolled too far, so the lit thing is half off the screen: once the finger has been still for a moment, bring it back
+          // (owner, 2026-11-14: an over-scroll in the Programmed tutorial left the person unable to get back).
+          else if (r && r.bottom - r.top < viewH * 0.8 && !isTyping(cur.step, doc) && Date.now() - lastTouchAt > 1500 && t[0].scrollIntoView) {
+            var box = scrollerOf(t[0]), b = box === (doc.scrollingElement || doc.documentElement) ? { top: 0, bottom: viewH } : box.getBoundingClientRect();
+            var lo = Math.max(0, b.top), hi = Math.min(viewH, b.bottom), shown = Math.min(r.bottom, hi) - Math.max(r.top, lo);
+            // less than half of it shows (cut off by the screen or by the sheet it scrolls in): the person lost it. A lit list taller than
+            // the sheet that the person is reading through on purpose keeps most of the sheet filled, so it is never pulled back.
+            if (shown < Math.min(r.bottom - r.top, hi - lo) * 0.5) t[0].scrollIntoView({ block: "center", inline: "nearest" });
+          }
           var key = (isTyping(cur.step, doc) ? "T" : "") + (r ? [r.top, r.left, r.bottom, r.right].map(Math.round).join(",") + "|" + bubble.offsetHeight : "none|" + bubble.offsetHeight) + "|" + (window.visualViewport ? Math.round(window.visualViewport.offsetTop + window.visualViewport.height) : "");
           if (key !== lastBox) { lastBox = key; cur.targets = t; layout(); }
         }, 100));
@@ -477,8 +489,27 @@
     }
 
     $(".spot-exit").addEventListener("click", function () { finish("skipped"); });
-    // Nothing behind the dim can be scrolled; inside the cut-out the person can scroll as usual.
-    root.addEventListener("touchmove", function (e) { if (e.target.classList && e.target.classList.contains("spot-blk")) e.preventDefault(); }, { passive: false });
+    // Inside the cut-out the person scrolls as usual. A finger dragged on the dim scrolls whatever holds the lit thing (a sheet's
+    // body, or the page), never the page behind a sheet: after scrolling too far the person can always drag it back (owner, 2026-11-14).
+    var dragY = null;
+    function scrollerOf(el) {
+      for (var n = el && el.parentElement; n && n !== doc.body; n = n.parentElement) {
+        var oy = getComputedStyle(n).overflowY;
+        if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight + 1) return n;
+      }
+      return doc.scrollingElement || doc.documentElement;
+    }
+    root.addEventListener("touchstart", function (e) { lastTouchAt = Date.now(); dragY = e.touches && e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true, capture: true });
+    root.addEventListener("touchend", function () { lastTouchAt = Date.now(); dragY = null; }, { passive: true, capture: true });
+    doc.addEventListener("touchmove", noteTouch, { passive: true, capture: true });
+    root.addEventListener("touchmove", function (e) {
+      if (!(e.target.classList && e.target.classList.contains("spot-blk"))) return;
+      e.preventDefault();
+      if (dragY == null || !e.touches || e.touches.length !== 1) return;
+      var y = e.touches[0].clientY, t = cur && cur.targets && cur.targets[0];
+      if (t) scrollerOf(t).scrollTop -= (y - dragY);
+      dragY = y;
+    }, { passive: false });
 
     active = { finish: finish };
     doc.body.appendChild(root);
