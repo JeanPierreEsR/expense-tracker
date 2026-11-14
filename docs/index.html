@@ -1022,7 +1022,10 @@
         <p class="hint error-text" id="trip-detail-error"></p>
       </div>
       <div class="card" id="trip-detail-entries-card" hidden>
-        <h3 style="margin-top:0;" data-i18n="trips.expenses">Expenses</h3>
+        <div class="budgets-header">
+          <h3 style="margin:0;" data-i18n="trips.expenses">Expenses</h3>
+          <button type="button" class="icon-btn" id="trip-entries-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
+        </div>
         <button type="button" class="add-inline" id="trip-find-btn" data-i18n="trips.find">Find expenses in these dates</button>
         <div id="trip-find-box" hidden></div>
         <div id="trip-detail-entries"></div>

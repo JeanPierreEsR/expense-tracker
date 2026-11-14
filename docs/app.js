@@ -4463,7 +4463,7 @@ function buildEntryRow_(entry) {
   amount.className = "entry-amount";
   amount.innerHTML = renderEntryAmountHtml(entry);
 
-  if (entriesEditing_) {   // Edit mode: a tick row (an entry that is still saving or being deleted cannot be ticked)
+  if (entriesEditing_ && entriesWhere_ !== "trip") {   // Edit mode: a tick row (an entry that is still saving or being deleted cannot be ticked)
     const tickable = !entry._queueStatus && !deletingEntryIds_.has(entry.id);
     row.classList.add("entry-check");
     row.insertAdjacentHTML("afterbegin", tickable
@@ -4577,7 +4577,7 @@ function buildExchangePairRow_(p) {
   const rate = exchangeRateText_(p);
   // What left on top, what arrived under it (owner, 2026-11-05: on one line the name and accounts wrapped over 4–5 lines).
   amount.innerHTML = `<span class="primary-amt xch-amt">${formatAmount(p.out.amount, p.out.currency)}</span><span class="primary-amt xch-amt">→ ${formatAmount(p.in.amount, p.in.currency)}</span>${rate ? `<span class="original-amt">${escapeHtml(rate)}</span>` : ""}`;
-  if (entriesEditing_) {   // a currency exchange is two entries: it is handled one by one, so it has no tick
+  if (entriesEditing_ && entriesWhere_ !== "trip") {   // a currency exchange is two entries: it is handled one by one, so it has no tick
     row.classList.add("entry-check");
     row.insertAdjacentHTML("afterbegin", `<span class="friends-check-spacer"></span>`);
     row.appendChild(left);
@@ -4728,7 +4728,7 @@ function renderEntryListFromCache_() {
   const entries = applyQueuedEditOverlay_(lastRenderedEntries_);
   list.innerHTML = "";
   document.getElementById("entries-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.entriesBulk && entries.length);
-  if (entriesEditing_ && !entries.length) setEntriesEditing_(false, false);
+  if (entriesEditing_ && entriesWhere_ !== "trip" && !entries.length) setEntriesEditing_(false, false);
 
   if (entries.length === 0) {
     list.innerHTML = `<div class="status-msg">${escapeHtml(tr("entries.empty"))}</div>`;
@@ -4888,7 +4888,7 @@ function syncSearchIndex_(opts) {
 
 function buildSearchRow_(entry) {
   const row = buildEntryRow_(entry);
-  if (entriesEditing_) return row;   // Edit mode: the row already ticks
+  if (entriesEditing_ && entriesWhere_ !== "trip") return row;   // Edit mode: the row already ticks
   // Replace the inline-edit click with the pop-up, so the results stay put
   // underneath; after a save/delete the pop-up asks the same hook the
   // Overview/Budgets drill-downs use to refresh what's below it.
@@ -4916,7 +4916,8 @@ async function refreshSearchAfterEdit_() {
 // exchange are kept and named, to be deleted one by one from where the single flow asks the right question. A shared expense goes with its split and the debt from it.
 const ENTRIES_BULK_MAX_ = 300;
 const entrySelectable_ = (e) => !e._queueStatus && !deletingEntryIds_.has(e.id) && !exchangeSideOf_(e);
-function entriesPool_() {   // what "Select all" means: every loaded entry on Home, every match while searching
+function entriesPool_() {   // what "Select all" means: every loaded entry on Home, every match while searching, a trip's expenses on its screen
+  if (entriesWhere_ === "trip") return applyQueuedEditOverlay_(tripEntriesShown_).filter(entrySelectable_);
   if (searchActive) {
     const term = document.getElementById("entry-search").value.trim();
     if (term.length < SEARCH_MIN_CHARS || !searchIndex) return [];
@@ -4928,7 +4929,7 @@ function entriesPool_() {   // what "Select all" means: every loaded entry on Ho
 // A selection belongs to what was on screen when it was made (Home, or the matches of one search). When the search text changes or is cleared the
 // selection is dropped: before, "Change (3)" / "Delete (3)" stayed on and acted on entries that were no longer in view (QA round 1, 2026-11-03).
 let entriesSelCtx_ = "home";
-const entriesCtxKey_ = () => (searchActive ? "q:" + document.getElementById("entry-search").value.trim().toLowerCase() : "home");
+const entriesCtxKey_ = () => (entriesWhere_ === "trip" ? "trip:" + tripDetailId_ : searchActive ? "q:" + document.getElementById("entry-search").value.trim().toLowerCase() : "home");
 function entriesDropStaleSelection_() {
   if (!entriesEditing_) return;
   const key = entriesCtxKey_();
@@ -4944,19 +4945,33 @@ function entriesToggle_(id, row) {
   if (box) box.checked = entriesSelected_.has(id);
   syncEntriesEditBar_();
 }
-function setEntriesEditing_(on, redraw = true) {
+// `where`: "home" (Home's list and search) or "trip" (a trip's Expenses on its own screen, owner 2026-11-14): the same bar, choices and checks.
+function setEntriesEditing_(on, redraw = true, where = "home") {
   if (on) popUsed_("homeEdit");
   if (on === entriesEditing_ && redraw) return;
   if (on && reviewEditing_) setReviewEditing_(false);
+  const wasTrip = entriesWhere_ === "trip";
+  if (on) entriesWhere_ = where;
+  const trip = entriesWhere_ === "trip";
   entriesEditing_ = on;
   entriesSelected_ = new Set();
-  ["entries-edit-btn", "search-edit-btn"].forEach((id) => setEditIcon_(document.getElementById(id), on));
-  document.getElementById("entries-editbar").hidden = !on;
-  document.getElementById("screen-entries").classList.toggle("entries-editing", on);
+  entriesSelCtx_ = entriesCtxKey_();
+  ["entries-edit-btn", "search-edit-btn", "trip-entries-edit-btn"].forEach((id) => setEditIcon_(document.getElementById(id), on && (id === "trip-entries-edit-btn") === trip));
+  // The bar lives on Home; on a trip's screen it is moved there for as long as Edit is on.
+  const bar = document.getElementById("entries-editbar");
+  const home = document.getElementById(on && trip ? "screen-trip-detail" : "screen-entries");
+  if (bar.parentElement !== home) home.appendChild(bar);
+  bar.hidden = !on;
+  document.getElementById("screen-entries").classList.toggle("entries-editing", on && !trip);
+  document.getElementById("screen-trip-detail").classList.toggle("entries-editing", on && trip);
+  if (!on) entriesWhere_ = "home";
   placeEntriesEditBar_();
   syncFab_();
   syncEntriesEditBar_();
-  if (redraw) { renderEntryListFromCache_(); if (searchActive) renderSearchResults_(); }
+  if (redraw) {
+    if (trip || wasTrip) renderTripEntries_();
+    else { renderEntryListFromCache_(); if (searchActive) renderSearchResults_(); }
+  }
 }
 function placeEntriesEditBar_() {
   const nav = document.getElementById("bottom-nav");
@@ -4976,10 +4991,11 @@ function syncEntriesEditBar_() {
   const pool = entriesPool_();
   const all = n > 0 && pool.length > 0 && pool.slice(0, ENTRIES_BULK_MAX_).every((e) => entriesSelected_.has(e.id));
   document.getElementById("entries-selectall-btn").textContent = all ? tr("friends.selectNone")
-    : searchActive && pool.length ? tr("entriesBulk.selectAllMatches", { n: pool.length }) : tr("friends.selectAll");
+    : searchActive && entriesWhere_ !== "trip" && pool.length ? tr("entriesBulk.selectAllMatches", { n: pool.length }) : tr("friends.selectAll");
 }
 document.getElementById("entries-edit-btn").addEventListener("click", () => setEntriesEditing_(!entriesEditing_));
 document.getElementById("search-edit-btn").addEventListener("click", () => setEntriesEditing_(!entriesEditing_));
+document.getElementById("trip-entries-edit-btn").addEventListener("click", () => setEntriesEditing_(!entriesEditing_, true, "trip"));
 document.getElementById("entries-done-btn").addEventListener("click", () => setEntriesEditing_(false));
 document.getElementById("entries-selectall-btn").addEventListener("click", () => {
   const pool = entriesPool_().slice(0, ENTRIES_BULK_MAX_);
@@ -4987,12 +5003,12 @@ document.getElementById("entries-selectall-btn").addEventListener("click", () =>
   entriesSelCtx_ = entriesCtxKey_();
   entriesSelected_ = everyOn ? new Set() : new Set(pool.map((e) => e.id));
   if (!everyOn && entriesPool_().length > ENTRIES_BULK_MAX_) showToast_(tr("entriesBulk.limit", { n: ENTRIES_BULK_MAX_ }));
-  renderEntryListFromCache_();
-  if (searchActive) renderSearchResults_();
+  if (entriesWhere_ === "trip") renderTripEntries_();
+  else { renderEntryListFromCache_(); if (searchActive) renderSearchResults_(); }
   syncEntriesEditBar_();
 });
 function closeEntriesBulkSheet_() { document.getElementById("entries-bulk-backdrop").hidden = true; }
-const entriesKnownMap_ = () => new Map(((searchIndex || []).concat(applyQueuedEditOverlay_(lastRenderedEntries_))).map((e) => [e.id, e]));
+const entriesKnownMap_ = () => new Map(((searchIndex || []).concat(applyQueuedEditOverlay_(lastRenderedEntries_), applyQueuedEditOverlay_(tripEntriesShown_))).map((e) => [e.id, e]));
 
 // Stage 2: change the category of the ticked entries. One sheet, a picker for each type among them (an expense never takes an income category); transfers and
 // investments have no category of their own and are left out. When entries from several categories go into one, a ⚠️ alert says so; an Undo follows the change.
@@ -5072,11 +5088,13 @@ document.getElementById("entries-change-selected-btn").addEventListener("click",
     caps.entriesBulkCategory && ["🏷️", "entriesBulk.menuCategory", openEntriesCategorySheet_],
     caps.entriesBulkLink && ["✈️", "entriesBulk.menuTrip", openEntriesTripSheet_],
     caps.entriesBulkLink && ["🔖", "entriesBulk.menuTag", openEntriesTagSheet_],
+    caps.entriesBulkLink && entriesWhere_ === "trip" && ["↩️", "entriesBulk.menuTakeOut", takeOutOfTrip_],
   ].filter(Boolean);
   const backdrop = document.getElementById("entries-bulk-backdrop");
   const body = document.getElementById("entries-bulk-body");
   document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.changeTitle", { n: entriesSelected_.size });
-  body.innerHTML = choices.map(([icon, key], i) => `<button type="button" class="more-list-item md-row entries-change-choice" data-i="${i}"><span class="md-title">${icon} ${escapeHtml(tr(key))}</span><span class="more-list-chevron">›</span></button>`).join("");
+  const tripNow = (meta.trips || []).find((t) => t.id === tripDetailId_);
+  body.innerHTML = choices.map(([icon, key], i) => `<button type="button" class="more-list-item md-row entries-change-choice" data-i="${i}"><span class="md-title">${icon} ${escapeHtml(tr(key, { name: tripNow ? tripNow.name : "" }))}</span><span class="more-list-chevron">›</span></button>`).join("");
   body.querySelectorAll(".entries-change-choice").forEach((b) => b.addEventListener("click", () => choices[Number(b.dataset.i)][2]()));
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
@@ -5109,7 +5127,18 @@ function openEntriesTripSheet_() {
     const tripId = document.getElementById("entries-bulk-trip").value;
     if (tripId === "__pick__") { document.getElementById("entries-bulk-trip-error").textContent = tr("entriesBulk.tripChoose"); return; }
     closeEntriesBulkSheet_();
-    const sendIds = expenses.map((e) => e.id);
+    entriesSetTrip_(expenses.map((e) => e.id), tripId);
+  });
+  bringModalToFront_(document.getElementById("entries-bulk-backdrop"));
+}
+// One tap on a trip's screen: the ticked expenses leave this trip (they stay in the history, with no trip). Undo puts them back.
+function takeOutOfTrip_() {
+  const ids = entriesChecked_().filter((e) => e.type === "expense" && e.trip_id === tripDetailId_).map((e) => e.id);
+  if (!ids.length) { showAppMessage_(tr("entriesBulk.tripNothingEligible")); return; }
+  closeEntriesBulkSheet_();
+  entriesSetTrip_(ids, "");
+}
+function entriesSetTrip_(sendIds, tripId) {
     const tripName = tripId ? tripLabel_((meta.trips || []).find((t) => t.id === tripId) || { name: "" }) : "";
     setEntriesEditing_(false);
     let result = null;
@@ -5126,8 +5155,6 @@ function openEntriesTripSheet_() {
         refreshTripsList_().catch(() => {});
       });
     }, { busy: "entriesBulk.linking" });
-  });
-  bringModalToFront_(document.getElementById("entries-bulk-backdrop"));
 }
 
 function openEntriesTagSheet_() {
@@ -5196,7 +5223,7 @@ function prefetchEntriesDeletePreview_(ids) {
 document.getElementById("entries-delete-selected-btn").addEventListener("click", async () => {
   const ids = [...entriesSelected_];
   if (!ids.length) return;
-  const known = new Map(((searchIndex || []).concat(applyQueuedEditOverlay_(lastRenderedEntries_))).map((e) => [e.id, e]));
+  const known = entriesKnownMap_();
   const infoOf = (id) => { const e = known.get(id); return e ? entriesBulkLabel_(e) : id; };
   const backdrop = document.getElementById("entries-bulk-backdrop");
   const body = document.getElementById("entries-bulk-body");
@@ -5248,6 +5275,7 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
     sendIds.forEach((id) => deletingEntryIds_.add(id));   // the rows say "Deleting…" until the server is done
     renderEntryListFromCache_();
     if (searchActive) renderSearchResults_();
+    renderTripEntries_();
     let result = null;
     saveBehindScreen_(async () => {
       result = await callApi("deleteEntries", entriesListThen_({ ids: sendIds }));
@@ -7914,6 +7942,8 @@ function closeNewEntrySheet_() {
 
 let reviewEditing_ = false;   // Home → Needs review → Edit (declared here: syncFab_ below runs at load)
 let entriesEditing_ = false;   // Home list / search → Edit (same reason)
+let entriesWhere_ = "home";    // where that Edit mode is: "home" or "trip" (a trip's screen)
+let tripEntriesShown_ = [];    // a trip's entries as last loaded on its screen (its Edit mode ticks these)
 let entriesSelected_ = new Set();
 let reviewSelected_ = new Set();
 // Needs review starts as one closed row, so Recent entries are right below it (owner, 2026-11-09). The rows stay in the page while closed, so the count, what was
@@ -8053,6 +8083,8 @@ function afterNewEntrySaved_() {
     refreshBalances().catch(() => {});
   }
   refreshHomeGlance_(true);
+  // A trip's screen open behind (its Edit mode, or an entry edited from it) shows the change.
+  if (!document.getElementById("screen-trip-detail").hidden && tripDetailId_) refreshTripDetail_().catch(() => {});
 }
 
 // The "+" shows only on Home ("entries") and Overview, and only while the bottom bar does.
@@ -8453,7 +8485,7 @@ function showScreen(name) {
   if (name !== "recurring" && recurringEditing_) setRecurringEditing_(false);
   if (name !== "categories" && categoriesEditing_) { setCategoriesEditing_(false, false); stripEditMarks_("screen-categories"); }
   if (name !== "entries" && reviewEditing_) setReviewEditing_(false, false);
-  if (name !== "entries" && entriesEditing_) setEntriesEditing_(false, false);
+  if ((name !== "entries" || entriesWhere_ === "trip") && entriesEditing_) setEntriesEditing_(false, false);
   if (name !== "business" && businessEditing_) setBusinessEditing_(false);
   if (name !== "business-people" && peopleEditing_) setPeopleEditing_(false);
   document.querySelectorAll(".screen").forEach((el) => {
@@ -10490,6 +10522,7 @@ function renderEntriesInto_(list, entries, emptyKey) {
     return;
   }
 
+  const ticking = entriesEditing_ && entriesWhere_ === "trip" && list.id === "trip-detail-entries";   // a trip's Edit mode
   pairExchangeLegsByDay_(entries).forEach((entry) => {
     if (entry._exchangePair) { list.appendChild(buildExchangePairRow_(entry)); return; }
     const headline = entryHeadline_(entry);
@@ -10509,6 +10542,16 @@ function renderEntriesInto_(list, entries, emptyKey) {
         ${renderEntryAmountHtml(entry.slice_part ? slicePartEntry_(entry) : entry)}
       </div>
     `;
+    if (ticking) {   // as on Home: a tick row (one still saving or being deleted cannot be ticked)
+      const tickable = entrySelectable_(entry);
+      row.classList.add("entry-check");
+      row.insertAdjacentHTML("afterbegin", tickable
+        ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${entriesSelected_.has(entry.id) ? " checked" : ""}>`
+        : `<span class="friends-check-spacer"></span>`);
+      if (tickable) row.addEventListener("click", () => entriesToggle_(entry.id, row));
+      list.appendChild(row);
+      return;
+    }
     // Opens the same edit form used everywhere else, but as a pop-up on
     // top of this sheet — no need to leave Overview or close the
     // drill-down to fix a transaction.
@@ -17713,6 +17756,7 @@ function tripDatesText_(trip) {
 }
 
 async function showTripsScreen() {
+  if (entriesEditing_ && entriesWhere_ === "trip") setEntriesEditing_(false, false);
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-trips"; });
   document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
   await refreshTripsList_();
@@ -17868,7 +17912,9 @@ document.getElementById("trips-delete-selected-btn").addEventListener("click", a
 });
 
 async function showTripDetail_(id) {
+  if (entriesEditing_ && entriesWhere_ === "trip") setEntriesEditing_(false, false);
   tripDetailId_ = id;
+  tripEntriesShown_ = [];
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-trip-detail"; });
   document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.toggle("active", btn.dataset.screen === "more"));
   window.scrollTo(0, 0);
@@ -17887,6 +17933,16 @@ async function waitForEntryEditsToSave_() {
   for (let i = 0; i < 40 && entryEditFlushing_.size > 0; i++) await sleep(300);
 }
 
+function renderTripEntries_() {
+  if (!tripDetailId_) return;
+  const id = tripDetailId_;
+  const shown = applyQueuedEditOverlay_(tripEntriesShown_).filter((e) => e.trip_id === id);
+  document.getElementById("trip-entries-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.entriesBulk && shown.length);
+  if (entriesEditing_ && entriesWhere_ === "trip" && !shown.length) setEntriesEditing_(false, false);
+  if (entriesEditing_ && entriesWhere_ === "trip") entriesDropStaleSelection_();
+  renderEntriesInto_(document.getElementById("trip-detail-entries"), shown, "trips.noEntries");
+}
+
 async function refreshTripDetail_() {
   const id = tripDetailId_;
   if (!id) return;
@@ -17901,9 +17957,9 @@ async function refreshTripDetail_() {
     if (tripDetailId_ !== id) return;   // moved on while loading
     renderTripDetail_(detail);
     // Overlay edits still waiting to be saved, and drop any entry just moved to another trip.
-    const shown = applyQueuedEditOverlay_(entries).filter((e) => e.trip_id === id);
+    tripEntriesShown_ = entries;
     document.getElementById("trip-detail-entries-card").hidden = false;
-    renderEntriesInto_(document.getElementById("trip-detail-entries"), shown, "trips.noEntries");
+    renderTripEntries_();
   } catch (err) {
     document.getElementById("trip-detail-body").innerHTML = "";
     errorEl.textContent = tr("trips.loadFailed", { error: err.message });
