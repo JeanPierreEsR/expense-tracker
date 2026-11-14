@@ -23137,6 +23137,7 @@ Object.assign(LINE_ICONS_, {
   up: '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>',
   down: '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
   warning: '<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  rocket: '<path d="M4.5 16.5c-1.5 1.3-2 5-2 5s3.7-.5 5-2c.7-.8.7-2.1-.1-2.9a2.2 2.2 0 0 0-2.9-.1z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.9A12.9 12.9 0 0 1 22 2c0 2.7-.8 7.5-6 11a22.4 22.4 0 0 1-4 2z"/><path d="M9 12H4s.6-3 2-4c1.6-1.1 5 0 5 0"/><path d="M12 15v5s3-.6 4-2c1.1-1.6 0-5 0-5"/>',
   bulb: '<path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/>',
   broom: '<line x1="19" y1="3" x2="11" y2="11"/><path d="M11 11l-4 1-4 9h11l2-6z"/><line x1="7" y1="16" x2="6" y2="21"/><line x1="11" y1="16" x2="10.5" y2="21"/>',
   calc: '<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="11" x2="8.01" y2="11"/><line x1="12" y1="11" x2="12.01" y2="11"/><line x1="16" y1="11" x2="16.01" y2="11"/><line x1="8" y1="15" x2="8.01" y2="15"/><line x1="12" y1="15" x2="12.01" y2="15"/><line x1="16" y1="15" x2="16" y2="18"/>',
@@ -23164,7 +23165,8 @@ const EMOJI_ICON_ = {
   "✗": ["cross", "bad"], "❌": ["cross", "bad"], "✖️": ["cross", "bad"], "✖": ["cross", "bad"], "🔄": ["refresh"], "🔒": ["lock"],
   "⬆️": ["up"], "⬇️": ["down"], "📈": ["trend"], "💬": ["message"], "🧾": ["file"], "⚠️": ["warning", "warn"], "⚠": ["warning", "warn"],
   "💡": ["bulb", "warn"], "🧹": ["broom"], "👀": ["eye"], "⏭️": ["skip"], "⏭": ["skip"], "💰": ["coin"], "🔁": ["swap"], "🧮": ["calc"], "📅": ["calendar"],
-  "📌": ["pin"], "🏦": ["bank"], "💸": ["moneyIn", "ok"], "📉": ["moneyOut"], "📜": ["file"], "🔀": ["swap"], "📷": ["eye"], "🎁": ["gift"]
+  "📌": ["pin"], "🏦": ["bank"], "💸": ["moneyIn", "ok"], "📉": ["moneyOut"], "📜": ["file"], "🔀": ["swap"], "📷": ["eye"], "🎁": ["gift"],
+  "📖": ["book"], "🚀": ["rocket"]
 };
 const EMOJI_ICON_RE_ = new RegExp("^(\\s*)(" + Object.keys(EMOJI_ICON_).sort((a, b) => b.length - a.length).map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\uFE0F?\\s+(?=\\S)");
 let contentNamesAt_ = null, contentNames__ = [];
