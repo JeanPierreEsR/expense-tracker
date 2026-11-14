@@ -85,11 +85,23 @@
     else { btn.disabled = true; timers.push(setTimeout(() => go(false), 400)); }
   }
 
+  // The animation never makes its card shorter while it plays (owner, 2026-11-14): when a scene looped it was emptied and rebuilt,
+  // the card shrank for an instant and the phone pulled the person reading below it back up to the animation. The stage keeps the
+  // tallest height it has had for this scene, so nothing under it moves and the page never scrolls by itself.
+  function holdHeight(stage, key) {
+    if (stage.dataset.tsKey !== key) { stage.dataset.tsKey = key; stage.style.minHeight = ""; }
+    if (stage._tsHold) return;
+    const grow = () => { const hgt = stage.offsetHeight; if (hgt > (parseFloat(stage.style.minHeight) || 0)) stage.style.minHeight = hgt + "px"; };
+    stage._tsHold = root.ResizeObserver ? new ResizeObserver(grow) : null;
+    if (stage._tsHold) stage._tsHold.observe(stage);
+  }
+
   function play(key, stage, ctx) {
     stop();
     const scene = SCENES[key];
     if (!scene) { stage.hidden = true; stage.innerHTML = ""; return false; }
     stage.hidden = false;
+    holdHeight(stage, key);
     const reduce = !!(root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
     if (scene.manual) { playManual(scene, key, stage, ctx, reduce); return true; }
     const run = () => {
@@ -1621,5 +1633,27 @@
     return true;
   }
 
-  root.TourScenes = { play, preview, stop, has: (key) => !!SCENES[key] };
+  // How long a scene takes to watch once, in ms, measured on a copy nobody sees: a looping scene's timeline, or the sum of a step-by-step
+  // scene's steps plus a moment per step to look at it and tap "Next step" (STEP_LOOK_MS). The tour times its swipe nudge with it.
+  const STEP_LOOK_MS = 2500;
+  function length(key, ctx) {
+    const scene = SCENES[key];
+    if (!scene) return 0;
+    const saved = timers;
+    timers = [];
+    try {
+      const box = document.createElement("div");
+      const parts = scene.build(box, ctx);
+      if (!scene.manual) return scene.timeline(parts, ctx).reduce((m, s) => Math.max(m, s[0]), 0);
+      if (scene.initial) scene.initial(parts, ctx);
+      return scene.steps.reduce((sum, step) => sum + (Number(step(parts, ctx, false, () => {})) || 0) + STEP_LOOK_MS, 0);
+    } catch (e) {
+      return 0;
+    } finally {
+      timers.forEach(clearTimeout);
+      timers = saved;
+    }
+  }
+
+  root.TourScenes = { play, preview, stop, length, has: (key) => !!SCENES[key] };
 })(typeof window !== "undefined" ? window : this);
