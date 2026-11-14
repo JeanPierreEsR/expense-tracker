@@ -152,10 +152,28 @@ function scanStatementInbox_() {
   var window = ' has:attachment filename:pdf newer_than:' + (first ? '75d' : '6d');
   var tz = Session.getScriptTimeZone();
   var added = [];
+  // A bank that sends the same statement twice (Diners, 2026-11-13: two identical e-mails a minute apart)
+  // must give ONE row and ONE nudge: a file with the same sender, name and size received within 7 days of
+  // one already listed (or added in this scan) is skipped. A later month's file is never caught by this.
+  var seenFile = {};
+  function fileKey(senderKey, name, sizeKb) { return senderKey + '|' + name + '|' + sizeKb; }
+  function rememberFile(r) {
+    if (stmtIsLinkItem_(r)) return;
+    var k = fileKey(r.sender_key, r.attachment_name, r.size_kb);
+    (seenFile[k] = seenFile[k] || []).push(String(r.received));
+  }
+  function dayNum(d) { var p = String(d).split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000; }
+  rows.forEach(rememberFile);
   function note(m, sender, att, selfSent) {
-    added.push({ id: Utilities.getUuid(), message_id: m.getId(), attachment_name: att.getName(), sender_key: selfSent ? 'self' : sender.address,
-      bank_label: sender.label, bank_keyword: sender.bank, received: Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd'),
-      status: 'new', size_kb: Math.round(att.getSize() / 1024), notified: first ? 'true' : '', created_at: nowTimestamp_() });
+    var senderKey = selfSent ? 'self' : sender.address;
+    var sizeKb = Math.round(att.getSize() / 1024);
+    var received = Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd');
+    var earlier = seenFile[fileKey(senderKey, att.getName(), sizeKb)] || [];
+    if (earlier.some(function (d) { return Math.abs(dayNum(d) - dayNum(received)) <= 7; })) return;
+    added.push({ id: Utilities.getUuid(), message_id: m.getId(), attachment_name: att.getName(), sender_key: senderKey,
+      bank_label: sender.label, bank_keyword: sender.bank, received: received,
+      status: 'new', size_kb: sizeKb, notified: first ? 'true' : '', created_at: nowTimestamp_() });
+    rememberFile(added[added.length - 1]);
   }
   // Download-link statements first (they carry no attachment, so the search below never sees them).
   STATEMENT_LINK_SENDERS_.forEach(function (spec) {

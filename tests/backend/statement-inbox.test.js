@@ -162,3 +162,29 @@ test("friends' copies (read-only Gmail service) find the download link in the e-
   rt.state.fetchHandler = (url) => (url.startsWith(TRACK) ? { http: 302, headers: { location: STORE } } : { http: 200, bytes: PDF });
   assert.equal(rt.api("getStatementAttachment", { id: inbox(rt)[0].id }).name, "Movements_Savings_1_2026_NOVEMBER_3.pdf");
 });
+
+test("a bank that sends the same statement twice gives one row and one nudge, even across scans", () => {
+  const { rt } = freshApp({ entries: 50 });
+  linkTelegram(rt);
+  warmUp(rt);
+  const DIN = "Diners <estadodecuenta@dinersonline.com.pe>";
+  const mail = () => rt.svc.gmail.addEmail({ from: DIN, subject: "Estado de Cuenta", body: "", attachments: [{ name: "EECC_DINERS_0000.pdf", size: 90000 }] });
+  mail(); mail();
+  assert.equal(scan(rt).found, 1);
+  assert.equal((sentText(rt).match(/New Diners statement/g) || []).length, 1);
+  mail();   // a third copy arriving later, after the first row is already in the Inbox
+  assert.equal(scan(rt).found, 0);
+  assert.equal(inbox(rt).length, 1);
+});
+
+test("a different file, or the same name a month later, is still a new statement", () => {
+  const { rt } = freshApp({ entries: 50 });
+  warmUp(rt);
+  const DIN = "Diners <estadodecuenta@dinersonline.com.pe>";
+  rt.svc.gmail.addEmail({ from: DIN, subject: "Estado de Cuenta", body: "", daysAgo: 40, attachments: [{ name: "EECC.pdf", size: 90000 }] });
+  rt.svc.gmail.addEmail({ from: DIN, subject: "Estado de Cuenta", body: "", attachments: [{ name: "EECC.pdf", size: 90000 }] });
+  rt.svc.gmail.addEmail({ from: DIN, subject: "Estado de Cuenta", body: "", attachments: [{ name: "EECC.pdf", size: 120000 }] });
+  rt.run(`ensureStatementInboxSheet_(); appendRowsBulk_('Statement Inbox', [{ id: 'old', message_id: 'old', attachment_name: 'EECC.pdf', sender_key: 'estadodecuenta@dinersonline.com.pe',
+    bank_label: 'Diners', bank_keyword: 'diners', received: '2026-01-01', status: 'processed', size_kb: 88, notified: 'true', created_at: '2026-01-01' }])`);
+  assert.equal(scan(rt).found, 2);   // the 40-day-old one is outside the 6-day window; both of today's differ in size
+});
