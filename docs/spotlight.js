@@ -124,6 +124,13 @@
     var hole = $(".spot-hole"), bubble = $(".spot-bubble"), arrow = $(".spot-arrow");
     var lastTouchAt = 0;   // when a finger last touched the screen (a half-hidden lit thing is brought back only once it is still)
     function noteTouch() { lastTouchAt = Date.now(); }
+    function blockEarlySave(e) {
+      var b = e.target && e.target.closest ? e.target.closest("button[id]") : null;
+      if (!b || !/^submit-btn$|-(save|save-btn|record|apply)$/.test(b.id) || !cur || !cur.step) return;
+      var lit = (cur.targets || []).filter(Boolean);
+      if (lit.some(function (t) { return t === b || (t.contains && t.contains(b)) || (b.contains && b.contains(t)); })) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+    }
     $(".spot-exit").textContent = L.exit;
     // The kind shows on every step, in its own colour: real (stays) or practice (deleted at the end) (owner, 2026-11-12).
     if (L.note) { $(".spot-note").textContent = L.note; $(".spot-note").hidden = false; $(".spot-note").setAttribute("data-mode", L.mode || ""); }
@@ -237,6 +244,7 @@
       doc.removeEventListener("scroll", layoutSoon, true);
       doc.removeEventListener("keydown", onKey, true);
       doc.removeEventListener("touchmove", noteTouch, { capture: true });
+      doc.removeEventListener("click", blockEarlySave, true);
       if (window.visualViewport) { window.visualViewport.removeEventListener("resize", layoutSoon); window.visualViewport.removeEventListener("scroll", layoutSoon); }
       // Cleanup (removing the practice data) can take a moment: the bubble says so and the screen stays blocked meanwhile.
       cur = null;
@@ -502,6 +510,10 @@
     root.addEventListener("touchstart", function (e) { lastTouchAt = Date.now(); dragY = e.touches && e.touches.length === 1 ? e.touches[0].clientY : null; }, { passive: true, capture: true });
     root.addEventListener("touchend", function () { lastTouchAt = Date.now(); dragY = null; }, { passive: true, capture: true });
     doc.addEventListener("touchmove", noteTouch, { passive: true, capture: true });
+    // A save button is used only at the step that lights it up (owner, 2026-11-14: Save, pinned at the bottom of the "+" form, sat
+    // inside a tall lit area — the friend list of a split — and saved the entry halfway through the tutorial). Same id shape as the
+    // app's double-tap guard: submit-btn, …-save, …-save-btn, …-record, …-apply.
+    doc.addEventListener("click", blockEarlySave, true);
     root.addEventListener("touchmove", function (e) {
       if (!(e.target.classList && e.target.classList.contains("spot-blk"))) return;
       e.preventDefault();

@@ -480,7 +480,14 @@
       return p;
     },
     timeline(p) {
-      const lit = (r) => () => p.rows.forEach((m) => m.classList.toggle("ts-lit", m === r));
+      // A row that lights up below the visible part of the screen (above the tab bar) slides into view, a third of the way down, so
+      // the next rows fit too and the page moves only when needed; at the end the page goes back to the top for the next loop.
+      const lit = (r) => () => {
+        p.rows.forEach((m) => m.classList.toggle("ts-lit", m === r));
+        if (!r) { scrollTo(p, null); return; }
+        const view = p.main.getBoundingClientRect();
+        if (r.getBoundingClientRect().bottom > view.bottom - 4) scrollTo(p, r, Math.round(view.height / p.k / 3));
+      };
       const steps = [[0, lit(null)]];
       p.rows.forEach((r, k) => steps.push([600 + k * 1000, lit(r)]));
       steps.push([600 + p.rows.length * 1000, lit(null)]);
