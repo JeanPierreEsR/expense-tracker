@@ -69,6 +69,9 @@
     "search.f.friendTitle": { en: "Friend", es: "Amigo" },
     "search.f.friendHint": { en: "Paid by them, or a loan or repayment with them.", es: "Lo pagó esa persona, o es un préstamo o repago con ella." },
     "search.f.tagTitle": { en: "Tags", es: "Etiquetas" },
+    "search.f.more": { en: "More… ({n})", es: "Más… ({n})" },
+    "search.f.find": { en: "Search…", es: "Buscar…" },
+    "search.f.findNone": { en: "Nothing matches.", es: "Nada coincide." },
     "search.f.tripTitle": { en: "Trip / event", es: "Viaje / evento" },
 
     // ---- type ----
