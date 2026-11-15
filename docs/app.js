@@ -5905,8 +5905,43 @@ function captureEntryDraft_() {
     expectedPick: expectedPick_,
     igvOn: document.getElementById("igv-toggle").checked,
     igvAmount: document.getElementById("igv-amount").value,
-    igvTouched: igvTouched_
+    igvTouched: igvTouched_,
+    split: entryDraftSplit_()
   };
+}
+
+// The split travels with the draft (testers, 2026-11-15: a restored draft came back without it, and saving it made the whole amount
+// the person's own expense). A "By items" bill comes back as the Custom amounts it filled in; the item list itself is not kept.
+function entryDraftSplit_() {
+  if (selectedType !== "expense" || !document.getElementById("split-toggle").checked) return null;
+  const due = document.getElementById("split-due");
+  return {
+    friends: [...splitFriendIds], mode: splitMode, custom: { ...customSplitAmounts }, percents: { ...splitPercents },
+    own: customOwnAmount, groupCount: splitGroupCount_(), due: document.getElementById("split-due-block").hidden ? "" : due.value
+  };
+}
+function applyEntryDraftSplit_(sp) {
+  if (!sp || selectedType !== "expense") return;
+  const known = new Set((meta.friends || []).map((f) => f.id));
+  const friends = (sp.friends || []).filter((id) => known.has(id));
+  splitMode = ["equal", "percent", "custom"].includes(sp.mode) ? sp.mode : "equal";
+  splitFriendIds = new Set();
+  customSplitAmounts = {};
+  splitPercents = {};
+  friends.forEach((id) => {
+    splitFriendIds.add(id);
+    if (sp.custom && sp.custom[id] != null) customSplitAmounts[id] = sp.custom[id];
+    if (sp.percents && sp.percents[id] != null) splitPercents[id] = sp.percents[id];
+  });
+  customOwnAmount = sp.own || "";
+  setSplitGroupCount_(sp.groupCount || 2);
+  document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === splitMode));
+  document.getElementById("split-toggle").checked = true;
+  document.getElementById("split-detail").hidden = false;
+  if (sp.due) showSplitDue_(sp.due);
+  renderSplitFriendChips();
+  renderSplitRows();
+  renderSplitSummary();
 }
 
 function saveEntryDraftNow_() {
@@ -5986,6 +6021,7 @@ function applyEntryDraft_(d) {
   setBusinessPick_(d.businessPick);
   if (d.expectedPick) setExpectedPick_(d.expectedPick);
   setIgvState_(d.igvOn, d.igvAmount, d.igvTouched);
+  applyEntryDraftSplit_(d.split);   // after the trip: picking a trip drops the friends it does not allow
 }
 
 (function setupEntryDraft_() {
