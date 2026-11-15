@@ -25,6 +25,7 @@ function ensureTripsSheet_() {
       ensureColumn_('Trips', 'alert_thresholds');   // a tab made before the alerts existed
       ensureColumn_('Trips', 'currency');           // ... and before each trip had its own currency
       ensureColumn_('Trips', 'in_budgets');         // ... and before "In my budgets" (2026-11-14)
+      ensureColumn_('Trips', 'group_size');         // ... and before the group's head count (2026-11-15)
     }
     return;
   }
@@ -183,6 +184,20 @@ function updateTrip(payload) {
   clean.id = payload.id;
   renameTripGroupFriend_(clean, payload.id);
   return clean;
+}
+
+// How many people share the trip's group (the owner included), the number an Equal split with the group starts at next time
+// (owner, 2026-11-15). Each expense may still use another number; the phone sends it with the save (saveEntryAll
+// `trip_group_size`) only when it differs from what is stored. Whole numbers 2-99; anything else is ignored.
+function setTripGroupSize_(tripId, size) {
+  var n = Math.round(Number(size));
+  if (!tripId || !isFinite(n) || n < 2 || n > 99) return;
+  ensureTripsSheet_();
+  var sheet = getSheet('Trips');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, String(tripId));
+  if (rowIndex === -1) return;
+  setCellByRow_(sheet, headers, rowIndex, 'group_size', n);
 }
 
 // Deleting a trip never deletes expenses: they just stop belonging to it.

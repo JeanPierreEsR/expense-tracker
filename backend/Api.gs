@@ -1182,6 +1182,9 @@ function saveEntryAll(payload) {
   if (kind !== 'create' && payload.tag_ids) saveEntryTags({ entryId: id, tagIds: payload.tag_ids });
   if (payload.bill) saveEntryBill({ entryId: id, bill: payload.bill });
   if (payload.repeat) out = Object.assign({}, out, { repeat: repeatEntryAsProgrammed_(id, payload.repeat) });
+  if (payload.trip_group_size) {   // never fails the save: it only sets where the next group split starts
+    try { setTripGroupSize_(payload.trip_group_size.trip_id, payload.trip_group_size.size); } catch (e) { /* ignored */ }
+  }
   return out;
 }
 

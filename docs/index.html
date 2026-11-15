@@ -348,6 +348,14 @@
               <div class="tags-list" id="split-friend-chips"></div>
               <p class="hint" id="split-group-hint" data-i18n="split.groupHint" hidden>Entered in Splitwise? Pick the group. Paying only one person back directly? Pick that person.</p>
               <div class="add-inline" id="split-add-friend-btn" data-i18n="common.addFriend">+ Add friend…</div>
+              <div id="split-group-size" hidden>
+                <label for="split-group-count" data-i18n="split.groupCount">People in the group (you included)</label>
+                <div class="interval-row group-count-row">
+                  <button type="button" class="icon-btn" id="split-group-minus" data-i18n-aria-label="split.groupFewer" aria-label="One person fewer"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+                  <input type="number" inputmode="numeric" min="2" max="99" step="1" id="split-group-count" value="2">
+                  <button type="button" class="icon-btn" id="split-group-plus" data-i18n-aria-label="split.groupMore" aria-label="One person more"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+                </div>
+              </div>
 
               <div id="split-rows"></div>
               <p class="hint" id="split-summary"></p>

@@ -2323,6 +2323,8 @@ function resetSplitState() {
   document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => {
     t.classList.toggle("active", t.dataset.mode === "equal");
   });
+  document.getElementById("split-group-size").hidden = true;
+  setSplitGroupCount_(2);
   renderSplitFriendChips();
   renderSplitRows();
   document.getElementById("split-summary").textContent = "";
@@ -2441,6 +2443,52 @@ function syncSplitToTrip_() {
   renderSplitSummary();
 }
 
+// Splitwise-style trip group picked ALONE (owner, 2026-11-15): Equal divides by the number of people in the group (owner
+// included), typed in the form and starting at the trip's saved number (Trips.group_size, 2 when none). The group gets
+// everyone else's shares as one debt, as before; only the amount changes.
+function splitGroupOnly_() {
+  if (splitFriendIds.size !== 1) return null;
+  const id = Array.from(splitFriendIds)[0];
+  const f = (meta.friends || []).find((fr) => fr.id === id);
+  return f && isGroupFriend_(f) ? f : null;
+}
+function tripGroupSizeSaved_(tripId) {
+  const t = (meta.trips || []).find((tt) => tt.id === tripId);
+  const n = Math.round(Number(t && t.group_size));
+  return n >= 2 && n <= 99 ? n : 0;
+}
+function splitGroupCount_() {
+  const n = Math.round(Number(document.getElementById("split-group-count").value));
+  return n >= 2 ? Math.min(n, 99) : 2;
+}
+function setSplitGroupCount_(n) { document.getElementById("split-group-count").value = String(n); }
+// Each person's share rounded to the cent; the owner keeps whatever cent is left over (as computeEqualShares).
+function groupEqualShares_(amount, n) {
+  const totalCents = Math.round((amount || 0) * 100);
+  const eachCents = Math.round(totalCents / n);
+  const groupCents = Math.min(eachCents * (n - 1), totalCents);
+  return { each: eachCents / 100, group: groupCents / 100, own: (totalCents - groupCents) / 100 };
+}
+// What to store on the trip with the save: the number used, when it is not already the trip's number.
+function splitGroupSizeToSave_(splits) {
+  const g = splitGroupOnly_();
+  if (!g || splitMode !== "equal" || !splits || !splits.length) return null;
+  const n = splitGroupCount_();
+  if (n === tripGroupSizeSaved_(g.trip_id)) return null;
+  const t = (meta.trips || []).find((tt) => tt.id === g.trip_id);
+  if (t) t.group_size = n;   // the next expense starts at it at once
+  return { trip_id: g.trip_id, size: n };
+}
+function syncSplitGroupSize_() {
+  document.getElementById("split-group-size").hidden = !(splitMode === "equal" && splitGroupOnly_());
+}
+["split-group-minus", "split-group-plus"].forEach((id) => document.getElementById(id).addEventListener("click", () => {
+  setSplitGroupCount_(Math.max(2, Math.min(99, splitGroupCount_() + (id === "split-group-plus" ? 1 : -1))));
+  renderSplitSummary();
+}));
+document.getElementById("split-group-count").addEventListener("input", () => renderSplitSummary());
+document.getElementById("split-group-count").addEventListener("change", () => { setSplitGroupCount_(splitGroupCount_()); renderSplitSummary(); });
+
 function renderSplitFriendChips() {
   const container = document.getElementById("split-friend-chips");
   container.innerHTML = "";
@@ -2461,6 +2509,7 @@ function renderSplitFriendChips() {
         delete customSplitAmounts[f.id];
       } else {
         splitFriendIds.add(f.id);
+        if (isGroupFriend_(f)) setSplitGroupCount_(tripGroupSizeSaved_(f.trip_id) || 2);
       }
       renderSplitFriendChips();
       renderSplitRows();
@@ -2469,6 +2518,15 @@ function renderSplitFriendChips() {
     container.appendChild(chip);
     return { f, chip };
   });
+
+  // The trip's group picked: everyone else folds away (its other people are counted in the group), so only the group chip
+  // stays; tapping it again brings the whole list back (owner, 2026-11-15).
+  const groupPicked = sorted.some((f) => isGroupFriend_(f) && splitFriendIds.has(f.id));
+  document.getElementById("split-add-friend-btn").hidden = groupPicked;
+  if (groupPicked) {
+    chips.forEach(({ f, chip }) => { chip.hidden = !splitFriendIds.has(f.id); });
+    return;
+  }
 
   const toggle = document.createElement("div");
   toggle.className = "tag-chip more-chip";
@@ -2676,12 +2734,16 @@ function renderSplitSummary() {
   const currency = (document.getElementById("currency").value || homeCur()).toUpperCase();
   const friendIds = Array.from(splitFriendIds);
 
+  syncSplitGroupSize_();
   if (friendIds.length === 0) {
     summaryEl.textContent = tr("split.pickWho");
     return;
   }
 
-  if (splitMode === "equal") {
+  if (splitMode === "equal" && splitGroupOnly_()) {
+    const g = groupEqualShares_(amount, splitGroupCount_());
+    summaryEl.textContent = tr("split.summaryGroup", { cur: currency, each: moneyFmt(g.each), group: moneyFmt(g.group) });
+  } else if (splitMode === "equal") {
     const { shareEach, ownerShare } = computeEqualShares(amount, friendIds);
     summaryEl.textContent = tr("split.summaryEqual", { cur: currency, each: moneyFmt(shareEach), own: moneyFmt(ownerShare) });
   } else if (splitMode === "percent") {
@@ -2719,6 +2781,9 @@ function getSplitPayload() {
   const due = splitDueKnown_ ? (document.getElementById("split-due").value || "") : null;   // null: leave the saved date alone
   const withDue = (list) => due === null ? list : list.map((s) => Object.assign(s, { due_date: due }));
 
+  if (splitMode === "equal" && splitGroupOnly_()) {
+    return withDue([{ friend_id: friendIds[0], amount: groupEqualShares_(amount, splitGroupCount_()).group }]);
+  }
   if (splitMode === "equal") {
     const { shareEach } = computeEqualShares(amount, friendIds);
     return withDue(friendIds.map((id) => ({ friend_id: id, amount: shareEach })));
@@ -3528,6 +3593,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       throw new Error(tr("error.pickPaymentMethod"));
     }
     const splits = validateSplitIfEnabled();
+    const groupSize = splitGroupSizeToSave_(splits);
     const charge = chargeForSave_(amount, currency, splits, selectedType, paidByForCharge_());
     const tagIds = Array.from(selectedTagIds);
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
@@ -3959,7 +4025,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         }
         return;
       }
-      queueEntryEdit_(id, fields, sendSplits ? (charge.splits || []) : null, tagIds, billToSave, repeat ? { repeat } : undefined);
+      queueEntryEdit_(id, fields, sendSplits ? (charge.splits || []) : null, tagIds, billToSave, repeat || groupSize ? { repeat, groupSize } : undefined);
       exitEditMode();
       flushEntryEdit_(id); // not awaited — runs in the background
       // Re-rendered from what's already in hand (with the queued edit
@@ -4022,7 +4088,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         ...businessLink,
         ...waitingFields
       }, charge.splits || [], tagIds, billApplied && splits && splits.length ? billToJSON_() : undefined,
-      { kind: "create", linkRecurringId: payingRecurringId_ || "", repeat });
+      { kind: "create", linkRecurringId: payingRecurringId_ || "", repeat, groupSize });
       backgroundSaved = { kind: "create", id: newId };
       tipNoteSavedEntry_(newId, description);
     } else {
@@ -6173,6 +6239,14 @@ async function startEditEntry(entry) {
       // stayed fixed and the person silently took on the difference).
       const { shareEach } = computeEqualShares(Number(entry.amount), splits.map((s) => s.friend_id));
       splitMode = splits.every((s) => Math.abs(Number(s.amount) - shareEach) < 0.005) ? "equal" : "custom";
+      // The trip's group alone: the number of people is worked out from the owner's share (PEN 100, PEN 25 mine = 4).
+      const groupF = splits.length === 1 ? (meta.friends || []).find((f) => f.id === splits[0].friend_id && isGroupFriend_(f)) : null;
+      if (groupF) {
+        const total = Number(entry.amount), own = total - Number(splits[0].amount);
+        const n = own > 0 ? Math.round(total / own) : 0;
+        if (n >= 2 && n <= 99 && Math.abs(groupEqualShares_(total, n).group - Number(splits[0].amount)) < 0.005) { splitMode = "equal"; setSplitGroupCount_(n); }
+        else setSplitGroupCount_(tripGroupSizeSaved_(groupF.trip_id) || 2);
+      }
       document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === splitMode));
       splits.forEach((s) => {
         splitFriendIds.add(s.friend_id);
@@ -6707,6 +6781,7 @@ function queueEntryEdit_(id, fields, splits, tagIds, bill, extra) {
     linkRecurringId: (extra && extra.linkRecurringId) || (previous && previous.linkRecurringId) || "",
     repeat: (extra && extra.repeat) || (previous && previous.repeat) || null,
     loan: !!(extra && extra.loan) || !!(previous && previous.loan),
+    groupSize: (extra && extra.groupSize) || (previous && previous.groupSize) || null,
     status: "saving", lastError: null, queuedAt: Date.now()
   });
   setQueuedEdits_(edits);
@@ -6901,8 +6976,8 @@ async function flushEntryEdit_(id) {
             : edit.splits !== null;
           const out = await callApi("saveEntryAll", withThen_(isCreate
             ? { kind: "create", fields: Object.assign({}, edit.fields, { client_id: edit.id, tag_ids: edit.tagIds }), link_recurring_id: edit.linkRecurringId || "",
-                splits: withSplits ? (edit.splits || []) : undefined, bill: withSplits && edit.bill ? edit.bill : undefined, repeat: edit.repeat || undefined }
-            : { kind: "update", id: edit.id, fields: edit.fields, splits: withSplits ? edit.splits : undefined, tag_ids: edit.tagIds || [], bill: edit.bill || undefined, repeat: edit.repeat || undefined },
+                splits: withSplits ? (edit.splits || []) : undefined, bill: withSplits && edit.bill ? edit.bill : undefined, repeat: edit.repeat || undefined, trip_group_size: edit.groupSize || undefined }
+            : { kind: "update", id: edit.id, fields: edit.fields, splits: withSplits ? edit.splits : undefined, tag_ids: edit.tagIds || [], bill: edit.bill || undefined, repeat: edit.repeat || undefined, trip_group_size: edit.groupSize || undefined },
           entryThenReads_(edit, withSplits)));
           if (isCreate) { created = out; linkFailed = !!(out && out.link_failed); }
           else if (out && out.follow) followed = out.follow;
