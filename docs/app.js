@@ -5933,6 +5933,9 @@ function applyEntryDraftSplit_(sp) {
     if (sp.custom && sp.custom[id] != null) customSplitAmounts[id] = sp.custom[id];
     if (sp.percents && sp.percents[id] != null) splitPercents[id] = sp.percents[id];
   });
+  // The person's own % box ("Me (%)") is kept under "me" (Nico's re-check, 2026-11-15: it was dropped, so the blank box took the
+  // leftover and the restored split saved a different share).
+  if (sp.percents && sp.percents.me != null) splitPercents.me = sp.percents.me;
   customOwnAmount = sp.own || "";
   setSplitGroupCount_(sp.groupCount || 2);
   document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === splitMode));
