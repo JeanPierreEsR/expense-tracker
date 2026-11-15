@@ -8668,20 +8668,29 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !document.getElementById("screen-entries").hidden && homeGlance_) refreshHomeGlance_(false);
 });
 
+// Whole amounts round like on paper: half away from zero (19.5 → 20, −19.5 → −20; Math.round gives −19). Each figure is rounded
+// from its exact value, and a total from the exact sum, never from rounded parts (owner, 2026-11-15). The tiny nudge keeps a sum
+// that lands on 19.4999999 from floating-point noise at 19.5.
+function roundHalfAway_(n) {
+  const v = Number(n);
+  if (!isFinite(v)) return 0;
+  const r = Math.round(Math.abs(v) + 1e-9);
+  return r === 0 ? 0 : (v < 0 ? -r : r);
+}
+
 // Home's summary cards show whole amounts only (owner, 2026-11-07: cents there add nothing meaningful).
 function homeWhole_(n, cur) {
   const c = cur || homeCur();
   return `${c === homeCur() ? "" : findCurrency(c).flag + " "}${c} ${homeShort_(n)}`;
 }
 function homeWholeSigned_(n) {
-  const r = Math.round(Number(n));
+  const r = roundHalfAway_(n);
   return `${r > 0 ? "+" : r < 0 ? "−" : ""}${homeCur()} ${homeShort_(r)}`;
 }
 
 // Whole numbers with thousands separators, for the four small boxes.
 function homeShort_(n) {
-  const v = Math.round(Math.abs(Number(n)));
-  return v.toLocaleString("en-US");
+  return Math.abs(roundHalfAway_(n)).toLocaleString("en-US");
 }
 
 function homeCardEl_(cls, html) {
@@ -8705,7 +8714,7 @@ function homeMainCard_(g) {
     ? tr("home.leftThisMonth")
     : tr("home.leftIn", { month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), true) });
   const net = m.net;
-  const signed = (v) => `${Math.round(v) > 0 ? "+" : Math.round(v) < 0 ? "−" : ""}${homeShort_(v)}`;
+  const signed = (v) => `${roundHalfAway_(v) > 0 ? "+" : roundHalfAway_(v) < 0 ? "−" : ""}${homeShort_(v)}`;
   const four = `
     <div class="home-four">
       <div class="home-four-box"><span><i class="home-key" style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><b class="income">${signed(m.income)}</b></div>
@@ -8771,7 +8780,7 @@ function homeBudgetCard_(g) {
   const b = g.budget;
   if (!b || !(b.totalPen > 0)) return null;
   const pct = (b.spentPen / b.totalPen) * 100;
-  const left = Math.round(b.totalPen) - Math.round(b.spentPen);   // (whole amounts, so the three figures add up as shown)
+  const left = roundHalfAway_(b.totalPen - b.spentPen);   // from the exact figures, rounded once (owner, 2026-11-15)
   const daysLeft = g.pace.curDays - g.pace.curDay + 1;   // today still counts
   const cls = pct >= 100 ? "over" : pct >= 85 ? "warn" : "";
   const facts = [
@@ -22181,6 +22190,12 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       // Always sent so clearing it works; the server keeps it only for a one-time expense item.
       trip_id: recurringFrequency === "once" ? document.getElementById("recurring-trip").value : ""
     };
+    // A changing amount is recognised by its words: checked here so the form stays open with what was typed (Lucía, 2026-11-15;
+    // the server's rule: a word of 3+ letters that is not only digits).
+    if (fields.variable && !fields.match_words.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z0-9]+/).some((w) => w.length >= 3 && !/^\d+$/.test(w))) {
+      document.getElementById("recurring-match-words").focus();
+      throw new Error(tr("recModal.needsWords"));
+    }
     if (recurringFrequency === "once") {
       fields.date = occurrenceDate; // real date, full year — a single occurrence
       fields.day = "";
@@ -22365,7 +22380,7 @@ async function startRecurringDelete_(re) {
     body.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
   }
-  const amount = `${homeCur()} ${moneyFmt(Math.round(effect))}`;
+  const amount = `${homeCur()} ${moneyFmt(roundHalfAway_(effect))}`;
   if (effect < 0.5) {   // nothing in the last 12 months depends on it: the plain question
     closeRecurringDeleteSheet_();
     await nextPaint_();
@@ -22419,7 +22434,7 @@ async function startRecurringBulkDelete_(items) {
   // "Has payments" = a payment on record (any age) or a figure that would change. It used to be the figure alone, which is 0 for income, so an income
   // item with payments was counted as "no payments" and deleted by "Stop them" (QA round 1, 2026-11-03).
   const effectful = items.filter((re) => effectOf[re.id] >= 0.5 || lastPaidOf[re.id]);
-  const amount = `${homeCur()} ${moneyFmt(Math.round(preview.totalPen || 0))}`;
+  const amount = `${homeCur()} ${moneyFmt(roundHalfAway_(preview.totalPen || 0))}`;
   // Closes the sheet and Edit mode at once and works behind the screen (saving standard).
   const finish = (work, after, opts) => { closeRecurringDeleteSheet_(); setRecurringEditing_(false); saveBehindScreen_(work, after, opts); };
   const deleteAll = () => {
@@ -22634,7 +22649,7 @@ async function renderPausedDecision_() {
       }
       if (act === "delete") {   // never a one-tap delete in a sheet that cannot be dismissed: the figure warning, or the plain question
         const warn = (effects[it.id] || 0) >= 0.5;
-        if (!await askConfirmApp_(warn ? tr("paused.deleteWarn", { amount: `${homeCur()} ${moneyFmt(Math.round(effects[it.id]))}` }) : tr("paused.deleteConfirm", { name: it.description || it.category_name }), tr("confirmBtn.delete"))) return;
+        if (!await askConfirmApp_(warn ? tr("paused.deleteWarn", { amount: `${homeCur()} ${moneyFmt(roundHalfAway_(effects[it.id]))}` }) : tr("paused.deleteConfirm", { name: it.description || it.category_name }), tr("confirmBtn.delete"))) return;
       }
       run(() => act === "reactivate" ? callApi("updateRecurringExpense", { id: it.id, active: true }) : callApi("deleteRecurringExpenses", { ids: [it.id] }));
     }));
@@ -31848,6 +31863,11 @@ let reviewTransferMode = null; // "repay" | "loan"
 function populateReviewTransferFriendOptions() {
   const select = document.getElementById("review-transfer-friend");
   select.innerHTML = "";
+  // No friend is chosen for the person (Valeria, 2026-11-15: the first name in the list was, and one tap made a loan to a stranger).
+  const pick = document.createElement("option");
+  pick.value = "";
+  pick.textContent = tr("review.pickFriend");
+  select.appendChild(pick);
   plainFriends_().forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
@@ -31863,7 +31883,7 @@ function populateReviewTransferFriendOptions() {
 document.getElementById("review-transfer-friend").addEventListener("change", async (e) => {
   if (e.target.value !== "__add__") return;
   const name = await askName_(tr("prompt.friendName"));
-  e.target.value = meta.friends.length ? meta.friends[0].id : "";
+  e.target.value = "";
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
     meta.friends.push(friend);
@@ -31925,7 +31945,8 @@ function openReviewTransferModal(entry, mode) {
     .map((b) => ({ id: b.friend_id, net: ((b.balances || []).find((l) => l.currency === entry.currency) || {}).net || 0 }))
     .filter((b) => sign * b.net > 0.004 && plainFriends_().some((f) => f.id === b.id))
     .sort((x, y) => Math.abs(y.net) - Math.abs(x.net))[0];
-  document.getElementById("review-transfer-friend").value = hintedFriend ? hintedFriend.id : owedFriend ? owedFriend.id : (meta.friends.length ? meta.friends[0].id : "");
+  // Only a real hint picks someone: the place's past choice, or (a repayment) the friend with the debt it pays. Else "Pick a friend…".
+  document.getElementById("review-transfer-friend").value = hintedFriend ? hintedFriend.id : owedFriend ? owedFriend.id : "";
   document.getElementById("review-transfer-amount").value = Math.abs(Number(entry.amount));
   document.getElementById("review-transfer-date").value = entry.date;
   // The account the bank e-mail named stays (it used to be dropped, leaving the repayment / loan with no account).

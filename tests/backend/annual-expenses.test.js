@@ -127,3 +127,26 @@ test("the totals card adds the Annual expenses budget on top of the others (test
   const s2 = rt.api("listBudgets", { displayPeriodType: "month", anchorDate: today().slice(0, 7) + "-01" }).summary;
   assert.equal(s2.yearlyPen, 5000 * 12 + 9000, "an all-categories budget covers Food, not the Annual pool");
 });
+
+test("a trip counted only in the Annual budget says so on both rows (Elena, 2026-11-15: the numbers moved, the notes did not)", () => {
+  const { rt, food, annual } = setup();
+  const t = trip(rt, { in_budgets: annual.id });
+  spend(rt, 80, "cat-food", { tripId: t.id });
+  const foodRow = prog(rt, food.id);
+  assert.equal(foodRow.spent, 0);
+  assert.deepEqual(foodRow.tripsLeftOut.map((x) => [x.name, x.amount]), [["Beach", 80]]);
+  const annualRow = prog(rt, annual.id, "year");
+  assert.equal(annualRow.spent, 80);
+  assert.deepEqual(annualRow.tripsCounted.map((x) => [x.name, x.amount]), [["Beach", 80]]);
+});
+
+test("In my budgets typed by hand in the Sheet as NONE or None means none (Ingrid, 2026-11-15)", () => {
+  const { rt, food } = setup();
+  const t = trip(rt);
+  rt.run(`(function(){ var sh = getSheet('Trips'); var h = getHeaders(sh); var r = findRowIndexById(sh, h, '${t.id}'); sh.getRange(r, h.indexOf('in_budgets') + 1).setValue(' NONE '); })()`);
+  spend(rt, 60, "cat-food", { tripId: t.id });
+  assert.equal(prog(rt, food.id).spent, 0);
+  const listed = rt.api("listTrips", {}).find((x) => x.id === t.id) || (rt.api("listTrips", {}).trips || []).find((x) => x.id === t.id);
+  assert.equal(listed.in_budgets, "none");
+  assert.equal(listed.in_budgets_lost, false);
+});

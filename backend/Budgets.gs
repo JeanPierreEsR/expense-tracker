@@ -168,8 +168,10 @@ function spendEntryIn_(e, currency, rate) {
 function budgetTripMoves_(ctx, budgetId, plan, startDate, endDate, currency, rate, excludeAnnual) {
   var out = {}, inn = {}, inside = {}, names = {}, id = String(budgetId);
   ctx.spendEntries.forEach(function (e) {
-    if (!e.trip_id || (excludeAnnual && e.annual) || e.date < startDate || e.date > endDate) return;
-    var byCategory = entryInBudget_(plan.match, e);
+    // A trip sent to the Annual budget makes its expenses annual: they still say so on the budgets of their categories ("not
+    // counted here"), and the Annual budget says it holds them ("includes"), as every other "Count only in…" (Elena, 2026-11-15).
+    if (!e.trip_id || (excludeAnnual && e.annual && !e.route) || e.date < startDate || e.date > endDate) return;
+    var byCategory = e.route && isAnnualBudgetIds_(plan.match) ? false : entryInBudget_(plan.match, e);
     var bucket;
     if (!e.route) {
       if (!byCategory) return;
