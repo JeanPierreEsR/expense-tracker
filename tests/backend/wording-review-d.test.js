@@ -75,10 +75,10 @@ test("C21: the statements buttons, trips labels, loans and rates read as propose
   assert.match(get("stmt.choice.refundIncome").en, /Record as refund/);
   assert.match(get("stmt.dismiss").en, /Remove from the list/);
   assert.match(get("trips.before").en, /Spent before/);
-  assert.match(get("trips.covered").en, /Replaced by a real expense/);
+  assert.match(get("trips.covered").en, /Covered/);   // the hint names it "✓ Covered" (Inés, 2026-11-15)
   assert.match(get("transfer.kind.between").en, /Between my accounts/);
   assert.match(get("loanModal.direction").en, /Who owes whom\?/);
-  assert.match(get("forgive.title").en, /Forgive the debt/);
+  assert.match(get("forgive.title").en, /Forgive part or all of the debt/);
   assert.match(get("repay.overpaidRecordedIncome").en, /The payment of \{cur\} \{amount\} was more than the debt/);
   assert.match(get("rates.hint").en, /a month to change its rate/);
   for (const k of ["rates.empty", "rateModal.none", "budgetModal.noRate", "trips.noRate"]) assert.ok(!/on file/.test(get(k).en), k);

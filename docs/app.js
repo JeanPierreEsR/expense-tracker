@@ -8669,12 +8669,12 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // Whole amounts round like on paper: half away from zero (19.5 → 20, −19.5 → −20; Math.round gives −19). Each figure is rounded
-// from its exact value, and a total from the exact sum, never from rounded parts (owner, 2026-11-15). The tiny nudge keeps a sum
-// that lands on 19.4999999 from floating-point noise at 19.5.
+// from its exact value, and a total from the exact sum, never from rounded parts (owner, 2026-11-15). Money is in cents, so the
+// figure is taken to the cent first (a sum of 19.4999999 from floating-point noise is 19.50).
 function roundHalfAway_(n) {
   const v = Number(n);
   if (!isFinite(v)) return 0;
-  const r = Math.round(Math.abs(v) + 1e-9);
+  const r = Math.round(Math.round(Math.abs(v) * 100) / 100);
   return r === 0 ? 0 : (v < 0 ? -r : r);
 }
 
@@ -15994,7 +15994,7 @@ function cuSummary_() {
   const left = groups.length - done;
   const summary = document.getElementById("annualcu-summary");
   summary.hidden = !groups.length;
-  summary.textContent = tr("annualcu.summary", { n: d.total, g: groups.length }) +
+  summary.textContent = tr("annualcu.summary", { expenses: tr("annualcu.nExpenses", { n: d.total }), groups: tr("annualcu.nGroups", { n: groups.length }) }) +
     (done || saving ? " " + tr(saving ? "annualcu.progress" : "annualcu.progressDone", { done, saving, left }) : "");
   const sugg = groups.filter((g) => g.suggestion && !cuState_.has(g.key));
   const allBtn = document.getElementById("annualcu-apply-all-btn");
@@ -24407,7 +24407,7 @@ const LINK_ICON_RULES_ = [
   [/^(cancel|cancelar|not now|ahora no|save|guardar|done|listo|select all|seleccionar todo)$/i, null],
   [/^[‹›▸▾⌄✕]/, null],
   [/^\S+ [\d.,]+ (tagged|con la etiqueta)/i, null],
-  [/^(replaced by|reemplazada por)/i, null],
+  [/^(covered|cubierta)$/i, "check"],   // a trip estimate's "✓ Covered" (the hint above names it so)
   [/^(add up|sumar|fill the rows|llenar las filas)/i, "calc"],
   [/^(add screenshots|agregar capturas)/i, "camera"],
   [/^\d+ (emails?|correos?)\b/i, "mail"],
@@ -24686,7 +24686,9 @@ function popTipTick_() {
   if (!popInView_(el)) return;
   // Counted ONCE in the day's teaching budget: popDayAllows_ already counts it (through tipDayAllows_). Asking teachAllows_ again under
   // another name was always refused by the 2-minute gap it had just started, so no everyday bubble ever showed (found 2026-11-14).
-  if (!tip.own && !tip.cont && (tip.help ? !teachAllows_("pop:" + tip.key) : !popDayAllows_(tip.key))) { popTipStopWatch_(); return; }
+  // A screen-of-its-own bubble (kind A) stays outside the one-a-day bubble limit but counts in the day's teaching budget like everything
+  // unasked (owner, 2026-11-15: Sol met one on every screen on day one); refused, it waits for a later visit.
+  if (!tip.cont && ((tip.help || tip.own) ? !teachAllows_("pop:" + tip.key) : !popDayAllows_(tip.key))) { popTipStopWatch_(); return; }
   popTipStopWatch_();
   popTipShow_(tip, el);
 }
@@ -25202,7 +25204,9 @@ function watchProfileTip_() {
   popTipWatch_({
     key: "profile", place: "myProfile", own: true,
     steps: [
-      { target: () => document.getElementById("owner-names-toggle"), text: tr("pop.prof.names") },
+      // The names banks use for the person matter only with a bank account or card (Sol, 2026-11-15: shown to a cash-only person).
+      { target: () => document.getElementById("owner-names-toggle"), text: tr("pop.prof.names"),
+        when: () => ((meta && meta.paymentMethods) || []).some((pm) => (pm.type === "debit" || pm.type === "credit") && !pmHidden_(pm)) },
       { target: () => document.getElementById("fits-toggle"), text: tr("pop.prof.fits"), when: shown("my-profile-fits-card") },
       { target: () => document.getElementById("dates-toggle"), text: tr("pop.prof.dates"), when: shown("my-profile-dates-card") },
       { target: () => document.getElementById("devices-toggle"), text: tr("pop.prof.devices") }
@@ -31679,7 +31683,7 @@ function openForgiveModal(loan, returnFriend) {
   // On a debt I owe, the other person is the one forgiving (Marta, 2026-11-09).
   const forgiveTitle = tr(loan.direction === "i_owe_them" ? "forgive.titleTheyForgave" : "forgive.title");
   document.getElementById("forgive-modal-title").textContent = forgiveTitle;
-  document.getElementById("forgive-save-btn").textContent = forgiveTitle;
+  document.getElementById("forgive-save-btn").textContent = tr(loan.direction === "i_owe_them" ? "forgive.saveTheyForgave" : "forgive.save");
   document.getElementById("forgive-form-error").textContent = "";
   document.getElementById("forgive-context").textContent =
     tr("forgive.context", { name: loan.description || tr("loan.word"), cur: loan.currency, amount: moneyFmt(loan.remaining) });
@@ -32196,6 +32200,20 @@ async function openBalanceModal(pmId) {
     renderBalanceCurrentLines_();
   }
   renderBalanceRows_();
+  // The phone's copy of the entries tells which currencies a new account moved in; if it is not loaded yet, its rows join when it is.
+  if (!Array.isArray(searchIndex)) {
+    const seq = balanceOpenSeq_;
+    syncSearchIndex_().then(() => {
+      if (seq !== balanceOpenSeq_ || document.getElementById("balance-modal-backdrop").hidden) return;
+      const id = balanceFormPmId_;
+      const pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === id);
+      const add = balanceNeededCurrencies_(pm, balancesCache.find((b) => b.id === id)).filter((c) => !balanceFormRows.some((r) => r.currency === c));
+      if (!add.length) return;
+      const firstDate = balanceFormRows.length ? balanceFormRows[0].date : todayLocalISO();
+      add.forEach((cur) => balanceFormRows.push({ amount: "", negative: balanceNegDefault_(), currency: cur, date: firstDate, needed: true }));
+      renderBalanceRows_();
+    }).catch(() => {});
+  }
 
   const backdrop = document.getElementById("balance-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -32309,6 +32327,13 @@ function balanceNeededCurrencies_(pm, tracked) {
   const out = [];
   accountCurrencyList_(pm).forEach((c) => { if (!out.includes(c)) out.push(c); });
   ((tracked && tracked.balances) || []).forEach((b) => { if (!out.includes(b.currency)) out.push(b.currency); });
+  // A new account: the currencies its entries on this phone moved in, so their rows show from the start, not after the first Save
+  // (Andrés, 2026-11-15). The server still checks on Save (__moved) for anything this copy does not hold.
+  if (pm && Array.isArray(searchIndex)) {
+    searchIndex.forEach((e) => {
+      if ((e.payment_method_id === pm.id || e.to_payment_method_id === pm.id) && (!e.status || e.status === "confirmed") && e.currency && !out.includes(e.currency)) out.push(e.currency);
+    });
+  }
   return out;
 }
 // The currencies a tracked account moves in with no starting balance of their own (counted from 0 on its other balance's date).

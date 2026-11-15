@@ -21,7 +21,7 @@ const get = (key) => ALL.find((e) => e.key === key);
 const setupEs = setup.slice(setup.indexOf("  es: {"), setup.indexOf("}[LANG]"));
 
 test("C1/C2 kept: 'repago' and 'Repartición' stay; only 'cuenta' (the bill) became 'boleta' in the bill-splitting texts", () => {
-  assert.match(get("transfer.kind.repayment").es, /Repagos/);
+  assert.match(get("transfer.kind.repayment").es, /"Repago"/);   // singular like the other kinds (Inés, 2026-11-15)
   assert.match(get("bill.apply").es, /repartición/);
   assert.equal(get("bill.title").es, JSON.stringify("🧾 Repartir una boleta por ítems"));
   for (const e of ALL.filter((x) => /^bill\.(title|stale|total|who|err|loading|check|items|tipBase|format|onlyExpense|tooLarge)/.test(x.key) || x.key === "split.openBill")) {
