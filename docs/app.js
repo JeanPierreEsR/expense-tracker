@@ -14775,7 +14775,9 @@ ownerNamesEl_("owner-names-list").addEventListener("click", (e) => {
 (function sortMoreGroupsAz_() {
   const labelOf = (btn) => {
     const span = btn.querySelector("span[data-i18n]");
-    return (span ? span.textContent : "").replace(/^\S+\s*/, "");
+    // Only a leading emoji/symbol is skipped (labels lost their emoji for line icons;
+    // dropping the first WORD sorted "My data" as "data").
+    return (span ? span.textContent : "").replace(/^[^\p{L}\p{N}]+/u, "");
   };
   document.querySelectorAll("#screen-more .more-group-az").forEach((group) => {
     const buttons = Array.from(group.querySelectorAll(".more-list-item"));
