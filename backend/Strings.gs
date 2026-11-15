@@ -87,7 +87,7 @@ var BACKEND_STRINGS_ = {
   "err.pmNotFound": { en: "Account not found.", es: "No se encontró la cuenta." },
   "err.tagProtected": { en: "Annual is built in: it can't be renamed or deleted.", es: "Anual viene incluida en la app: no se puede renombrar ni eliminar." },
   "err.tagName": { en: "Give the tag a name.", es: "Ponle un nombre a la etiqueta." },
-  "err.tagExists": { en: "You already have a tag called \"{name}\".", es: "Ya tienes una etiqueta llamada \"{name}\"." },
+  "err.tagExists": { en: "You already have a tag called “{name}”.", es: "Ya tienes una etiqueta llamada “{name}”." },
   "bulk.tagNotFound": { en: "That tag no longer exists.", es: "Esa etiqueta ya no existe." },
   "bulk.tooMany": { en: "Too many at once: choose up to {n} entries at a time.", es: "Son demasiados a la vez: elige hasta {n} movimientos por vez." },
   "err.pmCashBasic": { en: "Cash is built in: everyone has it, so it can't be deleted or hidden. You can rename it.", es: "Efectivo viene incluido: todos lo tienen, así que no se puede eliminar ni ocultar. Puedes cambiarle el nombre." },
@@ -134,7 +134,7 @@ var BACKEND_STRINGS_ = {
   "budget.annualKind": { en: "Annual expenses", es: "Gastos anuales" },
   "budget.annualKindLower": { en: "everything marked Annual", es: "todo lo marcado como Anual" },
   "budget.annualKindYearly": { en: "A budget for everything marked Annual can only be yearly.", es: "Un presupuesto para todo lo marcado como Anual solo puede ser anual." },
-  "trip.errInBudgets": { en: "Pick at least one budget, or choose another option under \"In my budgets\".", es: "Elige al menos un presupuesto, o escoge otra opción en \"En mis presupuestos\"." },
+  "trip.errInBudgets": { en: "Pick at least one budget, or choose another option under “In my budgets”.", es: "Elige al menos un presupuesto, o escoge otra opción en “En mis presupuestos”." },
   "trip.errBudget": { en: "The budget must be a number greater than 0 (or leave it blank).", es: "El presupuesto debe ser un número mayor que 0 (o déjalo en blanco)." },
 
   // ---- loan ----
@@ -816,7 +816,7 @@ function setSetting_(key, value) {
   var keys = lastRow >= 2 ? sheet.getRange(2, keyCol, lastRow - 1, 1).getValues() : [];
   for (var i = 0; i < keys.length; i++) {
     if (String(keys[i][0]) === String(key)) {
-      sheet.getRange(i + 2, valueCol).setValue(value);
+      sheet.getRange(i + 2, valueCol).setValue(safeCellValue_('Settings', 'value', value));
       if (ROWS_MEMO_) delete ROWS_MEMO_['Settings'];
       bumpStructureVersion_();
       return;

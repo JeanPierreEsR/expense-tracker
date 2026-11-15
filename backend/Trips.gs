@@ -48,7 +48,10 @@ function ensureEntriesTripColumn_() {
 
 function getTripRows_() {
   ensureTripsSheet_();
-  return getAllRowsCached_('Trips');
+  var rows = getAllRowsCached_('Trips');
+  // "In my budgets" typed by hand as NONE / None means none (Ingrid, 2026-11-15: it counted as usual).
+  rows.forEach(function (t) { if (String(t.in_budgets || '').trim().toLowerCase() === TRIP_BUDGETS_NONE_) t.in_budgets = TRIP_BUDGETS_NONE_; });
+  return rows;
 }
 
 function tripById_(id) {
@@ -115,7 +118,7 @@ function cleanTripInput_(p) {
 function cleanTripInBudgets_(raw) {
   var text = String(raw).trim();
   if (!text) return '';
-  if (text === TRIP_BUDGETS_NONE_) return text;
+  if (text.toLowerCase() === TRIP_BUDGETS_NONE_) return TRIP_BUDGETS_NONE_;
   var present = {};
   getAllRows('Budgets').forEach(function (b) { present[String(b.id)] = true; });
   var seen = {}, ids = [];

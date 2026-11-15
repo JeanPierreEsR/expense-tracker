@@ -140,3 +140,37 @@ test("text starting with = + - @ stays text, on creating and on editing; a numbe
   assert.equal(sheetSafeText_(-5), -5);
   assert.equal(sheetSafeText_("plain"), "plain");
 });
+
+test("names typed on the newer screens stay text too, on add and on update (testers, 2026-11-15)", () => {
+  const { rt, cat } = setup();
+  const F = '=HYPERLINK("http://example.invalid","x")';
+  const clean = (sheetName) => {
+    const bad = JSON.stringify(rt.rows(sheetName)).indexOf("#FORMULA#");
+    assert.equal(bad, -1, sheetName + " holds a formula: " + JSON.stringify(rt.rows(sheetName)).slice(bad, bad + 60));
+  };
+  const tag = rt.api("addTag", { name: F });
+  clean("Tags");
+  rt.api("renameTag", { id: tag.id || tag.tag.id, name: F + "2" });
+  clean("Tags");
+  const trip = rt.api("addTrip", { name: F, kind: "trip", start_date: today(), end_date: today(), group_size: 3 });
+  clean("Trips"); clean("Friends");
+  rt.api("updateTrip", { id: trip.id || trip.trip.id, name: F + "2", kind: "trip", start_date: today(), end_date: today() });
+  clean("Trips"); clean("Friends");
+  rt.api("addBank", { name: F });
+  clean("Banks");
+  rt.api("addPayor", { name: F });
+  clean("Payors"); clean("Friends");
+  const b = rt.api("addBudget", { category_id: cat.id, amount: 100, currency: "PEN", period_type: "weekly", name: F });
+  clean("Budgets");
+  rt.api("updateBudget", { id: b.id, name: F + "2" });
+  clean("Budgets");
+  const r = rt.api("addRecurringExpense", { category_id: cat.id, description: F, amount: 50, currency: "PEN", frequency: "monthly", day: 5 });
+  clean("Recurring Expenses");
+  rt.api("updateRecurringExpense", { id: r.id || r.item.id, description: F + "2" });
+  clean("Recurring Expenses");
+  rt.api("setReminderTemplate", { lang: "en", text: '=HYPERLINK("http://example.invalid",{list})' });
+  clean("Settings");
+  const tpl = rt.rows("Settings").find((s) => s.key === "remind_template_en");
+  assert.equal(tpl.value, '=HYPERLINK("http://example.invalid",{list})', "read back unchanged");
+  assert.ok(rt.rows("Tags").some((t) => t.name.startsWith("=HYPERLINK(")), "a tag name reads back as typed (cut to 40 letters)");
+});

@@ -5905,8 +5905,43 @@ function captureEntryDraft_() {
     expectedPick: expectedPick_,
     igvOn: document.getElementById("igv-toggle").checked,
     igvAmount: document.getElementById("igv-amount").value,
-    igvTouched: igvTouched_
+    igvTouched: igvTouched_,
+    split: entryDraftSplit_()
   };
+}
+
+// The split travels with the draft (testers, 2026-11-15: a restored draft came back without it, and saving it made the whole amount
+// the person's own expense). A "By items" bill comes back as the Custom amounts it filled in; the item list itself is not kept.
+function entryDraftSplit_() {
+  if (selectedType !== "expense" || !document.getElementById("split-toggle").checked) return null;
+  const due = document.getElementById("split-due");
+  return {
+    friends: [...splitFriendIds], mode: splitMode, custom: { ...customSplitAmounts }, percents: { ...splitPercents },
+    own: customOwnAmount, groupCount: splitGroupCount_(), due: document.getElementById("split-due-block").hidden ? "" : due.value
+  };
+}
+function applyEntryDraftSplit_(sp) {
+  if (!sp || selectedType !== "expense") return;
+  const known = new Set((meta.friends || []).map((f) => f.id));
+  const friends = (sp.friends || []).filter((id) => known.has(id));
+  splitMode = ["equal", "percent", "custom"].includes(sp.mode) ? sp.mode : "equal";
+  splitFriendIds = new Set();
+  customSplitAmounts = {};
+  splitPercents = {};
+  friends.forEach((id) => {
+    splitFriendIds.add(id);
+    if (sp.custom && sp.custom[id] != null) customSplitAmounts[id] = sp.custom[id];
+    if (sp.percents && sp.percents[id] != null) splitPercents[id] = sp.percents[id];
+  });
+  customOwnAmount = sp.own || "";
+  setSplitGroupCount_(sp.groupCount || 2);
+  document.querySelectorAll("#split-mode-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === splitMode));
+  document.getElementById("split-toggle").checked = true;
+  document.getElementById("split-detail").hidden = false;
+  if (sp.due) showSplitDue_(sp.due);
+  renderSplitFriendChips();
+  renderSplitRows();
+  renderSplitSummary();
 }
 
 function saveEntryDraftNow_() {
@@ -5986,6 +6021,7 @@ function applyEntryDraft_(d) {
   setBusinessPick_(d.businessPick);
   if (d.expectedPick) setExpectedPick_(d.expectedPick);
   setIgvState_(d.igvOn, d.igvAmount, d.igvTouched);
+  applyEntryDraftSplit_(d.split);   // after the trip: picking a trip drops the friends it does not allow
 }
 
 (function setupEntryDraft_() {
@@ -8632,20 +8668,29 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && !document.getElementById("screen-entries").hidden && homeGlance_) refreshHomeGlance_(false);
 });
 
+// Whole amounts round like on paper: half away from zero (19.5 → 20, −19.5 → −20; Math.round gives −19). Each figure is rounded
+// from its exact value, and a total from the exact sum, never from rounded parts (owner, 2026-11-15). Money is in cents, so the
+// figure is taken to the cent first (a sum of 19.4999999 from floating-point noise is 19.50).
+function roundHalfAway_(n) {
+  const v = Number(n);
+  if (!isFinite(v)) return 0;
+  const r = Math.round(Math.round(Math.abs(v) * 100) / 100);
+  return r === 0 ? 0 : (v < 0 ? -r : r);
+}
+
 // Home's summary cards show whole amounts only (owner, 2026-11-07: cents there add nothing meaningful).
 function homeWhole_(n, cur) {
   const c = cur || homeCur();
   return `${c === homeCur() ? "" : findCurrency(c).flag + " "}${c} ${homeShort_(n)}`;
 }
 function homeWholeSigned_(n) {
-  const r = Math.round(Number(n));
+  const r = roundHalfAway_(n);
   return `${r > 0 ? "+" : r < 0 ? "−" : ""}${homeCur()} ${homeShort_(r)}`;
 }
 
 // Whole numbers with thousands separators, for the four small boxes.
 function homeShort_(n) {
-  const v = Math.round(Math.abs(Number(n)));
-  return v.toLocaleString("en-US");
+  return Math.abs(roundHalfAway_(n)).toLocaleString("en-US");
 }
 
 function homeCardEl_(cls, html) {
@@ -8669,7 +8714,7 @@ function homeMainCard_(g) {
     ? tr("home.leftThisMonth")
     : tr("home.leftIn", { month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), true) });
   const net = m.net;
-  const signed = (v) => `${Math.round(v) > 0 ? "+" : Math.round(v) < 0 ? "−" : ""}${homeShort_(v)}`;
+  const signed = (v) => `${roundHalfAway_(v) > 0 ? "+" : roundHalfAway_(v) < 0 ? "−" : ""}${homeShort_(v)}`;
   const four = `
     <div class="home-four">
       <div class="home-four-box"><span><i class="home-key" style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><b class="income">${signed(m.income)}</b></div>
@@ -8735,7 +8780,7 @@ function homeBudgetCard_(g) {
   const b = g.budget;
   if (!b || !(b.totalPen > 0)) return null;
   const pct = (b.spentPen / b.totalPen) * 100;
-  const left = Math.round(b.totalPen) - Math.round(b.spentPen);   // (whole amounts, so the three figures add up as shown)
+  const left = roundHalfAway_(b.totalPen - b.spentPen);   // from the exact figures, rounded once (owner, 2026-11-15)
   const daysLeft = g.pace.curDays - g.pace.curDay + 1;   // today still counts
   const cls = pct >= 100 ? "over" : pct >= 85 ? "warn" : "";
   const facts = [
@@ -15949,7 +15994,7 @@ function cuSummary_() {
   const left = groups.length - done;
   const summary = document.getElementById("annualcu-summary");
   summary.hidden = !groups.length;
-  summary.textContent = tr("annualcu.summary", { n: d.total, g: groups.length }) +
+  summary.textContent = tr("annualcu.summary", { expenses: tr("annualcu.nExpenses", { n: d.total }), groups: tr("annualcu.nGroups", { n: groups.length }) }) +
     (done || saving ? " " + tr(saving ? "annualcu.progress" : "annualcu.progressDone", { done, saving, left }) : "");
   const sugg = groups.filter((g) => g.suggestion && !cuState_.has(g.key));
   const allBtn = document.getElementById("annualcu-apply-all-btn");
@@ -22145,6 +22190,12 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       // Always sent so clearing it works; the server keeps it only for a one-time expense item.
       trip_id: recurringFrequency === "once" ? document.getElementById("recurring-trip").value : ""
     };
+    // A changing amount is recognised by its words: checked here so the form stays open with what was typed (Lucía, 2026-11-15;
+    // the server's rule: a word of 3+ letters that is not only digits).
+    if (fields.variable && !fields.match_words.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z0-9]+/).some((w) => w.length >= 3 && !/^\d+$/.test(w))) {
+      document.getElementById("recurring-match-words").focus();
+      throw new Error(tr("recModal.needsWords"));
+    }
     if (recurringFrequency === "once") {
       fields.date = occurrenceDate; // real date, full year — a single occurrence
       fields.day = "";
@@ -22329,7 +22380,7 @@ async function startRecurringDelete_(re) {
     body.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</p>`;
     return;   // closes with the ✕
   }
-  const amount = `${homeCur()} ${moneyFmt(Math.round(effect))}`;
+  const amount = `${homeCur()} ${moneyFmt(roundHalfAway_(effect))}`;
   if (effect < 0.5) {   // nothing in the last 12 months depends on it: the plain question
     closeRecurringDeleteSheet_();
     await nextPaint_();
@@ -22383,7 +22434,7 @@ async function startRecurringBulkDelete_(items) {
   // "Has payments" = a payment on record (any age) or a figure that would change. It used to be the figure alone, which is 0 for income, so an income
   // item with payments was counted as "no payments" and deleted by "Stop them" (QA round 1, 2026-11-03).
   const effectful = items.filter((re) => effectOf[re.id] >= 0.5 || lastPaidOf[re.id]);
-  const amount = `${homeCur()} ${moneyFmt(Math.round(preview.totalPen || 0))}`;
+  const amount = `${homeCur()} ${moneyFmt(roundHalfAway_(preview.totalPen || 0))}`;
   // Closes the sheet and Edit mode at once and works behind the screen (saving standard).
   const finish = (work, after, opts) => { closeRecurringDeleteSheet_(); setRecurringEditing_(false); saveBehindScreen_(work, after, opts); };
   const deleteAll = () => {
@@ -22598,7 +22649,7 @@ async function renderPausedDecision_() {
       }
       if (act === "delete") {   // never a one-tap delete in a sheet that cannot be dismissed: the figure warning, or the plain question
         const warn = (effects[it.id] || 0) >= 0.5;
-        if (!await askConfirmApp_(warn ? tr("paused.deleteWarn", { amount: `${homeCur()} ${moneyFmt(Math.round(effects[it.id]))}` }) : tr("paused.deleteConfirm", { name: it.description || it.category_name }), tr("confirmBtn.delete"))) return;
+        if (!await askConfirmApp_(warn ? tr("paused.deleteWarn", { amount: `${homeCur()} ${moneyFmt(roundHalfAway_(effects[it.id]))}` }) : tr("paused.deleteConfirm", { name: it.description || it.category_name }), tr("confirmBtn.delete"))) return;
       }
       run(() => act === "reactivate" ? callApi("updateRecurringExpense", { id: it.id, active: true }) : callApi("deleteRecurringExpenses", { ids: [it.id] }));
     }));
@@ -24356,7 +24407,7 @@ const LINK_ICON_RULES_ = [
   [/^(cancel|cancelar|not now|ahora no|save|guardar|done|listo|select all|seleccionar todo)$/i, null],
   [/^[‹›▸▾⌄✕]/, null],
   [/^\S+ [\d.,]+ (tagged|con la etiqueta)/i, null],
-  [/^(replaced by|reemplazada por)/i, null],
+  [/^(covered|cubierta)$/i, "check"],   // a trip estimate's "✓ Covered" (the hint above names it so)
   [/^(add up|sumar|fill the rows|llenar las filas)/i, "calc"],
   [/^(add screenshots|agregar capturas)/i, "camera"],
   [/^\d+ (emails?|correos?)\b/i, "mail"],
@@ -24635,7 +24686,9 @@ function popTipTick_() {
   if (!popInView_(el)) return;
   // Counted ONCE in the day's teaching budget: popDayAllows_ already counts it (through tipDayAllows_). Asking teachAllows_ again under
   // another name was always refused by the 2-minute gap it had just started, so no everyday bubble ever showed (found 2026-11-14).
-  if (!tip.own && !tip.cont && (tip.help ? !teachAllows_("pop:" + tip.key) : !popDayAllows_(tip.key))) { popTipStopWatch_(); return; }
+  // A screen-of-its-own bubble (kind A) stays outside the one-a-day bubble limit but counts in the day's teaching budget like everything
+  // unasked (owner, 2026-11-15: Sol met one on every screen on day one); refused, it waits for a later visit.
+  if (!tip.cont && ((tip.help || tip.own) ? !teachAllows_("pop:" + tip.key) : !popDayAllows_(tip.key))) { popTipStopWatch_(); return; }
   popTipStopWatch_();
   popTipShow_(tip, el);
 }
@@ -25151,7 +25204,9 @@ function watchProfileTip_() {
   popTipWatch_({
     key: "profile", place: "myProfile", own: true,
     steps: [
-      { target: () => document.getElementById("owner-names-toggle"), text: tr("pop.prof.names") },
+      // The names banks use for the person matter only with a bank account or card (Sol, 2026-11-15: shown to a cash-only person).
+      { target: () => document.getElementById("owner-names-toggle"), text: tr("pop.prof.names"),
+        when: () => ((meta && meta.paymentMethods) || []).some((pm) => (pm.type === "debit" || pm.type === "credit") && !pmHidden_(pm)) },
       { target: () => document.getElementById("fits-toggle"), text: tr("pop.prof.fits"), when: shown("my-profile-fits-card") },
       { target: () => document.getElementById("dates-toggle"), text: tr("pop.prof.dates"), when: shown("my-profile-dates-card") },
       { target: () => document.getElementById("devices-toggle"), text: tr("pop.prof.devices") }
@@ -31628,7 +31683,7 @@ function openForgiveModal(loan, returnFriend) {
   // On a debt I owe, the other person is the one forgiving (Marta, 2026-11-09).
   const forgiveTitle = tr(loan.direction === "i_owe_them" ? "forgive.titleTheyForgave" : "forgive.title");
   document.getElementById("forgive-modal-title").textContent = forgiveTitle;
-  document.getElementById("forgive-save-btn").textContent = forgiveTitle;
+  document.getElementById("forgive-save-btn").textContent = tr(loan.direction === "i_owe_them" ? "forgive.saveTheyForgave" : "forgive.save");
   document.getElementById("forgive-form-error").textContent = "";
   document.getElementById("forgive-context").textContent =
     tr("forgive.context", { name: loan.description || tr("loan.word"), cur: loan.currency, amount: moneyFmt(loan.remaining) });
@@ -31812,6 +31867,11 @@ let reviewTransferMode = null; // "repay" | "loan"
 function populateReviewTransferFriendOptions() {
   const select = document.getElementById("review-transfer-friend");
   select.innerHTML = "";
+  // No friend is chosen for the person (Valeria, 2026-11-15: the first name in the list was, and one tap made a loan to a stranger).
+  const pick = document.createElement("option");
+  pick.value = "";
+  pick.textContent = tr("review.pickFriend");
+  select.appendChild(pick);
   plainFriends_().forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
@@ -31827,7 +31887,7 @@ function populateReviewTransferFriendOptions() {
 document.getElementById("review-transfer-friend").addEventListener("change", async (e) => {
   if (e.target.value !== "__add__") return;
   const name = await askName_(tr("prompt.friendName"));
-  e.target.value = meta.friends.length ? meta.friends[0].id : "";
+  e.target.value = "";
   if (name && name.trim()) {
     const friend = await callApi("addFriend", { name: name.trim() });
     meta.friends.push(friend);
@@ -31889,7 +31949,8 @@ function openReviewTransferModal(entry, mode) {
     .map((b) => ({ id: b.friend_id, net: ((b.balances || []).find((l) => l.currency === entry.currency) || {}).net || 0 }))
     .filter((b) => sign * b.net > 0.004 && plainFriends_().some((f) => f.id === b.id))
     .sort((x, y) => Math.abs(y.net) - Math.abs(x.net))[0];
-  document.getElementById("review-transfer-friend").value = hintedFriend ? hintedFriend.id : owedFriend ? owedFriend.id : (meta.friends.length ? meta.friends[0].id : "");
+  // Only a real hint picks someone: the place's past choice, or (a repayment) the friend with the debt it pays. Else "Pick a friend…".
+  document.getElementById("review-transfer-friend").value = hintedFriend ? hintedFriend.id : owedFriend ? owedFriend.id : "";
   document.getElementById("review-transfer-amount").value = Math.abs(Number(entry.amount));
   document.getElementById("review-transfer-date").value = entry.date;
   // The account the bank e-mail named stays (it used to be dropped, leaving the repayment / loan with no account).
@@ -32139,6 +32200,20 @@ async function openBalanceModal(pmId) {
     renderBalanceCurrentLines_();
   }
   renderBalanceRows_();
+  // The phone's copy of the entries tells which currencies a new account moved in; if it is not loaded yet, its rows join when it is.
+  if (!Array.isArray(searchIndex)) {
+    const seq = balanceOpenSeq_;
+    syncSearchIndex_().then(() => {
+      if (seq !== balanceOpenSeq_ || document.getElementById("balance-modal-backdrop").hidden) return;
+      const id = balanceFormPmId_;
+      const pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === id);
+      const add = balanceNeededCurrencies_(pm, balancesCache.find((b) => b.id === id)).filter((c) => !balanceFormRows.some((r) => r.currency === c));
+      if (!add.length) return;
+      const firstDate = balanceFormRows.length ? balanceFormRows[0].date : todayLocalISO();
+      add.forEach((cur) => balanceFormRows.push({ amount: "", negative: balanceNegDefault_(), currency: cur, date: firstDate, needed: true }));
+      renderBalanceRows_();
+    }).catch(() => {});
+  }
 
   const backdrop = document.getElementById("balance-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -32252,6 +32327,13 @@ function balanceNeededCurrencies_(pm, tracked) {
   const out = [];
   accountCurrencyList_(pm).forEach((c) => { if (!out.includes(c)) out.push(c); });
   ((tracked && tracked.balances) || []).forEach((b) => { if (!out.includes(b.currency)) out.push(b.currency); });
+  // A new account: the currencies its entries on this phone moved in, so their rows show from the start, not after the first Save
+  // (Andrés, 2026-11-15). The server still checks on Save (__moved) for anything this copy does not hold.
+  if (pm && Array.isArray(searchIndex)) {
+    searchIndex.forEach((e) => {
+      if ((e.payment_method_id === pm.id || e.to_payment_method_id === pm.id) && (!e.status || e.status === "confirmed") && e.currency && !out.includes(e.currency)) out.push(e.currency);
+    });
+  }
   return out;
 }
 // The currencies a tracked account moves in with no starting balance of their own (counted from 0 on its other balance's date).
