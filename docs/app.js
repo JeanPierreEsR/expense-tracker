@@ -57,8 +57,26 @@ new MutationObserver((changes) => changes.forEach((c) => {
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-modal", "true");
   box.tabIndex = -1;
+  if (c.oldValue !== null) sheetBackToTop_(b);   // (it was closed: this is an opening)
   if (!b.contains(document.activeElement)) { modalOpeners_.set(b, document.activeElement); box.focus({ preventScroll: true }); }
-})).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["hidden"] });
+})).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["hidden"], attributeOldValue: true });
+
+// Every sheet opens at its top (owner, 2026-11-14: "Add a trip" reopened where the last one was left scrolled). What a sheet was left
+// scrolled to is remembered as it scrolls; at the next opening exactly those places go back to 0, so a sheet that scrolls itself to a
+// field as it opens (a different position, set by its own code) keeps that.
+const sheetLeftAt_ = new Map();   // scrolled element inside a sheet → where it was left (only the few that ever scrolled)
+document.addEventListener("scroll", (e) => {
+  const el = e.target;
+  if (el && el.closest && el.closest(".currency-modal-backdrop")) sheetLeftAt_.set(el, el.scrollTop);
+}, true);
+function sheetBackToTop_(backdrop) {
+  sheetLeftAt_.forEach((top, el) => {
+    if (!el.isConnected) { sheetLeftAt_.delete(el); return; }
+    if (!backdrop.contains(el)) return;
+    if (el.scrollTop > 0 && el.scrollTop === top) el.scrollTop = 0;
+    sheetLeftAt_.delete(el);
+  });
+}
 
 function bringModalToFront_(backdropEl) {
   // A pop-up opened while the welcome screens are up (the bank-e-mail info at the end of step 3, "teach the app my bank" from step 2)
