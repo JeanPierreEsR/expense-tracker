@@ -5520,67 +5520,66 @@ function openSearchFilter_(key) {
 }
 function closeSearchFilters_() { document.getElementById("search-filters-backdrop").hidden = true; }
 
-// Type, Dates or Amount: the one section, in the small window.
+// Type, Dates or Amount: one vertical list in the small window, the same rows as the list filters (owner, 2026-11-15: the chips
+// wrapping side by side read badly). Type ticks several; Dates is one choice (tap again to drop it), "Choose dates" opens two
+// date boxes under it; Amount is two boxes, one under the other.
 function renderSearchFilterBody_(k) {
   const f = searchFilters_;
   const body = document.getElementById("search-filters-body");
   body.innerHTML = "";
-  const pair = (fields) => {
-    const row = document.createElement("div");
-    row.className = "search-filter-pair";
-    fields.forEach(({ labelKey, labelVars, type, key, decimal }) => {
-      const label = document.createElement("label");
-      label.textContent = tr(labelKey, labelVars);
-      const input = document.createElement("input");
-      input.type = type;
-      if (decimal) { input.inputMode = "decimal"; input.min = "0"; input.step = "0.01"; }
-      input.value = f[key];
-      input.addEventListener("input", () => {
-        const v = input.value.trim();
-        f[key] = type === "number" && (v === "" || isNaN(Number(v))) ? "" : v;
-        searchFiltersChanged_();
-      });
-      label.appendChild(input);
-      row.appendChild(label);
+  const field = ({ labelKey, labelVars, type, key, decimal }) => {
+    const label = document.createElement("label");
+    label.className = "search-filter-field";
+    label.textContent = tr(labelKey, labelVars);
+    const input = document.createElement("input");
+    input.type = type;
+    if (decimal) { input.inputMode = "decimal"; input.min = "0"; input.step = "0.01"; }
+    input.value = f[key];
+    input.addEventListener("input", () => {
+      const v = input.value.trim();
+      f[key] = type === "number" && (v === "" || isNaN(Number(v))) ? "" : v;
+      searchFiltersChanged_();
     });
-    return row;
+    label.appendChild(input);
+    return label;
   };
   if (k.ui === "amount") {
     const hint = document.createElement("p");
     hint.className = "hint";
     hint.textContent = tr("search.f.amountHint");
-    body.append(hint, pair([
-      { labelKey: "search.f.min", labelVars: { cur: homeCur() }, type: "number", key: "min", decimal: true },
-      { labelKey: "search.f.max", labelVars: { cur: homeCur() }, type: "number", key: "max", decimal: true }
-    ]));
+    body.append(hint,
+      field({ labelKey: "search.f.min", labelVars: { cur: homeCur() }, type: "number", key: "min", decimal: true }),
+      field({ labelKey: "search.f.max", labelVars: { cur: homeCur() }, type: "number", key: "max", decimal: true }));
     return;
   }
-  const wrap = document.createElement("div");
-  wrap.className = "search-filter-options";
-  body.appendChild(wrap);
   const values = k.ui === "chips" ? ["expense", "income", "transfer", "investment"] : SEARCH_PERIODS_;
   const isOn = (v) => (k.ui === "chips" ? f.types.includes(v) : f.period === v);
   let custom = null;
+  const rows = [];
   const paint = () => {
-    wrap.querySelectorAll(".tag-chip").forEach((b) => { b.classList.toggle("selected", isOn(b.dataset.v)); b.setAttribute("aria-pressed", isOn(b.dataset.v) ? "true" : "false"); });
+    rows.forEach((r) => { r.classList.toggle("on", isOn(r.dataset.v)); r.setAttribute("aria-pressed", isOn(r.dataset.v) ? "true" : "false"); });
     if (custom) custom.hidden = f.period !== "custom";
   };
   values.forEach((v) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "tag-chip";
-    b.dataset.v = v;
-    b.textContent = tr(k.ui === "chips" ? "search.f.type." + v : "search.f.period." + v);
-    b.addEventListener("click", () => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "search-pick-row" + (k.ui === "dates" ? " one" : "");
+    row.dataset.v = v;
+    row.innerHTML = `<span class="search-pick-name"></span><span class="search-pick-check" aria-hidden="true">✓</span>`;
+    row.querySelector(".search-pick-name").textContent = tr(k.ui === "chips" ? "search.f.type." + v : "search.f.period." + v);
+    row.addEventListener("click", () => {
       if (k.ui === "chips") f.types = f.types.includes(v) ? f.types.filter((x) => x !== v) : f.types.concat(v);
       else { f.period = f.period === v ? "" : v; if (f.period !== "custom") { f.from = ""; f.to = ""; } }
       paint();
       searchFiltersChanged_();
     });
-    wrap.appendChild(b);
+    rows.push(row);
+    body.appendChild(row);
   });
   if (k.ui === "dates") {
-    custom = pair([{ labelKey: "search.f.fromDate", type: "date", key: "from" }, { labelKey: "search.f.toDate", type: "date", key: "to" }]);
+    custom = document.createElement("div");
+    custom.className = "search-filter-dates";
+    custom.append(field({ labelKey: "search.f.fromDate", type: "date", key: "from" }), field({ labelKey: "search.f.toDate", type: "date", key: "to" }));
     body.appendChild(custom);
   }
   paint();
