@@ -74,7 +74,7 @@
       btn.disabled = true;
       // each step starts with the top of the animation on screen, so as much of it as possible shows (a tall one, e.g. Pro slide 7, would otherwise stay scrolled to its button)
       showTop();
-      timers.push(setTimeout(() => { btn.disabled = false; refresh(); }, ms));
+      timers.push(setTimeout(() => { btn.disabled = false; refresh(); if (i >= total && ctx.onEnd) ctx.onEnd(); }, ms));
     };
     btn.onclick = () => go(false);
     // Tapping the animation itself also goes to the next step (not while a step is still playing, and not to replay at the end).
@@ -98,8 +98,11 @@
       if (reduce) { steps.forEach((s) => s[1](true)); return; }
       let end = 0;
       steps.forEach((s) => { end = Math.max(end, s[0]); timers.push(setTimeout(() => s[1](false), s[0])); });
+      // ctx.onEnd: told once, when the first run has played to its end (the tour's first card then hints that swiping goes on)
+      if (ctx.onEnd && !ended) timers.push(setTimeout(() => { if (!ended) { ended = true; ctx.onEnd(); } }, end + 400));
       timers.push(setTimeout(run, end + (scene.hold || 1500)));
     };
+    let ended = false;
     run();
     stage.onclick = () => play(key, stage, ctx);   // tap to replay
     return true;
@@ -600,7 +603,7 @@
         [1100, (i) => { fg.tap(i); }],
         [1300, () => {
           const s = sheetOpen(p, "Ana");
-          h("div", "ts-hint", tr("loanDetail.net", { parts: "+" + ctx.home + " " + ctx.money(100) }), s);
+          h("div", "ts-hint", tr("loanDetail.owesYou", { parts: "+" + ctx.home + " " + ctx.money(100) }), s);
           rec = h("div", "ts-link big", tr("loan.recordRepayment"), s);
         }],
         [1900, (i) => fg.to(rec, i)],
@@ -1041,7 +1044,8 @@
   };
 
   // ---- The More tab: only the More screen itself — the list is dragged down to the language picker and back up (it does not open any section) ----
-  //      Only the rows every copy shows are drawn (the owner-only and friend-only rows differ); real order, groups and words.
+  //      Only the rows every copy shows are drawn (the owner-only and friend-only rows differ: Friends, Feedback & privacy, Performance log…); real order, groups and words.
+  //      Every row name is a text key "more.<name>"; tests/backend/tour-more-scene.test.js checks each one exists and is a real More row (this scene once drew removed rows as raw keys).
   SCENES.more = {
     hold: 2200,
     build(stage, ctx) {
@@ -1057,9 +1061,12 @@
         keys.forEach((k) => { const r = h("div", "ts-more-row", null, c); h("span", null, tr("more." + k), r); h("span", "ts-muted", "›", r); p.rows[k] = r; });
         return c;
       };
+      // The real More tab since 2026-11-03: group 2 is sorted A→Z by the label in the current language (emoji ignored), as the app does at load.
+      const label = (k) => tr("more." + k).replace(/^\S+\s*/, "");
+      const lang0 = root.I18n ? root.I18n.getLang() : "en";
       card(["programmed", "trips"]);
-      card(["accounts", "categories", "exchangeRates", "mainCurrency", "statements", "export"]);
-      card(["tour", "devices", "signout"]);
+      card(["accounts", "bankEmails", "categories", "currencies", "myData", "myProfile"].sort((a, b) => label(a).localeCompare(label(b), lang0)));
+      card(["tour", "signout"]);
       const lang = h("div", "ts-more-lang", null, p.scroll);
       h("div", "ts-hint", "🌐 Language / Idioma", lang);
       p.lang = h("div", "ts-box", null, lang); h("span", "ts-box-value", root.I18n && root.I18n.getLang() === "es" ? "Español" : "English", p.lang);
@@ -1069,11 +1076,11 @@
       const fg = p.finger;
       const room = () => Math.max(0, p.scroll.scrollHeight - p.scroll.parentNode.clientHeight);
       return [
-        [500, (i) => fg.to(p.rows.exchangeRates, i)],
+        [500, (i) => fg.to(p.rows.currencies, i)],
         [1000, () => { p.scroll.style.transform = "translateY(" + (-room()) + "px)"; }],   // the finger drags the list up: the rest of More, down to the language
         [1100, (i) => fg.to(p.lang, i)],
         [3600, () => { p.scroll.style.transform = "translateY(0)"; }],                    // and back to the top
-        [3700, (i) => fg.to(p.rows.exchangeRates, i)],
+        [3700, (i) => fg.to(p.rows.currencies, i)],
         [5200, () => fg.hide()]
       ];
     }
@@ -1231,6 +1238,42 @@
     chip.classList.add("on"); chip.textContent = "✓ " + chip.textContent;
     p.sel[key] = true;
   }
+
+  // ---- More → My data: the hub itself (real order, headings, rows and words; each row is a text "md.<name>"). The finger visits every row.
+  //      Recently deleted is drawn only where the app shows it (ctx.restore). tests/backend/my-data-tour.test.js checks the texts exist and are real hub rows.
+  SCENES.mydata = {
+    hold: 2200,
+    build(stage, ctx) {
+      const tr = ctx.tr;
+      const phone = h("div", "ts-phone", null, stage);
+      const p = { ctx, phone, finger: makeFinger(stage), rows: {} };
+      h("div", "ts-bar", tr("md.title"), phone);
+      const body = h("div", "ts-more-clip", null, phone);
+      const section = (headKey, rows) => {
+        h("div", "ts-hint", tr(headKey).toUpperCase(), body);
+        const c = h("div", "ts-card ts-more-group", null, body);
+        rows.forEach(([name, emoji]) => {
+          const r = h("div", "ts-more-row", null, c);
+          h("span", null, emoji + " " + tr("md." + name), r);
+          h("span", "ts-muted", "›", r);
+          p.rows[name] = r;
+        });
+      };
+      section("md.bringIn", [["bank", "🏦"], ["import", "📥"]]);
+      section("md.tidyHead", ctx.restore ? [["tidy", "🧹"], ["deleted", "🗑️"]] : [["tidy", "🧹"]]);
+      section("md.takeOut", [["export", "📤"]]);
+      return p;
+    },
+    timeline(p, ctx) {
+      const names = Object.keys(p.rows);
+      const steps = [];
+      names.forEach((n, k) => {
+        steps.push([500 + k * 1000, (i) => { names.forEach((m) => p.rows[m].classList.toggle("on", m === n)); p.finger.to(p.rows[n], i); p.finger.tap(i); }]);
+      });
+      steps.push([500 + names.length * 1000, () => { names.forEach((m) => p.rows[m].classList.remove("on")); p.finger.hide(); }]);
+      return steps;
+    }
+  };
 
   // ---- The big picture, as a flow chart told in 4 numbered steps the person advances with "Next step" ----
   //      1 Income lands in a savings account (it was at zero) → Net appears.   2 A credit card pays an expense → the card goes negative, Net down.
@@ -1465,22 +1508,25 @@
       h("div", "ts-bar", tr("nav.home"), phone);
       const p = { phone, finger: makeFinger(stage), ctx };
       p.card = h("div", "ts-card ts-review", null, phone); p.card.hidden = true;
-      h("b", null, tr("review.title") + " (1)", p.card);
-      h("div", "ts-hint", tr("review.intro"), p.card);
-      const top = h("div", "ts-review-top", null, p.card);
+      p.head = h("div", "ts-review-head", null, p.card);   // starts as a closed row, as on the real Home: a tap opens it
+      h("b", null, tr("review.title") + " (1)", p.head);
+      h("span", "ts-review-chev", "›", p.head);
+      p.details = h("div", null, null, p.card); p.details.hidden = true;
+      h("div", "ts-hint", tr("review.intro"), p.details);
+      const top = h("div", "ts-review-top", null, p.details);
       const left = h("div", null, null, top);
       h("b", null, "Cafe Luna", left);
       h("div", "ts-hint", isoDay(0) + " · " + tr("type.expense").toLowerCase(), left);
       h("b", null, ctx.home + " " + ctx.money(48), top);
-      p.category = box(p.card, "", tr("review.pickCategory"));
+      p.category = box(p.details, "", tr("review.pickCategory"));
       p.category.box.querySelector(".ts-box-label").remove();
-      const two = h("div", "ts-two", null, p.card);
+      const two = h("div", "ts-two", null, p.details);
       box(two, "", "Cafe Luna", "grow").box.querySelector(".ts-box-label").remove();
       box(two, "", "48", "grow").box.querySelector(".ts-box-label").remove();
-      const btns = h("div", "ts-two", null, p.card);
+      const btns = h("div", "ts-two", null, p.details);
       p.confirm = h("div", "ts-btn green grow", tr("review.confirm"), btns);
       h("div", "ts-btn ghost grow", tr("review.discard"), btns);
-      const more = h("div", "ts-links", null, p.card);
+      const more = h("div", "ts-links", null, p.details);
       ["review.split", "review.markRepayment", "review.convertLoan"].forEach((k) => h("span", "ts-link", tr(k), more));
       const recent = h("div", "ts-list", null, phone);
       h("div", "ts-list-title", tr("entries.recent"), recent);
@@ -1500,13 +1546,15 @@
       const tr = ctx.tr, fg = p.finger;
       return [
         [800, () => { p.card.hidden = false; p.card.classList.add("pop"); }],
-        [2000, (i) => fg.to(p.category.box, i)],
-        [2500, (i) => { fg.tap(i); p.category.box.classList.add("focus"); }],
-        [3100, () => { p.category.value.textContent = tr("scene.cat.restaurants"); p.category.box.classList.remove("focus"); }],
-        [3800, (i) => fg.to(p.confirm, i)],
-        [4300, (i) => { fg.tap(i); p.confirm.classList.add("pressed"); }],
-        [4600, () => { p.card.hidden = true; p.addRow("🍽️ " + tr("scene.cat.restaurants"), ctx.home + " " + ctx.money(48), true); }],
-        [5400, () => fg.hide()]
+        [1700, (i) => fg.to(p.head, i)],
+        [2200, (i) => { fg.tap(i); p.details.hidden = false; p.head.classList.add("open"); }],
+        [3400, (i) => fg.to(p.category.box, i)],
+        [3900, (i) => { fg.tap(i); p.category.box.classList.add("focus"); }],
+        [4500, () => { p.category.value.textContent = tr("scene.cat.restaurants"); p.category.box.classList.remove("focus"); }],
+        [5200, (i) => fg.to(p.confirm, i)],
+        [5700, (i) => { fg.tap(i); p.confirm.classList.add("pressed"); }],
+        [6000, () => { p.card.hidden = true; p.addRow("🍽️ " + tr("scene.cat.restaurants"), ctx.home + " " + ctx.money(48), true); }],
+        [6800, () => fg.hide()]
       ];
     }
   };

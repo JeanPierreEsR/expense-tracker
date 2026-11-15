@@ -729,9 +729,45 @@
     return order.map(function (v) { return { value: v, count: counts[v] }; }).sort(function (a, b) { return b.count - a.count; });
   }
 
+  // The made-up file of the "Import from another app" practice (docs/statements.js § First-use practice): three purchases with a category, as if
+  // exported from another app. Pure: `lang` 'en' | 'es', `todayISO` 'yyyy-mm-dd' (the lines are dated the three days before). The last column
+  // carries a made-up header so this layout can never be mistaken for a real file's (the remembered layout is keyed by the header words).
+  // Descriptions are written the way the import SAVES them (it capitalises each word), which are the practice entry names the server knows (backend/Practice.gs). The amounts end in odd cents on purpose: a round price (12.50) can look like a real entry of the same day, and the import then sends that line to Needs review. Returns { name, text }.
+  var PRACTICE_FILE_NAMES = ['Practice import.csv', 'Importación de práctica.csv', 'Practice statement.csv', 'Estado de cuenta de práctica.csv'];
+  // kind 'import' (default): another app's export, with a category column. kind 'bank': a bank-style statement of ONE account (Date, Description,
+  // Amount; no categories), for the Bank statements practice. Bank descriptions are written in capitals, like a bank's, and come out cleaned.
+  // Can two of these lines be linked as a currency exchange? Only money out in one currency with money in on another: the same test as the picker's two steps.
+  function canLinkExchange(lines) {
+    var list = lines || [];
+    return list.some(function (o) { return o.amount < 0 && list.some(function (n) { return n.amount > 0 && n.currency !== o.currency; }); });
+  }
+
+  function practiceFile(lang, todayISO, kind) {
+    var es = String(lang || '').toLowerCase().indexOf('es') === 0;
+    var parts = String(todayISO).split('-').map(Number);
+    var day = function (back) {
+      var d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] - back));
+      return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
+    };
+    if (kind === 'bank') {
+      var bhead = es ? 'Fecha,Descripción,Monto,Archivo de práctica' : 'Date,Description,Amount,Practice file';
+      var blines = es
+        ? [[1, 'PANADERÍA DE PRÁCTICA', '-8.65'], [2, 'LIBRERÍA DE PRÁCTICA', '-23.45'], [3, 'FARMACIA DE PRÁCTICA', '-15.85']]
+        : [[1, 'PRACTICE BAKERY', '-8.65'], [2, 'PRACTICE BOOKSTORE', '-23.45'], [3, 'PRACTICE PHARMACY', '-15.85']];
+      return { name: PRACTICE_FILE_NAMES[es ? 3 : 2], text: bhead + '\n' + blines.map(function (l) { return day(l[0]) + ',' + l[1] + ',' + l[2] + ',practice'; }).join('\n') + '\n' };
+    }
+    var head = es ? 'Fecha,Descripción,Monto,Categoría,Archivo de práctica' : 'Date,Description,Amount,Category,Practice file';
+    var lines = es
+      ? [[1, 'Almuerzo De Práctica', '-14.35', 'Restaurantes'], [2, 'Cena De Práctica', '-36.85', 'Restaurantes'], [3, 'Paseo De Práctica', '-7.15', 'Paseos de práctica']]
+      : [[1, 'Practice Lunch', '-14.35', 'Restaurants'], [2, 'Practice Dinner', '-36.85', 'Restaurants'], [3, 'Practice Ride', '-7.15', 'Practice rides']];
+    var text = head + '\n' + lines.map(function (l) { return day(l[0]) + ',' + l[1] + ',' + l[2] + ',' + l[3] + ',practice'; }).join('\n') + '\n';
+    return { name: PRACTICE_FILE_NAMES[es ? 1 : 0], text: text };
+  }
+
   return {
     decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readXls: readXls, parseHtmlTable: parseHtmlTable, readTable: readTable,
     findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature, recognize: recognize, distinctValues: distinctValues, KNOWN_FORMATS: KNOWN_FORMATS,
+    practiceFile: practiceFile, PRACTICE_FILE_NAMES: PRACTICE_FILE_NAMES, canLinkExchange: canLinkExchange,
     roundCents: roundCents, catNorm: catNorm, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
   };
 });

@@ -21,6 +21,7 @@
     : "");
 
   let coverage = null;       // last listStatementCoverage result
+  let screenLoaded = Promise.resolve();   // the screen's first lists; a file picked before they arrive waits for them (else it was lost)
   let usable = [];           // statements read OK this session: [{ file, result }]
   let pdfjsPromise = null;   // pdf.js is loaded only when first needed
   // Passwords that opened a statement, newest first. Each file tries them silently one by one before asking (banks usually use one
@@ -65,13 +66,18 @@
 
   // ---- screen navigation (same pattern as the other More sub-screens) ----
 
-  // The Statements card and the Import data card open this one screen; `mode` ("bank" | "import") only changes what is shown
+  // The "Bank statements" and "Import from another app" rows of My data open this one screen; `mode` ("bank" | "import") only changes what is shown
   // (the wording and the cards that are about bank e-mail) — the reading, the review and the saving are the same engine.
   let screenMode = "bank";
 
   function setScreenMode(mode) {
     screenMode = mode;
     $("screen-statements").dataset.mode = mode;
+    ["bank", "import"].forEach((m) => {   // the two-way switch at the top shows which side this is
+      const tab = $("stmt-mode-" + m);
+      tab.classList.toggle("active", m === mode);
+      tab.setAttribute("aria-selected", m === mode ? "true" : "false");
+    });
     $("statement-file-input").accept = mode === "import"
       ? ".csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       : "application/pdf,.pdf,.csv,.tsv,.txt,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -100,11 +106,19 @@
     document.querySelectorAll(".nav-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.screen === "more");
     });
-    refreshStatementCoverage();
-    refreshStatementGaps();
-    refreshStatementBatches();
-    refreshStatementInbox();
+    const loaded = [refreshStatementCoverage(), refreshStatementGaps(), refreshStatementBatches(), refreshStatementInbox()];
+    screenLoaded = Promise.allSettled(loaded);
     renderSteps();
+    // Loading standard: the tabs and "Loading…" first; everything below appears together once it has all arrived.
+    $("stmt-head-card").dataset.loading = tr("common.loading");
+    $("screen-statements").classList.add("stmt-opening");
+    Promise.allSettled(loaded).then(() => $("screen-statements").classList.remove("stmt-opening"));
+    if (next === "import") offerImportTip_();
+    Promise.allSettled(loaded).then(() => {   // loading standard: offered once the status line and the Inbox have arrived
+      if (screenMode !== next || $("screen-statements").hidden) return;
+      if (next === "bank") offerBankTip_();
+      watchStmtIdle_();
+    });
   }
 
   // ---- the four steps: Upload > Check > Preview > Done ----
@@ -156,6 +170,7 @@
   function renderSteps() {
     const names = ["stmt.step.upload", "stmt.step.check", "stmt.step.preview", "stmt.step.done"];
     $("stmt-stepper").hidden = pastOpen;
+    $("stmt-head-card").hidden = pastOpen;   // the past list has its own Back: never two arrows
     $("stmt-stepper").innerHTML = names.map((key, i) => {
       const n = i + 1;
       const cls = n === stepNow ? "on" : (n < stepNow ? "done" : "");
@@ -170,7 +185,9 @@
   // Counts and buttons that depend on what was read so far.
   function updateStepUi() {
     const total = stmtCards().length, ready = readyCount();
-    $("stmt-s2-count").textContent = total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr("stmt.s2.skipped") : "") : tr("stmt.s2.none");
+    // A spreadsheet waits for its "Use these lines" even when everything is already set (a saved layout, its accounts remembered): say so.
+    const waiting = !!$("statement-results").querySelector(".tm-use");
+    $("stmt-s2-count").textContent = total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr(waiting ? "stmt.s2.waitingUse" : "stmt.s2.skipped") : "") : tr("stmt.s2.none");
     const next = $("stmt-next-2");
     next.hidden = !usable.length;
     next.textContent = tr("stmt.s2.next", { n: ready });
@@ -208,7 +225,7 @@
     const note = done ? tr("stmt.processed") : (i.probably_processed ? tr("stmt.probablyProcessed", { date: fmtDate(i.last_processed, true) }) : tr("stmt.notProcessed"));
     return `<div class="stmt-row"><div class="stmt-row-main">
         <div class="stmt-row-title">${escapeHtml(tr("stmt.received", { bank: i.bank, date: fmtDate(i.received, true) }))}</div>
-        <div class="stmt-row-sub">${escapeHtml(note)} · ${i.size_kb} KB</div>
+        <div class="stmt-row-sub">${escapeHtml(note)} · ${i.link ? escapeHtml(tr("stmt.viaLink")) : `${i.size_kb} KB`}</div>
         <div class="stmt-choices" style="padding-left:0">
           <button type="button" class="stmt-choice stmt-inbox-open" data-id="${escapeHtml(i.id)}">${escapeHtml(tr("stmt.open"))}</button>
           ${done ? "" : `<button type="button" class="stmt-choice stmt-inbox-dismiss" data-id="${escapeHtml(i.id)}">${escapeHtml(tr("stmt.dismiss"))}</button>`}
@@ -456,7 +473,7 @@
   async function toggleGap(id, isOpen, btn) {
     const payload = { id, resolved: isOpen };
     if (isOpen) {
-      const note = prompt(tr("gaps.notePrompt"), "");
+      const note = await askTextApp_(tr("gaps.notePrompt"), tr("gaps.resolve"));
       if (note === null) return;           // cancelled
       payload.note = note;
     }
@@ -562,6 +579,7 @@
       $("statement-password-input").value = "";
       const backdrop = $("statement-password-backdrop");
       bringModalToFront_(backdrop);
+      guidedLift_(backdrop);   // (asked during a real tutorial: above its dimmed screen)
       backdrop.hidden = false;
       setTimeout(() => $("statement-password-input").focus(), 50);
     });
@@ -646,6 +664,7 @@
     ssEl_("ss-send").disabled = false;
     ssStep_(1);
     bringModalToFront_(backdrop);
+    guidedLift_(backdrop);
     backdrop.hidden = false;
   }
   ssEl_("ss-close").addEventListener("click", () => { ssEl_("statement-sample-backdrop").hidden = true; });
@@ -700,6 +719,7 @@
     $("statement-results").prepend(card);
     // Reading starts: the person moves on to step 2 by themselves (from the inbox, a file, or the Gmail search alike).
     if (stepNow === 1 || pastOpen) showStep(2); else updateStepUi();
+    realStmtFileChosen_();
     return card.querySelector(".stmt-result-body");
   }
 
@@ -855,8 +875,10 @@
     return /^\d{1,4}$/.test(last) ? ("0000" + last).slice(-4) : "ACCT-" + pm.id;
   }
 
+  // Accounts a file's lines can go to. Import data also offers Cash (another app's "Cash" wallet, 2026-11-04); a bank statement never.
   function tableAccounts() {
-    return ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).filter((pm) => (pm.type === "debit" || pm.type === "credit" || pm.type === "wallet") && !pmHidden_(pm));
+    const cashOk = screenMode === "import";
+    return ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).filter((pm) => (pm.type === "debit" || pm.type === "credit" || pm.type === "wallet" || (cashOk && pm.type === "cash")) && !pmHidden_(pm));
   }
 
   function columnLetter(i) { let s = "", n = i + 1; while (n > 0) { s = String.fromCharCode(65 + ((n - 1) % 26)) + s; n = Math.floor((n - 1) / 26); } return s; }
@@ -867,6 +889,7 @@
       const rows = await StatementTable.readTable(new Uint8Array(await file.arrayBuffer()), file.name);
       if (rows.length < 2) throw new Error("table-empty");
       await renderTableMapping(body, rows, file);
+      updateStepUi();   // the counter now knows this file waits for "Use these lines"
     } catch (err) {
       body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(tableErrorText(err))}</p>`;
     }
@@ -915,7 +938,8 @@
     state.m.source = screenMode === "import" ? "app" : "";   // the screen decides: an import is always an app's export, a statement never
     if (!state.accountId) {
       const fileDigits = (file.name.match(/\d{4}/g) || []);
-      const hit = accounts.find((a) => fileDigits.includes(String(a.last_4 || "").padStart(4, "0"))) || (accounts.length === 1 ? accounts[0] : null);
+      const banks = accounts.filter((a) => a.type !== "cash");   // Cash is offered, never picked by itself (a file without accounts stays with none)
+      const hit = banks.find((a) => fileDigits.includes(String(a.last_4 || "").padStart(4, "0"))) || (banks.length === 1 ? banks[0] : null);
       if (hit) state.accountId = hit.id;
     }
 
@@ -964,6 +988,7 @@
     const multi = () => state.m.account >= 0;
     const pm = () => accounts.find((a) => a.id === state.accountId) || null;
     const pmById = (id) => accounts.find((a) => a.id === id) || null;
+    currencyPickOn_($q("fixed"));
     const currentMapping = () => ({ ...state.m, currencyFixed: $q("fixed").value });
 
     // A guessed account for a name in the file: the app account whose nickname equals it or contains it (or the other way round).
@@ -1035,8 +1060,10 @@
       if (choice === "") return "";
       const info = catInfo(choice);
       if (!info) return it.name;
-      const norm = StatementTable.catNorm(it.name);
-      return info.protected || info.names.indexOf(norm) !== -1 ? info.name : it.name;
+      // Which name by default (owner, 2026-11-04, replacing "the file's name wins" of 2026-10-24), in this order: (1) a category that
+      // already holds entries keeps the app's name; (2) otherwise the file's name. A category the app depends on never changes name.
+      if (info.protected || info.entries > 0) return info.name;
+      return info.names.indexOf(StatementTable.catNorm(it.name)) !== -1 ? info.name : it.name;
     }
     async function loadCategories() {
       const names = fileCategoryNames();
@@ -1056,10 +1083,11 @@
         if (state.catChoice[it.key] === undefined) {
           state.catChoice[it.key] = remembered !== undefined && valid(remembered) ? remembered : (it.action === "match" ? it.categoryId : it.action === "create" ? "create" : "");
           const info = catInfo(state.catChoice[it.key]);
-          const keepApp = state.catSaved["~rename:" + it.key] === false;   // the person chose to keep the app's name last time
-          const mine = state.catSaved["~name:" + it.key];                   // …or typed a name of their own, which the category may already have
+          // A rename the person chose for this layout last time is offered again; otherwise the category keeps its own name.
+          const renamedBefore = state.catSaved["~rename:" + it.key] === true && state.catSaved["~name:" + it.key];
+          const mine = String(renamedBefore || "");
           const alreadyMine = !!(info && mine && info.names.indexOf(StatementTable.catNorm(mine)) !== -1);
-          state.catNames[it.key] = (keepApp || alreadyMine) && info ? info.name : defaultNameFor(it, state.catChoice[it.key]);
+          state.catNames[it.key] = info && mine && !alreadyMine && !info.protected ? mine : defaultNameFor(it, state.catChoice[it.key]);
           const custom = state.catSaved["~custom:" + it.key];                // a new category the person named themselves last time
           if (state.catChoice[it.key] === "create" && custom) { state.catCustom[it.key] = true; state.catNames[it.key] = custom; }
         }
@@ -1113,6 +1141,21 @@
       if (rn) return tr(info.entries ? "table.catWillRename" : "table.catWillRenameEmpty", { from: shownName(rn.from, it.type), to: shownName(rn.to, it.type), n: info.entries || 0 });
       return tr("table.catGoesInto", { name: shownName(info.name, it.type) });
     }
+    // Names that differ (owner, 2026-11-04): a file category that lands in one of the person's categories which already holds entries
+    // under another name ("Food & Drink" → your "Restaurants", 12 entries). Said plainly above the list, so it is never missed.
+    function nameConflicts() {
+      return state.catItems.map((it) => {
+        const info = catInfo(state.catChoice[it.key]);
+        if (!info || !info.entries || info.names.indexOf(StatementTable.catNorm(it.name)) !== -1) return null;
+        return { it, info, renamed: !!renameOf(it) };
+      }).filter(Boolean);
+    }
+    function conflictHtml() {
+      const list = nameConflicts();
+      if (!list.length) return "";
+      const lines = list.map((c) => `<li>${escapeHtml(tr(c.renamed ? "table.conflictRenamed" : "table.conflictKept", { file: shownName(c.it.name, c.it.type), mine: shownName(c.info.name, c.it.type), to: String(state.catNames[c.it.key] || "").trim(), n: c.info.entries }))}</li>`).join("");
+      return `<div class="stmt-note warn tm-cat-conflicts"><p style="margin:0 0 4px"><strong>${escapeHtml(tr("table.conflictTitle", { n: list.length }))}</strong></p><ul style="margin:0 0 4px;padding-left:18px">${lines}</ul>${list.some((c) => !c.renamed) ? `<p style="margin:0">${escapeHtml(tr("table.conflictHow"))}</p>` : ""}</div>`;
+    }
     function renderCategories() {
       const box = root.querySelector(".tm-cats");
       if (!state.catItems.length) { box.innerHTML = ""; return; }
@@ -1146,8 +1189,9 @@
         const items = state.catItems.filter((it) => it.type === type);
         return items.length ? `<h4 class="accounts-group-title">${escapeHtml(tr(type === "income" ? "table.catGroupIncome" : "table.catGroupExpense"))}</h4>${items.map(rowHtml).join("")}` : "";
       };
-      const open = !Object.keys(state.catSaved).length && state.catItems.some((it) => state.catChoice[it.key] === "create" || renameOf(it) || it.why === "retired");
+      const open = nameConflicts().length > 0 || (!Object.keys(state.catSaved).length && state.catItems.some((it) => state.catChoice[it.key] === "create" || renameOf(it) || it.why === "retired"));
       box.innerHTML = `<p class="stmt-note info tm-cat-summary">${escapeHtml(categorySummary())}</p>
+        <div class="tm-cat-conflict-box">${conflictHtml()}</div>
         <details class="stmt-lines tm-cat-details"${open ? " open" : ""}><summary>${escapeHtml(tr("table.catReview"))}</summary>${groupHtml("expense")}${groupHtml("income")}
           <p class="hint">${escapeHtml(tr("table.catEdit"))}</p></details>`;
     }
@@ -1180,6 +1224,8 @@
       const it = state.catItems.find((x) => x.key === row.dataset.key);
       row.querySelector(".tm-cat-hint").textContent = rowHint(it);
       root.querySelector(".tm-cat-summary").textContent = categorySummary();
+      const cb = root.querySelector(".tm-cat-conflict-box");
+      if (cb) cb.innerHTML = conflictHtml();
     }
     function renderPreview() {
       const m = currentMapping();
@@ -1195,7 +1241,7 @@
       const needCategory = screenMode === "import" && state.m.category < 0;   // another app's export names a category for every line
       use.disabled = needCategory || (multi() ? (undecided > 0 || !lines.length) : (!noneOk && !pm()));
       // Not blocking, only a heads-up: with accounts set up, a person usually wants the entries on one of them.
-      const noAccountNote = noneOk && !needCategory && !multi() && !pm() ? `<p class="stmt-note info">${escapeHtml(tr(accounts.length ? "imp.noAccountWarn" : "imp.noAccountsInfo"))}</p>` : "";
+      const noAccountNote = noneOk && !needCategory && !multi() && !pm() ? `<p class="stmt-note info">${escapeHtml(tr(accounts.some((a) => a.type !== "cash") ? "imp.noAccountWarn" : "imp.noAccountsInfo"))}</p>` : "";
       const totals = {};
       lines.forEach((l) => { const t = totals[l.currency] || (totals[l.currency] = { out: 0, in: 0 }); if (l.amount < 0) t.out += -l.amount; else t.in += l.amount; });
       const sum = (key) => Object.keys(totals).sort().filter((c) => totals[c][key] > 0).map((c) => fmtMoney(c, totals[c][key])).join(" + ") || "—";
@@ -1284,6 +1330,9 @@
       const m = currentMapping();
       const { lines } = usableLines(StatementTable.applyMapping(rows, m).lines);
       if (!lines.length) return;
+      // A chosen rename changes the name of entries already recorded: said once more, in a pop-up, before going on (owner, 2026-11-04).
+      const renames = nameConflicts().filter((c) => c.renamed);
+      if (renames.length && !practiceNoConfirm_(true) && !await askConfirmApp_(tr("table.conflictConfirm", { list: renames.map((c) => tr("table.conflictLine", { mine: c.info.name, to: String(state.catNames[c.it.key] || "").trim(), n: c.info.entries })).join("\n") }), tr("confirmBtn.yes"), { plain: true })) return;
       // Lines go to their account: the one picked, or — for a file with an account column — the account each name was matched to.
       const byAccount = new Map();
       lines.forEach((l) => {
@@ -1310,6 +1359,7 @@
       callApi("saveStatementFormat", { signature: sig, label, accounts: accountsToSave, categories: { ...state.catSaved, ...withoutSkips(state.catChoice), ...renameFlags() },
         mapping: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, account: m.account, category: m.category, type: m.type,
           dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed, source: m.source || "" } }).catch(() => {});
+      if (StatementTable.PRACTICE_FILE_NAMES.includes(file.name)) practiceINote_("used");   // the practice file's layout was just remembered: its cleanup forgets it
       // A re-read of the same file replaces its earlier reading.
       usable = usable.filter((u) => (u.group || u.file) !== file.name);
       results.forEach((r) => usable.push({ file: r.name, group: file.name, result: r.result, inboxId: "" }));
@@ -1330,8 +1380,12 @@
   }
 
   async function handleStatementFiles(files) {
+    // Copied BEFORE any wait: the file box is emptied right after the pick (so the same file can be picked again), and a list read after
+    // a wait was empty, so a file picked while the screen still said "Loading…" was silently dropped (Andrés, 2026-11-09).
+    const picked = Array.from(files);
+    await screenLoaded;   // ...and it is read once the screen has loaded
     if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
-    for (const f of Array.from(files)) {   // one at a time: easy on a phone's memory
+    for (const f of picked) {   // one at a time: easy on a phone's memory
       if (screenMode === "import" && !isTableFile(f)) {
         const body = resultCardShell(f.name);
         body.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("imp.blockedPdf"))}</p>
@@ -1382,6 +1436,9 @@
       historyPlan.incMode = new Map();     // index into summary.incomeLines -> "transfer" | "investment" | "review" | "leave" (absent = income, the default)
       historyPlan.outMode = new Map();     // index into summary.peopleOut -> "review" or "leave" (absent = spending, the default)
       historyPlan.openPeople = new Set();  // people whose lines are showing
+      historyPlan.rechargeChoice = new Map(); // index into summary.recharges -> the entry id that takes the card's charge, or "add"; absent = the plan's own
+      historyPlan.discountChoice = new Map(); // index into summary.discounts -> the entry id that takes the bank's amount, or "add"; absent = the plan's own
+      historyPlan.chargeChoice = new Map(); // index into summary.charges -> the entry id it fills, or "add" (a new purchase); absent = the plan's own
       historyPlan.chosen = new Map();      // index into summary.aside -> "cash" (spending/income) or "transfer", what the person counted after all
       historyPlan.exchanges = [];          // lines linked as a currency exchange: { out: {stmt, line}, in: {stmt, line} }
       historyPlan.openGroups = new Set();  // groups of similar lines whose individual lines are showing
@@ -1443,8 +1500,32 @@
     const outs = p.summary.peopleOut || [], incs = p.summary.incomeLines || [];
     p.outMode.forEach((mode, j) => { takenOut[lineKey(outs[j])] = true; });
     p.incMode.forEach((mode, k) => { takenInc[lineKey(incs[k])] = true; });
+    // A charge left pending (Charges.gs): what each line does is worked out here from the person's choice (or the plan's, for a clear pair).
+    const charges = p.summary.charges || [];
+    const chargeKeys = {}, chargeActions = [];
+    charges.forEach((c, k) => {
+      chargeKeys[lineKey(c)] = true;
+      const pick = chargeOf(k);
+      if (pick === "add") chargeActions.push({ type: "add_history_expense", stmt: c.stmt, line: c.line });
+      else if (pick) chargeActions.push({ type: "fill_charge", stmt: c.stmt, line: c.line, entryId: pick });
+    });
+    // A card line in another currency than a purchase in the app: the purchase takes the charge (what was paid is kept), or it is a new purchase.
+    (p.summary.recharges || []).forEach((d, k) => {
+      chargeKeys[lineKey(d)] = true;
+      const pick = rechargeOf(k);
+      if (pick === "add") chargeActions.push({ type: "add_history_expense", stmt: d.stmt, line: d.line });
+      else if (pick) chargeActions.push({ type: "use_bank_charge", stmt: d.stmt, line: d.line, entryId: pick });
+    });
+    // A card charge lower than a purchase in the app (a discount): the purchase takes the bank's amount, or the line is a new purchase.
+    (p.summary.discounts || []).forEach((d, k) => {
+      chargeKeys[lineKey(d)] = true;
+      const pick = discountOf(k);
+      if (pick === "add") chargeActions.push({ type: "add_history_expense", stmt: d.stmt, line: d.line });
+      else if (pick) chargeActions.push({ type: "use_bank_amount", stmt: d.stmt, line: d.line, entryId: pick });
+    });
     const kept = p.actions.filter((a) => {
-      if (a.stmt === undefined) return true;                 // a transfer pair carries out/in instead of stmt/line
+      if (a.stmt === undefined) return true;
+      if (chargeKeys[lineKey(a)]) return false;                 // a transfer pair carries out/in instead of stmt/line
       const k = lineKey(a);
       return !linked[k] && !(a.type === "wait" && taken[k]) && !(a.type === "add_history_expense" && takenOut[k]) && !(a.type === "add_history_income" && takenInc[k]);
     });
@@ -1460,12 +1541,101 @@
     });
     const exchanges = p.exchanges.map((x) => ({ type: "record_exchange", out: { stmt: x.out.stmt, line: x.out.line }, in: { stmt: x.in.stmt, line: x.in.line } }));
     const balances = settableChecks().filter(({ i }) => p.bal.has(i)).map(({ c }) => balanceAction(c));   // after the entries, as the apply expects
-    return kept.concat(optIns, exchanges, balances);
+    return kept.concat(chargeActions, optIns, exchanges, balances);
+  }
+  function chargeOf(k) {
+    const c = historyPlan.summary.charges[k];
+    return historyPlan.chargeChoice.has(k) ? historyPlan.chargeChoice.get(k) : (c.clear ? c.entryId : "");
+  }
+
+  function rechargeOf(k) {
+    const d = historyPlan.summary.recharges[k];
+    return historyPlan.rechargeChoice.has(k) ? historyPlan.rechargeChoice.get(k) : (d.clear ? d.entryId : "");
+  }
+
+  // ---- "Charged in another currency": a card line in USD for a purchase recorded in PEN (or the other way), 3 days apart at most ----
+  function rechargesHtml() {
+    const p = historyPlan, list = p.summary.recharges || [];
+    if (!list.length) return "";
+    const rows = list.map((d, k) => {
+      const pick = rechargeOf(k);
+      const option = (o) => `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`;
+      const change = (o) => `<div class="hint">${escapeHtml(tr("hist.rech.change", { from: fmtMoney(o.currency, o.amount), to: fmtMoney(d.currency, Math.abs(d.amount)) }))}</div>`;
+      let body;
+      if (d.options.length === 1) {
+        const o = d.options[0];
+        body = `<div>${escapeHtml(tr("hist.charge.recorded", { entry: option(o) }))}</div>${change(o)}
+          <div class="stmt-choices" style="padding-left:0">${modeButton(`data-rech="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr("hist.rech.use"))}${modeButton(`data-rech="${k}" data-pick="add"`, pick === "add", tr("hist.disc.not"))}</div>`;
+      } else {
+        body = `<div>${escapeHtml(tr("hist.charge.pick"))}</div>` + d.options.map((o) => `<div class="stmt-charge-option"><div>${escapeHtml(option(o))}</div>${change(o)}
+          <div class="stmt-choices" style="padding-left:0">${modeButton(`data-rech="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr("hist.charge.this"))}</div></div>`).join("")
+          + `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-rech="${k}" data-pick="add"`, pick === "add", tr("hist.charge.add"))}</div>`;
+      }
+      const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
+      return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}${unpicked}`);
+    }).join("");
+    return `<details class="stmt-group" id="statement-history-recharges" open><summary>${escapeHtml(tr("hist.rech.title"))} <span class="stmt-count">${list.length}</span></summary>
+      <p class="hint">${escapeHtml(tr("hist.rech.hint"))}</p>${rows}</details>`;
+  }
+
+  function discountOf(k) {
+    const d = historyPlan.summary.discounts[k];
+    return historyPlan.discountChoice.has(k) ? historyPlan.discountChoice.get(k) : (d.clear ? d.entryId : "");
+  }
+
+  // ---- "Charged less than recorded": a card line lower than a purchase in the app (a discount), 3 days apart at most ----
+  function discountsHtml() {
+    const p = historyPlan, list = p.summary.discounts || [];
+    if (!list.length) return "";
+    const rows = list.map((d, k) => {
+      const pick = discountOf(k);
+      const option = (o) => `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`;
+      const change = (o) => `<div class="hint">${escapeHtml(tr("hist.disc.change", { from: fmtMoney(o.currency, o.amount), to: fmtMoney(d.currency, Math.abs(d.amount)) }))}</div>`;
+      let body;
+      if (d.options.length === 1) {
+        const o = d.options[0];
+        body = `<div>${escapeHtml(tr("hist.charge.recorded", { entry: option(o) }))}</div>${change(o)}
+          <div class="stmt-choices" style="padding-left:0">${modeButton(`data-disc="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr("hist.disc.use"))}${modeButton(`data-disc="${k}" data-pick="add"`, pick === "add", tr("hist.disc.not"))}</div>`;
+      } else {
+        body = `<div>${escapeHtml(tr("hist.charge.pick"))}</div>` + d.options.map((o) => `<div class="stmt-charge-option"><div>${escapeHtml(option(o))}</div>${change(o)}
+          <div class="stmt-choices" style="padding-left:0">${modeButton(`data-disc="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr("hist.charge.this"))}</div></div>`).join("")
+          + `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-disc="${k}" data-pick="add"`, pick === "add", tr("hist.charge.add"))}</div>`;
+      }
+      const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
+      return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}${unpicked}`);
+    }).join("");
+    return `<details class="stmt-group" id="statement-history-discounts" open><summary>${escapeHtml(tr("hist.disc.title"))} <span class="stmt-count">${list.length}</span></summary>
+      <p class="hint">${escapeHtml(tr("hist.disc.hint"))}</p>${rows}</details>`;
+  }
+
+  // ---- "Completes a charge you left pending": a USD line on the card and a purchase recorded in ARS on it, 5 days apart at most ----
+  function chargesHtml() {
+    const p = historyPlan, charges = p.summary.charges || [];
+    if (!charges.length) return "";
+    const rows = charges.map((c, k) => {
+      const pick = chargeOf(k);
+      const option = (o) => `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`;
+      const rate = (o) => { const t = chargeRateText_(o.amount, o.currency, Math.abs(c.amount), c.currency); return t ? `<div class="hint stmt-charge-rate">${escapeHtml(t)}</div>` : ""; };
+      let body;
+      if (c.options.length === 1) {
+        const o = c.options[0];
+        body = `<div>${escapeHtml(tr("hist.charge.recorded", { entry: option(o) }))}</div>${rate(o)}
+          <div class="stmt-choices" style="padding-left:0">${modeButton(`data-chg="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr("hist.charge.same"))}${modeButton(`data-chg="${k}" data-pick="add"`, pick === "add", tr("hist.charge.not"))}</div>`;
+      } else {
+        body = `<div>${escapeHtml(tr("hist.charge.pick"))}</div>` + c.options.map((o) => `<div class="stmt-charge-option"><div>${escapeHtml(option(o))}</div>${rate(o)}
+          <div class="stmt-choices" style="padding-left:0">${modeButton(`data-chg="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr("hist.charge.this"))}</div></div>`).join("")
+          + `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-chg="${k}" data-pick="add"`, pick === "add", tr("hist.charge.add"))}</div>`;
+      }
+      const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
+      return lineRow({ date: c.date, description: c.description, amount: c.amount, currency: c.currency }, `${escapeHtml(c.account)}${body}${unpicked}`);
+    }).join("");
+    return `<details class="stmt-group" id="statement-history-charges" ${p.chargesOpen === false ? "" : "open"}><summary>${escapeHtml(tr("hist.charge.title"))} <span class="stmt-count">${charges.length}</span></summary>
+      <p class="hint">${escapeHtml(tr("hist.charge.hint"))}</p>${rows}</details>`;
   }
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
-    const c = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
+    const c = { charges: 0, discounts: 0, recharges: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
         const l = usable[a.stmt].result.lines[a.line];
@@ -1482,6 +1652,9 @@
       else if (a.type === "record_exchange") c.exchanges++;
       else if (a.type === "record_fee") c.fees++;
       else if (a.type === "set_balance") c.balances++;
+      else if (a.type === "fill_charge") c.charges++;
+      else if (a.type === "use_bank_amount") c.discounts++;
+      else if (a.type === "use_bank_charge") c.recharges++;
       else if (["link", "assign_account", "complete_transfer"].includes(a.type)) c.linked++;
     });
     c.entries = c.expenses + c.income + c.refunds + c.refundIncome + c.transfers + c.legs + c.investments + c.pending + 2 * c.exchanges + c.fees;
@@ -1696,6 +1869,22 @@
     return c.accountName || accountKeyOf(r);
   }
 
+  // Card purchases from the last days before the closing: the bank posts them on the next statement.
+  function lateHtml(c) {
+    const rows = c.late.items.map((it) => `<div class="stmt-kv"><span>${escapeHtml(fmtDate(it.date, true))} · ${escapeHtml(it.description || tr("type." + it.type))}</span><span>${escapeHtml(signed(c.currency, it.amount))}</span></div>`).join("");
+    return `<p class="hint"><b>${escapeHtml(tr("stmt.balLateTitle", { n: c.late.lines }))}</b></p>${rows}`;
+  }
+
+  // "In the app but not on this statement": each entry with its effect on the account, then what is still left unexplained.
+  function appOnlyHtml(c) {
+    const a = c.appOnly;
+    const rows = a.items.map((it) => `<div class="stmt-kv"><span>${escapeHtml(fmtDate(it.date, true))} · ${escapeHtml(it.description || tr("type." + it.type))}</span><span>${escapeHtml(signed(c.currency, it.amount))}</span></div>`).join("");
+    const more = a.n > a.items.length ? `<p class="hint">${escapeHtml(tr("stmt.balAppOnlyMore", { n: a.n - a.items.length }))}</p>` : "";
+    const left = Math.round((c.unexplained + a.net) * 100) / 100;
+    const end = Math.abs(left) < 0.005 ? tr("stmt.balAppOnlyAll", { n: a.n }) : tr("stmt.balAppOnlyLeft", { n: a.n, amount: signed(c.currency, left) });
+    return `<p class="hint"><b>${escapeHtml(tr("stmt.balAppOnlyTitle", { n: a.n }))}</b></p>${rows}${more}<p class="hint">${escapeHtml(end)} ${escapeHtml(tr("stmt.balAppOnlyHint"))}</p>`;
+  }
+
   // One row per statement and currency: the closing balance, what the app showed that day, the difference and what it is made of.
   function balanceRowHtml(c, i) {
     const lines = [`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balClosing", { date: fmtDate(c.end, true) }))}</span><span>${escapeHtml(fmtMoney(c.currency, c.closing))}</span></div>`];
@@ -1711,6 +1900,9 @@
         const parts = [];
         if (c.notInApp.lines) parts.push(tr("stmt.balNotInApp", { amount: signed(c.currency, c.notInApp.net), n: c.notInApp.lines }));
         if (c.pending.lines) parts.push(tr("stmt.balPending", { amount: signed(c.currency, c.pending.net), n: c.pending.lines }));
+        if (c.discounted && c.discounted.lines) parts.push(tr("stmt.balDiscounted", { amount: signed(c.currency, c.discounted.net), n: c.discounted.lines }));
+        if (c.otherCurrency && c.otherCurrency.lines) parts.push(tr("stmt.balOtherCurrency", { amount: signed(c.currency, c.otherCurrency.net), n: c.otherCurrency.lines }));
+        if (c.late && c.late.lines) parts.push(tr("stmt.balLate", { amount: signed(c.currency, c.late.net), n: c.late.lines }));
         verdict = c.unexplained === 0
           ? `<p class="stmt-note ok">${escapeHtml(tr("stmt.balExplained", { parts: parts.join(tr("common.and")) }))}</p>`
           : `<p class="stmt-note warn">${parts.length ? escapeHtml(parts.join(tr("common.and"))) + ". " : ""}<b>${escapeHtml(tr("stmt.balUnexplainedBold", { amount: signed(c.currency, c.unexplained) }))}</b>${escapeHtml(tr("stmt.balUnexplainedRest"))}</p>`;
@@ -1719,6 +1911,9 @@
       } else {
         verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
       }
+      // The other half of an unexplained difference: what the app counts here that no statement line explains.
+      if (c.direction === "forward" && c.late && c.late.lines) verdict += lateHtml(c);
+      if (c.direction === "forward" && c.unexplained && c.appOnly && c.appOnly.n) verdict += appOnlyHtml(c);
       if (c.canSet && c.newest && c.direction === "forward" && c.unexplained) verdict += `<p class="hint">${escapeHtml(tr("gaps.willNote", { amount: signed(c.currency, c.unexplained) }))}</p>`;
     }
     let choice = "";
@@ -1782,7 +1977,11 @@
     const { actions, summary } = historyPlan;
     const left = summary.leftOut, c = historyCounts();
     const lines = [];
-    if (c.expenses) lines.push(tr("hist.sum.expenses", { n: c.expenses, total: moneyTotals(c.spent) }));
+    if (c.expenses) {
+      const totals = moneyTotals(c.spent).split(" + ");
+      if (totals.length > 1) lines.push(tr("hist.sum.expensesMany", { n: c.expenses }), ...totals);   // one line per currency: never added together
+      else lines.push(tr("hist.sum.expenses", { n: c.expenses, total: totals[0] }));
+    }
     if (c.income) lines.push(tr("hist.sum.income", { n: c.income }));
     if (c.refunds) lines.push(tr("hist.sum.refunds", { n: c.refunds }));
     if (c.refundIncome) lines.push(tr("hist.sum.refundIncome", { n: c.refundIncome }));
@@ -1795,6 +1994,9 @@
     if (c.left) lines.push(tr("hist.sum.left", { n: c.left }));
     if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
     if (c.balances) lines.push(tr("hist.sum.balances", { n: c.balances }));
+    if (c.charges) lines.push(tr("hist.sum.charges", { n: c.charges }));
+    if (c.discounts) lines.push(tr("hist.sum.discounts", { n: c.discounts }));
+    if (c.recharges) lines.push(tr("hist.sum.recharges", { n: c.recharges }));
     const proposals = summary.newAccounts || [];
     const proposedKeys = new Set(proposals.map((p) => p.key));
     const stillUnknown = (summary.unknownAccounts || []).filter((k) => !proposedKeys.has(k));
@@ -1805,12 +2007,12 @@
     if (left.noAccount && stillUnknown.length) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: stillUnknown.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
     const pre = newAccountsHtml(proposals) + addedAccountsHtml();
-    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + peopleHtml() + incomeHtml() + asideHtml() + (summary.candidates.length ? exchangeHtml() : "") + balancesHtml();
-    if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(historyPlan.checks || []).length) {
+    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + chargesHtml() + rechargesHtml() + discountsHtml() + peopleHtml() + incomeHtml() + asideHtml() + (StatementTable.canLinkExchange(summary.candidates) ? exchangeHtml() : "") + balancesHtml();
+    if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(summary.charges || []).length && !(summary.discounts || []).length && !(summary.recharges || []).length && !(historyPlan.checks || []).length) {
       out.innerHTML = pre + (proposals.length ? "" : `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>`) + noteHtml;
       return;
     }
-    if (!c.entries) {
+    if (!c.entries && !c.charges && !c.discounts && !c.recharges) {
       // Nothing to add. Lines waiting for their other statement can still be remembered so they pair up later, and balances set.
       out.innerHTML = pre + `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : ""}${noteHtml}
         ${historyActions().length ? `<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
@@ -1835,8 +2037,12 @@
     if (!historyPlan || !historyActions().length) return;
     const btn = $("statement-history-save");
     const status = $("statement-review-status");
-    const adding = historyCounts().entries;
-    if (!confirm(tr(adding ? "hist.confirm" : "hist.confirmKeep", { n: adding }) + "\n\n" + tr("stmt.confirmUndoable"))) return;
+    const hc = historyCounts(), adding = hc.entries, updating = hc.charges + hc.discounts + hc.recharges;
+    // Purchases already in the app that take the card's figure are a change too: never say "nothing is added" about them alone.
+    // Both when a statement adds AND corrects purchases already in the app (Carlos, 2026-11-10: only the added ones were named).
+    const askText = adding ? tr("hist.confirm", { n: adding }) + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
+      : updating ? tr("hist.confirmUpdate", { n: updating }) : tr("hist.confirmKeep");
+    if (!practiceNoConfirm_(practiceIOwns_(usable.map((u) => u.group || u.file))) && !await askConfirmApp_(askText + "\n\n" + tr("stmt.confirmUndoable"), tr("confirmBtn.yes"), { plain: true })) return;   // (the practice's own file asks nothing while the walkthrough runs)
     btn.insertAdjacentHTML("afterend", loadingHtml(tr("hist.saving")));   // right where the person tapped, not in a box further down
     btn.hidden = true;
     status.innerHTML = "";
@@ -1857,12 +2063,16 @@
       await callApi("applyStatementDecisions", payload(true));   // validates first, writes nothing
       const res = await callApi("applyStatementDecisions", payload(false));
       lastBatchId = res.batchId;
+      practiceINote_("saved", res.batchId);
       const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0) + (res.created.investments || 0) + (res.created.pending || 0);
       // Say what did NOT happen too: entries waiting for the person in Needs review, and lines that were not added.
       const used = new Set(historyActions().filter((a) => a.type !== "wait" && a.stmt !== undefined).map(lineKey));
       const notAdded = (historyPlan.summary.aside || []).filter((a) => !used.has(lineKey(a))).length + historyCounts().left;
       const waiting = res.pendingCount || 0;
       const outcome = (waiting ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedPending", { n: waiting }))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-goreview-btn">${escapeHtml(tr("added.goReview"))}</button></div>` : "")
+        + (res.chargesFilled ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.charges", { n: res.chargesFilled }))}</p>` : "")
+        + (res.discounts ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.discounts", { n: res.discounts }))}</p>` : "")
+        + (res.recharges ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.recharges", { n: res.recharges }))}</p>` : "")
         + (notAdded ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedNotAdded", { n: notAdded }))}</p>` : "")
         + (res.categoriesGuessed ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedGuessed", { n: res.categoriesGuessed }))}</p>` : "")
         + (res.categoriesFiled ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategories", { n: res.categoriesFiled }))}</p>` : "")
@@ -2002,7 +2212,7 @@
   }
 
   async function undoBatch(batchId, trigger) {
-    if (!confirm(tr("stmt.confirmUndo"))) return;
+    if (!practiceNoConfirm_(practiceIOwnsBatch_(batchId)) && !await askConfirmApp_(tr("stmt.confirmUndo"), tr("confirmBtn.yes"), { plain: true })) return;
     // The Undo buttons sit in Recent uploads (a side panel) or in step 4: the result is always shown in step 4.
     savedThisRun = true;
     showStep(4);
@@ -2016,6 +2226,7 @@
     try {
       const r = await callApi("undoStatementBatch", { batchId });
       $("statement-review-status").innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.undone", { n: r.deletedEntries, r: r.reverted }))}</p>${r.categoriesRemoved ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneCategories", { n: r.categoriesRemoved }))}</p>` : ""}${r.categoriesKept ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneCategoriesKept", { n: r.categoriesKept }))}</p>` : ""}${r.categoriesRenamedBack ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneRenamed", { n: r.categoriesRenamedBack }))}</p>` : ""}`;
+      practiceINote_("undone", batchId);
       lastBatchId = null;
       historyPlan = null;
       $("statement-history").innerHTML = "";
@@ -2042,6 +2253,7 @@
     const box = $("statement-batches");
     try {
       const batches = await callApi("listStatementBatches", { limit: batchesShown, kind: screenMode === "import" ? "import" : "statement" });
+      batchesHeld[screenMode] = batches.length;
       const more = batches.length >= batchesShown   // as many as were asked for: there may be older ones
         ? `<div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice" id="statement-batches-more">${escapeHtml(tr("stmt.showMore"))}</button></div>` : "";
       box.innerHTML = (batches.length ? batches.map((b) => `<div class="stmt-row"><div class="stmt-row-main">
@@ -2073,11 +2285,13 @@
     batchesShown += BATCHES_STEP;
     refreshStatementBatches();
   });
-  $("more-statements-btn").addEventListener("click", () => showStatementsScreen("bank"));
-  $("more-import-btn").addEventListener("click", () => showStatementsScreen("import"));
-  $("statement-to-import-btn").addEventListener("click", () => { showStatementsScreen("import"); window.scrollTo(0, 0); });
-  $("statement-to-bank-btn").addEventListener("click", () => { showStatementsScreen("bank"); window.scrollTo(0, 0); });
-  $("statements-back-btn").addEventListener("click", () => { sessionPasswords = []; showScreen("more"); });
+  $("data-statements-btn").addEventListener("click", () => showStatementsScreen("bank"));
+  $("data-import-btn").addEventListener("click", () => showStatementsScreen("import"));
+  $("stmt-mode-tabs").addEventListener("click", (e) => {
+    const tab = e.target.closest(".be-tab");
+    if (tab && tab.dataset.mode !== screenMode) { showStatementsScreen(tab.dataset.mode); window.scrollTo(0, 0); }
+  });
+  $("statements-back-btn").addEventListener("click", () => { sessionPasswords = []; showMyDataScreen(); });
   $("statement-file-input").addEventListener("change", (e) => {
     const files = e.target.files;
     if (files && files.length) handleStatementFiles(files);
@@ -2107,6 +2321,24 @@
     const bal = e.target.closest("[data-bal]"), balAll = e.target.closest("[data-balall]");
     const link = e.target.closest("[data-xlink]"), unlink = e.target.closest("[data-xunlink]"), manual = e.target.closest("[data-xmanual]");
     const aside = historyPlan.summary.aside || [];
+    const rech = e.target.closest("[data-rech]");
+    if (rech) {
+      historyPlan.rechargeChoice.set(Number(rech.dataset.rech), rechargeOf(Number(rech.dataset.rech)) === rech.dataset.pick ? "" : rech.dataset.pick);
+      renderHistoryPlan();
+      return;
+    }
+    const disc = e.target.closest("[data-disc]");
+    if (disc) {
+      historyPlan.discountChoice.set(Number(disc.dataset.disc), discountOf(Number(disc.dataset.disc)) === disc.dataset.pick ? "" : disc.dataset.pick);
+      renderHistoryPlan();
+      return;
+    }
+    const chg = e.target.closest("[data-chg]");
+    if (chg) {
+      historyPlan.chargeChoice.set(Number(chg.dataset.chg), chargeOf(Number(chg.dataset.chg)) === chg.dataset.pick ? "" : chg.dataset.pick);
+      renderHistoryPlan();
+      return;
+    }
     if (bal) {
       const i = Number(bal.dataset.bal);
       if (historyPlan.bal.has(i)) historyPlan.bal.delete(i); else historyPlan.bal.add(i);
@@ -2184,7 +2416,7 @@
     if (e.target.closest(".stmt-inbox-earlier-toggle")) { inboxEarlierOpen = !inboxEarlierOpen; renderInbox(); return; }
     if (all) openAllInboxItems(all);
     else if (open) openInboxItem(open.dataset.id, open);
-    else if (dis && confirm(tr("stmt.confirmDismiss"))) {
+    else if (dis && await askConfirmApp_(tr("stmt.confirmDismiss"), tr("confirmBtn.yes"), { plain: true })) {
       // Right after OK: the row's buttons give way to a "Removing…" line (the server call takes a moment; a second tap must not be possible).
       const buttons = dis.closest(".stmt-choices");
       if (buttons) buttons.innerHTML = loadingHtml(tr("stmt.removing"));
@@ -2207,10 +2439,11 @@
     closeAdded();
     const tab = document.querySelector('.nav-btn[data-screen="entries"]');
     if (tab) tab.click();
-    setTimeout(() => { const card = document.getElementById("review-queue-card"); if (card && !card.hidden) card.scrollIntoView({ behavior: "smooth", block: "start" }); }, 400);
+    setTimeout(showReviewQueue_, 400);
   });
   // "Tidy my history" in the saved message opens the same screen as More → Tidy my history.
-  document.addEventListener("click", (e) => { if (e.target.closest && e.target.closest(".stmt-tidy-btn")) document.getElementById("more-tidy-btn").click(); });
+  // (it used to press "more-tidy-btn", which no longer exists since Tidy moved into My data: the button did nothing)
+  document.addEventListener("click", (e) => { if (e.target.closest && e.target.closest(".stmt-tidy-btn")) { markTidyFromUpload_(); showTidyScreen(); } });
   // The same button sits in Recent uploads and in the "saved" message after a save.
   document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest(".stmt-added-btn"); if (b) openAdded(b.dataset.batch); });
   $("statement-batches").addEventListener("click", (e) => { const b = e.target.closest(".stmt-undo-row"); if (b) undoBatch(b.dataset.batch, b); });
@@ -2219,4 +2452,346 @@
   $("statement-password-input").addEventListener("keydown", (e) => {
     if (e.key === "Enter") closeStatementPassword($("statement-password-input").value);
   });
+  // ---- First-use practice: Import from another app (owner's design, 2026-11-03) ----
+  // Offered on More → My data → Import from another app. The app builds a small made-up CSV in code (StatementTable.practiceFile: three purchases
+  // with a category) and hands it to the REAL file handler, so the person walks the real screens: the file is read, the columns and categories
+  // are checked, the preview, "Add to my history", and the real Undo. The entries are saved with no account (Import never needs one), so there is
+  // no account to make or delete. Only the steps' own buttons are tappable ("Use these lines", Next, Add to my history, Undo), so the person
+  // cannot change the account or the categories and touch anything real. Nothing is created by a special call: the import itself saves, the
+  // real Undo removes it (entries and the category it created), and one cleanup call (removePracticeImport) forgets the made-up file's
+  // remembered layout and finishes an import left half-way (Exit, or the app closed): in the background, also on Exit and — asked first — the
+  // next time the app opens. See backend/PracticeImport.gs.
+  // The BANK STATEMENTS practice (2026-11-04) runs on the same machinery with kind "bank": a bank statement is about one account, so it first adds an
+  // empty "Practice account" (createPracticeBankAccount; the real matchers skip it, isPracticeAccount_), picks it for the file by itself, and its
+  // cleanup (removePracticeBank) also deletes that account if the practice made it. See backend/PracticeBank.gs.
+  const PRACTICE_I_KEY_ = "tipPracticeImport";
+  let practiceI_ = null;          // { kind: "import" | "bank", touched, saved, undone, batchId, signature, accountId, accountMade, startedOn }
+  let practiceIRemoving_ = false;
+  let practiceILeftoverAsked_ = false;
+
+  function practiceILoad_() { try { return JSON.parse(localStorage.getItem(PRACTICE_I_KEY_) || "null"); } catch (e) { return null; } }
+  function practiceISave_() {
+    try { if (practiceI_) localStorage.setItem(PRACTICE_I_KEY_, JSON.stringify(practiceI_)); else localStorage.removeItem(PRACTICE_I_KEY_); } catch (e) { /* ignore */ }
+  }
+  // Is every file of this run the practice's own? Only while a practice runs (a real import is always asked about).
+  function practiceIOwns_(names) {
+    return !!practiceI_ && Spotlight.isRunning() && names.length > 0 && names.every((n) => StatementTable.PRACTICE_FILE_NAMES.includes(String(n || "")));
+  }
+  function practiceIOwnsBatch_(batchId) { return !!practiceI_ && Spotlight.isRunning() && !!batchId && practiceI_.batchId === batchId; }
+  // What the real screens report back to the practice.
+  function practiceINote_(what, batchId) {
+    if (!practiceI_) return;
+    if (what === "used") practiceI_.touched = true;
+    else if (what === "saved") { practiceI_.touched = true; practiceI_.saved = true; practiceI_.batchId = batchId || ""; }
+    else if (what === "undone" && practiceI_.batchId === batchId) practiceI_.undone = true;
+    else return;
+    practiceISave_();
+  }
+
+  function offerImportTip_() {
+    const caps = (typeof meta !== "undefined" && meta && meta.capabilities) || {};
+    if (!caps.practiceImport || screenMode !== "import") return;   // an older backend could not clean the practice up
+    offerTip_("import", "import-tip-invite", tr("spot.f.invite"), startImportPractice_);
+  }
+
+  // What both kinds of practice use to find the real parts of the screens and to wait for the server.
+  function practiceTools_() {
+    const root = () => document.querySelector("#statement-results .tm-root");
+    const part = (sel) => () => { const r = root(); return r ? r.querySelector(sel) : null; };
+    const top = () => { const r = root(); return r && r.querySelector(".tm-preview") ? [r.querySelector(".stmt-note"), r.querySelector(".tm-single")].filter(Boolean) : null; };   // (the layout note and the account list; the lines below are the next step)
+    const waitFor = async (cond, ms) => { for (let i = 0; i < ms / 400 && !cond(); i++) await sleep(400); return cond(); };
+    const failed = (key) => { alert(tr(key)); Spotlight.stop("skipped"); return false; };
+    const preview = () => ($("statement-history-save") ? Array.from($("statement-history").children).filter((c) => c.id !== "statement-history-save") : null);   // (not its button: the next step taps that)
+    return { root, part, top, waitFor, failed, preview };
+  }
+
+  function practiceISteps_() {
+    const { part, top, waitFor, failed, preview } = practiceTools_();
+    // The file's "Practice rides" matches none of the person's categories: its row is opened and the person sends it into one (owner, 2026-11-05).
+    const rideRow = () => {
+      const box = part(".tm-cats")();
+      const row = box && Array.from(box.querySelectorAll(".tm-cat-row")).find((r) => /^(Practice rides|Paseos de práctica)/i.test((r.querySelector("strong") || {}).textContent || ""));
+      if (!row) return null;
+      const details = row.closest("details");
+      if (details && !details.open) details.open = true;
+      row.querySelectorAll('option[value^="ren:"]').forEach((o) => o.remove());   // (renaming a real category is never part of the practice)
+      return row;
+    };
+    const rideSelect = () => { const r = rideRow(); return r ? r.querySelector(".tm-cchoice") : null; };
+    // Which category the text names. First that works: Transport, a transport-like category, Other, the first one. Only categories the list
+    // offers (visible ones): a hidden or deleted Transport is never brought back. named: the text can say "pick X" rather than "for example X".
+    const rideInto = () => {
+      const sel = rideSelect();
+      if (!sel) return null;
+      const ids = Array.from(sel.querySelectorAll("optgroup option")).map((o) => o.value);
+      const mine = ((typeof meta !== "undefined" && meta && meta.categories) || []).filter((c) => ids.includes(String(c.id)));
+      const first = (re) => mine.find((c) => re.test(String(c.name || "").trim()));
+      const named = first(/^(transport|transporte)$/i) || first(/\b(taxis?|uber|cabify|movilidad|bus|buses|cars?|autos?|carros?|coches?|gasolina|combustible|fuel|moto|motos|motorbike)\b/i);
+      if (named) return { name: named.name, named: true };
+      const other = first(/^(other|others|otro|otros)$/i) || mine.find((c) => ids[0] === String(c.id));
+      return other ? { name: other.name, named: false } : null;
+    };
+    return [
+      { key: "intro", text: () => tr("spot.f.intro"), button: () => tr("spot.f.start") },
+      { look: true, target: ".stmt-upload-btn", text: () => tr("spot.f.s1"), button: () => tr("spot.f.useFile"),
+        after: () => { practiceIFeed_(); } },
+      { look: true, target: top, text: () => tr("spot.f.s2"), button: () => tr("spot.f.gotIt"), wait: 20000 },
+      { look: true, target: part(".tm-preview"), text: () => tr("spot.f.s3"), button: () => tr("spot.f.gotIt") },
+      { target: rideRow, text: () => { const t = rideInto(); return tr(t && t.named ? "spot.f.s4" : "spot.f.s4other", { category: t ? t.name : "" }); },
+        until: () => { const sel = rideSelect(); return !!sel && !!sel.value && !["create", "custom", "skip"].includes(sel.value); }, wait: 20000,
+        before: async () => {
+          if (!(await waitFor(() => !!rideRow(), 20000))) return true;   // (the step's own wait then says "One moment…" and stops the practice if it never comes)
+          const sel = rideSelect();
+          if (sel.value !== "create") { sel.value = "create"; sel.dispatchEvent(new Event("change", { bubbles: true })); }   // it always starts on "create" (owner)
+          return !!rideInto();   // no category of the person's own to send it into: it stays "create", no step
+        } },
+      { target: part(".tm-use"), text: () => tr("spot.f.s5"), tap: "#statement-results .tm-use" },
+      { target: "#stmt-next-2", text: () => tr("spot.f.s6"), tap: "#stmt-next-2", wait: 20000 },
+      { look: true, target: preview, text: () => tr("spot.f.s7"), button: () => tr("spot.f.gotIt"), wait: 45000 },
+      { target: "#statement-history-save", text: () => tr("spot.f.s8"), tap: "#statement-history-save" },
+      { look: true, target: "#statement-review-status", text: () => tr("spot.f.s9"), button: () => tr("spot.f.gotIt"), wait: 20000,
+        before: async () => (await waitFor(() => !!(practiceI_ && practiceI_.saved), 90000)) ? true : failed("spot.f.saveFailed") },
+      { target: "#stmt-undo-btn", text: () => tr("spot.f.s10"), tap: "#stmt-undo-btn", wait: 15000 },
+      { look: true, target: "#statement-review-status", text: () => tr("spot.f.s11"), button: () => tr("spot.f.finish"), wait: 20000,
+        before: async () => (await waitFor(() => !!(practiceI_ && practiceI_.undone), 90000)) ? true : failed("spot.f.undoFailed") }
+    ];
+  }
+
+
+  // The Bank statements practice: the same real screens, on a made-up bank statement of ONE account (the empty Practice account, picked for the file by
+  // the practice itself so the person can never pick a real account here). No categories: a bank's purchases come in without one (Tidy my history).
+  function practiceBSteps_() {
+    const { part, top, waitFor, failed, preview } = practiceTools_();
+    return [
+      { key: "intro", text: () => tr("spot.s.intro"), button: () => tr("spot.s.start") },
+      { look: true, target: "#stmt-upload-card", text: () => tr("spot.s.s1"), button: () => tr("spot.s.useFile"),
+        before: async () => {
+          // A long Inbox opens by itself and pushed the card's heading off the screen (owner's walk, 2026-11-05): closed for the practice, so the three ways fit.
+          inboxOpen = false; setInboxOpen(false);
+          window.scrollTo(0, 0);
+          return (await practiceBMake_()) ? true : false;
+        },
+        after: () => { practiceIFeed_(); } },
+      { look: true, target: top, text: () => tr("spot.s.s3"), button: () => tr("spot.s.gotIt"), wait: 20000,
+        before: async () => {   // the account list: the practice picks its own account, like the person would
+          if (!(await waitFor(() => !!part(".tm-account")(), 20000))) return failed("spot.s.fileFailed2");
+          const sel = part(".tm-account")();
+          sel.value = practiceI_.accountId;
+          if (sel.value !== practiceI_.accountId) return failed("spot.s.accountFailed");
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+          return true;
+        } },
+      { look: true, target: part(".tm-preview"), text: () => tr("spot.s.s4"), button: () => tr("spot.s.gotIt") },
+      { target: part(".tm-use"), text: () => tr("spot.s.s5"), tap: "#statement-results .tm-use" },
+      { target: "#stmt-next-2", text: () => tr("spot.s.s6"), tap: "#stmt-next-2", wait: 20000 },
+      { look: true, target: preview, text: () => tr("spot.s.s7"), button: () => tr("spot.s.gotIt"), wait: 45000 },
+      { target: "#statement-history-save", text: () => tr("spot.s.s8"), tap: "#statement-history-save" },
+      { look: true, target: "#statement-review-status", text: () => tr("spot.s.s9"), button: () => tr("spot.s.gotIt"), wait: 20000,
+        before: async () => (await waitFor(() => !!(practiceI_ && practiceI_.saved), 90000)) ? true : failed("spot.s.saveFailed") },
+      { target: "#stmt-undo-btn", text: () => tr("spot.s.s10"), tap: "#stmt-undo-btn", wait: 15000 },
+      { look: true, target: "#statement-review-status", text: () => tr("spot.s.s11"), button: () => tr("spot.s.finish"), wait: 20000,
+        before: async () => (await waitFor(() => !!(practiceI_ && practiceI_.undone), 90000)) ? true : failed("spot.s.undoFailed") }
+    ];
+  }
+
+  // Adds the empty Practice account (refuses to touch one that already exists) and refreshes the phone's lists so the file can be read for it.
+  async function practiceBMake_() {
+    practiceI_.accountMade = true;   // (marked BEFORE the call: if the app is closed in the middle, the cleanup removes the account)
+    practiceISave_();
+    try {
+      const res = await callApi("createPracticeBankAccount", { lang: I18n.getLang() });
+      if (res.existed) { practiceI_.accountMade = false; practiceISave_(); alert(tr("spot.s.accountExists")); Spotlight.stop("skipped"); return false; }
+      practiceI_.accountId = String(res.id);
+      practiceISave_();
+      if (typeof loadMeta === "function") await loadMeta();
+      return true;
+    } catch (err) {
+      // The answer never came back: the account may or may not exist. It is marked as ours only if one is really there now (a same-named one
+      // was ruled out before the start), so the cleanup never goes looking for an account that was not made.
+      try { if (typeof loadMeta === "function") await loadMeta(); } catch (e) { /* keep what we know */ }
+      const there = ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).some((pm) => /^(Practice account|Cuenta de práctica)$/i.test(String(pm.nickname || "").trim()));
+      if (!there) { practiceI_.accountMade = false; practiceISave_(); }
+      alert(tr("spot.s.createFailed", { error: err.message || String(err) }));
+      Spotlight.stop("skipped");
+      return false;
+    }
+  }
+
+  let batchesHeld = {};   // how many past uploads each side of the screen has (from its list): someone who already uses it gets no tutorial
+
+  function offerBankTip_() {
+    const caps = (typeof meta !== "undefined" && meta && meta.capabilities) || {};
+    if (!caps.practiceBank || screenMode !== "bank") return;   // an older backend could not make or clean up the practice account
+    offerTip_("bank", "bank-tip-invite", tr("spot.s.invite"), startBankPractice_);
+  }
+
+  // ---- Real tutorials on the person's own file (owner's plan, step 5) ----
+  // Only one of these and the practice is ever done with a person. It starts when a file is chosen (Start / Exit, up to 3 chances, one a day), or from the
+  // bubble after 20 idle seconds on the first step. Nothing is saved until the person taps Add, and what they add stays. Every reading is judged by what really happened:
+  // a table asks about its columns, a PDF shows its verdict, a file that cannot be used says so and ends.
+  const realStmtFeature_ = (mode) => (mode === "import" ? "import" : "bank");
+  function realStmtWanted_(mode) {
+    const f = realStmtFeature_(mode);
+    if (typeof meta === "undefined" || !meta || perfIsOwnerCopy_() || Spotlight.isRunning() || isTaught_(f)) return false;
+    if (!realAgain_() && batchesHeld[mode] > 0) { markTaught_(f, "used"); return false; }
+    return true;
+  }
+  function realStmtFileChosen_() {
+    const mode = screenMode;
+    if (!realStmtWanted_(mode) || !realChanceLeft_(realStmtFeature_(mode), true)) return;
+    setTimeout(() => { if (!Spotlight.isRunning() && stmtCards().length) startStmtReal_(mode, false); }, 0);
+  }
+  function watchStmtIdle_() {
+    const mode = screenMode;
+    if (!realStmtWanted_(mode)) return;
+    idleOffer_({
+      key: realStmtFeature_(mode),
+      wanted: () => screenMode === mode && !$("screen-statements").hidden && stepNow === 1 && !pastOpen && !stmtCards().length && !isTaught_(realStmtFeature_(mode)),
+      target: () => [document.querySelector(".stmt-upload-btn"), $("stmt-stepper")].find((e) => popInView_(e)) || null,
+      start: () => startStmtReal_(mode, true)
+    });
+  }
+  function realStmtSteps_(mode, fromStart) {
+    const imp = mode === "import";
+    const { root, part, waitFor } = practiceTools_();
+    const realNext = () => tr("spot.g.next"), done = () => tr("spot.g.done");
+    const reading = () => stmtCards().some((c) => { const b = c.querySelector(".stmt-result-body"); return !!b && !!b.firstElementChild && b.firstElementChild.classList.contains("stmt-loading"); });
+    const readDone = () => stmtCards().length > 0 && !reading();
+    const mapper = () => !!part(".tm-use")();
+    const needsAccount = () => { const r = root(), s = part(".tm-account")(); return !imp && !!r && !!s && !r.querySelector(".tm-single").hidden && !s.value; };
+    const columns = () => { const r = root(); return r ? Array.from(r.querySelectorAll(".tm-date, .tm-desc, .tm-mode, .tm-one:not([hidden]), .tm-two:not([hidden]), .tm-preview")) : null; };
+    const planSettled = () => !!historyPlan || !$("statement-history").querySelector(".stmt-loading");
+    const previewParts = () => { const k = Array.from($("statement-history").children).filter((c) => c.id !== "statement-history-save"); return k.length ? k : $("statement-review-card"); };
+    const canSave = () => !!$("statement-history-save");
+    const planError = () => !!$("statement-plan-status").querySelector(".stmt-verdict.bad");
+    const pre = imp ? "rt.imp." : "rt.stmt.";
+    const tidyBtn = () => $("statement-review-status").querySelector(".stmt-tidy-btn");
+    const pendingBtn = () => $("statement-review-status").querySelector(".stmt-goreview-btn");
+    const steps = [];
+    const findShown = () => !$("statement-find-card").hidden;
+    if (fromStart) steps.push({ key: "choose", target: imp ? ".stmt-upload-btn" : "#stmt-upload-card", text: () => tr(!imp && findShown() ? "rt.stmt.choose3" : pre + "choose"), until: () => stmtCards().length > 0,
+      before: async () => { window.scrollTo(0, 0); return true; } });
+    steps.push(
+      { key: "reading", target: "#statement-results", text: () => tr("rt.stmt.reading"), until: readDone, wait: 8000, before: async () => !readDone() },
+      { key: "account", target: () => { const r = root(); return r ? (r.querySelector(".tm-multi:not([hidden])") || r.querySelector(".tm-single:not([hidden])")) : null; }, text: () => tr(pre === "rt.imp." ? "rt.imp.account" : "rt.stmt.account"), button: realNext, before: async () => mapper() },
+      { key: "columns", target: columns, text: () => tr("rt.stmt.columns"), button: realNext, before: async () => mapper() },
+      { key: "cats", target: part(".tm-cats"), text: () => tr("rt.imp.cats"), button: realNext,
+        before: async () => { if (!mapper()) return false; await waitFor(() => { const b = part(".tm-cats")(); return !!b && !b.querySelector(".stmt-loading"); }, 15000); return !!part(".tm-cat-row")(); } },
+      { key: "use", target: () => (needsAccount() ? root() : part(".tm-use")()), text: () => tr(needsAccount() ? "rt.stmt.useFix" : "rt.stmt.use"), until: () => !mapper() && readDone(), before: async () => mapper() },
+      { key: "result", target: "#statement-results", button: realNext,
+        text: () => (usable.length ? tr(readyCount() < stmtCards().length ? "rt.stmt.resultMixed" : "rt.stmt.result") + ($("statement-results").querySelector(".stmt-note.warn") ? " " + tr("rt.stmt.notes") : "") : tr("rt.stmt.bad")), before: async () => { await waitFor(readDone, 3000); return true; } },
+      { key: "next", target: "#stmt-next-2", text: () => tr("rt.stmt.next"), tap: "#stmt-next-2", before: async () => usable.length > 0 },
+      { key: "planning", target: "#statement-review-card", text: () => tr("rt.stmt.planning"), until: planSettled, before: async () => usable.length > 0 && !planSettled() },
+      { target: () => $("statement-history").querySelector(".stmt-new-accounts"), text: () => tr("rt.stmt.newAccounts"), button: realNext, before: async () => usable.length > 0 && !!$("statement-history").querySelector(".stmt-new-accounts") },
+      { key: "preview", target: previewParts, button: realNext, before: async () => usable.length > 0,
+        text: () => tr(canSave() ? "rt.stmt.preview" : "rt.stmt.previewNone") + (canSave() && $("statement-history").querySelector("details.stmt-group, .stmt-choices button:not(#statement-history-save)") ? " " + tr("rt.stmt.questions") : "") },
+      { key: "save", target: () => [$("statement-history-save"), planError() ? $("statement-plan-status") : null].filter(Boolean), text: () => tr(planError() ? "rt.stmt.saveErr" : "rt.stmt.save"), until: () => savedThisRun, before: async () => usable.length > 0 && canSave() },
+      { keep: true, look: true, target: "#statement-review-status", text: () => tr(imp ? "rt.imp.done" : "rt.stmt.done") + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done, wait: 30000, waitText: () => tr("rt.saving"),
+        before: async () => savedThisRun && !tidyBtn() },
+      // Purchases with no category: the tutorial leads into Tidy my history, on these very purchases (owner, 2026-11-09).
+      { keep: true, target: () => [$("statement-review-status"), tidyBtn()], text: () => tr(imp ? "rt.imp.doneTidy" : "rt.stmt.doneTidy") + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done,
+        until: () => !$("screen-tidy").hidden, before: async () => savedThisRun && !!tidyBtn() },
+      { keep: true, text: () => tr(usable.length ? "rt.stmt.endNone" : "rt.stmt.endBad"), button: done, before: async () => !savedThisRun }
+    );
+    return steps;
+  }
+  function startStmtReal_(mode, fromStart) {
+    if (Spotlight.isRunning()) return;
+    const f = realStmtFeature_(mode);
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    let started = false;
+    guided_ = { savedId: "", split: null };
+    const intro = { key: "intro", text: () => tr(mode === "import" ? "rt.imp.intro" : "rt.stmt.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_(f, "real"); } };
+    Spotlight.run(realSteps_([intro].concat(realStmtSteps_(mode, fromStart))), {
+      labels: realLabels_(), busy: () => perfInflight_ > 0,
+      onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_(f); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); }
+    });
+  }
+  // The practice brought from the two-week nudge on Home.
+  window.statementsNudgePractice_ = function (kind) {
+    const caps = (typeof meta !== "undefined" && meta && meta.capabilities) || {};
+    if (!caps[kind === "bank" ? "practiceBank" : "practiceImport"]) return false;
+    showStatementsScreen(kind);
+    return startStatementsPractice_(kind);
+  };
+
+  // Builds the made-up file and hands it to the real file handler. The file's layout key is stored FIRST, so a closed app can still forget it.
+  async function practiceIFeed_() {
+    try {
+      const f = StatementTable.practiceFile(I18n.getLang(), todayLocalISO(), practiceI_.kind === "bank" ? "bank" : "import");
+      try {
+        const rows = await StatementTable.readTable(new TextEncoder().encode(f.text), f.name);
+        practiceI_.signature = StatementTable.signature(StatementTable.guessMapping(rows, {}), rows);
+        practiceISave_();
+      } catch (e) { /* no key: the cleanup just has no layout to forget */ }
+      await handleStatementFiles([new File([f.text], f.name, { type: "text/csv" })]);
+    } catch (err) {
+      alert(tr(practiceI_ && practiceI_.kind === "bank" ? "spot.s.fileFailed" : "spot.f.fileFailed", { error: err.message || String(err) }));
+      Spotlight.stop("skipped");
+    }
+  }
+
+  function startImportPractice_() { return startStatementsPractice_("import"); }
+  function startBankPractice_() { return startStatementsPractice_("bank"); }
+
+  function startStatementsPractice_(kind) {
+    const k = kind === "bank" ? "s" : "f";   // (the text prefix of each: spot.f.* Import, spot.s.* Bank statements)
+    if (practiceIRemoving_) { showToast_(tr(`spot.${k}.stillRemoving`)); return false; }
+    const open = ["exchange-modal-backdrop", "edit-entry-modal-backdrop", "drilldown-modal-backdrop", "currency-modal-backdrop", "statement-added-backdrop"].some((id) => { const e = document.getElementById(id); return e && !e.hidden; });
+    if (open || newEntrySheetOpen_) { showToast_(tr("spot.x.busy")); return false; }
+    if (usable.length || stmtCards().length || historyPlan || savedThisRun) { showToast_(tr(`spot.${k}.busyRun`)); return false; }   // the person's own import is in progress
+    if (kind === "bank" && ((meta && meta.paymentMethods) || []).some((pm) => isPracticeAccountName_(pm.nickname))) { showToast_(tr("spot.s.accountExists")); return false; }   // an account with that name is already there: never touch it
+    practiceI_ = { kind: kind === "bank" ? "bank" : "import", touched: false, saved: false, undone: false, batchId: "", signature: "", accountId: "", accountMade: false, startedOn: todayLocalISO() };
+    practiceISave_();
+    stepNow = 1; renderSteps();
+    window.scrollTo(0, 0);
+    runTip_(kind === "bank" ? practiceBSteps_() : practiceISteps_(), async () => {
+      clearRun();   // the practice file leaves the screen
+      stepNow = 1; renderSteps();
+      if (kind === "bank") { inboxOpen = null; renderInbox(); }   // the Inbox decides again from what is in it
+      showToast_(tr(`spot.${k}.removing`));
+      practiceIRemove_().then((ok) => { if (ok) showToast_(tr(`spot.${k}.removed`)); });
+    }, tr(`spot.${k}.note`));
+    return true;
+  }
+
+  async function practiceIRemove_() {
+    if (practiceIRemoving_) return false;
+    const p = practiceI_ || practiceILoad_();
+    if (!p) return true;
+    practiceIRemoving_ = true;
+    try {
+      let ok = true;
+      const bank = p.kind === "bank";
+      if (p.touched || (bank && p.accountMade)) {   // (nothing was remembered, saved or made before "Use these lines" / the account: nothing to remove)
+        for (let i = 0; i < 40 && perfInflight_ > 0; i++) await sleep(400);   // a save / undo still on its way lands first
+        try {
+          if (bank) await callApi("removePracticeBank", { signature: p.signature || "", account: !!p.accountMade });
+          else await callApi("removePracticeImport", { signature: p.signature || "" });
+          if (bank && p.accountMade && typeof loadMeta === "function") await loadMeta();   // the Practice account leaves every list
+        } catch (err) { ok = false; practiceCleanupFailed_(bank ? "s" : "f", err); }
+      }
+      if (ok) { practiceI_ = null; practiceISave_(); }
+      coverage = null;
+      refreshStatementBatches();
+      refreshOtherScreens();
+      return ok;
+    } finally { practiceIRemoving_ = false; }
+  }
+
+  // A cleanup that lost the connection, retried by itself (practiceRetryDue_ in app.js).
+  window.statementsPracticeRetry_ = function () {
+    const k = (practiceILoad_() || {}).kind === "bank" ? "s" : "f";
+    return practiceIRemove_().then((ok) => { if (ok) showToast_(tr(`spot.${k}.removed`)); return ok; });
+  };
+
+  // A practice left behind (the app was closed midway): offered once when the app opens.
+  window.statementsPracticeLeftover_ = async function () {
+    if (practiceDue_("s") || practiceDue_("f")) return;
+    const left = practiceILoad_() || {};
+    if (practiceILeftoverAsked_ || practiceIRemoving_ || Spotlight.isRunning() || !(left.touched || (left.kind === "bank" && left.accountMade))) return;
+    practiceILeftoverAsked_ = true;
+    const k = left.kind === "bank" ? "s" : "f";
+    if (await askConfirmApp_(tr(`spot.${k}.leftover`), tr("confirmBtn.yes"), { plain: true })) practiceIRemove_().then((ok) => { if (ok) showToast_(tr(`spot.${k}.removed`)); });
+  };
 })();
