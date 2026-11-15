@@ -1899,6 +1899,8 @@
     "trips.groupFronted": { en: "You paid for the group", es: "Pagaste por el grupo" },
     "trips.groupToReceive": { en: "Still to receive", es: "Falta recibir" },
     "trips.groupToPay": { en: "Still to pay", es: "Falta pagar" },
+    "trips.sharedWith": { en: "With {names}", es: "Con {names}" },
+    "trips.sharedGroup": { en: "the group", es: "el grupo" },
     "trips.groupBalanceNow": { en: "Balance with the group", es: "Saldo con el grupo" },
     "trips.groupSettled": { en: "All settled ✓", es: "Todo liquidado ✓" },
     "trips.groupSettleBtn": { en: "Group settlement", es: "Liquidación del grupo" },

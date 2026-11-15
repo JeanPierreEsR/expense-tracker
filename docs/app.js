@@ -4360,8 +4360,8 @@ function paidByLabel(entryOrPaidBy) {
 // The small grey line under an entry's description: date, who paid, then the
 // entry's labels (Tags) as little pills. Labels the app doesn't know (a tag
 // deleted since) are skipped.
-function entryMetaHtml_(entry, headline) {
-  const tripPill = tripPillHtml_(entry) + businessPillHtml_(entry);
+function entryMetaHtml_(entry, headline, opts) {
+  const tripPill = tripPillHtml_(entry) + businessPillHtml_(entry) + (opts && opts.shared ? sharedPillHtml_(entry) : "");
   const pills = tripPill + (Array.isArray(entry.tagIds) ? entry.tagIds : [])
     .map((id) => meta.tags.find((t) => t.id === id))
     .filter(Boolean)
@@ -10899,7 +10899,7 @@ function renderEntriesInto_(list, entries, emptyKey) {
       <div class="entry-left">
         <div class="entry-category">${headline.title}</div>
         ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
-        <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
+        <div class="entry-meta">${entryMetaHtml_(entry, headline, { shared: list.id === "trip-detail-entries" })}</div>
         ${entry.slice_part ? `<div class="entry-meta slice-part">${escapeHtml(slicePartText_(entry))}</div>` : ""}
         ${deletingEntryIds_.has(entry.id) ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>` : ""}
       </div>
@@ -18112,6 +18112,19 @@ function tripLabel_(trip) {
 }
 
 // The small label on an entry row. A trip that no longer exists is skipped.
+// Trip screen: who an expense was shared with ("With Luty", "With the group"), from the entry's splits (owner, 2026-11-15:
+// the group balance only made sense once each expense said whether it went to the group or to one friend).
+function sharedPillHtml_(entry) {
+  if (entry.type !== "expense" || !Array.isArray(entry.splits) || !entry.splits.length) return "";
+  const names = [];
+  entry.splits.forEach((s) => {
+    const f = (meta.friends || []).find((fr) => fr.id === s.friend_id);
+    const name = !f ? "" : isGroupFriend_(f) ? tr("trips.sharedGroup") : f.name;
+    if (name && !names.includes(name)) names.push(name);
+  });
+  return names.length ? `<span class="entry-tag entry-shared">${escapeHtml(tr("trips.sharedWith", { names: names.join(", ") }))}</span>` : "";
+}
+
 function tripPillHtml_(entry) {
   if (!entry.trip_id) return "";
   const trip = (meta.trips || []).find((t) => t.id === entry.trip_id);
