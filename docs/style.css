@@ -2583,7 +2583,7 @@ body.income-revealed .sens-mask { display: none; }
 .search-filter-dates { padding: 0 0 4px; }
 .search-filter-dates[hidden] { display: none; }
 /* Dates is one choice: a round dot instead of a check. */
-.search-pick-row.one .search-pick-check { font-size: 0; }
+.search-pick-row.one .search-pick-check { color: transparent; }
 .search-pick-row.one.on .search-pick-check { background: var(--white); border: 7px solid var(--accent); }
 #search-pick-find { margin: 0 0 8px; min-height: 44px; }
 .search-pick-list { height: 50vh; overflow-y: auto; }
