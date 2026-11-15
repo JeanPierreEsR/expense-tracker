@@ -5503,9 +5503,26 @@ function renderSearchFiltersBody_() {
     });
     wrap.appendChild(b);
   };
-  const listChips = (wrap, key, items, label) => items.forEach((x) => chip(wrap, label(x), () => f[key].includes(x.id), () => {
-    f[key] = f[key].includes(x.id) ? f[key].filter((id) => id !== x.id) : f[key].concat(x.id);
-  }));
+  // A long list shows its 5 most used (and anything already picked), then "More…" opens the whole list with a search box
+  // (owner, 2026-11-14: a chip for every category was a wall of bubbles).
+  const uses = searchFilterUses_();
+  const listChips = (wrap, key, items, label, title) => {
+    const n = (x) => uses[key].get(key === "friends" ? x.name : x.id) || 0;
+    const ranked = items.slice().sort((a, b) => n(b) - n(a) || String(label(a)).localeCompare(String(label(b))));
+    const shown = ranked.length <= SEARCH_FILTER_TOP_ + 1 ? ranked
+      : ranked.filter((x, i) => i < SEARCH_FILTER_TOP_ || f[key].includes(x.id));
+    shown.forEach((x) => chip(wrap, label(x), () => f[key].includes(x.id), () => {
+      f[key] = f[key].includes(x.id) ? f[key].filter((id) => id !== x.id) : f[key].concat(x.id);
+    }));
+    if (shown.length < ranked.length) {
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "tag-chip search-filter-more";
+      more.textContent = tr("search.f.more", { n: ranked.length - shown.length });
+      more.addEventListener("click", () => openSearchPick_(key, items, label, title));
+      wrap.appendChild(more);
+    }
+  };
   const pair = (fields) => {
     const row = document.createElement("div");
     row.className = "search-filter-pair";
@@ -5547,14 +5564,30 @@ function renderSearchFiltersBody_() {
   custom.hidden = f.period !== "custom";
   body.appendChild(custom);
 
-  // Category: those of the types picked (expense and income when none or only those are picked); a picked one stays listed
-  const catTypes = f.types.length ? f.types : ["expense", "income"];
-  const cats = sortedCategories_(meta.categories.filter((c) => catTypes.includes(c.type) && (!catHidden_(c) || f.cats.includes(c.id))));
-  if (cats.length) listChips(section("search.f.catTitle", "search.f.catHint"), "cats", cats, catOptionText_);
+  // Category: those of the types picked (expense and income when none is picked), one small heading per type when there are
+  // several (owner, 2026-11-14: "Gifts" was listed twice, once per type); a picked one stays listed even when hidden.
+  const catTypes = (f.types.length ? f.types : ["expense", "income"]).filter((t) => meta.categories.some((c) => c.type === t));
+  if (catTypes.length) {
+    const wrap = section("search.f.catTitle", "search.f.catHint");
+    catTypes.forEach((t) => {
+      const cats = meta.categories.filter((c) => c.type === t && (!catHidden_(c) || f.cats.includes(c.id)));
+      if (!cats.length) return;
+      let into = wrap;
+      if (catTypes.length > 1) {
+        const h = document.createElement("h4");
+        h.textContent = tr("search.f.type." + t);
+        into = document.createElement("div");
+        into.className = "search-filter-options";
+        wrap.append(h, into);
+      }
+      listChips(into, "cats", cats, catOptionText_, `${tr("search.f.catTitle")} · ${tr("search.f.type." + t)}`);
+    });
+    if (catTypes.length > 1) wrap.className = "";   // the type blocks carry the chip layout
+  }
 
   // Account
   const accts = meta.paymentMethods.filter((pm) => !pmHidden_(pm) || f.accts.includes(pm.id));
-  if (accts.length) listChips(section("search.f.acctTitle"), "accts", accts, (pm) => pm.nickname);
+  if (accts.length) listChips(section("search.f.acctTitle"), "accts", accts, (pm) => pm.nickname, tr("search.f.acctTitle"));
 
   // Amount (my share, in the main currency)
   const amt = section("search.f.amountTitle", "search.f.amountHint");
@@ -5566,16 +5599,80 @@ function renderSearchFiltersBody_() {
   // Friend: paid by them, or a loan / repayment with them
   const friends = meta.friends.filter((x) => !isGroupFriend_(x) && (!isBusinessPerson_(x) || businessOn()) && (!isHiddenFriend_(x) || f.friends.includes(x.id)))
     .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  if (friends.length) listChips(section("search.f.friendTitle", "search.f.friendHint"), "friends", friends, (x) => x.name);
+  if (friends.length) listChips(section("search.f.friendTitle", "search.f.friendHint"), "friends", friends, (x) => x.name, tr("search.f.friendTitle"));
 
   // Tags
   const tags = (meta.tags || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  if (tags.length) listChips(section("search.f.tagTitle"), "tags", tags, (x) => x.name);
+  if (tags.length) listChips(section("search.f.tagTitle"), "tags", tags, (x) => x.name, tr("search.f.tagTitle"));
 
   // Trip / event, newest first
   const trips = (meta.trips || []).slice().sort((a, b) => String(b.start_date || "").localeCompare(String(a.start_date || "")));
-  if (trips.length) listChips(section("search.f.tripTitle"), "trips", trips, (x) => x.name);
+  if (trips.length) listChips(section("search.f.tripTitle"), "trips", trips, (x) => x.name, tr("search.f.tripTitle"));
 }
+
+// How often each category, account, friend, tag and trip appears in the entries (the order of a long list).
+const SEARCH_FILTER_TOP_ = 5;
+function searchFilterUses_() {
+  const u = { cats: new Map(), accts: new Map(), friends: new Map(), tags: new Map(), trips: new Map() };
+  const add = (m, k) => { if (k) m.set(k, (m.get(k) || 0) + 1); };
+  const friendName = new Map(meta.friends.map((x) => [x.id, x.name]));
+  (searchIndex || []).forEach((e) => {
+    add(u.cats, e.category_id);
+    add(u.accts, e.payment_method_id);
+    add(u.accts, e.to_payment_method_id);
+    add(u.friends, friendName.get(e.paid_by) || (e.link && e.link.friend));
+    (e.tagIds || []).forEach((id) => add(u.tags, id));
+    add(u.trips, e.trip_id);
+  });
+  // A main category also counts its subcategories' entries.
+  meta.categories.forEach((c) => { if (c.parent_id && u.cats.get(c.id)) u.cats.set(c.parent_id, (u.cats.get(c.parent_id) || 0) + u.cats.get(c.id)); });
+  return u;
+}
+
+// "More…": the whole list, alphabetical, with a search box; ticks apply at once, like the chips.
+let searchPick_ = null;   // { key, items, label }
+function openSearchPick_(key, items, label, title) {
+  searchPick_ = { key, items: items.slice().sort((a, b) => String(a.name || label(a)).localeCompare(String(b.name || label(b)))), label };
+  document.getElementById("search-pick-title").textContent = title;
+  const find = document.getElementById("search-pick-find");
+  find.value = "";
+  renderSearchPick_();
+  document.getElementById("search-pick-backdrop").hidden = false;
+}
+function renderSearchPick_() {
+  if (!searchPick_) return;
+  const { key, items, label } = searchPick_;
+  const q = normalizeSearchText_(document.getElementById("search-pick-find").value.trim());
+  const list = document.getElementById("search-pick-list");
+  list.innerHTML = "";
+  const shown = items.filter((x) => !q || normalizeSearchText_(label(x)).includes(q));
+  if (!shown.length) { list.innerHTML = `<p class="hint">${escapeHtml(tr("search.f.findNone"))}</p>`; return; }
+  shown.forEach((x) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    const on = () => searchFilters_[key].includes(x.id);
+    row.className = "search-pick-row" + (on() ? " on" : "");
+    row.setAttribute("aria-pressed", on() ? "true" : "false");
+    row.innerHTML = `<span class="search-pick-name"></span><span class="search-pick-check" aria-hidden="true">✓</span>`;
+    row.querySelector(".search-pick-name").textContent = label(x);
+    row.addEventListener("click", () => {
+      searchFilters_[key] = on() ? searchFilters_[key].filter((id) => id !== x.id) : searchFilters_[key].concat(x.id);
+      row.classList.toggle("on", on());
+      row.setAttribute("aria-pressed", on() ? "true" : "false");
+      searchFiltersChanged_();
+    });
+    list.appendChild(row);
+  });
+}
+function closeSearchPick_() {
+  document.getElementById("search-pick-backdrop").hidden = true;
+  searchPick_ = null;
+  renderSearchFiltersBody_();   // what was ticked there now shows as chips
+}
+document.getElementById("search-pick-find").addEventListener("input", renderSearchPick_);
+document.getElementById("search-pick-find").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); } });
+document.getElementById("search-pick-close").addEventListener("click", closeSearchPick_);
+document.getElementById("search-pick-done").addEventListener("click", closeSearchPick_);
 
 document.getElementById("entry-search-filter-btn").addEventListener("click", openSearchFilters_);
 document.getElementById("search-filters-close").addEventListener("click", closeSearchFilters_);
