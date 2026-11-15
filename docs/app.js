@@ -4937,17 +4937,14 @@ const entrySelectable_ = (e) => !e._queueStatus && !deletingEntryIds_.has(e.id) 
 function entriesPool_() {   // what "Select all" means: every loaded entry on Home, every match while searching, a trip's expenses on its screen
   if (entriesWhere_ === "trip") return applyQueuedEditOverlay_(tripEntriesShown_).filter(entrySelectable_);
   if (searchActive) {
-    const term = document.getElementById("entry-search").value.trim();
-    if (term.length < SEARCH_MIN_CHARS || !searchIndex) return [];
-    const words = normalizeSearchText_(term).split(/\s+/).filter(Boolean);
-    return searchIndex.filter((e) => words.every((w) => e._s.indexOf(w) !== -1)).filter(entrySelectable_);
+    return (searchMatches_() || []).filter(entrySelectable_);
   }
   return applyQueuedEditOverlay_(lastRenderedEntries_).filter(entrySelectable_);
 }
 // A selection belongs to what was on screen when it was made (Home, or the matches of one search). When the search text changes or is cleared the
 // selection is dropped: before, "Change (3)" / "Delete (3)" stayed on and acted on entries that were no longer in view (QA round 1, 2026-11-03).
 let entriesSelCtx_ = "home";
-const entriesCtxKey_ = () => (entriesWhere_ === "trip" ? "trip:" + tripDetailId_ : searchActive ? "q:" + document.getElementById("entry-search").value.trim().toLowerCase() : "home");
+const entriesCtxKey_ = () => (entriesWhere_ === "trip" ? "trip:" + tripDetailId_ : searchActive ? "q:" + document.getElementById("entry-search").value.trim().toLowerCase() + JSON.stringify(searchFilters_) : "home");
 function entriesDropStaleSelection_() {
   if (!entriesEditing_) return;
   const key = entriesCtxKey_();
@@ -5318,6 +5315,277 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
   });
 });
 
+// ---- Home search filters (owner, 2026-11-14) ----
+// Type, dates, category, account, amount, friend, tag and trip, all run on the phone's search copy (no server call). Within one
+// kind the picks are OR ("Restaurants or Groceries"), between kinds AND. They work with an empty box too; they are forgotten when the
+// search is cleared, like the text. The amount is the size the row shows (my share, in the main currency).
+const emptySearchFilters_ = () => ({ types: [], period: "", from: "", to: "", cats: [], accts: [], min: "", max: "", friends: [], tags: [], trips: [] });
+let searchFilters_ = emptySearchFilters_();
+const SEARCH_FILTER_LISTS_ = ["types", "cats", "accts", "friends", "tags", "trips"];
+function searchFiltersOn_() {
+  const f = searchFilters_;
+  return SEARCH_FILTER_LISTS_.some((k) => f[k].length) || !!searchPeriodRange_() || f.min !== "" || f.max !== "";
+}
+// [from, to] (either may be "") for the chosen period, or null for none.
+function searchPeriodRange_() {
+  const f = searchFilters_;
+  const today = todayLocalISO();
+  const ym = today.slice(0, 7);
+  if (f.period === "thisMonth") return [ym + "-01", ym + "-31"];
+  if (f.period === "lastMonth") {
+    const d = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 1);
+    const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return [m + "-01", m + "-31"];
+  }
+  if (f.period === "thisYear") return [today.slice(0, 4) + "-01-01", today.slice(0, 4) + "-12-31"];
+  if (f.period === "custom" && (f.from || f.to)) return [f.from, f.to];
+  return null;
+}
+// The size the row shows, in the main currency (my share of a split expense); null when no rate is on file.
+function searchRowMain_(e) {
+  const v = e.currency === homeCur() ? (e.own_share != null ? e.own_share : e.amount) : (e.own_share_pen != null ? e.own_share_pen : e.amount_pen);
+  return v == null || v === "" || isNaN(Number(v)) ? null : Math.abs(Number(v));
+}
+function searchFilterTest_() {
+  if (!searchFiltersOn_()) return null;
+  const f = searchFilters_;
+  const cats = new Set(f.cats);
+  // A main category also brings its subcategories.
+  meta.categories.forEach((c) => { if (c.parent_id && cats.has(c.parent_id)) cats.add(c.id); });
+  const accts = new Set(f.accts);
+  const friendIds = new Set(f.friends);
+  const friendNames = new Set(meta.friends.filter((x) => friendIds.has(x.id)).map((x) => x.name));
+  const range = searchPeriodRange_();
+  const min = f.min === "" ? null : Number(f.min);
+  const max = f.max === "" ? null : Number(f.max);
+  return (e) => {
+    if (f.types.length && !f.types.includes(e.type)) return false;
+    if (range && ((range[0] && e.date < range[0]) || (range[1] && e.date > range[1]))) return false;
+    if (cats.size && !cats.has(e.category_id)) return false;
+    if (accts.size && !accts.has(e.payment_method_id) && !accts.has(e.to_payment_method_id)) return false;
+    if (friendIds.size && !friendIds.has(e.paid_by) && !(e.link && friendNames.has(e.link.friend))) return false;
+    if (f.tags.length && !(e.tagIds || []).some((id) => f.tags.includes(id))) return false;
+    if (f.trips.length && !f.trips.includes(e.trip_id)) return false;
+    if (min != null || max != null) {
+      const v = searchRowMain_(e);
+      if (v == null || (min != null && v < min - 0.005) || (max != null && v > max + 0.005)) return false;
+    }
+    return true;
+  };
+}
+// What the search shows right now: null while there is nothing to search for (fewer than 2 letters and no filter) or no copy yet.
+function searchMatches_() {
+  const term = document.getElementById("entry-search").value.trim();
+  const useText = term.length >= SEARCH_MIN_CHARS;
+  const test = searchFilterTest_();
+  if ((!useText && !test) || !searchIndex) return null;
+  const words = useText ? normalizeSearchText_(term).split(/\s+/).filter(Boolean) : [];
+  return searchIndex.filter((e) => words.every((w) => e._s.indexOf(w) !== -1) && (!test || test(e)));
+}
+// The matches' total, signed like the rows (owner's rule: money in +, money out −; a move between my own accounts does not count).
+function searchMatchesTotal_(matches) {
+  let total = 0, counted = 0, noRate = 0;
+  matches.forEach((e) => {
+    const dir = entryFlowDirection_(e);
+    if (!dir) return;
+    const v = searchRowMain_(e);
+    if (v == null) { noRate++; return; }
+    total += dir === "in" ? v : -v;
+    counted++;
+  });
+  return { total, counted, noRate };
+}
+
+function searchFilterSummaries_() {
+  const f = searchFilters_;
+  const out = [];
+  const several = (names) => (names.length > 1 ? tr("search.f.andMore", { first: names[0], n: names.length - 1 }) : names[0]);
+  const named = (key, list, label) => {
+    const names = f[key].map((id) => { const x = list.find((y) => y.id === id); return x ? label(x) : ""; }).filter(Boolean);
+    if (names.length) out.push({ key, text: several(names) });
+  };
+  if (f.types.length) out.push({ key: "types", text: f.types.map((t) => tr("search.f.type." + t)).join(", ") });
+  if (searchPeriodRange_()) {
+    const text = f.period === "custom"
+      ? (f.from && f.to ? `${listDate_(f.from)} – ${listDate_(f.to)}` : f.from ? tr("search.f.since", { date: listDate_(f.from) }) : tr("search.f.until", { date: listDate_(f.to) }))
+      : tr("search.f.period." + f.period);
+    out.push({ key: "period", text });
+  }
+  named("cats", meta.categories, catOptionText_);
+  named("accts", meta.paymentMethods, (pm) => pm.nickname);
+  if (f.min !== "" || f.max !== "") {
+    const cur = homeCur();
+    const text = f.min !== "" && f.max !== "" ? `${cur} ${moneyFmt(f.min)} – ${moneyFmt(f.max)}`
+      : f.min !== "" ? tr("search.f.atLeast", { amount: `${cur} ${moneyFmt(f.min)}` }) : tr("search.f.atMost", { amount: `${cur} ${moneyFmt(f.max)}` });
+    out.push({ key: "amount", text });
+  }
+  named("friends", meta.friends, (x) => x.name);
+  named("tags", meta.tags || [], (x) => x.name);
+  named("trips", meta.trips || [], (x) => x.name);
+  return out;
+}
+function clearSearchFilterKind_(key) {
+  const f = searchFilters_;
+  if (key === "period") { f.period = ""; f.from = ""; f.to = ""; }
+  else if (key === "amount") { f.min = ""; f.max = ""; }
+  else f[key] = [];
+}
+function renderSearchFilterChips_() {
+  const box = document.getElementById("search-filter-chips");
+  const btn = document.getElementById("entry-search-filter-btn");
+  const list = searchFiltersOn_() ? searchFilterSummaries_() : [];
+  btn.classList.toggle("on", list.length > 0);
+  btn.setAttribute("aria-pressed", list.length ? "true" : "false");
+  box.innerHTML = "";
+  box.hidden = !list.length;
+  list.forEach((c) => {
+    const chip = document.createElement("span");
+    chip.className = "search-filter-chip";
+    const text = document.createElement("button");
+    text.type = "button";
+    text.className = "search-filter-chip-text";
+    text.textContent = c.text;
+    text.addEventListener("click", openSearchFilters_);
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "search-filter-chip-x";
+    x.textContent = "✕";
+    x.setAttribute("aria-label", tr("search.f.remove", { name: c.text }));
+    x.addEventListener("click", () => { clearSearchFilterKind_(c.key); searchFiltersChanged_(); });
+    chip.append(text, x);
+    box.appendChild(chip);
+  });
+}
+// Every change: chips, the search's on/off state, the results behind, and the pop-up's button count.
+function searchFiltersChanged_() {
+  renderSearchFilterChips_();
+  document.getElementById("entry-search").dispatchEvent(new Event("input"));
+  const done = document.getElementById("search-filters-done");
+  if (!document.getElementById("search-filters-backdrop").hidden) {
+    const m = searchMatches_();
+    done.textContent = m ? tr("search.f.show", { n: m.length }) : tr("search.f.showAll");
+  }
+}
+
+function openSearchFilters_() {
+  renderSearchFiltersBody_();
+  document.getElementById("search-filters-backdrop").hidden = false;
+  if (!searchIndex && !searchIndexPromise) syncSearchIndex_().then(searchFiltersChanged_).catch(() => {});
+  searchFiltersChanged_();
+}
+function closeSearchFilters_() { document.getElementById("search-filters-backdrop").hidden = true; }
+
+function renderSearchFiltersBody_() {
+  const f = searchFilters_;
+  const body = document.getElementById("search-filters-body");
+  body.innerHTML = "";
+  const section = (titleKey, hintKey) => {
+    const h = document.createElement("h3");
+    h.textContent = tr(titleKey);
+    body.appendChild(h);
+    if (hintKey) { const p = document.createElement("p"); p.className = "hint"; p.textContent = tr(hintKey); body.appendChild(p); }
+    const wrap = document.createElement("div");
+    wrap.className = "search-filter-options";
+    body.appendChild(wrap);
+    return wrap;
+  };
+  const chip = (wrap, label, isOn, toggle) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "tag-chip" + (isOn() ? " selected" : "");
+    b.textContent = label;
+    b.setAttribute("aria-pressed", isOn() ? "true" : "false");
+    b.addEventListener("click", () => {
+      toggle();
+      b.classList.toggle("selected", isOn());
+      b.setAttribute("aria-pressed", isOn() ? "true" : "false");
+      searchFiltersChanged_();
+    });
+    wrap.appendChild(b);
+  };
+  const listChips = (wrap, key, items, label) => items.forEach((x) => chip(wrap, label(x), () => f[key].includes(x.id), () => {
+    f[key] = f[key].includes(x.id) ? f[key].filter((id) => id !== x.id) : f[key].concat(x.id);
+  }));
+  const pair = (fields) => {
+    const row = document.createElement("div");
+    row.className = "search-filter-pair";
+    fields.forEach(({ labelKey, labelVars, type, key, inputmode }) => {
+      const label = document.createElement("label");
+      label.textContent = tr(labelKey, labelVars);
+      const input = document.createElement("input");
+      input.type = type;
+      if (inputmode) { input.inputMode = inputmode; input.min = "0"; input.step = "0.01"; }
+      input.value = f[key];
+      input.addEventListener("input", () => {
+        const v = input.value.trim();
+        f[key] = type === "number" && (v === "" || isNaN(Number(v))) ? "" : v;
+        searchFiltersChanged_();
+      });
+      label.appendChild(input);
+      row.appendChild(label);
+    });
+    return row;
+  };
+
+  // Type
+  const types = section("search.f.typeTitle");
+  ["expense", "income", "transfer", "investment"].forEach((t) => chip(types, tr("search.f.type." + t), () => f.types.includes(t), () => {
+    f.types = f.types.includes(t) ? f.types.filter((x) => x !== t) : f.types.concat(t);
+    renderSearchFiltersBody_();   // the category list follows the types picked
+  }));
+
+  // Dates
+  const dates = section("search.f.dateTitle");
+  let custom = null;
+  ["thisMonth", "lastMonth", "thisYear", "custom"].forEach((p) => chip(dates, tr("search.f.period." + p), () => f.period === p, () => {
+    f.period = f.period === p ? "" : p;
+    if (f.period !== "custom") { f.from = ""; f.to = ""; }
+    dates.querySelectorAll(".tag-chip").forEach((b, i) => b.classList.toggle("selected", f.period === ["thisMonth", "lastMonth", "thisYear", "custom"][i]));
+    custom.hidden = f.period !== "custom";
+  }));
+  custom = pair([{ labelKey: "search.f.fromDate", type: "date", key: "from" }, { labelKey: "search.f.toDate", type: "date", key: "to" }]);
+  custom.hidden = f.period !== "custom";
+  body.appendChild(custom);
+
+  // Category: those of the types picked (expense and income when none or only those are picked); a picked one stays listed
+  const catTypes = f.types.length ? f.types : ["expense", "income"];
+  const cats = sortedCategories_(meta.categories.filter((c) => catTypes.includes(c.type) && (!catHidden_(c) || f.cats.includes(c.id))));
+  if (cats.length) listChips(section("search.f.catTitle", "search.f.catHint"), "cats", cats, catOptionText_);
+
+  // Account
+  const accts = meta.paymentMethods.filter((pm) => !pmHidden_(pm) || f.accts.includes(pm.id));
+  if (accts.length) listChips(section("search.f.acctTitle"), "accts", accts, (pm) => pm.nickname);
+
+  // Amount (my share, in the main currency)
+  const amt = section("search.f.amountTitle", "search.f.amountHint");
+  amt.replaceWith(pair([
+    { labelKey: "search.f.min", labelVars: { cur: homeCur() }, type: "number", key: "min", inputmode: "decimal" },
+    { labelKey: "search.f.max", labelVars: { cur: homeCur() }, type: "number", key: "max", inputmode: "decimal" }
+  ]));
+
+  // Friend: paid by them, or a loan / repayment with them
+  const friends = meta.friends.filter((x) => !isGroupFriend_(x) && (!isBusinessPerson_(x) || businessOn()) && (!isHiddenFriend_(x) || f.friends.includes(x.id)))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  if (friends.length) listChips(section("search.f.friendTitle", "search.f.friendHint"), "friends", friends, (x) => x.name);
+
+  // Tags
+  const tags = (meta.tags || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  if (tags.length) listChips(section("search.f.tagTitle"), "tags", tags, (x) => x.name);
+
+  // Trip / event, newest first
+  const trips = (meta.trips || []).slice().sort((a, b) => String(b.start_date || "").localeCompare(String(a.start_date || "")));
+  if (trips.length) listChips(section("search.f.tripTitle"), "trips", trips, (x) => x.name);
+}
+
+document.getElementById("entry-search-filter-btn").addEventListener("click", openSearchFilters_);
+document.getElementById("search-filters-close").addEventListener("click", closeSearchFilters_);
+document.getElementById("search-filters-done").addEventListener("click", closeSearchFilters_);
+document.getElementById("search-filters-reset").addEventListener("click", () => {
+  searchFilters_ = emptySearchFilters_();
+  renderSearchFiltersBody_();
+  searchFiltersChanged_();
+});
+
 function renderSearchResults_() {
   if (!searchActive) return;
   entriesDropStaleSelection_();
@@ -5329,7 +5597,7 @@ function renderSearchResults_() {
   hint.hidden = false;
   document.getElementById("search-edit-btn").hidden = true;   // shown again below once there are matches to edit
 
-  if (term.length < SEARCH_MIN_CHARS) {
+  if (term.length < SEARCH_MIN_CHARS && !searchFiltersOn_()) {
     hint.textContent = tr("search.minChars", { n: SEARCH_MIN_CHARS });
     return;
   }
@@ -5340,14 +5608,15 @@ function renderSearchResults_() {
     return;
   }
 
-  const words = normalizeSearchText_(term).split(/\s+/).filter(Boolean);
-  const matches = searchIndex.filter((e) => words.every((w) => e._s.indexOf(w) !== -1));
-  hint.textContent = matches.length === 0
-    ? ""
+  const matches = searchMatches_() || [];
+  const sum = searchMatchesTotal_(matches);
+  hint.textContent = matches.length === 0 ? ""
+    : sum.counted ? tr("search.matchesTotal", { n: matches.length, total: formatPenSigned_(sum.total) }) + (sum.noRate ? " " + tr("search.noRateNote", { n: sum.noRate }) : "")
     : tr("search.matches", { n: matches.length });
 
   if (matches.length === 0) {
-    box.innerHTML = `<div class="status-msg">${escapeHtml(tr("search.noMatch", { term }))}</div>`;
+    const textOn = term.length >= SEARCH_MIN_CHARS;
+    box.innerHTML = `<div class="status-msg">${escapeHtml(textOn ? tr(searchFiltersOn_() ? "search.noMatchFiltered" : "search.noMatch", { term }) : tr("search.f.noMatch"))}</div>`;
     return;
   }
   document.getElementById("search-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.entriesBulk);
@@ -5380,8 +5649,8 @@ function setupEntrySearch_() {
   const clearBtn = document.getElementById("entry-search-clear");
 
   const onChange = () => {
-    clearBtn.hidden = input.value === "";
-    const typing = input.value.trim() !== "";
+    clearBtn.hidden = input.value === "" && !searchFiltersOn_();
+    const typing = input.value.trim() !== "" || searchFiltersOn_();
     if (typing !== searchActive) {
       setSearchActive_(typing);
       if (typing) window.scrollTo(0, 0);
@@ -5405,6 +5674,8 @@ function setupEntrySearch_() {
   });
   clearBtn.addEventListener("click", () => {
     input.value = "";
+    searchFilters_ = emptySearchFilters_();   // clearing the search drops its filters too
+    renderSearchFilterChips_();
     onChange();
     input.focus();
   });
@@ -23699,8 +23970,10 @@ function practicePickAccount_() {
 // on "One moment…" behind an old search, owner's walk 2026-11-05): every practice starts with Home's search box empty.
 function clearHomeSearchForPractice_() {
   const input = document.getElementById("entry-search");
-  if (!input || !input.value) return;
+  if (!input || (!input.value && !searchFiltersOn_())) return;
   input.value = "";
+  searchFilters_ = emptySearchFilters_();
+  renderSearchFilterChips_();
   input.dispatchEvent(new Event("input"));
 }
 // A practice tutorial (made-up data) is running: the repayment form's "Tap again to record all" check stays off during it,
