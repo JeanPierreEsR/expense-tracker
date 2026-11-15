@@ -2580,16 +2580,18 @@ body.income-revealed .sens-mask { display: none; }
 #search-filters-done { margin-top: 18px; }
 .search-filter-field { display: block; margin: 12px 0 0; font-size: 0.8125rem; }
 .search-filter-field input { width: 100%; margin: 4px 0 0; min-height: 44px; }
-.search-filter-dates { padding: 0 0 4px; }
+.search-filter-dates { display: flex; gap: 10px; padding: 0 0 4px; }
+.search-filter-dates .search-filter-field { flex: 1 1 0; min-width: 0; }
 .search-filter-dates[hidden] { display: none; }
 /* Dates is one choice: a round dot instead of a check. */
 .search-pick-row.one .search-pick-check { color: transparent; }
-.search-pick-row.one.on .search-pick-check { background: var(--white); border: 7px solid var(--accent); }
+/* The chosen dot: a blue ring with a white centre, drawn inside the same fixed circle (a thick border was stretched on iPhone). */
+.search-pick-row.one.on .search-pick-check { background: var(--accent); border-color: var(--accent); box-shadow: inset 0 0 0 6px var(--white); }
 #search-pick-find { margin: 0 0 8px; min-height: 44px; }
 .search-pick-list { height: 50vh; overflow-y: auto; }
 .search-pick-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; margin: 0; padding: 8px 4px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); font-size: 1rem; text-align: left; cursor: pointer; }
 .search-pick-row .search-pick-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.search-pick-row .search-pick-check { flex: 0 0 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--border); display: inline-flex; align-items: center; justify-content: center; color: var(--white); font-size: 0.875rem; }
+.search-pick-row .search-pick-check { flex: 0 0 24px; width: 24px; height: 24px; min-width: 24px; box-sizing: border-box; padding: 0; line-height: 1; border-radius: 50%; border: 1.5px solid var(--border); display: inline-flex; align-items: center; justify-content: center; color: var(--white); font-size: 0.875rem; }
 .search-pick-row.on .search-pick-check { background: var(--accent); border-color: var(--accent); }
 #search-pick-done { margin-top: 12px; }
 .entry-search-row input { margin: 0; padding-right: 40px; min-height: 44px; }
