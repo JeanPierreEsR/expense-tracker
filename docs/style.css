@@ -2565,13 +2565,17 @@ body.income-revealed .sens-mask { display: none; }
 .entry-search-card { padding: 6px 0; position: sticky; top: 0; z-index: 5; background: var(--bg); box-shadow: none; border-radius: 0; }
 .entry-search-row { display: flex; align-items: center; gap: 8px; }
 .entry-search-box { position: relative; flex: 1 1 auto; min-width: 0; }
-/* Filter chips under the box: one per kind of filter; the text reopens the filters, the ✕ drops that kind. */
-.search-filter-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 2px 0; }
-.search-filter-chip { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid var(--accent); border-radius: var(--r-pill); background: var(--white); color: var(--accent); font-size: 0.8125rem; }
-.search-filter-chip-text { border: 0; background: transparent; color: inherit; font: inherit; padding: 6px 4px 6px 12px; min-height: 32px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; margin: 0; }
-.search-filter-chip-x { border: 0; background: transparent; color: inherit; font-size: 0.8125rem; width: 32px; min-height: 32px; padding: 0; margin: 0; cursor: pointer; flex: 0 0 32px; }
-#search-filters-body h3 { font-size: 0.875rem; font-weight: 600; margin: 14px 0 6px; }
-#search-filters-body h3:first-child { margin-top: 4px; }
+/* Filter buttons under the box (owner, 2026-11-15): one row that scrolls sideways; a button in use is blue, says what is picked and has its ✕. */
+.search-filter-bar { display: flex; gap: 6px; margin: 8px 0 0; padding: 0 0 2px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.search-filter-bar::-webkit-scrollbar { display: none; }
+.search-filter-bar[hidden] { display: none; }
+.search-fbtn { flex: 0 0 auto; display: inline-flex; align-items: center; border: 1px solid var(--border-strong); border-radius: var(--r-pill); background: var(--white); color: var(--text); font-size: 0.8125rem; }
+.search-fbtn.on { border-color: var(--accent); color: var(--accent); }
+.search-fbtn-text { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: inherit; font: inherit; padding: 0 12px; min-height: 36px; margin: 0; cursor: pointer; white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.search-fbtn.on .search-fbtn-text { padding-right: 2px; font-weight: 600; }
+.search-fbtn-chev { flex: 0 0 auto; color: var(--muted-2); }
+.search-fbtn-x { border: 0; background: transparent; color: inherit; font-size: 0.8125rem; width: 32px; min-height: 36px; padding: 0; margin: 0; cursor: pointer; flex: 0 0 32px; }
+.search-pick-list h4 { font-size: 0.8125rem; font-weight: 600; color: var(--muted-2); margin: 12px 0 2px; }
 .search-filter-options { display: flex; flex-wrap: wrap; gap: 6px; }
 .search-filter-options .tag-chip { margin: 0; }
 .search-filter-pair { display: flex; gap: 8px; margin-top: 8px; }
@@ -2579,8 +2583,6 @@ body.income-revealed .sens-mask { display: none; }
 .search-filter-pair input { width: 100%; margin: 4px 0 0; }
 #search-filters-backdrop .hint { margin: 4px 0 0; }
 #search-filters-done { margin-top: 18px; }
-#search-filters-body h4 { font-size: 0.8125rem; font-weight: 600; color: var(--muted-2); margin: 10px 0 6px; }
-.search-filter-options .search-filter-more { border-style: dashed; color: var(--accent); }
 #search-pick-find { margin: 0 0 8px; min-height: 44px; }
 .search-pick-list { height: 50vh; overflow-y: auto; }
 .search-pick-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; margin: 0; padding: 8px 4px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); font-size: 1rem; text-align: left; cursor: pointer; }

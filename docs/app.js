@@ -5396,33 +5396,58 @@ function searchMatchesTotal_(matches) {
   return { total, counted, noRate };
 }
 
-function searchFilterSummaries_() {
+// The row of filter buttons under the search box (owner, 2026-11-15: chosen over one big Filters sheet). It shows once the box is
+// tapped, and stays while something is typed or a filter is on. Each button opens a small window for that one filter; a button in
+// use is blue, says what is picked and has its own ✕.
+const SEARCH_FILTER_KINDS_ = [
+  { key: "types", title: "search.f.typeTitle", ui: "chips" },
+  { key: "period", title: "search.f.dateTitle", ui: "dates" },
+  { key: "cats", title: "search.f.catTitle", ui: "list" },
+  { key: "accts", title: "search.f.acctTitle", ui: "list" },
+  { key: "amount", title: "search.f.amountTitle", ui: "amount" },
+  { key: "friends", title: "search.f.friendTitle", ui: "list" },
+  { key: "tags", title: "search.f.tagTitle", ui: "list" },
+  { key: "trips", title: "search.f.tripTitle", ui: "list" }
+];
+const SEARCH_PERIODS_ = ["thisMonth", "lastMonth", "thisYear", "custom"];
+let searchBarWanted_ = false;   // the box was tapped and the person has not tapped away from the search yet
+
+// What a list filter offers: [{ heading?, items }] (categories come under Expenses / Income when both are listed). A picked one
+// stays listed even when hidden.
+function searchFilterGroups_(key) {
   const f = searchFilters_;
-  const out = [];
-  const several = (names) => (names.length > 1 ? tr("search.f.andMore", { first: names[0], n: names.length - 1 }) : names[0]);
-  const named = (key, list, label) => {
-    const names = f[key].map((id) => { const x = list.find((y) => y.id === id); return x ? label(x) : ""; }).filter(Boolean);
-    if (names.length) out.push({ key, text: several(names) });
-  };
-  if (f.types.length) out.push({ key: "types", text: f.types.map((t) => tr("search.f.type." + t)).join(", ") });
-  if (searchPeriodRange_()) {
-    const text = f.period === "custom"
-      ? (f.from && f.to ? `${listDate_(f.from)} – ${listDate_(f.to)}` : f.from ? tr("search.f.since", { date: listDate_(f.from) }) : tr("search.f.until", { date: listDate_(f.to) }))
-      : tr("search.f.period." + f.period);
-    out.push({ key: "period", text });
+  if (key === "cats") {
+    const types = (f.types.length ? f.types : ["expense", "income"]).filter((t) => meta.categories.some((c) => c.type === t));
+    const groups = types.map((t) => ({ type: t, items: meta.categories.filter((c) => c.type === t && (!catHidden_(c) || f.cats.includes(c.id))) }))
+      .filter((g) => g.items.length);
+    return groups.map((g) => ({ heading: groups.length > 1 ? tr("search.f.type." + g.type) : "", items: g.items }));
   }
-  named("cats", meta.categories, catOptionText_);
-  named("accts", meta.paymentMethods, (pm) => pm.nickname);
-  if (f.min !== "" || f.max !== "") {
+  const items = key === "accts" ? meta.paymentMethods.filter((pm) => !pmHidden_(pm) || f.accts.includes(pm.id))
+    : key === "friends" ? meta.friends.filter((x) => !isGroupFriend_(x) && (!isBusinessPerson_(x) || businessOn()) && (!isHiddenFriend_(x) || f.friends.includes(x.id)))
+    : key === "tags" ? (meta.tags || []).slice()
+    : key === "trips" ? (meta.trips || []).slice() : [];
+  return items.length ? [{ heading: "", items }] : [];
+}
+function searchFilterItemLabel_(key, x) { return key === "cats" ? catOptionText_(x) : key === "accts" ? x.nickname : x.name; }
+
+// What a button in use says ("" = not in use).
+function searchFilterSummary_(key) {
+  const f = searchFilters_;
+  if (key === "types") return f.types.map((t) => tr("search.f.type." + t)).join(", ");
+  if (key === "period") {
+    if (!searchPeriodRange_()) return "";
+    if (f.period !== "custom") return tr("search.f.period." + f.period);
+    return f.from && f.to ? `${listDate_(f.from)} – ${listDate_(f.to)}` : f.from ? tr("search.f.since", { date: listDate_(f.from) }) : tr("search.f.until", { date: listDate_(f.to) });
+  }
+  if (key === "amount") {
+    if (f.min === "" && f.max === "") return "";
     const cur = homeCur();
-    const text = f.min !== "" && f.max !== "" ? `${cur} ${moneyFmt(f.min)} – ${moneyFmt(f.max)}`
+    return f.min !== "" && f.max !== "" ? `${cur} ${moneyFmt(f.min)} – ${moneyFmt(f.max)}`
       : f.min !== "" ? tr("search.f.atLeast", { amount: `${cur} ${moneyFmt(f.min)}` }) : tr("search.f.atMost", { amount: `${cur} ${moneyFmt(f.max)}` });
-    out.push({ key: "amount", text });
   }
-  named("friends", meta.friends, (x) => x.name);
-  named("tags", meta.tags || [], (x) => x.name);
-  named("trips", meta.trips || [], (x) => x.name);
-  return out;
+  const all = key === "cats" ? meta.categories : key === "accts" ? meta.paymentMethods : key === "friends" ? meta.friends : key === "tags" ? (meta.tags || []) : (meta.trips || []);
+  const names = f[key].map((id) => { const x = all.find((y) => y.id === id); return x ? searchFilterItemLabel_(key, x) : ""; }).filter(Boolean);
+  return !names.length ? "" : names.length > 1 ? tr("search.f.andMore", { first: names[0], n: names.length - 1 }) : names[0];
 }
 function clearSearchFilterKind_(key) {
   const f = searchFilters_;
@@ -5430,108 +5455,85 @@ function clearSearchFilterKind_(key) {
   else if (key === "amount") { f.min = ""; f.max = ""; }
   else f[key] = [];
 }
-function renderSearchFilterChips_() {
-  const box = document.getElementById("search-filter-chips");
-  const btn = document.getElementById("entry-search-filter-btn");
-  const list = searchFiltersOn_() ? searchFilterSummaries_() : [];
-  btn.classList.toggle("on", list.length > 0);
-  btn.setAttribute("aria-pressed", list.length ? "true" : "false");
-  box.innerHTML = "";
-  box.hidden = !list.length;
-  list.forEach((c) => {
-    const chip = document.createElement("span");
-    chip.className = "search-filter-chip";
-    const text = document.createElement("button");
-    text.type = "button";
-    text.className = "search-filter-chip-text";
-    text.textContent = c.text;
-    text.addEventListener("click", openSearchFilters_);
-    const x = document.createElement("button");
-    x.type = "button";
-    x.className = "search-filter-chip-x";
-    x.textContent = "✕";
-    x.setAttribute("aria-label", tr("search.f.remove", { name: c.text }));
-    x.addEventListener("click", () => { clearSearchFilterKind_(c.key); searchFiltersChanged_(); });
-    chip.append(text, x);
-    box.appendChild(chip);
+
+const SEARCH_CHEVRON_ = `<svg class="search-fbtn-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>`;
+function renderSearchFilterBar_() {
+  const bar = document.getElementById("search-filter-bar");
+  bar.innerHTML = "";
+  SEARCH_FILTER_KINDS_.forEach((k) => {
+    if (k.ui === "list" && !searchFilterGroups_(k.key).length) return;
+    const summary = searchFilterSummary_(k.key);
+    const wrap = document.createElement("span");
+    wrap.className = "search-fbtn" + (summary ? " on" : "");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "search-fbtn-text";
+    b.dataset.filter = k.key;
+    if (summary) b.textContent = summary;
+    else b.innerHTML = `${escapeHtml(tr(k.title))}${SEARCH_CHEVRON_}`;
+    b.setAttribute("aria-label", tr("search.f.filterBy", { name: tr(k.title) }) + (summary ? `: ${summary}` : ""));
+    b.addEventListener("click", () => openSearchFilter_(k.key));
+    wrap.appendChild(b);
+    if (summary) {
+      const x = document.createElement("button");
+      x.type = "button";
+      x.className = "search-fbtn-x";
+      x.textContent = "✕";
+      x.setAttribute("aria-label", tr("search.f.remove", { name: summary }));
+      x.addEventListener("click", () => { clearSearchFilterKind_(k.key); searchFiltersChanged_(); });
+      wrap.appendChild(x);
+    }
+    bar.appendChild(wrap);
   });
+  syncSearchFilterBarShown_();
 }
-// Every change: chips, the search's on/off state, the results behind, and the pop-up's button count.
+function syncSearchFilterBarShown_() {
+  const show = searchBarWanted_ || searchActive || searchFiltersOn_();
+  document.getElementById("search-filter-bar").hidden = !show;
+}
+// A tap anywhere away from the search (and from its filter windows) puts the row away again, unless it is in use.
+document.addEventListener("pointerdown", (e) => {
+  if (!searchBarWanted_) return;
+  if (e.target.closest && e.target.closest(".entry-search-card, #search-filters-backdrop, #search-pick-backdrop")) return;
+  searchBarWanted_ = false;
+  syncSearchFilterBarShown_();
+}, true);
+
+// Every change: the row, the search's on/off state, the results behind, and the open window's button count.
 function searchFiltersChanged_() {
-  renderSearchFilterChips_();
+  renderSearchFilterBar_();
   document.getElementById("entry-search").dispatchEvent(new Event("input"));
-  const done = document.getElementById("search-filters-done");
-  if (!document.getElementById("search-filters-backdrop").hidden) {
-    const m = searchMatches_();
-    done.textContent = m ? tr("search.f.show", { n: m.length }) : tr("search.f.showAll");
-  }
+  const m = searchMatches_();
+  const label = m ? tr("search.f.show", { n: m.length }) : tr("search.f.showAll");
+  if (!document.getElementById("search-filters-backdrop").hidden) document.getElementById("search-filters-done").textContent = label;
+  if (!document.getElementById("search-pick-backdrop").hidden) document.getElementById("search-pick-done").textContent = label;
 }
 
-function openSearchFilters_() {
-  renderSearchFiltersBody_();
-  document.getElementById("search-filters-backdrop").hidden = false;
+function openSearchFilter_(key) {
+  const k = SEARCH_FILTER_KINDS_.find((x) => x.key === key);
   if (!searchIndex && !searchIndexPromise) syncSearchIndex_().then(searchFiltersChanged_).catch(() => {});
+  if (k.ui === "list") { openSearchPick_(key, tr(k.title)); return; }
+  document.getElementById("search-filters-title").textContent = tr(k.title);
+  renderSearchFilterBody_(k);
+  document.getElementById("search-filters-backdrop").hidden = false;
   searchFiltersChanged_();
 }
 function closeSearchFilters_() { document.getElementById("search-filters-backdrop").hidden = true; }
 
-function renderSearchFiltersBody_() {
+// Type, Dates or Amount: the one section, in the small window.
+function renderSearchFilterBody_(k) {
   const f = searchFilters_;
   const body = document.getElementById("search-filters-body");
   body.innerHTML = "";
-  const section = (titleKey, hintKey) => {
-    const h = document.createElement("h3");
-    h.textContent = tr(titleKey);
-    body.appendChild(h);
-    if (hintKey) { const p = document.createElement("p"); p.className = "hint"; p.textContent = tr(hintKey); body.appendChild(p); }
-    const wrap = document.createElement("div");
-    wrap.className = "search-filter-options";
-    body.appendChild(wrap);
-    return wrap;
-  };
-  const chip = (wrap, label, isOn, toggle) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "tag-chip" + (isOn() ? " selected" : "");
-    b.textContent = label;
-    b.setAttribute("aria-pressed", isOn() ? "true" : "false");
-    b.addEventListener("click", () => {
-      toggle();
-      b.classList.toggle("selected", isOn());
-      b.setAttribute("aria-pressed", isOn() ? "true" : "false");
-      searchFiltersChanged_();
-    });
-    wrap.appendChild(b);
-  };
-  // A long list shows its 5 most used (and anything already picked), then "More…" opens the whole list with a search box
-  // (owner, 2026-11-14: a chip for every category was a wall of bubbles).
-  const uses = searchFilterUses_();
-  const listChips = (wrap, key, items, label, title) => {
-    const n = (x) => uses[key].get(key === "friends" ? x.name : x.id) || 0;
-    const ranked = items.slice().sort((a, b) => n(b) - n(a) || String(label(a)).localeCompare(String(label(b))));
-    const shown = ranked.length <= SEARCH_FILTER_TOP_ + 1 ? ranked
-      : ranked.filter((x, i) => i < SEARCH_FILTER_TOP_ || f[key].includes(x.id));
-    shown.forEach((x) => chip(wrap, label(x), () => f[key].includes(x.id), () => {
-      f[key] = f[key].includes(x.id) ? f[key].filter((id) => id !== x.id) : f[key].concat(x.id);
-    }));
-    if (shown.length < ranked.length) {
-      const more = document.createElement("button");
-      more.type = "button";
-      more.className = "tag-chip search-filter-more";
-      more.textContent = tr("search.f.more", { n: ranked.length - shown.length });
-      more.addEventListener("click", () => openSearchPick_(key, items, label, title));
-      wrap.appendChild(more);
-    }
-  };
   const pair = (fields) => {
     const row = document.createElement("div");
     row.className = "search-filter-pair";
-    fields.forEach(({ labelKey, labelVars, type, key, inputmode }) => {
+    fields.forEach(({ labelKey, labelVars, type, key, decimal }) => {
       const label = document.createElement("label");
       label.textContent = tr(labelKey, labelVars);
       const input = document.createElement("input");
       input.type = type;
-      if (inputmode) { input.inputMode = inputmode; input.min = "0"; input.step = "0.01"; }
+      if (decimal) { input.inputMode = "decimal"; input.min = "0"; input.step = "0.01"; }
       input.value = f[key];
       input.addEventListener("input", () => {
         const v = input.value.trim();
@@ -5543,75 +5545,48 @@ function renderSearchFiltersBody_() {
     });
     return row;
   };
-
-  // Type
-  const types = section("search.f.typeTitle");
-  ["expense", "income", "transfer", "investment"].forEach((t) => chip(types, tr("search.f.type." + t), () => f.types.includes(t), () => {
-    f.types = f.types.includes(t) ? f.types.filter((x) => x !== t) : f.types.concat(t);
-    renderSearchFiltersBody_();   // the category list follows the types picked
-  }));
-
-  // Dates
-  const dates = section("search.f.dateTitle");
-  let custom = null;
-  ["thisMonth", "lastMonth", "thisYear", "custom"].forEach((p) => chip(dates, tr("search.f.period." + p), () => f.period === p, () => {
-    f.period = f.period === p ? "" : p;
-    if (f.period !== "custom") { f.from = ""; f.to = ""; }
-    dates.querySelectorAll(".tag-chip").forEach((b, i) => b.classList.toggle("selected", f.period === ["thisMonth", "lastMonth", "thisYear", "custom"][i]));
-    custom.hidden = f.period !== "custom";
-  }));
-  custom = pair([{ labelKey: "search.f.fromDate", type: "date", key: "from" }, { labelKey: "search.f.toDate", type: "date", key: "to" }]);
-  custom.hidden = f.period !== "custom";
-  body.appendChild(custom);
-
-  // Category: those of the types picked (expense and income when none is picked), one small heading per type when there are
-  // several (owner, 2026-11-14: "Gifts" was listed twice, once per type); a picked one stays listed even when hidden.
-  const catTypes = (f.types.length ? f.types : ["expense", "income"]).filter((t) => meta.categories.some((c) => c.type === t));
-  if (catTypes.length) {
-    const wrap = section("search.f.catTitle", "search.f.catHint");
-    catTypes.forEach((t) => {
-      const cats = meta.categories.filter((c) => c.type === t && (!catHidden_(c) || f.cats.includes(c.id)));
-      if (!cats.length) return;
-      let into = wrap;
-      if (catTypes.length > 1) {
-        const h = document.createElement("h4");
-        h.textContent = tr("search.f.type." + t);
-        into = document.createElement("div");
-        into.className = "search-filter-options";
-        wrap.append(h, into);
-      }
-      listChips(into, "cats", cats, catOptionText_, `${tr("search.f.catTitle")} · ${tr("search.f.type." + t)}`);
-    });
-    if (catTypes.length > 1) wrap.className = "";   // the type blocks carry the chip layout
+  if (k.ui === "amount") {
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = tr("search.f.amountHint");
+    body.append(hint, pair([
+      { labelKey: "search.f.min", labelVars: { cur: homeCur() }, type: "number", key: "min", decimal: true },
+      { labelKey: "search.f.max", labelVars: { cur: homeCur() }, type: "number", key: "max", decimal: true }
+    ]));
+    return;
   }
-
-  // Account
-  const accts = meta.paymentMethods.filter((pm) => !pmHidden_(pm) || f.accts.includes(pm.id));
-  if (accts.length) listChips(section("search.f.acctTitle"), "accts", accts, (pm) => pm.nickname, tr("search.f.acctTitle"));
-
-  // Amount (my share, in the main currency)
-  const amt = section("search.f.amountTitle", "search.f.amountHint");
-  amt.replaceWith(pair([
-    { labelKey: "search.f.min", labelVars: { cur: homeCur() }, type: "number", key: "min", inputmode: "decimal" },
-    { labelKey: "search.f.max", labelVars: { cur: homeCur() }, type: "number", key: "max", inputmode: "decimal" }
-  ]));
-
-  // Friend: paid by them, or a loan / repayment with them
-  const friends = meta.friends.filter((x) => !isGroupFriend_(x) && (!isBusinessPerson_(x) || businessOn()) && (!isHiddenFriend_(x) || f.friends.includes(x.id)))
-    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  if (friends.length) listChips(section("search.f.friendTitle", "search.f.friendHint"), "friends", friends, (x) => x.name, tr("search.f.friendTitle"));
-
-  // Tags
-  const tags = (meta.tags || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  if (tags.length) listChips(section("search.f.tagTitle"), "tags", tags, (x) => x.name, tr("search.f.tagTitle"));
-
-  // Trip / event, newest first
-  const trips = (meta.trips || []).slice().sort((a, b) => String(b.start_date || "").localeCompare(String(a.start_date || "")));
-  if (trips.length) listChips(section("search.f.tripTitle"), "trips", trips, (x) => x.name, tr("search.f.tripTitle"));
+  const wrap = document.createElement("div");
+  wrap.className = "search-filter-options";
+  body.appendChild(wrap);
+  const values = k.ui === "chips" ? ["expense", "income", "transfer", "investment"] : SEARCH_PERIODS_;
+  const isOn = (v) => (k.ui === "chips" ? f.types.includes(v) : f.period === v);
+  let custom = null;
+  const paint = () => {
+    wrap.querySelectorAll(".tag-chip").forEach((b) => { b.classList.toggle("selected", isOn(b.dataset.v)); b.setAttribute("aria-pressed", isOn(b.dataset.v) ? "true" : "false"); });
+    if (custom) custom.hidden = f.period !== "custom";
+  };
+  values.forEach((v) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "tag-chip";
+    b.dataset.v = v;
+    b.textContent = tr(k.ui === "chips" ? "search.f.type." + v : "search.f.period." + v);
+    b.addEventListener("click", () => {
+      if (k.ui === "chips") f.types = f.types.includes(v) ? f.types.filter((x) => x !== v) : f.types.concat(v);
+      else { f.period = f.period === v ? "" : v; if (f.period !== "custom") { f.from = ""; f.to = ""; } }
+      paint();
+      searchFiltersChanged_();
+    });
+    wrap.appendChild(b);
+  });
+  if (k.ui === "dates") {
+    custom = pair([{ labelKey: "search.f.fromDate", type: "date", key: "from" }, { labelKey: "search.f.toDate", type: "date", key: "to" }]);
+    body.appendChild(custom);
+  }
+  paint();
 }
 
-// How often each category, account, friend, tag and trip appears in the entries (the order of a long list).
-const SEARCH_FILTER_TOP_ = 5;
+// How often each category, account, friend, tag and trip appears in the entries: the most used go first in a list.
 function searchFilterUses_() {
   const u = { cats: new Map(), accts: new Map(), friends: new Map(), tags: new Map(), trips: new Map() };
   const add = (m, k) => { if (k) m.set(k, (m.get(k) || 0) + 1); };
@@ -5629,59 +5604,61 @@ function searchFilterUses_() {
   return u;
 }
 
-// "More…": the whole list, alphabetical, with a search box; ticks apply at once, like the chips.
-let searchPick_ = null;   // { key, items, label }
-function openSearchPick_(key, items, label, title) {
-  searchPick_ = { key, items: items.slice().sort((a, b) => String(a.name || label(a)).localeCompare(String(b.name || label(b)))), label };
+// A list filter (category, account, friend, tag, trip): a search box and checkmarks, most used first; checks apply at once.
+let searchPick_ = null;   // { key, groups }
+function openSearchPick_(key, title) {
+  const uses = searchFilterUses_()[key];
+  const n = (x) => uses.get(key === "friends" ? x.name : x.id) || 0;
+  const label = (x) => searchFilterItemLabel_(key, x);
+  const groups = searchFilterGroups_(key).map((g) => ({ heading: g.heading, items: g.items.slice().sort((a, b) => n(b) - n(a) || String(label(a)).localeCompare(String(label(b)))) }));
+  searchPick_ = { key, groups };
   document.getElementById("search-pick-title").textContent = title;
-  const find = document.getElementById("search-pick-find");
-  find.value = "";
+  document.getElementById("search-pick-find").value = "";
   renderSearchPick_();
   document.getElementById("search-pick-backdrop").hidden = false;
+  searchFiltersChanged_();
 }
 function renderSearchPick_() {
   if (!searchPick_) return;
-  const { key, items, label } = searchPick_;
+  const { key, groups } = searchPick_;
   const q = normalizeSearchText_(document.getElementById("search-pick-find").value.trim());
   const list = document.getElementById("search-pick-list");
   list.innerHTML = "";
-  const shown = items.filter((x) => !q || normalizeSearchText_(label(x)).includes(q));
-  if (!shown.length) { list.innerHTML = `<p class="hint">${escapeHtml(tr("search.f.findNone"))}</p>`; return; }
-  shown.forEach((x) => {
-    const row = document.createElement("button");
-    row.type = "button";
-    const on = () => searchFilters_[key].includes(x.id);
-    row.className = "search-pick-row" + (on() ? " on" : "");
-    row.setAttribute("aria-pressed", on() ? "true" : "false");
-    row.innerHTML = `<span class="search-pick-name"></span><span class="search-pick-check" aria-hidden="true">✓</span>`;
-    row.querySelector(".search-pick-name").textContent = label(x);
-    row.addEventListener("click", () => {
-      searchFilters_[key] = on() ? searchFilters_[key].filter((id) => id !== x.id) : searchFilters_[key].concat(x.id);
-      row.classList.toggle("on", on());
+  let any = false;
+  groups.forEach((g) => {
+    const shown = g.items.filter((x) => !q || normalizeSearchText_(searchFilterItemLabel_(key, x)).includes(q));
+    if (!shown.length) return;
+    any = true;
+    if (g.heading) { const h = document.createElement("h4"); h.textContent = g.heading; list.appendChild(h); }
+    shown.forEach((x) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      const on = () => searchFilters_[key].includes(x.id);
+      row.className = "search-pick-row" + (on() ? " on" : "");
       row.setAttribute("aria-pressed", on() ? "true" : "false");
-      searchFiltersChanged_();
+      row.innerHTML = `<span class="search-pick-name"></span><span class="search-pick-check" aria-hidden="true">✓</span>`;
+      row.querySelector(".search-pick-name").textContent = searchFilterItemLabel_(key, x);
+      row.addEventListener("click", () => {
+        searchFilters_[key] = on() ? searchFilters_[key].filter((id) => id !== x.id) : searchFilters_[key].concat(x.id);
+        row.classList.toggle("on", on());
+        row.setAttribute("aria-pressed", on() ? "true" : "false");
+        searchFiltersChanged_();
+      });
+      list.appendChild(row);
     });
-    list.appendChild(row);
   });
+  if (!any) list.innerHTML = `<p class="hint">${escapeHtml(tr("search.f.findNone"))}</p>`;
 }
 function closeSearchPick_() {
   document.getElementById("search-pick-backdrop").hidden = true;
   searchPick_ = null;
-  renderSearchFiltersBody_();   // what was ticked there now shows as chips
 }
 document.getElementById("search-pick-find").addEventListener("input", renderSearchPick_);
 document.getElementById("search-pick-find").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); } });
 document.getElementById("search-pick-close").addEventListener("click", closeSearchPick_);
 document.getElementById("search-pick-done").addEventListener("click", closeSearchPick_);
-
-document.getElementById("entry-search-filter-btn").addEventListener("click", openSearchFilters_);
 document.getElementById("search-filters-close").addEventListener("click", closeSearchFilters_);
 document.getElementById("search-filters-done").addEventListener("click", closeSearchFilters_);
-document.getElementById("search-filters-reset").addEventListener("click", () => {
-  searchFilters_ = emptySearchFilters_();
-  renderSearchFiltersBody_();
-  searchFiltersChanged_();
-});
 
 function renderSearchResults_() {
   if (!searchActive) return;
@@ -5739,6 +5716,7 @@ function setSearchActive_(on) {
     document.getElementById("entry-search-hint").hidden = true;
     document.getElementById("search-results").innerHTML = "";
   }
+  syncSearchFilterBarShown_();
 }
 
 function setupEntrySearch_() {
@@ -5762,6 +5740,8 @@ function setupEntrySearch_() {
   // Loading starts the moment the box is touched (or shortly after the app
   // opens), so it's usually ready before the first letter is typed.
   input.addEventListener("focus", () => {
+    searchBarWanted_ = true;   // the filter row shows once the box is tapped
+    renderSearchFilterBar_();
     const old = !searchIndex || searchIndexStale || Date.now() - searchIndexLoadedAt > 60000;
     if (old) syncSearchIndex_().then(renderSearchResults_).catch(renderSearchResults_);
   });
@@ -5772,7 +5752,7 @@ function setupEntrySearch_() {
   clearBtn.addEventListener("click", () => {
     input.value = "";
     searchFilters_ = emptySearchFilters_();   // clearing the search drops its filters too
-    renderSearchFilterChips_();
+    renderSearchFilterBar_();
     onChange();
     input.focus();
   });
@@ -24070,7 +24050,7 @@ function clearHomeSearchForPractice_() {
   if (!input || (!input.value && !searchFiltersOn_())) return;
   input.value = "";
   searchFilters_ = emptySearchFilters_();
-  renderSearchFilterChips_();
+  renderSearchFilterBar_();
   input.dispatchEvent(new Event("input"));
 }
 // A practice tutorial (made-up data) is running: the repayment form's "Tap again to record all" check stays off during it,

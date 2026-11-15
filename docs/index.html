@@ -115,10 +115,9 @@
           <input type="search" id="entry-search" data-i18n-aria-label="search.aria" data-i18n-placeholder="search.placeholder" placeholder="🔍 Search entries…" autocomplete="off" autocapitalize="off" enterkeyhint="search">
           <button type="button" id="entry-search-clear" class="entry-search-clear" data-i18n-aria-label="search.clear" aria-label="Clear search" hidden>✕</button>
           </div>
-          <!-- Filters (owner, 2026-11-14): filled blue while any filter is on; the chips below say which. -->
-          <button type="button" class="icon-btn" id="entry-search-filter-btn" aria-pressed="false" data-i18n-aria-label="search.f.open" aria-label="Filters"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/></svg></button>
         </div>
-        <div class="search-filter-chips" id="search-filter-chips" hidden></div>
+        <!-- Filter buttons (owner, 2026-11-15): shown once the box is tapped, and while something is typed or a filter is on. -->
+        <div class="search-filter-bar" id="search-filter-bar" hidden></div>
         <p class="hint" id="entry-search-hint" hidden></p>
         <button type="button" class="add-inline" id="entry-search-refresh" hidden data-i18n="search.reloadAll">Reload all entries</button>
       </div>
@@ -1785,20 +1784,19 @@
   </div>
 
   <!-- Add an exchange rate (More → Currencies, +): currency and month first, then the usual rate window. -->
-  <!-- Home search filters (owner, 2026-11-14): every choice applies at once to the results behind; the button only closes. -->
+  <!-- One Home search filter (Type, Dates or Amount; owner, 2026-11-15): every choice applies at once to the results behind; the button only closes. -->
   <div id="search-filters-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span data-i18n="search.f.title">Filters</span>
+        <span id="search-filters-title">Filters</span>
         <button type="button" id="search-filters-close" class="currency-modal-close">✕</button>
       </div>
       <div id="search-filters-body"></div>
       <button type="button" class="primary" id="search-filters-done">Show</button>
-      <button type="button" class="add-inline" id="search-filters-reset" data-i18n="search.f.clearAll">Clear filters</button>
     </div>
   </div>
 
-  <!-- "More…" in a long filter section: the full list with a search box and checkmarks; it sits above the Filters sheet. -->
+  <!-- A list filter of the Home search (category, account, friend, tag, trip): a search box and checkmarks, most used first. -->
   <div id="search-pick-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
