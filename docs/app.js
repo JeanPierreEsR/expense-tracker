@@ -18528,15 +18528,17 @@ function renderTripGroup_(d) {
   const g = d.group;
   if (!box || !g || !g.friend_id) return;
   const cur = d.currency || homeCur();
+  // One label + amount per row, like the rows above (a label holding its own amount wrapped next to a second one).
+  const line = (label, amount) => `<div class="recurring-row trip-static-row">
+      <div class="recurring-row-name">${escapeHtml(label)}</div>
+      <div class="recurring-row-amount">${escapeHtml(amount)}</div>
+    </div>`;
   const rows = g.rows.map((r) => {
     const pending = Math.abs(r.pending) < 0.005 ? 0 : r.pending;
     const status = pending === 0
-      ? tr("trips.groupSettled")
-      : tr(pending > 0 ? "trips.groupToReceive" : "trips.groupToPay", { cur: r.currency, amount: moneyFmt(Math.abs(pending)) });
-    return `<div class="recurring-row trip-static-row">
-      <div class="recurring-row-name">${escapeHtml(tr("trips.groupFronted", { cur: r.currency, amount: moneyFmt(r.fronted) }))}</div>
-      <div class="recurring-row-amount">${escapeHtml(status)}</div>
-    </div>`;
+      ? line(tr("trips.groupBalanceNow"), tr("trips.groupSettled"))
+      : line(tr(pending > 0 ? "trips.groupToReceive" : "trips.groupToPay"), `${r.currency} ${moneyFmt(Math.abs(pending))}`);
+    return line(tr("trips.groupFronted"), `${r.currency} ${moneyFmt(r.fronted)}`) + status;
   }).join("");
   const paidLine = g.paidOutKnown && g.paidOut > 0.004
     ? `<div class="recurring-row trip-static-row"><div class="recurring-row-name">${escapeHtml(tr("trips.groupPaidOut"))}</div><div class="recurring-row-amount">${cur} ${moneyFmt(g.paidOut)}</div></div>
