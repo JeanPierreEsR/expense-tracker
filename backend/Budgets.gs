@@ -512,7 +512,9 @@ function listBudgets(payload) {
   }
   function setSize_(set) { return Object.keys(set).length; }
 
-  var budgetSets = budgets.map(function (b) { return idSetFor_(b.category_ids); });
+  // "Annual expenses" counts entries every other budget leaves out, so it is its own pool: a set no other budget holds
+  // (its empty category list used to be a subset of every budget, and the yearly total dropped it; testers, 2026-11-15).
+  var budgetSets = budgets.map(function (b) { return b.annual_kind ? { '\u0000annual': true } : idSetFor_(b.category_ids); });
 
   // dominated[i] === true means budget i's categories are already fully
   // covered by some other budget j, so i is left out of the total. When

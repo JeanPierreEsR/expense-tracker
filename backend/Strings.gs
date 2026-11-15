@@ -816,7 +816,7 @@ function setSetting_(key, value) {
   var keys = lastRow >= 2 ? sheet.getRange(2, keyCol, lastRow - 1, 1).getValues() : [];
   for (var i = 0; i < keys.length; i++) {
     if (String(keys[i][0]) === String(key)) {
-      sheet.getRange(i + 2, valueCol).setValue(value);
+      sheet.getRange(i + 2, valueCol).setValue(safeCellValue_('Settings', 'value', value));
       if (ROWS_MEMO_) delete ROWS_MEMO_['Settings'];
       bumpStructureVersion_();
       return;

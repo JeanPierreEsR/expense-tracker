@@ -116,3 +116,14 @@ test("getAnnualHints: a category's usual month over the last 3 full months (annu
   assert.equal(h.usual["cat-food"], 60);
   assert.equal(h.count, monthsAgo(2).startsWith(String(now.getFullYear())) ? 1 : 0);
 });
+
+test("the totals card adds the Annual expenses budget on top of the others (testers, 2026-11-15: it was dropped as 'covered')", () => {
+  const { rt } = setup();
+  const s = rt.api("listBudgets", { displayPeriodType: "month", anchorDate: today().slice(0, 7) + "-01" }).summary;
+  assert.equal(s.monthlyPen, 1000, "a yearly budget never counts in the month total");
+  assert.equal(s.yearlyPen, 1000 * 12 + 9000);
+  assert.deepEqual(s.overlapNotes, [], "it shares no category with anything");
+  rt.api("addBudget", { category_id: "ALL", amount: 5000, currency: "PEN", period_type: "monthly", start: "always" });
+  const s2 = rt.api("listBudgets", { displayPeriodType: "month", anchorDate: today().slice(0, 7) + "-01" }).summary;
+  assert.equal(s2.yearlyPen, 5000 * 12 + 9000, "an all-categories budget covers Food, not the Annual pool");
+});

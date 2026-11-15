@@ -270,7 +270,7 @@ function updateRowFields_(sheetName, id, fields) {
   var headers = getHeaders(sheet);
   var idx = findRowIndexById(sheet, headers, id);
   if (idx === -1) return false;
-  Object.keys(fields).forEach(function (f) { sheet.getRange(idx, headers.indexOf(f) + 1).setValue(fields[f]); });
+  Object.keys(fields).forEach(function (f) { sheet.getRange(idx, headers.indexOf(f) + 1).setValue(safeCellValue_(sheetName, f, fields[f])); });
   return true;
 }
 
