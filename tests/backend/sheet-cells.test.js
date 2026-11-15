@@ -156,6 +156,10 @@ test("names typed on the newer screens stay text too, on add and on update (test
   clean("Trips"); clean("Friends");
   rt.api("updateTrip", { id: trip.id || trip.trip.id, name: F + "2", kind: "trip", start_date: today(), end_date: today() });
   clean("Trips"); clean("Friends");
+  rt.api("addTrip", { name: "Emoji test", emoji: "+51 999", kind: "trip", start_date: today(), end_date: today() });
+  clean("Trips");   // a trip's emoji is free text too (Rafael's re-check, 2026-11-15)
+  rt.api("addFriend", { name: "Notes test", notes: "=1+1" });
+  clean("Friends");
   rt.api("addBank", { name: F });
   clean("Banks");
   rt.api("addPayor", { name: F });
