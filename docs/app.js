@@ -17033,6 +17033,18 @@ function showPerfScreen() {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
   renderPerfScreen();
+  drawApplePayCheck_();
+}
+
+// Why Apple Pay capture is offered or not on this copy (owner, 2026-11-16: it did not show on his phone after two fixes). What the
+// server sent, and whether this phone uses the owner's address; yes / no / "not sent" (an older server, or one that sent nothing).
+function drawApplePayCheck_() {
+  const caps = (meta && meta.capabilities) || {}, chk = caps.applePayCheck || {};
+  const yn = (v) => tr(v === true ? "perf.ap.yes" : v === false ? "perf.ap.no" : "perf.ap.notSent");
+  document.getElementById("perf-applepay-check").textContent = tr("perf.ap.line", {
+    offered: yn(caps.applePay), friend: yn(chk.friendSetting), saved: yn(chk.savedAddress), marked: yn(chk.marked),
+    phone: yn(getApiUrl() === OWNER_API_URL)
+  });
 }
 
 function perfStats_(values) {

@@ -40,6 +40,14 @@ function noteOwnerAddress_(url) {
   if (props.getProperty('OWNER_COPY') !== 'yes') props.setProperty('OWNER_COPY', 'yes');
 }
 
+function applePayCheck_() {
+  return {
+    friendSetting: isFriendCopy_(),
+    savedAddress: getWebAppUrl_().indexOf('/s/' + OWNER_WEB_APP_ID_ + '/') !== -1,
+    marked: PropertiesService.getScriptProperties().getProperty('OWNER_COPY') === 'yes'
+  };
+}
+
 function applePayOffered_() {
   return APPLE_PAY_OPEN_TO_FRIENDS_ || !isFriendCopy_() || isOwnerCopyByAddress_();
 }

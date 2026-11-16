@@ -68,6 +68,8 @@ function getCapabilities_() {
     sheetDates: true,
     // More → Apple Pay capture (ApplePay.gs; owner's copy first, 2026-11-15).
     applePay: applePayOffered_(),
+    // Why Apple Pay is offered or not (owner's copy only; four yes/no answers, no address or key), shown in More → Performance log.
+    applePayCheck: (isOwnerCopyByAddress_() || !isFriendCopy_()) ? applePayCheck_() : null,
     // Overview's summary blocks open the list behind them (listPeriodFlows, 2026-11-11); an older backend leaves the blocks as they were.
     periodFlows: true,
     // The Loans tab's "All loans and repayments" (listLoanMovements, 2026-11-11).
