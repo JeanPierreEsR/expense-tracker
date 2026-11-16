@@ -7740,7 +7740,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       ${/^(Overpayment (from|to) |Pago de más (de|a) )/.test(entry.description || "") ? `<p class="hint review-overpay-note">${escapeHtml(tr("review.overpayNote"))}</p>` : ""}
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-quick">
-        <span class="review-quick-cat">${escapeHtml(entry.type === "investment" ? (TYPE_LABELS.investment || "") : (entry.category_id ? categoryName(entry.category_id) : tr("review.pickCategory")))}</span>
+        <button type="button" class="review-quick-cat${entry.type !== "investment" && !entry.category_id ? " review-quick-cat-missing" : ""}">${escapeHtml(entry.type === "investment" ? (TYPE_LABELS.investment || "") : (entry.category_id ? categoryName(entry.category_id) : tr("review.pickCategory")))}</button>
         <button type="button" class="review-quick-confirm">${tr("review.confirm")}</button>
       </div>
       <div class="review-item-fields">
@@ -7798,10 +7798,23 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
 
     const confirmBtn = item.querySelector(".review-confirm-btn");
     const discardBtn = item.querySelector(".review-discard-btn");
-    item.querySelector(".review-item-top").addEventListener("click", (ev) => {
-      if (ev.target.closest("button, a, select, input")) return;
-      const nowOpen = item.classList.toggle("review-collapsed") === false;
-      if (nowOpen) reviewExpanded_.add(entry.id); else reviewExpanded_.delete(entry.id);
+    // A closed item opens with a tap almost anywhere on it (owner, 2026-11-16; only its own buttons keep their job);
+    // an open one closes from its top. The category line opens it at the category box.
+    item.addEventListener("click", (ev) => {
+      if (ev.target.closest("button, a, select, input, label")) return;
+      if (item.classList.contains("review-collapsed")) { item.classList.remove("review-collapsed"); reviewExpanded_.add(entry.id); return; }
+      if (!ev.target.closest(".review-item-top")) return;
+      item.classList.add("review-collapsed");
+      reviewExpanded_.delete(entry.id);
+    });
+    item.querySelector(".review-quick-cat").addEventListener("click", () => {
+      item.classList.remove("review-collapsed");
+      reviewExpanded_.add(entry.id);
+      const box = item.querySelector(".review-category");
+      if (!box) return;
+      box.focus({ preventScroll: true });
+      box.scrollIntoView({ block: "center", behavior: "smooth" });
+      try { if (box.showPicker) box.showPicker(); } catch (e) { /* not every phone lets a page open the list itself */ }
     });
     item.querySelector(".review-quick-confirm").addEventListener("click", () => {
       // One tap: the same Confirm, with what the item already holds. Anything missing opens the item with the message.
