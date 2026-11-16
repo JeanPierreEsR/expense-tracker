@@ -14919,26 +14919,25 @@ function drawProfileDates_() {
 }
 // ---- My tabs (owner, 2026-11-15): which tabs the bar shows and in what order. Each change shows in the bar at once and is saved a moment
 // later (Settings `nav_tabs`, saveNavTabs); until the server has it, `navTabsUnsent` keeps a reload from putting the old bar back. ----
-const TABS_ARROW_ = { up: '<path d="M18 15l-6-6-6 6"/>', down: '<path d="M6 9l6 6 6-6"/>' };
-function tabsArrowSvg_(dir) { return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TABS_ARROW_[dir]}</svg>`; }
+// The grip on a tab in the bar (three lines): press and drag it up or down to change the tab's place (owner, 2026-11-16: dragging, not arrows).
+const TABS_GRIP_SVG_ = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
 function drawTabsCard_() {
   const list = document.getElementById("tabs-list");
   if (!list) return;
-  const row = (t, inBar, i) => {
+  const row = (t, inBar) => {
     const name = tr(NAV_NAMES_[t]);
     const note = t === "entries" ? tr("prof.tabsFixed") : t === "more" ? tr("prof.tabsLast") : "";
     const check = t === "entries" || t === "more" ? ""
       : `<input type="checkbox" data-tab-show="${t}" ${inBar ? "checked" : ""} aria-label="${escapeHtml(tr("prof.tabsShow", { name }))}">`;
-    const arrows = inBar && t !== "more"
-      ? `<button type="button" class="icon-btn" data-tab-move="up" data-tab="${t}" ${i === 0 ? "disabled" : ""} aria-label="${escapeHtml(tr("prof.tabsUp", { name }))}">${tabsArrowSvg_("up")}</button>`
-        + `<button type="button" class="icon-btn" data-tab-move="down" data-tab="${t}" ${i === navTabs_.length - 1 ? "disabled" : ""} aria-label="${escapeHtml(tr("prof.tabsDown", { name }))}">${tabsArrowSvg_("down")}</button>`
-      : "";
-    return `<div class="tabs-row"><span class="row-icon" aria-hidden="true">${lineIcon_(NAV_ICONS_[t])}</span>`
-      + `<span class="tabs-row-name">${escapeHtml(name)}${note ? `<span class="hint">${escapeHtml(note)}</span>` : ""}</span>${check}${arrows}</div>`;
+    const grip = inBar && t !== "more"
+      ? `<button type="button" class="tabs-grip" data-tab-grip="${t}" aria-label="${escapeHtml(tr("prof.tabsDrag", { name }))}">${TABS_GRIP_SVG_}</button>`
+      : check ? `<span class="tabs-grip-space" aria-hidden="true"></span>` : "";   // (the tick boxes of both lists line up)
+    return `<div class="tabs-row" data-tab-row="${t}"><span class="row-icon" aria-hidden="true">${lineIcon_(NAV_ICONS_[t])}</span>`
+      + `<span class="tabs-row-name">${escapeHtml(name)}${note ? `<span class="hint">${escapeHtml(note)}</span>` : ""}</span>${check}${grip}</div>`;
   };
   const out = NAV_CHOICES_.filter((t) => !navTabs_.includes(t));
-  list.innerHTML = `<div>${navTabs_.map((t, i) => row(t, true, i)).join("")}${row("more", true, -1)}</div>`
-    + (out.length ? `<h3 class="tabs-out-head">${escapeHtml(tr("prof.tabsOut"))}</h3><div>${out.map((t) => row(t, false, -1)).join("")}</div>` : "");
+  list.innerHTML = `<div id="tabs-bar-rows">${navTabs_.map((t) => row(t, true)).join("")}</div>${row("more", true)}`
+    + (out.length ? `<h3 class="tabs-out-head">${escapeHtml(tr("prof.tabsOut"))}</h3><div>${out.map((t) => row(t, false)).join("")}</div>` : "");
   document.getElementById("tabs-count").textContent = tr("prof.tabsCount", { n: navTabs_.length + 1 });
   document.getElementById("tabs-reset-btn").hidden = navTabs_.join(",") === NAV_DEFAULT_.join(",");
 }
@@ -14992,17 +14991,69 @@ document.getElementById("tabs-list").addEventListener("change", (e) => {
   if (navTabs_.length >= NAV_MAX_ - 1) { box.checked = false; document.getElementById("tabs-msg").textContent = tr("prof.tabsFull"); return; }
   changeTabs_(navTabs_.concat([t]));
 });
-document.getElementById("tabs-list").addEventListener("click", (e) => {
-  const btn = e.target.closest("[data-tab-move]");
-  if (!btn || btn.disabled) return;
-  const list = navTabs_.slice(), i = list.indexOf(btn.dataset.tab), j = btn.dataset.tabMove === "up" ? i - 1 : i + 1;
-  if (i < 0 || j < 0 || j >= list.length) return;
-  [list[i], list[j]] = [list[j], list[i]];
-  changeTabs_(list);
-  // The same arrow stays under the finger's focus after the redraw, so several taps in a row keep moving the same tab.
-  const again = document.querySelector(`[data-tab-move="${btn.dataset.tabMove}"][data-tab="${btn.dataset.tab}"]`);
-  if (again && !again.disabled) again.focus();
-});
+// Dragging a tab by its grip: the row follows the finger and swaps places with a neighbour once it is past half of it; the new order is
+// saved when the finger lifts. Arrow keys on a focused grip move it too (a keyboard or a switch, where there is no finger).
+{
+  let drag = null;   // { row, box, startY (page), lastY (screen), id, timer }
+  const order = () => [...document.querySelectorAll("#tabs-bar-rows > .tabs-row")].map((r) => r.dataset.tabRow);
+  const list = document.getElementById("tabs-list");
+  const follow = () => {
+    const { row, box } = drag;
+    const y = drag.lastY + window.scrollY;
+    const prev = row.previousElementSibling, next = row.nextElementSibling;
+    if (prev && y - drag.startY < -prev.offsetHeight / 2) { box.insertBefore(row, prev); drag.startY -= prev.offsetHeight; }
+    else if (next && y - drag.startY > next.offsetHeight / 2) { box.insertBefore(next, row); drag.startY += next.offsetHeight; }
+    // (kept within the list: past its first or last place the row stops)
+    const min = box.firstElementChild.offsetTop - row.offsetTop, max = box.lastElementChild.offsetTop - row.offsetTop;
+    row.style.transform = `translateY(${Math.min(max, Math.max(min, y - drag.startY))}px)`;
+  };
+  // Near the top of the screen or just above the tab bar, the page scrolls by itself so a row can be taken past what is showing.
+  const edgeScroll = () => {
+    if (!drag) return;
+    const nav = document.getElementById("bottom-nav").getBoundingClientRect().top || window.innerHeight;
+    const step = drag.lastY > nav - 50 ? 6 : drag.lastY < 90 ? -6 : 0;
+    if (step) { window.scrollBy(0, step); follow(); }
+  };
+  list.addEventListener("pointerdown", (e) => {
+    const grip = e.target.closest("[data-tab-grip]");
+    if (!grip || drag) return;
+    e.preventDefault();
+    const row = grip.closest(".tabs-row");
+    drag = { row, box: row.parentElement, startY: e.clientY + window.scrollY, lastY: e.clientY, id: e.pointerId, timer: setInterval(edgeScroll, 16) };
+    grip.setPointerCapture(e.pointerId);
+    row.classList.add("tabs-dragging");
+    document.body.classList.add("tabs-drag-on");
+  });
+  window.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    e.preventDefault();
+    drag.lastY = e.clientY;
+    follow();
+  });
+  const drop = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    clearInterval(drag.timer);
+    drag.row.classList.remove("tabs-dragging");
+    drag.row.style.transform = "";
+    document.body.classList.remove("tabs-drag-on");
+    drag = null;
+    const now = order();
+    if (now.join(",") !== navTabs_.join(",")) changeTabs_(now);
+  };
+  window.addEventListener("pointerup", drop);   // (on the page, not the list: the finger may lift anywhere)
+  window.addEventListener("pointercancel", drop);
+  list.addEventListener("keydown", (e) => {
+    const grip = e.target.closest("[data-tab-grip]");
+    if (!grip || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    e.preventDefault();
+    const t = grip.dataset.tabGrip, now = navTabs_.slice(), i = now.indexOf(t), j = e.key === "ArrowUp" ? i - 1 : i + 1;
+    if (j < 0 || j >= now.length) return;
+    [now[i], now[j]] = [now[j], now[i]];
+    changeTabs_(now);
+    const again = document.querySelector(`[data-tab-grip="${t}"]`);
+    if (again) again.focus();
+  });
+}
 document.getElementById("tabs-reset-btn").addEventListener("click", () => changeTabs_(NAV_DEFAULT_.slice()));
 // The "How I type dates" row opens and closes its choices (closed each time the screen opens, like My names and What fits me).
 function datesOpenRow_(open) {
