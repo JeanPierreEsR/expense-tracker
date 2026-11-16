@@ -41,6 +41,11 @@ test("typed lines: currency signs, codes, words and income", () => {
   assert.deepEqual(read("US$4,99 app"), { type: "expense", amount: 4.99, currency: "USD", description: "App" });
   assert.deepEqual(read("almuerzo 30 soles"), { type: "expense", amount: 30, currency: "PEN", description: "Almuerzo" });
   assert.deepEqual(read("ingreso 1,500 sueldo"), { type: "income", amount: 1500, currency: "PEN", description: "Sueldo" });
+  // Description first (owner, 2026-11-16): the amount is the last number standing on its own.
+  assert.deepEqual(read("almuerzo con Lucia, Mia 40"), { type: "expense", amount: 40, currency: "PEN", description: "Almuerzo con Lucia, Mia" });
+  assert.deepEqual(read("taxi a Miraflores 2 personas 15"), { type: "expense", amount: 15, currency: "PEN", description: "Taxi a Miraflores 2 personas" });
+  assert.deepEqual(read("menu 2x1 pizza S/ 35"), { type: "expense", amount: 35, currency: "PEN", description: "Menu 2x1 pizza" });
+  assert.deepEqual(read("cena con Ana USD 20"), { type: "expense", amount: 20, currency: "USD", description: "Cena con Ana" });
   assert.equal(read("hola"), null);
   assert.equal(read("0 nada"), null);
 });

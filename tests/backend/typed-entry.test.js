@@ -47,6 +47,8 @@ test("the same typed messages save the same transactions on Telegram and on What
     `31 cena, cuenta ${a1.nickname}, categoría restaurantes`,
     "25 almuerzo, account Nowhere Bank, category restaurants",
     "25 almuerzo, postre y café",
+    "almuerzo con Lucia, Mia 40",
+    `taxi a Miraflores 2 personas 15, account ${a1.nickname}, category transport`,
     `100 pase a ahorros, type transfer, from ${a1.nickname}, to ${a2.nickname}`
   ];
   for (const m of messages) {

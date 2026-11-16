@@ -78,6 +78,17 @@ function typedReadLine_(text, home) {
   if (inc) { type = 'income'; s = s.slice(inc[0].length); }
   var num = /\d[\d.,]*/.exec(s);
   if (!num) return null;
+  // Description first ("almuerzo con Lucia, Mia 40", "taxi a Miraflores 2 personas 15", "menu 2x1 pizza S/ 35"; owner,
+  // 2026-11-16): the amount is the LAST number standing on its own (a sign before it is fine; "2x1" is not one). When the
+  // message starts with the amount (or a sign / code and the amount: "S/ 12.50 taxi", "USD 10 Netflix"), that first number is it.
+  if (!/^(?:(?:S\/\.?|US\$|\$|€|£|[A-Za-z]{3})\s*)?\d/.test(s)) {
+    var re = /(^|\s)((?:S\/\.?|US\$|\$|€|£)\s?)?(\d[\d.,]*)(?=\s|$)/g, m, last = null;
+    while ((m = re.exec(s))) {
+      var at = m.index + m[1].length + (m[2] ? m[2].length : 0);
+      last = { index: at, 0: m[3] };
+    }
+    if (last) num = last;
+  }
   var token = num[0].replace(/[.,]+$/, '');
   var amount = parseTypedAmount_(token);
   if (!(amount > 0)) return null;
