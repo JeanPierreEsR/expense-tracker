@@ -1,0 +1,181 @@
+// WhatsApp Edit and conversions (owner's plan "WhatsApp Edit and conversions", 2026-11-16): Edit taps only save; replies in
+// words still confirm and re-edit a confirmed transaction from any of its messages; typed values are checked; Repayment / Loan
+// buttons convert straight away; unknown friends are added in the app. All values are made up.
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const { freshApp } = require("./helpers");
+
+const SECRET = "test-relay-secret-0123456789abcdef";
+const OWNER = "51900000000";
+
+function waApp() {
+  const { rt } = freshApp({ small: true });
+  rt.svc.props.set("WHATSAPP_RELAY_SECRET", SECRET);
+  rt.svc.props.set("REVIEW_BOT", "whatsapp");
+  rt.svc.props.set("WA_SWITCH_AT", "2999-01-01T00:00:00");
+  const sent = [];
+  let inId = 0;
+  rt.state.fetchHandler = (url, opts) => {
+    if (String(url).endsWith("/send")) { sent.push(JSON.parse(opts.payload).message); return { messages: [{ id: "wamid.out" + sent.length }] }; }
+    return { ok: true };
+  };
+  const post = (msg) => {
+    rt.ctx.__body = JSON.stringify({ whatsapp: Object.assign({ id: "wamid.in" + (++inId), from: OWNER }, msg), relay_secret: SECRET });
+    return JSON.parse(rt.run("doPost({ postData: { contents: __body } }).getContent()"));
+  };
+  const a = {
+    rt, sent,
+    text: (t, extra) => post(Object.assign({ type: "text", text: t }, extra || {})),
+    tap: (id, contextId) => post({ type: "interactive", reply_id: id, context_id: contextId }),
+    waEntries: () => rt.rows("Entries").filter((e) => e.source === "whatsapp"),
+    entry: (id) => rt.rows("Entries").find((x) => x.id === id),
+    cardIdOf: (entryId) => rt.rows("Telegram Messages").filter((m) => m.entry_id === entryId && /^wamid\./.test(m.message_id)).pop().message_id,
+    lastBody: () => { const m = sent[sent.length - 1]; return (m.text && m.text.body) || m.interactive.body.text; },
+    lastRows: () => sent[sent.length - 1].interactive.action.sections[0].rows,
+    idOf: (i) => "wamid.out" + (i + 1)
+  };
+  return a;
+}
+
+test("Edit taps only save: several fields, the message keeps its buttons, then one Confirm", () => {
+  const a = waApp();
+  a.text("25 almuerzo");
+  const [e] = a.waEntries();
+  a.tap(`wafield:${e.id}:category`);
+  a.tap(a.lastRows().find((r) => r.id.startsWith("wapick:")).id);
+  assert.ok(a.entry(e.id).category_id);
+  assert.equal(a.entry(e.id).status, "pending", "a pick does not confirm");
+  const card = a.sent[a.sent.length - 1];
+  assert.deepEqual(card.interactive.action.buttons.map((b) => b.reply.id.split(":")[0]), ["confirm", "waedit", "discard"]);
+  a.tap(`wafield:${e.id}:amount`);
+  a.text("30.50");
+  assert.equal(Number(a.entry(e.id).amount), 30.5);
+  assert.equal(a.entry(e.id).status, "pending", "a typed value does not confirm");
+  a.tap("confirm:" + e.id, a.cardIdOf(e.id));
+  assert.equal(a.entry(e.id).status, "confirmed");
+});
+
+test("replies in words still confirm, and a confirmed transaction is re-edited by replying to its 'Confirmed' message", () => {
+  const a = waApp();
+  a.text("18 taxi transport");
+  const [e] = a.waEntries();
+  a.text("amount 20", { context_id: a.cardIdOf(e.id) });
+  assert.equal(a.entry(e.id).status, "confirmed", "a reply in words confirms a complete entry");
+  a.tap("confirm:" + e.id, a.cardIdOf(e.id));
+  const answerIdx = a.sent.length - 1;
+  assert.match(a.sent[answerIdx].text.body, /already/i);
+  a.text("amount 99", { context_id: a.idOf(answerIdx) });
+  assert.equal(Number(a.entry(e.id).amount), 99);
+  assert.equal(a.entry(e.id).status, "confirmed");
+});
+
+test("a reply with edit words to a message that is not about a transaction edits nothing", () => {
+  const a = waApp();
+  a.text("25 almuerzo");
+  const [e] = a.waEntries();
+  a.text("hola");
+  const helpIdx = a.sent.length - 1;
+  a.text("amount 77", { context_id: a.idOf(helpIdx) });
+  assert.equal(Number(a.entry(e.id).amount), 25);
+  assert.equal(a.lastBody(), a.rt.run("tr_('bot.replyToACard')"));
+});
+
+test("typed values: only the right shape is taken; a new purchase stays a purchase; taps cancel; late answers expire", () => {
+  const a = waApp();
+  a.text("25 almuerzo");
+  const [e] = a.waEntries();
+  a.tap(`wafield:${e.id}:amount`);
+  a.text("abc");
+  assert.equal(a.lastBody(), a.rt.run("tr_('whatsapp.ask.amount')"), "asked again");
+  a.text("12 cena");
+  assert.equal(Number(a.entry(e.id).amount), 25, "a new purchase is not taken as the amount");
+  assert.ok(a.waEntries().some((x) => x.description === "Cena" && Number(x.amount) === 12), "it became its own purchase");
+  a.text("30");
+  assert.equal(Number(a.entry(e.id).amount), 30, "the question stayed open");
+
+  a.tap(`wafield:${e.id}:amount`);
+  a.tap(`waedit:${e.id}`);
+  const before = a.waEntries().length;
+  a.text("40 taxi");
+  assert.equal(Number(a.entry(e.id).amount), 30, "another tap cancelled the question");
+  assert.equal(a.waEntries().length, before + 1);
+
+  a.tap(`wafield:${e.id}:date`);
+  a.text("31/02/2026");
+  assert.equal(a.lastBody(), a.rt.run("whatsappAskText_('date')"), "an impossible date is asked again");
+  assert.match(a.lastBody(), /11\/15\/2026/, "the example follows this copy's date order (month first here)");
+  a.text("11/15/2026");
+  assert.equal(a.entry(e.id).date, "2026-11-15");
+
+  a.tap(`wafield:${e.id}:amount`);
+  const w = JSON.parse(a.rt.svc.props.get("WA_AWAIT"));
+  a.rt.svc.props.set("WA_AWAIT", JSON.stringify(Object.assign(w, { at: Date.now() - 20 * 60000 })));
+  const count = a.waEntries().length;
+  a.text("55");
+  assert.match(a.lastBody(), /expired/);
+  assert.equal(a.waEntries().length, count, "no new entry from a late answer");
+  assert.equal(Number(a.entry(e.id).amount), 30);
+});
+
+test("a choice deleted while its list was open says so", () => {
+  const a = waApp();
+  a.text("25 almuerzo");
+  const [e] = a.waEntries();
+  a.tap(`wapick:${e.id}:category:no-such-category`);
+  assert.equal(a.lastBody(), a.rt.run("tr_('whatsapp.optionGone')"));
+});
+
+test("Repayment and Loan buttons: a friend list, converted straight away", () => {
+  const a = waApp();
+  a.text("60 cena");
+  const [e] = a.waEntries();
+  a.tap(`waedit:${e.id}`);
+  const menuIds = a.lastRows().map((r) => r.id);
+  assert.ok(menuIds.includes(`waconv:${e.id}:r`) && menuIds.includes(`waconv:${e.id}:l`));
+  assert.ok(menuIds.length <= 10);
+  a.tap(`waconv:${e.id}:l`);
+  const list = a.lastRows();
+  assert.ok(list.length <= 10);
+  list.forEach((r) => assert.ok(r.title.length <= 24 && (!r.description || r.description.length <= 72)));
+  assert.equal(list[list.length - 1].id, `wacvx:${e.id}`, "'Someone else' is the last row");
+  const friendRow = list.find((r) => r.id.startsWith("wacv:"));
+  const friendId = friendRow.id.split(":").pop();
+  const loansBefore = a.rt.rows("Loans").length;
+  a.tap(friendRow.id);
+  assert.equal(a.entry(e.id), undefined, "the expense became a loan");
+  const loan = a.rt.rows("Loans").slice(loansBefore).find((l) => l.friend_id === friendId);
+  assert.ok(loan && Number(loan.amount) === 60 && loan.direction === "they_owe_me", JSON.stringify(loan));
+  a.tap(`wacvx:${e.id}`);
+  assert.match(a.lastBody(), /More → Friends/);
+});
+
+test("a repayment list puts the friends with an open debt in that direction first, with the amount", () => {
+  const a = waApp();
+  a.text("60 cena");
+  const [e] = a.waEntries();
+  a.tap(`waconv:${e.id}:r`);
+  const rows = a.lastRows().filter((r) => r.id.startsWith("wacv:"));
+  const withDebt = rows.map((r) => !!r.description);
+  assert.deepEqual(withDebt, [...withDebt].sort((x, y) => y - x), "debts first");
+  rows.filter((r) => r.description).forEach((r) => assert.match(r.description, /^you owe [A-Z]{3} \d/));
+});
+
+test("money coming in as a repayment from a friend who owes nothing is refused, nothing changes", () => {
+  const a = waApp();
+  a.text("ingreso 50 pago");
+  const e = a.waEntries().find((x) => x.type === "income");
+  a.rt.run("appendRowObject('Friends', { id: 'friend-owes-nothing', name: 'Nadia Test', notes: '' })");
+  a.tap(`wacv:${e.id}:r:friend-owes-nothing`);
+  assert.ok(a.entry(e.id), "the income is still there");
+  assert.ok(!a.rt.rows("Loans").some((l) => l.friend_id === "friend-owes-nothing"), "no loan or repayment was made");
+  assert.match(a.lastBody(), /Nadia Test|owe|debe/i, "the bot says why");
+});
+
+test("a friend's name the app does not know: correct it or add the friend in the app", () => {
+  const a = waApp();
+  a.text("60 cena");
+  const [e] = a.waEntries();
+  a.text("loan Zzyzx", { context_id: a.cardIdOf(e.id) });
+  assert.match(a.lastBody(), /Zzyzx[\s\S]*More → Friends/);
+  assert.ok(a.entry(e.id));
+});

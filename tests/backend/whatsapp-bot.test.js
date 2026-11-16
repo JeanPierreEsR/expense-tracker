@@ -59,11 +59,12 @@ test("Confirm needs a category first; with one it confirms", () => {
   const a = waApp();
   a.text("25 almuerzo");
   const [e] = a.waEntries();
-  a.tap("confirm:" + e.id, a.cardIdOf(e.id));
+  const card = a.cardIdOf(e.id);
+  a.tap("confirm:" + e.id, card);
   assert.equal(a.rt.rows("Entries").find((x) => x.id === e.id).status, "pending");
   const answer = a.sent[a.sent.length - 1];
   assert.equal(answer.text.body, a.rt.run("tr_('bot.needCategoryFirst')"));
-  assert.equal(answer.context.message_id, a.cardIdOf(e.id), "the answer quotes the card");
+  assert.equal(answer.context.message_id, card, "the answer quotes the card");
 
   a.text("18 taxi transport");
   const taxi = a.waEntries().find((x) => x.description.startsWith("Taxi"));
@@ -91,7 +92,8 @@ test("Edit: a tap-list of fields, then a tap-list of categories, then the card a
   const menu = a.sent[a.sent.length - 1];
   assert.equal(menu.interactive.type, "list");
   const fields = menu.interactive.action.sections[0].rows.map((r) => r.id);
-  assert.deepEqual(fields, ["category", "account", "amount", "description", "date"].map((f) => `wafield:${e.id}:${f}`).concat([`wahelp:${e.id}`]));
+  assert.deepEqual(fields, ["category", "account", "amount", "description", "date"].map((f) => `wafield:${e.id}:${f}`)
+    .concat([`waconv:${e.id}:r`, `waconv:${e.id}:l`, `wahelp:${e.id}`]));
 
   a.tap(`wafield:${e.id}:category`);
   const list = a.sent[a.sent.length - 1];

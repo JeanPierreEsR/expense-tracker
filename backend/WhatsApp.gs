@@ -64,6 +64,8 @@ var WHATSAPP_CURRENCY_WORDS_ = { soles: 'PEN', sol: 'PEN', 'dólares': 'USD', do
 // Pure: a typed line → { type, amount, currency, description } or null. home = the main currency.
 function whatsappReadTyped_(text, home) {
   var s = String(text || '').replace(/\s+/g, ' ').trim();
+  // A date on its own ("31/02/2026", "15-11", "2026-11-15") is not a purchase of 31 (found 2026-11-16). "15.50" stays an amount.
+  if (/^\d{1,4}[\/-]\d{1,2}(?:[\/.-]\d{2,4})?$|^\d{1,2}\.\d{1,2}\.\d{2,4}$/.test(s)) return null;
   var type = 'expense';
   var inc = WHATSAPP_INCOME_WORDS_.exec(s);
   if (inc) { type = 'income'; s = s.slice(inc[0].length); }
