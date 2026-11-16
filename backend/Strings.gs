@@ -31,6 +31,13 @@ var BACKEND_STRINGS_ = {
   "extras.notConfirmed": { en: "Taking back the permissions needs your confirmation first.", es: "Para retirar los permisos primero hay que confirmarlo." },
   "feature.gmailOff": { en: "Reading your bank emails is not turned on for this app yet. Turn it on in More → Feedback & privacy → Extra features.", es: "La lectura de tus correos del banco aún no está activada en esta app. Actívala en Más → Comentarios y privacidad → Funciones extra." },
   "webAppUrl.missing": { en: "This app's web address is not saved yet. Open the app once on your phone, then try again.", es: "Aún no se guardó la dirección web de esta app. Abre la app una vez en tu celular y vuelve a intentarlo." },
+  // ---- Apple Pay capture (ApplePay.gs): what the iPhone's shortcut shows after a payment ----
+  "applepay.off": { en: "Apple Pay capture is not available in this app yet.", es: "La captura de Apple Pay aún no está disponible en esta app." },
+  "applepay.saved": { en: "{amount} at {shop} is waiting in Needs review.", es: "{amount} en {shop} está esperando en Por revisar." },
+  "applepay.savedCheck": { en: "{shop} is waiting in Needs review. Check its amount and currency there.", es: "{shop} está esperando en Por revisar. Revisa ahí su monto y moneda." },
+  "applepay.repeat": { en: "This payment was already in the app.", es: "Este pago ya estaba en la app." },
+  "applepay.noShop": { en: "Apple Pay payment", es: "Pago con Apple Pay" },
+  "applepay.check": { en: "{shop} (check the amount and currency: {raw})", es: "{shop} (revisa el monto y la moneda: {raw})" },
   "err.pickFriend": { en: "Pick a friend.", es: "Elige un amigo." },
   "err.invalidDirection": { en: "Invalid direction.", es: "Dirección no válida." },
   "err.validDate": { en: "Enter a valid date.", es: "Ingresa una fecha válida." },

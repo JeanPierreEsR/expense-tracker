@@ -14909,6 +14909,63 @@ async function showMyProfileScreen() {
   }
 }
 document.getElementById("more-my-profile-btn").addEventListener("click", showMyProfileScreen);
+
+// ---- Apple Pay capture: the "Apple Pay" tab of More → Bank emails (owner's plan, 2026-11-15; backend/ApplePay.gs) ----
+// The iPhone's Shortcuts app sends each Apple Pay payment to this copy's address with the person's own key in the link (?k=…); the
+// payment waits in Needs review. The tab makes / copies / replaces that link and shows the steps to add the automation.
+let applePaySetup_ = null;
+function applePayLink_() {
+  const url = getApiUrl() || OWNER_API_URL;
+  return applePaySetup_ && applePaySetup_.key && url ? `${url}?k=${encodeURIComponent(applePaySetup_.key)}` : "";
+}
+function drawApplePay_() {
+  const has = !!(applePaySetup_ && applePaySetup_.key);
+  document.getElementById("apple-pay-make-btn").hidden = has;
+  document.getElementById("apple-pay-copy-btn").hidden = !has;
+  document.getElementById("apple-pay-replace-btn").disabled = !has;
+  const st = applePaySetup_ || {};
+  document.getElementById("apple-pay-status").textContent = st.lastAt
+    ? tr("ap.last", { when: I18n.fmtDateTime(new Date(st.lastAt)), n: Number(st.count || 0) })
+    : tr("ap.none");
+}
+// Loading standard: the tab shows "Loading…" until the link and the last payment have arrived; reopened, it fetches them again.
+async function loadApplePay_() {
+  const loading = document.getElementById("apple-pay-loading"), body = document.getElementById("apple-pay-body");
+  document.getElementById("apple-pay-msg").textContent = "";
+  body.hidden = true;
+  loading.innerHTML = loadingHtml_();
+  try {
+    applePaySetup_ = await callApi("getApplePaySetup", {});
+    drawApplePay_();
+    loading.innerHTML = "";
+    body.hidden = false;
+  } catch (e) {
+    loading.innerHTML = `<p class="hint" style="color:var(--danger);">${escapeHtml(e.message)}</p>`;
+  }
+}
+async function makeApplePayLink_(replace) {
+  const msg = document.getElementById("apple-pay-msg");
+  msg.textContent = "";
+  try {
+    applePaySetup_ = await callApi("makeApplePayKey", { replace: !!replace });
+    drawApplePay_();
+    if (replace) msg.textContent = tr("ap.replaced");
+  } catch (e) {
+    msg.textContent = e.message;
+  }
+}
+document.getElementById("apple-pay-make-btn").addEventListener("click", () => makeApplePayLink_(false));
+document.getElementById("apple-pay-replace-btn").addEventListener("click", async () => {
+  if (!await askConfirmApp_(tr("ap.replaceAsk"), tr("ap.replace"))) return;
+  makeApplePayLink_(true);
+});
+document.getElementById("apple-pay-copy-btn").addEventListener("click", async () => {
+  const msg = document.getElementById("apple-pay-msg");
+  const link = applePayLink_();
+  if (!link) { msg.textContent = tr("ap.noAddress"); return; }
+  try { await navigator.clipboard.writeText(link); msg.textContent = tr("ap.copied"); }
+  catch (e) { msg.textContent = tr("ap.copyFailed"); }
+});
 document.getElementById("my-profile-back-btn").addEventListener("click", () => showScreen("more"));
 // How I type dates: the highlighted choice is the order the app really uses now (the language's own until one is chosen).
 function drawProfileDates_() {
@@ -16602,18 +16659,22 @@ function renderBankEmails_() {
   beEl_("be-copy-btn").hidden = !info.address;
   beEl_("be-msg").textContent = "";
   beEl_("be-teach").hidden = perfIsOwnerCopy_();   // the owner writes the e-mail rules himself
-  beEl_("be-tabs").hidden = !reading;
+  const applePay = !!(meta && meta.capabilities && meta.capabilities.applePay);
+  beEl_("be-tabs").hidden = !reading && !applePay;
+  beEl_("be-tab-bank").hidden = !reading;   // no e-mail reading: only "By transaction" (and Apple Pay where offered)
   renderMailHealth_();
   renderBeBanks_();
   renderBeTx_(be_.data || {});
-  setBeView_(reading ? be_.view : "tx");
+  setBeView_((be_.view === "bank" && !reading) || (be_.view === "ap" && !applePay) ? "tx" : be_.view);
 }
 
 function setBeView_(view) {
   be_.view = view;
   beEl_("be-view-bank").hidden = view !== "bank";
   beEl_("be-view-tx").hidden = view !== "tx";
-  [["bank", "be-tab-bank"], ["tx", "be-tab-tx"]].forEach(([v, id]) => {
+  beEl_("be-view-ap").hidden = view !== "ap";
+  if (view === "ap") loadApplePay_();
+  [["bank", "be-tab-bank"], ["tx", "be-tab-tx"], ["ap", "be-tab-ap"]].forEach(([v, id]) => {
     beEl_(id).classList.toggle("active", v === view);
     beEl_(id).setAttribute("aria-selected", v === view ? "true" : "false");
   });
@@ -19462,6 +19523,14 @@ function applyBusinessVisibility_() {
   // More → Friends: only when this backend can edit friends (an older one lacks it). Checked here so it also follows every fresh load of the settings.
   document.getElementById("more-friends-btn").hidden = !((meta && meta.capabilities) || {}).friendsEdit;
   document.getElementById("more-deleted-btn").hidden = !((meta && meta.capabilities) || {}).entriesRestore;
+  // Apple Pay capture lives in Bank emails (owner, 2026-11-15): where it is offered (owner's copy first) the row and the screen are named for both.
+  const applePay = !!((meta && meta.capabilities) || {}).applePay;
+  [["more-bank-mail-label", "more.bankEmails"], ["be-title", "bankMail.title"]].forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    el.setAttribute("data-i18n", applePay ? key + "Ap" : key);
+    el.textContent = tr(applePay ? key + "Ap" : key);
+  });
+  document.getElementById("be-tab-ap").hidden = !applePay;
   const on = businessOn();
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;
@@ -24602,6 +24671,8 @@ const LINK_ICON_RULES_ = [
   [/^\d+ (emails?|correos?)\b/i, "mail"],
   [/^(add|agregar|añadir)\b|^\+ /i, "plus"],
   [/^(copy|copiar)\b/i, "copy"],
+  [/^(make my link|crear mi enlace)/i, "plus"],
+  [/^(make a new link|crear un enlace nuevo)/i, "refresh"],
   [/^(send|enviar|envíalo|still doesn't add up|¿sigue sin cuadrar)/i, "send"],
   [/^(undo|deshacer|restore|restaurar|don't correct|no corregirlo)/i, "undo"],
   [/^(delete|eliminar|clear|borrar|forget|olvidar)\b/i, "trash"],
