@@ -176,3 +176,21 @@ function applyProfile(payload) {
   if (occ) occ.changed.forEach(function (c) { (c.restored ? restored : added).push({ name: c.name, type: 'income' }); });
   return { added: added, restored: restored, profile: answers, occupation: occ ? occ.occupation : undefined, pay: occ ? occ.pay : undefined };
 }
+
+// ---- More → My profile → My tabs (owner, 2026-11-15) ----
+// The tabs the bottom bar shows, in order, before More (which is always there, always last). Home must be in the list; at most 5 (6 with
+// More). Saved in Settings (`nav_tabs`) so the choice follows the person to another phone; the app reads it from getMeta's settings.
+var NAV_TAB_CHOICES_ = ['entries', 'overview', 'budgets', 'projections', 'loans', 'trips', 'recurring', 'my-data'];
+function saveNavTabs(payload) {
+  var list = (payload || {}).tabs;
+  if (!Array.isArray(list)) throw new Error(tr_('profile.badTabs'));
+  var out = [];
+  list.forEach(function (t) {
+    t = String(t);
+    if (NAV_TAB_CHOICES_.indexOf(t) < 0 || out.indexOf(t) >= 0) throw new Error(tr_('profile.badTabs'));
+    out.push(t);
+  });
+  if (out.indexOf('entries') < 0 || out.length > 5) throw new Error(tr_('profile.badTabs'));
+  setSetting_('nav_tabs', out.join(','));
+  return { tabs: out };
+}
