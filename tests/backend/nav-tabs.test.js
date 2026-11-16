@@ -54,7 +54,7 @@ test("tutorials that send the person to a main tab go through More when that tab
 });
 
 test("My profile opened from the fast-start snapshot (an older backend's capabilities) shows My tabs once the fresh data lands", () => {
-  const fn = app.slice(app.indexOf("function syncNavFromMeta_"), app.indexOf('document.getElementById("tabs-toggle")'));
+  const fn = app.slice(app.indexOf("function syncNavFromMeta_"), app.indexOf('document.getElementById("tabs-toggle").addEventListener'));
   assert.ok(fn.indexOf("meta.fromCache_") < fn.indexOf('my-profile-tabs-card'));
   assert.match(fn, /card\.hidden && meta\.capabilities && meta\.capabilities\.navTabs\) \{ card\.hidden = false; drawTabsCard_\(\); \}/);
 });
