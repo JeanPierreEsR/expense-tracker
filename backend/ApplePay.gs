@@ -22,8 +22,16 @@ var APPLE_PAY_JOIN_HOURS_ = 24;
 var APPLE_PAY_COLUMN_ = 'applepay';
 var APPLE_PAY_CARD_COLUMN_ = 'wallet_card';
 
+// The owner's copy is known by its own web address (the same one docs/app.js names as OWNER_API_URL), not only by having no
+// FEATURES: the owner's copy carries a FEATURES list too (found on the first ship, 2026-11-16: the tab never showed on his phone).
+var OWNER_WEB_APP_ID_ = 'AKfycbxqUmzc0xqrgeF3lpy3nSsCnAhlJSrHJxNOWn-WBPGSEa-6qKeTZb8mvF_veh5MdX1H6g';
+
+function isOwnerCopyByAddress_() {
+  return getWebAppUrl_().indexOf('/s/' + OWNER_WEB_APP_ID_ + '/') !== -1;
+}
+
 function applePayOffered_() {
-  return APPLE_PAY_OPEN_TO_FRIENDS_ || !isFriendCopy_();
+  return APPLE_PAY_OPEN_TO_FRIENDS_ || !isFriendCopy_() || isOwnerCopyByAddress_();
 }
 
 // ---- the key ----
