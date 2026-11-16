@@ -26,8 +26,18 @@ var APPLE_PAY_CARD_COLUMN_ = 'wallet_card';
 // FEATURES: the owner's copy carries a FEATURES list too (found on the first ship, 2026-11-16: the tab never showed on his phone).
 var OWNER_WEB_APP_ID_ = 'AKfycbxqUmzc0xqrgeF3lpy3nSsCnAhlJSrHJxNOWn-WBPGSEa-6qKeTZb8mvF_veh5MdX1H6g';
 
+// Second try (2026-11-16): the saved WEB_APP_URL on the owner's copy is not that address either (an older one is kept: only the first
+// is ever saved). The phone sends the address it uses with every signed-in request; a request carrying the owner's address can only
+// reach the owner's copy, so the first one marks this copy for good (Script Property OWNER_COPY).
 function isOwnerCopyByAddress_() {
-  return getWebAppUrl_().indexOf('/s/' + OWNER_WEB_APP_ID_ + '/') !== -1;
+  return getWebAppUrl_().indexOf('/s/' + OWNER_WEB_APP_ID_ + '/') !== -1 ||
+    PropertiesService.getScriptProperties().getProperty('OWNER_COPY') === 'yes';
+}
+
+function noteOwnerAddress_(url) {
+  if (String(url || '').indexOf('/s/' + OWNER_WEB_APP_ID_ + '/') === -1) return;
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('OWNER_COPY') !== 'yes') props.setProperty('OWNER_COPY', 'yes');
 }
 
 function applePayOffered_() {

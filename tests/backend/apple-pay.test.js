@@ -188,3 +188,21 @@ test("the owner's copy is known by its address even when it has a FEATURES list"
   const k = key(rt);
   assert.equal(pay(rt, k, { amount: "S/ 1.00", merchant: "X", card: "Y" }).ok, true);
 });
+
+test("the owner's copy is also known by the address the phone sends, when the saved one is older", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.props.set("FEATURES", "base,gmail,keepawake");
+  rt.svc.props.set("WEB_APP_URL", "https://script.google.com/macros/s/AnOlderDeploymentId/exec");
+  assert.equal(rt.api("getMeta").capabilities.applePay, false);
+  const ownerUrl = "https://script.google.com/macros/s/" + rt.run("OWNER_WEB_APP_ID_") + "/exec";
+  rt.ctx.__body = JSON.stringify({ accessCode: rt.ACCESS_CODE, action: "getMeta", payload: {}, apiUrl: ownerUrl });
+  const res = JSON.parse(rt.run("doPost({ postData: { contents: __body } }).getContent()"));
+  assert.equal(res.data.capabilities.applePay, true);
+  // Remembered: the shortcut's door (which sends no address) works too.
+  assert.equal(pay(rt, key(rt), { amount: "S/ 1.00", merchant: "X", card: "Y" }).ok, true);
+  // Another address never marks a copy.
+  const { rt: other } = freshApp({ small: true });
+  other.svc.props.set("FEATURES", "base");
+  other.ctx.__body = JSON.stringify({ accessCode: other.ACCESS_CODE, action: "getMeta", payload: {}, apiUrl: "https://script.google.com/macros/s/SomeFriend/exec" });
+  assert.equal(JSON.parse(other.run("doPost({ postData: { contents: __body } }).getContent()")).data.capabilities.applePay, false);
+});
