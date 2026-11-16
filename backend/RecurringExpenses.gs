@@ -42,7 +42,7 @@ function ensureRecurringExpensesSheet_() {
   // place, one at a time. The header row is read once and re-read only after an
   // append (this runs many times per request, and each read is a trip to Google).
   var headers = getHeaders(sheet);
-  ['date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit', 'trip_id'].forEach(function (col) {
+  ['date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit', 'trip_id', 'tag_ids'].forEach(function (col) {
     if (headers.indexOf(col) === -1) {
       sheet.getRange(1, headers.length + 1).setValue(col);
       if (col !== 'date') sheet.getRange(1, headers.length + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
@@ -765,7 +765,8 @@ function recurringExpenseForClient_(r, categoryById, splitSums) {
     payments_used: r.payments_used || 0,
     amount_low: r.amount_low !== undefined ? Math.round(r.amount_low * 100) / 100 : null,
     amount_high: r.amount_high !== undefined ? Math.round(r.amount_high * 100) / 100 : null,
-    trip_id: r.trip_id ? String(r.trip_id) : ''   // a one-time item counted as an estimate in this trip/event (Trips.gs)
+    trip_id: r.trip_id ? String(r.trip_id) : '',   // a one-time item counted as an estimate in this trip/event (Trips.gs)
+    tag_ids: recurringTagIds_(r)   // its tags (owner, 2026-11-16): Annual makes its planned amounts annual (recurringIsAnnual_)
   };
 }
 
@@ -797,7 +798,8 @@ function addRecurringExpense(payload) {
     end_date: windowDates.end_date,
     variable: variable.variable ? 'true' : 'false',
     match_words: variable.match_words,
-    trip_id: frequency === 'once' ? tripIdForProgrammed_(payload.trip_id, payload.category_id) : ''
+    trip_id: frequency === 'once' ? tripIdForProgrammed_(payload.trip_id, payload.category_id) : '',
+    tag_ids: cleanRecurringTagIds_(payload.tag_ids)
   };
   appendRowObject('Recurring Expenses', re);
   var categoryById = rowsById_(getAllRows('Categories'));
@@ -867,7 +869,8 @@ function updateRecurringExpense(payload) {
       : '';
   }
 
-  ['category_id', 'description', 'amount', 'currency', 'frequency', 'interval', 'interval_unit', 'day', 'month', 'date', 'active', 'start_date', 'end_date', 'variable', 'match_words', 'trip_id'].forEach(function (field) {
+  if (payload.tag_ids !== undefined) payload.tag_ids = cleanRecurringTagIds_(payload.tag_ids);
+  ['category_id', 'description', 'amount', 'currency', 'frequency', 'interval', 'interval_unit', 'day', 'month', 'date', 'active', 'start_date', 'end_date', 'variable', 'match_words', 'trip_id', 'tag_ids'].forEach(function (field) {
     if (payload[field] === undefined) return;
     var value = payload[field];
     if (field === 'variable') value = value ? 'true' : 'false';
@@ -1429,6 +1432,12 @@ function linkEntryToRecurring(payload) {
       ensureEntriesTripColumn_();
       setEntryField_(payload.entryId, 'trip_id', String(item.trip_id));
     }
+    // Picked by hand in "Mark as paid…": the payment gets the item's tags (only added, never removed). The "Record the payment…" form
+    // already carried them and the person may have removed one there, so it links with addTags false.
+    if (item && payload.addTags !== false) {
+      var added = addTagsToEntry_(payload.entryId, recurringTagIds_(item));
+      if (added.length) result.tagsAdded = added;
+    }
   }
   return result;
 }
@@ -1802,6 +1811,7 @@ function listExpectedRecurringItems() {
       amount: ownAmount,
       category_id: r.category_id,
       trip_id: r.trip_id || '',
+      tag_ids: recurringTagIds_(r),   // carried into "Record the payment…" (owner, 2026-11-16)
       full_amount: Number(r.amount),   // the whole bill, for the "Mark as paid" pre-fill (a shared item's `amount` is only the owner's share)
       estimated: isVariableRecurring_(r),   // variable bill: the amount is an average, shown with "≈"
       // The occurrence's own actual (clamped) day, not the raw configured
@@ -1886,4 +1896,133 @@ function daysBetweenDates_(dateStrA, dateStrB) {
   var a = new Date(dateStrA + 'T00:00:00');
   var b = new Date(dateStrB + 'T00:00:00');
   return Math.round((a.getTime() - b.getTime()) / msPerDay);
+}
+
+// ---- Tags on a Programmed item (owner, 2026-11-16; specs/recurring.md § Tags) ----
+// Kept in the item's own `tag_ids` column (comma-separated tag ids): saving an item stays one call. A tag that no longer exists is
+// dropped when read, so deleting a tag needs nothing here (deleteTag also cleans the column).
+function recurringTagIds_(r, fresh) {
+  var raw = String((r && r.tag_ids) || '');
+  if (!raw) return [];
+  var known = {};
+  (fresh ? getAllRows('Tags') : getAllRowsCached_('Tags')).forEach(function (t) { known[String(t.id)] = true; });
+  var seen = {};
+  return raw.split(',').map(function (s) { return s.trim(); }).filter(function (id) {
+    if (!id || !known[id] || seen[id]) return false;
+    seen[id] = true;
+    return true;
+  });
+}
+function cleanRecurringTagIds_(list) {
+  var ids = Array.isArray(list) ? list : String(list || '').split(',');
+  return recurringTagIds_({ tag_ids: ids.map(String).join(',') }, true).join(',');   // (a tag added a moment ago is known)
+}
+// An item tagged Annual: its planned amounts count like an annual expense (out of monthly / weekly budgets and a Projections month
+// view; in yearly budgets and "Annual expenses"). A trip's "In my budgets" choice still wins, as for entries.
+function recurringIsAnnual_(r) {
+  return ('' + (r && r.tag_ids || '')).split(',').some(function (s) { return s.trim() === ANNUAL_TAG_ID; });
+}
+// Adds these tags to an entry (never removes one), stamping it so every phone's search copy sees them. Returns the ids added.
+function addTagsToEntry_(entryId, tagIds) {
+  if (!entryId || !tagIds || !tagIds.length) return [];
+  var has = {};
+  getAllRows('Entry Tags').forEach(function (et) { if (String(et.entry_id) === String(entryId)) has[String(et.tag_id)] = true; });
+  var add = tagIds.filter(function (id) { return !has[String(id)]; });
+  if (!add.length) return [];
+  appendObjectsBatch_('Entry Tags', add.map(function (id) { return { entry_id: entryId, tag_id: id }; }));
+  touchEntriesById_([entryId]);
+  return add;
+}
+
+// The question after a save (owner, 2026-11-16, the "ask" version): for each of these confirmed entries, the first Programmed item with
+// tags that it pays (linked to it, or matched by the usual rule: category, ~10% amount, near a due date) and the item's tags the entry
+// does not have yet. [{ entry_id, description, item_id, item, tag_ids }] — nothing is written here; addEntriesTags writes the answer.
+function programmedTagAsk_(entryIds) {
+  if (!entryIds || !entryIds.length) return [];
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Recurring Expenses')) return [];
+  var items = getRecurringExpenseRows_().filter(function (r) { return String(r.active) !== 'false' && recurringTagIds_(r).length; });
+  if (!items.length) return [];
+  var tagsByEntry = tagIdsByEntry_();
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSums = {};
+  getAllRows('Entry Splits').forEach(function (s) { entrySplitSums[s.entry_id] = (entrySplitSums[s.entry_id] || 0) + Number(s.amount); });
+  var out = [];
+  entryIds.forEach(function (id) {
+    var e = getEntryById_(id);
+    if (!e || e.status !== 'confirmed') return;
+    var has = tagsByEntry[id] || [];
+    for (var i = 0; i < items.length; i++) {
+      var r = items[i];
+      var linked = e.recurring_expense_id === r.id;
+      if (!linked && (e.recurring_expense_id || e.category_id !== r.category_id)) continue;
+      if (!linked) {
+        var w = isCustomRecurring_(r) ? customPeriodDays_(r) : RECURRING_MATCH_DAY_WINDOW + 1;
+        var d = new Date(String(e.date).substring(0, 10) + 'T00:00:00');
+        var occ = recurringExpenseOccurrencesInRange_(r,
+          formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() - w)),
+          formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() + w)));
+        if (!occ.length || !entryMatchesRecurringOccurrence_(e, r, occ, entrySplitSums, recurringSplitSums)) continue;
+      }
+      var missing = recurringTagIds_(r).filter(function (t) { return has.indexOf(t) < 0; });
+      if (!missing.length) continue;
+      out.push({ entry_id: id, description: e.description || '', item_id: r.id, item: r.description || '', tag_ids: missing });
+      break;
+    }
+  });
+  return out;
+}
+
+// The answer "Add tags": { items: [{ entry_id, tag_ids }] }. Only adds (safe to send twice). Answers { added: { entryId: [tagIds] } }.
+function addEntriesTags(payload) {
+  var known = {};
+  getAllRows('Tags').forEach(function (t) { known[String(t.id)] = true; });
+  var added = {};
+  ((payload && payload.items) || []).forEach(function (it) {
+    var entryId = String((it && it.entry_id) || '');
+    var ids = ((it && it.tag_ids) || []).map(String).filter(function (t) { return known[t]; });
+    if (!entryId || !ids.length || !getEntryById_(entryId)) return;
+    var got = addTagsToEntry_(entryId, ids);
+    if (got.length) added[entryId] = got;
+  });
+  return { added: added };
+}
+
+// Repeats every 3 months or more (owner, 2026-11-16): yearly, or "Other" every 3+ months, 13+ weeks, 90+ days, or every N years. Such an
+// EXPENSE item starts tagged Annual in the form, and existing ones are tagged once (after the person sees the list: annualItemsAsk_).
+function recurringEveryThreeMonthsOrMore_(r) {
+  var f = normalizeRecurringFrequency_(r.frequency);
+  if (f === 'yearly') return true;
+  if (f !== 'custom') return false;
+  var iv = customIntervalOf_(r);
+  return iv.unit === 'years' || (iv.unit === 'months' && iv.n >= 3) || (iv.unit === 'weeks' && iv.n >= 13) || (iv.unit === 'days' && iv.n >= 90);
+}
+// The existing expense items that would be tagged Annual, until the person has answered once (Settings `annual_items_asked`).
+function annualItemsAsk_() {
+  if (String(getSettingsMap().annual_items_asked || '') === 'yes') return [];
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Recurring Expenses')) return [];
+  var cats = rowsById_(getAllRowsCached_('Categories'));
+  return getRecurringExpenseRows_().filter(function (r) {
+    var c = cats[r.category_id];
+    return String(r.active) !== 'false' && c && c.type === 'expense' && recurringEveryThreeMonthsOrMore_(r) && !recurringIsAnnual_(r);
+  }).map(function (r) {
+    var c = cats[r.category_id];
+    return { id: r.id, description: r.description || categoryLabel_(c) };
+  });
+}
+// The answer: apply = true tags them all Annual (only those still on the list); either way the question is not asked again.
+function answerAnnualItems(payload) {
+  var tagged = 0;
+  if (payload && payload.apply) {
+    ensureAnnualTag_();
+    annualItemsAsk_().forEach(function (x) {
+      var row = getAllRows('Recurring Expenses').find(function (r) { return r.id === x.id; });
+      var ids = String((row && row.tag_ids) || '').split(',').map(function (t) { return t.trim(); }).filter(Boolean);
+      if (ids.indexOf(ANNUAL_TAG_ID) >= 0) return;
+      ids.push(ANNUAL_TAG_ID);
+      updateRowFields_('Recurring Expenses', x.id, { tag_ids: ids.join(',') });
+      tagged++;
+    });
+  }
+  setSetting_('annual_items_asked', 'yes');
+  return { tagged: tagged };
 }

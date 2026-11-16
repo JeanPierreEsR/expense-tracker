@@ -12,7 +12,14 @@ function getTagCounts() {
     var id = String(et.tag_id || '');
     if (id) counts[id] = (counts[id] || 0) + 1;
   });
-  return { counts: counts };
+  // Programmed items carrying each tag (owner, 2026-11-16): the delete question names them too.
+  var items = {};
+  if (SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Recurring Expenses')) {
+    getAllRows('Recurring Expenses').forEach(function (r) {
+      recurringTagIds_(r).forEach(function (t) { items[t] = (items[t] || 0) + 1; });
+    });
+  }
+  return { counts: counts, items: items };
 }
 
 function managedTagRow_(id) {
@@ -53,6 +60,16 @@ function deleteTag(payload) {
   var removed = 0;
   deleteRowsWhere_('Entry Tags', function (r) { if (String(r.tag_id) === id) { removed++; return true; } return false; });
   deleteRowsWhere_('Tags', function (r) { return String(r.id) === id; });
+  // ...and off every Programmed item that had it.
+  var items = 0;
+  if (SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Recurring Expenses')) {
+    getAllRows('Recurring Expenses').forEach(function (r) {
+      var ids = String(r.tag_ids || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+      if (ids.indexOf(id) < 0) return;
+      updateRowFields_('Recurring Expenses', r.id, { tag_ids: ids.filter(function (x) { return x !== id; }).join(',') });
+      items++;
+    });
+  }
   bumpStructureVersion_();
-  return { id: id, entries: removed };
+  return { id: id, entries: removed, items: items };
 }

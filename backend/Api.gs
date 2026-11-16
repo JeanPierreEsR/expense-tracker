@@ -492,6 +492,8 @@ function routeActionSwitch_(action, payload) {
     case 'skipRecurringOccurrence': return skipRecurringOccurrence(payload);
     case 'unskipRecurringOccurrence': return unskipRecurringOccurrence(payload);
     case 'linkEntryToRecurring': return linkEntryToRecurring(payload);
+    case 'addEntriesTags': return addEntriesTags(payload);
+    case 'answerAnnualItems': return answerAnnualItems(payload);
     case 'recordRecurringPayment': return recordRecurringPayment(payload);
     case 'listEntriesForRecurringMonth': return listEntriesForRecurringMonth(payload);
     case 'getRecurringExpenseSplits': return getRecurringExpenseSplits(payload);
@@ -877,7 +879,9 @@ function getMeta() {
     // The day this copy started being used: "from before the app" dates start on the day before (Loans.gs).
     firstUseDate: firstUseDate_(),
     // Programmed items still PAUSED (Pause no longer exists: the app makes the person choose Reactivate / Stop / Delete for each, once).
-    pausedProgrammed: pausedProgrammedForApp_()
+    pausedProgrammed: pausedProgrammedForApp_(),
+    // Existing items repeating every 3 months or more, to tag Annual once the person has seen the list (RecurringExpenses.gs; 2026-11-16).
+    annualItemsAsk: annualItemsAsk_()
   };
 }
 
@@ -1143,6 +1147,7 @@ function confirmEntries(payload) {
       out.kept.push({ id: it.id, reason: 'refused', message: String(err && err.message || err) });
     }
   });
+  try { var asks = programmedTagAsk_(out.confirmed); if (asks.length) out.tag_asks = asks; } catch (e) { /* only a question */ }
   return out;
 }
 
@@ -1196,7 +1201,7 @@ function saveEntryAll(payload) {
     out = createEntry(payload.fields || {});
     id = out.id;
     if (payload.link_recurring_id) {
-      try { linkEntryToRecurring({ entryId: id, recurringExpenseId: payload.link_recurring_id }); }
+      try { linkEntryToRecurring({ entryId: id, recurringExpenseId: payload.link_recurring_id, addTags: false }); }   // (the form carried its tags)
       catch (linkErr) { out = Object.assign({}, out, { link_failed: true }); }
     }
   } else if (kind === 'update' || kind === 'confirm') {
@@ -1212,6 +1217,10 @@ function saveEntryAll(payload) {
   if (payload.repeat) out = Object.assign({}, out, { repeat: repeatEntryAsProgrammed_(id, payload.repeat) });
   if (payload.trip_group_size) {   // never fails the save: it only sets where the next group split starts
     try { setTripGroupSize_(payload.trip_group_size.trip_id, payload.trip_group_size.size); } catch (e) { /* ignored */ }
+  }
+  // A payment that matches a Programmed item with tags the entry lacks: the app asks whether to add them (owner, 2026-11-16). Never fails the save.
+  if (!payload.link_recurring_id) {
+    try { var ask = programmedTagAsk_([id]); if (ask.length) out = Object.assign({}, out, { tag_ask: ask[0] }); } catch (e) { /* only a question */ }
   }
   return out;
 }

@@ -3724,6 +3724,14 @@
           </div>
         </div>
 
+        <!-- Tags (owner, 2026-11-16): Annual makes the item's planned amounts annual; shown where the backend has programmedTags. -->
+        <div id="recurring-tags-field" hidden>
+          <label data-i18n="field.tags">Tags</label>
+          <div class="tags-list" id="recurring-tags-list"></div>
+          <p class="hint" id="recurring-annual-hint" hidden></p>
+          <div class="add-inline" id="recurring-add-tag-btn" data-i18n="common.addTag">+ Add tag…</div>
+        </div>
+
         <div id="recurring-once-fields">
           <label for="recurring-occurrence-date" id="recurring-occurrence-date-label" data-i18n="field.date">Date</label>
           <input type="date" id="recurring-occurrence-date">

@@ -147,10 +147,15 @@ function budgetEntryMatcher_(budgetId, plan) {
   };
 }
 
-// Where a Programmed item (a trip's estimate) counts: the same rule, read from its own trip.
-function recurringInBudget_(ctx, budgetId, categoryIds, r) {
+// Where a Programmed item (a trip's estimate) counts: the same rule, read from its own trip. An item tagged Annual (owner,
+// 2026-11-16) counts like an annual expense: in the "Annual expenses" budget and yearly budgets of its category, never in a
+// monthly or weekly one (excludeAnnual = the budget's budgetExcludesAnnual_).
+function recurringInBudget_(ctx, budgetId, categoryIds, r, excludeAnnual) {
   var t = r.trip_id && ctx && ctx.tripRoutes ? ctx.tripRoutes[r.trip_id] : null;
   if (t) return t.route[String(budgetId)] === true;
+  var annual = recurringIsAnnual_(r);
+  if (isAnnualBudgetIds_(categoryIds)) return annual;
+  if (annual && excludeAnnual) return false;
   return categoryIdMatches_(categoryIds, r.category_id);
 }
 
@@ -454,7 +459,8 @@ function listBudgets(payload) {
   budgets.forEach(function (x) {
     var p = x.progress;
     if (!p.exists) return;
-    p.programmed = budgetProgrammedLeft_(programmedPre, ctx, x.id, p.category_ids !== undefined ? p.category_ids : x.category_ids, p.currency || x.currency, p.startDate, p.endDate, todayIso);
+    var catIds = x.annual_kind ? ANNUAL_BUDGET_IDS_ : (p.category_ids !== undefined ? p.category_ids : x.category_ids);
+    p.programmed = budgetProgrammedLeft_(programmedPre, ctx, x.id, catIds, p.currency || x.currency, p.startDate, p.endDate, todayIso, x.period_type !== 'yearly');
   });
   // The period's own categories name the row when they were different then (a change of categories counts forward only).
   budgets.forEach(function (x) {
@@ -603,13 +609,13 @@ function budgetProgrammedPrep_() {
   });
   return pre;
 }
-function budgetProgrammedLeft_(pre, ctx, budgetId, categoryIds, currency, startDate, endDate, today) {
+function budgetProgrammedLeft_(pre, ctx, budgetId, categoryIds, currency, startDate, endDate, today, excludeAnnual) {
   if (!pre.recurring.length || !startDate || !endDate || endDate < today) return 0;
   var from = startDate < today ? today : startDate;
   var rate = latestRateAtOrBefore_(ctx, currency, endDate.substring(0, 7));
   var total = 0;
   pre.recurring.forEach(function (r) {
-    if (!recurringInBudget_(ctx, budgetId, categoryIds, r)) return;
+    if (!recurringInBudget_(ctx, budgetId, categoryIds, r, excludeAnnual)) return;
     var reCurrency = r.currency || homeCurrency_();
     var own = recurringOwnAmount_(r, pre.splitSums);
     var amt = null;
@@ -683,7 +689,9 @@ function getBudgetChartSeries(payload) {
   // near ITS date exists, and a custom item's window can reach outside the period.
   // A trip's estimate can count here outside the budget's categories ("In my budgets"): its own category's entries are read too.
   var extraCats = {};
-  getRecurringExpenseRows_().forEach(function (r) { if (r.trip_id && ctx.tripRoutes[r.trip_id]) extraCats[r.category_id] = true; });
+  getRecurringExpenseRows_().forEach(function (r) {
+    if ((r.trip_id && ctx.tripRoutes[r.trip_id]) || (isAnnualBudgetIds_(categoryIds) && recurringIsAnnual_(r))) extraCats[r.category_id] = true;
+  });
   var entriesInRange = getAllRows('Entries').filter(function (e) {
     return e.status === 'confirmed' && (categoryIdMatches_(categoryIds, e.category_id) || extraCats[e.category_id] === true);
   });
@@ -696,7 +704,7 @@ function getBudgetChartSeries(payload) {
   // sitting in the actual line).
   var recurringOccurrences = [];
   getRecurringExpenseRows_().forEach(function (r) {
-    if (String(r.active) === 'false' || !recurringInBudget_(ctx, rawBudget.id, categoryIds, r)) return;
+    if (String(r.active) === 'false' || !recurringInBudget_(ctx, rawBudget.id, categoryIds, r, excludeAnnual)) return;
     var reCurrency = r.currency || homeCurrency_();
     var ownAmount = recurringOwnAmount_(r, recurringSplitSums);
     var amt = null;
