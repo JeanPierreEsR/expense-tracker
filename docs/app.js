@@ -7800,7 +7800,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     const discardBtn = item.querySelector(".review-discard-btn");
     // A closed item opens with a tap almost anywhere on it (owner, 2026-11-16; only its own buttons keep their job);
     // an open one closes from its top. The category line opens it at the category box.
-    // The description and the amount go straight to their own box (owner, 2026-11-16).
+    // On a closed card the description and the amount go straight to their own box (owner, 2026-11-16).
     const goToBox_ = (box) => {
       item.classList.remove("review-collapsed");
       reviewExpanded_.add(entry.id);
@@ -7808,12 +7808,16 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       box.focus({ preventScroll: true });
       box.scrollIntoView({ block: "center", behavior: "smooth" });
     };
+    // An open card closes with a tap anywhere above its boxes (owner, 2026-11-16: the part a closed card shows above Confirm).
     item.addEventListener("click", (ev) => {
       if (ev.target.closest("button, a, select, input, label")) return;
-      if (ev.target.closest(".review-item-desc")) { goToBox_(item.querySelector(".review-description")); return; }
-      if (ev.target.closest(".review-item-amount")) { goToBox_(item.querySelector(".review-amount")); return; }
-      if (item.classList.contains("review-collapsed")) { item.classList.remove("review-collapsed"); reviewExpanded_.add(entry.id); return; }
-      if (!ev.target.closest(".review-item-top")) return;
+      if (item.classList.contains("review-collapsed")) {
+        if (ev.target.closest(".review-item-desc")) { goToBox_(item.querySelector(".review-description")); return; }
+        if (ev.target.closest(".review-item-amount")) { goToBox_(item.querySelector(".review-amount")); return; }
+        item.classList.remove("review-collapsed"); reviewExpanded_.add(entry.id); return;
+      }
+      const boxes = item.querySelector(".review-item-fields");
+      if (boxes && ev.clientY >= boxes.getBoundingClientRect().top) return;
       item.classList.add("review-collapsed");
       reviewExpanded_.delete(entry.id);
     });
