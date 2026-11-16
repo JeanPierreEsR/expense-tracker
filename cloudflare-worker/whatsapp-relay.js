@@ -9,9 +9,10 @@
  * What it does:
  *   GET  ?hub.mode=subscribe&hub.verify_token=…&hub.challenge=…  → the challenge, only when the token is WA_VERIFY_TOKEN.
  *   POST (a message)  → checks Meta's X-Hub-Signature-256 (when WA_APP_SECRET is set), answers 200 at once, then, for each
- *        message from a number in WA_ALLOWED_FROM, forwards { whatsapp: {id, from, text, timestamp}, relay_secret } to Apps
- *        Script and sends back on WhatsApp the short reply Apps Script wrote. Messages from any other number are dropped
- *        without an answer.
+ *        message from a number in WA_ALLOWED_FROM, forwards { whatsapp: {id, from, timestamp, type, text, reply_id,
+ *        reply_title, context_id}, relay_secret } to Apps Script. While WhatsApp is the review bot (backend/WhatsAppBot.gs)
+ *        Apps Script sends its own messages and answers { handled: true }; otherwise the Worker sends back the short reply
+ *        Apps Script wrote. Messages from any other number are dropped without an answer.
  *
  * Deploy (pasted by hand, like the Telegram relay): Cloudflare → Workers & Pages → Create → Worker, name it
  * "whatsapp-relay", paste this file over the template, Deploy. Then Settings → Variables and Secrets, add as SECRETS
@@ -82,14 +83,26 @@ async function sendReply(env, to, text, replyTo) {
   if (!res.ok) console.error('WhatsApp reply failed: ' + res.status + ' ' + (await res.text()).slice(0, 300));
 }
 
+// What Apps Script needs from a message: its text, which button or list row was tapped, and which bot message it answers.
+function describe(msg) {
+  const out = { id: msg.id, from: msg.from, timestamp: msg.timestamp, type: msg.type, text: '' };
+  if (msg.type === 'text' && msg.text) out.text = msg.text.body;
+  if (msg.type === 'interactive' && msg.interactive) {
+    const r = msg.interactive.button_reply || msg.interactive.list_reply;
+    if (r) { out.reply_id = r.id; out.reply_title = r.title; }
+  }
+  if (msg.type === 'button' && msg.button) { out.reply_id = msg.button.payload; out.reply_title = msg.button.text; }
+  if (msg.context && msg.context.id) out.context_id = msg.context.id;
+  return out;
+}
+
 async function handleMessage(env, msg) {
-  const payload = {
-    whatsapp: { id: msg.id, from: msg.from, text: msg.type === 'text' && msg.text ? msg.text.body : '', timestamp: msg.timestamp },
-    relay_secret: env.WA_RELAY_SECRET
-  };
+  const payload = { whatsapp: describe(msg), relay_secret: env.WA_RELAY_SECRET };
   let reply = FALLBACK_REPLY;
   try {
     const answer = await askAppsScript(payload);
+    // While WhatsApp is the review bot, Apps Script sends its own messages (cards, lists) and asks for nothing here.
+    if (answer && answer.ok && answer.data && answer.data.handled) return;
     if (answer && answer.ok && answer.data && answer.data.reply) reply = answer.data.reply;
     else if (answer && answer.reply) reply = answer.reply;
     else console.error('Apps Script refused: ' + JSON.stringify(answer).slice(0, 300));

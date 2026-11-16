@@ -172,6 +172,8 @@ function captureWhatsApp_(payload) {
     return {
       saved: true,
       entryId: entry.id,
+      entry: entry,
+      categoryName: cat ? categoryLabel_(cat) : null,
       reply: tr_('whatsapp.saved', {
         amount: formatAmountText_(entry.amount, entry.currency),
         what: entry.description + (cat ? ' · ' + categoryLabel_(cat) : '')

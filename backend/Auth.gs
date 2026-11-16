@@ -41,6 +41,8 @@ function onOpen() {
     .addItem('32. Tag Travel expenses as Annual: preview (changes nothing)', 'menuTagTravelAnnualPreview')
     .addItem('33. Tag Travel expenses as Annual: apply', 'menuTagTravelAnnualApply')
     .addItem('34. Set the WhatsApp relay key', 'promptSetWhatsAppRelaySecret')
+    .addItem('35. Set WhatsApp sending (token + phone number ID)', 'promptSetWhatsAppSending')
+    .addItem('36. Review bot: Telegram or WhatsApp', 'menuSwitchReviewBot')
     .addToUi();
 }
 

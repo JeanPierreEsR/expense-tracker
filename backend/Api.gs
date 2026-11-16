@@ -58,7 +58,7 @@ function doPost(e) {
           .setMimeType(ContentService.MimeType.JSON);
       }
       try {
-        response = { ok: true, data: captureWhatsApp_(body.whatsapp) };
+        response = { ok: true, data: handleWhatsAppInbound_(body.whatsapp) };   // WhatsAppBot.gs
       } catch (err) {
         response = { ok: false, error: err.message, reply: tr_('whatsapp.failed') };
       }

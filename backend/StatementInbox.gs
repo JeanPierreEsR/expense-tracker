@@ -259,7 +259,7 @@ function retryStatementInboxNudges_() {
 
 function sendTelegramText_(text) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return false;
+  if (!reviewBotCanSend_(chatId)) return false;
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: text });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);

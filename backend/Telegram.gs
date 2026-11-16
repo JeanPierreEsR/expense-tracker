@@ -35,7 +35,14 @@ function getTelegramToken_() {
 }
 
 function getOwnerTelegramChatId_() {
+  // While WhatsApp is the review bot (WhatsAppBot.gs), the "chat" is WhatsApp: the Telegram chat gets nothing and is not listened to.
+  if (reviewBotIsWhatsApp_()) return WA_CHAT_ID_;
   return PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
+}
+
+// Something can be sent: Telegram linked, or WhatsApp is the review bot.
+function reviewBotCanSend_(chatId) {
+  return !!chatId && (chatId === WA_CHAT_ID_ || !!getTelegramToken_());
 }
 
 function promptSetTelegramToken() {
@@ -152,6 +159,8 @@ function disableTelegramWebhook() {
 }
 
 function telegramApi_(method, payload) {
+  // One review bot at a time: while it is WhatsApp, the messages go there instead (WhatsAppBot.gs); set-up calls stay Telegram's.
+  if (WA_TELEGRAM_METHODS_[method] && reviewBotIsWhatsApp_()) return whatsappFromTelegram_(method, payload);
   var token = getTelegramToken_();
   if (!token) throw new Error('Telegram bot token not set');
   var res = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/' + method, {
@@ -167,7 +176,7 @@ function telegramApi_(method, payload) {
 
 function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return null;
+  if (!reviewBotCanSend_(chatId)) return null;
 
   var payload = {
     chat_id: chatId,
@@ -396,7 +405,7 @@ function paidByDisplayName_(id) {
 // knows not to mark the threshold as alerted — it'll try again next cycle.
 function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progress) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return false;
+  if (!reviewBotCanSend_(chatId)) return false;
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: budgetAlertText_(budget, categoryDisplayName, progress) });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
@@ -422,7 +431,7 @@ function budgetAlertText_(budget, categoryDisplayName, progress) {
 // caller doesn't log the alert as delivered and never retry it.
 function sendTelegramTripBudgetAlert_(trip, percent) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return false;
+  if (!reviewBotCanSend_(chatId)) return false;
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: tripBudgetAlertText_(trip, percent) });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
@@ -440,7 +449,7 @@ function tripBudgetAlertText_(trip, percent) {
 // sendTelegramBudgetAlert_ above.
 function sendTelegramLoanOverdueAlert_(loan, friendName) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return false;
+  if (!reviewBotCanSend_(chatId)) return false;
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: loanOverdueAlertText_(loan, friendName) });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
