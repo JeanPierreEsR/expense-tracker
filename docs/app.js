@@ -1403,6 +1403,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   renderOwnNameCard_();
   maybeAskPausedProgrammed_();
   maybeAskPayorMerge_();
+  maybeAskAnnualItems_();
   // Even while a form is in use, the account lists take in accounts added since they were built (what is chosen stays chosen):
   // an unfinished entry restored on its account must find it there (owner, 2026-11-13: a new account "CTS" showed as a blank row).
   if (skipFormPopulate) { whenPickersClosed_(["payment_method", "to_payment_method"], rebuildAccountPickers_); return; }
@@ -6701,6 +6702,7 @@ async function applyReviewAction_(a) {
     const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined },
       [["listEntries", { limit: entriesShown + 1 }]]));
     unqueueReviewAction_(a.id);
+    if (res && res.tag_ask) askProgrammedTags_([res.tag_ask]);
     return res && res.follow ? res.follow : null;
   }
   if (a.action === "confirm") {
@@ -7021,6 +7023,7 @@ async function flushEntryEdit_(id) {
           entryThenReads_(edit, withSplits)));
           if (isCreate) { created = out; linkFailed = !!(out && out.link_failed); }
           else if (out && out.follow) followed = out.follow;
+          if (out && out.tag_ask) askProgrammedTags_([out.tag_ask]);   // it pays a Programmed item with tags it lacks (2026-11-16)
           if (edit.repeat && out && out.repeat) { showToast_(tr("repeat.done")); refreshExpectedRecurring(); }
         } else if (edit.kind === "create") {
           // The same client_id answers a repeat with the entry it already made, so every step below is safe to send again.
@@ -7640,6 +7643,7 @@ document.getElementById("review-confirm-selected-btn").addEventListener("click",
     refreshExpectedRecurring().catch(() => {});
     refreshHomeGlance_(true);
     await refreshReviewQueue(undefined, true).catch(() => {});
+    if (result && result.tag_asks && result.tag_asks.length) askProgrammedTags_(result.tag_asks);
     if (!result || !result.kept.length) return;
     showAppMessage_(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
   }, {
@@ -17927,6 +17931,7 @@ function catFoldOpen_(part, open) {
 // ---- Tags: list with entry counts, add, rename, delete (getTagCounts / renameTag / deleteTag, capability tagsManage) ----
 // Deleting a tag only takes the label off its entries. The built-in Annual tag cannot be renamed or deleted (budgets and Travel use it).
 let tagCounts_ = null;   // tag id -> entries carrying it; null until the server answered (or on an older backend)
+let tagItemCounts_ = {};   // tag id -> Programmed items carrying it (2026-11-16)
 let tagModalTag_ = null;
 const tagsManageOn_ = () => !!(meta && meta.capabilities && meta.capabilities.tagsManage);
 const tagsSorted_ = () => ((meta && meta.tags) || []).slice().sort((a, b) =>
@@ -17957,6 +17962,7 @@ async function loadTagCounts_() {
   try {
     const res = await callApi("getTagCounts");
     tagCounts_ = (res && res.counts) || {};
+    tagItemCounts_ = (res && res.items) || {};
     renderTagsList_();
   } catch (err) { /* counts are a nicety: the list works without them */ }
 }
@@ -17997,7 +18003,9 @@ document.getElementById("tag-modal-delete").addEventListener("click", async () =
   const t = tagModalTag_;
   if (!t) return;
   const n = tagCounts_ ? tagCounts_[t.id] || 0 : null;
-  const ask = n === 0 ? tr("tagsScreen.deleteAskUnused", { name: t.name }) : tr("tagsScreen.deleteAsk", { name: t.name, n: n == null ? "?" : n });
+  const items = tagItemCounts_[t.id] || 0;
+  const ask = (n === 0 ? tr("tagsScreen.deleteAskUnused", { name: t.name }) : tr("tagsScreen.deleteAsk", { name: t.name, n: n == null ? "?" : n }))
+    + (items ? " " + tr("tagsScreen.deleteAskItems", { n: items }) : "");
   if (!await askConfirmApp_(ask, tr("confirmBtn.delete"))) return;
   closeTagModal_();
   markDeleting_("tag:" + t.id);
@@ -21611,7 +21619,7 @@ function renderRecurringRow_(re) {
     ${recurringEditing_ ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${recurringSelected_.has(re.id) ? " checked" : ""}>` : ""}
     <div>
       <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
-      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.variable ? tr("recurring.variableTag") : ""}${recurringStatusLabel_(re, todayISO)}${re.split_total > 0.005 ? tr("recurring.splitTag") : ""}${recurringTripTag_(re)}</div>
+      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.variable ? tr("recurring.variableTag") : ""}${recurringStatusLabel_(re, todayISO)}${re.split_total > 0.005 ? tr("recurring.splitTag") : ""}${recurringTripTag_(re)}${recurringTagPillsHtml_(re)}</div>
     </div>
     <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(renderRecurringAmountHtml_(re)) : renderRecurringAmountHtml_(re)}</div>
   `;
@@ -21775,6 +21783,7 @@ function populateRecurringCategoryChips() {
         selectedRecurringCategoryId = c.id;
         populateRecurringCategoryChips();
         toggleRecurringSplitFieldVisibility();
+        syncRecurringAnnualAuto_();
       });
       container.appendChild(chip);
     });
@@ -22049,8 +22058,104 @@ function setRecurringFrequency_(freq) {
 }
 
 document.querySelectorAll("#recurring-frequency-tabs .type-tab").forEach((tab) => {
-  tab.addEventListener("click", () => { recurringFreqTouched_ = true; setRecurringFrequency_(tab.dataset.frequency); });   // (the first-use practice waits for the touch)
+  tab.addEventListener("click", () => { recurringFreqTouched_ = true; setRecurringFrequency_(tab.dataset.frequency); syncRecurringAnnualAuto_(); });   // (the first-use practice waits for the touch)
 });
+["recurring-interval", "recurring-interval-unit"].forEach((id) => document.getElementById(id).addEventListener("input", () => syncRecurringAnnualAuto_()));
+document.getElementById("recurring-interval-unit").addEventListener("change", () => syncRecurringAnnualAuto_());
+
+// ---- A Programmed item's tags (owner, 2026-11-16; specs/recurring.md § Tags) ----
+// The same chips as the entry form, kept apart (recurringTagIds_). Annual makes the item's planned amounts annual. An EXPENSE item that
+// repeats every 3 months or more starts with Annual ticked (removable); if the person changes it to repeat more often, a tick the app
+// added is taken back (one they ticked themselves stays, and saving then asks).
+let recurringTagIds_ = new Set();
+let recurringAnnualAuto_ = false;
+const programmedTagsOn_ = () => !!(meta && meta.capabilities && meta.capabilities.programmedTags);
+function recurringEveryThreeMonthsOrMoreForm_() {
+  if (recurringFrequency === "yearly") return true;
+  if (recurringFrequency !== "custom") return false;
+  const n = Math.max(1, parseInt(document.getElementById("recurring-interval").value, 10) || 1);
+  const unit = document.getElementById("recurring-interval-unit").value;
+  return unit === "years" || (unit === "months" && n >= 3) || (unit === "weeks" && n >= 13) || (unit === "days" && n >= 90);
+}
+function recurringIsExpenseForm_() {
+  const cat = meta.categories.find((c) => c.id === selectedRecurringCategoryId);
+  return !!cat && cat.type === "expense";
+}
+function syncRecurringAnnualAuto_() {
+  if (!programmedTagsOn_() || !meta.tags.some((t) => t.id === "system-annual")) return;
+  const wanted = recurringIsExpenseForm_() && recurringEveryThreeMonthsOrMoreForm_();
+  if (wanted && !recurringTagIds_.has("system-annual")) { recurringTagIds_.add("system-annual"); recurringAnnualAuto_ = true; }
+  else if (!wanted && recurringAnnualAuto_ && recurringTagIds_.delete("system-annual")) recurringAnnualAuto_ = false;
+  populateRecurringTags_();
+}
+function populateRecurringTags_() {
+  const field = document.getElementById("recurring-tags-field");
+  field.hidden = !programmedTagsOn_();
+  if (field.hidden) return;
+  const box = document.getElementById("recurring-tags-list");
+  box.innerHTML = "";
+  meta.tags.forEach((tag) => {
+    const chip = document.createElement("div");
+    chip.className = "tag-chip" + (recurringTagIds_.has(tag.id) ? " selected" : "");
+    chip.textContent = tag.name;
+    chip.addEventListener("click", () => {
+      if (tag.id === "system-annual") recurringAnnualAuto_ = false;   // the person's own choice from here on
+      if (recurringTagIds_.has(tag.id)) recurringTagIds_.delete(tag.id); else recurringTagIds_.add(tag.id);
+      populateRecurringTags_();
+    });
+    box.appendChild(chip);
+  });
+  const hint = document.getElementById("recurring-annual-hint");
+  hint.hidden = !recurringTagIds_.has("system-annual");
+  if (!hint.hidden) hint.textContent = tr("recTags.annualHint");
+}
+document.getElementById("recurring-add-tag-btn").addEventListener("click", async () => {
+  const name = await askName_(tr("prompt.tagName"));
+  if (!name || !name.trim()) return;
+  try {
+    const tag = await callApi("addTag", { name: name.trim() });
+    if (!meta.tags.some((t) => t.id === tag.id)) meta.tags.push(tag);   // a tag of that name already there is reused
+    recurringTagIds_.add(tag.id);
+    populateRecurringTags_();
+  } catch (err) { showAppMessage_(tr("common.notSaved", { error: err.message })); }
+});
+// The question after a save or a confirm (owner, 2026-11-16, the "ask" version): the entry pays a Programmed item whose tags it does not
+// have. Asked, never done silently: a wrong match (shoes bought near the gym's due date) is answered No. Only adds tags. Not during a
+// practice or a tutorial (their own entries are deleted at the end).
+async function askProgrammedTags_(asks) {
+  if (!asks || !asks.length || (window.Spotlight && Spotlight.isRunning())) return;
+  const names = (ids) => ids.map((id) => (meta.tags.find((t) => t.id === id) || {}).name).filter(Boolean).join(", ");
+  const list = asks.filter((a) => names(a.tag_ids));
+  if (!list.length) return;
+  const text = list.length === 1
+    ? tr("progTags.askOne", { entry: list[0].description || list[0].item, item: list[0].item, tags: names(list[0].tag_ids) })
+    : tr("progTags.askMany", { list: list.map((a) => tr("progTags.line", { entry: a.description || a.item, item: a.item, tags: names(a.tag_ids) })).join("\n") });
+  if (!await askConfirmApp_(text, tr("progTags.add"), { plain: true, cancel: tr("progTags.no") })) return;
+  saveBehindScreen_(() => callApi("addEntriesTags", { items: list.map((a) => ({ entry_id: a.entry_id, tag_ids: a.tag_ids })) }),
+    async () => { await refreshEntryList().catch(() => {}); });
+}
+
+// Existing items repeating every 3 months or more, tagged Annual once the person has seen the list (owner, 2026-11-16). Asked once per
+// copy, from fresh data only, after the other one-time questions; either answer is remembered on the server.
+let annualItemsAsked_ = false;
+async function maybeAskAnnualItems_() {
+  const list = meta && !meta.fromCache_ && Array.isArray(meta.annualItemsAsk) ? meta.annualItemsAsk : [];
+  if (annualItemsAsked_ || !list.length || (window.Spotlight && Spotlight.isRunning())) return;
+  annualItemsAsked_ = true;
+  const yes = await askConfirmApp_(tr("progTags.annualItemsAsk", { n: list.length, list: list.map((x) => "• " + x.description).join("\n") }),
+    tr("progTags.annualItemsYes"), { plain: true, cancel: tr("progTags.annualItemsNo") });
+  saveBehindScreen_(() => callApi("answerAnnualItems", { apply: yes }), async () => {
+    meta.annualItemsAsk = [];
+    if (!document.getElementById("screen-recurring").hidden) refreshRecurringExpenses();
+  }, yes ? null : { done: () => tr("progTags.annualItemsLater") });
+}
+
+// An item's tags as the small pills entries show.
+function recurringTagPillsHtml_(re) {
+  const pills = (re.tag_ids || []).map((id) => meta.tags.find((t) => t.id === id)).filter(Boolean)
+    .map((t) => `<span class="entry-tag">${escapeHtml(t.name)}</span>`).join("");
+  return pills ? ` <span class="entry-tags">${pills}</span>` : "";
+}
 
 // The variable-amount part of the modal (see specs/recurring.md): a tick box,
 // the words that identify the payments, and a hint saying what the app
@@ -22097,6 +22202,8 @@ async function openRecurringModal(re, prefill) {
   document.getElementById("recurring-variable-toggle").checked = restart ? !!prefill.variable : !!(prefill || (re && re.variable));
   document.getElementById("recurring-match-words").value = src && src.match_words ? src.match_words : "";
   fillTripOptions_(document.getElementById("recurring-trip"), re && re.trip_id ? re.trip_id : "");
+  recurringTagIds_ = new Set((src && src.tag_ids) || []);
+  recurringAnnualAuto_ = false;
   setRecurringFrequency_(frequency);
   document.getElementById("recurring-interval").value = re && re.frequency === "custom" ? re.interval : (restart && prefill.interval ? prefill.interval : 1);
   document.getElementById("recurring-interval-unit").value = re && re.frequency === "custom" ? re.interval_unit : (restart && prefill.interval_unit ? prefill.interval_unit : "weeks");
@@ -22135,6 +22242,7 @@ async function openRecurringModal(re, prefill) {
     recurringStandInItem = { frequency: "monthly", day: prefill.day || 1, month: 1 };
   }
   document.getElementById("recurring-start-date").value = startValue;
+  if (re) populateRecurringTags_(); else syncRecurringAnnualAuto_();   // (a new item, or a copy, starts with Annual when it repeats every 3+ months)
   document.getElementById("recurring-active-checkbox").checked = re ? re.active : true;
   // There is no Pause any more: the Active box only shows for an item that is still paused from before, so it can be reactivated.
   document.getElementById("recurring-active-row").hidden = !(re && !re.active);
@@ -22499,6 +22607,7 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       // Always sent so clearing it works; the server keeps it only for a one-time expense item.
       trip_id: recurringFrequency === "once" ? document.getElementById("recurring-trip").value : ""
     };
+    if (programmedTagsOn_()) fields.tag_ids = [...recurringTagIds_];
     // A changing amount is recognised by its words: checked here so the form stays open with what was typed (Lucía, 2026-11-15;
     // the server's rule: a word of 3+ letters that is not only digits).
     if (fields.variable && !fields.match_words.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z0-9]+/).some((w) => w.length >= 3 && !/^\d+$/.test(w))) {
@@ -22517,6 +22626,18 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
         // Untouched stand-in: keep the item's own day/month exactly as stored.
         fields.day = recurringStandInItem.day;
         fields.month = recurringStandInItem.month;
+      }
+    }
+
+    // Tagged Annual but repeating more often than every 3 months (owner, 2026-11-16): its payments would leave the monthly budgets. Asked
+    // before the sheet closes; "Remove Annual" saves it without the tag.
+    if (fields.tag_ids && fields.tag_ids.includes("system-annual") && recurringFrequency !== "once" && !recurringEveryThreeMonthsOrMoreForm_()) {
+      const name = description || (meta.categories.find((c) => c.id === selectedRecurringCategoryId) || {}).name || "";
+      const keep = await askConfirmApp_(tr("recTags.annualAsk", { name }), tr("recTags.keepAnnual"), { plain: true, cancel: tr("recTags.removeAnnual") });
+      if (!keep) {
+        recurringTagIds_.delete("system-annual");
+        fields.tag_ids = fields.tag_ids.filter((t) => t !== "system-annual");
+        populateRecurringTags_();
       }
     }
 
@@ -22604,7 +22725,7 @@ document.getElementById("recurring-restart-btn").addEventListener("click", async
   const prefill = {
     restart: true, description: re.description, category_id: re.category_id, currency: re.currency, frequency: re.frequency,
     amount: re.amount, base_amount: re.base_amount, variable: re.variable, match_words: re.match_words,
-    interval: re.interval, interval_unit: re.interval_unit, day: re.day, month: re.month, split: []
+    interval: re.interval, interval_unit: re.interval_unit, day: re.day, month: re.month, split: [], tag_ids: (re.tag_ids || []).slice()
   };
   try {
     if (re.split_total > 0.005) prefill.split = await callApi("getRecurringExpenseSplits", { recurringExpenseId: re.id });
@@ -23184,7 +23305,7 @@ function startPaymentEntryForItem_(item, currency, isIncome, fullAmount, savedSp
   applyEntryDraft_({
     v: 1, type: isIncome ? "income" : "expense", categoryId: item.category_id || "",
     amount: Number(fullAmount).toFixed(2), description: item.description || "", currency,
-    paidBy: "", paymentMethodId: "", toPaymentMethodId: "", date: "", tagIds: [],
+    paidBy: "", paymentMethodId: "", toPaymentMethodId: "", date: "", tagIds: (item.tag_ids || []).slice(),   // the item's tags (removable here)
     tripId: isIncome ? "" : (item.trip_id || ""), businessPick: "", expectedPick: "",
     igvOn: false, igvAmount: "", igvTouched: false
   });

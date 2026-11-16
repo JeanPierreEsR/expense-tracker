@@ -332,9 +332,10 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
     // no YTD fallback to catch the amount instead, so excluding it would
     // just make a real, known, once-a-year payment disappear in its own
     // month.
+    // An item tagged Annual (owner, 2026-11-16) is left out of a month view the same way, like an Annual-tagged entry.
     var recurringForPeriod = (category.type === 'income' || bounds.periodType === 'yearly')
       ? categoryRecurring
-      : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly'; });
+      : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly' && !recurringIsAnnual_(r); });
 
     // Recurring portion for the exact period being shown — each
     // occurrence converted at its own actual date's rate, since a yearly
@@ -612,7 +613,7 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
   });
   var recurringForPeriod = (category && category.type === 'income') || bounds.periodType === 'yearly'
     ? categoryRecurring
-    : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly'; });
+    : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly' && !recurringIsAnnual_(r); });
 
   // Entries of ANY date in this category: "is this occurrence already paid"
   // looks around the occurrence's own date (see computeAllCategoryProjections_).
