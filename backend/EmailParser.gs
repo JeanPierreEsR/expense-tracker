@@ -762,6 +762,8 @@ function processEmails(opts) {
     if (e.external_id) existingExternalIds[e.external_id] = true;
     var joinedId = emailPairJoinedId_(e.email_pair);   // the second e-mail of a joined pair (EmailPairs.gs) is already in
     if (joinedId) existingExternalIds[joinedId] = true;
+    var applePayId = applePayJoinedId_(e[APPLE_PAY_COLUMN_]);   // a bank e-mail already joined into an Apple Pay entry (ApplePay.gs)
+    if (applePayId) existingExternalIds[applePayId] = true;
   });
   var banks = getAllRows('Banks');
   var paymentMethods = withoutPracticeAccounts_(getAllRows('Payment Methods'));   // the first-use practice's account never receives an e-mail
@@ -996,6 +998,18 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   if (amazonTwin) {
     if (!rule.amazonShipment && paymentMethod && !amazonTwin.payment_method_id) updateRowFields_('Entries', amazonTwin.id, { payment_method_id: paymentMethod.id });
     results.duplicates++;
+    return;
+  }
+
+  // The same purchase paid with Apple Pay may already be waiting from the iPhone's shortcut (ApplePay.gs): this e-mail only tells
+  // which account paid, and no second entry is made.
+  var applePayTwin = rule.bank ? findApplePayTwin_(fields, createdAt, paymentMethod) : null;
+  if (applePayTwin) {
+    joinApplePayTwin_(applePayTwin, externalId, rule.cardIsDestination ? null : paymentMethod);
+    results.duplicates++;
+    results.joined = (results.joined || 0) + 1;
+    try { noteBankMailSeen_(rule.bank, dateStr); } catch (err) { console.error('noteBankMailSeen_: ' + err); }
+    try { noteBankKindSeen_(rule, dateStr); } catch (err) { console.error('noteBankKindSeen_: ' + err); }
     return;
   }
 

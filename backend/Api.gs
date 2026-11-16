@@ -32,6 +32,9 @@ function doPost(e) {
   STMT_COVERAGE_MEMO_ = null;   // nor statement coverage (see Balances.gs)
   REQUEST_LANG_ = null;         // nor the previous request's language (see Strings.gs)
   var response;
+  // Apple Pay capture (ApplePay.gs): the iPhone's shortcut posts to this address with the person's Apple Pay key in the link. That key
+  // opens this one door only, so it is answered here, before anything else; a wrong key gets the same refusal as a wrong code.
+  if (e && e.parameter && e.parameter.k !== undefined) return applePayDoor_(e);
   try {
     var body = JSON.parse(e.postData.contents);
     // The app tells us which language the person is using; everything this
@@ -156,6 +159,27 @@ function runThenReads_(reads) {
   });
 }
 
+function applePayDoor_(e) {
+  var reply;
+  try {
+    if (!isApplePayKey_(e.parameter.k)) {
+      recordFailedAccessAttempt_('apple pay');
+      reply = { ok: false, error: tr_('auth.invalidCode'), code: 'invalid_access_code' };
+    } else {
+      var data = {};
+      try { data = JSON.parse((e.postData && e.postData.contents) || '{}') || {}; } catch (parseErr) { data = {}; }
+      // A shortcut set to send a form instead of JSON: the same fields arrive as parameters.
+      ['amount', 'merchant', 'card', 'time'].forEach(function (f) { if (data[f] === undefined && e.parameter[f] !== undefined) data[f] = e.parameter[f]; });
+      reply = { ok: true, data: captureApplePay_(data) };
+    }
+  } catch (err) {
+    reply = { ok: false, error: err.message };
+  }
+  // The shortcut shows `message` as a notification (one key: Shortcuts reads a nested one awkwardly).
+  reply.message = reply.ok ? reply.data.message : reply.error;
+  return ContentService.createTextOutput(JSON.stringify(reply)).setMimeType(ContentService.MimeType.JSON);
+}
+
 function routeActionOnce_(action, payload) {
   var id = payload && payload._requestId;
   if (!id || !ONCE_ACTIONS_[action]) return routeAction(action, payload);
@@ -194,6 +218,8 @@ function routeActionSwitch_(action, payload) {
   switch (action) {
     case 'logout': return logout();
     case 'listSessions': return listSessions();
+    case 'getApplePaySetup': return getApplePaySetup();
+    case 'makeApplePayKey': return makeApplePayKey(payload);
     case 'revokeSession': return revokeSession(payload);
     case 'revokeOtherSessions': return revokeOtherSessions();
     case 'getMeta': ensureEntriesEditTrigger_(); return getMeta();   // once per copy: manual Sheet edits keep loans / repayments in step (EditSync.gs)
