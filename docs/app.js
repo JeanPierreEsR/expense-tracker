@@ -15033,6 +15033,9 @@ function changeTabs_(list) {
 // The bar the server holds (another phone may have changed it) — unless this phone has a change the server has not received yet.
 function syncNavFromMeta_() {
   if (!meta || !meta.settings || meta.fromCache_) return;   // (the snapshot kept for a fast start is older than the bar this phone remembers)
+  // My profile may have opened while the app still showed that snapshot, from before this backend could save tabs: show the card now.
+  const card = document.getElementById("my-profile-tabs-card");
+  if (card && card.hidden && meta.capabilities && meta.capabilities.navTabs) { card.hidden = false; drawTabsCard_(); }
   let unsent = false;
   try { unsent = !!localStorage.getItem("navTabsUnsent"); } catch (e) { /* storage blocked */ }
   if (unsent) { if (meta.capabilities && meta.capabilities.navTabs) queueTabsSave_(); return; }
