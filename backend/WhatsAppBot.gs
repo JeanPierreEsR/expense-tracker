@@ -62,7 +62,14 @@ function whatsappGraphSend_(body) {
   var j = {};
   try { j = JSON.parse(res.getContentText()) || {}; } catch (err) { j = {}; }
   var id = j.messages && j.messages[0] && j.messages[0].id;
-  if (id) return { ok: true, result: { message_id: id } };
+  if (id) {
+    // Any message quoting one of a transaction's messages (an answer, the Edit list, a pick list) belongs to that transaction too,
+    // so a reply to it, or a message sent right after it, is about that transaction (owner, 2026-11-16).
+    var linked = payload.context ? whatsappCardEntry_(payload.context.message_id) : '';
+    if (linked) appendRowObject('Telegram Messages', { message_id: String(id), entry_id: linked, created_at: new Date().toISOString() });
+    waSetProp_('WA_LAST_OUT', id);
+    return { ok: true, result: { message_id: id } };
+  }
   console.error('WhatsApp send failed: ' + JSON.stringify(j).slice(0, 300));
   return { ok: false, description: (j.error && j.error.message) || 'WhatsApp send failed' };
 }
@@ -119,26 +126,17 @@ function whatsappFromTelegram_(method, payload) {
     row.forEach(function (b) { if (b.callback_data) buttons.push({ id: b.callback_data, title: b.text }); });
   });
   var replyTo = payload.reply_to_message_id;
-  if (!buttons.length) return whatsappLinkAnswer_(whatsappText_(payload.text, replyTo), replyTo);
+  if (!buttons.length) return whatsappText_(payload.text, replyTo);
   var confirm = buttons.filter(function (b) { return /^confirm:/.test(b.id); })[0];
   var discard = buttons.filter(function (b) { return /^discard:/.test(b.id); })[0];
   if (confirm && discard) {
     // A card: Confirm · Edit · Discard. "It's the income I was waiting for" lives in the Edit list (WhatsApp allows 3 buttons).
     buttons = [confirm, { id: 'waedit:' + confirm.id.split(':')[1], title: tr_('whatsapp.editButton') }, discard];
   }
-  if (buttons.length <= 3) return whatsappLinkAnswer_(whatsappButtons_(payload.text, buttons, replyTo), replyTo);
-  return whatsappLinkAnswer_(whatsappList_(payload.text, tr_('whatsapp.choose'), buttons, replyTo), replyTo);
+  if (buttons.length <= 3) return whatsappButtons_(payload.text, buttons, replyTo);
+  return whatsappList_(payload.text, tr_('whatsapp.choose'), buttons, replyTo);
 }
 
-// The bot's answer about a transaction ("✅ Confirmed.", a tag question) is linked to it like its card, so a reply in words to
-// ANY of its messages edits it (owner, 2026-11-16: re-edit a confirmed transaction by replying to that message).
-function whatsappLinkAnswer_(res, replyTo) {
-  if (res && res.ok && isWamid_(replyTo)) {
-    var entryId = whatsappCardEntry_(replyTo);
-    if (entryId) appendRowObject('Telegram Messages', { message_id: String(res.result.message_id), entry_id: entryId, created_at: new Date().toISOString() });
-  }
-  return res;
-}
 
 // ---- receiving ----
 
@@ -163,6 +161,8 @@ function handleWhatsAppInbound_(p) {
 
   // No lock here: the steps below take the script lock themselves where they write (capture, conversions), and a lock taken
   // twice in one run would be released early by the inner one.
+  // "The bot's last message" is the one the person saw before writing: not the cards the catch-up is about to send.
+  p.lastTarget = whatsappLastTarget_();
   whatsappCatchUp_();
   if (p.type === 'interactive' || p.type === 'button') whatsappTap_(String(p.reply_id || ''), p);
   else if (p.type === 'text' || (p.type === undefined && p.text)) whatsappTextIn_(String(p.text || '').trim(), p);
@@ -220,13 +220,20 @@ function whatsappTextIn_(text, p) {
     }
   }
   if (p.context_id && whatsappCardEntry_(p.context_id)) return whatsappEngineMessage_(p, text, p.context_id);
+  // General help (owner, 2026-11-16): "ayuda" / "help" / "menú" not replying to a transaction says what the bot can do. As a
+  // reply to a transaction, "help" stays that transaction's reply words (the branch above).
+  if (/^\/?(?:help|ayuda|men[uú]|\?)$/i.test(text)) return whatsappText_(tr_('whatsapp.help'), p.id);
   if (/^\/?(?:pendientes|pendiente|pending|por revisar)$/i.test(text)) return whatsappSendPending_(0);
   if (/^\/?(?:nuevo|nueva|new)$/i.test(text)) return whatsappText_(tr_('whatsapp.newHow'), p.id);
   if (whatsappIsCommand_(text)) {
     // A reply to a message that is not about a transaction must not edit the newest one by surprise.
     if (p.context_id) return whatsappText_(tr_('bot.replyToACard'), p.id);
-    return whatsappEngineMessage_(p, text, null);
+    return whatsappEngineMessage_(p, text, p.lastTarget || null);
   }
+  // Not a reply, and not a purchase or a bank notice: about the transaction of the bot's last message, as on Telegram (plain words
+  // are its description there too). A text with an amount is still a new purchase: typing is how a purchase is added here.
+  var last = p.context_id ? '' : p.lastTarget;
+  if (last && !whatsappReadTyped_(text, homeCurrency_()) && !whatsappReadByRules_(text)) return whatsappEngineMessage_(p, text, last);
   var r = captureWhatsApp_(p);
   if (r.saved && r.entry) sendTelegramEntryNotification_(r.entry, r.categoryName);
   else whatsappText_(r.reply, p.id);
@@ -259,6 +266,11 @@ function whatsappTap_(id, p) {
 function whatsappCardFor_(entryId) {
   var rows = getAllRows('Telegram Messages').filter(function (m) { return m.entry_id === entryId && isWamid_(m.message_id); });
   return rows.length ? String(rows[rows.length - 1].message_id) : '';
+}
+// The bot's last message, when it is about a transaction (its message id), else ''.
+function whatsappLastTarget_() {
+  var id = waProp_('WA_LAST_OUT');
+  return id && whatsappCardEntry_(id) ? id : '';
 }
 function whatsappCardEntry_(messageId) {
   var row = getAllRows('Telegram Messages').find(function (m) { return String(m.message_id) === String(messageId); });
