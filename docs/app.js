@@ -13213,6 +13213,7 @@ function showFeedbackPrivacyScreen() {
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-feedback-privacy"; });
   document.querySelectorAll(".nav-btn").forEach((btn) => { btn.classList.toggle("active", btn.dataset.screen === "more"); });
   refreshPrivacyStatus_();
+  refreshPrivacyWa_();
   window.scrollTo(0, 0);
 }
 document.getElementById("more-feedback-privacy-btn").addEventListener("click", showFeedbackPrivacyScreen);
@@ -14888,15 +14889,19 @@ async function showMyProfileScreen() {
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
   document.getElementById("my-profile-tabs-card").hidden = !caps.navTabs;      // nor this
+  document.getElementById("my-profile-wa-card").hidden = !caps.whatsappBot;   // only where the owner offers it (WhatsApp.gs)
+  waOpenRow_(false);
   tabsOpenRow_(false);
   drawTabsCard_();
   fitsOcc_ = occupationFromSettings_(String((meta && meta.settings && meta.settings.profile) || "").split(","));
   try {
-    const [names, state] = await Promise.all([
+    const [names, state, , wa] = await Promise.all([
       callApi("getOwnerNames", {}),
       caps.profileState && caps.profile ? callApi("getProfileState", {}) : Promise.resolve(null),
-      loadDevices_().catch(() => null)   // a failure here only leaves the row without its count; opening it tries again
+      loadDevices_().catch(() => null),   // a failure here only leaves the row without its count; opening it tries again
+      caps.whatsappBot ? callApi("getWhatsAppBot", {}) : Promise.resolve(null)
     ]);
+    drawWhatsAppBot_(wa);
     renderOwnerNames_(names);
     // A saved pick shows as clicked only while its category still exists (hidden or deleted ones are not clicked any more).
     if (state && Array.isArray(state.active)) {
@@ -14913,6 +14918,63 @@ async function showMyProfileScreen() {
   }
 }
 document.getElementById("more-my-profile-btn").addEventListener("click", showMyProfileScreen);
+
+// ---- My profile → WhatsApp bot (owner's plan "WhatsApp bot for friends (Mia first)", 2026-11-16) ----
+// Offered only on copies the owner marks (capability whatsappBot). Turning it on asks the person's WhatsApp number; the copy makes
+// its own relay key and shows a code ("WA1 <number> <address> <key>") the person copies and sends the owner on WhatsApp. It waits
+// for the answer on purpose (the code it shows comes from the server), like "Add suggested categories". The privacy card shows its
+// WhatsApp section only while the bot is on (owner: privacy changes only for people who use it). No teaching (pinned for later).
+function waOpenRow_(open) {
+  document.getElementById("wa-body").hidden = !open;
+  document.getElementById("wa-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  document.getElementById("wa-chevron").textContent = open ? "⌄" : "›";
+}
+document.getElementById("wa-toggle").addEventListener("click", () => waOpenRow_(document.getElementById("wa-body").hidden));
+function refreshPrivacyWa_() {
+  const el = document.getElementById("privacy-wa");
+  if (el) el.hidden = !(meta && meta.capabilities && meta.capabilities.whatsappBotOn);
+}
+function drawWhatsAppBot_(s) {
+  const on = !!(s && s.on);
+  document.getElementById("wa-count").textContent = s ? tr(on ? "prof.waIsOn" : "prof.waIsOff") : "";
+  document.getElementById("wa-off").hidden = on;
+  document.getElementById("wa-on").hidden = !on;
+  document.getElementById("wa-error").textContent = "";
+  document.getElementById("wa-copied").textContent = "";
+  if (on) {
+    document.getElementById("wa-status").textContent = tr("prof.waOnFor", { number: "+" + s.number });
+    document.getElementById("wa-code").value = s.code || "";
+  }
+  document.getElementById("wa-nocode").hidden = !on || !!(s && s.code);   // never an empty box without a word
+  document.getElementById("wa-copy-btn").hidden = on && !(s && s.code);
+  if (s && meta && meta.capabilities) meta.capabilities.whatsappBotOn = on;
+  refreshPrivacyWa_();
+}
+document.getElementById("wa-on-btn").addEventListener("click", async () => {
+  const err = document.getElementById("wa-error");
+  const number = document.getElementById("wa-number").value.replace(/\D/g, "");
+  if (number.length < 8 || number.length > 15) { err.textContent = tr("prof.waBadNumber"); return; }
+  if (!(await askConfirmApp_(tr("prof.waConfirm"), tr("confirmBtn.waOn"), { plain: true }))) return;
+  const btn = document.getElementById("wa-on-btn");
+  btn.disabled = true;
+  err.textContent = "";
+  try { drawWhatsAppBot_(await callApi("turnOnWhatsAppBot", { number })); }
+  catch (e) { err.textContent = e.message; }
+  finally { btn.disabled = false; }
+});
+document.getElementById("wa-off-btn").addEventListener("click", async () => {
+  if (!(await askConfirmApp_(tr("prof.waOffConfirm"), tr("confirmBtn.waOff")))) return;
+  const btn = document.getElementById("wa-off-btn");
+  btn.disabled = true;
+  try { drawWhatsAppBot_(await callApi("turnOffWhatsAppBot", {})); }
+  catch (e) { document.getElementById("wa-copied").textContent = e.message; }
+  finally { btn.disabled = false; }
+});
+document.getElementById("wa-copy-btn").addEventListener("click", async () => {
+  const box = document.getElementById("wa-code"), msg = document.getElementById("wa-copied");
+  try { await navigator.clipboard.writeText(box.value); msg.textContent = tr("prof.waCopied"); }
+  catch (e) { box.focus(); box.select(); msg.textContent = tr("prof.waCopyByHand"); }
+});
 
 // ---- Apple Pay capture: the "Apple Pay" tab of More → Bank emails (owner's plan, 2026-11-15; backend/ApplePay.gs) ----
 // The iPhone's Shortcuts app sends each Apple Pay payment to this copy's address with the person's own key in the link (?k=…); the

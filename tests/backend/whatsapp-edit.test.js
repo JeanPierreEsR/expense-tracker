@@ -57,8 +57,11 @@ test("Edit taps only save: several fields, the message keeps its buttons, then o
 
 test("replies in words still confirm, and a confirmed transaction is re-edited by replying to its 'Confirmed' message", () => {
   const a = waApp();
-  a.text("18 taxi transport");
+  a.text("18 taxi");
   const [e] = a.waEntries();
+  const transport = a.rt.rows("Categories").find((c) => c.type === "expense" && c.name === "Transport");
+  a.tap(`wapick:${e.id}:category:${transport.id}`);
+  assert.equal(a.entry(e.id).status, "pending");
   a.text("amount 20", { context_id: a.cardIdOf(e.id) });
   assert.equal(a.entry(e.id).status, "confirmed", "a reply in words confirms a complete entry");
   a.tap("confirm:" + e.id, a.cardIdOf(e.id));

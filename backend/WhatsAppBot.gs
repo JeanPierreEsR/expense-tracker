@@ -157,7 +157,7 @@ function handleWhatsAppInbound_(p) {
   if (from) waSetProp_('WA_OWNER_NUMBER', from);   // the relay only forwards the owner's own number(s)
   var wasClosed = !whatsappWindowOpen_();   // before this message re-opens it: says whether the catch-up is about the window
   waSetProp_('WA_LAST_IN', Date.now());
-  if (!reviewBotIsWhatsApp_()) return captureWhatsApp_(p);   // Telegram is the review bot: capture only, the relay sends the reply
+  if (!reviewBotIsWhatsApp_()) return whatsappCaptureOnly_(p);   // Telegram is the review bot: capture only, the relay sends the reply
   if (whatsappSeen_(p.id)) return { handled: true, duplicate: true };
 
   // No lock here: the steps below take the script lock themselves where they write (capture, conversions), and a lock taken
@@ -186,7 +186,7 @@ function whatsappIsCommand_(text) {
 
 // A message that is something else than an answer to "send the new …": a command, a new purchase, a pasted bank notice.
 function whatsappIsOtherMessage_(text) {
-  return whatsappIsCommand_(text) || !!whatsappReadTyped_(text, homeCurrency_()) || !!whatsappReadByRules_(text);
+  return whatsappIsCommand_(text) || !!typedReadLine_(text, homeCurrency_()) || !!typedReadByRules_(text);
 }
 
 // The value for the field the bot asked about, or null when this message is not one (owner's plan, 2026-11-16: only a value of
@@ -234,10 +234,29 @@ function whatsappTextIn_(text, p) {
   // Not a reply, and not a purchase or a bank notice: about the transaction of the bot's last message, as on Telegram (plain words
   // are its description there too). A text with an amount is still a new purchase: typing is how a purchase is added here.
   var last = p.context_id ? '' : p.lastTarget;
-  if (last && !whatsappReadTyped_(text, homeCurrency_()) && !whatsappReadByRules_(text)) return whatsappEngineMessage_(p, text, last);
-  var r = captureWhatsApp_(p);
-  if (r.saved && r.entry) sendTelegramEntryNotification_(r.entry, r.categoryName);
-  else whatsappText_(r.reply, p.id);
+  if (last && !typedReadLine_(text, homeCurrency_()) && !typedReadByRules_(text)) return whatsappEngineMessage_(p, text, last);
+  whatsappNewPurchase_(text, p);
+}
+
+// Telegram is the review bot: WhatsApp only adds (the shared block, TypedEntry.gs); the relay sends the one reply.
+function whatsappCaptureOnly_(p) {
+  telegramTagAskAfter_ = '';
+  var r = newTypedEntry_(p, 'whatsapp');
+  telegramTagAskAfter_ = '';
+  return r;
+}
+
+// A new transaction in one message: the shared block (TypedEntry.gs), then its message with its buttons, the engine's note,
+// and the tag question when the keywords confirmed it — the same steps as Telegram's telegramNewTypedEntry_.
+function whatsappNewPurchase_(text, p) {
+  telegramTagAskAfter_ = '';
+  var r = newTypedEntry_(p, 'whatsapp');
+  if (!r.saved || !r.entry) { telegramTagAskAfter_ = ''; return whatsappText_(r.reply, p.id); }
+  var card = sendTelegramEntryNotification_(r.entry, r.categoryName);
+  var cardId = card && card.ok ? card.result.message_id : '';
+  if (r.editMessage) whatsappText_(r.editMessage, cardId || p.id);
+  if (telegramTagAskAfter_) sendTelegramTagAsk_(WA_CHAT_ID_, telegramTagAskAfter_, cardId || null);
+  telegramTagAskAfter_ = '';
 }
 
 function whatsappTap_(id, p) {

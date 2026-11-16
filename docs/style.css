@@ -3215,7 +3215,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .md-head { margin: 18px 0 2px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .md-head:first-of-type { margin-top: 8px; }
 /* More → My profile: three cards on one screen, the second and third set off by a line */
-#my-profile-fits-card, #my-profile-dates-card, #my-profile-tabs-card, #my-profile-devices-card, .fp-card { margin-top: 26px; padding-top: 6px; border-top: 1px solid var(--border); }
+#my-profile-fits-card, #my-profile-dates-card, #my-profile-tabs-card, #my-profile-wa-card, #my-profile-devices-card, .fp-card { margin-top: 26px; padding-top: 6px; border-top: 1px solid var(--border); }
 /* The one list row for hub screens (My data, My profile, How to use the app; design review batch 2): title 1rem bold,
    grey subtitle 0.8125rem, chevron on the right, at least 64px tall, text centred on the row. */
 .md-row { text-align: left; min-height: 64px; }
@@ -4040,3 +4040,6 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .tabs-grip-space { flex: none; width: 44px; }
 body.tabs-drag-on { -webkit-user-select: none; user-select: none; }
 .tabs-out-head { margin: 14px 0 4px; }
+
+/* My profile → WhatsApp bot: the setup code wraps, so the whole code is visible before copying it (2026-11-16). */
+#wa-code { white-space: pre-wrap; word-break: break-all; }

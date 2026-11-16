@@ -237,6 +237,9 @@ function routeActionSwitch_(action, payload) {
     case 'logout': return logout();
     case 'listSessions': return listSessions();
     case 'getApplePaySetup': return getApplePaySetup();
+    case 'getWhatsAppBot': return getWhatsAppBot();   // More → My profile → WhatsApp bot (WhatsApp.gs)
+    case 'turnOnWhatsAppBot': return turnOnWhatsAppBot(payload);
+    case 'turnOffWhatsAppBot': return turnOffWhatsAppBot();
     case 'makeApplePayKey': return makeApplePayKey(payload);
     case 'revokeSession': return revokeSession(payload);
     case 'revokeOtherSessions': return revokeOtherSessions();

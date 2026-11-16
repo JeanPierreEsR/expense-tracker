@@ -709,6 +709,14 @@ function handleTelegramMessage_(msg) {
     return;
   }
 
+  // A new transaction typed in one message (TypedEntry.gs, the same building block as WhatsApp; owner, 2026-11-16): not a reply,
+  // and it starts with an amount or is a pasted bank notice ("25 almuerzo, account Interbank"). Before, such a text became the
+  // last card's description.
+  if (!msg.reply_to_message && !startsWithEditKeyword_(text) && typedIsNewEntry_(text)) {
+    telegramNewTypedEntry_(msg, text);
+    return;
+  }
+
   // Not a reply to anything: assume it is about the last notification, if
   // that was an entry card still pending approval. Otherwise (an alert, a
   // confirmed/removed entry, nothing yet) ask for a direct reply.
@@ -784,6 +792,25 @@ function handleTelegramMessage_(msg) {
   if ((result.entry && !result.removed) || result.removed) {
     removeCardButtons_(msg.chat.id, targetMessageId);
   }
+}
+
+// The same steps as WhatsApp's whatsappNewPurchase_: the shared block, then the card with its buttons, the engine's note, and the
+// tag question when the keywords confirmed it.
+function telegramNewTypedEntry_(msg, text) {
+  telegramTagAskAfter_ = '';
+  var r = newTypedEntry_({ id: 'tg:' + msg.chat.id + ':' + msg.message_id, text: text, timestamp: msg.date }, 'telegram');
+  if (!r.saved || !r.entry) {
+    telegramTagAskAfter_ = '';
+    telegramApi_('sendMessage', { chat_id: msg.chat.id, text: r.reply, reply_to_message_id: msg.message_id, allow_sending_without_reply: true });
+    return;
+  }
+  var card = sendTelegramEntryNotification_(r.entry, r.categoryName);
+  var cardId = card && card.ok && card.result ? card.result.message_id : null;
+  if (r.editMessage) {
+    telegramApi_('sendMessage', { chat_id: msg.chat.id, text: r.editMessage, reply_to_message_id: cardId || msg.message_id, allow_sending_without_reply: true });
+  }
+  if (telegramTagAskAfter_) sendTelegramTagAsk_(msg.chat.id, telegramTagAskAfter_, cardId || msg.message_id);
+  telegramTagAskAfter_ = '';
 }
 
 function removeCardButtons_(chatId, messageId) {
