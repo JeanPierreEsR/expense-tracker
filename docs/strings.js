@@ -591,6 +591,8 @@
     "nav.projectionsTab": { en: "Projections", es: "Proyec." },
     "nav.loans": { en: "Loans", es: "Préstamos" },
     "nav.more": { en: "More", es: "Más" },
+    "nav.tripsTab": { en: "Trips", es: "Viajes" },               // tabs the person can add (More → My profile → My tabs); the full name is the spoken name
+    "nav.programmedTab": { en: "Program.", es: "Program." },   // ("Programmed" is 4px too wide at 375px)
 
     // ---- currency ----
     "currency.choose": { en: "Choose a currency", es: "Elige una moneda" },
@@ -3308,6 +3310,9 @@
     "spot.d.s6": { en: "This is the last question before deleting. A copy is kept for 30 days, so you can bring them back. Tap Delete to remove both.", es: "Esta es la última pregunta antes de eliminar. Se guarda una copia por 30 días, así que puedes restaurarlos. Toca Eliminar para quitar los dos." },
     "spot.d.s8": { en: "Both entries left Home. For 10 seconds a message with Undo appears at the bottom, which brings them back at once. Now let's find them in Recently deleted: tap More.", es: "Los dos movimientos salieron de Inicio. Durante 10 segundos aparece abajo un mensaje con Deshacer, que los trae de vuelta al instante. Ahora los buscaremos en Eliminados recientemente: toca Más." },
     "spot.d.s9": { en: "Tap My data.", es: "Toca Mis datos." },
+    "spot.d.s8tab": { en: "Both entries left Home. For 10 seconds a message with Undo appears at the bottom, which brings them back at once. Now let's find them in Recently deleted: tap My data.", es: "Los dos movimientos salieron de Inicio. Durante 10 segundos aparece abajo un mensaje con Deshacer, que los trae de vuelta al instante. Ahora los buscaremos en Eliminados recientemente: toca Mis datos." },
+    "tabs.spotHidden": { en: "{name} is not in your tab bar: tap More, then {name}.", es: "{name} no está en tu barra de pestañas: toca Más y luego {name}." },
+    "tabs.spotRow": { en: "Tap {name}.", es: "Toca {name}." },
     "spot.d.s10": { en: "Tap Recently deleted.", es: "Toca Eliminados recientemente." },
     "spot.d.s12": { en: "Here is what you deleted. Entries wait here for 30 days. Tap Restore next to the first “Practice snack” to bring back just that one.", es: "Aquí está lo que eliminaste. Los movimientos esperan aquí 30 días. Toca Restaurar junto al primer “Lonche de práctica” para traer de vuelta solo ese." },
     "spot.d.s13": { en: "The restored entry went back to Home. The other is still waiting here. Tap “Delete for good” to remove it forever.", es: "El movimiento restaurado volvió a Inicio. El otro sigue esperando aquí. Toca “Eliminar para siempre” para quitarlo definitivamente." },
@@ -3501,6 +3506,17 @@
     "prof.title": { en: "My profile", es: "Mi perfil" },
     "prof.fitsHead": { en: "What fits me", es: "Lo que va conmigo" },
     "prof.datesHead": { en: "How I type dates", es: "Cómo escribo las fechas" },
+    "prof.tabsHead": { en: "My tabs", es: "Mis pestañas" },
+    "prof.tabsHint": { en: "Choose the tabs at the bottom of the screen and their order. Home and More always stay; a tab you take out is still in More.", es: "Elige las pestañas de la parte de abajo de la pantalla y su orden. Inicio y Más siempre se quedan; una pestaña que quitas sigue en Más." },
+    "prof.tabsCount": { en: "{n} tabs in the bar", es: "{n} pestañas en la barra" },
+    "prof.tabsFixed": { en: "Always in the bar", es: "Siempre en la barra" },
+    "prof.tabsLast": { en: "Always in the bar, always last", es: "Siempre en la barra, siempre al final" },
+    "prof.tabsOut": { en: "Not in the bar (in More)", es: "Fuera de la barra (en Más)" },
+    "prof.tabsFull": { en: "The bar holds 6 tabs at most. Take one out first.", es: "La barra tiene como máximo 6 pestañas. Quita una primero." },
+    "prof.tabsShow": { en: "Show {name} in the bar", es: "Mostrar {name} en la barra" },
+    "prof.tabsUp": { en: "Move {name} to the left", es: "Mover {name} a la izquierda" },
+    "prof.tabsDown": { en: "Move {name} to the right", es: "Mover {name} a la derecha" },
+    "prof.tabsReset": { en: "Back to the usual tabs", es: "Volver a las pestañas de siempre" },
     "prof.datesHint": { en: "Sets the order of dates in the app and in what you type to the Telegram bot. The month always shows as a word.", es: "Se usa para el orden en que se escriben las fechas en la app y para las fechas que escribes al bot de Telegram. El mes siempre se muestra con letras." },
     "prof.datesNow.dmy": { en: "Day first", es: "Día primero" },
     "prof.datesNow.mdy": { en: "Month first", es: "Mes primero" },

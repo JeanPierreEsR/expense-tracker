@@ -100,6 +100,22 @@ function audit() {
         await page.evaluate((t) => document.querySelector(`.nav-btn[data-screen="${t}"]`).click(), tab);
         await look(tab === "entries" ? "Home" : tab);
       }
+      // The tab bar with every choice the person can make (More → My profile → My tabs, owner 2026-11-15): Home, More and any 4 of the
+      // other 7. No label may be wider than its own button (a label spilling into its neighbour is not caught by the audit above).
+      for (const f of await page.evaluate(() => {
+        const out = [];
+        const others = NAV_CHOICES_.filter((t) => t !== "entries");
+        const pick = (from, k) => k === 0 ? [[]] : from.flatMap((t, i) => pick(from.slice(i + 1), k - 1).map((r) => [t, ...r]));
+        for (const combo of pick(others, 4)) {
+          setNavTabs_(["entries", ...combo]);
+          for (const b of document.querySelectorAll("#bottom-nav .nav-btn:not([hidden])")) {
+            const label = b.querySelector("span:last-child"), bw = b.getBoundingClientRect(), lw = label.getBoundingClientRect();
+            if (lw.width > bw.width + 0.5) out.push(`tab bar [${combo.join(", ")}]: "${label.textContent}" is ${Math.round(lw.width)}px in a ${Math.round(bw.width)}px tab`);
+          }
+        }
+        setNavTabs_(NAV_DEFAULT_);
+        return [...new Set(out)];
+      })) findings.push(`[${lang}] ${f}`);
       // The new-entry sheet.
       await page.evaluate(() => document.querySelector('.nav-btn[data-screen="entries"]').click());
       await settle();

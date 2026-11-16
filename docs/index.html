@@ -793,6 +793,23 @@
     <div id="screen-more" class="screen" hidden>
       <div class="card more-group">
         <h2 data-i18n="nav.more">More</h2>
+          <!-- A main tab the person took out of the bar (More → My profile → My tabs) is reached from here. -->
+          <button type="button" class="more-list-item" id="more-tab-overview" hidden>
+            <span class="row-icon" data-icon="chart" aria-hidden="true"></span><span data-i18n="nav.overview">Overview</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-tab-budgets" hidden>
+            <span class="row-icon" data-icon="target" aria-hidden="true"></span><span data-i18n="nav.budgets">Budgets</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-tab-projections" hidden>
+            <span class="row-icon" data-icon="trend" aria-hidden="true"></span><span data-i18n="nav.projections">Projections</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-tab-loans" hidden>
+            <span class="row-icon" data-icon="swap" aria-hidden="true"></span><span data-i18n="nav.loans">Loans</span>
+            <span class="more-list-chevron">›</span>
+          </button>
           <button type="button" class="more-list-item" id="more-recurring-btn">
             <span class="row-icon" data-icon="calendar" aria-hidden="true"></span><span data-i18n="more.programmed">Programmed income/expenses</span>
             <span class="more-list-chevron">›</span>
@@ -1502,6 +1519,19 @@
             </div>
           </div>
 
+          <div id="my-profile-tabs-card">
+            <button type="button" class="more-list-item md-row fits-toggle" id="tabs-toggle" aria-expanded="false" aria-controls="tabs-body">
+              <span><span class="md-title" data-i18n="prof.tabsHead">My tabs</span><span class="hint md-sub" id="tabs-count"></span></span>
+              <span class="more-list-chevron" id="tabs-chevron">›</span>
+            </button>
+            <div id="tabs-body" hidden>
+              <p class="hint" data-i18n="prof.tabsHint">Choose the tabs at the bottom of the screen and their order. Home and More always stay; a tab you take out is still in More.</p>
+              <div id="tabs-list"></div>
+              <p class="hint" id="tabs-msg" role="status"></p>
+              <button type="button" class="secondary-btn" id="tabs-reset-btn" data-i18n="prof.tabsReset">Back to the usual tabs</button>
+            </div>
+          </div>
+
           <div id="my-profile-devices-card">
             <button type="button" class="more-list-item md-row fits-toggle" id="devices-toggle" aria-expanded="false" aria-controls="devices-body">
               <span><span class="md-title" data-i18n="devices.title">Where I'm signed in</span><span class="hint md-sub" id="devices-count"></span></span>
@@ -1734,6 +1764,16 @@
     </button>
     <button type="button" class="nav-btn" data-screen="loans">
       <span class="nav-icon" data-icon="swap" aria-hidden="true"></span><span data-i18n="nav.loans">Loans</span>
+    </button>
+    <!-- Shown only when the person puts them in the bar (More → My profile → My tabs; applyNav_ in app.js). -->
+    <button type="button" class="nav-btn" data-screen="trips" data-i18n-aria-label="more.trips" hidden>
+      <span class="nav-icon" data-icon="map" aria-hidden="true"></span><span data-i18n="nav.tripsTab">Trips</span>
+    </button>
+    <button type="button" class="nav-btn" data-screen="recurring" data-i18n-aria-label="more.programmed" hidden>
+      <span class="nav-icon" data-icon="calendar" aria-hidden="true"></span><span data-i18n="nav.programmedTab">Program.</span>
+    </button>
+    <button type="button" class="nav-btn" data-screen="my-data" data-i18n-aria-label="more.myData" hidden>
+      <span class="nav-icon" data-icon="database" aria-hidden="true"></span><span data-i18n="more.myData">My data</span>
     </button>
     <button type="button" class="nav-btn" data-screen="more">
       <span class="nav-icon" data-icon="dots" aria-hidden="true"></span><span data-i18n="nav.more">More</span>

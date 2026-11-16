@@ -1387,6 +1387,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
   // The order dates are written in (More → My profile → How I type dates); nothing chosen = the language decides, as before.
   if (meta.settings) I18n.setDateOrder(String(meta.settings.date_format || "").toLowerCase());
+  syncNavFromMeta_();   // the tabs this person chose (More → My profile → My tabs), on every phone
   // A friend's copy remembers the quick currency buttons they chose (Settings favorite_currencies) on a new phone too.
   try {
     const fav = meta.settings && meta.settings.favorite_currencies;
@@ -8929,7 +8930,7 @@ function stripEditMarks_(screenId) {
 // Each bottom tab keeps its own place (owner, 2026-11-09). The whole app scrolls as one page, so a short tab pulled the shared position up and a long tab
 // came back somewhere else. Leaving a tab notes where it was; tapping back puts it there, and keeps it there while the tab's refresh redraws it (the page
 // can be too short at first), until the person touches the screen. In memory only: reopening the app starts at the top.
-const TAB_SCREENS_ = ["entries", "overview", "budgets", "projections", "loans", "more"];
+const TAB_SCREENS_ = ["entries", "overview", "budgets", "projections", "loans", "trips", "recurring", "my-data", "more"];
 const tabScrollY_ = {};
 let tabScrollHoldEnd_ = null;
 function endTabScrollHold_() { if (tabScrollHoldEnd_) tabScrollHoldEnd_(); }
@@ -9106,32 +9107,124 @@ function refreshCurrentPeriodScreen() {
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
 const MORE_SUBSCREENS = ["feedback-privacy", "recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
-let moreReturn = null; // { name, scrollY } of the More sub-screen left behind, or null
+// ---- The tab bar: the person chooses its tabs (owner, 2026-11-15; More → My profile → My tabs, specs/home-tab.md § My tabs) ----
+// Home is always there (its place can change); More is always there and always last; up to 6 tabs in all. A main screen taken out of the bar
+// is a row at the top of More; Trips, Programmed items and My data, put in the bar, leave More and their screens lose the Back to More.
+// Saved per person (Settings `nav_tabs`, getMeta) and remembered on the phone (`navTabs`) so the bar is right before the server answers.
+const NAV_DEFAULT_ = ["entries", "overview", "budgets", "projections", "loans"];
+const NAV_CHOICES_ = ["entries", "overview", "budgets", "projections", "loans", "trips", "recurring", "my-data"];
+const NAV_MAX_ = 6;   // More included
+const NAV_MAIN_ = ["overview", "budgets", "projections", "loans"];   // the screens that have a row in More while out of the bar
+// A tab of the bar also stands for the screens opened from it (they keep it highlighted, and tapping it again comes back to them).
+const NAV_GROUPS_ = { trips: ["trips", "trip-detail"], recurring: ["recurring"], "my-data": ["my-data", "statements", "export", "tidy", "deleted-entries"] };
+const NAV_NAMES_ = { entries: "nav.home", overview: "nav.overview", budgets: "nav.budgets", projections: "nav.projections", loans: "nav.loans",
+  trips: "more.trips", recurring: "more.programmed", "my-data": "more.myData", more: "nav.more" };
+const NAV_ICONS_ = { entries: "home", overview: "chart", budgets: "target", projections: "trend", loans: "swap", trips: "map", recurring: "calendar", "my-data": "database", more: "dots" };
+let navTabs_ = NAV_DEFAULT_.slice();
 
+// Any list becomes a valid bar: known tabs once each, Home kept where it was (added first if missing), at most 5 before More.
+function navClean_(list) {
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach((t) => { if (NAV_CHOICES_.includes(t) && !out.includes(t)) out.push(t); });
+  const at = Math.max(0, out.indexOf("entries"));
+  const rest = out.filter((t) => t !== "entries").slice(0, NAV_MAX_ - 2);
+  rest.splice(Math.min(at, rest.length), 0, "entries");
+  return rest;
+}
+function navInBar_(screen) { return screen === "more" || navTabs_.includes(screen); }
+// The tab a screen belongs to: its own, the bar tab that opened it, else More (for More's screens); null leaves the bar as it is.
+function navTabFor_(screen) {
+  if (navInBar_(screen)) return screen;
+  const group = Object.keys(NAV_GROUPS_).find((t) => navTabs_.includes(t) && NAV_GROUPS_[t].includes(screen));
+  if (group) return group;
+  return MORE_SUBSCREENS.includes(screen) || NAV_CHOICES_.includes(screen) ? "more" : null;
+}
+function syncNavActive_() {
+  const open = document.querySelector(".screen:not([hidden])");
+  const tab = open ? navTabFor_(open.id.replace(/^screen-/, "")) : null;
+  if (!tab) return;
+  document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.screen === tab));
+}
+// Many screens set the highlight themselves (to More); this puts it on the right tab whichever screen opens, however it was opened.
+{
+  let queued = false;
+  const watch = new MutationObserver(() => { if (!queued) { queued = true; queueMicrotask(() => { queued = false; syncNavActive_(); }); } });
+  document.querySelectorAll(".screen").forEach((el) => watch.observe(el, { attributes: true, attributeFilter: ["hidden"] }));
+}
+function applyNav_() {
+  const nav = document.getElementById("bottom-nav");
+  const more = nav.querySelector('.nav-btn[data-screen="more"]');
+  nav.querySelectorAll(".nav-btn").forEach((b) => { if (b !== more) b.hidden = !navTabs_.includes(b.dataset.screen); });
+  navTabs_.forEach((t) => { const b = nav.querySelector(`.nav-btn[data-screen="${t}"]`); if (b) nav.insertBefore(b, more); });
+  NAV_MAIN_.forEach((t) => { document.getElementById("more-tab-" + t).hidden = navTabs_.includes(t); });
+  [["trips", "more-trips-btn", "trips-back-btn"], ["recurring", "more-recurring-btn", "recurring-back-btn"], ["my-data", "more-my-data-btn", "my-data-back-btn"]].forEach(([t, row, back]) => {
+    document.getElementById(row).hidden = navTabs_.includes(t);
+    document.getElementById(back).hidden = navTabs_.includes(t);   // the screen is a tab now: there is no More to go back to
+  });
+  syncNavActive_();
+}
+function setNavTabs_(list) {
+  navTabs_ = navClean_(list);
+  try { localStorage.setItem("navTabs", navTabs_.join(",")); } catch (e) { /* storage blocked */ }
+  applyNav_();
+}
+try { const kept = localStorage.getItem("navTabs"); if (kept) navTabs_ = navClean_(kept.split(",")); } catch (e) { /* storage blocked */ }
+applyNav_();
+NAV_MAIN_.forEach((t) => document.getElementById("more-tab-" + t).addEventListener("click", () => { showScreen(t); window.scrollTo(0, 0); }));
+
+// Opens a tab's own screen. Trips, Programmed items and My data refresh through their own functions (showScreen first closes any Edit mode).
+function showTab_(t) {
+  showScreen(t);
+  if (t === "trips") showTripsScreen();
+  else if (t === "recurring") showRecurringScreen();
+  else if (t === "my-data") showMyDataScreen();
+}
+
+// A tutorial step "tap <main tab>": as written while the tab is in the bar; otherwise two steps, More and then the screen's row there (the
+// step's last sentence, "Tap Overview.", is replaced by where to find it).
+function tabSteps_(screen, step) {
+  if (navInBar_(screen)) return [step];
+  const name = () => tr(NAV_NAMES_[screen]);
+  const row = "#more-tab-" + screen;
+  const first = Object.assign({}, step, {
+    target: '.nav-btn[data-screen="more"]', tap: '.nav-btn[data-screen="more"]',
+    text: (fix) => step.text(fix).replace(/[^.!?]*[.!?]\s*$/, "").trim() + " " + tr("tabs.spotHidden", { name: name() })
+  });
+  delete first.after;
+  return [first, { target: row, text: () => tr("tabs.spotRow", { name: name() }), tap: row, after: step.after, wait: step.wait, poke: step.poke,
+    before: async () => {
+      await sleep(300);
+      if (!document.getElementById("screen-" + screen).hidden) return false;
+      if (document.getElementById("screen-more").hidden) showScreen("more");   // More had kept one of its own screens open
+    } }];
+}
+
+// A tab left on one of its own screens (a More screen, a trip, a statement) comes back to that screen and scroll position when tapped again,
+// with no refresh, so anything half-done there is still there. Tapping the tab while on one of its screens goes to its first screen.
+const tabReturn_ = {};   // tab → { name, scrollY }
 document.querySelectorAll(".nav-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     const target = btn.dataset.screen;
     const visible = Array.from(document.querySelectorAll(".screen")).find((el) => !el.hidden);
     const visibleName = visible ? visible.id.replace(/^screen-/, "") : null;
-    if (target !== "more" && MORE_SUBSCREENS.includes(visibleName)) {
-      moreReturn = { name: visibleName, scrollY: window.scrollY };
-    } else if (target !== "more" && visibleName === "more") {
-      moreReturn = null;
+    const from = visibleName ? navTabFor_(visibleName) : null;
+    if (from && from !== target) {
+      if (visibleName !== from) tabReturn_[from] = { name: visibleName, scrollY: window.scrollY };
+      else delete tabReturn_[from];
     }
-    if (target === "more" && moreReturn && !MORE_SUBSCREENS.includes(visibleName) && visibleName !== "more") {
-      const { name, scrollY } = moreReturn;
-      moreReturn = null;
-      rememberTabScroll_(name);
-      document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== `screen-${name}`; });
-      document.querySelectorAll(".nav-btn").forEach((b) => {
-        b.classList.toggle("active", b.dataset.screen === "more");
-      });
-      window.scrollTo(0, scrollY);
+    const back = from !== target ? tabReturn_[target] : null;
+    delete tabReturn_[target];
+    if (back && navTabFor_(back.name) === target) {
+      rememberTabScroll_(back.name);
+      if (NAV_MAIN_.includes(back.name)) showScreen(back.name);   // (a main screen opened from More: it needs its period selector back)
+      else document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== `screen-${back.name}`; });
+      syncNavActive_();
+      window.scrollTo(0, back.scrollY);
       return;
     }
-    showScreen(target);
-    // Tapping the tab already open, or More from one of its own sub-screens (which goes to the list), is not a return to a tab.
-    if (target !== visibleName && !(target === "more" && MORE_SUBSCREENS.includes(visibleName))) restoreTabScroll_(target);
+    showTab_(target);
+    // Tapping the tab already open, or a tab from one of its own screens (which goes to its first screen), is not a return to a tab.
+    if (target !== visibleName && from !== target) restoreTabScroll_(target);
   });
 });
 
@@ -14790,6 +14883,9 @@ async function showMyProfileScreen() {
   devicesOpenRow_(false);
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
+  document.getElementById("my-profile-tabs-card").hidden = !caps.navTabs;      // nor this
+  tabsOpenRow_(false);
+  drawTabsCard_();
   fitsOcc_ = occupationFromSettings_(String((meta && meta.settings && meta.settings.profile) || "").split(","));
   try {
     const [names, state] = await Promise.all([
@@ -14821,6 +14917,90 @@ function drawProfileDates_() {
   document.getElementById("my-profile-dates-example").textContent = tr("prof.datesExample", { example: I18n.fmtDateAs(new Date(2026, 8, 25), now) });
   document.getElementById("dates-count").textContent = tr("prof.datesNow." + now);
 }
+// ---- My tabs (owner, 2026-11-15): which tabs the bar shows and in what order. Each change shows in the bar at once and is saved a moment
+// later (Settings `nav_tabs`, saveNavTabs); until the server has it, `navTabsUnsent` keeps a reload from putting the old bar back. ----
+const TABS_ARROW_ = { up: '<path d="M18 15l-6-6-6 6"/>', down: '<path d="M6 9l6 6 6-6"/>' };
+function tabsArrowSvg_(dir) { return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TABS_ARROW_[dir]}</svg>`; }
+function drawTabsCard_() {
+  const list = document.getElementById("tabs-list");
+  if (!list) return;
+  const row = (t, inBar, i) => {
+    const name = tr(NAV_NAMES_[t]);
+    const note = t === "entries" ? tr("prof.tabsFixed") : t === "more" ? tr("prof.tabsLast") : "";
+    const check = t === "entries" || t === "more" ? ""
+      : `<input type="checkbox" data-tab-show="${t}" ${inBar ? "checked" : ""} aria-label="${escapeHtml(tr("prof.tabsShow", { name }))}">`;
+    const arrows = inBar && t !== "more"
+      ? `<button type="button" class="icon-btn" data-tab-move="up" data-tab="${t}" ${i === 0 ? "disabled" : ""} aria-label="${escapeHtml(tr("prof.tabsUp", { name }))}">${tabsArrowSvg_("up")}</button>`
+        + `<button type="button" class="icon-btn" data-tab-move="down" data-tab="${t}" ${i === navTabs_.length - 1 ? "disabled" : ""} aria-label="${escapeHtml(tr("prof.tabsDown", { name }))}">${tabsArrowSvg_("down")}</button>`
+      : "";
+    return `<div class="tabs-row"><span class="row-icon" aria-hidden="true">${lineIcon_(NAV_ICONS_[t])}</span>`
+      + `<span class="tabs-row-name">${escapeHtml(name)}${note ? `<span class="hint">${escapeHtml(note)}</span>` : ""}</span>${check}${arrows}</div>`;
+  };
+  const out = NAV_CHOICES_.filter((t) => !navTabs_.includes(t));
+  list.innerHTML = `<div>${navTabs_.map((t, i) => row(t, true, i)).join("")}${row("more", true, -1)}</div>`
+    + (out.length ? `<h3 class="tabs-out-head">${escapeHtml(tr("prof.tabsOut"))}</h3><div>${out.map((t) => row(t, false, -1)).join("")}</div>` : "");
+  document.getElementById("tabs-count").textContent = tr("prof.tabsCount", { n: navTabs_.length + 1 });
+  document.getElementById("tabs-reset-btn").hidden = navTabs_.join(",") === NAV_DEFAULT_.join(",");
+}
+function tabsOpenRow_(open) {
+  document.getElementById("tabs-body").hidden = !open;
+  document.getElementById("tabs-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  document.getElementById("tabs-chevron").textContent = open ? "⌄" : "›";
+}
+let tabsSaveTimer_ = null;
+function queueTabsSave_() {
+  try { localStorage.setItem("navTabsUnsent", "1"); } catch (e) { /* storage blocked */ }
+  clearTimeout(tabsSaveTimer_);
+  tabsSaveTimer_ = setTimeout(async () => {
+    const tabs = navTabs_.slice();
+    try {
+      await callApi("saveNavTabs", { tabs });
+      if (meta && meta.settings) meta.settings.nav_tabs = tabs.join(",");
+      if (tabs.join(",") === navTabs_.join(",")) { try { localStorage.removeItem("navTabsUnsent"); } catch (e) { /* storage blocked */ } }
+    } catch (e) {
+      if (e && e.code === "unreachable") return;   // no connection: kept as unsent, sent again when the app next loads its lists
+      try { localStorage.removeItem("navTabsUnsent"); } catch (e2) { /* storage blocked */ }
+      appMessage_(tr("common.notSaved", { error: e.message }));
+    }
+  }, 700);
+}
+function changeTabs_(list) {
+  document.getElementById("tabs-msg").textContent = "";
+  setNavTabs_(list);
+  drawTabsCard_();
+  queueTabsSave_();
+}
+// The bar the server holds (another phone may have changed it) — unless this phone has a change the server has not received yet.
+function syncNavFromMeta_() {
+  if (!meta || !meta.settings || meta.fromCache_) return;   // (the snapshot kept for a fast start is older than the bar this phone remembers)
+  let unsent = false;
+  try { unsent = !!localStorage.getItem("navTabsUnsent"); } catch (e) { /* storage blocked */ }
+  if (unsent) { if (meta.capabilities && meta.capabilities.navTabs) queueTabsSave_(); return; }
+  const saved = String(meta.settings.nav_tabs || "");
+  const list = saved ? navClean_(saved.split(",")) : NAV_DEFAULT_.slice();
+  if (list.join(",") !== navTabs_.join(",")) { setNavTabs_(list); drawTabsCard_(); }
+}
+document.getElementById("tabs-toggle").addEventListener("click", () => tabsOpenRow_(document.getElementById("tabs-body").hidden));
+document.getElementById("tabs-list").addEventListener("change", (e) => {
+  const box = e.target.closest("[data-tab-show]");
+  if (!box) return;
+  const t = box.dataset.tabShow;
+  if (!box.checked) { changeTabs_(navTabs_.filter((x) => x !== t)); return; }
+  if (navTabs_.length >= NAV_MAX_ - 1) { box.checked = false; document.getElementById("tabs-msg").textContent = tr("prof.tabsFull"); return; }
+  changeTabs_(navTabs_.concat([t]));
+});
+document.getElementById("tabs-list").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-tab-move]");
+  if (!btn || btn.disabled) return;
+  const list = navTabs_.slice(), i = list.indexOf(btn.dataset.tab), j = btn.dataset.tabMove === "up" ? i - 1 : i + 1;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  changeTabs_(list);
+  // The same arrow stays under the finger's focus after the redraw, so several taps in a row keep moving the same tab.
+  const again = document.querySelector(`[data-tab-move="${btn.dataset.tabMove}"][data-tab="${btn.dataset.tab}"]`);
+  if (again && !again.disabled) again.focus();
+});
+document.getElementById("tabs-reset-btn").addEventListener("click", () => changeTabs_(NAV_DEFAULT_.slice()));
 // The "How I type dates" row opens and closes its choices (closed each time the screen opens, like My names and What fits me).
 function datesOpenRow_(open) {
   document.getElementById("dates-body").hidden = !open;
@@ -15634,10 +15814,13 @@ function practiceDSteps_() {
     { key: "del", target: "#entries-delete-selected-btn", text: (fix) => tr(fix ? "spot.d.s5fix" : "spot.d.s5"), tap: "#entries-delete-selected-btn" },
     { target: "#entries-bulk-go", text: () => tr("spot.d.s6"), tap: "#entries-bulk-go", wait: 20000 },
     // (The note about the 10-second Undo is part of the next step's text. The rows already show "Deleting…"; the server's answer is awaited only where it is needed, at the batch.)
-    { target: '.nav-btn[data-screen="more"]', text: () => tr("spot.d.s8"), tap: '.nav-btn[data-screen="more"]' },
+    // My data may be a tab of its own (More → My profile → My tabs): then it is tapped instead of More, and the My data row step drops out.
+    navInBar_("my-data")
+      ? { target: '.nav-btn[data-screen="my-data"]', text: () => tr("spot.d.s8tab"), tap: '.nav-btn[data-screen="my-data"]' }
+      : { target: '.nav-btn[data-screen="more"]', text: () => tr("spot.d.s8"), tap: '.nav-btn[data-screen="more"]' },
     // More remembers the sub-screen it was left on, so usually this already shows Recently deleted and the next two steps drop out.
     { target: "#more-my-data-btn", text: () => tr("spot.d.s9"), tap: "#more-my-data-btn",
-      before: async () => { await sleep(500); return !deletedShown() && el("screen-my-data").hidden; } },
+      before: async () => { await sleep(500); return !navInBar_("my-data") && !deletedShown() && el("screen-my-data").hidden; } },
     { target: "#more-deleted-btn", text: () => tr("spot.d.s10"), tap: "#more-deleted-btn",
       before: async () => { await sleep(150); return !deletedShown(); } },
     { target: restoreBtn, text: () => tr("spot.d.s12"), until: () => !!(practiceD_ && (practiceD_.restored || practiceD_.restoreTapped)), wait: 20000, poke: pokeDeleted,
@@ -25665,7 +25848,7 @@ function practiceSteps_() {
       text: () => { const err = lastError("#form-error"); return err ? tr("spot.p.s10err", { error: err }) : tr("spot.p.s10"); },
       before: async () => { document.getElementById("form-error").textContent = ""; },   // an old message from before the fix
       until: () => !!(practice_ && practice_.entryId) },
-    { target: '.nav-btn[data-screen="loans"]', text: () => tr("spot.p.s11"), tap: '.nav-btn[data-screen="loans"]', wait: 15000 },
+    ...tabSteps_("loans", { target: '.nav-btn[data-screen="loans"]', text: () => tr("spot.p.s11"), tap: '.nav-btn[data-screen="loans"]', wait: 15000 }),
     { target: practiceFriendRow_, text: () => tr("spot.p.s12"), tap: practiceFriendRow_, wait: 45000,
       poke: () => { if (practiceSaveFailed_()) return; if (!document.getElementById("screen-loans").hidden) refreshLoans().catch(() => {}); } },
     // The friend's page is explained in this step's own sentence (it was a look-only step before).
@@ -27398,11 +27581,11 @@ function practiceISteps_() {
       before: async () => { document.getElementById("form-error").textContent = ""; describe("spot.i.deposit")(); },
       until: () => !!(practiceI_ && practiceI_.depositId) },
     // ---- where the flows show (the withdrawal and hide parts went: owner's plan 2026-11-05; the cleanup removes everything) ----
-    { target: '.nav-btn[data-screen="overview"]', text: () => tr("spot.i.ov"), tap: '.nav-btn[data-screen="overview"]',
+    ...tabSteps_("overview", { target: '.nav-btn[data-screen="overview"]', text: () => tr("spot.i.ov"), tap: '.nav-btn[data-screen="overview"]',
       before: async () => {
         if (practiceISaveFailed_()) return false;
         tipWaitIdle_(40000).then(() => preloadOverview_());   // Overview's data is fetched once the deposit has landed, before the tap if possible
-      } },
+      } }),
     { target: "#investments-card", text: () => tr("spot.i.o1"), button: () => tr("spot.i.finish"), wait: 30000,
       before: async () => {
         if (practiceISaveFailed_()) return false;
@@ -27583,8 +27766,8 @@ function practiceASteps_() {
       text: () => { const err = (document.getElementById("pm-form-error").textContent || "").trim(); return err ? tr("spot.a.s5err", { error: err }) : tr("spot.a.s5"); },
       before: async () => { fillForm(); document.getElementById("pm-form-error").textContent = ""; },
       until: () => !pmOpen() },
-    { target: '.nav-btn[data-screen="overview"]', text: () => tr("spot.a.s7"), tap: '.nav-btn[data-screen="overview"]',
-      poke: () => { if (practiceAFailed_) Spotlight.stop("skipped"); } },   // the server refused the account (an alert already said why): clean up and stop
+    ...tabSteps_("overview", { target: '.nav-btn[data-screen="overview"]', text: () => tr("spot.a.s7"), tap: '.nav-btn[data-screen="overview"]',
+      poke: () => { if (practiceAFailed_) Spotlight.stop("skipped"); } }),   // the server refused the account (an alert already said why): clean up and stop
     { target: "#add-balance-btn", text: () => tr("spot.a.s8"), tap: "#add-balance-btn", wait: 45000,
       before: async () => {   // the account must have reached the server (it is picked next), and Overview must have settled (its cards move the button)
         const t0 = Date.now();
