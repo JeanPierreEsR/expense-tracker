@@ -35,7 +35,7 @@ test("closed until the relay key is set, and only the right key gets in", () => 
 
 test("typed lines: currency signs, codes, words and income", () => {
   const { rt } = freshApp({ small: true });
-  const read = (t) => JSON.parse(JSON.stringify(rt.run(`whatsappReadTyped_(${JSON.stringify(t)}, "PEN")`)));
+  const read = (t) => JSON.parse(JSON.stringify(rt.run(`typedReadLine_(${JSON.stringify(t)}, "PEN")`)));
   assert.deepEqual(read("S/ 12.50 taxi"), { type: "expense", amount: 12.5, currency: "PEN", description: "Taxi" });
   assert.deepEqual(read("USD 10 Netflix"), { type: "expense", amount: 10, currency: "USD", description: "Netflix" });
   assert.deepEqual(read("US$4,99 app"), { type: "expense", amount: 4.99, currency: "USD", description: "App" });
@@ -45,13 +45,18 @@ test("typed lines: currency signs, codes, words and income", () => {
   assert.equal(read("0 nada"), null);
 });
 
-test("a typed category name is used", () => {
+test("a category is set only with its keyword after a comma, never from a word in the description", () => {
   const { rt } = freshApp({ small: true });
   rt.svc.props.set("WHATSAPP_RELAY_SECRET", SECRET);
   const cat = rt.rows("Categories").find((c) => c.type === "expense" && c.name === "Transport");
   assert.ok(cat, "seed has Transport");
   send(rt, { id: "m2", text: "18 taxi transport", timestamp: now() });
-  assert.equal(waRows(rt)[0].category_id, cat.id);
+  assert.equal(waRows(rt)[0].description, "Taxi transport");
+  assert.notEqual(waRows(rt)[0].category_id, cat.id);
+  const res = send(rt, { id: "m3", text: "19 bus, category transport", timestamp: now() });
+  const bus = waRows(rt).find((e) => e.description === "Bus");
+  assert.equal(bus.category_id, cat.id);
+  assert.ok(res.data.reply, "the relay still gets one reply to send");
 });
 
 test("Meta sending the same message twice saves it once", () => {

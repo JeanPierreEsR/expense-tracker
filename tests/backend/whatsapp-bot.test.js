@@ -66,9 +66,11 @@ test("Confirm needs a category first; with one it confirms", () => {
   assert.equal(answer.text.body, a.rt.run("tr_('bot.needCategoryFirst')"));
   assert.equal(answer.context.message_id, card, "the answer quotes the card");
 
-  a.text("18 taxi transport");
+  a.text("18 taxi");
   const taxi = a.waEntries().find((x) => x.description.startsWith("Taxi"));
-  assert.ok(taxi.category_id);
+  const transport = a.rt.rows("Categories").find((c) => c.type === "expense" && c.name === "Transport");
+  a.tap(`wapick:${taxi.id}:category:${transport.id}`);   // an Edit pick: saved, still waiting
+  assert.equal(a.rt.rows("Entries").find((x) => x.id === taxi.id).status, "pending");
   a.tap("confirm:" + taxi.id, a.cardIdOf(taxi.id));
   assert.equal(a.rt.rows("Entries").find((x) => x.id === taxi.id).status, "confirmed");
   // A late second tap on the same card: the engine's own answer, nothing changes.
