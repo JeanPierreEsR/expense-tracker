@@ -519,6 +519,7 @@ function handleTelegramCallback_(cb) {
   // the first reply is slow) can't confirm again — and answer a repeat tap
   // on an already-handled entry with a note instead of "Confirmed." again.
   var entry = action === 'confirm' || action === 'discard' || action === 'waitpay' ? getEntryById_(entryId) : null;
+  telegramTagAskAfter_ = '';
   var reply = null;
   var replyMarkup = null;   // buttons on the bot's own reply (only the "delete the whole repayment" offer has any)
   var keepButtons = false;
@@ -541,6 +542,7 @@ function handleTelegramCallback_(cb) {
       linkSuggestedTripOnTelegramConfirm_(entryId);   // the card said so (trip/event matching its date)
       confirmEntryWithLearning_(entryId);
       reply = tr_('bot.confirmed');
+      telegramTagAskAfter_ = entryId;   // asked once the "Confirmed." reply is sent (below)
     }
   } else if (action === 'discard') {
     if (!entry) {
@@ -581,6 +583,16 @@ function handleTelegramCallback_(cb) {
         keepButtons = true;
       }
     }
+  } else if (action === 'ptags' || action === 'ptagsno') {
+    // The answer to "Add its tags?" (owner, 2026-11-16): worked out again from today's data, so an old message adds only what is still
+    // missing. Only adds tags.
+    if (action === 'ptags') {
+      var asks = programmedTagAsk_([entryId]);
+      var added = asks.length ? addTagsToEntry_(entryId, asks[0].tag_ids) : [];
+      reply = added.length ? tr_('bot.tagsAdded', { tags: telegramTagNames_(added) }) : tr_('bot.tagsNothing');
+    } else {
+      reply = tr_('bot.tagsNo');
+    }
   } else if (action === 'delrep') {
     // The owner chose to delete the whole repayment: loans part, money entry and extra entry together (deleteRepayment).
     var part = repaymentPartInfo_(entryId);
@@ -604,8 +616,36 @@ function handleTelegramCallback_(cb) {
     telegramApi_('sendMessage', replyPayload);
     if (!keepButtons) removeCardButtons_(cb.message.chat.id, cb.message.message_id);
   }
+  if (telegramTagAskAfter_) sendTelegramTagAsk_(cb.message.chat.id, telegramTagAskAfter_, cb.message.message_id);
+  telegramTagAskAfter_ = '';
 
   telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
+}
+
+// ---- "Add its tags?" after a confirm (owner, 2026-11-16; the app asks the same, specs/recurring.md § Tags) ----
+// A confirmed entry that pays a Programmed item with tags it lacks gets one question with two buttons. Nothing is written until
+// "Add tags" is tapped; a wrong match (shoes near the gym's due date) is answered No.
+var telegramTagAskAfter_ = '';
+function telegramTagNames_(ids) {
+  var byId = {};
+  getAllRows('Tags').forEach(function (t) { byId[String(t.id)] = tagLabel_(t); });
+  return ids.map(function (id) { return byId[String(id)]; }).filter(Boolean).join(', ');
+}
+function sendTelegramTagAsk_(chatId, entryId, replyTo) {
+  var ask;
+  try { ask = programmedTagAsk_([entryId])[0]; } catch (e) { return; }   // only a question: never fails the confirm
+  if (!ask) return;
+  var tags = telegramTagNames_(ask.tag_ids);
+  if (!tags) return;
+  telegramApi_('sendMessage', {
+    chat_id: chatId,
+    text: tr_('bot.tagAsk', { entry: ask.description || ask.item, item: ask.item, tags: tags }),
+    reply_to_message_id: replyTo, allow_sending_without_reply: true,
+    reply_markup: { inline_keyboard: [[
+      { text: tr_('bot.tagAskYes'), callback_data: 'ptags:' + entryId },
+      { text: tr_('bot.tagAskNo'), callback_data: 'ptagsno:' + entryId }
+    ]] }
+  });
 }
 
 function handleTelegramMessage_(msg) {
@@ -725,6 +765,8 @@ function handleTelegramMessage_(msg) {
   if (result.entry && !result.removed) {
     sendTelegramEntryNotification_(result.entry, result.categoryName);
   }
+  if (telegramTagAskAfter_ && result.entry && !result.removed) sendTelegramTagAsk_(msg.chat.id, telegramTagAskAfter_, msg.message_id);
+  telegramTagAskAfter_ = '';
 
   // The card that was replied to is now superseded (by the refreshed card,
   // or by the entry being removed) — take its buttons off so it can't be
@@ -960,6 +1002,7 @@ function finishTelegramEdit_(entryId, statusBefore, allApplied) {
     if (blocker) return tr_('bot.notConfirmedBlocker', { blocker: blocker });
     linkSuggestedTripOnTelegramConfirm_(entryId);
     confirmEntryWithLearning_(entryId);
+    telegramTagAskAfter_ = entryId;   // asked after the refreshed card (handleTelegramMessage_)
     return ''; // the refreshed card says "✅ Confirmed" itself
   }
   if (statusBefore === 'confirmed') {

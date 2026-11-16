@@ -121,3 +121,46 @@ test("the app: the form's chips, the Annual pre-tick and its alert, pills, the q
   assert.match(app, /result\.tag_asks\.length\) askProgrammedTags_/);
   assert.match(app, /tagIds: \(item\.tag_ids \|\| \[\]\)\.slice\(\)/, "Record the payment… starts with the item's tags");
 });
+
+test("Telegram: a confirm (button or reply) of a matching payment asks with two buttons; Add tags adds, No adds nothing", () => {
+  const { rt, sport } = setup();
+  const { linkTelegram } = require("./helpers");
+  const chat = linkTelegram(rt);
+  const d = today();
+  const it = item(rt, { day: Number(d.slice(8, 10)), tag_ids: [sport.id] });
+  const pend = (id, amount) => rt.run(`appendRowObject('Entries', { id: '${id}', type: 'expense', date: '${d}', amount: ${amount}, currency: 'PEN', category_id: 'cat-pt', description: 'Gym payment', paid_by: 'me', status: 'pending', source: 'email' });`);
+  let n = 0;
+  const tap = (data) => rt.rawPost(JSON.stringify({ update_id: 7700 + (++n), callback_query: { id: "cb" + n, data, message: { chat: { id: chat }, message_id: 60 + n } } }));
+  const asks = () => rt.svc.fetchLog.filter((x) => /sendMessage/.test(x.url)).map((x) => JSON.parse(x.options.payload))
+    .filter((p) => p.reply_markup && p.reply_markup.inline_keyboard.length && /ptags:/.test(JSON.stringify(p.reply_markup)));
+  // 1. the Confirm button
+  pend("e-tg-1", 118);
+  tap("confirm:e-tg-1");
+  const ask = asks().pop();
+  assert.ok(ask, "a question follows the confirm");
+  assert.match(ask.text, /Gym payment/);
+  assert.match(ask.text, /Sport/);
+  const [yes, no] = ask.reply_markup.inline_keyboard[0];
+  assert.equal(yes.callback_data, "ptags:e-tg-1");
+  assert.equal(no.callback_data, "ptagsno:e-tg-1");
+  assert.ok(Buffer.byteLength("ptagsno:" + it.id, "utf8") <= 64, "callback data fits Telegram's limit for a real id");
+  assert.deepEqual(tagsOf(rt, "e-tg-1"), [], "nothing before the answer");
+  tap("ptags:e-tg-1");
+  assert.deepEqual(tagsOf(rt, "e-tg-1"), [sport.id]);
+  tap("ptags:e-tg-1");   // an old message tapped again adds nothing more
+  assert.deepEqual(tagsOf(rt, "e-tg-1"), [sport.id]);
+  // 2. a reply that confirms the card
+  pend("e-tg-2", 119);
+  rt.run(`appendRowObject('Telegram Messages', { message_id: '701', entry_id: 'e-tg-2', created_at: 'x' });`);
+  const before = asks().length;
+  rt.rawPost(JSON.stringify({ update_id: 7799, message: { chat: { id: chat }, message_id: 990, text: "amount 120", reply_to_message: { message_id: 701 } } }));
+  assert.equal(rt.rows("Entries").find((e) => e.id === "e-tg-2").status, "confirmed");
+  assert.equal(asks().length, before + 1, "the reply's confirm asks too");
+  tap("ptagsno:e-tg-2");
+  assert.deepEqual(tagsOf(rt, "e-tg-2"), []);
+  // 3. a payment that matches nothing: no question
+  rt.run(`appendRowObject('Entries', { id: 'e-tg-3', type: 'expense', date: '${d}', amount: 9, currency: 'PEN', category_id: 'cat-pt', description: 'Socks', paid_by: 'me', status: 'pending', source: 'email' });`);
+  const b3 = asks().length;
+  tap("confirm:e-tg-3");
+  assert.equal(asks().length, b3);
+});
