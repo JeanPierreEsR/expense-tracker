@@ -1147,7 +1147,11 @@ function applyEditCommand_(entryId, text) {
 
   withWriteBatch_(function () {
     var previousField = null;
-    splitEditCommands_(text).forEach(function (segment) {
+    // A split is applied last: "split group" needs the trip a "trip …" in the same reply sets, in whatever order it was written.
+    var segments = splitEditCommands_(text);
+    var isSplit = function (s) { return /^(?:split|repartir|dividir)\s/i.test(String(s).trim()); };
+    segments = segments.filter(function (s) { return !isSplit(s); }).concat(segments.filter(isSplit));
+    segments.forEach(function (segment) {
       var field = applyOneEditSegment_(sheet, headers, rowIndex, entryId, segment);
       if (field) {
         appliedFields.push(field);
@@ -1469,9 +1473,38 @@ function splitPartAmount_(p, entry) {
   return p.pct ? Math.round(Number(entry.amount) * n) / 100 : n;
 }
 
+// The trip a "split group" means: the trip set on the entry, else the one whose dates cover it (never a guess between two).
+function splitGroupTrip_(entry) {
+  var id = entry.trip_id && entry.trip_id !== TRIP_DECLINED_ ? entry.trip_id : suggestedTripIdForDate_(entry.date);
+  return id ? tripById_(id) : null;
+}
+
+// An equal split with a trip's group (owner, 2026-11-16): the amount is divided by the people in the group (the owner included),
+// exactly like the app's "People in the group" box (groupEqualShares_ in app.js): each share rounded to the cent, the group owes
+// everyone else's shares as one debt, the owner keeps the leftover cent. `size` given = that number, and it becomes the trip's
+// new starting number (as on the app's form); else the trip's own group_size (2 when empty).
+function splitWithGroup_(entry, trip, size) {
+  var friend = ensureTripGroupFriend_(trip);
+  var n = size ? Math.round(Number(size)) : (Number(trip.group_size) || 2);
+  if (!isFinite(n) || n < 2 || n > 99) return null;
+  if (size && n !== Number(trip.group_size)) setTripGroupSize_(trip.id, n);
+  var totalCents = Math.round(Number(entry.amount) * 100);
+  var groupCents = Math.round(totalCents / n) * (n - 1);
+  if (groupCents <= 0 || groupCents >= totalCents) return null;
+  return [{ friend_id: friend.id, amount: groupCents / 100 }];
+}
+
 function parseSplitCommand_(entry, text) {
   var trimmed = String(text).trim();
   if (/^(none|clear|off|ninguno|ninguna|borrar)$/i.test(trimmed)) return [];
+
+  // "group", "with the group", "equal group", "group 5" (Spanish: "grupo", "con el grupo", "igual grupo", "grupo 5"): the
+  // trip's group, divided by its people.
+  var groupMatch = trimmed.match(/^(?:(?:equal|igual)\s+)?(?:with\s+(?:the\s+)?|con\s+(?:el\s+)?)?(?:group|grupo)(?:\s+(?:of\s+|de\s+)?(\d{1,2})(?:\s+(?:people|personas))?)?$/i);
+  if (groupMatch) {
+    var gTrip = splitGroupTrip_(entry);
+    return gTrip ? splitWithGroup_(entry, gTrip, groupMatch[1]) : null;
+  }
 
   var equalMatch = trimmed.match(/^(?:equal|igual)\s+(.+)/i);
   if (equalMatch) {
@@ -1482,6 +1515,11 @@ function parseSplitCommand_(entry, text) {
       var f = fuzzyFindFriend_(names[i]);
       if (!f) return null;
       friends.push(f);
+    }
+    // The group of a trip named by hand ("equal Costa Rica 2026 group"): divided by its people, not as one person.
+    if (friends.length === 1 && friends[0].trip_id) {
+      var named = tripById_(friends[0].trip_id);
+      if (named) return splitWithGroup_(entry, named, null);
     }
     var n = friends.length;
     var totalCents = Math.round(Number(entry.amount) * 100);
