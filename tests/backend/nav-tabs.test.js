@@ -52,3 +52,9 @@ test("tutorials that send the person to a main tab go through More when that tab
   assert.ok(!/\{ target: '\.nav-btn\[data-screen="(overview|loans|budgets|projections)"\]'/.test(app.replace(/\.\.\.tabSteps_\("\w+", \{ target/g, "")), "every such step is wrapped in tabSteps_");
   assert.match(app, /navInBar_\("my-data"\)\s*\? \{ target: '\.nav-btn\[data-screen="my-data"\]'/);
 });
+
+test("My profile opened from the fast-start snapshot (an older backend's capabilities) shows My tabs once the fresh data lands", () => {
+  const fn = app.slice(app.indexOf("function syncNavFromMeta_"), app.indexOf('document.getElementById("tabs-toggle")'));
+  assert.ok(fn.indexOf("meta.fromCache_") < fn.indexOf('my-profile-tabs-card'));
+  assert.match(fn, /card\.hidden && meta\.capabilities && meta\.capabilities\.navTabs\) \{ card\.hidden = false; drawTabsCard_\(\); \}/);
+});
