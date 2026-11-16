@@ -828,12 +828,8 @@
             <span class="row-icon" data-icon="card" aria-hidden="true"></span><span data-i18n="more.accounts">Accounts, cards &amp; platforms</span>
             <span class="more-list-chevron">›</span>
           </button>
-          <button type="button" class="more-list-item" id="more-apple-pay-btn" hidden>
-            <span class="row-icon" data-icon="phone" aria-hidden="true"></span><span data-i18n="more.applePay">Apple Pay capture</span>
-            <span class="more-list-chevron">›</span>
-          </button>
           <button type="button" class="more-list-item" id="more-bank-mail-btn" hidden>
-            <span class="row-icon" data-icon="mail" aria-hidden="true"></span><span data-i18n="more.bankEmails">Bank emails</span>
+            <span class="row-icon" data-icon="mail" aria-hidden="true"></span><span id="more-bank-mail-label" data-i18n="more.bankEmails">Bank emails</span>
             <span class="more-list-chevron">›</span>
           </button>
           <button type="button" class="more-list-item" id="more-categories-btn">
@@ -1316,7 +1312,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="be-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 class="screen-title" style="margin-top:0;" data-i18n="bankMail.title">Bank emails</h2>
+        <h2 class="screen-title" style="margin-top:0;" id="be-title" data-i18n="bankMail.title">Bank emails</h2>
         <p class="hint" id="be-loading" data-i18n="common.loading">Loading…</p>
         <div id="be-body" hidden>
           <div class="bm-reading">
@@ -1330,6 +1326,7 @@
           <div class="be-tabs" id="be-tabs" role="tablist">
             <button type="button" class="be-tab active" id="be-tab-bank" role="tab" aria-selected="true" data-view="bank" data-i18n="be.tab.bank">By bank</button>
             <button type="button" class="be-tab" id="be-tab-tx" role="tab" aria-selected="false" data-view="tx" data-i18n="be.tab.tx">By transaction</button>
+            <button type="button" class="be-tab" id="be-tab-ap" role="tab" aria-selected="false" data-view="ap" hidden data-i18n="be.tab.ap">Apple Pay</button>
           </div>
 
           <div id="be-view-bank">
@@ -1342,6 +1339,39 @@
               <h3 data-i18n="bankMail.teachTitle">Is your bank missing?</h3>
               <p class="hint" data-i18n="bankMail.teachLead">Send me one of its emails and I will teach the app to read them. After that, your payments from that bank show up in the app by themselves.</p>
               <button type="button" class="add-inline" id="be-teach-btn" data-i18n="bankMail.teachLink">My bank isn't listed</button>
+            </div>
+          </div>
+
+          <div id="be-view-ap" hidden>
+            <p class="hint" data-i18n="ap.intro">After each Apple Pay payment, your iPhone sends it here by itself. It waits in Needs review until you confirm it.</p>
+        <div id="apple-pay-loading"></div>
+        <div id="apple-pay-body" hidden>
+          <p class="hint" id="apple-pay-status" role="status"></p>
+          <h3 data-i18n="ap.linkHead">1. Your personal link</h3>
+          <p class="hint" data-i18n="ap.linkHint">The shortcut sends your payments to this link. Keep it private: with it, someone could add payments to Needs review, but never see or change anything.</p>
+          <button type="button" class="add-inline" id="apple-pay-make-btn" data-i18n="ap.make">Make my link</button>
+          <button type="button" class="add-inline" id="apple-pay-copy-btn" hidden data-i18n="ap.copy">Copy my link</button>
+          <p class="hint" id="apple-pay-msg" role="status"></p>
+          <h3 data-i18n="ap.stepsHead">2. Set it up on your iPhone (once, about 2 minutes)</h3>
+          <ol class="bm-steps">
+            <li data-i18n="ap.s1">Open the Shortcuts app, tap Automation at the bottom, then +.</li>
+            <li data-i18n="ap.s2">Choose Transaction. Pick the cards you pay with (all of them is fine), tap Run Immediately, then Next, then New Blank Automation.</li>
+            <li data-i18n="ap.s3">Add the action Get Contents of URL. Tap the URL and paste your link.</li>
+            <li data-i18n="ap.s4">Tap the arrow next to it to see more. Set Method to POST and Request Body to JSON.</li>
+            <li data-i18n="ap.s5">Add three Text fields. For each, type the name on the left and, on the right, tap Shortcut Input and choose what goes in it: amount → Amount, merchant → Merchant, card → Card or Pass.</li>
+            <li data-i18n="ap.s6">Optional, to see what happened: add Get Dictionary Value, with Key message, then Show Notification with that Dictionary Value.</li>
+            <li data-i18n="ap.s7">Tap Done. Your next Apple Pay payment shows up in Needs review.</li>
+          </ol>
+          <h3 data-i18n="ap.knowHead">Good to know</h3>
+          <ul class="bm-steps">
+            <li data-i18n="ap.k1">Only Apple Pay payments are sent, not cards typed on a website, nor Yape or Plin.</li>
+            <li data-i18n="ap.k2">When your bank also emails the same purchase, the two become one entry: the shop's name from Apple Pay, the account from the email.</li>
+            <li data-i18n="ap.k3">The first time a card is used, pick its account in Needs review. The app remembers it for that card.</li>
+            <li data-i18n="ap.k4">With no connection when you pay, nothing is sent. The bank email still brings it, as before.</li>
+          </ul>
+          <h3 data-i18n="ap.replaceHead">Lost your phone?</h3>
+          <p class="hint" data-i18n="ap.replaceHint">Make a new link: the old one stops working at once. Then paste the new one into the automation.</p>
+          <button type="button" class="add-inline" id="apple-pay-replace-btn" data-i18n="ap.replace">Make a new link</button>
             </div>
           </div>
 
@@ -1466,45 +1496,6 @@
           <span class="row-icon" data-icon="upload" aria-hidden="true"></span><span><span class="md-title"><span data-i18n="md.export">Export my data</span></span><span class="hint md-sub" data-i18n="md.exportSub">Get your entries as files, or a backup copy.</span></span>
           <span class="more-list-chevron">›</span>
         </button>
-      </div>
-    </div>
-
-    <div id="screen-apple-pay" class="screen" hidden>
-      <div class="card">
-        <div class="budgets-header">
-          <button type="button" class="icon-btn back-btn" id="apple-pay-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
-        </div>
-        <h2 class="screen-title" style="margin-top:0;" data-i18n="ap.title">Apple Pay capture</h2>
-        <p class="hint" data-i18n="ap.intro">After each Apple Pay payment, your iPhone sends it here by itself. It waits in Needs review until you confirm it.</p>
-        <div id="apple-pay-loading"></div>
-        <div id="apple-pay-body" hidden>
-          <p class="hint" id="apple-pay-status" role="status"></p>
-          <h3 data-i18n="ap.linkHead">1. Your personal link</h3>
-          <p class="hint" data-i18n="ap.linkHint">The shortcut sends your payments to this link. Keep it private: with it, someone could add payments to Needs review, but never see or change anything.</p>
-          <button type="button" class="add-inline" id="apple-pay-make-btn" data-i18n="ap.make">Make my link</button>
-          <button type="button" class="add-inline" id="apple-pay-copy-btn" hidden data-i18n="ap.copy">Copy my link</button>
-          <p class="hint" id="apple-pay-msg" role="status"></p>
-          <h3 data-i18n="ap.stepsHead">2. Set it up on your iPhone (once, about 2 minutes)</h3>
-          <ol class="bm-steps">
-            <li data-i18n="ap.s1">Open the Shortcuts app, tap Automation at the bottom, then +.</li>
-            <li data-i18n="ap.s2">Choose Transaction. Pick the cards you pay with (all of them is fine), tap Run Immediately, then Next, then New Blank Automation.</li>
-            <li data-i18n="ap.s3">Add the action Get Contents of URL. Tap the URL and paste your link.</li>
-            <li data-i18n="ap.s4">Tap the arrow next to it to see more. Set Method to POST and Request Body to JSON.</li>
-            <li data-i18n="ap.s5">Add three Text fields. For each, type the name on the left and, on the right, tap Shortcut Input and choose what goes in it: amount → Amount, merchant → Merchant, card → Card or Pass.</li>
-            <li data-i18n="ap.s6">Optional, to see what happened: add Get Dictionary Value, with Key message, then Show Notification with that Dictionary Value.</li>
-            <li data-i18n="ap.s7">Tap Done. Your next Apple Pay payment shows up in Needs review.</li>
-          </ol>
-          <h3 data-i18n="ap.knowHead">Good to know</h3>
-          <ul class="bm-steps">
-            <li data-i18n="ap.k1">Only Apple Pay payments are sent, not cards typed on a website, nor Yape or Plin.</li>
-            <li data-i18n="ap.k2">When your bank also emails the same purchase, the two become one entry: the shop's name from Apple Pay, the account from the email.</li>
-            <li data-i18n="ap.k3">The first time a card is used, pick its account in Needs review. The app remembers it for that card.</li>
-            <li data-i18n="ap.k4">With no connection when you pay, nothing is sent. The bank email still brings it, as before.</li>
-          </ul>
-          <h3 data-i18n="ap.replaceHead">Lost your phone?</h3>
-          <p class="hint" data-i18n="ap.replaceHint">Make a new link: the old one stops working at once. Then paste the new one into the automation.</p>
-          <button type="button" class="add-inline" id="apple-pay-replace-btn" data-i18n="ap.replace">Make a new link</button>
-        </div>
       </div>
     </div>
 

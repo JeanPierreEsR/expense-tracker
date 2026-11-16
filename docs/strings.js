@@ -3491,8 +3491,6 @@
     "tourChoice.tips": { en: "💡 Practice tips", es: "💡 Consejos de práctica" },
     "tourChoice.tipsHint": { en: "Show the hands-on practice tips again, like the one in Needs review on Home.", es: "Vuelve a mostrar las prácticas, como la de “Por revisar” en Inicio." },
     "more.myProfile": { en: "My profile", es: "Mi perfil" },
-    "more.applePay": { en: "Apple Pay capture", es: "Captura de Apple Pay" },
-    "ap.title": { en: "Apple Pay capture", es: "Captura de Apple Pay" },
     "ap.intro": { en: "After each Apple Pay payment, your iPhone sends it here by itself. It waits in Needs review until you confirm it.", es: "Después de cada pago con Apple Pay, tu iPhone lo envía aquí solo. Espera en Por revisar hasta que lo confirmes." },
     "ap.linkHead": { en: "1. Your personal link", es: "1. Tu enlace personal" },
     "ap.linkHint": { en: "The shortcut sends your payments to this link. Keep it private: with it, someone could add payments to Needs review, but never see or change anything.", es: "El atajo envía tus pagos a este enlace. Guárdalo en privado: con él, alguien podría agregar pagos a Por revisar, pero nunca ver ni cambiar nada." },
@@ -3690,6 +3688,9 @@
     "more.version": { en: "Version {v}", es: "Versión {v}" },
     // ---- More → Bank emails + the "can't read this bank yet" notes (specs/review-telegram-email.md § Bank emails guide) ----
     "bankMail.title": { en: "Bank emails", es: "Correos del banco" },
+    "bankMail.titleAp": { en: "Bank emails & Apple Pay", es: "Correos del banco y Apple Pay" },
+    "more.bankEmailsAp": { en: "Bank emails & Apple Pay", es: "Correos del banco y Apple Pay" },
+    "be.tab.ap": { en: "Apple Pay", es: "Apple Pay" },
     "bankMail.intro": { en: "The app reads your bank's notification emails from this Google account:", es: "La app lee los correos de notificación de tu banco desde esta cuenta de Google:" },
     "bankMail.noAddress": { en: "The account you signed in with when you set up the app", es: "La cuenta con la que iniciaste sesión al configurar la app" },
     "bankMail.copyThis": { en: "Copy this address", es: "Copiar esta dirección" },

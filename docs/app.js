@@ -9106,7 +9106,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["feedback-privacy", "recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries", "apple-pay"];
+const MORE_SUBSCREENS = ["feedback-privacy", "recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
 // ---- The tab bar: the person chooses its tabs (owner, 2026-11-15; More → My profile → My tabs, specs/home-tab.md § My tabs) ----
 // Home is always there (its place can change); More is always there and always last; up to 6 tabs in all. A main screen taken out of the bar
 // is a row at the top of More; Trips, Programmed items and My data, put in the bar, leave More and their screens lose the Back to More.
@@ -14910,9 +14910,9 @@ async function showMyProfileScreen() {
 }
 document.getElementById("more-my-profile-btn").addEventListener("click", showMyProfileScreen);
 
-// ---- More → Apple Pay capture (owner's plan, 2026-11-15; backend/ApplePay.gs) ----
+// ---- Apple Pay capture: the "Apple Pay" tab of More → Bank emails (owner's plan, 2026-11-15; backend/ApplePay.gs) ----
 // The iPhone's Shortcuts app sends each Apple Pay payment to this copy's address with the person's own key in the link (?k=…); the
-// payment waits in Needs review. This screen makes / copies / replaces that link and shows the steps to add the automation.
+// payment waits in Needs review. The tab makes / copies / replaces that link and shows the steps to add the automation.
 let applePaySetup_ = null;
 function applePayLink_() {
   const url = getApiUrl() || OWNER_API_URL;
@@ -14928,9 +14928,8 @@ function drawApplePay_() {
     ? tr("ap.last", { when: I18n.fmtDateTime(new Date(st.lastAt)), n: Number(st.count || 0) })
     : tr("ap.none");
 }
-async function showApplePayScreen_() {
-  document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-apple-pay"; });
-  window.scrollTo(0, 0);
+// Loading standard: the tab shows "Loading…" until the link and the last payment have arrived; reopened, it fetches them again.
+async function loadApplePay_() {
   const loading = document.getElementById("apple-pay-loading"), body = document.getElementById("apple-pay-body");
   document.getElementById("apple-pay-msg").textContent = "";
   body.hidden = true;
@@ -14955,8 +14954,6 @@ async function makeApplePayLink_(replace) {
     msg.textContent = e.message;
   }
 }
-document.getElementById("more-apple-pay-btn").addEventListener("click", showApplePayScreen_);
-document.getElementById("apple-pay-back-btn").addEventListener("click", () => showScreen("more"));
 document.getElementById("apple-pay-make-btn").addEventListener("click", () => makeApplePayLink_(false));
 document.getElementById("apple-pay-replace-btn").addEventListener("click", async () => {
   if (!await askConfirmApp_(tr("ap.replaceAsk"), tr("ap.replace"))) return;
@@ -16662,18 +16659,22 @@ function renderBankEmails_() {
   beEl_("be-copy-btn").hidden = !info.address;
   beEl_("be-msg").textContent = "";
   beEl_("be-teach").hidden = perfIsOwnerCopy_();   // the owner writes the e-mail rules himself
-  beEl_("be-tabs").hidden = !reading;
+  const applePay = !!(meta && meta.capabilities && meta.capabilities.applePay);
+  beEl_("be-tabs").hidden = !reading && !applePay;
+  beEl_("be-tab-bank").hidden = !reading;   // no e-mail reading: only "By transaction" (and Apple Pay where offered)
   renderMailHealth_();
   renderBeBanks_();
   renderBeTx_(be_.data || {});
-  setBeView_(reading ? be_.view : "tx");
+  setBeView_((be_.view === "bank" && !reading) || (be_.view === "ap" && !applePay) ? "tx" : be_.view);
 }
 
 function setBeView_(view) {
   be_.view = view;
   beEl_("be-view-bank").hidden = view !== "bank";
   beEl_("be-view-tx").hidden = view !== "tx";
-  [["bank", "be-tab-bank"], ["tx", "be-tab-tx"]].forEach(([v, id]) => {
+  beEl_("be-view-ap").hidden = view !== "ap";
+  if (view === "ap") loadApplePay_();
+  [["bank", "be-tab-bank"], ["tx", "be-tab-tx"], ["ap", "be-tab-ap"]].forEach(([v, id]) => {
     beEl_(id).classList.toggle("active", v === view);
     beEl_(id).setAttribute("aria-selected", v === view ? "true" : "false");
   });
@@ -19522,7 +19523,14 @@ function applyBusinessVisibility_() {
   // More → Friends: only when this backend can edit friends (an older one lacks it). Checked here so it also follows every fresh load of the settings.
   document.getElementById("more-friends-btn").hidden = !((meta && meta.capabilities) || {}).friendsEdit;
   document.getElementById("more-deleted-btn").hidden = !((meta && meta.capabilities) || {}).entriesRestore;
-  document.getElementById("more-apple-pay-btn").hidden = !((meta && meta.capabilities) || {}).applePay;   // owner's copy first (2026-11-15)
+  // Apple Pay capture lives in Bank emails (owner, 2026-11-15): where it is offered (owner's copy first) the row and the screen are named for both.
+  const applePay = !!((meta && meta.capabilities) || {}).applePay;
+  [["more-bank-mail-label", "more.bankEmails"], ["be-title", "bankMail.title"]].forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    el.setAttribute("data-i18n", applePay ? key + "Ap" : key);
+    el.textContent = tr(applePay ? key + "Ap" : key);
+  });
+  document.getElementById("be-tab-ap").hidden = !applePay;
   const on = businessOn();
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;
@@ -24553,7 +24561,6 @@ const LINE_ICONS_ = {
   map: '<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>',
   briefcase: '<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
   card: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
-  phone: '<rect x="6" y="2" width="12" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/>',
   mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22 6 12 13 2 6"/>',
   tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
   coin: '<circle cx="12" cy="12" r="9"/><path d="M15 9.5a3 3 0 0 0-3-1.5c-1.7 0-3 .9-3 2s1.3 1.7 3 2 3 .9 3 2-1.3 2-3 2a3 3 0 0 1-3-1.5"/><line x1="12" y1="6" x2="12" y2="18"/>',
