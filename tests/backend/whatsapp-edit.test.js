@@ -73,7 +73,7 @@ test("a reply with edit words to a message that is not about a transaction edits
   const a = waApp();
   a.text("25 almuerzo");
   const [e] = a.waEntries();
-  a.text("hola");
+  a.text("ayuda");   // the general help is not about a transaction
   const helpIdx = a.sent.length - 1;
   a.text("amount 77", { context_id: a.idOf(helpIdx) });
   assert.equal(Number(a.entry(e.id).amount), 25);
@@ -178,4 +178,69 @@ test("a friend's name the app does not know: correct it or add the friend in the
   a.text("loan Zzyzx", { context_id: a.cardIdOf(e.id) });
   assert.match(a.lastBody(), /Zzyzx[\s\S]*More → Friends/);
   assert.ok(a.entry(e.id));
+});
+
+test("general help: 'ayuda' / 'help' / 'menú' not replying says what the bot can do; as a reply, the transaction's own words", () => {
+  const a = waApp();
+  for (const word of ["ayuda", "help", "Menú", "?"]) {
+    a.text(word);
+    assert.equal(a.lastBody(), a.rt.run("tr_('whatsapp.help')"), word);
+  }
+  assert.match(a.lastBody(), /pendientes/);
+  assert.equal(a.waEntries().length, 0, "help made no entry");
+  a.text("25 almuerzo");
+  const [e] = a.waEntries();
+  a.text("help", { context_id: a.cardIdOf(e.id) });
+  assert.match(a.lastBody(), /^Reply to edit:/, "a reply 'help' is the transaction's own help");
+  a.text("ayuda");
+  assert.equal(a.lastBody(), a.rt.run("tr_('whatsapp.help')"), "with a transaction waiting, a plain 'ayuda' is still the general help");
+});
+
+test("a message without replying is about the transaction of the bot's last message (Telegram's rule)", () => {
+  const a = waApp();
+  a.text("25 almuerzo");
+  const [e] = a.waEntries();
+  a.text("Almuerzo con equipo");   // plain words: its description, as on Telegram
+  assert.equal(a.entry(e.id).description, "Almuerzo con equipo");
+  assert.equal(a.waEntries().length, 1, "no new entry");
+  a.text("category restaurants");
+  assert.ok(a.entry(e.id).category_id);
+  a.text("30 cena");   // a text with an amount is still a new purchase
+  assert.equal(a.waEntries().length, 2);
+  assert.equal(Number(a.entry(e.id).amount), 25);
+  // After the bot's "✅ Confirmed." about the first one, a plain edit is about that one, even confirmed.
+  a.tap("confirm:" + e.id, a.cardIdOf(e.id));
+  a.text("amount 50");
+  assert.equal(Number(a.entry(e.id).amount), 50);
+  assert.equal(a.entry(e.id).status, "confirmed");
+  // After a message that is not about a transaction (the help), plain words are read normally.
+  a.text("ayuda");
+  a.text("gracias");
+  assert.match(a.lastBody(), /couldn't find an amount/);
+  assert.equal(a.entry(e.id).description, "Almuerzo con equipo");
+});
+
+test("after the window closed, the message that brings the waiting cards is not about them", () => {
+  const a = waApp();
+  a.text("ayuda");   // opens the window; the bot's last message is the help
+  a.rt.svc.props.set("WA_LAST_IN", String(Date.now() - 25 * 3600000));
+  a.rt.run("appendRowObject('Entries', { id: 'late-1', type: 'expense', date: '2026-11-16', amount: 12, currency: 'PEN', description: 'Late shop', status: 'pending', source: 'email', paid_by: 'me', created_at: '2999-06-01T10:00:00' })");
+  a.text("hola");
+  assert.ok(a.cardIdOf("late-1"), "its card came with the catch-up");
+  assert.equal(a.entry("late-1").description, "Late shop", "'hola' did not become its description");
+});
+
+test("the example the help quotes works, in English and in Spanish", () => {
+  const a = waApp();
+  a.text("25 almuerzo");
+  const [e] = a.waEntries();
+  a.text("category restaurants, amount 45", { context_id: a.cardIdOf(e.id) });
+  assert.equal(Number(a.entry(e.id).amount), 45);
+  assert.equal(a.entry(e.id).status, "confirmed");
+  a.text("26 cena");
+  const e2 = a.waEntries().find((x) => x.description === "Cena");
+  a.text("categoría restaurantes, monto 46", { context_id: a.cardIdOf(e2.id) });
+  assert.equal(Number(a.entry(e2.id).amount), 46);
+  assert.equal(a.entry(e2.id).category_id, a.entry(e.id).category_id);
+  assert.equal(a.entry(e2.id).status, "confirmed");
 });
