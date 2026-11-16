@@ -56,6 +56,7 @@
   --z-sheet: 250;
   --z-sheet-2: 260;
   --z-sheet-3: 270;
+  --z-info: 280;        /* the info button's card: above every sheet it may sit in */
   --z-welcome: 300;
   --z-toast: 400;
   --z-welcome-exit: 450;
@@ -4040,3 +4041,27 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .tabs-grip-space { flex: none; width: 44px; }
 body.tabs-drag-on { -webkit-user-select: none; user-select: none; }
 .tabs-out-head { margin: 14px 0 4px; }
+
+/* ---- Info buttons (owner, 2026-11-16): a small blue outlined ⓘ after a label; a tap shows a small white card ---- */
+.info-btn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 15px; height: 15px; padding: 0; margin: 0 0 0 5px; border: 0; background: none; color: var(--accent);
+  vertical-align: -2px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.info-btn::before { content: ""; position: absolute; inset: -15px; }   /* drawn small, tapped like a 44 px button */
+.info-btn svg { display: block; }
+label.has-info { display: inline-block; }
+body:has(> .spot-root) .info-btn { visibility: hidden; }   /* nothing extra to tap while a tutorial runs */
+.info-card {
+  position: fixed; z-index: var(--z-info); width: max-content; max-width: min(280px, calc(100vw - 24px)); box-sizing: border-box;
+  background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 10px 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+.info-card p { margin: 0; font-size: 0.875rem; line-height: 1.4; }
+.info-card-arrow { position: absolute; width: 12px; height: 12px; background: var(--card); border: 1px solid var(--border); transform: translateX(-50%) rotate(45deg); }
+.info-card-arrow[hidden] { display: none; }
+.info-card[data-side="below"] .info-card-arrow { top: -7px; border-right: 0; border-bottom: 0; }
+.info-card[data-side="above"] .info-card-arrow { bottom: -7px; border-left: 0; border-top: 0; }
+label[hidden] + .info-btn { display: none; }
+.ov-sum-net-head { display: inline-flex; align-items: center; }
+.info-btn[hidden] { display: none; }

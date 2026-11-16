@@ -1641,6 +1641,7 @@ function populatePaidByOptions() {
   const select = document.getElementById("paid_by");
   const label = document.getElementById("paid-by-label");
   select.innerHTML = "";
+  document.getElementById("paid-by-info").hidden = selectedType === "income";   // "Received from" has no info card (yet)
 
   if (selectedType === "income") {
     label.textContent = tr("field.receivedFrom");
@@ -17087,6 +17088,13 @@ function perfReportText_() {
   return lines.join("\n");
 }
 
+// Info buttons: how often each was opened on this phone (owner, 2026-11-16). One opened a lot points at something unclear there.
+function renderPerfInfo_() {
+  const box = document.getElementById("perf-tips");
+  const st = popGet_(INFO_STATS_KEY_, {}), keys = Object.keys(st).sort((a, b) => st[b] - st[a]);
+  if (!keys.length) return;
+  box.insertAdjacentHTML("beforeend", `<p class="hint">${escapeHtml(tr("perf.infoOpened", { list: keys.map((k) => `${k} ×${st[k]}`).join(" · ") }))}</p>`);
+}
 // Tips: did they help? (owner, 2026-11-12) — from popStats on this phone.
 function renderPerfTips_() {
   const box = document.getElementById("perf-tips");
@@ -17098,6 +17106,7 @@ function renderPerfTips_() {
 }
 function renderPerfScreen() {
   renderPerfTips_();
+  renderPerfInfo_();
   const box = document.getElementById("perf-summary");
   const rows = perfSummaryRows_();
   if (!rows.length) {
@@ -25040,6 +25049,89 @@ function popAfterSave_(action, payload, out) {
   if (action === "deleteEntries") popUsed_("homeEdit");
 }
 let receiptJustRead_ = false;
+
+// ---- Info buttons (owner, 2026-11-16; plan "Info buttons - plan (DRAFT 2026-11-16).md") ----
+// A small blue outlined ⓘ right after a label: a tap opens a little white card with `info.<key>` (1-3 sentences). It behaves like
+// the yellow bubbles: a tap elsewhere closes it (that tap still does what it does), a finger that scrolls does not (the card follows
+// its button), a second tap on the ⓘ closes it. The person asks for it, so it is outside the daily teaching budget and every
+// first-visit rule; it is hidden while a tutorial runs (style.css). Markup: <button type="button" class="info-btn" data-info="key"
+// data-i18n-aria-label=…> whose spoken name is info.<key>.name, placed AFTER the label (a label's text is redrawn and would wipe it). Opens are
+// counted on this phone (`infoStats`) for More → Performance log.
+const INFO_STATS_KEY_ = "infoStats";
+const INFO_ICON_ = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="12" y1="7.5" x2="12" y2="7.5"/></svg>';
+let infoOpen_ = null;           // { btn, card, frame } while a card shows
+function dressInfoBtns_(root) {
+  (root || document).querySelectorAll(".info-btn").forEach((b) => { if (!b.firstElementChild) b.innerHTML = INFO_ICON_; });
+}
+function closeInfoCard_() {
+  if (!infoOpen_) return;
+  cancelAnimationFrame(infoOpen_.frame);
+  infoOpen_.card.remove();
+  infoOpen_.btn.setAttribute("aria-expanded", "false");
+  infoOpen_.btn.removeAttribute("aria-describedby");
+  infoOpen_ = null;
+}
+function openInfoCard_(btn) {
+  closeInfoCard_();
+  const key = btn.dataset.info;
+  const card = document.createElement("div");
+  card.className = "info-card";
+  card.id = "info-card";
+  card.setAttribute("role", "note");
+  card.innerHTML = `<div class="info-card-arrow"></div><p></p>`;
+  card.querySelector("p").textContent = tr("info." + key);
+  document.body.appendChild(card);
+  btn.setAttribute("aria-expanded", "true");
+  btn.setAttribute("aria-describedby", "info-card");
+  const open = { btn, card, frame: 0 };
+  infoOpen_ = open;
+  const place = () => {
+    // Gone (its sheet closed, its screen left) or hidden: the card goes too.
+    if (!btn.isConnected || !btn.getClientRects().length) { closeInfoCard_(); return; }
+    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    const pos = Spotlight.placeBubble(btn.getBoundingClientRect(), { w: window.innerWidth, h: vh }, { w: card.offsetWidth, h: card.offsetHeight });
+    card.style.top = pos.top + "px";
+    card.style.left = pos.left + "px";
+    card.dataset.side = pos.side;
+    const arrow = card.querySelector(".info-card-arrow");
+    arrow.hidden = pos.arrowLeft == null;
+    if (pos.arrowLeft != null) arrow.style.left = pos.arrowLeft + "px";
+    // Scrolled under a header or off the screen: it waits unseen and comes back with its button.
+    const r = btn.getBoundingClientRect(), hit = r.top >= 0 && r.top <= vh && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    card.style.visibility = hit && (btn.contains(hit) || hit === btn) ? "" : "hidden";
+  };
+  const follow = () => { if (infoOpen_ !== open) return; place(); if (infoOpen_ === open) open.frame = requestAnimationFrame(follow); };
+  follow();
+  const st = popGet_(INFO_STATS_KEY_, {});
+  st[key] = (st[key] || 0) + 1;
+  popSet_(INFO_STATS_KEY_, st);
+}
+(function setupInfoBtns_() {
+  dressInfoBtns_();
+  // A tap elsewhere closes it; a finger that scrolls does not (a phone ends a scroll with pointercancel).
+  let downAt = null;
+  document.addEventListener("pointerdown", (e) => {
+    downAt = infoOpen_ && !infoOpen_.card.contains(e.target) && !infoOpen_.btn.contains(e.target) ? { x: e.clientX, y: e.clientY } : null;
+  }, true);
+  document.addEventListener("pointerup", (e) => {
+    if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 10) closeInfoCard_();
+    downAt = null;
+  }, true);
+  document.addEventListener("pointercancel", () => { downAt = null; }, true);
+  // On window, capture: before a label focuses its box and before the Overview Result block opens its list.
+  window.addEventListener("click", (e) => {
+    const btn = e.target.closest && e.target.closest(".info-btn");
+    if (!btn) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (infoOpen_ && infoOpen_.btn === btn) closeInfoCard_(); else openInfoCard_(btn);
+  }, true);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { closeInfoCard_(); return; }
+    // The Overview Result block opens on Enter / Space too: those keys on the ⓘ are the ⓘ's own.
+    if ((e.key === "Enter" || e.key === " ") && e.target.closest && e.target.closest(".info-btn")) e.stopPropagation();
+  }, true);
+})();
 
 // ---- Did it work? (owner, 2026-11-12): for each bubble, the day it showed and whether its feature was used afterwards ----
 // Kept on this phone only (`popStats`), shown in More → Performance log. A feature use calls popUsed_(key) with the bubble's key.
