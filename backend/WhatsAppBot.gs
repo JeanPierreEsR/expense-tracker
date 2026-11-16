@@ -252,7 +252,7 @@ function whatsappTap_(id, p) {
   if (action === 'wafield') return whatsappField_(entryId, parts[2], p.id);
   if (action === 'wapage') return whatsappPickList_(entryId, parts[2], Number(parts[3]) || 0, p.id);
   if (action === 'wapick') return whatsappPick_(entryId, parts[2], parts.slice(3).join(':'), p);
-  if (action === 'wahelp') return whatsappEngineMessage_(p, 'help', whatsappCardFor_(entryId));
+  if (action === 'wahelp') return whatsappOtherChanges_(entryId, p);
   if (action === 'wamore') return parts[1] === 'catch' ? whatsappCatchUp_(true) : whatsappSendPending_(Number(parts[2]) || 0);
   if (action === 'waconv') return whatsappFriendList_(entryId, parts[2], 0, p.id);
   if (action === 'wafp') return whatsappFriendList_(entryId, parts[2], Number(parts[3]) || 0, p.id);
@@ -425,6 +425,25 @@ function whatsappPick_(entryId, field, itemId, p) {
   var target = whatsappCardFor_(entryId);
   if (!target) { sendTelegramEntryNotification_(entry); target = whatsappCardFor_(entryId); }
   whatsappEngineMessage_(p, WA_FIELD_WORDS_[field] + ' ' + it.name, target, true);
+}
+
+// "Other changes" (owner, 2026-11-16): only the reply words the Edit list does not already offer as rows. "help" replied to a
+// transaction still gives the full list (Telegram's telegramEditHelpText_).
+function whatsappOtherChanges_(entryId, p) {
+  var entry = getEntryById_(entryId);
+  if (!entry) return whatsappText_(tr_('bot.entryGone'), p.id);
+  var keys;
+  if (entry.type === 'transfer') keys = ['currency', 't.category', 'label', 't.type', '', 'wa:t'];
+  else if (entry.type === 'investment') keys = ['i.direction', 'i.paymentMethod', 'i.receivedAt', 'currency', 'label', 'i.type', '', 'wa:i'];
+  else {
+    keys = ['o.paidBy', 'currency', 'label', 'o.split', 'o.type', '', 'wa:o', 'o.names'];
+    if (entry.type === 'expense' && getTripRows_().length) keys.splice(keys.indexOf('o.split'), 0, 'trip');
+  }
+  // 'wa:x' = a "combine several" example made only of the words listed here (the shared ones also use category, amount…).
+  var lines = [tr_('whatsapp.otherIntro')].concat(keys.map(function (k) {
+    return k === '' ? '' : k.indexOf('wa:') === 0 ? tr_('whatsapp.otherCombine.' + k.slice(3)) : tr_('help.' + k);
+  }), ['', tr_('help.bothLanguages')]);
+  whatsappText_(lines.join('\n'), whatsappCardFor_(entryId) || p.id);
 }
 
 // ---- Edit: Repayment / Loan (owner's plan "WhatsApp Edit and conversions", 2026-11-16) ----

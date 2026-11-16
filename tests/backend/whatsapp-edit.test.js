@@ -296,3 +296,28 @@ test("a repayment by buttons that pays more than was owed: its extra waits in Ne
   extra.forEach((x) => assert.ok(a.cardIdOf(x.id), "the extra got its message: " + x.description));
   assert.ok(!a.sent.some((m) => m.text && /couldn't write to you/.test(m.text.body)));
 });
+
+test("'Other changes' lists only what the Edit list does not offer; 'help' as a reply still lists everything", () => {
+  const a = waApp();
+  a.text("25 almuerzo");
+  const [e] = a.waEntries();
+  a.tap(`wahelp:${e.id}`);
+  const other = a.lastBody();
+  assert.match(other, /^Other changes — reply to the transaction's message with:/);
+  assert.match(other, /paid by/);
+  assert.match(other, /currency/);
+  assert.match(other, /tag/);
+  assert.match(other, /split/);
+  for (const listed of ["\"category groceries\"", "\"amount 45.50\"", "description", "\"account Interbank\"", "\"date ", "repayment", "loan Ana"]) {
+    assert.ok(!other.includes(listed), "not repeated: " + listed);
+  }
+  a.text("help", { context_id: a.cardIdOf(e.id) });
+  assert.match(a.lastBody(), /"category groceries"/, "the full help as a reply");
+  // A transfer: from / to / amount / description / date are rows; currency, category, tag, type are not.
+  a.rt.run(`appendRowObject('Entries', { id: 'tr-1', type: 'transfer', date: '2026-11-16', amount: 50, currency: 'PEN', description: 'Move', status: 'pending', source: 'email', paid_by: 'me', created_at: '2999-06-01T10:00:00' })`);
+  a.tap("wahelp:tr-1");
+  const t = a.lastBody();
+  assert.match(t, /currency/);
+  assert.match(t, /category/);
+  assert.ok(!/"from Plin"|"amount 90"|repayment/.test(t));
+});
