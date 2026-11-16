@@ -244,3 +244,55 @@ test("the example the help quotes works, in English and in Spanish", () => {
   assert.equal(a.entry(e2.id).category_id, a.entry(e.id).category_id);
   assert.equal(a.entry(e2.id).status, "confirmed");
 });
+
+// ---- catch-up (found live 2026-11-16: "came in while I couldn't write to you" with the window open) ----
+const addWaiting = (a, id) => a.rt.run(`appendRowObject('Entries', { id: '${id}', type: 'expense', date: '2026-11-16', amount: 12, currency: 'PEN', description: 'Shop ${id}', status: 'pending', source: 'email', paid_by: 'me', created_at: '2999-06-01T10:00:00' })`);
+
+test("window open: a waiting transaction that never got its message is sent, without the 'couldn't write to you' sentence", () => {
+  const a = waApp();
+  a.text("ayuda");
+  addWaiting(a, "missed-1");
+  a.text("ayuda");
+  assert.ok(a.cardIdOf("missed-1"), "its message was sent");
+  assert.ok(!a.sent.some((m) => m.text && /couldn't write to you/.test(m.text.body)), "no 'couldn't write' sentence");
+});
+
+test("window closed: the sentence comes, then the transaction", () => {
+  const a = waApp();
+  a.text("ayuda");
+  a.rt.svc.props.set("WA_LAST_IN", String(Date.now() - 25 * 3600000));
+  addWaiting(a, "missed-2");
+  a.text("ayuda");
+  assert.ok(a.sent.some((m) => m.text && /1 transaction came in while I couldn't write to you/.test(m.text.body)));
+  assert.ok(a.cardIdOf("missed-2"));
+});
+
+test("a transaction WhatsApp keeps refusing is tried 3 times, then left in Needs review", () => {
+  const a = waApp();
+  a.text("ayuda");
+  addWaiting(a, "refused-1");
+  const handler = a.rt.state.fetchHandler;
+  let tries = 0;
+  a.rt.state.fetchHandler = (url, opts) => {
+    if (String(url).endsWith("/send") && /Shop refused-1/.test(opts.payload)) { tries++; return { error: { message: "refused" } }; }
+    return handler(url, opts);
+  };
+  for (let i = 0; i < 5; i++) a.text("ayuda");
+  assert.equal(tries, 3);
+  assert.equal(a.entry("refused-1").status, "pending");
+});
+
+test("a repayment by buttons that pays more than was owed: its extra waits in Needs review and gets its own message", () => {
+  const a = waApp();
+  a.rt.run("appendRowObject('Friends', { id: 'friend-no-debt', name: 'Olga Test', notes: '' })");
+  a.rt.svc.props.set("WA_SWITCH_AT", a.rt.run(`Utilities.formatDate(new Date(Date.now() - 60000), SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), "yyyy-MM-dd'T'HH:mm:ss")`));
+  a.text("80 test repago");
+  const e = a.waEntries().find((x) => x.description === "Test repago");
+  const before = a.rt.rows("Entries").filter((x) => x.status === "pending").map((x) => x.id);
+  a.tap(`wacv:${e.id}:r:friend-no-debt`);
+  const extra = a.rt.rows("Entries").filter((x) => x.status === "pending" && !before.includes(x.id));
+  assert.ok(extra.length >= 1, "paying someone who is owed nothing leaves an extra in Needs review");
+  a.text("ayuda");
+  extra.forEach((x) => assert.ok(a.cardIdOf(x.id), "the extra got its message: " + x.description));
+  assert.ok(!a.sent.some((m) => m.text && /couldn't write to you/.test(m.text.body)));
+});

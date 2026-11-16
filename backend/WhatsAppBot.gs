@@ -155,6 +155,7 @@ function handleWhatsAppInbound_(p) {
   p = p || {};
   var from = String(p.from || '').replace(/\D/g, '');
   if (from) waSetProp_('WA_OWNER_NUMBER', from);   // the relay only forwards the owner's own number(s)
+  var wasClosed = !whatsappWindowOpen_();   // before this message re-opens it: says whether the catch-up is about the window
   waSetProp_('WA_LAST_IN', Date.now());
   if (!reviewBotIsWhatsApp_()) return captureWhatsApp_(p);   // Telegram is the review bot: capture only, the relay sends the reply
   if (whatsappSeen_(p.id)) return { handled: true, duplicate: true };
@@ -163,7 +164,7 @@ function handleWhatsAppInbound_(p) {
   // twice in one run would be released early by the inner one.
   // "The bot's last message" is the one the person saw before writing: not the cards the catch-up is about to send.
   p.lastTarget = whatsappLastTarget_();
-  whatsappCatchUp_();
+  whatsappCatchUp_(false, wasClosed);
   if (p.type === 'interactive' || p.type === 'button') whatsappTap_(String(p.reply_id || ''), p);
   else if (p.type === 'text' || (p.type === undefined && p.text)) whatsappTextIn_(String(p.text || '').trim(), p);
   else whatsappText_(tr_('whatsapp.onlyText'), p.id);
@@ -292,20 +293,40 @@ function whatsappSendPending_(offset) {
   }
 }
 
-// Cards made while the window was closed (waiting entries since the switch with no WhatsApp card), oldest first.
-function whatsappCatchUp_(more) {
+// Waiting entries since the switch that never got a WhatsApp message, oldest first: those made while the window was closed, and
+// any other (a waiting entry made in the app, e.g. a repayment's extra; a message WhatsApp refused). The sentence "came in while
+// I couldn't write to you" only when the window really was closed (found live 2026-11-16: it showed with the window open).
+// A message that fails WA_CARD_MAX_FAILS_ times is not retried with every message (it stays in Needs review).
+var WA_CARD_MAX_FAILS_ = 3;
+function whatsappCardFails_() {
+  try { return JSON.parse(waProp_('WA_CARD_FAILS') || '{}') || {}; } catch (err) { return {}; }
+}
+function whatsappNoteCardFail_(entryId) {
+  var fails = whatsappCardFails_();
+  fails[entryId] = (fails[entryId] || 0) + 1;
+  var keys = Object.keys(fails);
+  if (keys.length > 50) keys.slice(0, keys.length - 50).forEach(function (k) { delete fails[k]; });
+  waSetProp_('WA_CARD_FAILS', JSON.stringify(fails));
+}
+
+function whatsappCatchUp_(more, wasClosed) {
   var since = waProp_('WA_SWITCH_AT');
   if (!since) return 0;
   var carded = {};
   getAllRows('Telegram Messages').forEach(function (m) { if (isWamid_(m.message_id)) carded[m.entry_id] = true; });
-  var missed = whatsappPendingEntries_().filter(function (e) { return !carded[e.id] && String(e.created_at) >= since; })
-    .sort(function (a, b) { return String(a.created_at).localeCompare(String(b.created_at)); });
+  var fails = whatsappCardFails_();
+  var missed = whatsappPendingEntries_().filter(function (e) {
+    return !carded[e.id] && String(e.created_at) >= since && (fails[e.id] || 0) < WA_CARD_MAX_FAILS_;
+  }).sort(function (a, b) { return String(a.created_at).localeCompare(String(b.created_at)); });
   if (!missed.length) {
     if (more) whatsappText_(tr_('whatsapp.nothingWaiting'));
     return 0;
   }
-  if (!more) whatsappText_(tr_('whatsapp.catchUp', { n: missed.length }));
-  missed.slice(0, WA_CARDS_PER_BATCH_).forEach(function (e) { sendTelegramEntryNotification_(e); });
+  if (!more && wasClosed) whatsappText_(tr_('whatsapp.catchUp', { n: missed.length }));
+  missed.slice(0, WA_CARDS_PER_BATCH_).forEach(function (e) {
+    var res = sendTelegramEntryNotification_(e);
+    if (!res || !res.ok) whatsappNoteCardFail_(e.id);
+  });
   var left = missed.length - WA_CARDS_PER_BATCH_;
   if (left > 0) whatsappButtons_(tr_('whatsapp.moreWaiting', { n: left }), [{ id: 'wamore:catch', title: tr_('whatsapp.showMore') }]);
   return missed.length;
