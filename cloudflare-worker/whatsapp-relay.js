@@ -13,6 +13,9 @@
  *        reply_title, context_id}, relay_secret: <that route's key> } to THAT route's copy of the app. While WhatsApp is the
  *        review bot (backend/WhatsAppBot.gs) the copy sends its own messages and answers { handled: true }; otherwise the
  *        Worker sends back the short reply it wrote. Messages from a number with no route are dropped without an answer.
+ *   POST /media → a copy downloads a photo the person sent (receipt reading, backend/PhotoCapture.gs): header X-Relay-Secret
+ *        = a copy's key, body { id: <WhatsApp media id> }; answers { mime, base64 }. The id only ever reaches the copy the
+ *        person's messages are routed to.
  *   POST /send  → a copy's own sending door: header X-Relay-Secret = that copy's key, body { message: <WhatsApp message> };
  *        sent with WA_ACCESS_TOKEN only when its "to" is a number routed to THAT key (a copy can only write to its own person).
  *
@@ -121,6 +124,32 @@ async function sendForApp(env, request) {
   return new Response(await res.text(), { status: res.status, headers: { 'Content-Type': 'application/json' } });
 }
 
+function toBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+async function mediaForApp(env, request) {
+  const json = (obj, status) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json' } });
+  const given = request.headers.get('X-Relay-Secret') || '';
+  const all = routes(env);
+  if (!given || !Object.keys(all).some((n) => sameText(given, all[n].key))) return json({ error: { message: 'forbidden' } }, 403);
+  let body;
+  try { body = await request.json(); } catch (err) { return json({ error: { message: 'bad body' } }, 400); }
+  const id = String((body && body.id) || '');
+  if (!/^\d{5,30}$/.test(id)) return json({ error: { message: 'bad id' } }, 400);
+  const auth = { Authorization: `Bearer ${env.WA_ACCESS_TOKEN}` };
+  const info = await fetch(`${GRAPH_URL}/${id}`, { headers: auth });
+  if (!info.ok) return json({ error: { message: 'media not found' } }, 404);
+  const meta = await info.json();
+  if (!meta || !meta.url) return json({ error: { message: 'media not found' } }, 404);
+  const file = await fetch(meta.url, { headers: auth });
+  if (!file.ok) return json({ error: { message: 'media download failed' } }, 502);
+  return json({ mime: meta.mime_type || file.headers.get('Content-Type') || '', base64: toBase64(await file.arrayBuffer()) }, 200);
+}
+
 // What Apps Script needs from a message: its text, which button or list row was tapped, and which bot message it answers.
 function describe(msg) {
   const out = { id: msg.id, from: msg.from, timestamp: msg.timestamp, type: msg.type, text: '' };
@@ -130,6 +159,11 @@ function describe(msg) {
     if (r) { out.reply_id = r.id; out.reply_title = r.title; }
   }
   if (msg.type === 'button' && msg.button) { out.reply_id = msg.button.payload; out.reply_title = msg.button.text; }
+  // A photo (receipt reading): its media id; the copy downloads it through /media when its reader is ready.
+  if (msg.type === 'image' && msg.image) { out.media_id = msg.image.id; out.mime = msg.image.mime_type || ''; out.text = msg.image.caption || ''; }
+  if (msg.type === 'document' && msg.document && /^image\//i.test(msg.document.mime_type || '')) {
+    out.type = 'image'; out.media_id = msg.document.id; out.mime = msg.document.mime_type; out.text = msg.document.caption || '';
+  }
   if (msg.context && msg.context.id) out.context_id = msg.context.id;
   return out;
 }
@@ -169,6 +203,7 @@ export default {
     // A copy's own sending door (backend/WhatsAppBot.gs): the copy holds no WhatsApp token, it asks here with its key, and
     // can only write to the number(s) routed to that key — a leaked key can message nobody else.
     if (url.pathname === '/send') return sendForApp(env, request);
+    if (url.pathname === '/media') return mediaForApp(env, request);
 
     const raw = await request.text();
     if (!(await signatureOk(env, request, raw))) return new Response('Bad signature', { status: 401 });
