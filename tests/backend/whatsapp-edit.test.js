@@ -301,6 +301,14 @@ test("'Other changes' lists only what the Edit list does not offer; 'help' as a 
   const a = waApp();
   a.text("25 almuerzo");
   const [e] = a.waEntries();
+  // The grey line under "Other changes" in the Edit list names nothing that has its own row there (found live: it said "loan").
+  a.tap(`waedit:${e.id}`);
+  const hint = a.lastRows().find((r) => r.id.startsWith("wahelp:")).description;
+  for (const lang of ["en", "es"]) {
+    const h = a.rt.run(`tr_('whatsapp.f.moreHint', null, '${lang}')`);
+    assert.ok(!/loan|repayment|category|account|amount|description|date|pr[ée]stamo|repago|categor|cuenta|monto|descripci|fecha/i.test(h), h);
+  }
+  assert.equal(hint, a.rt.run("tr_('whatsapp.f.moreHint')"));
   a.tap(`wahelp:${e.id}`);
   const other = a.lastBody();
   assert.match(other, /^Other changes — reply to the transaction's message with:/);
