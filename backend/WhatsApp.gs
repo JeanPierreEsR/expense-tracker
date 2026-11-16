@@ -43,6 +43,7 @@ function getWhatsAppBot() {
   var number = String(props.getProperty('WA_OWNER_NUMBER') || '');
   var key = String(props.getProperty(WHATSAPP_SECRET_PROP_) || '');
   var url = getWebAppUrl_();
+  if (!url) { try { url = String(ScriptApp.getService().getUrl() || ''); } catch (err) { url = ''; } }   // not learned yet: Google's own answer
   return { offered: true, on: on, number: number, code: on && key && number && url ? ['WA1', number, url, key].join(' ') : '' };
 }
 

@@ -1567,6 +1567,31 @@
             </div>
           </div>
 
+          <div id="my-profile-wa-card" hidden>
+            <button type="button" class="more-list-item md-row fits-toggle" id="wa-toggle" aria-expanded="false" aria-controls="wa-body">
+              <span><span class="md-title" data-i18n="prof.waHead">WhatsApp bot</span><span class="hint md-sub" id="wa-count"></span></span>
+              <span class="more-list-chevron" id="wa-chevron">›</span>
+            </button>
+            <div id="wa-body" hidden>
+              <div id="wa-off">
+                <p class="hint" data-i18n="prof.waHint">Add and confirm your transactions by writing to the app's WhatsApp bot. What you write goes only to your own app.</p>
+                <label for="wa-number" data-i18n="prof.waNumberLabel">Your WhatsApp number, with its country code</label>
+                <input type="tel" id="wa-number" inputmode="numeric" autocomplete="tel" data-i18n-placeholder="prof.waNumberPh" placeholder="51987654321">
+                <p class="hint error-text" id="wa-error" role="alert"></p>
+                <button type="button" class="primary" id="wa-on-btn" data-i18n="prof.waOn">Turn on</button>
+              </div>
+              <div id="wa-on" hidden>
+                <p class="hint" id="wa-status"></p>
+                <p class="hint" data-i18n="prof.waCodeHint">Send this code to JP on WhatsApp. Once he has added it, write "ayuda" to the bot.</p>
+                <textarea id="wa-code" class="bill-photo-text" rows="4" readonly spellcheck="false"></textarea>
+                <p class="hint error-text" id="wa-nocode" data-i18n="prof.waNoCode" hidden>The code is not ready yet. Close this screen and open it again in a minute.</p>
+                <button type="button" class="primary" id="wa-copy-btn" data-i18n="prof.waCopy">Copy the code</button>
+                <p class="hint" id="wa-copied" role="status"></p>
+                <button type="button" class="secondary-btn" id="wa-off-btn" data-i18n="prof.waOff">Turn off</button>
+              </div>
+            </div>
+          </div>
+
           <div id="my-profile-devices-card">
             <button type="button" class="more-list-item md-row fits-toggle" id="devices-toggle" aria-expanded="false" aria-controls="devices-body">
               <span><span class="md-title" data-i18n="devices.title">Where I'm signed in</span><span class="hint md-sub" id="devices-count"></span></span>
@@ -1626,6 +1651,11 @@
 
         <p class="hint"><strong data-i18n="privacy.neverTitle">Never sent to JP</strong></p>
         <p class="hint" data-i18n="privacy.never">Your expenses, amounts, descriptions, categories you created, names of friends or payees, account names or numbers, your emails, your photos and PDFs, and your sign-in.</p>
+
+        <div id="privacy-wa" hidden>
+          <p class="hint"><strong data-i18n="privacy.waTitle">The WhatsApp bot (you turned it on)</strong></p>
+          <p class="hint" data-i18n="privacy.wa">What you write to the WhatsApp bot.</p>
+        </div>
 
         <p class="hint"><strong data-i18n="privacy.otherTitle">Other things to know</strong></p>
         <p class="hint" data-i18n="privacy.updates">Once a day your phone asks GitHub whether a newer version of the app exists. It asks about the app, not about you.</p>

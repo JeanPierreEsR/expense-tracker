@@ -27,19 +27,22 @@
 
 <section id="en" lang="en">
 <h1>Privacy policy</h1>
-<p class="muted">Expense Tracker · last updated 16 November 2026</p>
+<p class="muted">Expense Tracker · last updated 16 November 2026 (WhatsApp bot for each person's own copy)</p>
 
 <p>Expense Tracker is a personal app for keeping track of one's own spending. It is not a commercial service: it has no ads,
 and nothing in it is sold or shared for marketing.</p>
 
 <h2>WhatsApp messages</h2>
 <ul>
-  <li>The app's WhatsApp number reads only messages sent from the phone number of the app's owner. Messages from any other
-      number are discarded at once: they are not read, saved or answered.</li>
-  <li>From the owner's messages it takes the amount, the currency and a short description, saves them as an entry waiting for
-      review in the owner's own records, and sends back a short confirmation.</li>
-  <li>The message passes through Meta (WhatsApp), a Cloudflare relay that only forwards it and keeps nothing, and Google Apps
-      Script, which saves the entry in the owner's own Google Sheet.</li>
+  <li>The app's WhatsApp number reads only messages from people who switched the bot on in their own copy of the app (and the
+      app's owner). Each person's messages go only to that person's own copy: nobody else's app receives them. Messages from
+      any other number are discarded at once: they are not read, saved or answered.</li>
+  <li>From those messages the app takes the amount, the currency, a short description and any field the person names, saves
+      them in that person's own records, and answers with a short message about that transaction.</li>
+  <li>The message passes through Meta (WhatsApp), a Cloudflare relay run by the app's owner that only forwards it and keeps
+      nothing (its logs never hold what a message says), and Google Apps Script, which saves the entry in that person's own
+      Google Sheet.</li>
+  <li>Switching the bot off in the app (More &rarr; My profile &rarr; WhatsApp bot) stops it at once. Nothing already saved is deleted.</li>
 </ul>
 
 <h2>Where the data is kept</h2>
@@ -58,19 +61,22 @@ anything to be removed, or with any question, write through the project page:
 
 <section id="es" lang="es">
 <h1>Política de privacidad</h1>
-<p class="muted">Expense Tracker · actualizada el 16 de noviembre de 2026</p>
+<p class="muted">Expense Tracker · actualizada el 16 de noviembre de 2026 (bot de WhatsApp para la copia propia de cada persona)</p>
 
 <p>Expense Tracker es una app personal para llevar la cuenta de los gastos propios. No es un servicio comercial: no tiene
 publicidad y nada de lo que guarda se vende ni se comparte con fines de marketing.</p>
 
 <h2>Mensajes de WhatsApp</h2>
 <ul>
-  <li>El número de WhatsApp de la app solo lee los mensajes enviados desde el número del dueño de la app. Los mensajes de
-      cualquier otro número se descartan al instante: no se leen, no se guardan y no se responden.</li>
-  <li>De los mensajes del dueño toma el monto, la moneda y una descripción corta, los guarda como un movimiento por revisar en
-      sus propios registros y responde con una confirmación breve.</li>
-  <li>El mensaje pasa por Meta (WhatsApp), por un reenvío en Cloudflare que solo lo transmite y no guarda nada, y por Google
-      Apps Script, que guarda el movimiento en la Hoja de Google del propio dueño.</li>
+  <li>El número de WhatsApp de la app solo lee los mensajes de las personas que activaron el bot en su propia copia de la app
+      (y del dueño de la app). Los mensajes de cada persona llegan solo a la copia de esa persona: ninguna otra app los recibe.
+      Los mensajes de cualquier otro número se descartan al instante: no se leen, no se guardan y no se responden.</li>
+  <li>De esos mensajes la app toma el monto, la moneda, una descripción corta y cualquier campo que la persona indique, los
+      guarda en los registros propios de esa persona y responde con un mensaje corto sobre ese movimiento.</li>
+  <li>El mensaje pasa por Meta (WhatsApp), por un reenvío en Cloudflare que maneja el dueño de la app, que solo lo transmite y
+      no guarda nada (sus registros nunca contienen lo que dice un mensaje), y por Google Apps Script, que guarda el movimiento
+      en la Hoja de Google de esa persona.</li>
+  <li>Desactivar el bot en la app (Más &rarr; Mi perfil &rarr; Bot de WhatsApp) lo detiene al instante. No se borra nada de lo ya guardado.</li>
 </ul>
 
 <h2>Dónde se guardan los datos</h2>

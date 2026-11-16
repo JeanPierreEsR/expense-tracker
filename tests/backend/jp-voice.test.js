@@ -31,8 +31,8 @@ test("the Privacy card informs: it never speaks as JP, it names JP in the third 
   for (const k of privacyKeys) {
     if (k === "privacy.change") continue;                         // the person's own button: "Change what I share"
     const { en, es } = text(k);
-    const enClean = en.replace(/“(Help me improve the app|Change what I share|How my data is treated|Delete everything)”/g, "").replace("More → My profile → Where I'm signed in", "");   // names of buttons and rows, in the person's own voice
-    const esClean = es.replace(/“(Ayúdame a mejorar la app|Cómo se trata mi información|Eliminar todo)”/g, "").replace("Más → Mi perfil → Dónde tengo la sesión iniciada", "");
+    const enClean = en.replace(/“(Help me improve the app|Change what I share|How my data is treated|Delete everything)”/g, "").replace("More → My profile → Where I'm signed in", "").replace("More → My profile → WhatsApp bot", "");   // names of buttons and rows, in the person's own voice
+    const esClean = es.replace(/“(Ayúdame a mejorar la app|Cómo se trata mi información|Eliminar todo)”/g, "").replace("Más → Mi perfil → Dónde tengo la sesión iniciada", "").replace("Más → Mi perfil → Bot de WhatsApp", "");
     assert.ok(!/\b(I|me|my)\b/.test(enClean), `${k} (en): ${en}`);
     assert.ok(!/\b(yo|me|mí|mi)\b|llegarme|avisarme|envíame/i.test(esClean), `${k} (es): ${es}`);
   }
