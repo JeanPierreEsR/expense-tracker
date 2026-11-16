@@ -804,7 +804,8 @@ function removeCardButtons_(chatId, messageId) {
 //   repayment = the friend paying back what they owed ('they_owe_me'),
 //   loan = the friend lending it to the owner ('i_owe_them').
 // Reuses the exact same backend calls the app's buttons make.
-function applyTerminalReviewAction_(entryId, fullText, friendText) {
+// friendObj (optional): the friend already chosen from a list (WhatsApp's Repayment / Loan buttons), so no name is looked up.
+function applyTerminalReviewAction_(entryId, fullText, friendText, friendObj) {
   var entry = getEntryById_(entryId);
   if (!entry) return { message: tr_('bot.entryNotFound') };
 
@@ -827,8 +828,10 @@ function applyTerminalReviewAction_(entryId, fullText, friendText) {
     return { message: tr_('bot.onlyExpenseIncome', { type: tr_('bot.type.' + entry.type) }) };
   }
 
-  var friend;
-  if (!String(friendText || '').trim()) {
+  var friend = friendObj || null;
+  if (friend) {
+    // chosen from a list: nothing to look up
+  } else if (!String(friendText || '').trim()) {
     // No name given: during a trip, that trip's group (one trip covering the date, never a guess between two).
     var tripId = suggestedTripIdForDate_(entry.date);
     friend = tripId ? tripGroupFriend_(tripId) : null;
@@ -1006,6 +1009,8 @@ function finishTelegramEdit_(entryId, statusBefore, allApplied) {
   var entry = getEntryById_(entryId);
   if (!entry) return '';
   if (statusBefore === 'pending') {
+    // WhatsApp's Edit taps only save (owner, 2026-11-16): the person finishes with Confirm. Replies in words still confirm.
+    if (WA_SAVE_ONLY_) return '';
     var blocker = telegramConfirmBlocker_(entry);
     if (!allApplied) return tr_('bot.notConfirmedPartial');
     if (blocker) return tr_('bot.notConfirmedBlocker', { blocker: blocker });
