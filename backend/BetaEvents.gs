@@ -31,7 +31,7 @@ var BETA_SETUP_NAMES_ = { tapped: 1, api_switch_needed: 1, sheet_created: 1, app
 var BETA_TIP_NAMES_ = { againstMain: 1, annual: 1, bankOpening: 1, bringBack: 1, chargeBox: 1, chargeListed: 1, currencies: 1, dollarLine: 1, earlyPay: 1, fitsGroups: 1, forgive: 1, homeEdit: 1, inProcess: 1, loanOpening: 1, ovTotals: 1, overpay: 1, overrides: 1, pace: 1, paceKept: 1, paidBy: 1, profile: 1, projMethod: 1, receipts: 1, startBal: 1, tags: 1, tagsOv: 1, tapMonth: 1, tidy: 1, tripNudge: 1, tripPick: 1, theseDays: 1 };
 var BETA_SCREENS_ = { entries: 1, overview: 1, budgets: 1, projections: 1, loans: 1, more: 1, recurring: 1, accounts: 1,
   categories: 1, trips: 1, trip_detail: 1, business: 1, business_detail: 1, business_igv: 1, business_features: 1, business_people: 1,
-  exchange_rates: 1, friends: 1, perf: 1, export: 1, statements: 1, notauto: 1, bank_emails: 1, my_data: 1, my_profile: 1, feedback_privacy: 1, tidy: 1, deleted_entries: 1 };   // `notauto` stays: reports from phones that still run the old screen
+  exchange_rates: 1, friends: 1, perf: 1, export: 1, statements: 1, notauto: 1, bank_emails: 1, my_data: 1, my_profile: 1, feedback_privacy: 1, tidy: 1, deleted_entries: 1, apple_pay: 1 };   // `notauto` stays: reports from phones that still run the old screen
 var BETA_QUEUE_OUTCOMES_ = { confirmed: 1, edited: 1, discarded: 1 };
 var BETA_QUEUE_FIELDS_ = { category: 1, category_filled: 1, amount: 1, description: 1, account: 1 };
 // Where a pending entry came from when it is not a bank e-mail (or the e-mail's bank has no account in the app).

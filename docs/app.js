@@ -24661,6 +24661,8 @@ const LINK_ICON_RULES_ = [
   [/^\d+ (emails?|correos?)\b/i, "mail"],
   [/^(add|agregar|añadir)\b|^\+ /i, "plus"],
   [/^(copy|copiar)\b/i, "copy"],
+  [/^(make my link|crear mi enlace)/i, "plus"],
+  [/^(make a new link|crear un enlace nuevo)/i, "refresh"],
   [/^(send|enviar|envíalo|still doesn't add up|¿sigue sin cuadrar)/i, "send"],
   [/^(undo|deshacer|restore|restaurar|don't correct|no corregirlo)/i, "undo"],
   [/^(delete|eliminar|clear|borrar|forget|olvidar)\b/i, "trash"],

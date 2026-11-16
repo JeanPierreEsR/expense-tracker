@@ -17,9 +17,9 @@ const group2 = () => {
   return html.slice(start, end);
 };
 
-test("group (2) is alphabetical with Currencies and My data, and the old fourth group is gone", () => {
+test("group (2) is alphabetical with Apple Pay capture, Currencies and My data, and the old fourth group is gone", () => {
   const ids = [...group2().matchAll(/id="more-([a-z-]+)-btn"/g)].map((m) => m[1]);
-  assert.deepEqual(ids, ["accounts", "bank-mail", "categories", "exchange-rates", "friends", "my-data", "my-profile"]);
+  assert.deepEqual(ids, ["accounts", "apple-pay", "bank-mail", "categories", "exchange-rates", "friends", "my-data", "my-profile"]);
   assert.equal((html.match(/more-group-az/g) || []).length, 1, "only one A-Z group is left");
   ["more-main-currency-btn", "more-export-btn", "more-import-btn", "more-statements-btn", "more-tidy-btn"].forEach((id) => {
     assert.ok(!html.includes('id="' + id + '"'), id + " no longer exists");
