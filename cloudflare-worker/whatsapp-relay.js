@@ -9,12 +9,18 @@
  * What it does:
  *   GET  ?hub.mode=subscribe&hub.verify_token=…&hub.challenge=…  → the challenge, only when the token is WA_VERIFY_TOKEN.
  *   POST (a message)  → checks Meta's X-Hub-Signature-256 (when WA_APP_SECRET is set), answers 200 at once, then, for each
- *        message from a number in WA_ALLOWED_FROM, forwards { whatsapp: {id, from, timestamp, type, text, reply_id,
- *        reply_title, context_id}, relay_secret } to Apps Script. While WhatsApp is the review bot (backend/WhatsAppBot.gs)
- *        Apps Script sends its own messages and answers { handled: true }; otherwise the Worker sends back the short reply
- *        Apps Script wrote. Messages from any other number are dropped without an answer.
- *   POST /send  → the app's own sending door: header X-Relay-Secret = WA_RELAY_SECRET, body { message: <WhatsApp message> };
- *        sent with WA_ACCESS_TOKEN only when its "to" is one of WA_ALLOWED_FROM; answers with Meta's own reply (message id).
+ *        message from a number that has a ROUTE, forwards { whatsapp: {id, from, timestamp, type, text, reply_id,
+ *        reply_title, context_id}, relay_secret: <that route's key> } to THAT route's copy of the app. While WhatsApp is the
+ *        review bot (backend/WhatsAppBot.gs) the copy sends its own messages and answers { handled: true }; otherwise the
+ *        Worker sends back the short reply it wrote. Messages from a number with no route are dropped without an answer.
+ *   POST /send  → a copy's own sending door: header X-Relay-Secret = that copy's key, body { message: <WhatsApp message> };
+ *        sent with WA_ACCESS_TOKEN only when its "to" is a number routed to THAT key (a copy can only write to its own person).
+ *
+ * Routes, one per person (owner's plan "WhatsApp bot for friends", 2026-11-16): each person's messages go to their OWN copy.
+ *   - The owner's: every number in WA_ALLOWED_FROM → APPS_SCRIPT_URL with WA_RELAY_SECRET (as before; nothing to change).
+ *   - Friends': the secret WA_ROUTES, one line per person, exactly the code their app shows in More → My profile →
+ *     WhatsApp bot:  WA1 <number> <their copy's address> <their key>
+ * Logs never hold message text (only codes and lengths).
  *
  * Deploy (pasted by hand, like the Telegram relay): Cloudflare → Workers & Pages → Create → Worker, name it
  * "whatsapp-relay", paste this file over the template, Deploy. Then Settings → Variables and Secrets, add as SECRETS
@@ -51,15 +57,24 @@ async function signatureOk(env, request, raw) {
   return sameText(got, 'sha256=' + hex(mac));
 }
 
-function allowedNumbers(env) {
-  return String(env.WA_ALLOWED_FROM || '').split(',').map((s) => s.replace(/\D/g, '')).filter(Boolean);
+// { number: { url, key } } — the owner's numbers (WA_ALLOWED_FROM) plus every "WA1 <number> <url> <key>" line of WA_ROUTES.
+function routes(env) {
+  const out = {};
+  String(env.WA_ALLOWED_FROM || '').split(',').map((s) => s.replace(/\D/g, '')).filter(Boolean).forEach((n) => {
+    if (env.WA_RELAY_SECRET) out[n] = { url: APPS_SCRIPT_URL, key: env.WA_RELAY_SECRET };
+  });
+  String(env.WA_ROUTES || '').split(/\r?\n/).forEach((line) => {
+    const m = line.trim().match(/^WA1\s+(\d{6,15})\s+(https:\/\/script\.google\.com\/\S+\/exec)\s+(\S{24,})$/);
+    if (m) out[m[1]] = { url: m[2], key: m[3] };
+  });
+  return out;
 }
 
-async function askAppsScript(payload) {
+async function askAppsScript(url, payload) {
   let lastError;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const res = await fetch(APPS_SCRIPT_URL, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload),
@@ -82,17 +97,20 @@ async function sendReply(env, to, text, replyTo) {
     headers: { Authorization: `Bearer ${env.WA_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
-  if (!res.ok) console.error('WhatsApp reply failed: ' + res.status + ' ' + (await res.text()).slice(0, 300));
+  if (!res.ok) console.error('WhatsApp reply failed: HTTP ' + res.status);   // never the message text
 }
 
 async function sendForApp(env, request) {
   const json = (obj, status) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json' } });
-  if (!env.WA_RELAY_SECRET || !sameText(request.headers.get('X-Relay-Secret') || '', env.WA_RELAY_SECRET)) return json({ error: { message: 'forbidden' } }, 403);
+  const given = request.headers.get('X-Relay-Secret') || '';
+  const all = routes(env);
+  const mine = Object.keys(all).filter((n) => sameText(given, all[n].key));   // the numbers this copy may write to
+  if (!given || !mine.length) return json({ error: { message: 'forbidden' } }, 403);
   let body;
   try { body = await request.json(); } catch (err) { return json({ error: { message: 'bad body' } }, 400); }
   const message = body && body.message;
   const to = String((message && message.to) || '').replace(/\D/g, '');
-  if (!message || !allowedNumbers(env).includes(to)) return json({ error: { message: 'recipient not allowed' } }, 403);
+  if (!message || !mine.includes(to)) return json({ error: { message: 'recipient not allowed' } }, 403);
   message.messaging_product = 'whatsapp';
   message.to = to;
   const res = await fetch(`${GRAPH_URL}/${env.WA_PHONE_NUMBER_ID}/messages`, {
@@ -116,18 +134,18 @@ function describe(msg) {
   return out;
 }
 
-async function handleMessage(env, msg) {
-  const payload = { whatsapp: describe(msg), relay_secret: env.WA_RELAY_SECRET };
+async function handleMessage(env, msg, route) {
+  const payload = { whatsapp: describe(msg), relay_secret: route.key };
   let reply = FALLBACK_REPLY;
   try {
-    const answer = await askAppsScript(payload);
+    const answer = await askAppsScript(route.url, payload);
     // While WhatsApp is the review bot, Apps Script sends its own messages (cards, lists) and asks for nothing here.
     if (answer && answer.ok && answer.data && answer.data.handled) return;
     if (answer && answer.ok && answer.data && answer.data.reply) reply = answer.data.reply;
     else if (answer && answer.reply) reply = answer.reply;
-    else console.error('Apps Script refused: ' + JSON.stringify(answer).slice(0, 300));
+    else console.error('Apps Script refused: ok=' + !!(answer && answer.ok));   // never the message text
   } catch (err) {
-    console.error('Apps Script unreachable: ' + err);
+    console.error('Apps Script unreachable: ' + (err && err.name));
   }
   await sendReply(env, msg.from, reply, msg.id);
 }
@@ -148,8 +166,8 @@ export default {
     }
     if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
-    // The app's own sending door (backend/WhatsAppBot.gs): the app holds no WhatsApp token, it asks here with the relay key.
-    // Only ever to one of the owner's numbers, so a leaked relay key can message nobody else.
+    // A copy's own sending door (backend/WhatsAppBot.gs): the copy holds no WhatsApp token, it asks here with its key, and
+    // can only write to the number(s) routed to that key — a leaked key can message nobody else.
     if (url.pathname === '/send') return sendForApp(env, request);
 
     const raw = await request.text();
@@ -158,19 +176,20 @@ export default {
     let update;
     try { update = JSON.parse(raw); } catch (err) { return new Response('ok', { status: 200 }); }
 
-    const allowed = allowedNumbers(env);
+    const all = routes(env);
     const messages = [];
     for (const entry of update.entry || []) {
       for (const change of entry.changes || []) {
         const value = change.value || {};
         if (env.WA_PHONE_NUMBER_ID && value.metadata && String(value.metadata.phone_number_id) !== String(env.WA_PHONE_NUMBER_ID)) continue;
         for (const msg of value.messages || []) {
-          if (allowed.includes(String(msg.from || '').replace(/\D/g, ''))) messages.push(msg);
+          const route = all[String(msg.from || '').replace(/\D/g, '')];
+          if (route) messages.push([msg, route]);
         }
       }
     }
     // Answer Meta at once (it retries anything slow); the saving and the reply run after.
-    if (messages.length) ctx.waitUntil(Promise.all(messages.map((m) => handleMessage(env, m))));
+    if (messages.length) ctx.waitUntil(Promise.all(messages.map(([m, route]) => handleMessage(env, m, route))));
     return new Response('ok', { status: 200 });
   }
 };
