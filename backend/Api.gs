@@ -49,6 +49,23 @@ function doPost(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
+    if (body && body.whatsapp !== undefined) {
+      // A WhatsApp message, forwarded by the Cloudflare relay (cloudflare-worker/whatsapp-relay.js) only after it checked Meta's
+      // signature and the sender's number. This address is public, so the relay's secret must be in the body (WhatsApp.gs).
+      if (!isWhatsAppRelayAuthorized_(body)) {
+        recordFailedAccessAttempt_('whatsapp webhook');
+        return ContentService.createTextOutput(JSON.stringify({ ok: false }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      try {
+        response = { ok: true, data: captureWhatsApp_(body.whatsapp) };
+      } catch (err) {
+        response = { ok: false, error: err.message, reply: tr_('whatsapp.failed') };
+      }
+      return ContentService.createTextOutput(JSON.stringify(response))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (body && body.update_id !== undefined) {
       // The URL of this web app is public, so anyone can POST something that
       // looks like a Telegram update. Once the owner has turned on webhook
