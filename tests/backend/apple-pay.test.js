@@ -178,3 +178,13 @@ test("friends' copies do not get it yet", () => {
   assert.equal(pay(rt, k, { amount: "S/ 1.00", merchant: "X", card: "Y" }).ok, false);
   assert.throws(() => rt.api("getApplePaySetup"));
 });
+
+test("the owner's copy is known by its address even when it has a FEATURES list", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.props.set("FEATURES", "base,gmail,keepawake");
+  assert.equal(rt.api("getMeta").capabilities.applePay, false);
+  rt.svc.props.set("WEB_APP_URL", "https://script.google.com/macros/s/" + rt.run("OWNER_WEB_APP_ID_") + "/exec");
+  assert.equal(rt.api("getMeta").capabilities.applePay, true);
+  const k = key(rt);
+  assert.equal(pay(rt, k, { amount: "S/ 1.00", merchant: "X", card: "Y" }).ok, true);
+});
