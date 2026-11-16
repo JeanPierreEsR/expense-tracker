@@ -24,12 +24,15 @@ var WA_NUDGE_UNTIL_MS_ = 23.75 * 3600000;
 var WA_CARDS_PER_BATCH_ = 5;
 var WA_LIST_PAGE_ = 9;                     // + one "More…" row = WhatsApp's 10 rows
 var WA_AWAIT_MS_ = 15 * 60000;
-var WA_GRAPH_ = 'https://graph.facebook.com/v24.0/';
+// The app never holds the WhatsApp access token: it asks the Cloudflare relay to send (POST <relay>/send with the relay key),
+// and the relay, which has the token, only ever sends to the owner's own number(s) (WA_ALLOWED_FROM).
+var WA_RELAY_URL_DEFAULT_ = 'https://whatsapp-relay.jper75.workers.dev';
 
 function waProp_(key) { return String(PropertiesService.getScriptProperties().getProperty(key) || ''); }
 function waSetProp_(key, value) { PropertiesService.getScriptProperties().setProperty(key, String(value)); }
+function whatsappRelayUrl_() { return (waProp_('WA_RELAY_URL') || WA_RELAY_URL_DEFAULT_).replace(/\/+$/, ''); }
 
-function whatsappCanSend_() { return !!(waProp_('WHATSAPP_TOKEN') && waProp_('WHATSAPP_PHONE_ID') && waProp_('WA_OWNER_NUMBER')); }
+function whatsappCanSend_() { return !!(waProp_(WHATSAPP_SECRET_PROP_) && waProp_('WA_OWNER_NUMBER')); }
 function reviewBotIsWhatsApp_() { return waProp_('REVIEW_BOT') === 'whatsapp' && whatsappCanSend_(); }
 function whatsappWindowOpen_() {
   var last = Number(waProp_('WA_LAST_IN')) || 0;
@@ -44,10 +47,10 @@ function whatsappGraphSend_(body) {
   Object.keys(body).forEach(function (k) { payload[k] = body[k]; });
   var res;
   try {
-    res = UrlFetchApp.fetch(WA_GRAPH_ + waProp_('WHATSAPP_PHONE_ID') + '/messages', {
+    res = UrlFetchApp.fetch(whatsappRelayUrl_() + '/send', {
       method: 'post', contentType: 'application/json', muteHttpExceptions: true,
-      headers: { Authorization: 'Bearer ' + waProp_('WHATSAPP_TOKEN') },
-      payload: JSON.stringify(payload)
+      headers: { 'X-Relay-Secret': waProp_(WHATSAPP_SECRET_PROP_) },
+      payload: JSON.stringify({ message: payload })
     });
   } catch (err) {
     return { ok: false, description: String(err) };
@@ -340,17 +343,6 @@ function whatsappNudgeIfDue_() {
 
 // ---- Sheet menu ----
 
-function promptSetWhatsAppSending() {
-  var ui = SpreadsheetApp.getUi();
-  var t = ui.prompt('WhatsApp sending (1 of 2)', 'Paste WA_ACCESS_TOKEN from the secrets file (the permanent token).', ui.ButtonSet.OK_CANCEL);
-  if (t.getSelectedButton() !== ui.Button.OK || !t.getResponseText().trim()) return;
-  var n = ui.prompt('WhatsApp sending (2 of 2)', 'Paste WA_PHONE_NUMBER_ID from the secrets file.', ui.ButtonSet.OK_CANCEL);
-  if (n.getSelectedButton() !== ui.Button.OK || !/^\d{6,}$/.test(n.getResponseText().trim())) { ui.alert('Phone number ID missing or not digits. Nothing was changed.'); return; }
-  waSetProp_('WHATSAPP_TOKEN', t.getResponseText().trim());
-  waSetProp_('WHATSAPP_PHONE_ID', n.getResponseText().trim());
-  ui.alert('Saved. The app can now send WhatsApp messages. Use "36. Review bot: Telegram or WhatsApp" to switch.');
-}
-
 function menuSwitchReviewBot() {
   var ui = SpreadsheetApp.getUi();
   if (waProp_('REVIEW_BOT') === 'whatsapp') {
@@ -359,7 +351,7 @@ function menuSwitchReviewBot() {
     ui.alert('Done: Telegram is the review bot.');
     return;
   }
-  if (!waProp_('WHATSAPP_TOKEN') || !waProp_('WHATSAPP_PHONE_ID')) { ui.alert('First use "35. Set WhatsApp sending".'); return; }
+  if (!waProp_(WHATSAPP_SECRET_PROP_)) { ui.alert('First use "34. Set the WhatsApp relay key".'); return; }
   if (!waProp_('WA_OWNER_NUMBER')) { ui.alert('First send any message to the WhatsApp bot from your phone, so the app knows your number.'); return; }
   if (ui.alert('Review bot: Telegram', 'Switch to WhatsApp? Telegram will stop sending cards and alerts. WhatsApp sends them while you have written to it in the last 23 hours; the rest wait and come the next time you write.', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
   var tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();

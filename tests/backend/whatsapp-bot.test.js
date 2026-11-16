@@ -10,14 +10,19 @@ const OWNER = "51900000000";
 function waApp() {
   const { rt, data } = freshApp({ small: true });
   rt.svc.props.set("WHATSAPP_RELAY_SECRET", SECRET);
-  rt.svc.props.set("WHATSAPP_TOKEN", "test-token");
-  rt.svc.props.set("WHATSAPP_PHONE_ID", "111");
   rt.svc.props.set("REVIEW_BOT", "whatsapp");
   rt.svc.props.set("WA_SWITCH_AT", rt.run(`Utilities.formatDate(new Date(), SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), "yyyy-MM-dd'T'HH:mm:ss")`));
   const sent = [];
   let out = 0, inId = 0;
   rt.state.fetchHandler = (url, opts) => {
-    if (String(url).includes("graph.facebook.com")) { sent.push(JSON.parse(opts.payload)); return { messages: [{ id: "wamid.out" + (++out) }] }; }
+    if (String(url) === "https://whatsapp-relay.jper75.workers.dev/send") {
+      // The app sends through the relay with the relay key, never with a WhatsApp token of its own.
+      assert.equal(opts.headers["X-Relay-Secret"], SECRET);
+      assert.ok(!/Bearer/.test(JSON.stringify(opts)));
+      sent.push(JSON.parse(opts.payload).message);
+      return { messages: [{ id: "wamid.out" + (++out) }] };
+    }
+    assert.ok(!String(url).includes("graph.facebook.com"), "the app never calls Meta directly");
     return { ok: true, result: { message_id: 1 } };
   };
   const post = (msg) => {

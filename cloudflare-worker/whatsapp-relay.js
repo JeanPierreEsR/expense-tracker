@@ -13,6 +13,8 @@
  *        reply_title, context_id}, relay_secret } to Apps Script. While WhatsApp is the review bot (backend/WhatsAppBot.gs)
  *        Apps Script sends its own messages and answers { handled: true }; otherwise the Worker sends back the short reply
  *        Apps Script wrote. Messages from any other number are dropped without an answer.
+ *   POST /send  → the app's own sending door: header X-Relay-Secret = WA_RELAY_SECRET, body { message: <WhatsApp message> };
+ *        sent with WA_ACCESS_TOKEN only when its "to" is one of WA_ALLOWED_FROM; answers with Meta's own reply (message id).
  *
  * Deploy (pasted by hand, like the Telegram relay): Cloudflare → Workers & Pages → Create → Worker, name it
  * "whatsapp-relay", paste this file over the template, Deploy. Then Settings → Variables and Secrets, add as SECRETS
@@ -83,6 +85,24 @@ async function sendReply(env, to, text, replyTo) {
   if (!res.ok) console.error('WhatsApp reply failed: ' + res.status + ' ' + (await res.text()).slice(0, 300));
 }
 
+async function sendForApp(env, request) {
+  const json = (obj, status) => new Response(JSON.stringify(obj), { status, headers: { 'Content-Type': 'application/json' } });
+  if (!env.WA_RELAY_SECRET || !sameText(request.headers.get('X-Relay-Secret') || '', env.WA_RELAY_SECRET)) return json({ error: { message: 'forbidden' } }, 403);
+  let body;
+  try { body = await request.json(); } catch (err) { return json({ error: { message: 'bad body' } }, 400); }
+  const message = body && body.message;
+  const to = String((message && message.to) || '').replace(/\D/g, '');
+  if (!message || !allowedNumbers(env).includes(to)) return json({ error: { message: 'recipient not allowed' } }, 403);
+  message.messaging_product = 'whatsapp';
+  message.to = to;
+  const res = await fetch(`${GRAPH_URL}/${env.WA_PHONE_NUMBER_ID}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.WA_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(message)
+  });
+  return new Response(await res.text(), { status: res.status, headers: { 'Content-Type': 'application/json' } });
+}
+
 // What Apps Script needs from a message: its text, which button or list row was tapped, and which bot message it answers.
 function describe(msg) {
   const out = { id: msg.id, from: msg.from, timestamp: msg.timestamp, type: msg.type, text: '' };
@@ -127,6 +147,10 @@ export default {
       return new Response('WhatsApp relay is up.', { status: 200 });
     }
     if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+
+    // The app's own sending door (backend/WhatsAppBot.gs): the app holds no WhatsApp token, it asks here with the relay key.
+    // Only ever to one of the owner's numbers, so a leaked relay key can message nobody else.
+    if (url.pathname === '/send') return sendForApp(env, request);
 
     const raw = await request.text();
     if (!(await signatureOk(env, request, raw))) return new Response('Bad signature', { status: 401 });
