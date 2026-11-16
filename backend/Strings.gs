@@ -40,6 +40,8 @@ var BACKEND_STRINGS_ = {
   "whatsapp.saved": { en: "Saved for review: {amount} · {what}. Confirm it in Needs review.", es: "Guardado para revisar: {amount} · {what}. Confírmalo en Por revisar." },
   "whatsapp.savedConfirmed": { en: "Saved and confirmed: {amount} \u00b7 {what}.", es: "Guardado y confirmado: {amount} \u00b7 {what}." },
   "typed.noDesc.telegram": { en: "Added on Telegram", es: "Agregado por Telegram" },
+  "whatsappBot.off": { en: "The WhatsApp bot is not available in this app.", es: "El bot de WhatsApp no est\u00e1 disponible en esta app." },
+  "whatsappBot.badNumber": { en: "Write your WhatsApp number with its country code, digits only (for example 51987654321).", es: "Escribe tu n\u00famero de WhatsApp con el c\u00f3digo de pa\u00eds, solo d\u00edgitos (por ejemplo 51987654321)." },
   "whatsapp.repeat": { en: "This one was already in the app.", es: "Esto ya estaba en la app." },
   "whatsapp.unreadable": { en: "I couldn't find an amount. Send something like \"25 lunch\" or \"S/ 12.50 taxi\", or paste a bank notice.", es: "No encontré un monto. Envía algo como \"25 almuerzo\" o \"S/ 12.50 taxi\", o pega un aviso del banco." },
   "whatsapp.onlyText": { en: "I can only read text messages for now.", es: "Por ahora solo puedo leer mensajes de texto." },
