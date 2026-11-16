@@ -157,7 +157,11 @@ function handleWhatsAppInbound_(p) {
   if (from) waSetProp_('WA_OWNER_NUMBER', from);   // the relay only forwards the owner's own number(s)
   var wasClosed = !whatsappWindowOpen_();   // before this message re-opens it: says whether the catch-up is about the window
   waSetProp_('WA_LAST_IN', Date.now());
-  if (!reviewBotIsWhatsApp_()) return whatsappCaptureOnly_(p);   // Telegram is the review bot: capture only, the relay sends the reply
+  if (!reviewBotIsWhatsApp_()) {
+    // Telegram is the review bot: a photo's card would go to Telegram, so WhatsApp only says where photos are read.
+    if (p.type === 'image') return { saved: false, reply: tr_('whatsapp.photoNeedsBot') };
+    return whatsappCaptureOnly_(p);
+  }   // Telegram is the review bot: capture only, the relay sends the reply
   if (whatsappSeen_(p.id)) return { handled: true, duplicate: true };
 
   // No lock here: the steps below take the script lock themselves where they write (capture, conversions), and a lock taken
@@ -167,6 +171,7 @@ function handleWhatsAppInbound_(p) {
   whatsappCatchUp_(false, wasClosed);
   if (p.type === 'interactive' || p.type === 'button') whatsappTap_(String(p.reply_id || ''), p);
   else if (p.type === 'text' || (p.type === undefined && p.text)) whatsappTextIn_(String(p.text || '').trim(), p);
+  else if (p.type === 'image' && p.media_id) whatsappPhotoIn_(p);
   else whatsappText_(tr_('whatsapp.onlyText'), p.id);
   return { handled: true };
 }
@@ -278,6 +283,36 @@ function whatsappTap_(id, p) {
   if (action === 'wacv') return whatsappConvert_(entryId, parts[2], parts.slice(3).join(':'), p);
   if (action === 'wacvx') return whatsappText_(tr_('whatsapp.someoneElseHow'), p.id);
   whatsappText_(tr_('bot.tooOld'), p.id);
+}
+
+// ---- receipt photos (2026-11-16: the same reader as Telegram, PhotoCapture.gs) ----
+// A photo is queued for the Mac Mini's reader exactly like a Telegram photo; the job's file id is "wa:<media id>", and the Mac's
+// getPhotoJob downloads it through the relay (/media), which holds the WhatsApp token. The answers ("queued", the card, "not a
+// receipt") go through the engine's replies, so they come on WhatsApp. Only a copy with a photo reader (the owner's Mac helper)
+// accepts photos; any other copy says so.
+function whatsappPhotoReaderReady_() {
+  return !isFriendCopy_() || !!PropertiesService.getScriptProperties().getProperty('HELPER_KEY');
+}
+
+function whatsappPhotoIn_(p) {
+  if (!whatsappPhotoReaderReady_()) return whatsappText_(tr_('whatsapp.photoNoReader'), p.id);
+  enqueuePhotoJob_('wa:' + p.media_id, WA_CHAT_ID_, p.id);
+  photoReply_(WA_CHAT_ID_, p.id, tr_('photo.queued'));
+}
+
+// { mime, base64 } of a photo the person sent, through the relay; null when it cannot be had (too old, relay down).
+function whatsappDownloadMedia_(mediaId) {
+  try {
+    var res = UrlFetchApp.fetch(whatsappRelayUrl_() + '/media', {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: { 'X-Relay-Secret': waProp_(WHATSAPP_SECRET_PROP_) },
+      payload: JSON.stringify({ id: String(mediaId) })
+    });
+    var j = JSON.parse(res.getContentText()) || {};
+    return j.base64 ? { mime: String(j.mime || 'image/jpeg'), base64: String(j.base64) } : null;
+  } catch (err) {
+    return null;
+  }
 }
 
 // ---- cards ----

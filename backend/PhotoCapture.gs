@@ -1,5 +1,5 @@
 /**
- * Photo capture — a receipt image sent to the Telegram bot becomes a
+ * Photo capture — a receipt image sent to the Telegram bot (or to the WhatsApp bot, WhatsAppBot.gs) becomes a
  * `pending` entry, exactly like an email would (principle 6: nothing
  * automated is ever confirmed).
  *
@@ -459,6 +459,16 @@ function getPhotoJob(payload) {
   var job = photoJobById_(payload.id);
   if (!job) throw new Error('Unknown photo job');
   setPhotoJobStatus_(job.id, 'processing');
+  // A WhatsApp photo ("wa:<media id>", WhatsAppBot.gs) comes through the relay; a Telegram one from Telegram.
+  if (String(job.file_id).indexOf('wa:') === 0) {
+    var media = whatsappDownloadMedia_(String(job.file_id).slice(3));
+    if (!media) {
+      setPhotoJobStatus_(job.id, 'failed');
+      photoReply_(job.chat_id, job.message_id, tr_('whatsapp.photoDownloadFailed'));
+      throw new Error('Could not download the image');
+    }
+    return { id: job.id, mime: media.mime, base64: media.base64 };
+  }
   var blob = downloadTelegramFile_(job.file_id);
   if (!blob) {
     setPhotoJobStatus_(job.id, 'failed');
