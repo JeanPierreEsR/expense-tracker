@@ -44,7 +44,7 @@ test("the bar, More and My profile have what the choice needs, in both languages
   for (const t of ["overview", "budgets", "projections", "loans"]) assert.ok(html.includes(`id="more-tab-${t}"`), t + " row in More");
   assert.ok(html.includes('id="my-profile-tabs-card"') && html.includes('id="tabs-list"') && html.includes('id="tabs-reset-btn"'));
   assert.match(app, /my-profile-tabs-card"\)\.hidden = !caps\.navTabs/, "an older backend hides the card");
-  for (const k of ["nav.tripsTab", "nav.programmedTab", "prof.tabsHead", "prof.tabsHint", "prof.tabsCount", "prof.tabsFull", "prof.tabsOut", "prof.tabsReset", "prof.tabsUp", "prof.tabsDown", "prof.tabsShow", "tabs.spotHidden", "tabs.spotRow", "spot.d.s8tab"])
+  for (const k of ["nav.tripsTab", "nav.programmedTab", "prof.tabsHead", "prof.tabsHint", "prof.tabsCount", "prof.tabsFull", "prof.tabsOut", "prof.tabsReset", "prof.tabsDrag", "prof.tabsShow", "tabs.spotHidden", "tabs.spotRow", "spot.d.s8tab"])
     assert.ok(STRINGS[k] && STRINGS[k].en && STRINGS[k].es, k);
 });
 
@@ -57,4 +57,12 @@ test("My profile opened from the fast-start snapshot (an older backend's capabil
   const fn = app.slice(app.indexOf("function syncNavFromMeta_"), app.indexOf('document.getElementById("tabs-toggle").addEventListener'));
   assert.ok(fn.indexOf("meta.fromCache_") < fn.indexOf('my-profile-tabs-card'));
   assert.match(fn, /card\.hidden && meta\.capabilities && meta\.capabilities\.navTabs\) \{ card\.hidden = false; drawTabsCard_\(\); \}/);
+});
+
+test("the order is changed by dragging a grip (owner, 2026-11-16), not by arrows; a lift anywhere on the page ends the drag", () => {
+  assert.ok(!app.includes("data-tab-move"), "the arrows are gone");
+  assert.match(app, /class="tabs-grip" data-tab-grip=/);
+  assert.match(app, /window\.addEventListener\("pointerup", drop\)/);
+  assert.match(app, /window\.addEventListener\("pointercancel", drop\)/);
+  assert.ok(!("prof.tabsUp" in STRINGS) && !("prof.tabsDown" in STRINGS));
 });

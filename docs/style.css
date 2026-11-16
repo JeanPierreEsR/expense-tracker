@@ -4031,5 +4031,12 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .tabs-row-name { flex: 1; min-width: 0; font-weight: 600; }
 .tabs-row-name .hint { display: block; font-weight: 400; margin: 0; }
 .tabs-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 22px; height: 22px; min-height: 0; flex: none; margin: 0; }
-.tabs-row .icon-btn:disabled { opacity: 0.35; cursor: default; }
+.tabs-row { background: var(--card); }
+.tabs-grip { flex: none; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0; margin: 0;
+  border: 0; background: none; color: var(--muted); cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.tabs-dragging { position: relative; z-index: 2; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15); border-radius: var(--r-md); }
+.tabs-dragging .tabs-grip { color: var(--accent); cursor: grabbing; }
+#tabs-bar-rows + .tabs-row { border-top: 1px solid var(--border); }
+.tabs-grip-space { flex: none; width: 44px; }
+body.tabs-drag-on { -webkit-user-select: none; user-select: none; }
 .tabs-out-head { margin: 14px 0 4px; }
