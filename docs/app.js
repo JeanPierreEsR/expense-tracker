@@ -7800,20 +7800,27 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     const discardBtn = item.querySelector(".review-discard-btn");
     // A closed item opens with a tap almost anywhere on it (owner, 2026-11-16; only its own buttons keep their job);
     // an open one closes from its top. The category line opens it at the category box.
+    // The description and the amount go straight to their own box (owner, 2026-11-16).
+    const goToBox_ = (box) => {
+      item.classList.remove("review-collapsed");
+      reviewExpanded_.add(entry.id);
+      if (!box) return;
+      box.focus({ preventScroll: true });
+      box.scrollIntoView({ block: "center", behavior: "smooth" });
+    };
     item.addEventListener("click", (ev) => {
       if (ev.target.closest("button, a, select, input, label")) return;
+      if (ev.target.closest(".review-item-desc")) { goToBox_(item.querySelector(".review-description")); return; }
+      if (ev.target.closest(".review-item-amount")) { goToBox_(item.querySelector(".review-amount")); return; }
       if (item.classList.contains("review-collapsed")) { item.classList.remove("review-collapsed"); reviewExpanded_.add(entry.id); return; }
       if (!ev.target.closest(".review-item-top")) return;
       item.classList.add("review-collapsed");
       reviewExpanded_.delete(entry.id);
     });
     item.querySelector(".review-quick-cat").addEventListener("click", () => {
-      item.classList.remove("review-collapsed");
-      reviewExpanded_.add(entry.id);
       const box = item.querySelector(".review-category");
+      goToBox_(box);
       if (!box) return;
-      box.focus({ preventScroll: true });
-      box.scrollIntoView({ block: "center", behavior: "smooth" });
       try { if (box.showPicker) box.showPicker(); } catch (e) { /* not every phone lets a page open the list itself */ }
     });
     item.querySelector(".review-quick-confirm").addEventListener("click", () => {
