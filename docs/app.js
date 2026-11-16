@@ -3631,12 +3631,14 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // a Programmed, one-time item instead of a confirmed Entry, so it
     // never shows in "Recent entries" until it's actually real. Only for
     // a genuinely new save — editing an existing real entry into a future
-    // date doesn't retroactively un-become a real entry. A split expense
-    // needs the same real Entry/Splits machinery a friend-paid one does,
-    // even when the owner themselves paid, so it's excluded here too.
+    // date doesn't retroactively un-become a real entry. A split the owner
+    // paid goes along as the item's own split (owner, 2026-11-16: a trip's
+    // shared Airbnb balance due next week stayed in "Recent entries");
+    // only an older backend (no programSplits) keeps it a normal entry.
     const isFutureDate = !editingEntryId && !confirmingPendingId && date > todayLocalISO();
     const canProgram = isFutureDate && selectedType !== "transfer" && !isWithdrawal &&
-      (selectedType === "income" || paidBy === "me") && !splits && !payingRecurringId_ && !waitingOn;
+      (selectedType === "income" || paidBy === "me") && (!splits || !!(meta.capabilities || {}).programSplits) &&
+      !payingRecurringId_ && !waitingOn;
     let programmedInstead = false;
     if (canProgram && !categoryId) throw new Error(tr("error.pickCategory"));   // a Programmed item needs its category
     const repeat = repeatChoice_();
@@ -4054,11 +4056,16 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // CLAUDE.md's Exchange Rates section), so it never needs one set
       // for a month that, being in the future, usually doesn't have one
       // yet — unlike a real Entry, which does require it at save time.
+      // The split (friends' parts of the whole bill, like an entry's) and the tags go with the item.
+      const programmedExtras = {};
+      if (splits && splits.length) programmedExtras.splits = splits.map((s) => ({ friend_id: s.friend_id, amount: s.amount }));
+      if (programmedTagsOn_() && tagIds.length) programmedExtras.tag_ids = tagIds;
       await callApi("addRecurringExpense", repeat ? {
         // "Repeat…" on a future date: the repeating item itself, starting that day (no entry yet).
         category_id: categoryId, description, amount, currency, active: true,
         frequency: repeat.frequency, interval: repeat.interval, interval_unit: repeat.interval_unit,
-        start_date: date, day: Number(date.slice(8, 10)), month: Number(date.slice(5, 7))
+        start_date: date, day: Number(date.slice(8, 10)), month: Number(date.slice(5, 7)),
+        ...programmedExtras
       } : {
         category_id: categoryId,
         description,
@@ -4067,7 +4074,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         frequency: "once",
         date,
         active: true,
-        trip_id: tripId   // a picked trip/event makes it an estimate there
+        trip_id: tripId,   // a picked trip/event makes it an estimate there
+        ...programmedExtras
       });
       programmedInstead = true;
     } else if ((meta.capabilities || {}).clientEntryId) {

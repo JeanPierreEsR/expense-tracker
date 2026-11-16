@@ -129,6 +129,7 @@ var BACKEND_STRINGS_ = {
   "err.categoryNotFound": { en: "Category not found", es: "No se encontró la categoría" },
   "err.amountPositive": { en: "Enter an amount greater than zero.", es: "Ingresa un monto mayor que cero." },
   "err.recurringNotFound": { en: "Recurring item not found", es: "No se encontró el movimiento programado" },
+  "err.splitOverTotal": { en: "The friends' shares add up to more than the total.", es: "Las partes de los amigos suman más que el total." },
   "err.recurringItemNotFound": { en: "Recurring item not found", es: "No se encontró el movimiento programado" },
   "err.currencyCode": { en: "Currency must be a 3-letter code.", es: "La moneda debe ser un código de 3 letras." },
   "err.monthFormat": { en: "Month must look like 2026-09.", es: "El mes debe verse así: 2026-09." },
