@@ -97,12 +97,12 @@ test("a blank row is not a problem, and a waiting entry may have no amount yet",
   assert.equal(rt.api("getHomeGlance", {}).unreadable, null);
 });
 
-test("a confirmed entry in a currency with no rate at all is named; so is a bad share in Entry Splits", () => {
+test("a confirmed entry in a currency with no rate at all is named as a missing rate, not a bad cell; a bad share in Entry Splits is a bad cell", () => {
   const { rt, cat } = setup();
   typeRow(rt, baseRow(cat, { currency: "XYZ", description: "Odd money" }));
   let u = rt.api("getHomeGlance", {}).unreadable;
-  assert.equal(u.rows[0].field, "currency");
-  assert.equal(u.rows[0].value, "XYZ");
+  assert.equal(u.count, 0, "the Sheet's cells are fine (journeys run, 2026-11-17: Mark was told 645 cells could not be read)");
+  assert.deepEqual(u.noRate, [{ currency: "XYZ", n: 1 }]);
 
   const { rt: rt2, cat: cat2 } = setup();
   const before = spent(rt2);

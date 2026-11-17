@@ -8896,7 +8896,17 @@ function homeTripCard_(t) {
 function renderHomeUnreadable_() {
   const box = document.getElementById("home-unreadable");
   const u = homeGlance_ && homeGlance_.unreadable;
-  if (!u || !u.count) { box.hidden = true; box.replaceChildren(); return; }
+  const noRate = (u && u.noRate) || [];
+  if (!u || (!u.count && !noRate.length)) { box.hidden = true; box.replaceChildren(); return; }
+  // A currency with no exchange rate at all is not a bad cell: its own words and a way to add the rate (journeys run, 2026-11-17).
+  const rateHtml = noRate.map((x) => `<div class="home-unreadable-title">${escapeHtml(tr("home.noRateTitle", { n: x.n, cur: x.currency }))}</div>`
+    + `<p class="hint">${escapeHtml(tr("home.noRateText", { n: x.n, cur: x.currency }))}</p>`).join("")
+    + (noRate.length ? `<button type="button" class="add-inline" id="home-norate-btn">${escapeHtml(tr("home.noRateBtn"))}</button>` : "");
+  if (!u.count) {
+    box.innerHTML = rateHtml;
+    box.hidden = false;
+    return;
+  }
   const lines = u.rows.map((r) => {
     const what = tr("home.unreadableField." + r.field);
     const text = tr(r.description ? "home.unreadableLine" : "home.unreadableLineNoName", { sheet: r.sheet, cell: r.cell, name: r.description, field: what, value: r.value });
@@ -8905,9 +8915,10 @@ function renderHomeUnreadable_() {
   const more = u.count > u.rows.length ? `<p class="hint">${escapeHtml(tr("home.unreadableMore", { n: u.count - u.rows.length }))}</p>` : "";
   box.innerHTML = `<div class="home-unreadable-title">${escapeHtml(tr(u.count === 1 ? "home.unreadableTitleOne" : "home.unreadableTitle", { n: u.count }))}</div>`
     + `<p class="hint">${escapeHtml(tr(u.count === 1 ? "home.unreadableTextOne" : "home.unreadableText"))}</p><ul>${lines}</ul>${more}`
-    + `<p class="hint">${escapeHtml(tr("home.unreadableHow"))}</p>`;
+    + `<p class="hint">${escapeHtml(tr("home.unreadableHow"))}</p>` + rateHtml;
   box.hidden = false;
 }
+document.getElementById("home-unreadable").addEventListener("click", (e) => { if (e.target.closest("#home-norate-btn")) showExchangeRatesScreen(); });
 
 function renderHomeCharges_() {
   const box = document.getElementById("home-charges");
@@ -10162,6 +10173,11 @@ function paintOverviewSummary_(data) {
   } else {
     excludedNote.hidden = true;
   }
+  // Entries before a currency's first rate are counted with that first rate, an estimate (backend getRateForTotals_; owner, 2026-11-17).
+  const estNote = document.getElementById("overview-estimated-note");
+  const est = (data.estimated || []).filter((x) => x.n > 0 && x.from);
+  estNote.hidden = !est.length;
+  estNote.textContent = est.map((x) => tr("overview.estimated", { n: x.n, cur: x.currency, month: paceMonthName_(x.from, true) })).join(" ");
 
   const hasAny = data.totals.income !== 0 || data.totals.expense !== 0 || data.totals.investment !== 0 || !!(data.loans && data.loans.people.length);
   document.getElementById("overview-empty-note").hidden = hasAny;
@@ -10391,6 +10407,17 @@ function renderYearCompare_() {
   };
   const cur = sum(y), prev = sum(y - 1);
   if (cur.n < lastMonth || prev.n < lastMonth) return;   // the history does not reach that far back
+  // A percentage is a claim: not while entries of either year still wait in Needs review or have no exchange rate at all, which leave
+  // them out (journeys run, 2026-11-17: Mark read "expenses −91% against 2026" with 532 items waiting).
+  const pad = (k) => String(k).padStart(2, "0");
+  const from = `${y - 1}-01-01`, to = `${y}-${pad(lastMonth)}-31`;
+  const waiting = (reviewEntries_ || []).filter((e) => e.date >= from && e.date <= to && !(e.date > `${y - 1}-${pad(lastMonth)}-31` && e.date < `${y}-01-01`)).length;
+  const noRate = ((homeGlance_ && homeGlance_.unreadable && homeGlance_.unreadable.noRate) || []).reduce((t, x) => t + x.n, 0);
+  if (waiting || noRate) {
+    el.textContent = waiting ? tr("overview.vsYearWait", { n: waiting, prev: y - 1 }) : tr("overview.vsYearNoRate", { prev: y - 1 });
+    el.hidden = false;
+    return;
+  }
   const pct = (a, b) => (b > 0.004 ? `${a >= b ? "+" : "−"}${Math.round(Math.abs(a - b) / b * 100)}%` : "—");
   const params = { prev: y - 1, exp: pct(cur.exp, prev.exp), inc: pct(cur.inc, prev.inc) };
   if (lastMonth === 12) el.textContent = tr("overview.vsYearFull", params);

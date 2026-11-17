@@ -11,6 +11,12 @@ function getRateForEntryCurrency_(currency, dateStr) {
   return getLatestRateOnOrBefore_(currency, month);
 }
 
+// Totals' conversion: as above, but a month before the currency's first rate borrows that first rate (an estimate; rateIsEstimate_).
+function getRateForTotals_(currency, dateStr) {
+  if (currency === homeCurrency_()) return 1;
+  return rateToMainOrFirst_(buildRatesByCurrency_(), currency, String(dateStr).substring(0, 7));
+}
+
 function getPeriodSummary(payload) {
   var startDate = payload && payload.startDate;
   var endDate = payload && payload.endDate;
@@ -44,6 +50,13 @@ function getPeriodSummary(payload) {
 
   var totals = { income: 0, expense: 0, investment: 0 };
   var excludedCount = 0;
+  // Entries converted with a first rate borrowed from a later month (HomeCurrency.gs baseRateAt_): counted per currency, so the screen
+  // can say which currency, from which month on, is an estimate.
+  var ratesAll = buildRatesByCurrency_(), estimated = {};
+  function noteEstimate(cur) {
+    if (!estimated[cur]) { var l = ratesAll[cur]; estimated[cur] = { currency: cur, n: 0, from: l && l.length ? l[0].month : '' }; }
+    estimated[cur].n++;
+  }
   var annualIds = annualMarkedIdSet_();
   var annualByCategory = {};
   // Investments are flows per platform in each entry's OWN currency (no conversion).
@@ -61,8 +74,9 @@ function getPeriodSummary(payload) {
       var f = investmentFlows[pk] || (investmentFlows[pk] = {});
       f[cur] = (f[cur] || 0) + Number(e.amount);
     }
-    var rate = getRateForEntryCurrency_(e.currency, e.date);
+    var rate = getRateForTotals_(e.currency, e.date);
     if (rate == null) { excludedCount++; return; }
+    if (e.currency !== homeCurrency_() && rateIsEstimate_(ratesAll, e.currency, String(e.date).substring(0, 7))) noteEstimate(e.currency);
 
     // own_share: amount minus whatever's been split off to friends. Only
     // expenses can carry splits (Entry Splits is expense-only per the data
@@ -120,6 +134,7 @@ function getPeriodSummary(payload) {
       net: net
     },
     excludedCount: excludedCount,
+    estimated: Object.keys(estimated).map(function (k) { return estimated[k]; }),
     investmentsByPlatform: investmentFlowsToList_(investmentFlows, pmById),
     loans: { people: loanFlows.people, totals: loanFlows.totals },
     owed: owedNow_(payload && payload.scope),
@@ -192,7 +207,7 @@ function loanFlowsForPeriod_(startDate, endDate, scope) {
   var add = function (loan, kind, amount, date, settlementId) {
     var cur = loan.currency || homeCurrency_();
     moves.push({ loan: loan, kind: kind, amount: amount, currency: cur, date: String(date || '').substring(0, 10), settlement_id: settlementId || '' });
-    var rate = getRateForEntryCurrency_(cur, date);
+    var rate = getRateForTotals_(cur, date);
     if (rate == null) excluded++;
     else netPen += (kind === 'borrowed' || kind === 'receivedBack' ? 1 : -1) * amount * rate;
     [people[loan.friend_id] || (people[loan.friend_id] = {}), totals].forEach(function (bag) {

@@ -52,6 +52,31 @@ function baseRateAt_(ratesByCurrency, currency, month) {
   return latestRateFromList_(ratesByCurrency[currency], month);
 }
 
+// For TOTALS only (Overview, Budgets, Home, Projections' income history): months before a currency's FIRST rate use that first rate,
+// an estimate, as the main currency's own rate always did (owner, 2026-11-17, journeys run: Mark's soles months before his first rate
+// were left out of every total). Everything that ASKS for a missing rate (trips, statements, saving an entry) keeps the strict lookup.
+function baseRateOrFirstAt_(ratesByCurrency, currency, month) {
+  var r = baseRateAt_(ratesByCurrency, currency, month);
+  if (r != null || currency === rateBase_()) return r;
+  var list = ratesByCurrency[currency];
+  return list && list.length ? list[0].rate : null;
+}
+function rateToMainOrFirst_(ratesByCurrency, currency, month) {
+  if (currency === homeCurrency_()) return 1;
+  var x = baseRateOrFirstAt_(ratesByCurrency, currency, month);
+  if (x == null) return null;
+  var m = mainBaseRateAt_(ratesByCurrency, month);
+  if (m == null || !(m > 0)) return null;
+  return x / m;
+}
+// True when a total converts `currency` at `month` with a first rate borrowed from a later month (its own or the main currency's).
+function rateIsEstimate_(ratesByCurrency, currency, month) {
+  var main = homeCurrency_(), base = rateBase_();
+  if (currency === main) return false;
+  var early = function (cur) { var l = ratesByCurrency[cur]; return cur !== base && !!(l && l.length) && latestRateFromList_(l, month) == null; };
+  return early(currency) || early(main);
+}
+
 // The MAIN currency's own rate in base terms at `month`. When the main currency has no rate that early, its
 // EARLIEST rate stands in (an estimate, so older months still convert; refine under Exchange rates).
 function mainBaseRateAt_(ratesByCurrency, month) {
