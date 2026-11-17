@@ -219,7 +219,8 @@ async function phone(p) {
   // What teaches on screen right now, where the person is, and the toast.
   const SURFACES = () => {
     const vis = (el) => !!(el && !el.hidden && el.getClientRects().length && getComputedStyle(el).visibility !== "hidden" && getComputedStyle(el).display !== "none");
-    const t = (el) => ((el && el.innerText) || "").replace(/\s+/g, " ").trim();
+    // (textContent too: a tutorial's bubble fades in, and while it does its innerText reads empty)
+    const t = (el) => ((el && (el.innerText || el.textContent)) || "").replace(/\s+/g, " ").trim();
     const out = [];
     const spot = document.querySelector(".spot-root");
     if (vis(spot)) out.push({ kind: "tutorial", text: t(spot.querySelector(".spot-bubble") || spot).slice(0, 400) });
