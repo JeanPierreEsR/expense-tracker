@@ -344,6 +344,14 @@ async function phone(p) {
       if (r.bottom < 0 || r.top > window.innerHeight || !(top && (top === e || e.contains(top) || top.contains(e)))) e.scrollIntoView({ block: "center" });
     });
     await page.waitForTimeout(250);
+    // A tap that would land on something else (a dim layer, a closed sheet's copy, an overlay) is reported, never silent.
+    const cover = await el.evaluate((e) => {
+      const r = e.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      if (!top || top === e || e.contains(top) || top.contains(e)) return "";
+      return String(top.getAttribute("aria-label") || top.innerText || top.className || top.tagName).replace(/\s+/g, " ").trim().slice(0, 60) || top.tagName;
+    }).catch(() => "");
+    if (cover) throw new Error(`That spot is covered by "${cover}" — run look and tap by number (or close what covers it)`);
     const b = await el.boundingBox();
     if (!b) throw new Error("That item has no size on screen");
     await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2);
