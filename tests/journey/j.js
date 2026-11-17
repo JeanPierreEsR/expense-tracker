@@ -381,7 +381,10 @@ async function phone(p) {
     await page.waitForTimeout(2500);
   }
   async function moveTo(day, hhmm) {
-    const out = await req(pt.app, "POST", "/__clock", { to: day + "T" + hhmm });
+    let out = await req(pt.app, "POST", "/__clock", { to: day + "T" + hhmm });
+    // The tester's own session can run past the hour the routine day would open at (a stop at 18:41, then 20 minutes of use):
+    // the day goes on from where the clock is, never backwards, instead of refusing the whole `live`.
+    if (out.error && /only moves forward/.test(out.error)) out = await req(pt.app, "GET", "/__clock");
     if (out.error) throw new Error(out.error);
     await page.evaluate((ms) => window.__tt && window.__tt.set(ms), out.now).catch(() => {});
     return out;
