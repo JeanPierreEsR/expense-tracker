@@ -236,7 +236,7 @@
     "info.pace.name": { en: "About Spending pace", es: "Acerca de Ritmo de gasto" },
     "info.balances": { en: "What each account holds by the app's records. Starting balances make it match the bank.", es: "Lo que tiene cada cuenta según los registros de la app. Los saldos iniciales hacen que coincida con el banco." },
     "info.balances.name": { en: "About Balances", es: "Acerca de Saldos" },
-    "info.annualViews": { en: "How annual costs are shown: mixed in, as one line, or alone.", es: "Cómo se muestran los gastos anuales: mezclados, como una sola línea o solos." },
+    "info.annualViews": { en: "For expenses tagged Annual. “Everything” shows them in their own categories, with the rest. “Annual as one line” puts them all together in one slice. “Only annual” shows just them.", es: "Para los gastos con la etiqueta Anual. “Todo” los muestra en sus categorías, con el resto. “Anual en una línea” los junta en una sola porción. “Solo anual” muestra solo esos." },
     "info.annualViews.name": { en: "About the annual views", es: "Acerca de las vistas de gastos anuales" },
     "info.budgetProg": { en: "Programmed items still to come this period, and where the budget would end up.", es: "Lo programado que aún falta en este periodo, y dónde terminaría el presupuesto." },
     "info.budgetProg.name": { en: "About the programmed line", es: "Acerca de la línea de lo programado" },
