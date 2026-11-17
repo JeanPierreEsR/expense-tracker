@@ -939,10 +939,14 @@
   // the name as printed (CAPITALS, any word order) or '' — an unrecognised line is never guessed. Ahorra Más only greets by first
   // name ("¡HOLA, …!"), which is not enough, so it gives nothing.
   var NAME_WORDS = '[A-ZÁÉÍÓÚÜÑ]{2,}(?: [A-ZÁÉÍÓÚÜÑ]{2,}){1,4}';
+  // Words of a statement's own headings, never of a person's name: an all-capitals heading must not be offered as "Is this you?"
+  // (journeys run, 2026-11-17: "DETALLE DE PAGO DEL MES" was).
+  var HEADING_WORDS_ = /^(DETALLE|DETALLES|PAGO|PAGOS|ESTADO|CUENTA|CUENTAS|RESUMEN|MOVIMIENTO|MOVIMIENTOS|TARJETA|TARJETAS|CREDITO|CRÉDITO|DEBITO|DÉBITO|FECHA|FECHAS|TOTAL|TOTALES|SALDO|SALDOS|MES|PERIODO|PERÍODO|CONSUMO|CONSUMOS|CARGO|CARGOS|INTERES|INTERÉS|INTERESES|MINIMO|MÍNIMO|LIMITE|LÍMITE|DISPONIBLE|BANCO|CLIENTE|OPERACION|OPERACIÓN|OPERACIONES|COMISION|COMISIÓN|COMISIONES|SOLES|DOLARES|DÓLARES|NUMERO|NÚMERO|CODIGO|CÓDIGO|IMPORTE|MONTO|CUOTA|CUOTAS|DEUDA|FACTURACION|FACTURACIÓN|INFORMACION|INFORMACIÓN|PRODUCTO|VISA|MASTERCARD|AMEX)$/;
+  function looksLikeHeading_(text) { return String(text).split(' ').some(function (w) { return HEADING_WORDS_.test(w); }); }
   function holderOf(kind, rows) {
     var texts = rows.slice(0, 16).map(function (r) { return String(r.text || '').trim(); });
     function first(re) {
-      for (var i = 0; i < texts.length; i++) { var m = texts[i].match(re); if (m) return m[1]; }
+      for (var i = 0; i < texts.length; i++) { var m = texts[i].match(re); if (m && !looksLikeHeading_(m[1])) return m[1]; }
       return '';
     }
     var name = '';
@@ -975,7 +979,7 @@
       var stop = texts.findIndex(function (t) { return /^Estado de Cuenta$/i.test(t); });
       for (var i = 1; i < stop && !name; i++) if (new RegExp('^' + NAME_WORDS + '$').test(texts[i])) name = texts[i];
     }
-    return name;
+    return name && !looksLikeHeading_(name) ? name : '';
   }
 
   function parseStatement(rows) {

@@ -2543,6 +2543,10 @@
       historyPlan = null;
       addedAccounts = [];
       $("statement-history").innerHTML = "";
+      // The files just saved leave the Upload step: a next upload counts only its own files (journeys run, 2026-11-17: Lucía read
+      // "2 of 2 ready" with one file left, Julia "4 of 4" with an already-added file still listed).
+      $("statement-results").innerHTML = "";
+      usable = [];
       coverage = null;
       refreshStatementCoverage();
       refreshStatementGaps();
