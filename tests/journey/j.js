@@ -453,8 +453,14 @@ async function phone(p) {
       const file = path.isAbsolute(a[0]) ? a[0] : path.join(dir, "files", a[0]);
       if (!fs.existsSync(file)) throw new Error("No file " + file);
       const el = await locate(a.slice(1).join(" "));
-      const [chooser] = await Promise.all([page.waitForEvent("filechooser", { timeout: 8000 }), tapEl(el)]);
-      await chooser.setFiles(file);
+      // The button's own file box (a label's control, or one inside it) gets the file as the phone's picker would give it;
+      // otherwise tap and wait for a picker.
+      const input = (await el.evaluateHandle((e) => (e.matches("input[type=file]") ? e : e.control && e.control.type === "file" ? e.control : e.querySelector("input[type=file]") || (e.closest("label") && e.closest("label").control) || null))).asElement();
+      if (input) await input.setInputFiles(file);
+      else {
+        const [chooser] = await Promise.all([page.waitForEvent("filechooser", { timeout: 8000 }), tapEl(el)]);
+        await chooser.setFiles(file);
+      }
       await page.waitForTimeout(2500);
       return short();
     },
