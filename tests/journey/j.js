@@ -95,11 +95,14 @@ function statement(p, layout, a, year, mo) {
   const start = card ? life.addDays(first, -4) : first, end = card ? life.addDays(last, -4) : last;
   const r = life.rng(p.id + "stmt" + first + a.id);
   let lines = life.days(p, start, end).filter((t) => t.via === a.id).map((t) => ({ date: t.date, description: t.merchant.toUpperCase(), amount: t.type === "income" ? t.amount : -t.amount, currency: t.currency }));
-  if (card) lines = [{ date: life.addDays(start, 8), description: "PAGO BANCA MOVIL", amount: 600, currency: "PEN" }].concat(lines);
+  // Paying a card: ONE payment a month (the 10th, its amount fixed by card and month), the same on the card's statement and on the
+  // savings account it is paid from, so the app can pair the two.
+  const cardPay = (c, ym) => ({ date: ym + "-10", amount: Math.round(400 + life.rng(p.id + "pay" + c.id + ym)() * 900) });
+  if (card) { const pay = cardPay(a, end.slice(0, 7)); lines = [{ date: pay.date, description: "PAGO BANCA MOVIL", amount: pay.amount, currency: "PEN" }].concat(lines); }
   else {
     // A savings account also shows paying the person's cards and taking out cash.
     lines = lines.filter((l) => l.currency === "PEN");
-    (p.accounts || []).filter((c) => c.type === "credit").forEach((c, i) => lines.push({ date: life.addDays(start, 9 + i * 3), description: "PAGO TARJETA " + c.bank.toUpperCase() + " " + c.last4, amount: -Math.round(400 + r() * 900), currency: "PEN" }));
+    (p.accounts || []).filter((c) => c.type === "credit").forEach((c) => { const pay = cardPay(c, start.slice(0, 7)); lines.push({ date: pay.date, description: "PAGO TARJETA " + c.bank.toUpperCase() + " " + c.last4, amount: -pay.amount, currency: "PEN" }); });
     if (p.habits.some((h) => (h.via || "cash") === "cash")) [6, 20].forEach((n) => lines.push({ date: life.addDays(start, n), description: "RETIRO CAJERO", amount: -Math.round(150 + r() * 250), currency: "PEN" }));
     lines.sort((x, z) => x.date.localeCompare(z.date));
   }
