@@ -310,9 +310,15 @@ async function phone(p) {
       const score = (e) => { const r = e.getBoundingClientRect(); return (clickable(e) ? 0 : 1e7) + r.width * r.height; };
       let hits = all.filter((e) => lab(e) === want);
       if (!hits.length) hits = all.filter((e) => lab(e).includes(want));
+      // Nested elements with the same words are one thing; several separate tappable things are ambiguous.
+      hits = hits.filter((e) => !hits.some((o) => o !== e && e.contains(o)));
+      const tappable = hits.filter(clickable);
+      if (tappable.length > 1) return { ambiguous: tappable.length };
       hits.sort((a, b) => score(a) - score(b));
       return hits[0] || null;
     }, String(target));
+    const amb = await h.evaluate((x) => (x && x.ambiguous) || 0).catch(() => 0);
+    if (amb) throw new Error(`${amb} different things say "${target}": run look and tap by number`);
     const el = h.asElement();
     if (!el) throw new Error(`Nothing on screen says "${target}"`);
     return el;
