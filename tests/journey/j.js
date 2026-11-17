@@ -329,7 +329,10 @@ async function phone(p) {
       if (!hits.length) hits = all.filter((e) => lab(e).includes(want));
       // Nested elements with the same words are one thing; several separate tappable things are ambiguous.
       hits = hits.filter((e) => !hits.some((o) => o !== e && e.contains(o)));
-      const tappable = hits.filter(clickable);
+      let tappable = hits.filter(clickable);
+      // A tab's name (Loans, Budgets…) also appears on screens: the word alone means the tab, as a person would read it.
+      const inBar = tappable.filter((e) => e.closest("#bottom-nav") && lab(e) === want);
+      if (tappable.length > 1 && inBar.length === 1) return inBar[0];
       if (tappable.length > 1) return { ambiguous: tappable.length };
       hits.sort((a, b) => score(a) - score(b));
       return hits[0] || null;
