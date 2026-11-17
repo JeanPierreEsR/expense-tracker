@@ -259,8 +259,8 @@ function buildGmail() {
   };
 
   // Test helper: add an email (own thread unless threadWith is given).
-  function addEmail({ from, to, subject, body, html, daysAgo = 0, threadWith, attachments = [] }) {
-    const sentAt = Date.now() - daysAgo * 86400000 + 1000 * nextId;
+  function addEmail({ from, to, subject, body, html, daysAgo = 0, sentAt: at, threadWith, attachments = [] }) {
+    const sentAt = at !== undefined ? at : Date.now() - daysAgo * 86400000 + 1000 * nextId;   // `sentAt`: an exact moment (the journeys' e-mails)
     const msg = {
       _id: "m" + nextId++,
       _html: html, _attachments: attachments,

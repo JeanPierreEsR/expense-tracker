@@ -6,6 +6,12 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+// TIME_TRAVEL=1 (2026-11-17): "now" is whatever the tester sets with POST /__clock, for the fake backend AND the phone (a small script
+// at the top of every page); CLOCK_START=YYYY-MM-DD[THH:MM] (Lima) picks the first day. Installed before the backend is loaded.
+const clock = require("./clock");
+const TIME_TRAVEL = !!process.env.TIME_TRAVEL;
+if (TIME_TRAVEL) { clock.install(); if (process.env.CLOCK_START) clock.setNow(clock.limaMs(process.env.CLOCK_START)); }
+const channels = require("./channels");
 const { createRuntime, ACCESS_CODE } = require("./gas-runtime");
 const { seedData } = require("./seed");
 
@@ -14,7 +20,7 @@ const DOCS = path.join(__dirname, "..", "..", "docs");
 const VERSION_AT_START = fs.readFileSync(path.join(DOCS, "version.json"), "utf8");
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml" };
 
-let rt, data;
+let rt, data, world;
 function boot() {
   // EMPTY=1: a brand-new person's copy, built exactly like the installer builds one (the short starter categories and the bank
   // catalogue; the welcome's "What fits me" adds the rest; no accounts, friends or entries).
@@ -108,8 +114,41 @@ function boot() {
   // SHEET_DATES=1: Sheets turns written date strings into real dates (as it does on a real Sheet) instead of keeping them as text.
   if (process.env.SHEET_TZ) require("./fake-google").setSheetTimeZone(process.env.SHEET_TZ);
   if (process.env.SHEET_DATES) rt.svc.ss.getSheets().forEach((sh) => sh.textCols && sh.textCols.clear());
+  // Bank e-mails at a chosen moment and the Telegram / WhatsApp bots as a chat (channels.js); Telegram's and Meta's servers are imitated.
+  world = channels.attach(rt);
 }
 boot();
+
+// The 15-minute timer of a real copy (runAutomation: e-mails, bots, budget alerts, loan reminders...). While the clock is moved
+// forward it runs every 2 hours from 07:00 to 23:00 Lima time, with the e-mails due by then delivered first.
+const JOB_HOURS = [7, 9, 11, 13, 15, 17, 19, 21, 23];
+function runJobs(log) {
+  world.deliverDue();
+  try { rt.run("runAutomation()"); log.jobs++; } catch (e) { log.errors.push(clock.limaText(clock.now()) + " " + e.message); }
+}
+function advanceTo(target, jobs) {
+  const log = { from: clock.limaText(clock.now()), jobs: 0, errors: [] };
+  if (target < clock.now()) throw new Error("The clock only moves forward in a journey (now " + log.from + ")");
+  if (jobs) {
+    // Every job moment between now and the target, in order.
+    const day0 = clock.limaMs(clock.limaText(clock.now()).slice(0, 10) + "T00:00");
+    for (let d = day0; d <= target; d += 86400000) {
+      JOB_HOURS.forEach((h) => {
+        const at = d + h * 3600000;
+        if (at > clock.now() && at <= target) { clock.setNow(at); runJobs(log); }
+      });
+    }
+  }
+  clock.setNow(target);
+  world.deliverDue();
+  log.to = clock.limaText(clock.now());
+  return log;
+}
+function clockInfo() {
+  return { timeTravel: TIME_TRAVEL, now: clock.now(), lima: clock.limaText(clock.now()), offsetDays: Math.round(clock.offset() / 864000) / 100, mailWaiting: world.mailQueue.length };
+}
+const readBody = (req, done) => { let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => done(b ? JSON.parse(b) : {})); };
+const sendJson = (res, obj, code) => { res.writeHead(code || 200, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
 
 http.createServer((req, res) => {
   const url = req.url.split("?")[0];
@@ -136,7 +175,59 @@ http.createServer((req, res) => {
   // counts as the OWNER's (perfIsOwnerCopy_), which hid Feedback & privacy and every other friends-only row on the friend-style copy.
   if (url === "/login") {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-    res.end(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:18px -apple-system,sans-serif;padding:24px">Signing in to the test copy…<script>localStorage.setItem("accessCode", ${JSON.stringify(ACCESS_CODE)}); localStorage.setItem("etChannel", "live"); if (!localStorage.getItem("lang") && /^es/i.test(navigator.language || "")) localStorage.setItem("lang", "es"); ${process.env.FRIEND_COPY ? 'localStorage.setItem("apiUrl", location.origin + "/api");' : ""} ${process.env.POP_MONTH_OLD ? 'localStorage.setItem("popFirstUse", JSON.stringify(new Date(Date.now() - 40 * 86400000).toISOString().slice(0, 10))); (function(){var n=new Date(),day=n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0")+"-"+String(n.getDate()).padStart(2,"0");localStorage.setItem("tipCardsToday",JSON.stringify({day:day,keys:[],open:true}));})(); localStorage.setItem("popTipsAgain","true"); localStorage.setItem("popTipsSeen","[]"); localStorage.removeItem("popTipDay"); localStorage.setItem("popTipSeries","{}"); localStorage.setItem("projUnlockedOn", JSON.stringify(new Date(Date.now() - 20 * 86400000).toISOString().slice(0, 10))); localStorage.removeItem("projMethodUsed"); localStorage.setItem("tutorialIdleSeen","[]"); (function(){var a=[];for(var i=1;i<=8;i++){var d=new Date(Date.now()-i*86400000);a.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"));}localStorage.setItem("popActiveDays",JSON.stringify(a.reverse()));})(); localStorage.setItem("popEntrySaves","40"); localStorage.setItem("popManualRun","3"); localStorage.setItem("tipNotNowCount","2"); localStorage.setItem("popTipVisits",JSON.stringify({overview:2,projections:2})); ["popMonthTapped","popStats","popStruggle","popOneDeletes","popUsedBefore"].forEach(function(k){localStorage.removeItem(k);});' : ""} ${process.env.SKIP_WELCOME ? 'localStorage.setItem("etOnboarded","1");' : ""} ${process.env.REAL_NEW ? 'localStorage.setItem("etOnboarded","1"); localStorage.setItem("tutorialAgain","true"); localStorage.setItem("tutorialTaughtOld","[]"); localStorage.setItem("tutorialTaught","{}"); localStorage.setItem("tutorialChances","{}"); localStorage.setItem("tutorialIdleSeen","[]"); localStorage.removeItem("tidyTapAsked"); localStorage.removeItem("noacctTapAsked"); localStorage.setItem("tutorialReviewTypes","[]"); localStorage.setItem("tutorialFields",JSON.stringify(["category","amount","currency","description","date","account"])); localStorage.setItem("tipsSeen",JSON.stringify(["guided-entry"]));' : ""} localStorage.removeItem("startupCache"); location.replace("/");</script>`);
+    res.end(`<!doctype html>${TIME_TRAVEL ? clock.browserSnippet() : ""}<meta name="viewport" content="width=device-width,initial-scale=1"><body style="font:18px -apple-system,sans-serif;padding:24px">Signing in to the test copy…<script>localStorage.setItem("accessCode", ${JSON.stringify(ACCESS_CODE)}); localStorage.setItem("etChannel", "live"); if (!localStorage.getItem("lang") && /^es/i.test(navigator.language || "")) localStorage.setItem("lang", "es"); ${process.env.FRIEND_COPY ? 'localStorage.setItem("apiUrl", location.origin + "/api");' : ""} ${process.env.POP_MONTH_OLD ? 'localStorage.setItem("popFirstUse", JSON.stringify(new Date(Date.now() - 40 * 86400000).toISOString().slice(0, 10))); (function(){var n=new Date(),day=n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0")+"-"+String(n.getDate()).padStart(2,"0");localStorage.setItem("tipCardsToday",JSON.stringify({day:day,keys:[],open:true}));})(); localStorage.setItem("popTipsAgain","true"); localStorage.setItem("popTipsSeen","[]"); localStorage.removeItem("popTipDay"); localStorage.setItem("popTipSeries","{}"); localStorage.setItem("projUnlockedOn", JSON.stringify(new Date(Date.now() - 20 * 86400000).toISOString().slice(0, 10))); localStorage.removeItem("projMethodUsed"); localStorage.setItem("tutorialIdleSeen","[]"); (function(){var a=[];for(var i=1;i<=8;i++){var d=new Date(Date.now()-i*86400000);a.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"));}localStorage.setItem("popActiveDays",JSON.stringify(a.reverse()));})(); localStorage.setItem("popEntrySaves","40"); localStorage.setItem("popManualRun","3"); localStorage.setItem("tipNotNowCount","2"); localStorage.setItem("popTipVisits",JSON.stringify({overview:2,projections:2})); ["popMonthTapped","popStats","popStruggle","popOneDeletes","popUsedBefore"].forEach(function(k){localStorage.removeItem(k);});' : ""} ${process.env.SKIP_WELCOME ? 'localStorage.setItem("etOnboarded","1");' : ""} ${process.env.REAL_NEW ? 'localStorage.setItem("etOnboarded","1"); localStorage.setItem("tutorialAgain","true"); localStorage.setItem("tutorialTaughtOld","[]"); localStorage.setItem("tutorialTaught","{}"); localStorage.setItem("tutorialChances","{}"); localStorage.setItem("tutorialIdleSeen","[]"); localStorage.removeItem("tidyTapAsked"); localStorage.removeItem("noacctTapAsked"); localStorage.setItem("tutorialReviewTypes","[]"); localStorage.setItem("tutorialFields",JSON.stringify(["category","amount","currency","description","date","account"])); localStorage.setItem("tipsSeen",JSON.stringify(["guided-entry"]));' : ""} localStorage.removeItem("startupCache"); location.replace("/");</script>`);
+    return;
+  }
+  // ---- Time travel and the outside world (journeys, 2026-11-17; tests/README.md § Journeys) ----
+  // GET /__clock: what time it is on this copy. POST /__clock {to: "2027-01-05T09:00" | days | hours | minutes, jobs: true}: moves
+  // "now" forward, running the copy's timer and delivering the e-mails due on the way. The phone must reload (or call
+  // window.__tt.set(now)) to follow; the journey runner does that.
+  if (url === "/__clock") {
+    if (req.method !== "POST") { sendJson(res, clockInfo()); return; }
+    readBody(req, (b) => {
+      try {
+        if (!TIME_TRAVEL) throw new Error("Start the server with TIME_TRAVEL=1 to move the clock");
+        const target = b.to ? clock.limaMs(b.to) : clock.now() + ((b.days || 0) * 24 * 60 + (b.hours || 0) * 60 + (b.minutes || 0)) * 60000;
+        sendJson(res, { ...advanceTo(target, b.jobs !== false), ...clockInfo() });
+      } catch (e) { sendJson(res, { error: e.message }, 400); }
+    });
+    return;
+  }
+  // POST /__jobs: run the timer once now (e-mails, bots, alerts), as a 15-minute tick would.
+  if (req.method === "POST" && url === "/__jobs") { const log = { jobs: 0, errors: [] }; runJobs(log); sendJson(res, log); return; }
+  // POST /__bankmail: one e-mail or a list, [{kind, amount, currency?, merchant, last4?, at?}] (kinds: channels.js BANK_MAIL) or
+  // {from, subject, body, at?}; `at` (Lima "YYYY-MM-DDTHH:MM") in the future waits in a queue until the clock reaches it.
+  if (req.method === "POST" && url === "/__bankmail") {
+    readBody(req, (b) => { try { sendJson(res, { delivered: world.queueMail([].concat(b)), waiting: world.mailQueue.length }); } catch (e) { sendJson(res, { error: e.message }, 400); } });
+    return;
+  }
+  // POST /__bots {telegram: true} — a Telegram bot token is saved (as the Sheet menu does; the person links the chat by sending
+  // "/start <access code>"); {whatsapp: true} — this copy is one the owner marked for the WhatsApp bot (the person turns it on in
+  // More → My profile → WhatsApp bot).
+  if (req.method === "POST" && url === "/__bots") {
+    readBody(req, (b) => { const out = {}; if (b.telegram) out.telegram = world.telegramSetUp(); if (b.whatsapp) out.whatsapp = world.whatsappOffer(); sendJson(res, out); });
+    return;
+  }
+  // POST /__chat {bot: "telegram"|"whatsapp", text} or {bot, tap: "<button title or id>", to?: <message id>}: the person writes to
+  // (or taps a button of) the bot. GET /__chat?since=<n>: the conversation, from line n. GET /chat: the same as a page.
+  if (url === "/__chat") {
+    if (req.method !== "POST") {
+      const since = Number((/since=(\d+)/.exec(req.url) || [])[1] || 0);
+      sendJson(res, world.chat.slice(since).map((c, i) => ({ n: since + i, when: clock.limaText(c.at), ...c, at: undefined })));
+      return;
+    }
+    readBody(req, (b) => {
+      const before = world.chat.length;
+      try {
+        if (b.bot === "telegram") world.telegramSend(b); else if (b.bot === "whatsapp") world.whatsappSend(b); else throw new Error("bot must be telegram or whatsapp");
+        sendJson(res, world.chat.slice(before).map((c, i) => ({ n: before + i, when: clock.limaText(c.at), ...c, at: undefined })));
+      } catch (e) { sendJson(res, { error: e.message }, 400); }
+    });
+    return;
+  }
+  if (url === "/chat") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(fs.readFileSync(path.join(__dirname, "chat.html")));
     return;
   }
   if (url === "/__mail") {
@@ -231,6 +322,7 @@ http.createServer((req, res) => {
   if (file.startsWith(DOCS) && fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, "index.html");   // /stable/ and /setup/ open their index.html, like GitHub Pages
   if (!file.startsWith(DOCS) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end("not found"); return; }
   let buf = fs.readFileSync(file);
+  if (TIME_TRAVEL && path.extname(file) === ".html") buf = Buffer.from(buf.toString().replace(/<head>/i, "<head>" + clock.browserSnippet()));
   if (path.basename(file) === "app.js") {
     // Point the app at the fake backend instead of the real Apps Script URL.
     buf = Buffer.from(buf.toString().replace(/const OWNER_API_URL = "[^"]*";/, 'const OWNER_API_URL = "/api";'));
