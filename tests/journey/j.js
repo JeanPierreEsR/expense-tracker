@@ -614,6 +614,16 @@ function brief(p) {
     if (a1 === "stop") { console.log(stop(p)); return; }
     if (a1 === "phone-restart") { console.log(await restartPhone(p)); return; }
     if (a1 === "brief") { console.log(brief(p)); return; }
+    // Coordinator only: later months' statement files for a person who brings files (e.g. coming back after a gap).
+    if (a1 === "statement-files") {
+      const acct = Object.fromEntries((p.accounts || []).map((a) => [a.id, a]));
+      process.argv.slice(4).forEach((ym) => (p.bring && p.bring.files || []).forEach((f) => {
+        const st = statement(p, f.layout, acct[f.account] || {}, +ym.slice(0, 4), +ym.slice(5, 7));
+        fs.writeFileSync(path.join(dirOf(p), "files", st.file), st.buf);
+        console.log(st.file + " (" + st.lines + " lines, " + st.start + " to " + st.end + ")");
+      }));
+      return;
+    }
     if (a1 === "files") { console.log(makeFiles(p).join("\n")); return; }
     if (a1 === "phases") { console.log(JSON.stringify(phases(p), null, 1)); return; }
     if (a1 === "note") { fs.appendFileSync(path.join(dirOf(p), "journal.md"), `\n- [${(await req(pt.app, "GET", "/__clock")).lima}] ${rest.join(" ")}`); console.log("noted"); return; }
