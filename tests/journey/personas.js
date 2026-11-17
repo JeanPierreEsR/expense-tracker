@@ -38,7 +38,7 @@ module.exports = [
     accounts: [{ id: "bcp", bank: "BCP", type: "debit", last4: "4411" }],
     habits: [via(H.market, "cash"), via(H.bodega, "cash"), via(H.pharmacy, "cash", { perWeek: 0.8 }), via({ ...H.bodega, what: ["Yape a Vecina Prueba", "Yape a Nieta Prueba"] }, "yape", { perWeek: 1.5 }),
       via(H.light, "bcp"), via(H.water, "bcp"), { ...H.salary(2100, 28), what: ["Pensión ONP Prueba"], via: "bcp" }],
-    yapeMail: true, record: { cash: 0.8, yape: 0.3, card: 0.6 }, use: { perWeek: 6 }, bots: { whatsapp: true } },
+    yapeMail: true, record: { cash: 0.8, yape: 0.3, card: 0.6 }, use: { perWeek: 6 }, atNight: true, bots: { whatsapp: true } },
   { id: "diego", first: "Diego", lang: "es", start: "blank", clockStart: "2026-12-01", months: 6,
     situation: "Student with roommates, uses Plin, skims, double-taps, patchy data.",
     journey: "Shares rent and groceries with two roommates (Bruno Prueba, Kiara Prueba), pays with Plin from Interbank. Goes 2 weeks without opening the app during exams (month 2).",
