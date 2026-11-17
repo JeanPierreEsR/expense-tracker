@@ -292,7 +292,8 @@ async function phone(p) {
       clickables.push({ e, label, kind, r });
     });
     // One item per thing: a word inside a tappable row is the row.
-    const keep = clickables.filter((c) => !clickables.some((o) => o !== c && o.e.contains(c.e) && o.label.includes(c.label)));
+    // (only when the outer item says little more: a whole pop-up holding the button's word is not the button)
+    const keep = clickables.filter((c) => !clickables.some((o) => o !== c && o.e.contains(c.e) && o.label.includes(c.label) && o.label.length - c.label.length <= 15));
     const out = keep.slice(0, 70).map((c, i) => {
       c.e.setAttribute("data-jn", String(i + 1));
       const lab = c.e.labels && c.e.labels[0] ? c.e.labels[0].innerText.trim().slice(0, 40) : "";
