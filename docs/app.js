@@ -15581,6 +15581,7 @@ let practiceE_ = null;   // { range }: the period before the practice started
 
 // No yellow card (owner, 2026-11-09: nobody needs nudging to export): the bubble after 20 idle seconds offers it.
 function watchExportIdle_() {
+  if (PRACTICES_PAUSED_) return;
   if (!meta || perfIsOwnerCopy_() || isTaught_("export") || tipSeen_("export")) return;
   idleOffer_({
     key: "export",
@@ -24718,7 +24719,11 @@ function editModeOn_() {
 }
 // after(): runs once the card was answered (Not now, or the practice started), e.g. the Loans line offering the other two loan practices.
 let tipRunningKey_ = "";   // the practice started from its card, so its finish can be recorded
+// Practice tutorials are hidden until further notice (owner, 2026-11-16): no yellow card, nudge, idle offer, "More practice"
+// line or Practice tips row offers one. Real tutorials, bubbles and info buttons go on; a leftover practice's cleanup still runs.
+const PRACTICES_PAUSED_ = true;
 function offerTip_(key, boxId, inviteText, start, after) {
+  if (PRACTICES_PAUSED_) return;
   const box = document.getElementById(boxId);
   if (!box || tipSeen_(key) || Spotlight.isRunning()) return;
   if (realHoldsPractice_(key)) return;
@@ -25671,6 +25676,7 @@ function watchAgainstMainTip_() {
 }
 // More: bringing practices back, for someone who said "Not now" to practice cards at least twice.
 function watchBringBackTip_() {
+  if (PRACTICES_PAUSED_) return;
   if (popGet_("tipNotNowCount", 0) < 2) return;
   popTipWatch_({
     key: "bringBack", place: "more", text: tr("pop.bringBack"), noGate: true,
@@ -26266,6 +26272,7 @@ function offerLoansTip_() {
 function offerLoansMoreLine_() {
   const box = document.getElementById("loans-more-practice");
   if (!box) return;
+  if (PRACTICES_PAUSED_) { box.hidden = true; return; }
   const left = ((meta && meta.capabilities) || {}).practiceLoansMore   // an older backend could not clean these practices up
     ? [["loans-standalone", "spot.lm.loan", "standalone"], ["loans-bank", "spot.lm.bank", "bank"]].filter(([k]) => !tipSeen_(k) && (k === "loans-bank" ? realAgain_() && !isTaught_(k) : realAgain_() && !transferKindTaught_("loan"))) : [];
   if (!left.length || Spotlight.isRunning()) { box.hidden = true; return; }
@@ -27361,6 +27368,7 @@ let nudgeKey_ = "";
 function realHoldsPractice_(key) { return popGet_(TAUGHT_KEY_, {})[key] === "real" || (REAL_FIRST_.includes(key) && !realAgain_() && nudgeKey_ !== key); }
 function realDaysSince_(iso) { return (Date.parse(todayLocalISO()) - Date.parse(iso)) / 86400000; }
 function offerNudge_() {
+  if (PRACTICES_PAUSED_) return;
   if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || document.getElementById("screen-entries").hidden || realDaysSince_(popFirstUse_()) < NUDGE_DAYS_) return;
   if (!document.getElementById("home-tip-invite").hidden) return;
   const last = popGet_(NUDGE_LAST_KEY_, "");
@@ -29128,13 +29136,11 @@ function loanProjectPillHtml_(l) {
 // row looks and behaves identically in either — only which list it lands
 // in differs.
 // One "Forgive a debt" button at the bottom of the person's screen (owner, 2026-11-12). One debt: it opens the
-// Forgive window for it; several: a short list under the button to pick which one.
+// Forgive window for it; several: a window of its own to pick which one (owner, 2026-11-16: a list under the button
+// looked like the screen behind it). Its ⓘ sits beside the button, so what it does is known before pressing it.
 function renderForgiveAny_(forgivable, friendId, friendName) {
   const box = document.getElementById("loan-forgive-any");
   const btn = document.getElementById("loan-forgive-any-btn");
-  const pick = document.getElementById("loan-forgive-pick");
-  pick.hidden = true;
-  pick.innerHTML = "";
   box.hidden = !forgivable.length;
   if (!forgivable.length) return;
   const friend = { id: friendId, name: friendName };
@@ -29144,23 +29150,26 @@ function renderForgiveAny_(forgivable, friendId, friendName) {
   const both = dirs.size > 1, iOwe = !both && dirs.has("i_owe_them");
   btn.textContent = tr(iOwe ? "loanDetail.forgiveAnyIOwe" : "loanDetail.forgiveAny");
   document.getElementById("loan-forgive-any-hint").textContent = tr(both ? "loanDetail.forgiveHintBoth" : iOwe ? "loanDetail.forgiveHintIOwe" : "loanDetail.forgiveHintTheyOwe");
-  btn.setAttribute("aria-expanded", "false");
+  const hintKey = both ? "loanDetail.forgiveHintBoth" : iOwe ? "loanDetail.forgiveHintIOwe" : "loanDetail.forgiveHintTheyOwe";
   btn.onclick = () => {
     if (forgivable.length === 1) { openForgiveModal(forgivable[0], friend); return; }
-    pick.hidden = !pick.hidden;
-    btn.setAttribute("aria-expanded", String(!pick.hidden));
-    if (pick.children.length) return;
+    const pick = document.getElementById("forgive-pick-list");
+    pick.innerHTML = "";
+    document.getElementById("forgive-pick-title").textContent = tr(both ? "forgivePick.title" : iOwe ? "forgivePick.titleIOwe" : "forgivePick.title");
+    document.getElementById("forgive-pick-hint").textContent = tr(hintKey);
     forgivable.forEach((l) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "more-list-item loan-forgive-choice";
       const sign = l.direction === "they_owe_me" ? "+" : "−";
       b.innerHTML = `<span>${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="hint md-sub">${listDate_(l.date)}</span></span><span class="loan-detail-row-amount ${l.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${sign}${escapeHtml(l.currency)} ${moneyFmt(l.remaining)}</span>`;
-      b.addEventListener("click", () => openForgiveModal(l, friend));
+      b.addEventListener("click", () => { document.getElementById("forgive-pick-backdrop").hidden = true; openForgiveModal(l, friend); });
       pick.appendChild(b);
     });
+    document.getElementById("forgive-pick-backdrop").hidden = false;
   };
 }
+document.getElementById("forgive-pick-close").addEventListener("click", () => { document.getElementById("forgive-pick-backdrop").hidden = true; });
 
 function buildLoanDetailRow_(l, friendId, friendName) {
   const kind = l.direction === "they_owe_me" ? "owed-to-me" : "i-owe";

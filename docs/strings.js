@@ -1559,6 +1559,8 @@
     "loanDetail.forgive": { en: "🙏 Forgive", es: "🙏 Perdonar" },
     "loanDetail.forgiveAny": { en: "🎁 Forgive a debt", es: "🎁 Perdonar una deuda" },
     "loanDetail.forgiveAnyIOwe": { en: "🎁 They forgave me a debt", es: "🎁 Me perdonaron una deuda" },
+    "forgivePick.title": { en: "Which debt to forgive?", es: "¿Qué deuda perdonar?" },
+    "forgivePick.titleIOwe": { en: "Which debt did they forgive?", es: "¿Qué deuda te perdonaron?" },
     "loanDetail.forgiveHintTheyOwe": { en: "For when they won't pay you back part or all of it. No money moves.", es: "Para cuando no te van a devolver una parte o todo. No se mueve dinero." },
     "loanDetail.forgiveHintIOwe": { en: "For when they tell you not to pay back part or all of it. No money moves.", es: "Para cuando te dice que no le devuelvas una parte o todo. No se mueve dinero." },
     "loanDetail.forgiveHintBoth": { en: "For a debt, or part of it, that won't be paid back. No money moves.", es: "Para una deuda, o una parte, que no se devolverá. No se mueve dinero." },

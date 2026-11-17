@@ -2092,9 +2092,8 @@
       <div class="currency-option-list" id="loan-detail-paid-list" hidden></div>
       <!-- Forgive, once for the whole screen and kept quiet (design review 2026-11-12); renderForgiveAny_ in app.js. -->
       <div class="loan-forgive-any" id="loan-forgive-any" hidden>
-        <button type="button" class="secondary-btn loan-forgive-btn" id="loan-forgive-any-btn" data-i18n="loanDetail.forgiveAny">Forgive a debt</button>
+        <div class="loan-forgive-row"><button type="button" class="secondary-btn loan-forgive-btn" id="loan-forgive-any-btn" data-i18n="loanDetail.forgiveAny">Forgive a debt</button><button type="button" class="info-btn" data-info="forgive" data-i18n-aria-label="info.forgive.name" aria-label="About forgiving a debt" aria-expanded="false"></button></div>
         <p class="hint loan-forgive-hint" id="loan-forgive-any-hint"></p>
-        <div class="loan-forgive-pick" id="loan-forgive-pick" hidden></div>
       </div>
     </div>
   </div>
@@ -3244,6 +3243,19 @@
         <p class="hint" id="paid-picker-empty" hidden data-i18n="paid.empty">No confirmed entries this month yet.</p>
         <p class="hint error-text" id="paid-picker-error"></p>
       </div>
+    </div>
+  </div>
+
+  <!-- Forgive a debt, several debts (owner, 2026-11-16): which one, in a window of its own (the list under the button looked like the
+       screen behind it). The Forgive window opens above it. -->
+  <div id="forgive-pick-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span class="cm-title-info"><span id="forgive-pick-title" data-i18n="forgivePick.title">Which debt to forgive?</span><button type="button" class="info-btn" data-info="forgive" data-i18n-aria-label="info.forgive.name" aria-label="About forgiving a debt" aria-expanded="false"></button></span>
+        <button type="button" id="forgive-pick-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <p class="hint" id="forgive-pick-hint"></p>
+      <div id="forgive-pick-list" class="loan-forgive-pick"></div>
     </div>
   </div>
 
