@@ -445,11 +445,14 @@ function seedFriends() {
 }
 
 function seedSettings() {
-  seedIfEmpty('Settings', [
+  var rows = [
     { key: 'default_currency', value: 'PEN' },
     { key: 'language', value: 'en' },
     { key: 'alert_thresholds', value: '50,80,100' },
     { key: 'notification_channel', value: '' },
     { key: 'notification_target', value: '' }
-  ]);
+  ];
+  // A new person's copy gets the defaults that are not the owner's habits (PersonDefaults.gs, owner 2026-11-16).
+  if (isFriendCopy_()) rows.push({ key: NEW_PERSON_DEFAULTS_SETTING_, value: 'yes' });
+  seedIfEmpty('Settings', rows);
 }

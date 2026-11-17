@@ -895,7 +895,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   var subject = message.getSubject();
   var body = message.getPlainBody();
   learnOwnNameFromMail_(message, sender);
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var dateStr = Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd');
   // The email's own timestamp, not "now" — automation runs on a delay
   // (up to 15 min), so this is closer to when the transaction actually
@@ -1168,7 +1168,7 @@ function seedParsingRulesDoc() {
  */
 function debugListEmails_(senders, days) {
   var out = [];
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   senders.forEach(function (sender) {
     gmailSearchMessages_('from:' + sender + ' newer_than:' + (days || 7) + 'd', { max: 50 }).forEach(function (message) {
       var subject = message.getSubject();
@@ -1194,7 +1194,7 @@ function debugListEmails_(senders, days) {
  * by email.
  */
 function debugSearchEmails_(query, max) {
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var out = [];
   gmailSearchMessages_(query, { max: Math.min(max || 20, 40) }).forEach(function (m) {
     out.push({

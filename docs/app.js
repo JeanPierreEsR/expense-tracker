@@ -744,7 +744,7 @@ let perfInflight_ = 0;
 const API_READ_RE_ = /^(get|list)[A-Z]/;
 // Calls that change nothing any list shows (alerts / notices come back in their own answer): they neither drop what is waiting
 // nor wait in line as a save. The automatic alert check right after every save used to throw the save's lists away.
-const API_NEUTRAL_ = new Set(["checkAlertsNow", "markNoticesSeen", "syncEntrySearchIndex", "reportPerf", "reportBeta", "reportFeedback"]);
+const API_NEUTRAL_ = new Set(["checkAlertsNow", "markNoticesSeen", "syncEntrySearchIndex", "reportPerf", "reportBeta", "reportFeedback", "setTimeZone"]);
 let apiWriteGen_ = 0;
 const apiPrefill_ = new Map();     // key -> { gen, at, data }
 const apiInflight_ = new Map();    // key -> { gen, promise }
@@ -1202,6 +1202,8 @@ function autoBeforeApp_(dateId, boxId, shown, apply) {
 }
 
 function defaultDueDate_(dateStr) {
+  // A new person's loans start with no due date (owner, 2026-11-16); the owner's copy and earlier copies keep "a week out".
+  if (meta && meta.settings && meta.settings.loan_due_week === "no") return "";
   const d = new Date(`${dateStr}T00:00:00`);
   d.setDate(d.getDate() + 7);
   const yyyy = d.getFullYear();
@@ -1380,7 +1382,7 @@ function refreshTelegramFields_() {
 }
 
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
-  meta = prefetchedMeta || await callApi("getMeta", {});
+  meta = prefetchedMeta || await callApi("getMeta", { tz: phoneTz_() });
   syncPairWithBackend_();
   (meta.categories || []).forEach(cleanCategoryLook_);
   refreshTelegramFields_();
@@ -1518,6 +1520,7 @@ function populateCategoryPicker() {
 let annualAutoTicked = false;
 function preselectAnnualForTravel_(categoryId) {
   if (selectedType !== "expense") return;
+  if (meta && meta.settings && meta.settings.travel_annual_on === "no") return;   // a new person's Travel is not Annual by itself (owner, 2026-11-16)
   const byId = new Map(meta.categories.map((c) => [c.id, c]));
   const isTravel = (c) => !!c && (c.key === "travel" || (!c.key && c.name === "Travel"));
   const cat = byId.get(categoryId);
@@ -7121,6 +7124,20 @@ function retryWaitingSaves_() {
 window.addEventListener("online", retryWaitingSaves_);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) retryWaitingSaves_(); });
 
+// The person's time zone is the one their phone is in (owner, 2026-11-16): sent at start-up (getStartupBundle / getMeta `tz`), and
+// again when the app comes back in another zone (a trip), so expenses from e-mails and "today" on the server follow the person.
+function phoneTz_() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { return ""; }
+}
+let tzSentNow_ = phoneTz_();
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !meta) return;
+  const tz = phoneTz_();
+  if (!tz || tz === tzSentNow_) return;
+  tzSentNow_ = tz;
+  callApi("setTimeZone", { tz }).catch(() => { tzSentNow_ = ""; });   // tried again the next time the app comes back
+});
+
 // Called once at app startup (see init()) so an edit that didn't finish
 // landing before the app was last closed gets retried now, instead of
 // silently waiting for the owner to notice and re-open that entry.
@@ -11504,7 +11521,8 @@ function updateBudgetForwardHint_(budget) {
   el.hidden = !budgetForwardType_ || budgetPeriodType !== budgetForwardType_ || budgetEditingEnded_ || noEarlier;
   if (!el.hidden) el.textContent = tr(budgetKindKeys_(budgetForwardType_).fwd);
 }
-const DEFAULT_BUDGET_THRESHOLDS_DISPLAY = "50, 75, 100, 110, 125, 150";
+// The alert percentages a new budget starts with: 75, 100 (the owner's copy 75, 100, 125), as the server says (PersonDefaults.gs).
+const defaultBudgetThresholdsDisplay_ = () => String((meta && meta.settings && meta.settings.budget_thresholds_default) || "75,100").split(",").map((x) => x.trim()).join(", ");
 
 document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -11662,7 +11680,8 @@ function openBudgetModal(budget) {
   document.getElementById("budget-annual-kind-row").hidden = !(meta && meta.capabilities && meta.capabilities.annualBudgets);
   setBudgetAnnualKind_(!!(budget && budget.annual_kind));
 
-  document.getElementById("budget-thresholds").value = budget ? budget.thresholds : DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
+  document.getElementById("budget-thresholds").value = budget ? budget.thresholds : defaultBudgetThresholdsDisplay_();
+  document.getElementById("budget-thresholds").placeholder = defaultBudgetThresholdsDisplay_();
   // Ending (forward only) or deleting completely, where the backend knows budget history; an ended budget can be started again.
   const hist = budgetHistoryOn_();
   budgetEditingEnded_ = !!(budget && budget.ended && hist);
@@ -11710,7 +11729,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     const name = document.getElementById("budget-name").value.trim();
     const amount = parseFloat(document.getElementById("budget-amount").value);
     const currency = document.getElementById("budget-currency").value.toUpperCase();
-    const thresholds = document.getElementById("budget-thresholds").value.trim() || DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
+    const thresholds = document.getElementById("budget-thresholds").value.trim() || defaultBudgetThresholdsDisplay_();
 
     if (selectedBudgetCategoryIds.size === 0 && !budgetAnnualKind_) {
       throw new Error(tr("budget.pickCategory"));
@@ -11787,6 +11806,13 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
       if (fields.start && fields.start !== "always" && fields.start > budgetPeriodKey_(budgetPeriodType, 0)) startsLater = budgetPeriodType === "weekly"
         ? tr("budget.startsLaterWeek", { when: rangeFmt_(fields.start) })
         : tr("budget.startsLater", { when: budgetPeriodName_(budgetPeriodType, fields.start, true) });
+    }
+    // A new person's first "Everything marked Annual" budget asks once whether Travel counts as annual (owner, 2026-11-16; the
+    // owner's copy and earlier copies always did). The answer rides on the same save (addBudget `travel_annual`).
+    if (!budgetId && budgetAnnualKind_ && meta && meta.settings && meta.settings.travel_annual_ask === "yes") {
+      fields.travel_annual = await askConfirmApp_(tr("budget.travelAnnualAsk"), tr("confirmBtn.countTravel"), { plain: true, cancel: tr("budget.travelAnnualNo") });
+      meta.settings.travel_annual_ask = "";
+      meta.settings.travel_annual_on = fields.travel_annual ? "yes" : "no";
     }
     closeBudgetModal();
     closeDrilldown();
@@ -12574,7 +12600,7 @@ async function init() {
     // to see the effect.
     let bundle;
     const bundlePromise = timedStep("init:fetchBundle", async () => {
-      bundle = await callApi("getStartupBundle", { entriesLimit: entriesShown + 1 });
+      bundle = await callApi("getStartupBundle", { entriesLimit: entriesShown + 1, tz: phoneTz_() });
     });
 
     // allSettled, not a plain await, so a failure in one never stops us
@@ -13962,7 +13988,7 @@ function showWelcomeStep_(step) {
 // welcome is saved). The same chips are used by More → My profile → What fits me.
 const FITS_GROUPS_ = [
   { title: "fits.g.life", answers: ["car", "kids", "pets", "study", "health", "family", "debt"] },
-  { title: "fits.g.spheres", answers: ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "gifts", "trips"] }
+  { title: "fits.g.spheres", answers: ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "sports", "gifts", "trips"] }
 ];
 const FITS_ANSWERS_ = FITS_GROUPS_.flatMap((g) => g.answers);
 function fillFitsChips_(box, selected, onToggle, compact) {
@@ -14263,7 +14289,12 @@ function renderWaBank_() {
 // What a new account starts with: its one currency, or for a card soles and dollars (main currency and dollars outside Peru).
 function waDefaultCurrencies_(kind) {
   if (waTypeOf_(kind) !== "credit" || kindCurrency_(kind)) return [kindCurrency_(kind) || waCurrencyChoices_()[0]];
-  return [...new Set([welcome_.home || homeCur(), "USD"])];
+  return cardDefaultCurrencies_(welcome_.home || homeCur());
+}
+// A new card's currencies (specs/peru.md P2): in Peru (main currency soles) soles and dollars are both ticked, the way cards work
+// there; elsewhere only the main currency (owner, 2026-11-16).
+function cardDefaultCurrencies_(home) {
+  return home === "PEN" ? ["PEN", "USD"] : [home];
 }
 function renderWaWallets_() {
   const f = welcome_.form;
@@ -17658,7 +17689,7 @@ function renderPmCurrency_() {
     const label = document.getElementById("pm-cur-label");
     label.textContent = tr("accounts.currencies");
     label.removeAttribute("for");
-    if (!pmModalState.currencies) pmModalState.currencies = type === "credit" ? [...new Set([homeCur(), "USD"])] : [homeCur()];
+    if (!pmModalState.currencies) pmModalState.currencies = type === "credit" ? cardDefaultCurrencies_(homeCur()) : [homeCur()];
     const codes = [...new Set([homeCur(), ...getRecentCurrencies(), ...CURRENCIES.map((c) => c.code)])];
     renderCurrencyChecks_(document.getElementById("pm-cur-checks"), codes, pmModalState.currencies, (list) => { pmModalState.currencies = list; renderPmWallets_(); });
     return;
@@ -19274,6 +19305,7 @@ function openTripModal_(trip) {
   document.getElementById("trip-budget").value = trip && Number(trip.budget_amount) > 0 ? trip.budget_amount : "";
   document.getElementById("trip-currency").value = trip ? (trip.currency || trip.budget_currency || homeCur()) : homeCur();
   document.getElementById("trip-alerts").value = trip && trip.alert_thresholds ? trip.alert_thresholds.split(",").join(", ") : "";
+  document.getElementById("trip-alerts").placeholder = defaultBudgetThresholdsDisplay_();   // left empty, a trip alerts like a budget
   renderCurrencyChips("trip");
   refreshTripRateWarning_(false);
   setTripInBudgets_(trip);
@@ -31337,6 +31369,10 @@ function openLoanModal(loan, returnFriend, opts) {
   const entryDate = loan ? loan.date : todayLocalISO();
   document.getElementById("loan-date").value = entryDate;
   document.getElementById("loan-due-date").value = loan ? (loan.due_date || "") : defaultDueDate_(entryDate);
+  // The hint says what really happens: "pre-filled with 7 days" only where the date is pre-filled (PersonDefaults.gs `loan_due_week`).
+  const dueHint = document.getElementById("loan-due-hint");
+  dueHint.dataset.i18n = meta && meta.settings && meta.settings.loan_due_week === "no" ? "loanModal.dueHintBlank" : "loanModal.dueHint";
+  dueHint.textContent = tr(dueHint.dataset.i18n);
   const loanPmSelect = document.getElementById("loan-payment-method");
   loanPmSelect.value = loan ? (loan.payment_method_id || "") : (loanPmSelect.options.length ? loanPmSelect.options[0].value : "");
   document.getElementById("loan-description").value = loan ? (loan.description || "") : "";

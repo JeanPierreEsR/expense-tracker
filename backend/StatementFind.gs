@@ -40,7 +40,7 @@ function findStatementEmails(payload) {
   ensureStatementInboxSheet_();
   var done = {};
   getAllRows('Statement Inbox').forEach(function (r) { done[r.message_id + '|' + r.attachment_name] = r.status; });
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var seen = {};
   var items = [];
   function take(m) {
@@ -75,7 +75,7 @@ function addStatementsToInbox(payload) {
   ensureStatementInboxSheet_();
   var rows = getAllRows('Statement Inbox');
   var senders = statementSenders_();
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var added = [];
   var ids = [];
   var senderOf = {};

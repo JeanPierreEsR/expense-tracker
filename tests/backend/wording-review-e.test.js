@@ -62,7 +62,10 @@ test("B7: each loan form says what really happens with the due date", () => {
   assert.match(get("loanModal.dueHint").es, /Viene con 7 días después/);
   // the claims match the code: the Loans-tab form pre-fills date + 7 and the backend defaults the same (except a debt from before the app, which gets no automatic date); the entry form leaves a blank date blank
   assert.match(app, /defaultDueDate_\(entryDate\)/);
-  assert.match(read("backend", "Loans.gs"), /due_date: payload\.due_date \|\| \(opening \? '' : defaultLoanDueDate_\(payload\.date\)\)/);
+  assert.match(read("backend", "Loans.gs"), /due_date: payload\.due_date \|\| \(opening \|\| !loanDueWeekOn_\(\) \? '' : defaultLoanDueDate_\(payload\.date\)\)/);
+  // a new person's copy pre-fills nothing (owner, 2026-11-16), and its form says so instead
+  assert.match(get("loanModal.dueHintBlank").en, /Optional/);
+  assert.match(app, /meta\.settings\.loan_due_week === "no" \? "loanModal\.dueHintBlank" : "loanModal\.dueHint"/);
   assert.match(read("backend", "Loans.gs"), /due_date: fields\.due_date \|\| ''/);
 });
 

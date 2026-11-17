@@ -85,7 +85,7 @@ function emailCoverageReport_(payload) {
   var days = Math.min(Math.max(Number(payload.days) || 30, 1), COVERAGE_MAX_DAYS_);
   var ruleSenders = uniqueSenders_();
   var senders = (payload.senders && payload.senders.length) ? payload.senders : ruleSenders;
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var existingIds = {};
   getAllRows('Entries').forEach(function (e) { if (e.external_id) existingIds[e.external_id] = true; });
   var overlap = buildEntryOverlapIndex_();

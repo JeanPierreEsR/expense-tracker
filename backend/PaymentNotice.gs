@@ -97,7 +97,7 @@ function paymentNoticeCandidate_(att) {
  * Constancia de pago PDFs. Same memory as the bank e-mails (Processed Emails), same duplicate check (external_id).
  */
 function processPaymentNotices_(days, tracking, handled, results, existingExternalIds, banks, paymentMethods) {
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var queries = ['from:' + PAYMENT_NOTICE_SENDER_ + ' newer_than:' + days + 'd',
     'from:me to:me has:attachment filename:pdf newer_than:' + days + 'd'];
   var seen = {};

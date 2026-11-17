@@ -20,10 +20,10 @@ function friendCopy() {
   return rt;
 }
 
-test("the basic lists: 8 expense categories (owner's list) and 5 income ones, each with an emoji, a Spanish name and no duplicates", () => {
+test("the basic lists: 7 expense categories (owner's list; Sports became a pick, 2026-11-16) and 5 income ones, each with an emoji, a Spanish name and no duplicates", () => {
   const rt = freshApp({ small: true }).rt;
   const exp = run(rt, "STARTER_EXPENSE_CATEGORIES_"), inc = run(rt, "STARTER_INCOME_CATEGORIES_");
-  assert.deepEqual(exp.map((c) => c[0]), ["Groceries", "Restaurants", "Home", "Transport", "Travel", "Sports", "Bank fees", "Other"]);
+  assert.deepEqual(exp.map((c) => c[0]), ["Groceries", "Restaurants", "Home", "Transport", "Travel", "Bank fees", "Other"]);
   assert.equal(inc.length, 5);
   for (const [name, icon] of exp.concat(inc)) {
     assert.ok(icon, `${name} has an emoji`);
@@ -31,17 +31,17 @@ test("the basic lists: 8 expense categories (owner's list) and 5 income ones, ea
     const t = run(rt, `CATEGORY_TRANSLATIONS_[${JSON.stringify(key)}] || null`);
     assert.ok(t ? t.en === name : /^[A-Za-z ]+$/.test(name), `${name}: a translation entry whose English name is the stored name (or a name that is the same in both languages)`);
   }
-  assert.equal(new Set(exp.map((c) => c[0])).size, 8);
+  assert.equal(new Set(exp.map((c) => c[0])).size, 7);
   assert.ok(!exp.some((c) => ["Bills & utilities", "Phone", "Healthcare", "Education", "Insurance", "Family & Personal", "AI", "Credit card", "Car"].includes(c[0])), "household bills belong in Home; the rest are picks");
   assert.ok(exp.some((c) => c[0] === "Other") && inc.some((c) => c[0] === "Other") && inc.some((c) => c[0] === "Refunds"), "names the code looks up stay");
 });
 
-test("two question groups (8 + 8 answers); each answer adds exactly one category (Trips adds three) with an emoji and a Spanish name, and has a label in both languages", () => {
+test("two question groups (8 + 9 answers); each answer adds exactly one category (Trips adds three) with an emoji and a Spanish name, and has a label in both languages", () => {
   const rt = freshApp({ small: true }).rt;
   const packs = run(rt, "PROFILE_PACKS_");
   const groups = run(rt, "PROFILE_GROUPS_");
   assert.deepEqual(groups.life, ["car", "kids", "pets", "study", "health", "selfemployed", "family", "debt"]);
-  assert.deepEqual(groups.spheres, ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "gifts", "trips"]);
+  assert.deepEqual(groups.spheres, ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "sports", "gifts", "trips"]);
   assert.deepEqual(run(rt, "PROFILE_ORDER_"), groups.life.concat(groups.spheres));
   assert.deepEqual(Object.keys(packs).sort(), groups.life.concat(groups.spheres).sort());
   const strings = doc("docs", "strings.js");
@@ -93,17 +93,17 @@ test("a pick adds only its one category, in the person's language, and the answe
   assert.equal(meta.settings.profile, "car,selfemployed", "the app can see the answers");
 });
 
-test("every answer together adds 18 categories; running it again adds nothing", () => {
+test("every answer together adds 19 categories; running it again adds nothing", () => {
   const rt = friendCopy();
   const all = run(rt, "PROFILE_ORDER_");
   const first = post(rt, "applyProfile", { answers: all }).data;
-  assert.equal(first.added.length, 18);
+  assert.equal(first.added.length, 19);
   const before = rt.rows("Categories").length;
   const again = post(rt, "applyProfile", { answers: all }).data;
   assert.equal(again.added.length, 0);
   assert.equal(rt.rows("Categories").length, before);
   assert.equal(new Set(catNames(rt, "expense")).size, catNames(rt, "expense").length, "no duplicate names");
-  assert.ok(["Education", "Shopping", "Entertainment", "Going out", "Hobbies", "Subscriptions", "Flights", "Lodging", "Tours & activities"].every((n) => catNames(rt, "expense").includes(n)));
+  assert.ok(["Education", "Shopping", "Entertainment", "Going out", "Hobbies", "Sports", "Subscriptions", "Flights", "Lodging", "Tours & activities"].every((n) => catNames(rt, "expense").includes(n)));
 });
 
 test("people who already use the app: nothing they have is duplicated, changed or removed; the gaps are filled", () => {
