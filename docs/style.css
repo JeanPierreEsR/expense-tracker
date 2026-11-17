@@ -56,6 +56,7 @@
   --z-sheet: 250;
   --z-sheet-2: 260;
   --z-sheet-3: 270;
+  --z-info: 280;        /* the info button's card: above every sheet it may sit in */
   --z-welcome: 300;
   --z-toast: 400;
   --z-welcome-exit: 450;
@@ -452,7 +453,11 @@ button.type-tab { font: inherit; font-size: 0.75rem; color: var(--text); width: 
   position: relative; z-index: 1; width: 26px; height: 26px; margin: -5px auto -13px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 50%; background: var(--card); border: 1px solid var(--border);
-  font-size: 1rem; font-weight: 700; color: var(--text);
+}
+/* The "=" is drawn as two bars (owner, 2026-11-16): a typed "=" sits low in its circle because of the font. */
+.ov-sum-eq::before {
+  content: ""; width: 10px; height: 2px; background: var(--text);
+  box-shadow: 0 5px 0 var(--text); transform: translateY(-2.5px);
 }
 .ov-sum-net {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
@@ -1378,7 +1383,7 @@ body.sheet-open {
   background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .review-toggle-chev { color: var(--muted, var(--muted-2)); font-size: 1.25rem; transition: transform .15s ease; }
-.review-toggle[aria-expanded="true"] .review-toggle-chev { transform: rotate(90deg); }
+.fold-head:has(> .review-toggle[aria-expanded="true"]) .review-toggle-chev { transform: rotate(90deg); }
 .review-queue.review-closed .budgets-header { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
 
 .review-item {
@@ -4043,5 +4048,69 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 body.tabs-drag-on { -webkit-user-select: none; user-select: none; }
 .tabs-out-head { margin: 14px 0 4px; }
 
+/* ---- Info buttons (owner, 2026-11-16): a small blue outlined ⓘ after a label; a tap shows a small white card ---- */
+.info-btn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 15px; height: 15px; padding: 0; margin: 0 0 0 5px; border: 0; background: none; color: var(--accent);
+  vertical-align: -2px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.info-btn::before { content: ""; position: absolute; inset: -15px; }   /* drawn small, tapped like a 44 px button */
+.info-btn svg { display: block; }
+label.has-info { display: inline-block; }
+body:has(> .spot-root) .info-btn { visibility: hidden; }   /* nothing extra to tap while a tutorial runs */
+.info-card {
+  position: fixed; z-index: var(--z-info); width: max-content; max-width: min(280px, calc(100vw - 24px)); box-sizing: border-box;
+  background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 10px 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+.info-card p { margin: 0; font-size: 0.875rem; line-height: 1.4; }
+.info-card-arrow { position: absolute; width: 12px; height: 12px; background: var(--card); border: 1px solid var(--border); transform: translateX(-50%) rotate(45deg); }
+.info-card-arrow[hidden] { display: none; }
+.info-card[data-side="below"] .info-card-arrow { top: -7px; border-right: 0; border-bottom: 0; }
+.info-card[data-side="above"] .info-card-arrow { bottom: -7px; border-left: 0; border-top: 0; }
+[hidden] + .info-btn { display: none; }
+.ov-sum-net-head { display: inline-flex; align-items: center; }
+.info-btn[hidden] { display: none; }
+/* A heading that folds AND has an ⓘ (Needs review, Programmed this month): the toggle stays the tap target for the whole
+   row (its ::after is stretched over it), the ⓘ sits on top right after the title, the rest is pushed to the right. */
+.fold-head { position: relative; display: flex; flex-wrap: wrap; align-items: center; column-gap: 0; min-height: 44px; }
+.fold-head > .review-toggle, .fold-head > .expected-head { position: static; width: auto; flex: 0 1 auto; }
+.fold-head > .review-toggle::after, .fold-head > .expected-head::after { content: ""; position: absolute; inset: 0; }
+.fold-head > .info-btn { z-index: 1; margin-left: 6px; }
+.fold-head > .fold-end { margin-left: auto; padding-left: 10px; }
+/* A checkbox row with an ⓘ after its words. */
+.info-row { display: flex; align-items: center; }
+.info-row > .checkbox-row { flex: 0 1 auto; }
+.info-row > .info-btn { margin-top: 12px; margin-left: 8px; }
+.fold-head > .expected-head { align-items: center; }
+/* Overview's annual choices (owner, 2026-11-16): a small heading, then one row of three equal parts. */
+.ov-annual-views { margin: 4px 0 12px; }
+.ov-annual-head { display: flex; align-items: center; margin-bottom: 6px; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
+.ov-annual-tabs { grid-template-columns: repeat(3, 1fr); }
+/* Loans' ⓘ (batch 4): beside a friend's headline (only once it shows amounts), beside Record repayment, in the Forgive title. */
+/* The ⓘ beside the person's first amount, centred on it (owner, 2026-11-16). */
+.ld-head-amt-row { display: flex; align-items: center; }
+.ld-head-amt-row > .info-btn { margin-left: 8px; }
+.info-pair { display: inline-flex; align-items: center; }
+.info-pair > .info-btn { margin-left: 0; }
+.info-pair:has(> [hidden]:first-child) { display: none; }
+.cm-title-info { display: inline-flex; align-items: center; min-width: 0; }
+.info-row > .settle-choose-row { flex: 0 1 auto; }
+.info-row > .settle-choose-row + .info-btn { margin-top: 0; }
+/* Forgive a debt (owner, 2026-11-16): the ⓘ beside the button, before it is pressed. */
+.loan-forgive-row { display: flex; align-items: center; gap: 10px; }
+.loan-forgive-row > .loan-forgive-btn { flex: 1 1 auto; min-width: 0; margin: 0; }
+.loan-forgive-row > .info-btn { margin: 0 4px 0 0; }
+#forgive-pick-hint { margin: 0 0 8px; }
+/* Batch 5. My profile's folding rows with an ⓘ: the button keeps the whole row as its tap target (stretched), the ⓘ on top. */
+.md-fold { position: relative; cursor: pointer; }
+.md-fold-line { display: flex; align-items: center; }
+.md-fold-btn { position: static; background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.md-fold-btn::after { content: ""; position: absolute; inset: 0; }
+.md-fold-line > .info-btn { z-index: 1; margin-left: 6px; }
+.md-fold .more-list-chevron { pointer-events: none; }
+/* A heading with an ⓘ keeps the two on one middle. */
+h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
+.drilldown-projection-label .info-pair > .info-btn { margin-left: 6px; }
 /* My profile → WhatsApp bot: the setup code wraps, so the whole code is visible before copying it (2026-11-16). */
 #wa-code { white-space: pre-wrap; word-break: break-all; }

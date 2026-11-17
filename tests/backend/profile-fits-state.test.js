@@ -106,6 +106,7 @@ test("the new texts exist in both languages and the intro now says a hidden or d
   assert.ok(STRINGS["prof.fitsNone"].en && STRINGS["prof.fitsNone"].es);
   assert.match(STRINGS["prof.fitsPicked"].en.other, /\{n\}/);
   assert.match(STRINGS["prof.fitsPicked"].es.one, /elegida/);
-  assert.match(STRINGS["fits.intro"].en, /hid or deleted/);
-  assert.match(STRINGS["fits.intro"].es, /ocultaste o borraste/);
+  // Since the info buttons (owner, 2026-11-16) the open row's note is short and the ⓘ card says it.
+  assert.match(STRINGS["info.fits"].en, /hid or deleted/);
+  assert.match(STRINGS["info.fits"].es, /ocultaste o borraste/);
 });

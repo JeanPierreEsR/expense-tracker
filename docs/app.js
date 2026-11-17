@@ -1644,6 +1644,7 @@ function populatePaidByOptions() {
   const select = document.getElementById("paid_by");
   const label = document.getElementById("paid-by-label");
   select.innerHTML = "";
+  document.getElementById("paid-by-info").hidden = selectedType === "income";   // "Received from" has no info card (yet)
 
   if (selectedType === "income") {
     label.textContent = tr("field.receivedFrom");
@@ -10380,7 +10381,7 @@ function renderYearCompare_() {
   el.hidden = false;
 }
 
-// Overview "By category" for expenses (owner, 2026-11-14): Everything · Annual as one line · Only annual. Built on the phone from the
+// Overview "By category" for expenses (owner, 2026-11-14): Mixed in · One slice · On their own (renamed 2026-11-16; were Everything · Annual as one line · Only annual). Built on the phone from the
 // same data (each category's annual part, `annual_pen`, follows the server's one rule, AnnualTag.gs). The chips show only for
 // expenses, where the backend has the rule, and when the period has annual expenses or another view than Everything was chosen. The
 // choice is saved in Settings (setOverviewCategoryView) and comes back with meta.settings.
@@ -12025,6 +12026,7 @@ function drawBudgets_() {
   // Year view: a small mark on each bar where today falls in its year ("expected by now", owner 2026-11-07), and one line explaining it.
   const todayIso = todayLocalISO();
   let anyTodayMark = false;
+  let progInfo = false, annualInfo = false;   // the ⓘ on these two lines: the first of each on the screen only (one per kind, not one per bar)
 
   ordered.forEach((b, i) => {
     if (i === 0 && attention.length) groupHead("budgets.groupAttention");
@@ -12052,10 +12054,12 @@ function drawBudgets_() {
       const all = pctAll(b), end = Math.min(100, Math.max(0, all));
       const progClass = all >= 100 ? "over" : all >= 75 ? "warn" : "";
       if (end > barPct) progBar = `<div class="budget-progress-prog ${progClass}" style="left:${barPct}%;width:${(end - barPct).toFixed(2)}%"></div>`;
-      progLine = `<div class="budget-row-prog ${pct < 75 && all >= 75 ? progClass : ""}">${escapeHtml(tr("budget.programmedLine", { cur: pc, amount: moneyFmt(p.programmed), pct: all.toFixed(0) }))}</div>`;
+      progLine = `<div class="budget-row-prog ${pct < 75 && all >= 75 ? progClass : ""}">${escapeHtml(tr("budget.programmedLine", { cur: pc, amount: moneyFmt(p.programmed), pct: all.toFixed(0) }))}${progInfo ? "" : infoBtnHtml_("budgetProg")}</div>`;
+      progInfo = true;
     }
     const annualNote = p.annualLeftOut > 0.005
-      ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: pc, amount: moneyFmt(p.annualLeftOut) }))}</div>` : "";
+      ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: pc, amount: moneyFmt(p.annualLeftOut) }))}${annualInfo ? "" : infoBtnHtml_("budgetAnnual")}</div>` : "";
+    if (annualNote) annualInfo = true;
     // Trips & events set to leave this budget out, or to count only in it ("In my budgets").
     const tripNotes = (p.tripsLeftOut || []).map((t) => `<div class="budget-row-annual hint">${escapeHtml(tr("budget.tripLeftOut", { cur: pc, amount: moneyFmt(t.amount), name: t.name }))}</div>`).join("")
       + (p.tripsCounted || []).map((t) => `<div class="budget-row-annual hint">${escapeHtml(tr("budget.tripCounted", { cur: pc, amount: moneyFmt(t.amount), name: t.name }))}</div>`).join("");
@@ -15702,6 +15706,7 @@ let practiceE_ = null;   // { range }: the period before the practice started
 
 // No yellow card (owner, 2026-11-09: nobody needs nudging to export): the bubble after 20 idle seconds offers it.
 function watchExportIdle_() {
+  if (PRACTICES_PAUSED_) return;
   if (!meta || perfIsOwnerCopy_() || isTaught_("export") || tipSeen_("export")) return;
   idleOffer_({
     key: "export",
@@ -17212,6 +17217,13 @@ function perfReportText_() {
   return lines.join("\n");
 }
 
+// Info buttons: how often each was opened on this phone (owner, 2026-11-16). One opened a lot points at something unclear there.
+function renderPerfInfo_() {
+  const box = document.getElementById("perf-tips");
+  const st = popGet_(INFO_STATS_KEY_, {}), keys = Object.keys(st).sort((a, b) => st[b] - st[a]);
+  if (!keys.length) return;
+  box.insertAdjacentHTML("beforeend", `<p class="hint">${escapeHtml(tr("perf.infoOpened", { list: keys.map((k) => `${k} ×${st[k]}`).join(" · ") }))}</p>`);
+}
 // Tips: did they help? (owner, 2026-11-12) — from popStats on this phone.
 function renderPerfTips_() {
   const box = document.getElementById("perf-tips");
@@ -17223,6 +17235,7 @@ function renderPerfTips_() {
 }
 function renderPerfScreen() {
   renderPerfTips_();
+  renderPerfInfo_();
   const box = document.getElementById("perf-summary");
   const rows = perfSummaryRows_();
   if (!rows.length) {
@@ -19729,6 +19742,7 @@ function applyBusinessVisibility_() {
     el.textContent = tr(applePay ? key + "Ap" : key);
   });
   document.getElementById("be-tab-ap").hidden = !applePay;
+  document.querySelector("#screen-bank-emails .info-btn, .info-btn[data-info^=\"bankViews\"]").dataset.info = applePay ? "bankViewsAp" : "bankViews";   // its card names the Apple Pay view too
   const on = businessOn();
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;
@@ -24833,7 +24847,11 @@ function editModeOn_() {
 }
 // after(): runs once the card was answered (Not now, or the practice started), e.g. the Loans line offering the other two loan practices.
 let tipRunningKey_ = "";   // the practice started from its card, so its finish can be recorded
+// Practice tutorials are hidden until further notice (owner, 2026-11-16): no yellow card, nudge, idle offer, "More practice"
+// line or Practice tips row offers one. Real tutorials, bubbles and info buttons go on; a leftover practice's cleanup still runs.
+const PRACTICES_PAUSED_ = true;
 function offerTip_(key, boxId, inviteText, start, after) {
+  if (PRACTICES_PAUSED_) return;
   const box = document.getElementById(boxId);
   if (!box || tipSeen_(key) || Spotlight.isRunning()) return;
   if (realHoldsPractice_(key)) return;
@@ -25168,6 +25186,93 @@ function popAfterSave_(action, payload, out) {
 }
 let receiptJustRead_ = false;
 
+// ---- Info buttons (owner, 2026-11-16; plan "Info buttons - plan (DRAFT 2026-11-16).md") ----
+// A small blue outlined ⓘ right after a label: a tap opens a little white card with `info.<key>` (1-3 sentences). It behaves like
+// the yellow bubbles: a tap elsewhere closes it (that tap still does what it does), a finger that scrolls does not (the card follows
+// its button), a second tap on the ⓘ closes it. The person asks for it, so it is outside the daily teaching budget and every
+// first-visit rule; it is hidden while a tutorial runs (style.css). Markup: <button type="button" class="info-btn" data-info="key"
+// data-i18n-aria-label=…> whose spoken name is info.<key>.name, placed AFTER the label (a label's text is redrawn and would wipe it). Opens are
+// counted on this phone (`infoStats`) for More → Performance log.
+const INFO_STATS_KEY_ = "infoStats";
+const INFO_ICON_ = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="12" y1="7.5" x2="12" y2="7.5"/></svg>';
+let infoOpen_ = null;           // { btn, card, frame } while a card shows
+// An ⓘ inside a line the app draws itself (Budgets' lines): the same button, already dressed.
+function infoBtnHtml_(key) {
+  return `<button type="button" class="info-btn" data-info="${key}" aria-label="${escapeHtml(tr(`info.${key}.name`))}" aria-expanded="false">${INFO_ICON_}</button>`;
+}
+function dressInfoBtns_(root) {
+  (root || document).querySelectorAll(".info-btn").forEach((b) => { if (!b.firstElementChild) b.innerHTML = INFO_ICON_; });
+}
+function closeInfoCard_() {
+  if (!infoOpen_) return;
+  cancelAnimationFrame(infoOpen_.frame);
+  infoOpen_.card.remove();
+  infoOpen_.btn.setAttribute("aria-expanded", "false");
+  infoOpen_.btn.removeAttribute("aria-describedby");
+  infoOpen_ = null;
+}
+function openInfoCard_(btn) {
+  closeInfoCard_();
+  const key = btn.dataset.info;
+  const card = document.createElement("div");
+  card.className = "info-card";
+  card.id = "info-card";
+  card.setAttribute("role", "note");
+  card.innerHTML = `<div class="info-card-arrow"></div><p></p>`;
+  card.querySelector("p").textContent = tr("info." + key);
+  document.body.appendChild(card);
+  btn.setAttribute("aria-expanded", "true");
+  btn.setAttribute("aria-describedby", "info-card");
+  const open = { btn, card, frame: 0 };
+  infoOpen_ = open;
+  const place = () => {
+    // Gone (its sheet closed, its screen left) or hidden: the card goes too.
+    if (!btn.isConnected || !btn.getClientRects().length) { closeInfoCard_(); return; }
+    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    const pos = Spotlight.placeBubble(btn.getBoundingClientRect(), { w: window.innerWidth, h: vh }, { w: card.offsetWidth, h: card.offsetHeight });
+    card.style.top = pos.top + "px";
+    card.style.left = pos.left + "px";
+    card.dataset.side = pos.side;
+    const arrow = card.querySelector(".info-card-arrow");
+    arrow.hidden = pos.arrowLeft == null;
+    if (pos.arrowLeft != null) arrow.style.left = pos.arrowLeft + "px";
+    // Scrolled under a header or off the screen: it waits unseen and comes back with its button.
+    const r = btn.getBoundingClientRect(), hit = r.top >= 0 && r.top <= vh && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    card.style.visibility = hit && (btn.contains(hit) || hit === btn) ? "" : "hidden";
+  };
+  const follow = () => { if (infoOpen_ !== open) return; place(); if (infoOpen_ === open) open.frame = requestAnimationFrame(follow); };
+  follow();
+  const st = popGet_(INFO_STATS_KEY_, {});
+  st[key] = (st[key] || 0) + 1;
+  popSet_(INFO_STATS_KEY_, st);
+}
+(function setupInfoBtns_() {
+  dressInfoBtns_();
+  // A tap elsewhere closes it; a finger that scrolls does not (a phone ends a scroll with pointercancel).
+  let downAt = null;
+  document.addEventListener("pointerdown", (e) => {
+    downAt = infoOpen_ && !infoOpen_.card.contains(e.target) && !infoOpen_.btn.contains(e.target) ? { x: e.clientX, y: e.clientY } : null;
+  }, true);
+  document.addEventListener("pointerup", (e) => {
+    if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 10) closeInfoCard_();
+    downAt = null;
+  }, true);
+  document.addEventListener("pointercancel", () => { downAt = null; }, true);
+  // On window, capture: before a label focuses its box and before the Overview Result block opens its list.
+  window.addEventListener("click", (e) => {
+    const btn = e.target.closest && e.target.closest(".info-btn");
+    if (!btn) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (infoOpen_ && infoOpen_.btn === btn) closeInfoCard_(); else openInfoCard_(btn);
+  }, true);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { closeInfoCard_(); return; }
+    // The Overview Result block opens on Enter / Space too: those keys on the ⓘ are the ⓘ's own.
+    if ((e.key === "Enter" || e.key === " ") && e.target.closest && e.target.closest(".info-btn")) e.stopPropagation();
+  }, true);
+})();
+
 // ---- Did it work? (owner, 2026-11-12): for each bubble, the day it showed and whether its feature was used afterwards ----
 // Kept on this phone only (`popStats`), shown in More → Performance log. A feature use calls popUsed_(key) with the bubble's key.
 const POP_STATS_KEY_ = "popStats";
@@ -25247,6 +25352,7 @@ function popTipTick_() {
   if (!tip.stillWanted()) { popTipStopWatch_(); return; }
   if (Spotlight.isRunning()) { teachSpotVisit_ = teachVisit_; return; }   // nothing else unasked on the visit a tutorial ran
   if (editModeOn_() || !document.getElementById("welcome-overlay").hidden || popTyping_()) return;
+  if (infoOpen_) return;   // an info card the person opened is being read: the bubble waits (never two cards at once)
   if (tip.ready && !tip.ready()) return;
   if (realStartPending_ && !tip.help) return;   // the real tutorial comes first (rule 1)
   if (tip.steps) {   // pass over the parts that do not apply here
@@ -25698,6 +25804,7 @@ function watchAgainstMainTip_() {
 }
 // More: bringing practices back, for someone who said "Not now" to practice cards at least twice.
 function watchBringBackTip_() {
+  if (PRACTICES_PAUSED_) return;
   if (popGet_("tipNotNowCount", 0) < 2) return;
   popTipWatch_({
     key: "bringBack", place: "more", text: tr("pop.bringBack"), noGate: true,
@@ -26293,6 +26400,7 @@ function offerLoansTip_() {
 function offerLoansMoreLine_() {
   const box = document.getElementById("loans-more-practice");
   if (!box) return;
+  if (PRACTICES_PAUSED_) { box.hidden = true; return; }
   const left = ((meta && meta.capabilities) || {}).practiceLoansMore   // an older backend could not clean these practices up
     ? [["loans-standalone", "spot.lm.loan", "standalone"], ["loans-bank", "spot.lm.bank", "bank"]].filter(([k]) => !tipSeen_(k) && (k === "loans-bank" ? realAgain_() && !isTaught_(k) : realAgain_() && !transferKindTaught_("loan"))) : [];
   if (!left.length || Spotlight.isRunning()) { box.hidden = true; return; }
@@ -27035,7 +27143,7 @@ function idleStop_() { idleTip_ = null; if (idleTimer_) { clearInterval(idleTime
 function idleTick_() {
   const tip = idleTip_;
   if (!tip || !tip.wanted()) { idleStop_(); return; }
-  if (document.hidden || idleChooser_ || perfInflight_ > 0 || popTyping_() || !realScreenFree_()) return;
+  if (document.hidden || idleChooser_ || perfInflight_ > 0 || popTyping_() || infoOpen_ || !realScreenFree_()) return;
   if (Date.now() - idleScrollAt_ < 1000) return;   // scrolling pauses the count (owner, 2026-11-12); it does not restart it
   if (++idleCount_ < idleNeeded_()) return;
   const el = tip.target();
@@ -27388,6 +27496,7 @@ let nudgeKey_ = "";
 function realHoldsPractice_(key) { return popGet_(TAUGHT_KEY_, {})[key] === "real" || (REAL_FIRST_.includes(key) && !realAgain_() && nudgeKey_ !== key); }
 function realDaysSince_(iso) { return (Date.parse(todayLocalISO()) - Date.parse(iso)) / 86400000; }
 function offerNudge_() {
+  if (PRACTICES_PAUSED_) return;
   if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || document.getElementById("screen-entries").hidden || realDaysSince_(popFirstUse_()) < NUDGE_DAYS_) return;
   if (!document.getElementById("home-tip-invite").hidden) return;
   const last = popGet_(NUDGE_LAST_KEY_, "");
@@ -29050,10 +29159,16 @@ async function openLoanDetail(friendId, friendName, projectId) {
   // a small label, then each currency's amount large. Its text reads the same as before (the repayment history reuses it).
   const sub = document.getElementById("loan-detail-subtitle");
   if (netParts.length) {
+    let infoPlaced = false;   // the ⓘ (what is owed) sits beside the first amount only, centred on it
     const side = (sign, key) => {
       const curs = Object.keys(netByCurrency).filter((cur) => sign * netByCurrency[cur] > 0.004);
       if (!curs.length) return "";
-      const amts = curs.map((cur) => `<span class="ld-head-amt${sign > 0 ? " pos" : ""}">${sign > 0 ? "+" : "−"}${escapeHtml(cur)} ${moneyFmt(Math.abs(netByCurrency[cur]))}</span>`).join(" ");
+      const amts = curs.map((cur) => {
+        const amt = `<span class="ld-head-amt${sign > 0 ? " pos" : ""}">${sign > 0 ? "+" : "−"}${escapeHtml(cur)} ${moneyFmt(Math.abs(netByCurrency[cur]))}</span>`;
+        if (infoPlaced) return amt;
+        infoPlaced = true;
+        return `<span class="ld-head-amt-row">${amt}${infoBtnHtml_("loanBalance")}</span>`;
+      }).join(" ");
       return `<span class="ld-head-side"><span class="ld-head-label">${escapeHtml(tr(key))}</span> ${amts}</span>`;
     };
     sub.innerHTML = [side(1, "loanDetail.owesYouLabel"), side(-1, "loanDetail.youOweThemLabel")].filter(Boolean).join(" ");
@@ -29149,13 +29264,11 @@ function loanProjectPillHtml_(l) {
 // row looks and behaves identically in either — only which list it lands
 // in differs.
 // One "Forgive a debt" button at the bottom of the person's screen (owner, 2026-11-12). One debt: it opens the
-// Forgive window for it; several: a short list under the button to pick which one.
+// Forgive window for it; several: a window of its own to pick which one (owner, 2026-11-16: a list under the button
+// looked like the screen behind it). Its ⓘ sits beside the button, so what it does is known before pressing it.
 function renderForgiveAny_(forgivable, friendId, friendName) {
   const box = document.getElementById("loan-forgive-any");
   const btn = document.getElementById("loan-forgive-any-btn");
-  const pick = document.getElementById("loan-forgive-pick");
-  pick.hidden = true;
-  pick.innerHTML = "";
   box.hidden = !forgivable.length;
   if (!forgivable.length) return;
   const friend = { id: friendId, name: friendName };
@@ -29164,24 +29277,26 @@ function renderForgiveAny_(forgivable, friendId, friendName) {
   const dirs = new Set(forgivable.map((l) => l.direction));
   const both = dirs.size > 1, iOwe = !both && dirs.has("i_owe_them");
   btn.textContent = tr(iOwe ? "loanDetail.forgiveAnyIOwe" : "loanDetail.forgiveAny");
-  document.getElementById("loan-forgive-any-hint").textContent = tr(both ? "loanDetail.forgiveHintBoth" : iOwe ? "loanDetail.forgiveHintIOwe" : "loanDetail.forgiveHintTheyOwe");
-  btn.setAttribute("aria-expanded", "false");
+  const hintKey = both ? "loanDetail.forgiveHintBoth" : iOwe ? "loanDetail.forgiveHintIOwe" : "loanDetail.forgiveHintTheyOwe";
   btn.onclick = () => {
     if (forgivable.length === 1) { openForgiveModal(forgivable[0], friend); return; }
-    pick.hidden = !pick.hidden;
-    btn.setAttribute("aria-expanded", String(!pick.hidden));
-    if (pick.children.length) return;
+    const pick = document.getElementById("forgive-pick-list");
+    pick.innerHTML = "";
+    document.getElementById("forgive-pick-title").textContent = tr(both ? "forgivePick.title" : iOwe ? "forgivePick.titleIOwe" : "forgivePick.title");
+    document.getElementById("forgive-pick-hint").textContent = tr(hintKey);
     forgivable.forEach((l) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "more-list-item loan-forgive-choice";
       const sign = l.direction === "they_owe_me" ? "+" : "−";
       b.innerHTML = `<span>${escapeHtml(l.description || (l.origin === "entry" ? tr("loanDetail.sharedExpense") : tr("loan.word")))}<span class="hint md-sub">${listDate_(l.date)}</span></span><span class="loan-detail-row-amount ${l.direction === "they_owe_me" ? "owed-to-me" : "i-owe"}">${sign}${escapeHtml(l.currency)} ${moneyFmt(l.remaining)}</span>`;
-      b.addEventListener("click", () => openForgiveModal(l, friend));
+      b.addEventListener("click", () => { document.getElementById("forgive-pick-backdrop").hidden = true; openForgiveModal(l, friend); });
       pick.appendChild(b);
     });
+    document.getElementById("forgive-pick-backdrop").hidden = false;
   };
 }
+document.getElementById("forgive-pick-close").addEventListener("click", () => { document.getElementById("forgive-pick-backdrop").hidden = true; });
 
 function buildLoanDetailRow_(l, friendId, friendName) {
   const kind = l.direction === "they_owe_me" ? "owed-to-me" : "i-owe";
