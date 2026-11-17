@@ -2252,7 +2252,7 @@
     const allOn = can.length > 0 && can.every(({ i }) => p.bal.has(i));
     const covered = coveredLines(historyActions(false));
     const all = can.length > 1 ? `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-balall="1"`, allOn, tr("bal.setAll", { n: can.length }))}</div>` : "";
-    return `<details class="stmt-group" id="statement-history-balances" ${p.balOpen ? "open" : ""}><summary>${escapeHtml(tr("bal.title", { n: checks.length }))}</summary>
+    return `<details class="stmt-group" id="statement-history-balances" ${p.balOpen ? "open" : ""}><summary>${escapeHtml(tr("bal.title", { n: checks.length }))}${typeof infoBtnHtml_ === "function" ? infoBtnHtml_("stmtCheck") : ""}</summary>
       <p class="hint">${escapeHtml(tr("bal.hint"))}</p>${all}${checks.map((c, i) => balanceRowHtml(c, i, covered)).join("")}</details>`;
   }
 

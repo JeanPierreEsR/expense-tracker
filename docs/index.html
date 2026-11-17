@@ -1216,14 +1216,14 @@
           <button type="button" class="icon-btn back-btn" id="exchange-rates-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
         <h2 class="screen-title" style="margin-top:0;" data-i18n="cur.title">Currencies</h2>
-        <h3 data-i18n="mainCur.title">Main currency</h3>
+        <h3><span data-i18n="mainCur.title">Main currency</span><button type="button" class="info-btn" data-info="mainCur" data-i18n-aria-label="info.mainCur.name" aria-label="About Main currency" aria-expanded="false"></button></h3>
         <p id="currencies-main-code" style="font-weight:700;font-size:1.1em;margin:4px 0;"></p>
         <p class="hint" data-i18n="mainCur.reversible">You can change this at any time, and switching back restores exactly what you had. Nothing in your data is rewritten: your entries keep their own currencies, and only the totals are shown in the main currency.</p>
         <button type="button" class="add-inline" id="currencies-main-change-btn" data-i18n="mainCur.change">Change main currency…</button>
       </div>
       <div class="card">
         <div class="rates-card-header">
-          <h3 data-i18n="rates.title">Exchange rates</h3>
+          <h3><span data-i18n="rates.title">Exchange rates</span><button type="button" class="info-btn" data-info="rates" data-i18n-aria-label="info.rates.name" aria-label="About Exchange rates" aria-expanded="false"></button></h3>
           <button type="button" class="icon-btn" id="rates-add-btn" data-i18n-aria-label="rates.addAria" aria-label="Add an exchange rate"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
         <p class="hint" data-i18n="rates.hint">Tap a currency to see its months, and a month to change its rate. Everything that used it updates automatically.</p>
@@ -1266,7 +1266,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="deleted-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 class="screen-title" style="margin-top:0;" data-i18n="deleted.title">Recently deleted</h2>
+        <h2 class="screen-title" style="margin-top:0;"><span data-i18n="deleted.title">Recently deleted</span><button type="button" class="info-btn" data-info="deleted" data-i18n-aria-label="info.deleted.name" aria-label="About Recently deleted" aria-expanded="false"></button></h2>
         <p class="hint" data-i18n="deleted.hint">Entries you delete several at a time wait here for 30 days. Restore them, or delete them for good.</p>
         <div id="deleted-list"></div>
         <p class="hint" id="deleted-empty" hidden data-i18n="deleted.empty">Nothing here. Entries you delete several at a time wait here for 30 days.</p>
@@ -1280,7 +1280,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="tidy-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 class="screen-title" style="margin-top:0;" data-i18n="tidy.title">Tidy my history</h2>
+        <h2 class="screen-title" style="margin-top:0;"><span data-i18n="tidy.title">Tidy my history</span><button type="button" class="info-btn" data-info="tidy" data-i18n-aria-label="info.tidy.name" aria-label="About Tidy my history" aria-expanded="false"></button></h2>
         <p class="hint" data-i18n="tidy.hint">Entries added without a category, grouped by where the money went — the biggest first. Pick a category once and every entry in the group gets it. Nothing here changes a category you already chose.</p>
         <p class="hint" id="tidy-summary" hidden></p>
         <button type="button" class="add-inline" id="tidy-apply-all-btn" hidden></button>
@@ -1316,7 +1316,7 @@
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="be-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
         </div>
-        <h2 class="screen-title" style="margin-top:0;" id="be-title" data-i18n="bankMail.title">Bank emails</h2>
+        <h2 class="screen-title" style="margin-top:0;"><span id="be-title" data-i18n="bankMail.title">Bank emails</span><button type="button" class="info-btn" data-info="bankViews" data-i18n-aria-label="info.bankViews.name" aria-label="About this screen" aria-expanded="false"></button></h2>
         <p class="hint" id="be-loading" data-i18n="common.loading">Loading…</p>
         <div id="be-body" hidden>
           <div class="bm-reading">
@@ -1527,10 +1527,10 @@
           </div>
 
           <div id="my-profile-fits-card">
-            <button type="button" class="more-list-item md-row fits-toggle" id="fits-toggle" aria-expanded="false" aria-controls="fits-body">
-              <span><span class="md-title" data-i18n="prof.fitsHead">What fits me</span><span class="hint md-sub" id="fits-count"></span></span>
-              <span class="more-list-chevron" id="fits-chevron">›</span>
-            </button>
+            <div class="more-list-item md-row md-fold">
+              <span><span class="md-fold-line"><button type="button" class="md-fold-btn" id="fits-toggle" aria-expanded="false" aria-controls="fits-body" aria-describedby="fits-count"><span class="md-title" data-i18n="prof.fitsHead">What fits me</span></button><button type="button" class="info-btn" data-info="fits" data-i18n-aria-label="info.fits.name" aria-label="About What fits me" aria-expanded="false"></button></span><span class="hint md-sub" id="fits-count"></span></span>
+              <span class="more-list-chevron" id="fits-chevron" aria-hidden="true">›</span>
+            </div>
             <div id="fits-body" hidden>
               <p class="hint" data-i18n="fits.intro">Tap what is part of your life.</p>
               <div id="fits-occupation" hidden></div>
@@ -1541,10 +1541,10 @@
           </div>
 
           <div id="my-profile-dates-card">
-            <button type="button" class="more-list-item md-row fits-toggle" id="dates-toggle" aria-expanded="false" aria-controls="dates-body">
-              <span><span class="md-title" data-i18n="prof.datesHead">How I type dates</span><span class="hint md-sub" id="dates-count"></span></span>
-              <span class="more-list-chevron" id="dates-chevron">›</span>
-            </button>
+            <div class="more-list-item md-row md-fold">
+              <span><span class="md-fold-line"><button type="button" class="md-fold-btn" id="dates-toggle" aria-expanded="false" aria-controls="dates-body" aria-describedby="dates-count"><span class="md-title" data-i18n="prof.datesHead">How I type dates</span></button><button type="button" class="info-btn" data-info="dates" data-i18n-aria-label="info.dates.name" aria-label="About How I type dates" aria-expanded="false"></button></span><span class="hint md-sub" id="dates-count"></span></span>
+              <span class="more-list-chevron" id="dates-chevron" aria-hidden="true">›</span>
+            </div>
             <div id="dates-body" hidden>
             <p class="hint" data-i18n="prof.datesHint">Used for the order dates are written in the app and for dates you type to the Telegram bot.</p>
             <div class="welcome-choices" id="my-profile-dates">
@@ -3440,7 +3440,7 @@
         </div>
 
         <div id="trip-inbudgets-field" hidden>
-          <label id="trip-inbudgets-label" data-i18n="trips.inBudgets">In my budgets</label>
+          <label id="trip-inbudgets-label" class="has-info" data-i18n="trips.inBudgets">In my budgets</label><button type="button" class="info-btn" data-info="tripBudgets" data-i18n-aria-label="info.tripBudgets.name" aria-label="About In my budgets" aria-expanded="false"></button>
           <div role="radiogroup" aria-labelledby="trip-inbudgets-label">
             <label class="settle-choose-row"><input type="radio" name="trip-inbudgets" value="usual" checked><span data-i18n="trips.inBudgetsUsual">As usual: each expense counts in its category's budgets</span></label>
             <label class="settle-choose-row"><input type="radio" name="trip-inbudgets" value="none"><span data-i18n="trips.inBudgetsNone">Leave out of my budgets</span></label>

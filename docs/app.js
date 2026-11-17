@@ -19615,6 +19615,7 @@ function applyBusinessVisibility_() {
     el.textContent = tr(applePay ? key + "Ap" : key);
   });
   document.getElementById("be-tab-ap").hidden = !applePay;
+  document.querySelector("#screen-bank-emails .info-btn, .info-btn[data-info^=\"bankViews\"]").dataset.info = applePay ? "bankViewsAp" : "bankViews";   // its card names the Apple Pay view too
   const on = businessOn();
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;

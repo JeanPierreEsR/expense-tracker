@@ -4100,3 +4100,12 @@ body:has(> .spot-root) .info-btn { visibility: hidden; }   /* nothing extra to t
 .loan-forgive-row > .loan-forgive-btn { flex: 1 1 auto; min-width: 0; margin: 0; }
 .loan-forgive-row > .info-btn { margin: 0 4px 0 0; }
 #forgive-pick-hint { margin: 0 0 8px; }
+/* Batch 5. My profile's folding rows with an ⓘ: the button keeps the whole row as its tap target (stretched), the ⓘ on top. */
+.md-fold { position: relative; cursor: pointer; }
+.md-fold-line { display: flex; align-items: center; }
+.md-fold-btn { position: static; background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.md-fold-btn::after { content: ""; position: absolute; inset: 0; }
+.md-fold-line > .info-btn { z-index: 1; margin-left: 6px; }
+.md-fold .more-list-chevron { pointer-events: none; }
+/* A heading with an ⓘ keeps the two on one middle. */
+h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
