@@ -170,7 +170,7 @@
           </div>
 
           <div id="repayment-field" hidden>
-            <label for="transfer-kind" data-i18n="transfer.kind">Type of transfer</label>
+            <label for="transfer-kind" class="has-info" data-i18n="transfer.kind">Type of transfer</label><button type="button" class="info-btn" data-info="transfer" data-i18n-aria-label="info.transfer.name" aria-label="About Type of transfer" aria-expanded="false"></button>
             <select id="transfer-kind">
               <option value="between" data-i18n="transfer.kind.between">Between Accounts</option>
               <option value="repayment" data-i18n="transfer.kind.repayment">Repayments</option>
@@ -273,7 +273,7 @@
           <label data-i18n="field.currency">Currency</label>
           <input type="hidden" id="currency" value="PEN">
           <div class="currency-chips" id="currency-chips"></div>
-          <button type="button" class="add-inline" id="charge-open" hidden data-i18n="charge.paidLink">Listed price in another currency?</button>
+          <button type="button" class="add-inline" id="charge-open" hidden data-i18n="charge.paidLink">Listed price in another currency?</button><button type="button" class="info-btn" data-info="charge" data-i18n-aria-label="info.charge.name" aria-label="About Listed price" aria-expanded="false"></button>
           <div id="charge-box" hidden>
             <label id="charge-label"></label>
             <div class="exchange-amount-row">
@@ -310,10 +310,10 @@
           <p class="hint" id="paid-by-friend-hint" hidden></p>
 
           <div id="income-waiting-field" hidden>
-            <label class="checkbox-row">
+            <div class="info-row"><label class="checkbox-row">
               <input type="checkbox" id="income-waiting-toggle">
               <span data-i18n="income.waitingToggle">Not received yet</span>
-            </label>
+            </label><button type="button" class="info-btn" data-info="notReceived" data-i18n-aria-label="info.notReceived.name" aria-label="About Not received yet" aria-expanded="false"></button></div>
             <div id="income-waiting-details" hidden>
               <p class="hint" data-i18n="income.waitingHint">It counts as income on this date. Your accounts change when the money arrives.</p>
               <label for="income-waiting-due" data-i18n="income.waitingDue">Expected by (optional)</label>
@@ -329,10 +329,10 @@
 
           <div id="split-field" hidden>
             <button type="button" class="add-inline" id="bill-open-btn" data-i18n="split.openBill">Split a bill by items…</button>
-            <label class="checkbox-row">
+            <div class="info-row"><label class="checkbox-row">
               <input type="checkbox" id="split-toggle">
               <span data-i18n="split.toggle">Split this expense</span>
-            </label>
+            </label><button type="button" class="info-btn" data-info="split" data-i18n-aria-label="info.split.name" aria-label="About Split with friends" aria-expanded="false"></button></div>
             <button type="button" class="add-inline" id="split-client-btn" hidden data-i18n="split.clientRepays">Client will repay this</button>
             <select id="split-client-select" hidden aria-label="Who will repay it?"></select>
 
@@ -383,7 +383,7 @@
           </div>
 
           <div id="trip-field" hidden>
-            <label for="entry-trip" data-i18n="field.trip">Trip / event</label>
+            <label for="entry-trip" class="has-info" data-i18n="field.trip">Trip / event</label><button type="button" class="info-btn" data-info="trip" data-i18n-aria-label="info.trip.name" aria-label="About Trip / event" aria-expanded="false"></button>
             <select id="entry-trip"></select>
           </div>
 
@@ -473,7 +473,7 @@
 
       <div class="card review-queue review-closed" id="review-queue-card" hidden>
         <div class="budgets-header">
-          <h2><button type="button" class="review-toggle" id="review-toggle" aria-expanded="false" aria-controls="review-body"><span><span data-i18n="review.title">Needs review</span> (<span id="review-count">0</span>)</span><span class="review-toggle-chev" aria-hidden="true">›</span></button></h2>
+          <h2 class="fold-head"><button type="button" class="review-toggle" id="review-toggle" aria-expanded="false" aria-controls="review-body"><span><span data-i18n="review.title">Needs review</span> (<span id="review-count">0</span>)</span></button><button type="button" class="info-btn" data-info="review" data-i18n-aria-label="info.review.name" aria-label="About Needs review" aria-expanded="false"></button><span class="review-toggle-chev fold-end" aria-hidden="true">›</span></h2>
           <button type="button" class="icon-btn" id="review-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
         </div>
         <div id="review-body" data-spot-reveal hidden>
@@ -494,10 +494,9 @@
 
       <div class="card" id="expected-recurring-card" hidden>
         <!-- A closed row by default: "Programmed this month · 5 · −PEN 1,240 ›" (design review 2026-11-12). -->
-        <h2 class="expected-head-h"><button type="button" class="expected-head" id="expected-head" aria-expanded="false" aria-controls="expected-recurring-body">
+        <h2 class="expected-head-h fold-head"><button type="button" class="expected-head" id="expected-head" aria-expanded="false" aria-controls="expected-recurring-body" aria-describedby="expected-head-sum">
           <span data-i18n="programmed.title">Programmed this month</span>
-          <span class="expected-head-sum" id="expected-head-sum"></span>
-        </button></h2>
+        </button><button type="button" class="info-btn" data-info="programmed" data-i18n-aria-label="info.programmed.name" aria-label="About Programmed this month" aria-expanded="false"></button><span class="expected-head-sum fold-end" id="expected-head-sum"></span></h2>
         <div id="expected-recurring-body" hidden>
           <p class="hint" data-i18n="programmed.hint">From your recurring income/expenses, not yet matched to a real entry — these will drop off on their own once the actual transaction is confirmed (from email, same as always).</p>
           <button type="button" class="add-inline income-toggle-btn" id="expected-income-toggle" hidden></button>
