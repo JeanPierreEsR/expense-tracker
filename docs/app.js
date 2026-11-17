@@ -8847,7 +8847,7 @@ function homeBudgetCard_(g) {
   const cls = pct >= 100 ? "over" : pct >= 85 ? "warn" : "";
   const clsAll = pctAll >= 100 ? "over" : pctAll >= 85 ? "warn" : "";
   const barPct = Math.min(100, Math.max(0, pct)), endPct = Math.min(100, Math.max(0, pctAll));
-  const progBar = prog && endPct > barPct ? `<div class="home-meter-prog ${clsAll}" style="left:${barPct.toFixed(1)}%;width:${(endPct - barPct).toFixed(1)}%"></div>` : "";
+  const progBar = prog && endPct > barPct ? `<div class="home-meter-prog ${clsAll}" style="width:${endPct.toFixed(1)}%"></div>` : "";
   const progLine = prog ? `<div class="home-meter-progline ${clsAll}">${escapeHtml(tr("home.budgetProgrammed", { amount: homeWhole_(prog), pct: roundHalfAway_(pctAll) }))}</div>` : "";
   const facts = [
     // Over only once the programmed items are paid: "would be", never "you went over" (it has not happened yet).

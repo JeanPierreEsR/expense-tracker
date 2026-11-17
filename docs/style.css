@@ -3110,14 +3110,15 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-pace-lines b { display: block; font-size: 1rem; }
 
 .home-meter { position: relative; height: 12px; background: var(--bg); border-radius: var(--r-sm); overflow: hidden; margin: 10px 0 8px; }
-/* Programmed items still to come this month: a lighter part after what is spent (as on the Budgets tab's rows). */
-.home-meter-prog { position: absolute; top: 0; bottom: 0; background: var(--income); opacity: 0.3; }
+/* Programmed items still to come this month: a lighter part after what is spent (as on the Budgets tab's rows). It starts at 0
+   and sits UNDER the spent part, so its left end flows out of the spent part's rounded end; its own right end is rounded (owner, 2026-11-17). */
+.home-meter-prog { position: absolute; top: 0; bottom: 0; left: 0; border-radius: var(--r-sm); background: var(--income); opacity: 0.3; }
 .home-meter-prog.warn { background: var(--warn); opacity: 0.35; }
 .home-meter-prog.over { background: var(--expense); opacity: 0.3; }
 .home-meter-progline { font-size: 0.8125rem; color: var(--muted); margin: -2px 0 8px; }
 .home-meter-progline.warn { color: var(--warn-text); }
 .home-meter-progline.over { color: var(--danger); }
-.home-meter-fill { height: 100%; border-radius: var(--r-sm); background: var(--income); }
+.home-meter-fill { position: relative; z-index: 1; height: 100%; border-radius: var(--r-sm); background: var(--income); }
 .home-meter-fill.warn { background: var(--warn); }
 .home-meter-fill.over { background: var(--expense); }
 .home-meter-facts { display: flex; justify-content: space-between; gap: 10px; font-size: 0.8125rem; color: var(--muted); flex-wrap: wrap; }
