@@ -294,7 +294,7 @@ async function phone(p) {
     // One item per thing: a word inside a tappable row is the row.
     // (only when the outer item says little more: a whole pop-up holding the button's word is not the button)
     const keep = clickables.filter((c) => !clickables.some((o) => o !== c && o.e.contains(c.e) && o.label.includes(c.label) && o.label.length - c.label.length <= 15));
-    const out = keep.slice(0, 70).map((c, i) => {
+    const out = keep.slice(0, 130).map((c, i) => {
       c.e.setAttribute("data-jn", String(i + 1));
       const lab = c.e.labels && c.e.labels[0] ? c.e.labels[0].innerText.trim().slice(0, 40) : "";
       const val = /^input|select|textarea/.test(c.kind) ? ` = "${String(c.e.value || "").slice(0, 40)}"` + (c.e.checked !== undefined && /checkbox|radio/.test(c.e.type) ? (c.e.checked ? " [on]" : " [off]") : "") : "";
