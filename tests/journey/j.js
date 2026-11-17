@@ -448,7 +448,17 @@ async function phone(p) {
     fill: async (a) => {
       // A label (or a row holding the box) leads to its box.
       let el = await locate(a[0]);
-      const box = await el.evaluateHandle((e) => (/^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName) ? e : (e.control || e.querySelector("input, textarea") || (e.htmlFor && document.getElementById(e.htmlFor)) || e)));
+      const box = await el.evaluateHandle((e) => {
+        if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName)) return e;
+        const direct = e.control || e.querySelector("input:not([type=hidden]), textarea, select") || (e.htmlFor && document.getElementById(e.htmlFor));
+        if (direct) return direct;
+        // A word near a box ("Monto" over the amount): the first visible box in the closest group around it.
+        for (let up = e.parentElement, i = 0; up && i < 4; up = up.parentElement, i++) {
+          const b = [...up.querySelectorAll("input:not([type=hidden]):not([type=file]), textarea, select")].find((x) => x.getClientRects().length);
+          if (b) return b;
+        }
+        return e;
+      });
       el = box.asElement() || el;
       // A list (select): pick the option whose words match, as the phone's wheel would.
       if (await el.evaluate((e) => e.tagName === "SELECT")) {
