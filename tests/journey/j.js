@@ -287,6 +287,8 @@ async function phone(p) {
       // keep the innermost of nested clickables with the same text
       const label = (e.getAttribute("aria-label") || e.innerText || e.value || e.placeholder || e.title || "").replace(/\s+/g, " ").trim().slice(0, 70);
       const kind = e.tagName === "INPUT" ? "input:" + (e.type || "text") : e.tagName.toLowerCase();
+      // An icon-only button (no words, no spoken name) is still listed, by what its look says (its class / id).
+      if (!label && /^(button|a)$/.test(kind)) { const hint = (e.id || String(e.className || "")).replace(/\s+/g, " ").trim().slice(0, 40); if (hint) { seen.add(e); clickables.push({ e, label: "(icon: " + hint + ")", kind, r }); } return; }
       if (!label && !/^input|select|textarea/.test(kind)) return;
       seen.add(e);
       clickables.push({ e, label, kind, r });
