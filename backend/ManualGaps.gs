@@ -15,7 +15,7 @@ var GAP_WINDOW_DAYS_ = 90;
 var GAP_KINDS_ = ['plin_out_whatsapp', 'yape_in', 'plin_in', 'yape_out', 'plin_out', 'cash', 'friend_paid', 'no_email_bank', 'other_manual'];
 
 function gapIsoToday_() {
-  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd');
 }
 
 function gapIsoDaysAgo_(n) {
@@ -197,7 +197,7 @@ function saveGapReason(p) {
     if (GAP_REASONS_.indexOf(reason) === -1 || (reason === 'whatsapp' && kind !== 'plin_out')) throw new Error(tr_('err.gapReasonBad'));
     var note = reason === 'other' ? feedbackScrub_(p.note).substring(0, GAP_REASON_NOTE_MAX_) : '';
     if (reason === 'other' && !note) throw new Error(tr_('err.gapReasonNote'));
-    map[kind] = { reason: reason, note: note, at: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd') };
+    map[kind] = { reason: reason, note: note, at: Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd') };
   }
   setSetting_('gap_reasons', JSON.stringify(map));
   return { reasons: map };

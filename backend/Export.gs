@@ -94,7 +94,7 @@ function buildExportFiles_(payload) {
   var wantBackup = cards.indexOf('backup') !== -1;
   if (!wantEntries && !wantBackup) throw new Error(tr_('export.chooseOne'));
 
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var now = new Date();
   var stamp = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
 

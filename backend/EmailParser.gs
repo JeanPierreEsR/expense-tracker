@@ -895,7 +895,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   var subject = message.getSubject();
   var body = message.getPlainBody();
   learnOwnNameFromMail_(message, sender);
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var dateStr = Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd');
   // The email's own timestamp, not "now" — automation runs on a delay
   // (up to 15 min), so this is closer to when the transaction actually
@@ -955,31 +955,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   }
   existingExternalIds[externalId] = true;
 
-  var bank = banks.find(function (b) { return b.name === rule.bank; });
-  var paymentMethod = null;
-  if (bank && !fields.cardUnknown) {
-    var pms = paymentMethods.filter(function (pm) { return pm.bank_id === bank.id; });
-    paymentMethod = fields.last4
-      ? pms.find(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); })
-      : ((!rule.accountByCurrency && pms.length === 1) ? pms[0] : null);
-    // The e-mail names digits but none of the bank's accounts has them: when the person never filled in ANY digits for this bank (they are
-    // optional in the welcome questions) the digits cannot disprove anything, so "the bank's only account" still applies, as it did before
-    // the masked digits of BCP / Diners / Interbank card payments were read (2026-10-28). Digits that were filled in and do not match: blank.
-    if (!paymentMethod && fields.last4 && !rule.accountByCurrency && pms.length === 1 && !String(pms[0].last_4 || '').trim()) paymentMethod = pms[0];
-  }
-  // A rule with no bank (EBANX) still names the card by its last four digits: use them when exactly one account has them.
-  if (!paymentMethod && !rule.bank && fields.last4) {
-    var byCard = paymentMethods.filter(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); });
-    if (byCard.length === 1) paymentMethod = byCard[0];
-  }
-  // No account named in the email: the rule may say which account of that
-  // currency the money always leaves (BCP, Yape).
-  if (!paymentMethod && rule.rail) {
-    paymentMethod = railAccount_(rule.rail, fields.currency, paymentMethods);   // Yape: the account the person linked (Accounts.gs)
-  }
-  if (!paymentMethod && rule.accountByCurrency && rule.accountByCurrency[fields.currency]) {
-    paymentMethod = paymentMethods.find(function (pm) { return plainNickname_(pm.nickname) === plainNickname_(rule.accountByCurrency[fields.currency]); }) || null;
-  }
+  var paymentMethod = emailAccountFor_(rule, fields, banks, paymentMethods);
 
   // The exchange house's own confirmation may already have made this "left" leg (it names both sides): then this e-mail only
   // tells which account paid, and a second leg would count the exchange twice.
@@ -1082,6 +1058,36 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   }
 }
 
+// Which of the person's accounts a read e-mail names (also used for a bank notice forwarded on WhatsApp, WhatsApp.gs); null when not known.
+function emailAccountFor_(rule, fields, banks, paymentMethods) {
+  var bank = banks.find(function (b) { return b.name === rule.bank; });
+  var paymentMethod = null;
+  if (bank && !fields.cardUnknown) {
+    var pms = paymentMethods.filter(function (pm) { return pm.bank_id === bank.id; });
+    paymentMethod = fields.last4
+      ? pms.find(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); })
+      : ((!rule.accountByCurrency && pms.length === 1) ? pms[0] : null);
+    // The e-mail names digits but none of the bank's accounts has them: when the person never filled in ANY digits for this bank (they are
+    // optional in the welcome questions) the digits cannot disprove anything, so "the bank's only account" still applies, as it did before
+    // the masked digits of BCP / Diners / Interbank card payments were read (2026-10-28). Digits that were filled in and do not match: blank.
+    if (!paymentMethod && fields.last4 && !rule.accountByCurrency && pms.length === 1 && !String(pms[0].last_4 || '').trim()) paymentMethod = pms[0];
+  }
+  // A rule with no bank (EBANX) still names the card by its last four digits: use them when exactly one account has them.
+  if (!paymentMethod && !rule.bank && fields.last4) {
+    var byCard = paymentMethods.filter(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); });
+    if (byCard.length === 1) paymentMethod = byCard[0];
+  }
+  // No account named in the email: the rule may say which account of that
+  // currency the money always leaves (BCP, Yape).
+  if (!paymentMethod && rule.rail) {
+    paymentMethod = railAccount_(rule.rail, fields.currency, paymentMethods);   // Yape: the account the person linked (Accounts.gs)
+  }
+  if (!paymentMethod && rule.accountByCurrency && rule.accountByCurrency[fields.currency]) {
+    paymentMethod = paymentMethods.find(function (pm) { return plainNickname_(pm.nickname) === plainNickname_(rule.accountByCurrency[fields.currency]); }) || null;
+  }
+  return paymentMethod;
+}
+
 // Amazon charges the card when it ships, so the bank's e-mail for that charge comes the same day or a day or two from the shipment e-mail.
 // A bank e-mail for an Amazon charge of the SAME currency and EXACT amount, within AMAZON_CHARGE_DAYS_ of the shipment, is that shipment's
 // charge. Returns the entry already in the sheet that this e-mail repeats, or null.
@@ -1162,7 +1168,7 @@ function seedParsingRulesDoc() {
  */
 function debugListEmails_(senders, days) {
   var out = [];
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   senders.forEach(function (sender) {
     gmailSearchMessages_('from:' + sender + ' newer_than:' + (days || 7) + 'd', { max: 50 }).forEach(function (message) {
       var subject = message.getSubject();
@@ -1188,7 +1194,7 @@ function debugListEmails_(senders, days) {
  * by email.
  */
 function debugSearchEmails_(query, max) {
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var out = [];
   gmailSearchMessages_(query, { max: Math.min(max || 20, 40) }).forEach(function (m) {
     out.push({

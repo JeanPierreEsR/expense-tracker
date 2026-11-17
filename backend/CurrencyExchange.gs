@@ -300,7 +300,7 @@ function unpairedExchangeLegs_() {
     var b = legs.find(function (x) { return !x.used && x.side === 'in' && x.e.currency !== a.e.currency && exchangeDayDiff_(x.e.date, a.e.date) <= 3; });
     if (b) { a.used = true; b.used = true; }
   });
-  var cutoff = overlapDayNumber_(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')) - 2;
+  var cutoff = overlapDayNumber_(Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd')) - 2;
   return legs.filter(function (l) { return !l.used && overlapDayNumber_(l.e.date) <= cutoff; })
     .sort(function (a, b) { return String(b.e.date).localeCompare(String(a.e.date)); })
     .slice(0, 30)

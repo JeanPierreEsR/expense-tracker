@@ -21,6 +21,7 @@ function runAutomation() {
   var scan = featureOn_('gmail') ? runAutomationStep_('emails', failures, function () { return scanEmailsGuarded_('timer'); }) : null;
   var emailResults = scan && scan.ran ? scan.results : null;
   runAutomationStep_('telegram', failures, pollTelegramUpdates);
+  runAutomationStep_('whatsapp', failures, whatsappNudgeIfDue_);   // "keep it open" message (WhatsAppBot.gs)
   // The slower housekeeping (budget alerts, trip budgets, loan reminders, investment categories) takes 15-25 s a run and
   // changes little within 15 minutes, so it runs about once an hour; e-mail, Telegram and the statement inbox stay every run.
   if (heavyStepsDue_()) {

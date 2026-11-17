@@ -24,3 +24,9 @@ receipts-private/
 Emails/
 Statements/
 Spendee data/
+
+# WhatsApp relay secrets live OUTSIDE this repo (~/expense-tracker-whatsapp/secrets.env); guard in case a copy is ever moved in.
+secrets.env
+*.secrets.env
+.dev.vars
+whatsapp-secrets*

@@ -35,7 +35,14 @@ function getTelegramToken_() {
 }
 
 function getOwnerTelegramChatId_() {
+  // While WhatsApp is the review bot (WhatsAppBot.gs), the "chat" is WhatsApp: the Telegram chat gets nothing and is not listened to.
+  if (reviewBotIsWhatsApp_()) return WA_CHAT_ID_;
   return PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
+}
+
+// Something can be sent: Telegram linked, or WhatsApp is the review bot.
+function reviewBotCanSend_(chatId) {
+  return !!chatId && (chatId === WA_CHAT_ID_ || !!getTelegramToken_());
 }
 
 function promptSetTelegramToken() {
@@ -152,6 +159,8 @@ function disableTelegramWebhook() {
 }
 
 function telegramApi_(method, payload) {
+  // One review bot at a time: while it is WhatsApp, the messages go there instead (WhatsAppBot.gs); set-up calls stay Telegram's.
+  if (WA_TELEGRAM_METHODS_[method] && reviewBotIsWhatsApp_()) return whatsappFromTelegram_(method, payload);
   var token = getTelegramToken_();
   if (!token) throw new Error('Telegram bot token not set');
   var res = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/' + method, {
@@ -160,14 +169,31 @@ function telegramApi_(method, payload) {
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   });
-  return JSON.parse(res.getContentText());
+  var out = JSON.parse(res.getContentText());
+  if (method === 'sendMessage' && out && out.ok && out.result && out.result.message_id) telegramNoteSent_(out.result.message_id, payload);
+  return out;
+}
+
+// The "last message" rule, the same as WhatsApp's (owner, 2026-11-16): every message the bot sends is remembered (TG_LAST_OUT),
+// and an answer that quotes a transaction's message ("✅ Confirmed.", a list, the tag question) belongs to that transaction too,
+// like its card. A message sent without replying is then about the transaction of the bot's last message, waiting or confirmed.
+function telegramNoteSent_(messageId, payload) {
+  try {
+    PropertiesService.getScriptProperties().setProperty('TG_LAST_OUT', String(messageId));
+    var entryId = payload && payload.reply_to_message_id ? whatsappCardEntry_(payload.reply_to_message_id) : '';
+    if (entryId) appendRowObject('Telegram Messages', { message_id: String(messageId), entry_id: entryId, created_at: new Date().toISOString() });
+  } catch (err) { /* remembering never fails a send */ }
+}
+function telegramLastTarget_() {
+  var id = String(PropertiesService.getScriptProperties().getProperty('TG_LAST_OUT') || '');
+  return id && whatsappCardEntry_(id) ? id : '';
 }
 
 // ---- Outgoing notifications ----
 
 function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return null;
+  if (!reviewBotCanSend_(chatId)) return null;
 
   var payload = {
     chat_id: chatId,
@@ -176,16 +202,15 @@ function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
   // A confirmed entry's card (shown after an edit reply) has no buttons — it
   // is already done, and can still be changed by replying.
   if (entry.status !== 'confirmed') {
+    // Confirm · Edit · Discard on both bots (owner, 2026-11-16). Edit opens the shared lists (WhatsAppBot.gs); "It's the income
+    // I was waiting for" (IncomeWaiting.gs) is a row of that list when it fits, as on WhatsApp, no longer a button here.
     payload.reply_markup = {
       inline_keyboard: [[
         { text: tr_('bot.confirmButton'), callback_data: 'confirm:' + entry.id },
+        { text: tr_('whatsapp.editButton'), callback_data: 'waedit:' + entry.id },
         { text: tr_('bot.discardButton'), callback_data: 'discard:' + entry.id }
       ]]
     };
-    // It may be an income the owner was waiting for: answered here, it is a repayment and not a second income (IncomeWaiting.gs).
-    if (waitingMatchForPending_(entry, listWaitingIncome_())) {
-      payload.reply_markup.inline_keyboard.unshift([{ text: tr_('bot.waitingYesButton'), callback_data: 'waitpay:' + entry.id }]);
-    }
   }
   var res = telegramApi_('sendMessage', payload);
 
@@ -396,7 +421,7 @@ function paidByDisplayName_(id) {
 // knows not to mark the threshold as alerted — it'll try again next cycle.
 function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progress) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return false;
+  if (!reviewBotCanSend_(chatId)) return false;
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: budgetAlertText_(budget, categoryDisplayName, progress) });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
@@ -422,7 +447,7 @@ function budgetAlertText_(budget, categoryDisplayName, progress) {
 // caller doesn't log the alert as delivered and never retry it.
 function sendTelegramTripBudgetAlert_(trip, percent) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return false;
+  if (!reviewBotCanSend_(chatId)) return false;
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: tripBudgetAlertText_(trip, percent) });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
@@ -440,7 +465,7 @@ function tripBudgetAlertText_(trip, percent) {
 // sendTelegramBudgetAlert_ above.
 function sendTelegramLoanOverdueAlert_(loan, friendName) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return false;
+  if (!reviewBotCanSend_(chatId)) return false;
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: loanOverdueAlertText_(loan, friendName) });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
@@ -510,6 +535,24 @@ function handleTelegramUpdate_(update) {
 
 function handleTelegramCallback_(cb) {
   if (!isOwnerChat_(cb.message.chat.id)) return;
+
+  // A long list action travels as a short code (botCallbackData_, WhatsAppBot.gs); one older than 6 hours is gone.
+  var data = botResolveCallback_(cb.data);
+  if (!data) {
+    telegramApi_('sendMessage', { chat_id: cb.message.chat.id, text: tr_('bot.listExpired'), reply_to_message_id: cb.message.message_id, allow_sending_without_reply: true });
+    telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
+    return;
+  }
+  cb.data = data;
+  // The shared lists (Edit, its pick lists, Repayment / Loan, "Show more"): the same code as WhatsApp's. Once a list is used,
+  // its buttons go away (owner, 2026-11-16); Edit tapped on a transaction's own message keeps that message's buttons.
+  if (BOT_LIST_ACTIONS_.test(data) && String(cb.message.chat.id) !== WA_CHAT_ID_) {
+    var onCard = /^waedit:/.test(data) && !!whatsappCardEntry_(cb.message.message_id);
+    botListTap_(data, { id: cb.message.message_id, context_id: cb.message.message_id });
+    if (!onCard) removeCardButtons_(cb.message.chat.id, cb.message.message_id);
+    telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
+    return;
+  }
 
   var parts = String(cb.data).split(':');
   var action = parts[0];
@@ -700,10 +743,38 @@ function handleTelegramMessage_(msg) {
     return;
   }
 
+  // The same commands as WhatsApp (ayuda / pendientes / nuevo) and the answer to an open "send the new …" question
+  // (WhatsAppBot.gs). Only for a real Telegram message, not a reply (WhatsApp's own messages come here as replies or commands).
+  if (!msg.reply_to_message && String(msg.chat.id) !== WA_CHAT_ID_ && text && telegramSharedCommand_(msg, text)) return;
+
+  // A new transaction typed in one message (TypedEntry.gs, the same building block as WhatsApp; owner, 2026-11-16): not a reply,
+  // and it starts with an amount or is a pasted bank notice ("25 almuerzo, account Interbank"). Before, such a text became the
+  // last card's description.
+  if (!msg.reply_to_message && !startsWithEditKeyword_(text) && typedIsNewEntry_(text)) {
+    telegramNewTypedEntry_(msg, text);
+    return;
+  }
+
   // Not a reply to anything: assume it is about the last notification, if
   // that was an entry card still pending approval. Otherwise (an alert, a
   // confirmed/removed entry, nothing yet) ask for a direct reply.
-  var targetMessageId = msg.reply_to_message ? msg.reply_to_message.message_id : lastPendingCardMessageId_();
+  var targetMessageId;
+  if (msg.reply_to_message) targetMessageId = msg.reply_to_message.message_id;
+  else if (String(msg.chat.id) === WA_CHAT_ID_) targetMessageId = lastPendingCardMessageId_();   // WhatsApp chose its target already
+  else {
+    // The same rule as WhatsApp (owner, 2026-11-16): the transaction of the bot's last message, waiting or confirmed. When that
+    // message was not about a transaction (an alert, the help): an edit word goes to the last waiting transaction, as before;
+    // plain words are read as a new purchase, and with no amount the bot says how to write one.
+    var lastTg = telegramLastTarget_();
+    var isCommand = startsWithEditKeyword_(text) || /^\/?(?:help|ayuda)$/i.test(text) ||
+      /^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)\b|^(?:(?:convert\s+to|convertir\s+en)\s+)?(?:loan|pr[eé]stamo)\b/i.test(text);
+    if (lastTg) targetMessageId = lastTg;
+    else if (isCommand) targetMessageId = lastPendingCardMessageId_();
+    else {
+      telegramApi_('sendMessage', { chat_id: msg.chat.id, text: tr_('whatsapp.unreadable'), reply_to_message_id: msg.message_id, allow_sending_without_reply: true });
+      return;
+    }
+  }
   if (!targetMessageId) {
     telegramApi_('sendMessage', {
       chat_id: msg.chat.id, text: tr_('bot.replyToACard'),
@@ -777,6 +848,25 @@ function handleTelegramMessage_(msg) {
   }
 }
 
+// The same steps as WhatsApp's whatsappNewPurchase_: the shared block, then the card with its buttons, the engine's note, and the
+// tag question when the keywords confirmed it.
+function telegramNewTypedEntry_(msg, text) {
+  telegramTagAskAfter_ = '';
+  var r = newTypedEntry_({ id: 'tg:' + msg.chat.id + ':' + msg.message_id, text: text, timestamp: msg.date }, 'telegram');
+  if (!r.saved || !r.entry) {
+    telegramTagAskAfter_ = '';
+    telegramApi_('sendMessage', { chat_id: msg.chat.id, text: r.reply, reply_to_message_id: msg.message_id, allow_sending_without_reply: true });
+    return;
+  }
+  var card = sendTelegramEntryNotification_(r.entry, r.categoryName);
+  var cardId = card && card.ok && card.result ? card.result.message_id : null;
+  if (r.editMessage) {
+    telegramApi_('sendMessage', { chat_id: msg.chat.id, text: r.editMessage, reply_to_message_id: cardId || msg.message_id, allow_sending_without_reply: true });
+  }
+  if (telegramTagAskAfter_) sendTelegramTagAsk_(msg.chat.id, telegramTagAskAfter_, cardId || msg.message_id);
+  telegramTagAskAfter_ = '';
+}
+
 function removeCardButtons_(chatId, messageId) {
   telegramApi_('editMessageReplyMarkup', {
     chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] }
@@ -795,7 +885,8 @@ function removeCardButtons_(chatId, messageId) {
 //   repayment = the friend paying back what they owed ('they_owe_me'),
 //   loan = the friend lending it to the owner ('i_owe_them').
 // Reuses the exact same backend calls the app's buttons make.
-function applyTerminalReviewAction_(entryId, fullText, friendText) {
+// friendObj (optional): the friend already chosen from a list (WhatsApp's Repayment / Loan buttons), so no name is looked up.
+function applyTerminalReviewAction_(entryId, fullText, friendText, friendObj) {
   var entry = getEntryById_(entryId);
   if (!entry) return { message: tr_('bot.entryNotFound') };
 
@@ -818,8 +909,10 @@ function applyTerminalReviewAction_(entryId, fullText, friendText) {
     return { message: tr_('bot.onlyExpenseIncome', { type: tr_('bot.type.' + entry.type) }) };
   }
 
-  var friend;
-  if (!String(friendText || '').trim()) {
+  var friend = friendObj || null;
+  if (friend) {
+    // chosen from a list: nothing to look up
+  } else if (!String(friendText || '').trim()) {
     // No name given: during a trip, that trip's group (one trip covering the date, never a guess between two).
     var tripId = suggestedTripIdForDate_(entry.date);
     friend = tripId ? tripGroupFriend_(tripId) : null;
@@ -997,6 +1090,8 @@ function finishTelegramEdit_(entryId, statusBefore, allApplied) {
   var entry = getEntryById_(entryId);
   if (!entry) return '';
   if (statusBefore === 'pending') {
+    // WhatsApp's Edit taps only save (owner, 2026-11-16): the person finishes with Confirm. Replies in words still confirm.
+    if (WA_SAVE_ONLY_) return '';
     var blocker = telegramConfirmBlocker_(entry);
     if (!allApplied) return tr_('bot.notConfirmedPartial');
     if (blocker) return tr_('bot.notConfirmedBlocker', { blocker: blocker });
@@ -1106,7 +1201,11 @@ function applyEditCommand_(entryId, text) {
 
   withWriteBatch_(function () {
     var previousField = null;
-    splitEditCommands_(text).forEach(function (segment) {
+    // A split is applied last: "split group" needs the trip a "trip …" in the same reply sets, in whatever order it was written.
+    var segments = splitEditCommands_(text);
+    var isSplit = function (s) { return /^(?:split|repartir|dividir)\s/i.test(String(s).trim()); };
+    segments = segments.filter(function (s) { return !isSplit(s); }).concat(segments.filter(isSplit));
+    segments.forEach(function (segment) {
       var field = applyOneEditSegment_(sheet, headers, rowIndex, entryId, segment);
       if (field) {
         appliedFields.push(field);
@@ -1428,9 +1527,38 @@ function splitPartAmount_(p, entry) {
   return p.pct ? Math.round(Number(entry.amount) * n) / 100 : n;
 }
 
+// The trip a "split group" means: the trip set on the entry, else the one whose dates cover it (never a guess between two).
+function splitGroupTrip_(entry) {
+  var id = entry.trip_id && entry.trip_id !== TRIP_DECLINED_ ? entry.trip_id : suggestedTripIdForDate_(entry.date);
+  return id ? tripById_(id) : null;
+}
+
+// An equal split with a trip's group (owner, 2026-11-16): the amount is divided by the people in the group (the owner included),
+// exactly like the app's "People in the group" box (groupEqualShares_ in app.js): each share rounded to the cent, the group owes
+// everyone else's shares as one debt, the owner keeps the leftover cent. `size` given = that number, and it becomes the trip's
+// new starting number (as on the app's form); else the trip's own group_size (2 when empty).
+function splitWithGroup_(entry, trip, size) {
+  var friend = ensureTripGroupFriend_(trip);
+  var n = size ? Math.round(Number(size)) : (Number(trip.group_size) || 2);
+  if (!isFinite(n) || n < 2 || n > 99) return null;
+  if (size && n !== Number(trip.group_size)) setTripGroupSize_(trip.id, n);
+  var totalCents = Math.round(Number(entry.amount) * 100);
+  var groupCents = Math.round(totalCents / n) * (n - 1);
+  if (groupCents <= 0 || groupCents >= totalCents) return null;
+  return [{ friend_id: friend.id, amount: groupCents / 100 }];
+}
+
 function parseSplitCommand_(entry, text) {
   var trimmed = String(text).trim();
   if (/^(none|clear|off|ninguno|ninguna|borrar)$/i.test(trimmed)) return [];
+
+  // "group", "with the group", "equal group", "group 5" (Spanish: "grupo", "con el grupo", "igual grupo", "grupo 5"): the
+  // trip's group, divided by its people.
+  var groupMatch = trimmed.match(/^(?:(?:equal|igual)\s+)?(?:with\s+(?:the\s+)?|con\s+(?:el\s+)?)?(?:group|grupo)(?:\s+(?:of\s+|de\s+)?(\d{1,2})(?:\s+(?:people|personas))?)?$/i);
+  if (groupMatch) {
+    var gTrip = splitGroupTrip_(entry);
+    return gTrip ? splitWithGroup_(entry, gTrip, groupMatch[1]) : null;
+  }
 
   var equalMatch = trimmed.match(/^(?:equal|igual)\s+(.+)/i);
   if (equalMatch) {
@@ -1441,6 +1569,11 @@ function parseSplitCommand_(entry, text) {
       var f = fuzzyFindFriend_(names[i]);
       if (!f) return null;
       friends.push(f);
+    }
+    // The group of a trip named by hand ("equal Costa Rica 2026 group"): divided by its people, not as one person.
+    if (friends.length === 1 && friends[0].trip_id) {
+      var named = tripById_(friends[0].trip_id);
+      if (named) return splitWithGroup_(entry, named, null);
     }
     var n = friends.length;
     var totalCents = Math.round(Number(entry.amount) * 100);

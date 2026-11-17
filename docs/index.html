@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.20.2"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="2.22.1"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-16T15:06:06Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-17T03:09:05Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -1565,6 +1565,31 @@
             </div>
           </div>
 
+          <div id="my-profile-wa-card" hidden>
+            <button type="button" class="more-list-item md-row fits-toggle" id="wa-toggle" aria-expanded="false" aria-controls="wa-body">
+              <span><span class="md-title" data-i18n="prof.waHead">WhatsApp bot</span><span class="hint md-sub" id="wa-count"></span></span>
+              <span class="more-list-chevron" id="wa-chevron">›</span>
+            </button>
+            <div id="wa-body" hidden>
+              <div id="wa-off">
+                <p class="hint" data-i18n="prof.waHint">Add and confirm your transactions by writing to the app's WhatsApp bot. What you write goes only to your own app.</p>
+                <label for="wa-number" data-i18n="prof.waNumberLabel">Your WhatsApp number, with its country code</label>
+                <input type="tel" id="wa-number" inputmode="numeric" autocomplete="tel" data-i18n-placeholder="prof.waNumberPh" placeholder="51987654321">
+                <p class="hint error-text" id="wa-error" role="alert"></p>
+                <button type="button" class="primary" id="wa-on-btn" data-i18n="prof.waOn">Turn on</button>
+              </div>
+              <div id="wa-on" hidden>
+                <p class="hint" id="wa-status"></p>
+                <p class="hint" data-i18n="prof.waCodeHint">Send this code to JP on WhatsApp. Once he has added it, write "ayuda" to the bot.</p>
+                <textarea id="wa-code" class="bill-photo-text" rows="4" readonly spellcheck="false"></textarea>
+                <p class="hint error-text" id="wa-nocode" data-i18n="prof.waNoCode" hidden>The code is not ready yet. Close this screen and open it again in a minute.</p>
+                <button type="button" class="primary" id="wa-copy-btn" data-i18n="prof.waCopy">Copy the code</button>
+                <p class="hint" id="wa-copied" role="status"></p>
+                <button type="button" class="secondary-btn" id="wa-off-btn" data-i18n="prof.waOff">Turn off</button>
+              </div>
+            </div>
+          </div>
+
           <div id="my-profile-devices-card">
             <button type="button" class="more-list-item md-row fits-toggle" id="devices-toggle" aria-expanded="false" aria-controls="devices-body">
               <span><span class="md-title" data-i18n="devices.title">Where I'm signed in</span><span class="hint md-sub" id="devices-count"></span></span>
@@ -1624,6 +1649,11 @@
 
         <p class="hint"><strong data-i18n="privacy.neverTitle">Never sent to JP</strong></p>
         <p class="hint" data-i18n="privacy.never">Your expenses, amounts, descriptions, categories you created, names of friends or payees, account names or numbers, your emails, your photos and PDFs, and your sign-in.</p>
+
+        <div id="privacy-wa" hidden>
+          <p class="hint"><strong data-i18n="privacy.waTitle">The WhatsApp bot (you turned it on)</strong></p>
+          <p class="hint" data-i18n="privacy.wa">What you write to the WhatsApp bot.</p>
+        </div>
 
         <p class="hint"><strong data-i18n="privacy.otherTitle">Other things to know</strong></p>
         <p class="hint" data-i18n="privacy.updates">Once a day your phone asks GitHub whether a newer version of the app exists. It asks about the app, not about you.</p>
@@ -2565,7 +2595,7 @@
         <div id="loan-due-wrap">
         <label for="loan-due-date" data-i18n="loanModal.dueDate">Due date</label>
         <input type="date" id="loan-due-date">
-        <p class="hint" data-i18n="loanModal.dueHint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
+        <p class="hint" id="loan-due-hint" data-i18n="loanModal.dueHint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
         </div>
 
         <div id="loan-pm-field">
@@ -3379,7 +3409,7 @@
 
 <div id="budget-alert-fields">
         <label for="budget-thresholds" data-i18n="budgetModal.alertAt">Alert at (%)</label>
-        <input type="text" id="budget-thresholds" placeholder="50, 75, 100, 110, 125, 150">
+        <input type="text" id="budget-thresholds" placeholder="75, 100">
         <p class="hint" data-alert-hint="budgetModal.alertHint">Comma-separated percentages of the budget. You'll get an alert the first time spending crosses each one, once per period.</p>
         </div>
 
@@ -3429,7 +3459,7 @@
 
 <div id="trip-alert-fields">
         <label for="trip-alerts" data-i18n="budgetModal.alertAt">Alert at (%)</label>
-        <input type="text" id="trip-alerts" placeholder="50, 75, 100, 110, 125, 150">
+        <input type="text" id="trip-alerts" placeholder="75, 100">
         <p class="hint" data-alert-hint="trips.alertHint">Comma-separated percentages of the trip budget. Leave blank for the usual ones. You'll get an alert the first time it crosses each one.</p>
         </div>
 
@@ -4088,24 +4118,24 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="i18n.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="tour-scenes.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="signin-link.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="country-guess.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="rate-quotes.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="bank-sample.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="perf-share.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="spotlight.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="receipt-parse.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="receipt-fields.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="in-process.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="bill-split.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="loan-reminder.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="app.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="statement-sample.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="statement-table.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="statement-parsers.js?v=2026-11-16T15:06:06Z"></script>
-  <script src="statements.js?v=2026-11-16T15:06:06Z"></script>
+  <script src="strings.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="i18n.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="tour-scenes.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="signin-link.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="country-guess.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="rate-quotes.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="bank-sample.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="perf-share.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="spotlight.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="receipt-parse.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="receipt-fields.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="in-process.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="bill-split.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="loan-reminder.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="app.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="statement-sample.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="statement-table.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="statement-parsers.js?v=2026-11-17T03:09:05Z"></script>
+  <script src="statements.js?v=2026-11-17T03:09:05Z"></script>
 </body>
 </html>

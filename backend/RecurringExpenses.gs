@@ -801,7 +801,15 @@ function addRecurringExpense(payload) {
     trip_id: frequency === 'once' ? tripIdForProgrammed_(payload.trip_id, payload.category_id) : '',
     tag_ids: cleanRecurringTagIds_(payload.tag_ids)
   };
+  // A future-dated shared expense from the entry form arrives with its split (capability programSplits): checked before
+  // anything is written, then saved in the same call.
+  var splits = Array.isArray(payload.splits) ? payload.splits.filter(function (s) { return s && s.friend_id && Number(s.amount) > 0; }) : [];
+  if (splits.length) {
+    var splitSum = splits.reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
+    if (splitSum > Number(payload.amount) + 0.005) throw new Error(tr_('err.splitOverTotal'));
+  }
   appendRowObject('Recurring Expenses', re);
+  if (splits.length) saveRecurringExpenseSplits({ recurringExpenseId: re.id, splits: splits });
   var categoryById = rowsById_(getAllRows('Categories'));
   return recurringExpenseForClient_(re, categoryById);
 }

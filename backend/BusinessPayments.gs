@@ -25,7 +25,7 @@ function expectedById_(id) {
 }
 
 function businessToday_() {
-  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd');
 }
 
 // What an income entry may point at: only an income, only an expected payment that exists on the SAME project and in the

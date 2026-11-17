@@ -232,7 +232,7 @@ function refundAndDeleteRepaidLoan_(loan) {
       entry_id: '',
       amount: Math.round(realPaid * 100) / 100,
       currency: loan.currency,
-      date: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      date: Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd'),
       due_date: '',
       payment_method_id: '',
       description: unappliedPaymentDescription_(friendPaid, what, friend ? friend.name : '', loan.currency, realPaid),
@@ -346,7 +346,7 @@ function applyUnappliedPayment(payload) {
     var te = getEntryById_(tid);
     return { tid: tid, amt: Number(sourceMap[tid]), date: te ? te.date : '', pm: te ? (te.payment_method_id || '') : '' };
   }).filter(function (x) { return x.amt > 0.004; }).sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
-  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var today = Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd');
 
   var touched = {};
   plan.forEach(function (item) {
@@ -463,12 +463,12 @@ function firstUseDate_() {
     var v = settings.first_use_date;
     if (/^\d{4}-\d{2}-\d{2}$/.test(String(v))) return String(v);
     var asDate = v instanceof Date ? v : new Date(String(v));
-    if (!isNaN(asDate.getTime())) return Utilities.formatDate(asDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    if (!isNaN(asDate.getTime())) return Utilities.formatDate(asDate, sheetDateTz_(), 'yyyy-MM-dd');
   }
   var found = '';
   var onboarded = Number(settings.onboarded_at || 0);
   if (onboarded > 0) {
-    found = Utilities.formatDate(new Date(onboarded), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    found = Utilities.formatDate(new Date(onboarded), personTz_(), 'yyyy-MM-dd');
   } else {
     getAllRows('Entries').forEach(function (e) {
       var d = String(e.date || '').slice(0, 10);
@@ -741,7 +741,7 @@ function addLoan(payload) {
     currency: String(payload.currency || homeCurrency_()).toUpperCase(),
     date: payload.date,
     // An opening debt gets no automatic due date (it would be "overdue" from the first day): only one the person typed.
-    due_date: payload.due_date || (opening ? '' : defaultLoanDueDate_(payload.date)),
+    due_date: payload.due_date || (opening || !loanDueWeekOn_() ? '' : defaultLoanDueDate_(payload.date)),   // a new person's loan: no due date unless typed (PersonDefaults.gs)
     payment_method_id: opening ? '' : (payload.payment_method_id || ''),
     description: payload.description || '',
     project_id: projectIdForLoan_(payload.project_id),
@@ -2775,7 +2775,7 @@ function isLoanOverdue_(loan, remaining) {
   if (isPracticeLoan_(loan)) return false;   // the first-use practice's own loan never raises a reminder or notice (it is deleted minutes later)
   if (!loan.due_date) return false;
   if (remaining <= 0.004) return false;
-  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var today = Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd');
   return loan.due_date < today;
 }
 
@@ -2821,7 +2821,7 @@ function listLoanBalances(payload) {
     openCur[loan.direction === 'they_owe_me' ? 'they_owe_me' : 'i_owe_them'] += remaining;
   });
 
-  var month = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
+  var month = Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM');
   var result = [];
 
   Object.keys(byFriendCurrency).forEach(function (friendId) {
@@ -3389,7 +3389,7 @@ function checkOverdueLoansLocked_() {
       id: Utilities.getUuid(),
       loan_id: loan.id,
       due_date: loan.due_date,
-      sent_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')
+      sent_at: Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd')
     });
     alertedSet[key] = true;
     if (!baseline) alertsSent++;

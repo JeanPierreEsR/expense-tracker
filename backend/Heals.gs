@@ -5,7 +5,7 @@
  * with — the update page replaces the files and nothing else (docs/setup/Install.gs builds the Sheet once, never again). Anything a fix needs to
  * change in an EXISTING Sheet or its settings therefore goes here, as an entry in HEALS_: each runs once per copy (the ids already done are kept in
  * the script property HEALS_DONE), on the first app open after the update (getMeta), on friends' copies only (a heal marked `owner: true`
- * also runs on the owner's copy). Rules for a heal:
+ * also runs on the owner's copy; one marked `ownerOnly: true` runs on the owner's copy and never on a friend's). Rules for a heal:
  *  - idempotent: running it twice must change nothing the second time;
  *  - it never loses or rewrites the person's data (it may fix a setting or add structure);
  *  - a failure is only logged and leaves the id undone, so the next open tries again; it never breaks the request;
@@ -42,7 +42,10 @@ var HEALS_ = [
   { id: 'link-old-repayment-extras', owner: true, run: function () { linkAllEarlierGapEntries_(); } },
   // That linking once paired a repayment with an extra entry in another currency (shown as one total in the wrong currency; testers,
   // 2026-11-10). Takes back only such links; the linking itself now checks the currency.
-  { id: 'unlink-cross-currency-extras', owner: true, run: function () { unlinkCrossCurrencyGapEntries_(); } }
+  { id: 'unlink-cross-currency-extras', owner: true, run: function () { unlinkCrossCurrencyGapEntries_(); } },
+  // The owner's budgets alert at 75%, 100% and 125% only (owner, 2026-11-16: "change all of my past and future budgets"). DELIBERATE EXCEPTION to
+  // "a heal never rewrites data" (owner's request): only the alert percentages of his budgets change; amounts, history and alerts already sent stay.
+  { id: 'owner-budget-alerts-75-100-125', ownerOnly: true, run: function () { setAllBudgetThresholds_(OWNER_BUDGET_THRESHOLDS_); } }
 ];
 
 function healMailboxAddressFromToLine_() {
@@ -66,6 +69,7 @@ function firstAddressIn_(header) {
 
 function healSheetTimeZone_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (PropertiesService.getScriptProperties().getProperty(TZ_FROM_PHONE_PROPERTY_) === 'yes') return;   // the phone already set the person's own zone
   var want = Session.getScriptTimeZone();
   if (!want) return;
   if (ss.getSpreadsheetTimeZone() !== want) ss.setSpreadsheetTimeZone(want);
@@ -73,11 +77,11 @@ function healSheetTimeZone_() {
 
 function runHealsOnce_() {
   var friend = isFriendCopy_();   // the owner's own copy is looked after by hand, except for a heal marked `owner: true`
-  if (!friend && !HEALS_.some(function (h) { return h.owner; })) return;
+  if (!friend && !HEALS_.some(function (h) { return h.owner || h.ownerOnly; })) return;
   var props = PropertiesService.getScriptProperties();
   var done = String(props.getProperty(HEALS_DONE_PROPERTY_) || '').split(',').filter(function (id) { return id; });
   HEALS_.forEach(function (heal) {
-    if (done.indexOf(heal.id) !== -1 || (!friend && !heal.owner)) return;
+    if (done.indexOf(heal.id) !== -1 || (!friend && !heal.owner && !heal.ownerOnly) || (friend && heal.ownerOnly)) return;
     try {
       heal.run();
       done.push(heal.id);

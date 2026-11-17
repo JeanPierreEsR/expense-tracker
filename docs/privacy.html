@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy · Política de privacidad</title>
+<!-- Public privacy policy (2026-11-16), linked from the Meta app that carries WhatsApp capture
+     (backend/WhatsApp.gs, cloudflare-worker/whatsapp-relay.js). A standalone page, not part of the app's screens. -->
+<style>
+  :root { --bg: #ffffff; --text: #1c1c1e; --muted: #6e6e73; --line: #e5e5ea; --link: #0a66c2; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1c1c1e; --text: #f2f2f7; --muted: #a1a1a6; --line: #3a3a3c; --link: #4da3ff; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.15rem; margin: 28px 0 6px; }
+  p, li { margin: 6px 0; }
+  .muted { color: var(--muted); font-size: 0.9rem; }
+  nav a, a { color: var(--link); }
+  section + section { border-top: 1px solid var(--line); margin-top: 40px; padding-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+<nav class="muted"><a href="#en">English</a> · <a href="#es">Español</a></nav>
+
+<section id="en" lang="en">
+<h1>Privacy policy</h1>
+<p class="muted">Expense Tracker · last updated 16 November 2026 (WhatsApp bot for each person's own copy)</p>
+
+<p>Expense Tracker is a personal app for keeping track of one's own spending. It is not a commercial service: it has no ads,
+and nothing in it is sold or shared for marketing.</p>
+
+<h2>WhatsApp messages</h2>
+<ul>
+  <li>The app's WhatsApp number reads only messages from people who switched the bot on in their own copy of the app (and the
+      app's owner). Each person's messages go only to that person's own copy: nobody else's app receives them. Messages from
+      any other number are discarded at once: they are not read, saved or answered.</li>
+  <li>From those messages the app takes the amount, the currency, a short description and any field the person names, saves
+      them in that person's own records, and answers with a short message about that transaction.</li>
+  <li>The message passes through Meta (WhatsApp), a Cloudflare relay run by the app's owner that only forwards it and keeps
+      nothing (its logs never hold what a message says), and Google Apps Script, which saves the entry in that person's own
+      Google Sheet.</li>
+  <li>Switching the bot off in the app (More &rarr; My profile &rarr; WhatsApp bot) stops it at once. Nothing already saved is deleted.</li>
+</ul>
+
+<h2>Where the data is kept</h2>
+<p>Everything the app records stays in the Google account of the person who uses that copy of the app (a Google Sheet they
+own). It is kept until that person deletes it. Nothing is copied to any other place.</p>
+
+<h2>Who else sees it</h2>
+<p>Nobody. The only services that handle the data are the ones that carry it (Meta, Cloudflare and Google), under their own
+privacy policies. It is never sold, rented or given to anyone else.</p>
+
+<h2>Deleting your data</h2>
+<p>Any entry can be deleted from the app at any time, and the whole Google Sheet can be deleted from Google Drive. To ask for
+anything to be removed, or with any question, write through the project page:
+<a href="https://github.com/JeanPierreEsR/expense-tracker">github.com/JeanPierreEsR/expense-tracker</a>.</p>
+</section>
+
+<section id="es" lang="es">
+<h1>Política de privacidad</h1>
+<p class="muted">Expense Tracker · actualizada el 16 de noviembre de 2026 (bot de WhatsApp para la copia propia de cada persona)</p>
+
+<p>Expense Tracker es una app personal para llevar la cuenta de los gastos propios. No es un servicio comercial: no tiene
+publicidad y nada de lo que guarda se vende ni se comparte con fines de marketing.</p>
+
+<h2>Mensajes de WhatsApp</h2>
+<ul>
+  <li>El número de WhatsApp de la app solo lee los mensajes de las personas que activaron el bot en su propia copia de la app
+      (y del dueño de la app). Los mensajes de cada persona llegan solo a la copia de esa persona: ninguna otra app los recibe.
+      Los mensajes de cualquier otro número se descartan al instante: no se leen, no se guardan y no se responden.</li>
+  <li>De esos mensajes la app toma el monto, la moneda, una descripción corta y cualquier campo que la persona indique, los
+      guarda en los registros propios de esa persona y responde con un mensaje corto sobre ese movimiento.</li>
+  <li>El mensaje pasa por Meta (WhatsApp), por un reenvío en Cloudflare que maneja el dueño de la app, que solo lo transmite y
+      no guarda nada (sus registros nunca contienen lo que dice un mensaje), y por Google Apps Script, que guarda el movimiento
+      en la Hoja de Google de esa persona.</li>
+  <li>Desactivar el bot en la app (Más &rarr; Mi perfil &rarr; Bot de WhatsApp) lo detiene al instante. No se borra nada de lo ya guardado.</li>
+</ul>
+
+<h2>Dónde se guardan los datos</h2>
+<p>Todo lo que registra la app queda en la cuenta de Google de la persona que usa esa copia de la app (una Hoja de Google que
+es suya). Se conserva hasta que esa persona lo borra. Nada se copia a ningún otro lugar.</p>
+
+<h2>Quién más lo ve</h2>
+<p>Nadie. Los únicos servicios que manejan los datos son los que los transportan (Meta, Cloudflare y Google), bajo sus propias
+políticas de privacidad. Nunca se venden, alquilan ni entregan a nadie más.</p>
+
+<h2>Borrar tus datos</h2>
+<p>Cualquier movimiento se puede borrar desde la app en cualquier momento, y la Hoja de Google completa se puede borrar desde
+Google Drive. Para pedir que se elimine algo, o para cualquier consulta, escribe a través de la página del proyecto:
+<a href="https://github.com/JeanPierreEsR/expense-tracker">github.com/JeanPierreEsR/expense-tracker</a>.</p>
+</section>
+</main>
+</body>
+</html>

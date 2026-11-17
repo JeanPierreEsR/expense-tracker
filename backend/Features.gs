@@ -68,6 +68,10 @@ function getCapabilities_() {
     sheetDates: true,
     // More → Apple Pay capture (ApplePay.gs; owner's copy first, 2026-11-15).
     applePay: applePayOffered_(),
+    // More → My profile → WhatsApp bot (WhatsApp.gs): offered on the owner's copy and on copies he marks; on = the person turned it on
+    // (the privacy card then has its WhatsApp section, owner 2026-11-16: privacy changes only for people who use the bot).
+    whatsappBot: whatsappOffered_(),
+    whatsappBotOn: whatsappBotOn_(),
     // Why Apple Pay is offered or not (owner's copy only; four yes/no answers, no address or key), shown in More → Performance log.
     applePayCheck: (isOwnerCopyByAddress_() || !isFriendCopy_()) ? applePayCheck_() : null,
     // Overview's summary blocks open the list behind them (listPeriodFlows, 2026-11-11); an older backend leaves the blocks as they were.
@@ -107,6 +111,7 @@ function getCapabilities_() {
     pmRemove: true,   // removePaymentMethod (one Delete: unused = deleted, with history = hidden) + the built-in Cash account (settings.cash_account_id); an older backend keeps Delete + Hide
     thenReads: true,   // a save may carry payload._then (reads to answer in the same reply, runThenReads_ in Api.gs); an older backend never gets it
     entryRepeat: true,
+    programSplits: true,   // addRecurringExpense takes `splits` (and saves them in the same call): a future-dated SHARED expense becomes a Programmed item; an older backend keeps it a normal entry
     recurringPayments: true,   // listRecurringPayments: the "Past payments" group of the Programmed item window    // saveEntryAll takes `repeat`: the entry form's "Repeat…" makes a Programmed item from the entry and links it
     entrySaveOne: true,   // saveEntryAll: a new / edited / confirmed entry with its split, tags and bill in ONE call (was 2-4 trips to Google); an older backend gets the separate calls
     practiceRemove: true,   // removePracticeData: the first-use practice's cleanup in one call; an older backend makes the phone do it step by step

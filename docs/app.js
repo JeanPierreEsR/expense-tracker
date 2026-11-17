@@ -744,7 +744,7 @@ let perfInflight_ = 0;
 const API_READ_RE_ = /^(get|list)[A-Z]/;
 // Calls that change nothing any list shows (alerts / notices come back in their own answer): they neither drop what is waiting
 // nor wait in line as a save. The automatic alert check right after every save used to throw the save's lists away.
-const API_NEUTRAL_ = new Set(["checkAlertsNow", "markNoticesSeen", "syncEntrySearchIndex", "reportPerf", "reportBeta", "reportFeedback"]);
+const API_NEUTRAL_ = new Set(["checkAlertsNow", "markNoticesSeen", "syncEntrySearchIndex", "reportPerf", "reportBeta", "reportFeedback", "setTimeZone"]);
 let apiWriteGen_ = 0;
 const apiPrefill_ = new Map();     // key -> { gen, at, data }
 const apiInflight_ = new Map();    // key -> { gen, promise }
@@ -1202,6 +1202,8 @@ function autoBeforeApp_(dateId, boxId, shown, apply) {
 }
 
 function defaultDueDate_(dateStr) {
+  // A new person's loans start with no due date (owner, 2026-11-16); the owner's copy and earlier copies keep "a week out".
+  if (meta && meta.settings && meta.settings.loan_due_week === "no") return "";
   const d = new Date(`${dateStr}T00:00:00`);
   d.setDate(d.getDate() + 7);
   const yyyy = d.getFullYear();
@@ -1380,7 +1382,7 @@ function refreshTelegramFields_() {
 }
 
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
-  meta = prefetchedMeta || await callApi("getMeta", {});
+  meta = prefetchedMeta || await callApi("getMeta", { tz: phoneTz_() });
   syncPairWithBackend_();
   (meta.categories || []).forEach(cleanCategoryLook_);
   refreshTelegramFields_();
@@ -1518,6 +1520,7 @@ function populateCategoryPicker() {
 let annualAutoTicked = false;
 function preselectAnnualForTravel_(categoryId) {
   if (selectedType !== "expense") return;
+  if (meta && meta.settings && meta.settings.travel_annual_on === "no") return;   // a new person's Travel is not Annual by itself (owner, 2026-11-16)
   const byId = new Map(meta.categories.map((c) => [c.id, c]));
   const isTravel = (c) => !!c && (c.key === "travel" || (!c.key && c.name === "Travel"));
   const cat = byId.get(categoryId);
@@ -3632,12 +3635,14 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // a Programmed, one-time item instead of a confirmed Entry, so it
     // never shows in "Recent entries" until it's actually real. Only for
     // a genuinely new save — editing an existing real entry into a future
-    // date doesn't retroactively un-become a real entry. A split expense
-    // needs the same real Entry/Splits machinery a friend-paid one does,
-    // even when the owner themselves paid, so it's excluded here too.
+    // date doesn't retroactively un-become a real entry. A split the owner
+    // paid goes along as the item's own split (owner, 2026-11-16: a trip's
+    // shared Airbnb balance due next week stayed in "Recent entries");
+    // only an older backend (no programSplits) keeps it a normal entry.
     const isFutureDate = !editingEntryId && !confirmingPendingId && date > todayLocalISO();
     const canProgram = isFutureDate && selectedType !== "transfer" && !isWithdrawal &&
-      (selectedType === "income" || paidBy === "me") && !splits && !payingRecurringId_ && !waitingOn;
+      (selectedType === "income" || paidBy === "me") && (!splits || !!(meta.capabilities || {}).programSplits) &&
+      !payingRecurringId_ && !waitingOn;
     let programmedInstead = false;
     if (canProgram && !categoryId) throw new Error(tr("error.pickCategory"));   // a Programmed item needs its category
     const repeat = repeatChoice_();
@@ -4055,11 +4060,16 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // CLAUDE.md's Exchange Rates section), so it never needs one set
       // for a month that, being in the future, usually doesn't have one
       // yet — unlike a real Entry, which does require it at save time.
+      // The split (friends' parts of the whole bill, like an entry's) and the tags go with the item.
+      const programmedExtras = {};
+      if (splits && splits.length) programmedExtras.splits = splits.map((s) => ({ friend_id: s.friend_id, amount: s.amount }));
+      if (programmedTagsOn_() && tagIds.length) programmedExtras.tag_ids = tagIds;
       await callApi("addRecurringExpense", repeat ? {
         // "Repeat…" on a future date: the repeating item itself, starting that day (no entry yet).
         category_id: categoryId, description, amount, currency, active: true,
         frequency: repeat.frequency, interval: repeat.interval, interval_unit: repeat.interval_unit,
-        start_date: date, day: Number(date.slice(8, 10)), month: Number(date.slice(5, 7))
+        start_date: date, day: Number(date.slice(8, 10)), month: Number(date.slice(5, 7)),
+        ...programmedExtras
       } : {
         category_id: categoryId,
         description,
@@ -4068,7 +4078,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         frequency: "once",
         date,
         active: true,
-        trip_id: tripId   // a picked trip/event makes it an estimate there
+        trip_id: tripId,   // a picked trip/event makes it an estimate there
+        ...programmedExtras
       });
       programmedInstead = true;
     } else if ((meta.capabilities || {}).clientEntryId) {
@@ -4429,8 +4440,8 @@ function paidByLabel(entryOrPaidBy) {
 // The small grey line under an entry's description: date, who paid, then the
 // entry's labels (Tags) as little pills. Labels the app doesn't know (a tag
 // deleted since) are skipped.
-function entryMetaHtml_(entry, headline, opts) {
-  const tripPill = tripPillHtml_(entry) + businessPillHtml_(entry) + (opts && opts.shared ? sharedPillHtml_(entry) : "");
+function entryMetaHtml_(entry, headline) {
+  const tripPill = tripPillHtml_(entry) + businessPillHtml_(entry) + sharedPillHtml_(entry);
   const pills = tripPill + (Array.isArray(entry.tagIds) ? entry.tagIds : [])
     .map((id) => meta.tags.find((t) => t.id === id))
     .filter(Boolean)
@@ -7122,6 +7133,20 @@ function retryWaitingSaves_() {
 window.addEventListener("online", retryWaitingSaves_);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) retryWaitingSaves_(); });
 
+// The person's time zone is the one their phone is in (owner, 2026-11-16): sent at start-up (getStartupBundle / getMeta `tz`), and
+// again when the app comes back in another zone (a trip), so expenses from e-mails and "today" on the server follow the person.
+function phoneTz_() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { return ""; }
+}
+let tzSentNow_ = phoneTz_();
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !meta) return;
+  const tz = phoneTz_();
+  if (!tz || tz === tzSentNow_) return;
+  tzSentNow_ = tz;
+  callApi("setTimeZone", { tz }).catch(() => { tzSentNow_ = ""; });   // tried again the next time the app comes back
+});
+
 // Called once at app startup (see init()) so an edit that didn't finish
 // landing before the app was last closed gets retried now, instead of
 // silently waiting for the owner to notice and re-open that entry.
@@ -7741,7 +7766,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       ${/^(Overpayment (from|to) |Pago de más (de|a) )/.test(entry.description || "") ? `<p class="hint review-overpay-note">${escapeHtml(tr("review.overpayNote"))}</p>` : ""}
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
       <div class="review-quick">
-        <span class="review-quick-cat">${escapeHtml(entry.type === "investment" ? (TYPE_LABELS.investment || "") : (entry.category_id ? categoryName(entry.category_id) : tr("review.pickCategory")))}</span>
+        <button type="button" class="review-quick-cat${entry.type !== "investment" && !entry.category_id ? " review-quick-cat-missing" : ""}">${escapeHtml(entry.type === "investment" ? (TYPE_LABELS.investment || "") : (entry.category_id ? categoryName(entry.category_id) : tr("review.pickCategory")))}</button>
         <button type="button" class="review-quick-confirm">${tr("review.confirm")}</button>
       </div>
       <div class="review-item-fields">
@@ -7799,10 +7824,34 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
 
     const confirmBtn = item.querySelector(".review-confirm-btn");
     const discardBtn = item.querySelector(".review-discard-btn");
-    item.querySelector(".review-item-top").addEventListener("click", (ev) => {
-      if (ev.target.closest("button, a, select, input")) return;
-      const nowOpen = item.classList.toggle("review-collapsed") === false;
-      if (nowOpen) reviewExpanded_.add(entry.id); else reviewExpanded_.delete(entry.id);
+    // A closed item opens with a tap almost anywhere on it (owner, 2026-11-16; only its own buttons keep their job);
+    // an open one closes from its top. The category line opens it at the category box.
+    // On a closed card the description and the amount go straight to their own box (owner, 2026-11-16).
+    const goToBox_ = (box) => {
+      item.classList.remove("review-collapsed");
+      reviewExpanded_.add(entry.id);
+      if (!box) return;
+      box.focus({ preventScroll: true });
+      box.scrollIntoView({ block: "center", behavior: "smooth" });
+    };
+    // An open card closes with a tap anywhere above its boxes (owner, 2026-11-16: the part a closed card shows above Confirm).
+    item.addEventListener("click", (ev) => {
+      if (ev.target.closest("button, a, select, input, label")) return;
+      if (item.classList.contains("review-collapsed")) {
+        if (ev.target.closest(".review-item-desc")) { goToBox_(item.querySelector(".review-description")); return; }
+        if (ev.target.closest(".review-item-amount")) { goToBox_(item.querySelector(".review-amount")); return; }
+        item.classList.remove("review-collapsed"); reviewExpanded_.add(entry.id); return;
+      }
+      const boxes = item.querySelector(".review-item-fields");
+      if (boxes && ev.clientY >= boxes.getBoundingClientRect().top) return;
+      item.classList.add("review-collapsed");
+      reviewExpanded_.delete(entry.id);
+    });
+    item.querySelector(".review-quick-cat").addEventListener("click", () => {
+      const box = item.querySelector(".review-category");
+      goToBox_(box);
+      if (!box) return;
+      try { if (box.showPicker) box.showPicker(); } catch (e) { /* not every phone lets a page open the list itself */ }
     });
     item.querySelector(".review-quick-confirm").addEventListener("click", () => {
       // One tap: the same Confirm, with what the item already holds. Anything missing opens the item with the message.
@@ -11120,7 +11169,7 @@ function renderEntriesInto_(list, entries, emptyKey) {
       <div class="entry-left">
         <div class="entry-category">${headline.title}</div>
         ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
-        <div class="entry-meta">${entryMetaHtml_(entry, headline, { shared: list.id === "trip-detail-entries" })}</div>
+        <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
         ${entry.slice_part ? `<div class="entry-meta slice-part">${escapeHtml(slicePartText_(entry))}</div>` : ""}
         ${deletingEntryIds_.has(entry.id) ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>` : ""}
       </div>
@@ -11481,7 +11530,8 @@ function updateBudgetForwardHint_(budget) {
   el.hidden = !budgetForwardType_ || budgetPeriodType !== budgetForwardType_ || budgetEditingEnded_ || noEarlier;
   if (!el.hidden) el.textContent = tr(budgetKindKeys_(budgetForwardType_).fwd);
 }
-const DEFAULT_BUDGET_THRESHOLDS_DISPLAY = "50, 75, 100, 110, 125, 150";
+// The alert percentages a new budget starts with: 75, 100 (the owner's copy 75, 100, 125), as the server says (PersonDefaults.gs).
+const defaultBudgetThresholdsDisplay_ = () => String((meta && meta.settings && meta.settings.budget_thresholds_default) || "75,100").split(",").map((x) => x.trim()).join(", ");
 
 document.querySelectorAll("#budget-period-tabs .type-tab").forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -11639,7 +11689,8 @@ function openBudgetModal(budget) {
   document.getElementById("budget-annual-kind-row").hidden = !(meta && meta.capabilities && meta.capabilities.annualBudgets);
   setBudgetAnnualKind_(!!(budget && budget.annual_kind));
 
-  document.getElementById("budget-thresholds").value = budget ? budget.thresholds : DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
+  document.getElementById("budget-thresholds").value = budget ? budget.thresholds : defaultBudgetThresholdsDisplay_();
+  document.getElementById("budget-thresholds").placeholder = defaultBudgetThresholdsDisplay_();
   // Ending (forward only) or deleting completely, where the backend knows budget history; an ended budget can be started again.
   const hist = budgetHistoryOn_();
   budgetEditingEnded_ = !!(budget && budget.ended && hist);
@@ -11687,7 +11738,7 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
     const name = document.getElementById("budget-name").value.trim();
     const amount = parseFloat(document.getElementById("budget-amount").value);
     const currency = document.getElementById("budget-currency").value.toUpperCase();
-    const thresholds = document.getElementById("budget-thresholds").value.trim() || DEFAULT_BUDGET_THRESHOLDS_DISPLAY;
+    const thresholds = document.getElementById("budget-thresholds").value.trim() || defaultBudgetThresholdsDisplay_();
 
     if (selectedBudgetCategoryIds.size === 0 && !budgetAnnualKind_) {
       throw new Error(tr("budget.pickCategory"));
@@ -11764,6 +11815,13 @@ document.getElementById("budget-save-btn").addEventListener("click", async () =>
       if (fields.start && fields.start !== "always" && fields.start > budgetPeriodKey_(budgetPeriodType, 0)) startsLater = budgetPeriodType === "weekly"
         ? tr("budget.startsLaterWeek", { when: rangeFmt_(fields.start) })
         : tr("budget.startsLater", { when: budgetPeriodName_(budgetPeriodType, fields.start, true) });
+    }
+    // A new person's first "Everything marked Annual" budget asks once whether Travel counts as annual (owner, 2026-11-16; the
+    // owner's copy and earlier copies always did). The answer rides on the same save (addBudget `travel_annual`).
+    if (!budgetId && budgetAnnualKind_ && meta && meta.settings && meta.settings.travel_annual_ask === "yes") {
+      fields.travel_annual = await askConfirmApp_(tr("budget.travelAnnualAsk"), tr("confirmBtn.countTravel"), { plain: true, cancel: tr("budget.travelAnnualNo") });
+      meta.settings.travel_annual_ask = "";
+      meta.settings.travel_annual_on = fields.travel_annual ? "yes" : "no";
     }
     closeBudgetModal();
     closeDrilldown();
@@ -12554,7 +12612,7 @@ async function init() {
     // to see the effect.
     let bundle;
     const bundlePromise = timedStep("init:fetchBundle", async () => {
-      bundle = await callApi("getStartupBundle", { entriesLimit: entriesShown + 1 });
+      bundle = await callApi("getStartupBundle", { entriesLimit: entriesShown + 1, tz: phoneTz_() });
     });
 
     // allSettled, not a plain await, so a failure in one never stops us
@@ -13217,6 +13275,7 @@ function showFeedbackPrivacyScreen() {
   document.querySelectorAll(".screen").forEach((el) => { el.hidden = el.id !== "screen-feedback-privacy"; });
   document.querySelectorAll(".nav-btn").forEach((btn) => { btn.classList.toggle("active", btn.dataset.screen === "more"); });
   refreshPrivacyStatus_();
+  refreshPrivacyWa_();
   window.scrollTo(0, 0);
 }
 document.getElementById("more-feedback-privacy-btn").addEventListener("click", showFeedbackPrivacyScreen);
@@ -13941,7 +14000,7 @@ function showWelcomeStep_(step) {
 // welcome is saved). The same chips are used by More → My profile → What fits me.
 const FITS_GROUPS_ = [
   { title: "fits.g.life", answers: ["car", "kids", "pets", "study", "health", "family", "debt"] },
-  { title: "fits.g.spheres", answers: ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "gifts", "trips"] }
+  { title: "fits.g.spheres", answers: ["shopping", "goingout", "entertainment", "personal", "subscriptions", "hobbies", "sports", "gifts", "trips"] }
 ];
 const FITS_ANSWERS_ = FITS_GROUPS_.flatMap((g) => g.answers);
 function fillFitsChips_(box, selected, onToggle, compact) {
@@ -14242,7 +14301,12 @@ function renderWaBank_() {
 // What a new account starts with: its one currency, or for a card soles and dollars (main currency and dollars outside Peru).
 function waDefaultCurrencies_(kind) {
   if (waTypeOf_(kind) !== "credit" || kindCurrency_(kind)) return [kindCurrency_(kind) || waCurrencyChoices_()[0]];
-  return [...new Set([welcome_.home || homeCur(), "USD"])];
+  return cardDefaultCurrencies_(welcome_.home || homeCur());
+}
+// A new card's currencies (specs/peru.md P2): in Peru (main currency soles) soles and dollars are both ticked, the way cards work
+// there; elsewhere only the main currency (owner, 2026-11-16).
+function cardDefaultCurrencies_(home) {
+  return home === "PEN" ? ["PEN", "USD"] : [home];
 }
 function renderWaWallets_() {
   const f = welcome_.form;
@@ -14892,15 +14956,19 @@ async function showMyProfileScreen() {
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
   document.getElementById("my-profile-tabs-card").hidden = !caps.navTabs;      // nor this
+  document.getElementById("my-profile-wa-card").hidden = !caps.whatsappBot;   // only where the owner offers it (WhatsApp.gs)
+  waOpenRow_(false);
   tabsOpenRow_(false);
   drawTabsCard_();
   fitsOcc_ = occupationFromSettings_(String((meta && meta.settings && meta.settings.profile) || "").split(","));
   try {
-    const [names, state] = await Promise.all([
+    const [names, state, , wa] = await Promise.all([
       callApi("getOwnerNames", {}),
       caps.profileState && caps.profile ? callApi("getProfileState", {}) : Promise.resolve(null),
-      loadDevices_().catch(() => null)   // a failure here only leaves the row without its count; opening it tries again
+      loadDevices_().catch(() => null),   // a failure here only leaves the row without its count; opening it tries again
+      caps.whatsappBot ? callApi("getWhatsAppBot", {}) : Promise.resolve(null)
     ]);
+    drawWhatsAppBot_(wa);
     renderOwnerNames_(names);
     // A saved pick shows as clicked only while its category still exists (hidden or deleted ones are not clicked any more).
     if (state && Array.isArray(state.active)) {
@@ -14917,6 +14985,63 @@ async function showMyProfileScreen() {
   }
 }
 document.getElementById("more-my-profile-btn").addEventListener("click", showMyProfileScreen);
+
+// ---- My profile → WhatsApp bot (owner's plan "WhatsApp bot for friends (Mia first)", 2026-11-16) ----
+// Offered only on copies the owner marks (capability whatsappBot). Turning it on asks the person's WhatsApp number; the copy makes
+// its own relay key and shows a code ("WA1 <number> <address> <key>") the person copies and sends the owner on WhatsApp. It waits
+// for the answer on purpose (the code it shows comes from the server), like "Add suggested categories". The privacy card shows its
+// WhatsApp section only while the bot is on (owner: privacy changes only for people who use it). No teaching (pinned for later).
+function waOpenRow_(open) {
+  document.getElementById("wa-body").hidden = !open;
+  document.getElementById("wa-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  document.getElementById("wa-chevron").textContent = open ? "⌄" : "›";
+}
+document.getElementById("wa-toggle").addEventListener("click", () => waOpenRow_(document.getElementById("wa-body").hidden));
+function refreshPrivacyWa_() {
+  const el = document.getElementById("privacy-wa");
+  if (el) el.hidden = !(meta && meta.capabilities && meta.capabilities.whatsappBotOn);
+}
+function drawWhatsAppBot_(s) {
+  const on = !!(s && s.on);
+  document.getElementById("wa-count").textContent = s ? tr(on ? "prof.waIsOn" : "prof.waIsOff") : "";
+  document.getElementById("wa-off").hidden = on;
+  document.getElementById("wa-on").hidden = !on;
+  document.getElementById("wa-error").textContent = "";
+  document.getElementById("wa-copied").textContent = "";
+  if (on) {
+    document.getElementById("wa-status").textContent = tr("prof.waOnFor", { number: "+" + s.number });
+    document.getElementById("wa-code").value = s.code || "";
+  }
+  document.getElementById("wa-nocode").hidden = !on || !!(s && s.code);   // never an empty box without a word
+  document.getElementById("wa-copy-btn").hidden = on && !(s && s.code);
+  if (s && meta && meta.capabilities) meta.capabilities.whatsappBotOn = on;
+  refreshPrivacyWa_();
+}
+document.getElementById("wa-on-btn").addEventListener("click", async () => {
+  const err = document.getElementById("wa-error");
+  const number = document.getElementById("wa-number").value.replace(/\D/g, "");
+  if (number.length < 8 || number.length > 15) { err.textContent = tr("prof.waBadNumber"); return; }
+  if (!(await askConfirmApp_(tr("prof.waConfirm"), tr("confirmBtn.waOn"), { plain: true }))) return;
+  const btn = document.getElementById("wa-on-btn");
+  btn.disabled = true;
+  err.textContent = "";
+  try { drawWhatsAppBot_(await callApi("turnOnWhatsAppBot", { number })); }
+  catch (e) { err.textContent = e.message; }
+  finally { btn.disabled = false; }
+});
+document.getElementById("wa-off-btn").addEventListener("click", async () => {
+  if (!(await askConfirmApp_(tr("prof.waOffConfirm"), tr("confirmBtn.waOff")))) return;
+  const btn = document.getElementById("wa-off-btn");
+  btn.disabled = true;
+  try { drawWhatsAppBot_(await callApi("turnOffWhatsAppBot", {})); }
+  catch (e) { document.getElementById("wa-copied").textContent = e.message; }
+  finally { btn.disabled = false; }
+});
+document.getElementById("wa-copy-btn").addEventListener("click", async () => {
+  const box = document.getElementById("wa-code"), msg = document.getElementById("wa-copied");
+  try { await navigator.clipboard.writeText(box.value); msg.textContent = tr("prof.waCopied"); }
+  catch (e) { box.focus(); box.select(); msg.textContent = tr("prof.waCopyByHand"); }
+});
 
 // ---- Apple Pay capture: the "Apple Pay" tab of More → Bank emails (owner's plan, 2026-11-15; backend/ApplePay.gs) ----
 // The iPhone's Shortcuts app sends each Apple Pay payment to this copy's address with the person's own key in the link (?k=…); the
@@ -17585,7 +17710,7 @@ function renderPmCurrency_() {
     const label = document.getElementById("pm-cur-label");
     label.textContent = tr("accounts.currencies");
     label.removeAttribute("for");
-    if (!pmModalState.currencies) pmModalState.currencies = type === "credit" ? [...new Set([homeCur(), "USD"])] : [homeCur()];
+    if (!pmModalState.currencies) pmModalState.currencies = type === "credit" ? cardDefaultCurrencies_(homeCur()) : [homeCur()];
     const codes = [...new Set([homeCur(), ...getRecentCurrencies(), ...CURRENCIES.map((c) => c.code)])];
     renderCurrencyChecks_(document.getElementById("pm-cur-checks"), codes, pmModalState.currencies, (list) => { pmModalState.currencies = list; renderPmWallets_(); });
     return;
@@ -18566,8 +18691,9 @@ function tripLabel_(trip) {
 }
 
 // The small label on an entry row. A trip that no longer exists is skipped.
-// Trip screen: who an expense was shared with ("With Luty", "With the group"), from the entry's splits (owner, 2026-11-15:
-// the group balance only made sense once each expense said whether it went to the group or to one friend).
+// Who an expense was shared with ("With Luty", "With the group"), from the entry's splits (owner, 2026-11-15:
+// the group balance only made sense once each expense said whether it went to the group or to one friend). On every entry
+// row, Home included (owner, 2026-11-16: it showed only on the trip screen).
 function sharedPillHtml_(entry) {
   if (entry.type !== "expense" || !Array.isArray(entry.splits) || !entry.splits.length) return "";
   const names = [];
@@ -19200,6 +19326,7 @@ function openTripModal_(trip) {
   document.getElementById("trip-budget").value = trip && Number(trip.budget_amount) > 0 ? trip.budget_amount : "";
   document.getElementById("trip-currency").value = trip ? (trip.currency || trip.budget_currency || homeCur()) : homeCur();
   document.getElementById("trip-alerts").value = trip && trip.alert_thresholds ? trip.alert_thresholds.split(",").join(", ") : "";
+  document.getElementById("trip-alerts").placeholder = defaultBudgetThresholdsDisplay_();   // left empty, a trip alerts like a budget
   renderCurrencyChips("trip");
   refreshTripRateWarning_(false);
   setTripInBudgets_(trip);
@@ -31365,6 +31492,10 @@ function openLoanModal(loan, returnFriend, opts) {
   const entryDate = loan ? loan.date : todayLocalISO();
   document.getElementById("loan-date").value = entryDate;
   document.getElementById("loan-due-date").value = loan ? (loan.due_date || "") : defaultDueDate_(entryDate);
+  // The hint says what really happens: "pre-filled with 7 days" only where the date is pre-filled (PersonDefaults.gs `loan_due_week`).
+  const dueHint = document.getElementById("loan-due-hint");
+  dueHint.dataset.i18n = meta && meta.settings && meta.settings.loan_due_week === "no" ? "loanModal.dueHintBlank" : "loanModal.dueHint";
+  dueHint.textContent = tr(dueHint.dataset.i18n);
   const loanPmSelect = document.getElementById("loan-payment-method");
   loanPmSelect.value = loan ? (loan.payment_method_id || "") : (loanPmSelect.options.length ? loanPmSelect.options[0].value : "");
   document.getElementById("loan-description").value = loan ? (loan.description || "") : "";
