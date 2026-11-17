@@ -29150,7 +29150,6 @@ function renderForgiveAny_(forgivable, friendId, friendName) {
   const dirs = new Set(forgivable.map((l) => l.direction));
   const both = dirs.size > 1, iOwe = !both && dirs.has("i_owe_them");
   btn.textContent = tr(iOwe ? "loanDetail.forgiveAnyIOwe" : "loanDetail.forgiveAny");
-  document.getElementById("loan-forgive-any-hint").textContent = tr(both ? "loanDetail.forgiveHintBoth" : iOwe ? "loanDetail.forgiveHintIOwe" : "loanDetail.forgiveHintTheyOwe");
   const hintKey = both ? "loanDetail.forgiveHintBoth" : iOwe ? "loanDetail.forgiveHintIOwe" : "loanDetail.forgiveHintTheyOwe";
   btn.onclick = () => {
     if (forgivable.length === 1) { openForgiveModal(forgivable[0], friend); return; }
