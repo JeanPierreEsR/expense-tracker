@@ -4088,6 +4088,8 @@ body:has(> .spot-root) .info-btn { visibility: hidden; }   /* nothing extra to t
 .fold-head > .review-toggle::after, .fold-head > .expected-head::after { content: ""; position: absolute; inset: 0; }
 .fold-head > .info-btn { z-index: 1; margin-left: 6px; }
 .fold-head > .fold-end { margin-left: auto; padding-left: 10px; }
+/* Programmed this month: its summary always on its own line under the title, from the left (owner, 2026-11-17). */
+.fold-head > .expected-head-sum.fold-end { flex-basis: 100%; margin-left: 0; padding-left: 0; }
 /* A checkbox row with an ⓘ after its words. */
 .info-row { display: flex; align-items: center; }
 .info-row > .checkbox-row { flex: 0 1 auto; }
