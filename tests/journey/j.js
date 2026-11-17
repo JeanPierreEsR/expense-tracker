@@ -553,6 +553,12 @@ function brief(p) {
     if (a1 === "ledger") { const f = path.join(dirOf(p), "ledger.jsonl"); console.log(fs.existsSync(f) ? fs.readFileSync(f, "utf8").trim().split("\n").map((l) => { const o = JSON.parse(l); return `${o.at} ${o.actor || ""} ${o.event} ${o.kind || ""}${o.key ? "(" + o.key + ")" : ""} ${o.text ? o.text.slice(0, 140) : ""}`; }).join("\n") : "(empty)"); return; }
     if (a1 === "chat" || a1 === "chat-tap") {
       const body = a1 === "chat" ? { bot: rest[0], text: rest.slice(1).join(" ") } : { bot: rest[0], tap: rest.slice(1).join(" ") };
+      if (body.tap) {   // the newest bot message with that button (found here, so a copy started before 2026-11-17's fix works too)
+        const log = await req(pt.app, "GET", "/__chat");
+        const card = [...log].reverse().find((c) => c.bot === body.bot && (c.buttons || []).some((b) => b.title === body.tap || b.id === body.tap));
+        if (!card) { console.log("No " + body.bot + " message has a button \"" + body.tap + "\" (chatlog shows them)"); return; }
+        body.to = card.id;
+      }
       const out = await req(pt.app, "POST", "/__chat", body);
       console.log(Array.isArray(out) ? out.map((c) => `${c.when} ${c.who === "me" ? "ME " : "BOT"}: ${c.text}${c.buttons && c.buttons.length ? "  [buttons: " + c.buttons.map((b) => b.title).join(" | ") + "]" : ""}`).join("\n") : JSON.stringify(out));
       return;

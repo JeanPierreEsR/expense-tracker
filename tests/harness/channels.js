@@ -90,9 +90,9 @@ function attach(rt) {
   function telegramSend({ text, tap, to }) {
     const update = { update_id: tgUpdate++ };
     if (tap) {
-      const card = to ? chat.find((c) => c.bot === "telegram" && c.id === Number(to)) : [...chat].reverse().find((c) => c.bot === "telegram" && c.buttons.some((b) => b.id === tap || b.title === tap));
+      const card = to ? chat.find((c) => c.bot === "telegram" && c.id === Number(to)) : [...chat].reverse().find((c) => c.bot === "telegram" && (c.buttons || []).some((b) => b.id === tap || b.title === tap));
       if (!card) throw new Error("No Telegram message with a button " + tap);
-      const b = card.buttons.find((x) => x.id === tap || x.title === tap);
+      const b = (card.buttons || []).find((x) => x.id === tap || x.title === tap);
       chat.push({ at: clock.now(), bot: "telegram", who: "me", text: "[tapped " + (b ? b.title : tap) + "]" });
       update.callback_query = { id: "cb" + update.update_id, data: b ? b.id : tap, message: { message_id: card.id, chat: { id: Number(TG_CHAT) }, text: card.text } };
     } else {
@@ -113,8 +113,8 @@ function attach(rt) {
     const id = "wamid.me" + waMsg++;
     const msg = { from: number, id, timestamp: String(Math.floor(clock.now() / 1000)) };
     if (tap) {
-      const card = to ? chat.find((c) => c.bot === "whatsapp" && c.id === to) : [...chat].reverse().find((c) => c.bot === "whatsapp" && c.buttons.some((b) => b.id === tap || b.title === tap));
-      const b = card && card.buttons.find((x) => x.id === tap || x.title === tap);
+      const card = to ? chat.find((c) => c.bot === "whatsapp" && c.id === to) : [...chat].reverse().find((c) => c.bot === "whatsapp" && (c.buttons || []).some((b) => b.id === tap || b.title === tap));
+      const b = card && (card.buttons || []).find((x) => x.id === tap || x.title === tap);
       Object.assign(msg, { type: "interactive", reply_id: b ? b.id : tap, reply_title: b ? b.title : tap, context_id: card ? card.id : undefined });
       chat.push({ at: clock.now(), bot: "whatsapp", who: "me", id, text: "[tapped " + (b ? b.title : tap) + "]" });
     } else {
