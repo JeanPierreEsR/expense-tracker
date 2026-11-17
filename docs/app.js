@@ -6653,10 +6653,12 @@ function loadingHtml_(text) {
 // An icon is an emoji: a hand-edited Sheet can hold anything, so what could become page code is dropped at the door, for every screen.
 function cleanCategoryLook_(c) { if (c.icon) c.icon = String(c.icon).replace(/[<>&"'`]/g, ""); if (c.color) c.color = safeColor_(c.color); }
 function safeColor_(c) { return /^#[0-9a-f]{3,8}$/i.test(String(c || "")) ? c : "#eee"; }
+// Safe inside element text AND inside a quoted attribute (value="…", data-…="…"): the quotes too, since text from bank e-mails
+// and files lands in both (journeys run, 2026-11-17: a description holding " could have added an attribute).
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
-  return div.innerHTML;
+  return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // ---- Review queue (entries caught automatically from email) ----
@@ -6702,6 +6704,10 @@ function queueReviewAction_(id, action, fields, extra) {
   const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
   actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null });
   setQueuedReviewActions_(actions);
+  // The item has left Needs review for the person: Overview / Budgets / Projections' "N wait" line drops it at once, not only after
+  // Home's list is fetched again (journeys run, 2026-11-17: the old count stayed for 6 people). A failed save refetches the list.
+  reviewEntries_ = reviewEntries_.filter((e) => e.id !== id);
+  updatePeriodPendingLine_();
 }
 
 function unqueueReviewAction_(id) {
@@ -7651,7 +7657,7 @@ document.getElementById("review-confirm-selected-btn").addEventListener("click",
   const notReadyText = notReady.map((e) => reviewIssueText_(e, reviewIssue_(e))).join(", ");
   if (!ready.length) { showAppMessage_(tr("reviewBulk.noneReady", { items: notReadyText })); return; }
   const left = notReady.length ? tr("reviewBulk.leftNote", { items: notReadyText }) : "";
-  if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }), tr("confirmBtn.yes"), { plain: true })) return;
+  if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }), tr("reviewBulk.confirmN", { n: ready.length }), { plain: true })) return;
   const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (e.trip_id || e.suggested_trip_id || "") : undefined }));
   ready.forEach((e) => {   // the optional "help me improve" sharing sees a confirm exactly as the card's own Confirm reports it
     if (isPracticeReviewEntry_(e)) return;
@@ -14827,7 +14833,7 @@ async function startMainCurrencyChange_(code) {
   mainCurrencyEl_("main-currency-rate-row").hidden = !pre.needsRate;
   mainCurrencyEl_("main-currency-rate-label").textContent = tr("mainCur.rateQuestion", { from: homeCur(), to: code });
   mainCurrencyEl_("main-currency-rate").value = "";
-  mainCurrencyEl_("main-currency-estimate").textContent = pre.estimatedBefore ? tr("mainCur.estimate", { month: monthLabel(pre.estimatedBefore), to: code }) : "";
+  mainCurrencyEl_("main-currency-estimate").textContent = pre.estimatedBefore ? tr("mainCur.estimate", { month: paceMonthName_(pre.estimatedBefore, true), to: code }) : "";
   mainCurrencyEl_("main-currency-view").hidden = true;
   mainCurrencyEl_("main-currency-confirm").hidden = false;
 }

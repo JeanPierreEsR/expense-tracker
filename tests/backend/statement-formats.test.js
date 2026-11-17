@@ -97,3 +97,27 @@ test("entries filed from a source app's categories feed the merchant history the
   const ctx = run(rt, "buildGuessContext_().history");
   assert.ok(ctx["pinkberry"], "the merchant history has Pinkberry");
 });
+
+// Journeys run (2026-11-17): the import's ending said "Some entries came in without a category" after a file whose every line was filed.
+// The save now counts the lines that really came in without one; only those lead to Tidy my history.
+test("the save counts the lines that came in without a category, and none when every line was filed", () => {
+  const { rt, stmt } = importSetup();
+  const p = run(rt, `planStatementHistory(${JSON.stringify({ statements: [stmt] })})`);
+  const real = run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "app.csv", statements: [stmt], actions: p.actions })})`);
+  const blank = made(rt).filter((e) => !e.category_id).length;
+  assert.equal(real.uncategorized, blank);
+  assert.equal(real.uncategorized, 4, "Mystery, Hidden one, No category, Wrong type");
+
+  const all = importSetup();
+  const filed = { ...all.stmt, file_name: "filed.csv", lines: all.stmt.lines.filter((l) => /food|zoo|salario/i.test(l.category || "") && l.amount < 0 || l.description === "Pay day") };
+  const p2 = run(all.rt, `planStatementHistory(${JSON.stringify({ statements: [filed] })})`);
+  const r2 = run(all.rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "filed.csv", statements: [filed], actions: p2.actions })})`);
+  assert.equal(made(all.rt).length, 3);
+  assert.equal(r2.uncategorized, 0);
+});
+
+test("the app no longer shows the Tidy button (nor the tutorial's 'without a category' ending) unless lines really came in without one", () => {
+  const stm = require("fs").readFileSync(require("path").join(__dirname, "../../docs/statements.js"), "utf8");
+  assert.match(stm, /const uncategorized = res\.uncategorized != null \? Number\(res\.uncategorized\) \|\| 0 : \(res\.created\.purchases \|\| 0\);/);
+  assert.match(stm, /\$\{uncategorized > 0 \? `<button type="button" class="stmt-choice stmt-tidy-btn"/);
+});

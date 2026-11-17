@@ -49,6 +49,13 @@
     return `${sign}${currency} ${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
+  // The real tutorial's ending after a save that left lines without a category: with their number when the backend counted them.
+  function tidyDoneText_(imp, btn) {
+    const n = btn && btn.dataset.n !== "" ? Number(btn.dataset.n) : NaN;
+    if (!(n > 0)) return tr(imp ? "rt.imp.doneTidy" : "rt.stmt.doneTidy");
+    if (n === 1) return tr(imp ? "rt.imp.doneTidyOne" : "rt.stmt.doneTidyOne");
+    return tr(imp ? "rt.imp.doneTidyMany" : "rt.stmt.doneTidyMany", { n });
+  }
   function addDaysISO(iso, n) {
     const d = new Date(`${iso}T00:00:00`);
     d.setDate(d.getDate() + n);
@@ -2462,9 +2469,11 @@
         + ((res.categoriesRenamed || []).length ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesRenamed", { n: res.categoriesRenamed.length, names: res.categoriesRenamed.map((r) => `${r.from} → ${r.to}`).join(", ") }))}</p>` : "")
         + ((res.categoriesCreatedNames || []).length ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesCreated", { n: res.categoriesCreatedNames.length, names: res.categoriesCreatedNames.join(", ") }))}</p>` : "")
         + (res.categoriesMissed ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesMissed", { n: res.categoriesMissed, names: (res.categoryMissedNames || []).join(", ") }))}</p>` : "");
+      // Only lines that really came in without a category lead to Tidy my history (an older backend does not count them: any purchase, as before).
+      const uncategorized = res.uncategorized != null ? Number(res.uncategorized) || 0 : (res.created.purchases || 0);
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
         ${addedAccountsHtml()}${outcome}${rateNeedsHtml(res.rateNeeds)}
-        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button>${(res.created.purchases || 0) > 0 ? `<button type="button" class="stmt-choice stmt-tidy-btn">${escapeHtml(tr("tidy.fromStatements"))}</button>` : ""}</div>
+        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button>${uncategorized > 0 ? `<button type="button" class="stmt-choice stmt-tidy-btn" data-n="${res.uncategorized != null ? uncategorized : ""}">${escapeHtml(tr("tidy.fromStatements"))}</button>` : ""}</div>
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
       historyPlan = null;
       addedAccounts = [];
@@ -3120,7 +3129,7 @@
       { keep: true, look: true, target: "#statement-review-status", text: () => tr(imp ? "rt.imp.done" : "rt.stmt.done") + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done, wait: 30000, waitText: () => tr("rt.saving"),
         before: async () => savedThisRun && !tidyBtn() },
       // Purchases with no category: the tutorial leads into Tidy my history, on these very purchases (owner, 2026-11-09).
-      { keep: true, target: () => [$("statement-review-status"), tidyBtn()], text: () => tr(imp ? "rt.imp.doneTidy" : "rt.stmt.doneTidy") + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done,
+      { keep: true, target: () => [$("statement-review-status"), tidyBtn()], text: () => tidyDoneText_(imp, tidyBtn()) + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done,
         until: () => !$("screen-tidy").hidden, before: async () => savedThisRun && !!tidyBtn() },
       { keep: true, text: () => tr(usable.length ? "rt.stmt.endNone" : "rt.stmt.endBad"), button: done, before: async () => !savedThisRun }
     );
