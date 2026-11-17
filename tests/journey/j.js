@@ -437,7 +437,12 @@ async function phone(p) {
       if (a[0] === "--at") { const [x, y] = a[1].split(",").map(Number); await page.touchscreen.tap(x, y); return short(); }
       await tapEl(await locate(a.join(" "))); return short();
     },
-    fill: async (a) => { const el = await locate(a[0]); await tapEl(el); await el.evaluate((e) => { if (e.select) e.select(); }); await page.keyboard.press("Backspace"); await page.keyboard.type(a.slice(1).join(" "), { delay: 25 }); return short(); },
+    fill: async (a) => {
+      // A label (or a row holding the box) leads to its box.
+      let el = await locate(a[0]);
+      const box = await el.evaluateHandle((e) => (/^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName) ? e : (e.control || e.querySelector("input, textarea") || (e.htmlFor && document.getElementById(e.htmlFor)) || e)));
+      el = box.asElement() || el;
+      await tapEl(el); await el.evaluate((e) => { if (e.select) e.select(); }); await page.keyboard.press("Backspace"); await page.keyboard.type(a.slice(1).join(" "), { delay: 25 }); return short(); },
     type: async (a) => { await page.keyboard.type(a.join(" "), { delay: 25 }); return short(); },
     key: async (a) => { await page.keyboard.press(a[0]); return short(); },
     scroll: async (a) => { const dy = (a[0] === "up" ? -1 : 1) * Number(a[1] || 500); const v = page.viewportSize(); await page.mouse.move(v.width / 2, v.height / 2); await page.mouse.wheel(0, dy); return short(); },
