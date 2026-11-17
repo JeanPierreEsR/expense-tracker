@@ -469,7 +469,8 @@ async function phone(p) {
           return stopHere(`STOPPED — WISH (journey day ${jday}, the app is open on ${d} ${at}): ${p.first} thinks: "${wish[1]}" The tester acts on it as ${p.first} would (or not, if ${p.first} would not know how to start).`);
         }
         if (repeats.length) return stopHere(`STOPPED — A REPEAT (journey day ${jday}, app open on ${d} ${at}): ${p.first} just recorded ${repeats.join("; ")} for the second month. Act as ${p.first} would with that thought.`);
-        if (typeof pend === "number" && pend >= 15 && pend >= (st.pileAt || 0) + 15) {
+        // (each next stop only when the pile has doubled: 15, 30, 60, 120… — a big pile used to stop every few days)
+        if (typeof pend === "number" && pend >= 15 && pend >= (st.pileAt || 0) * 2) {
           st.pileAt = pend;
           return stopHere(`STOPPED — THE PILE (journey day ${jday}, app open on ${d} ${at}): ${pend} items now wait in Needs review. ${p.first} notices (or not, as ${p.first} would) — the tester decides.`);
         }
