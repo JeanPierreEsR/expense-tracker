@@ -191,6 +191,7 @@
     "confirmBtn.deleteBoth": { en: "Delete both", es: "Eliminar los dos" },
     "confirmBtn.onlyThisOne": { en: "Delete only this one", es: "Eliminar solo este" },
     "confirmBtn.continueAnyway": { en: "Continue anyway", es: "Continuar igual" },
+    "confirmBtn.renameThem": { en: "Rename them", es: "Cambiarles el nombre" },
     "confirmBtn.dontUseWallets": { en: "I don't use them", es: "No los uso" },
     "confirmBtn.goBackCheck": { en: "Go back and check it", es: "Volver y marcar" },
     "common.loading": { en: "Loading…", es: "Cargando…" },

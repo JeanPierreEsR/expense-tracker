@@ -1117,10 +1117,10 @@
       if (choice === "") return "";
       const info = catInfo(choice);
       if (!info) return it.name;
-      // Which name by default (owner, 2026-11-04, replacing "the file's name wins" of 2026-10-24), in this order: (1) a category that
-      // already holds entries keeps the app's name; (2) otherwise the file's name. A category the app depends on never changes name.
-      if (info.protected || info.entries > 0) return info.name;
-      return info.names.indexOf(StatementTable.catNorm(it.name)) !== -1 ? info.name : it.name;
+      // An existing category keeps its own name by default; taking the file's name is the person's choice ("Rename to …"). (Owner,
+      // 2026-11-17, journeys run: on a new copy every starter category is still empty, so the old rule — an empty category takes the
+      // file's name — renamed Transport to "Taxi", Restaurants to "Food" and Home to "Household" without anyone asking for it.)
+      return info.name;
     }
     async function loadCategories() {
       const names = fileCategoryNames();
@@ -1449,7 +1449,7 @@
       if (!lines.length) return;
       // A chosen rename changes the name of entries already recorded: said once more, in a pop-up, before going on (owner, 2026-11-04).
       const renames = nameConflicts().filter((c) => c.renamed);
-      if (renames.length && !practiceNoConfirm_(true) && !await askConfirmApp_(tr("table.conflictConfirm", { list: renames.map((c) => tr("table.conflictLine", { mine: c.info.name, to: String(state.catNames[c.it.key] || "").trim(), n: c.info.entries })).join("\n") }), tr("confirmBtn.yes"), { plain: true })) return;
+      if (renames.length && !practiceNoConfirm_(true) && !await askConfirmApp_(tr("table.conflictConfirm", { list: renames.map((c) => tr("table.conflictLine", { mine: c.info.name, to: String(state.catNames[c.it.key] || "").trim(), n: c.info.entries })).join("\n") }), tr("confirmBtn.renameThem"), { plain: true })) return;
       // Lines go to their account: the one picked, or — for a file with an account column — the account each name was matched to.
       const byAccount = new Map();
       lines.forEach((l) => {

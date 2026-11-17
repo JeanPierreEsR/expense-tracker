@@ -63,3 +63,15 @@ test("short type words in Spanish and English", () => {
   for (const w of ["Exp.", "exp", "Gasto", "Gto.", "Egr.", "debit"]) assert.equal(T.typeKind(w), "expense", w);
   for (const w of ["Income", "Inc.", "Ing.", "Ingreso", "credit"]) assert.equal(T.typeKind(w), "income", w);
 });
+
+test("Wallet's 'Restaurant, fast-food' and 'Bar, cafe' land in Restaurants, and 'Taxi' in Transport (journeys run, 2026-11-17)", () => {
+  const { freshApp } = require("./helpers");
+  const { rt } = freshApp({ entries: 10 });
+  const res = rt.api("suggestCategoryMap", { names: [{ type: "expense", name: "Restaurant, fast-food", count: 3 }, { type: "expense", name: "Bar, cafe", count: 1 }, { type: "expense", name: "Taxi", count: 2 }] });
+  const cats = JSON.parse(rt.run("JSON.stringify(getAllRows('Categories'))"));
+  const keyOf = (id) => (cats.find((c) => c.id === id) || {}).key;
+  const by = Object.fromEntries(res.items.map((it) => [it.name, it]));
+  for (const n of ["Restaurant, fast-food", "Bar, cafe"]) { assert.equal(by[n].action, "match", n); assert.equal(keyOf(by[n].categoryId), "restaurants", n); }
+  assert.equal(by["Taxi"].action, "match");
+  assert.equal(keyOf(by["Taxi"].categoryId), "transport");
+});

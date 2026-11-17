@@ -7,10 +7,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const src = fs.readFileSync(path.join(__dirname, "../../docs/statements.js"), "utf8");
 
-test("default name: the app's when the category already holds entries, else the file's", () => {
+test("default name: an existing category always keeps its own name; renaming is the person's choice (journeys run, 2026-11-17)", () => {
   const fn = src.slice(src.indexOf("function defaultNameFor("), src.indexOf("async function loadCategories()"));
-  assert.match(fn, /if \(info\.protected \|\| info\.entries > 0\) return info\.name;/);
-  assert.match(fn, /\? info\.name : it\.name;/);
+  assert.match(fn, /if \(choice === "create"\) return it\.name;/);
+  assert.match(fn, /\n      return info\.name;\n/);
+  assert.doesNotMatch(fn, /: it\.name;/, "never the file's name for a category the app already has");
 });
 
 test("names that differ are listed above the categories, and a chosen rename asks before going on", () => {

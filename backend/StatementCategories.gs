@@ -22,7 +22,8 @@
 // Only equivalents that are safe to assume belong here: a wrong merge hides a person's own distinction.
 var CATEGORY_ALIASES_ = {
   expense: {
-    restaurants: ['food and drink', 'food and drinks', 'food', 'dining', 'dining out', 'eating out', 'comida', 'comidas', 'comida y bebida', 'comida y bebidas', 'bares y restaurantes', 'restaurantes y bares'],
+    restaurants: ['food and drink', 'food and drinks', 'food', 'dining', 'dining out', 'eating out', 'comida', 'comidas', 'comida y bebida', 'comida y bebidas', 'bares y restaurantes', 'restaurantes y bares',
+      'restaurant', 'restaurante', 'restaurant fast food', 'fast food', 'comida rapida', 'bar cafe', 'cafe', 'cafes', 'coffee', 'coffee shops'],
     groceries: ['supermarket', 'supermarkets', 'supermercado', 'supermercados', 'grocery', 'mercado', 'abarrotes', 'despensa'],
     transport: ['transportation', 'transporte', 'public transport', 'public transportation', 'transporte publico', 'taxi', 'taxis'],
     car: ['auto', 'vehicle', 'vehicles', 'vehiculo', 'vehiculos', 'carro', 'coche', 'automovil'],
