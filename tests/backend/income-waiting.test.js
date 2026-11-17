@@ -151,13 +151,22 @@ function telegramSetup(lang) {
   return Object.assign(base, { e, card, tap });
 }
 
-test("Telegram asks on a card that matches, with its own button above Confirm and Discard", () => {
-  const { card } = telegramSetup();
-  const c = card();
+// Since 2026-11-16 (owner: "as on WhatsApp") the answer is a row of the Edit list, not a button of its own on the card.
+const editListOf = (base, n) => {
+  base.tap("waedit:tg-1", n);
+  const sent = base.rt.svc.fetchLog.filter((x) => /sendMessage/.test(x.url)).map((x) => JSON.parse(x.options.payload)).filter((m) => m.reply_markup);
+  return sent[sent.length - 1].reply_markup.inline_keyboard.map((row) => row[0]);
+};
+
+test("Telegram asks on a card that matches; the answer is a row of its Edit list", () => {
+  const base = telegramSetup();
+  const c = base.card();
   assert.match(c.text, /Is this the payment you were waiting for from Client Test \(PEN 100/);
-  assert.equal(c.reply_markup.inline_keyboard[0][0].callback_data, "waitpay:tg-1");
-  assert.ok(Buffer.byteLength(c.reply_markup.inline_keyboard[0][0].callback_data) <= 64);
-  assert.equal(c.reply_markup.inline_keyboard[1][0].callback_data, "confirm:tg-1");
+  assert.deepEqual(c.reply_markup.inline_keyboard[0].map((b) => b.callback_data), ["confirm:tg-1", "waedit:tg-1", "discard:tg-1"]);
+  const rows = editListOf(base, 4);
+  const row = rows.find((b) => b.callback_data === "waitpay:tg-1");
+  assert.ok(row, "the Edit list offers it");
+  assert.ok(Buffer.byteLength(row.callback_data) <= 64);
 });
 
 test("Telegram: yes records a repayment, not a second income, and the balance rises once", () => {
@@ -194,7 +203,7 @@ test("Telegram speaks the copy's language", () => {
   const { rt, card, tap } = telegramSetup("es");
   const c = card();
   assert.match(c.text, /¿Es este el pago que esperabas de Client Test/);
-  assert.equal(c.reply_markup.inline_keyboard[0][0].text, "⏳ Sí, ese pago");
+  assert.equal(editListOf({ rt, tap }, 5).find((b) => b.callback_data === "waitpay:tg-1").text, "Ingreso que esperaba");
   assert.match(tap("waitpay:tg-1", 3), /Registrado como el pago de Client Test/);
   assert.equal(rt.rows("Entries").filter((x) => x.id === "tg-1" && x.type === "income" && x.status === "confirmed").length, 0);
 });

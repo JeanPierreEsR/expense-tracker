@@ -115,6 +115,53 @@ function whatsappList_(text, buttonLabel, rows, replyTo) {
   }, replyTo));
 }
 
+// ---- One sender for both bots (owner, 2026-11-16: Telegram gets WhatsApp's lists, "as similar as possible") ----
+// The Edit lists, pick lists, friend lists, "pendientes" and their answers are written once and sent by the review bot of the
+// moment: WhatsApp (a list behind "Choose", or up to 3 buttons) or Telegram (buttons under the message, one per row; Telegram's
+// hidden button code is at most 64 characters, so a longer action travels as a short code kept 6 hours in the script cache).
+function botIsWa_() { return reviewBotIsWhatsApp_(); }
+
+function botText_(text, replyTo) {
+  if (botIsWa_()) return whatsappText_(text, replyTo);
+  var chat = getOwnerTelegramChatId_();
+  if (!chat || !getTelegramToken_()) return { ok: false };
+  var payload = { chat_id: chat, text: String(text).slice(0, 4096) };
+  if (replyTo) { payload.reply_to_message_id = replyTo; payload.allow_sending_without_reply = true; }
+  return telegramApi_('sendMessage', payload);
+}
+
+// rows: [{ id, title, description? }]. asButtons: WhatsApp shows them as buttons (at most 3) instead of a list.
+function botChoices_(text, rows, replyTo, asButtons) {
+  if (botIsWa_()) return asButtons ? whatsappButtons_(text, rows, replyTo) : whatsappList_(text, tr_('whatsapp.choose'), rows, replyTo);
+  var chat = getOwnerTelegramChatId_();
+  if (!chat || !getTelegramToken_()) return { ok: false };
+  var payload = {
+    chat_id: chat, text: String(text).slice(0, 4096),
+    reply_markup: { inline_keyboard: rows.map(function (r) {
+      return [{ text: r.description ? r.title + ' · ' + r.description : r.title, callback_data: botCallbackData_(r.id) }];
+    }) }
+  };
+  if (replyTo) { payload.reply_to_message_id = replyTo; payload.allow_sending_without_reply = true; }
+  return telegramApi_('sendMessage', payload);
+}
+
+function botCallbackData_(id) {
+  id = String(id);
+  if (id.length <= 64) return id;
+  var token = Utilities.getUuid().replace(/-/g, '').slice(0, 12);
+  CacheService.getScriptCache().put('botcb-' + token, id, 21600);
+  return 'k:' + token;
+}
+// The action behind a short code, '' when it expired (more than 6 hours).
+function botResolveCallback_(data) {
+  data = String(data || '');
+  if (data.indexOf('k:') !== 0) return data;
+  return String(CacheService.getScriptCache().get('botcb-' + data.slice(2)) || '');
+}
+
+// The list actions both bots share (the native ones — confirm, discard, waitpay, ptags, delrep — stay in handleTelegramCallback_).
+var BOT_LIST_ACTIONS_ = /^(?:waedit|wafield|wapage|wapick|wahelp|wamore|waconv|wafp|wacv|wacvx):/;
+
 var WA_TELEGRAM_METHODS_ = { sendMessage: 1, answerCallbackQuery: 1, editMessageReplyMarkup: 1, editMessageText: 1 };
 
 // Called by telegramApi_ while WhatsApp is the review bot. Answers in Telegram's own shape, so the engine reads it unchanged.
@@ -172,13 +219,13 @@ function handleWhatsAppInbound_(p) {
   if (p.type === 'interactive' || p.type === 'button') whatsappTap_(String(p.reply_id || ''), p);
   else if (p.type === 'text' || (p.type === undefined && p.text)) whatsappTextIn_(String(p.text || '').trim(), p);
   else if (p.type === 'image' && p.media_id) whatsappPhotoIn_(p);
-  else whatsappText_(tr_('whatsapp.onlyText'), p.id);
+  else botText_(tr_('whatsapp.onlyText'), p.id);
   return { handled: true };
 }
 
 // saveOnly: an Edit tap (a pick or a typed value) — the change is saved and the entry keeps waiting for Confirm.
 function whatsappEngineMessage_(p, text, targetId, saveOnly) {
-  var msg = { chat: { id: WA_CHAT_ID_ }, message_id: p.id, text: text };
+  var msg = { chat: { id: botIsWa_() ? WA_CHAT_ID_ : getOwnerTelegramChatId_() }, message_id: p.id, text: text };
   if (targetId) msg.reply_to_message = { message_id: targetId };
   WA_SAVE_ONLY_ = !!saveOnly;
   try { handleTelegramMessage_(msg); } finally { WA_SAVE_ONLY_ = false; }
@@ -206,34 +253,42 @@ function whatsappValueFor_(field, text) {
   return null;
 }
 
-function whatsappTextIn_(text, p) {
+// The answer to an open "send the new amount / description / date" question (both bots). True when this message was it (or was
+// asked again); false when it is a message of its own, to be handled normally.
+function botAwaitingText_(text, p) {
   var w = whatsappAwaitingRaw_();
-  if (w && !p.context_id) {
-    var age = Date.now() - Number(w.at);
-    var value = whatsappValueFor_(w.word, text);
-    if (age < WA_AWAIT_MS_) {
-      if (value !== null) {
-        whatsappClearAwaiting_();
-        return whatsappEngineMessage_(p, w.word + ' ' + value, whatsappCardFor_(w.entryId), true);
-      }
-      // Not a value: re-ask, unless it is a message of its own (then it is handled and the question stays open).
-      if (!whatsappIsOtherMessage_(text)) return whatsappText_(whatsappAskText_(w.word), p.id);
-    } else {
+  if (!w || p.context_id) return false;
+  var age = Date.now() - Number(w.at);
+  var value = whatsappValueFor_(w.word, text);
+  if (age < WA_AWAIT_MS_) {
+    if (value !== null) {
       whatsappClearAwaiting_();
-      if (age < WA_EXPIRED_MS_ && value !== null && w.word !== 'description') {
-        return whatsappText_(tr_('whatsapp.expired', { field: tr_('whatsapp.f.' + w.word) }), p.id);
-      }
+      whatsappEngineMessage_(p, w.word + ' ' + value, whatsappCardFor_(w.entryId), true);
+      return true;
     }
+    // Not a value: re-ask, unless it is a message of its own (then it is handled and the question stays open).
+    if (!whatsappIsOtherMessage_(text)) { botText_(whatsappAskText_(w.word), p.id); return true; }
+    return false;
   }
+  whatsappClearAwaiting_();
+  if (age < WA_EXPIRED_MS_ && value !== null && w.word !== 'description') {
+    botText_(tr_('whatsapp.expired', { field: tr_('whatsapp.f.' + w.word) }), p.id);
+    return true;
+  }
+  return false;
+}
+
+function whatsappTextIn_(text, p) {
+  if (botAwaitingText_(text, p)) return;
   if (p.context_id && whatsappCardEntry_(p.context_id)) return whatsappEngineMessage_(p, text, p.context_id);
   // General help (owner, 2026-11-16): "ayuda" / "help" / "menú" not replying to a transaction says what the bot can do. As a
   // reply to a transaction, "help" stays that transaction's reply words (the branch above).
-  if (/^\/?(?:help|ayuda|men[uú]|\?)$/i.test(text)) return whatsappText_(tr_('whatsapp.help'), p.id);
+  if (/^\/?(?:help|ayuda|men[uú]|\?)$/i.test(text)) return botText_(tr_('whatsapp.help'), p.id);
   if (/^\/?(?:pendientes|pendiente|pending|por revisar)$/i.test(text)) return whatsappSendPending_(0);
-  if (/^\/?(?:nuevo|nueva|new)$/i.test(text)) return whatsappText_(tr_('whatsapp.newHow'), p.id);
+  if (/^\/?(?:nuevo|nueva|new)$/i.test(text)) return botText_(tr_('whatsapp.newHow'), p.id);
   if (whatsappIsCommand_(text)) {
     // A reply to a message that is not about a transaction must not edit the newest one by surprise.
-    if (p.context_id) return whatsappText_(tr_('bot.replyToACard'), p.id);
+    if (p.context_id) return botText_(tr_('bot.replyToACard'), p.id);
     return whatsappEngineMessage_(p, text, p.lastTarget || null);
   }
   // Not a reply, and not a purchase or a bank notice: about the transaction of the bot's last message, as on Telegram (plain words
@@ -256,10 +311,10 @@ function whatsappCaptureOnly_(p) {
 function whatsappNewPurchase_(text, p) {
   telegramTagAskAfter_ = '';
   var r = newTypedEntry_(p, 'whatsapp');
-  if (!r.saved || !r.entry) { telegramTagAskAfter_ = ''; return whatsappText_(r.reply, p.id); }
+  if (!r.saved || !r.entry) { telegramTagAskAfter_ = ''; return botText_(r.reply, p.id); }
   var card = sendTelegramEntryNotification_(r.entry, r.categoryName);
   var cardId = card && card.ok ? card.result.message_id : '';
-  if (r.editMessage) whatsappText_(r.editMessage, cardId || p.id);
+  if (r.editMessage) botText_(r.editMessage, cardId || p.id);
   if (telegramTagAskAfter_) sendTelegramTagAsk_(WA_CHAT_ID_, telegramTagAskAfter_, cardId || null);
   telegramTagAskAfter_ = '';
 }
@@ -272,6 +327,14 @@ function whatsappTap_(id, p) {
     var cardId = p.context_id || whatsappCardFor_(entryId);
     return handleTelegramCallback_({ id: 'whatsapp', data: id, message: { chat: { id: WA_CHAT_ID_ }, message_id: cardId } });
   }
+  return botListTap_(id, p);
+}
+
+// A tap on a shared list (WhatsApp or Telegram).
+function botListTap_(id, p) {
+  var parts = id.split(':');
+  var action = parts[0], entryId = parts[1] || '';
+  whatsappClearAwaiting_();
   if (action === 'waedit') return whatsappEditMenu_(entryId, p.context_id);
   if (action === 'wafield') return whatsappField_(entryId, parts[2], p.id);
   if (action === 'wapage') return whatsappPickList_(entryId, parts[2], Number(parts[3]) || 0, p.id);
@@ -281,8 +344,8 @@ function whatsappTap_(id, p) {
   if (action === 'waconv') return whatsappFriendList_(entryId, parts[2], 0, p.id);
   if (action === 'wafp') return whatsappFriendList_(entryId, parts[2], Number(parts[3]) || 0, p.id);
   if (action === 'wacv') return whatsappConvert_(entryId, parts[2], parts.slice(3).join(':'), p);
-  if (action === 'wacvx') return whatsappText_(tr_('whatsapp.someoneElseHow'), p.id);
-  whatsappText_(tr_('bot.tooOld'), p.id);
+  if (action === 'wacvx') return botText_(tr_('whatsapp.someoneElseHow'), p.id);
+  botText_(tr_('bot.tooOld'), p.id);
 }
 
 // ---- receipt photos (2026-11-16: the same reader as Telegram, PhotoCapture.gs) ----
@@ -295,7 +358,7 @@ function whatsappPhotoReaderReady_() {
 }
 
 function whatsappPhotoIn_(p) {
-  if (!whatsappPhotoReaderReady_()) return whatsappText_(tr_('whatsapp.photoNoReader'), p.id);
+  if (!whatsappPhotoReaderReady_()) return botText_(tr_('whatsapp.photoNoReader'), p.id);
   enqueuePhotoJob_('wa:' + p.media_id, WA_CHAT_ID_, p.id);
   photoReply_(WA_CHAT_ID_, p.id, tr_('photo.queued'));
 }
@@ -317,9 +380,10 @@ function whatsappDownloadMedia_(mediaId) {
 
 // ---- cards ----
 
-// The newest WhatsApp card sent for an entry (its message id), or ''.
+// The newest card of an entry on the review bot of the moment (its message id), or ''.
 function whatsappCardFor_(entryId) {
-  var rows = getAllRows('Telegram Messages').filter(function (m) { return m.entry_id === entryId && isWamid_(m.message_id); });
+  var wa = botIsWa_();
+  var rows = getAllRows('Telegram Messages').filter(function (m) { return m.entry_id === entryId && isWamid_(m.message_id) === wa; });
   return rows.length ? String(rows[rows.length - 1].message_id) : '';
 }
 // The bot's last message, when it is about a transaction (its message id), else ''.
@@ -339,11 +403,11 @@ function whatsappPendingEntries_() {
 // "pendientes": every waiting entry, newest first, WA_CARDS_PER_BATCH_ at a time.
 function whatsappSendPending_(offset) {
   var list = whatsappPendingEntries_().sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); });
-  if (!list.length) return whatsappText_(tr_('whatsapp.nothingWaiting'));
+  if (!list.length) return botText_(tr_('whatsapp.nothingWaiting'));
   list.slice(offset, offset + WA_CARDS_PER_BATCH_).forEach(function (e) { sendTelegramEntryNotification_(e); });
   var left = list.length - offset - WA_CARDS_PER_BATCH_;
   if (left > 0) {
-    whatsappButtons_(tr_('whatsapp.moreWaiting', { n: left }), [{ id: 'wamore:pend:' + (offset + WA_CARDS_PER_BATCH_), title: tr_('whatsapp.showMore') }]);
+    botChoices_(tr_('whatsapp.moreWaiting', { n: left }), [{ id: 'wamore:pend:' + (offset + WA_CARDS_PER_BATCH_), title: tr_('whatsapp.showMore') }], null, true);
   }
 }
 
@@ -373,16 +437,16 @@ function whatsappCatchUp_(more, wasClosed) {
     return !carded[e.id] && String(e.created_at) >= since && (fails[e.id] || 0) < WA_CARD_MAX_FAILS_;
   }).sort(function (a, b) { return String(a.created_at).localeCompare(String(b.created_at)); });
   if (!missed.length) {
-    if (more) whatsappText_(tr_('whatsapp.nothingWaiting'));
+    if (more) botText_(tr_('whatsapp.nothingWaiting'));
     return 0;
   }
-  if (!more && wasClosed) whatsappText_(tr_('whatsapp.catchUp', { n: missed.length }));
+  if (!more && wasClosed) botText_(tr_('whatsapp.catchUp', { n: missed.length }));
   missed.slice(0, WA_CARDS_PER_BATCH_).forEach(function (e) {
     var res = sendTelegramEntryNotification_(e);
     if (!res || !res.ok) whatsappNoteCardFail_(e.id);
   });
   var left = missed.length - WA_CARDS_PER_BATCH_;
-  if (left > 0) whatsappButtons_(tr_('whatsapp.moreWaiting', { n: left }), [{ id: 'wamore:catch', title: tr_('whatsapp.showMore') }]);
+  if (left > 0) botChoices_(tr_('whatsapp.moreWaiting', { n: left }), [{ id: 'wamore:catch', title: tr_('whatsapp.showMore') }], null, true);
   return missed.length;
 }
 
@@ -398,7 +462,7 @@ function whatsappEditFields_(entry) {
 
 function whatsappEditMenu_(entryId, replyTo) {
   var entry = getEntryById_(entryId);
-  if (!entry) return whatsappText_(tr_('bot.entryGone'), replyTo);
+  if (!entry) return botText_(tr_('bot.entryGone'), replyTo);
   var rows = whatsappEditFields_(entry).map(function (f) { return { id: 'wafield:' + entryId + ':' + f, title: tr_('whatsapp.f.' + f) }; });
   if (entry.status === 'pending' && waitingMatchForPending_(entry, listWaitingIncome_())) rows.push({ id: 'waitpay:' + entryId, title: tr_('whatsapp.f.waiting') });
   if (whatsappCanConvert_(entry)) {
@@ -406,15 +470,15 @@ function whatsappEditMenu_(entryId, replyTo) {
     rows.push({ id: 'waconv:' + entryId + ':l', title: tr_('whatsapp.f.loan') });
   }
   rows.push({ id: 'wahelp:' + entryId, title: tr_('whatsapp.f.more'), description: tr_('whatsapp.f.moreHint') });
-  whatsappList_(tr_('whatsapp.editAsk', { what: entry.description || tr_('bot.noDescription') }), tr_('whatsapp.choose'), rows, replyTo);
+  botChoices_(tr_('whatsapp.editAsk', { what: entry.description || tr_('bot.noDescription') }), rows, replyTo);
 }
 
 function whatsappField_(entryId, field, replyTo) {
   var entry = getEntryById_(entryId);
-  if (!entry) return whatsappText_(tr_('bot.entryGone'), replyTo);
+  if (!entry) return botText_(tr_('bot.entryGone'), replyTo);
   if (field === 'amount' || field === 'description' || field === 'date') {
     waSetProp_('WA_AWAIT', JSON.stringify({ entryId: entryId, word: WA_FIELD_WORDS_[field], at: Date.now() }));
-    return whatsappText_(whatsappAskText_(field), replyTo);
+    return botText_(whatsappAskText_(field), replyTo);
   }
   whatsappPickList_(entryId, field, 0, replyTo);
 }
@@ -452,25 +516,33 @@ function whatsappChoices_(entry, field) {
   return items.sort(function (a, b) { return (uses[b.id] || 0) - (uses[a.id] || 0) || String(a.label).localeCompare(String(b.label)); });
 }
 
+// Owner, 2026-11-16: the most used first, but arranged A-Z so the list has some logic; then all the others, A-Z.
+function botTopThenAz_(items, top) {
+  var az = function (a, b) { return String(a.label).localeCompare(String(b.label)); };
+  return items.slice(0, top).sort(az).concat(items.slice(top).sort(az));
+}
+
 function whatsappPickList_(entryId, field, page, replyTo) {
   var entry = getEntryById_(entryId);
-  if (!entry) return whatsappText_(tr_('bot.entryGone'), replyTo);
-  var items = whatsappChoices_(entry, field);
-  if (!items.length) return whatsappText_(tr_('whatsapp.pickNone'), replyTo);
-  var start = page * WA_LIST_PAGE_;
-  var rows = items.slice(start, start + WA_LIST_PAGE_).map(function (it) { return { id: 'wapick:' + entryId + ':' + field + ':' + it.id, title: it.label }; });
-  if (items.length > start + WA_LIST_PAGE_) rows.push({ id: 'wapage:' + entryId + ':' + field + ':' + (page + 1), title: tr_('whatsapp.more') });
-  whatsappList_(tr_('whatsapp.pickAsk', { field: tr_('whatsapp.f.' + field), what: entry.description || tr_('bot.noDescription') }), tr_('whatsapp.choose'), rows, replyTo);
+  if (!entry) return botText_(tr_('bot.entryGone'), replyTo);
+  var items = botTopThenAz_(whatsappChoices_(entry, field), WA_LIST_PAGE_);
+  if (!items.length) return botText_(tr_('whatsapp.pickNone'), replyTo);
+  // WhatsApp: 9 a page + "More…" (its lists hold 10 rows). Telegram has no such limit: one page with everything (owner).
+  var size = botIsWa_() ? WA_LIST_PAGE_ : items.length;
+  var start = page * size;
+  var rows = items.slice(start, start + size).map(function (it) { return { id: 'wapick:' + entryId + ':' + field + ':' + it.id, title: it.label }; });
+  if (items.length > start + size) rows.push({ id: 'wapage:' + entryId + ':' + field + ':' + (page + 1), title: tr_('whatsapp.more') });
+  botChoices_(tr_('whatsapp.pickAsk', { field: tr_('whatsapp.f.' + field), what: entry.description || tr_('bot.noDescription') }), rows, replyTo);
 }
 
 // A pick runs the same reply command a person would type ("category Restaurants"), so every rule of the engine applies. Two
 // items with the same name could not be told apart by name: then the id is written directly and the card is sent again.
 function whatsappPick_(entryId, field, itemId, p) {
   var entry = getEntryById_(entryId);
-  if (!entry) return whatsappText_(tr_('bot.entryGone'), p.id);
+  if (!entry) return botText_(tr_('bot.entryGone'), p.id);
   var items = whatsappChoices_(entry, field);
   var it = items.find(function (x) { return String(x.id) === String(itemId); });
-  if (!it) return whatsappText_(tr_('whatsapp.optionGone'), p.id);
+  if (!it) return botText_(tr_('whatsapp.optionGone'), p.id);
   var same = items.filter(function (x) { return normalizeName_(x.name) === normalizeName_(it.name); }).length;
   if (same > 1 && field === 'category') {
     setEntryField_(entryId, 'category_id', it.id);
@@ -485,7 +557,7 @@ function whatsappPick_(entryId, field, itemId, p) {
 // transaction still gives the full list (Telegram's telegramEditHelpText_).
 function whatsappOtherChanges_(entryId, p) {
   var entry = getEntryById_(entryId);
-  if (!entry) return whatsappText_(tr_('bot.entryGone'), p.id);
+  if (!entry) return botText_(tr_('bot.entryGone'), p.id);
   var keys;
   if (entry.type === 'transfer') keys = ['currency', 't.category', 'label', 't.type', '', 'wa:t'];
   else if (entry.type === 'investment') keys = ['i.direction', 'i.paymentMethod', 'i.receivedAt', 'currency', 'label', 'i.type', '', 'wa:i'];
@@ -497,7 +569,7 @@ function whatsappOtherChanges_(entryId, p) {
   var lines = [tr_('whatsapp.otherIntro')].concat(keys.map(function (k) {
     return k === '' ? '' : k.indexOf('wa:') === 0 ? tr_('whatsapp.otherCombine.' + k.slice(3)) : tr_('help.' + k);
   }), ['', tr_('help.bothLanguages')]);
-  whatsappText_(lines.join('\n'), whatsappCardFor_(entryId) || p.id);
+  botText_(lines.join('\n'), whatsappCardFor_(entryId) || p.id);
 }
 
 // ---- Edit: Repayment / Loan (owner's plan "WhatsApp Edit and conversions", 2026-11-16) ----
@@ -547,24 +619,38 @@ function whatsappFriendChoices_(entry, kind) {
 
 function whatsappFriendList_(entryId, kind, page, replyTo) {
   var entry = getEntryById_(entryId);
-  if (!entry) return whatsappText_(tr_('bot.entryGone'), replyTo);
+  if (!entry) return botText_(tr_('bot.entryGone'), replyTo);
   var items = whatsappFriendChoices_(entry, kind);
-  var start = page * WA_FRIEND_PAGE_;
-  var rows = items.slice(start, start + WA_FRIEND_PAGE_).map(function (f) {
+  // WhatsApp: 8 a page + "More…" + "Someone else" (its 10 rows; owner 2026-11-16). Telegram: one page with every friend.
+  var size = botIsWa_() ? WA_FRIEND_PAGE_ : items.length;
+  var start = page * size;
+  var rows = items.slice(start, start + size).map(function (f) {
     return { id: 'wacv:' + entryId + ':' + kind + ':' + f.id, title: f.name, description: f.description };
   });
-  if (items.length > start + WA_FRIEND_PAGE_) rows.push({ id: 'wafp:' + entryId + ':' + kind + ':' + (page + 1), title: tr_('whatsapp.more') });
+  if (items.length > start + size) rows.push({ id: 'wafp:' + entryId + ':' + kind + ':' + (page + 1), title: tr_('whatsapp.more') });
   rows.push({ id: 'wacvx:' + entryId, title: tr_('whatsapp.someoneElse') });
-  whatsappList_(tr_('whatsapp.pickFriend', { kind: tr_(kind === 'r' ? 'whatsapp.f.repayment' : 'whatsapp.f.loan') }), tr_('whatsapp.choose'), rows, replyTo);
+  botChoices_(tr_('whatsapp.pickFriend', { kind: tr_(kind === 'r' ? 'whatsapp.f.repayment' : 'whatsapp.f.loan') }), rows, replyTo);
 }
 
 // Straight away, like the reply words (owner, 2026-11-16): the engine's own conversion and its own answer.
 function whatsappConvert_(entryId, kind, friendId, p) {
   var friend = getAllRows('Friends').find(function (f) { return String(f.id) === String(friendId); });
-  if (!getEntryById_(entryId)) return whatsappText_(tr_('bot.entryGone'), p.id);
-  if (!friend) return whatsappText_(tr_('whatsapp.optionGone'), p.id);
+  if (!getEntryById_(entryId)) return botText_(tr_('bot.entryGone'), p.id);
+  if (!friend) return botText_(tr_('whatsapp.optionGone'), p.id);
   var res = applyTerminalReviewAction_(entryId, kind === 'r' ? 'repayment' : 'loan', friend.name, friend);
-  whatsappText_(res.message, whatsappCardFor_(entryId) || p.id);
+  botText_(res.message, whatsappCardFor_(entryId) || p.id);
+}
+
+// ---- Telegram: the same commands as WhatsApp (owner, 2026-11-16) ----
+// Called by handleTelegramMessage_ for a real Telegram message (not a reply). True when it was one of the shared commands or the
+// answer to an open "send the new …" question.
+function telegramSharedCommand_(msg, text) {
+  var p = { id: msg.message_id };
+  if (botAwaitingText_(text, p)) return true;
+  if (/^\/?(?:help|ayuda|men[uú]|\?)$/i.test(text)) { botText_(tr_('bot.helpGeneral'), msg.message_id); return true; }
+  if (/^\/?(?:pendientes|pendiente|pending|por revisar)$/i.test(text)) { whatsappSendPending_(0); return true; }
+  if (/^\/?(?:nuevo|nueva|new)$/i.test(text)) { botText_(tr_('whatsapp.newHow'), msg.message_id); return true; }
+  return false;
 }
 
 // ---- keeping the window open ----
@@ -577,7 +663,7 @@ function whatsappNudgeIfDue_() {
   if (!last || age < WA_NUDGE_FROM_MS_ || age >= WA_NUDGE_UNTIL_MS_) return;
   if (waProp_('WA_NUDGED_FOR') === String(last)) return;
   var waiting = whatsappPendingEntries_().length;
-  var res = whatsappText_(waiting ? tr_('whatsapp.nudgeWaiting', { n: waiting }) : tr_('whatsapp.nudge'));
+  var res = botText_(waiting ? tr_('whatsapp.nudgeWaiting', { n: waiting }) : tr_('whatsapp.nudge'));
   if (res.ok) waSetProp_('WA_NUDGED_FOR', last);
 }
 
