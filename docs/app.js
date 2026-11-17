@@ -8838,11 +8838,21 @@ function homeBudgetCard_(g) {
   const b = g.budget;
   if (!b || !(b.totalPen > 0)) return null;
   const pct = (b.spentPen / b.totalPen) * 100;
-  const left = roundHalfAway_(b.totalPen - b.spentPen);   // from the exact figures, rounded once (owner, 2026-11-15)
+  // Programmed items still to come this month in these budgets (owner, 2026-11-16): a lighter part of the bar after what is spent,
+  // a line naming them, and "left" / "a day" counted after them, as the Budgets tab's rows do.
+  const prog = b.programmedPen > 0.004 ? b.programmedPen : 0;
+  const pctAll = ((b.spentPen + prog) / b.totalPen) * 100;
+  const left = roundHalfAway_(b.totalPen - b.spentPen - prog);   // from the exact figures, rounded once (owner, 2026-11-15)
   const daysLeft = g.pace.curDays - g.pace.curDay + 1;   // today still counts
   const cls = pct >= 100 ? "over" : pct >= 85 ? "warn" : "";
+  const clsAll = pctAll >= 100 ? "over" : pctAll >= 85 ? "warn" : "";
+  const barPct = Math.min(100, Math.max(0, pct)), endPct = Math.min(100, Math.max(0, pctAll));
+  const progBar = prog && endPct > barPct ? `<div class="home-meter-prog ${clsAll}" style="left:${barPct.toFixed(1)}%;width:${(endPct - barPct).toFixed(1)}%"></div>` : "";
+  const progLine = prog ? `<div class="home-meter-progline ${clsAll}">${escapeHtml(tr("home.budgetProgrammed", { amount: homeWhole_(prog), pct: roundHalfAway_(pctAll) }))}</div>` : "";
   const facts = [
-    left >= 0 ? tr("home.budgetLeft", { amount: homeWhole_(left) }) : tr("home.budgetOver", { amount: homeWhole_(-left) }),
+    // Over only once the programmed items are paid: "would be", never "you went over" (it has not happened yet).
+    left >= 0 ? tr("home.budgetLeft", { amount: homeWhole_(left) })
+      : tr(b.spentPen > b.totalPen + 0.005 ? "home.budgetOver" : "home.budgetWouldOver", { amount: homeWhole_(-left) }),
     tr("home.budgetDays", { n: daysLeft })
   ];
   if (left > 0 && daysLeft > 0) facts.push(tr("home.budgetPerDay", { amount: homeWhole_(left / daysLeft) }));
@@ -8851,7 +8861,8 @@ function homeBudgetCard_(g) {
     <div class="home-card-label">${escapeHtml(tr("home.budgetTitle"))} ›</div>
     <div class="home-big">${escapeHtml(homeWhole_(b.spentPen))}</div>
     <div class="home-delta">${escapeHtml(tr("home.budgetOf", { total: homeWhole_(b.totalPen) }))}</div>
-    <div class="home-meter"><div class="home-meter-fill ${cls}" style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></div></div>
+    <div class="home-meter"><div class="home-meter-fill ${cls}" style="width:${barPct.toFixed(1)}%"></div>${progBar}</div>
+    ${progLine}
     <div class="home-meter-facts">${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join("")}</div>`);
   budgetEl.addEventListener("click", () => showScreen("budgets"));
   return budgetEl;
