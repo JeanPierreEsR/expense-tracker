@@ -414,7 +414,10 @@ async function phone(p) {
         if (nMail) report.push(`(${nMail} bank e-mails will arrive over these days)`);
         const items = life.days(p, d, d);
         const day = new RealDate(d + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
-        if (!life.opensApp(p, st.journeyStart, d)) {
+        // A wish: something the person wants on that journey day, in their own words (personas.js `wishes`); they open the app for it.
+        const jday = life.daysBetween(st.journeyStart, d) + 1;
+        const wish = (p.wishes || []).find(([n]) => n === jday && !(st.wishesDone || []).includes(n));
+        if (!wish && !life.opensApp(p, st.journeyStart, d)) {
           await moveTo(d, "23:30");
           st.livedUntil = d; writeState(p, st);
           report.push(`${day}: did not open the app (${items.length} things happened in life)`);
@@ -426,8 +429,16 @@ async function phone(p) {
         await open();
         let s = await state();
         if (s.surfaces.length) { report.push(`${day} ${at}: opened the app — STOPPED, the app is teaching:`); st.livedUntil = life.addDays(d, -1); writeState(p, st); report.push(await short()); return report.join("\n"); }
-        const done = [];
+        const done = [], repeats = [];
+        st.monthlySeen = st.monthlySeen || {}; st.repeatStopped = st.repeatStopped || {};
         for (const t of typed) {
+          // A bill or income of the same kind typed for the second month running: a moment a person could want it to repeat by itself.
+          const h = p.habits[t.habit];
+          if (h && h.monthly) {
+            const seen = st.monthlySeen[t.habit];
+            if (seen && seen !== d.slice(0, 7) && !st.repeatStopped[t.habit]) { st.repeatStopped[t.habit] = true; repeats.push(`${t.merchant} (${t.currency} ${t.amount}, the same as last month)`); }
+            st.monthlySeen[t.habit] = d.slice(0, 7);
+          }
           if (!p.atNight && t.time > at) await moveTo(d, t.time);
           const where = await saveTyped(t);
           done.push(`${t.type === "income" ? "+" : ""}${t.currency} ${t.amount} ${t.merchant} → ${where}`);
@@ -446,6 +457,17 @@ async function phone(p) {
           st.sawPending = true; st.livedUntil = d; writeState(p, st);
           report.push(`STOPPED: for the first time, ${pend} item(s) wait in Needs review on Home (the app is open on ${d} ${at}). The tester decides what ${p.first} does.`);
           return report.join("\n");
+        }
+        // The moments a person would plausibly want something (owner, 2026-11-17, after the pilot): hand over to the tester.
+        const stopHere = (msg) => { st.livedUntil = d; writeState(p, st); report.push(msg); return report.join("\n"); };
+        if (wish) {
+          st.wishesDone = (st.wishesDone || []).concat(wish[0]);
+          return stopHere(`STOPPED — WISH (journey day ${jday}, the app is open on ${d} ${at}): ${p.first} thinks: "${wish[1]}" The tester acts on it as ${p.first} would (or not, if ${p.first} would not know how to start).`);
+        }
+        if (repeats.length) return stopHere(`STOPPED — A REPEAT (journey day ${jday}, app open on ${d} ${at}): ${p.first} just recorded ${repeats.join("; ")} for the second month. Act as ${p.first} would with that thought.`);
+        if (typeof pend === "number" && pend >= 15 && pend >= (st.pileAt || 0) + 15) {
+          st.pileAt = pend;
+          return stopHere(`STOPPED — THE PILE (journey day ${jday}, app open on ${d} ${at}): ${pend} items now wait in Needs review. ${p.first} notices (or not, as ${p.first} would) — the tester decides.`);
         }
         await moveTo(d, "23:30");
         st.livedUntil = d; writeState(p, st);
@@ -536,6 +558,20 @@ async function phone(p) {
   }).listen(pt.phone, "127.0.0.1");
 }
 
+// ---------- the five phases of a journey and their session days ----------
+function phases(p) {
+  const end = life.daysBetween(p.clockStart, life.addDays(p.clockStart, Math.round(p.months * 30.4))) ;
+  const day = (n) => life.addDays(p.clockStart, n - 1);
+  const later = [150, 180, 240, 300].filter((n) => n < end);
+  return [
+    { phase: 1, from: day(1), to: day(1), sessions: [day(1)] },
+    { phase: 2, from: day(2), to: day(14), sessions: [2, 3, 7, 14].map(day) },
+    { phase: 3, from: day(15), to: day(45), sessions: [21, 30, 45].map(day) },
+    { phase: 4, from: day(46), to: day(120), sessions: [60, 90, 120].map(day) },
+    { phase: 5, from: day(121), to: day(end), sessions: later.concat(end).map(day) }
+  ];
+}
+
 // ---------- the brief a tester agent gets ----------
 function brief(p) {
   const pt = ports(p), st = readState(p);
@@ -559,6 +595,7 @@ function brief(p) {
     if (a1 === "phone-restart") { console.log(await restartPhone(p)); return; }
     if (a1 === "brief") { console.log(brief(p)); return; }
     if (a1 === "files") { console.log(makeFiles(p).join("\n")); return; }
+    if (a1 === "phases") { console.log(JSON.stringify(phases(p), null, 1)); return; }
     if (a1 === "note") { fs.appendFileSync(path.join(dirOf(p), "journal.md"), `\n- [${(await req(pt.app, "GET", "/__clock")).lima}] ${rest.join(" ")}`); console.log("noted"); return; }
     if (a1 === "clock") { console.log(JSON.stringify(await req(pt.app, "GET", "/__clock"))); return; }
     if (a1 === "ledger") { const f = path.join(dirOf(p), "ledger.jsonl"); console.log(fs.existsSync(f) ? fs.readFileSync(f, "utf8").trim().split("\n").map((l) => { const o = JSON.parse(l); return `${o.at} ${o.actor || ""} ${o.event} ${o.kind || ""}${o.key ? "(" + o.key + ")" : ""} ${o.text ? o.text.slice(0, 140) : ""}`; }).join("\n") : "(empty)"); return; }

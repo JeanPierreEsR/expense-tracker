@@ -6,7 +6,8 @@
 // Fields: id, first, lang, phone ('se' = small iPhone), start ('blank' | 'import' | 'statements'), clockStart (Lima day the journey
 // starts), months (journey length), bring (the files they bring on day 1), accounts (their real-life accounts; the person decides
 // in the app whether to add them; mail = the bank e-mails they get, channels.js kinds), habits (life.js), record (chance they type
-// a purchase in by hand), use (how often they open the app), bots, situation (from the cast) and journey (what this run adds).
+// a purchase in by hand), use (how often they open the app), bots, situation (from the cast) and journey (what this run adds);
+// wishes: [journey day, what the person wants that day, in their own words] — the routine days stop there (j.js live).
 
 const H = {   // habit building blocks
   menu: { cat: "restaurants", what: ["Menú Doña Rosa", "Menú El Paisa", "Cevichería Prueba"], amt: [10, 18], perWeek: 4, hours: [12, 15], round: true },
@@ -33,6 +34,7 @@ const via = (h, v, extra) => ({ ...h, via: v, ...(extra || {}) });
 module.exports = [
   // ---------- starting blank ----------
   { id: "rosa", first: "Rosa", lang: "es", start: "blank", clockStart: "2026-11-18", months: 9,
+    wishes: [[8, "Mi hijo me pregunta cuánto gasté esta semana. ¿Dónde veo eso?"], [16, "Quisiera no gastar más de S/ 900 al mes. ¿La app me puede avisar?"], [40, "El agua y la luz las pago todos los meses igual. ¿Tengo que escribirlas cada vez?"], [95, "Tengo muchos Yapes esperando y me da miedo. ¿Cómo los arreglo sin malograr nada?"], [230, "Me voy a Arequipa 10 días a ver a mi hermana. Quisiera ver aparte lo que gaste en el viaje."]],
     situation: "Retired teacher, cash and Yape, afraid of breaking something; her son helps by WhatsApp.",
     journey: "Never used a money app. Writes almost everything by hand at night. Yape sends her e-mails. Her copy has the WhatsApp bot offered; her son suggests she try it in month 2.",
     accounts: [{ id: "bcp", bank: "BCP", type: "debit", last4: "4411" }],
@@ -40,6 +42,7 @@ module.exports = [
       via(H.light, "bcp"), via(H.water, "bcp"), { ...H.salary(2100, 28), what: ["Pensión ONP Prueba"], via: "bcp" }],
     yapeMail: true, record: { cash: 0.8, yape: 0.3, card: 0.6 }, use: { perWeek: 6 }, atNight: true, bots: { whatsapp: true } },
   { id: "diego", first: "Diego", lang: "es", start: "blank", clockStart: "2026-12-01", months: 6,
+    wishes: [[3, "Pagué el súper por los tres. ¿Cómo pongo que Bruno y Kiara me deben su parte?"], [12, "Kiara me yapeó su parte. ¿Dónde lo marco?"], [33, "¿Cuánto se me va en delivery al mes? Siento que es mucho."], [60, "Volví después de exámenes. ¿Qué me perdí?"], [100, "¿Me alcanza la mesada hasta fin de mes?"]],
     situation: "Student with roommates, uses Plin, skims, double-taps, patchy data.",
     journey: "Shares rent and groceries with two roommates (Bruno Prueba, Kiara Prueba), pays with Plin from Interbank. Goes 2 weeks without opening the app during exams (month 2).",
     accounts: [{ id: "ibk", bank: "Interbank", type: "debit", last4: "7720" }],
@@ -47,12 +50,14 @@ module.exports = [
       { type: "income", cat: "other", what: ["Mesada"], amt: [900, 900], monthly: 1, via: "ibk" }],
     record: { cash: 0.4, card: 0.5 }, use: { perWeek: 4, gaps: [[40, 54]] } },
   { id: "sol", first: "Sol", lang: "es", start: "blank", clockStart: "2026-12-09", months: 6,
+    wishes: [[2, "¿Y esto para qué me sirve? A ver qué hace."], [20, "Una amiga me dijo que su app le avisa cuando gasta mucho. ¿Esta también?"], [75, "No sé ni qué gasté este mes."]],
     situation: "The curious one: heard of the app from a friend, skips every optional step, adds no accounts, platforms or names, maybe one or two expenses.",
     journey: "Opens it a lot in week 1, then every 2-3 weeks. Skips everything optional. Card purchases are not e-mailed to her.",
     accounts: [{ id: "bbva", bank: "BBVA", type: "debit", last4: "0902" }],
     habits: [via(H.coffee, "bbva"), via(H.taxi, "bbva"), via(H.delivery, "bbva"), via(H.clothes, "bbva", { perWeek: 0.4 }), via(H.streaming, "bbva"), H.salary(2600, 28, "bbva")],
     record: { card: 0.15, cash: 0.2 }, use: { perWeek: 6, after: { day: 7, perWeek: 0.4 } } },
   { id: "wilmer", first: "Wilmer", lang: "es", phone: "se", start: "blank", clockStart: "2026-11-18", months: 12,
+    wishes: [[5, "Quiero saber si gané más de lo que gasté esta semana."], [30, "¿Cuánto se me va en gasolina al mes?"], [45, "Todos los meses le mando 300 a mi mamá. ¿Lo tengo que poner cada vez?"], [120, "¿Me conviene más trabajar los domingos? ¿Cuánto saco por día?"], [300, "Quiero ver mi año: lo que gané y lo que gasté."]],
     situation: "Taxi driver, daily cash income, no regular salary, old small iPhone, prepaid data.",
     journey: "Earns cash every day (fares), pays fuel and car upkeep, sends money to his mother monthly. Wants to know if he earns enough.",
     accounts: [{ id: "bn", bank: "Banco de la Nación", type: "debit", last4: "3318" }],
@@ -62,6 +67,7 @@ module.exports = [
       via(H.menu, "cash", { perWeek: 6 }), { cat: "family_support", what: ["Envío a mamá"], amt: [300, 300], monthly: 5, via: "cash" }],
     record: { cash: 0.65 }, use: { perWeek: 5 } },
   { id: "paola", first: "Paola", lang: "es", start: "blank", clockStart: "2026-12-01", months: 9,
+    wishes: [[4, "Llegó un aviso de mi banco. ¿Dónde está mi compra?"], [21, "Quiero ver cuánto gasté en la farmacia este mes."], [60, "La luz la pago todos los meses. ¿La app puede recordármela?"], [150, "¿En qué gasto más? Quiero verlo claro."]],
     situation: "Low vision, uses Larger Text and VoiceOver.",
     journey: "Salary in BCP, debit card with BCP e-mails. Uses the phone with Larger Text; asks the app only what she can find by its labels.",
     accounts: [{ id: "bcp", bank: "BCP", type: "debit", last4: "5160", mail: "bcp_debit" }],
@@ -70,6 +76,7 @@ module.exports = [
 
   // ---------- bringing another app's data ----------
   { id: "mark", first: "Mark", lang: "en", start: "import", clockStart: "2026-11-18", months: 12,
+    wishes: [[2, "My Spendee history is in. Do the categories make sense here?"], [25, "I got paid in dollars. How does the app show my month in soles?"], [70, "Cusco trip next week. Can I keep the trip separate and set a budget for it?"], [130, "What do I spend per month on average, in soles?"], [210, "Flying to the US for 2 weeks, spending in USD. How do I record that?"]],
     situation: "American in Lima, earns USD and spends PEN, travels, moved from Spendee/YNAB.",
     journey: "Brings 14 months of Spendee (spendee.csv). Salary in USD to a BCP dollar account, spends on a BCP soles debit card (e-mailed) and an Interbank Visa. A trip to Cusco in month 3 and to the US in month 7. Sets up the Telegram bot himself from the Sheet menu in month 2.",
     bring: { kind: "spendee", months: 14 },
@@ -78,6 +85,7 @@ module.exports = [
       { type: "income", cat: "salary", what: ["Payroll Prueba LLC"], amt: [3800, 3800], monthly: 15, cur: "USD", via: "bcpusd" }],
     record: { cash: 0.6, card: 0.4 }, use: { perWeek: 5 }, bots: { telegram: true } },
   { id: "lucho", first: "Lucho", lang: "en", start: "import", clockStart: "2026-12-01", months: 9,
+    wishes: [[1, "Dinner for 4, I paid S/ 280. Tito, Carla and Javi owe me their share."], [10, "Tito Yaped me S/ 63.50. Is that his dinner share or part of the loan?"], [20, "Lent Tito S/ 500 today. He says he will pay me back in a couple of months."], [80, "Who owes me what, right now?"], [180, "Tito still owes me some. Honestly, I might just let it go."]],
     situation: "Generous and disorganized, pays for groups, lends, gets repaid late and in odd amounts.",
     journey: "Brings a year of Wallet by BudgetBakers (wallet.csv). Pays dinners for friends (Tito Prueba, Carla Prueba, Javi Prueba) and gets Yape back days later in odd amounts. Lends Tito S/ 500 in month 1. The WhatsApp bot is offered on his copy.",
     bring: { kind: "wallet", months: 12 },
@@ -85,6 +93,7 @@ module.exports = [
     habits: [via(H.goingout, "bcp", { perWeek: 1.5, amt: [80, 320] }), via(H.menu, "cash"), via(H.taxi, "cash"), via(H.supermarket, "bcp"), via({ ...H.bodega, what: ["Yape a Tito Prueba", "Yape a Carla Prueba"] }, "yape", { perWeek: 1 }), H.salary(4200, 30, "bcp")],
     yapeMail: true, record: { cash: 0.5, yape: 0.5 }, use: { perWeek: 4 }, bots: { whatsapp: true } },
   { id: "ingrid", first: "Ingrid", lang: "en", start: "import", clockStart: "2026-12-09", months: 6,
+    wishes: [[2, "My Excel is in. Did my categories come over right?"], [15, "I fixed a wrong amount directly in the Google Sheet. Did the app pick it up?"], [60, "I want my categories named my way. Can I rename them?"], [150, "I want a backup of everything, in a file I can open."]],
     situation: "Edits the Google Sheet by hand.",
     journey: "Kept her own Excel for two years (mis-gastos.xlsx, Spanish headings, a TOTAL line). Pays with a SIP card (e-mailed). Fixes things in the Google Sheet when the app annoys her.",
     bring: { kind: "homemade", months: 24 },
@@ -92,6 +101,7 @@ module.exports = [
     habits: [via(H.supermarket, "sip"), via(H.coffee, "sip"), via(H.clothes, "sip"), via(H.light, "cash"), via(H.phone, "sip"), H.salary(5100, 30, "bbva")],
     record: { cash: 0.9, card: 0.3 }, use: { perWeek: 3 } },
   { id: "andres", first: "Andrés", lang: "en", start: "import", clockStart: "2027-01-04", months: 12,
+    wishes: [[2, "Three years of Money Manager are in. Do the totals per year match what I had?"], [40, "I invest S/ 1,000 a month in a fund. How do I record that so it is not counted as spending?"], [100, "What will the rest of the year look like at this pace?"], [345, "Year-end review: how did this year compare with the last two?"]],
     situation: "Methodical planner with three years of data.",
     journey: "Brings three years from Money Manager (money-manager.xlsx: dates month-first). Interbank savings and Visa (both e-mailed), a Diners card, invests monthly in a fund. Year-end review in December.",
     bring: { kind: "moneymanager", months: 36 },
@@ -101,6 +111,7 @@ module.exports = [
 
   // ---------- bringing last month's bank statements ----------
   { id: "lucia", first: "Lucía", lang: "es", start: "statements", clockStart: "2026-12-09", months: 12,
+    wishes: [[2, "My statements are in. Why are so many entries without a category?"], [16, "I pay the car loan every 15th. Can the app show what is left to pay?"], [50, "Some of these income lines are clients, not my salary. Can I see work money apart?"], [110, "Next month: school fees plus the car. Will I make it?"], [300, "How much did the kids cost this year?"]],
     situation: "Freelancer with kids, a car loan, mixed work and personal money.",
     journey: "Brings last month's BCP savings and BCP Visa statements (PDF). Irregular client payments, a car loan installment on the 15th, school fees.",
     bring: { kind: "statements", files: [{ layout: "bcpSavings", account: "bcp" }, { layout: "bcpCard", account: "bcpvisa" }] },
@@ -109,6 +120,7 @@ module.exports = [
       via(H.delivery, "bcpvisa"), { type: "income", cat: "other", what: ["Cliente Prueba SAC", "Estudio Prueba EIRL"], amt: [1800, 6500], perWeek: 0.6, via: "bcp", round: true }],
     record: { cash: 0.6, card: 0.2 }, use: { perWeek: 4 } },
   { id: "carlos", first: "Carlos", lang: "es", start: "statements", clockStart: "2026-11-18", months: 6,
+    wishes: [[2, "Mis saldos tienen que coincidir con el estado de cuenta. ¿Dónde los veo?"], [12, "¿El banco me manda el estado de la Visa? ¿La app lo usa?"], [45, "El sueldo llega cada 28. No quiero escribirlo cada mes."], [110, "Quiero ahorrar S/ 1,500 al mes. ¿Cómo lo planifico aquí?"], [175, "Seis meses: ¿cuánto gasto en promedio al mes?"]],
     situation: "Skeptical accountant who reads every word.",
     journey: "Brings last month's Interbank savings and Interbank Visa statements (PDF), checks every total against them. Interbank e-mails his purchases. Compares the app's numbers with the next statement each month.",
     bring: { kind: "statements", files: [{ layout: "interbankSavings", account: "ibk" }, { layout: "interbankCard", account: "ibkvisa" }] },
@@ -116,6 +128,7 @@ module.exports = [
     habits: [via(H.supermarket, "ibkvisa"), via(H.menu, "ibkvisa", { perWeek: 3 }), via(H.light, "ibk"), via(H.phone, "ibk"), via(H.streaming, "ibkvisa"), H.salary(6200, 28, "ibk")],
     record: { cash: 0.9, card: 0.1 }, use: { perWeek: 5 } },
   { id: "marta", first: "Marta", lang: "es", start: "statements", clockStart: "2026-12-01", months: 9,
+    wishes: [[1, "Tengo dos tarjetas que quiero pagar. ¿La app me ayuda con eso?"], [9, "¿Ya me pasé de lo que puedo gastar este mes?"], [35, "Los intereses me están matando. ¿Cuánto pago de intereses al mes?"], [90, "¿Cuándo termino de pagar la Interbank a este ritmo?"], [200, "Me da ansiedad abrir la app. ¿Hay algo bueno que me pueda mostrar?"]],
     situation: "Anxious, paying off two cards, checks the app 10 times a day.",
     journey: "Brings last month's Interbank card and BCP card statements (PDF). Paying both down; interest every month. Opens the app many times a day.",
     bring: { kind: "statements", files: [{ layout: "interbankCard", account: "ibkcard" }, { layout: "bcpCard", account: "bcpcard" }] },
@@ -123,6 +136,7 @@ module.exports = [
     habits: [via(H.supermarket, "bcp"), via(H.bodega, "cash"), via(H.coffee, "ibkcard"), via(H.clothes, "bcpcard", { perWeek: 0.5 }), { cat: "interest", what: ["Intereses tarjeta"], amt: [60, 140], monthly: 26, via: "ibkcard" }, H.salary(3900, 30, "bcp")],
     record: { cash: 0.9, card: 0.8 }, use: { perWeek: 7 } },
   { id: "valeria", first: "Valeria", lang: "en", start: "statements", clockStart: "2026-11-18", months: 9,
+    wishes: [[3, "I connected my bank e-mails. Is everything coming in by itself?"], [30, "Why are BBVA purchases not showing up?"], [70, "I have not looked at the app in weeks. What do I need to do, quickly?"], [160, "Can the bot just handle the waiting stuff on WhatsApp?"]],
     situation: "Busy, trusts automation, ignores Needs review for weeks.",
     journey: "Banks with BBVA (no e-mail rule yet: its e-mails are not read) and Interbank (e-mailed). Brings last month's BBVA movements (bbva-movimientos.xlsx). Lets Needs review pile up for weeks. The WhatsApp bot is offered on her copy.",
     bring: { kind: "statements", files: [{ layout: "bbvaMovements", account: "bbva" }] },
@@ -130,6 +144,7 @@ module.exports = [
     habits: [via(H.supermarket, "bbva"), via(H.delivery, "ibk", { perWeek: 3 }), via(H.taxi, "ibk", { perWeek: 4 }), via(H.coffee, "ibk"), via(H.streaming, "ibk"), H.salary(7400, 28, "bbva")],
     record: { cash: 0.3, card: 0.1 }, use: { perWeek: 2 }, bots: { whatsapp: true } },
   { id: "julia", first: "Julia", lang: "en", start: "statements", clockStart: "2026-12-01", months: 9,
+    wishes: [[2, "My Scotiabank movements are in. Does the app read Scotiabank e-mails too?"], [20, "Which subscriptions am I paying every month?"], [128, "I am back after three months. What happened while I was gone?"], [140, "Can I catch up with my bank movements instead of typing three months?"]],
     situation: "Friend who stopped for three months, on an old version.",
     journey: "For this run she starts at zero: brings last month's Scotiabank movements (scotiabank-movimientos.csv; Scotiabank e-mails are not read). Uses it for 5 weeks, stops for three months, comes back to a backlog.",
     bring: { kind: "statements", files: [{ layout: "scotiabankMovements", account: "scotia" }] },
