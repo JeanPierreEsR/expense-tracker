@@ -4081,5 +4081,7 @@ body:has(> .spot-root) .info-btn { visibility: hidden; }   /* nothing extra to t
 .info-row > .checkbox-row { flex: 0 1 auto; }
 .info-row > .info-btn { margin-top: 12px; margin-left: 8px; }
 .fold-head > .expected-head { align-items: center; }
-/* By category's ⓘ is about the annual views: only while those chips show. */
-.breakdown-section:has(> #ov-annual-views[hidden]) .info-btn[data-info="annualViews"] { display: none; }
+/* Overview's annual choices (owner, 2026-11-16): a small heading, then one row of three equal parts. */
+.ov-annual-views { margin: 4px 0 12px; }
+.ov-annual-head { display: flex; align-items: center; margin-bottom: 6px; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
+.ov-annual-tabs { grid-template-columns: repeat(3, 1fr); }

@@ -645,11 +645,15 @@
         </div>
 
         <div class="breakdown-section">
-          <h3><span data-i18n="overview.byCategory">By category</span><button type="button" class="info-btn" data-info="annualViews" data-i18n-aria-label="info.annualViews.name" aria-label="About the annual views" aria-expanded="false"></button></h3>
-          <div class="currency-chips ov-annual-views" id="ov-annual-views" role="group" data-i18n-aria-label="overview.annualViews" aria-label="Annual expenses" hidden>
-            <button type="button" class="currency-chip" data-view="all" data-i18n="overview.viewAll">Everything</button>
-            <button type="button" class="currency-chip" data-view="oneLine" data-i18n="overview.viewOneLine">Annual as one line</button>
-            <button type="button" class="currency-chip" data-view="onlyAnnual" data-i18n="overview.viewOnlyAnnual">Only annual</button>
+          <h3 data-i18n="overview.byCategory">By category</h3>
+          <!-- One row under its own small heading (owner, 2026-11-16): the heading says they are about annual expenses, so the choices stay short. -->
+          <div class="ov-annual-views" id="ov-annual-views" hidden>
+            <div class="ov-annual-head"><span id="ov-annual-title" data-i18n="overview.annualViews">Annual expenses</span><button type="button" class="info-btn" data-info="annualViews" data-i18n-aria-label="info.annualViews.name" aria-label="About the annual views" aria-expanded="false"></button></div>
+            <div class="type-tabs budget-period-tabs ov-annual-tabs" role="group" aria-labelledby="ov-annual-title">
+              <button type="button" class="type-tab" data-view="all" data-i18n="overview.viewAll">Mixed in</button>
+              <button type="button" class="type-tab" data-view="oneLine" data-i18n="overview.viewOneLine">One slice</button>
+              <button type="button" class="type-tab" data-view="onlyAnnual" data-i18n="overview.viewOnlyAnnual">On their own</button>
+            </div>
           </div>
           <div class="pie-chart-wrap" id="pie-wrap-category">
             <div class="pie-chart" id="pie-category"></div>

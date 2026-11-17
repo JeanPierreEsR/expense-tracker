@@ -10332,7 +10332,7 @@ function renderYearCompare_() {
   el.hidden = false;
 }
 
-// Overview "By category" for expenses (owner, 2026-11-14): Everything · Annual as one line · Only annual. Built on the phone from the
+// Overview "By category" for expenses (owner, 2026-11-14): Mixed in · One slice · On their own (renamed 2026-11-16; were Everything · Annual as one line · Only annual). Built on the phone from the
 // same data (each category's annual part, `annual_pen`, follows the server's one rule, AnnualTag.gs). The chips show only for
 // expenses, where the backend has the rule, and when the period has annual expenses or another view than Everything was chosen. The
 // choice is saved in Settings (setOverviewCategoryView) and comes back with meta.settings.
