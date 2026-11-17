@@ -4081,3 +4081,5 @@ body:has(> .spot-root) .info-btn { visibility: hidden; }   /* nothing extra to t
 .info-row > .checkbox-row { flex: 0 1 auto; }
 .info-row > .info-btn { margin-top: 12px; margin-left: 8px; }
 .fold-head > .expected-head { align-items: center; }
+/* By category's ⓘ is about the annual views: only while those chips show. */
+.breakdown-section:has(> #ov-annual-views[hidden]) .info-btn[data-info="annualViews"] { display: none; }

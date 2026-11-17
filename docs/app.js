@@ -11968,6 +11968,7 @@ function drawBudgets_() {
   // Year view: a small mark on each bar where today falls in its year ("expected by now", owner 2026-11-07), and one line explaining it.
   const todayIso = todayLocalISO();
   let anyTodayMark = false;
+  let progInfo = false, annualInfo = false;   // the ⓘ on these two lines: the first of each on the screen only (one per kind, not one per bar)
 
   ordered.forEach((b, i) => {
     if (i === 0 && attention.length) groupHead("budgets.groupAttention");
@@ -11995,10 +11996,12 @@ function drawBudgets_() {
       const all = pctAll(b), end = Math.min(100, Math.max(0, all));
       const progClass = all >= 100 ? "over" : all >= 75 ? "warn" : "";
       if (end > barPct) progBar = `<div class="budget-progress-prog ${progClass}" style="left:${barPct}%;width:${(end - barPct).toFixed(2)}%"></div>`;
-      progLine = `<div class="budget-row-prog ${pct < 75 && all >= 75 ? progClass : ""}">${escapeHtml(tr("budget.programmedLine", { cur: pc, amount: moneyFmt(p.programmed), pct: all.toFixed(0) }))}</div>`;
+      progLine = `<div class="budget-row-prog ${pct < 75 && all >= 75 ? progClass : ""}">${escapeHtml(tr("budget.programmedLine", { cur: pc, amount: moneyFmt(p.programmed), pct: all.toFixed(0) }))}${progInfo ? "" : infoBtnHtml_("budgetProg")}</div>`;
+      progInfo = true;
     }
     const annualNote = p.annualLeftOut > 0.005
-      ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: pc, amount: moneyFmt(p.annualLeftOut) }))}</div>` : "";
+      ? `<div class="budget-row-annual hint">${escapeHtml(tr("budget.annualLeftOut", { cur: pc, amount: moneyFmt(p.annualLeftOut) }))}${annualInfo ? "" : infoBtnHtml_("budgetAnnual")}</div>` : "";
+    if (annualNote) annualInfo = true;
     // Trips & events set to leave this budget out, or to count only in it ("In my budgets").
     const tripNotes = (p.tripsLeftOut || []).map((t) => `<div class="budget-row-annual hint">${escapeHtml(tr("budget.tripLeftOut", { cur: pc, amount: moneyFmt(t.amount), name: t.name }))}</div>`).join("")
       + (p.tripsCounted || []).map((t) => `<div class="budget-row-annual hint">${escapeHtml(tr("budget.tripCounted", { cur: pc, amount: moneyFmt(t.amount), name: t.name }))}</div>`).join("");
@@ -25060,6 +25063,10 @@ let receiptJustRead_ = false;
 const INFO_STATS_KEY_ = "infoStats";
 const INFO_ICON_ = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="12" y1="7.5" x2="12" y2="7.5"/></svg>';
 let infoOpen_ = null;           // { btn, card, frame } while a card shows
+// An ⓘ inside a line the app draws itself (Budgets' lines): the same button, already dressed.
+function infoBtnHtml_(key) {
+  return `<button type="button" class="info-btn" data-info="${key}" aria-label="${escapeHtml(tr(`info.${key}.name`))}" aria-expanded="false">${INFO_ICON_}</button>`;
+}
 function dressInfoBtns_(root) {
   (root || document).querySelectorAll(".info-btn").forEach((b) => { if (!b.firstElementChild) b.innerHTML = INFO_ICON_; });
 }

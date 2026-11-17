@@ -590,7 +590,7 @@
 
       <div class="card" id="balances-card">
         <div class="budgets-header">
-          <h2 data-i18n="balances.title">Balances</h2>
+          <h2><span data-i18n="balances.title">Balances</span><button type="button" class="info-btn" data-info="balances" data-i18n-aria-label="info.balances.name" aria-label="About Balances" aria-expanded="false"></button></h2>
           <button type="button" class="icon-btn" id="add-balance-btn" data-i18n-aria-label="balances.addAria" aria-label="Add balance"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
         </div>
         <p class="hint" id="balances-hint"></p>
@@ -610,7 +610,7 @@
       </div>
 
       <div class="card ov-period" id="pace-card" hidden>
-        <h2 data-i18n="home.paceTitle">Spending pace</h2>
+        <h2><span data-i18n="home.paceTitle">Spending pace</span><button type="button" class="info-btn" data-info="pace" data-i18n-aria-label="info.pace.name" aria-label="About Spending pace" aria-expanded="false"></button></h2>
         <div id="pace-ref-label" class="pace-ref-label"></div>
         <div class="pace-ref-switch" id="pace-ref-switch" role="group">
           <button type="button" class="period-type-chip-like" data-pace-ref="last" data-i18n="pace.refLast">Against earlier months</button>
@@ -645,7 +645,7 @@
         </div>
 
         <div class="breakdown-section">
-          <h3 data-i18n="overview.byCategory">By category</h3>
+          <h3><span data-i18n="overview.byCategory">By category</span><button type="button" class="info-btn" data-info="annualViews" data-i18n-aria-label="info.annualViews.name" aria-label="About the annual views" aria-expanded="false"></button></h3>
           <div class="currency-chips ov-annual-views" id="ov-annual-views" role="group" data-i18n-aria-label="overview.annualViews" aria-label="Annual expenses" hidden>
             <button type="button" class="currency-chip" data-view="all" data-i18n="overview.viewAll">Everything</button>
             <button type="button" class="currency-chip" data-view="oneLine" data-i18n="overview.viewOneLine">Annual as one line</button>
@@ -3361,7 +3361,7 @@
           <div class="type-tab" data-period="yearly" data-i18n="period.yearly">Yearly</div>
         </div>
         <div id="budget-start-wrap" hidden>
-          <label data-i18n="budgetModal.starts">Starts</label>
+          <label class="has-info" data-i18n="budgetModal.starts">From when</label><button type="button" class="info-btn" data-info="budgetFrom" data-i18n-aria-label="info.budgetFrom.name" aria-label="About From when" aria-expanded="false"></button>
           <button type="button" class="select-like" id="budget-start"></button>
           <p class="hint budget-start-note" id="budget-start-note" hidden></p>
           <p class="hint" id="budget-start-hint" hidden></p>
