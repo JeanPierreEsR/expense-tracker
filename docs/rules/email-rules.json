@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "rules": [
     { "id": "bcp-consumo-debito", "replaces": "Consumo tarjeta de débito", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Consumo tarjeta de débito (pack)",
       "accountByCurrency": true, "subjectHas": ["realizaste un consumo", "debito"], "type": "expense", "amount": { "label": "Total del consumo" },
@@ -22,8 +22,12 @@
       "last4": { "label": "Tarjeta", "kind": "masked" }, "externalId": { "label": "Operación:" } },
 
     { "id": "interbank-pago-servicios", "replaces": "Pago de servicios", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe", "label": "Pago de servicios (pack)",
-      "subjectIs": "constancia de pago", "type": "expense", "amount": { "label": "Moneda y monto" }, "merchant": { "label": "Empresa" },
+      "subjectIs": "constancia de pago", "bodyHas": ["Empresa"], "type": "expense", "amount": { "label": "Moneda y monto" }, "merchant": { "label": "Empresa" },
       "last4": { "label": "Cuenta cargo", "kind": "account" }, "externalId": { "label": "Código de operación" } },
+
+    { "id": "interbank-pago-tarjeta", "replaces": "Pago de tarjeta (Constancia)", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe", "label": "Pago de tarjeta (Constancia) (pack)",
+      "subjectIs": "constancia de pago", "bodyHas": ["Tarjeta de crédito"], "type": "transfer", "amount": { "label": "Moneda y monto" }, "description": { "text": "Pago tarjeta Interbank" },
+      "last4": { "label": "Cuenta cargo", "kind": "account" }, "to": { "label": "Tarjeta de crédito", "kind": "account" }, "externalId": { "label": "Código de operación" } },
 
     { "id": "interbank-transferencia", "replaces": "Transferencia", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe", "label": "Transferencia (pack)",
       "subjectEndsWith": "constancia de transferencia", "type": "transferIfOwn", "amount": { "label": "Monto y moneda" }, "recipient": { "label": "Cuenta destino" },

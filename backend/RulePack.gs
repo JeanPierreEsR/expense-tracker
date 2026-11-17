@@ -28,7 +28,7 @@ var RULE_PACK_MAX_RULES_ = 150;
 var RULE_PACK_MAX_TEXT_ = 120;
 var RULE_PACK_TYPES_ = ['expense', 'income', 'transfer', 'transferIfOwn'];
 var RULE_PACK_RULE_KEYS_ = ['id', 'bank', 'sender', 'label', 'skip', 'cardIsDestination', 'accountByCurrency', 'first', 'replaces', 'type', 'subjectHas', 'subjectHasAny',
-  'subjectEndsWith', 'subjectIs', 'bodyHas', 'bodyHasAny', 'amount', 'merchant', 'recipient', 'description', 'last4', 'externalId'];
+  'subjectEndsWith', 'subjectIs', 'bodyHas', 'bodyHasAny', 'amount', 'merchant', 'recipient', 'description', 'last4', 'to', 'externalId'];
 var RULE_PACK_ADDRESS_ = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
 function rulePackEscape_(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -108,6 +108,17 @@ function rulePackCheckRule_(r, where, errors, strict) {
       if (d.labels !== undefined) rulePackWords_(d.labels, where + '.description.labels', errors, 3);
       if (d.prefix !== undefined) rulePackText_(d.prefix, where + '.description.prefix', errors);
       if (d.text !== undefined) rulePackText_(d.text, where + '.description.text', errors);
+    }
+  }
+  // `to` (2026-11-17): the digits of the person's OWN account the money went to (a card paid from an account). Read like `last4`; the
+  // scan turns it into the transfer's To, or keeps the entry an expense when no account of the person has those digits.
+  if (r.to !== undefined) {
+    var t = r.to;
+    if (!t || typeof t !== 'object') errors.push(where + '.to: needs {label, kind}');
+    else {
+      Object.keys(t).forEach(function (k) { if (k !== 'label' && k !== 'kind') errors.push(where + '.to: unknown field ' + k); });
+      rulePackText_(t.label, where + '.to.label', errors);
+      if (['card', 'masked', 'account'].indexOf(t.kind) === -1) errors.push(where + '.to.kind: card, masked or account');
     }
   }
   if (r.last4 !== undefined) {
@@ -244,16 +255,19 @@ function rulePackCompile_(r) {
     } else if (r.description && r.description.text) description = r.description.text;
     else description = merchant || recipient;
     if (description && r.description && r.description.prefix) description = r.description.prefix + description;
-    var last4 = null;
-    if (r.last4) {
-      last4 = r.last4.kind === 'account'
-        ? extractAccountLast4_(body, rulePackEscape_(r.last4.label))
-        : (r.last4.kind === 'masked'
-          ? lastFourAfter_(body, rulePackEscape_(r.last4.label))
-          : extractLast4_(afterLabel_(body, rulePackEscape_(r.last4.label)) || body));
-    }
+    var digitsAfter = function (spec) {
+      return spec.kind === 'account'
+        ? extractAccountLast4_(body, rulePackEscape_(spec.label))
+        : (spec.kind === 'masked'
+          ? lastFourAfter_(body, rulePackEscape_(spec.label))
+          : extractLast4_(afterLabel_(body, rulePackEscape_(spec.label)) || body));
+    };
+    var last4 = r.last4 ? digitsAfter(r.last4) : null;
+    var toLast4 = null;
+    if (r.to) { toLast4 = digitsAfter(r.to); if (!toLast4) return null; }   // a rule that names the destination cannot read the e-mail without it
     var fields = { type: r.type, amount: amt.amount, currency: amt.currency, description: description, last4: last4,
       externalId: r.externalId ? afterLabel_(body, rulePackEscape_(r.externalId.label)) : null };
+    if (toLast4) fields.toLast4 = toLast4;
     if (r.merchant) fields.merchant = merchant;   // like the code rules: a transfer names no merchant
     if (r.type === 'transferIfOwn') {
       var own = isOwnAccount_(recipient);
