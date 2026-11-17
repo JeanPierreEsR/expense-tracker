@@ -100,7 +100,7 @@ function adminApplyStatementActions(payload) {
 function ensureImportBatchRow_(batchId, filename, count) {
   appendRowObject('Import Batches', {
     id: batchId, filename: filename,
-    date: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+    date: Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd'),
     row_count: count
   });
 }
@@ -195,7 +195,7 @@ function listStatementCoverage() {
     if (!accounts[uk]) accounts[uk] = { key: uk, label: u.account_label || uk, lag: 1 };
   });
 
-  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var today = Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd');
   var rows = Object.keys(accounts).map(function (key) {
     var a = accounts[key];
     var mine = uploads.filter(function (u) { return covKey_(u.account_key) === key; })

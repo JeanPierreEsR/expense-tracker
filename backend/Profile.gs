@@ -2,7 +2,7 @@
  * "What fits you?" — the profile answers that decide which categories a person starts with (owner's plan of 2026-10-28,
  * private file "Onboarding and profile - plans 5 7 10 11 together").
  *
- *   - A copy made by the installer starts with the STARTER lists below (8 expense + 5 income categories) instead of the
+ *   - A copy made by the installer starts with the STARTER lists below (7 expense + 5 income categories) instead of the
  *     owner's own long list (EXPENSE_CATEGORIES in Setup.gs, which stays as it is: the owner's copy and every old install are
  *     never changed). The categories the app itself depends on (Other, Bank fees, Refunds, Between Accounts, Contribution,
  *     Withdrawal, Investment returns) are still created the way they always were.
@@ -20,7 +20,7 @@ var PROFILE_SETTING_ = 'profile';
 
 var STARTER_EXPENSE_CATEGORIES_ = [
   ['Groceries', '🛒'], ['Restaurants', '🍽️'], ['Home', '🏠'], ['Transport', '🚌'],
-  ['Travel', '✈️'], ['Sports', '⚽'], ['Bank fees', '🧾'], ['Other', '📦']
+  ['Travel', '✈️'], ['Bank fees', '🧾'], ['Other', '📦']
 ];
 var STARTER_INCOME_CATEGORIES_ = [
   ['Salary', '💰'], ['Business', '👔'], ['Gifts', '🎁'], ['Refunds', '↩️'], ['Other', '📦']
@@ -31,7 +31,7 @@ var STARTER_INCOME_CATEGORIES_ = [
 // phone) belong in Home; streaming belongs in Subscriptions, games in Hobbies, and Entertainment means live shows and concerts.
 var PROFILE_GROUPS_ = {
   life: ['car', 'kids', 'pets', 'study', 'health', 'selfemployed', 'family', 'debt'],
-  spheres: ['shopping', 'goingout', 'entertainment', 'personal', 'subscriptions', 'hobbies', 'gifts', 'trips']
+  spheres: ['shopping', 'goingout', 'entertainment', 'personal', 'subscriptions', 'hobbies', 'sports', 'gifts', 'trips']
 };
 var PROFILE_PACKS_ = {
   car: { expense: [['Vehicle', '🚗']] },
@@ -48,6 +48,7 @@ var PROFILE_PACKS_ = {
   personal: { expense: [['Personal care', '💇']] },
   subscriptions: { expense: [['Subscriptions', '🔁']] },
   hobbies: { expense: [['Hobbies', '🎨']] },
+  sports: { expense: [['Sports', '⚽']] },   // a pick since 2026-11-16 (it was a starter category: the owner's habit, not everyone's)
   gifts: { expense: [['Gifts & donations', '🎁']] },
   // Trips (owner, 2026-11-14): the one pick that adds three, so a trip's screen splits into the blocks a new trip is planned with
   // (getting there, where you sleep, what you do); food, local transport and shopping stay in their everyday categories, and

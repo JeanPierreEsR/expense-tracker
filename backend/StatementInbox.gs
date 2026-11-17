@@ -150,7 +150,7 @@ function scanStatementInbox_() {
   var seenMessage = {};
   rows.forEach(function (r) { seenMessage[r.message_id] = true; });
   var window = ' has:attachment filename:pdf newer_than:' + (first ? '75d' : '6d');
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var added = [];
   // A bank that sends the same statement twice (Diners, 2026-11-13: two identical e-mails a minute apart)
   // must give ONE row and ONE nudge. A file is a repeat only when its CONTENT is identical to one already

@@ -176,7 +176,7 @@ function bulkSetEntryCategories_(changes) {
 // Entries just moved into Travel become Annual too (autoTagTravelEntry_ does it
 // for a single edit). Returns the ids that got a NEW Annual tag, for Undo.
 function annualForTravelMoves_(ids, categoryId) {
-  if (!ids.length || !travelCategoryIdSet_()[categoryId]) return [];
+  if (!ids.length || !travelCategoryIdSet_()[categoryId] || !travelAnnualOn_()) return [];
   ensureAnnualTag_();
   var has = annualEntryIdSet_();
   var added = [];

@@ -698,7 +698,7 @@ function checkTripBudgetsLocked_() {
   var staleKeys = {};
   trips.forEach(function (t) {
     var percent = Number(t.budgetSpent) / Number(t.budget_amount) * 100;
-    var thresholds = String(t.alert_thresholds || DEFAULT_BUDGET_THRESHOLDS)
+    var thresholds = String(t.alert_thresholds || budgetDefaultThresholds_())
       .split(',')
       .map(function (x) { return Number(String(x).trim()); })
       .filter(function (x) { return !isNaN(x); })
@@ -719,7 +719,7 @@ function checkTripBudgetsLocked_() {
     newlyCrossed.forEach(function (threshold) {
       appendRowObject('Budget Alert Log', {
         id: Utilities.getUuid(), budget_id: t.id, threshold: threshold, period: TRIP_ALERT_PERIOD_,
-        sent_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')
+        sent_at: Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd')
       });
       alertedSet[t.id + '|' + threshold] = true;
     });
@@ -743,7 +743,7 @@ function syncTripNotices_(allTrips) {
     if (!t || !(Number(t.budget_amount) > 0)) return CLOSE_NOTICE_;
     if (t.budgetSpent == null) return '';
     var percent = Number(t.budgetSpent) / Number(t.budget_amount) * 100;
-    var lowest = Math.min.apply(null, String(t.alert_thresholds || DEFAULT_BUDGET_THRESHOLDS).split(',').map(function (x) { return Number(String(x).trim()); }).filter(function (x) { return !isNaN(x); }));
+    var lowest = Math.min.apply(null, String(t.alert_thresholds || budgetDefaultThresholds_()).split(',').map(function (x) { return Number(String(x).trim()); }).filter(function (x) { return !isNaN(x); }));
     return percent >= lowest ? tripBudgetAlertText_(t, percent) : CLOSE_NOTICE_;
   });
 }

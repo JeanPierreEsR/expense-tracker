@@ -201,7 +201,7 @@ function backfillEntryMerchants(payload) {
     rowByExternalId[r[0]] = i;
   });
 
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var senders = uniqueSenders_();
   outer:
   for (var s = 0; s < senders.length; s++) {

@@ -2599,7 +2599,7 @@
         <div id="loan-due-wrap">
         <label for="loan-due-date" data-i18n="loanModal.dueDate">Due date</label>
         <input type="date" id="loan-due-date">
-        <p class="hint" data-i18n="loanModal.dueHint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
+        <p class="hint" id="loan-due-hint" data-i18n="loanModal.dueHint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
         </div>
 
         <div id="loan-pm-field">
@@ -3400,7 +3400,7 @@
 
 <div id="budget-alert-fields">
         <label for="budget-thresholds" data-i18n="budgetModal.alertAt">Alert at (%)</label>
-        <input type="text" id="budget-thresholds" placeholder="50, 75, 100, 110, 125, 150">
+        <input type="text" id="budget-thresholds" placeholder="75, 100">
         <p class="hint" data-alert-hint="budgetModal.alertHint">Comma-separated percentages of the budget. You'll get an alert the first time spending crosses each one, once per period.</p>
         </div>
 
@@ -3450,7 +3450,7 @@
 
 <div id="trip-alert-fields">
         <label for="trip-alerts" data-i18n="budgetModal.alertAt">Alert at (%)</label>
-        <input type="text" id="trip-alerts" placeholder="50, 75, 100, 110, 125, 150">
+        <input type="text" id="trip-alerts" placeholder="75, 100">
         <p class="hint" data-alert-hint="trips.alertHint">Comma-separated percentages of the trip budget. Leave blank for the usual ones. You'll get an alert the first time it crosses each one.</p>
         </div>
 

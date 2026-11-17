@@ -250,7 +250,7 @@ function confirmedEntries_() {
 }
 
 function todayMonthKey_() {
-  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
+  return Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM');
 }
 
 // One row per tracked account — `balances` has a line per currency that

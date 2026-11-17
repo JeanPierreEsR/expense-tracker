@@ -342,7 +342,7 @@ function processPhotoText_(chatId, replyToMessageId, text) {
     parsed.description = 'Yape recibido' + (parsed.note ? ' — ' + parsed.note : '');
   }
 
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var now = new Date();
   var dateStr = parsed.date || Utilities.formatDate(now, tz, 'yyyy-MM-dd');
   var createdAt = parsed.date && parsed.time

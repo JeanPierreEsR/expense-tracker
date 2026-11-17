@@ -243,7 +243,9 @@ function routeActionSwitch_(action, payload) {
     case 'makeApplePayKey': return makeApplePayKey(payload);
     case 'revokeSession': return revokeSession(payload);
     case 'revokeOtherSessions': return revokeOtherSessions();
-    case 'getMeta': ensureEntriesEditTrigger_(); return getMeta();   // once per copy: manual Sheet edits keep loans / repayments in step (EditSync.gs)
+    case 'getMeta': applyPhoneTimeZone_(payload && payload.tz); ensureEntriesEditTrigger_(); return getMeta();
+    case 'setTimeZone': return setTimeZone(payload);   // the phone is in another zone now (PersonDefaults.gs)
+    case 'setTravelAnnual': return setTravelAnnual(payload);   // once per copy: manual Sheet edits keep loans / repayments in step (EditSync.gs)
     case 'setLanguage': return setLanguage(payload);
     case 'listSampleEmails': return listSampleEmails(payload);
     case 'getSampleEmail': return getSampleEmail(payload);
@@ -783,6 +785,13 @@ function sheetDateTz_() {
   return Session.getScriptTimeZone();
 }
 
+// The person's own time zone (owner, 2026-11-16): the Sheet's zone, which the phone keeps on the zone it is in
+// (applyPhoneTimeZone_, PersonDefaults.gs). Used for every "today" / "this month" and for the day an e-mail, notice or photo is
+// dated. Internal stamps (sign-ins, clean-up cutoffs, nowTimestamp_) stay on the script's zone, so they always compare alike.
+function personTz_() {
+  return (ROWS_MEMO_ && ROWS_MEMO_['@tz']) || sheetDateTz_();
+}
+
 // Speed (2026-11-02): ONE read of the whole sheet (headers + rows) instead of four calls to Google (last row, last column,
 // headers, rows); the Sheet's time zone asked once per request; and each date converted once (the same day repeats across
 // thousands of rows, and every Utilities.formatDate is a call into Google's side). See CHANGELOG.md § Speed pass.
@@ -982,6 +991,7 @@ function getAllRowsCached_(sheetName) {
 // Pure aggregation — no new business logic, so nothing here changes what
 // any of the four screens show.
 function getStartupBundle(payload) {
+  applyPhoneTimeZone_(payload && payload.tz);   // the person's own zone, before anything works out "today" (PersonDefaults.gs)
   // getMeta first and uncached: it can self-heal (add header columns / seed
   // platforms), so the cache only starts once the sheets are in final shape.
   var meta = getMeta();
@@ -1012,7 +1022,7 @@ function setOverviewCategoryView(payload) {
 function settingsForApp_() {
   var map = getSettingsMap();
   delete map[RULE_PACK_SETTING_];
-  return map;
+  return addPersonDefaultsToSettings_(map);   // the defaults that depend on whose copy this is (PersonDefaults.gs)
 }
 
 function getSettingsMap() {

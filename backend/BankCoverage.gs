@@ -59,7 +59,7 @@ var BANK_KINDS_BACKFILL_DAYS_ = 90;
 function backfillBankKindDaysOnce_(senders, existingExternalIds) {
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty(BANK_KINDS_BACKFILL_PROPERTY_)) return;
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var found = {};   // bank -> kind -> newest day
   senders.forEach(function (sender) {
     gmailSearchMessages_('from:' + sender + ' newer_than:' + BANK_KINDS_BACKFILL_DAYS_ + 'd', { max: 300 }).forEach(function (message) {

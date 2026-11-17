@@ -5,7 +5,7 @@
  * category and one budget's own period instead of the whole Overview.
  */
 
-var DEFAULT_BUDGET_THRESHOLDS = '50,75,100,110,125,150';
+// The alert percentages a budget gets when none were typed: budgetDefaultThresholds_() (PersonDefaults.gs).
 
 function pad2_(n) { return (n < 10 ? '0' : '') + n; }
 
@@ -317,7 +317,7 @@ function computeBudgetProgressWithContext_(budget, ctx, displayPeriodType, ancho
   if (displayPeriodType === 'week' && usesAnchor && effectivePeriodType !== 'weekly') {
     // A monthly or yearly budget in a Week view: the month (year) of today when the week holds today, else of the week's Thursday
     // (a week belongs to the month holding most of its days).
-    var mon = mondayOf_(anchorDate), todayIso = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    var mon = mondayOf_(anchorDate), todayIso = Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd');
     var pick = (todayIso >= mon && todayIso <= isoAddDays_(mon, 6)) ? todayIso : isoAddDays_(mon, 3);
     refDate = new Date(pick + 'T00:00:00');
   }
@@ -423,7 +423,7 @@ function listBudgets(payload) {
   // "Today's" rate, not the browsed period's — amount_pen and the summary
   // totals below describe standing budget commitments, not spend against a
   // specific past period, so there's no period to key the rate to.
-  var currentMonth = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
+  var currentMonth = Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM');
 
   var budgets = rawBudgets.map(function (b) {
     var categoryIds = parseBudgetCategoryIds_(b.category_id);
@@ -444,7 +444,7 @@ function listBudgets(payload) {
       amount_pen: rate != null ? Number(b.amount) * rate : null,
       currency: currency,
       period_type: budgetKind_(b.period_type),
-      thresholds: b.thresholds || DEFAULT_BUDGET_THRESHOLDS,
+      thresholds: b.thresholds || budgetDefaultThresholds_(),
       progress: computeBudgetProgressWithContext_(b, ctx, displayPeriodType, anchorDate),
       active_now: budgetActiveNow_(b, ctx),   // running this month (year): counts in the totals below
       ended: budgetEndedNow_(b, ctx.budgetHistory[String(b.id)]),
@@ -775,7 +775,7 @@ function getBudgetChartSeries(payload) {
 // "abc" used to be silently dropped, leaving a budget that never alerted).
 // Returns the cleaned, sorted, de-duplicated "75,100" string.
 function normalizeBudgetThresholds_(raw) {
-  var text = String(raw === undefined || raw === null || raw === '' ? DEFAULT_BUDGET_THRESHOLDS : raw);
+  var text = String(raw === undefined || raw === null || raw === '' ? budgetDefaultThresholds_() : raw);
   var seen = {};
   var out = [];
   text.split(',').forEach(function (part) {
@@ -845,6 +845,8 @@ function addBudget(payload) {
   var start = budgetStartKey_(budget.period_type, payload.start);
   if (start !== '') writeBudgetHistoryRow_(budget, start, budget, false);
   budget.start = start;
+  // The answer to "Count Travel expenses as annual too?", asked on a new person's first annual budget (PersonDefaults.gs).
+  if (payload.travel_annual === true || payload.travel_annual === false) budget.travel_annual = setTravelAnnual({ on: payload.travel_annual === true });
   return budget;
 }
 
@@ -1018,7 +1020,7 @@ function checkBudgetsLocked_() {
     if (!progress.exists) return; // not running this period (ended, or starts later)
     if (progress.percent == null) return; // no exchange rate on file yet for this budget's currency
 
-    var thresholds = String(budget.thresholds || DEFAULT_BUDGET_THRESHOLDS)
+    var thresholds = String(budget.thresholds || budgetDefaultThresholds_())
       .split(',')
       .map(function (t) { return Number(String(t).trim()); })
       .filter(function (t) { return !isNaN(t); })
@@ -1059,7 +1061,7 @@ function checkBudgetsLocked_() {
         budget_id: budget.id,
         threshold: threshold,
         period: progress.periodKey,
-        sent_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')
+        sent_at: Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd')
       });
       alertedSet[key] = true;
     });
@@ -1154,7 +1156,7 @@ function generateTopCategoryBudgets(payload) {
       amount: Math.round(r.avg * 100) / 100,
       currency: homeCurrency_(),
       period_type: 'monthly',
-      thresholds: DEFAULT_BUDGET_THRESHOLDS
+      thresholds: budgetDefaultThresholds_()
     });
     return {
       id: budget.id,
@@ -1269,7 +1271,7 @@ function budgetHistory_() {
 
 // This period's key for a budget of this kind, today; `step` moves it (-1 the period before, +1 the next).
 function budgetCurrentPeriodKey_(periodType, step) {
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var now = Utilities.formatDate(new Date(), tz, 'yyyy-MM');
   var y = Number(now.substring(0, 4)), m = Number(now.substring(5, 7));
   if (periodType === 'yearly') return String(y + (step || 0));

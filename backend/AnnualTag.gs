@@ -95,6 +95,8 @@ function annualMarkedIdSet_() {
 }
 
 // ---- Travel is Annual by default (2026-10-19) ----
+// Since 2026-11-16 only where travelAnnualOn_() (PersonDefaults.gs): the owner's copy and copies installed earlier; a new person
+// is asked when they make an "Everything marked Annual" budget.
 // A trip is a lump, not month-to-month spend, so every confirmed Travel
 // expense carries the Annual tag. Past entries get it once through the sheet
 // menu (adminTagTravelAnnual); new ones get it here, whichever door they come
@@ -129,7 +131,7 @@ function ensureAnnualOnEntry_(entryId) {
 
 // For an entry that was just written (any door): Annual if it is a Travel expense.
 function autoTagTravelEntry_(entry) {
-  if (isTravelExpense_(entry)) ensureAnnualOnEntry_(entry.id);
+  if (isTravelExpense_(entry) && travelAnnualOn_()) ensureAnnualOnEntry_(entry.id);
 }
 
 // One-off for the entries already in the sheet: every confirmed Travel expense
