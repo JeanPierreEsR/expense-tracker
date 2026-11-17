@@ -227,7 +227,7 @@ async function phone(p) {
     document.querySelectorAll(".pop-tip").forEach((b) => { if (vis(b)) out.push({ kind: "bubble", key: b.dataset.tip, text: t(b).slice(0, 400) }); });
     document.querySelectorAll(".tip-invite-label").forEach((l) => { const box = l.parentElement; if (vis(box)) out.push({ kind: "card", key: box.id, text: t(box).slice(0, 400) }); });
     const w = document.getElementById("welcome-overlay");
-    if (vis(w) && t(w)) out.push({ kind: w.classList.contains("tour-mode") ? "tour" : "welcome", text: t(w).slice(0, 300) });
+    if (vis(w) && t(w).length > 40) out.push({ kind: w.classList.contains("tour-mode") ? "tour" : "welcome", text: t(w).slice(0, 300) });
     const c = document.getElementById("app-confirm-backdrop");
     if (vis(c)) out.push({ kind: "question", text: t(c).slice(0, 400) });
     const sheets = [...document.querySelectorAll(".currency-modal-backdrop")].filter(vis).map((s) => t(s.querySelector("h2,h3,.currency-modal-title") || s).slice(0, 60));
