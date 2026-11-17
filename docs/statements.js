@@ -956,7 +956,7 @@
     const guess = StatementTable.guessMapping(rows, {});
     const sig = StatementTable.signature(guess, rows);
     const width = guess.headers.length;
-    const state = { m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catCustom: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "" };
+    const state = { balStart: "", balEnd: "", balOpen: false, m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catCustom: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "" };
 
     // Where do the columns come from: this layout saved on the server, a layout the app knows by name, or the guess.
     let saved = null;
@@ -1048,7 +1048,12 @@
       const v = normName(value);
       if (!v) return "";
       const hit = accounts.find((a) => normName(a.nickname) === v) || accounts.find((a) => normName(a.nickname).includes(v) || v.includes(normName(a.nickname)));
-      return hit ? hit.id : "";
+      if (hit) return hit.id;
+      // "Interbank 1408" in another app's export: the account whose last 4 digits are in the name, when only one has them (journeys run,
+      // 2026-11-17: all 712 lines of a Money Manager file were saved with no account).
+      const digits = String(value).match(/\d{4}/g) || [];
+      const byDigits = accounts.filter((a) => a.last_4 && digits.includes(String(a.last_4).padStart(4, "0")));
+      return byDigits.length === 1 ? byDigits[0].id : "";
     }
     function renderValues() {
       const box = root.querySelector(".tm-values");
@@ -1293,6 +1298,8 @@
       const needCategory = screenMode === "import" && state.m.category < 0;   // another app's export names a category for every line
       use.disabled = needCategory || (multi() ? (undecided > 0 || !lines.length) : (!noneOk && !pm()));
       // Not blocking, only a heads-up: with accounts set up, a person usually wants the entries on one of them.
+      // An import may leave a name of the file's account column with no account: say how many lines that is, before saving.
+      const noAcctLines = multi() && noneOk ? lines.filter((l) => !state.map[l.account]).length : 0;
       const noAccountNote = noneOk && !needCategory && !multi() && !pm() ? `<p class="stmt-note info">${escapeHtml(tr(accounts.some((a) => a.type !== "cash") ? "imp.noAccountWarn" : "imp.noAccountsInfo"))}</p>` : "";
       const totals = {};
       lines.forEach((l) => { const t = totals[l.currency] || (totals[l.currency] = { out: 0, in: 0 }); if (l.amount < 0) t.out += -l.amount; else t.in += l.amount; });
@@ -1301,15 +1308,67 @@
       box.innerHTML = `<div class="stmt-kv"><span>${escapeHtml(lines.length ? tr("table.previewLines", { n: lines.length, from: fmtDate(dates[0], true), to: fmtDate(dates[dates.length - 1], true) }) : "—")}</span><span></span></div>
         <div class="stmt-kv"><span>${escapeHtml(tr("table.out"))}</span><span>${escapeHtml(sum("out"))}</span></div>
         <div class="stmt-kv"><span>${escapeHtml(tr("table.in"))}</span><span>${escapeHtml(sum("in"))}</span></div>
-        ${r.skipped.some((x) => x.reason !== "transfer") ? `<p class="hint">${escapeHtml(tr("table.skipped", { n: r.skipped.filter((x) => x.reason !== "transfer").length }))}</p>` : ""}
+        ${skippedFold(r.skipped.filter((x) => x.reason !== "transfer"))}
+        ${fileWarnings(lines)}
         ${r.skipped.some((x) => x.reason === "transfer") ? `<p class="stmt-note warn">${escapeHtml(tr("table.transferNoDirection", { n: r.skipped.filter((x) => x.reason === "transfer").length }))}</p>` : ""}
         ${lines.some((l) => l.transfer) ? `<p class="stmt-note info">${escapeHtml(tr("table.transfersMarked", { n: lines.filter((l) => l.transfer).length }))}</p>` : ""}
         ${needCategory ? `<p class="stmt-note warn">${escapeHtml(tr("imp.needCategory"))}</p>` : ""}
         ${noAccountNote}
         ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
+        ${multi() && noneOk && noAcctLines ? `<p class="stmt-note warn">${escapeHtml(tr("imp.noAccountLines", { n: noAcctLines }))}</p>` : ""}
         ${r.lines.length > TABLE_BIG_FILE ? `<p class="stmt-note warn">${escapeHtml(tr("table.bigFile", { n: r.lines.length }))}</p>` : ""}
         <p class="hint">${escapeHtml(tr("table.checkSigns"))}</p>
-        ${lines.slice(0, 5).map((l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`).join("")}`;
+        ${lines.slice(0, 5).map((l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`).join("")}
+        ${balanceCheckHtml(lines)}`;
+      lastPreviewLines = lines;
+    }
+    // ---- quick troubleshooting of a spreadsheet (owner, 2026-11-17, after the journeys run): a spreadsheet has no totals the app can
+    // check, so the preview names every line it left out and why, warns about what usually means a wrong reading, and can check the
+    // lines against the balances the person knows. Nothing here changes what is saved.
+    let lastPreviewLines = [];
+    function rowText(row) {
+      const cell = (c) => (c && typeof c === "object" && c.date ? String(c.date) : String(c === undefined || c === null ? "" : c)).replace(/\s+/g, " ").trim();
+      return (rows[row - 1] || []).map(cell).filter(Boolean).join(" · ").slice(0, 80);
+    }
+    root.addEventListener("toggle", (e) => { if (e.target.classList && e.target.classList.contains("tm-balcheck")) state.balOpen = e.target.open; }, true);
+    function skippedFold(sk) {
+      if (!sk.length) return "";
+      const items = sk.slice(0, 20).map((x) => `<li>${escapeHtml(tr("table.skipRow", { row: x.row, why: tr("table.skipWhy." + x.reason), text: rowText(x.row) || "—" }))}</li>`).join("");
+      const more = sk.length > 20 ? `<p class="hint">${escapeHtml(tr("table.skipMore", { n: sk.length - 20 }))}</p>` : "";
+      return `<details class="tm-skipped"><summary class="hint">${escapeHtml(tr("table.skipped", { n: sk.length }))}</summary><ul class="hint">${items}</ul>${more}</details>`;
+    }
+    function fileWarnings(lines) {
+      if (!lines.length) return "";
+      const warn = [];
+      if (lines.length >= 5 && lines.every((l) => l.amount > 0)) warn.push(tr("table.warnAllIn"));
+      if (lines.length >= 5 && lines.every((l) => l.amount < 0) && screenMode === "import") warn.push(tr("table.warnAllOut"));
+      const seen = {}; let twice = 0;
+      lines.forEach((l) => { const k = l.date + "|" + l.description + "|" + l.amount + "|" + l.currency; if (seen[k]) twice++; seen[k] = true; });
+      if (twice) warn.push(tr("table.warnTwice", { n: twice }));
+      // (spending only: one big salary among small purchases is normal)
+      const spent = lines.filter((l) => l.amount < 0), abs = spent.map((l) => -l.amount).sort((a, b) => a - b), median = abs[Math.floor(abs.length / 2)];
+      const big = spent.length >= 10 ? spent.filter((l) => -l.amount > median * 20 && -l.amount >= 1000).sort((a, b) => a.amount - b.amount) : [];
+      if (big.length) warn.push(tr("table.warnBig", { n: big.length, amount: fmtMoney(big[0].currency, Math.abs(big[0].amount)), date: fmtDate(big[0].date, true), name: big[0].description }));
+      const today = todayLocalISO(), later = lines.filter((l) => l.date > today).length;
+      if (later) warn.push(tr("table.warnFuture", { n: later }));
+      return warn.map((w) => `<p class="stmt-note warn">${escapeHtml(w)}</p>`).join("");
+    }
+    // The person's own balances at the start and the end: start + money in − money out should give the end. One currency, one account.
+    function balanceCheckHtml(lines) {
+      const curs = [...new Set(lines.map((l) => l.currency))];
+      if (!lines.length || curs.length !== 1 || multi()) return "";
+      return `<details class="tm-balcheck"${state.balOpen ? " open" : ""}><summary class="hint">${escapeHtml(tr("table.balCheck"))}</summary>
+        <p class="hint">${escapeHtml(tr("table.balCheckHint"))}</p>
+        <label class="hint">${escapeHtml(tr("table.balStart"))} <input type="text" inputmode="decimal" class="tm-bal" data-bal="start" value="${escapeHtml(state.balStart || "")}"></label>
+        <label class="hint">${escapeHtml(tr("table.balEnd"))} <input type="text" inputmode="decimal" class="tm-bal" data-bal="end" value="${escapeHtml(state.balEnd || "")}"></label>
+        <p class="tm-bal-result">${balanceResultHtml(lines)}</p></details>`;
+    }
+    function balanceResultHtml(lines) {
+      const a = parseFloat(String(state.balStart || "").replace(/,/g, "")), b = parseFloat(String(state.balEnd || "").replace(/,/g, ""));
+      if (isNaN(a) || isNaN(b) || !lines.length) return "";
+      const cur = lines[0].currency, net = lines.reduce((t, l) => t + l.amount, 0), off = Math.round((a + net - b) * 100) / 100;
+      if (Math.abs(off) < 0.005) return `<span class="stmt-note good">${escapeHtml(tr("table.balOk"))}</span>`;
+      return `<span class="stmt-note warn">${escapeHtml(tr(off > 0 ? "table.balOffMore" : "table.balOffLess", { amount: fmtMoney(cur, Math.abs(off)) }))}</span>`;
     }
     function applyAccountGuess() {
       // A card's purchases are usually positive: re-guess the sign for the chosen account, but only for a layout nobody has confirmed.
@@ -1318,7 +1377,7 @@
     }
     root.addEventListener("change", (e) => {
       const cls = (e.target.className.match(/tm-(\w+)/) || [])[1];
-      if (!cls) return;
+      if (!cls || cls === "bal") return;   // the balance boxes only update their own result line (the "input" handler below)
       const v = e.target.value;
       if (cls === "account") { state.accountId = v; applyAccountGuess(); syncControlsFromState(); }
       else if (cls === "vacct") { const val = e.target.closest(".tm-value").dataset.value; if (v) state.map[val] = v; else delete state.map[val]; }
@@ -1367,6 +1426,12 @@
       scheduleCategories();
     });
     root.addEventListener("input", (e) => {
+      if (e.target.classList.contains("tm-bal")) {
+        state[e.target.dataset.bal === "start" ? "balStart" : "balEnd"] = e.target.value;
+        const res = root.querySelector(".tm-bal-result");
+        if (res) res.innerHTML = balanceResultHtml(lastPreviewLines);
+        return;
+      }
       if (!e.target.classList.contains("tm-cname")) return;
       const row = e.target.closest(".tm-cat-row");
       state.catNames[row.dataset.key] = e.target.value;
