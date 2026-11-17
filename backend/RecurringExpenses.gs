@@ -1829,7 +1829,10 @@ function listExpectedRecurringItems() {
       day: Number(entry.occurrenceDate.slice(8, 10)),
       sort_date: entry.occurrenceDate,
       overdue: entry.occurrenceDate < todayStr,
-      once: normalizeRecurringFrequency_(r.frequency) === 'once'   // a one-time item has no "Skip this month" (it is not monthly)
+      once: normalizeRecurringFrequency_(r.frequency) === 'once',   // a one-time item has no "Skip this month" (it is not monthly)
+      // Left out of Projections' MONTH view (Projections.gs, recurringForPeriod: yearly or tagged Annual; never income), so Home
+      // says where it counts instead (testers, 2026-11-17: the two screens' "programmed" totals differed with no reason shown).
+      yearView: type !== 'income' && (r.frequency === 'yearly' || recurringIsAnnual_(r))
     });
   });
 

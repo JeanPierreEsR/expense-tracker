@@ -50,9 +50,11 @@ test("every text the screen can show exists in both languages", () => {
   ["yape_in", "yape_out", "plin_out", "other_manual"].forEach((k) => keys.push("be.kind." + k));
   keys.push("be.tab.bank", "be.tab.tx", "be.foot", "be.state.seen", "be.state.can", "be.state.none", "be.wallet.yape", "be.wallet.plin", "be.wallet.yapeAlone",
     "be.tx.hint", "be.tx.newest", "be.tx.fromStatement", "be.kind.must.yape_out", "be.tip.must.yape_out", "be.tip.yape");
+  const STRINGS = require(path.join(__dirname, "..", "..", "docs", "strings.js"));
+  const filled = (v) => (v && typeof v === "object" ? !!(v.one && v.other) : !!v);   // plain text, or a { one, other } pair
   keys.forEach((k) => {
-    const row = strings.match(new RegExp('"' + k.replace(/\./g, "\\.") + '": \\{ en: "([^"]*(?:\\\\.[^"]*)*)", es: "([^"]*(?:\\\\.[^"]*)*)" \\}'));
-    assert.ok(row && row[1] && row[2], k + " needs English and Spanish");
+    const row = STRINGS[k];
+    assert.ok(row && filled(row.en) && filled(row.es), k + " needs English and Spanish");
   });
 });
 

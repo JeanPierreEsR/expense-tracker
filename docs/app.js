@@ -8791,7 +8791,7 @@ function homeMainCard_(g) {
   }).join("");
 
   const el = homeCardEl_("home-card-main", `
-    <div class="home-card-label">${escapeHtml(label)}</div>
+    <div class="home-card-label home-card-label-info"><span>${escapeHtml(label)}</span>${infoBtnHtml_("result")}</div>
     <div class="home-big">${escapeHtml(homeWholeSigned_(net))}</div>
     ${four}
     <div class="home-bars-title">${escapeHtml(tr("home.barsTitle"))}</div>
@@ -23377,6 +23377,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
           <span class="expected-recurring-item-label">${item.category_icon ? item.category_icon + " " : ""}${escapeHtml(item.category_name)}${item.description ? " — " + escapeHtml(item.description) : ""}</span>
           <span class="expected-recurring-item-amount">${isIncome ? sensitiveHtml_(itemAmt) : itemAmt}</span>
         </div>
+        ${item.yearView ? `<p class="hint expected-year-view">${escapeHtml(tr("expected.yearView"))}</p>` : ""}
         <div class="expected-recurring-actions">
           <button type="button" data-act="paid" data-id="${item.id}"><span class="ico">${lineIcon_("check")}</span>${tr("expected.markPaid")}</button>
           ${item.once ? "" : `<button type="button" data-act="skip" data-id="${item.id}"><span class="ico">${lineIcon_("skip")}</span>${tr("expected.skipMonth")}</button>`}
@@ -24472,6 +24473,10 @@ function renderProjectionChart_(detail) {
     ? Math.max(0, convergenceTarget - actualSoFar - programmedTotal)
     : p.expectedRemainingPen;
   const expectedPerDay = daysLeft > 0 ? smoothRemaining / daysLeft : 0;
+  // A figure set by hand that is SMALLER than the programmed payments still due: each payment's step shrinks in proportion, so
+  // the line only goes up and ends on the figure (testers, 2026-11-17: it climbed by the full payments, then came back down).
+  const leftForBumps = convergenceTarget - actualSoFar;
+  const bumpScale = p.hasOverride && programmedTotal > leftForBumps + 0.004 ? Math.max(0, leftForBumps) / programmedTotal : 1;
 
   const convergenceVertices = [[startIdx, actualSoFar]];
   let cumulativeProgrammed = 0;
@@ -24480,7 +24485,7 @@ function renderProjectionChart_(detail) {
     if (idx < 0) return;
     const cumulativeExpected = expectedPerDay * (idx - startIdx);
     convergenceVertices.push([idx, actualSoFar + cumulativeExpected + cumulativeProgrammed]);
-    cumulativeProgrammed += occ.amountPen;
+    cumulativeProgrammed += occ.amountPen * bumpScale;
     convergenceVertices.push([idx, actualSoFar + cumulativeExpected + cumulativeProgrammed]);
   });
   convergenceVertices.push([n - 1, convergenceTarget]);
@@ -25249,17 +25254,27 @@ function openInfoCard_(btn) {
 (function setupInfoBtns_() {
   dressInfoBtns_();
   // A tap elsewhere closes it; a finger that scrolls does not (a phone ends a scroll with pointercancel).
-  let downAt = null;
+  // A tap on the dim outside a window while a card is open closes ONLY the card: the window stays (testers, 2026-11-17: one
+  // tap used to close both). The click that follows that tap is swallowed before the sheets' outside-tap rule sees it.
+  let downAt = null, keepSheet = null;
   document.addEventListener("pointerdown", (e) => {
-    downAt = infoOpen_ && !infoOpen_.card.contains(e.target) && !infoOpen_.btn.contains(e.target) ? { x: e.clientX, y: e.clientY } : null;
+    downAt = infoOpen_ && !infoOpen_.card.contains(e.target) && !infoOpen_.btn.contains(e.target) ? { x: e.clientX, y: e.clientY, target: e.target } : null;
   }, true);
   document.addEventListener("pointerup", (e) => {
-    if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 10) closeInfoCard_();
+    if (downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) < 10) {
+      const t = downAt.target;
+      keepSheet = t && t.classList && t.classList.contains("currency-modal-backdrop") ? t : null;
+      closeInfoCard_();
+    }
     downAt = null;
   }, true);
   document.addEventListener("pointercancel", () => { downAt = null; }, true);
   // On window, capture: before a label focuses its box and before the Overview Result block opens its list.
   window.addEventListener("click", (e) => {
+    if (keepSheet) {
+      const sheet = keepSheet; keepSheet = null;
+      if (e.target === sheet) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    }
     const btn = e.target.closest && e.target.closest(".info-btn");
     if (!btn) return;
     e.preventDefault();
@@ -32375,6 +32390,8 @@ function openForgiveModal(loan, returnFriend) {
   document.getElementById("forgive-modal-title").textContent = forgiveTitle;
   document.getElementById("forgive-save-btn").textContent = tr(loan.direction === "i_owe_them" ? "forgive.saveTheyForgave" : "forgive.save");
   document.getElementById("forgive-form-error").textContent = "";
+  document.querySelectorAll("#forgive-modal-backdrop .field-error-msg").forEach((m) => m.remove());
+  document.querySelectorAll("#forgive-modal-backdrop .field-invalid").forEach((f) => f.classList.remove("field-invalid"));
   document.getElementById("forgive-context").textContent =
     tr("forgive.context", { name: loan.description || tr("loan.word"), cur: loan.currency, amount: moneyFmt(loan.remaining) });
 
@@ -32480,9 +32497,11 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
   const categoryId = document.getElementById("forgive-category").value;
   const date = document.getElementById("forgive-date").value;
   const amount = parseFloat(document.getElementById("forgive-amount").value.replace(",", "."));
-  if (convert && !(amount > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
-  if (convert && !categoryId && !forgiveLoanTarget.pending_income) { errorEl.textContent = tr("error.pickCategory"); return; }
-  if (convert && !date) { errorEl.textContent = tr("error.dateRequired"); return; }
+  // Each message under its own box, which is scrolled into view: one line above the button used to push the button below the
+  // window's edge (testers, 2026-11-17).
+  if (convert && !(amount > 0)) { showFieldError_(document.getElementById("forgive-amount"), tr("error.validAmount")); return; }
+  if (convert && !categoryId && !forgiveLoanTarget.pending_income) { showFieldError_(document.getElementById("forgive-category"), tr("error.pickCategory")); return; }
+  if (convert && !date) { showFieldError_(document.getElementById("forgive-date"), tr("error.dateRequired")); return; }
 
   if (convert && amount > forgiveLoanTarget.remaining + 0.004) {
     errorEl.textContent = tr("forgive.tooMuchPhone", { remaining: forgiveLoanTarget.remaining.toFixed(2) });
