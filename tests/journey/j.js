@@ -112,11 +112,20 @@ function statement(p, layout, a, year, mo) {
   let buf, ext = "pdf";
   if (layout === "bcpSavings") buf = F.bcpSavingsPdf({ holder, code: a.code || "191-00000000-0-00", start, end, opening, lines });
   if (layout === "interbankSavings") buf = F.interbankSavingsPdf({ holder, number: a.number || "200-3000000000", start, end, opening, lines });
-  if (layout === "bcpCard") buf = F.bcpCardPdf({ holder, last4: a.last4, start, end, previous: { PEN: 1200, USD: 0 }, lines });
-  if (layout === "interbankCard") buf = F.interbankCardPdf({ holder, last4: a.last4, start, end, previous: { PEN: 1200, USD: 0 }, lines });
+  // A card's statement starts where last month's closed (the first one the person brings starts at a made-up debt).
+  const previous = card ? cardOpening(p, layout, a, year, mo) : null;
+  if (layout === "bcpCard") buf = F.bcpCardPdf({ holder, last4: a.last4, start, end, previous, lines });
+  if (layout === "interbankCard") buf = F.interbankCardPdf({ holder, last4: a.last4, start, end, previous, lines });
   if (layout === "bbvaMovements") { buf = F.bbvaMovementsXlsx({ lines }); ext = "xlsx"; }
   if (layout === "scotiabankMovements") { buf = Buffer.from(F.scotiabankMovementsCsv({ lines })); ext = "csv"; }
-  return { buf, file: `${name}-${first.slice(0, 7)}.${ext}`, lines: lines.length, start, end };
+  const owed = card ? { PEN: Math.round((previous.PEN - lines.filter((l) => l.currency !== "USD").reduce((x, l) => x + l.amount, 0)) * 100) / 100, USD: Math.round((previous.USD - lines.filter((l) => l.currency === "USD").reduce((x, l) => x + l.amount, 0)) * 100) / 100 } : null;
+  return { buf, file: `${name}-${first.slice(0, 7)}.${ext}`, lines: lines.length, start, end, owed };
+}
+// What the card owed when the cycle before (year, mo) closed: the month before the journey's first statement starts at S/ 1,200.
+function cardOpening(p, layout, a, year, mo) {
+  const firstMonth = +p.clockStart.slice(0, 4) * 12 + +p.clockStart.slice(5, 7) - 1;   // the month the person brings on day 1
+  if (year * 12 + mo <= firstMonth) return { PEN: 1200, USD: 0 };
+  return statement(p, layout, a, year, mo - 1).owed;
 }
 
 // The statements the person's banks e-mail every month (only layouts the app reads, from the addresses the app knows):
