@@ -43,6 +43,16 @@ async function tableLines(buf, name) {
 }
 
 (async () => {
+  // With file names: read those (a persona's files/), report what the app's reader makes of each.
+  const given = process.argv.slice(2);
+  if (given.length) {
+    for (const f of given) {
+      const buf = require("fs").readFileSync(f);
+      if (/\.pdf$/i.test(f)) { const r = await pdfLines(buf); console.log((r.ok ? "ok" : "FAILED").padEnd(7), path.basename(f), r.kind, r.bank || "", "lines", r.lines.length, (r.errors || []).join(" | ")); }
+      else { const r = await tableLines(buf, f); console.log("ok".padEnd(7), path.basename(f), r.known || "columns guessed", "lines", r.lines.length, "skipped", r.skipped.length); }
+    }
+    return;
+  }
   const results = [];
   const pdfs = {
     "interbank-savings": F.interbankSavingsPdf({ holder: "ANA LO*", number: "200-3001234567", start: "2026-10-01", end: "2026-10-31", opening: 1500, lines }),

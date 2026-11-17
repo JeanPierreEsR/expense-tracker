@@ -134,7 +134,7 @@ function attach(rt) {
   // ---- E-mail delivery at a moment ----
   function queueMail(items) {
     items.forEach((it) => {
-      const mail = it.kind ? bankMail(it) : { from: it.from, subject: it.subject, body: it.body };
+      const mail = it.kind ? bankMail(it) : { from: it.from, to: it.to, subject: it.subject, body: it.body, attachments: it.attachments || [] };
       mailQueue.push({ at: it.at ? (typeof it.at === "number" ? it.at : clock.limaMs(it.at)) : clock.now(), mail });
     });
     mailQueue.sort((a, b) => a.at - b.at);
