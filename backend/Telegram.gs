@@ -169,7 +169,24 @@ function telegramApi_(method, payload) {
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   });
-  return JSON.parse(res.getContentText());
+  var out = JSON.parse(res.getContentText());
+  if (method === 'sendMessage' && out && out.ok && out.result && out.result.message_id) telegramNoteSent_(out.result.message_id, payload);
+  return out;
+}
+
+// The "last message" rule, the same as WhatsApp's (owner, 2026-11-16): every message the bot sends is remembered (TG_LAST_OUT),
+// and an answer that quotes a transaction's message ("✅ Confirmed.", a list, the tag question) belongs to that transaction too,
+// like its card. A message sent without replying is then about the transaction of the bot's last message, waiting or confirmed.
+function telegramNoteSent_(messageId, payload) {
+  try {
+    PropertiesService.getScriptProperties().setProperty('TG_LAST_OUT', String(messageId));
+    var entryId = payload && payload.reply_to_message_id ? whatsappCardEntry_(payload.reply_to_message_id) : '';
+    if (entryId) appendRowObject('Telegram Messages', { message_id: String(messageId), entry_id: entryId, created_at: new Date().toISOString() });
+  } catch (err) { /* remembering never fails a send */ }
+}
+function telegramLastTarget_() {
+  var id = String(PropertiesService.getScriptProperties().getProperty('TG_LAST_OUT') || '');
+  return id && whatsappCardEntry_(id) ? id : '';
 }
 
 // ---- Outgoing notifications ----
@@ -741,7 +758,23 @@ function handleTelegramMessage_(msg) {
   // Not a reply to anything: assume it is about the last notification, if
   // that was an entry card still pending approval. Otherwise (an alert, a
   // confirmed/removed entry, nothing yet) ask for a direct reply.
-  var targetMessageId = msg.reply_to_message ? msg.reply_to_message.message_id : lastPendingCardMessageId_();
+  var targetMessageId;
+  if (msg.reply_to_message) targetMessageId = msg.reply_to_message.message_id;
+  else if (String(msg.chat.id) === WA_CHAT_ID_) targetMessageId = lastPendingCardMessageId_();   // WhatsApp chose its target already
+  else {
+    // The same rule as WhatsApp (owner, 2026-11-16): the transaction of the bot's last message, waiting or confirmed. When that
+    // message was not about a transaction (an alert, the help): an edit word goes to the last waiting transaction, as before;
+    // plain words are read as a new purchase, and with no amount the bot says how to write one.
+    var lastTg = telegramLastTarget_();
+    var isCommand = startsWithEditKeyword_(text) || /^\/?(?:help|ayuda)$/i.test(text) ||
+      /^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)\b|^(?:(?:convert\s+to|convertir\s+en)\s+)?(?:loan|pr[eé]stamo)\b/i.test(text);
+    if (lastTg) targetMessageId = lastTg;
+    else if (isCommand) targetMessageId = lastPendingCardMessageId_();
+    else {
+      telegramApi_('sendMessage', { chat_id: msg.chat.id, text: tr_('whatsapp.unreadable'), reply_to_message_id: msg.message_id, allow_sending_without_reply: true });
+      return;
+    }
+  }
   if (!targetMessageId) {
     telegramApi_('sendMessage', {
       chat_id: msg.chat.id, text: tr_('bot.replyToACard'),
