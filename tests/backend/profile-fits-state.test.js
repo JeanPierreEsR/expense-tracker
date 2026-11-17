@@ -108,5 +108,5 @@ test("the new texts exist in both languages and the intro now says a hidden or d
   assert.match(STRINGS["prof.fitsPicked"].es.one, /elegida/);
   // Since the info buttons (owner, 2026-11-16) the open row's note is short and the ⓘ card says it.
   assert.match(STRINGS["info.fits"].en, /hid or deleted/);
-  assert.match(STRINGS["info.fits"].es, /ocultaste o borraste/);
+  assert.match(STRINGS["info.fits"].es, /ocultaste o eliminaste/);
 });

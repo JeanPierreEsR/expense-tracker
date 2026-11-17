@@ -1656,6 +1656,7 @@ body.sheet-open {
   font-size: 0.875rem;
   color: var(--text);
 }
+.expected-year-view { margin: -4px 0 8px; }
 
 /* Programmed income is masked until "Show income amounts" is tapped. */
 .sens-real { display: none; }
@@ -3064,6 +3065,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-glance-dots span.on { background: var(--muted); }
 
 .home-card-label { color: var(--muted); font-size: 0.875rem; }
+.home-card-label-info { display: flex; align-items: center; }   /* "Result this month ⓘ" (testers, 2026-11-17) */
 .home-big { font-size: 2rem; font-weight: 700; margin: 2px 0; letter-spacing: -0.5px; }
 .home-delta { font-size: 0.875rem; color: var(--muted); }
 .home-delta.good { color: var(--income); }
@@ -4094,7 +4096,12 @@ body:has(> .spot-root) .info-btn { visibility: hidden; }   /* nothing extra to t
 .info-pair { display: inline-flex; align-items: center; }
 .info-pair > .info-btn { margin-left: 0; }
 .info-pair:has(> [hidden]:first-child) { display: none; }
-.cm-title-info { display: inline-flex; align-items: center; min-width: 0; }
+/* A window title with its ⓘ: written as running text, so a title that wraps (Larger Text, a narrow phone) keeps the ⓘ right after
+   its last word; where the ⓘ's 45 px tap area meets the ✕, the ✕ is on top, so a tap there closes (testers, 2026-11-17). */
+.cm-title-info { display: block; flex: 0 1 auto; min-width: 0; text-wrap: balance; }   /* balanced lines: the ⓘ goes down with the last word(s), never alone */
+.cm-title-info > .info-btn { vertical-align: -1px; }
+.currency-modal-header > .currency-modal-close { position: relative; z-index: 1; }/* ⓘ that ends a row before its › arrow: never closer than its own tap area. */
+.md-fold-line { padding-right: 16px; }
 .info-row > .settle-choose-row { flex: 0 1 auto; }
 .info-row > .settle-choose-row + .info-btn { margin-top: 0; }
 /* Forgive a debt (owner, 2026-11-16): the ⓘ beside the button, before it is pressed. */
