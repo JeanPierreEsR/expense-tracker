@@ -403,6 +403,8 @@ async function phone(p) {
   }
   async function live(args) {
     const st = readState(p);
+    // Day 1 belongs to the tester (they typed that day themselves): the routine days start on day 2.
+    if (st.livedUntil < st.journeyStart) st.livedUntil = st.journeyStart;
     const until = args.until || life.addDays(st.livedUntil, Number(args.days || 1));
     const report = [];
     actor = "robot";
