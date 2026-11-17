@@ -14402,10 +14402,11 @@ async function waNext_() {
   const typed = waEl_("wa-name").value.trim().replace(/\s+/g, " ");
   if (typed && !ownerNameLooksReal_(typed)) { waEl_("wa-error").textContent = tr("ownerNames.badName", { name: typed }); return; }
   welcome_.ownName = typed;
-  // Alert when an account could carry Yape or Plin but none has been ticked; the person may go back and tick them.
+  // When an account could carry Yape or Plin but none has been ticked: ASK whether the person uses them (journeys run, 2026-11-17: 9
+  // people who never used either were told they had not linked them); "I don't use them" goes on, the other answer goes back.
   const canLink = welcome_.accounts.some((a) => waSlots_(a.bank, a.kind).length);
   const linked = WA_RAILS.some((k) => welcome_.accounts.some((a) => a.cid === welcome_.links[k]));
-  if (canLink && !linked && !await askConfirmApp_(tr("wallets.confirm"), tr("confirmBtn.continueAnyway"), { plain: true, cancel: tr("confirmBtn.goBackLink") })) return;
+  if (canLink && !linked && !await askConfirmApp_(tr("wallets.confirm"), tr("confirmBtn.dontUseWallets"), { plain: true, cancel: tr("confirmBtn.goBackCheck") })) return;
   showWelcomeStep_(4);
 }
 
