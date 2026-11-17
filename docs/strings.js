@@ -643,6 +643,8 @@
     "home.budgetOf": { en: "of {total}", es: "de {total}" },
     "home.budgetLeft": { en: "Budget left: {amount}", es: "Queda del presupuesto: {amount}" },   // one name per meaning of "left" (design review 2026-11-12)
     "home.budgetOver": { en: "{amount} over", es: "Te pasaste por {amount}" },
+    "home.budgetProgrammed": { en: "+ {amount} programmed · would reach {pct}%", es: "+ {amount} programado · llegaría a {pct}%" },
+    "home.budgetWouldOver": { en: "Would be {amount} over", es: "Te pasarías por {amount}" },
     "home.budgetDays": { en: "Days left: {n}", es: "Días restantes: {n}" },
     "home.budgetPerDay": { en: "About {amount} a day", es: "Unos {amount} al día" },
     "home.budgetsOver": { en: { one: "{n} budget is over", other: "{n} budgets are over" }, es: { one: "Te pasaste en {n} presupuesto", other: "Te pasaste en {n} presupuestos" } },

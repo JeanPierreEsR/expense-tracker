@@ -113,7 +113,7 @@ function getHomeGlance() {
 
   var budget = null;
   if (monthlyBudgets.length) {
-    var listed = listBudgets({});
+    var listed = listBudgets({ monthProgrammed: { start: curKey + '-01', end: curKey + '-' + pad2_(pace.curDays) } });
     var totalPen = listed.summary.monthlyPen;
     // How many monthly budgets are already over (owner, 2026-11-07): "left" adds the budgets together on purpose (overspending in one
     // leaves less for the others), so the card says it in words instead of letting the overruns disappear into the total.
@@ -121,7 +121,7 @@ function getHomeGlance() {
       var p = b.progress;
       return b.period_type === 'monthly' && p && p.spent != null && p.spent > p.effectiveAmount + 0.005;
     }).length;
-    if (totalPen > 0) budget = { totalPen: totalPen, spentPen: budgetSpent, daysLeft: pace.curDays - curDay, overCount: overCount };
+    if (totalPen > 0) budget = { totalPen: totalPen, spentPen: budgetSpent, programmedPen: listed.summary.monthProgrammedPen || 0, daysLeft: pace.curDays - curDay, overCount: overCount };
   }
 
   return { months: months, pace: pace, budget: budget, trips: homeActiveTrips_(today), unreadable: unreadableSheetRows_(), charges: pendingChargesSummary_() };

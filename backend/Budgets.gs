@@ -505,6 +505,15 @@ function listBudgets(payload) {
     return !!x.start_later || (!!first && !!x.progress.endDate && first > x.progress.endDate);
   });
   budgets = budgets.filter(function (x) { return x.active_now; });   // the totals card: standing budgets, whatever period is shown
+  // Home's Monthly budget card (owner, 2026-11-16): the Programmed items still to come this month in the categories of the monthly
+  // budgets running now, each counted once even when two budgets hold it, in the main currency. Only when Home asks.
+  var monthProgrammedPen = null;
+  if (payload && payload.monthProgrammed) {
+    var mBudgets = budgets.filter(function (x) { return x.period_type === 'monthly' && !x.annual_kind; });
+    monthProgrammedPen = !mBudgets.length ? 0 : budgetProgrammedSum_(programmedPre, ctx, function (r) {
+      return mBudgets.some(function (x) { return recurringInBudget_(ctx, x.id, x.category_ids, r, true); });
+    }, homeCurrency_(), payload.monthProgrammed.start, payload.monthProgrammed.end, todayIso);
+  }
   var allExpenseCategoryIds = Object.keys(categoryById).filter(function (id) {
     return categoryById[id].type === 'expense';
   });
@@ -588,6 +597,7 @@ function listBudgets(payload) {
     later: later,
     summary: {
       monthlyPen: monthlyPen,
+      monthProgrammedPen: monthProgrammedPen,
       yearlyPen: yearlyPen,
       excludedCount: excludedCount,
       overlapNotes: overlapNotes
@@ -610,12 +620,17 @@ function budgetProgrammedPrep_() {
   return pre;
 }
 function budgetProgrammedLeft_(pre, ctx, budgetId, categoryIds, currency, startDate, endDate, today, excludeAnnual) {
+  return budgetProgrammedSum_(pre, ctx, function (r) { return recurringInBudget_(ctx, budgetId, categoryIds, r, excludeAnnual); },
+    currency, startDate, endDate, today);
+}
+// The same sum for any test of "is this item in the budget(s)": Home's card counts an item once if ANY monthly budget holds it.
+function budgetProgrammedSum_(pre, ctx, inBudget, currency, startDate, endDate, today) {
   if (!pre.recurring.length || !startDate || !endDate || endDate < today) return 0;
   var from = startDate < today ? today : startDate;
   var rate = latestRateAtOrBefore_(ctx, currency, endDate.substring(0, 7));
   var total = 0;
   pre.recurring.forEach(function (r) {
-    if (!recurringInBudget_(ctx, budgetId, categoryIds, r, excludeAnnual)) return;
+    if (!inBudget(r)) return;
     var reCurrency = r.currency || homeCurrency_();
     var own = recurringOwnAmount_(r, pre.splitSums);
     var amt = null;
