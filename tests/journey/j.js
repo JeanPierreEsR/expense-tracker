@@ -295,7 +295,11 @@ async function phone(p) {
     });
     // One item per thing: a word inside a tappable row is the row.
     // (only when the outer item says little more: a whole pop-up holding the button's word is not the button)
-    const keep = clickables.filter((c) => !clickables.some((o) => o !== c && o.e.contains(c.e) && o.label.includes(c.label) && o.label.length - c.label.length <= 15));
+    // (a real button inside a tappable row — a short Needs review row and its Confirm — stays its own item unless the words are the same)
+    const control = (c) => /^(button|a|input|select|textarea)/.test(c.kind);
+    // (a plain div/span that is "tappable" only because it sits inside a tappable row inherits the row's pointer: it IS the row)
+    const inherited = (c) => /^(div|span|li)$/.test(c.kind) && !c.e.matches("[role], [onclick], [tabindex]");
+    const keep = clickables.filter((c) => !clickables.some((o) => o !== c && o.e.contains(c.e) && ((inherited(c) && o.label.includes(c.label)) || (o.label.includes(c.label) && o.label.length - c.label.length <= 15 && !(control(c) && o.label !== c.label)))));
     const out = keep.slice(0, 130).map((c, i) => {
       c.e.setAttribute("data-jn", String(i + 1));
       const lab = c.e.labels && c.e.labels[0] ? c.e.labels[0].innerText.trim().slice(0, 40) : "";
