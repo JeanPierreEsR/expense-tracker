@@ -237,10 +237,10 @@
           <label for="date" id="entry-date-label" data-i18n="field.date">Date</label>
           <input type="date" id="date" required>
           <div id="entry-opening-row" hidden>
-            <label class="checkbox-row">
+            <div class="info-row"><label class="checkbox-row">
               <input type="checkbox" id="entry-opening">
               <span data-i18n="loanModal.opening">This debt is from before I started using the app</span>
-            </label>
+            </label><button type="button" class="info-btn" data-info="opening" data-i18n-aria-label="info.opening.name" aria-label="About a debt from before" aria-expanded="false"></button></div>
             <p class="hint" id="entry-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
           </div>
           <div id="repeat-field" hidden>
@@ -2074,9 +2074,9 @@
         <span id="loan-detail-title" data-i18n="common.friend">Friend</span>
         <button type="button" id="loan-detail-modal-close" class="currency-modal-close">✕</button>
       </div>
-      <p class="hint" id="loan-detail-subtitle"></p>
+      <div class="info-line ld-sub-line"><p class="hint" id="loan-detail-subtitle"></p><button type="button" class="info-btn" data-info="loanBalance" data-i18n-aria-label="info.loanBalance.name" aria-label="About what is owed" aria-expanded="false"></button></div>
       <div class="loan-detail-actions">
-        <button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">Record repayment</button>
+        <span class="info-pair"><button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">Record repayment</button><button type="button" class="info-btn" data-info="repay" data-i18n-aria-label="info.repay.name" aria-label="About Record repayment" aria-expanded="false"></button></span>
         <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">Repayment history</button>
         <button type="button" class="add-inline" id="loan-remind-btn" hidden data-i18n="remind.button">Remind on WhatsApp</button>
       </div>
@@ -2170,7 +2170,7 @@
           <input type="date" id="bank-date">
           <!-- A loan from before the app (owner, 2026-11-08): only what is still owed is saved, no money entry, no account. -->
           <div id="bank-opening-row" hidden>
-            <label class="settle-choose-row bank-opening-check"><input type="checkbox" id="bank-opening"><span data-i18n="bank.opening">This loan is from before I started using the app</span></label>
+            <div class="info-row"><label class="settle-choose-row bank-opening-check"><input type="checkbox" id="bank-opening"><span data-i18n="bank.opening">This loan is from before I started using the app</span></label><button type="button" class="info-btn" data-info="bankOpening" data-i18n-aria-label="info.bankOpening.name" aria-label="About a loan from before" aria-expanded="false"></button></div>
             <p class="hint" id="bank-opening-hint" hidden data-i18n="bank.openingHint">Only what is still owed is saved: no money entry and no change to any account. Installments dated before today count as already paid.</p>
             <div id="bank-opening-how" hidden>
               <strong data-i18n="bank.openingHow">Enter it…</strong>
@@ -2563,10 +2563,10 @@
 
         <label for="loan-date" id="loan-date-label" data-i18n="field.date">Date</label>
         <input type="date" id="loan-date">
-        <label class="checkbox-row" id="loan-opening-row">
+        <div class="info-row"><label class="checkbox-row" id="loan-opening-row">
           <input type="checkbox" id="loan-opening">
           <span data-i18n="loanModal.opening">This debt is from before I started using the app</span>
-        </label>
+        </label><button type="button" class="info-btn" data-info="opening" data-i18n-aria-label="info.opening.name" aria-label="About a debt from before" aria-expanded="false"></button></div>
         <p class="hint" id="loan-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
 
         <div id="loan-due-wrap">
@@ -3250,7 +3250,7 @@
   <div id="forgive-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="forgive-modal-title" data-i18n="forgive.title">Forgive loan</span>
+        <span class="cm-title-info"><span id="forgive-modal-title" data-i18n="forgive.title">Forgive loan</span><button type="button" class="info-btn" data-info="forgive" data-i18n-aria-label="info.forgive.name" aria-label="About Forgive" aria-expanded="false"></button></span>
         <button type="button" id="forgive-modal-close" class="currency-modal-close">✕</button>
       </div>
       <div class="budget-modal-body">
