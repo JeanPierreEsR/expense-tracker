@@ -4086,8 +4086,9 @@ body:has(> .spot-root) .info-btn { visibility: hidden; }   /* nothing extra to t
 .ov-annual-head { display: flex; align-items: center; margin-bottom: 6px; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
 .ov-annual-tabs { grid-template-columns: repeat(3, 1fr); }
 /* Loans' ⓘ (batch 4): beside a friend's headline (only once it shows amounts), beside Record repayment, in the Forgive title. */
-.info-line { display: flex; align-items: center; gap: 0 4px; }
-.ld-sub-line:not(:has(> .ld-headline)) > .info-btn { display: none; }
+/* The ⓘ beside the person's first amount, centred on it (owner, 2026-11-16). */
+.ld-head-amt-row { display: flex; align-items: center; }
+.ld-head-amt-row > .info-btn { margin-left: 8px; }
 .info-pair { display: inline-flex; align-items: center; }
 .info-pair > .info-btn { margin-left: 0; }
 .info-pair:has(> [hidden]:first-child) { display: none; }

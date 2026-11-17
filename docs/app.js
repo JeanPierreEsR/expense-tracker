@@ -25219,6 +25219,7 @@ function popTipTick_() {
   if (!tip.stillWanted()) { popTipStopWatch_(); return; }
   if (Spotlight.isRunning()) { teachSpotVisit_ = teachVisit_; return; }   // nothing else unasked on the visit a tutorial ran
   if (editModeOn_() || !document.getElementById("welcome-overlay").hidden || popTyping_()) return;
+  if (infoOpen_) return;   // an info card the person opened is being read: the bubble waits (never two cards at once)
   if (tip.ready && !tip.ready()) return;
   if (realStartPending_ && !tip.help) return;   // the real tutorial comes first (rule 1)
   if (tip.steps) {   // pass over the parts that do not apply here
@@ -27007,7 +27008,7 @@ function idleStop_() { idleTip_ = null; if (idleTimer_) { clearInterval(idleTime
 function idleTick_() {
   const tip = idleTip_;
   if (!tip || !tip.wanted()) { idleStop_(); return; }
-  if (document.hidden || idleChooser_ || perfInflight_ > 0 || popTyping_() || !realScreenFree_()) return;
+  if (document.hidden || idleChooser_ || perfInflight_ > 0 || popTyping_() || infoOpen_ || !realScreenFree_()) return;
   if (Date.now() - idleScrollAt_ < 1000) return;   // scrolling pauses the count (owner, 2026-11-12); it does not restart it
   if (++idleCount_ < idleNeeded_()) return;
   const el = tip.target();
@@ -29022,10 +29023,16 @@ async function openLoanDetail(friendId, friendName, projectId) {
   // a small label, then each currency's amount large. Its text reads the same as before (the repayment history reuses it).
   const sub = document.getElementById("loan-detail-subtitle");
   if (netParts.length) {
+    let infoPlaced = false;   // the ⓘ (what is owed) sits beside the first amount only, centred on it
     const side = (sign, key) => {
       const curs = Object.keys(netByCurrency).filter((cur) => sign * netByCurrency[cur] > 0.004);
       if (!curs.length) return "";
-      const amts = curs.map((cur) => `<span class="ld-head-amt${sign > 0 ? " pos" : ""}">${sign > 0 ? "+" : "−"}${escapeHtml(cur)} ${moneyFmt(Math.abs(netByCurrency[cur]))}</span>`).join(" ");
+      const amts = curs.map((cur) => {
+        const amt = `<span class="ld-head-amt${sign > 0 ? " pos" : ""}">${sign > 0 ? "+" : "−"}${escapeHtml(cur)} ${moneyFmt(Math.abs(netByCurrency[cur]))}</span>`;
+        if (infoPlaced) return amt;
+        infoPlaced = true;
+        return `<span class="ld-head-amt-row">${amt}${infoBtnHtml_("loanBalance")}</span>`;
+      }).join(" ");
       return `<span class="ld-head-side"><span class="ld-head-label">${escapeHtml(tr(key))}</span> ${amts}</span>`;
     };
     sub.innerHTML = [side(1, "loanDetail.owesYouLabel"), side(-1, "loanDetail.youOweThemLabel")].filter(Boolean).join(" ");
