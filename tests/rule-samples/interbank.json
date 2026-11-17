@@ -2,7 +2,13 @@
   "interbank-pago-servicios": [
     { "subject": "Constancia de pago", "body": "Moneda y monto S/ 45.00\nEmpresa Agua Prueba\nCuenta cargo\nCuenta Simple\nSoles\n000 0000000789\nCódigo de operación: EF9012",
       "expect": { "type": "expense", "amount": 45, "currency": "PEN", "merchant": "Agua Prueba", "last4": "0789", "externalId": "EF9012" } },
-    { "subject": "Constancia de pago Plin", "body": "Moneda y monto S/ 45.00", "matches": false }
+    { "subject": "Constancia de pago Plin", "body": "Moneda y monto S/ 45.00", "matches": false },
+    { "subject": "Constancia de pago", "body": "Constancia de pago\nCódigo de operación\n0900011\nFecha y hora\n10 Nov 2026\n09:00 AM\nCuenta cargo\nCuenta Simple\nDólares\n000 0000000789\nTarjeta de crédito\nInterbank Visa Infinite\nSoles\n400000******0456\nMoneda y monto\nUS$ 123.45", "matches": false }
+  ],
+  "interbank-pago-tarjeta": [
+    { "subject": "Constancia de pago", "body": "Constancia de pago\nCódigo de operación\n0900011\nFecha y hora\n10 Nov 2026\n09:00 AM\nCuenta cargo\nCuenta Simple\nDólares\n000 0000000789\nTarjeta de crédito\nInterbank Visa Infinite\nSoles\n400000******0456\nMoneda y monto\nUS$ 123.45",
+      "expect": { "type": "transfer", "amount": 123.45, "currency": "USD", "description": "Pago tarjeta Interbank", "last4": "0789", "toLast4": "0456", "externalId": "0900011" } },
+    { "subject": "Constancia de pago", "body": "Moneda y monto S/ 45.00\nEmpresa Agua Prueba\nCuenta cargo\nCuenta Simple\nSoles\n000 0000000789\nCódigo de operación: EF9012", "matches": false }
   ],
   "interbank-transferencia": [
     { "subject": "Constancia de transferencia", "body": "Monto y moneda: S/ 150.00\nCuenta destino: Ana Prueba Test\nCuenta a cargo\nCuenta Simple\nSoles\n000 0000000123\nCódigo de operación: AB1234",

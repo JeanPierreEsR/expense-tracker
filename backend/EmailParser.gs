@@ -471,10 +471,39 @@ var EMAIL_RULES = [
       };
     }
   },
+  // A "Constancia de pago" that pays one of the person's OWN cards (owner, 2026-11-17): it names the card under "Tarjeta de crédito"
+  // (or "Tarjeta de crédito pagada" when paid with a debit card) and has no "Empresa". It is a transfer: From = the account under
+  // "Cuenta cargo" (blank when a debit card paid: "Tarjeta de cargo" names a card, not an account), To = the card with those last four
+  // digits (`toLast4`, resolved in processOneMessage_; a card that is not one of the person's accounts stays an expense for review).
+  // Checked on the owner's whole mailbox (2026-11-17): the "pagaste la deuda" e-mail never comes for the same payment, so no join.
+  {
+    bank: 'Interbank', sender: 'servicioalcliente@netinterbank.com.pe',
+    label: 'Pago de tarjeta (Constancia)',
+    match: function (subject, body) {
+      return /^constancia de pago$/i.test(subject.trim()) && /tarjeta de cr[eé]dito/i.test(body || '') && !/\bempresa\b/i.test(body || '');
+    },
+    extract: function (subject, body) {
+      var amt = extractAmount_(afterLabel_(body, 'Moneda y monto') || body);
+      if (!amt) return null;
+      var toLast4 = extractAccountLast4_(body, 'Tarjeta de cr[eé]dito');
+      if (!toLast4) return null;
+      var byDebitCard = /tarjeta de cargo/i.test(body);
+      var fields = {
+        type: 'transfer', amount: amt.amount, currency: amt.currency,
+        description: 'Pago tarjeta Interbank',
+        last4: byDebitCard ? null : extractAccountLast4_(body, 'Cuenta cargo'),
+        toLast4: toLast4,
+        externalId: afterLabel_(body, 'Código de operación')
+      };
+      if (byDebitCard) fields.cardUnknown = true;   // a debit card paid: never guess the account
+      return fields;
+    }
+  },
   {
     bank: 'Interbank', sender: 'servicioalcliente@netinterbank.com.pe',
     label: 'Pago de servicios',
-    match: function (subject) { return /^constancia de pago$/i.test(subject.trim()); },
+    // A bill payment always names the company ("Empresa"); a card payment is the rule above.
+    match: function (subject, body) { return /^constancia de pago$/i.test(subject.trim()) && /\bempresa\b/i.test(body || ''); },
     extract: function (subject, body) {
       var amt = extractAmount_(afterLabel_(body, 'Moneda y monto') || body);
       if (!amt) return null;
@@ -1024,6 +1053,15 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     // (a transfer, "Yape a Ana Lo*") is filed under its description, the key PayeeGuess.gs / CategoryFollow.gs read.
     merchant: normalizeMerchant_(fields.merchant) || normalizeMerchant_(fields.description)
   };
+
+  // A rule that names the destination card by its digits (`toLast4`, Interbank "Constancia de pago" of a card): To = the person's account
+  // with those digits. None (another person's card, or a card not in the app) = it is not a transfer between own accounts: it stays an
+  // expense, waiting in Needs review like everything automated.
+  if (fields.toLast4) {
+    var dests = paymentMethods.filter(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.toLast4) && (!paymentMethod || pm.id !== paymentMethod.id); });
+    if (dests.length === 1) { ensureEntriesToPaymentMethodColumn_(); entry.to_payment_method_id = dests[0].id; }
+    else { entry.type = 'expense'; entry.description = 'Pago de tarjeta …' + fields.toLast4; }
+  }
 
   // A card-bill-payment email comes from the CARD's bank and names the
   // card, but the money left some other account of the owner's — so the
