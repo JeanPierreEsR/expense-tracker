@@ -4109,3 +4109,4 @@ body:has(> .spot-root) .info-btn { visibility: hidden; }   /* nothing extra to t
 .md-fold .more-list-chevron { pointer-events: none; }
 /* A heading with an ⓘ keeps the two on one middle. */
 h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
+.drilldown-projection-label .info-pair > .info-btn { margin-left: 6px; }

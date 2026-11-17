@@ -729,7 +729,7 @@
           <summary class="add-inline" data-i18n="projections.howCalc">How is this calculated?</summary>
           <p class="hint" id="projections-method-note"></p>
         </details>
-        <button type="button" class="add-inline" id="projections-method-btn"></button>
+        <span class="info-pair"><button type="button" class="add-inline" id="projections-method-btn"></button><button type="button" class="info-btn" data-info="projMethod" data-i18n-aria-label="info.projMethod.name" aria-label="About Method" aria-expanded="false"></button></span>
       </div>
 
       <div class="card">
@@ -1995,7 +1995,7 @@
         </div>
         <div class="drilldown-projection-row" id="drilldown-projection-row" hidden>
           <div class="drilldown-projection-label">
-            <div id="drilldown-projection-remaining-label">✏️ Remaining · Manually set</div>
+            <div class="info-pair"><div id="drilldown-projection-remaining-label">✏️ Remaining · Manually set</div><button type="button" class="info-btn" data-info="projOverride" data-i18n-aria-label="info.projOverride.name" aria-label="About a total set by hand" aria-expanded="false"></button></div>
             <div class="hint" id="drilldown-projection-override-note" hidden data-i18n="drill.manuallySet">Manually set</div>
           </div>
           <div class="drilldown-projection-amount" id="drilldown-projection-amount">0.00</div>
@@ -4002,7 +4002,7 @@
   <div id="projection-override-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
-        <span id="projection-override-modal-title" data-i18n="projOverride.title">Edit projected total</span>
+        <span class="cm-title-info"><span id="projection-override-modal-title" data-i18n="projOverride.title">Edit projected total</span><button type="button" class="info-btn" data-info="projOverride" data-i18n-aria-label="info.projOverride.name" aria-label="About a total set by hand" aria-expanded="false"></button></span>
         <button type="button" id="projection-override-modal-close" class="currency-modal-close">✕</button>
       </div>
       <p class="hint" id="projection-override-modal-subtitle"></p>
