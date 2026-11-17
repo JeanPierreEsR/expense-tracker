@@ -315,7 +315,12 @@ async function phone(p) {
     return el;
   }
   async function tapEl(el) {
-    await el.evaluate((e) => { const r = e.getBoundingClientRect(); if (r.bottom < 0 || r.top > window.innerHeight) e.scrollIntoView({ block: "center" }); });
+    // Like a finger: scroll first when the item is off screen OR covered at its middle (the bottom tab bar, a fixed header).
+    await el.evaluate((e) => {
+      const r = e.getBoundingClientRect();
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      if (r.bottom < 0 || r.top > window.innerHeight || !(top && (top === e || e.contains(top) || top.contains(e)))) e.scrollIntoView({ block: "center" });
+    });
     await page.waitForTimeout(250);
     const b = await el.boundingBox();
     if (!b) throw new Error("That item has no size on screen");
@@ -442,6 +447,14 @@ async function phone(p) {
       let el = await locate(a[0]);
       const box = await el.evaluateHandle((e) => (/^(INPUT|TEXTAREA|SELECT)$/.test(e.tagName) ? e : (e.control || e.querySelector("input, textarea") || (e.htmlFor && document.getElementById(e.htmlFor)) || e)));
       el = box.asElement() || el;
+      // A list (select): pick the option whose words match, as the phone's wheel would.
+      if (await el.evaluate((e) => e.tagName === "SELECT")) {
+        const want = a.slice(1).join(" ").toLowerCase();
+        const val = await el.evaluate((e, w) => { const o = [...e.options].find((x) => x.text.toLowerCase() === w) || [...e.options].find((x) => x.text.toLowerCase().includes(w)); return o ? o.value : null; }, want);
+        if (val === null) throw new Error("No option like \"" + want + "\" in that list (look shows its options)");
+        await el.selectOption(val);
+        return short();
+      }
       await tapEl(el); await el.evaluate((e) => { if (e.select) e.select(); }); await page.keyboard.press("Backspace"); await page.keyboard.type(a.slice(1).join(" "), { delay: 25 }); return short(); },
     type: async (a) => { await page.keyboard.type(a.join(" "), { delay: 25 }); return short(); },
     key: async (a) => { await page.keyboard.press(a[0]); return short(); },
