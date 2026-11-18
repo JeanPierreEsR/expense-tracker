@@ -2360,12 +2360,9 @@ body.income-revealed .sens-mask { display: none; }
 }
 .balance-stmt-title { font-size: 0.875rem; font-weight: 600; color: var(--text-2); }
 .balance-stmt-hint { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
-.balance-stmt-item { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
-.balance-stmt-name { font-size: 0.875rem; color: var(--text); }
-.balance-stmt-bank { color: var(--muted); }
-.balance-stmt-due { font-size: 0.875rem; color: var(--text-2); margin-top: 2px; }
-.balance-stmt-due.late { color: var(--warn-text); }
-.balance-stmt-text { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+.balance-stmt-group .balance-stmt-item { border-top: 1px solid var(--border); border-bottom: none; margin-top: 10px; padding-bottom: 0; }
+.balance-row-meta.balance-due-late { color: var(--warn-text); }   /* the pay-by date passed with something still to pay */
+.balance-from-stmt { margin-bottom: 12px; }
 
 .balance-current-label {
   font-size: 0.75rem;

@@ -2429,6 +2429,11 @@
           <label for="balance-account-picker" data-i18n="balance.accountPicker">Account (✓ = already has balances)</label>
           <select id="balance-account-picker"></select>
         </div>
+        <!-- A card known only from its statements (owner, 2026-11-18): one tap fills the form with its last statement's closing balance. -->
+        <div id="balance-from-stmt" class="balance-from-stmt" hidden>
+          <p class="hint" id="balance-from-stmt-text"></p>
+          <button type="button" class="add-inline" id="balance-from-stmt-btn" data-i18n="balance.fromStmtBtn">Use the last statement</button>
+        </div>
 
         <div id="balance-current" hidden>
           <div class="balance-current-label" data-i18n="balance.now">Balance now</div>
