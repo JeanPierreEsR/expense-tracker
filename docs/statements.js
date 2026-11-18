@@ -2520,7 +2520,7 @@
       filename: `History ${usable.map((u) => u.file).join(", ")}`.slice(0, 200),
       statements: usable.map(({ file, result }) => ({
         key: accountKeyOf(result), kind: result.kind, source: result.source || "", period: result.period, file_name: file,
-        verified: !!(result.ok && result.verified !== false), balances: result.balances,
+        verified: !!(result.ok && result.verified !== false), balances: result.balances, due: result.due || "",
         lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category, transfer: l.transfer }))
       })),
       inboxIds: usable.map((u) => u.inboxId).filter(Boolean),

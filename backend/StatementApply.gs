@@ -759,7 +759,8 @@ function applyStatementDecisions(payload) {
   var uheaders = getHeaders(usheet);
   var newUploadRows = [];   // written in ONE call after the loop: a year of statements is dozens of rows
   uploadOps.forEach(function (op) {
-    var closing = JSON.stringify(op.s.balances || {});
+    // A card's pay-by date travels with its closing balance (`_due`; only the card's own screens read it, Balances.gs).
+    var closing = JSON.stringify(Object.assign({}, op.s.balances || {}, /^\d{4}-\d{2}-\d{2}$/.test(String(op.s.due || '')) ? { _due: String(op.s.due) } : {}));
     var fields = { closing_json: closing, file_name: op.s.file_name || '', processed_at: today, batch_id: batchId,
       lines_total: (op.s.lines || []).length, verified: op.s.verified === false ? 'false' : 'true', source: op.isImport ? 'import' : 'upload' };
     if (op.existing) {

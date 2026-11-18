@@ -17868,6 +17868,24 @@ function fillPmBankOptions_(selectedId) {
   sel.value = selectedId || "";
 }
 
+// What a card statement's pay-by date means today, from the payments to the card recorded since it closed (owner, 2026-11-18): paid in
+// full, part paid, still to pay, or nothing recorded once the date passed. Never "overdue" and never an alert: the app only knows the
+// payments it was told about. Each currency on its own. '' when the statement had no pay-by date and nothing was paid since.
+function cardDueText_(r) {
+  const owed = (r.balances || []).filter((b) => b.amount < -0.004).map((b) => ({ cur: b.currency, owed: -b.amount, paid: Number((r.paid_since || {})[b.currency]) || 0 }));
+  if (!owed.length) return "";
+  const fmtD = (iso) => I18n.fmtDateMedium(new Date(iso + "T12:00:00"));
+  if (owed.every((o) => o.paid >= o.owed - 0.005)) return tr("cardDue.paid", { date: r.last_paid ? fmtD(r.last_paid) : "" }).replace(" ()", "");
+  const passed = !!r.due && r.due < todayLocalISO();
+  const dueBit = r.due ? tr(passed ? "cardDue.wasDue" : "cardDue.payBy", { date: fmtD(r.due) }) : "";
+  if (owed.some((o) => o.paid > 0.004)) {
+    const paidT = owed.filter((o) => o.paid > 0.004).map((o) => formatAmount(o.paid, o.cur)).join(" · ");
+    const leftT = owed.filter((o) => o.owed - o.paid > 0.004).map((o) => formatAmount(o.owed - o.paid, o.cur)).join(" · ");
+    return [tr("cardDue.paidSince", { amount: paidT }), tr("cardDue.left", { amount: leftT }), dueBit].filter(Boolean).join(" · ");
+  }
+  if (!r.due) return "";
+  return passed ? tr("cardDue.nothingRecorded", { date: fmtD(r.due) }) : dueBit;
+}
 // The card's own form: what it owed at its last statement, when the app knows it only from statements (2026-11-17). From the Balances
 // list Overview already loaded, else fetched once for a card.
 async function fillPmOwedLine_(pm) {
@@ -17879,7 +17897,8 @@ async function fillPmOwedLine_(pm) {
   if (!balancesLoaded_) { try { rows = await callApi("listPaymentMethodBalances", {}); } catch (e) { return; } }   // (Overview not opened yet)
   const r = (rows || []).find((x) => x.id === pm.id && x.statement_closed);
   if (!r || pmModalState.id !== pm.id) return;
-  line.textContent = tr("accounts.owedAtStatement", { amounts: r.balances.map((b) => formatAmount(Math.abs(b.amount), b.currency)).join(" · "), date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) });
+  const dueT = cardDueText_(r);
+  line.textContent = tr("accounts.owedAtStatement", { amounts: r.balances.map((b) => formatAmount(Math.abs(b.amount), b.currency)).join(" · "), date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }) + (dueT ? " " + dueT + "." : "");
   line.hidden = false;
 }
 function openPmModal_(pm) {
@@ -33122,7 +33141,8 @@ async function refreshBalancesInner_() {
     const missing = r.statement_closed ? [] : balanceMissingCurrencies_(r);
     const otherText = others.filter((b) => Math.abs(b.amount) > 0.004).map((b) => formatSignedBalance_(b.amount, b.currency) + (b.waiting ? ` (${tr("charge.waiting")})` : "")).join(" · ");
     // A card known only from its statements (2026-11-17): what it owed when the last one closed, said as such (not a live balance).
-    const stmtLine = r.statement_closed ? `<div class="balance-row-meta">${escapeHtml(tr("balances.atStatement", { date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }))}</div>` : "";
+    const dueT = r.statement_closed ? cardDueText_(r) : "";
+    const stmtLine = r.statement_closed ? `<div class="balance-row-meta">${escapeHtml(tr("balances.atStatement", { date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }))}</div>${dueT ? `<div class="balance-row-meta">${escapeHtml(dueT)}</div>` : ""}` : "";
     row.innerHTML = `
       <div class="balance-row-name">${escapeHtml(r.nickname)}${r.statement_closed ? "" : `<span class="loan-detail-row-chevron">›</span>`}${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${stmtLine}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}</div>
       <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>
