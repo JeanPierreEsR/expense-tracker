@@ -2368,6 +2368,19 @@
     }
   }
 
+  // "These lines look like planned items" (owner's plan, 2026-11-17): each with its tick, all ticked; Save links the ticked ones to that
+  // Programmed item's month, so Projections counts each once. Only where the server sends them (an older backend: nothing shown).
+  function planMatchesHtml_() {
+    const pm = (historyPlan && historyPlan.plan_matches) || [];
+    if (!pm.length) return "";
+    const row = (m, i) => `<label class="review-plan-match"><input type="checkbox" class="stmt-plan-check" data-i="${i}" checked> ${escapeHtml(tr("hist.planLine", { line: m.description, amount: fmtMoney(m.currency, m.amount), name: m.name || tr("plan.thePlanned"), month: paceMonthName_(m.month, true) }))}</label>`;
+    return `<div class="stmt-plan-matches"><p class="hint">${escapeHtml(tr("hist.planHead", { n: pm.length }))}</p>${pm.map(row).join("")}</div>`;
+  }
+  function planLinksChosen_() {
+    const pm = (historyPlan && historyPlan.plan_matches) || [];
+    return Array.from(document.querySelectorAll("#statement-history .stmt-plan-check")).filter((c) => c.checked).map((c) => pm[Number(c.dataset.i)]).filter(Boolean)
+      .map((m) => ({ stmt: m.stmt, line: m.line, recurring_id: m.recurring_id }));
+  }
   // One summary bullet; a {text, sub} item puts its sub-lines under it (the per-currency totals of the expenses).
   function sumLi_(t) {
     if (typeof t === "string") return `<li>${escapeHtml(t)}</li>`;
@@ -2471,6 +2484,7 @@
     out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>${counters}
       <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map(sumLi_).join("")}</ul>
       ${newLinesHtml_()}${range}<p class="hint">${escapeHtml(tr(usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategoryUnlessNamed" : "hist.noCategory"))}</p>${noteHtml}
+      ${planMatchesHtml_()}
       <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;
   }
 
@@ -2512,8 +2526,10 @@
       inboxIds: usable.map((u) => u.inboxId).filter(Boolean),
       categoryMap: Object.assign({}, ...usable.map((u) => u.result.categoryMap || {})),
       categoryNames: Object.assign({}, ...usable.map((u) => u.result.categoryNames || {})),   // the name each of those categories should carry   // the person's choice for each category name of a spreadsheet
-      actions: historyActions()
+      actions: historyActions(),
+      planLinks: planLinks
     });
+    const planLinks = planLinksChosen_();   // read before the preview is cleared
     try {
       await callApi("applyStatementDecisions", payload(true));   // validates first, writes nothing
       const res = await callApi("applyStatementDecisions", payload(false));

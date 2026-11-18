@@ -3497,6 +3497,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .tip-invite[hidden] { display: none; }
 .tip-invite p { margin: 0; line-height: 1.35; }
 .tip-invite-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+/* Home's suggestion card (2026-11-17): the tip card with an ✕ in its header instead of a second button. */
+.home-suggest-head { display: flex; align-items: center; justify-content: space-between; }
+.home-suggest .tip-invite-go { background: var(--accent); color: var(--white); border-color: var(--accent); }
 .tip-invite-buttons button { min-height: 44px; padding: 0 16px; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--white); color: var(--muted); font: inherit; }
 .loans-more-practice { display: flex; flex-direction: column; margin: 0 0 12px; padding: 0 4px; }
 .loans-more-head { display: flex; align-items: center; justify-content: space-between; }
@@ -4136,3 +4139,5 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .drilldown-projection-label .info-pair > .info-btn { margin-left: 6px; }
 /* My profile → WhatsApp bot: the setup code wraps, so the whole code is visible before copying it (2026-11-16). */
 #wa-code { white-space: pre-wrap; word-break: break-all; }
+/* Needs review: "This is my Salary for August" (2026-11-17), ticked when the match is clear; Confirm answers it. */
+.review-plan-match { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; font-size: 0.875rem; }

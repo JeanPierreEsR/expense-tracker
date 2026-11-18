@@ -636,6 +636,15 @@ function handleTelegramCallback_(cb) {
     } else {
       reply = tr_('bot.tagsNo');
     }
+  } else if (action === 'plink' || action === 'plinkno') {
+    // The answer to "Is this your Salary for August?": linked only if it still matches today.
+    if (action === 'plink') {
+      var plan = planMatchFor_(getEntryById_(entryId));
+      if (plan) { linkEntryToRecurring({ entryId: entryId, recurringExpenseId: plan.recurring_id }); reply = tr_('bot.planLinked'); }
+      else reply = tr_('bot.planGone');
+    } else {
+      reply = tr_('bot.planKept');
+    }
   } else if (action === 'delrep') {
     // The owner chose to delete the whole repayment: loans part, money entry and extra entry together (deleteRepayment).
     var part = repaymentPartInfo_(entryId);
@@ -659,7 +668,7 @@ function handleTelegramCallback_(cb) {
     telegramApi_('sendMessage', replyPayload);
     if (!keepButtons) removeCardButtons_(cb.message.chat.id, cb.message.message_id);
   }
-  if (telegramTagAskAfter_) sendTelegramTagAsk_(cb.message.chat.id, telegramTagAskAfter_, cb.message.message_id);
+  if (telegramTagAskAfter_) { sendTelegramTagAsk_(cb.message.chat.id, telegramTagAskAfter_, cb.message.message_id); sendTelegramPlanAsk_(cb.message.chat.id, telegramTagAskAfter_, cb.message.message_id); }
   telegramTagAskAfter_ = '';
 
   telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
@@ -673,6 +682,26 @@ function telegramTagNames_(ids) {
   var byId = {};
   getAllRows('Tags').forEach(function (t) { byId[String(t.id)] = tagLabel_(t); });
   return ids.map(function (id) { return byId[String(id)]; }).filter(Boolean).join(', ');
+}
+// ---- "Is this your Salary for August?" after a bot confirm (owner's plan, 2026-11-17; the app asks the same after "+") ----
+// Worked out again when the answer comes (planMatchFor_), so an old message never links something that changed.
+function botMonthLabel_(ym) {
+  var names = tr_('bot.monthNames').split(',');
+  return (names[Number(String(ym).substring(5, 7)) - 1] || ym) + ' ' + String(ym).substring(0, 4);
+}
+function sendTelegramPlanAsk_(chatId, entryId, replyTo) {
+  var entry, plan;
+  try { entry = getEntryById_(entryId); plan = planMatchFor_(entry); } catch (e) { return; }   // only a question: never fails the confirm
+  if (!plan) return;
+  telegramApi_('sendMessage', {
+    chat_id: chatId,
+    text: tr_('bot.planAsk', { entry: entry.description || '', name: plan.description, month: botMonthLabel_(plan.month) }),
+    reply_to_message_id: replyTo, allow_sending_without_reply: true,
+    reply_markup: { inline_keyboard: [[
+      { text: tr_('bot.planYes'), callback_data: 'plink:' + entryId },
+      { text: tr_('bot.planNo'), callback_data: 'plinkno:' + entryId }
+    ]] }
+  });
 }
 function sendTelegramTagAsk_(chatId, entryId, replyTo) {
   var ask;
@@ -836,7 +865,7 @@ function handleTelegramMessage_(msg) {
   if (result.entry && !result.removed) {
     sendTelegramEntryNotification_(result.entry, result.categoryName);
   }
-  if (telegramTagAskAfter_ && result.entry && !result.removed) sendTelegramTagAsk_(msg.chat.id, telegramTagAskAfter_, msg.message_id);
+  if (telegramTagAskAfter_ && result.entry && !result.removed) { sendTelegramTagAsk_(msg.chat.id, telegramTagAskAfter_, msg.message_id); sendTelegramPlanAsk_(msg.chat.id, telegramTagAskAfter_, msg.message_id); }
   telegramTagAskAfter_ = '';
 
   // The card that was replied to is now superseded (by the refreshed card,
@@ -863,7 +892,7 @@ function telegramNewTypedEntry_(msg, text) {
   if (r.editMessage) {
     telegramApi_('sendMessage', { chat_id: msg.chat.id, text: r.editMessage, reply_to_message_id: cardId || msg.message_id, allow_sending_without_reply: true });
   }
-  if (telegramTagAskAfter_) sendTelegramTagAsk_(msg.chat.id, telegramTagAskAfter_, cardId || msg.message_id);
+  if (telegramTagAskAfter_) { sendTelegramTagAsk_(msg.chat.id, telegramTagAskAfter_, cardId || msg.message_id); sendTelegramPlanAsk_(msg.chat.id, telegramTagAskAfter_, cardId || msg.message_id); }
   telegramTagAskAfter_ = '';
 }
 

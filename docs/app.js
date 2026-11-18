@@ -6708,7 +6708,7 @@ function setQueuedReviewActions_(actions) {
 // extra: { splits, tagIds } for a confirmation made through the full form (null/absent = nothing to send for them).
 function queueReviewAction_(id, action, fields, extra) {
   const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
-  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null });
+  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null });
   setQueuedReviewActions_(actions);
   // The item has left Needs review for the person: Overview / Budgets / Projections' "N wait" line drops it at once, not only after
   // Home's list is fetched again (journeys run, 2026-11-17: the old count stayed for 6 people). A failed save refetches the list.
@@ -6725,7 +6725,7 @@ function unqueueReviewAction_(id) {
 async function applyReviewAction_(a) {
   if (a.action === "confirm" && entrySaveOne_()) {
     // One trip: the row's changes, the confirm, its split and tags (backend saveEntryAll, kind "confirm").
-    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined },
+    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined, link_recurring_id: a.planId || undefined },
       [["listEntries", { limit: entriesShown + 1 }]]));
     unqueueReviewAction_(a.id);
     if (res && res.tag_ask) askProgrammedTags_([res.tag_ask]);
@@ -7050,6 +7050,7 @@ async function flushEntryEdit_(id) {
           if (isCreate) { created = out; linkFailed = !!(out && out.link_failed); }
           else if (out && out.follow) followed = out.follow;
           if (out && out.tag_ask) askProgrammedTags_([out.tag_ask]);   // it pays a Programmed item with tags it lacks (2026-11-16)
+          if (isCreate && out && out.plan_ask && out.id) askPlanMatch_(out.id, out.plan_ask);   // "Is this your Salary for August?" (2026-11-17)
           if (edit.repeat && out && out.repeat) { showToast_(tr("repeat.done")); refreshExpectedRecurring(); }
         } else if (edit.kind === "create") {
           // The same client_id answers a repeat with the entry it already made, so every step below is safe to send again.
@@ -7829,6 +7830,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <label class="review-transfer-label">${tr("review.receivedAtLabel")}</label>
         <select class="review-land">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>` : ""}` : ""}
       </div>
+      ${entry.plan_match ? `<label class="review-plan-match"><input type="checkbox" class="review-plan-check" checked> ${escapeHtml(tr("plan.line", { name: entry.plan_match.description || tr("plan.thePlanned"), month: paceMonthName_(entry.plan_match.month, true) }))}</label>` : ""}
       <div class="review-item-actions">
         <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
         <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
@@ -7972,7 +7974,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       }
       if (accountEl && accountEl.value !== (entry.payment_method_id || "")) fields.payment_method_id = accountEl.value;
       if (!isPracticeReviewEntry_(entry)) betaRecordEvents_(PerfShare.queueEvents(entry, fields, betaEntryPlace_(entry)));   // (the practice's entries are not counted)
-      queueReviewAction_(entry.id, "confirm", fields);
+      // "This is my Salary for August", left ticked: the confirm links it to that Programmed item (owner's plan, 2026-11-17).
+      const planCheck = item.querySelector(".review-plan-check");
+      queueReviewAction_(entry.id, "confirm", fields, planCheck && planCheck.checked && entry.plan_match ? { planId: entry.plan_match.recurring_id } : null);
       holdTaps_();
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
@@ -9000,6 +9004,93 @@ function renderHomeGlance_() {
   dots.hidden = cards.length < 2;
   dots.innerHTML = cards.map(() => "<span></span>").join("");
   syncHomeDots_();
+  box.hidden = false;
+  renderHomeSuggest_();
+}
+
+// ---- Suggestions under the month card (owner's plan, 2026-11-17, after the journeys run: after week 2 nothing reached out) ----
+// One pale-yellow card at a time, one sentence, one button and an ✕. Counts in the day's teaching budget (once per suggestion); never on
+// the owner's copy, during a tutorial or practice, in Edit mode or under a sheet. ✕ = not now (30 days); the button retires it for good.
+const SUGGEST_SEEN_KEY_ = "homeSuggestSeen";
+const SUGGEST_LATER_MS_ = 30 * 86400000;
+let suggestShownKey_ = "";   // the one allowed this visit (so the card stays while the person looks at it)
+const suggestAwayDays_ = (() => {   // days since the app was last opened on this phone (read once, then the stamp moves on)
+  let prev = 0;
+  try { prev = Number(localStorage.getItem("etLastOpenAt") || 0); localStorage.setItem("etLastOpenAt", String(Date.now())); } catch (e) { /* no storage */ }
+  return prev ? Math.floor((Date.now() - prev) / 86400000) : 0;
+})();
+document.addEventListener("visibilitychange", () => { if (!document.hidden) try { localStorage.setItem("etLastOpenAt", String(Date.now())); } catch (e) { /* ignore */ } });
+function suggestSeen_() { try { return JSON.parse(localStorage.getItem(SUGGEST_SEEN_KEY_) || "{}") || {}; } catch (e) { return {}; } }
+function suggestMark_(key, done) {
+  const m = suggestSeen_();
+  m[key] = done ? { done: true } : { until: Date.now() + SUGGEST_LATER_MS_ };
+  try { localStorage.setItem(SUGGEST_SEEN_KEY_, JSON.stringify(m)); } catch (e) { /* ignore */ }
+}
+function suggestOpen_(key) { const v = suggestSeen_()[key]; return !v || (!v.done && Date.now() > (v.until || 0)); }
+function homeSuggestion_() {
+  const waiting = (reviewEntries_ || []).filter((e) => !isPracticeReviewEntry_(e)).length;
+  const list = [];
+  // A2: back after two weeks or more, with items waiting.
+  if (suggestAwayDays_ >= 14 && waiting) list.push({ key: "away:" + todayLocalISO(), text: tr("suggest.away", { n: waiting, days: suggestAwayDays_ }), btn: tr("suggest.awayBtn"), go: openReviewFromHome_ });
+  // A1: the same payment recorded last month and this month, not planned.
+  const r = homeGlance_ && homeGlance_.repeat;
+  if (r) {
+    const cat = (meta.categories || []).find((c) => c.id === r.category_id);
+    const name = r.description || (cat ? cat.name : "");
+    list.push({ key: "repeat:" + r.key, text: tr("suggest.repeat", { name }), btn: tr("suggest.repeatBtn"), go: () => openRepeatSuggestion_(r) });
+  }
+  const g = homeGlance_ || {};
+  // A3: no budget yet, a month of entries: last month's biggest category.
+  if (g.budgetHint) {
+    const cat = (meta.categories || []).find((c) => c.id === g.budgetHint.category_id);
+    if (cat) list.push({ key: "budget:" + g.budgetHint.month, text: tr("suggest.budget", { category: cat.name, amount: formatAmount(g.budgetHint.amount, homeCur()) }), btn: tr("suggest.budgetBtn"), go: () => openBudgetSuggestion_(cat.id) });
+  }
+  // A4: statements the bank e-mailed wait in the Statements Inbox.
+  if (g.inboxNew && g.inboxNew.count) list.push({ key: "inbox:" + g.inboxNew.newest + ":" + g.inboxNew.count, text: tr("suggest.inbox", { n: g.inboxNew.count, bank: g.inboxNew.bank || tr("suggest.yourBank") }), btn: tr("suggest.inboxBtn"),
+    go: () => { showScreen("more"); setTimeout(() => document.getElementById("data-statements-btn").click(), 300); } });
+  // A5: the same amount with no category two months running (a car payment, a school fee).
+  const mu = g.monthlyUncat;
+  if (mu) list.push({ key: "monthly:" + mu.key, text: tr("suggest.monthly", { amount: formatAmount(mu.amount, mu.currency), day: mu.day, name: mu.description }), btn: tr("suggest.monthlyBtn"),
+    alt: { label: tr("suggest.monthlyLoan"), go: () => { showScreen("loans"); setTimeout(() => document.getElementById("add-bank-loan-btn").click(), 400); } },
+    go: () => openRepeatSuggestion_({ description: mu.description, category_id: "", amount: mu.amount, currency: mu.currency }) });
+  return list.find((x) => suggestOpen_(x.key)) || null;
+}
+// "Set a limit": Budgets' "+" as the person would tap it (a first budget gets its real tutorial); with no tutorial, the category is picked.
+function openBudgetSuggestion_(categoryId) {
+  showScreen("budgets");
+  setTimeout(() => {
+    document.getElementById("add-budget-btn").click();
+    setTimeout(() => {
+      if (Spotlight.isRunning() || document.getElementById("budget-modal-backdrop").hidden) return;
+      selectedBudgetCategoryIds = new Set([categoryId]);
+      populateBudgetCategoryChips();
+    }, 900);
+  }, 500);
+}
+function openRepeatSuggestion_(r) {
+  showRecurringScreen();
+  // The "+" as the person would tap it: a first Programmed item gets its real tutorial, which asks each field. When no tutorial
+  // started, the form is filled in with what was recorded (the list may still be loading, so this is decided after the tap).
+  setTimeout(() => {
+    document.getElementById("add-recurring-btn").click();
+    setTimeout(() => {
+      if (Spotlight.isRunning()) return;
+      openRecurringModal(null, { description: r.description, category_id: r.category_id, amount: r.amount, currency: r.currency, frequency: "monthly" });
+    }, 900);
+  }, 600);
+}
+function renderHomeSuggest_() {
+  const box = document.getElementById("home-suggest");
+  if (!box) return;
+  const s = !perfIsOwnerCopy_() && homeGlance_ && !Spotlight.isRunning() && !editModeOn_() && !document.querySelector(".currency-modal-backdrop:not([hidden])") ? homeSuggestion_() : null;
+  if (!s || (s.key !== suggestShownKey_ && !teachAllows_("suggest:" + s.key))) { box.hidden = true; return; }
+  suggestShownKey_ = s.key;
+  box.innerHTML = `<div class="home-suggest-head"><span class="tip-invite-label"><span class="ico ico-warn">${lineIcon_("bulb")}</span>${escapeHtml(tr("spot.tipLabel"))}</span>`
+    + `<button type="button" class="currency-modal-close home-suggest-x" aria-label="${escapeHtml(tr("suggest.later"))}">✕</button></div>`
+    + `<p>${escapeHtml(s.text)}</p><div class="tip-invite-buttons">${s.alt ? `<button type="button" class="tip-invite-alt">${escapeHtml(s.alt.label)}</button>` : ""}<button type="button" class="tip-invite-go">${escapeHtml(s.btn)}</button></div>`;
+  box.querySelector(".home-suggest-x").addEventListener("click", () => { suggestMark_(s.key, false); suggestShownKey_ = ""; box.hidden = true; });
+  box.querySelector(".tip-invite-go").addEventListener("click", () => { suggestMark_(s.key, true); suggestShownKey_ = ""; box.hidden = true; s.go(); });
+  if (s.alt) box.querySelector(".tip-invite-alt").addEventListener("click", () => { suggestMark_(s.key, true); suggestShownKey_ = ""; box.hidden = true; s.alt.go(); });
   box.hidden = false;
 }
 
@@ -17751,6 +17842,20 @@ function fillPmBankOptions_(selectedId) {
   sel.value = selectedId || "";
 }
 
+// The card's own form: what it owed at its last statement, when the app knows it only from statements (2026-11-17). From the Balances
+// list Overview already loaded, else fetched once for a card.
+async function fillPmOwedLine_(pm) {
+  const line = document.getElementById("pm-owed-line");
+  if (!line) return;
+  line.hidden = true;
+  if (!pm || pm.type !== "credit") return;
+  let rows = balancesCache;
+  if (!balancesLoaded_) { try { rows = await callApi("listPaymentMethodBalances", {}); } catch (e) { return; } }   // (Overview not opened yet)
+  const r = (rows || []).find((x) => x.id === pm.id && x.statement_closed);
+  if (!r || pmModalState.id !== pm.id) return;
+  line.textContent = tr("accounts.owedAtStatement", { amounts: r.balances.map((b) => formatAmount(Math.abs(b.amount), b.currency)).join(" · "), date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) });
+  line.hidden = false;
+}
 function openPmModal_(pm) {
   const linked = (meta && meta.settings) || {};
   pmModalState = { id: pm ? pm.id : null, lastBank: pm ? pm.bank_id || "" : "",
@@ -17767,6 +17872,7 @@ function openPmModal_(pm) {
     typeSel.appendChild(o);
   });
   typeSel.value = pm ? pm.type : "credit";
+  fillPmOwedLine_(pm);
   pmModalState.cur = kindCurrency_(pmModalState.kind);
   pmModalState.currencies = pm ? accountCurrencyList_(pm) : null;   // (an existing account shows what it has, even nothing; a new one starts on a default)
   const basicCash = isBasicCashPm_(pm);
@@ -22387,6 +22493,14 @@ document.getElementById("recurring-add-tag-btn").addEventListener("click", async
 // The question after a save or a confirm (owner, 2026-11-16, the "ask" version): the entry pays a Programmed item whose tags it does not
 // have. Asked, never done silently: a wrong match (shoes bought near the gym's due date) is answered No. Only adds tags. Not during a
 // practice or a tutorial (their own entries are deleted at the end).
+// A typed payment that looks like a Programmed item's month (backend planMatchFor_): asked once, after the save, which is never held up.
+// "Yes" links them, so Projections counts it once (owner's plan, 2026-11-17: Andrés's salary was counted twice).
+async function askPlanMatch_(entryId, plan) {
+  const ok = await askConfirmApp_(tr("plan.ask", { name: plan.description || tr("plan.thePlanned"), month: paceMonthName_(plan.month, true) }), tr("plan.yes"), { plain: true, cancel: tr("plan.no") });
+  if (!ok) return;
+  saveBehindScreen_(async () => { await callApi("linkEntryToRecurring", { entryId, recurringExpenseId: plan.recurring_id }); },
+    () => { refreshExpectedRecurring().catch(() => {}); }, { busy: "plan.linking", done: () => tr("plan.linked") });
+}
 async function askProgrammedTags_(asks) {
   if (!asks || !asks.length || (window.Spotlight && Spotlight.isRunning())) return;
   const names = (ids) => ids.map((id) => (meta.tags.find((t) => t.id === id) || {}).name).filter(Boolean).join(", ");
@@ -23843,6 +23957,14 @@ function renderProjectionsSummary_(p) {
     breakdownLines.push(tr("projections.lineLoans", { actual: formatPenSigned_(p.loansActual || 0), programmed: formatPen(p.loansProgrammed || 0) }));
   }
 
+  // Nothing income-like is planned, yet earlier months had income: only planned income counts here, said once with a way to plan it
+  // (journeys run, 2026-11-17: salaried people who type their salary, a taxi driver and a freelancer read "income 0" and a negative
+  // month end). Changes no number; the bigger "income that varies" design is the owner's pinned item.
+  const months = (homeGlance_ && homeGlance_.months) || [];
+  const hadIncome = months.slice(0, -1).some((m) => m.income > 0.004);
+  const planIncome = !(p.incomeProgrammed > 0.004) && hadIncome
+    ? `<button type="button" class="home-wait-line" id="projections-plan-income">${escapeHtml(tr("projections.planIncome"))}</button>` : "";
+
   body.innerHTML = `
     <div class="summary-grid">
       <div class="summary-item">
@@ -23867,7 +23989,10 @@ function renderProjectionsSummary_(p) {
       </div>
     </div>
     ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
+    ${planIncome}
   `;
+  const planBtn = document.getElementById("projections-plan-income");
+  if (planBtn) planBtn.addEventListener("click", () => { showRecurringScreen(); setTimeout(() => document.getElementById("add-recurring-btn").click(), 600); });
   methodNote.textContent = tr("projections.method");
   // The explanation stays behind a link, and away when there is nothing to explain (Diego, Rosa, 2026-11-09).
   document.getElementById("projections-explain").hidden = !(p.income > 0 || p.expenses > 0 || p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0 || hasLoans);
@@ -32960,7 +33085,7 @@ async function refreshBalancesInner_() {
   list.innerHTML = "";
   emptyNote.hidden = rows.length > 0;
   // An account moving in a currency with no starting balance of its own (owner, 2026-11-11): said above the list, which starts closed.
-  const missingN = rows.filter((r) => balanceMissingCurrencies_(r).length).length;
+  const missingN = rows.filter((r) => !r.statement_closed && balanceMissingCurrencies_(r).length).length;
   const missingNote = document.getElementById("balances-missing");
   missingNote.hidden = !missingN;
   missingNote.textContent = missingN ? tr("balances.missingNote", { n: missingN }) : "";
@@ -32968,13 +33093,15 @@ async function refreshBalancesInner_() {
     const row = document.createElement("div");
     row.className = "balance-row";
     const [main, ...others] = r.balances;
-    const missing = balanceMissingCurrencies_(r);
+    const missing = r.statement_closed ? [] : balanceMissingCurrencies_(r);
     const otherText = others.filter((b) => Math.abs(b.amount) > 0.004).map((b) => formatSignedBalance_(b.amount, b.currency) + (b.waiting ? ` (${tr("charge.waiting")})` : "")).join(" · ");
+    // A card known only from its statements (2026-11-17): what it owed when the last one closed, said as such (not a live balance).
+    const stmtLine = r.statement_closed ? `<div class="balance-row-meta">${escapeHtml(tr("balances.atStatement", { date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }))}</div>` : "";
     row.innerHTML = `
-      <div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span>${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}</div>
+      <div class="balance-row-name">${escapeHtml(r.nickname)}${r.statement_closed ? "" : `<span class="loan-detail-row-chevron">›</span>`}${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${stmtLine}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}</div>
       <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>
     `;
-    row.addEventListener("click", () => openBalanceModal(r.id));
+    if (!r.statement_closed) row.addEventListener("click", () => openBalanceModal(r.id));   // (a statement figure has no movements to show)
     list.appendChild(row);
   });
 
@@ -32982,7 +33109,7 @@ async function refreshBalancesInner_() {
   // negative balance nets against positive ones). No cross-currency
   // conversion — each currency stands on its own.
   const totals = {};
-  rows.forEach((r) => r.balances.forEach((b) => { totals[b.currency] = (totals[b.currency] || 0) + b.amount; }));
+  rows.filter((r) => !r.statement_closed).forEach((r) => r.balances.forEach((b) => { totals[b.currency] = (totals[b.currency] || 0) + b.amount; }));   // (statement figures are not today's money)
   const codes = Object.keys(totals).sort((a, b) => (a === homeCur() ? -1 : b === homeCur() ? 1 : a < b ? -1 : 1));
   const totalsWrap = document.getElementById("balances-totals");
   const totalsLines = document.getElementById("balances-totals-lines");

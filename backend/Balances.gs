@@ -261,7 +261,8 @@ function listPaymentMethodBalances() {
   var allPms = getAllRows('Payment Methods');
   var openingsByPm = buildOpeningsByPm_(allPms);
   var pms = allPms.filter(function (pm) { return openingsByPm[pm.id]; });
-  if (!pms.length) return [];
+  var fromStatements = cardOwedFromStatements_(allPms, openingsByPm);   // cards with no starting balance, from their last statement
+  if (!pms.length) return fromStatements;
   var entries = confirmedEntries_();
   var inboundIds = buildInboundTransferIds_();
   var banksById = {};
@@ -310,7 +311,37 @@ function listPaymentMethodBalances() {
     var ap = a.balance_pen == null ? -Infinity : a.balance_pen;
     var bp = b.balance_pen == null ? -Infinity : b.balance_pen;
     return bp - ap;
+  }).concat(fromStatements);
+}
+
+// What a card owed when its last statement closed (owner's plan, 2026-11-17, after the journeys run: Marta never saw what her two cards
+// owed). For credit cards with no starting balance of their own: the newest saved statement's closing balance per currency
+// (`Statement Uploads.closing_json`, negative = owed). Not a live balance: the row says `statement_closed` and Overview labels it so and
+// leaves it out of the totals. Nothing is written.
+function cardOwedFromStatements_(allPms, openingsByPm) {
+  var cards = {};
+  allPms.forEach(function (pm) { if (pm.type === 'credit' && !openingsByPm[pm.id] && String(pm.hidden || '') !== 'yes') cards[pm.id] = pm; });
+  if (!Object.keys(cards).length) return [];
+  var latest = {};
+  try { ensureStatementUploadsSheet_(); } catch (e) { return []; }
+  getAllRows('Statement Uploads').forEach(function (u) {
+    if (!cards[u.payment_method_id] || !u.closing_json) return;
+    if (!latest[u.payment_method_id] || String(u.period_end) > String(latest[u.payment_method_id].period_end)) latest[u.payment_method_id] = u;
   });
+  var banksById = {};
+  getAllRows('Banks').forEach(function (b) { banksById[b.id] = b.name; });
+  var out = [];
+  Object.keys(latest).forEach(function (id) {
+    var u = latest[id], pm = cards[id], closing = {};
+    try { closing = JSON.parse(String(u.closing_json)) || {}; } catch (e) { return; }
+    var balances = Object.keys(closing).filter(function (cur) { return closing[cur] && isFinite(Number(closing[cur].closing)); })
+      .map(function (cur) { return { currency: cur, amount: Math.round(Number(closing[cur].closing) * 100) / 100 }; })
+      .sort(function (a, b) { return a.currency === homeCurrency_() ? -1 : b.currency === homeCurrency_() ? 1 : (a.currency < b.currency ? -1 : 1); });
+    if (!balances.length) return;
+    out.push({ id: pm.id, nickname: pm.nickname, type: pm.type, last_4: pm.last_4, bank_name: banksById[pm.bank_id] || '', openings: [],
+      balances: balances, balance_pen: null, statement_closed: String(u.period_end) });
+  });
+  return out;
 }
 
 // Every movement that feeds one account's balance, newest first — what

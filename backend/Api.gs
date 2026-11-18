@@ -1238,6 +1238,11 @@ function saveEntryAll(payload) {
     id = payload.id;
     out = updateEntryFromApp_({ id: id, fields: payload.fields === undefined ? null : payload.fields });
     if (kind === 'confirm') out = confirmEntryFromApp_({ id: id });
+    // Needs review's "This is my Salary for August" line, left ticked: the confirm links it (owner's plan, 2026-11-17).
+    if (kind === 'confirm' && payload.link_recurring_id) {
+      try { linkEntryToRecurring({ entryId: id, recurringExpenseId: payload.link_recurring_id }); }
+      catch (linkErr) { out = Object.assign({}, out, { link_failed: true }); }
+    }
   } else {
     throw new Error('Unknown kind: ' + kind);
   }
@@ -1251,6 +1256,10 @@ function saveEntryAll(payload) {
   // A payment that matches a Programmed item with tags the entry lacks: the app asks whether to add them (owner, 2026-11-16). Never fails the save.
   if (!payload.link_recurring_id) {
     try { var ask = programmedTagAsk_([id]); if (ask.length) out = Object.assign({}, out, { tag_ask: ask[0] }); } catch (e) { /* only a question */ }
+    // "Is this your Salary for August?" after a typed payment (the "+" form asks; Needs review asked on its card already).
+    if (kind === 'create') {
+      try { var plan = planMatchFor_(getEntryById_(id)); if (plan) out = Object.assign({}, out, { plan_ask: plan }); } catch (e) { /* only a question */ }
+    }
   }
   return out;
 }
@@ -1653,6 +1662,9 @@ function listPendingEntries() {
     if (chargeMatch) entry.charge_match = chargeMatch;
     var waitingMatch = waitingMatchForPending_(entry, waitingIncome);   // "Is this the payment you were waiting for?" (IncomeWaiting.gs)
     if (waitingMatch) entry.waiting_match = waitingMatch;
+    // "This is my Salary for August": the Programmed item this waiting payment most likely pays (RecurringExpenses.gs planMatchFor_).
+    var planMatch = isPracticeReview_(entry) ? null : planMatchFor_(entry, all);
+    if (planMatch) entry.plan_match = planMatch;
   });
   entries.sort(compareEntriesRecency_);
   return entries;

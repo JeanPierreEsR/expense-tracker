@@ -416,5 +416,29 @@ function planStatementHistory(payload) {
     var st = (analysis.statements || [])[c.stmt];
     return Object.assign({}, c, { accountName: st && st.account ? st.account.nickname : '' });
   });
-  return { actions: plan.actions, summary: plan.summary, balance_checks: checks };
+  return { actions: plan.actions, summary: plan.summary, balance_checks: checks, plan_matches: stmtPlanMatches_((payload && payload.statements) || [], plan.actions) };
+}
+
+// Lines that look like a Programmed item's month (owner's plan, 2026-11-17): only lines whose file names a category the app has (an
+// app's export); a bank's own lines have none. One line per item and month. The preview lists them ticked; the save links the ticked.
+function stmtPlanMatches_(statements, actions) {
+  var out = [], taken = {};
+  try {
+    var index = categoryNameIndex_(getAllRows('Categories'), false);
+    var all = getAllRows('Entries');
+    actions.forEach(function (a) {
+      if (a.type !== 'add_history_expense' && a.type !== 'add_history_income') return;
+      var st = statements[a.stmt], l = st && st.lines ? st.lines[a.line] : null;   // (the file's own lines: they keep the category name)
+      if (!l || !l.category) return;
+      var type = a.type === 'add_history_income' ? 'income' : 'expense';
+      var catId = index[type + ':' + catNameNorm_(l.category)];
+      if (!catId) return;
+      var plan = planMatchFor_({ id: '', type: type, category_id: catId, amount: Math.abs(Number(l.amount)), currency: l.currency, date: l.date }, all);
+      if (!plan || taken[plan.recurring_id + '|' + plan.month]) return;
+      taken[plan.recurring_id + '|' + plan.month] = true;
+      out.push({ stmt: a.stmt, line: a.line, recurring_id: plan.recurring_id, name: plan.description, month: plan.month,
+        description: String(l.description || ''), amount: Math.abs(Number(l.amount)), currency: l.currency, date: l.date });
+    });
+  } catch (e) { return []; }
+  return out;
 }

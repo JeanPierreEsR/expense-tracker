@@ -430,6 +430,7 @@
         <div class="home-glance-track" id="home-glance-track"></div>
         <div class="home-glance-dots" id="home-glance-dots" hidden></div>
       </div>
+      <div class="card tip-invite home-suggest" id="home-suggest" hidden></div>
 
       <div class="card first-steps" id="first-steps-card" hidden>
         <div class="first-steps-head">
@@ -601,7 +602,7 @@
         </div>
         <button type="button" class="balances-missing" id="balances-missing" hidden></button>
         <div id="balances-list" hidden></div>
-        <p class="hint" id="balances-empty-note" hidden data-i18n="balances.empty">No balances yet — add a starting balance for an account (cash, Yape, a Starbucks card…) to start tracking it.</p>
+        <p class="hint" id="balances-empty-note" hidden data-i18n="balances.empty">No balances yet — add a starting balance, or bring a card statement, to see it here.</p>
       </div>
 
       <div class="card ov-period" id="loans-ov-card" hidden>
@@ -3892,6 +3893,7 @@
         <span id="pm-modal-title" data-i18n="accounts.addTitle">Add account or card</span>
         <button type="button" id="pm-modal-close" class="currency-modal-close">✕</button>
       </div>
+      <p class="hint" id="pm-owed-line" hidden></p>
 
       <label for="pm-nickname" data-i18n="accounts.name">Name</label>
       <input type="text" id="pm-nickname" maxlength="60" data-i18n-placeholder="accounts.namePlaceholder" placeholder="e.g. BCP Visa">

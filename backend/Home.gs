@@ -124,7 +124,103 @@ function getHomeGlance() {
     if (totalPen > 0) budget = { totalPen: totalPen, spentPen: budgetSpent, programmedPen: listed.summary.monthProgrammedPen || 0, daysLeft: pace.curDays - curDay, overCount: overCount };
   }
 
-  return { months: months, pace: pace, budget: budget, trips: homeActiveTrips_(today), unreadable: unreadableSheetRows_(), charges: pendingChargesSummary_() };
+  return { months: months, pace: pace, budget: budget, trips: homeActiveTrips_(today), unreadable: unreadableSheetRows_(), charges: pendingChargesSummary_(),
+    repeat: homeRepeatCandidate_(curKey, prevKey), budgetHint: homeBudgetHint_(prevKey), inboxNew: homeInboxNew_(), monthlyUncat: homeMonthlyUncategorized_(curKey, prevKey) };
+}
+
+// "Restaurants was your biggest spending last month: set a limit?" — only while the person has no budget at all, once their entries
+// span 30 days or more: last month's biggest expense category (own share, main currency). Null otherwise.
+function homeBudgetHint_(prevKey) {
+  if (getAllRows('Budgets').length) return null;
+  var entries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed' && e.type === 'expense'; });
+  if (!entries.length) return null;
+  var first = entries.reduce(function (m, e) { return String(e.date) < m ? String(e.date) : m; }, '9999');
+  if (Math.abs(daysBetweenDates_(first, formatCalendarDate_(new Date()))) < 30) return null;
+  var splitSum = {};
+  getAllRows('Entry Splits').forEach(function (sp) { splitSum[sp.entry_id] = (splitSum[sp.entry_id] || 0) + Number(sp.amount); });
+  var byCat = {};
+  entries.forEach(function (e) {
+    if (String(e.date).substring(0, 7) !== prevKey || !e.category_id) return;
+    var rate = getRateForTotals_(e.currency, e.date);
+    if (rate == null) return;
+    byCat[e.category_id] = (byCat[e.category_id] || 0) + (Number(e.amount) - (splitSum[e.id] || 0)) * rate;
+  });
+  var top = Object.keys(byCat).sort(function (a, b) { return byCat[b] - byCat[a]; })[0];
+  if (!top || !(byCat[top] > 0)) return null;
+  return { category_id: top, amount: Math.round(byCat[top] * 100) / 100, month: prevKey };
+}
+
+// Statements the bank e-mailed that wait in the Statements Inbox (Carlos found five on day 150): how many, and the newest one's bank.
+function homeInboxNew_() {
+  try {
+    ensureStatementInboxSheet_();
+    var rows = getAllRows('Statement Inbox').filter(function (r) { return r.status === 'new'; });
+    if (!rows.length) return null;
+    rows.sort(function (a, b) { return String(a.received) < String(b.received) ? 1 : -1; });
+    return { count: rows.length, bank: String(rows[0].bank_label || ''), newest: String(rows[0].received || '').substring(0, 10) };
+  } catch (e) { return null; }
+}
+
+// The same amount arriving with NO category in two months running (Lucía's car payment and school fee): a likely monthly payment.
+// The biggest such amount not already a Programmed item's. Null when none.
+function homeMonthlyUncategorized_(curKey, prevKey) {
+  var byAmt = {};
+  getAllRows('Entries').forEach(function (e) {
+    if (e.type !== 'expense' || e.category_id || e.recurring_expense_id || (e.status !== 'confirmed' && e.status !== 'pending')) return;
+    var k = String(e.date).substring(0, 7);
+    if (k !== curKey && k !== prevKey) return;
+    var key = e.currency + '|' + Math.round(Math.abs(Number(e.amount)) * 100);
+    var g = byAmt[key] = byAmt[key] || {};
+    g[k === curKey ? 'cur' : 'prev'] = e;
+  });
+  var planned = getAllRows('Recurring Expenses').filter(function (r) { return String(r.active) !== 'false'; });
+  var best = null;
+  Object.keys(byAmt).forEach(function (key) {
+    var g = byAmt[key];
+    if (!g.cur || !g.prev) return;
+    var a = Math.abs(Number(g.cur.amount));
+    if (planned.some(function (r) { return r.currency === g.cur.currency && Math.abs(Math.abs(Number(r.amount)) - a) < 0.01; })) return;
+    if (!best || a > Math.abs(Number(best.amount))) best = g.cur;
+  });
+  if (!best) return null;
+  return { key: best.currency + '|' + Math.round(Math.abs(Number(best.amount)) * 100), description: String(best.description || ''), amount: Math.abs(Number(best.amount)),
+    currency: best.currency, day: Number(String(best.date).substring(8, 10)) };
+}
+
+// Home's suggestion "You recorded X again this month: make it repeat?" (owner's plan, 2026-11-17, after the journeys run: six people
+// typed their salary or a bill by hand month after month and nothing suggested a Programmed item). The same kind (expense / income),
+// category and payee, confirmed last month AND this month, amounts within 20%, neither linked to a Programmed item, and no Programmed
+// item of that category and a similar amount yet. The biggest such pair; null when none. Read only; part of getHomeGlance (no extra call).
+function homeRepeatCandidate_(curKey, prevKey) {
+  var payee = function (e) { return String(e.merchant || e.description || '').toLowerCase().replace(/\s+/g, ' ').trim(); };
+  var groups = {};
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed' || (e.type !== 'expense' && e.type !== 'income') || e.recurring_expense_id || !e.category_id) return;
+    var k = String(e.date).substring(0, 7);
+    if (k !== curKey && k !== prevKey) return;
+    var who = payee(e);
+    if (!who) return;
+    var g = groups[e.type + '|' + e.category_id + '|' + who + '|' + e.currency] = groups[e.type + '|' + e.category_id + '|' + who + '|' + e.currency] || { cur: null, prev: null };
+    var slot = k === curKey ? 'cur' : 'prev';
+    if (!g[slot] || Number(e.amount) > Number(g[slot].amount)) g[slot] = e;
+  });
+  var planned = getAllRows('Recurring Expenses').filter(function (r) { return String(r.active) !== 'false' && (!r.end_date || String(r.end_date) >= curKey + '-01'); });
+  var best = null;
+  Object.keys(groups).forEach(function (key) {
+    var g = groups[key];
+    if (!g.cur || !g.prev) return;
+    var a = Math.abs(Number(g.cur.amount)), b = Math.abs(Number(g.prev.amount));
+    if (!(a > 0) || !(b > 0) || Math.abs(a - b) > 0.2 * Math.max(a, b)) return;
+    var already = planned.some(function (r) {
+      var ra = Math.abs(Number(r.amount));
+      return String(r.category_id) === String(g.cur.category_id) && r.currency === g.cur.currency && ra > 0 && Math.abs(ra - a) <= 0.2 * Math.max(ra, a);
+    });
+    if (already) return;
+    if (!best || a > Math.abs(Number(best.amount))) best = g.cur;
+  });
+  if (!best) return null;
+  return { key: best.type + '|' + best.category_id + '|' + payee(best), type: best.type, category_id: best.category_id, description: String(best.description || ''),
+    amount: Math.abs(Number(best.amount)), currency: best.currency, day: Number(String(best.date).substring(8, 10)) };
 }
 
 // Every month from the first confirmed entry to today: the totals (the Overview's month-by-month bars)
