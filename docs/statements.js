@@ -2531,7 +2531,9 @@
     const hc = historyCounts(), adding = hc.entries, updating = hc.charges + hc.discounts + hc.recharges + hc.accountsFilled;
     // Purchases already in the app that take the card's figure are a change too: never say "nothing is added" about them alone.
     // Both when a statement adds AND corrects purchases already in the app (Carlos, 2026-11-10: only the added ones were named).
-    const askText = adding ? tr("hist.confirm", { n: adding }) + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
+    // Another app's export brings its categories, and after saving the app names any left without one (hist.savedCategoriesMissed),
+    // so its question does not promise a Tidy step that may not exist (Mark, 2026-11-18).
+    const askText = adding ? tr(screenMode === "import" ? "hist.confirmImport" : "hist.confirm", { n: adding }) + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
       : updating ? tr("hist.confirmUpdate", { n: updating }) : tr("hist.confirmKeep");
     // A starting balance this save corrects (owner's plan, step 3): said too, since it moves every balance after it.
     const coveredNow = coveredLines(historyActions(false));
