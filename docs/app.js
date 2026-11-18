@@ -1673,7 +1673,9 @@ function populatePaidByOptions() {
     meOpt.textContent = tr("common.me");
     select.appendChild(meOpt);
 
-    plainFriends_().forEach((f) => {
+    // By name (Lucho, 2026-11-18: in the order they were added, a long list was hard to search).
+    const locale = I18n.getLang() === "es" ? "es" : "en";
+    plainFriends_().slice().sort((a, b) => friendLabel_(a).localeCompare(friendLabel_(b), locale, { sensitivity: "base" })).forEach((f) => {
       const opt = document.createElement("option");
       opt.value = f.id;
       opt.textContent = friendLabel_(f);
