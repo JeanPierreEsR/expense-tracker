@@ -8922,7 +8922,7 @@ function homeMainCard_(g) {
   // Items of this month still waiting in Needs review are not in these numbers: said here, on the card people look at (journeys run,
   // 2026-11-17: Home read "spent 0" for months while 100+ bank items waited, and only Overview / Budgets said why).
   const waiting = (reviewEntries_ || []).filter((e) => String(e.date || "").slice(0, 7) === m.month && !isPracticeReviewEntry_(e)).length;
-  const waitLine = waiting ? `<button type="button" class="home-wait-line">${escapeHtml(tr("home.waitLine", { n: waiting }))}</button>` : "";
+  const waitLine = waiting ? `<button type="button" class="home-wait-line">${escapeHtml(tr("home.waitLine", { n: waiting, month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), false) }))}</button>` : "";
 
   const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
   const bars = months.map((x, i) => {
