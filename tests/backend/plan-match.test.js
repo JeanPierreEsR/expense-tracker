@@ -160,3 +160,29 @@ test("Telegram and confirm-many keep the paid month too", () => {
   assert.deepEqual(out.linked.map((x) => x.id), ["pb-late"]);
   assert.equal(JSON.parse(rt.run(`JSON.stringify(getEntryById_('pb-late'))`)).recurring_month, nextMonth);
 });
+
+test("1.25: a payment linked by hand in the item's 'match past entries' list follows the same month rule", () => {
+  const rt = setup();
+  save(rt, { date: `${month}-03` });   // this month paid by itself
+  const late = save(rt, { date: `${month}-${lastDay}`, amount: 9790 });
+  rt.api("linkEntriesToRecurring", { recurringExpenseId: "rec-sal", entryIds: [late.id] });
+  const e = JSON.parse(rt.run(`JSON.stringify(getEntryById_('${late.id}'))`));
+  assert.equal(e.recurring_expense_id, "rec-sal");
+  assert.equal(e.recurring_month, nextMonth);
+});
+
+// The original bug (Andrés, journeys run): planned for the 3rd, salary typed later in the month (here: today), counted twice in Projections.
+test("the forecast counts a typed salary twice before the link, and once after it", () => {
+  const { today } = require("./helpers");
+  const day = Number(today().slice(8, 10));
+  if (day <= 3) return;   // (the plan's day must already have passed this month; true on all but the first 3 days)
+  const rt = setup();
+  const income = () => rt.api("getProjections", { displayPeriodType: "month", anchorDate: today() }).income;
+  const before = income();
+  const typed = save(rt, { date: today() });
+  assert.equal(typed.plan_ask.month, month);
+  const doubled = income();
+  assert.ok(doubled >= before + 9800 - 0.01, "before the link it adds on top of the plan: " + before + " → " + doubled);
+  rt.api("linkEntryToRecurring", { entryId: typed.id, recurringExpenseId: "rec-sal", month: typed.plan_ask.month });
+  assert.equal(Math.round(income()), Math.round(doubled - 9800), "linked: counted once");
+});
