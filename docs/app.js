@@ -22724,10 +22724,18 @@ async function askProgrammedTags_(asks) {
 
 // Existing items repeating every 3 months or more, tagged Annual once the person has seen the list (owner, 2026-11-16). Asked once per
 // copy, from fresh data only, after the other one-time questions; either answer is remembered on the server.
-let annualItemsAsked_ = false;
+// Never over the welcome or another window, and not on an opening that already asked one of the other one-time questions, nor while 30
+// or more entries wait in Needs review (testers 2026-11-18: a returning friend met three windows stacked over a big backlog); it waits
+// for a later opening then (nothing is recorded until it is answered).
+let annualItemsAsked_ = false, annualItemsTries_ = 0;
 async function maybeAskAnnualItems_() {
   const list = meta && !meta.fromCache_ && Array.isArray(meta.annualItemsAsk) ? meta.annualItemsAsk : [];
   if (annualItemsAsked_ || !list.length || (window.Spotlight && Spotlight.isRunning())) return;
+  if (payorMergeOpen_ || (reviewEntries_ || []).length >= 30) return;
+  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])")) {
+    if (annualItemsTries_++ < 40) setTimeout(maybeAskAnnualItems_, 4000);
+    return;
+  }
   annualItemsAsked_ = true;
   const yes = await askConfirmApp_(tr("progTags.annualItemsAsk", { n: list.length, list: list.map((x) => "• " + x.description).join("\n") }),
     tr("progTags.annualItemsYes"), { plain: true, cancel: tr("progTags.annualItemsNo") });
