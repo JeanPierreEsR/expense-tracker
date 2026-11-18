@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.30.0"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="2.31.0"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-18T16:44:55Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-18T18:17:06Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -1682,7 +1682,7 @@
         <h2 style="margin-top:0;" class="screen-title stmt-import-only" data-i18n="imp.title">Import data from another app</h2>
         <div class="be-tabs" id="stmt-mode-tabs" role="tablist">
           <button type="button" class="be-tab active" id="stmt-mode-bank" role="tab" aria-selected="true" data-mode="bank" data-i18n="md.bank">Bank statements</button>
-          <button type="button" class="be-tab" id="stmt-mode-import" role="tab" aria-selected="false" data-mode="import" data-i18n="md.import">Import from another app</button>
+          <button type="button" class="be-tab" id="stmt-mode-import" role="tab" aria-selected="false" data-mode="import" data-i18n="md.importTab">From another app</button>
         </div>
         <p class="hint stmt-import-only" data-i18n="imp.hint">Bring in what you recorded in another app: export it as a CSV or Excel file with a category on every line, then pick the file here. You check the columns once and the app remembers them for the next file from the same app. The file is read on this device, nothing is saved until you confirm, and one Undo reverses the whole import.</p>
         <div class="stmt-stepper" id="stmt-stepper" role="list"></div>
@@ -2654,6 +2654,7 @@
         <p class="app-confirm-text" id="app-confirm-text"></p>
         <input type="text" id="app-confirm-input" autocomplete="off" hidden>
         <button type="button" id="app-confirm-ok"></button>
+        <div id="app-confirm-choices" hidden></div>
         <button type="button" class="cancel-edit-btn" id="app-confirm-back" data-i18n="common.cancel">Cancel</button>
       </div>
     </div>
@@ -4130,24 +4131,24 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="i18n.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="tour-scenes.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="signin-link.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="country-guess.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="rate-quotes.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="bank-sample.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="perf-share.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="spotlight.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="receipt-parse.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="receipt-fields.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="in-process.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="bill-split.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="loan-reminder.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="app.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="statement-sample.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="statement-table.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="statement-parsers.js?v=2026-11-18T16:44:55Z"></script>
-  <script src="statements.js?v=2026-11-18T16:44:55Z"></script>
+  <script src="strings.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="i18n.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="tour-scenes.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="signin-link.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="country-guess.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="rate-quotes.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="bank-sample.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="perf-share.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="spotlight.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="receipt-parse.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="receipt-fields.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="in-process.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="bill-split.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="loan-reminder.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="app.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="statement-sample.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="statement-table.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="statement-parsers.js?v=2026-11-18T18:17:06Z"></script>
+  <script src="statements.js?v=2026-11-18T18:17:06Z"></script>
 </body>
 </html>

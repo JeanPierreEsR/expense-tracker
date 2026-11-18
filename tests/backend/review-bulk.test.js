@@ -82,3 +82,24 @@ test("the screen: a pencil on the card, tick rows, a fixed bar with Confirm and 
     assert.match(strings, new RegExp(`"${key.replace(/\./g, "\\.")}": \\{ en: .+, es: .+ \\}`), key);   // (some keys have singular / plural forms)
   }
 });
+
+test("Undo of a bulk confirm sends each entry back, taking off the trip that confirm set (testers 2026-11-18)", () => {
+  const { rt } = setup();
+  const trip = rt.api("addTrip", { name: "Undo trip", kind: "trip", start_date: "2026-10-01", end_date: "2026-10-09" });
+  rt.api("confirmEntries", { items: [{ id: "rv-ready1", trip_id: trip.id }, { id: "rv-ready2" }] });
+  const out = rt.api("unconfirmEntries", { items: [{ id: "rv-ready1", trip: true }, { id: "rv-ready2" }, { id: "gone-2" }] });
+  assert.deepEqual(out.undone.sort(), ["rv-ready1", "rv-ready2"]);
+  assert.deepEqual(out.kept, [{ id: "gone-2", reason: "missing" }]);
+  assert.equal(status(rt, "rv-ready1"), "pending");
+  assert.equal(rt.rows("Entries").find((e) => e.id === "rv-ready1").trip_id, "");
+  assert.equal(rt.api("getMeta", {}).capabilities.bulkUndo, true);
+});
+
+test("Undo of a bulk confirm also sends back a plain transfer confirmed in the same go", () => {
+  const { rt, data, add } = setup();
+  add("rv-move", { type: "transfer", to_payment_method_id: data.pms[1].id });
+  rt.api("confirmEntries", { items: [{ id: "rv-move" }] });
+  assert.equal(status(rt, "rv-move"), "confirmed");
+  assert.deepEqual(rt.api("unconfirmEntries", { items: [{ id: "rv-move" }] }).undone, ["rv-move"]);
+  assert.equal(status(rt, "rv-move"), "pending");
+});
