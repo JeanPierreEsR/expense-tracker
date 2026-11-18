@@ -127,10 +127,13 @@
   }
 
   // The SIP "(C) DEUDA TOTAL" row: SALDO INICIAL, CONSUMOS E INTERESES, PAGOS Y OTROS, DEUDA TOTAL.
+  // A month paid beyond what was owed ends in a credit, printed "- 25.00" (space after the minus);
+  // it is read here too, since the scanned layout is only recognised through this row.
   function sipSummary(rows) {
     var summary = null;
     rows.forEach(function (r) {
-      var a = r.cells.filter(function (c) { return isAmount(c.str); }).map(function (c) { return num(c.str); });
+      var a = r.cells.map(function (c) { return c.str.replace(/^-\s+(?=[\d,]+\.\d{2}$)/, '-'); })
+        .filter(isAmount).map(num);
       if (a.length === 4 && round2(a[0] + a[1] - a[2]) === round2(a[3])) summary = a;
     });
     return summary;
