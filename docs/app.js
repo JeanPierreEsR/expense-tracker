@@ -2083,7 +2083,11 @@ function autoPickRepaymentGroup_() {
   const sel = document.getElementById("repayment-friend");
   const date = document.getElementById("date").value;
   const covering = (meta.trips || []).filter((t) => date >= t.start_date && date <= t.end_date);
-  const group = covering.length === 1 ? meta.friends.find((f) => f.trip_id === covering[0].id) : null;
+  let group = covering.length === 1 ? meta.friends.find((f) => f.trip_id === covering[0].id) : null;
+  // Only a group with something owed is suggested for a repayment (Lucho, 2026-11-18: it started on a trip group that owed nothing);
+  // a new loan may still start with it.
+  const groupOwes = (id) => !loansLastBalances_ || loansLastBalances_.some((b) => b.friend_id === id && (b.balances || []).some((x) => Math.abs(Number(x.net) || 0) > 0.004));
+  if (group && transferKind_() === "repayment" && !groupOwes(group.id)) group = null;
   if (group && Array.from(sel.options).some((o) => o.value === group.id)) {
     sel.value = group.id;
     repaymentAutoPickedId_ = group.id;
@@ -2229,6 +2233,18 @@ function syncNothingOwedLine_() {
   line.classList.toggle("owed-some", owed);
   if (!owed) {
     line.textContent = tr(dir === "they_owe_me" ? "owed.lineTheyOwe" : "owed.lineIOwe", { friend: f ? f.name : "", cur: currency });
+    // Owed the OTHER way: say so, with a one-tap switch (Lucho, 2026-11-18: "I paid them" for a friend who owed him, and nothing hinted).
+    const other = dir === "they_owe_me" ? "i_owe_them" : "they_owe_me";
+    const otherAmt = row && row.open ? Number(row.open[other] || 0) : row ? Math.max(0, (other === "they_owe_me" ? row.net : -row.net)) : 0;
+    if (otherAmt > 0.004) {
+      line.textContent = tr(other === "they_owe_me" ? "owed.otherTheyOwe" : "owed.otherIOwe", { friend: f ? f.name : "", amount: formatAmount(otherAmt, currency) }) + " ";
+      const sw = document.createElement("button");
+      sw.type = "button";
+      sw.className = "add-inline owed-switch";
+      sw.textContent = tr(other === "they_owe_me" ? "owed.switchTheyPaid" : "owed.switchIPaid");
+      sw.addEventListener("click", () => { const tab = document.querySelector(`#repayment-direction-tabs .type-tab[data-direction="${other}"]`); if (tab) tab.click(); });
+      line.appendChild(sw);
+    }
     fillRepaymentAmount_(0);
     return;
   }
