@@ -4428,6 +4428,17 @@ function entryHeadline_(entry) {
   return { title: `${marker}${title}`, meta: metaText };
 }
 
+// A repayment's or cash loan's description the app wrote itself ("Repayment from Ana" / "Repago de Ana", in whichever language it was
+// saved in) repeats the row's title, so the row does not show it again (Lucho, 2026-11-18: "Repayment from X / Repayment from X", and in
+// Spanish "Repago a Rosa / Repayment to Rosa"). A description the person typed still shows.
+function entryDescShown_(entry) {
+  const d = String(entry.description || "");
+  if (!d || entry.type !== "transfer" || !entry.link || !entry.link.friend) return d;
+  const S = window.STRINGS || {};
+  const own = ["desc.repaymentFrom", "desc.repaymentTo", "desc.loanTo", "desc.loanFrom"].some((k) => S[k] && ["en", "es"].some((l) => S[k][l] && S[k][l].replace("{name}", entry.link.friend) === d));
+  return own ? "" : d;
+}
+
 function categoryName(id) {
   const c = findCategory(id);
   // No category chosen (a history import adds entries without one) is not an error: say so plainly.
@@ -4568,7 +4579,7 @@ function buildEntryRow_(entry) {
   left.className = "entry-left";
   left.innerHTML = `
     <div class="entry-category">${headline.title}</div>
-    ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
+    ${entryDescShown_(entry) ? `<div class="entry-desc">${escapeHtml(entryDescShown_(entry))}</div>` : ""}
     <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
     ${entry.income_waiting === "1" ? `<div class="entry-desc">${escapeHtml(tr("income.waitingBadge"))}</div>` : ""}
     ${statusLine}
@@ -11503,7 +11514,7 @@ function renderEntriesInto_(list, entries, emptyKey) {
     row.innerHTML = `
       <div class="entry-left">
         <div class="entry-category">${headline.title}</div>
-        ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
+        ${entryDescShown_(entry) ? `<div class="entry-desc">${escapeHtml(entryDescShown_(entry))}</div>` : ""}
         <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
         ${entry.slice_part ? `<div class="entry-meta slice-part">${escapeHtml(slicePartText_(entry))}</div>` : ""}
         ${deletingEntryIds_.has(entry.id) ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>` : ""}
