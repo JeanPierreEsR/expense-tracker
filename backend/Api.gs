@@ -118,7 +118,6 @@ function doPost(e) {
       response = { ok: false, error: tr_('auth.invalidCode'), code: 'invalid_access_code' };
     } else {
       healWebAppUrl_(body.apiUrl);   // learns this copy's own address from the app (Features.gs)
-      noteOwnerAddress_(body.apiUrl);   // the owner's own copy, known by the address his phone uses (ApplePay.gs)
       var payload = body.payload || {};
       var thenReads = payload._then;   // reads the app wants back with this save (see runThenReads_)
       if (thenReads) delete payload._then;
