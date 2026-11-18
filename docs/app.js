@@ -9039,7 +9039,33 @@ function homeSuggestion_() {
     const name = r.description || (cat ? cat.name : "");
     list.push({ key: "repeat:" + r.key, text: tr("suggest.repeat", { name }), btn: tr("suggest.repeatBtn"), go: () => openRepeatSuggestion_(r) });
   }
+  const g = homeGlance_ || {};
+  // A3: no budget yet, a month of entries: last month's biggest category.
+  if (g.budgetHint) {
+    const cat = (meta.categories || []).find((c) => c.id === g.budgetHint.category_id);
+    if (cat) list.push({ key: "budget:" + g.budgetHint.month, text: tr("suggest.budget", { category: cat.name, amount: formatAmount(g.budgetHint.amount, homeCur()) }), btn: tr("suggest.budgetBtn"), go: () => openBudgetSuggestion_(cat.id) });
+  }
+  // A4: statements the bank e-mailed wait in the Statements Inbox.
+  if (g.inboxNew && g.inboxNew.count) list.push({ key: "inbox:" + g.inboxNew.newest + ":" + g.inboxNew.count, text: tr("suggest.inbox", { n: g.inboxNew.count, bank: g.inboxNew.bank || tr("suggest.yourBank") }), btn: tr("suggest.inboxBtn"),
+    go: () => { showScreen("more"); setTimeout(() => document.getElementById("data-statements-btn").click(), 300); } });
+  // A5: the same amount with no category two months running (a car payment, a school fee).
+  const mu = g.monthlyUncat;
+  if (mu) list.push({ key: "monthly:" + mu.key, text: tr("suggest.monthly", { amount: formatAmount(mu.amount, mu.currency), day: mu.day, name: mu.description }), btn: tr("suggest.monthlyBtn"),
+    alt: { label: tr("suggest.monthlyLoan"), go: () => { showScreen("loans"); setTimeout(() => document.getElementById("add-bank-loan-btn").click(), 400); } },
+    go: () => openRepeatSuggestion_({ description: mu.description, category_id: "", amount: mu.amount, currency: mu.currency }) });
   return list.find((x) => suggestOpen_(x.key)) || null;
+}
+// "Set a limit": Budgets' "+" as the person would tap it (a first budget gets its real tutorial); with no tutorial, the category is picked.
+function openBudgetSuggestion_(categoryId) {
+  showScreen("budgets");
+  setTimeout(() => {
+    document.getElementById("add-budget-btn").click();
+    setTimeout(() => {
+      if (Spotlight.isRunning() || document.getElementById("budget-modal-backdrop").hidden) return;
+      selectedBudgetCategoryIds = new Set([categoryId]);
+      populateBudgetCategoryChips();
+    }, 900);
+  }, 500);
 }
 function openRepeatSuggestion_(r) {
   showRecurringScreen();
@@ -9061,9 +9087,10 @@ function renderHomeSuggest_() {
   suggestShownKey_ = s.key;
   box.innerHTML = `<div class="home-suggest-head"><span class="tip-invite-label"><span class="ico ico-warn">${lineIcon_("bulb")}</span>${escapeHtml(tr("spot.tipLabel"))}</span>`
     + `<button type="button" class="currency-modal-close home-suggest-x" aria-label="${escapeHtml(tr("suggest.later"))}">✕</button></div>`
-    + `<p>${escapeHtml(s.text)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-go">${escapeHtml(s.btn)}</button></div>`;
+    + `<p>${escapeHtml(s.text)}</p><div class="tip-invite-buttons">${s.alt ? `<button type="button" class="tip-invite-alt">${escapeHtml(s.alt.label)}</button>` : ""}<button type="button" class="tip-invite-go">${escapeHtml(s.btn)}</button></div>`;
   box.querySelector(".home-suggest-x").addEventListener("click", () => { suggestMark_(s.key, false); suggestShownKey_ = ""; box.hidden = true; });
   box.querySelector(".tip-invite-go").addEventListener("click", () => { suggestMark_(s.key, true); suggestShownKey_ = ""; box.hidden = true; s.go(); });
+  if (s.alt) box.querySelector(".tip-invite-alt").addEventListener("click", () => { suggestMark_(s.key, true); suggestShownKey_ = ""; box.hidden = true; s.alt.go(); });
   box.hidden = false;
 }
 
