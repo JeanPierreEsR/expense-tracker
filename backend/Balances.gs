@@ -330,16 +330,30 @@ function cardOwedFromStatements_(allPms, openingsByPm) {
   });
   var banksById = {};
   getAllRows('Banks').forEach(function (b) { banksById[b.id] = b.name; });
+  var paymentsByCard = {};
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status === 'confirmed' && e.type === 'transfer' && cards[e.to_payment_method_id]) (paymentsByCard[e.to_payment_method_id] = paymentsByCard[e.to_payment_method_id] || []).push(e);
+  });
   var out = [];
   Object.keys(latest).forEach(function (id) {
     var u = latest[id], pm = cards[id], closing = {};
     try { closing = JSON.parse(String(u.closing_json)) || {}; } catch (e) { return; }
-    var balances = Object.keys(closing).filter(function (cur) { return closing[cur] && isFinite(Number(closing[cur].closing)); })
+    var balances = Object.keys(closing).filter(function (cur) { return cur.charAt(0) !== '_' && closing[cur] && isFinite(Number(closing[cur].closing)); })
       .map(function (cur) { return { currency: cur, amount: Math.round(Number(closing[cur].closing) * 100) / 100 }; })
       .sort(function (a, b) { return a.currency === homeCurrency_() ? -1 : b.currency === homeCurrency_() ? 1 : (a.currency < b.currency ? -1 : 1); });
     if (!balances.length) return;
+    // Payments INTO the card recorded after the statement closed (a transfer to it, from a bank e-mail, a savings statement's "PAGO
+    // TARJETA" or typed by hand), per currency: what the card line weighs against what was owed (owner, 2026-11-18). A refund on the card
+    // is not a payment; one made before the close is already inside the statement.
+    var paid = {}, lastPaid = '';
+    paymentsByCard[pm.id] && paymentsByCard[pm.id].forEach(function (e) {
+      if (String(e.date) <= String(u.period_end)) return;
+      paid[e.currency] = Math.round(((paid[e.currency] || 0) + Math.abs(Number(e.amount))) * 100) / 100;
+      if (String(e.date) > lastPaid) lastPaid = String(e.date).substring(0, 10);
+    });
     out.push({ id: pm.id, nickname: pm.nickname, type: pm.type, last_4: pm.last_4, bank_name: banksById[pm.bank_id] || '', openings: [],
-      balances: balances, balance_pen: null, statement_closed: String(u.period_end) });
+      balances: balances, balance_pen: null, statement_closed: String(u.period_end),
+      due: /^\d{4}-\d{2}-\d{2}$/.test(String(closing._due || '')) ? String(closing._due) : '', paid_since: paid, last_paid: lastPaid });
   });
   return out;
 }

@@ -241,10 +241,12 @@ function applyStatementDecisions(payload) {
   // "These lines look like planned items", left ticked in the preview: the new entry is that Programmed item's payment (2026-11-17).
   var planLinks = {};
   ((payload && payload.planLinks) || []).forEach(function (p) {
-    if (p && p.recurring_id && getAllRows('Recurring Expenses').some(function (r) { return r.id === p.recurring_id; })) planLinks[p.stmt + ':' + p.line] = String(p.recurring_id);
+    if (p && p.recurring_id && getAllRows('Recurring Expenses').some(function (r) { return r.id === p.recurring_id; })) planLinks[p.stmt + ':' + p.line] = { id: String(p.recurring_id), month: /^\d{4}-\d{2}$/.test(String(p.month || '')) ? String(p.month) : '' };
   });
-  if (Object.keys(planLinks).length && !dryRun) ensureEntriesRecurringLinkColumn_();
-  function planLinkFor(a) { return planLinks[a.stmt + ':' + a.line] || ''; }
+  if (Object.keys(planLinks).length && !dryRun) { ensureEntriesRecurringLinkColumn_(); ensureEntriesRecurringMonthColumn_(); }
+  function planLinkFor(a) { var l = planLinks[a.stmt + ':' + a.line]; return l ? l.id : ''; }
+  // The month it pays when not its own (an early payment for next month's plan).
+  function planMonthFor(a, date) { var l = planLinks[a.stmt + ':' + a.line]; return l && l.month && l.month !== String(date).substring(0, 7) ? l.month : ''; }
   function countLineCategory(lc) {
     if (!lc.text) return;
     if (lc.id) report.categoriesFiled = (report.categoriesFiled || 0) + 1;
@@ -461,7 +463,7 @@ function applyStatementDecisions(payload) {
         if (guessed) { hxCat = { id: guessed, text: '' }; report.categoriesGuessed = (report.categoriesGuessed || 0) + 1; }
       }
       var madeH = newEntry({ type: 'expense', date: hx.l.date, currency: hx.l.currency, category_id: revFor ? (revFor[col.category_id] || '') : hxCat.id, payment_method_id: requirePm(hx).id,
-        recurring_expense_id: isRev ? '' : planLinkFor(a),
+        recurring_expense_id: isRev ? '' : planLinkFor(a), recurring_month: isRev ? '' : planMonthFor(a, hx.l.date),
         amount: isRev ? -hx.l.amount : Math.abs(hx.l.amount),
         description: isRev ? tr_('desc.reversal', { text: stmtCleanDescription_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) }) : stmtCleanDescription_(hx.l.description),
         status: 'confirmed', external_id: 'stmt-' + hx.key, merchant: stmtMerchantKey_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) });
@@ -488,7 +490,7 @@ function applyStatementDecisions(payload) {
       var hiCat = lineCategory('income', hi.l.category);
       // It may be an income the person was waiting for: then it goes to Needs review, which asks, instead of counting the same money twice.
       var hiWaits = !!waitingMatchFor_({ currency: hi.l.currency, amount: hi.l.amount }, listWaitingIncome_());
-      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: hiCat.id || interestCat, recurring_expense_id: planLinkFor(a),
+      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: hiCat.id || interestCat, recurring_expense_id: planLinkFor(a), recurring_month: planMonthFor(a, hi.l.date),
         description: stmtCleanDescription_(hi.l.description), payment_method_id: requirePm(hi).id, status: hiWaits ? 'pending' : 'confirmed', external_id: 'stmt-' + hi.key });
       if (madeHI) { report.created.income++; countLineCategory(hiCat); }
       if (madeHI && !hiWaits && !(hiCat.id || interestCat)) report.uncategorized++;
@@ -757,7 +759,8 @@ function applyStatementDecisions(payload) {
   var uheaders = getHeaders(usheet);
   var newUploadRows = [];   // written in ONE call after the loop: a year of statements is dozens of rows
   uploadOps.forEach(function (op) {
-    var closing = JSON.stringify(op.s.balances || {});
+    // A card's pay-by date travels with its closing balance (`_due`; only the card's own screens read it, Balances.gs).
+    var closing = JSON.stringify(Object.assign({}, op.s.balances || {}, /^\d{4}-\d{2}-\d{2}$/.test(String(op.s.due || '')) ? { _due: String(op.s.due) } : {}));
     var fields = { closing_json: closing, file_name: op.s.file_name || '', processed_at: today, batch_id: batchId,
       lines_total: (op.s.lines || []).length, verified: op.s.verified === false ? 'false' : 'true', source: op.isImport ? 'import' : 'upload' };
     if (op.existing) {

@@ -7657,6 +7657,14 @@ function reviewAfterBulk_(handledIds) {
   const left = reviewEntries_.filter((e) => !handledIds.has(e.id));
   refreshReviewQueue(left, true).catch(() => {});
 }
+// Cards whose "This is my Salary for August" the person unticked: confirm-many leaves them unlinked too (owner's plan, 2026-11-18).
+const reviewPlanOff_ = new Set();
+document.getElementById("review-list").addEventListener("change", (e) => {
+  const c = e.target.closest && e.target.closest(".review-plan-check");
+  if (!c) return;
+  const item = c.closest(".review-item"), id = item && item.dataset.entryId;
+  if (id) { if (c.checked) reviewPlanOff_.delete(id); else reviewPlanOff_.add(id); }
+});
 const reviewIssueText_ = (entry, reason) => `${reviewShortName_(entry)} (${tr(`reviewBulk.why.${reason}`)})`;
 
 document.getElementById("review-confirm-selected-btn").addEventListener("click", () => confirmReviewBulk_(reviewEntries_.filter((e) => reviewSelected_.has(e.id))));
@@ -7679,8 +7687,22 @@ async function confirmReviewBulk_(chosen) {
   const notReadyText = notReady.map((e) => reviewIssueText_(e, reviewIssue_(e))).join(", ");
   if (!ready.length) { showAppMessage_(tr("reviewBulk.noneReady", { items: notReadyText })); return; }
   const left = notReady.length ? tr("reviewBulk.leftNote", { items: notReadyText }) : "";
-  if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }), tr("reviewBulk.confirmN", { n: ready.length }), { plain: true })) return;
-  const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (e.trip_id || e.suggested_trip_id || "") : undefined }));
+  // Items that look like a Programmed item's month and were not unticked: linked by the same confirm, one per item and month (the server
+  // checks again). Only where the server can (`bulkPlanLink`), so an older one is never promised a link.
+  const canLink = !!(meta && meta.capabilities && meta.capabilities.bulkPlanLink);
+  const linkKeys = new Set();
+  const toLink = canLink ? ready.filter((e) => {
+    if (!e.plan_match || reviewPlanOff_.has(e.id) || isPracticeReviewEntry_(e)) return false;
+    const k = e.plan_match.recurring_id + "|" + e.plan_match.month;
+    if (linkKeys.has(k)) return false;
+    linkKeys.add(k);
+    return true;
+  }) : [];
+  const linkNames = toLink.map((e) => e.plan_match.description || tr("plan.thePlanned"));
+  const linkText = toLink.length ? "\n\n" + tr(ready.length === 1 ? "reviewBulk.willLinkThis" : "reviewBulk.willLink", { n: toLink.length, names: linkNames.length > 3 ? linkNames.slice(0, 3).join(", ") + " " + tr("entriesBulk.andMore", { n: linkNames.length - 3 }) : linkNames.join(", ") }) : "";
+  if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }) + linkText, tr("reviewBulk.confirmN", { n: ready.length }), { plain: true })) return;
+  const linkFor = new Map(toLink.map((e) => [e.id, e.plan_match.recurring_id]));
+  const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (e.trip_id || e.suggested_trip_id || "") : undefined, link_recurring_id: linkFor.get(e.id) || undefined }));
   ready.forEach((e) => {   // the optional "help me improve" sharing sees a confirm exactly as the card's own Confirm reports it
     if (isPracticeReviewEntry_(e)) return;
     const amount = Math.abs(Number(e.amount));
@@ -7698,6 +7720,10 @@ async function confirmReviewBulk_(chosen) {
     refreshHomeGlance_(true);
     await refreshReviewQueue(undefined, true).catch(() => {});
     if (result && result.tag_asks && result.tag_asks.length) askProgrammedTags_(result.tag_asks);
+    if (result && (result.link_skipped || []).length) {
+      showAppMessage_(tr("reviewBulk.linkSkipped", { names: result.link_skipped.map((k) => { const e = byId.get(k.id); return e ? reviewShortName_(e) : ""; }).filter(Boolean).join(", ") }));
+    }
+    if ((result && result.linked || []).length) refreshExpectedRecurring().catch(() => {});
     if (!result || !result.kept.length) return;
     showAppMessage_(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
   }, {
@@ -7830,7 +7856,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <label class="review-transfer-label">${tr("review.receivedAtLabel")}</label>
         <select class="review-land">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>` : ""}` : ""}
       </div>
-      ${entry.plan_match ? `<label class="review-plan-match"><input type="checkbox" class="review-plan-check" checked> ${escapeHtml(tr("plan.line", { name: entry.plan_match.description || tr("plan.thePlanned"), month: paceMonthName_(entry.plan_match.month, true) }))}</label>` : ""}
+      ${entry.plan_match ? `<label class="review-plan-match"><input type="checkbox" class="review-plan-check"${reviewPlanOff_.has(entry.id) ? "" : " checked"}> ${escapeHtml(tr("plan.line", { name: entry.plan_match.description || tr("plan.thePlanned"), month: paceMonthName_(entry.plan_match.month, true) }))}</label>` : ""}
       <div class="review-item-actions">
         <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
         <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
@@ -17842,6 +17868,24 @@ function fillPmBankOptions_(selectedId) {
   sel.value = selectedId || "";
 }
 
+// What a card statement's pay-by date means today, from the payments to the card recorded since it closed (owner, 2026-11-18): paid in
+// full, part paid, still to pay, or nothing recorded once the date passed. Never "overdue" and never an alert: the app only knows the
+// payments it was told about. Each currency on its own. '' when the statement had no pay-by date and nothing was paid since.
+function cardDueText_(r) {
+  const owed = (r.balances || []).filter((b) => b.amount < -0.004).map((b) => ({ cur: b.currency, owed: -b.amount, paid: Number((r.paid_since || {})[b.currency]) || 0 }));
+  if (!owed.length) return "";
+  const fmtD = (iso) => I18n.fmtDateMedium(new Date(iso + "T12:00:00"));
+  if (owed.every((o) => o.paid >= o.owed - 0.005)) return tr("cardDue.paid", { date: r.last_paid ? fmtD(r.last_paid) : "" }).replace(" ()", "");
+  const passed = !!r.due && r.due < todayLocalISO();
+  const dueBit = r.due ? tr(passed ? "cardDue.wasDue" : "cardDue.payBy", { date: fmtD(r.due) }) : "";
+  if (owed.some((o) => o.paid > 0.004)) {
+    const paidT = owed.filter((o) => o.paid > 0.004).map((o) => formatAmount(o.paid, o.cur)).join(" · ");
+    const leftT = owed.filter((o) => o.owed - o.paid > 0.004).map((o) => formatAmount(o.owed - o.paid, o.cur)).join(" · ");
+    return [tr("cardDue.paidSince", { amount: paidT }), tr("cardDue.left", { amount: leftT }), dueBit].filter(Boolean).join(" · ");
+  }
+  if (!r.due) return "";
+  return passed ? tr("cardDue.nothingRecorded", { date: fmtD(r.due) }) : dueBit;
+}
 // The card's own form: what it owed at its last statement, when the app knows it only from statements (2026-11-17). From the Balances
 // list Overview already loaded, else fetched once for a card.
 async function fillPmOwedLine_(pm) {
@@ -17853,7 +17897,8 @@ async function fillPmOwedLine_(pm) {
   if (!balancesLoaded_) { try { rows = await callApi("listPaymentMethodBalances", {}); } catch (e) { return; } }   // (Overview not opened yet)
   const r = (rows || []).find((x) => x.id === pm.id && x.statement_closed);
   if (!r || pmModalState.id !== pm.id) return;
-  line.textContent = tr("accounts.owedAtStatement", { amounts: r.balances.map((b) => formatAmount(Math.abs(b.amount), b.currency)).join(" · "), date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) });
+  const dueT = cardDueText_(r);
+  line.textContent = tr("accounts.owedAtStatement", { amounts: r.balances.map((b) => formatAmount(Math.abs(b.amount), b.currency)).join(" · "), date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }) + (dueT ? " " + dueT + "." : "");
   line.hidden = false;
 }
 function openPmModal_(pm) {
@@ -22498,7 +22543,7 @@ document.getElementById("recurring-add-tag-btn").addEventListener("click", async
 async function askPlanMatch_(entryId, plan) {
   const ok = await askConfirmApp_(tr("plan.ask", { name: plan.description || tr("plan.thePlanned"), month: paceMonthName_(plan.month, true) }), tr("plan.yes"), { plain: true, cancel: tr("plan.no") });
   if (!ok) return;
-  saveBehindScreen_(async () => { await callApi("linkEntryToRecurring", { entryId, recurringExpenseId: plan.recurring_id }); },
+  saveBehindScreen_(async () => { await callApi("linkEntryToRecurring", { entryId, recurringExpenseId: plan.recurring_id, month: plan.month }); },
     () => { refreshExpectedRecurring().catch(() => {}); }, { busy: "plan.linking", done: () => tr("plan.linked") });
 }
 async function askProgrammedTags_(asks) {
@@ -33096,7 +33141,8 @@ async function refreshBalancesInner_() {
     const missing = r.statement_closed ? [] : balanceMissingCurrencies_(r);
     const otherText = others.filter((b) => Math.abs(b.amount) > 0.004).map((b) => formatSignedBalance_(b.amount, b.currency) + (b.waiting ? ` (${tr("charge.waiting")})` : "")).join(" · ");
     // A card known only from its statements (2026-11-17): what it owed when the last one closed, said as such (not a live balance).
-    const stmtLine = r.statement_closed ? `<div class="balance-row-meta">${escapeHtml(tr("balances.atStatement", { date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }))}</div>` : "";
+    const dueT = r.statement_closed ? cardDueText_(r) : "";
+    const stmtLine = r.statement_closed ? `<div class="balance-row-meta">${escapeHtml(tr("balances.atStatement", { date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }))}</div>${dueT ? `<div class="balance-row-meta">${escapeHtml(dueT)}</div>` : ""}` : "";
     row.innerHTML = `
       <div class="balance-row-name">${escapeHtml(r.nickname)}${r.statement_closed ? "" : `<span class="loan-detail-row-chevron">›</span>`}${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${stmtLine}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}</div>
       <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>

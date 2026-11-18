@@ -982,6 +982,31 @@
     return name && !looksLikeHeading_(name) ? name : '';
   }
 
+  // A card statement's pay-by date (owner's plan, 2026-11-18): ONLY the date next to its label ("Último día de pago", "Fecha límite de
+  // pago"), on the label's own row after it, or alone at the start of one of the next 3 rows (a heading row over a row of figures). No
+  // label, no date: a page carries several dates (cycle, cut-off, next statement) and a guess would be worse than none. Checked on real
+  // statements of four banks (Interbank Visa, SIP, a BCP card, Banco Falabella); a 2-digit year is this century. '' when none.
+  var DUE_LABEL_ = /[uú]ltimo\s+d[ií]a\s+de\s+pago|fecha\s+l[ií]mite\s+de\s+pago/i;
+  function dueIso_(m) {
+    var d = Number(m[1]), mo = Number(m[2]), y = Number(m[3].length === 2 ? '20' + m[3] : m[3]);
+    if (!(d >= 1 && mo >= 1 && mo <= 12 && y >= 2000 && y <= 2099) || d > new Date(Date.UTC(y, mo, 0)).getUTCDate()) return '';   // (31/02 is no date)
+    return y + '-' + (mo < 10 ? '0' : '') + mo + '-' + (d < 10 ? '0' : '') + d;
+  }
+  function dueDateOf(rows) {
+    for (var i = 0; i < rows.length && i < 60; i++) {
+      var t = String(rows[i].text || ''), m = t.match(DUE_LABEL_);
+      if (!m) continue;
+      var same = t.slice(m.index + m[0].length).match(/(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})(?!\d)/);
+      if (same) return dueIso_(same);
+      for (var k = 1; k <= 3 && i + k < rows.length; k++) {
+        var lone = String(rows[i + k].text || '').match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})(?!\d)/);
+        if (lone) return dueIso_(lone);
+      }
+      return '';   // the label with no date beside or under it: nothing (the first label decides)
+    }
+    return '';
+  }
+
   function parseStatement(rows) {
     var kind = detectKind(rows);
     var res;
@@ -997,6 +1022,7 @@
     else if (kind === 'sip') res = parseSip(rows);
     else return fail(null, [msg('sp.notRecognized')]);
     if (res && res.ok) res.holder = holderOf(kind, rows);
+    if (res && res.ok && kind !== 'savings' && kind !== 'bcp' && kind !== 'ahorramas') { var due = dueDateOf(rows); if (due) res.due = due; }   // cards only
     return res;
   }
 
@@ -1013,6 +1039,6 @@
     return Object.keys(seen);
   }
 
-  return { groupRows: groupRows, readPdfRows: readPdfRows, parseStatement: parseStatement, detectKind: detectKind, holderOf: holderOf,
+  return { groupRows: groupRows, readPdfRows: readPdfRows, parseStatement: parseStatement, detectKind: detectKind, holderOf: holderOf, dueDateOf: dueDateOf,
     STATEMENT_BANK_BY_KIND: STATEMENT_BANK_BY_KIND, statementBanks: statementBanks };
 });

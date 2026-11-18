@@ -521,6 +521,19 @@ function ensureEntriesRecurringLinkColumn_() {
     sheet.getRange(1, headers.length + 1).setValue('recurring_expense_id');
   }
 }
+// The month a linked payment pays when it is not its own (a salary paid on 29 July for August's; owner's plan, 2026-11-18). Added only
+// when a link is written (never on a read, which would make every screen read the Sheet again).
+function ensureEntriesRecurringMonthColumn_() {
+  if (memoHasColumns_('Entries', ['recurring_month'])) return;
+  var sheet = getSheet('Entries');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('recurring_month') === -1) sheet.getRange(1, headers.length + 1).setValue('recurring_month');
+}
+// The month a payment linked to a Programmed item pays: the one stored with the link, else its own.
+function entryPlanMonth_(e) {
+  var m = String((e && e.recurring_month) || '');
+  return /^\d{4}-\d{2}$/.test(m) ? m : String((e && e.date) || '').substring(0, 7);
+}
 
 // Self-heals like every other post-hoc table (Payors, Loan Alert Log,
 // etc.) — added well after Recurring Expenses already held real data.
@@ -897,13 +910,19 @@ function updateRecurringExpense(payload) {
 // above). Pass recurringExpenseId: '' to unlink. Self-heals the Entries
 // column here too, rather than depending on some other call having
 // already gone through getRecurringExpenseRows_() first.
-function adminLinkEntryToRecurring(entryId, recurringExpenseId) {
+function adminLinkEntryToRecurring(entryId, recurringExpenseId, month) {
   ensureEntriesRecurringLinkColumn_();
+  ensureEntriesRecurringMonthColumn_();
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, entryId);
   if (rowIndex === -1) throw new Error(tr_('err.entryNotFound'));
   setCellByRow_(sheet, headers, rowIndex, 'recurring_expense_id', recurringExpenseId || '');
+  // Only a month other than the payment's own is stored; unlinking, or linking for its own month, clears it.
+  var cur = getEntryById_(entryId);
+  var own = String((cur && cur.date) || '').substring(0, 7);
+  var m = recurringExpenseId && /^\d{4}-\d{2}$/.test(String(month || '')) && String(month) !== own ? String(month) : '';
+  setCellByRow_(sheet, headers, rowIndex, 'recurring_month', m);
   return { done: true };
 }
 
@@ -1081,9 +1100,13 @@ function linkEntriesToRecurring(payload) {
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   var entryIds = payload.entryIds || [];
+  // Each with the month it pays (owner, 2026-11-18): a payment picked by hand follows the same rule as "Is this your Salary for August?".
+  var item = payload.recurringExpenseId ? getAllRows('Recurring Expenses').find(function (r) { return r.id === payload.recurringExpenseId; }) : null;
   entryIds.forEach(function (entryId) {
     var rowIndex = findRowIndexById(sheet, headers, entryId);
-    if (rowIndex !== -1) setCellByRow_(sheet, headers, rowIndex, 'recurring_expense_id', payload.recurringExpenseId);
+    if (rowIndex === -1) return;
+    var e = item ? getEntryById_(entryId) : null;
+    adminLinkEntryToRecurring(entryId, payload.recurringExpenseId, e ? planMonthForLink_(e, item) : '');
   });
   return { linked: entryIds.length };
 }
@@ -1430,7 +1453,7 @@ function repeatEntryAsProgrammed_(entryId, rep) {
 
 function linkEntryToRecurring(payload) {
   if (payload.recurringExpenseId) assertRecurringExists_(payload.recurringExpenseId);
-  var result = adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);
+  var result = adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId, payload.month);
   // The owner just said this entry IS the payment for an estimate that sits in a
   // trip/event: the payment joins that trip too (unless it already has one).
   if (payload.recurringExpenseId) {
@@ -1699,7 +1722,7 @@ function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates, ent
       var linkWindow = Math.max(recurringMatchWindowDays_(recurring), Math.min(10, Math.floor(customPeriodDays_(recurring) / 2)));
       return occurrenceDates.some(function (occDate) { return Math.abs(daysBetweenDates_(entry.date, occDate)) <= linkWindow; });
     }
-    var entryMonth = String(entry.date).substring(0, 7);
+    var entryMonth = entryPlanMonth_(entry);   // the month the link pays (an early salary pays next month's)
     return occurrenceDates.some(function (occDate) { return String(occDate).substring(0, 7) === entryMonth; });
   }
   if (entry.category_id !== recurring.category_id) return false;
@@ -2038,37 +2061,81 @@ function answerAnnualItems(payload) {
   return { tagged: tagged };
 }
 
-// ---- "Is this your Salary for August?" (owner's plan, 2026-11-17, after the journeys run) ----
-// A typed or confirmed payment that was not matched to its Programmed item by itself (another day than planned, so outside the
-// automatic window) was counted twice in Projections (Andrés: 9,800 typed on the 28th + 9,800 planned for the 3rd = 19,600). This
-// finds the item it most likely pays, for the app to ASK: same kind and category, same currency, amount within 20%, an occurrence in
-// the entry's month, that month not already paid by another entry, and the entry not already matched by itself. Never links anything.
-// Returns { recurring_id, description, month } or null.
+// ---- "Is this your Salary for August?" (owner's plan, 2026-11-17; month rule 2026-11-18) ----
+// A typed or confirmed payment that its Programmed item did not match by itself (another day than planned) was counted twice in
+// Projections (Andrés: 9,800 typed on the 28th + 9,800 planned for the 3rd). This finds the item and the MONTH it most likely pays, for
+// the app to ASK; it never links. Same kind and category, same currency, amount within 20% of the item's amount or of the person's
+// share of it (a shared rent typed either way). The month (owner, 2026-11-18): the payment's own month first, if that month has an
+// occurrence and is not yet paid; only when it is paid (or has none), next month's, if its planned date is at most 15 days after the
+// payment (a salary paid early). Custom frequencies keep their own day window (no next-month rule). Returns
+// { recurring_id, description, month } or null.
+var PLAN_EARLY_DAYS_ = 15;
+// The month rule alone, for one item (also used when a payment is linked by hand in the item's "match past entries" list): the payment's
+// own month if it has an occurrence and is not yet paid; else next month's if its date is at most PLAN_EARLY_DAYS_ ahead and unpaid.
+// `skipIfMatched`: a payment its own month already counts by itself gives null (nothing to ask). { key, days } or null.
+function planMonthForItem_(entry, r, entries, own, next, paid, skipIfMatched) {
+  var date = String(entry.date || '').substring(0, 10);
+  var occOwn = recurringExpenseOccurrencesInRange_(r, own.start, own.end);
+  if (occOwn.length) {
+    if (skipIfMatched && entryMatchesRecurringOccurrence_(entry, r, occOwn)) return null;
+    if (!paid(r, occOwn, own.key)) return { key: own.key, days: Math.abs(daysBetweenDates_(occOwn[0], date)) };
+  }
+  if (isCustomRecurring_(r)) return null;
+  var occNext = recurringExpenseOccurrencesInRange_(r, next.start, next.end);
+  var ahead = occNext.length ? daysBetweenDates_(occNext[0], date) : -1;
+  if (ahead > 0 && ahead <= PLAN_EARLY_DAYS_ && !paid(r, occNext, next.key)) return { key: next.key, days: ahead };
+  return null;
+}
+// The month a payment linked by hand to item `r` pays (the same rule; its own month when the rule finds none).
+function planMonthForLink_(entry, r) {
+  var date = String(entry.date || '').substring(0, 10), month = date.substring(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return '';
+  var y = Number(month.substring(0, 4)), m = Number(month.substring(5, 7));
+  var bounds = function (yy, mm) { var d = new Date(Date.UTC(yy, mm - 1, 1)); var k = d.toISOString().substring(0, 7); return { key: k, start: k + '-01', end: k + '-' + pad2_(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()) }; };
+  var own = bounds(y, m), next = bounds(m === 12 ? y + 1 : y, m === 12 ? 1 : m + 1);
+  var entries = getAllRows('Entries');
+  var paid = function (item, occ, key) {
+    return entries.some(function (e) {
+      if (e.id === entry.id || e.status !== 'confirmed') return false;
+      if (e.recurring_expense_id === item.id) return entryPlanMonth_(e) === key;
+      return !e.recurring_expense_id && String(e.date).substring(0, 7) === key && entryMatchesRecurringOccurrence_(e, item, occ);
+    });
+  };
+  var pick = planMonthForItem_(entry, r, entries, own, next, paid, false);
+  return pick ? pick.key : month;
+}
 function planMatchFor_(entry, allEntries) {
   if (!entry || entry.recurring_expense_id || !entry.category_id || (entry.type !== 'expense' && entry.type !== 'income')) return null;
-  var month = String(entry.date || '').substring(0, 7);
+  var date = String(entry.date || '').substring(0, 10), month = date.substring(0, 7);
   if (!/^\d{4}-\d{2}$/.test(month)) return null;
-  var y = Number(month.substring(0, 4)), m = Number(month.substring(5, 7));
-  var mStart = month + '-01', mEnd = month + '-' + pad2_(new Date(Date.UTC(y, m, 0)).getUTCDate());
   var amt = Math.abs(Number(entry.amount));
   if (!(amt > 0)) return null;
+  var y = Number(month.substring(0, 4)), m = Number(month.substring(5, 7));
+  var bounds = function (yy, mm) { var d = new Date(Date.UTC(yy, mm - 1, 1)); var k = d.toISOString().substring(0, 7); return { key: k, start: k + '-01', end: k + '-' + pad2_(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()) }; };
+  var own = bounds(y, m), next = bounds(m === 12 ? y + 1 : y, m === 12 ? 1 : m + 1);
   var entries = allEntries || getAllRows('Entries');
-  var best = null, bestGap = Infinity;
+  var splitSums = {};
+  getAllRows('Recurring Expense Splits').forEach(function (sp) { splitSums[sp.recurring_expense_id] = (splitSums[sp.recurring_expense_id] || 0) + Number(sp.amount); });
+  // Paid: another confirmed entry linked to this item for that month, or one the item matches by itself in that month.
+  function paid(r, occ, key) {
+    return entries.some(function (e) {
+      if (e.id === entry.id || e.status !== 'confirmed') return false;
+      if (e.recurring_expense_id === r.id) return entryPlanMonth_(e) === key;
+      return !e.recurring_expense_id && String(e.date).substring(0, 7) === key && entryMatchesRecurringOccurrence_(e, r, occ);
+    });
+  }
+  var best = null;
   getAllRows('Recurring Expenses').forEach(function (r) {
     if (String(r.active) === 'false' || String(r.category_id) !== String(entry.category_id)) return;
     if ((r.currency || homeCurrency_()) !== entry.currency) return;
-    var ra = Math.abs(Number(r.variable && r.base_amount != null && r.base_amount !== '' ? r.base_amount : r.amount));
-    if (!(ra > 0) || Math.abs(ra - amt) > 0.2 * Math.max(ra, amt)) return;
-    var occ = recurringExpenseOccurrencesInRange_(r, mStart, mEnd);
-    if (!occ.length) return;
-    if (entryMatchesRecurringOccurrence_(entry, r, occ)) return;   // already counted once by itself: nothing to ask
-    var paid = entries.some(function (e) {   // that month already paid by another entry (linked, or matched by itself)
-      if (e.id === entry.id || e.status !== 'confirmed' || String(e.date).substring(0, 7) !== month) return false;
-      return e.recurring_expense_id === r.id || (!e.recurring_expense_id && entryMatchesRecurringOccurrence_(e, r, occ));
-    });
-    if (paid) return;
-    var gap = Math.abs(ra - amt);
-    if (gap < bestGap) { best = { recurring_id: r.id, description: String(r.description || ''), month: month }; bestGap = gap; }
+    var whole = Math.abs(Number(r.variable && r.base_amount != null && r.base_amount !== '' ? r.base_amount : r.amount));
+    var share = Math.abs(recurringOwnAmount_(r, splitSums));
+    var gapOf = function (ra) { return ra > 0 ? Math.abs(ra - amt) / Math.max(ra, amt) : Infinity; };
+    var gap = Math.min(gapOf(whole), gapOf(share));
+    if (!(gap <= 0.2)) return;
+    var pick = planMonthForItem_(entry, r, entries, own, next, paid, true);
+    if (!pick) return;
+    if (!best || gap < best.gap || (gap === best.gap && pick.days < best.days)) best = { gap: gap, days: pick.days, out: { recurring_id: r.id, description: String(r.description || ''), month: pick.key } };
   });
-  return best;
+  return best ? best.out : null;
 }

@@ -2379,7 +2379,7 @@
   function planLinksChosen_() {
     const pm = (historyPlan && historyPlan.plan_matches) || [];
     return Array.from(document.querySelectorAll("#statement-history .stmt-plan-check")).filter((c) => c.checked).map((c) => pm[Number(c.dataset.i)]).filter(Boolean)
-      .map((m) => ({ stmt: m.stmt, line: m.line, recurring_id: m.recurring_id }));
+      .map((m) => ({ stmt: m.stmt, line: m.line, recurring_id: m.recurring_id, month: m.month }));
   }
   // One summary bullet; a {text, sub} item puts its sub-lines under it (the per-currency totals of the expenses).
   function sumLi_(t) {
@@ -2520,7 +2520,7 @@
       filename: `History ${usable.map((u) => u.file).join(", ")}`.slice(0, 200),
       statements: usable.map(({ file, result }) => ({
         key: accountKeyOf(result), kind: result.kind, source: result.source || "", period: result.period, file_name: file,
-        verified: !!(result.ok && result.verified !== false), balances: result.balances,
+        verified: !!(result.ok && result.verified !== false), balances: result.balances, due: result.due || "",
         lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category, transfer: l.transfer }))
       })),
       inboxIds: usable.map((u) => u.inboxId).filter(Boolean),
