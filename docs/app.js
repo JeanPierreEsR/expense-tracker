@@ -33160,7 +33160,11 @@ async function refreshBalancesInner_() {
   const totalsWrap = document.getElementById("balances-totals");
   const totalsLines = document.getElementById("balances-totals-lines");
   totalsLines.innerHTML = "";
-  totalsWrap.hidden = codes.length === 0;
+  // The box also holds "Show accounts (n)", so it shows whenever there are rows (testers 2026-11-18: with only cards known from their
+  // statements there were no totals, the box hid, and the cards' lines could not be reached). With no totals at all the rows show open.
+  totalsWrap.hidden = rows.length === 0;
+  totalsWrap.querySelector(".balances-totals-title").hidden = codes.length === 0;
+  if (!codes.length && rows.length) balancesExpanded_ = true;
   balancesRowCount_ = rows.length;
   applyBalancesExpanded_();
   codes.forEach((code) => {
