@@ -696,6 +696,7 @@
     "nav.overview": { en: "Overview", es: "Resumen" },
     "nav.budgets": { en: "Budgets", es: "Presupuestos" },
     "nav.projections": { en: "Projections", es: "Proyecciones" },
+    "nav.moreUpdate": { en: "More, an update is ready", es: "Más, hay una actualización lista" },
     "nav.budgetsTab": { en: "Budgets", es: "Presup." },          // the tab bar's short label (the full name is its spoken name)
     "nav.projectionsTab": { en: "Projections", es: "Proyec." },
     "nav.loans": { en: "Loans", es: "Préstamos" },

@@ -13403,6 +13403,9 @@ function renderBackendUpdateBanner_() {
 function setUpdateAvailable_(on) {
   document.getElementById("more-update-btn").hidden = !on;
   document.body.classList.toggle("update-ready", !!on);
+  // The red dot on More is only drawn: its spoken name says it too (Paola, 2026-11-18).
+  const moreTab = document.querySelector('#bottom-nav .nav-btn[data-screen="more"]');
+  if (moreTab) { if (on) moreTab.setAttribute("aria-label", tr("nav.moreUpdate")); else moreTab.removeAttribute("aria-label"); }
   backendBehind_ = !!on;
   renderBackendUpdateBanner_();
 }
@@ -25603,6 +25606,11 @@ function openInfoCard_(btn) {
   const apOff = key === "review" && !(meta && meta.capabilities && meta.capabilities.applePay);
   card.querySelector("p").textContent = tr("info." + (apOff ? "reviewNoAp" : key));
   document.body.appendChild(card);
+  // A card added at the end of the page is not read by itself (Paola, 2026-11-18): its words go to a hidden status line too.
+  let live = document.getElementById("info-live");
+  if (!live) { live = document.createElement("div"); live.id = "info-live"; live.className = "sr-only"; live.setAttribute("aria-live", "polite"); document.body.appendChild(live); }
+  live.textContent = "";
+  setTimeout(() => { live.textContent = card.querySelector("p").textContent; }, 50);
   btn.setAttribute("aria-expanded", "true");
   btn.setAttribute("aria-describedby", "info-card");
   const open = { btn, card, frame: 0 };
