@@ -997,6 +997,7 @@ function listRecurringPayments(payload) {
     }
     out.push({ id: e.id, date: String(e.date).substring(0, 10), amount: Number(e.amount), currency: e.currency,
       description: e.description || '', linked: linked, _occ: occDate,
+      for_month: linked ? entryPlanMonth_(e) : String(occDate || e.date).substring(0, 7),   // the month it pays (Ingrid, 2026-11-18)
       _gap: Math.abs(Number(e.amount) - Number(re.amount)) * 1000 + (occDate ? Math.abs(daysBetweenDates_(e.date, occDate)) : 0) });
   });
   // Several entries can fit the same due date (same category, ~10% amount, a few days): only the closest one is shown as
@@ -1004,7 +1005,7 @@ function listRecurringPayments(payload) {
   var bestByOcc = {};
   out.forEach(function (p) { if (p._occ && (!bestByOcc[p._occ] || p._gap < bestByOcc[p._occ]._gap)) bestByOcc[p._occ] = p; });
   out = out.filter(function (p) { return p.linked || bestByOcc[p._occ] === p; })
-    .map(function (p) { return { id: p.id, date: p.date, amount: p.amount, currency: p.currency, description: p.description, linked: p.linked }; });
+    .map(function (p) { return { id: p.id, date: p.date, amount: p.amount, currency: p.currency, description: p.description, linked: p.linked, for_month: p.for_month }; });
   out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
   return { payments: out.slice(0, 60), total: out.length };
 }

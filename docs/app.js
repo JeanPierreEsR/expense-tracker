@@ -22952,7 +22952,7 @@ async function loadRecurringPast_() {
       const row = document.createElement("div");
       row.className = "link-candidate-row";
       row.innerHTML = `<div class="link-candidate-text">
-          <div class="link-candidate-date">${listDate_(p.date)} · ${escapeHtml(p.currency)} ${moneyFmt(p.amount)}${p.linked ? "" : ` <span class="hint">${escapeHtml(tr("recModal.pastAuto"))}</span>`}</div>
+          <div class="link-candidate-date">${listDate_(p.date)} · ${escapeHtml(p.currency)} ${moneyFmt(p.amount)}${p.for_month ? ` · ${escapeHtml(tr("recModal.pastFor", { month: I18n.fmtMonthYear(new Date(p.for_month + "-01T00:00:00"), true) }))}` : ""}${p.linked ? "" : ` <span class="hint">${escapeHtml(tr("recModal.pastAuto"))}</span>`}</div>
           <div class="link-candidate-desc">${escapeHtml(p.description || tr("review.noDescription"))}</div>
         </div>`;
       list.appendChild(row);

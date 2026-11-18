@@ -2151,6 +2151,7 @@
     "recModal.endHint": { en: "Leave blank if it never ends. After the end date it stops counting, but earlier months keep their history.", es: "Déjalo en blanco si nunca termina. Después de la fecha de fin deja de contar, pero los meses anteriores conservan su historial." },
     "recModal.skipped": { en: "Skipped months", es: "Meses omitidos" },
     "recModal.active": { en: "Active", es: "Activo" },
+    "recModal.pastFor": { en: "for {month}", es: "de {month}" },
     "recModal.pastTitle": { en: "Past payments", es: "Pagos anteriores" },
     "recModal.pastNone": { en: "No payment counted for this item yet.", es: "Aún no hay pagos contados para este programado." },
     "recModal.pastAuto": { en: "(counted automatically)", es: "(contado automáticamente)" },
