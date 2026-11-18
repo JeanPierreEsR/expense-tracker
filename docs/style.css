@@ -4173,10 +4173,9 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 #review-confirm-ready-btn { padding-left: 0; padding-right: 0; text-align: left; font-weight: 600; font-size: 0.875rem; }
 
 /* A card statement's pay-by date the file did not show (owner's plan, 2026-11-18): an optional box in the statement preview, and a
-   date + "Save date" row on the card's own screen. */
+   "Last statement" section at the end of the card's screen and of its Balances screen. */
 .stmt-due-ask { margin: 12px 0; }
 .stmt-due-ask input[type="date"] { width: 100%; }
 .stmt-due-ask .hint { margin-top: 4px; }
-.pm-due-row { display: flex; align-items: center; gap: 8px; }
-.pm-due-row input[type="date"] { flex: 1; margin: 0; }
-.pm-due-row .add-inline + .add-inline, .pm-due-row .add-inline { margin: 0; }
+.due-block { margin-top: 24px; }
+.due-block input[type="date"] { width: 100%; }

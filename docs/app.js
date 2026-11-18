@@ -18095,50 +18095,56 @@ function cardDueTextRaw_(r) {
   if (!r.due) return "";
   return passed ? tr("cardDue.nothingRecorded", { date: fmtD(r.due) }) : dueBit;
 }
-// The card's own form: what it owed at its last statement, when the app knows it only from statements (2026-11-17). From the Balances
-// list Overview already loaded, else fetched once for a card.
+// A credit card's last statement at the END of its two screens, the card's own form and its Balances screen (owner, 2026-11-18: the
+// pay-by date belongs last, and Overview must reach it too): what it owed and, when no pay-by date was read from that statement
+// (Diners prints it as something that is not text) while it still owes, a "Pay by" date box. `prefix` = "pm" | "bal".
+function cardLastStmtOf_(rows, pmId) {
+  const row = (rows || []).find((x) => x.id === pmId);
+  return row ? (row.statement_closed ? row : row.card_statement) || null : null;
+}
+function fillDueBlock_(prefix, pmId, rows) {
+  const block = document.getElementById(prefix + "-due-block");
+  if (!block) return;
+  block.hidden = true;
+  document.getElementById(prefix + "-due-ask").hidden = true;
+  const inp = document.getElementById(prefix + "-due-input");
+  inp.value = ""; inp.dataset.pm = "";
+  const r = cardLastStmtOf_(rows, pmId);
+  if (!r) return;
+  const owes = r.balances.some((b) => b.amount < -0.004);
+  const date = I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00"));
+  const dueT = cardDueText_(r);
+  const owed = r.balances.filter((b) => b.amount < -0.004).map((b) => formatAmount(-b.amount, b.currency)).join(" · ");
+  document.getElementById(prefix + "-due-owed").textContent = (owed ? tr("accounts.owedAtStatement", { amounts: owed, date }) : tr("balances.stmtNothingOwed", { date })) + (dueT ? " " + dueT + "." : "");
+  block.hidden = false;
+  if (!r.due && owes) {
+    const min = new Date(r.statement_closed + "T12:00:00"); min.setDate(min.getDate() + 1);
+    inp.min = min.toISOString().slice(0, 10); inp.dataset.pm = pmId;
+    document.getElementById(prefix + "-due-ask").hidden = false;
+  }
+}
+// The date typed in a block: "" when none, null when it is on or before the close (the caller says so and saves nothing).
+function dueBlockValue_(prefix) {
+  const inp = document.getElementById(prefix + "-due-input");
+  if (!inp || document.getElementById(prefix + "-due-ask").hidden || !inp.value) return "";
+  return inp.min && inp.value < inp.min ? null : inp.value;
+}
+// The card's own form. From the Balances list Overview already loaded, else fetched once for a card.
 async function fillPmOwedLine_(pm) {
-  const line = document.getElementById("pm-owed-line");
-  if (!line) return;
-  line.hidden = true;
-  const dueAdd = document.getElementById("pm-due-add");
-  if (dueAdd) { dueAdd.hidden = true; document.getElementById("pm-due-row").hidden = true; document.getElementById("pm-due-open").hidden = false; }
+  fillDueBlock_("pm", "", []);
   if (!pm || pm.type !== "credit") return;
   let rows = balancesCache;
   if (!balancesLoaded_) { try { rows = await callApi("listPaymentMethodBalances", {}); } catch (e) { return; } }   // (Overview not opened yet)
-  // A card known only from statements, or one with a starting balance whose last statement has a pay-by line (owner, 2026-11-18).
-  const row = (rows || []).find((x) => x.id === pm.id);
-  const r = row && (row.statement_closed ? row : row.card_statement);
-  if (!r || pmModalState.id !== pm.id) return;
-  const dueT = cardDueText_(r);
-  if (!row.statement_closed && !dueT && !r.balances.some((b) => b.amount < -0.004)) return;   // (a live card: shown when it owed, date or not)
-  line.textContent = tr("accounts.owedAtStatement", { amounts: r.balances.map((b) => formatAmount(Math.abs(b.amount), b.currency)).join(" · "), date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }) + (dueT ? " " + dueT + "." : "");
-  line.hidden = false;
-  // No pay-by date read from that statement (Diners prints it as something that is not text): the person can type it here
-  // (owner's plan, 2026-11-18). Only while that statement still owes something.
-  if (dueAdd && !r.due && r.balances.some((b) => b.amount < -0.004)) {
-    const min = new Date(r.statement_closed + "T12:00:00"); min.setDate(min.getDate() + 1);
-    const inp = document.getElementById("pm-due-input");
-    inp.min = min.toISOString().slice(0, 10); inp.value = "";
-    dueAdd.hidden = false;
-  }
+  if (pmModalState.id !== pm.id) return;
+  fillDueBlock_("pm", pm.id, rows);
 }
-// Saves the pay-by date typed on a card's screen onto its last statement; the sheet stays open (it is one field of a bigger form)
-// and the Balances list is refreshed behind it.
-async function savePmDue_() {
-  const inp = document.getElementById("pm-due-input");
-  const id = pmModalState && pmModalState.id;
-  if (!id) return;
-  if (!inp.value || (inp.min && inp.value < inp.min)) { showToast_(tr("accounts.dueTooEarly")); return; }
-  const due = inp.value;
-  document.getElementById("pm-due-add").hidden = true;
-  const line = document.getElementById("pm-owed-line");
-  line.textContent += " " + tr("accounts.dueSaved", { date: I18n.fmtDateMedium(new Date(due + "T12:00:00")) });
-  saveBehindScreen_(() => callApi("setCardStatementDue", { id, due }), refreshBalances);
-}
-document.addEventListener("click", (e) => {
-  if (e.target.closest("#pm-due-open")) { document.getElementById("pm-due-open").hidden = true; document.getElementById("pm-due-row").hidden = false; document.getElementById("pm-due-input").focus(); }
-  else if (e.target.closest("#pm-due-save")) savePmDue_();
+// The Balances screen saves the date on its own (its main button saves starting balances); the screen stays open.
+document.getElementById("bal-due-save").addEventListener("click", () => {
+  const due = dueBlockValue_("bal"), pmId = document.getElementById("bal-due-input").dataset.pm;
+  if (!due) { showToast_(tr("accounts.dueTooEarly")); return; }
+  document.getElementById("bal-due-ask").hidden = true;
+  document.getElementById("bal-due-owed").textContent += " " + tr("accounts.dueSaved", { date: I18n.fmtDateMedium(new Date(due + "T12:00:00")) });
+  saveBehindScreen_(() => callApi("setCardStatementDue", { id: pmId, due }), refreshBalances);
 });
 function openPmModal_(pm) {
   const linked = (meta && meta.settings) || {};
@@ -18290,6 +18296,8 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   const last4 = document.getElementById("pm-last4").value.trim();
   if (!nickname) { errorEl.textContent = tr("accounts.errName"); return; }
   if (last4 && !/^\d{4}$/.test(last4)) { errorEl.textContent = tr("accounts.errLast4"); return; }
+  const dueNow = dueBlockValue_("pm");   // the last statement's pay-by date, typed at the end of the form (owner, 2026-11-18)
+  if (dueNow === null) { errorEl.textContent = tr("accounts.dueTooEarly"); return; }
   // Plin and Yape are wallets that ride on a bank account (owner, 2026-10-23): Plin is never an account, Yape alone asks first.
   const plain = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
   const before = pmModalState.id && meta.paymentMethods.find((p) => p.id === pmModalState.id);
@@ -18331,6 +18339,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       else if (String(settings[k] || "") === String(saved.id)) links[k] = "";
     });
     if (Object.keys(links).length) { await callApi("saveRailLinks", links); Object.assign(settings, links); }
+    if (dueNow) { await callApi("setCardStatementDue", { id: saved.id, due: dueNow }); refreshBalances(); }
     // Rebuild the entry form's pickers without losing what's already chosen there (once their list is closed: see whenPickersClosed_).
     whenPickersClosed_(["payment_method", "to_payment_method"], () => {
       rebuildAccountPickers_();
@@ -33524,7 +33533,7 @@ async function openBalanceModal(pmId) {
     document.getElementById("balance-current").hidden = true;
     document.getElementById("balance-movements-wrap").hidden = true;
     document.getElementById("balance-clear-btn").hidden = true;
-    picker.onchange = () => { loadBalanceRowsFor_(picker.value); renderBalanceRows_(); showBalanceFromStmt_(picker.value); };
+    picker.onchange = () => { loadBalanceRowsFor_(picker.value); renderBalanceRows_(); showBalanceFromStmt_(picker.value); fillDueBlock_("bal", picker.value, balancesCache); };
     loadBalanceRowsFor_(picker.value);
   } else {
     pickerWrap.hidden = true;
@@ -33537,6 +33546,7 @@ async function openBalanceModal(pmId) {
   }
   renderBalanceRows_();
   showBalanceFromStmt_(pmId ? "" : picker.value);
+  fillDueBlock_("bal", pmId || picker.value, balancesCache);   // its last statement and pay-by date, at the end (owner, 2026-11-18)
   // The phone's copy of the entries tells which currencies a new account moved in; if it is not loaded yet, its rows join when it is.
   if (!Array.isArray(searchIndex)) {
     const seq = balanceOpenSeq_;
