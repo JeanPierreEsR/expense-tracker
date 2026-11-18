@@ -15400,13 +15400,22 @@ function drawTabsCard_() {
   const row = (t, inBar) => {
     const name = tr(NAV_NAMES_[t]);
     const note = t === "entries" ? tr("prof.tabsFixed") : t === "more" ? tr("prof.tabsLast") : "";
+    // The bar's own label when it is shorter than the name ("Presup."), so a tab can be found by either (Rosa, 2026-11-18).
+    const barLabel = (document.querySelector(`#bottom-nav .nav-btn[data-screen="${t}"] span:not(.nav-icon)`) || {}).textContent || "";
+    const shortNote = barLabel && barLabel.trim() !== name ? tr("prof.tabsShort", { short: barLabel.trim() }) : "";
     const check = t === "entries" || t === "more" ? ""
-      : `<input type="checkbox" data-tab-show="${t}" ${inBar ? "checked" : ""} aria-label="${escapeHtml(tr("prof.tabsShow", { name }))}">`;
+      : `<label class="tabs-check"><input type="checkbox" data-tab-show="${t}" ${inBar ? "checked" : ""} aria-label="${escapeHtml(tr("prof.tabsShow", { name }))}"></label>`;
+    // Up / down buttons only a screen reader finds (Paola, 2026-11-18: VoiceOver cannot drag, and sends no arrow keys to a button); the
+    // drag stays the way the eye sees it (owner, 2026-11-16).
+    const moves = inBar && t !== "more"
+      ? `<button type="button" class="sr-only" data-tab-move="${t}" data-dir="-1">${escapeHtml(tr("prof.tabsUp", { name }))}</button>`
+        + `<button type="button" class="sr-only" data-tab-move="${t}" data-dir="1">${escapeHtml(tr("prof.tabsDown", { name }))}</button>` : "";
     const grip = inBar && t !== "more"
       ? `<button type="button" class="tabs-grip" data-tab-grip="${t}" aria-label="${escapeHtml(tr("prof.tabsDrag", { name }))}">${TABS_GRIP_SVG_}</button>`
       : check ? `<span class="tabs-grip-space" aria-hidden="true"></span>` : "";   // (the tick boxes of both lists line up)
+    const notes = [note, shortNote].filter(Boolean).map((n) => `<span class="hint">${escapeHtml(n)}</span>`).join("");
     return `<div class="tabs-row" data-tab-row="${t}"><span class="row-icon" aria-hidden="true">${lineIcon_(NAV_ICONS_[t])}</span>`
-      + `<span class="tabs-row-name">${escapeHtml(name)}${note ? `<span class="hint">${escapeHtml(note)}</span>` : ""}</span>${check}${grip}</div>`;
+      + `<span class="tabs-row-name">${escapeHtml(name)}${notes}</span>${check}${moves}${grip}</div>`;
   };
   const out = NAV_CHOICES_.filter((t) => !navTabs_.includes(t));
   list.innerHTML = `<div id="tabs-bar-rows">${navTabs_.map((t) => row(t, true)).join("")}</div>${row("more", true)}`
@@ -15527,6 +15536,18 @@ document.getElementById("tabs-list").addEventListener("change", (e) => {
     if (again) again.focus();
   });
 }
+document.getElementById("tabs-list").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-tab-move]");
+  if (!b) return;
+  const t = b.dataset.tabMove, dir = Number(b.dataset.dir), now = navTabs_.slice(), i = now.indexOf(t), j = i + dir;
+  const name = tr(NAV_NAMES_[t]);
+  if (i < 0 || j < 0 || j >= now.length) { document.getElementById("tabs-msg").textContent = tr("prof.tabsAt", { name, n: i + 1 }); return; }
+  [now[i], now[j]] = [now[j], now[i]];
+  changeTabs_(now);
+  document.getElementById("tabs-msg").textContent = tr("prof.tabsAt", { name, n: j + 1 });   // (a status line: VoiceOver reads the new place)
+  const again = document.querySelector(`[data-tab-move="${t}"][data-dir="${dir}"]`);
+  if (again) again.focus();
+});
 document.getElementById("tabs-reset-btn").addEventListener("click", () => changeTabs_(NAV_DEFAULT_.slice()));
 // The "How I type dates" row opens and closes its choices (closed each time the screen opens, like My names and What fits me).
 function datesOpenRow_(open) {
