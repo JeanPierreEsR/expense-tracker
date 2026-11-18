@@ -39,7 +39,10 @@ test("numbers: thousands and decimals either way round, parentheses, trailing mi
 test("dates: day first unless the column proves month first; named months; times are ignored", () => {
   assert.equal(ST.detectDateOrder(["05/03/2019", "17/03/2019"]), "dmy");
   assert.equal(ST.detectDateOrder(["03/05/2019", "03/17/2019"]), "mdy");
-  assert.equal(ST.detectDateOrder(["03/05/2019"]), "dmy");
+  assert.equal(ST.detectDateOrder(["03/05/2019"]), "", "reads two ways and nothing proves it: the person is asked");
+  assert.equal(ST.detectDateOrder(["10/04/2026", "31/02/2026"]), "dmy", "one impossible-as-month first part settles it");
+  assert.equal(ST.detectDateOrder(["05/05/2026", "2026-04-10"]), "dmy", "nothing reads two ways: nothing to ask");
+  assert.equal(ST.ambiguousDate(["05/05/2026", "10/04/2026"]), "10/04/2026");
   assert.equal(ST.toIsoDate("05/03/2019", "dmy"), "2019-03-05");
   assert.equal(ST.toIsoDate("03/05/2019", "mdy"), "2019-03-05");
   assert.equal(ST.toIsoDate("2019-03-05 14:30:00", "dmy"), "2019-03-05");

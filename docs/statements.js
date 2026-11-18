@@ -1295,6 +1295,25 @@
         use.disabled = true;
         return;
       }
+      // Every date reads two ways and none proves the order (10/04/2026): the person says how the file writes them before anything is
+      // shown (owner, 2026-11-18). A file that proves it (31/01/2026) is never asked. The answer is remembered with the layout.
+      if (!state.m.dateOrder) {
+        const sample = state.m.dateSample || "";
+        const asIs = (order) => { const iso = StatementTable.toIsoDate(sample, order); return iso ? fmtDate(iso, true) : ""; };
+        box.innerHTML = `<p class="stmt-note warn">${escapeHtml(tr("table.dateAsk", { date: sample }))}</p>
+          <div class="stmt-choices" style="padding-left:0">
+            <button type="button" class="stmt-choice tm-dord" data-order="dmy">${escapeHtml(tr("table.dateAskDmy", { date: asIs("dmy") }))}</button>
+            <button type="button" class="stmt-choice tm-dord" data-order="mdy">${escapeHtml(tr("table.dateAskMdy", { date: asIs("mdy") }))}</button>
+          </div>`;
+        box.querySelectorAll(".tm-dord").forEach((b) => b.addEventListener("click", () => {
+          state.m.dateOrder = b.dataset.order;
+          state.dateAnswered = true;
+          setVal("order", b.dataset.order);
+          renderPreview();
+        }));
+        use.disabled = true;
+        return;
+      }
       const needCategory = screenMode === "import" && state.m.category < 0;   // another app's export names a category for every line
       use.disabled = needCategory || (multi() ? (undecided > 0 || !lines.length) : (!noneOk && !pm()));
       // Not blocking, only a heads-up: with accounts set up, a person usually wants the entries on one of them.
@@ -1312,6 +1331,7 @@
         ${fileWarnings(lines)}
         ${r.skipped.some((x) => x.reason === "transfer") ? `<p class="stmt-note warn">${escapeHtml(tr("table.transferNoDirection", { n: r.skipped.filter((x) => x.reason === "transfer").length }))}</p>` : ""}
         ${lines.some((l) => l.transfer) ? `<p class="stmt-note info">${escapeHtml(tr("table.transfersMarked", { n: lines.filter((l) => l.transfer).length }))}</p>` : ""}
+        ${state.source === "new" && state.m.dateProved && !state.dateAnswered && state.m.dateOrder === guess.dateOrder ? `<p class="stmt-note info">${escapeHtml(tr(state.m.dateOrder === "mdy" ? "table.datesReadMdy" : "table.datesReadDmy"))}</p>` : ""}
         ${needCategory ? `<p class="stmt-note warn">${escapeHtml(tr("imp.needCategory"))}</p>` : ""}
         ${noAccountNote}
         ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
