@@ -430,6 +430,14 @@ function loanForgivenPartsTotal_(loan) {
   return loanForgivenParts_(loan).reduce(function (sum, p) { return sum + Number(p.amount); }, 0);
 }
 
+// Everything forgiven on a loan: its forgiven parts plus, for a loan forgiven whole with an entry booked, what was still owed then
+// (its amount minus every settlement and part). `settled` = the sum of the loan's Settlements rows (offsets included).
+function loanForgivenAmount_(loan, settled) {
+  var parts = loanForgivenPartsTotal_(loan);
+  var whole = (loan.status === 'forgiven' && loan.forgiveness_entry_id) ? Math.max(0, (Number(loan.amount) || 0) - (settled || 0) - parts) : 0;
+  return parts + whole;
+}
+
 // Which loan (and which part, null for a whole-loan forgiveness) does this entry belong to as a forgiveness? null if none.
 function forgivenessOfEntry_(entryId) {
   var found = null;
