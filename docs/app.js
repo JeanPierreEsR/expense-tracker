@@ -18109,7 +18109,7 @@ async function fillPmOwedLine_(pm) {
   const r = row && (row.statement_closed ? row : row.card_statement);
   if (!r || pmModalState.id !== pm.id) return;
   const dueT = cardDueText_(r);
-  if (!row.statement_closed && !dueT) return;
+  if (!row.statement_closed && !dueT && !r.balances.some((b) => b.amount < -0.004)) return;   // (a live card: shown when it owed, date or not)
   line.textContent = tr("accounts.owedAtStatement", { amounts: r.balances.map((b) => formatAmount(Math.abs(b.amount), b.currency)).join(" · "), date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }) + (dueT ? " " + dueT + "." : "");
   line.hidden = false;
 }
@@ -33379,9 +33379,10 @@ async function refreshBalancesInner_() {
     const [main, ...others] = r.balances;
     const missing = r.statement_closed ? [] : balanceMissingCurrencies_(r);
     const otherText = others.filter((b) => Math.abs(b.amount) > 0.004).map((b) => formatSignedBalance_(b.amount, b.currency) + (b.waiting ? ` (${tr("charge.waiting")})` : "")).join(" · ");
-    // A card with a starting balance keeps its live balance and adds its last statement's lines under the name (owner, 2026-11-18).
+    // A card with a starting balance keeps its live balance and adds its last statement's lines under the name (owner, 2026-11-18),
+    // also when no pay-by date was read (Diners' is not in the PDF's text; owner, 2026-11-18).
     const cs = !r.statement_closed && r.card_statement;
-    const stmtLine = cs && cardDueText_(cs) ? cardStmtLines_(cs) : "";
+    const stmtLine = cs ? cardStmtLines_(cs) : "";
     row.innerHTML = `
       <div class="balance-row-name">${escapeHtml(r.nickname)}${r.statement_closed ? "" : `<span class="loan-detail-row-chevron">›</span>`}${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${stmtLine}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}</div>
       <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>
