@@ -25569,7 +25569,9 @@ function openInfoCard_(btn) {
   card.id = "info-card";
   card.setAttribute("role", "note");
   card.innerHTML = `<div class="info-card-arrow"></div><p></p>`;
-  card.querySelector("p").textContent = tr("info." + key);
+  // Apple Pay is named only where it is offered (testers 2026-11-18: friends' copies read "Apple Pay" in Needs review's card).
+  const apOff = key === "review" && !(meta && meta.capabilities && meta.capabilities.applePay);
+  card.querySelector("p").textContent = tr("info." + (apOff ? "reviewNoAp" : key));
   document.body.appendChild(card);
   btn.setAttribute("aria-expanded", "true");
   btn.setAttribute("aria-describedby", "info-card");

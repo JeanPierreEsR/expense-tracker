@@ -225,6 +225,7 @@
     "info.tags.name": { en: "About Tags", es: "Acerca de Etiquetas" },
     "info.result": { en: "What came in minus what went out in the period shown: income, expenses, money put into or taken out of investments, and loans. Moving money between your own accounts does not count.", es: "Lo que entró menos lo que salió en el periodo que ves: ingresos, gastos, lo que pusiste o sacaste de inversiones, y préstamos. Mover dinero entre tus propias cuentas no cuenta." },
     "info.result.name": { en: "About Result", es: "Acerca de Resultado" },
+    "info.reviewNoAp": { en: "What the app caught by itself (bank emails, statements). Nothing counts until you confirm it.", es: "Lo que la app captó sola (correos del banco, estados de cuenta). Nada cuenta hasta que lo confirmes." },
     "info.review": { en: "What the app caught by itself (bank emails, statements, Apple Pay). Nothing counts until you confirm it.", es: "Lo que la app captó sola (correos del banco, estados de cuenta, Apple Pay). Nada cuenta hasta que lo confirmes." },
     "info.review.name": { en: "About Needs review", es: "Acerca de Por revisar" },
     "info.programmed": { en: "Your rent, salary and other regular items due this month. Open a group to mark one paid or skip this month. Each one drops off by itself once its real payment is recorded.", es: "Tu alquiler, sueldo y otros pagos fijos de este mes. Abre un grupo para marcar uno como pagado u omitirlo este mes. Cada uno desaparece solo cuando se registra su pago real." },
