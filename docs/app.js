@@ -1408,7 +1408,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   maybeAskAnnualItems_();
   // Even while a form is in use, the account lists take in accounts added since they were built (what is chosen stays chosen):
   // an unfinished entry restored on its account must find it there (owner, 2026-11-13: a new account "CTS" showed as a blank row).
-  if (skipFormPopulate) { whenPickersClosed_(["payment_method", "to_payment_method"], rebuildAccountPickers_); return; }
+  if (skipFormPopulate) { whenPickersClosed_(["payment_method", "to_payment_method"], rebuildAccountPickers_); if (draftSplitWaiting_ || draftPaidByWaiting_) { populatePaidByOptions(); resumeDraftSplit_(); } return; }
   // Rebuilding the pickers resets them to their first option. A refresh
   // (pull-down, or any reload of the lists) while an edit screen is open must
   // not change what is already chosen there — it once flipped a pending card
@@ -1428,6 +1428,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   populateTripOptions_();
   populateBusinessOptions_();
   renderSplitFriendChips();
+  if (draftSplitWaiting_ || draftPaidByWaiting_) resumeDraftSplit_();
 }
 
 // Categories are always offered alphabetically by the name SHOWN (so the order
@@ -5935,14 +5936,23 @@ function captureEntryDraft_() {
 function entryDraftSplit_() {
   if (selectedType !== "expense" || !document.getElementById("split-toggle").checked) return null;
   const due = document.getElementById("split-due");
+  const names = {};
+  [...splitFriendIds].forEach((id) => { const f = (meta.friends || []).find((x) => x.id === id); if (f) names[id] = f.name; });
   return {
-    friends: [...splitFriendIds], mode: splitMode, custom: { ...customSplitAmounts }, percents: { ...splitPercents },
+    friends: [...splitFriendIds], names, mode: splitMode, custom: { ...customSplitAmounts }, percents: { ...splitPercents },
     own: customOwnAmount, groupCount: splitGroupCount_(), due: document.getElementById("split-due-block").hidden ? "" : due.value
   };
 }
+// Friends of a restored draft the friends list does not have yet (Diego, 2026-11-18: a friend added in the form, the app closed, reopened
+// before the list arrived: the split came back with nobody in it and Save was refused). They wait for the next friends list; one that is
+// still missing after that is really gone: it is taken out, the split turns off if nobody is left, and the form says so.
+let draftSplitWaiting_ = null;
 function applyEntryDraftSplit_(sp) {
+  draftSplitWaiting_ = null;
   if (!sp || selectedType !== "expense") return;
   const known = new Set((meta.friends || []).map((f) => f.id));
+  const missing = (sp.friends || []).filter((id) => !known.has(id));
+  if (missing.length) draftSplitWaiting_ = { sp, missing, tries: 0 };
   const friends = (sp.friends || []).filter((id) => known.has(id));
   splitMode = ["equal", "percent", "custom"].includes(sp.mode) ? sp.mode : "equal";
   splitFriendIds = new Set();
@@ -5962,6 +5972,39 @@ function applyEntryDraftSplit_(sp) {
   document.getElementById("split-toggle").checked = true;
   document.getElementById("split-detail").hidden = false;
   if (sp.due) showSplitDue_(sp.due);
+  renderSplitFriendChips();
+  renderSplitRows();
+  renderSplitSummary();
+}
+
+let draftPaidByWaiting_ = "";
+// A new friends list arrived (loadMeta): a restored draft takes back the friends (and the "Paid by") it was waiting for.
+function resumeDraftSplit_() {
+  const form = document.getElementById("paid_by");
+  if (draftPaidByWaiting_ && Array.from(form.options).some((o) => o.value === draftPaidByWaiting_)) {
+    form.value = draftPaidByWaiting_;
+    draftPaidByWaiting_ = "";
+    togglePaymentMethodVisibility();
+  }
+  const w = draftSplitWaiting_;
+  if (!w || selectedType !== "expense" || !document.getElementById("split-toggle").checked) { draftSplitWaiting_ = null; return; }
+  const known = new Set((meta.friends || []).map((f) => f.id));
+  w.missing.filter((id) => known.has(id)).forEach((id) => {
+    splitFriendIds.add(id);
+    if (w.sp.custom && w.sp.custom[id] != null) customSplitAmounts[id] = w.sp.custom[id];
+    if (w.sp.percents && w.sp.percents[id] != null) splitPercents[id] = w.sp.percents[id];
+  });
+  w.missing = w.missing.filter((id) => !known.has(id));
+  w.tries++;
+  if (w.missing.length && w.tries >= 2) {
+    const gone = w.missing.map((id) => (w.sp.names && w.sp.names[id]) || "").filter(Boolean);
+    draftSplitWaiting_ = null;
+    if (!splitFriendIds.size) {
+      document.getElementById("split-toggle").checked = false;
+      document.getElementById("split-detail").hidden = true;
+    }
+    document.getElementById("form-error").textContent = tr(splitFriendIds.size ? "entry.draftFriendGone" : "entry.draftSplitGone", { names: gone.join(", ") || "—" });
+  } else if (!w.missing.length) draftSplitWaiting_ = null;
   renderSplitFriendChips();
   renderSplitRows();
   renderSplitSummary();
@@ -6033,6 +6076,7 @@ function applyEntryDraft_(d) {
   // A draft's own date counts only if it was typed a moment ago; otherwise today.
   if (d.date && Date.now() - d.savedAt < RECENT_ENTRY_DATE_MS && d.savedAt >= appResumedAt_) { document.getElementById("date").value = d.date; entryDateTouched_ = true; }
   if (d.paidBy) document.getElementById("paid_by").value = d.paidBy;
+  draftPaidByWaiting_ = d.paidBy && document.getElementById("paid_by").value !== d.paidBy ? d.paidBy : "";
   togglePaymentMethodVisibility();
   // A transfer's "From" may legitimately be None (blank).
   if (d.paymentMethodId || d.type === "transfer") setAccountPick_("payment_method", d.paymentMethodId || "");
