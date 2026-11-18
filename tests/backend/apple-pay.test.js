@@ -204,3 +204,20 @@ test("the address the phone sends never marks a copy as the owner's (testers 202
   assert.equal(rt.api("getMeta").capabilities.applePay, true);
   assert.equal(pay(rt, key(rt), { amount: "S/ 1.00", merchant: "X", card: "Y" }).ok, true);
 });
+
+test("a copy with no saved address never learns the owner's exact address from the phone (Rafael, re-check 2026-11-18)", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.props.set("FEATURES", "base,gmail,keepawake");
+  rt.svc.props.delete ? rt.svc.props.delete("WEB_APP_URL") : rt.svc.props.set("WEB_APP_URL", "");
+  const ownerUrl = "https://script.google.com/macros/s/" + rt.run("OWNER_WEB_APP_ID_") + "/exec";
+  rt.ctx.__body = JSON.stringify({ accessCode: rt.ACCESS_CODE, action: "getMeta", payload: {}, apiUrl: ownerUrl });
+  const res = JSON.parse(rt.run("doPost({ postData: { contents: __body } }).getContent()"));
+  assert.equal(res.data.capabilities.applePay, false);
+  assert.ok(!rt.svc.props.get("WEB_APP_URL"));
+  assert.equal(rt.api("getWhatsAppBot").offered, false);
+  // Its own address is still learned.
+  const own = "https://script.google.com/macros/s/AFriendsDeploymentId/exec";
+  rt.ctx.__body = JSON.stringify({ accessCode: rt.ACCESS_CODE, action: "getMeta", payload: {}, apiUrl: own });
+  rt.run("doPost({ postData: { contents: __body } }).getContent()");
+  assert.equal(rt.svc.props.get("WEB_APP_URL"), own);
+});

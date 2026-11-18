@@ -48,6 +48,9 @@ function healWebAppUrl_(url) {
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty('WEB_APP_URL')) return;
   if (!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(String(url || ''))) return;
+  // Never the owner's own address (Rafael, 2026-11-18): it is public, and a copy that saved it would count as the owner's copy
+  // (Apple Pay, the WhatsApp card). The owner's copy has its address saved already, so it never needs this.
+  if (String(url).indexOf('/s/' + OWNER_WEB_APP_ID_ + '/') !== -1) return;
   props.setProperty('WEB_APP_URL', String(url));
 }
 
@@ -84,6 +87,8 @@ function getCapabilities_() {
     telegram: !!getTelegramToken_(),
     // A chat is actually linked (the token alone sends nothing): the app mentions Telegram in alert hints only then.
     telegramLinked: telegramLinked_(),
+    // Its messages go through a Cloudflare relay (Telegram.gs): the privacy card says so only then (owner, 2026-11-18).
+    telegramRelay: telegramLinked_() && !!PropertiesService.getScriptProperties().getProperty('TELEGRAM_RELAY_URL'),
     // setExtraOn: More → Feedback & privacy → Extra features turns an extra back on in the app; an older backend sends the person to the setup page
     extrasOn: true,
     // This backend keeps in-app alerts (Notices.gs); an older one lacks it and the app then never asks for them.

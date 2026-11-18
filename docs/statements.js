@@ -968,6 +968,9 @@
         if (typeof fromSource[f] === "number") state.m[f] = fromSource[f] >= 0 && fromSource[f] < width ? fromSource[f] : -1;
       });
       ["dateOrder", "decimal", "sign", "currencyFixed", "source"].forEach((f) => { if (fromSource[f]) state.m[f] = fromSource[f]; });
+      // A date in THIS file that proves the order (31/10) beats a remembered answer (Mark, re-check 2026-11-18: the remembered
+      // month / day dropped that line without a word). Said in the preview.
+      if (guess.dateProved && guess.dateOrder && state.m.dateOrder !== guess.dateOrder) { state.m.dateOrder = guess.dateOrder; state.dateFromFile = true; }
     }
     if (saved && saved.found) {
       state.source = "saved"; state.label = saved.label || ""; state.uses = saved.uses || 0;
@@ -1338,7 +1341,8 @@
         ${fileWarnings(lines)}
         ${r.skipped.some((x) => x.reason === "transfer") ? `<p class="stmt-note warn">${escapeHtml(tr("table.transferNoDirection", { n: r.skipped.filter((x) => x.reason === "transfer").length }))}</p>` : ""}
         ${lines.some((l) => l.transfer) ? `<p class="stmt-note info">${escapeHtml(tr("table.transfersMarked", { n: lines.filter((l) => l.transfer).length }))}</p>` : ""}
-        ${state.source === "new" && state.m.dateProved && !state.dateAnswered && state.m.dateOrder === guess.dateOrder ? `<p class="stmt-note info">${escapeHtml(tr(state.m.dateOrder === "mdy" ? "table.datesReadMdy" : "table.datesReadDmy"))}</p>` : ""}
+        ${(state.source === "new" || state.dateFromFile) && guess.dateProved && !state.dateAnswered && state.m.dateOrder === guess.dateOrder ? `<p class="stmt-note info">${escapeHtml(tr(state.m.dateOrder === "mdy" ? "table.datesReadMdy" : "table.datesReadDmy"))}</p>` : ""}
+        ${guess.currencyMixed && state.m.currency < 0 ? `<p class="stmt-note warn">${escapeHtml(tr("table.mixedCur", { signs: guess.currencyMixed, cur: m.currencyFixed || homeCur() }))}</p>` : ""}
         ${state.signCurrency && m.currencyFixed === state.signCurrency && state.m.currency < 0 ? `<p class="stmt-note info">${escapeHtml(tr("table.readAsSign", { cur: state.signCurrency, sign: guess.currencySign }))}</p>` : ""}
         ${needCategory ? `<p class="stmt-note warn">${escapeHtml(tr("imp.needCategory"))}</p>` : ""}
         ${noAccountNote}
@@ -1508,7 +1512,10 @@
       // A re-read of the same card replaces its earlier reading.
       const slot = body.dataset.slot;
       usable = usable.filter((u) => slotOf(u) !== slot);
-      results.forEach((r) => usable.push({ file: r.name, group: file.name, slot, result: r.result, inboxId: "" }));
+      // Lines that will come in with no category (the file names none, or the person left its category without one): the next screen only
+      // says "added without a category" when there are some (Mark, re-check 2026-11-18).
+      const catLeftOf = (r) => r.result.lines.filter((l) => !l.category || state.catChoice[(l.amount > 0 ? "income" : "expense") + ":" + StatementTable.catNorm(l.category)] === "").length;
+      results.forEach((r) => usable.push({ file: r.name, group: file.name, slot, result: r.result, inboxId: "", catLeft: catLeftOf(r) }));
       historyPlan = null;
       $("statement-history").innerHTML = "";
       updateReviewButton();
@@ -2511,7 +2518,7 @@
       `<span>❓ ${escapeHtml(tr("hist.cnt.decide", { n: nDecide }))}</span>`].join(" · ")}</p>`;
     out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>${counters}
       <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map(sumLi_).join("")}</ul>
-      ${newLinesHtml_()}${range}<p class="hint">${escapeHtml(tr(usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategoryUnlessNamed" : "hist.noCategory"))}</p>${noteHtml}
+      ${newLinesHtml_()}${range}<p class="hint">${escapeHtml(tr(!usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategory" : usable.every((u) => u.catLeft === 0) ? "hist.categoryAsNamed" : "hist.noCategoryUnlessNamed"))}</p>${noteHtml}
       ${planMatchesHtml_()}
       <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;
   }

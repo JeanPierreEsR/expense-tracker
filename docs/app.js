@@ -8611,7 +8611,7 @@ function moreDetailsSummary_() {
   const opt = (id) => { const sel = el(id); return sel && sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent.trim() : ""; };
   const parts = [];
   if (shown("paid_by") && opt("paid_by")) parts.push(opt("paid_by"));
-  if (shown("split-field") && el("split-toggle").checked) parts.push(tr("entry.moreSplit", { n: splitFriendIds.size }));
+  if (shown("split-field") && el("split-toggle").checked) parts.push(splitFriendIds.size ? tr("entry.moreSplit", { n: splitFriendIds.size }) : tr("entry.moreSplitNone"));   // never "split with 0" (Diego)
   if (shown("trip-field") && el("entry-trip").value) parts.push(opt("entry-trip"));
   if (selectedTagIds.size) parts.push(tr("entry.moreTags", { n: selectedTagIds.size }));
   return parts.join(" · ");
@@ -15384,6 +15384,12 @@ document.getElementById("wa-toggle").addEventListener("click", () => waOpenRow_(
 function refreshPrivacyWa_() {
   const el = document.getElementById("privacy-wa");
   if (el) el.hidden = !(meta && meta.capabilities && meta.capabilities.whatsappBotOn);
+  // Telegram (and its Cloudflare relay) only for someone whose bot is linked (owner, 2026-11-18).
+  const caps = (meta && meta.capabilities) || {};
+  const tg = document.getElementById("privacy-tg");
+  if (tg) tg.hidden = !caps.telegramLinked;
+  const relay = document.getElementById("privacy-tg-relay");
+  if (relay) relay.hidden = !caps.telegramRelay;
 }
 function drawWhatsAppBot_(s) {
   const on = !!(s && s.on);
@@ -33414,6 +33420,8 @@ async function refreshBalancesInner_() {
   totalsWrap.hidden = rows.length === 0;
   totalsWrap.querySelector(".balances-totals-title").hidden = codes.length === 0;
   if (!codes.length && rows.length) balancesExpanded_ = true;
+  // With no totals the list is all there is, so it has nothing to fold into (Marta, re-check 2026-11-18: "Hide accounts" emptied the card).
+  document.getElementById("balances-toggle").hidden = !codes.length;
   balancesRowCount_ = rows.length;
   applyBalancesExpanded_();
   codes.forEach((code) => {
