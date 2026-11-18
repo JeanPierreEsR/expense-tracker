@@ -1256,7 +1256,8 @@
     "balances.missingRow": { en: "⚠️ No starting balance in {cur}: tap to add it", es: "⚠️ Sin saldo inicial en {cur}: toca para agregarlo" },
     "balances.missingNote": { en: { one: "⚠️ {n} account has movements in a currency with no starting balance, so the app counts it from 0. Show it ›", other: "⚠️ {n} accounts have movements in a currency with no starting balance, so the app counts it from 0. Show them ›" }, es: { one: "⚠️ {n} cuenta tiene movimientos en una moneda sin saldo inicial, así que la app la cuenta desde 0. Verla ›", other: "⚠️ {n} cuentas tienen movimientos en una moneda sin saldo inicial, así que la app la cuenta desde 0. Verlas ›" } },
     "balances.hideAccounts": { en: "Hide accounts ‹", es: "Ocultar cuentas ‹" },
-    "balances.empty": { en: "No balances yet — add a starting balance for an account (cash, a Starbucks card…) to start tracking it.", es: "Aún no hay saldos: agrega un saldo inicial para una cuenta (efectivo, una tarjeta de Starbucks…) para empezar a llevar su saldo." },
+    "balances.empty": { en: "No balances yet — add a starting balance for an account (cash, a Starbucks card…), or bring a card statement, to see it here.", es: "Aún no hay saldos: agrega un saldo inicial para una cuenta (efectivo, una tarjeta Starbucks…) o trae un estado de cuenta de tu tarjeta para verlo aquí." },
+    "balances.atStatement": { en: "Owed at the last statement (closed {date}), not a live balance", es: "Deuda al último estado de cuenta (cerró el {date}), no es un saldo al día" },
 
     // ---- invest ----
     "loans.ov.title": { en: "Loans", es: "Préstamos" },
@@ -4056,6 +4057,7 @@
     "accounts.unnamed": { en: "Account with no name", es: "Cuenta sin nombre" },
     "common.noName": { en: "(no name)", es: "(sin nombre)" },
     "categories.dupTag": { en: "same name as another", es: "mismo nombre que otra" },
+    "accounts.owedAtStatement": { en: "Owed at the last statement: {amounts} (closed {date}).", es: "Deuda al último estado de cuenta: {amounts} (cerró el {date})." },
     "accounts.editTitle": { en: "Edit account or card", es: "Editar cuenta o tarjeta" },
     "accounts.name": { en: "Name", es: "Nombre" },
     "accounts.namePlaceholder": { en: "e.g. BCP Visa", es: "p. ej. BCP Visa" },
