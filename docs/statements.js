@@ -977,6 +977,13 @@
     } else if (known) {
       state.source = "known"; state.label = known.name;
     }
+    // A new layout whose amounts carry a dollar sign starts on dollars: "US$" is USD; a bare "$" is the main currency when that is a
+    // dollar-sign currency (pesos…), else USD. Said in the preview, and the currency box can still be changed.
+    const DOLLAR_SIGN_CURS = ["USD", "MXN", "CLP", "ARS", "COP", "UYU", "CAD", "AUD", "NZD", "SGD", "HKD", "DOP"];
+    if (state.source === "new" && guess.currencySign && !state.m.currencyFixed) {
+      state.m.currencyFixed = guess.currencySign === "$" && DOLLAR_SIGN_CURS.includes(homeCur()) ? homeCur() : "USD";
+      state.signCurrency = state.m.currencyFixed;
+    }
     const remembered = state.source !== "new";
     // Statements reads a bank's files and Import data reads another app's: an app's export is told from a bank's by its layout
     // (known or saved as one) or by carrying a category column. Each screen refuses the other's files.
@@ -1295,6 +1302,25 @@
         use.disabled = true;
         return;
       }
+      // Every date reads two ways and none proves the order (10/04/2026): the person says how the file writes them before anything is
+      // shown (owner, 2026-11-18). A file that proves it (31/01/2026) is never asked. The answer is remembered with the layout.
+      if (!state.m.dateOrder) {
+        const sample = state.m.dateSample || "";
+        const asIs = (order) => { const iso = StatementTable.toIsoDate(sample, order); return iso ? fmtDate(iso, true) : ""; };
+        box.innerHTML = `<p class="stmt-note warn">${escapeHtml(tr("table.dateAsk", { date: sample }))}</p>
+          <div class="stmt-choices" style="padding-left:0">
+            <button type="button" class="stmt-choice tm-dord" data-order="dmy">${escapeHtml(tr("table.dateAskDmy", { date: asIs("dmy") }))}</button>
+            <button type="button" class="stmt-choice tm-dord" data-order="mdy">${escapeHtml(tr("table.dateAskMdy", { date: asIs("mdy") }))}</button>
+          </div>`;
+        box.querySelectorAll(".tm-dord").forEach((b) => b.addEventListener("click", () => {
+          state.m.dateOrder = b.dataset.order;
+          state.dateAnswered = true;
+          setVal("order", b.dataset.order);
+          renderPreview();
+        }));
+        use.disabled = true;
+        return;
+      }
       const needCategory = screenMode === "import" && state.m.category < 0;   // another app's export names a category for every line
       use.disabled = needCategory || (multi() ? (undecided > 0 || !lines.length) : (!noneOk && !pm()));
       // Not blocking, only a heads-up: with accounts set up, a person usually wants the entries on one of them.
@@ -1312,6 +1338,8 @@
         ${fileWarnings(lines)}
         ${r.skipped.some((x) => x.reason === "transfer") ? `<p class="stmt-note warn">${escapeHtml(tr("table.transferNoDirection", { n: r.skipped.filter((x) => x.reason === "transfer").length }))}</p>` : ""}
         ${lines.some((l) => l.transfer) ? `<p class="stmt-note info">${escapeHtml(tr("table.transfersMarked", { n: lines.filter((l) => l.transfer).length }))}</p>` : ""}
+        ${state.source === "new" && state.m.dateProved && !state.dateAnswered && state.m.dateOrder === guess.dateOrder ? `<p class="stmt-note info">${escapeHtml(tr(state.m.dateOrder === "mdy" ? "table.datesReadMdy" : "table.datesReadDmy"))}</p>` : ""}
+        ${state.signCurrency && m.currencyFixed === state.signCurrency && state.m.currency < 0 ? `<p class="stmt-note info">${escapeHtml(tr("table.readAsSign", { cur: state.signCurrency, sign: guess.currencySign }))}</p>` : ""}
         ${needCategory ? `<p class="stmt-note warn">${escapeHtml(tr("imp.needCategory"))}</p>` : ""}
         ${noAccountNote}
         ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
@@ -2503,7 +2531,9 @@
     const hc = historyCounts(), adding = hc.entries, updating = hc.charges + hc.discounts + hc.recharges + hc.accountsFilled;
     // Purchases already in the app that take the card's figure are a change too: never say "nothing is added" about them alone.
     // Both when a statement adds AND corrects purchases already in the app (Carlos, 2026-11-10: only the added ones were named).
-    const askText = adding ? tr("hist.confirm", { n: adding }) + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
+    // Another app's export brings its categories, and after saving the app names any left without one (hist.savedCategoriesMissed),
+    // so its question does not promise a Tidy step that may not exist (Mark, 2026-11-18).
+    const askText = adding ? tr(screenMode === "import" ? "hist.confirmImport" : "hist.confirm", { n: adding }) + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
       : updating ? tr("hist.confirmUpdate", { n: updating }) : tr("hist.confirmKeep");
     // A starting balance this save corrects (owner's plan, step 3): said too, since it moves every balance after it.
     const coveredNow = coveredLines(historyActions(false));

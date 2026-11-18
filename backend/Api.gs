@@ -118,7 +118,6 @@ function doPost(e) {
       response = { ok: false, error: tr_('auth.invalidCode'), code: 'invalid_access_code' };
     } else {
       healWebAppUrl_(body.apiUrl);   // learns this copy's own address from the app (Features.gs)
-      noteOwnerAddress_(body.apiUrl);   // the owner's own copy, known by the address his phone uses (ApplePay.gs)
       var payload = body.payload || {};
       var thenReads = payload._then;   // reads the app wants back with this save (see runThenReads_)
       if (thenReads) delete payload._then;
@@ -545,6 +544,7 @@ function routeActionSwitch_(action, payload) {
     case 'setRulePack': return setRulePack(payload);
     case 'confirmEntry': return confirmEntryFromApp_(payload);
     case 'unconfirmEntry': return unconfirmEntry_(payload);
+    case 'unconfirmEntries': return unconfirmEntries(payload);
     case 'createPracticePending': return createPracticePending(payload);
     case 'removePracticeReview': return removePracticeReview(payload);
     case 'createPracticeTidy': return createPracticeTidy(payload);
@@ -1192,6 +1192,35 @@ function confirmEntries(payload) {
   return out;
 }
 
+// unconfirmEntries({ items: [{ id, trip, link }] }): Undo of a "confirm many at once" (testers 2026-11-18: 70 entries in one tap could not be sent
+// back). Each entry goes back to Needs review; the trip (trip: true) and the Programmed item link (link: true) THAT confirm set are taken off
+// again. One already back is fine; one the single Undo would refuse (a manual entry, a split) stays and is listed.
+function unconfirmEntries(payload) {
+  var out = { undone: [], kept: [] }, seen = {};
+  ((payload && payload.items) || []).forEach(function (it) {
+    var id = String((it && it.id) || '');
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    try {
+      var entry = getEntryById_(id);
+      if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
+      if (entry.status === 'pending') { out.undone.push(id); return; }
+      // Like the single Undo, but a transfer or investment confirmed in the same go goes back too (a confirm made it nothing else); one
+      // tied to a loan or a repayment, a manual entry or a split one stays (the single Undo's own refusals).
+      if (entry.source === 'manual' || getAllRows('Entry Splits').some(function (sp) { return sp.entry_id === id; }) ||
+          getAllRows('Loans').some(function (l) { return l.entry_id === id; }) ||
+          getAllRows('Settlements').some(function (st) { return st.transfer_entry_id === id || st.gap_entry_id === id; })) throw new Error(tr_('err.cannotUnconfirm'));
+      setEntryField_(id, 'status', 'pending');
+      if (it.link && entry.recurring_expense_id) adminLinkEntryToRecurring(id, '', '');
+      if (it.trip && entry.trip_id) setEntryField_(id, 'trip_id', '');
+      out.undone.push(id);
+    } catch (err) {
+      out.kept.push({ id: id, reason: 'refused', message: String(err && err.message || err) });
+    }
+  });
+  return out;
+}
+
 // discardEntries({ ids }): the row's Discard for each waiting entry. Only entries still pending are discarded; a repayment's entries are never discarded on their
 // own (`repayment`, the person deletes the whole repayment from Loans); anything the single discard would refuse is kept with its message.
 // Answers { discarded: [ids], kept: [{ id, reason: missing|notPending|repayment|refused, message? }] }.
@@ -1511,13 +1540,21 @@ function buildSearchLookups_() {
     (tagNamesByEntry[et.entry_id] = tagNamesByEntry[et.entry_id] || []).push(tag.name);
     (tagSearchNamesByEntry[et.entry_id] = tagSearchNamesByEntry[et.entry_id] || []).push(tagSearchNames_(tag));
   });
+  // Who an expense was shared with ("With Pablo, Rosa"): searching a friend's name finds it (Lucho, 2026-11-18).
+  var friendsAll = rowsById_(getAllRows('Friends'));
+  var splitNamesByEntry = {};
+  getAllRows('Entry Splits').forEach(function (sp) {
+    var f = friendsAll[sp.friend_id];
+    if (f && f.name) (splitNamesByEntry[sp.entry_id] = splitNamesByEntry[sp.entry_id] || []).push(f.name);
+  });
   return {
+    splitNamesByEntry: splitNamesByEntry,
     tripsById: rowsById_(getTripRows_()),
     companiesById: rowsById_(getCompanyRows_()),     // empty (and nothing read) while the Business pack is off
     projectsById: rowsById_(getProjectRows_()),
     categoriesById: rowsById_(getAllRows('Categories')),
     methodsById: rowsById_(getAllRows('Payment Methods')),
-    friendsById: rowsById_(getAllRows('Friends')),
+    friendsById: friendsAll,
     payorsById: rowsById_(getPayorRows_()),
     tagNamesByEntry: tagNamesByEntry,
     tagSearchNamesByEntry: tagSearchNamesByEntry,
@@ -1545,6 +1582,7 @@ function entrySearchText_(e, lk) {
     lk.methodsById[e.to_payment_method_id] && lk.methodsById[e.to_payment_method_id].nickname,
     e.paid_by === 'me' ? 'me' : (payer && payer.name),
     (lk.tagSearchNamesByEntry[e.id] || []).join(' '),
+    lk.splitNamesByEntry && (lk.splitNamesByEntry[e.id] || []).join(' '),
     e.trip_id && lk.tripsById && lk.tripsById[e.trip_id] && lk.tripsById[e.trip_id].name,
     e.company_id && lk.companiesById && lk.companiesById[e.company_id] && lk.companiesById[e.company_id].name,
     e.project_id && lk.projectsById && lk.projectsById[e.project_id] && lk.projectsById[e.project_id].name,

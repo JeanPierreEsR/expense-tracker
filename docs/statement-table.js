@@ -437,17 +437,30 @@
     return null;
   }
 
-  // 'dmy' | 'mdy' for dd/mm/yyyy-style text, decided by the whole column: a first part above 12 means day first, a second part
-  // above 12 means month first. Undecided: day first (Peru's own order).
+  // 'dmy' | 'mdy' for dd/mm/yyyy-style text, decided by the whole column: a first part above 12 means day first (even 31/02/2026), a
+  // second part above 12 means month first. '' when it cannot tell: some date reads two different ways (10/04/2026) and none proves the
+  // order. Then the PERSON decides (owner, 2026-11-18; it used to fall back to day first and put an American file's dates in wrong months).
+  // A column with nothing to read either way (year first, month names, 05/05) is 'dmy', and nothing is asked.
   function detectDateOrder(values) {
-    var dmy = 0, mdy = 0;
+    var dmy = 0, mdy = 0, twoWays = 0;
     values.forEach(function (v) {
       var p = dateParts(v);
       if (!p || p.order !== '?') return;
       if (p.a > 12) dmy++;
       if (p.b > 12) mdy++;
+      if (p.a <= 12 && p.b <= 12 && p.a !== p.b) twoWays++;
     });
-    return mdy > dmy ? 'mdy' : 'dmy';
+    if (dmy || mdy) return mdy > dmy ? 'mdy' : 'dmy';
+    return twoWays ? '' : 'dmy';
+  }
+
+  // The first date in the column that reads two ways, for the question's examples ('' if none).
+  function ambiguousDate(values) {
+    for (var i = 0; i < values.length; i++) {
+      var p = dateParts(values[i]);
+      if (p && p.order === '?' && p.a <= 12 && p.b <= 12 && p.a !== p.b) return String(values[i]).trim().split(/[T ]/)[0];
+    }
+    return '';
   }
 
   var ISO_WITH_OFFSET = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s*(Z|[+-]\d{2}:?\d{2})$/i;
@@ -601,8 +614,20 @@
     }
 
     m.dateOrder = detectDateOrder(columnValues(rows, first, m.date));
+    m.dateSample = m.dateOrder ? '' : ambiguousDate(columnValues(rows, first, m.date));
+    m.dateProved = !!m.dateOrder && columnValues(rows, first, m.date).some(function (v) { var p = dateParts(v); return p && p.order === '?' && p.a !== p.b; });
     var numberCols = [m.amount, m.out, m.in].filter(function (i) { return i >= 0; });
     m.decimal = detectDecimal([].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })));
+    // Amounts written with a dollar sign ("$18.40", "US$ 5") and no currency column: the screen offers the dollar as the file's currency
+    // (Mark, 2026-11-18: a YNAB export came in as soles). 'US$' | '$' | ''.
+    m.currencySign = '';
+    if (m.currency < 0) {
+      var amtTexts = [].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })).map(cellText).filter(function (v) { return /\d/.test(v); });
+      var us = amtTexts.filter(function (v) { return /US\$/i.test(v); }).length;
+      var dollar = amtTexts.filter(function (v) { return /(^|[^A-Za-z\/])\$/.test(v); }).length;
+      if (amtTexts.length && us >= amtTexts.length / 2) m.currencySign = 'US$';
+      else if (amtTexts.length && dollar >= amtTexts.length / 2) m.currencySign = '$';
+    }
     m.sign = 'negative';
     if (m.amount >= 0) {
       var vs = columnValues(rows, first, m.amount).map(function (v) { return parseAmount(v, m.decimal); }).filter(function (n) { return !isNaN(n) && n !== 0; });
@@ -769,6 +794,6 @@
     decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readXls: readXls, parseHtmlTable: parseHtmlTable, readTable: readTable,
     findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature, recognize: recognize, distinctValues: distinctValues, KNOWN_FORMATS: KNOWN_FORMATS,
     practiceFile: practiceFile, PRACTICE_FILE_NAMES: PRACTICE_FILE_NAMES, canLinkExchange: canLinkExchange,
-    roundCents: roundCents, catNorm: catNorm, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
+    roundCents: roundCents, catNorm: catNorm, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, ambiguousDate: ambiguousDate, detectDecimal: detectDecimal, currencyFromText: currencyFromText
   };
 });

@@ -60,9 +60,9 @@ test("My profile opened from the fast-start snapshot (an older backend's capabil
 });
 
 test("the order is changed by dragging a grip (owner, 2026-11-16), not by arrows; a lift anywhere on the page ends the drag", () => {
-  assert.ok(!app.includes("data-tab-move"), "the arrows are gone");
+  // No arrows to SEE (owner, 2026-11-16); the up / down buttons a screen reader finds (Paola, 2026-11-18) are hidden from the eye.
+  (app.match(/<button[^>]*data-tab-move[^>]*>/g) || []).forEach((b) => assert.match(b, /class="sr-only"/, "only for a screen reader"));
   assert.match(app, /class="tabs-grip" data-tab-grip=/);
   assert.match(app, /window\.addEventListener\("pointerup", drop\)/);
   assert.match(app, /window\.addEventListener\("pointercancel", drop\)/);
-  assert.ok(!("prof.tabsUp" in STRINGS) && !("prof.tabsDown" in STRINGS));
 });

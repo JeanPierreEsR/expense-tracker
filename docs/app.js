@@ -1408,7 +1408,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   maybeAskAnnualItems_();
   // Even while a form is in use, the account lists take in accounts added since they were built (what is chosen stays chosen):
   // an unfinished entry restored on its account must find it there (owner, 2026-11-13: a new account "CTS" showed as a blank row).
-  if (skipFormPopulate) { whenPickersClosed_(["payment_method", "to_payment_method"], rebuildAccountPickers_); return; }
+  if (skipFormPopulate) { whenPickersClosed_(["payment_method", "to_payment_method"], rebuildAccountPickers_); if (draftSplitWaiting_ || draftPaidByWaiting_) { populatePaidByOptions(); resumeDraftSplit_(); } return; }
   // Rebuilding the pickers resets them to their first option. A refresh
   // (pull-down, or any reload of the lists) while an edit screen is open must
   // not change what is already chosen there — it once flipped a pending card
@@ -1428,6 +1428,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   populateTripOptions_();
   populateBusinessOptions_();
   renderSplitFriendChips();
+  if (draftSplitWaiting_ || draftPaidByWaiting_) resumeDraftSplit_();
 }
 
 // Categories are always offered alphabetically by the name SHOWN (so the order
@@ -1672,7 +1673,9 @@ function populatePaidByOptions() {
     meOpt.textContent = tr("common.me");
     select.appendChild(meOpt);
 
-    plainFriends_().forEach((f) => {
+    // By name (Lucho, 2026-11-18: in the order they were added, a long list was hard to search).
+    const locale = I18n.getLang() === "es" ? "es" : "en";
+    plainFriends_().slice().sort((a, b) => friendLabel_(a).localeCompare(friendLabel_(b), locale, { sensitivity: "base" })).forEach((f) => {
       const opt = document.createElement("option");
       opt.value = f.id;
       opt.textContent = friendLabel_(f);
@@ -2082,7 +2085,11 @@ function autoPickRepaymentGroup_() {
   const sel = document.getElementById("repayment-friend");
   const date = document.getElementById("date").value;
   const covering = (meta.trips || []).filter((t) => date >= t.start_date && date <= t.end_date);
-  const group = covering.length === 1 ? meta.friends.find((f) => f.trip_id === covering[0].id) : null;
+  let group = covering.length === 1 ? meta.friends.find((f) => f.trip_id === covering[0].id) : null;
+  // Only a group with something owed is suggested for a repayment (Lucho, 2026-11-18: it started on a trip group that owed nothing);
+  // a new loan may still start with it.
+  const groupOwes = (id) => !loansLastBalances_ || loansLastBalances_.some((b) => b.friend_id === id && (b.balances || []).some((x) => Math.abs(Number(x.net) || 0) > 0.004));
+  if (group && transferKind_() === "repayment" && !groupOwes(group.id)) group = null;
   if (group && Array.from(sel.options).some((o) => o.value === group.id)) {
     sel.value = group.id;
     repaymentAutoPickedId_ = group.id;
@@ -2228,6 +2235,18 @@ function syncNothingOwedLine_() {
   line.classList.toggle("owed-some", owed);
   if (!owed) {
     line.textContent = tr(dir === "they_owe_me" ? "owed.lineTheyOwe" : "owed.lineIOwe", { friend: f ? f.name : "", cur: currency });
+    // Owed the OTHER way: say so, with a one-tap switch (Lucho, 2026-11-18: "I paid them" for a friend who owed him, and nothing hinted).
+    const other = dir === "they_owe_me" ? "i_owe_them" : "they_owe_me";
+    const otherAmt = row && row.open ? Number(row.open[other] || 0) : row ? Math.max(0, (other === "they_owe_me" ? row.net : -row.net)) : 0;
+    if (otherAmt > 0.004) {
+      line.textContent = tr(other === "they_owe_me" ? "owed.otherTheyOwe" : "owed.otherIOwe", { friend: f ? f.name : "", amount: formatAmount(otherAmt, currency) }) + " ";
+      const sw = document.createElement("button");
+      sw.type = "button";
+      sw.className = "add-inline owed-switch";
+      sw.textContent = tr(other === "they_owe_me" ? "owed.switchTheyPaid" : "owed.switchIPaid");
+      sw.addEventListener("click", () => { const tab = document.querySelector(`#repayment-direction-tabs .type-tab[data-direction="${other}"]`); if (tab) tab.click(); });
+      line.appendChild(sw);
+    }
     fillRepaymentAmount_(0);
     return;
   }
@@ -4411,6 +4430,17 @@ function entryHeadline_(entry) {
   return { title: `${marker}${title}`, meta: metaText };
 }
 
+// A repayment's or cash loan's description the app wrote itself ("Repayment from Ana" / "Repago de Ana", in whichever language it was
+// saved in) repeats the row's title, so the row does not show it again (Lucho, 2026-11-18: "Repayment from X / Repayment from X", and in
+// Spanish "Repago a Rosa / Repayment to Rosa"). A description the person typed still shows.
+function entryDescShown_(entry) {
+  const d = String(entry.description || "");
+  if (!d || entry.type !== "transfer" || !entry.link || !entry.link.friend) return d;
+  const S = window.STRINGS || {};
+  const own = ["desc.repaymentFrom", "desc.repaymentTo", "desc.loanTo", "desc.loanFrom"].some((k) => S[k] && ["en", "es"].some((l) => S[k][l] && S[k][l].replace("{name}", entry.link.friend) === d));
+  return own ? "" : d;
+}
+
 function categoryName(id) {
   const c = findCategory(id);
   // No category chosen (a history import adds entries without one) is not an error: say so plainly.
@@ -4551,7 +4581,7 @@ function buildEntryRow_(entry) {
   left.className = "entry-left";
   left.innerHTML = `
     <div class="entry-category">${headline.title}</div>
-    ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
+    ${entryDescShown_(entry) ? `<div class="entry-desc">${escapeHtml(entryDescShown_(entry))}</div>` : ""}
     <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
     ${entry.income_waiting === "1" ? `<div class="entry-desc">${escapeHtml(tr("income.waitingBadge"))}</div>` : ""}
     ${statusLine}
@@ -5935,14 +5965,23 @@ function captureEntryDraft_() {
 function entryDraftSplit_() {
   if (selectedType !== "expense" || !document.getElementById("split-toggle").checked) return null;
   const due = document.getElementById("split-due");
+  const names = {};
+  [...splitFriendIds].forEach((id) => { const f = (meta.friends || []).find((x) => x.id === id); if (f) names[id] = f.name; });
   return {
-    friends: [...splitFriendIds], mode: splitMode, custom: { ...customSplitAmounts }, percents: { ...splitPercents },
+    friends: [...splitFriendIds], names, mode: splitMode, custom: { ...customSplitAmounts }, percents: { ...splitPercents },
     own: customOwnAmount, groupCount: splitGroupCount_(), due: document.getElementById("split-due-block").hidden ? "" : due.value
   };
 }
+// Friends of a restored draft the friends list does not have yet (Diego, 2026-11-18: a friend added in the form, the app closed, reopened
+// before the list arrived: the split came back with nobody in it and Save was refused). They wait for the next friends list; one that is
+// still missing after that is really gone: it is taken out, the split turns off if nobody is left, and the form says so.
+let draftSplitWaiting_ = null;
 function applyEntryDraftSplit_(sp) {
+  draftSplitWaiting_ = null;
   if (!sp || selectedType !== "expense") return;
   const known = new Set((meta.friends || []).map((f) => f.id));
+  const missing = (sp.friends || []).filter((id) => !known.has(id));
+  if (missing.length) draftSplitWaiting_ = { sp, missing, tries: 0 };
   const friends = (sp.friends || []).filter((id) => known.has(id));
   splitMode = ["equal", "percent", "custom"].includes(sp.mode) ? sp.mode : "equal";
   splitFriendIds = new Set();
@@ -5962,6 +6001,39 @@ function applyEntryDraftSplit_(sp) {
   document.getElementById("split-toggle").checked = true;
   document.getElementById("split-detail").hidden = false;
   if (sp.due) showSplitDue_(sp.due);
+  renderSplitFriendChips();
+  renderSplitRows();
+  renderSplitSummary();
+}
+
+let draftPaidByWaiting_ = "";
+// A new friends list arrived (loadMeta): a restored draft takes back the friends (and the "Paid by") it was waiting for.
+function resumeDraftSplit_() {
+  const form = document.getElementById("paid_by");
+  if (draftPaidByWaiting_ && Array.from(form.options).some((o) => o.value === draftPaidByWaiting_)) {
+    form.value = draftPaidByWaiting_;
+    draftPaidByWaiting_ = "";
+    togglePaymentMethodVisibility();
+  }
+  const w = draftSplitWaiting_;
+  if (!w || selectedType !== "expense" || !document.getElementById("split-toggle").checked) { draftSplitWaiting_ = null; return; }
+  const known = new Set((meta.friends || []).map((f) => f.id));
+  w.missing.filter((id) => known.has(id)).forEach((id) => {
+    splitFriendIds.add(id);
+    if (w.sp.custom && w.sp.custom[id] != null) customSplitAmounts[id] = w.sp.custom[id];
+    if (w.sp.percents && w.sp.percents[id] != null) splitPercents[id] = w.sp.percents[id];
+  });
+  w.missing = w.missing.filter((id) => !known.has(id));
+  w.tries++;
+  if (w.missing.length && w.tries >= 2) {
+    const gone = w.missing.map((id) => (w.sp.names && w.sp.names[id]) || "").filter(Boolean);
+    draftSplitWaiting_ = null;
+    if (!splitFriendIds.size) {
+      document.getElementById("split-toggle").checked = false;
+      document.getElementById("split-detail").hidden = true;
+    }
+    document.getElementById("form-error").textContent = tr(splitFriendIds.size ? "entry.draftFriendGone" : "entry.draftSplitGone", { names: gone.join(", ") || "—" });
+  } else if (!w.missing.length) draftSplitWaiting_ = null;
   renderSplitFriendChips();
   renderSplitRows();
   renderSplitSummary();
@@ -6033,6 +6105,7 @@ function applyEntryDraft_(d) {
   // A draft's own date counts only if it was typed a moment ago; otherwise today.
   if (d.date && Date.now() - d.savedAt < RECENT_ENTRY_DATE_MS && d.savedAt >= appResumedAt_) { document.getElementById("date").value = d.date; entryDateTouched_ = true; }
   if (d.paidBy) document.getElementById("paid_by").value = d.paidBy;
+  draftPaidByWaiting_ = d.paidBy && document.getElementById("paid_by").value !== d.paidBy ? d.paidBy : "";
   togglePaymentMethodVisibility();
   // A transfer's "From" may legitimately be None (blank).
   if (d.paymentMethodId || d.type === "transfer") setAccountPick_("payment_method", d.paymentMethodId || "");
@@ -7701,8 +7774,50 @@ async function confirmReviewBulk_(chosen) {
   const linkNames = toLink.map((e) => e.plan_match.description || tr("plan.thePlanned"));
   const linkText = toLink.length ? "\n\n" + tr(ready.length === 1 ? "reviewBulk.willLinkThis" : "reviewBulk.willLink", { n: toLink.length, names: linkNames.length > 3 ? linkNames.slice(0, 3).join(", ") + " " + tr("entriesBulk.andMore", { n: linkNames.length - 3 }) : linkNames.join(", ") }) : "";
   if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }) + linkText, tr("reviewBulk.confirmN", { n: ready.length }), { plain: true })) return;
+  // Trips are asked, never put in silently (owner, 2026-11-18; Valeria: a trip's total jumped with nothing said). One question per trip the
+  // app suggests, before anything is saved: "Add them" / "Leave them out"; the ✕ stops the whole confirm. A trip the item already carries stays.
+  const tripOf = new Map();
+  const tripsSet = new Set();   // the trips this confirm adds (its Undo takes them off again)
+  const byTrip = new Map();
+  // Days two or more trips cover (owner, 2026-11-18): never a guess, but asked, one question per set of trips: "Which trip?" with a
+  // button per trip and "Neither".
+  const byOverlap = new Map();
+  ready.forEach((e) => {
+    if (e.type !== "expense") return;
+    if (e.trip_id) { tripOf.set(e.id, e.trip_id); return; }
+    if (!e.suggested_trip_id) {
+      const d = String(e.date || "").slice(0, 10);
+      const covering = (meta.trips || []).filter((t) => !isPracticeTripName_(t.name) && d >= t.start_date && d <= t.end_date)
+        .sort((x, y) => (x.start_date < y.start_date ? -1 : x.start_date > y.start_date ? 1 : 0));
+      if (covering.length < 2 || isPracticeReviewEntry_(e)) return;
+      const key = covering.map((t) => t.id).join("|");
+      if (!byOverlap.has(key)) byOverlap.set(key, { trips: covering, list: [] });
+      byOverlap.get(key).list.push(e);
+      return;
+    }
+    if (!byTrip.has(e.suggested_trip_id)) byTrip.set(e.suggested_trip_id, []);
+    byTrip.get(e.suggested_trip_id).push(e);
+  });
+  for (const [tripId, list] of byTrip) {
+    const trip = (meta.trips || []).find((t) => t.id === tripId);
+    if (!trip) continue;
+    const answer = await askConfirmApp_(tr("reviewBulk.tripAsk", { n: list.length, trip: tripLabel_(trip), list: reviewListText_(list) }),
+      tr("reviewBulk.tripAdd"), { plain: true, cancel: tr("reviewBulk.tripLeave"), closeValue: null });
+    if (answer === null) return;
+    if (answer) list.forEach((e) => { tripOf.set(e.id, tripId); tripsSet.add(e.id); });
+  }
+  for (const { trips, list } of byOverlap.values()) {
+    const names = trips.map((t) => t.name);
+    const joined = names.slice(0, -1).join(", ") + tr("common.and") + names[names.length - 1];
+    const answer = await askConfirmApp_(tr("reviewBulk.tripWhich", { n: list.length, trips: joined, list: reviewListText_(list) }),
+      trips[0].name, { plain: true, cancel: tr("reviewBulk.tripNeither"), closeValue: null,
+        choices: trips.slice(1).map((t) => ({ label: t.name, value: t.id })) });
+    if (answer === null) return;
+    const tripId = answer === true ? trips[0].id : answer;
+    if (tripId) list.forEach((e) => { tripOf.set(e.id, tripId); tripsSet.add(e.id); });
+  }
   const linkFor = new Map(toLink.map((e) => [e.id, e.plan_match.recurring_id]));
-  const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (e.trip_id || e.suggested_trip_id || "") : undefined, link_recurring_id: linkFor.get(e.id) || undefined }));
+  const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (tripOf.get(e.id) || "") : undefined, link_recurring_id: linkFor.get(e.id) || undefined }));
   ready.forEach((e) => {   // the optional "help me improve" sharing sees a confirm exactly as the card's own Confirm reports it
     if (isPracticeReviewEntry_(e)) return;
     const amount = Math.abs(Number(e.amount));
@@ -7724,12 +7839,37 @@ async function confirmReviewBulk_(chosen) {
       showAppMessage_(tr("reviewBulk.linkSkipped", { names: result.link_skipped.map((k) => { const e = byId.get(k.id); return e ? reviewShortName_(e) : ""; }).filter(Boolean).join(", ") }));
     }
     if ((result && result.linked || []).length) refreshExpectedRecurring().catch(() => {});
-    if (!result || !result.kept.length) return;
-    showAppMessage_(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
+    if (!result) return;
+    // A reply lost and the save sent again (Nico, 2026-11-18): what the first one confirmed comes back "not pending". If it is no longer
+    // waiting, it WAS confirmed, so it is said as confirmed, never "Left in Needs review".
+    const waitingNow = new Set((reviewEntries_ || []).map((e) => e.id));
+    const already = result.kept.filter((k) => k.reason === "notPending" && !waitingNow.has(k.id)).map((k) => k.id);
+    const kept = result.kept.filter((k) => !already.includes(k.id));
+    const done = result.confirmed.concat(already);
+    const canUndo = !!(meta && meta.capabilities && meta.capabilities.bulkUndo);
+    if (done.length && !kept.length) {
+      const text = tr("reviewBulk.doneConfirmed", { n: done.length, names: reviewNames_(done.map((id) => byId.get(id)).filter(Boolean)) });
+      if (canUndo) showUndoToast_(text, () => undoReviewBulk_(done.map((id) => ({ id, trip: tripsSet.has(id), link: linkFor.has(id) }))), "review");
+      else showToast_(text);
+    }
+    if (!kept.length) return;
+    showAppMessage_(tr("reviewBulk.resultKept", { items: kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
   }, {
     busy: "reviewBulk.confirming",
-    done: () => result && result.confirmed.length && !result.kept.length ? tr("reviewBulk.doneConfirmed", { n: result.confirmed.length, names: reviewNames_(result.confirmed.map((id) => byId.get(id)).filter(Boolean)) }) : "",
+    done: () => "",
   });
+}
+
+// Undo of a "confirm many at once": every entry back in Needs review, without the trips and Programmed item links that confirm added.
+function undoReviewBulk_(items) {
+  let res = null;
+  saveBehindScreen_(async () => { res = await callApi("unconfirmEntries", { items }); }, async () => {
+    refreshEntryList().catch(() => {});
+    refreshExpectedRecurring().catch(() => {});
+    refreshHomeGlance_(true);
+    await refreshReviewQueue(undefined, true).catch(() => {});
+    if (res && res.kept.length) showAppMessage_(tr("reviewBulk.undoKept", { n: res.kept.length }));
+  }, { busy: "reviewBulk.undoing", done: () => (res && res.undone.length ? tr("reviewBulk.undone", { n: res.undone.length }) : "") });
 }
 
 document.getElementById("review-discard-selected-btn").addEventListener("click", async () => {
@@ -7891,6 +8031,15 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       box.focus({ preventScroll: true });
       box.scrollIntoView({ block: "center", behavior: "smooth" });
     };
+    // The top is the item's open/close button for a screen reader or a keyboard (Paola, 2026-11-18: the card was a plain block, never
+    // reached by Tab, and nothing said it opens). It holds no buttons of its own, so nothing is nested.
+    const top = item.querySelector(".review-item-top");
+    top.setAttribute("role", "button");
+    top.tabIndex = 0;
+    const syncTop = () => top.setAttribute("aria-expanded", String(!item.classList.contains("review-collapsed")));
+    syncTop();
+    new MutationObserver(syncTop).observe(item, { attributes: true, attributeFilter: ["class"] });
+    top.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); top.click(); } });
     // An open card closes with a tap anywhere above its boxes (owner, 2026-11-16: the part a closed card shows above Confirm).
     item.addEventListener("click", (ev) => {
       if (ev.target.closest("button, a, select, input, label")) return;
@@ -8859,7 +9008,7 @@ function homeMainCard_(g) {
   // Items of this month still waiting in Needs review are not in these numbers: said here, on the card people look at (journeys run,
   // 2026-11-17: Home read "spent 0" for months while 100+ bank items waited, and only Overview / Budgets said why).
   const waiting = (reviewEntries_ || []).filter((e) => String(e.date || "").slice(0, 7) === m.month && !isPracticeReviewEntry_(e)).length;
-  const waitLine = waiting ? `<button type="button" class="home-wait-line">${escapeHtml(tr("home.waitLine", { n: waiting }))}</button>` : "";
+  const waitLine = waiting ? `<button type="button" class="home-wait-line">${escapeHtml(tr("home.waitLine", { n: waiting, month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), false) }))}</button>` : "";
 
   const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
   const bars = months.map((x, i) => {
@@ -8877,7 +9026,7 @@ function homeMainCard_(g) {
     ${four}
     <div class="home-bars-title">${escapeHtml(tr("home.barsTitle"))}</div>
     <div class="home-bars">${bars}</div>
-    <div class="home-legend"><span>${escapeHtml(tr("home.allMonths"))} ›</span></div>`);
+    <div class="home-legend"><span class="home-all-months">${escapeHtml(tr("home.allMonths"))} ›</span></div>`);
   el.classList.add("home-card-tap");
   el.addEventListener("click", (ev) => {
     if (ev.target.closest(".home-wait-line")) { openReviewFromHome_(); return; }
@@ -9053,6 +9202,15 @@ function suggestMark_(key, done) {
   try { localStorage.setItem(SUGGEST_SEEN_KEY_, JSON.stringify(m)); } catch (e) { /* ignore */ }
 }
 function suggestOpen_(key) { const v = suggestSeen_()[key]; return !v || (!v.done && Date.now() > (v.until || 0)); }
+// Shown on 3 openings without an answer, a suggestion rests a week (Marta, 2026-11-18: it sat under the month card on all 10 of her openings).
+const SUGGEST_SHOWS_ = 3, SUGGEST_REST_MS_ = 7 * 86400000;
+function suggestCountShow_(key) {
+  const m = suggestSeen_();
+  const v = m[key] && !m[key].done ? m[key] : {};
+  const shows = (v.shows || 0) + 1;
+  m[key] = shows >= SUGGEST_SHOWS_ ? { until: Date.now() + SUGGEST_REST_MS_ } : { shows, until: v.until || 0 };
+  try { localStorage.setItem(SUGGEST_SEEN_KEY_, JSON.stringify(m)); } catch (e) { /* ignore */ }
+}
 function homeSuggestion_() {
   const waiting = (reviewEntries_ || []).filter((e) => !isPracticeReviewEntry_(e)).length;
   const list = [];
@@ -9110,6 +9268,7 @@ function renderHomeSuggest_() {
   if (!box) return;
   const s = !perfIsOwnerCopy_() && homeGlance_ && !Spotlight.isRunning() && !editModeOn_() && !document.querySelector(".currency-modal-backdrop:not([hidden])") ? homeSuggestion_() : null;
   if (!s || (s.key !== suggestShownKey_ && !teachAllows_("suggest:" + s.key))) { box.hidden = true; return; }
+  if (s.key !== suggestShownKey_) suggestCountShow_(s.key);   // once per opening of the app (the key stays while the person looks)
   suggestShownKey_ = s.key;
   box.innerHTML = `<div class="home-suggest-head"><span class="tip-invite-label"><span class="ico ico-warn">${lineIcon_("bulb")}</span>${escapeHtml(tr("spot.tipLabel"))}</span>`
     + `<button type="button" class="currency-modal-close home-suggest-x" aria-label="${escapeHtml(tr("suggest.later"))}">✕</button></div>`
@@ -9299,7 +9458,9 @@ function nameCloseButtons_(root) {
 nameCloseButtons_(document);
 // Cards and rows that open something when tapped are announced as buttons by VoiceOver (Paola, 2026-11-10): Home's tappable cards,
 // Overview's Loans card, and the Breakdown rows. Each reads its own text; Enter or Space opens it too.
-const TAPPABLE_SEL_ = ".home-card-tap, .legend-row, #loans-ov-card";   // (not Overview's Spending pace card: a button hides the switch buttons inside it)
+// (Not Overview's Spending pace card, nor Home's main card: a button hides the buttons inside it — Paola, 2026-11-18: its ⓘ, waiting line and
+// months; its "All months ›" is the card's own button instead.)
+const TAPPABLE_SEL_ = ".home-card-tap:not(.home-card-main), .legend-row, #loans-ov-card, .home-all-months";
 function markTappable_(root) {
   const list = root.matches && root.matches(TAPPABLE_SEL_) ? [root] : root.querySelectorAll(TAPPABLE_SEL_);
   list.forEach((el) => { if (!el.hasAttribute("role")) { el.setAttribute("role", "button"); el.tabIndex = 0; } });
@@ -11377,7 +11538,7 @@ function renderEntriesInto_(list, entries, emptyKey) {
     row.innerHTML = `
       <div class="entry-left">
         <div class="entry-category">${headline.title}</div>
-        ${entry.description ? `<div class="entry-desc">${escapeHtml(entry.description)}</div>` : ""}
+        ${entryDescShown_(entry) ? `<div class="entry-desc">${escapeHtml(entryDescShown_(entry))}</div>` : ""}
         <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
         ${entry.slice_part ? `<div class="entry-meta slice-part">${escapeHtml(slicePartText_(entry))}</div>` : ""}
         ${deletingEntryIds_.has(entry.id) ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>` : ""}
@@ -13331,6 +13492,9 @@ function renderBackendUpdateBanner_() {
 function setUpdateAvailable_(on) {
   document.getElementById("more-update-btn").hidden = !on;
   document.body.classList.toggle("update-ready", !!on);
+  // The red dot on More is only drawn: its spoken name says it too (Paola, 2026-11-18).
+  const moreTab = document.querySelector('#bottom-nav .nav-btn[data-screen="more"]');
+  if (moreTab) { if (on) moreTab.setAttribute("aria-label", tr("nav.moreUpdate")); else moreTab.removeAttribute("aria-label"); }
   backendBehind_ = !!on;
   renderBackendUpdateBanner_();
 }
@@ -15337,13 +15501,22 @@ function drawTabsCard_() {
   const row = (t, inBar) => {
     const name = tr(NAV_NAMES_[t]);
     const note = t === "entries" ? tr("prof.tabsFixed") : t === "more" ? tr("prof.tabsLast") : "";
+    // The bar's own label when it is shorter than the name ("Presup."), so a tab can be found by either (Rosa, 2026-11-18).
+    const barLabel = (document.querySelector(`#bottom-nav .nav-btn[data-screen="${t}"] span:not(.nav-icon)`) || {}).textContent || "";
+    const shortNote = barLabel && barLabel.trim() !== name ? tr("prof.tabsShort", { short: barLabel.trim() }) : "";
     const check = t === "entries" || t === "more" ? ""
-      : `<input type="checkbox" data-tab-show="${t}" ${inBar ? "checked" : ""} aria-label="${escapeHtml(tr("prof.tabsShow", { name }))}">`;
+      : `<label class="tabs-check"><input type="checkbox" data-tab-show="${t}" ${inBar ? "checked" : ""} aria-label="${escapeHtml(tr("prof.tabsShow", { name }))}"></label>`;
+    // Up / down buttons only a screen reader finds (Paola, 2026-11-18: VoiceOver cannot drag, and sends no arrow keys to a button); the
+    // drag stays the way the eye sees it (owner, 2026-11-16).
+    const moves = inBar && t !== "more"
+      ? `<button type="button" class="sr-only" data-tab-move="${t}" data-dir="-1">${escapeHtml(tr("prof.tabsUp", { name }))}</button>`
+        + `<button type="button" class="sr-only" data-tab-move="${t}" data-dir="1">${escapeHtml(tr("prof.tabsDown", { name }))}</button>` : "";
     const grip = inBar && t !== "more"
       ? `<button type="button" class="tabs-grip" data-tab-grip="${t}" aria-label="${escapeHtml(tr("prof.tabsDrag", { name }))}">${TABS_GRIP_SVG_}</button>`
       : check ? `<span class="tabs-grip-space" aria-hidden="true"></span>` : "";   // (the tick boxes of both lists line up)
+    const notes = [note, shortNote].filter(Boolean).map((n) => `<span class="hint">${escapeHtml(n)}</span>`).join("");
     return `<div class="tabs-row" data-tab-row="${t}"><span class="row-icon" aria-hidden="true">${lineIcon_(NAV_ICONS_[t])}</span>`
-      + `<span class="tabs-row-name">${escapeHtml(name)}${note ? `<span class="hint">${escapeHtml(note)}</span>` : ""}</span>${check}${grip}</div>`;
+      + `<span class="tabs-row-name">${escapeHtml(name)}${notes}</span>${check}${moves}${grip}</div>`;
   };
   const out = NAV_CHOICES_.filter((t) => !navTabs_.includes(t));
   list.innerHTML = `<div id="tabs-bar-rows">${navTabs_.map((t) => row(t, true)).join("")}</div>${row("more", true)}`
@@ -15464,6 +15637,18 @@ document.getElementById("tabs-list").addEventListener("change", (e) => {
     if (again) again.focus();
   });
 }
+document.getElementById("tabs-list").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-tab-move]");
+  if (!b) return;
+  const t = b.dataset.tabMove, dir = Number(b.dataset.dir), now = navTabs_.slice(), i = now.indexOf(t), j = i + dir;
+  const name = tr(NAV_NAMES_[t]);
+  if (i < 0 || j < 0 || j >= now.length) { document.getElementById("tabs-msg").textContent = tr("prof.tabsAt", { name, n: i + 1 }); return; }
+  [now[i], now[j]] = [now[j], now[i]];
+  changeTabs_(now);
+  document.getElementById("tabs-msg").textContent = tr("prof.tabsAt", { name, n: j + 1 });   // (a status line: VoiceOver reads the new place)
+  const again = document.querySelector(`[data-tab-move="${t}"][data-dir="${dir}"]`);
+  if (again) again.focus();
+});
 document.getElementById("tabs-reset-btn").addEventListener("click", () => changeTabs_(NAV_DEFAULT_.slice()));
 // The "How I type dates" row opens and closes its choices (closed each time the screen opens, like My names and What fits me).
 function datesOpenRow_(open) {
@@ -22561,10 +22746,18 @@ async function askProgrammedTags_(asks) {
 
 // Existing items repeating every 3 months or more, tagged Annual once the person has seen the list (owner, 2026-11-16). Asked once per
 // copy, from fresh data only, after the other one-time questions; either answer is remembered on the server.
-let annualItemsAsked_ = false;
+// Never over the welcome or another window, and not on an opening that already asked one of the other one-time questions, nor while 30
+// or more entries wait in Needs review (testers 2026-11-18: a returning friend met three windows stacked over a big backlog); it waits
+// for a later opening then (nothing is recorded until it is answered).
+let annualItemsAsked_ = false, annualItemsTries_ = 0;
 async function maybeAskAnnualItems_() {
   const list = meta && !meta.fromCache_ && Array.isArray(meta.annualItemsAsk) ? meta.annualItemsAsk : [];
   if (annualItemsAsked_ || !list.length || (window.Spotlight && Spotlight.isRunning())) return;
+  if (payorMergeOpen_ || (reviewEntries_ || []).length >= 30) return;
+  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])")) {
+    if (annualItemsTries_++ < 40) setTimeout(maybeAskAnnualItems_, 4000);
+    return;
+  }
   annualItemsAsked_ = true;
   const yes = await askConfirmApp_(tr("progTags.annualItemsAsk", { n: list.length, list: list.map((x) => "• " + x.description).join("\n") }),
     tr("progTags.annualItemsYes"), { plain: true, cancel: tr("progTags.annualItemsNo") });
@@ -22789,7 +22982,7 @@ async function loadRecurringPast_() {
       const row = document.createElement("div");
       row.className = "link-candidate-row";
       row.innerHTML = `<div class="link-candidate-text">
-          <div class="link-candidate-date">${listDate_(p.date)} · ${escapeHtml(p.currency)} ${moneyFmt(p.amount)}${p.linked ? "" : ` <span class="hint">${escapeHtml(tr("recModal.pastAuto"))}</span>`}</div>
+          <div class="link-candidate-date">${listDate_(p.date)} · ${escapeHtml(p.currency)} ${moneyFmt(p.amount)}${p.for_month ? ` · ${escapeHtml(tr("recModal.pastFor", { month: I18n.fmtMonthYear(new Date(p.for_month + "-01T00:00:00"), true) }))}` : ""}${p.linked ? "" : ` <span class="hint">${escapeHtml(tr("recModal.pastAuto"))}</span>`}</div>
           <div class="link-candidate-desc">${escapeHtml(p.description || tr("review.noDescription"))}</div>
         </div>`;
       list.appendChild(row);
@@ -23555,7 +23748,9 @@ function renderExpectedHead_(groups) {
     else if (g.totalPen != null) total += sign * g.totalPen;
     else noRate += g.items.length;
   });
-  const money = `${noRate ? "≈ " : ""}${total > 0.004 ? "+" : total < -0.004 ? "−" : ""}${homeCur()} ${moneyFmt(Math.abs(total))}`;
+  let money = `${noRate ? "≈ " : ""}${total > 0.004 ? "+" : total < -0.004 ? "−" : ""}${homeCur()} ${moneyFmt(Math.abs(total))}`;
+  // Money in and out together: the figure is what is left of both, so it says "net" (Elena, 2026-11-18: read as the expenses' total).
+  if (groups.some((g) => g.type === "income") && groups.some((g) => g.type !== "income")) money = tr("expected.net", { money });
   document.getElementById("expected-head-sum").textContent =
     `${count} · ${money}${noRate ? " · " + tr("expected.needRate", { n: noRate }) : ""}${expectedOpen_ ? "" : " ›"}`;
 }
@@ -25506,8 +25701,15 @@ function openInfoCard_(btn) {
   card.id = "info-card";
   card.setAttribute("role", "note");
   card.innerHTML = `<div class="info-card-arrow"></div><p></p>`;
-  card.querySelector("p").textContent = tr("info." + key);
+  // Apple Pay is named only where it is offered (testers 2026-11-18: friends' copies read "Apple Pay" in Needs review's card).
+  const apOff = key === "review" && !(meta && meta.capabilities && meta.capabilities.applePay);
+  card.querySelector("p").textContent = tr("info." + (apOff ? "reviewNoAp" : key));
   document.body.appendChild(card);
+  // A card added at the end of the page is not read by itself (Paola, 2026-11-18): its words go to a hidden status line too.
+  let live = document.getElementById("info-live");
+  if (!live) { live = document.createElement("div"); live.id = "info-live"; live.className = "sr-only"; live.setAttribute("aria-live", "polite"); document.body.appendChild(live); }
+  live.textContent = "";
+  setTimeout(() => { live.textContent = card.querySelector("p").textContent; }, 50);
   btn.setAttribute("aria-expanded", "true");
   btn.setAttribute("aria-describedby", "info-card");
   const open = { btn, card, frame: 0 };
@@ -29839,16 +30041,26 @@ function askConfirmApp_(text, okLabel, opts) {
     ok.className = opts.plain ? "primary" : "delete-entry-btn";
     back.textContent = opts.cancel || tr("common.cancel");
     back.hidden = !!opts.noCancel;
+    // `choices` = [{ label, value }]: more answers, stacked under the first; each resolves its own value.
+    const choicesBox = document.getElementById("app-confirm-choices");
+    choicesBox.textContent = "";
+    (opts.choices || []).forEach((c) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "primary"; b.textContent = c.label;
+      b.onclick = () => done(c.value);
+      choicesBox.appendChild(b);
+    });
+    choicesBox.hidden = !(opts.choices || []).length;
     const ids = ["app-confirm-ok", "app-confirm-back", "app-confirm-close"];
     // The second tap of a double tap lands on the window itself: for its first 0.4 s nothing answers it (Nico, 2026-11-09: it flashed
     // and vanished; it could as well have landed on the red button).
     const openedAt = Date.now();
     backdrop.dataset.openedAt = String(openedAt);
     const tooSoon = () => Date.now() - openedAt < APP_CONFIRM_SETTLE_MS_;
-    const done = (v) => { if (tooSoon()) return; backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); appConfirmOpen_.delete(text); resolve(v); };
+    const done = (v) => { if (tooSoon()) return; backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); choicesBox.textContent = ""; appConfirmOpen_.delete(text); resolve(v); };
     ok.onclick = () => done(true);
     back.onclick = () => done(false);
-    document.getElementById("app-confirm-close").onclick = () => done(false);
+    document.getElementById("app-confirm-close").onclick = () => done(opts.closeValue !== undefined ? opts.closeValue : false);   // ✕ can mean "stop" where Back is an answer
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // the keyboard would cover it
     bringModalToFront_(backdrop);
     // Above whatever is open: some sheets have their own fixed layer (the split bill's is 260, above the counter), and it would open
@@ -33160,7 +33372,11 @@ async function refreshBalancesInner_() {
   const totalsWrap = document.getElementById("balances-totals");
   const totalsLines = document.getElementById("balances-totals-lines");
   totalsLines.innerHTML = "";
-  totalsWrap.hidden = codes.length === 0;
+  // The box also holds "Show accounts (n)", so it shows whenever there are rows (testers 2026-11-18: with only cards known from their
+  // statements there were no totals, the box hid, and the cards' lines could not be reached). With no totals at all the rows show open.
+  totalsWrap.hidden = rows.length === 0;
+  totalsWrap.querySelector(".balances-totals-title").hidden = codes.length === 0;
+  if (!codes.length && rows.length) balancesExpanded_ = true;
   balancesRowCount_ = rows.length;
   applyBalancesExpanded_();
   codes.forEach((code) => {

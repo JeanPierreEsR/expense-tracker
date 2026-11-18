@@ -532,7 +532,12 @@ function ensureEntriesRecurringMonthColumn_() {
 // The month a payment linked to a Programmed item pays: the one stored with the link, else its own.
 function entryPlanMonth_(e) {
   var m = String((e && e.recurring_month) || '');
-  return /^\d{4}-\d{2}$/.test(m) ? m : String((e && e.date) || '').substring(0, 7);
+  var own = String((e && e.date) || '').substring(0, 7);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m) || !/^\d{4}-\d{2}$/.test(own)) return own;
+  // A month more than a year from the payment is not one the app would link (only its own or the next month), so a hand-typed one
+  // like that falls back to the payment's own month (Ingrid, 2026-11-18: 2019-06 counted a 2026 payment as paying 2019).
+  var gap = Math.abs((+m.slice(0, 4) * 12 + +m.slice(5)) - (+own.slice(0, 4) * 12 + +own.slice(5)));
+  return gap <= 12 ? m : own;
 }
 
 // Self-heals like every other post-hoc table (Payors, Loan Alert Log,
@@ -992,6 +997,7 @@ function listRecurringPayments(payload) {
     }
     out.push({ id: e.id, date: String(e.date).substring(0, 10), amount: Number(e.amount), currency: e.currency,
       description: e.description || '', linked: linked, _occ: occDate,
+      for_month: linked ? entryPlanMonth_(e) : String(occDate || e.date).substring(0, 7),   // the month it pays (Ingrid, 2026-11-18)
       _gap: Math.abs(Number(e.amount) - Number(re.amount)) * 1000 + (occDate ? Math.abs(daysBetweenDates_(e.date, occDate)) : 0) });
   });
   // Several entries can fit the same due date (same category, ~10% amount, a few days): only the closest one is shown as
@@ -999,7 +1005,7 @@ function listRecurringPayments(payload) {
   var bestByOcc = {};
   out.forEach(function (p) { if (p._occ && (!bestByOcc[p._occ] || p._gap < bestByOcc[p._occ]._gap)) bestByOcc[p._occ] = p; });
   out = out.filter(function (p) { return p.linked || bestByOcc[p._occ] === p; })
-    .map(function (p) { return { id: p.id, date: p.date, amount: p.amount, currency: p.currency, description: p.description, linked: p.linked }; });
+    .map(function (p) { return { id: p.id, date: p.date, amount: p.amount, currency: p.currency, description: p.description, linked: p.linked, for_month: p.for_month }; });
   out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
   return { payments: out.slice(0, 60), total: out.length };
 }
@@ -1938,14 +1944,18 @@ function daysBetweenDates_(dateStrA, dateStrB) {
 function recurringTagIds_(r, fresh) {
   var raw = String((r && r.tag_ids) || '');
   if (!raw) return [];
+  // Matched without regard to capitals (Ingrid, 2026-11-18: an id typed in capitals in the Sheet was dropped, and lost on the next save);
+  // the tag's own id is what comes back.
   var known = {};
-  (fresh ? getAllRows('Tags') : getAllRowsCached_('Tags')).forEach(function (t) { known[String(t.id)] = true; });
-  var seen = {};
-  return raw.split(',').map(function (s) { return s.trim(); }).filter(function (id) {
-    if (!id || !known[id] || seen[id]) return false;
+  (fresh ? getAllRows('Tags') : getAllRowsCached_('Tags')).forEach(function (t) { known[String(t.id).toLowerCase()] = String(t.id); });
+  var seen = {}, out = [];
+  raw.split(',').forEach(function (s) {
+    var id = known[s.trim().toLowerCase()];
+    if (!id || seen[id]) return;
     seen[id] = true;
-    return true;
+    out.push(id);
   });
+  return out;
 }
 function cleanRecurringTagIds_(list) {
   var ids = Array.isArray(list) ? list : String(list || '').split(',');
@@ -1954,7 +1964,7 @@ function cleanRecurringTagIds_(list) {
 // An item tagged Annual: its planned amounts count like an annual expense (out of monthly / weekly budgets and a Projections month
 // view; in yearly budgets and "Annual expenses"). A trip's "In my budgets" choice still wins, as for entries.
 function recurringIsAnnual_(r) {
-  return ('' + (r && r.tag_ids || '')).split(',').some(function (s) { return s.trim() === ANNUAL_TAG_ID; });
+  return ('' + (r && r.tag_ids || '')).split(',').some(function (s) { return s.trim().toLowerCase() === ANNUAL_TAG_ID.toLowerCase(); });
 }
 // Adds these tags to an entry (never removes one), stamping it so every phone's search copy sees them. Returns the ids added.
 function addTagsToEntry_(entryId, tagIds) {

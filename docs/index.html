@@ -1682,7 +1682,7 @@
         <h2 style="margin-top:0;" class="screen-title stmt-import-only" data-i18n="imp.title">Import data from another app</h2>
         <div class="be-tabs" id="stmt-mode-tabs" role="tablist">
           <button type="button" class="be-tab active" id="stmt-mode-bank" role="tab" aria-selected="true" data-mode="bank" data-i18n="md.bank">Bank statements</button>
-          <button type="button" class="be-tab" id="stmt-mode-import" role="tab" aria-selected="false" data-mode="import" data-i18n="md.import">Import from another app</button>
+          <button type="button" class="be-tab" id="stmt-mode-import" role="tab" aria-selected="false" data-mode="import" data-i18n="md.importTab">From another app</button>
         </div>
         <p class="hint stmt-import-only" data-i18n="imp.hint">Bring in what you recorded in another app: export it as a CSV or Excel file with a category on every line, then pick the file here. You check the columns once and the app remembers them for the next file from the same app. The file is read on this device, nothing is saved until you confirm, and one Undo reverses the whole import.</p>
         <div class="stmt-stepper" id="stmt-stepper" role="list"></div>
@@ -2649,6 +2649,7 @@
         <p class="app-confirm-text" id="app-confirm-text"></p>
         <input type="text" id="app-confirm-input" autocomplete="off" hidden>
         <button type="button" id="app-confirm-ok"></button>
+        <div id="app-confirm-choices" hidden></div>
         <button type="button" class="cancel-edit-btn" id="app-confirm-back" data-i18n="common.cancel">Cancel</button>
       </div>
     </div>

@@ -96,6 +96,7 @@ function getCapabilities_() {
     clientEntryId: true,
     // addLoan, recordCurrencyExchange, forgiveLoan and the overpayment entries accept the phone's own id (client_id) and answer a repeat with what they already made, so the app can save them in the background; an older backend lacks it and the app then waits for the answer as before.
     clientMoneyId: true,
+    bulkUndo: true,   // unconfirmEntries: the Undo of a "confirm many at once" (2026-11-18)
     bulkPlanLink: true,   // confirmEntries links items to their Programmed item (link_recurring_id), re-checked; an older backend: the phone promises no link
     // This backend can say which bank addresses it reads (listSupportedSenders), so the app can tell a friend "your bank is ready".
     bankReady: true,

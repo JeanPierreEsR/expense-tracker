@@ -215,8 +215,16 @@ function loanFlowsForPeriod_(startDate, endDate, scope) {
       l[kind] += amount;
     });
   };
+  // Forgiven money is no longer a loan (owner, 2026-11-18): the forgiveness books its own expense (or income), so the loan's
+  // money out (or in) shrinks by what was forgiven, on the loan's OWN date, even if that changes an earlier month. Otherwise
+  // Result would count it twice (lent 100, got 70 back, forgave 30: −60 instead of −30).
+  var settledByLoan = {};
+  getAllRows('Settlements').forEach(function (st) { settledByLoan[st.loan_id] = (settledByLoan[st.loan_id] || 0) + (Number(st.amount) || 0); });
   loans.forEach(function (l) {
-    if (inRange(l.date)) add(l, l.direction === 'i_owe_them' ? 'borrowed' : 'lent', Number(l.amount) || 0, l.date);
+    if (!inRange(l.date)) return;
+    var amount = Number(l.amount) || 0;
+    var amt = Math.max(0, amount - loanForgivenAmount_(l, settledByLoan[l.id] || 0));
+    if (amt > 0.004) add(l, l.direction === 'i_owe_them' ? 'borrowed' : 'lent', Math.round(amt * 100) / 100, l.date);
   });
   getAllRows('Settlements').forEach(function (st) {
     if (st.offset_loan_id || !inRange(st.date)) return;
