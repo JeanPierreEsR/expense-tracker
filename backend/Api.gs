@@ -1535,13 +1535,21 @@ function buildSearchLookups_() {
     (tagNamesByEntry[et.entry_id] = tagNamesByEntry[et.entry_id] || []).push(tag.name);
     (tagSearchNamesByEntry[et.entry_id] = tagSearchNamesByEntry[et.entry_id] || []).push(tagSearchNames_(tag));
   });
+  // Who an expense was shared with ("With Pablo, Rosa"): searching a friend's name finds it (Lucho, 2026-11-18).
+  var friendsAll = rowsById_(getAllRows('Friends'));
+  var splitNamesByEntry = {};
+  getAllRows('Entry Splits').forEach(function (sp) {
+    var f = friendsAll[sp.friend_id];
+    if (f && f.name) (splitNamesByEntry[sp.entry_id] = splitNamesByEntry[sp.entry_id] || []).push(f.name);
+  });
   return {
+    splitNamesByEntry: splitNamesByEntry,
     tripsById: rowsById_(getTripRows_()),
     companiesById: rowsById_(getCompanyRows_()),     // empty (and nothing read) while the Business pack is off
     projectsById: rowsById_(getProjectRows_()),
     categoriesById: rowsById_(getAllRows('Categories')),
     methodsById: rowsById_(getAllRows('Payment Methods')),
-    friendsById: rowsById_(getAllRows('Friends')),
+    friendsById: friendsAll,
     payorsById: rowsById_(getPayorRows_()),
     tagNamesByEntry: tagNamesByEntry,
     tagSearchNamesByEntry: tagSearchNamesByEntry,
@@ -1569,6 +1577,7 @@ function entrySearchText_(e, lk) {
     lk.methodsById[e.to_payment_method_id] && lk.methodsById[e.to_payment_method_id].nickname,
     e.paid_by === 'me' ? 'me' : (payer && payer.name),
     (lk.tagSearchNamesByEntry[e.id] || []).join(' '),
+    lk.splitNamesByEntry && (lk.splitNamesByEntry[e.id] || []).join(' '),
     e.trip_id && lk.tripsById && lk.tripsById[e.trip_id] && lk.tripsById[e.trip_id].name,
     e.company_id && lk.companiesById && lk.companiesById[e.company_id] && lk.companiesById[e.company_id].name,
     e.project_id && lk.projectsById && lk.projectsById[e.project_id] && lk.projectsById[e.project_id].name,
