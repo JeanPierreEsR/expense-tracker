@@ -2708,6 +2708,8 @@ html:has(#welcome-overlay:not([hidden])) :is(body > header, #app, #bottom-nav, #
    Nothing inside can be tapped. */
 .ts-stage { position: relative; margin: 16px auto 0; max-width: 320px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .ts-device { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: var(--r-xl); background: var(--bg); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08); }
+.ts-device * { pointer-events: none; }
+.ts-example-tag { position: absolute; top: 8px; right: 8px; z-index: 2; padding: 2px 8px; border-radius: var(--r-sm); background: var(--warn-bg); color: var(--warn-text); font-size: 0.75rem; font-weight: 600; }
 .ts-app { position: absolute; top: 0; left: 0; width: 390px; display: flex; flex-direction: column; background: var(--bg); color: var(--text); transform-origin: 0 0; overflow: hidden; pointer-events: none; user-select: none; -webkit-user-select: none; }
 .ts-app header { flex: none; }
 .ts-main { position: relative; flex: 1; min-height: 0; overflow: hidden; padding: 0 16px; }
@@ -3683,6 +3685,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .period-pending-line { display: block; width: 100%; margin: 0 0 12px; padding: 10px 12px; min-height: 44px; border: none; border-radius: var(--r-md);
   background: var(--warn-bg); color: var(--warn-text); font: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; }
 .period-pending-line[hidden] { display: none; }
+/* Home's month card: what waits in Needs review is not in its numbers (journeys run, 2026-11-17); same look as the period line. */
+.home-wait-line { display: block; width: 100%; margin: 6px 0 10px; padding: 10px 12px; min-height: 44px; border: none; border-radius: var(--r-md);
+  background: var(--warn-bg); color: var(--warn-text); font: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; }
 .ov-sum-grid.folded .ov-sum-tile.investment, .ov-sum-grid.folded .ov-sum-tile.loans { display: none; }
 .ov-sum-zero-line { text-align: center; margin: 6px 0 0; }
 .pace-ref-switch { display: flex; gap: 8px; margin: 6px 0 4px; }
