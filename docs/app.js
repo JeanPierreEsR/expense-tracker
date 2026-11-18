@@ -7954,6 +7954,15 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       box.focus({ preventScroll: true });
       box.scrollIntoView({ block: "center", behavior: "smooth" });
     };
+    // The top is the item's open/close button for a screen reader or a keyboard (Paola, 2026-11-18: the card was a plain block, never
+    // reached by Tab, and nothing said it opens). It holds no buttons of its own, so nothing is nested.
+    const top = item.querySelector(".review-item-top");
+    top.setAttribute("role", "button");
+    top.tabIndex = 0;
+    const syncTop = () => top.setAttribute("aria-expanded", String(!item.classList.contains("review-collapsed")));
+    syncTop();
+    new MutationObserver(syncTop).observe(item, { attributes: true, attributeFilter: ["class"] });
+    top.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); top.click(); } });
     // An open card closes with a tap anywhere above its boxes (owner, 2026-11-16: the part a closed card shows above Confirm).
     item.addEventListener("click", (ev) => {
       if (ev.target.closest("button, a, select, input, label")) return;
