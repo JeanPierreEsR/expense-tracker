@@ -3191,7 +3191,11 @@
         text: () => (usable.length ? tr(readyCount() < stmtCards().length ? "rt.stmt.resultMixed" : "rt.stmt.result") + ($("statement-results").querySelector(".stmt-note.warn") ? " " + tr("rt.stmt.notes") : "") : tr("rt.stmt.bad")), before: async () => { await waitFor(readDone, 3000); return true; } },
       { key: "next", target: "#stmt-next-2", text: () => tr("rt.stmt.next"), tap: "#stmt-next-2", before: async () => usable.length > 0 },
       { key: "planning", target: "#statement-review-card", text: () => tr("rt.stmt.planning"), until: planSettled, before: async () => usable.length > 0 && !planSettled() },
-      { target: () => $("statement-history").querySelector(".stmt-new-accounts"), text: () => tr("rt.stmt.newAccounts"), button: realNext, before: async () => usable.length > 0 && !!$("statement-history").querySelector(".stmt-new-accounts") },
+      // Tapping the box's own "Add the account and continue" re-reads the statements and the box goes away: that ends this step too
+      // (journeys run, 2026-11-17: Lucía's tutorial waited on "One moment…" for a box that would never come back; only Exit freed it).
+      { target: () => $("statement-history").querySelector(".stmt-new-accounts"), text: () => tr("rt.stmt.newAccounts"), button: realNext,
+        until: () => addedAccounts.length > 0 && !$("statement-history").querySelector(".stmt-new-accounts"),
+        before: async () => usable.length > 0 && !!$("statement-history").querySelector(".stmt-new-accounts") },
       { key: "preview", target: previewParts, button: realNext, before: async () => usable.length > 0,
         text: () => tr(canSave() ? "rt.stmt.preview" : "rt.stmt.previewNone") + (canSave() && $("statement-history").querySelector("details.stmt-group, .stmt-choices button:not(#statement-history-save)") ? " " + tr("rt.stmt.questions") : "") },
       { key: "save", target: () => [$("statement-history-save"), planError() ? $("statement-plan-status") : null].filter(Boolean), text: () => tr(planError() ? "rt.stmt.saveErr" : "rt.stmt.save"), until: () => savedThisRun, before: async () => usable.length > 0 && canSave() },

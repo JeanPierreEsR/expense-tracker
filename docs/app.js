@@ -27421,9 +27421,17 @@ function realNameStep_(ctx, id, textKey) {
   return { key: "name", target: "#" + id, text: (fix) => tr(fix ? "rt.form.nameFix" : textKey), blurTap: true, until: () => !!box().value.trim() && document.activeElement !== box(), ok: () => ctx.saving() || !!box().value.trim(), holdsUntil: "save" };
 }
 function budgetGuideSteps_(ctx) {
-  let name = "";
-  ctx.capture = () => { const c = meta.categories.find((x) => selectedBudgetCategoryIds.has(x.id)); name = document.getElementById("budget-name").value.trim() || (c ? c.name : ""); };
-  const row = () => Array.from(document.querySelectorAll("#budgets-list .budget-row")).find((r) => r.dataset.budgetName === name || (name && r.textContent.includes(name))) || null;
+  let name = "", before = null;
+  // The new budget's row is the one that was not there at Save (journeys run, 2026-11-17: found by name only, a budget for every
+  // category, or named apart from its category, was never found and the tutorial stayed on "Saving…" until Exit). By name as before
+  // when the list could not be read at Save.
+  const rowIds = () => Array.from(document.querySelectorAll("#budgets-list .budget-row")).map((r) => r.dataset.budgetId);
+  ctx.capture = () => { const c = meta.categories.find((x) => selectedBudgetCategoryIds.has(x.id)); name = document.getElementById("budget-name").value.trim() || (c ? c.name : ""); before = new Set(rowIds()); };
+  const row = () => {
+    const rows = Array.from(document.querySelectorAll("#budgets-list .budget-row"));
+    return (before && rows.find((r) => r.dataset.budgetId && !before.has(r.dataset.budgetId)))
+      || rows.find((r) => r.dataset.budgetName === name || (name && r.textContent.includes(name))) || null;
+  };
   return [
     { key: "category", target: () => [document.getElementById("budget-all-categories-checkbox").closest("label") || document.getElementById("budget-all-categories-checkbox"), document.getElementById("budget-category-chips")], text: () => tr("rt.budget.cats"), until: () => selectedBudgetCategoryIds.size > 0, ok: () => ctx.saving() || selectedBudgetCategoryIds.size > 0, holdsUntil: "save" },
     realAmountStep_(ctx, "budget-amount", () => tr("spot.b.s3", { cur: document.getElementById("budget-currency").value }), "spot.b.s3fix"),
