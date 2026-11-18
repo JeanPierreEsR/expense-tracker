@@ -23718,7 +23718,9 @@ function renderExpectedHead_(groups) {
     else if (g.totalPen != null) total += sign * g.totalPen;
     else noRate += g.items.length;
   });
-  const money = `${noRate ? "≈ " : ""}${total > 0.004 ? "+" : total < -0.004 ? "−" : ""}${homeCur()} ${moneyFmt(Math.abs(total))}`;
+  let money = `${noRate ? "≈ " : ""}${total > 0.004 ? "+" : total < -0.004 ? "−" : ""}${homeCur()} ${moneyFmt(Math.abs(total))}`;
+  // Money in and out together: the figure is what is left of both, so it says "net" (Elena, 2026-11-18: read as the expenses' total).
+  if (groups.some((g) => g.type === "income") && groups.some((g) => g.type !== "income")) money = tr("expected.net", { money });
   document.getElementById("expected-head-sum").textContent =
     `${count} · ${money}${noRate ? " · " + tr("expected.needRate", { n: noRate }) : ""}${expectedOpen_ ? "" : " ›"}`;
 }

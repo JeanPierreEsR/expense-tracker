@@ -353,7 +353,7 @@ function cardOwedFromStatements_(allPms, openingsByPm) {
     });
     out.push({ id: pm.id, nickname: pm.nickname, type: pm.type, last_4: pm.last_4, bank_name: banksById[pm.bank_id] || '', openings: [],
       balances: balances, balance_pen: null, statement_closed: String(u.period_end),
-      due: /^\d{4}-\d{2}-\d{2}$/.test(String(closing._due || '')) ? String(closing._due) : '', paid_since: paid, last_paid: lastPaid });
+      due: realDueAfter_(closing._due, u.period_end), paid_since: paid, last_paid: lastPaid });
   });
   return out;
 }
@@ -499,4 +499,15 @@ function startNotYetFrom_(date) {
   var d = new Date(date + 'T12:00:00Z');
   d.setUTCDate(d.getUTCDate() - (START_NOT_YET_DAYS_ - 1));
   return d.toISOString().slice(0, 10);
+}
+
+// A statement's pay-by date only if it is a real calendar day after the statement closed (Ingrid, 2026-11-18: a hand-typed 2026-02-30
+// showed as "was due Mar 2"). Anything else is left out, like a date in another format.
+function realDueAfter_(due, closed) {
+  var d = String(due || '');
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+  if (!m) return '';
+  var t = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  if (t.getUTCMonth() !== +m[2] - 1 || t.getUTCDate() !== +m[3]) return '';
+  return d > String(closed || '').substring(0, 10) ? d : '';
 }
