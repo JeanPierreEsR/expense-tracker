@@ -11,7 +11,9 @@
  */
 
 var STATEMENT_INBOX_COLUMNS_ = ['id', 'message_id', 'attachment_name', 'sender_key', 'bank_label', 'bank_keyword',
-  'received', 'status', 'size_kb', 'notified', 'created_at'];
+  'received', 'status', 'size_kb', 'notified', 'created_at', 'account_key'];
+// account_key (2026-11-18): the account a statement turned out to be for, written when it is saved (only then is the PDF read), so
+// "Already read" can show the latest statement of each account. Empty for rows saved before, or saved from an older phone.
 
 // One entry per sender address that mails statements. `bank` is the word looked
 // for in the Payment Methods' bank name (to tell which accounts it belongs to);
@@ -312,10 +314,15 @@ function listStatementInbox() {
     var last = stmtLastProcessedFor_(accts, uploads);
     var link = stmtIsLinkItem_(r);
     return { id: r.id, bank: r.bank_label, received: String(r.received), file_name: link ? '' : r.attachment_name, size_kb: link ? null : Number(r.size_kb), link: link,
-      status: r.status, sender: r.sender_key === 'self' ? '' : String(r.sender_key), last_processed: last, probably_processed: false };
+      status: r.status, sender: r.sender_key === 'self' ? '' : String(r.sender_key), last_processed: last, probably_processed: false,
+      account_key: r.account_key, sender_key: r.sender_key, bank_label: r.bank_label };
   });
   items.sort(function (a, b) { return (a.status === b.status ? 0 : (a.status === 'new' ? -1 : 1)) || (a.received < b.received ? 1 : -1); });
-  return { items: items.filter(function (i) { return i.status === 'new'; }).concat(items.filter(function (i) { return i.status === 'processed'; }).slice(0, 8)) };
+  var read = stmtInboxLatestPerAccount_(items.filter(function (i) { return i.status === 'processed'; }), pms);
+  return { items: items.filter(function (i) { return i.status === 'new'; }).concat(read).map(function (i) {
+    delete i.account_key; delete i.sender_key; delete i.bank_label;   // used only to group
+    return i;
+  }) };
 }
 
 /** Fetches ONE statement PDF from the owner's Gmail (only when he taps Open). */
@@ -342,16 +349,41 @@ function dismissStatement(payload) {
   return { ok: true };
 }
 
-/** Called after a review is saved: the inbox items whose PDFs were used are done. */
-function markStatementInboxProcessed_(ids) {
+/** Called after a review is saved: the inbox items whose PDFs were used are done. `keys` = { inbox id: account key } when the phone sent it. */
+function markStatementInboxProcessed_(ids, keys) {
+  keys = keys || {};
+  if ((ids || []).some(function (id) { return keys[id]; })) ensureColumn_('Statement Inbox', 'account_key');   // copies made before 2026-11-18
   var rows = getAllRows('Statement Inbox'), done = [];
   (ids || []).forEach(function (id) {
     var row = rows.find(function (r) { return r.id === id; });
     if (!row || row.status === 'processed') return;
     done.push({ id: id, from: String(row.status || 'new') });
-    updateRowFields_('Statement Inbox', id, { status: 'processed' });
+    var fields = { status: 'processed' };
+    if (keys[id]) fields.account_key = String(keys[id]);
+    updateRowFields_('Statement Inbox', id, fields);
   });
   return done;   // what changed, so the save can record it for Undo
+}
+
+// "Already read" shows the latest statement of each account (owner, 2026-11-18; it used to be the 8 newest of any account). A row saved
+// before the account was recorded counts as one account per sender and bank label, and drops out once a statement of that sender
+// with its account recorded was read after it (else it would stay as an extra row for good). `account` = the account's name.
+function stmtInboxLatestPerAccount_(rows, pms) {
+  var seen = {}, out = [], keyedSenders = {};
+  var keyOf = function (r) { return String(r.account_key === undefined || r.account_key === null ? '' : r.account_key).trim(); };
+  rows.forEach(function (r) {   // rows: processed, newest first
+    var key = keyOf(r);
+    if (key) { keyedSenders[r.sender_key + '|' + r.bank_label] = true; }
+    else if (keyedSenders[r.sender_key + '|' + r.bank_label]) return;   // an older account-less row of a sender already shown by account
+    var group = key ? 'a:' + covKey_(key) : 's:' + r.sender_key + '|' + r.bank_label;
+    if (seen[group]) return;
+    seen[group] = true;
+    var pm = key ? stmtPmForKey_(pms, key) : null;
+    var k = covKey_(key);
+    r.account = pm && pm.nickname ? (/^\d{4}$/.test(k) ? pm.nickname + ' …' + k : String(pm.nickname)) : '';
+    out.push(r);
+  });
+  return out;
 }
 
 /** Read-only: how many unprocessed inbox statements wait per account key (for the coverage list). */

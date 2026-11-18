@@ -706,7 +706,7 @@ function applyStatementDecisions(payload) {
   appendRowsBulk_('Entries', creations);
   if (payload.inboxIds && payload.inboxIds.length) {
     // Read = saved (owner, 2026-11-11). Each one is recorded so Undo puts it back as waiting in the Inbox.
-    markStatementInboxProcessed_(payload.inboxIds).forEach(function (m) {
+    markStatementInboxProcessed_(payload.inboxIds, payload.inboxKeys).forEach(function (m) {
       changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Statement Inbox', row_id: m.id, field: 'status',
         old_value: m.from, new_value: 'processed', created_at: now });
     });
