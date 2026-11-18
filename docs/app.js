@@ -6996,6 +6996,23 @@ function syntheticEntryFromQueued_(q) {
   return merged;
 }
 
+// An edited entry whose date changed moves to where its new date puts it (owner, 2026-11-18: a row moved from Nov 15 to today
+// stayed in the middle of Nov 15 under its own "Today" heading). Same order as the server: newest day first, then newest saved.
+function entryRecencyBefore_(a, b) {
+  if (a.date !== b.date) return String(a.date) > String(b.date);
+  return String(a.created_at || "") > String(b.created_at || "");
+}
+function reseatMovedEntries_(entries, movedIds) {
+  if (!movedIds.size) return entries;
+  const moved = entries.filter((e) => movedIds.has(e.id));
+  const rest = entries.filter((e) => !movedIds.has(e.id));
+  moved.forEach((m) => {
+    const at = rest.findIndex((e) => entryRecencyBefore_(m, e));
+    rest.splice(at === -1 ? rest.length : at, 0, m);
+  });
+  return rest;
+}
+
 function applyQueuedEditOverlay_(entries) {
   const queued = getQueuedEdits_();
   if (!queued.length) return entries;
@@ -7011,10 +7028,12 @@ function applyQueuedEditOverlay_(entries) {
       entries.splice(at === -1 ? entries.length : at, 0, f);
     });
   }
-  return entries.map((entry) => {
+  const movedIds = new Set();
+  return reseatMovedEntries_(entries.map((entry) => {
     const q = byId[entry.id];
     if (!q) return entry;
     const merged = Object.assign({}, entry, q.fields);
+    if (merged.date !== entry.date) movedIds.add(entry.id);
     // Also overlays splits/tagIds (q.splits===null means "wasn't touched
     // by this edit" — keep the original) so that re-opening a FAILED
     // entry (startEditEntry's Array.isArray shortcuts, above/below) picks
@@ -7026,7 +7045,7 @@ function applyQueuedEditOverlay_(entries) {
     merged._queueStatus = q.status;
     merged._queueError = q.lastError;
     return merged;
-  });
+  }), movedIds);
 }
 
 // Permanently folds a successfully-saved edit into lastRenderedEntries_
@@ -7035,14 +7054,16 @@ function applyQueuedEditOverlay_(entries) {
 // "Saving…" tag goes away, instead of reverting to the stale pre-edit
 // ones that a real re-fetch would otherwise be needed to replace.
 function commitEditToLastRendered_(edit) {
-  lastRenderedEntries_ = lastRenderedEntries_.map((entry) => {
+  const movedIds = new Set();
+  lastRenderedEntries_ = reseatMovedEntries_(lastRenderedEntries_.map((entry) => {
     if (entry.id !== edit.id) return entry;
     const merged = Object.assign({}, entry, edit.fields);
+    if (merged.date !== entry.date) movedIds.add(entry.id);
     if (edit.splits !== null) merged.splits = edit.splits;
     merged.tagIds = edit.tagIds;
     applyDerivedOverlayFields_(merged, edit.splits);
     return merged;
-  });
+  }), movedIds);
 }
 
 // A new entry that has just landed: its typed row becomes a real row in the list, so it does not vanish while the
