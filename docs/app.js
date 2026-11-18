@@ -8949,7 +8949,7 @@ function homeMainCard_(g) {
     ${four}
     <div class="home-bars-title">${escapeHtml(tr("home.barsTitle"))}</div>
     <div class="home-bars">${bars}</div>
-    <div class="home-legend"><span>${escapeHtml(tr("home.allMonths"))} ›</span></div>`);
+    <div class="home-legend"><span class="home-all-months">${escapeHtml(tr("home.allMonths"))} ›</span></div>`);
   el.classList.add("home-card-tap");
   el.addEventListener("click", (ev) => {
     if (ev.target.closest(".home-wait-line")) { openReviewFromHome_(); return; }
@@ -9371,7 +9371,9 @@ function nameCloseButtons_(root) {
 nameCloseButtons_(document);
 // Cards and rows that open something when tapped are announced as buttons by VoiceOver (Paola, 2026-11-10): Home's tappable cards,
 // Overview's Loans card, and the Breakdown rows. Each reads its own text; Enter or Space opens it too.
-const TAPPABLE_SEL_ = ".home-card-tap, .legend-row, #loans-ov-card";   // (not Overview's Spending pace card: a button hides the switch buttons inside it)
+// (Not Overview's Spending pace card, nor Home's main card: a button hides the buttons inside it — Paola, 2026-11-18: its ⓘ, waiting line and
+// months; its "All months ›" is the card's own button instead.)
+const TAPPABLE_SEL_ = ".home-card-tap:not(.home-card-main), .legend-row, #loans-ov-card, .home-all-months";
 function markTappable_(root) {
   const list = root.matches && root.matches(TAPPABLE_SEL_) ? [root] : root.querySelectorAll(TAPPABLE_SEL_);
   list.forEach((el) => { if (!el.hasAttribute("role")) { el.setAttribute("role", "button"); el.tabIndex = 0; } });
