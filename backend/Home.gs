@@ -124,7 +124,44 @@ function getHomeGlance() {
     if (totalPen > 0) budget = { totalPen: totalPen, spentPen: budgetSpent, programmedPen: listed.summary.monthProgrammedPen || 0, daysLeft: pace.curDays - curDay, overCount: overCount };
   }
 
-  return { months: months, pace: pace, budget: budget, trips: homeActiveTrips_(today), unreadable: unreadableSheetRows_(), charges: pendingChargesSummary_() };
+  return { months: months, pace: pace, budget: budget, trips: homeActiveTrips_(today), unreadable: unreadableSheetRows_(), charges: pendingChargesSummary_(),
+    repeat: homeRepeatCandidate_(curKey, prevKey) };
+}
+
+// Home's suggestion "You recorded X again this month: make it repeat?" (owner's plan, 2026-11-17, after the journeys run: six people
+// typed their salary or a bill by hand month after month and nothing suggested a Programmed item). The same kind (expense / income),
+// category and payee, confirmed last month AND this month, amounts within 20%, neither linked to a Programmed item, and no Programmed
+// item of that category and a similar amount yet. The biggest such pair; null when none. Read only; part of getHomeGlance (no extra call).
+function homeRepeatCandidate_(curKey, prevKey) {
+  var payee = function (e) { return String(e.merchant || e.description || '').toLowerCase().replace(/\s+/g, ' ').trim(); };
+  var groups = {};
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed' || (e.type !== 'expense' && e.type !== 'income') || e.recurring_expense_id || !e.category_id) return;
+    var k = String(e.date).substring(0, 7);
+    if (k !== curKey && k !== prevKey) return;
+    var who = payee(e);
+    if (!who) return;
+    var g = groups[e.type + '|' + e.category_id + '|' + who + '|' + e.currency] = groups[e.type + '|' + e.category_id + '|' + who + '|' + e.currency] || { cur: null, prev: null };
+    var slot = k === curKey ? 'cur' : 'prev';
+    if (!g[slot] || Number(e.amount) > Number(g[slot].amount)) g[slot] = e;
+  });
+  var planned = getAllRows('Recurring Expenses').filter(function (r) { return String(r.active) !== 'false' && (!r.end_date || String(r.end_date) >= curKey + '-01'); });
+  var best = null;
+  Object.keys(groups).forEach(function (key) {
+    var g = groups[key];
+    if (!g.cur || !g.prev) return;
+    var a = Math.abs(Number(g.cur.amount)), b = Math.abs(Number(g.prev.amount));
+    if (!(a > 0) || !(b > 0) || Math.abs(a - b) > 0.2 * Math.max(a, b)) return;
+    var already = planned.some(function (r) {
+      var ra = Math.abs(Number(r.amount));
+      return String(r.category_id) === String(g.cur.category_id) && r.currency === g.cur.currency && ra > 0 && Math.abs(ra - a) <= 0.2 * Math.max(ra, a);
+    });
+    if (already) return;
+    if (!best || a > Math.abs(Number(best.amount))) best = g.cur;
+  });
+  if (!best) return null;
+  return { key: best.type + '|' + best.category_id + '|' + payee(best), type: best.type, category_id: best.category_id, description: String(best.description || ''),
+    amount: Math.abs(Number(best.amount)), currency: best.currency, day: Number(String(best.date).substring(8, 10)) };
 }
 
 // Every month from the first confirmed entry to today: the totals (the Overview's month-by-month bars)

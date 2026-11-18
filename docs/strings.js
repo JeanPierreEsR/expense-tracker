@@ -601,6 +601,11 @@
     "entry.undone": { en: "Undone: the entry was removed.", es: "Deshecho: se quitó el movimiento." },
 
     // ---- Home tab: the quick glance at the top, and the entries grouped by day ----
+    "suggest.repeat": { en: "You recorded {name} again this month. Make it repeat by itself?", es: "Volviste a registrar {name} este mes. ¿Hacer que se repita sola?" },
+    "suggest.repeatBtn": { en: "Make it repeat monthly", es: "Repetir cada mes" },
+    "suggest.away": { en: { one: "Welcome back after {days} days: {n} item waits in Needs review.", other: "Welcome back after {days} days: {n} items wait in Needs review." }, es: { one: "Bienvenido de nuevo después de {days} días: {n} movimiento espera en Por revisar.", other: "Bienvenido de nuevo después de {days} días: {n} movimientos esperan en Por revisar." } },
+    "suggest.awayBtn": { en: "Review them", es: "Revisarlos" },
+    "suggest.later": { en: "Not now", es: "Ahora no" },
     "home.waitLine": { en: { one: "{n} item waits in Needs review: not counted yet ›", other: "{n} items wait in Needs review: not counted yet ›" }, es: { one: "{n} movimiento espera en Por revisar: aún no se cuenta ›", other: "{n} movimientos esperan en Por revisar: aún no se cuentan ›" } },
     "home.leftThisMonth": { en: "Result this month", es: "Resultado del mes" },   // money in − out ± loans; not a balance (owner, 2026-11-13)
     "home.leftIn": { en: "Result in {month}", es: "Resultado de {month}" },
@@ -1278,6 +1283,7 @@
     "projections.lineIncomeManual": { en: "Income: {actual} confirmed + {programmed} programmed + {manual} set by hand.", es: "Ingresos: {actual} confirmados + {programmed} programados + {manual} fijados manualmente." },
     "projections.lineExpensesManual": { en: "Expenses: {actual} confirmed + {programmed} programmed + {expected} expected + {manual} set by hand.", es: "Gastos: {actual} confirmados + {programmed} programados + {expected} calculados + {manual} fijados manualmente." },
     "projections.lineInvestmentsManual": { en: "Investments: {takenOut} taken out − {putIn} put in = {actual}, − {programmed} programmed to put in − {manual} set by hand.", es: "Inversiones: {takenOut} retiradas − {putIn} aportadas = {actual}, − {programmed} programadas para aportar − {manual} fijadas manualmente." },
+    "projections.planIncome": { en: "Only planned income counts here. Plan your salary ›", es: "Aquí solo cuentan los ingresos programados. Programa tu sueldo ›" },
     "projections.lineIncome": { en: "Income: {actual} confirmed + {programmed} programmed.", es: "Ingresos: {actual} confirmados + {programmed} programados." },
     "projections.lineLoans": { en: "Loans: {actual} confirmed − {programmed} of loan installments still to pay (their interest and fees are in Expenses).", es: "Préstamos: {actual} confirmados − {programmed} de cuotas de préstamos por pagar (sus intereses y comisiones están en Gastos)." },
     "projections.lineExpenses": { en: "Expenses: {actual} confirmed + {programmed} programmed + {expected} expected.", es: "Gastos: {actual} confirmados + {programmed} programados + {expected} calculados." },

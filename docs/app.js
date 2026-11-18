@@ -9001,6 +9001,66 @@ function renderHomeGlance_() {
   dots.innerHTML = cards.map(() => "<span></span>").join("");
   syncHomeDots_();
   box.hidden = false;
+  renderHomeSuggest_();
+}
+
+// ---- Suggestions under the month card (owner's plan, 2026-11-17, after the journeys run: after week 2 nothing reached out) ----
+// One pale-yellow card at a time, one sentence, one button and an ✕. Counts in the day's teaching budget (once per suggestion); never on
+// the owner's copy, during a tutorial or practice, in Edit mode or under a sheet. ✕ = not now (30 days); the button retires it for good.
+const SUGGEST_SEEN_KEY_ = "homeSuggestSeen";
+const SUGGEST_LATER_MS_ = 30 * 86400000;
+let suggestShownKey_ = "";   // the one allowed this visit (so the card stays while the person looks at it)
+const suggestAwayDays_ = (() => {   // days since the app was last opened on this phone (read once, then the stamp moves on)
+  let prev = 0;
+  try { prev = Number(localStorage.getItem("etLastOpenAt") || 0); localStorage.setItem("etLastOpenAt", String(Date.now())); } catch (e) { /* no storage */ }
+  return prev ? Math.floor((Date.now() - prev) / 86400000) : 0;
+})();
+document.addEventListener("visibilitychange", () => { if (!document.hidden) try { localStorage.setItem("etLastOpenAt", String(Date.now())); } catch (e) { /* ignore */ } });
+function suggestSeen_() { try { return JSON.parse(localStorage.getItem(SUGGEST_SEEN_KEY_) || "{}") || {}; } catch (e) { return {}; } }
+function suggestMark_(key, done) {
+  const m = suggestSeen_();
+  m[key] = done ? { done: true } : { until: Date.now() + SUGGEST_LATER_MS_ };
+  try { localStorage.setItem(SUGGEST_SEEN_KEY_, JSON.stringify(m)); } catch (e) { /* ignore */ }
+}
+function suggestOpen_(key) { const v = suggestSeen_()[key]; return !v || (!v.done && Date.now() > (v.until || 0)); }
+function homeSuggestion_() {
+  const waiting = (reviewEntries_ || []).filter((e) => !isPracticeReviewEntry_(e)).length;
+  const list = [];
+  // A2: back after two weeks or more, with items waiting.
+  if (suggestAwayDays_ >= 14 && waiting) list.push({ key: "away:" + todayLocalISO(), text: tr("suggest.away", { n: waiting, days: suggestAwayDays_ }), btn: tr("suggest.awayBtn"), go: openReviewFromHome_ });
+  // A1: the same payment recorded last month and this month, not planned.
+  const r = homeGlance_ && homeGlance_.repeat;
+  if (r) {
+    const cat = (meta.categories || []).find((c) => c.id === r.category_id);
+    const name = r.description || (cat ? cat.name : "");
+    list.push({ key: "repeat:" + r.key, text: tr("suggest.repeat", { name }), btn: tr("suggest.repeatBtn"), go: () => openRepeatSuggestion_(r) });
+  }
+  return list.find((x) => suggestOpen_(x.key)) || null;
+}
+function openRepeatSuggestion_(r) {
+  showRecurringScreen();
+  // The "+" as the person would tap it: a first Programmed item gets its real tutorial, which asks each field. When no tutorial
+  // started, the form is filled in with what was recorded (the list may still be loading, so this is decided after the tap).
+  setTimeout(() => {
+    document.getElementById("add-recurring-btn").click();
+    setTimeout(() => {
+      if (Spotlight.isRunning()) return;
+      openRecurringModal(null, { description: r.description, category_id: r.category_id, amount: r.amount, currency: r.currency, frequency: "monthly" });
+    }, 900);
+  }, 600);
+}
+function renderHomeSuggest_() {
+  const box = document.getElementById("home-suggest");
+  if (!box) return;
+  const s = !perfIsOwnerCopy_() && homeGlance_ && !Spotlight.isRunning() && !editModeOn_() && !document.querySelector(".currency-modal-backdrop:not([hidden])") ? homeSuggestion_() : null;
+  if (!s || (s.key !== suggestShownKey_ && !teachAllows_("suggest:" + s.key))) { box.hidden = true; return; }
+  suggestShownKey_ = s.key;
+  box.innerHTML = `<div class="home-suggest-head"><span class="tip-invite-label"><span class="ico ico-warn">${lineIcon_("bulb")}</span>${escapeHtml(tr("spot.tipLabel"))}</span>`
+    + `<button type="button" class="currency-modal-close home-suggest-x" aria-label="${escapeHtml(tr("suggest.later"))}">✕</button></div>`
+    + `<p>${escapeHtml(s.text)}</p><div class="tip-invite-buttons"><button type="button" class="tip-invite-go">${escapeHtml(s.btn)}</button></div>`;
+  box.querySelector(".home-suggest-x").addEventListener("click", () => { suggestMark_(s.key, false); suggestShownKey_ = ""; box.hidden = true; });
+  box.querySelector(".tip-invite-go").addEventListener("click", () => { suggestMark_(s.key, true); suggestShownKey_ = ""; box.hidden = true; s.go(); });
+  box.hidden = false;
 }
 
 function syncHomeDots_() {
@@ -23843,6 +23903,14 @@ function renderProjectionsSummary_(p) {
     breakdownLines.push(tr("projections.lineLoans", { actual: formatPenSigned_(p.loansActual || 0), programmed: formatPen(p.loansProgrammed || 0) }));
   }
 
+  // Nothing income-like is planned, yet earlier months had income: only planned income counts here, said once with a way to plan it
+  // (journeys run, 2026-11-17: salaried people who type their salary, a taxi driver and a freelancer read "income 0" and a negative
+  // month end). Changes no number; the bigger "income that varies" design is the owner's pinned item.
+  const months = (homeGlance_ && homeGlance_.months) || [];
+  const hadIncome = months.slice(0, -1).some((m) => m.income > 0.004);
+  const planIncome = !(p.incomeProgrammed > 0.004) && hadIncome
+    ? `<button type="button" class="home-wait-line" id="projections-plan-income">${escapeHtml(tr("projections.planIncome"))}</button>` : "";
+
   body.innerHTML = `
     <div class="summary-grid">
       <div class="summary-item">
@@ -23867,7 +23935,10 @@ function renderProjectionsSummary_(p) {
       </div>
     </div>
     ${breakdownLines.map((line) => `<p class="projections-breakdown">${line}</p>`).join("")}
+    ${planIncome}
   `;
+  const planBtn = document.getElementById("projections-plan-income");
+  if (planBtn) planBtn.addEventListener("click", () => { showRecurringScreen(); setTimeout(() => document.getElementById("add-recurring-btn").click(), 600); });
   methodNote.textContent = tr("projections.method");
   // The explanation stays behind a link, and away when there is nothing to explain (Diego, Rosa, 2026-11-09).
   document.getElementById("projections-explain").hidden = !(p.income > 0 || p.expenses > 0 || p.investments !== 0 || p.investmentsIn > 0 || p.investmentsOut > 0 || hasLoans);
