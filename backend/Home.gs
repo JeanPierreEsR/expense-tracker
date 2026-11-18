@@ -78,7 +78,7 @@ function getHomeGlance() {
     var key = String(e.date).substring(0, 7);
     var bucket = perMonth[key];
     if (!bucket) return;
-    var rate = getRateForEntryCurrency_(e.currency, e.date);
+    var rate = getRateForTotals_(e.currency, e.date);
     if (rate == null) return;
     var own = Number(e.amount);
     if (e.type === 'expense') own -= (splitSum[e.id] || 0);
@@ -153,7 +153,7 @@ function getMonthlyHistory(payload) {
     if (onlyCats && (e.type !== 'expense' || onlyCats.indexOf(String(e.category_id)) < 0)) return;
     var key = String(e.date).substring(0, 7);
     if (key > curKey) return;
-    var rate = getRateForEntryCurrency_(e.currency, e.date);
+    var rate = getRateForTotals_(e.currency, e.date);
     if (rate == null) return;
     var own = Number(e.amount);
     if (e.type === 'expense') own -= (splitSum[e.id] || 0);
@@ -205,7 +205,7 @@ function getSpendingPace(payload) {
       if (e.status !== 'confirmed' || e.type !== 'expense') return;
       var d = String(e.date).substring(0, 10);
       if (d < lo || d > hi) return;
-      var rate = getRateForEntryCurrency_(e.currency, e.date);
+      var rate = getRateForTotals_(e.currency, e.date);
       if (rate == null) return;
       dayExpense[d] = (dayExpense[d] || 0) + (Number(e.amount) - (splitSum[e.id] || 0)) * rate;
     });

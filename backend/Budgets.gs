@@ -1130,7 +1130,7 @@ function computeCategoryMonthlyAverages_(startDate, endDate, monthCount) {
   entries.forEach(function (e) {
     if (annualEntryIds[e.id]) return;
     if (e.trip_id && tripRoutes[e.trip_id]) return;
-    var rate = getRateForEntryCurrency_(e.currency, e.date);
+    var rate = getRateForTotals_(e.currency, e.date);
     if (rate == null) return;
     var ownAmount = Number(e.amount) - (splitSumByEntry[e.id] || 0);
     var key = e.category_id || '';

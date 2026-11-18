@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- The test copy's fake Telegram / WhatsApp chat (tests/harness/channels.js): what the bot sent, and a box to write to it. -->
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bot chat (test copy)</title>
+<style>
+  body { font: 16px -apple-system, sans-serif; margin: 0; background: #ece5dd; }
+  header { position: sticky; top: 0; background: #075e54; color: #fff; padding: 10px 12px; display: flex; gap: 8px; align-items: center; }
+  header select { font-size: 16px; }
+  #log { padding: 10px; display: flex; flex-direction: column; gap: 6px; padding-bottom: 80px; }
+  .m { max-width: 80%; padding: 6px 10px; border-radius: 8px; white-space: pre-wrap; }
+  .bot { background: #fff; align-self: flex-start; } .me { background: #dcf8c6; align-self: flex-end; }
+  .t { font-size: 11px; color: #888; }
+  .b { display: block; margin-top: 4px; width: 100%; padding: 6px; font-size: 15px; border: 1px solid #34b7f1; color: #34b7f1; background: #fff; border-radius: 6px; }
+  form { position: fixed; bottom: 0; left: 0; right: 0; display: flex; gap: 6px; padding: 8px; background: #f0f0f0; }
+  form input { flex: 1; font-size: 16px; padding: 8px; }
+</style>
+<header>Bot: <select id="bot"><option value="whatsapp">WhatsApp</option><option value="telegram">Telegram</option></select> <span id="now"></span></header>
+<div id="log"></div>
+<form id="f"><input id="txt" placeholder="Message"><button>Send</button></form>
+<script>
+const bot = document.getElementById("bot"), log = document.getElementById("log");
+bot.value = localStorage.getItem("chatBot") || "whatsapp";
+bot.onchange = () => { localStorage.setItem("chatBot", bot.value); draw(); };
+async function post(body) { await fetch("/__chat", { method: "POST", body: JSON.stringify({ bot: bot.value, ...body }) }); draw(); }
+async function draw() {
+  const lines = (await (await fetch("/__chat")).json()).filter((c) => c.bot === bot.value);
+  log.innerHTML = "";
+  lines.forEach((c) => {
+    const d = document.createElement("div");
+    d.className = "m " + c.who;
+    d.textContent = c.text;
+    const t = document.createElement("div"); t.className = "t"; t.textContent = c.when; d.prepend(t);
+    (c.buttons || []).forEach((b) => {
+      const x = document.createElement("button"); x.className = "b"; x.textContent = b.title;
+      x.onclick = () => post({ tap: b.id, to: c.id }); d.appendChild(x);
+    });
+    log.appendChild(d);
+  });
+  document.getElementById("now").textContent = (await (await fetch("/__clock")).json()).lima;
+  window.scrollTo(0, document.body.scrollHeight);
+}
+document.getElementById("f").onsubmit = (e) => { e.preventDefault(); const v = txt.value.trim(); if (v) { txt.value = ""; post({ text: v }); } };
+draw(); setInterval(draw, 5000);
+</script>

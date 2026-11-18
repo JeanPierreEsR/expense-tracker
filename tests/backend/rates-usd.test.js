@@ -119,6 +119,6 @@ test("after the conversion, dollar entries are not reported as a currency withou
   assert.equal(rt.api("getHomeGlance", {}).unreadable, null, "after: the dollar is the base, worth 1");
   add({ date: `${M1}-04`, amount: 5, currency: "CHF", description: "No rate at all" });
   const u = rt.api("getHomeGlance", {}).unreadable;
-  assert.equal(u.count, 1, "a currency with no rate is still reported");
-  assert.equal(u.rows[0].value, "CHF");
+  assert.equal(u.count, 0, "no Sheet cell is unreadable (journeys run, 2026-11-17)");
+  assert.deepEqual(u.noRate, [{ currency: "CHF", n: 1 }], "a currency with no rate is still reported, as a missing rate");
 });

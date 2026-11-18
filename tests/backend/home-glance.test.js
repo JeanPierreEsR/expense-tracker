@@ -13,6 +13,9 @@ function setup() {
   // Start from an empty ledger so every number below is exactly what the test put in.
   rt.run(`deleteRowsWhere_('Entries', function () { return true; });`);
   rt.run(`deleteRowsWhere_('Budgets', function () { return true; });`);
+  // The made-up ledger's loans and repayments fall on random dates; one in this month moved Home's result (2026-11-17), so they go too.
+  rt.run(`deleteRowsWhere_('Settlements', function () { return true; });`);
+  rt.run(`deleteRowsWhere_('Loans', function () { return true; });`);
   return rt;
 }
 let n = 0;

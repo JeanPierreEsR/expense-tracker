@@ -98,13 +98,13 @@ function cleanSheetRow_(sheetName, obj, headers, rowNumber) {
   return obj;
 }
 
-// What Home's card lists: the rows above, and confirmed entries in a currency that has no rate at all (they are left out of the totals
-// too, and otherwise nothing would ever say so). At most 5 rows travel; `count` is all of them.
+// What Home's card lists: the rows above; and, apart (`noRate`), confirmed entries in a currency that has no rate at all (they are left
+// out of the totals too, and otherwise nothing would ever say so). At most 5 rows travel; `count` is all of them.
 function unreadableSheetRows_() {
   var main = homeCurrency_();
   var rates = buildRatesByCurrency_();
   var base = rateBase_();   // the currency rates are stored against has no rows of its own (it is 1): the US dollar once rates go through it
-  var rows = [];
+  var rows = [], noRate = {};
   var entries = getAllRows('Entries');
   entries.forEach(function (e, i) {
     if (e._unreadable) {
@@ -112,8 +112,9 @@ function unreadableSheetRows_() {
         rows.push({ sheet: 'Entries', row: e._unreadable.row, cell: c.cell, field: c.field, value: c.value, description: String(e.description || '') });
       });
     } else if (e.status === 'confirmed' && e.currency !== main && e.currency !== base && !rates[e.currency]) {
-      var column = Object.keys(e).indexOf('currency');
-      rows.push({ sheet: 'Entries', row: i + 2, cell: sheetColumnLetter_(column) + (i + 2), field: 'currency', value: String(e.currency), description: String(e.description || '') });
+      // Not an unreadable cell: the currency simply has no exchange rate yet (journeys run, 2026-11-17: Mark was told 645 cells of his
+      // Sheet could not be read and should be fixed there). Counted apart, so the card says what is really missing.
+      noRate[e.currency] = (noRate[e.currency] || 0) + 1;
     }
   });
   var byId = null;
@@ -139,8 +140,9 @@ function unreadableSheetRows_() {
         value: String(st.unreadable_amount == null ? '' : st.unreadable_amount), description: String(friendName[loanFriend[st.loan_id]] || '') });
     });
   }
-  if (!rows.length) return null;
-  return { count: rows.length, rows: rows.slice(0, 5) };
+  var missing = Object.keys(noRate).sort().map(function (c) { return { currency: c, n: noRate[c] }; });
+  if (!rows.length && !missing.length) return null;
+  return { count: rows.length, rows: rows.slice(0, 5), noRate: missing };
 }
 
 // Text starting with = + - @ would become a formula in a real Sheet (text can come from a bank e-mail, so this is also a safety matter).

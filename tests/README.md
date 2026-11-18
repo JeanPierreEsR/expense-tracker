@@ -50,3 +50,36 @@ button) in the script.
 **`REAL_NEW=1` (2026-11-09, with `FRIEND_COPY=1`):** opening `/login` makes this browser look like a person who finished the welcome and the first entry and has met no real tutorial yet, so Needs review and transfers can be tried on the demo data. Opening `/login` again starts over.
 
 **`POP_MONTH_OLD=1` (2026-11-09):** opening `/login` also makes this browser count as having used the app for 40 days, and gets every pop-up tip again with no 3-visit wait and no daily limit for that day, so all of them can be walked at once on a test copy (open `/login` again the next day). Since 2026-11-11 it also restarts every bubble series, offers the idle bubbles again (7 seconds since 2026-11-12), and makes the Projections method reminder due (as if 6 complete months had been reached 20 days ago). Since 2026-11-12 it also passes the basics gate (8 active days, 40 entries), makes the receipt-photo and bring-back moments due, and sets Overview and Projections to their 2nd visit, so the month-bars and own-amount bubbles come on the next one. **`BUBBLE_EXTRAS=1` (2026-11-12):** the demo data the later bubbles need: the Business pack on (receipt photos), "Travel card" charging only in USD and "Shop card" in PEN and USD (the charged-amount box and the listed-price link), a PEN starting balance on "Daily debit" (Interbank: its balance window has starting balances and payments in process) and the rates moved to the dollar (the dollar line). Use `EMPTY=1` for the bubbles that need a copy with no loans yet. **`SKIP_WELCOME=1` (2026-11-11):** opening `/login` marks the welcome screens as done, so a friend-style copy opens straight on Home.
+
+## Journeys: months of use in an afternoon (2026-11-17)
+
+A made-up person starts from zero on their own test copy and lives through 6-12 months while the app's clock moves forward, so the
+**education path** (what the app teaches, when, and what it never teaches) can be watched as a real person would meet it.
+
+**Time travel** (`TIME_TRAVEL=1`, `CLOCK_START=YYYY-MM-DD[THH:MM]` Lima): `tests/harness/clock.js` shifts "now" for the fake backend AND
+the phone (a small script the server puts first in every page). `POST /__clock {to | days | hours}` moves it forward and runs the copy's
+timer (`runAutomation`: e-mails, bots, budget alerts, loan reminders) every 2 hours from 07:00 to 23:00 on the way; `GET /__clock` says
+where it is. A date written out (`new Date("2027-01-05")`) is not shifted, only "now".
+
+**The outside world** (`tests/harness/channels.js`, every value made up): `POST /__bankmail` drops bank e-mails in the real formats
+(BCP, Yape, Interbank, Diners, SIP; BBVA and Scotiabank have no rule and are read by nothing), optionally at a later moment (`at`), with
+PDF attachments for statement e-mails; `POST /__bots {telegram | whatsapp}` sets a copy up like one with the Telegram bot token saved /
+marked for the WhatsApp bot; `POST /__chat {bot, text | tap}` writes to the REAL bot code through doPost (as Telegram's webhook / the
+WhatsApp relay would) and `GET /__chat` (or the page `/chat`) shows the conversation. Checked by `tests/backend/journey-channels.test.js`.
+
+**Files people bring** (`tests/journey/files.js`): statement PDFs in the four layouts the app reads (Interbank savings and card, BCP
+savings and card), bank "movements" spreadsheets (BCP, Interbank, BBVA, Scotiabank: plausible imitations, not copies of real files) and
+other apps' exports (Spendee, Wallet, Monefy, Money Manager, a home-made Excel). `node tests/journey/check-files.js [files…]` runs them
+through the app's own readers (needs `pdfjs-dist@3.11.174` in `$PDFJS/node_modules`, default `~/scratch-journey`).
+
+**People and their lives** (`tests/journey/personas.js`, `life.js`): the 14 everyday testers of the cast, each starting from zero
+(this kind of run only): 5 blank, 4 bringing another app's export, 5 bringing last month's statements; their banks, habits, how often
+they open the app, gaps. `life.js` turns that into the same days every time (seeded).
+
+**Driving it** (`tests/journey/j.js`; Playwright from `~/.expense-tracker-tools` or `PLAYWRIGHT_DIR`; folder `$JOURNEY_ROOT/$JOURNEY_RUN/<persona>`,
+default `~/journeys/pilot`): `start <persona>` starts the copy (EMPTY + FRIEND_COPY + TIME_TRAVEL, ports 4400-4427) and a **phone** that
+stays open (so a tutorial can be followed tap by tap); `look` / `tap` / `fill` / `type` / `scroll` / `upload` act like a finger;
+`live --until <day>` runs the routine days (clock, e-mails, the purchases the person would type, through the app's own save) and STOPS
+when the app teaches something or when Needs review first fills, so a tester takes over; `chat` talks to the bots. Every teaching
+surface the phone shows is logged with the simulated time in `ledger.jsonl` (who was acting: the tester or the routine); `memory`
+dumps what the phone remembers about teaching. `stop` ends the copy (its data is gone).

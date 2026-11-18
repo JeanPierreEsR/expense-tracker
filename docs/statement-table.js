@@ -535,13 +535,13 @@
     date: /^(fecha( de)?( operacion| proceso| movimiento| consumo| transaccion| contable)?|f\.? ?(operacion|proceso|valor)|date|transaction date|posting date|booking date|dia)$/,
     dateLoose: /fecha|date/,
     description: /descripcion|detalle|concepto|glosa|movimiento|referencia|narrativa|memo|payee|merchant|comercio|establecimiento|description|details?|transaction|^notes?$|^nota(s)?$|comentario|observacion/,
-    account: /^(wallet|cartera|billetera|account|account name|cuenta|nombre de la cuenta|nombre de cuenta)$/,
+    account: /^(wallet|wallets|cartera|billetera|account|accounts|account name|cuenta|cuentas|nombre de la cuenta|nombre de cuenta)$/,
     category: /^(category|category name|categoria|nombre de la categoria|nombre de categoria)$/,
     type: /^(type|tipo|transaction type|tipo de transaccion|tipo de movimiento|income\/expense|ingreso\/gasto|entry type)$/,
     amount: /^(monto|importe|amount|valor|total|monto total|importe total)$/,
     amountLoose: /monto|importe|amount/,
-    out: /cargo|retiro|debito|egreso|salida|debit|withdraw|paid out|money out|gasto|pago|payment out/,
-    in: /abono|deposito|ingreso|entrada|credito|credit|paid in|money in|deposit/,
+    out: /cargo|retiro|debito|egreso|salida|debit|withdraw|paid out|money out|gasto|pago|payment out|outflow|expense amount|expenses amount/,
+    in: /abono|deposito|ingreso|entrada|credito|credit|paid in|money in|deposit|inflow|income amount/,
     currency: /moneda|currency|divisa/
   };
 
@@ -619,8 +619,9 @@
   // Only a plain statement of it counts — a line is a transfer ONLY when the file says so, never from the wording of a note.
   var TYPE_WORDS = {
     transfer: /^(transfer|transfers|transferencia|transferencias|traspaso|traspasos|transfer between accounts|transferencia entre cuentas)$/,
-    expense: /^(expense|expenses|gasto|gastos|egreso|egresos|debit|debito|withdrawal|retiro|salida|outflow|spending)$/,
-    income: /^(income|ingreso|ingresos|credit|credito|deposit|deposito|entrada|inflow|abono)$/
+    // short forms too: Money Manager writes "Exp." / "Income" (journeys run, 2026-11-17: every line was read as income)
+    expense: /^(expense|expenses|exp|exp\.|expense\.|gasto|gastos|gto|gto\.|egreso|egresos|egr|egr\.|debit|debito|withdrawal|retiro|salida|outflow|spending)$/,
+    income: /^(income|inc|inc\.|ingreso|ingresos|ing|ing\.|credit|credito|deposit|deposito|entrada|inflow|abono)$/
   };
   function typeKind(value) {
     var t = norm(value);

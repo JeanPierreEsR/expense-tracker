@@ -192,7 +192,7 @@ function applyStatementDecisions(payload) {
   var dryRun = !payload || payload.dryRun !== false;
   var stmts = payload.statements || [];
   var actions = payload.actions || [];
-  var report = { dryRun: dryRun, batchId: null, created: { transfers: 0, fees: 0, purchases: 0, income: 0, reversals: 0 }, changed: 0,
+  var report = { dryRun: dryRun, batchId: null, created: { transfers: 0, fees: 0, purchases: 0, income: 0, reversals: 0 }, uncategorized: 0, changed: 0,
     linesRemembered: 0, statementsRecorded: 0, skippedExisting: 0, warnings: [] };
 
   var pms = getAllRows('Payment Methods');
@@ -458,6 +458,7 @@ function applyStatementDecisions(payload) {
         description: isRev ? tr_('desc.reversal', { text: stmtCleanDescription_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) }) : stmtCleanDescription_(hx.l.description),
         status: 'confirmed', external_id: 'stmt-' + hx.key, merchant: stmtMerchantKey_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) });
       if (madeH) { if (isRev) report.created.reversals++; else { report.created.purchases++; countLineCategory(hxCat); } }
+      if (madeH && !(revFor ? (revFor[col.category_id] || '') : hxCat.id)) report.uncategorized++;
       remember(hx, 'added', madeH ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_history_refund') {
       // A refund that does not cancel a charge of its own month: income in the category "Refunds" (the line-by-line comparison's rule).
@@ -482,6 +483,7 @@ function applyStatementDecisions(payload) {
       var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: hiCat.id || interestCat,
         description: stmtCleanDescription_(hi.l.description), payment_method_id: requirePm(hi).id, status: hiWaits ? 'pending' : 'confirmed', external_id: 'stmt-' + hi.key });
       if (madeHI) { report.created.income++; countLineCategory(hiCat); }
+      if (madeHI && !hiWaits && !(hiCat.id || interestCat)) report.uncategorized++;
       remember(hi, 'added', madeHI ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_income') {
       var inc = line(a); useLine(inc);

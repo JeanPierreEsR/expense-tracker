@@ -140,7 +140,7 @@ function incomeVariesSummary_(entries, allEntries, categoryById, startDate, endD
     if (e.type !== 'income') return;
     var k = kindOf[e.category_id] || '';
     if (!k) return;
-    var rate = getRateForEntryCurrency_(e.currency, e.date);
+    var rate = getRateForTotals_(e.currency, e.date);
     if (rate == null) return;
     var pen = Number(e.amount) * rate;
     if (k === 'regular') { regular += pen; return; }
@@ -177,7 +177,7 @@ function incomeVariesSummary_(entries, allEntries, categoryById, startDate, endD
       if (e.type !== 'income' || kindOf[e.category_id] !== 'varies') return;
       var k = String(e.date).substring(0, 7);
       if (sum[k] === undefined) return;
-      var rate = getRateForEntryCurrency_(e.currency, e.date);
+      var rate = getRateForTotals_(e.currency, e.date);
       if (rate != null) sum[k] += Number(e.amount) * rate;
     });
     months = keys.map(function (k) { return { month: k, amount: sum[k] }; });
@@ -191,7 +191,7 @@ function incomeVariesSummary_(entries, allEntries, categoryById, startDate, endD
       if (e.type !== 'income' || kindOf[e.category_id] !== 'varies') return;
       var k = keyOf(String(e.date).substring(0, 10));
       if (k == null || buckets[k] === undefined) return;
-      var rate = getRateForEntryCurrency_(e.currency, e.date);
+      var rate = getRateForTotals_(e.currency, e.date);
       if (rate != null) buckets[k] += Number(e.amount) * rate;
     });
   };
