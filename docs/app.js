@@ -7701,8 +7701,27 @@ async function confirmReviewBulk_(chosen) {
   const linkNames = toLink.map((e) => e.plan_match.description || tr("plan.thePlanned"));
   const linkText = toLink.length ? "\n\n" + tr(ready.length === 1 ? "reviewBulk.willLinkThis" : "reviewBulk.willLink", { n: toLink.length, names: linkNames.length > 3 ? linkNames.slice(0, 3).join(", ") + " " + tr("entriesBulk.andMore", { n: linkNames.length - 3 }) : linkNames.join(", ") }) : "";
   if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }) + linkText, tr("reviewBulk.confirmN", { n: ready.length }), { plain: true })) return;
+  // Trips are asked, never put in silently (owner, 2026-11-18; Valeria: a trip's total jumped with nothing said). One question per trip the
+  // app suggests, before anything is saved: "Add them" / "Leave them out"; the ✕ stops the whole confirm. A trip the item already carries stays.
+  const tripOf = new Map();
+  const byTrip = new Map();
+  ready.forEach((e) => {
+    if (e.type !== "expense") return;
+    if (e.trip_id) { tripOf.set(e.id, e.trip_id); return; }
+    if (!e.suggested_trip_id) return;
+    if (!byTrip.has(e.suggested_trip_id)) byTrip.set(e.suggested_trip_id, []);
+    byTrip.get(e.suggested_trip_id).push(e);
+  });
+  for (const [tripId, list] of byTrip) {
+    const trip = (meta.trips || []).find((t) => t.id === tripId);
+    if (!trip) continue;
+    const answer = await askConfirmApp_(tr("reviewBulk.tripAsk", { n: list.length, trip: tripLabel_(trip), list: reviewListText_(list) }),
+      tr("reviewBulk.tripAdd"), { plain: true, cancel: tr("reviewBulk.tripLeave"), closeValue: null });
+    if (answer === null) return;
+    if (answer) list.forEach((e) => tripOf.set(e.id, tripId));
+  }
   const linkFor = new Map(toLink.map((e) => [e.id, e.plan_match.recurring_id]));
-  const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (e.trip_id || e.suggested_trip_id || "") : undefined, link_recurring_id: linkFor.get(e.id) || undefined }));
+  const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (tripOf.get(e.id) || "") : undefined, link_recurring_id: linkFor.get(e.id) || undefined }));
   ready.forEach((e) => {   // the optional "help me improve" sharing sees a confirm exactly as the card's own Confirm reports it
     if (isPracticeReviewEntry_(e)) return;
     const amount = Math.abs(Number(e.amount));
@@ -29848,7 +29867,7 @@ function askConfirmApp_(text, okLabel, opts) {
     const done = (v) => { if (tooSoon()) return; backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); appConfirmOpen_.delete(text); resolve(v); };
     ok.onclick = () => done(true);
     back.onclick = () => done(false);
-    document.getElementById("app-confirm-close").onclick = () => done(false);
+    document.getElementById("app-confirm-close").onclick = () => done(opts.closeValue !== undefined ? opts.closeValue : false);   // ✕ can mean "stop" where Back is an answer
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   // the keyboard would cover it
     bringModalToFront_(backdrop);
     // Above whatever is open: some sheets have their own fixed layer (the split bill's is 260, above the counter), and it would open
