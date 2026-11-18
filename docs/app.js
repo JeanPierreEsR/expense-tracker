@@ -7779,10 +7779,22 @@ async function confirmReviewBulk_(chosen) {
   const tripOf = new Map();
   const tripsSet = new Set();   // the trips this confirm adds (its Undo takes them off again)
   const byTrip = new Map();
+  // Days two or more trips cover (owner, 2026-11-18): never a guess, but asked, one question per set of trips: "Which trip?" with a
+  // button per trip and "Neither".
+  const byOverlap = new Map();
   ready.forEach((e) => {
     if (e.type !== "expense") return;
     if (e.trip_id) { tripOf.set(e.id, e.trip_id); return; }
-    if (!e.suggested_trip_id) return;
+    if (!e.suggested_trip_id) {
+      const d = String(e.date || "").slice(0, 10);
+      const covering = (meta.trips || []).filter((t) => !isPracticeTripName_(t.name) && d >= t.start_date && d <= t.end_date)
+        .sort((x, y) => (x.start_date < y.start_date ? -1 : x.start_date > y.start_date ? 1 : 0));
+      if (covering.length < 2 || isPracticeReviewEntry_(e)) return;
+      const key = covering.map((t) => t.id).join("|");
+      if (!byOverlap.has(key)) byOverlap.set(key, { trips: covering, list: [] });
+      byOverlap.get(key).list.push(e);
+      return;
+    }
     if (!byTrip.has(e.suggested_trip_id)) byTrip.set(e.suggested_trip_id, []);
     byTrip.get(e.suggested_trip_id).push(e);
   });
@@ -7793,6 +7805,16 @@ async function confirmReviewBulk_(chosen) {
       tr("reviewBulk.tripAdd"), { plain: true, cancel: tr("reviewBulk.tripLeave"), closeValue: null });
     if (answer === null) return;
     if (answer) list.forEach((e) => { tripOf.set(e.id, tripId); tripsSet.add(e.id); });
+  }
+  for (const { trips, list } of byOverlap.values()) {
+    const names = trips.map((t) => t.name);
+    const joined = names.slice(0, -1).join(", ") + tr("common.and") + names[names.length - 1];
+    const answer = await askConfirmApp_(tr("reviewBulk.tripWhich", { n: list.length, trips: joined, list: reviewListText_(list) }),
+      trips[0].name, { plain: true, cancel: tr("reviewBulk.tripNeither"), closeValue: null,
+        choices: trips.slice(1).map((t) => ({ label: t.name, value: t.id })) });
+    if (answer === null) return;
+    const tripId = answer === true ? trips[0].id : answer;
+    if (tripId) list.forEach((e) => { tripOf.set(e.id, tripId); tripsSet.add(e.id); });
   }
   const linkFor = new Map(toLink.map((e) => [e.id, e.plan_match.recurring_id]));
   const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (tripOf.get(e.id) || "") : undefined, link_recurring_id: linkFor.get(e.id) || undefined }));
@@ -30019,13 +30041,23 @@ function askConfirmApp_(text, okLabel, opts) {
     ok.className = opts.plain ? "primary" : "delete-entry-btn";
     back.textContent = opts.cancel || tr("common.cancel");
     back.hidden = !!opts.noCancel;
+    // `choices` = [{ label, value }]: more answers, stacked under the first; each resolves its own value.
+    const choicesBox = document.getElementById("app-confirm-choices");
+    choicesBox.textContent = "";
+    (opts.choices || []).forEach((c) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "primary"; b.textContent = c.label;
+      b.onclick = () => done(c.value);
+      choicesBox.appendChild(b);
+    });
+    choicesBox.hidden = !(opts.choices || []).length;
     const ids = ["app-confirm-ok", "app-confirm-back", "app-confirm-close"];
     // The second tap of a double tap lands on the window itself: for its first 0.4 s nothing answers it (Nico, 2026-11-09: it flashed
     // and vanished; it could as well have landed on the red button).
     const openedAt = Date.now();
     backdrop.dataset.openedAt = String(openedAt);
     const tooSoon = () => Date.now() - openedAt < APP_CONFIRM_SETTLE_MS_;
-    const done = (v) => { if (tooSoon()) return; backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); appConfirmOpen_.delete(text); resolve(v); };
+    const done = (v) => { if (tooSoon()) return; backdrop.hidden = true; ids.forEach((id) => { document.getElementById(id).onclick = null; }); choicesBox.textContent = ""; appConfirmOpen_.delete(text); resolve(v); };
     ok.onclick = () => done(true);
     back.onclick = () => done(false);
     document.getElementById("app-confirm-close").onclick = () => done(opts.closeValue !== undefined ? opts.closeValue : false);   // ✕ can mean "stop" where Back is an answer
