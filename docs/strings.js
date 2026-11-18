@@ -601,6 +601,13 @@
     "entry.undone": { en: "Undone: the entry was removed.", es: "Deshecho: se quitó el movimiento." },
 
     // ---- Home tab: the quick glance at the top, and the entries grouped by day ----
+    "plan.ask": { en: "Is this your {name} for {month}? If it is, Projections counts it once.", es: "¿Es tu {name} de {month}? Si lo es, Proyecciones lo cuenta una sola vez." },
+    "plan.yes": { en: "Yes, it's that one", es: "Sí, es ese" },
+    "plan.no": { en: "No, it's separate", es: "No, es aparte" },
+    "plan.line": { en: "This is my {name} for {month}", es: "Es mi {name} de {month}" },
+    "plan.thePlanned": { en: "programmed item", es: "programado" },
+    "plan.linking": { en: "Linking…", es: "Vinculando…" },
+    "plan.linked": { en: "Linked: it counts once.", es: "Vinculado: cuenta una sola vez." },
     "suggest.repeat": { en: "You recorded {name} again this month. Make it repeat by itself?", es: "Volviste a registrar {name} este mes. ¿Hacer que se repita sola?" },
     "suggest.repeatBtn": { en: "Make it repeat monthly", es: "Repetir cada mes" },
     "suggest.away": { en: { one: "Welcome back after {days} days: {n} item waits in Needs review.", other: "Welcome back after {days} days: {n} items wait in Needs review." }, es: { one: "Bienvenido de nuevo después de {days} días: {n} movimiento espera en Por revisar.", other: "Bienvenido de nuevo después de {days} días: {n} movimientos esperan en Por revisar." } },

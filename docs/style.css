@@ -4139,3 +4139,5 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .drilldown-projection-label .info-pair > .info-btn { margin-left: 6px; }
 /* My profile → WhatsApp bot: the setup code wraps, so the whole code is visible before copying it (2026-11-16). */
 #wa-code { white-space: pre-wrap; word-break: break-all; }
+/* Needs review: "This is my Salary for August" (2026-11-17), ticked when the match is clear; Confirm answers it. */
+.review-plan-match { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; font-size: 0.875rem; }

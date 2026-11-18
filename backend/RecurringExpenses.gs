@@ -2037,3 +2037,38 @@ function answerAnnualItems(payload) {
   setSetting_('annual_items_asked', 'yes');
   return { tagged: tagged };
 }
+
+// ---- "Is this your Salary for August?" (owner's plan, 2026-11-17, after the journeys run) ----
+// A typed or confirmed payment that was not matched to its Programmed item by itself (another day than planned, so outside the
+// automatic window) was counted twice in Projections (Andrés: 9,800 typed on the 28th + 9,800 planned for the 3rd = 19,600). This
+// finds the item it most likely pays, for the app to ASK: same kind and category, same currency, amount within 20%, an occurrence in
+// the entry's month, that month not already paid by another entry, and the entry not already matched by itself. Never links anything.
+// Returns { recurring_id, description, month } or null.
+function planMatchFor_(entry, allEntries) {
+  if (!entry || entry.recurring_expense_id || !entry.category_id || (entry.type !== 'expense' && entry.type !== 'income')) return null;
+  var month = String(entry.date || '').substring(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return null;
+  var y = Number(month.substring(0, 4)), m = Number(month.substring(5, 7));
+  var mStart = month + '-01', mEnd = month + '-' + pad2_(new Date(Date.UTC(y, m, 0)).getUTCDate());
+  var amt = Math.abs(Number(entry.amount));
+  if (!(amt > 0)) return null;
+  var entries = allEntries || getAllRows('Entries');
+  var best = null, bestGap = Infinity;
+  getAllRows('Recurring Expenses').forEach(function (r) {
+    if (String(r.active) === 'false' || String(r.category_id) !== String(entry.category_id)) return;
+    if ((r.currency || homeCurrency_()) !== entry.currency) return;
+    var ra = Math.abs(Number(r.variable && r.base_amount != null && r.base_amount !== '' ? r.base_amount : r.amount));
+    if (!(ra > 0) || Math.abs(ra - amt) > 0.2 * Math.max(ra, amt)) return;
+    var occ = recurringExpenseOccurrencesInRange_(r, mStart, mEnd);
+    if (!occ.length) return;
+    if (entryMatchesRecurringOccurrence_(entry, r, occ)) return;   // already counted once by itself: nothing to ask
+    var paid = entries.some(function (e) {   // that month already paid by another entry (linked, or matched by itself)
+      if (e.id === entry.id || e.status !== 'confirmed' || String(e.date).substring(0, 7) !== month) return false;
+      return e.recurring_expense_id === r.id || (!e.recurring_expense_id && entryMatchesRecurringOccurrence_(e, r, occ));
+    });
+    if (paid) return;
+    var gap = Math.abs(ra - amt);
+    if (gap < bestGap) { best = { recurring_id: r.id, description: String(r.description || ''), month: month }; bestGap = gap; }
+  });
+  return best;
+}

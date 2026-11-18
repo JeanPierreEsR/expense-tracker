@@ -6708,7 +6708,7 @@ function setQueuedReviewActions_(actions) {
 // extra: { splits, tagIds } for a confirmation made through the full form (null/absent = nothing to send for them).
 function queueReviewAction_(id, action, fields, extra) {
   const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
-  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null });
+  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null });
   setQueuedReviewActions_(actions);
   // The item has left Needs review for the person: Overview / Budgets / Projections' "N wait" line drops it at once, not only after
   // Home's list is fetched again (journeys run, 2026-11-17: the old count stayed for 6 people). A failed save refetches the list.
@@ -6725,7 +6725,7 @@ function unqueueReviewAction_(id) {
 async function applyReviewAction_(a) {
   if (a.action === "confirm" && entrySaveOne_()) {
     // One trip: the row's changes, the confirm, its split and tags (backend saveEntryAll, kind "confirm").
-    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined },
+    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined, link_recurring_id: a.planId || undefined },
       [["listEntries", { limit: entriesShown + 1 }]]));
     unqueueReviewAction_(a.id);
     if (res && res.tag_ask) askProgrammedTags_([res.tag_ask]);
@@ -7050,6 +7050,7 @@ async function flushEntryEdit_(id) {
           if (isCreate) { created = out; linkFailed = !!(out && out.link_failed); }
           else if (out && out.follow) followed = out.follow;
           if (out && out.tag_ask) askProgrammedTags_([out.tag_ask]);   // it pays a Programmed item with tags it lacks (2026-11-16)
+          if (isCreate && out && out.plan_ask && out.id) askPlanMatch_(out.id, out.plan_ask);   // "Is this your Salary for August?" (2026-11-17)
           if (edit.repeat && out && out.repeat) { showToast_(tr("repeat.done")); refreshExpectedRecurring(); }
         } else if (edit.kind === "create") {
           // The same client_id answers a repeat with the entry it already made, so every step below is safe to send again.
@@ -7829,6 +7830,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <label class="review-transfer-label">${tr("review.receivedAtLabel")}</label>
         <select class="review-land">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>` : ""}` : ""}
       </div>
+      ${entry.plan_match ? `<label class="review-plan-match"><input type="checkbox" class="review-plan-check" checked> ${escapeHtml(tr("plan.line", { name: entry.plan_match.description || tr("plan.thePlanned"), month: paceMonthName_(entry.plan_match.month, true) }))}</label>` : ""}
       <div class="review-item-actions">
         <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
         <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
@@ -7972,7 +7974,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       }
       if (accountEl && accountEl.value !== (entry.payment_method_id || "")) fields.payment_method_id = accountEl.value;
       if (!isPracticeReviewEntry_(entry)) betaRecordEvents_(PerfShare.queueEvents(entry, fields, betaEntryPlace_(entry)));   // (the practice's entries are not counted)
-      queueReviewAction_(entry.id, "confirm", fields);
+      // "This is my Salary for August", left ticked: the confirm links it to that Programmed item (owner's plan, 2026-11-17).
+      const planCheck = item.querySelector(".review-plan-check");
+      queueReviewAction_(entry.id, "confirm", fields, planCheck && planCheck.checked && entry.plan_match ? { planId: entry.plan_match.recurring_id } : null);
       holdTaps_();
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
@@ -22447,6 +22451,14 @@ document.getElementById("recurring-add-tag-btn").addEventListener("click", async
 // The question after a save or a confirm (owner, 2026-11-16, the "ask" version): the entry pays a Programmed item whose tags it does not
 // have. Asked, never done silently: a wrong match (shoes bought near the gym's due date) is answered No. Only adds tags. Not during a
 // practice or a tutorial (their own entries are deleted at the end).
+// A typed payment that looks like a Programmed item's month (backend planMatchFor_): asked once, after the save, which is never held up.
+// "Yes" links them, so Projections counts it once (owner's plan, 2026-11-17: Andrés's salary was counted twice).
+async function askPlanMatch_(entryId, plan) {
+  const ok = await askConfirmApp_(tr("plan.ask", { name: plan.description || tr("plan.thePlanned"), month: paceMonthName_(plan.month, true) }), tr("plan.yes"), { plain: true, cancel: tr("plan.no") });
+  if (!ok) return;
+  saveBehindScreen_(async () => { await callApi("linkEntryToRecurring", { entryId, recurringExpenseId: plan.recurring_id }); },
+    () => { refreshExpectedRecurring().catch(() => {}); }, { busy: "plan.linking", done: () => tr("plan.linked") });
+}
 async function askProgrammedTags_(asks) {
   if (!asks || !asks.length || (window.Spotlight && Spotlight.isRunning())) return;
   const names = (ids) => ids.map((id) => (meta.tags.find((t) => t.id === id) || {}).name).filter(Boolean).join(", ");
