@@ -3994,6 +3994,7 @@
     "md.takeOut": { en: "Take out", es: "Sacar datos" },
     "md.bank": { en: "Bank statements", es: "Estados de cuenta" },
     "md.import": { en: "Import from another app", es: "Importar de otra app" },
+    "md.importTab": { en: "From another app", es: "De otra app" },   // the switch at the top of the screen: one line next to "Bank statements"
     "md.tidy": { en: "Tidy my history", es: "Ordenar mi historial" },
     "md.export": { en: "Export my data", es: "Exportar mis datos" },
     "md.bankSub": { en: "Read your bank's PDFs or files and find what is missing.", es: "Lee los PDF o archivos de tu banco y encuentra lo que falta." },
