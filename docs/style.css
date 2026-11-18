@@ -2351,6 +2351,19 @@ body.income-revealed .sens-mask { display: none; }
   margin-top: 2px;
 }
 
+/* Cards known only from their statements (owner, 2026-11-18): a grey note box under the accounts, never a live-looking amount. */
+.balance-stmt-group {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--surface);
+  border-radius: var(--r-md);
+}
+.balance-stmt-title { font-size: 0.875rem; font-weight: 600; color: var(--text-2); }
+.balance-stmt-hint { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+.balance-stmt-group .balance-stmt-item { border-top: 1px solid var(--border); border-bottom: none; margin-top: 10px; padding-bottom: 0; }
+.balance-row-meta.balance-due-late { color: var(--warn-text); }   /* the pay-by date passed with something still to pay */
+.balance-from-stmt { margin-bottom: 12px; }
+
 .balance-current-label {
   font-size: 0.75rem;
   color: var(--muted);

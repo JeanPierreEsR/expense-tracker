@@ -1286,6 +1286,12 @@
     "balances.hideAccounts": { en: "Hide accounts ‹", es: "Ocultar cuentas ‹" },
     "balances.empty": { en: "No balances yet — add a starting balance for an account (cash, a Starbucks card…), or bring a card statement, to see it here.", es: "Aún no hay saldos: agrega un saldo inicial para una cuenta (efectivo, una tarjeta Starbucks…) o trae un estado de cuenta de tu tarjeta para verlo aquí." },
     "balances.atStatement": { en: "Owed at the last statement (closed {date}), not a live balance", es: "Deuda al último estado de cuenta (cerró el {date}), no es un saldo al día" },
+    "balances.stmtGroup": { en: "Cards known only from their statements", es: "Tarjetas que solo conocemos por sus estados de cuenta" },
+    "balances.stmtGroupHint": { en: "Not live balances, and not in the total above. Give a card a starting balance to follow it live.", es: "No son saldos al día ni entran en el total de arriba. Dale a una tarjeta un saldo inicial para seguirla al día." },
+    "balances.stmtOwed": { en: "Owed at last statement: {amounts} ({date})", es: "Deuda al último estado de cuenta: {amounts} ({date})" },
+    "balances.stmtNothingOwed": { en: "Nothing owed at last statement ({date})", es: "Sin deuda al último estado de cuenta ({date})" },
+    "balance.fromStmtText": { en: "Its last statement closed on {date} at {amounts}. Use that as its starting balance: from then on every entry counts, and the card follows live.", es: "Su último estado de cuenta cerró el {date} en {amounts}. Úsalo como saldo inicial: desde entonces cuenta cada movimiento y la tarjeta se sigue al día." },
+    "balance.fromStmtBtn": { en: "Use the last statement", es: "Usar el último estado de cuenta" },
 
     // ---- invest ----
     "loans.ov.title": { en: "Loans", es: "Préstamos" },

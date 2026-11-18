@@ -268,6 +268,10 @@ function listPaymentMethodBalances() {
   var banksById = {};
   getAllRows('Banks').forEach(function (b) { banksById[b.id] = b.name; });
   var month = todayMonthKey_();
+  // A credit card with a starting balance shows its live balance AND its last statement's pay-by line (owner, 2026-11-18).
+  var liveCards = {};
+  pms.forEach(function (pm) { if (pm.type === 'credit') liveCards[pm.id] = pm; });
+  var cardStatements = cardLastStatements_(liveCards);
 
   return pms.map(function (pm) {
     var openings = openingsByPm[pm.id];
@@ -305,7 +309,8 @@ function listPaymentMethodBalances() {
       bank_name: banksById[pm.bank_id] || '',
       openings: openings,
       balances: balances,
-      balance_pen: balancePen == null ? null : Math.round(balancePen * 100) / 100
+      balance_pen: balancePen == null ? null : Math.round(balancePen * 100) / 100,
+      card_statement: cardStatements[pm.id] || null
     };
   }).sort(function (a, b) {
     var ap = a.balance_pen == null ? -Infinity : a.balance_pen;
@@ -321,39 +326,49 @@ function listPaymentMethodBalances() {
 function cardOwedFromStatements_(allPms, openingsByPm) {
   var cards = {};
   allPms.forEach(function (pm) { if (pm.type === 'credit' && !openingsByPm[pm.id] && String(pm.hidden || '') !== 'yes') cards[pm.id] = pm; });
-  if (!Object.keys(cards).length) return [];
+  var info = cardLastStatements_(cards), banksById = {};
+  if (!Object.keys(info).length) return [];
+  getAllRows('Banks').forEach(function (b) { banksById[b.id] = b.name; });
+  return Object.keys(info).map(function (id) {
+    var pm = cards[id], st = info[id];
+    return { id: pm.id, nickname: pm.nickname, type: pm.type, last_4: pm.last_4, bank_name: banksById[pm.bank_id] || '', openings: [],
+      balances: st.balances, balance_pen: null, statement_closed: st.statement_closed, due: st.due, paid_since: st.paid_since, last_paid: st.last_paid };
+  });
+}
+
+// A card's last saved statement: what it owed when it closed (per currency, negative = owed), its pay-by date, and the payments INTO the
+// card recorded after the close (a transfer to it, from a bank e-mail, a savings statement's "PAGO TARJETA" or typed by hand), per
+// currency: what the card's pay-by line weighs against what was owed (owner, 2026-11-18). A refund on the card is not a payment; one made
+// before the close is already inside the statement. `cards` = { id: Payment Method }; answers { id: info } for the cards with one.
+function cardLastStatements_(cards) {
+  if (!Object.keys(cards).length) return {};
   var latest = {};
-  try { ensureStatementUploadsSheet_(); } catch (e) { return []; }
+  try { ensureStatementUploadsSheet_(); } catch (e) { return {}; }
   getAllRows('Statement Uploads').forEach(function (u) {
     if (!cards[u.payment_method_id] || !u.closing_json) return;
     if (!latest[u.payment_method_id] || String(u.period_end) > String(latest[u.payment_method_id].period_end)) latest[u.payment_method_id] = u;
   });
-  var banksById = {};
-  getAllRows('Banks').forEach(function (b) { banksById[b.id] = b.name; });
+  if (!Object.keys(latest).length) return {};
   var paymentsByCard = {};
   getAllRows('Entries').forEach(function (e) {
     if (e.status === 'confirmed' && e.type === 'transfer' && cards[e.to_payment_method_id]) (paymentsByCard[e.to_payment_method_id] = paymentsByCard[e.to_payment_method_id] || []).push(e);
   });
-  var out = [];
+  var out = {};
   Object.keys(latest).forEach(function (id) {
-    var u = latest[id], pm = cards[id], closing = {};
+    var u = latest[id], closing = {};
     try { closing = JSON.parse(String(u.closing_json)) || {}; } catch (e) { return; }
     var balances = Object.keys(closing).filter(function (cur) { return cur.charAt(0) !== '_' && closing[cur] && isFinite(Number(closing[cur].closing)); })
       .map(function (cur) { return { currency: cur, amount: Math.round(Number(closing[cur].closing) * 100) / 100 }; })
       .sort(function (a, b) { return a.currency === homeCurrency_() ? -1 : b.currency === homeCurrency_() ? 1 : (a.currency < b.currency ? -1 : 1); });
     if (!balances.length) return;
-    // Payments INTO the card recorded after the statement closed (a transfer to it, from a bank e-mail, a savings statement's "PAGO
-    // TARJETA" or typed by hand), per currency: what the card line weighs against what was owed (owner, 2026-11-18). A refund on the card
-    // is not a payment; one made before the close is already inside the statement.
     var paid = {}, lastPaid = '';
-    paymentsByCard[pm.id] && paymentsByCard[pm.id].forEach(function (e) {
+    (paymentsByCard[id] || []).forEach(function (e) {
       if (String(e.date) <= String(u.period_end)) return;
       paid[e.currency] = Math.round(((paid[e.currency] || 0) + Math.abs(Number(e.amount))) * 100) / 100;
       if (String(e.date) > lastPaid) lastPaid = String(e.date).substring(0, 10);
     });
-    out.push({ id: pm.id, nickname: pm.nickname, type: pm.type, last_4: pm.last_4, bank_name: banksById[pm.bank_id] || '', openings: [],
-      balances: balances, balance_pen: null, statement_closed: String(u.period_end),
-      due: realDueAfter_(closing._due, u.period_end), paid_since: paid, last_paid: lastPaid });
+    out[id] = { statement_closed: String(u.period_end), balances: balances,
+      due: realDueAfter_(closing._due, u.period_end), paid_since: paid, last_paid: lastPaid };
   });
   return out;
 }

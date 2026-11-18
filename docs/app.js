@@ -18056,7 +18056,22 @@ function fillPmBankOptions_(selectedId) {
 // What a card statement's pay-by date means today, from the payments to the card recorded since it closed (owner, 2026-11-18): paid in
 // full, part paid, still to pay, or nothing recorded once the date passed. Never "overdue" and never an alert: the app only knows the
 // payments it was told about. Each currency on its own. '' when the statement had no pay-by date and nothing was paid since.
+// Under a card in Balances, both kinds alike (owner, 2026-11-18): "Owed at last statement: PEN 640.00 (Nov 10, 2026)", then the pay-by line
+// ("Pay by …" / "Paid ✓" / "… left", amber once the date passed and something is still to pay). `s` = a statement row or a live card's
+// card_statement.
+function cardStmtLines_(s) {
+  const owed = s.balances.filter((b) => b.amount < -0.004).map((b) => formatAmount(-b.amount, b.currency)).join(" · ");
+  const date = I18n.fmtDateMedium(new Date(s.statement_closed + "T12:00:00"));
+  const dueT = cardDueText_(s);
+  const late = !!s.due && s.due < todayLocalISO() && !/✓/.test(dueT);
+  return `<div class="balance-row-meta">${escapeHtml(owed ? tr("balances.stmtOwed", { amounts: owed, date }) : tr("balances.stmtNothingOwed", { date }))}</div>` +
+    (dueT ? `<div class="balance-row-meta${late ? " balance-due-late" : ""}">${escapeHtml(dueT)}</div>` : "");
+}
 function cardDueText_(r) {
+  const t = cardDueTextRaw_(r);
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : "";   // "Pay by …" starts its own line (owner, 2026-11-18)
+}
+function cardDueTextRaw_(r) {
   const owed = (r.balances || []).filter((b) => b.amount < -0.004).map((b) => ({ cur: b.currency, owed: -b.amount, paid: Number((r.paid_since || {})[b.currency]) || 0 }));
   if (!owed.length) return "";
   const fmtD = (iso) => I18n.fmtDateMedium(new Date(iso + "T12:00:00"));
@@ -18080,9 +18095,12 @@ async function fillPmOwedLine_(pm) {
   if (!pm || pm.type !== "credit") return;
   let rows = balancesCache;
   if (!balancesLoaded_) { try { rows = await callApi("listPaymentMethodBalances", {}); } catch (e) { return; } }   // (Overview not opened yet)
-  const r = (rows || []).find((x) => x.id === pm.id && x.statement_closed);
+  // A card known only from statements, or one with a starting balance whose last statement has a pay-by line (owner, 2026-11-18).
+  const row = (rows || []).find((x) => x.id === pm.id);
+  const r = row && (row.statement_closed ? row : row.card_statement);
   if (!r || pmModalState.id !== pm.id) return;
   const dueT = cardDueText_(r);
+  if (!row.statement_closed && !dueT) return;
   line.textContent = tr("accounts.owedAtStatement", { amounts: r.balances.map((b) => formatAmount(Math.abs(b.amount), b.currency)).join(" · "), date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }) + (dueT ? " " + dueT + "." : "");
   line.hidden = false;
 }
@@ -33352,16 +33370,35 @@ async function refreshBalancesInner_() {
     const [main, ...others] = r.balances;
     const missing = r.statement_closed ? [] : balanceMissingCurrencies_(r);
     const otherText = others.filter((b) => Math.abs(b.amount) > 0.004).map((b) => formatSignedBalance_(b.amount, b.currency) + (b.waiting ? ` (${tr("charge.waiting")})` : "")).join(" · ");
-    // A card known only from its statements (2026-11-17): what it owed when the last one closed, said as such (not a live balance).
-    const dueT = r.statement_closed ? cardDueText_(r) : "";
-    const stmtLine = r.statement_closed ? `<div class="balance-row-meta">${escapeHtml(tr("balances.atStatement", { date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }))}</div>${dueT ? `<div class="balance-row-meta">${escapeHtml(dueT)}</div>` : ""}` : "";
+    // A card with a starting balance keeps its live balance and adds its last statement's lines under the name (owner, 2026-11-18).
+    const cs = !r.statement_closed && r.card_statement;
+    const stmtLine = cs && cardDueText_(cs) ? cardStmtLines_(cs) : "";
     row.innerHTML = `
       <div class="balance-row-name">${escapeHtml(r.nickname)}${r.statement_closed ? "" : `<span class="loan-detail-row-chevron">›</span>`}${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${stmtLine}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}</div>
       <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>
     `;
     if (!r.statement_closed) row.addEventListener("click", () => openBalanceModal(r.id));   // (a statement figure has no movements to show)
-    list.appendChild(row);
+    if (!r.statement_closed) list.appendChild(row);
   });
+  // Cards known only from their statements (owner, 2026-11-18): a box of their own under the accounts, written as a note (the amount
+  // inside a sentence, no big red figure), so they never pass for a live balance.
+  const stmtCards = rows.filter((r) => r.statement_closed);
+  if (stmtCards.length) {
+    const box = document.createElement("div");
+    box.className = "balance-stmt-group";
+    box.innerHTML = `<div class="balance-stmt-title">${escapeHtml(tr("balances.stmtGroup"))}</div>
+      <div class="balance-stmt-hint">${escapeHtml(tr("balances.stmtGroupHint"))}</div>`;
+    // The same lines as a card with a starting balance (card, bank, owed at last statement, pay by / paid), with no amount on the right;
+    // a tap opens the starting-balance form on that card, which offers the statement's closing balance.
+    stmtCards.forEach((r) => {
+      const item = document.createElement("div");
+      item.className = "balance-row balance-stmt-item";
+      item.innerHTML = `<div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span>${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${cardStmtLines_(r)}</div>`;
+      item.addEventListener("click", () => openStmtCardBalance_(r.id));
+      box.appendChild(item);
+    });
+    list.appendChild(box);
+  }
 
   // Net per currency across every tracked account (a credit card's
   // negative balance nets against positive ones). No cross-currency
@@ -33434,7 +33471,7 @@ async function openBalanceModal(pmId) {
     meta.paymentMethods.filter((pm) => pm.type !== "investment" && !pmHidden_(pm)).forEach((pm) => {
       const opt = document.createElement("option");
       opt.value = pm.id;
-      const tracked = balancesCache.some((b) => b.id === pm.id);
+      const tracked = balancesCache.some((b) => b.id === pm.id && !b.statement_closed);   // (a card known only from statements has no balance yet)
       opt.textContent = pmPickLabel_(pm) + (tracked ? " ✓" : "");
       picker.appendChild(opt);
     });
@@ -33448,7 +33485,7 @@ async function openBalanceModal(pmId) {
     document.getElementById("balance-current").hidden = true;
     document.getElementById("balance-movements-wrap").hidden = true;
     document.getElementById("balance-clear-btn").hidden = true;
-    picker.onchange = () => { loadBalanceRowsFor_(picker.value); renderBalanceRows_(); };
+    picker.onchange = () => { loadBalanceRowsFor_(picker.value); renderBalanceRows_(); showBalanceFromStmt_(picker.value); };
     loadBalanceRowsFor_(picker.value);
   } else {
     pickerWrap.hidden = true;
@@ -33460,6 +33497,7 @@ async function openBalanceModal(pmId) {
     renderBalanceCurrentLines_();
   }
   renderBalanceRows_();
+  showBalanceFromStmt_(pmId ? "" : picker.value);
   // The phone's copy of the entries tells which currencies a new account moved in; if it is not loaded yet, its rows join when it is.
   if (!Array.isArray(searchIndex)) {
     const seq = balanceOpenSeq_;
@@ -33482,6 +33520,36 @@ async function openBalanceModal(pmId) {
   if (pmId) await loadBalanceMovements_(pmId);
   popTipVisit_("balanceWindow");
   watchBalanceTips_();
+}
+
+// A card known only from its statements (owner, 2026-11-18): the "+ Add balance" form, opened on that card, offers its last statement's
+// closing balance as the starting balance, dated the day it closed (entries after that day then count; those up to it are inside it).
+function stmtCardRow_(pmId) { return (balancesCache || []).find((b) => b.id === pmId && b.statement_closed) || null; }
+function showBalanceFromStmt_(pmId) {
+  const box = document.getElementById("balance-from-stmt");
+  const r = pmId ? stmtCardRow_(pmId) : null;
+  box.hidden = !r;
+  if (!r) return;
+  document.getElementById("balance-from-stmt-text").textContent = tr("balance.fromStmtText", {
+    amounts: r.balances.map((b) => formatSignedBalance_(b.amount, b.currency)).join(" · "), date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) });
+}
+document.getElementById("balance-from-stmt-btn").addEventListener("click", () => {
+  const r = stmtCardRow_(document.getElementById("balance-account-picker").value);
+  if (!r) return;
+  r.balances.forEach((b) => {
+    const row = { amount: String(Math.abs(b.amount)), negative: b.amount < 0, currency: b.currency, date: r.statement_closed };
+    const i = balanceFormRows.findIndex((x) => x.currency === b.currency);
+    if (i >= 0) balanceFormRows[i] = Object.assign({}, balanceFormRows[i], row); else balanceFormRows.push(row);
+  });
+  renderBalanceRows_();
+});
+// A tap on such a card in Balances: the add-balance form, on that card.
+function openStmtCardBalance_(pmId) {
+  openBalanceModal(null);
+  const picker = document.getElementById("balance-account-picker");
+  if (![...picker.options].some((o) => o.value === pmId)) return;
+  picker.value = pmId;
+  picker.onchange();
 }
 
 function renderBalanceCurrentLines_() {
