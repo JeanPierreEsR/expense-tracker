@@ -74,3 +74,15 @@ test("an import line that looks like a planned item is listed in the preview, an
   const e = JSON.parse(rt.run(`JSON.stringify(getAllRows('Entries').filter(function (x) { return x.description === 'Pay Prueba'; })[0])`));
   assert.equal(e.recurring_expense_id, "rec-sal");
 });
+
+test("confirm-many links the items it was asked to, re-checked: a second item for the same month is confirmed without a link", () => {
+  const rt = setup();
+  for (const id of ["pb-1", "pb-2"]) rt.run(`appendRowObject('Entries', { id: '${id}', type: 'income', date: '${month}-2${id.slice(-1)}', amount: 9800, currency: 'PEN', category_id: 'cat-sal', description: 'Pay ${id}', paid_by: 'me', status: 'pending', source: 'email' });`);
+  const out = rt.api("confirmEntries", { items: [{ id: "pb-1", link_recurring_id: "rec-sal" }, { id: "pb-2", link_recurring_id: "rec-sal" }] });
+  assert.deepEqual(out.confirmed, ["pb-1", "pb-2"]);
+  assert.deepEqual(out.linked.map((x) => x.id), ["pb-1"]);
+  assert.deepEqual(out.link_skipped.map((x) => x.id), ["pb-2"]);
+  const linked = (id) => JSON.parse(rt.run(`JSON.stringify(getEntryById_('${id}'))`)).recurring_expense_id;
+  assert.equal(linked("pb-1"), "rec-sal");
+  assert.ok(!linked("pb-2"));
+});

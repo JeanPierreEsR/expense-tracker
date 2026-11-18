@@ -1159,9 +1159,9 @@ function confirmEntries(payload) {
   var items = [], seen = {};
   ((payload && payload.items) || []).forEach(function (it) {
     var id = String((it && it.id) || '');
-    if (id && !seen[id]) { seen[id] = true; items.push({ id: id, trip_id: it.trip_id }); }
+    if (id && !seen[id]) { seen[id] = true; items.push({ id: id, trip_id: it.trip_id, link_recurring_id: it.link_recurring_id ? String(it.link_recurring_id) : '' }); }
   });
-  var out = { confirmed: [], kept: [] };
+  var out = { confirmed: [], kept: [] };   // (+ linked / link_skipped, only when links were asked for)
   items.forEach(function (it) {
     var entry = getEntryById_(it.id);
     if (!entry) { out.kept.push({ id: it.id, reason: 'missing' }); return; }
@@ -1173,6 +1173,16 @@ function confirmEntries(payload) {
       if (it.trip_id !== undefined && entry.type === 'expense') updateEntryFromApp_({ id: it.id, fields: { trip_id: it.trip_id } });
       confirmEntryWithLearning_(it.id);
       out.confirmed.push(it.id);
+      // "N of them will be linked to their planned item" (owner's plan, 2026-11-18): checked again now, so a plan deleted or a month paid
+      // meanwhile (or a second item for the same month, earlier in this same list) is confirmed without a link, and said so. A failed
+      // link never undoes the confirm.
+      if (it.link_recurring_id) {
+        try {
+          var plan = planMatchFor_(getEntryById_(it.id));
+          if (plan && plan.recurring_id === it.link_recurring_id) { linkEntryToRecurring({ entryId: it.id, recurringExpenseId: plan.recurring_id }); (out.linked = out.linked || []).push({ id: it.id, name: plan.description }); }
+          else (out.link_skipped = out.link_skipped || []).push({ id: it.id });
+        } catch (linkErr) { (out.link_skipped = out.link_skipped || []).push({ id: it.id, message: String(linkErr && linkErr.message || linkErr) }); }
+      }
     } catch (err) {
       out.kept.push({ id: it.id, reason: 'refused', message: String(err && err.message || err) });
     }

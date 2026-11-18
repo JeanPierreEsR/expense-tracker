@@ -7657,6 +7657,14 @@ function reviewAfterBulk_(handledIds) {
   const left = reviewEntries_.filter((e) => !handledIds.has(e.id));
   refreshReviewQueue(left, true).catch(() => {});
 }
+// Cards whose "This is my Salary for August" the person unticked: confirm-many leaves them unlinked too (owner's plan, 2026-11-18).
+const reviewPlanOff_ = new Set();
+document.getElementById("review-list").addEventListener("change", (e) => {
+  const c = e.target.closest && e.target.closest(".review-plan-check");
+  if (!c) return;
+  const item = c.closest(".review-item"), id = item && item.dataset.entryId;
+  if (id) { if (c.checked) reviewPlanOff_.delete(id); else reviewPlanOff_.add(id); }
+});
 const reviewIssueText_ = (entry, reason) => `${reviewShortName_(entry)} (${tr(`reviewBulk.why.${reason}`)})`;
 
 document.getElementById("review-confirm-selected-btn").addEventListener("click", () => confirmReviewBulk_(reviewEntries_.filter((e) => reviewSelected_.has(e.id))));
@@ -7679,8 +7687,22 @@ async function confirmReviewBulk_(chosen) {
   const notReadyText = notReady.map((e) => reviewIssueText_(e, reviewIssue_(e))).join(", ");
   if (!ready.length) { showAppMessage_(tr("reviewBulk.noneReady", { items: notReadyText })); return; }
   const left = notReady.length ? tr("reviewBulk.leftNote", { items: notReadyText }) : "";
-  if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }), tr("reviewBulk.confirmN", { n: ready.length }), { plain: true })) return;
-  const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (e.trip_id || e.suggested_trip_id || "") : undefined }));
+  // Items that look like a Programmed item's month and were not unticked: linked by the same confirm, one per item and month (the server
+  // checks again). Only where the server can (`bulkPlanLink`), so an older one is never promised a link.
+  const canLink = !!(meta && meta.capabilities && meta.capabilities.bulkPlanLink);
+  const linkKeys = new Set();
+  const toLink = canLink ? ready.filter((e) => {
+    if (!e.plan_match || reviewPlanOff_.has(e.id) || isPracticeReviewEntry_(e)) return false;
+    const k = e.plan_match.recurring_id + "|" + e.plan_match.month;
+    if (linkKeys.has(k)) return false;
+    linkKeys.add(k);
+    return true;
+  }) : [];
+  const linkNames = toLink.map((e) => e.plan_match.description || tr("plan.thePlanned"));
+  const linkText = toLink.length ? "\n\n" + tr(ready.length === 1 ? "reviewBulk.willLinkThis" : "reviewBulk.willLink", { n: toLink.length, names: linkNames.length > 3 ? linkNames.slice(0, 3).join(", ") + " " + tr("entriesBulk.andMore", { n: linkNames.length - 3 }) : linkNames.join(", ") }) : "";
+  if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }) + linkText, tr("reviewBulk.confirmN", { n: ready.length }), { plain: true })) return;
+  const linkFor = new Map(toLink.map((e) => [e.id, e.plan_match.recurring_id]));
+  const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (e.trip_id || e.suggested_trip_id || "") : undefined, link_recurring_id: linkFor.get(e.id) || undefined }));
   ready.forEach((e) => {   // the optional "help me improve" sharing sees a confirm exactly as the card's own Confirm reports it
     if (isPracticeReviewEntry_(e)) return;
     const amount = Math.abs(Number(e.amount));
@@ -7698,6 +7720,10 @@ async function confirmReviewBulk_(chosen) {
     refreshHomeGlance_(true);
     await refreshReviewQueue(undefined, true).catch(() => {});
     if (result && result.tag_asks && result.tag_asks.length) askProgrammedTags_(result.tag_asks);
+    if (result && (result.link_skipped || []).length) {
+      showAppMessage_(tr("reviewBulk.linkSkipped", { names: result.link_skipped.map((k) => { const e = byId.get(k.id); return e ? reviewShortName_(e) : ""; }).filter(Boolean).join(", ") }));
+    }
+    if ((result && result.linked || []).length) refreshExpectedRecurring().catch(() => {});
     if (!result || !result.kept.length) return;
     showAppMessage_(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
   }, {
@@ -7830,7 +7856,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <label class="review-transfer-label">${tr("review.receivedAtLabel")}</label>
         <select class="review-land">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>` : ""}` : ""}
       </div>
-      ${entry.plan_match ? `<label class="review-plan-match"><input type="checkbox" class="review-plan-check" checked> ${escapeHtml(tr("plan.line", { name: entry.plan_match.description || tr("plan.thePlanned"), month: paceMonthName_(entry.plan_match.month, true) }))}</label>` : ""}
+      ${entry.plan_match ? `<label class="review-plan-match"><input type="checkbox" class="review-plan-check"${reviewPlanOff_.has(entry.id) ? "" : " checked"}> ${escapeHtml(tr("plan.line", { name: entry.plan_match.description || tr("plan.thePlanned"), month: paceMonthName_(entry.plan_match.month, true) }))}</label>` : ""}
       <div class="review-item-actions">
         <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
         <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
