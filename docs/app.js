@@ -33155,8 +33155,28 @@ async function refreshBalancesInner_() {
       <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>
     `;
     if (!r.statement_closed) row.addEventListener("click", () => openBalanceModal(r.id));   // (a statement figure has no movements to show)
-    list.appendChild(row);
+    if (!r.statement_closed) list.appendChild(row);
   });
+  // Cards known only from their statements (owner, 2026-11-18): a box of their own under the accounts, written as a note (the amount
+  // inside a sentence, no big red figure), so they never pass for a live balance.
+  const stmtCards = rows.filter((r) => r.statement_closed);
+  if (stmtCards.length) {
+    const box = document.createElement("div");
+    box.className = "balance-stmt-group";
+    const fmtD = (iso) => I18n.fmtDateMedium(new Date(iso + "T12:00:00"));
+    box.innerHTML = `<div class="balance-stmt-title">${escapeHtml(tr("balances.stmtGroup"))}</div>
+      <div class="balance-stmt-hint">${escapeHtml(tr("balances.stmtGroupHint"))}</div>` + stmtCards.map((r) => {
+      const dueT = cardDueText_(r);
+      const late = !!r.due && r.due < todayLocalISO() && !/✓/.test(dueT);
+      const owed = r.balances.filter((b) => b.amount < -0.004).map((b) => formatAmount(-b.amount, b.currency)).join(" · ");
+      return `<div class="balance-stmt-item">
+        <div class="balance-stmt-name">${escapeHtml(r.nickname)}${r.bank_name ? ` <span class="balance-stmt-bank">· ${escapeHtml(r.bank_name)}</span>` : ""}</div>
+        ${dueT ? `<div class="balance-stmt-due${late ? " late" : ""}">${escapeHtml(dueT.charAt(0).toUpperCase() + dueT.slice(1))}</div>` : ""}
+        <div class="balance-stmt-text">${escapeHtml(owed ? tr("balances.stmtOwed", { amounts: owed, date: fmtD(r.statement_closed) }) : tr("balances.stmtNothingOwed", { date: fmtD(r.statement_closed) }))}</div>
+      </div>`;
+    }).join("");
+    list.appendChild(box);
+  }
 
   // Net per currency across every tracked account (a credit card's
   // negative balance nets against positive ones). No cross-currency
