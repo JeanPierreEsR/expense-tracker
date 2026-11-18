@@ -17895,9 +17895,12 @@ async function fillPmOwedLine_(pm) {
   if (!pm || pm.type !== "credit") return;
   let rows = balancesCache;
   if (!balancesLoaded_) { try { rows = await callApi("listPaymentMethodBalances", {}); } catch (e) { return; } }   // (Overview not opened yet)
-  const r = (rows || []).find((x) => x.id === pm.id && x.statement_closed);
+  // A card known only from statements, or one with a starting balance whose last statement has a pay-by line (owner, 2026-11-18).
+  const row = (rows || []).find((x) => x.id === pm.id);
+  const r = row && (row.statement_closed ? row : row.card_statement);
   if (!r || pmModalState.id !== pm.id) return;
   const dueT = cardDueText_(r);
+  if (!row.statement_closed && !dueT) return;
   line.textContent = tr("accounts.owedAtStatement", { amounts: r.balances.map((b) => formatAmount(Math.abs(b.amount), b.currency)).join(" · "), date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }) + (dueT ? " " + dueT + "." : "");
   line.hidden = false;
 }
@@ -33142,7 +33145,11 @@ async function refreshBalancesInner_() {
     const otherText = others.filter((b) => Math.abs(b.amount) > 0.004).map((b) => formatSignedBalance_(b.amount, b.currency) + (b.waiting ? ` (${tr("charge.waiting")})` : "")).join(" · ");
     // A card known only from its statements (2026-11-17): what it owed when the last one closed, said as such (not a live balance).
     const dueT = r.statement_closed ? cardDueText_(r) : "";
-    const stmtLine = r.statement_closed ? `<div class="balance-row-meta">${escapeHtml(tr("balances.atStatement", { date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }))}</div>${dueT ? `<div class="balance-row-meta">${escapeHtml(dueT)}</div>` : ""}` : "";
+    // A card with a starting balance keeps its live balance and adds its last statement's pay-by line under the name (owner, 2026-11-18).
+    const cs = !r.statement_closed && r.card_statement, csDue = cs ? cardDueText_(cs) : "";
+    const liveStmtLine = csDue ? `<div class="balance-row-meta">${escapeHtml(tr("accounts.owedAtStatement", { amounts: cs.balances.map((b) => formatAmount(Math.abs(b.amount), b.currency)).join(" · "),
+      date: I18n.fmtDateMedium(new Date(cs.statement_closed + "T12:00:00")) }))}</div><div class="balance-row-meta">${escapeHtml(csDue)}</div>` : "";
+    const stmtLine = r.statement_closed ? `<div class="balance-row-meta">${escapeHtml(tr("balances.atStatement", { date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }))}</div>${dueT ? `<div class="balance-row-meta">${escapeHtml(dueT)}</div>` : ""}` : liveStmtLine;
     row.innerHTML = `
       <div class="balance-row-name">${escapeHtml(r.nickname)}${r.statement_closed ? "" : `<span class="loan-detail-row-chevron">›</span>`}${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${stmtLine}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}</div>
       <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>
