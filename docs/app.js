@@ -9151,6 +9151,15 @@ function suggestMark_(key, done) {
   try { localStorage.setItem(SUGGEST_SEEN_KEY_, JSON.stringify(m)); } catch (e) { /* ignore */ }
 }
 function suggestOpen_(key) { const v = suggestSeen_()[key]; return !v || (!v.done && Date.now() > (v.until || 0)); }
+// Shown on 3 openings without an answer, a suggestion rests a week (Marta, 2026-11-18: it sat under the month card on all 10 of her openings).
+const SUGGEST_SHOWS_ = 3, SUGGEST_REST_MS_ = 7 * 86400000;
+function suggestCountShow_(key) {
+  const m = suggestSeen_();
+  const v = m[key] && !m[key].done ? m[key] : {};
+  const shows = (v.shows || 0) + 1;
+  m[key] = shows >= SUGGEST_SHOWS_ ? { until: Date.now() + SUGGEST_REST_MS_ } : { shows, until: v.until || 0 };
+  try { localStorage.setItem(SUGGEST_SEEN_KEY_, JSON.stringify(m)); } catch (e) { /* ignore */ }
+}
 function homeSuggestion_() {
   const waiting = (reviewEntries_ || []).filter((e) => !isPracticeReviewEntry_(e)).length;
   const list = [];
@@ -9208,6 +9217,7 @@ function renderHomeSuggest_() {
   if (!box) return;
   const s = !perfIsOwnerCopy_() && homeGlance_ && !Spotlight.isRunning() && !editModeOn_() && !document.querySelector(".currency-modal-backdrop:not([hidden])") ? homeSuggestion_() : null;
   if (!s || (s.key !== suggestShownKey_ && !teachAllows_("suggest:" + s.key))) { box.hidden = true; return; }
+  if (s.key !== suggestShownKey_) suggestCountShow_(s.key);   // once per opening of the app (the key stays while the person looks)
   suggestShownKey_ = s.key;
   box.innerHTML = `<div class="home-suggest-head"><span class="tip-invite-label"><span class="ico ico-warn">${lineIcon_("bulb")}</span>${escapeHtml(tr("spot.tipLabel"))}</span>`
     + `<button type="button" class="currency-modal-close home-suggest-x" aria-label="${escapeHtml(tr("suggest.later"))}">✕</button></div>`
