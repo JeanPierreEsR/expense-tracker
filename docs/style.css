@@ -3813,6 +3813,8 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 .pop-tip[data-side="above"] .pop-tip-arrow { bottom: -7px; }
 
 .app-confirm-text { white-space: pre-line; font-size: 1rem; line-height: 1.4; margin: 0 0 14px; }
+/* A long question (a list of entries) scrolls by itself; its buttons stay on screen (Tomás, 2026-11-18: below the fold at 375px). */
+#app-confirm-text { max-height: 52vh; overflow-y: auto; }
 
 /* The part of a budget bar still to come (Programmed items this period): a lighter shade of the same colour, continuing the bar
    (owner, 2026-11-08: option A of four; the first dotted version looked busy). Blue, amber (75 %+) or red (100 %+) by the total. */
@@ -4145,3 +4147,7 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 #wa-code { white-space: pre-wrap; word-break: break-all; }
 /* Needs review: "This is my Salary for August" (2026-11-17), ticked when the match is clear; Confirm answers it. */
 .review-plan-match { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; font-size: 0.875rem; }
+
+/* Needs review's "Confirm the N that are ready": starts on the same left edge as the line above it and reads as an action
+   (Tomás, 2026-11-18: 8px further in, and as plain as a link). */
+#review-confirm-ready-btn { padding-left: 0; padding-right: 0; text-align: left; font-weight: 600; font-size: 0.875rem; }
