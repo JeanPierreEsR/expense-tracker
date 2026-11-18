@@ -3683,6 +3683,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .period-pending-line { display: block; width: 100%; margin: 0 0 12px; padding: 10px 12px; min-height: 44px; border: none; border-radius: var(--r-md);
   background: var(--warn-bg); color: var(--warn-text); font: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; }
 .period-pending-line[hidden] { display: none; }
+/* Home's month card: what waits in Needs review is not in its numbers (journeys run, 2026-11-17); same look as the period line. */
+.home-wait-line { display: block; width: 100%; margin: 6px 0 10px; padding: 10px 12px; min-height: 44px; border: none; border-radius: var(--r-md);
+  background: var(--warn-bg); color: var(--warn-text); font: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; }
 .ov-sum-grid.folded .ov-sum-tile.investment, .ov-sum-grid.folded .ov-sum-tile.loans { display: none; }
 .ov-sum-zero-line { text-align: center; margin: 6px 0 0; }
 .pace-ref-switch { display: flex; gap: 8px; margin: 6px 0 4px; }

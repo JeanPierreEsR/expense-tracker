@@ -399,6 +399,7 @@
     "review.pickBothSides": { en: "Pick an account for From and for To, or choose “Outside my accounts”.", es: "Elige una cuenta en Desde y en Hacia, o elige “Fuera de mis cuentas”." },
     "review.confirm": { en: "Confirm", es: "Confirmar" },
     "review.discard": { en: "Discard", es: "Descartar" },
+    "review.confirmReady": { en: "Confirm the {n} that are ready", es: "Confirmar los {n} que están listos" },
     "reviewBulk.confirmN": { en: "Confirm ({n})", es: "Confirmar ({n})" },
     "reviewBulk.discardN": { en: "Discard ({n})", es: "Descartar ({n})" },
     "reviewBulk.confirmAsk": { en: { one: "Confirm this entry as it is?\n\n{list}\n\nIt keeps the category the app suggested.{left}", other: "Confirm these {n} entries as they are?\n\n{list}\n\nEach keeps the category the app suggested.{left}" }, es: { one: "¿Confirmar este movimiento tal como está?\n\n{list}\n\nConserva la categoría que sugirió la app.{left}", other: "¿Confirmar estos {n} movimientos tal como están?\n\n{list}\n\nCada uno conserva la categoría que sugirió la app.{left}" } },
@@ -481,6 +482,7 @@
     "entries.recent": { en: "Recent entries", es: "Movimientos recientes" },
     "entriesBulk.title": { en: "Delete entries", es: "Eliminar movimientos" },
     "entriesBulk.confirm": { en: {"one": "Delete this entry?", "other": "Delete these {n} entries?"}, es: {"one": "¿Eliminar este movimiento?", "other": "¿Eliminar estos {n} movimientos?"} },
+    "entriesBulk.reviewNote": { en: { one: "{n} item waits in Needs review. To confirm it, use Needs review ›", other: "{n} items wait in Needs review. To confirm several at once, use Needs review's own pencil ›" }, es: { one: "{n} movimiento espera en Por revisar. Para confirmarlo, usa Por revisar ›", other: "{n} movimientos esperan en Por revisar. Para confirmar varios a la vez, usa el lápiz de Por revisar ›" } },
     "entriesBulk.andMore": { en: "…and {n} more", es: "…y {n} más" },
     "entriesBulk.sumIncome": { en: { one: "{n} of them is income", other: "{n} of them are income" }, es: { one: "{n} es ingreso", other: "{n} son ingresos" } },
     "entriesBulk.sumRange": { en: "dated {from} to {to}", es: "con fechas del {from} al {to}" },
@@ -593,6 +595,7 @@
     "entry.undone": { en: "Undone: the entry was removed.", es: "Deshecho: se quitó el movimiento." },
 
     // ---- Home tab: the quick glance at the top, and the entries grouped by day ----
+    "home.waitLine": { en: { one: "{n} item waits in Needs review: not counted yet ›", other: "{n} items wait in Needs review: not counted yet ›" }, es: { one: "{n} movimiento espera en Por revisar: aún no se cuenta ›", other: "{n} movimientos esperan en Por revisar: aún no se cuentan ›" } },
     "home.leftThisMonth": { en: "Result this month", es: "Resultado del mes" },   // money in − out ± loans; not a balance (owner, 2026-11-13)
     "home.leftIn": { en: "Result in {month}", es: "Resultado de {month}" },
     "home.barsTitle": { en: "Income and expenses by month", es: "Ingresos y gastos por mes" },
@@ -2278,6 +2281,7 @@
     "budgets.groupAttention": { en: "Need attention", es: "Requieren atención" },
     "budgets.groupOthers": { en: "Within the limit", es: "Dentro del límite" },
     "budgets.statusFine": { en: "All budgets within their limit", es: "Todos los presupuestos dentro de su límite" },
+    "budgets.statusFineWaiting": { en: { one: "Within their limits so far, but {n} expense waiting in Needs review isn't counted yet", other: "Within their limits so far, but {n} expenses waiting in Needs review aren't counted yet" }, es: { one: "Dentro de su límite por ahora, pero {n} gasto que espera en Por revisar aún no se cuenta", other: "Dentro de su límite por ahora, pero {n} gastos que esperan en Por revisar aún no se cuentan" } },
     "budgets.todayHint": { en: "The small mark on each bar is today's place in the year: a bar that goes past it is spending faster than an even pace.", es: "La marca en cada barra es el lugar de hoy en el año: si la barra la pasa, el gasto va más rápido que a un ritmo parejo." },
     "budgets.todayMarkAria": { en: "Today: about {cur} {amount} at an even pace", es: "Hoy: unos {cur} {amount} a un ritmo parejo" },
     "annualcu.title": { en: "Your “{name}” expenses", es: "Tus gastos de “{name}”" },
@@ -2736,6 +2740,8 @@
     "pop.ov.invLoans": { en: "Investments and loans have their own lines: money put into a platform or lent to someone comes off the Result, and is added back when it returns.", es: "Inversiones y préstamos tienen su propia línea: lo que pones en una plataforma o le prestas a alguien se resta del Resultado, y se vuelve a sumar cuando regresa." },
     "pop.ov.pendingHere": { en: "These are still in Needs review, so they don't count yet. Tap here to confirm them, and they're added.", es: "Estos siguen en Por revisar, así que aún no cuentan. Toca aquí para confirmarlos y se suman." },
     "pop.ov.pending": { en: "Anything still waiting in Needs review on Home doesn't count here until you confirm it.", es: "Lo que sigue esperando en Por revisar, en Inicio, no cuenta aquí hasta que lo confirmes." },
+    "pop.reviewManyReady": { en: "Many items wait. This button confirms in one go every one that already has its category and account.", es: "Esperan muchos movimientos. Este botón confirma de una vez todos los que ya tienen categoría y cuenta." },
+    "pop.reviewManyEdit": { en: "Many items wait. Tap the pencil to pick several and confirm them together.", es: "Esperan muchos movimientos. Toca el lápiz para elegir varios y confirmarlos juntos." },
     "pop.homeEdit": { en: "Tap the pencil to pick several entries at once: delete them, or change their category or trip together.", es: "Toca el lápiz para elegir varios movimientos a la vez: bórralos o cámbiales la categoría o el viaje juntos." },
     "pop.prof.names": { en: "The names your banks use for you. The app learns them from statements and bank emails, to recognize money moved between your own accounts.", es: "Los nombres que usan tus bancos para ti. La app los aprende de tus estados de cuenta y correos del banco, para reconocer el dinero que pasas entre tus propias cuentas." },
     "pop.prof.fits": { en: "What you pick here adds the categories that fit your life. Change it whenever your life changes.", es: "Lo que elijas aquí agrega las categorías que van con tu vida. Cámbialo cuando tu vida cambie." },

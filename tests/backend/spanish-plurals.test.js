@@ -30,6 +30,7 @@ const PLURAL_BEFORE_ = /(?:^|[\s¿¡(])(los|las|estos|estas|sus|tus|nuestros|nue
 
 // Texts whose count is never 1, with why. Keep this short: a one/other form is almost always the better fix.
 const NEVER_ONE_ = {
+  "review.confirmReady": "the button shows only when 2 or more items are ready",
   "pace.greyAvg": "average of 2 or more earlier months (pace needs at least 2)",
   "pace.avgName": "same as pace.greyAvg",
   "pace.avgNameStart": "same as pace.greyAvg",

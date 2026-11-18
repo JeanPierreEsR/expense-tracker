@@ -5057,6 +5057,12 @@ function setEntriesEditing_(on, redraw = true, where = "home") {
   const home = document.getElementById(on && trip ? "screen-trip-detail" : "screen-entries");
   if (bar.parentElement !== home) home.appendChild(bar);
   bar.hidden = !on;
+  // Home's Edit can delete or change entries, not confirm waiting ones: while items wait, say where that is (journeys run, 2026-11-17:
+  // Lucía concluded the app had no way to confirm many at once).
+  const waitingN = (reviewEntries_ || []).filter((e) => !isPracticeReviewEntry_(e)).length;
+  const note = document.getElementById("entries-edit-review-note");
+  note.hidden = !(on && !trip && waitingN);
+  if (!note.hidden) note.textContent = tr("entriesBulk.reviewNote", { n: waitingN });
   document.getElementById("screen-entries").classList.toggle("entries-editing", on && !trip);
   document.getElementById("screen-trip-detail").classList.toggle("entries-editing", on && trip);
   if (!on) entriesWhere_ = "home";
@@ -6708,6 +6714,8 @@ function queueReviewAction_(id, action, fields, extra) {
   // Home's list is fetched again (journeys run, 2026-11-17: the old count stayed for 6 people). A failed save refetches the list.
   reviewEntries_ = reviewEntries_.filter((e) => e.id !== id);
   updatePeriodPendingLine_();
+  syncReviewReadyBtn_();
+  if (homeGlance_) renderHomeGlance_();   // and Home's month card says one fewer waits
 }
 
 function unqueueReviewAction_(id) {
@@ -7614,6 +7622,7 @@ function setReviewEditing_(on, redraw = true) {
   reviewEditing_ = on;
   reviewSelected_ = new Set();
   setEditIcon_(document.getElementById("review-edit-btn"), on);
+  syncReviewReadyBtn_();   // "Confirm the N that are ready" steps aside while picking by hand
   document.getElementById("review-editbar").hidden = !on;
   document.getElementById("screen-entries").classList.toggle("review-editing", on);
   const nav = document.getElementById("bottom-nav");
@@ -7649,8 +7658,20 @@ function reviewAfterBulk_(handledIds) {
 }
 const reviewIssueText_ = (entry, reason) => `${reviewShortName_(entry)} (${tr(`reviewBulk.why.${reason}`)})`;
 
-document.getElementById("review-confirm-selected-btn").addEventListener("click", async () => {
-  const chosen = reviewEntries_.filter((e) => reviewSelected_.has(e.id));
+document.getElementById("review-confirm-selected-btn").addEventListener("click", () => confirmReviewBulk_(reviewEntries_.filter((e) => reviewSelected_.has(e.id))));
+// "Confirm the suggested ones" at the top of the open list (journeys run, 2026-11-17: piles of 100-500 items, and the Edit → Select all
+// way was never found): every waiting item that already has its category and its account, in one question.
+const reviewReadyForAll_ = (e) => !isPracticeReviewEntry_(e) && !reviewIssue_(e) && !reviewIsRepaymentPart_(e)
+  && (e.type === "transfer" || e.type === "investment" || !!e.payment_method_id);
+function syncReviewReadyBtn_() {
+  const btn = document.getElementById("review-confirm-ready-btn");
+  if (!btn) return;
+  const n = reviewEntries_.filter(reviewReadyForAll_).length;
+  btn.hidden = n < 2 || reviewEditing_ || Spotlight.isRunning();
+  btn.textContent = tr("review.confirmReady", { n });
+}
+document.getElementById("review-confirm-ready-btn").addEventListener("click", () => confirmReviewBulk_(reviewEntries_.filter(reviewReadyForAll_)));
+async function confirmReviewBulk_(chosen) {
   if (!chosen.length) return;
   const ready = chosen.filter((e) => !reviewIssue_(e));
   const notReady = chosen.filter((e) => reviewIssue_(e));
@@ -7682,7 +7703,7 @@ document.getElementById("review-confirm-selected-btn").addEventListener("click",
     busy: "reviewBulk.confirming",
     done: () => result && result.confirmed.length && !result.kept.length ? tr("reviewBulk.doneConfirmed", { n: result.confirmed.length, names: reviewNames_(result.confirmed.map((id) => byId.get(id)).filter(Boolean)) }) : "",
   });
-});
+}
 
 document.getElementById("review-discard-selected-btn").addEventListener("click", async () => {
   const chosen = reviewEntries_.filter((e) => reviewSelected_.has(e.id));
@@ -7727,6 +7748,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   document.getElementById("review-count").textContent = entries.length;
   reviewEntries_ = entries;
   updatePeriodPendingLine_();
+  syncReviewReadyBtn_();
+  if (homeGlance_) renderHomeGlance_();   // Home's month card names what waits
   const stillWaiting = new Set(entries.map((e) => e.id));
   reviewSelected_ = new Set([...reviewSelected_].filter((id) => stillWaiting.has(id)));
   if (reviewEditing_) syncReviewEditBar_();
@@ -8508,6 +8531,14 @@ function showReviewQueue_() {
   card.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 document.getElementById("review-toggle").addEventListener("click", () => { setReviewOpen_(!reviewOpen_); if (reviewOpen_) offerReviewTip_(); });
+document.getElementById("entries-edit-review-note").addEventListener("click", () => { setEntriesEditing_(false); openReviewFromHome_(); });
+// The person opens Needs review from the waiting line on Home's month card: the same as tapping its row (its real tutorial may start).
+function openReviewFromHome_() {
+  const card = document.getElementById("review-queue-card");
+  if (!card || card.hidden) return;
+  if (!reviewOpen_) { setReviewOpen_(true); offerReviewTip_(); }
+  card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 document.getElementById("review-body").addEventListener("spot-reveal", () => setReviewOpen_(true));
 
 // A long Needs review must not push Recent entries away (Home test: about 100 screens at 206 items): 10 rows (owner), then "Show more". The other rows stay in
@@ -8787,6 +8818,11 @@ function homeMainCard_(g) {
       <div class="home-four-box"><span>${escapeHtml(tr("summary.loans"))}</span><b class="${(m.loans || 0) > 0.5 ? "income" : ""}">${signed(m.loans || 0)}</b></div>
     </div>`;
 
+  // Items of this month still waiting in Needs review are not in these numbers: said here, on the card people look at (journeys run,
+  // 2026-11-17: Home read "spent 0" for months while 100+ bank items waited, and only Overview / Budgets said why).
+  const waiting = (reviewEntries_ || []).filter((e) => String(e.date || "").slice(0, 7) === m.month && !isPracticeReviewEntry_(e)).length;
+  const waitLine = waiting ? `<button type="button" class="home-wait-line">${escapeHtml(tr("home.waitLine", { n: waiting }))}</button>` : "";
+
   const top = Math.max(1, ...months.map((x) => Math.max(x.income, x.expense)));
   const bars = months.map((x, i) => {
     const mi = Number(x.month.split("-")[1]) - 1;
@@ -8799,12 +8835,16 @@ function homeMainCard_(g) {
   const el = homeCardEl_("home-card-main", `
     <div class="home-card-label home-card-label-info"><span>${escapeHtml(label)}</span>${infoBtnHtml_("result")}</div>
     <div class="home-big">${escapeHtml(homeWholeSigned_(net))}</div>
+    ${waitLine}
     ${four}
     <div class="home-bars-title">${escapeHtml(tr("home.barsTitle"))}</div>
     <div class="home-bars">${bars}</div>
     <div class="home-legend"><span>${escapeHtml(tr("home.allMonths"))} ›</span></div>`);
   el.classList.add("home-card-tap");
-  el.addEventListener("click", (ev) => { if (!ev.target.closest(".home-bar-col")) openOverviewAt_("months-card"); });
+  el.addEventListener("click", (ev) => {
+    if (ev.target.closest(".home-wait-line")) { openReviewFromHome_(); return; }
+    if (!ev.target.closest(".home-bar-col")) openOverviewAt_("months-card");
+  });
   el.querySelectorAll(".home-bar-col").forEach((b) => b.addEventListener("click", () => {
     homeSelectedMonth_ = b.dataset.month;
     renderHomeGlance_();
@@ -12065,7 +12105,11 @@ function drawBudgets_() {
   if (closeN) statusParts.push(`<span class="warn">${escapeHtml(tr("budgets.statusClose", { n: closeN }))}</span>`);
   const progN = budgets.filter((b) => pctOf(b) < 75 && pctAll(b) >= 75).length;
   if (progN) statusParts.push(`<span class="warn">${escapeHtml(tr("budgets.statusProg", { n: progN }))}</span>`);
-  statusLine.innerHTML = statusParts.length ? statusParts.join(" · ") : escapeHtml(tr("budgets.statusFine"));
+  // "All within their limit" is not news while expenses of this period wait in Needs review (journeys run, 2026-11-17: Paola read it at
+  // 0% with 57 waiting): it says how many are not counted yet.
+  const pb = getPeriodBounds();
+  const waitingExp = (reviewEntries_ || []).filter((e) => e.type === "expense" && !isPracticeReviewEntry_(e) && (!pb.startDate || e.date >= pb.startDate) && (!pb.endDate || e.date <= pb.endDate)).length;
+  statusLine.innerHTML = statusParts.length ? statusParts.join(" · ") : escapeHtml(waitingExp ? tr("budgets.statusFineWaiting", { n: waitingExp }) : tr("budgets.statusFine"));
   statusLine.hidden = false;
   // Year view: a small mark on each bar where today falls in its year ("expected by now", owner 2026-11-07), and one line explaining it.
   const todayIso = todayLocalISO();
@@ -25794,7 +25838,9 @@ function watchReceiptsTip_() {
 // Home: the pencil, else the dollar line of a third-currency entry on screen.
 function watchHomeTips_() {
   popTipVisit_("home");
-  if (!popGet_(POP_SEEN_KEY_, []).includes("homeEdit") && ((lastRenderedEntries_ || []).length >= 10)) { watchHomeEditTip_(); if (popWatch_ && popWatch_.key === "homeEdit") return; }
+  // Home's pencil cannot confirm: while items wait in Needs review its bubble stays away (watchReviewManyTip_ points at the way that can).
+  const nothingWaits = !(reviewEntries_ || []).some((e) => !isPracticeReviewEntry_(e));
+  if (nothingWaits && !popGet_(POP_SEEN_KEY_, []).includes("homeEdit") && ((lastRenderedEntries_ || []).length >= 10)) { watchHomeEditTip_(); if (popWatch_ && popWatch_.key === "homeEdit") return; }
   popTipWatch_({
     key: "dollarLine", place: "home", text: tr("pop.dollarLine"),
     target: () => Array.from(document.querySelectorAll("#entry-list .usd-share-amt")).find((e) => e.getClientRects().length) || null,
@@ -25914,15 +25960,23 @@ function tripNudgeHolds_(tripId, currency) {
 
 // ---- Bubbles, batch A (owner's plan 2026-11-11, "Tutorials from the map" § Step 6) ----
 // Overview's totals (basic, kind B): how each kind of entry counts, and that Needs review does not count yet. A series of three.
+// The person has investments or loans to see on Overview: a platform, or loan money in the period, or a debt either way.
+function ovHasInvOrLoans_() {
+  const d = lastOverviewData || {};
+  const platform = ((meta && meta.paymentMethods) || []).some((pm) => pm.type === "investment" && !pmHidden_(pm));
+  return platform || Math.abs((d.totals && d.totals.investment) || 0) > 0.004 || Math.abs((d.totals && d.totals.loans) || 0) > 0.004
+    || !!(d.loans && d.loans.people && d.loans.people.length);
+}
 function watchOverviewTotalsTip_() {
   const screen = document.getElementById("screen-overview");
   const pending = () => { const p = document.getElementById("period-pending-line"); return p && !p.hidden && p.getClientRects().length ? p : null; };
   popTipWatch_({
     key: "ovTotals", place: "overview", level: "basic",
     steps: [
-      { target: () => (popEntriesKnown_() >= 5 ? screen.querySelector(".ov-sum-tile.expense") : null), text: tr("pop.ov.flows") },
-      { target: () => screen.querySelector(".ov-sum-tile.loans"), text: tr("pop.ov.invLoans") },
-      { target: () => pending() || screen.querySelector(".ov-sum-net"), get text() { return tr(pending() ? "pop.ov.pendingHere" : "pop.ov.pending"); } }
+      // (journeys run, 2026-11-17: each part only for someone it is about; light users waited 45-75 days for the first part at 5 entries)
+      { target: () => (popEntriesKnown_() >= 1 ? screen.querySelector(".ov-sum-tile.expense") : null), text: tr("pop.ov.flows") },
+      { target: () => screen.querySelector(".ov-sum-tile.loans"), text: tr("pop.ov.invLoans"), when: ovHasInvOrLoans_ },
+      { target: () => pending(), text: tr("pop.ov.pendingHere"), when: () => !!pending() }
     ],
     stillWanted: () => !screen.hidden,
     ready: () => !screen.classList.contains("overview-loading")
@@ -25933,7 +25987,7 @@ function watchHomeEditTip_() {
   popTipWatch_({
     key: "homeEdit", place: "home", level: "medium", text: tr("pop.homeEdit"), struggle: () => popStruggling_("homeEdit"),
     target: () => { const b = document.getElementById("entries-edit-btn"); return b.hidden || (lastRenderedEntries_ || []).length < 10 ? null : b; },
-    stillWanted: () => !document.getElementById("screen-entries").hidden
+    stillWanted: () => !document.getElementById("screen-entries").hidden && !(reviewEntries_ || []).some((e) => !isPracticeReviewEntry_(e))
   });
 }
 // My profile (kind A, first visit): each card in turn.
@@ -26709,7 +26763,7 @@ function offerReviewTip_() {   // called whenever Needs review may have somethin
   if (!reviewEntries_.length) return;   // nothing waiting yet
   if (!reviewOpen_) return;   // the row starts closed: its tutorial starts when the person opens it (owner, 2026-11-09), never when Home loads
   if (reviewRealTimer_) return;
-  reviewRealTimer_ = setTimeout(() => { reviewRealTimer_ = null; startReviewReal_(); watchReviewHint_(); }, 400);
+  reviewRealTimer_ = setTimeout(() => { reviewRealTimer_ = null; startReviewReal_(); watchReviewHint_(); watchReviewManyTip_(); }, 400);
 }
 function reviewTypeSteps_(id, type, opts) {
   const row = () => practiceNRow_(id);
@@ -27185,6 +27239,23 @@ function watchReviewHint_() {
   popTipWatch_({ key: "hint-" + entry.loan_hint.kind, place: "home", help: true, text: tr("rt.conv.hint"),
     target: () => { const r = practiceNRow_(entry.id); return r ? r.querySelector(".review-hint-btn") : null; },
     stillWanted: () => !document.getElementById("screen-entries").hidden && !!practiceNRow_(entry.id),
+    ready: realScreenFree_ });
+}
+
+// Many items waiting (10 or more) and the person opened the list: one bubble at the way to confirm them together (journeys run,
+// 2026-11-17: piles of 100-500, and the only "several at once" hint pointed at Home's pencil, which cannot confirm). The "Confirm the N
+// that are ready" button when it shows, else the list's own pencil.
+function watchReviewManyTip_() {
+  if (popWatch_ || popOpen_ || Spotlight.isRunning() || !reviewOpen_ || document.getElementById("screen-entries").hidden) return;
+  if (popGet_(POP_SEEN_KEY_, []).includes("reviewMany")) return;
+  const waiting = () => (reviewEntries_ || []).filter((e) => !isPracticeReviewEntry_(e)).length;
+  if (waiting() < 10) return;
+  const readyBtn = () => { const b = document.getElementById("review-confirm-ready-btn"); return b && !b.hidden && b.getClientRects().length ? b : null; };
+  const editBtn = () => { const b = document.getElementById("review-edit-btn"); return b && !b.hidden && b.getClientRects().length ? b : null; };
+  popTipWatch_({ key: "reviewMany", place: "home", level: "basic",
+    text: readyBtn() ? tr("pop.reviewManyReady") : tr("pop.reviewManyEdit"),
+    target: () => readyBtn() || editBtn(),
+    stillWanted: () => reviewOpen_ && !document.getElementById("screen-entries").hidden && waiting() >= 10,
     ready: realScreenFree_ });
 }
 
