@@ -668,6 +668,7 @@ input[type="date"] {
 
 .acur-row { padding: 10px 0; border-top: 1px solid var(--border); }
 .acur-name { font-weight: 600; overflow-wrap: anywhere; }
+.acur-bank { font-size: 0.875rem; color: var(--muted); overflow-wrap: anywhere; }
 .acur-ticks { display: flex; flex-wrap: wrap; gap: 0 16px; }
 .currency-checks .checkbox-row { margin-top: 0; }
 .currency-checks .add-inline { margin-top: 4px; }
