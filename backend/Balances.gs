@@ -535,3 +535,46 @@ function realDueAfter_(due, closed) {
   if (t.getUTCMonth() !== +m[2] - 1 || t.getUTCDate() !== +m[3]) return '';
   return d > String(closed || '').substring(0, 10) ? d : '';
 }
+
+// A card's pay-by date typed by the person (owner's plan, 2026-11-18: Diners prints it as something that is not text). The gap in days
+// between the newest saved statement that has a pay-by date and that date: the next statement's box is filled with the same gap.
+// '' when the card never had one.
+function cardDueGapDays_(pmId) {
+  var best = null;
+  try { ensureStatementUploadsSheet_(); } catch (e) { return ''; }
+  getAllRows('Statement Uploads').forEach(function (u) {
+    if (String(u.payment_method_id) !== String(pmId) || !u.closing_json) return;
+    var c = {};
+    try { c = JSON.parse(String(u.closing_json)) || {}; } catch (e) { return; }
+    var due = realDueAfter_(c._due, u.period_end);
+    if (due && (!best || String(u.period_end) > best.end)) best = { end: String(u.period_end).substring(0, 10), due: due };
+  });
+  if (!best) return '';
+  return Math.round((Date.parse(best.due + 'T12:00:00Z') - Date.parse(best.end + 'T12:00:00Z')) / 86400000);
+}
+function addDaysIso_(iso, n) {
+  var d = new Date(String(iso).substring(0, 10) + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// The pay-by date of a card's LAST saved statement, typed on the card's screen (owner's plan, 2026-11-18): for a statement saved without
+// one. Only a real day after that statement closed; written into its `closing_json` as `_due`, like a date read from the file.
+function setCardStatementDue(payload) {
+  var pmId = String((payload && payload.id) || '');
+  ensureStatementUploadsSheet_();
+  var sheet = getSheet('Statement Uploads');
+  var headers = getHeaders(sheet);
+  var latest = null;
+  getAllRows('Statement Uploads').forEach(function (u) {
+    if (String(u.payment_method_id) === pmId && u.closing_json && (!latest || String(u.period_end) > String(latest.period_end))) latest = u;
+  });
+  if (!latest) throw new Error(tr_('err.cardNoStatement'));
+  var due = realDueAfter_(payload.due, latest.period_end);
+  if (!due) throw new Error(tr_('err.cardDueAfterClose'));
+  var c = {};
+  try { c = JSON.parse(String(latest.closing_json)) || {}; } catch (e) { c = {}; }
+  c._due = due;
+  setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, latest.id), 'closing_json', JSON.stringify(c));
+  return { ok: true, due: due };
+}

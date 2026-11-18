@@ -18101,6 +18101,8 @@ async function fillPmOwedLine_(pm) {
   const line = document.getElementById("pm-owed-line");
   if (!line) return;
   line.hidden = true;
+  const dueAdd = document.getElementById("pm-due-add");
+  if (dueAdd) { dueAdd.hidden = true; document.getElementById("pm-due-row").hidden = true; document.getElementById("pm-due-open").hidden = false; }
   if (!pm || pm.type !== "credit") return;
   let rows = balancesCache;
   if (!balancesLoaded_) { try { rows = await callApi("listPaymentMethodBalances", {}); } catch (e) { return; } }   // (Overview not opened yet)
@@ -18112,7 +18114,32 @@ async function fillPmOwedLine_(pm) {
   if (!row.statement_closed && !dueT && !r.balances.some((b) => b.amount < -0.004)) return;   // (a live card: shown when it owed, date or not)
   line.textContent = tr("accounts.owedAtStatement", { amounts: r.balances.map((b) => formatAmount(Math.abs(b.amount), b.currency)).join(" · "), date: I18n.fmtDateMedium(new Date(r.statement_closed + "T12:00:00")) }) + (dueT ? " " + dueT + "." : "");
   line.hidden = false;
+  // No pay-by date read from that statement (Diners prints it as something that is not text): the person can type it here
+  // (owner's plan, 2026-11-18). Only while that statement still owes something.
+  if (dueAdd && !r.due && r.balances.some((b) => b.amount < -0.004)) {
+    const min = new Date(r.statement_closed + "T12:00:00"); min.setDate(min.getDate() + 1);
+    const inp = document.getElementById("pm-due-input");
+    inp.min = min.toISOString().slice(0, 10); inp.value = "";
+    dueAdd.hidden = false;
+  }
 }
+// Saves the pay-by date typed on a card's screen onto its last statement; the sheet stays open (it is one field of a bigger form)
+// and the Balances list is refreshed behind it.
+async function savePmDue_() {
+  const inp = document.getElementById("pm-due-input");
+  const id = pmModalState && pmModalState.id;
+  if (!id) return;
+  if (!inp.value || (inp.min && inp.value < inp.min)) { showToast_(tr("accounts.dueTooEarly")); return; }
+  const due = inp.value;
+  document.getElementById("pm-due-add").hidden = true;
+  const line = document.getElementById("pm-owed-line");
+  line.textContent += " " + tr("accounts.dueSaved", { date: I18n.fmtDateMedium(new Date(due + "T12:00:00")) });
+  saveBehindScreen_(() => callApi("setCardStatementDue", { id, due }), refreshBalances);
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest("#pm-due-open")) { document.getElementById("pm-due-open").hidden = true; document.getElementById("pm-due-row").hidden = false; document.getElementById("pm-due-input").focus(); }
+  else if (e.target.closest("#pm-due-save")) savePmDue_();
+});
 function openPmModal_(pm) {
   const linked = (meta && meta.settings) || {};
   pmModalState = { id: pm ? pm.id : null, lastBank: pm ? pm.bank_id || "" : "",
@@ -25500,7 +25527,7 @@ function spinLoadingText_(node) {
 const LINK_ICON_RULES_ = [
   // No icon, on purpose: Cancel / Not now / Save / Done / Select all are plain answers or edit-bar buttons; a link that starts
   // with its own arrow (‹ Back, ▸ Hidden) already has one; a link that is a whole sentence about an amount stays a sentence.
-  [/^(cancel|cancelar|not now|ahora no|save|guardar|done|listo|select all|seleccionar todo)$/i, null],
+  [/^(cancel|cancelar|not now|ahora no|save|guardar|save date|guardar fecha|done|listo|select all|seleccionar todo)$/i, null],
   [/^[‹›▸▾⌄✕]/, null],
   [/^\S+ [\d.,]+ (tagged|con la etiqueta)/i, null],
   [/^(covered|cubierta)$/i, "check"],   // a trip estimate's "✓ Covered" (the hint above names it so)

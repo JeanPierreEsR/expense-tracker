@@ -416,7 +416,23 @@ function planStatementHistory(payload) {
     var st = (analysis.statements || [])[c.stmt];
     return Object.assign({}, c, { accountName: st && st.account ? st.account.nickname : '' });
   });
-  return { actions: plan.actions, summary: plan.summary, balance_checks: checks, plan_matches: stmtPlanMatches_((payload && payload.statements) || [], plan.actions) };
+  return { actions: plan.actions, summary: plan.summary, balance_checks: checks, plan_matches: stmtPlanMatches_((payload && payload.statements) || [], plan.actions),
+    due_asks: stmtDueAsks_(analysis, (payload && payload.statements) || []) };
+}
+
+// Card statements whose pay-by date was not read from the file (owner's plan, 2026-11-18): the preview offers a box for it, filled with
+// the card's usual gap after closing when an earlier statement had one (`guess`), else empty. [{ stmt, account, guess }]
+function stmtDueAsks_(analysis, statements) {
+  var out = [];
+  try {
+    (analysis.statements || []).forEach(function (st, i) {
+      var s = statements[i] || {};
+      if (!st || !st.account || st.account.type !== 'credit' || s.due || !s.period || !s.period.end) return;
+      var gap = cardDueGapDays_(st.account.id);
+      out.push({ stmt: i, account: st.account.nickname || '', guess: gap === '' ? '' : addDaysIso_(s.period.end, gap) });
+    });
+  } catch (e) { return []; }
+  return out;
 }
 
 // Lines that look like a Programmed item's month (owner's plan, 2026-11-17): only lines whose file names a category the app has (an

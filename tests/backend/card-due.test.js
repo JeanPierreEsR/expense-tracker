@@ -87,3 +87,34 @@ test("the card line: paid, part paid, pay by, nothing recorded after the date â€
   assert.equal(f(r({ balances: [{ currency: "PEN", amount: 20 }] })), "", "a card in credit owes nothing");
   assert.doesNotMatch(src, /overdue|vencid/i);
 });
+
+test("a card statement with no pay-by date: the preview asks for it, filled with last time's gap after closing (owner's plan, 2026-11-18)", () => {
+  const { rt } = freshApp({ entries: 10 });
+  rt.run(`appendRowObject('Payment Methods', { id: 'pm-dn', nickname: 'Diners Prueba', type: 'credit', bank_id: '', last_4: '0013', currency: 'PEN' });`);
+  const stmt = (end, due) => ({ key: "0013", kind: "diners", verified: true, period: { start: end.slice(0, 8) + "01", end }, balances: { PEN: { opening: 0, closing: -100 } }, file_name: "d.pdf", due: due || "",
+    lines: [{ date: end, description: "COMPRA TIENDA PRUEBA", amount: -100, currency: "PEN" }] });
+  const plan = (s) => JSON.parse(rt.run(`JSON.stringify(planStatementHistory(${JSON.stringify({ statements: [s] })}))`));
+  let p = plan(stmt("2026-09-09"));
+  assert.deepEqual(p.due_asks, [{ stmt: 0, account: "Diners Prueba", guess: "" }], "never had a date: an empty box");
+  rt.run(`applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "h", statements: [stmt("2026-09-09", "2026-10-04")], actions: p.actions })})`);
+  p = plan(stmt("2026-10-09"));
+  assert.deepEqual(p.due_asks, [{ stmt: 0, account: "Diners Prueba", guess: "2026-11-03" }], "25 days after closing, like last time");
+  assert.deepEqual(plan(stmt("2026-10-09", "2026-11-04")).due_asks, [], "a date read from the file asks nothing");
+});
+
+test("the pay-by date typed on the card's screen goes onto its LAST statement, only after it closed", () => {
+  const { rt } = freshApp({ entries: 10 });
+  rt.run(`appendRowObject('Payment Methods', { id: 'pm-dt', nickname: 'Diners Tipeo', type: 'credit', bank_id: '', last_4: '0014', currency: 'PEN' });`);
+  assert.throws(() => rt.api("setCardStatementDue", { id: "pm-dt", due: "2026-12-01" }), /no saved statement/);
+  const up = (id, end) => rt.run(`appendRowObject('Statement Uploads', { id: '${id}', account_key: '0014', payment_method_id: 'pm-dt', kind: 'diners', period_end: '${end}', closing_json: ${JSON.stringify(JSON.stringify({ PEN: { opening: 0, closing: -300 } }))}, source: 'upload' });`);
+  up("su-old", "2026-10-09");
+  up("su-new", "2026-11-09");
+  assert.throws(() => rt.api("setCardStatementDue", { id: "pm-dt", due: "2026-11-09" }), /after the statement closed/);
+  assert.throws(() => rt.api("setCardStatementDue", { id: "pm-dt", due: "2026-02-30" }), /after the statement closed/);
+  rt.api("setCardStatementDue", { id: "pm-dt", due: "2026-12-04" });
+  const row = rt.api("listPaymentMethodBalances", {}).find((r) => r.id === "pm-dt");
+  assert.equal(row.statement_closed, "2026-11-09");
+  assert.equal(row.due, "2026-12-04");
+  assert.deepEqual(row.balances, [{ currency: "PEN", amount: -300 }], "the date is not mistaken for a currency");
+  assert.equal(Number(rt.run(`cardDueGapDays_('pm-dt')`)), 25, "and the next statement's box will guess 25 days");
+});
