@@ -238,6 +238,13 @@ function applyStatementDecisions(payload) {
     var s = categorySuggestion_(guessScan, stmtMerchantKey_(description));
     return s ? s.categoryId : '';
   }
+  // "These lines look like planned items", left ticked in the preview: the new entry is that Programmed item's payment (2026-11-17).
+  var planLinks = {};
+  ((payload && payload.planLinks) || []).forEach(function (p) {
+    if (p && p.recurring_id && getAllRows('Recurring Expenses').some(function (r) { return r.id === p.recurring_id; })) planLinks[p.stmt + ':' + p.line] = String(p.recurring_id);
+  });
+  if (Object.keys(planLinks).length && !dryRun) ensureEntriesRecurringLinkColumn_();
+  function planLinkFor(a) { return planLinks[a.stmt + ':' + a.line] || ''; }
   function countLineCategory(lc) {
     if (!lc.text) return;
     if (lc.id) report.categoriesFiled = (report.categoriesFiled || 0) + 1;
@@ -454,6 +461,7 @@ function applyStatementDecisions(payload) {
         if (guessed) { hxCat = { id: guessed, text: '' }; report.categoriesGuessed = (report.categoriesGuessed || 0) + 1; }
       }
       var madeH = newEntry({ type: 'expense', date: hx.l.date, currency: hx.l.currency, category_id: revFor ? (revFor[col.category_id] || '') : hxCat.id, payment_method_id: requirePm(hx).id,
+        recurring_expense_id: isRev ? '' : planLinkFor(a),
         amount: isRev ? -hx.l.amount : Math.abs(hx.l.amount),
         description: isRev ? tr_('desc.reversal', { text: stmtCleanDescription_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) }) : stmtCleanDescription_(hx.l.description),
         status: 'confirmed', external_id: 'stmt-' + hx.key, merchant: stmtMerchantKey_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) });
@@ -480,7 +488,7 @@ function applyStatementDecisions(payload) {
       var hiCat = lineCategory('income', hi.l.category);
       // It may be an income the person was waiting for: then it goes to Needs review, which asks, instead of counting the same money twice.
       var hiWaits = !!waitingMatchFor_({ currency: hi.l.currency, amount: hi.l.amount }, listWaitingIncome_());
-      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: hiCat.id || interestCat,
+      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: hiCat.id || interestCat, recurring_expense_id: planLinkFor(a),
         description: stmtCleanDescription_(hi.l.description), payment_method_id: requirePm(hi).id, status: hiWaits ? 'pending' : 'confirmed', external_id: 'stmt-' + hi.key });
       if (madeHI) { report.created.income++; countLineCategory(hiCat); }
       if (madeHI && !hiWaits && !(hiCat.id || interestCat)) report.uncategorized++;

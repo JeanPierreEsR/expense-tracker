@@ -315,7 +315,7 @@ function whatsappNewPurchase_(text, p) {
   var card = sendTelegramEntryNotification_(r.entry, r.categoryName);
   var cardId = card && card.ok ? card.result.message_id : '';
   if (r.editMessage) botText_(r.editMessage, cardId || p.id);
-  if (telegramTagAskAfter_) sendTelegramTagAsk_(WA_CHAT_ID_, telegramTagAskAfter_, cardId || null);
+  if (telegramTagAskAfter_) { sendTelegramTagAsk_(WA_CHAT_ID_, telegramTagAskAfter_, cardId || null); sendTelegramPlanAsk_(WA_CHAT_ID_, telegramTagAskAfter_, cardId || null); }
   telegramTagAskAfter_ = '';
 }
 
@@ -323,7 +323,7 @@ function whatsappTap_(id, p) {
   var parts = id.split(':');
   var action = parts[0], entryId = parts[1] || '';
   whatsappClearAwaiting_();   // any tap cancels an open "send the new …" question (a field tap asks again)
-  if (/^(?:confirm|discard|waitpay|ptags|ptagsno|delrep)$/.test(action)) {
+  if (/^(?:confirm|discard|waitpay|ptags|ptagsno|plink|plinkno|delrep)$/.test(action)) {
     var cardId = p.context_id || whatsappCardFor_(entryId);
     return handleTelegramCallback_({ id: 'whatsapp', data: id, message: { chat: { id: WA_CHAT_ID_ }, message_id: cardId } });
   }
