@@ -3827,7 +3827,12 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 
 .app-confirm-text { white-space: pre-line; font-size: 1rem; line-height: 1.4; margin: 0 0 14px; }
 /* A long question (a list of entries) scrolls by itself; its buttons stay on screen (Tomás, 2026-11-18: below the fold at 375px). */
-#app-confirm-text { max-height: 52vh; overflow-y: auto; }
+/* The buttons always stay inside the sheet and only the text shrinks (Tomás, re-check 2026-11-18: at 375 × 667 a fixed 52vh cap
+   still pushed Confirm and Cancel under the sheet's edge). */
+#app-confirm-backdrop .budget-modal-body { display: flex; flex-direction: column; }
+#app-confirm-backdrop .budget-modal-body > * { flex-shrink: 0; }
+#app-confirm-backdrop .budget-modal-body > #app-confirm-text { flex: 0 1 auto; min-height: 3em; overflow-y: auto; }
+#app-confirm-backdrop .budget-modal-body > [hidden] { display: none; }
 /* More answers than yes / no (which trip, when two cover a day): stacked under the first, same look. */
 #app-confirm-choices .primary { display: block; width: 100%; margin-top: 8px; }
 

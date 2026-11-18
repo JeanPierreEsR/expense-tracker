@@ -449,3 +449,15 @@ test("Type words: only plain ones count", () => {
   assert.equal(ST.typeKind("Pago de tarjeta"), "");
   assert.equal(ST.typeKind(""), "");
 });
+
+test("amounts in more than one currency: no dollar assumed, the file is marked as mixed (Mark, re-check 2026-11-18)", () => {
+  const mixed = ST.guessMapping(ST.parseCsv("Date,Payee,Category,Amount\n2026-10-04,Cafe Uno,Restaurants,-S/ 12.50\n2026-10-05,Shop Dos,Groceries,-$ 30.00\n"));
+  assert.equal(mixed.currencySign, "");
+  assert.equal(mixed.currencyMixed, "$, S/");
+  const dollars = ST.guessMapping(ST.parseCsv("Date,Payee,Category,Amount\n2026-10-04,Cafe Uno,Restaurants,-$12.50\n2026-10-05,Shop Dos,Groceries,-US$ 30.00\n"));
+  assert.equal(dollars.currencyMixed, "");
+  assert.ok(dollars.currencySign);
+  const soles = ST.guessMapping(ST.parseCsv("Date,Payee,Category,Amount\n2026-10-04,Cafe Uno,Restaurants,-S/ 12.50\n"));
+  assert.equal(soles.currencySign, "");
+  assert.equal(soles.currencyMixed, "");
+});

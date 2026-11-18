@@ -625,7 +625,17 @@
       var amtTexts = [].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })).map(cellText).filter(function (v) { return /\d/.test(v); });
       var us = amtTexts.filter(function (v) { return /US\$/i.test(v); }).length;
       var dollar = amtTexts.filter(function (v) { return /(^|[^A-Za-z\/])\$/.test(v); }).length;
-      if (amtTexts.length && us >= amtTexts.length / 2) m.currencySign = 'US$';
+      // Another currency's mark on some lines too ("S/ 12.50" next to "$ 30.00"): no currency is assumed for the whole file, and the
+      // screen warns that it mixes currencies (Mark, re-check 2026-11-18: the soles lines were read as dollars).
+      var others = {};
+      amtTexts.forEach(function (v) {
+        var t = v.replace(/US\$/ig, '');
+        (t.match(/S\/|€|£|¥|R\$|\b(PEN|EUR|GBP|BRL|JPY|soles?)\b/ig) || []).forEach(function (k) { others[/^s(\/|oles?)$/i.test(k) ? 'S/' : k.toUpperCase()] = 1; });
+      });
+      var otherMarks = Object.keys(others);
+      m.currencyMixed = '';
+      if (otherMarks.length && (us || dollar)) m.currencyMixed = (us ? ['US$'] : ['$']).concat(otherMarks).join(', ');
+      else if (amtTexts.length && us >= amtTexts.length / 2) m.currencySign = 'US$';
       else if (amtTexts.length && dollar >= amtTexts.length / 2) m.currencySign = '$';
     }
     m.sign = 'negative';
