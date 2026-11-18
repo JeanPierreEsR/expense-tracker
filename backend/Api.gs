@@ -544,6 +544,7 @@ function routeActionSwitch_(action, payload) {
     case 'setRulePack': return setRulePack(payload);
     case 'confirmEntry': return confirmEntryFromApp_(payload);
     case 'unconfirmEntry': return unconfirmEntry_(payload);
+    case 'unconfirmEntries': return unconfirmEntries(payload);
     case 'createPracticePending': return createPracticePending(payload);
     case 'removePracticeReview': return removePracticeReview(payload);
     case 'createPracticeTidy': return createPracticeTidy(payload);
@@ -1188,6 +1189,30 @@ function confirmEntries(payload) {
     }
   });
   try { var asks = programmedTagAsk_(out.confirmed); if (asks.length) out.tag_asks = asks; } catch (e) { /* only a question */ }
+  return out;
+}
+
+// unconfirmEntries({ items: [{ id, trip, link }] }): Undo of a "confirm many at once" (testers 2026-11-18: 70 entries in one tap could not be sent
+// back). Each entry goes back to Needs review; the trip (trip: true) and the Programmed item link (link: true) THAT confirm set are taken off
+// again. One already back is fine; one the single Undo would refuse (a manual entry, a split) stays and is listed.
+function unconfirmEntries(payload) {
+  var out = { undone: [], kept: [] }, seen = {};
+  ((payload && payload.items) || []).forEach(function (it) {
+    var id = String((it && it.id) || '');
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    try {
+      var entry = getEntryById_(id);
+      if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
+      if (entry.status === 'pending') { out.undone.push(id); return; }
+      unconfirmEntry_({ id: id });
+      if (it.link && entry.recurring_expense_id) adminLinkEntryToRecurring(id, '', '');
+      if (it.trip && entry.trip_id) setEntryField_(id, 'trip_id', '');
+      out.undone.push(id);
+    } catch (err) {
+      out.kept.push({ id: id, reason: 'refused', message: String(err && err.message || err) });
+    }
+  });
   return out;
 }
 

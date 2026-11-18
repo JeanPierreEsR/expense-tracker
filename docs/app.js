@@ -7748,6 +7748,7 @@ async function confirmReviewBulk_(chosen) {
   // Trips are asked, never put in silently (owner, 2026-11-18; Valeria: a trip's total jumped with nothing said). One question per trip the
   // app suggests, before anything is saved: "Add them" / "Leave them out"; the ✕ stops the whole confirm. A trip the item already carries stays.
   const tripOf = new Map();
+  const tripsSet = new Set();   // the trips this confirm adds (its Undo takes them off again)
   const byTrip = new Map();
   ready.forEach((e) => {
     if (e.type !== "expense") return;
@@ -7762,7 +7763,7 @@ async function confirmReviewBulk_(chosen) {
     const answer = await askConfirmApp_(tr("reviewBulk.tripAsk", { n: list.length, trip: tripLabel_(trip), list: reviewListText_(list) }),
       tr("reviewBulk.tripAdd"), { plain: true, cancel: tr("reviewBulk.tripLeave"), closeValue: null });
     if (answer === null) return;
-    if (answer) list.forEach((e) => tripOf.set(e.id, tripId));
+    if (answer) list.forEach((e) => { tripOf.set(e.id, tripId); tripsSet.add(e.id); });
   }
   const linkFor = new Map(toLink.map((e) => [e.id, e.plan_match.recurring_id]));
   const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (tripOf.get(e.id) || "") : undefined, link_recurring_id: linkFor.get(e.id) || undefined }));
@@ -7787,12 +7788,37 @@ async function confirmReviewBulk_(chosen) {
       showAppMessage_(tr("reviewBulk.linkSkipped", { names: result.link_skipped.map((k) => { const e = byId.get(k.id); return e ? reviewShortName_(e) : ""; }).filter(Boolean).join(", ") }));
     }
     if ((result && result.linked || []).length) refreshExpectedRecurring().catch(() => {});
-    if (!result || !result.kept.length) return;
-    showAppMessage_(tr("reviewBulk.resultKept", { items: result.kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
+    if (!result) return;
+    // A reply lost and the save sent again (Nico, 2026-11-18): what the first one confirmed comes back "not pending". If it is no longer
+    // waiting, it WAS confirmed, so it is said as confirmed, never "Left in Needs review".
+    const waitingNow = new Set((reviewEntries_ || []).map((e) => e.id));
+    const already = result.kept.filter((k) => k.reason === "notPending" && !waitingNow.has(k.id)).map((k) => k.id);
+    const kept = result.kept.filter((k) => !already.includes(k.id));
+    const done = result.confirmed.concat(already);
+    const canUndo = !!(meta && meta.capabilities && meta.capabilities.bulkUndo);
+    if (done.length && !kept.length) {
+      const text = tr("reviewBulk.doneConfirmed", { n: done.length, names: reviewNames_(done.map((id) => byId.get(id)).filter(Boolean)) });
+      if (canUndo) showUndoToast_(text, () => undoReviewBulk_(done.map((id) => ({ id, trip: tripsSet.has(id), link: linkFor.has(id) }))), "review");
+      else showToast_(text);
+    }
+    if (!kept.length) return;
+    showAppMessage_(tr("reviewBulk.resultKept", { items: kept.map((k) => { const e = byId.get(k.id); return e ? `${reviewShortName_(e)} (${k.message || tr(`reviewBulk.why.${k.reason}`)})` : ""; }).filter(Boolean).join(", ") }));
   }, {
     busy: "reviewBulk.confirming",
-    done: () => result && result.confirmed.length && !result.kept.length ? tr("reviewBulk.doneConfirmed", { n: result.confirmed.length, names: reviewNames_(result.confirmed.map((id) => byId.get(id)).filter(Boolean)) }) : "",
+    done: () => "",
   });
+}
+
+// Undo of a "confirm many at once": every entry back in Needs review, without the trips and Programmed item links that confirm added.
+function undoReviewBulk_(items) {
+  let res = null;
+  saveBehindScreen_(async () => { res = await callApi("unconfirmEntries", { items }); }, async () => {
+    refreshEntryList().catch(() => {});
+    refreshExpectedRecurring().catch(() => {});
+    refreshHomeGlance_(true);
+    await refreshReviewQueue(undefined, true).catch(() => {});
+    if (res && res.kept.length) showAppMessage_(tr("reviewBulk.undoKept", { n: res.kept.length }));
+  }, { busy: "reviewBulk.undoing", done: () => (res && res.undone.length ? tr("reviewBulk.undone", { n: res.undone.length }) : "") });
 }
 
 document.getElementById("review-discard-selected-btn").addEventListener("click", async () => {
