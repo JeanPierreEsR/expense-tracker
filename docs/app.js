@@ -18081,7 +18081,10 @@ function cardDueTextRaw_(r) {
   const owed = (r.balances || []).filter((b) => b.amount < -0.004).map((b) => ({ cur: b.currency, owed: -b.amount, paid: Number((r.paid_since || {})[b.currency]) || 0 }));
   if (!owed.length) return "";
   const fmtD = (iso) => I18n.fmtDateMedium(new Date(iso + "T12:00:00"));
-  if (owed.every((o) => o.paid >= o.owed - 0.005)) return tr("cardDue.paid", { date: r.last_paid ? fmtD(r.last_paid) : "" }).replace(" ()", "");
+  // The day the statement's debt was covered, not the latest payment: paying the next, still-open cycle early must not move it
+  // (owner, 2026-11-18). An older backend sends only last_paid.
+  const paidOn = r.covered_on || r.last_paid;
+  if (owed.every((o) => o.paid >= o.owed - 0.005)) return tr("cardDue.paid", { date: paidOn ? fmtD(paidOn) : "" }).replace(" ()", "");
   const passed = !!r.due && r.due < todayLocalISO();
   const dueBit = r.due ? tr(passed ? "cardDue.wasDue" : "cardDue.payBy", { date: fmtD(r.due) }) : "";
   if (owed.some((o) => o.paid > 0.004)) {
