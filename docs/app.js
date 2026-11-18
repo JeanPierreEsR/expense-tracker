@@ -7962,6 +7962,14 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (tripEl) fields.trip_id = tripEl.value;
       // The account the money left (expense) or arrived in (income): changed here when the e-mail did not name it, or named the wrong one.
       const accountEl = item.querySelector(".review-account");
+      // No account picked while there are accounts to pick: ask once (journeys run, 2026-11-17: items confirmed with no account count in
+      // spending but in no balance, and nothing said so). Not during a tutorial or practice, which fill it themselves.
+      if (accountEl && !accountEl.value && [...accountEl.options].some((o) => o.value) && !Spotlight.isRunning() && !isPracticeReviewEntry_(entry)
+        && !await askConfirmApp_(tr("review.noAccountAsk"), tr("confirmBtn.confirmNoAccount"), { plain: true, cancel: tr("confirmBtn.pickAccount") })) {
+        item.classList.remove("review-collapsed");
+        accountEl.focus();
+        return;
+      }
       if (accountEl && accountEl.value !== (entry.payment_method_id || "")) fields.payment_method_id = accountEl.value;
       if (!isPracticeReviewEntry_(entry)) betaRecordEvents_(PerfShare.queueEvents(entry, fields, betaEntryPlace_(entry)));   // (the practice's entries are not counted)
       queueReviewAction_(entry.id, "confirm", fields);
@@ -13086,7 +13094,12 @@ function renderFirstSteps_() {
     steps.push({ done: anyEntry, text: tr("firstSteps.firstEntry"), hint: tr("firstSteps.firstEntryHint"), go: () => openNewEntrySheet_() });
   }
   steps.push({ done: ownAccounts.length > 0, text: tr("firstSteps.accounts"), go: () => document.getElementById("more-accounts-btn").click() });
-  if (caps.bankEmails && hasBank) {   // (owner, 2026-11-09: for everyone; Sol, who skipped everything, was told about bank e-mails)
+  // Bank e-mail steps only when one of the person's banks has e-mails the app can read (journeys run, 2026-11-17: a Scotiabank person was
+  // told "No bank email in 89 days" for months, a step that could never be done). An older backend (no list) keeps the old behaviour.
+  const bankNameOf = (p) => { const b = (meta.banks || []).find((x) => String(x.id) === String(p.bank_id)); return b ? b.name : ""; };
+  const mailKnown = !!(info.banks);
+  const mailBank = !mailKnown || ownAccounts.some((p) => p.bank_id && !["cash", "wallet", "investment"].includes(p.type) && bankReadable_(bankNameOf(p)));
+  if (caps.bankEmails && hasBank && mailBank) {   // (owner, 2026-11-09: for everyone; Sol, who skipped everything, was told about bank e-mails)
     // Which inbox is read and how other banks' e-mails get there (the Bank emails sheet): a step here instead of a sheet that opened
     // by itself right after the welcome (owner, 2026-11-04: one thing at a time). Done once the person opened it.
     steps.push({ done: fsFlag_("etBankMailIntro"), text: tr("firstSteps.bankMail"), hint: tr("firstSteps.bankMailHint"),
@@ -13097,7 +13110,8 @@ function renderFirstSteps_() {
     const late = days >= 3 && !quiet && !(info.health && info.health.problem);
     steps.push({ done: got, text: tr("firstSteps.firstMail"), late, hint: late ? tr("firstSteps.firstMailLate", { n: days }) : tr(quiet && days >= 3 ? "firstSteps.firstMailSoon" : "firstSteps.firstMailWait"), go: () => showBankEmailsScreen() });
   }
-  if (hasBank) steps.push({ done: fsFlag_("etFirstStatement"), text: tr("firstSteps.statement"), hint: tr("firstSteps.statementHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("data-statements-btn").click(); renderFirstSteps_(); } });
+  // With no bank e-mails to read, the bank's own file is THE way in: said as such, not as "optional" (Julia, Scotiabank).
+  if (hasBank) steps.push({ done: fsFlag_("etFirstStatement"), text: tr(mailBank ? "firstSteps.statement" : "firstSteps.statementOnly"), hint: tr(mailBank ? "firstSteps.statementHint" : "firstSteps.statementOnlyHint"), go: () => { fsSetFlag_("etFirstStatement"); document.getElementById("data-statements-btn").click(); renderFirstSteps_(); } });
   if (steps.every((st) => st.done)) { fsSetFlag_("etFirstStepsDone"); card.hidden = true; return; }
   const list = document.getElementById("first-steps-list");
   list.innerHTML = "";
@@ -19412,6 +19426,7 @@ function openTripModal_(trip) {
   document.getElementById("trip-emoji").value = trip ? (trip.emoji || "") : "";
   document.getElementById("trip-start").value = trip ? trip.start_date : todayLocalISO();
   document.getElementById("trip-end").value = trip ? trip.end_date : todayLocalISO();
+  setTimeout(syncTripOneDay_, 0);
   document.getElementById("trip-budget").value = trip && Number(trip.budget_amount) > 0 ? trip.budget_amount : "";
   document.getElementById("trip-currency").value = trip ? (trip.currency || trip.budget_currency || homeCur()) : homeCur();
   document.getElementById("trip-alerts").value = trip && trip.alert_thresholds ? trip.alert_thresholds.split(",").join(", ") : "";
@@ -19536,6 +19551,14 @@ document.getElementById("trip-rate-warning-link").addEventListener("click", () =
 });
 // A different start date can move the month that needs a rate.
 document.getElementById("trip-start").addEventListener("change", () => refreshTripRateWarning_(false));
+// A trip whose last day is its first is a one-day trip: said under the dates while the form is open (journeys run, 2026-11-17: four
+// trips meant to last days were saved as one day by tapping only the first day, and their later expenses fell outside them).
+function syncTripOneDay_() {
+  const s = document.getElementById("trip-start").value, e = document.getElementById("trip-end").value, note = document.getElementById("trip-oneday-note");
+  note.hidden = !(s && (!e || e === s));
+  if (!note.hidden) note.textContent = tr("trips.oneDayNote", { date: I18n.fmtDateMedium ? I18n.fmtDateMedium(new Date(s + "T12:00:00")) : s });
+}
+["trip-start", "trip-end"].forEach((id) => ["change", "input"].forEach((ev) => document.getElementById(id).addEventListener(ev, syncTripOneDay_)));
 
 function closeTripModal_() {
   document.getElementById("trip-modal-backdrop").hidden = true;
@@ -32746,6 +32769,20 @@ function reviewEntryArrived_(entry) {
   return entry.type === "income" || (entry.type === "investment" && Number(entry.amount) < 0);
 }
 
+// Money that LEFT, marked as a repayment to a friend who owes the person (and is owed nothing): it is not a repayment by the person, it
+// is more money lent. Said in the window before saving (journeys run, 2026-11-17: Lucho got an "overpayment" item twice, debt unchanged).
+function syncRepayWay_() {
+  const box = document.getElementById("review-transfer-way");
+  const entry = reviewTransferEntry;
+  if (!box) return;
+  const fid = document.getElementById("review-transfer-friend").value;
+  const f = fid && (meta.friends || []).find((x) => x.id === fid);
+  const net = f ? (((loansLastBalances_ || []).find((b) => b.friend_id === fid) || {}).balances || []).find((l) => entry && l.currency === entry.currency) : null;
+  const theyOwe = !!(net && net.net > 0.004);
+  box.hidden = !(entry && reviewTransferMode === "repay" && !reviewEntryArrived_(entry) && theyOwe);
+  if (!box.hidden) box.textContent = tr("review.repayWrongWay", { friend: f.name });
+}
+document.getElementById("review-transfer-friend").addEventListener("change", syncRepayWay_);
 function openReviewTransferModal(entry, mode) {
   reviewTransferEntry = entry;
   reviewTransferMode = mode;
@@ -32759,7 +32796,7 @@ function openReviewTransferModal(entry, mode) {
     `${entry.description || tr("review.transactionFallback")} · ${entry.currency} ${moneyFmt(entry.amount)}` +
     (incoming
       ? (mode === "repay" ? tr("review.contextRepay") : tr("review.contextLoan"))
-      : "");
+      : (mode === "repay" ? tr("review.contextRepayOut") : tr("review.contextLoanOut")));   // money that LEFT says so too (Lucho, journeys run 2026-11-17)
   document.getElementById("review-transfer-form-error").textContent = "";
 
   populateReviewTransferFriendOptions();
@@ -32776,6 +32813,7 @@ function openReviewTransferModal(entry, mode) {
     .sort((x, y) => Math.abs(y.net) - Math.abs(x.net))[0];
   // Only a real hint picks someone: the place's past choice, or (a repayment) the friend with the debt it pays. Else "Pick a friend…".
   document.getElementById("review-transfer-friend").value = hintedFriend ? hintedFriend.id : owedFriend ? owedFriend.id : "";
+  syncRepayWay_();
   document.getElementById("review-transfer-amount").value = Math.abs(Number(entry.amount));
   document.getElementById("review-transfer-date").value = entry.date;
   // The account the bank e-mail named stays (it used to be dropped, leaving the repayment / loan with no account).
