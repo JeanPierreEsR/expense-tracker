@@ -640,7 +640,7 @@ function handleTelegramCallback_(cb) {
     // The answer to "Is this your Salary for August?": linked only if it still matches today.
     if (action === 'plink') {
       var plan = planMatchFor_(getEntryById_(entryId));
-      if (plan) { linkEntryToRecurring({ entryId: entryId, recurringExpenseId: plan.recurring_id }); reply = tr_('bot.planLinked'); }
+      if (plan) { linkEntryToRecurring({ entryId: entryId, recurringExpenseId: plan.recurring_id, month: plan.month }); reply = tr_('bot.planLinked'); }
       else reply = tr_('bot.planGone');
     } else {
       reply = tr_('bot.planKept');

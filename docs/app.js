@@ -22524,7 +22524,7 @@ document.getElementById("recurring-add-tag-btn").addEventListener("click", async
 async function askPlanMatch_(entryId, plan) {
   const ok = await askConfirmApp_(tr("plan.ask", { name: plan.description || tr("plan.thePlanned"), month: paceMonthName_(plan.month, true) }), tr("plan.yes"), { plain: true, cancel: tr("plan.no") });
   if (!ok) return;
-  saveBehindScreen_(async () => { await callApi("linkEntryToRecurring", { entryId, recurringExpenseId: plan.recurring_id }); },
+  saveBehindScreen_(async () => { await callApi("linkEntryToRecurring", { entryId, recurringExpenseId: plan.recurring_id, month: plan.month }); },
     () => { refreshExpectedRecurring().catch(() => {}); }, { busy: "plan.linking", done: () => tr("plan.linked") });
 }
 async function askProgrammedTags_(asks) {

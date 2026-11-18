@@ -678,6 +678,7 @@ var DATE_FIELD_FORMATS = {
   last_seen: 'yyyy-MM-dd',
   month: 'yyyy-MM',
   period: 'yyyy-MM',
+  recurring_month: 'yyyy-MM',   // Entries: the month a linked payment pays (a Sheets Date back to text; 2026-11-18)
   from_period: 'yyyy-MM-dd',   // Budget History: a start Sheets turned into a date (budgetFromKey_ cuts it to the budget's kind)
   // Full timestamp (not date-only) — lets same-day entries sort by the
   // exact moment they were captured, not just insertion order.
@@ -1179,7 +1180,7 @@ function confirmEntries(payload) {
       if (it.link_recurring_id) {
         try {
           var plan = planMatchFor_(getEntryById_(it.id));
-          if (plan && plan.recurring_id === it.link_recurring_id) { linkEntryToRecurring({ entryId: it.id, recurringExpenseId: plan.recurring_id }); (out.linked = out.linked || []).push({ id: it.id, name: plan.description }); }
+          if (plan && plan.recurring_id === it.link_recurring_id) { linkEntryToRecurring({ entryId: it.id, recurringExpenseId: plan.recurring_id, month: plan.month }); (out.linked = out.linked || []).push({ id: it.id, name: plan.description }); }
           else (out.link_skipped = out.link_skipped || []).push({ id: it.id });
         } catch (linkErr) { (out.link_skipped = out.link_skipped || []).push({ id: it.id, message: String(linkErr && linkErr.message || linkErr) }); }
       }
@@ -1250,7 +1251,10 @@ function saveEntryAll(payload) {
     if (kind === 'confirm') out = confirmEntryFromApp_({ id: id });
     // Needs review's "This is my Salary for August" line, left ticked: the confirm links it (owner's plan, 2026-11-17).
     if (kind === 'confirm' && payload.link_recurring_id) {
-      try { linkEntryToRecurring({ entryId: id, recurringExpenseId: payload.link_recurring_id }); }
+      try {
+        var cp = planMatchFor_(getEntryById_(id));   // the month it pays (its own, or next month's for an early payment), checked again
+        linkEntryToRecurring({ entryId: id, recurringExpenseId: payload.link_recurring_id, month: cp && cp.recurring_id === payload.link_recurring_id ? cp.month : '' });
+      }
       catch (linkErr) { out = Object.assign({}, out, { link_failed: true }); }
     }
   } else {
@@ -1682,6 +1686,17 @@ function listPendingEntries() {
 
 function updateEntryFields(entryId, fields) {
   fields = businessFieldsForUpdate_(entryId, fields);   // Business pack link cleaned (Business.gs); untouched when it is not involved
+  // A payment linked for another month (an early salary for August) whose date is moved 2 or more months away from that month: the month
+  // is dropped quietly and it counts for its own month again (owner, 2026-11-18).
+  if (fields && fields.date) {
+    var linkedNow = getEntryById_(entryId);
+    var pm = linkedNow && String(linkedNow.recurring_month || '');
+    if (/^\d{4}-\d{2}$/.test(pm)) {
+      var nd = String(fields.date).substring(0, 7);
+      var diff = (Number(nd.substring(0, 4)) * 12 + Number(nd.substring(5, 7))) - (Number(pm.substring(0, 4)) * 12 + Number(pm.substring(5, 7)));
+      if (Math.abs(diff) >= 2 || diff === 0) fields = Object.assign({}, fields, { recurring_month: '' });   // (its own month again: nothing to keep)
+    }
+  }
   if (fields && fields.to_payment_method_id !== undefined) ensureEntriesToPaymentMethodColumn_();
   if (fields && fields.exchange !== undefined) ensureEntriesExchangeColumn_();   // "Not an exchange" clears it (a statement-made side may predate the column)
   if (fields && (fields.paid_amount !== undefined || fields.charge_pending !== undefined)) ensureEntriesChargeColumns_();

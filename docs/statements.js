@@ -2379,7 +2379,7 @@
   function planLinksChosen_() {
     const pm = (historyPlan && historyPlan.plan_matches) || [];
     return Array.from(document.querySelectorAll("#statement-history .stmt-plan-check")).filter((c) => c.checked).map((c) => pm[Number(c.dataset.i)]).filter(Boolean)
-      .map((m) => ({ stmt: m.stmt, line: m.line, recurring_id: m.recurring_id }));
+      .map((m) => ({ stmt: m.stmt, line: m.line, recurring_id: m.recurring_id, month: m.month }));
   }
   // One summary bullet; a {text, sub} item puts its sub-lines under it (the per-currency totals of the expenses).
   function sumLi_(t) {
