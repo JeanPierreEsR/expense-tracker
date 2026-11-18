@@ -2724,7 +2724,7 @@
     "more.tour": { en: "How to use the app", es: "Cómo usar la app" },
     // ---- first-use tips (spotlight walkthroughs; docs/spotlight.js) ----
     "spot.exit": { en: "Exit", es: "Salir" },
-    "spot.step": { en: "{n} of {total}", es: "{n} de {total}" },
+    "spot.step": { en: "Step {n}", es: "Paso {n}" },   // no total: it changes as steps that do not apply are skipped, which read as an error (journeys run, 2026-11-17; owner chose "Step 3")
     "spot.stuck": { en: "Skip this step", es: "Omitir este paso" },
     "spot.waiting": { en: "One moment…", es: "Un momento…" },
     "spot.lost": { en: "The practice stopped because a step it needed was skipped or a window was closed. Everything it made is being removed, and your real data was not touched. To try again, go to More → How to use the app → Show the tips again.", es: "La práctica se detuvo porque se omitió un paso que necesitaba o se cerró una ventana. Todo lo que hizo se está borrando y tus datos de verdad no se tocaron. Para intentarlo de nuevo, ve a Más → Cómo usar la app → Volver a mostrar los consejos." },
@@ -3553,6 +3553,7 @@
     "welcome.continue": { en: "Continue", es: "Continuar" },
     "welcome.saving": { en: "Saving…", es: "Guardando…" },
     "welcome.error": { en: "Could not save. Check your connection and try again.", es: "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo." },
+    "tour.exampleTag": { en: "Example", es: "Ejemplo" },
     "tour.step": { en: "{n} of {total}", es: "{n} de {total}" },
     "tour.back": { en: "Back", es: "Atrás" },
     "tour.next": { en: "Next", es: "Siguiente" },
@@ -3906,7 +3907,7 @@
     "firstSteps.statement": { en: "Load a statement to catch what emails miss", es: "Carga un estado de cuenta para encontrar lo que los correos no captan" },
     "firstSteps.statementHint": { en: "Optional. Once a month is enough.", es: "Opcional. Una vez al mes basta." },
     "review.showMore": { en: "Show more ({n} left)", es: "Ver más (faltan {n})" },
-    "review.learns": { en: "Confirm the same category twice for a store and the app suggests it from then on.", es: "Confirma la misma categoría dos veces en una tienda y desde entonces la app te la sugiere." },
+    "review.learns": { en: "Confirm the same category twice for a shop or a person and the app suggests it from then on.", es: "Confirma la misma categoría dos veces para una tienda o una persona y desde entonces la app te la sugiere." },
     "bankMail.animLabel": { en: "A bank email arrives and shows up in Needs review", es: "Llega un correo del banco y aparece en Por revisar" },
     "bankMail.alertsTitle": { en: "Turn on every alert in your bank's app", es: "Activa todos los avisos en la app de tu banco" },
     "bankMail.alertsLead": { en: "The app can only see the payments your bank tells you about by email. In each bank's app, turn on email alerts for every kind of operation and set the minimum amount as low as it allows (0 if you can). Anything under the minimum never reaches the app.", es: "La app solo se entera de los pagos que tu banco te avisa por correo. En la app de cada banco, activa los avisos por correo de todos los tipos de operación y pon el monto mínimo lo más bajo que permita (0 si se puede). Lo que esté por debajo del mínimo nunca llega a la app." },
