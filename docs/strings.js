@@ -4776,6 +4776,7 @@
     "table.signPos": { en: "Spending is positive (a card's purchases, for example)", es: "Los gastos son positivos (las compras de una tarjeta, por ejemplo)" },
     "table.more": { en: "More options", es: "Más opciones" },
     "table.dateOrder": { en: "Dates are written", es: "Las fechas se escriben" },
+    "table.readAsSign": { en: "Amounts read as {cur} (the file writes them with “{sign}”). You can change it in More options.", es: "Montos leídos en {cur} (el archivo los escribe con “{sign}”). Puedes cambiarlo en Más opciones." },
     "table.dateAsk": { en: "How are the dates in this file written? The first one that could be read two ways is {date}:", es: "¿Cómo están escritas las fechas en este archivo? La primera que se puede leer de dos formas es {date}:" },
     "table.dateAskDmy": { en: "Day / month: {date}", es: "Día / mes: {date}" },
     "table.dateAskMdy": { en: "Month / day: {date}", es: "Mes / día: {date}" },

@@ -977,6 +977,13 @@
     } else if (known) {
       state.source = "known"; state.label = known.name;
     }
+    // A new layout whose amounts carry a dollar sign starts on dollars: "US$" is USD; a bare "$" is the main currency when that is a
+    // dollar-sign currency (pesos…), else USD. Said in the preview, and the currency box can still be changed.
+    const DOLLAR_SIGN_CURS = ["USD", "MXN", "CLP", "ARS", "COP", "UYU", "CAD", "AUD", "NZD", "SGD", "HKD", "DOP"];
+    if (state.source === "new" && guess.currencySign && !state.m.currencyFixed) {
+      state.m.currencyFixed = guess.currencySign === "$" && DOLLAR_SIGN_CURS.includes(homeCur()) ? homeCur() : "USD";
+      state.signCurrency = state.m.currencyFixed;
+    }
     const remembered = state.source !== "new";
     // Statements reads a bank's files and Import data reads another app's: an app's export is told from a bank's by its layout
     // (known or saved as one) or by carrying a category column. Each screen refuses the other's files.
@@ -1332,6 +1339,7 @@
         ${r.skipped.some((x) => x.reason === "transfer") ? `<p class="stmt-note warn">${escapeHtml(tr("table.transferNoDirection", { n: r.skipped.filter((x) => x.reason === "transfer").length }))}</p>` : ""}
         ${lines.some((l) => l.transfer) ? `<p class="stmt-note info">${escapeHtml(tr("table.transfersMarked", { n: lines.filter((l) => l.transfer).length }))}</p>` : ""}
         ${state.source === "new" && state.m.dateProved && !state.dateAnswered && state.m.dateOrder === guess.dateOrder ? `<p class="stmt-note info">${escapeHtml(tr(state.m.dateOrder === "mdy" ? "table.datesReadMdy" : "table.datesReadDmy"))}</p>` : ""}
+        ${state.signCurrency && m.currencyFixed === state.signCurrency && state.m.currency < 0 ? `<p class="stmt-note info">${escapeHtml(tr("table.readAsSign", { cur: state.signCurrency, sign: guess.currencySign }))}</p>` : ""}
         ${needCategory ? `<p class="stmt-note warn">${escapeHtml(tr("imp.needCategory"))}</p>` : ""}
         ${noAccountNote}
         ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}

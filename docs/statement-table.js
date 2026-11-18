@@ -618,6 +618,16 @@
     m.dateProved = !!m.dateOrder && columnValues(rows, first, m.date).some(function (v) { var p = dateParts(v); return p && p.order === '?' && p.a !== p.b; });
     var numberCols = [m.amount, m.out, m.in].filter(function (i) { return i >= 0; });
     m.decimal = detectDecimal([].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })));
+    // Amounts written with a dollar sign ("$18.40", "US$ 5") and no currency column: the screen offers the dollar as the file's currency
+    // (Mark, 2026-11-18: a YNAB export came in as soles). 'US$' | '$' | ''.
+    m.currencySign = '';
+    if (m.currency < 0) {
+      var amtTexts = [].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })).map(cellText).filter(function (v) { return /\d/.test(v); });
+      var us = amtTexts.filter(function (v) { return /US\$/i.test(v); }).length;
+      var dollar = amtTexts.filter(function (v) { return /(^|[^A-Za-z\/])\$/.test(v); }).length;
+      if (amtTexts.length && us >= amtTexts.length / 2) m.currencySign = 'US$';
+      else if (amtTexts.length && dollar >= amtTexts.length / 2) m.currencySign = '$';
+    }
     m.sign = 'negative';
     if (m.amount >= 0) {
       var vs = columnValues(rows, first, m.amount).map(function (v) { return parseAmount(v, m.decimal); }).filter(function (n) { return !isNaN(n) && n !== 0; });
