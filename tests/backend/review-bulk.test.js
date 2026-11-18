@@ -94,3 +94,12 @@ test("Undo of a bulk confirm sends each entry back, taking off the trip that con
   assert.equal(rt.rows("Entries").find((e) => e.id === "rv-ready1").trip_id, "");
   assert.equal(rt.api("getMeta", {}).capabilities.bulkUndo, true);
 });
+
+test("Undo of a bulk confirm also sends back a plain transfer confirmed in the same go", () => {
+  const { rt, data, add } = setup();
+  add("rv-move", { type: "transfer", to_payment_method_id: data.pms[1].id });
+  rt.api("confirmEntries", { items: [{ id: "rv-move" }] });
+  assert.equal(status(rt, "rv-move"), "confirmed");
+  assert.deepEqual(rt.api("unconfirmEntries", { items: [{ id: "rv-move" }] }).undone, ["rv-move"]);
+  assert.equal(status(rt, "rv-move"), "pending");
+});
