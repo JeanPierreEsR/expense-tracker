@@ -220,9 +220,10 @@ function routeActionOnce_(action, payload) {
 }
 
 // Speed (2026-11-02): a call that only LOOKS (get…/list…) reads each sheet from Google once and reuses it (withRowsMemo_);
-// these used to re-read the same sheet 2-9 times per call. getMeta repairs sheets as it goes, so it stays as it was (the
-// start-up bundle handles its own memory). Anything that opens a sheet to change it drops that sheet's copy (getSheet).
-var MEMO_SKIP_ACTIONS_ = { getMeta: 1, getStartupBundle: 1 };
+// these used to re-read the same sheet 2-9 times per call. Anything that opens a sheet to change it drops that sheet's copy
+// (getSheet), so getMeta's repairs are safe here too (2026-11-19: it read Entries three times and took 34-53 s on the owner's
+// Sheet, past the app's 25 s limit). The start-up bundle handles its own memory.
+var MEMO_SKIP_ACTIONS_ = { getStartupBundle: 1 };
 
 function routeAction(action, payload) {
   if (/^(get|list)[A-Z]/.test(action) && !MEMO_SKIP_ACTIONS_[action]) {
@@ -996,11 +997,13 @@ function getAllRowsCached_(sheetName) {
 // any of the four screens show.
 function getStartupBundle(payload) {
   applyPhoneTimeZone_(payload && payload.tz);   // the person's own zone, before anything works out "today" (PersonDefaults.gs)
-  // getMeta first and uncached: it can self-heal (add header columns / seed
-  // platforms), so the cache only starts once the sheets are in final shape.
-  var meta = getMeta();
+  // Each sheet is read from Google once for the WHOLE request, getMeta included (2026-11-19): getMeta alone read Entries three
+  // times (last income per person, paused and Annual programmed items) and the list a fourth; on the owner's real Sheet the start
+  // took 34-53 s and the app gave up at 25 s, so it kept showing its saved copy. getMeta's self-heals are safe under the memory:
+  // whatever changes a sheet opens it with getSheet, which drops that sheet's remembered rows and headers.
   ROWS_MEMO_ = {};
   try {
+    var meta = getMeta();
     return {
       meta: meta,
       entries: listEntries({ limit: (payload && payload.entriesLimit) || 20 }),
