@@ -18108,7 +18108,7 @@ function fillDueBlock_(prefix, pmId, rows) {
   block.hidden = true;
   document.getElementById(prefix + "-due-ask").hidden = true;
   const inp = document.getElementById(prefix + "-due-input");
-  inp.value = ""; inp.dataset.pm = "";
+  inp.value = ""; inp.dataset.pm = ""; inp.dataset.saved = "";
   const r = cardLastStmtOf_(rows, pmId);
   if (!r) return;
   const owes = r.balances.some((b) => b.amount < -0.004);
@@ -18117,9 +18117,12 @@ function fillDueBlock_(prefix, pmId, rows) {
   const owed = r.balances.filter((b) => b.amount < -0.004).map((b) => formatAmount(-b.amount, b.currency)).join(" · ");
   document.getElementById(prefix + "-due-owed").textContent = (owed ? tr("accounts.owedAtStatement", { amounts: owed, date }) : tr("balances.stmtNothingOwed", { date })) + (dueT ? " " + dueT + "." : "");
   block.hidden = false;
-  if (!r.due && owes) {
+  // While it owes, the date can always be typed or corrected (owner, 2026-11-18: also after saving it, or one read wrong from the file).
+  if (owes) {
     const min = new Date(r.statement_closed + "T12:00:00"); min.setDate(min.getDate() + 1);
     inp.min = min.toISOString().slice(0, 10); inp.dataset.pm = pmId;
+    inp.value = r.due || ""; inp.dataset.saved = r.due || "";
+    document.getElementById(prefix + "-due-hint").hidden = !!r.due;
     document.getElementById(prefix + "-due-ask").hidden = false;
   }
 }
@@ -18138,14 +18141,21 @@ async function fillPmOwedLine_(pm) {
   if (pmModalState.id !== pm.id) return;
   fillDueBlock_("pm", pm.id, rows);
 }
-// The Balances screen saves the date on its own (its main button saves starting balances); the screen stays open.
-document.getElementById("bal-due-save").addEventListener("click", () => {
-  const due = dueBlockValue_("bal"), pmId = document.getElementById("bal-due-input").dataset.pm;
-  if (!due) { showToast_(tr("accounts.dueTooEarly")); return; }
-  document.getElementById("bal-due-ask").hidden = true;
-  document.getElementById("bal-due-owed").textContent += " " + tr("accounts.dueSaved", { date: I18n.fmtDateMedium(new Date(due + "T12:00:00")) });
-  saveBehindScreen_(() => callApi("setCardStatementDue", { id: pmId, due }), refreshBalances);
-});
+// The Balances screen's own Save saves the pay-by date too (owner, 2026-11-18): `balanceDuePending_` carries it to whichever save runs.
+let balanceDuePending_ = null;
+function saveBalanceDue_(p, passThrough) {
+  return p ? callApi("setCardStatementDue", { id: p.pmId, due: p.due }).then(() => passThrough) : Promise.resolve(passThrough);
+}
+// Nothing typed in the starting-balance rows: every row is still what was saved, or still empty (a card known only from statements).
+function balanceRowsUntouched_() {
+  const existing = (balancesCache.find((b) => b.id === balanceFormPmId_) || {}).openings || [];
+  if (balanceFormRows.filter((r) => r.saved).length !== existing.length) return false;
+  return balanceFormRows.every((r) => {
+    if (!r.saved) return !String(r.amount).trim();
+    const amt = parseFloat(String(r.amount).replace(/,/g, ""));
+    return (r.negative ? -Math.abs(amt) : amt) === Number(r.saved.amount) && r.currency === r.saved.currency && String(r.date) === String(r.saved.date);
+  });
+}
 function openPmModal_(pm) {
   const linked = (meta && meta.settings) || {};
   pmModalState = { id: pm ? pm.id : null, lastBank: pm ? pm.bank_id || "" : "",
@@ -18296,8 +18306,9 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   const last4 = document.getElementById("pm-last4").value.trim();
   if (!nickname) { errorEl.textContent = tr("accounts.errName"); return; }
   if (last4 && !/^\d{4}$/.test(last4)) { errorEl.textContent = tr("accounts.errLast4"); return; }
-  const dueNow = dueBlockValue_("pm");   // the last statement's pay-by date, typed at the end of the form (owner, 2026-11-18)
-  if (dueNow === null) { errorEl.textContent = tr("accounts.dueTooEarly"); return; }
+  const dueTyped = dueBlockValue_("pm");   // the last statement's pay-by date, typed at the end of the form (owner, 2026-11-18)
+  if (dueTyped === null) { errorEl.textContent = tr("accounts.dueTooEarly"); return; }
+  const dueNow = dueTyped && dueTyped !== document.getElementById("pm-due-input").dataset.saved ? dueTyped : "";   // only a changed one is saved
   // Plin and Yape are wallets that ride on a bank account (owner, 2026-10-23): Plin is never an account, Yape alone asks first.
   const plain = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
   const before = pmModalState.id && meta.paymentMethods.find((p) => p.id === pmModalState.id);
@@ -25536,7 +25547,7 @@ function spinLoadingText_(node) {
 const LINK_ICON_RULES_ = [
   // No icon, on purpose: Cancel / Not now / Save / Done / Select all are plain answers or edit-bar buttons; a link that starts
   // with its own arrow (‹ Back, ▸ Hidden) already has one; a link that is a whole sentence about an amount stays a sentence.
-  [/^(cancel|cancelar|not now|ahora no|save|guardar|save date|guardar fecha|done|listo|select all|seleccionar todo)$/i, null],
+  [/^(cancel|cancelar|not now|ahora no|save|guardar|done|listo|select all|seleccionar todo)$/i, null],
   [/^[‹›▸▾⌄✕]/, null],
   [/^\S+ [\d.,]+ (tagged|con la etiqueta)/i, null],
   [/^(covered|cubierta)$/i, "check"],   // a trip estimate's "✓ Covered" (the hint above names it so)
@@ -33888,7 +33899,8 @@ document.getElementById("balance-notyet-save").addEventListener("click", () => {
   const pmId = st.pmId;
   balanceNyState_ = null;
   closeBalanceModal();
-  saveBehindScreen_(() => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances }), refreshBalances);
+  const due = balanceDuePending_; balanceDuePending_ = null;
+  saveBehindScreen_(() => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances }).then((r) => saveBalanceDue_(due, r)), refreshBalances);
 });
 
 document.getElementById("balance-stmt-tip-btn").addEventListener("click", () => {
@@ -33940,6 +33952,18 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
   try {
     const pmId = balanceModalPmId || document.getElementById("balance-account-picker").value;
     if (!pmId) throw new Error(tr("balance.pickAccount"));
+    // The last statement's pay-by date is saved by this same button (owner, 2026-11-18). Only that changed: it alone is saved, and the
+    // starting balances are left as they are (a card known only from statements may have none to save).
+    const dueNow = dueBlockValue_("bal");
+    if (dueNow === null) throw new Error(tr("accounts.dueTooEarly"));
+    const dueChanged = !!dueNow && dueNow !== document.getElementById("bal-due-input").dataset.saved;
+    balanceDuePending_ = dueChanged ? { pmId, due: dueNow } : null;
+    if (dueChanged && balanceRowsUntouched_()) {
+      const due = balanceDuePending_; balanceDuePending_ = null;
+      closeBalanceModal();
+      saveBehindScreen_(() => saveBalanceDue_(due), refreshBalances);
+      return;
+    }
     const seen = new Set();
     document.querySelectorAll("#balance-rows .balance-form-row.bad").forEach((x) => x.classList.remove("bad"));
     const balances = balanceFormRows.map((row, ri) => {
@@ -33977,7 +34001,8 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
       if (cands && cands.some((c) => c.items.length)) { balanceNyOpen_(pmId, balances, cands); return; }
     }
     closeBalanceModal();
-    saveBehindScreen_(practiceATrackBalance_(pmId, () => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances })), refreshBalances);
+    const due = balanceDuePending_; balanceDuePending_ = null;
+    saveBehindScreen_(practiceATrackBalance_(pmId, () => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances }).then((r) => saveBalanceDue_(due, r))), refreshBalances);
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {

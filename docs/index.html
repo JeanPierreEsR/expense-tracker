@@ -2460,20 +2460,19 @@
         <div id="balance-rows"></div>
         <button type="button" class="add-inline" id="balance-add-row-btn" data-i18n="balance.addCurrency">+ Add another currency</button>
 
-        <p class="hint error-text" id="balance-form-error"></p>
-        <button type="button" class="primary" id="balance-save-btn" data-i18n="balance.save">Save starting balances</button>
-        <button type="button" class="delete-entry-btn" id="balance-clear-btn" hidden data-i18n="balance.stop">Stop tracking this account</button>
-
         <div id="bal-due-block" class="due-block" hidden>
           <h3 class="balance-section-title" data-i18n="accounts.lastStmt">Last statement</h3>
           <p class="hint" id="bal-due-owed"></p>
           <div id="bal-due-ask" hidden>
             <label for="bal-due-input" data-i18n="accounts.dueLabel">Pay by</label>
             <input type="date" id="bal-due-input">
-            <p class="hint" data-i18n="accounts.dueHint">Not found in the statement file. Optional.</p>
-            <button type="button" class="add-inline" id="bal-due-save" data-i18n="accounts.dueSave">Save date</button>
+            <p class="hint" id="bal-due-hint" data-i18n="accounts.dueHint">Not found in the statement file. Optional.</p>
           </div>
         </div>
+        <p class="hint error-text" id="balance-form-error"></p>
+        <button type="button" class="primary" id="balance-save-btn" data-i18n="balance.save">Save starting balances</button>
+        <button type="button" class="delete-entry-btn" id="balance-clear-btn" hidden data-i18n="balance.stop">Stop tracking this account</button>
+
         <div id="balance-movements-wrap" hidden>
           <h3 class="balance-section-title" data-i18n="balance.movements">Movements since the starting date</h3>
           <div id="balance-movements"></div>
@@ -3948,7 +3947,7 @@
         <div id="pm-due-ask" hidden>
           <label for="pm-due-input" data-i18n="accounts.dueLabel">Pay by</label>
           <input type="date" id="pm-due-input">
-          <p class="hint" data-i18n="accounts.dueHint">Not found in the statement file. Optional.</p>
+          <p class="hint" id="pm-due-hint" data-i18n="accounts.dueHint">Not found in the statement file. Optional.</p>
         </div>
       </div>
       <p class="hint error-text" id="pm-form-error"></p>
