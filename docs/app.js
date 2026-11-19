@@ -17950,7 +17950,11 @@ async function refreshAccountSuggestions_() {
     row.className = "acur-row";
     const share = Object.keys(a.counts).sort((x, y) => a.counts[y] - a.counts[x]).map((c) => `${c} ${Math.round(a.counts[c] / a.total * 100)}%`).join(", ");
     const why = a.source === "name" ? tr("acur.fromName") : a.source === "entries" ? tr("acur.fromEntries", { n: a.total, list: share }) : tr("acur.none", { n: a.total });
-    row.innerHTML = `<div class="acur-name">${escapeHtml(a.nickname)}</div><div class="hint">${escapeHtml(why)}</div><div class="acur-ticks"></div>`;
+    // Bank and last digits under the name (owner, 2026-11-18): a name alone ("Main debit") does not say which account it is.
+    const pm = (meta.paymentMethods || []).find((x) => String(x.id) === String(a.id)) || {};
+    const bank = (meta.banks || []).find((b) => b.id === pm.bank_id);
+    const which = [bank ? bank.name : "", pm.last_4 ? tr("accounts.digits", { last4: pm.last_4 }) : ""].filter(Boolean).join(" · ");
+    row.innerHTML = `<div class="acur-name">${escapeHtml(a.nickname)}</div>${which ? `<div class="acur-bank">${escapeHtml(which)}</div>` : ""}<div class="hint">${escapeHtml(why)}</div><div class="acur-ticks"></div>`;
     const codes = [...new Set([...a.proposed, ...Object.keys(a.counts), homeCur(), "USD"])];
     codes.forEach((c) => {
       const label = document.createElement("label");
