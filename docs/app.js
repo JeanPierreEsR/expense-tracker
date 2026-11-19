@@ -667,6 +667,9 @@ function openFriendScreen_(opts) {
   backdrop.hidden = false;
   document.getElementById("friend-screen-title").textContent = opts.title || tr(opts.many ? "friendPick.chooseMany" : "friendPick.choose");
   document.getElementById("friend-screen-done").hidden = !opts.many;
+  const add = document.getElementById("friend-screen-add");
+  add.hidden = !opts.onAdd;
+  add.textContent = opts.addLabel || tr("common.addFriend");
   document.getElementById("friend-search").value = "";
   renderFriendOptionList_("");
   document.getElementById("friend-option-list").scrollTop = 0;
@@ -701,6 +704,8 @@ function friendRow_(item) {
   row.insertBefore(input, row.firstChild);
   return row;
 }
+// Everyone by name, nothing else (owner, 2026-11-19: the quick five already sit where the screen was opened from). The add button
+// is pinned under the list, so it shows however far the list is scrolled.
 function renderFriendOptionList_(filterText) {
   const screen = friendScreen_;
   if (!screen) return;
@@ -709,13 +714,6 @@ function renderFriendOptionList_(filterText) {
   const q = friendSearchText_(String(filterText || "").trim());
   const items = screen.items || [];
   const found = items.filter((x) => !q || friendSearchText_(x.label).includes(q)).sort(byName_);
-  const title = (text) => { const h = document.createElement("div"); h.className = "currency-list-title"; h.textContent = text; list.appendChild(h); };
-  const top = (screen.top || []).map((id) => items.find((x) => x.id === id)).filter(Boolean);
-  if (top.length && !q && items.length > top.length) {
-    title(screen.topTitle || tr("friendPick.frequent"));
-    top.forEach((x) => list.appendChild(friendRow_(x)));
-    title(tr("friendPick.all"));
-  }
   found.forEach((x) => list.appendChild(friendRow_(x)));
   if (!found.length) {
     const none = document.createElement("p");
@@ -723,15 +721,8 @@ function renderFriendOptionList_(filterText) {
     none.textContent = tr(items.length ? "friendPick.none" : "friendPick.empty");
     list.appendChild(none);
   }
-  if (screen.onAdd) {
-    const add = document.createElement("button");
-    add.type = "button";
-    add.className = "add-inline friend-screen-add";
-    add.textContent = tr("common.addFriend");
-    add.addEventListener("click", () => { const s = closeFriendScreen_(); s.onAdd(); });
-    list.appendChild(add);
-  }
 }
+document.getElementById("friend-screen-add").addEventListener("click", () => { const s = closeFriendScreen_(); if (s && s.onAdd) s.onAdd(); });
 document.getElementById("friend-screen-close").addEventListener("click", () => closeFriendScreen_());
 document.getElementById("friend-screen-done").addEventListener("click", () => closeFriendScreen_());
 document.getElementById("friend-search").addEventListener("input", (e) => renderFriendOptionList_(e.target.value));
@@ -769,49 +760,77 @@ function renderFriendQuickChips_(opts) {
   return chips;
 }
 
-// A list box that holds a person (a new loan's friend): a tap on it opens the friends screen. The box stays underneath, so the code
-// keeps reading and setting it as before, and a pick sends its usual "change" (choosing "+ Add…" still means adding someone).
-// opts.top(): ids for the screen's first section, opts.topTitle(); opts.lastUsed(id). (Paid by and a repayment's friend stay the
-// phone's own list, owner 2026-11-19.)
-function personSelectItems_(el) {
-  return [...el.options].filter((o) => o.value && !o.value.startsWith("__") && !o.disabled)
-    .map((o) => ({ id: o.value, label: o.textContent }));
+// One rule for every dropdown that picks ONE person (owner, 2026-11-19): the five used most recently (or the list's own top five),
+// anyone already chosen, then "More…" as the last line, which opens the friends screen with everyone by name. The box stays the
+// phone's own list, so the code keeps reading and setting it as before; with five people or fewer it simply lists them all.
+// Call it at the END of the function that fills the box. opts: { fixed: values that stay first ("me"), top(people) → ids,
+// always(id) → stays listed (a trip's group), lastUsed(id), title(), addLabel() }. An empty value or a greyed line also stays first.
+const PERSON_MORE_ = "__more__";
+const selectValue_ = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+function personShortList_(sel, opts) {
+  if (!sel) return;
+  const o = sel._personShort = Object.assign(sel._personShort || {}, opts || {});
+  installPersonShort_(sel);
+  [...sel.options].filter((x) => x.value === PERSON_MORE_).forEach((x) => x.remove());
+  const all = [...sel.options];
+  const isTail = (x) => x.value.startsWith("__");
+  const isFixed = (x) => !x.value || x.disabled || (o.fixed || []).includes(x.value);
+  const always = (x) => !!(o.always && o.always(x.value));
+  o.people = all.filter((x) => !isTail(x) && !isFixed(x)).map((x) => ({ id: x.value, label: x.textContent }));
+  o.optionFor = {};
+  all.forEach((x) => { if (!isTail(x) && !isFixed(x)) o.optionFor[x.value] = x; });
+  const current = selectValue_.get.call(sel);
+  const pickable = o.people.filter((p) => !always(o.optionFor[p.id]));
+  if (pickable.length <= FRIEND_QUICK_) { o.last = current; return; }
+  const top = (o.top ? o.top(pickable) : friendQuickIds_(pickable, FRIEND_QUICK_, o.lastUsed)).filter((id) => o.optionFor[id]);
+  if (current && o.optionFor[current] && !top.includes(current)) top.push(current);
+  const more = document.createElement("option");
+  more.value = PERSON_MORE_;
+  more.textContent = tr("common.more");
+  const order = all.filter(isFixed)
+    .concat(top.map((id) => o.optionFor[id]).filter((x) => !always(x)))
+    .concat(all.filter((x) => !isTail(x) && !isFixed(x) && always(x)))
+    .concat([more], all.filter(isTail));
+  sel.innerHTML = "";
+  order.forEach((x) => sel.appendChild(x));
+  selectValue_.set.call(sel, current);
+  o.last = current;
 }
-function personSelectPick_(el, value) {
-  if (el.value === value && !value.startsWith("__")) return;
-  el.value = value;
-  el.dispatchEvent(new Event("change", { bubbles: true }));
+// Code that sets the box to someone not among the five (an entry opened for editing, a draft, a new friend) puts them back in it.
+function installPersonShort_(sel) {
+  if (sel._personShortOn) return;
+  sel._personShortOn = true;
+  Object.defineProperty(sel, "value", { configurable: true, get() { return selectValue_.get.call(this); }, set(v) {
+    const o = this._personShort;
+    if (v && o.optionFor && o.optionFor[v] && ![...this.options].some((x) => x.value === v)) {
+      const before = [...this.options].find((x) => x.value === PERSON_MORE_);
+      this.insertBefore(o.optionFor[v], before || null);
+    }
+    selectValue_.set.call(this, v);
+    if (!String(v || "").startsWith("__")) o.last = selectValue_.get.call(this);
+  } });
 }
-function openPersonSelectScreen_(el) {
-  const o = el._personPick;
-  if (el.disabled) return;
-  const items = personSelectItems_(el);
-  const add = [...el.options].find((x) => x.value.startsWith("__add"));
+// Is this person in the box, shown or behind More…?
+function hasPersonPick_(sel, id) {
+  return !!id && ([...sel.options].some((x) => x.value === id) || !!(sel._personShort && sel._personShort.optionFor && sel._personShort.optionFor[id]));
+}
+// "More…" chosen: the box goes back to what it held, and the friends screen opens. The box's own listeners never see "More…".
+document.addEventListener("change", (e) => {
+  const sel = e.target, o = sel && sel._personShort;
+  if (!o) return;
+  const v = selectValue_.get.call(sel);
+  if (v !== PERSON_MORE_) { if (!v.startsWith("__")) o.last = v; return; }
+  e.stopImmediatePropagation();
+  selectValue_.set.call(sel, o.last || "");
+  const add = [...sel.options].find((x) => x.value.startsWith("__add") || x.value === "__new__");
   openFriendScreen_({
     title: o.title ? o.title() : "",
-    items, current: el.value,
-    top: o.top ? o.top() : friendQuickIds_(items, FRIEND_QUICK_, o.lastUsed),
-    topTitle: o.topTitle ? o.topTitle() : "",
-    onPick: (id) => personSelectPick_(el, id),
-    onAdd: add ? () => personSelectPick_(el, add.value) : null,
+    items: o.people || [], current: o.last,
+    onPick: (id) => { sel.value = id; sel.dispatchEvent(new Event("change", { bubbles: true })); },
+    onAdd: add ? () => { selectValue_.set.call(sel, add.value); sel.dispatchEvent(new Event("change", { bubbles: true })); } : null,
+    addLabel: add ? add.textContent : "",
   });
-}
-function personPickOn_(el, opts) {
-  if (!el || el._personPick) return;
-  el._personPick = Object.assign({}, opts || {});
-  if (el.id) document.querySelectorAll(`label[for="${el.id}"]`).forEach((l) => l.removeAttribute("for"));   // (a tap on the label would open the box's own list)
-  const wrap = document.createElement("span");
-  wrap.className = "cur-pick";
-  el.parentNode.insertBefore(wrap, el);
-  wrap.appendChild(el);
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "cur-pick-btn";
-  btn.setAttribute("aria-label", tr("friendPick.choose"));
-  btn.addEventListener("click", () => openPersonSelectScreen_(el));
-  wrap.appendChild(btn);
-}
-personPickOn_(document.getElementById("loan-friend"));
+}, true);
 
 function getAccessCode() {
   return localStorage.getItem("accessCode") || "";
@@ -1596,7 +1615,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   populatePaymentMethodOptions();
   ["paid_by", "payment_method"].forEach((id, k) => {
     const sel = document.getElementById(id);
-    if (keptPicks[k] && Array.from(sel.options).some((o) => o.value === keptPicks[k])) sel.value = keptPicks[k];
+    if (keptPicks[k] && (Array.from(sel.options).some((o) => o.value === keptPicks[k]) || hasPersonPick_(sel, keptPicks[k]))) sel.value = keptPicks[k];
   });
   togglePaymentMethodVisibility();   // paid by may have been restored: show/hide the payment method to match
   populateToPaymentMethodOptions();
@@ -1863,6 +1882,16 @@ function populatePaidByOptions() {
     addOpt.textContent = tr("common.addFriend");
     select.appendChild(addOpt);
   }
+  // Me (or nobody yet) first, then the five used most recently and More… (owner, 2026-11-19); for an income, who paid you last.
+  personShortList_(select, {
+    fixed: ["me"],
+    title: () => tr(selectedType === "income" ? "friendPick.payer" : "friendPick.choose"),
+    lastUsed: (id) => {
+      if (selectedType !== "income") return personLastUsed_(id);
+      const p = (meta.payors || []).find((x) => x.id === id);
+      return p ? String(p.last_income || "") : "";
+    },
+  });
 
   togglePaymentMethodVisibility();
 }
@@ -2217,7 +2246,7 @@ function presetDebtKind_(entry) {
   if (!kind || !friendId) return;
   populateRepaymentFriendOptions_();
   const select = document.getElementById("repayment-friend");
-  if (!Array.from(select.options).some((o) => o.value === friendId)) return;   // a hidden person: stays "Between my accounts", as before
+  if (!hasPersonPick_(select, friendId)) return;   // a hidden person: stays "Between my accounts", as before
   select.value = friendId;
   document.getElementById("transfer-kind").value = kind;
   editingDebtOriginal_ = { kind, friendId, direction: kind === "repayment" ? editingRepayment_.direction : editingLoanMovement_,
@@ -2254,6 +2283,11 @@ function populateRepaymentFriendOptions_() {
   addOpt.textContent = tr("common.addFriend");
   select.appendChild(addOpt);
   if (previous && previous !== "__add__" && meta.friends.some((f) => f.id === previous)) select.value = previous;
+  // The people with something owed come first instead of the five used most recently (owner, 2026-11-19); trip groups stay listed.
+  personShortList_(select, {
+    top: (people) => { const owing = people.filter((p) => hasBalance({ id: p.id })).map((p) => p.id); return owing.length ? owing : friendQuickIds_(people); },
+    always: (id) => { const f = (meta.friends || []).find((x) => x.id === id); return !!f && isGroupFriend_(f); },
+  });
 }
 
 // On the dates of a trip, a new Repayment / New loan starts with that trip's group as the friend (only when
@@ -6156,7 +6190,7 @@ let draftPaidByWaiting_ = "";
 // A new friends list arrived (loadMeta): a restored draft takes back the friends (and the "Paid by") it was waiting for.
 function resumeDraftSplit_() {
   const form = document.getElementById("paid_by");
-  if (draftPaidByWaiting_ && Array.from(form.options).some((o) => o.value === draftPaidByWaiting_)) {
+  if (draftPaidByWaiting_ && hasPersonPick_(form, draftPaidByWaiting_)) {
     form.value = draftPaidByWaiting_;
     draftPaidByWaiting_ = "";
     togglePaymentMethodVisibility();
@@ -21129,6 +21163,7 @@ function openExpectedModal_(projectId, payment) {
       o.textContent = friendLabel_(f);
       sel.appendChild(o);
     });
+  personShortList_(sel, { title: () => tr("friendPick.client") });   // the five used most recently, then More… (owner, 2026-11-19)
   sel.value = payment ? payment.client_id : (project && project.client_id) || "";
   document.getElementById("expected-amount").value = payment ? String(payment.amount) : "";
   document.getElementById("expected-currency").value = payment ? payment.currency : homeCur();
@@ -21506,6 +21541,7 @@ function openProjectModal_(project, companyId, budgets) {
     o.textContent = f.name;
     clientSel.appendChild(o);
   });
+  personShortList_(clientSel, { title: () => tr("friendPick.client") });   // the five used most recently, then More… (owner, 2026-11-19)
   clientSel.value = project && project.client_id ? project.client_id : "";
   document.getElementById("project-budgets").innerHTML = "";
   (budgets || []).forEach((b) => addProjectBudgetRow_(b.currency, b.amount));
@@ -22373,6 +22409,7 @@ document.getElementById("split-client-btn").addEventListener("click", () => {
   add.value = "__new__";
   add.textContent = tr("business.newClient");
   sel.appendChild(add);
+  personShortList_(sel, { title: () => tr("friendPick.client") });   // the five used most recently, then More… (owner, 2026-11-19)
   sel.value = "";
   sel.hidden = false;
 });
@@ -30458,7 +30495,7 @@ function askOpeningDebtForRepay_({ friendId, direction, currency, amount, date }
   return new Promise((resolve) => {
     openLoanModal(null, null, { opening: true, friendId, direction, forRepay: true });
     const friendSel = document.getElementById("loan-friend");
-    if (!Array.from(friendSel.options).some((o) => o.value === friendId)) {   // a trip's group is not in the loan form's list
+    if (!hasPersonPick_(friendSel, friendId)) {   // a trip's group is not in the loan form's list
       const f = (meta.friends || []).find((x) => x.id === friendId);
       const opt = document.createElement("option");
       opt.value = friendId;
@@ -32018,6 +32055,7 @@ function populateLoanFriendOptions() {
   addOpt.value = "__add__";
   addOpt.textContent = tr("common.addFriend");
   select.appendChild(addOpt);
+  personShortList_(select);   // the five used most recently, then More… (owner, 2026-11-19; it opened the friends screen)
 }
 
 document.getElementById("loan-friend").addEventListener("change", async (e) => {
@@ -33432,6 +33470,7 @@ function populateReviewTransferFriendOptions() {
   addOpt.value = "__add__";
   addOpt.textContent = tr("common.addFriend");
   select.appendChild(addOpt);
+  personShortList_(select);   // the five used most recently, then More… (owner, 2026-11-19)
 }
 
 document.getElementById("review-transfer-friend").addEventListener("change", async (e) => {
