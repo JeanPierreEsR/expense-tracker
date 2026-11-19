@@ -101,7 +101,11 @@
     const k = Math.min(1, (stage.clientWidth || 320) / APP_W);
     const frame = h("div", "ts-device", null, stage);
     frame.style.height = Math.round(H * k) + "px";
+    // Every animated phone says it is an example, and nothing in it can be tapped (journeys run, 2026-11-17: three people tried to
+    // confirm the made-up "Cafe Luna" item; others took the tour's figures for their own).
+    frame.setAttribute("aria-hidden", "true");
     const app = h("div", "ts-app", null, frame);
+    h("div", "ts-example-tag", ctx.tr("tour.exampleTag"), frame);
     app.style.height = H + "px";
     app.style.transform = "scale(" + k + ")";
     if (o.header !== false) { const hd = h("header", null, null, app); h("h1", null, ctx.tr("app.title"), hd); }

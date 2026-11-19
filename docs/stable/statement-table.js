@@ -437,17 +437,30 @@
     return null;
   }
 
-  // 'dmy' | 'mdy' for dd/mm/yyyy-style text, decided by the whole column: a first part above 12 means day first, a second part
-  // above 12 means month first. Undecided: day first (Peru's own order).
+  // 'dmy' | 'mdy' for dd/mm/yyyy-style text, decided by the whole column: a first part above 12 means day first (even 31/02/2026), a
+  // second part above 12 means month first. '' when it cannot tell: some date reads two different ways (10/04/2026) and none proves the
+  // order. Then the PERSON decides (owner, 2026-11-18; it used to fall back to day first and put an American file's dates in wrong months).
+  // A column with nothing to read either way (year first, month names, 05/05) is 'dmy', and nothing is asked.
   function detectDateOrder(values) {
-    var dmy = 0, mdy = 0;
+    var dmy = 0, mdy = 0, twoWays = 0;
     values.forEach(function (v) {
       var p = dateParts(v);
       if (!p || p.order !== '?') return;
       if (p.a > 12) dmy++;
       if (p.b > 12) mdy++;
+      if (p.a <= 12 && p.b <= 12 && p.a !== p.b) twoWays++;
     });
-    return mdy > dmy ? 'mdy' : 'dmy';
+    if (dmy || mdy) return mdy > dmy ? 'mdy' : 'dmy';
+    return twoWays ? '' : 'dmy';
+  }
+
+  // The first date in the column that reads two ways, for the question's examples ('' if none).
+  function ambiguousDate(values) {
+    for (var i = 0; i < values.length; i++) {
+      var p = dateParts(values[i]);
+      if (p && p.order === '?' && p.a <= 12 && p.b <= 12 && p.a !== p.b) return String(values[i]).trim().split(/[T ]/)[0];
+    }
+    return '';
   }
 
   var ISO_WITH_OFFSET = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s*(Z|[+-]\d{2}:?\d{2})$/i;
@@ -535,13 +548,13 @@
     date: /^(fecha( de)?( operacion| proceso| movimiento| consumo| transaccion| contable)?|f\.? ?(operacion|proceso|valor)|date|transaction date|posting date|booking date|dia)$/,
     dateLoose: /fecha|date/,
     description: /descripcion|detalle|concepto|glosa|movimiento|referencia|narrativa|memo|payee|merchant|comercio|establecimiento|description|details?|transaction|^notes?$|^nota(s)?$|comentario|observacion/,
-    account: /^(wallet|cartera|billetera|account|account name|cuenta|nombre de la cuenta|nombre de cuenta)$/,
+    account: /^(wallet|wallets|cartera|billetera|account|accounts|account name|cuenta|cuentas|nombre de la cuenta|nombre de cuenta)$/,
     category: /^(category|category name|categoria|nombre de la categoria|nombre de categoria)$/,
     type: /^(type|tipo|transaction type|tipo de transaccion|tipo de movimiento|income\/expense|ingreso\/gasto|entry type)$/,
     amount: /^(monto|importe|amount|valor|total|monto total|importe total)$/,
     amountLoose: /monto|importe|amount/,
-    out: /cargo|retiro|debito|egreso|salida|debit|withdraw|paid out|money out|gasto|pago|payment out/,
-    in: /abono|deposito|ingreso|entrada|credito|credit|paid in|money in|deposit/,
+    out: /cargo|retiro|debito|egreso|salida|debit|withdraw|paid out|money out|gasto|pago|payment out|outflow|expense amount|expenses amount/,
+    in: /abono|deposito|ingreso|entrada|credito|credit|paid in|money in|deposit|inflow|income amount/,
     currency: /moneda|currency|divisa/
   };
 
@@ -601,8 +614,30 @@
     }
 
     m.dateOrder = detectDateOrder(columnValues(rows, first, m.date));
+    m.dateSample = m.dateOrder ? '' : ambiguousDate(columnValues(rows, first, m.date));
+    m.dateProved = !!m.dateOrder && columnValues(rows, first, m.date).some(function (v) { var p = dateParts(v); return p && p.order === '?' && p.a !== p.b; });
     var numberCols = [m.amount, m.out, m.in].filter(function (i) { return i >= 0; });
     m.decimal = detectDecimal([].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })));
+    // Amounts written with a dollar sign ("$18.40", "US$ 5") and no currency column: the screen offers the dollar as the file's currency
+    // (Mark, 2026-11-18: a YNAB export came in as soles). 'US$' | '$' | ''.
+    m.currencySign = '';
+    if (m.currency < 0) {
+      var amtTexts = [].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })).map(cellText).filter(function (v) { return /\d/.test(v); });
+      var us = amtTexts.filter(function (v) { return /US\$/i.test(v); }).length;
+      var dollar = amtTexts.filter(function (v) { return /(^|[^A-Za-z\/])\$/.test(v); }).length;
+      // Another currency's mark on some lines too ("S/ 12.50" next to "$ 30.00"): no currency is assumed for the whole file, and the
+      // screen warns that it mixes currencies (Mark, re-check 2026-11-18: the soles lines were read as dollars).
+      var others = {};
+      amtTexts.forEach(function (v) {
+        var t = v.replace(/US\$/ig, '');
+        (t.match(/S\/|€|£|¥|R\$|\b(PEN|EUR|GBP|BRL|JPY|soles?)\b/ig) || []).forEach(function (k) { others[/^s(\/|oles?)$/i.test(k) ? 'S/' : k.toUpperCase()] = 1; });
+      });
+      var otherMarks = Object.keys(others);
+      m.currencyMixed = '';
+      if (otherMarks.length && (us || dollar)) m.currencyMixed = (us ? ['US$'] : ['$']).concat(otherMarks).join(', ');
+      else if (amtTexts.length && us >= amtTexts.length / 2) m.currencySign = 'US$';
+      else if (amtTexts.length && dollar >= amtTexts.length / 2) m.currencySign = '$';
+    }
     m.sign = 'negative';
     if (m.amount >= 0) {
       var vs = columnValues(rows, first, m.amount).map(function (v) { return parseAmount(v, m.decimal); }).filter(function (n) { return !isNaN(n) && n !== 0; });
@@ -619,8 +654,9 @@
   // Only a plain statement of it counts — a line is a transfer ONLY when the file says so, never from the wording of a note.
   var TYPE_WORDS = {
     transfer: /^(transfer|transfers|transferencia|transferencias|traspaso|traspasos|transfer between accounts|transferencia entre cuentas)$/,
-    expense: /^(expense|expenses|gasto|gastos|egreso|egresos|debit|debito|withdrawal|retiro|salida|outflow|spending)$/,
-    income: /^(income|ingreso|ingresos|credit|credito|deposit|deposito|entrada|inflow|abono)$/
+    // short forms too: Money Manager writes "Exp." / "Income" (journeys run, 2026-11-17: every line was read as income)
+    expense: /^(expense|expenses|exp|exp\.|expense\.|gasto|gastos|gto|gto\.|egreso|egresos|egr|egr\.|debit|debito|withdrawal|retiro|salida|outflow|spending)$/,
+    income: /^(income|inc|inc\.|ingreso|ingresos|ing|ing\.|credit|credito|deposit|deposito|entrada|inflow|abono)$/
   };
   function typeKind(value) {
     var t = norm(value);
@@ -768,6 +804,6 @@
     decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readXls: readXls, parseHtmlTable: parseHtmlTable, readTable: readTable,
     findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature, recognize: recognize, distinctValues: distinctValues, KNOWN_FORMATS: KNOWN_FORMATS,
     practiceFile: practiceFile, PRACTICE_FILE_NAMES: PRACTICE_FILE_NAMES, canLinkExchange: canLinkExchange,
-    roundCents: roundCents, catNorm: catNorm, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
+    roundCents: roundCents, catNorm: catNorm, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, ambiguousDate: ambiguousDate, detectDecimal: detectDecimal, currencyFromText: currencyFromText
   };
 });
