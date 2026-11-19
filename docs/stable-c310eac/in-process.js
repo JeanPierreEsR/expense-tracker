@@ -121,7 +121,48 @@
     return sums;
   }
 
-  const api = { parseInProcess, mergeItems, mergeReads, sumsByCurrency };
+  // ---- Column layouts (Diners, owner's sample 2026-11-11) ----
+  // Diners' "SUS MOVIMIENTOS" list prints each amount with NO currency mark: soles sit under a "S/" heading, dollars under a "$" heading,
+  // and "En proceso" is a tag under the row. The text alone cannot tell them apart, so this uses where each word sits (the OCR's word
+  // boxes): it finds the heading line holding both "S/" and "$", puts the right mark in front of every bare amount by the nearer
+  // heading, and moves a leading "10 Nov" to the end of the row's text, where the reader expects a date. Returns the rebuilt text, or
+  // null when the screenshot has no such heading (Interbank: its amounts carry their own marks), so other layouts are read as before.
+  // lines: [{ words: [{ text, x0, x1 }] }] in reading order.
+  const BARE_NUM = /^\d{1,3}(?:,\d{3})+\.\d{2}$|^\d+\.\d{2}$/;
+  const PEN_HEAD = /^(?:S\/\.?|5\/)$/i;
+  const USD_HEAD = /^(?:\$|US\$|U\$S|USS)$/i;
+  const MARK_WORD = /^[-−–+]?(?:S\/\.?|5\/|\$\/|US\s?[$S5]|U\$S|\$)$/i;
+  const LEAD_DATE = new RegExp("^(\\d{1,2})\\s+(" + MONTHS + ")\\b\\.?\\s*", "i");
+  // width (optional): the image's width. When the OCR drops the small "S/" and "$" headings (the phone's reader did on the owner's
+  // screenshot) but keeps the table's "Fecha Cargo" heading, the columns are told apart by place: Diners puts soles around 70% of the
+  // width and dollars around 93%, so an amount whose middle is past 82% is in dollars.
+  const TABLE_HEAD = /^fecha$/i, TABLE_HEAD2 = /^cargo$/i;
+  function markColumns(lines, width) {
+    const mid = (w) => (w.x0 + w.x1) / 2;
+    let pen = null, usd = null;
+    (lines || []).some((l) => {
+      const p = (l.words || []).find((w) => PEN_HEAD.test(w.text)), u = (l.words || []).find((w) => USD_HEAD.test(w.text));
+      if (p && u && mid(u) > mid(p)) { pen = mid(p); usd = mid(u); return true; }
+      return false;
+    });
+    if (pen === null && width > 0 && (lines || []).some((l) => (l.words || []).some((w) => TABLE_HEAD.test(w.text)) && (l.words || []).some((w) => TABLE_HEAD2.test(w.text)))) {
+      pen = width * 0.70; usd = width * 0.93;   // the boundary between them falls at about 82%
+    }
+    if (pen === null) return null;
+    return lines.map((l) => {
+      const words = l.words || [];
+      let text = words.map((w, i) => {
+        if (!BARE_NUM.test(w.text) || (i && MARK_WORD.test(words[i - 1].text))) return w.text;
+        const at = mid(w);   // its middle: right-aligned amounts reach past their heading, their middle stays nearer it
+        return (Math.abs(at - usd) < Math.abs(at - pen) ? "US$ " : "S/ ") + w.text;
+      }).join(" ");
+      const d = LEAD_DATE.exec(text);
+      if (d && /\d\.\d{2}/.test(text)) text = text.slice(d[0].length) + "\n" + d[1] + " " + d[2];
+      return text;
+    }).join("\n");
+  }
+
+  const api = { parseInProcess, mergeItems, mergeReads, sumsByCurrency, markColumns };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.InProcess = api;
 })(typeof window !== "undefined" ? window : this);

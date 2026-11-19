@@ -49,6 +49,13 @@
     return `${sign}${currency} ${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
+  // The real tutorial's ending after a save that left lines without a category: with their number when the backend counted them.
+  function tidyDoneText_(imp, btn) {
+    const n = btn && btn.dataset.n !== "" ? Number(btn.dataset.n) : NaN;
+    if (!(n > 0)) return tr(imp ? "rt.imp.doneTidy" : "rt.stmt.doneTidy");
+    if (n === 1) return tr(imp ? "rt.imp.doneTidyOne" : "rt.stmt.doneTidyOne");
+    return tr(imp ? "rt.imp.doneTidyMany" : "rt.stmt.doneTidyMany", { n });
+  }
   function addDaysISO(iso, n) {
     const d = new Date(`${iso}T00:00:00`);
     d.setDate(d.getDate() + n);
@@ -131,12 +138,34 @@
 
   function stmtCards() { return Array.from($("statement-results").children); }
   // Distinct statements that can go on to the preview (a spreadsheet may yield several entries in `usable`).
-  function readyCount() { return new Set(usable.map((u) => u.group || u.file)).size; }
+  function readyCount() { return new Set(usable.map(slotOf)).size; }
+  // Each card (one picked file) has its own slot: files are told apart by it, never by their name. Interbank's app names every
+  // statement "account_sumary.pdf", so three accounts picked together counted as one and two were silently left out (owner, 2026-11-11).
+  let slotSeq = 0;
+  function slotOf(u) { return u.slot || u.group || u.file; }
+  function sameStatement(a, b) {
+    return a.kind === b.kind && accountKeyOf(a) === accountKeyOf(b) && JSON.stringify(a.period) === JSON.stringify(b.period) && (a.lines || []).length === (b.lines || []).length;
+  }
+
+  // Files picked but not read yet (they are read one at a time, and each gets its card only when its turn comes) and the one being
+  // read now: while any is left, the counter says so and the preview waits (owner, 2026-11-11: 9 picked, the screen said "6 of 6").
+  let filesQueued = 0, filesReading = 0;
+  // The phone's file picker was opened and has not handed anything over yet: an iPhone prepares (copies, downloads from iCloud) every
+  // picked file before the page hears of any, so for a while the app cannot know how many are coming (owner, 2026-11-11: "5 of 5"
+  // with four still on their way). Until the files arrive, or the picker is cancelled, the preview waits too.
+  let pickerWaiting = false, pickerTimer = null;
+  function setPickerWaiting(on) {
+    pickerWaiting = on;
+    clearTimeout(pickerTimer);
+    if (on) pickerTimer = setTimeout(() => setPickerWaiting(false), 180000);   // never locked for good if the phone sends neither files nor "cancel"
+    updateStepUi();
+  }
+  function readingBusy() { return filesQueued + filesReading > 0 || pickerWaiting; }
 
   function canGoTo(n) {
     if (n === 1) return true;
     if (n === 2) return stmtCards().length > 0;
-    if (n === 3) return usable.length > 0;
+    if (n === 3) return usable.length > 0 && !readingBusy();
     return savedThisRun;
   }
 
@@ -184,13 +213,17 @@
 
   // Counts and buttons that depend on what was read so far.
   function updateStepUi() {
-    const total = stmtCards().length, ready = readyCount();
+    const total = stmtCards().length + filesQueued, ready = readyCount(), busy = readingBusy();
     // A spreadsheet waits for its "Use these lines" even when everything is already set (a saved layout, its accounts remembered): say so.
     const waiting = !!$("statement-results").querySelector(".tm-use");
-    $("stmt-s2-count").textContent = total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr(waiting ? "stmt.s2.waitingUse" : "stmt.s2.skipped") : "") : tr("stmt.s2.none");
+    $("stmt-s2-count").textContent = busy && !(filesQueued + filesReading) ? tr("stmt.s2.waitingPicker") : busy ? tr("stmt.s2.reading", { done: total - filesQueued - filesReading, total }) : total ? tr("stmt.s2.count", { ready, total }) + (ready < total ? " " + tr(waiting ? "stmt.s2.waitingUse" : "stmt.s2.skipped") : "") : tr("stmt.s2.none");
     const next = $("stmt-next-2");
     next.hidden = !usable.length;
+    next.disabled = busy;
     next.textContent = tr("stmt.s2.next", { n: ready });
+    const s1wait = $("stmt-s1-waiting");
+    s1wait.hidden = !busy;
+    if (busy) s1wait.textContent = $("stmt-s2-count").textContent;
     const cont = $("stmt-step1-continue");
     cont.hidden = !total;
     cont.textContent = tr("stmt.s1.continue", { n: total });
@@ -224,7 +257,7 @@
     const done = i.status === "processed";
     const note = done ? tr("stmt.processed") : (i.probably_processed ? tr("stmt.probablyProcessed", { date: fmtDate(i.last_processed, true) }) : tr("stmt.notProcessed"));
     return `<div class="stmt-row"><div class="stmt-row-main">
-        <div class="stmt-row-title">${escapeHtml(tr("stmt.received", { bank: i.bank, date: fmtDate(i.received, true) }))}</div>
+        <div class="stmt-row-title">${escapeHtml(tr("stmt.received", { bank: i.account || i.bank, date: fmtDate(i.received, true) }))}</div>
         <div class="stmt-row-sub">${escapeHtml(note)} · ${i.link ? escapeHtml(tr("stmt.viaLink")) : `${i.size_kb} KB`}</div>
         <div class="stmt-choices" style="padding-left:0">
           <button type="button" class="stmt-choice stmt-inbox-open" data-id="${escapeHtml(i.id)}">${escapeHtml(tr("stmt.open"))}</button>
@@ -265,7 +298,14 @@
   }
 
   // Fetches one inbox statement from Gmail and reads it (asks its password). Throws on failure.
-  async function fetchAndReadInboxItem(id, sender) {
+  // `queued`: it was counted in filesQueued when a batch started ("Open all", "Read selected"), so the Check step said "N of 9" from the
+  // first tap (owner, 2026-11-11). Counted as being read from the download on, not only once the PDF is in hand.
+  async function fetchAndReadInboxItem(id, sender, queued) {
+    if (queued) filesQueued--;
+    filesReading++;
+    try { await fetchAndReadInboxItemNow(id, sender); } finally { filesReading--; updateStepUi(); }
+  }
+  async function fetchAndReadInboxItemNow(id, sender) {
     const att = await callApi("getStatementAttachment", { id });
     const bin = atob(att.base64);
     const bytes = new Uint8Array(bin.length);
@@ -285,7 +325,7 @@
       await fetchAndReadInboxItem(id);
       $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (err) {
-      alert(tr("stmt.fetchFailed", { error: err && err.message ? err.message : err }));
+      showAppMessage_(tr("stmt.fetchFailed", { error: err && err.message ? err.message : err }));
     }
     btn.disabled = false; btn.textContent = tr("stmt.open");
   }
@@ -298,14 +338,16 @@
     const label = btn.textContent;
     btn.disabled = true;
     const failed = [];
+    filesQueued += waiting.length;
+    updateStepUi();
     for (let n = 0; n < waiting.length; n++) {
       setBusy(btn, tr("stmt.openingN", { i: n + 1, n: waiting.length }));
-      try { await fetchAndReadInboxItem(waiting[n].id); }
+      try { await fetchAndReadInboxItem(waiting[n].id, undefined, true); }
       catch (err) { failed.push(`${waiting[n].bank} (${waiting[n].received}): ${err && err.message ? err.message : err}`); }
     }
     btn.disabled = false; btn.textContent = label;
     $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
-    if (failed.length) alert(tr("stmt.fetchFailedList") + "\n" + failed.join("\n"));
+    if (failed.length) showAppMessage_(tr("stmt.fetchFailedList") + "\n" + failed.join("\n"));
   }
 
   // ---- find statements in Gmail (on demand: pick a period, tick what to read) ----
@@ -387,21 +429,25 @@
     const picks = pickedFound(), btn = $("statement-find-read");
     if (!picks.length) return;
     btn.dataset.busy = "1"; btn.disabled = true; setBusy(btn, tr("find.adding"));
+    filesQueued += picks.length;   // counted from the tap: the Check step says "N of M" while they are fetched
+    updateStepUi();
     let added;
     try { added = await callApi("addStatementsToInbox", { items: picks.map((p) => ({ message_id: p.message_id, attachment_name: p.attachment_name })) }); }
-    catch (err) { delete btn.dataset.busy; updateFindReadButton(); alert(tr("find.addFailed", { error: err && err.message ? err.message : err })); return; }
+    catch (err) { filesQueued -= picks.length; updateStepUi(); delete btn.dataset.busy; updateFindReadButton(); showAppMessage_(tr("find.addFailed", { error: err && err.message ? err.message : err })); return; }
+    filesQueued -= picks.length - added.ids.length;   // only what really went into the Inbox is read
+    updateStepUi();
     await refreshStatementInbox();
     if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
     const failed = [];
     for (let n = 0; n < added.ids.length; n++) {
       setBusy(btn, tr("stmt.openingN", { i: n + 1, n: added.ids.length }));
-      try { await fetchAndReadInboxItem(added.ids[n], (added.senders || {})[added.ids[n]] || ""); }
+      try { await fetchAndReadInboxItem(added.ids[n], (added.senders || {})[added.ids[n]] || "", true); }
       catch (err) { failed.push(`${picks[n] ? picks[n].attachment_name : ""}: ${err && err.message ? err.message : err}`); }
     }
     delete btn.dataset.busy;
     updateFindReadButton();
     $("statement-results").scrollIntoView({ behavior: "smooth", block: "start" });
-    if (failed.length) alert(tr("stmt.fetchFailedList") + "\n" + failed.join("\n"));
+    if (failed.length) showAppMessage_(tr("stmt.fetchFailedList") + "\n" + failed.join("\n"));
   }
 
   $("statement-find-btn").addEventListener("click", findStatements);
@@ -457,7 +503,8 @@
     if (!res.gaps.length) { list.innerHTML = `<p class="hint">${escapeHtml(tr("gaps.empty"))}</p>`; return; }
     list.innerHTML = res.gaps.map((g) => {
       const open = g.status === "open";
-      const what = tr(g.gap < 0 ? "gaps.less" : "gaps.more", { amount: fmtMoney(g.currency, Math.abs(g.gap)) });
+      const what = g.likely ? tr("gaps.likely", { amount: signed(g.currency, g.gap), items: g.likely })
+        : tr(g.gap < 0 ? "gaps.less" : "gaps.more", { amount: fmtMoney(g.currency, Math.abs(g.gap)) });
       const compare = g.app_balance === null ? "" : tr("gaps.compare", { closing: fmtMoney(g.currency, g.closing), app: fmtMoney(g.currency, g.app_balance) });
       const resolvedLine = open ? "" : [tr("gaps.resolvedOn", { date: fmtDate(g.resolved_at, true) }), g.note].filter(Boolean).join(" · ");
       return `<div class="stmt-row"><div class="stmt-row-main">
@@ -479,7 +526,7 @@
     }
     btn.disabled = true;
     try { await callApi("resolveStatementGap", payload); }
-    catch (err) { alert(tr("gaps.failed", { error: err.message })); }
+    catch (err) { showAppMessage_(tr("gaps.failed", { error: err.message })); }
     coverage = null;
     refreshStatementGaps();
     refreshStatementCoverage();
@@ -713,22 +760,25 @@
   function resultCardShell(fileName) {
     const card = document.createElement("div");
     card.className = "stmt-result";
+    const slot = "s" + (++slotSeq);
     card.innerHTML = `<div class="stmt-result-name">${escapeHtml(fileName)}</div><div class="stmt-result-body">${loadingHtml(tr("stmt.reading"))}</div>
       <button type="button" class="stmt-result-remove">${escapeHtml(tr("stmt.removeFile"))}</button>`;
-    card.querySelector(".stmt-result-remove").addEventListener("click", () => removeResultCard(card, fileName));
+    card.querySelector(".stmt-result-remove").addEventListener("click", () => removeResultCard(card, slot));
     $("statement-results").prepend(card);
     // Reading starts: the person moves on to step 2 by themselves (from the inbox, a file, or the Gmail search alike).
     if (stepNow === 1 || pastOpen) showStep(2); else updateStepUi();
     realStmtFileChosen_();
-    return card.querySelector(".stmt-result-body");
+    const body = card.querySelector(".stmt-result-body");
+    body.dataset.slot = slot;
+    return body;
   }
 
   // Takes one file out of this session's list (it is only on the phone; the PDF itself is never kept).
-  function removeResultCard(card, fileName) {
-    const had = usable.some((u) => (u.group || u.file) === fileName);
+  function removeResultCard(card, slot) {
+    const had = usable.some((u) => slotOf(u) === slot);
     card.remove();
     if (!had) { updateReviewButton(); return; }
-    usable = usable.filter((u) => (u.group || u.file) !== fileName);
+    usable = usable.filter((u) => slotOf(u) !== slot);
     // The plan's statement/line numbers refer to the list — any change makes an open plan stale.
     historyPlan = null;
     $("statement-history").innerHTML = "";
@@ -836,9 +886,11 @@
       if (result.kind && result.ok) {
         // A statement that came from Gmail and was read: its sender is a bank this app now knows (the 15-minute check finds its next ones).
         if (file.inboxId) callApi("rememberStatementSender", { id: file.inboxId }).catch(() => {});
-        // A re-read of the same file replaces its earlier reading.
-        usable = usable.filter((u) => (u.group || u.file) !== file.name);
-        usable.push({ file: file.name, result, inboxId: file.inboxId || "" });
+        // A re-read of the same card replaces its earlier reading.
+        // The same statement picked twice (same account, dates and number of lines) also counts once, whatever the files are called.
+        const slot = body.dataset.slot;
+        usable = usable.filter((u) => slotOf(u) !== slot && !sameStatement(u.result, result));
+        usable.push({ file: file.name, slot, result, inboxId: file.inboxId || "" });
         // The plan's statement/line numbers refer to THIS list — any change makes an open plan stale.
         historyPlan = null;
         $("statement-history").innerHTML = "";
@@ -904,7 +956,7 @@
     const guess = StatementTable.guessMapping(rows, {});
     const sig = StatementTable.signature(guess, rows);
     const width = guess.headers.length;
-    const state = { m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catCustom: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "" };
+    const state = { balStart: "", balEnd: "", balOpen: false, m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catCustom: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "" };
 
     // Where do the columns come from: this layout saved on the server, a layout the app knows by name, or the guess.
     let saved = null;
@@ -916,6 +968,9 @@
         if (typeof fromSource[f] === "number") state.m[f] = fromSource[f] >= 0 && fromSource[f] < width ? fromSource[f] : -1;
       });
       ["dateOrder", "decimal", "sign", "currencyFixed", "source"].forEach((f) => { if (fromSource[f]) state.m[f] = fromSource[f]; });
+      // A date in THIS file that proves the order (31/10) beats a remembered answer (Mark, re-check 2026-11-18: the remembered
+      // month / day dropped that line without a word). Said in the preview.
+      if (guess.dateProved && guess.dateOrder && state.m.dateOrder !== guess.dateOrder) { state.m.dateOrder = guess.dateOrder; state.dateFromFile = true; }
     }
     if (saved && saved.found) {
       state.source = "saved"; state.label = saved.label || ""; state.uses = saved.uses || 0;
@@ -924,6 +979,13 @@
       if (state.map["*"] && accounts.some((a) => a.id === state.map["*"])) state.accountId = state.map["*"];
     } else if (known) {
       state.source = "known"; state.label = known.name;
+    }
+    // A new layout whose amounts carry a dollar sign starts on dollars: "US$" is USD; a bare "$" is the main currency when that is a
+    // dollar-sign currency (pesos…), else USD. Said in the preview, and the currency box can still be changed.
+    const DOLLAR_SIGN_CURS = ["USD", "MXN", "CLP", "ARS", "COP", "UYU", "CAD", "AUD", "NZD", "SGD", "HKD", "DOP"];
+    if (state.source === "new" && guess.currencySign && !state.m.currencyFixed) {
+      state.m.currencyFixed = guess.currencySign === "$" && DOLLAR_SIGN_CURS.includes(homeCur()) ? homeCur() : "USD";
+      state.signCurrency = state.m.currencyFixed;
     }
     const remembered = state.source !== "new";
     // Statements reads a bank's files and Import data reads another app's: an app's export is told from a bank's by its layout
@@ -996,7 +1058,12 @@
       const v = normName(value);
       if (!v) return "";
       const hit = accounts.find((a) => normName(a.nickname) === v) || accounts.find((a) => normName(a.nickname).includes(v) || v.includes(normName(a.nickname)));
-      return hit ? hit.id : "";
+      if (hit) return hit.id;
+      // "Interbank 1408" in another app's export: the account whose last 4 digits are in the name, when only one has them (journeys run,
+      // 2026-11-17: all 712 lines of a Money Manager file were saved with no account).
+      const digits = String(value).match(/\d{4}/g) || [];
+      const byDigits = accounts.filter((a) => a.last_4 && digits.includes(String(a.last_4).padStart(4, "0")));
+      return byDigits.length === 1 ? byDigits[0].id : "";
     }
     function renderValues() {
       const box = root.querySelector(".tm-values");
@@ -1060,10 +1127,10 @@
       if (choice === "") return "";
       const info = catInfo(choice);
       if (!info) return it.name;
-      // Which name by default (owner, 2026-11-04, replacing "the file's name wins" of 2026-10-24), in this order: (1) a category that
-      // already holds entries keeps the app's name; (2) otherwise the file's name. A category the app depends on never changes name.
-      if (info.protected || info.entries > 0) return info.name;
-      return info.names.indexOf(StatementTable.catNorm(it.name)) !== -1 ? info.name : it.name;
+      // An existing category keeps its own name by default; taking the file's name is the person's choice ("Rename to …"). (Owner,
+      // 2026-11-17, journeys run: on a new copy every starter category is still empty, so the old rule — an empty category takes the
+      // file's name — renamed Transport to "Taxi", Restaurants to "Food" and Home to "Household" without anyone asking for it.)
+      return info.name;
     }
     async function loadCategories() {
       const names = fileCategoryNames();
@@ -1168,8 +1235,8 @@
           const n = info.entries ? ` · ${tr("categories.entryCount", { n: info.entries })}` : "";
           // The suggested category (or the one a remembered choice renames) is offered twice: renamed to the file's name, and as it is.
           const renamable = (c.id === it.categoryId || selVal === "ren:" + c.id) && !info.protected && info.names && info.names.indexOf(norm) === -1;
-          return (renamable ? `<option value="ren:${escapeHtml(c.id)}"${selVal === "ren:" + c.id ? " selected" : ""}>${escapeHtml(tr("table.catOptRename", { from: c.name, to: shownName(it.name, it.type) }) + n)}</option>` : "") +
-            `<option value="${escapeHtml(c.id)}"${selVal === c.id ? " selected" : ""}>${escapeHtml(c.name + n)}</option>`;
+          return (renamable ? `<option value="ren:${escapeHtml(c.id)}"${selVal === "ren:" + c.id ? " selected" : ""}>${escapeHtml(tr("table.catOptRename", { from: catOptionText_(c), to: shownName(it.name, it.type) }) + n)}</option>` : "") +
+            `<option value="${escapeHtml(c.id)}"${selVal === c.id ? " selected" : ""}>${escapeHtml(catOptionText_(c) + n)}</option>`;
         }).join("");
         const nameInput = selVal === "custom" ? `<label>${escapeHtml(tr("table.catCustomLabel"))}</label><input type="text" class="tm-cname" maxlength="40" aria-label="${escapeHtml(tr("table.catName"))}" value="${escapeHtml(state.catNames[it.key] || "")}">` : "";
         const note = it.why === "retired" ? `<p class="stmt-note warn" style="margin:6px 0">${escapeHtml(tr("table.catLoanNote"))}</p>` : "";
@@ -1238,9 +1305,30 @@
         use.disabled = true;
         return;
       }
+      // Every date reads two ways and none proves the order (10/04/2026): the person says how the file writes them before anything is
+      // shown (owner, 2026-11-18). A file that proves it (31/01/2026) is never asked. The answer is remembered with the layout.
+      if (!state.m.dateOrder) {
+        const sample = state.m.dateSample || "";
+        const asIs = (order) => { const iso = StatementTable.toIsoDate(sample, order); return iso ? fmtDate(iso, true) : ""; };
+        box.innerHTML = `<p class="stmt-note warn">${escapeHtml(tr("table.dateAsk", { date: sample }))}</p>
+          <div class="stmt-choices" style="padding-left:0">
+            <button type="button" class="stmt-choice tm-dord" data-order="dmy">${escapeHtml(tr("table.dateAskDmy", { date: asIs("dmy") }))}</button>
+            <button type="button" class="stmt-choice tm-dord" data-order="mdy">${escapeHtml(tr("table.dateAskMdy", { date: asIs("mdy") }))}</button>
+          </div>`;
+        box.querySelectorAll(".tm-dord").forEach((b) => b.addEventListener("click", () => {
+          state.m.dateOrder = b.dataset.order;
+          state.dateAnswered = true;
+          setVal("order", b.dataset.order);
+          renderPreview();
+        }));
+        use.disabled = true;
+        return;
+      }
       const needCategory = screenMode === "import" && state.m.category < 0;   // another app's export names a category for every line
       use.disabled = needCategory || (multi() ? (undecided > 0 || !lines.length) : (!noneOk && !pm()));
       // Not blocking, only a heads-up: with accounts set up, a person usually wants the entries on one of them.
+      // An import may leave a name of the file's account column with no account: say how many lines that is, before saving.
+      const noAcctLines = multi() && noneOk ? lines.filter((l) => !state.map[l.account]).length : 0;
       const noAccountNote = noneOk && !needCategory && !multi() && !pm() ? `<p class="stmt-note info">${escapeHtml(tr(accounts.some((a) => a.type !== "cash") ? "imp.noAccountWarn" : "imp.noAccountsInfo"))}</p>` : "";
       const totals = {};
       lines.forEach((l) => { const t = totals[l.currency] || (totals[l.currency] = { out: 0, in: 0 }); if (l.amount < 0) t.out += -l.amount; else t.in += l.amount; });
@@ -1249,15 +1337,70 @@
       box.innerHTML = `<div class="stmt-kv"><span>${escapeHtml(lines.length ? tr("table.previewLines", { n: lines.length, from: fmtDate(dates[0], true), to: fmtDate(dates[dates.length - 1], true) }) : "—")}</span><span></span></div>
         <div class="stmt-kv"><span>${escapeHtml(tr("table.out"))}</span><span>${escapeHtml(sum("out"))}</span></div>
         <div class="stmt-kv"><span>${escapeHtml(tr("table.in"))}</span><span>${escapeHtml(sum("in"))}</span></div>
-        ${r.skipped.some((x) => x.reason !== "transfer") ? `<p class="hint">${escapeHtml(tr("table.skipped", { n: r.skipped.filter((x) => x.reason !== "transfer").length }))}</p>` : ""}
+        ${skippedFold(r.skipped.filter((x) => x.reason !== "transfer"))}
+        ${fileWarnings(lines)}
         ${r.skipped.some((x) => x.reason === "transfer") ? `<p class="stmt-note warn">${escapeHtml(tr("table.transferNoDirection", { n: r.skipped.filter((x) => x.reason === "transfer").length }))}</p>` : ""}
         ${lines.some((l) => l.transfer) ? `<p class="stmt-note info">${escapeHtml(tr("table.transfersMarked", { n: lines.filter((l) => l.transfer).length }))}</p>` : ""}
+        ${(state.source === "new" || state.dateFromFile) && guess.dateProved && !state.dateAnswered && state.m.dateOrder === guess.dateOrder ? `<p class="stmt-note info">${escapeHtml(tr(state.m.dateOrder === "mdy" ? "table.datesReadMdy" : "table.datesReadDmy"))}</p>` : ""}
+        ${guess.currencyMixed && state.m.currency < 0 ? `<p class="stmt-note warn">${escapeHtml(tr("table.mixedCur", { signs: guess.currencyMixed, cur: m.currencyFixed || homeCur() }))}</p>` : ""}
+        ${state.signCurrency && m.currencyFixed === state.signCurrency && state.m.currency < 0 ? `<p class="stmt-note info">${escapeHtml(tr("table.readAsSign", { cur: state.signCurrency, sign: guess.currencySign }))}</p>` : ""}
         ${needCategory ? `<p class="stmt-note warn">${escapeHtml(tr("imp.needCategory"))}</p>` : ""}
         ${noAccountNote}
         ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
+        ${multi() && noneOk && noAcctLines ? `<p class="stmt-note warn">${escapeHtml(tr("imp.noAccountLines", { n: noAcctLines }))}</p>` : ""}
         ${r.lines.length > TABLE_BIG_FILE ? `<p class="stmt-note warn">${escapeHtml(tr("table.bigFile", { n: r.lines.length }))}</p>` : ""}
         <p class="hint">${escapeHtml(tr("table.checkSigns"))}</p>
-        ${lines.slice(0, 5).map((l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`).join("")}`;
+        ${lines.slice(0, 5).map((l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`).join("")}
+        ${balanceCheckHtml(lines)}`;
+      lastPreviewLines = lines;
+    }
+    // ---- quick troubleshooting of a spreadsheet (owner, 2026-11-17, after the journeys run): a spreadsheet has no totals the app can
+    // check, so the preview names every line it left out and why, warns about what usually means a wrong reading, and can check the
+    // lines against the balances the person knows. Nothing here changes what is saved.
+    let lastPreviewLines = [];
+    function rowText(row) {
+      const cell = (c) => (c && typeof c === "object" && c.date ? String(c.date) : String(c === undefined || c === null ? "" : c)).replace(/\s+/g, " ").trim();
+      return (rows[row - 1] || []).map(cell).filter(Boolean).join(" · ").slice(0, 80);
+    }
+    root.addEventListener("toggle", (e) => { if (e.target.classList && e.target.classList.contains("tm-balcheck")) state.balOpen = e.target.open; }, true);
+    function skippedFold(sk) {
+      if (!sk.length) return "";
+      const items = sk.slice(0, 20).map((x) => `<li>${escapeHtml(tr("table.skipRow", { row: x.row, why: tr("table.skipWhy." + x.reason), text: rowText(x.row) || "—" }))}</li>`).join("");
+      const more = sk.length > 20 ? `<p class="hint">${escapeHtml(tr("table.skipMore", { n: sk.length - 20 }))}</p>` : "";
+      return `<details class="tm-skipped"><summary class="hint">${escapeHtml(tr("table.skipped", { n: sk.length }))}</summary><ul class="hint">${items}</ul>${more}</details>`;
+    }
+    function fileWarnings(lines) {
+      if (!lines.length) return "";
+      const warn = [];
+      if (lines.length >= 5 && lines.every((l) => l.amount > 0)) warn.push(tr("table.warnAllIn"));
+      if (lines.length >= 5 && lines.every((l) => l.amount < 0) && screenMode === "import") warn.push(tr("table.warnAllOut"));
+      const seen = {}; let twice = 0;
+      lines.forEach((l) => { const k = l.date + "|" + l.description + "|" + l.amount + "|" + l.currency; if (seen[k]) twice++; seen[k] = true; });
+      if (twice) warn.push(tr("table.warnTwice", { n: twice }));
+      // (spending only: one big salary among small purchases is normal)
+      const spent = lines.filter((l) => l.amount < 0), abs = spent.map((l) => -l.amount).sort((a, b) => a - b), median = abs[Math.floor(abs.length / 2)];
+      const big = spent.length >= 10 ? spent.filter((l) => -l.amount > median * 20 && -l.amount >= 1000).sort((a, b) => a.amount - b.amount) : [];
+      if (big.length) warn.push(tr("table.warnBig", { n: big.length, amount: fmtMoney(big[0].currency, Math.abs(big[0].amount)), date: fmtDate(big[0].date, true), name: big[0].description }));
+      const today = todayLocalISO(), later = lines.filter((l) => l.date > today).length;
+      if (later) warn.push(tr("table.warnFuture", { n: later }));
+      return warn.map((w) => `<p class="stmt-note warn">${escapeHtml(w)}</p>`).join("");
+    }
+    // The person's own balances at the start and the end: start + money in − money out should give the end. One currency, one account.
+    function balanceCheckHtml(lines) {
+      const curs = [...new Set(lines.map((l) => l.currency))];
+      if (!lines.length || curs.length !== 1 || multi()) return "";
+      return `<details class="tm-balcheck"${state.balOpen ? " open" : ""}><summary class="hint">${escapeHtml(tr("table.balCheck"))}</summary>
+        <p class="hint">${escapeHtml(tr("table.balCheckHint"))}</p>
+        <label class="hint">${escapeHtml(tr("table.balStart"))} <input type="text" inputmode="decimal" class="tm-bal" data-bal="start" value="${escapeHtml(state.balStart || "")}"></label>
+        <label class="hint">${escapeHtml(tr("table.balEnd"))} <input type="text" inputmode="decimal" class="tm-bal" data-bal="end" value="${escapeHtml(state.balEnd || "")}"></label>
+        <p class="tm-bal-result">${balanceResultHtml(lines)}</p></details>`;
+    }
+    function balanceResultHtml(lines) {
+      const a = parseFloat(String(state.balStart || "").replace(/,/g, "")), b = parseFloat(String(state.balEnd || "").replace(/,/g, ""));
+      if (isNaN(a) || isNaN(b) || !lines.length) return "";
+      const cur = lines[0].currency, net = lines.reduce((t, l) => t + l.amount, 0), off = Math.round((a + net - b) * 100) / 100;
+      if (Math.abs(off) < 0.005) return `<span class="stmt-note good">${escapeHtml(tr("table.balOk"))}</span>`;
+      return `<span class="stmt-note warn">${escapeHtml(tr(off > 0 ? "table.balOffMore" : "table.balOffLess", { amount: fmtMoney(cur, Math.abs(off)) }))}</span>`;
     }
     function applyAccountGuess() {
       // A card's purchases are usually positive: re-guess the sign for the chosen account, but only for a layout nobody has confirmed.
@@ -1266,7 +1409,7 @@
     }
     root.addEventListener("change", (e) => {
       const cls = (e.target.className.match(/tm-(\w+)/) || [])[1];
-      if (!cls) return;
+      if (!cls || cls === "bal") return;   // the balance boxes only update their own result line (the "input" handler below)
       const v = e.target.value;
       if (cls === "account") { state.accountId = v; applyAccountGuess(); syncControlsFromState(); }
       else if (cls === "vacct") { const val = e.target.closest(".tm-value").dataset.value; if (v) state.map[val] = v; else delete state.map[val]; }
@@ -1315,6 +1458,12 @@
       scheduleCategories();
     });
     root.addEventListener("input", (e) => {
+      if (e.target.classList.contains("tm-bal")) {
+        state[e.target.dataset.bal === "start" ? "balStart" : "balEnd"] = e.target.value;
+        const res = root.querySelector(".tm-bal-result");
+        if (res) res.innerHTML = balanceResultHtml(lastPreviewLines);
+        return;
+      }
       if (!e.target.classList.contains("tm-cname")) return;
       const row = e.target.closest(".tm-cat-row");
       state.catNames[row.dataset.key] = e.target.value;
@@ -1332,7 +1481,7 @@
       if (!lines.length) return;
       // A chosen rename changes the name of entries already recorded: said once more, in a pop-up, before going on (owner, 2026-11-04).
       const renames = nameConflicts().filter((c) => c.renamed);
-      if (renames.length && !practiceNoConfirm_(true) && !await askConfirmApp_(tr("table.conflictConfirm", { list: renames.map((c) => tr("table.conflictLine", { mine: c.info.name, to: String(state.catNames[c.it.key] || "").trim(), n: c.info.entries })).join("\n") }), tr("confirmBtn.yes"), { plain: true })) return;
+      if (renames.length && !practiceNoConfirm_(true) && !await askConfirmApp_(tr("table.conflictConfirm", { list: renames.map((c) => tr("table.conflictLine", { mine: c.info.name, to: String(state.catNames[c.it.key] || "").trim(), n: c.info.entries })).join("\n") }), tr("confirmBtn.renameThem"), { plain: true })) return;
       // Lines go to their account: the one picked, or — for a file with an account column — the account each name was matched to.
       const byAccount = new Map();
       lines.forEach((l) => {
@@ -1360,9 +1509,13 @@
         mapping: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, account: m.account, category: m.category, type: m.type,
           dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed, source: m.source || "" } }).catch(() => {});
       if (StatementTable.PRACTICE_FILE_NAMES.includes(file.name)) practiceINote_("used");   // the practice file's layout was just remembered: its cleanup forgets it
-      // A re-read of the same file replaces its earlier reading.
-      usable = usable.filter((u) => (u.group || u.file) !== file.name);
-      results.forEach((r) => usable.push({ file: r.name, group: file.name, result: r.result, inboxId: "" }));
+      // A re-read of the same card replaces its earlier reading.
+      const slot = body.dataset.slot;
+      usable = usable.filter((u) => slotOf(u) !== slot);
+      // Lines that will come in with no category (the file names none, or the person left its category without one): the next screen only
+      // says "added without a category" when there are some (Mark, re-check 2026-11-18).
+      const catLeftOf = (r) => r.result.lines.filter((l) => !l.category || state.catChoice[(l.amount > 0 ? "income" : "expense") + ":" + StatementTable.catNorm(l.category)] === "").length;
+      results.forEach((r) => usable.push({ file: r.name, group: file.name, slot, result: r.result, inboxId: "", catLeft: catLeftOf(r) }));
       historyPlan = null;
       $("statement-history").innerHTML = "";
       updateReviewButton();
@@ -1383,17 +1536,22 @@
     // Copied BEFORE any wait: the file box is emptied right after the pick (so the same file can be picked again), and a list read after
     // a wait was empty, so a file picked while the screen still said "Loading…" was silently dropped (Andrés, 2026-11-09).
     const picked = Array.from(files);
+    filesQueued += picked.length;
+    updateStepUi();
     await screenLoaded;   // ...and it is read once the screen has loaded
     if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* notes just won't show */ } }
     for (const f of picked) {   // one at a time: easy on a phone's memory
-      if (screenMode === "import" && !isTableFile(f)) {
-        const body = resultCardShell(f.name);
-        body.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("imp.blockedPdf"))}</p>
-          <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice imp-go">${escapeHtml(tr("imp.openStatements"))}</button></div>`;
-        body.querySelector(".imp-go").addEventListener("click", () => { showStatementsScreen("bank"); window.scrollTo(0, 0); });
-        continue;
-      }
-      await (isTableFile(f) ? readTableFile(f) : readStatementFile(f));
+      filesQueued--; filesReading++;
+      try {
+        if (screenMode === "import" && !isTableFile(f)) {
+          const body = resultCardShell(f.name);
+          body.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("imp.blockedPdf"))}</p>
+            <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice imp-go">${escapeHtml(tr("imp.openStatements"))}</button></div>`;
+          body.querySelector(".imp-go").addEventListener("click", () => { showStatementsScreen("bank"); window.scrollTo(0, 0); });
+          continue;
+        }
+        await (isTableFile(f) ? readTableFile(f) : readStatementFile(f));
+      } finally { filesReading--; updateStepUi(); }
     }
   }
 
@@ -1414,14 +1572,44 @@
       holder: result.holder || "",   // the name printed on the statement: how the app learns the person's own name (backend/OwnerNames.gs)
       period: result.period,
       balances: result.balances,
+      due: result.due || "",   // a card's pay-by date read from the file: when missing, the preview asks for it (due_asks)
       verified: !!(result.ok && result.verified !== false),
       lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category, transfer: l.transfer }))
     }));
   }
 
+  // A card's pay-by date the file did not show (owner's plan, 2026-11-18): one optional box per card statement, filled with the card's
+  // usual gap after closing when an earlier statement had a date. What the person types is kept across redraws (`dueTyped`).
+  function dueAskHtml_() {
+    const asks = (historyPlan && historyPlan.due_asks) || [];
+    if (!asks.length) return "";
+    return asks.map((a) => {
+      const u = usable[a.stmt];
+      if (!u || !u.result.period || !u.result.period.end) return "";
+      const val = dueTyped[a.stmt] !== undefined ? dueTyped[a.stmt] : a.guess || "";
+      const min = (() => { const d = new Date(u.result.period.end + "T12:00:00"); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+      return `<div class="stmt-due-ask"><label for="stmt-due-${a.stmt}">${escapeHtml(tr("stmt.dueAsk", { account: a.account }))}</label>
+        <input type="date" id="stmt-due-${a.stmt}" data-due-stmt="${a.stmt}" min="${min}" value="${escapeHtml(val)}">
+        <p class="hint">${escapeHtml(tr(a.guess && dueTyped[a.stmt] === undefined ? "stmt.dueGuessed" : "stmt.dueNotFound"))}</p></div>`;
+    }).join("");
+  }
+  // The typed pay-by dates go onto their statements just before saving; one on or before the close is refused here, in the open screen.
+  function applyDueTyped_() {
+    document.querySelectorAll("[data-due-stmt]").forEach((inp) => { dueTyped[inp.dataset.dueStmt] = inp.value; });
+    for (const a of (historyPlan && historyPlan.due_asks) || []) {
+      const u = usable[a.stmt], v = dueTyped[a.stmt] !== undefined ? dueTyped[a.stmt] : a.guess || "";
+      if (!u) continue;
+      if (!v) { delete u.result.due; continue; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || v <= String(u.result.period.end)) return tr("stmt.dueTooEarly", { account: a.account });
+      u.result.due = v;
+    }
+    return "";
+  }
+
   // ---- "Fill my history": one approval for everything, no per-line choices (backend/StatementHistory.gs) ----
 
   let historyPlan = null;   // { actions, summary } from planStatementHistory, for the statements read right now
+  let dueTyped = {};        // pay-by dates typed in the preview, by statement number; emptied with each new plan
 
   async function runHistoryPlan() {
     const btn = $("statement-history-btn");
@@ -1431,11 +1619,14 @@
     $("statement-plan-status").innerHTML = "";
     out.innerHTML = loadingHtml(tr("hist.planning")) + `<p class="hint">${escapeHtml(tr("hist.keepOpen"))}</p>`;
     try {
-      historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis() });
+      historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis(), startBank: true });
+      dueTyped = {};
       historyPlan.platform = new Map();    // index into summary.aside -> investment platform the person picked (else the guess is used)
       historyPlan.incMode = new Map();     // index into summary.incomeLines -> "transfer" | "investment" | "review" | "leave" (absent = income, the default)
       historyPlan.outMode = new Map();     // index into summary.peopleOut -> "review" or "leave" (absent = spending, the default)
       historyPlan.openPeople = new Set();  // people whose lines are showing
+      historyPlan.openSec = new Set();        // groups the person opened (order B: all start collapsed)
+      historyPlan.noAcctOff = new Set();      // lineKey of a no-account pair the person said is a different entry (added as new instead)
       historyPlan.rechargeChoice = new Map(); // index into summary.recharges -> the entry id that takes the card's charge, or "add"; absent = the plan's own
       historyPlan.discountChoice = new Map(); // index into summary.discounts -> the entry id that takes the bank's amount, or "add"; absent = the plan's own
       historyPlan.chargeChoice = new Map(); // index into summary.charges -> the entry id it fills, or "add" (a new purchase); absent = the plan's own
@@ -1447,6 +1638,7 @@
       // a duplicate); tapping the button again leaves it out instead.
       (historyPlan.summary.aside || []).forEach((a, i) => { if (a.reason === "possible" && a.optInReview) historyPlan.chosen.set(i, "review"); });
       historyPlan.bal = new Set();         // balance checks (index into historyPlan.checks) the person wants set from the statement
+      historyPlan.startFix = new Set();    // balance checks whose starting-balance correction the person accepted (owner's plan, step 3)
       historyPlan.checks = balanceChecks(historyPlan.balance_checks || []);
       renderHistoryPlan();
     } catch (err) {
@@ -1470,10 +1662,192 @@
     return checks.map((c) => ({ ...c, newest: newest[accountKeyOf(usable[c.stmt].result) + "|" + c.currency] === c }));
   }
 
+  // A balance check recounted with the person's choices (owner, 2026-11-11): the server counts every statement line not in the app as
+  // explained ("from N lines not in the app"), on the idea that it gets added. A line the person leaves out (or that only waits) is not
+  // added, so its amount moves to "unexplained" — on screen at once, and in the difference note a set balance saves.
+  function liveCheck(c0, covered, noFix) {
+    const c = noFix ? livePicks_(c0) : liveStartFix_(livePicks_(c0), c0);
+    const items = (c.direction === "forward" && c.notInApp && c.notInApp.items) || [];
+    const out = items.filter((it) => !covered[lineKey({ stmt: c.stmt, line: it.line })]);
+    if (!out.length) return c;
+    const sum = out.reduce((t, it) => t + it.amount, 0);
+    return { ...c, notInApp: { ...c.notInApp, net: Math.round((c.notInApp.net - sum) * 100) / 100, lines: c.notInApp.lines - out.length },
+      leftOut: { net: Math.round(sum * 100) / 100, lines: out.length }, unexplained: Math.round((c.unexplained + sum) * 100) / 100 };
+  }
+  // The starting-balance correction the person accepted (owner, 2026-11-11): its entries count after the balance, so the app moves by
+  // their effect and that much is no longer unexplained.
+  function startFixSum_(c) { return r2_((c.startFix ? c.startFix.items : []).reduce((t, it) => t + (it.weight !== undefined ? it.weight : it.amount), 0)); }
+  // The note's wording by direction: all "taken as inside", all "counted after", or both.
+  function startFixKind_(c) {
+    const sides = new Set(c.startFix.items.map((it) => it.side || "in"));
+    return sides.size > 1 ? "Mixed" : sides.has("out") ? "Out" : sides.has("bank") ? "Bank" : "";
+  }
+  // An item's name: a purchase "already charged" shows both amounts (what the app has → what the bank charged).
+  function startFixName_(c, it) {
+    const name = it.description || tr("type." + it.type);
+    return it.side === "bank" ? `${name} ${fmtMoney(c.currency, it.recorded)} → ${fmtMoney(c.currency, it.charged)}` : `${name} ${signed(c.currency, it.amount)}`;
+  }
+  // The correction, searched again on the phone with the person's picks (owner, 2026-11-11): the server sends the candidates
+  // (`startCands`: entries near the starting balance, and purchases inside it that the card charged differently, as "already charged");
+  // a suggestion the person picks on a purchase inside the balance adds its own. The same rule as the server's stmtStartFix_: the fewest
+  // candidates that add up, to the cent, to what is left unexplained, offered only when exactly one such set exists. A correction already
+  // accepted that changes with the picks is no longer accepted (the person sees the new one before it applies).
+  function refreshStartFixes_() {
+    if (!historyPlan || !historyPlan.checks) return;
+    const covered = coveredLines(historyActions(false)), s = historyPlan.summary || {};
+    historyPlan.checks.forEach((c0, i) => {
+      if (!Array.isArray(c0.startCands) || c0.direction !== "forward" || !c0.anchor) return;
+      const cands = c0.startCands.slice();
+      (s.discounts || []).forEach((d, k) => {
+        if (d.clear || d.stmt !== c0.stmt || d.currency !== c0.currency) return;
+        const pick = discountOf(k);
+        const o = pick && pick !== "add" ? (d.options || []).find((x) => x.id === pick) : null;
+        if (!o || !o.insideStart || cands.some((x) => x.id === o.id)) return;
+        const shift = r2_(d.amount + Number(o.amount));
+        if (!shift) return;
+        cands.push({ id: o.id, date: String(o.date || d.date).slice(0, 10), description: o.description || "", type: "expense", side: "bank",
+          recorded: Number(o.amount), charged: r2_(-d.amount), amount: d.amount, weight: -shift, cents: Math.round(-shift * 100) });
+      });
+      cands.sort((a, b) => (a.date < b.date ? 1 : -1));
+      const list = cands.slice(0, 14), n = list.length;   // 14: STMT_START_FIX_MAX_ in StatementBalance.gs
+      const target = Math.round(liveCheck(c0, covered, true).unexplained * 100);
+      let fix = null;
+      if (target) {
+        for (let size = 1; size <= n && !fix; size++) {
+          const found = [];
+          const walk = (start, picked, sum) => {
+            if (found.length > 1) return;
+            if (picked.length === size) { if (sum === target) found.push(picked.slice()); return; }
+            for (let j = start; j < n; j++) { picked.push(j); walk(j + 1, picked, sum + list[j].cents); picked.pop(); }
+          };
+          walk(0, [], 0);
+          if (found.length > 1) break;
+          if (found.length === 1) {
+            fix = { date: c0.anchor.date, amount: c0.anchor.amount, items: found[0].map((j) => {
+              const x = list[j], it = { id: x.id, date: x.date, description: x.description, type: x.type, side: x.side, amount: x.amount, weight: x.weight };
+              if (x.side === "bank") { it.recorded = x.recorded; it.charged = x.charged; }
+              return it;
+            }) };
+          }
+        }
+      }
+      const sig = (f) => (f ? f.items.map((it) => it.side + ":" + it.id).sort().join(",") : "");
+      if (sig(fix) !== sig(c0.startFix)) historyPlan.startFix.delete(i);
+      if (fix) c0.startFix = fix; else delete c0.startFix;
+    });
+  }
+  // The starting number after this save: the correction's entries, plus any "charged differently" difference on purchases inside it that the
+  // same save takes (both move the number; c is a live check).
+  // (an accepted "already charged" item was taken out of c.startShift by liveStartFix_: _bankSum puts it back so it is not counted twice)
+  function startFixCorrected_(c) { return r2_(c.startFix.amount + startFixSum_(c) + ((c.startShift && c.startShift.net) || 0) - (c._bankSum || 0)); }
+  function startFixOn_(c) { return !!(c.startFix && historyPlan && historyPlan.startFix && historyPlan.startFix.has(historyPlan.checks.indexOf(c))); }
+  function liveStartFix_(c, c0) {   // c0: the check as the server sent it (the one in historyPlan.checks)
+    if (!startFixOn_(c0)) return c;
+    // "Already charged" purchases no longer move the starting balance: they leave the "inside your starting balance" difference instead
+    // of showing as a correction of their own (owner, 2026-11-11).
+    const items = c0.startFix.items, bank = items.filter((it) => it.side === "bank"), rest = items.filter((it) => it.side !== "bank");
+    const sumOf = (l) => r2_(l.reduce((t, it) => t + (it.weight !== undefined ? it.weight : it.amount), 0));
+    const bankSum = sumOf(bank), restSum = sumOf(rest);
+    const out = { ...c, unexplained: r2_(c.unexplained - bankSum - restSum), _src: c0, _bankSum: bankSum };
+    if (rest.length) out.startFixed = { net: restSum, lines: rest.length };
+    if (bank.length && c.startShift) {
+      const lines = c.startShift.lines - bank.length;
+      out.startShift = lines > 0 ? { net: r2_(c.startShift.net + bankSum), lines } : undefined;
+    }
+    return out;
+  }
+  // Pairs the person PICKED on screen (a suggestion, or a pair that was not ticked by itself), owner 2026-11-11: the server counted their
+  // line as "not in the app" (it could not know the choice). On a pick it is recounted as what it really is — the purchase is already in
+  // the app, so the line is "charged less / more than recorded" (only the difference counts) or "charged in another currency".
+  const r2_ = (n) => Math.round(n * 100) / 100;
+  function livePicks_(c) {
+    if (c.direction !== "forward" || !historyPlan || !historyPlan.summary) return c;
+    const s = historyPlan.summary, round = r2_;
+    let notIn = c.notInApp ? { ...c.notInApp, items: (c.notInApp.items || []).slice() } : null;
+    let disc = { ...(c.discounted || { net: 0, lines: 0 }) }, other = { ...(c.otherCurrency || { net: 0, lines: 0 }) }, unexplained = c.unexplained, changed = false;
+    let shift = { ...(c.startShift || { net: 0, lines: 0 }) };
+    const takeLine = (d) => {   // this check's "not in the app" line for d, removed from that count; null when it is not there
+      if (!notIn || d.stmt !== c.stmt || d.currency !== c.currency) return null;
+      const at = notIn.items.findIndex((it) => it.line === d.line);
+      if (at < 0) return null;
+      const it = notIn.items.splice(at, 1)[0];
+      notIn = { ...notIn, net: round(notIn.net - it.amount), lines: notIn.lines - 1 };
+      return it;
+    };
+    (s.discounts || []).forEach((d, k) => {
+      const pick = d.clear ? "" : discountOf(k);
+      if (!pick || pick === "add") return;
+      const o = (d.options || []).find((x) => x.id === pick);
+      if (!o) return;
+      if (!takeLine(d)) {
+        // A purchase inside the starting balance (owner, 2026-11-11): its line was never counted, and taking the bank's amount also moves
+        // that balance by the difference (StatementApply.gs), so only the difference is explained.
+        if (o.insideStart && d.stmt === c.stmt && d.currency === c.currency) {
+          const diff = round(d.amount + Number(o.amount));
+          shift = { net: round(shift.net + diff), lines: shift.lines + 1 };
+          unexplained = round(unexplained - diff);
+          changed = true;
+        }
+        return;
+      }
+      // the line minus the purchase already counted: only the discount (or the tip) is new
+      disc = { net: round(disc.net + d.amount + Number(o.amount)), lines: disc.lines + 1 };
+      unexplained = round(unexplained - Number(o.amount));
+      changed = true;
+    });
+    (s.recharges || []).forEach((d, k) => {
+      const pick = d.clear ? "" : rechargeOf(k);
+      if (!pick || pick === "add") return;
+      const o = (d.options || []).find((x) => x.id === pick);
+      if (!o) return;
+      if (takeLine(d)) { other = { net: round(other.net + d.amount), lines: other.lines + 1 }; changed = true; }   // the charge, in the line's currency
+      else if (o.currency === c.currency && usable[c.stmt] && usable[d.stmt] && c.stmt === d.stmt) {
+        // the purchase's own currency on the same card: it leaves this currency once it takes the charge
+        other = { net: round(other.net + Number(o.amount)), lines: other.lines + 1 };
+        unexplained = round(unexplained - Number(o.amount));
+        changed = true;
+      }
+    });
+    // A purchase the person paired with a line is no longer "in the app but not on this statement" (nor "probably on the next
+    // statement"): the server could only leave out the pairs it ticked itself (owner, 2026-11-14: Amazon, fixed to USD, stayed listed and
+    // "Still unexplained after it" took it off a second time).
+    const paired = new Set();
+    const pick_ = (list, of) => (list || []).forEach((d, k) => { const id = d.clear ? "" : of(k); if (id && id !== "add") paired.add(String(id)); });
+    pick_(s.discounts, discountOf); pick_(s.recharges, rechargeOf); pick_(s.charges, chargeOf);
+    let appOnly = c.appOnly, late = c.late;
+    if (paired.size && appOnly && appOnly.items && appOnly.items.some((it) => paired.has(String(it.id)))) {
+      const gone = appOnly.items.filter((it) => paired.has(String(it.id)));
+      appOnly = { ...appOnly, items: appOnly.items.filter((it) => !paired.has(String(it.id))), n: appOnly.n - gone.length,
+        net: round(appOnly.net - gone.reduce((t, it) => t + it.amount, 0)) };
+      changed = true;
+    }
+    if (paired.size && late && late.items && late.items.some((it) => paired.has(String(it.id)))) {
+      // the server had taken these off "unexplained" as next-statement purchases; the pick above explains them instead
+      const gone = late.items.filter((it) => paired.has(String(it.id))), back = round(-gone.reduce((t, it) => t + it.amount, 0));
+      late = { ...late, items: late.items.filter((it) => !paired.has(String(it.id))), lines: late.lines - gone.length, net: round(late.net - back) };
+      unexplained = round(unexplained + back);
+      changed = true;
+    }
+    return changed ? { ...c, notInApp: notIn, discounted: disc, otherCurrency: other, startShift: shift, unexplained, appOnly, late } : c;
+  }
+  // Lines an action adds to the app (an entry, a transfer, an exchange, a Needs review item); "ignore" and "wait" add nothing.
+  function coveredLines(actions) {
+    const covered = {};
+    actions.forEach((a) => {
+      if (a.type === "ignore" || a.type === "wait" || a.type === "set_balance") return;
+      [a, a.out, a.in].forEach((ref) => { if (ref && ref.stmt !== undefined && ref.line !== undefined) covered[lineKey(ref)] = true; });
+    });
+    return covered;
+  }
+
   function balanceAction(c) {
-    return c.direction === "forward" && typeof c.unexplained === "number"
-      ? { type: "set_balance", stmt: c.stmt, currency: c.currency, gap: c.unexplained, app_balance: c.appAtEnd }
-      : { type: "set_balance", stmt: c.stmt, currency: c.currency };
+    if (!(c.direction === "forward" && typeof c.unexplained === "number")) return { type: "set_balance", stmt: c.stmt, currency: c.currency };
+    const a = { type: "set_balance", stmt: c.stmt, currency: c.currency, gap: c.unexplained, app_balance: c.appAtEnd };
+    // A correction was offered and not taken (Andrés, 2026-11-11): the note names those entries instead of "money the app doesn't know about".
+    if (c.startFix && !c.startFixed && Math.abs(c.unexplained - startFixSum_(c)) < 0.005) {
+      a.likely = c.startFix.items.map((it) => `${fmtDate(it.date, true)} · ${startFixName_(c, it)}`).join("; ");
+    }
+    return a;
   }
 
   function settableChecks() { return historyPlan.checks.map((c, i) => ({ c, i })).filter(({ c }) => c.canSet && c.newest); }
@@ -1492,7 +1866,7 @@
     return linked;
   }
 
-  function historyActions() {
+  function historyActions(withBalances = true) {
     const p = historyPlan, aside = p.summary.aside || [];
     const linked = linkedKeys();
     const taken = {}, takenOut = {}, takenInc = {};
@@ -1509,12 +1883,22 @@
       if (pick === "add") chargeActions.push({ type: "add_history_expense", stmt: c.stmt, line: c.line });
       else if (pick) chargeActions.push({ type: "fill_charge", stmt: c.stmt, line: c.line, entryId: pick });
     });
+    // Lines that are an entry saved with no account: it gets this account (the plan's assign_account), or the line is a new entry.
+    (p.summary.noAccount || []).forEach((d) => {
+      if (p.noAcctOff && p.noAcctOff.has(lineKey(d))) {
+        chargeKeys[lineKey(d)] = true;
+        chargeActions.push({ type: d.amount < 0 ? "add_history_expense" : "add_history_income", stmt: d.stmt, line: d.line });
+      }
+    });
     // A card line in another currency than a purchase in the app: the purchase takes the charge (what was paid is kept), or it is a new purchase.
     (p.summary.recharges || []).forEach((d, k) => {
       chargeKeys[lineKey(d)] = true;
       const pick = rechargeOf(k);
       if (pick === "add") chargeActions.push({ type: "add_history_expense", stmt: d.stmt, line: d.line });
-      else if (pick) chargeActions.push({ type: "use_bank_charge", stmt: d.stmt, line: d.line, entryId: pick });
+      else if (pick) {
+        const o = (d.options || []).find((x) => x.id === pick);
+        chargeActions.push({ type: "use_bank_charge", stmt: d.stmt, line: d.line, entryId: pick, ...(o && o.wrong ? { wrong: true } : {}) });
+      }
     });
     // A card charge lower than a purchase in the app (a discount): the purchase takes the bank's amount, or the line is a new purchase.
     (p.summary.discounts || []).forEach((d, k) => {
@@ -1540,12 +1924,40 @@
       if (action && !linked[lineKey(action)]) optIns.push(action);
     });
     const exchanges = p.exchanges.map((x) => ({ type: "record_exchange", out: { stmt: x.out.stmt, line: x.out.line }, in: { stmt: x.in.stmt, line: x.in.line } }));
-    const balances = settableChecks().filter(({ i }) => p.bal.has(i)).map(({ c }) => balanceAction(c));   // after the entries, as the apply expects
-    return kept.concat(chargeActions, optIns, exchanges, balances);
+    const entries = kept.concat(chargeActions, optIns, exchanges);
+    if (!withBalances) return entries;
+    const covered = coveredLines(entries);
+    const balances = settableChecks().filter(({ i }) => p.bal.has(i)).map(({ c }) => balanceAction(liveCheck(c, covered)));   // after the entries, as the apply expects
+    const fixes = (p.checks || []).filter((c, i) => c.startFix && p.startFix.has(i))
+      .map((c) => ({ type: "start_not_yet", stmt: c.stmt, currency: c.currency, ids: c.startFix.items.filter((it) => it.side !== "bank").map((it) => it.id),
+        bank_ids: c.startFix.items.filter((it) => it.side === "bank").map((it) => it.id) }));
+    return entries.concat(balances, fixes);
   }
   function chargeOf(k) {
     const c = historyPlan.summary.charges[k];
     return historyPlan.chargeChoice.has(k) ? historyPlan.chargeChoice.get(k) : (c.clear ? c.entryId : "");
+  }
+
+  // ---- Order B (owner, 2026-11-11): "Ready, nothing to do" first, then "Needs your choice", then balances. Every group starts
+  // collapsed and remembers being opened (historyPlan.openSec); a group of choices shows how many are still to decide.
+  const isReady_ = (d) => !!d.clear && !d.suggested;
+  // Inside every group, oldest first, like the bank's own statement (owner, 2026-11-11).
+  const byDate_ = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : (a.stmt - b.stmt) || (a.line - b.line));
+  function secOpen_(id) { return historyPlan.openSec && historyPlan.openSec.has(id) ? "open" : ""; }
+  function toDecideBadge_(n) { return n ? ` <span class="stmt-count stmt-todo">${escapeHtml(tr("hist.toDecide", { n }))}</span>` : ""; }
+
+  // ---- "In the app with no account": a bank line that is an entry saved with no account; it gets this statement's account ----
+  function noAccountHtml() {
+    const p = historyPlan, list = (p.summary.noAccount || []).slice().sort(byDate_);
+    if (!list.length) return "";
+    const rows = list.map((d) => {
+      const k = lineKey(d), off = p.noAcctOff.has(k), o = d.entry;
+      const body = `<div>${escapeHtml(tr("hist.noacct.recorded", { entry: `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`, account: d.account }))}</div>
+        <div class="stmt-choices" style="padding-left:0">${modeButton(`data-noacct="${escapeHtml(k)}" data-pick="use"`, !off, tr("hist.noacct.use", { account: d.account }))}${modeButton(`data-noacct="${escapeHtml(k)}" data-pick="add"`, off, tr("hist.disc.not"))}</div>`;
+      return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}`);
+    }).join("");
+    return `<details class="stmt-group" id="statement-history-noaccount" data-sec="statement-history-noaccount" ${secOpen_("statement-history-noaccount")}><summary>${escapeHtml(tr("hist.noacct.title"))} <span class="stmt-count">${list.length}</span></summary>
+      <p class="hint">${escapeHtml(tr("hist.noacct.hint"))}</p>${rows}</details>`;
   }
 
   function rechargeOf(k) {
@@ -1554,18 +1966,21 @@
   }
 
   // ---- "Charged in another currency": a card line in USD for a purchase recorded in PEN (or the other way), 3 days apart at most ----
-  function rechargesHtml() {
-    const p = historyPlan, list = p.summary.recharges || [];
-    if (!list.length) return "";
-    const rows = list.map((d, k) => {
+  function rechargesHtml(part) {
+    const p = historyPlan, all = p.summary.recharges || [];
+    const items = all.map((d, k) => ({ d, k })).filter(({ d }) => (part === "ready") === isReady_(d)).sort((x, y) => byDate_(x.d, y.d));
+    if (!items.length) return "";
+    const id = "statement-history-recharges-" + part;
+    const todo = items.filter(({ k }) => !rechargeOf(k)).length;
+    const rows = items.map(({ d, k }) => {
       const pick = rechargeOf(k);
       const option = (o) => `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`;
-      const change = (o) => `<div class="hint">${escapeHtml(tr("hist.rech.change", { from: fmtMoney(o.currency, o.amount), to: fmtMoney(d.currency, Math.abs(d.amount)) }))}</div>`;
+      const change = (o) => `<div class="hint">${escapeHtml(tr(o.wrong ? "hist.rech.wrong" : "hist.rech.change", { from: fmtMoney(o.currency, o.amount), to: fmtMoney(d.currency, Math.abs(d.amount)), cur: d.currency }))}</div>`;
       let body;
       if (d.options.length === 1) {
         const o = d.options[0];
         body = `<div>${escapeHtml(tr("hist.charge.recorded", { entry: option(o) }))}</div>${change(o)}
-          <div class="stmt-choices" style="padding-left:0">${modeButton(`data-rech="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr("hist.rech.use"))}${modeButton(`data-rech="${k}" data-pick="add"`, pick === "add", tr("hist.disc.not"))}</div>`;
+          <div class="stmt-choices" style="padding-left:0">${modeButton(`data-rech="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr(o.wrong ? "hist.rech.fix" : "hist.rech.use"))}${modeButton(`data-rech="${k}" data-pick="add"`, pick === "add", tr("hist.disc.not"))}</div>`;
       } else {
         body = `<div>${escapeHtml(tr("hist.charge.pick"))}</div>` + d.options.map((o) => `<div class="stmt-charge-option"><div>${escapeHtml(option(o))}</div>${change(o)}
           <div class="stmt-choices" style="padding-left:0">${modeButton(`data-rech="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, tr("hist.charge.this"))}</div></div>`).join("")
@@ -1574,8 +1989,8 @@
       const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
       return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}${unpicked}`);
     }).join("");
-    return `<details class="stmt-group" id="statement-history-recharges" open><summary>${escapeHtml(tr("hist.rech.title"))} <span class="stmt-count">${list.length}</span></summary>
-      <p class="hint">${escapeHtml(tr("hist.rech.hint"))}</p>${rows}</details>`;
+    return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.rech.title"))} <span class="stmt-count">${items.length}</span>${toDecideBadge_(todo)}</summary>
+      <p class="hint">${escapeHtml(tr("hist.rech.hint"))}${items.some(({ d }) => (d.options || []).some((o) => o.wrong)) ? " " + escapeHtml(tr("hist.rech.wrongHint")) : ""}</p>${rows}</details>`;
   }
 
   function discountOf(k) {
@@ -1584,10 +1999,14 @@
   }
 
   // ---- "Charged less than recorded": a card line lower than a purchase in the app (a discount), 3 days apart at most ----
-  function discountsHtml() {
-    const p = historyPlan, list = p.summary.discounts || [];
-    if (!list.length) return "";
-    const rows = list.map((d, k) => {
+  function discountsHtml(part) {
+    const p = historyPlan, all = p.summary.discounts || [];
+    const items = all.map((d, k) => ({ d, k })).filter(({ d }) => (part === "ready") === isReady_(d)).sort((x, y) => byDate_(x.d, y.d));
+    if (!items.length) return "";
+    const list = items.map(({ d }) => d);
+    const id = "statement-history-discounts-" + part;
+    const todo = items.filter(({ k }) => !discountOf(k)).length;
+    const rows = items.map(({ d, k }) => {
       const pick = discountOf(k);
       const option = (o) => `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`;
       const change = (o) => `<div class="hint">${escapeHtml(tr("hist.disc.change", { from: fmtMoney(o.currency, o.amount), to: fmtMoney(d.currency, Math.abs(d.amount)) }))}</div>`;
@@ -1602,17 +2021,25 @@
           + `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-disc="${k}" data-pick="add"`, pick === "add", tr("hist.charge.add"))}</div>`;
       }
       const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
-      return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}${unpicked}`);
+      // Over 15% less (up to 30%), or up to 10% more: only a suggestion, never ticked (owner, 2026-11-11).
+      const pct = d.options.length ? Math.round(Math.abs(1 - Math.abs(d.amount) / d.options[0].amount) * 100) : 0;
+      const suggested = d.suggested ? `<p class="stmt-note warn" style="margin:6px 0 0">${escapeHtml(tr(d.higher ? "hist.disc.suggestedMore" : "hist.disc.suggested", { pct }))}</p>` : "";
+      return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${suggested}${body}${unpicked}`);
     }).join("");
-    return `<details class="stmt-group" id="statement-history-discounts" open><summary>${escapeHtml(tr("hist.disc.title"))} <span class="stmt-count">${list.length}</span></summary>
-      <p class="hint">${escapeHtml(tr("hist.disc.hint"))}</p>${rows}</details>`;
+    const anyHigher = list.some((d) => d.higher);
+    return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr(anyHigher ? "hist.disc.titleDiffers" : "hist.disc.title"))} <span class="stmt-count">${list.length}</span>${toDecideBadge_(todo)}</summary>
+      <p class="hint">${escapeHtml(tr(anyHigher ? "hist.disc.hintDiffers" : "hist.disc.hint"))}</p>${rows}</details>`;
   }
 
   // ---- "Completes a charge you left pending": a USD line on the card and a purchase recorded in ARS on it, 5 days apart at most ----
-  function chargesHtml() {
-    const p = historyPlan, charges = p.summary.charges || [];
-    if (!charges.length) return "";
-    const rows = charges.map((c, k) => {
+  function chargesHtml(part) {
+    const p = historyPlan, all = p.summary.charges || [];
+    const items = all.map((c, k) => ({ c, k })).filter(({ c }) => (part === "ready") === isReady_(c)).sort((x, y) => byDate_(x.c, y.c));
+    if (!items.length) return "";
+    const charges = items.map(({ c }) => c);
+    const id = "statement-history-charges-" + part;
+    const todo = items.filter(({ k }) => !chargeOf(k)).length;
+    const rows = items.map(({ c, k }) => {
       const pick = chargeOf(k);
       const option = (o) => `${fmtDate(o.date, true)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)}`;
       const rate = (o) => { const t = chargeRateText_(o.amount, o.currency, Math.abs(c.amount), c.currency); return t ? `<div class="hint stmt-charge-rate">${escapeHtml(t)}</div>` : ""; };
@@ -1629,13 +2056,13 @@
       const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
       return lineRow({ date: c.date, description: c.description, amount: c.amount, currency: c.currency }, `${escapeHtml(c.account)}${body}${unpicked}`);
     }).join("");
-    return `<details class="stmt-group" id="statement-history-charges" ${p.chargesOpen === false ? "" : "open"}><summary>${escapeHtml(tr("hist.charge.title"))} <span class="stmt-count">${charges.length}</span></summary>
+    return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.charge.title"))} <span class="stmt-count">${charges.length}</span>${toDecideBadge_(todo)}</summary>
       <p class="hint">${escapeHtml(tr("hist.charge.hint"))}</p>${rows}</details>`;
   }
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
-    const c = { charges: 0, discounts: 0, recharges: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
+    const c = { charges: 0, discounts: 0, recharges: 0, currencyFixed: 0, accountsFilled: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
         const l = usable[a.stmt].result.lines[a.line];
@@ -1654,8 +2081,9 @@
       else if (a.type === "set_balance") c.balances++;
       else if (a.type === "fill_charge") c.charges++;
       else if (a.type === "use_bank_amount") c.discounts++;
-      else if (a.type === "use_bank_charge") c.recharges++;
-      else if (["link", "assign_account", "complete_transfer"].includes(a.type)) c.linked++;
+      else if (a.type === "use_bank_charge") { c.recharges++; if (a.wrong) c.currencyFixed++; }
+      else if (a.type === "assign_account") c.accountsFilled++;
+      else if (["link", "complete_transfer"].includes(a.type)) c.linked++;
     });
     c.entries = c.expenses + c.income + c.refunds + c.refundIncome + c.transfers + c.legs + c.investments + c.pending + 2 * c.exchanges + c.fees;
     c.reviewTotal = c.legs + c.pending + c.pendingInvestments;   // entries that will wait in Needs review for the person to finish
@@ -1885,35 +2313,68 @@
     return `<p class="hint"><b>${escapeHtml(tr("stmt.balAppOnlyTitle", { n: a.n }))}</b></p>${rows}${more}<p class="hint">${escapeHtml(end)} ${escapeHtml(tr("stmt.balAppOnlyHint"))}</p>`;
   }
 
+  // The first statement after a starting balance checks it (owner's plan, 2026-11-11, step 3, option 4b): when what is left unexplained
+  // equals recent entries the balance took as already in the bank, the row says so and "Review the correction" shows it before anything
+  // changes. Accepted, it is saved with the rest (Undo of the upload undoes it too).
+  function startFixHtml_(c, i) {
+    if (c.direction !== "forward" || !c.startFix) return "";
+    const names = c.startFix.items.map((it) => startFixName_(c, it)).join(tr("common.and"));
+    if (startFixOn_(c._src || c)) {
+      const corrected = startFixCorrected_(c), keeps = Math.abs(corrected - c.startFix.amount) < 0.005;   // only "already charged": the number stays
+      return `<p class="stmt-note ok">${escapeHtml(tr(keeps ? "stmt.startFix.doneKeep" : "stmt.startFix.done", { date: fmtDate(c.startFix.date, true), corrected: fmtMoney(c.currency, corrected), n: c.startFix.items.length }))}</p>
+        <div class="stmt-choices" style="padding-left:0"><button type="button" class="add-inline" data-startfixoff="${i}">${escapeHtml(tr("stmt.startFix.undo"))}</button></div>`;
+    }
+    if (Math.abs(c.unexplained - startFixSum_(c)) > 0.004) return "";   // the person's other choices changed what is left: it no longer fits
+    return `<p class="stmt-note info">💡 ${escapeHtml(tr("stmt.startFix.seems" + startFixKind_(c), { date: fmtDate(c.startFix.date, true), items: names, n: c.startFix.items.length, amount: signed(c.currency, startFixSum_(c)) }))}</p>
+      <div class="stmt-choices" style="padding-left:0"><button type="button" class="add-inline" data-startfix="${i}">${escapeHtml(tr("stmt.startFix.review"))}</button></div>`;
+  }
+
+  // A server reason carries ISO dates ("2026-11-11"); the screen shows them the way every other date is shown (Mark, 2026-11-11).
+  function isoDatesReadable_(text) { return String(text || "").replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (d) => fmtDate(d, true)); }
+
   // One row per statement and currency: the closing balance, what the app showed that day, the difference and what it is made of.
-  function balanceRowHtml(c, i) {
+  function balanceRowHtml(c0, i, covered) {
+    const c = liveCheck(c0, covered);
     const lines = [`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balClosing", { date: fmtDate(c.end, true) }))}</span><span>${escapeHtml(fmtMoney(c.currency, c.closing))}</span></div>`];
     let verdict = "";
     if (c.direction === "untracked") {
-      verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
+      verdict = `<p class="stmt-note info">${escapeHtml(isoDatesReadable_(c.reason))}</p>`;
     } else {
       lines.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balInApp"))}</span><span>${escapeHtml(fmtMoney(c.currency, c.appAtEnd))}</span></div>`);
       lines.push(`<div class="stmt-kv"><span>${escapeHtml(tr("stmt.balDiff"))}</span><span>${escapeHtml(signed(c.currency, c.diff))}</span></div>`);
-      if (c.diff === 0) {
+      // (a difference of 0 that the person's picks would open, e.g. a purchase inside the starting balance taking the bank's amount, is
+      // explained below like any other: "Matches to the cent" would be wrong next to it)
+      if (c.diff === 0 && !c.unexplained && !(c.startShift && c.startShift.lines) && !c.startFixed) {
         verdict = `<p class="stmt-note ok">${escapeHtml(tr("stmt.balMatches"))}</p>`;
       } else if (c.direction === "forward") {
         const parts = [];
         if (c.notInApp.lines) parts.push(tr("stmt.balNotInApp", { amount: signed(c.currency, c.notInApp.net), n: c.notInApp.lines }));
         if (c.pending.lines) parts.push(tr("stmt.balPending", { amount: signed(c.currency, c.pending.net), n: c.pending.lines }));
         if (c.discounted && c.discounted.lines) parts.push(tr("stmt.balDiscounted", { amount: signed(c.currency, c.discounted.net), n: c.discounted.lines }));
+        if (c.noAccount && c.noAccount.lines) parts.push(tr("stmt.balNoAccount", { amount: signed(c.currency, c.noAccount.net), n: c.noAccount.lines }));
         if (c.otherCurrency && c.otherCurrency.lines) parts.push(tr("stmt.balOtherCurrency", { amount: signed(c.currency, c.otherCurrency.net), n: c.otherCurrency.lines }));
         if (c.late && c.late.lines) parts.push(tr("stmt.balLate", { amount: signed(c.currency, c.late.net), n: c.late.lines }));
+        if (c.startShift && c.startShift.lines) parts.push(tr("stmt.balStartShift", { amount: signed(c.currency, c.startShift.net), n: c.startShift.lines }));
+        if (c.startFixed) parts.push(tr("stmt.balStartFixed", { amount: signed(c.currency, c.startFixed.net), n: c.startFixed.lines }));
+        const leftOut = c.leftOut ? ` ${tr("stmt.balLeftOut", { amount: signed(c.currency, c.leftOut.net), n: c.leftOut.lines })}` : "";
         verdict = c.unexplained === 0
           ? `<p class="stmt-note ok">${escapeHtml(tr("stmt.balExplained", { parts: parts.join(tr("common.and")) }))}</p>`
-          : `<p class="stmt-note warn">${parts.length ? escapeHtml(parts.join(tr("common.and"))) + ". " : ""}<b>${escapeHtml(tr("stmt.balUnexplainedBold", { amount: signed(c.currency, c.unexplained) }))}</b>${escapeHtml(tr("stmt.balUnexplainedRest"))}</p>`;
+          : `<p class="stmt-note warn">${parts.length ? escapeHtml(parts.join(tr("common.and"))) + ". " : ""}<b>${escapeHtml(tr("stmt.balUnexplainedBold", { amount: signed(c.currency, c.unexplained) }))}</b>${escapeHtml(tr("stmt.balUnexplainedRest") + leftOut)}</p>`;
       } else if (c.direction === "backward") {
-        verdict = `<p class="stmt-note info">${escapeHtml(tr("stmt.balBackward", { reason: c.reason, date: fmtDate(c.end) }))}</p>`;
+        verdict = `<p class="stmt-note info">${escapeHtml(tr("stmt.balBackward", { reason: isoDatesReadable_(c.reason), date: fmtDate(c.end) }))}</p>`;
       } else {
-        verdict = `<p class="stmt-note info">${escapeHtml(c.reason)}</p>`;
+        verdict = `<p class="stmt-note info">${escapeHtml(isoDatesReadable_(c.reason))}</p>`;
       }
+      // Same day as the starting balance: said, since setting the balance here replaces the number the person typed.
+      if (c.sameDay) verdict = `<p class="hint">${escapeHtml(tr("stmt.balSameDay", { date: fmtDate(c.end, true) }))}</p>` + verdict;
       // The other half of an unexplained difference: what the app counts here that no statement line explains.
       if (c.direction === "forward" && c.late && c.late.lines) verdict += lateHtml(c);
       if (c.direction === "forward" && c.unexplained && c.appOnly && c.appOnly.n) verdict += appOnlyHtml(c);
+      // No starting balance in this currency: the app counted it from 0, which is the likeliest cause of what is left unexplained.
+      if (c.direction === "forward" && c.unexplained && c.noAnchor) verdict += `<p class="stmt-note warn">${escapeHtml(c.noAnchor.date
+        ? tr("stmt.balNoAnchor", { cur: c.currency, date: fmtDate(c.noAnchor.date, true), account: acctOfCheck(c) })
+        : tr("stmt.balNoAnchorNoDate", { cur: c.currency, account: acctOfCheck(c) }))}</p>`;
+      verdict += startFixHtml_(c, i);
       if (c.canSet && c.newest && c.direction === "forward" && c.unexplained) verdict += `<p class="hint">${escapeHtml(tr("gaps.willNote", { amount: signed(c.currency, c.unexplained) }))}</p>`;
     }
     let choice = "";
@@ -1927,9 +2388,10 @@
     if (!checks.length) return "";
     const can = settableChecks();
     const allOn = can.length > 0 && can.every(({ i }) => p.bal.has(i));
+    const covered = coveredLines(historyActions(false));
     const all = can.length > 1 ? `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-balall="1"`, allOn, tr("bal.setAll", { n: can.length }))}</div>` : "";
-    return `<details class="stmt-group" id="statement-history-balances" ${p.balOpen ? "open" : ""}><summary>${escapeHtml(tr("bal.title", { n: checks.length }))}</summary>
-      <p class="hint">${escapeHtml(tr("bal.hint"))}</p>${all}${checks.map((c, i) => balanceRowHtml(c, i)).join("")}</details>`;
+    return `<details class="stmt-group" id="statement-history-balances" ${p.balOpen ? "open" : ""}><summary>${escapeHtml(tr("bal.title", { n: checks.length }))}${typeof infoBtnHtml_ === "function" ? infoBtnHtml_("stmtCheck") : ""}</summary>
+      <p class="hint">${escapeHtml(tr("bal.hint"))}</p>${all}${checks.map((c, i) => balanceRowHtml(c, i, covered)).join("")}</details>`;
   }
 
   // ---- accounts the statements name that the app does not have yet (backend/StatementAccounts.gs) ----
@@ -1968,18 +2430,67 @@
     } catch (err) {
       btn.disabled = false;
       btn.textContent = tr("acct.addBtn", { n: proposals.length });
-      alert(err.message || String(err));
+      showAppMessage_(err.message || String(err));
     }
   }
 
+  // "These lines look like planned items" (owner's plan, 2026-11-17): each with its tick, all ticked; Save links the ticked ones to that
+  // Programmed item's month, so Projections counts each once. Only where the server sends them (an older backend: nothing shown).
+  function planMatchesHtml_() {
+    const pm = (historyPlan && historyPlan.plan_matches) || [];
+    if (!pm.length) return "";
+    const row = (m, i) => `<label class="review-plan-match"><input type="checkbox" class="stmt-plan-check" data-i="${i}" checked> ${escapeHtml(tr("hist.planLine", { line: m.description, amount: fmtMoney(m.currency, m.amount), name: m.name || tr("plan.thePlanned"), month: paceMonthName_(m.month, true) }))}</label>`;
+    return `<div class="stmt-plan-matches"><p class="hint">${escapeHtml(tr("hist.planHead", { n: pm.length }))}</p>${pm.map(row).join("")}</div>`;
+  }
+  function planLinksChosen_() {
+    const pm = (historyPlan && historyPlan.plan_matches) || [];
+    return Array.from(document.querySelectorAll("#statement-history .stmt-plan-check")).filter((c) => c.checked).map((c) => pm[Number(c.dataset.i)]).filter(Boolean)
+      .map((m) => ({ stmt: m.stmt, line: m.line, recurring_id: m.recurring_id, month: m.month }));
+  }
+  // One summary bullet; a {text, sub} item puts its sub-lines under it (the per-currency totals of the expenses).
+  function sumLi_(t) {
+    if (typeof t === "string") return `<li>${escapeHtml(t)}</li>`;
+    return `<li>${escapeHtml(t.text)}<ul class="stmt-sum-sub">${t.sub.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul></li>`;
+  }
+
+  // Every line that becomes a NEW entry, so the person can see them before saving (owner, 2026-11-14): folded, oldest first, each
+  // with its account. Worked out from the same final actions as the counters, so the list and "N new" always agree.
+  const NEW_LINE_ACTIONS_ = ["add_history_expense", "add_history_income", "add_history_reversal", "add_history_refund", "record_transfer",
+    "record_transfer_leg", "add_history_investment", "add_history_pending", "record_exchange", "record_fee"];
+  // The account a statement belongs to, as the plan names it (any of its lines the plan lists carries it).
+  function stmtAccountName_(stmt) {
+    const sm = historyPlan.summary;
+    const hit = [sm.candidates, sm.recharges, sm.discounts, sm.charges, sm.aside, sm.noAccount].flat().find((x) => x && x.stmt === stmt && x.account);
+    return hit ? hit.account : "";
+  }
+  function newLinesHtml_() {
+    const seen = {}, items = [];
+    historyActions().filter((a) => NEW_LINE_ACTIONS_.includes(a.type)).forEach((a) => {
+      [a, a.out, a.in].forEach((ref) => {
+        if (!ref || ref.stmt === undefined || ref.line === undefined || !usable[ref.stmt]) return;
+        const key = lineKey(ref);
+        const l = usable[ref.stmt].result.lines[ref.line];
+        if (seen[key] || !l) return;
+        seen[key] = true;
+        items.push({ stmt: ref.stmt, line: ref.line, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: stmtAccountName_(ref.stmt) });
+      });
+    });
+    if (!items.length) return "";
+    const id = "statement-history-newlines";
+    const rows = items.sort(byDate_).map((x) => lineRow(x, x.account ? escapeHtml(x.account) : "")).join("");
+    return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.newLines", { n: items.length }))}</summary>${rows}</details>`;
+  }
+
   function renderHistoryPlan() {
+    refreshStartFixes_();
     const out = $("statement-history");
     const { actions, summary } = historyPlan;
     const left = summary.leftOut, c = historyCounts();
     const lines = [];
+    // Same order as the groups below: new entries, then what changes in entries you have, then what is only remembered.
     if (c.expenses) {
       const totals = moneyTotals(c.spent).split(" + ");
-      if (totals.length > 1) lines.push(tr("hist.sum.expensesMany", { n: c.expenses }), ...totals);   // one line per currency: never added together
+      if (totals.length > 1) lines.push({ text: tr("hist.sum.expensesMany", { n: c.expenses }), sub: totals });   // one line per currency, under it: never added together
       else lines.push(tr("hist.sum.expenses", { n: c.expenses, total: totals[0] }));
     }
     if (c.income) lines.push(tr("hist.sum.income", { n: c.income }));
@@ -1991,12 +2502,14 @@
     if (c.exchanges) lines.push(tr("hist.sum.exchanges", { n: c.exchanges }));
     if (c.fees) lines.push(tr("hist.sum.fees", { n: c.fees }));
     if (c.pending) lines.push(tr("hist.sum.pending", { n: c.pending }));
-    if (c.left) lines.push(tr("hist.sum.left", { n: c.left }));
-    if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
-    if (c.balances) lines.push(tr("hist.sum.balances", { n: c.balances }));
+    if (c.accountsFilled) lines.push(tr("hist.sum.accountsFilled", { n: c.accountsFilled }));
     if (c.charges) lines.push(tr("hist.sum.charges", { n: c.charges }));
+    if (c.recharges - c.currencyFixed) lines.push(tr("hist.sum.recharges", { n: c.recharges - c.currencyFixed }));
+    if (c.currencyFixed) lines.push(tr("hist.sum.currencyFixed", { n: c.currencyFixed }));
     if (c.discounts) lines.push(tr("hist.sum.discounts", { n: c.discounts }));
-    if (c.recharges) lines.push(tr("hist.sum.recharges", { n: c.recharges }));
+    if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
+    if (c.left) lines.push(tr("hist.sum.left", { n: c.left }));
+    if (c.balances) lines.push(tr("hist.sum.balances", { n: c.balances }));
     const proposals = summary.newAccounts || [];
     const proposedKeys = new Set(proposals.map((p) => p.key));
     const stillUnknown = (summary.unknownAccounts || []).filter((k) => !proposedKeys.has(k));
@@ -2007,21 +2520,37 @@
     if (left.noAccount && stillUnknown.length) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: stillUnknown.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
     const pre = newAccountsHtml(proposals) + addedAccountsHtml();
-    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("") + chargesHtml() + rechargesHtml() + discountsHtml() + peopleHtml() + incomeHtml() + asideHtml() + (StatementTable.canLinkExchange(summary.candidates) ? exchangeHtml() : "") + balancesHtml();
+    const readyHtml = noAccountHtml() + chargesHtml("ready") + rechargesHtml("ready") + discountsHtml("ready");
+    const decideHtml = discountsHtml("decide") + chargesHtml("decide") + rechargesHtml("decide") + peopleHtml() + incomeHtml()
+      + (StatementTable.canLinkExchange(summary.candidates) ? exchangeHtml() : "") + asideHtml();
+    const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("")
+      + (readyHtml ? `<h3 class="stmt-section-title">${escapeHtml(tr("hist.sec.ready"))}</h3>${readyHtml}` : "")
+      + (decideHtml ? `<h3 class="stmt-section-title">${escapeHtml(tr("hist.sec.decide"))}</h3>${decideHtml}` : "")
+      + (() => { const b = balancesHtml(); return b && (readyHtml || decideHtml) ? `<h3 class="stmt-section-title">${escapeHtml(tr("hist.sec.balances"))}</h3>${b}` : b; })();
     if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(summary.charges || []).length && !(summary.discounts || []).length && !(summary.recharges || []).length && !(historyPlan.checks || []).length) {
       out.innerHTML = pre + (proposals.length ? "" : `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>`) + noteHtml;
       return;
     }
     if (!c.entries && !c.charges && !c.discounts && !c.recharges) {
       // Nothing to add. Lines waiting for their other statement can still be remembered so they pair up later, and balances set.
-      out.innerHTML = pre + `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : ""}${noteHtml}
-        ${historyActions().length ? `<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
+      out.innerHTML = pre + `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map(sumLi_).join("")}</ul>` : ""}${noteHtml}
+        ${historyActions().length ? `${dueAskHtml_()}<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
       return;
     }
-    const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
-    out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>
-      <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>
-      ${range}<p class="hint">${escapeHtml(tr(usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategoryUnlessNamed" : "hist.noCategory"))}</p>${noteHtml}
+    const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(summary.from === summary.to ? tr("hist.rangeOne", { date: fmtDate(summary.from, true) })
+      : tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
+    // Three counters first (owner, 2026-11-11): new entries · entries you have that change · choices still open.
+    const nUpdated = c.accountsFilled + c.charges + c.recharges + c.discounts;
+    const nDecide = (summary.charges || []).filter((x, k) => !chargeOf(k)).length + (summary.recharges || []).filter((x, k) => !rechargeOf(k)).length
+      + (summary.discounts || []).filter((x, k) => !discountOf(k)).length;
+    const counters = `<p class="stmt-counters">${[
+      `<span>➕ ${escapeHtml(tr("hist.cnt.new", { n: c.entries }))}</span>`,
+      `<span>✏️ ${escapeHtml(tr("hist.cnt.updated", { n: nUpdated }))}</span>`,
+      `<span>❓ ${escapeHtml(tr("hist.cnt.decide", { n: nDecide }))}</span>`].join(" · ")}</p>`;
+    out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>${counters}
+      <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map(sumLi_).join("")}</ul>
+      ${newLinesHtml_()}${range}<p class="hint">${escapeHtml(tr(!usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategory" : usable.every((u) => u.catLeft === 0) ? "hist.categoryAsNamed" : "hist.noCategoryUnlessNamed"))}</p>${noteHtml}
+      ${planMatchesHtml_()}${dueAskHtml_()}
       <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;
   }
 
@@ -2037,12 +2566,22 @@
     if (!historyPlan || !historyActions().length) return;
     const btn = $("statement-history-save");
     const status = $("statement-review-status");
-    const hc = historyCounts(), adding = hc.entries, updating = hc.charges + hc.discounts + hc.recharges;
+    const hc = historyCounts(), adding = hc.entries, updating = hc.charges + hc.discounts + hc.recharges + hc.accountsFilled;
     // Purchases already in the app that take the card's figure are a change too: never say "nothing is added" about them alone.
     // Both when a statement adds AND corrects purchases already in the app (Carlos, 2026-11-10: only the added ones were named).
-    const askText = adding ? tr("hist.confirm", { n: adding }) + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
+    // Another app's export brings its categories, and after saving the app names any left without one (hist.savedCategoriesMissed),
+    // so its question does not promise a Tidy step that may not exist (Mark, 2026-11-18).
+    const askText = adding ? tr(screenMode === "import" ? "hist.confirmImport" : "hist.confirm", { n: adding }) + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
       : updating ? tr("hist.confirmUpdate", { n: updating }) : tr("hist.confirmKeep");
-    if (!practiceNoConfirm_(practiceIOwns_(usable.map((u) => u.group || u.file))) && !await askConfirmApp_(askText + "\n\n" + tr("stmt.confirmUndoable"), tr("confirmBtn.yes"), { plain: true })) return;   // (the practice's own file asks nothing while the walkthrough runs)
+    // A starting balance this save corrects (owner's plan, step 3): said too, since it moves every balance after it.
+    const coveredNow = coveredLines(historyActions(false));
+    // (an accepted correction made only of "already charged" purchases leaves the number as typed: not counted as a correction)
+    const fixes = (historyPlan.checks || []).filter((c, i) => (c.startFix && historyPlan.startFix.has(i) && c.startFix.items.some((it) => it.side !== "bank")) ||
+      ((liveCheck(c, coveredNow).startShift || {}).lines > 0)).length;
+    const askFull = askText + (fixes ? " " + tr("hist.confirmStartFix", { n: fixes }) : "");
+    const dueProblem = applyDueTyped_();   // a pay-by date typed on or before the close: said here, nothing saved
+    if (dueProblem) { status.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(dueProblem)}</p>`; return; }
+    if (!practiceNoConfirm_(practiceIOwns_(usable.map((u) => u.group || u.file))) && !await askConfirmApp_(askFull + "\n\n" + tr("stmt.confirmUndoable"), tr("confirmBtn.yes"), { plain: true })) return;   // (the practice's own file asks nothing while the walkthrough runs)
     btn.insertAdjacentHTML("afterend", loadingHtml(tr("hist.saving")));   // right where the person tapped, not in a box further down
     btn.hidden = true;
     status.innerHTML = "";
@@ -2051,14 +2590,17 @@
       filename: `History ${usable.map((u) => u.file).join(", ")}`.slice(0, 200),
       statements: usable.map(({ file, result }) => ({
         key: accountKeyOf(result), kind: result.kind, source: result.source || "", period: result.period, file_name: file,
-        verified: !!(result.ok && result.verified !== false), balances: result.balances,
+        verified: !!(result.ok && result.verified !== false), balances: result.balances, due: result.due || "",
         lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category, transfer: l.transfer }))
       })),
       inboxIds: usable.map((u) => u.inboxId).filter(Boolean),
+      inboxKeys: Object.fromEntries(usable.filter((u) => u.inboxId).map((u) => [u.inboxId, accountKeyOf(u.result)])),   // "Already read": one per account
       categoryMap: Object.assign({}, ...usable.map((u) => u.result.categoryMap || {})),
       categoryNames: Object.assign({}, ...usable.map((u) => u.result.categoryNames || {})),   // the name each of those categories should carry   // the person's choice for each category name of a spreadsheet
-      actions: historyActions()
+      actions: historyActions(),
+      planLinks: planLinks
     });
+    const planLinks = planLinksChosen_();   // read before the preview is cleared
     try {
       await callApi("applyStatementDecisions", payload(true));   // validates first, writes nothing
       const res = await callApi("applyStatementDecisions", payload(false));
@@ -2079,13 +2621,19 @@
         + ((res.categoriesRenamed || []).length ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesRenamed", { n: res.categoriesRenamed.length, names: res.categoriesRenamed.map((r) => `${r.from} → ${r.to}`).join(", ") }))}</p>` : "")
         + ((res.categoriesCreatedNames || []).length ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesCreated", { n: res.categoriesCreatedNames.length, names: res.categoriesCreatedNames.join(", ") }))}</p>` : "")
         + (res.categoriesMissed ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesMissed", { n: res.categoriesMissed, names: (res.categoryMissedNames || []).join(", ") }))}</p>` : "");
+      // Only lines that really came in without a category lead to Tidy my history (an older backend does not count them: any purchase, as before).
+      const uncategorized = res.uncategorized != null ? Number(res.uncategorized) || 0 : (res.created.purchases || 0);
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
         ${addedAccountsHtml()}${outcome}${rateNeedsHtml(res.rateNeeds)}
-        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button>${(res.created.purchases || 0) > 0 ? `<button type="button" class="stmt-choice stmt-tidy-btn">${escapeHtml(tr("tidy.fromStatements"))}</button>` : ""}</div>
+        <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button>${uncategorized > 0 ? `<button type="button" class="stmt-choice stmt-tidy-btn" data-n="${res.uncategorized != null ? uncategorized : ""}">${escapeHtml(tr("tidy.fromStatements"))}</button>` : ""}</div>
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
       historyPlan = null;
       addedAccounts = [];
       $("statement-history").innerHTML = "";
+      // The files just saved leave the Upload step: a next upload counts only its own files (journeys run, 2026-11-17: Lucía read
+      // "2 of 2 ready" with one file left, Julia "4 of 4" with an already-added file still listed).
+      $("statement-results").innerHTML = "";
+      usable = [];
       coverage = null;
       refreshStatementCoverage();
       refreshStatementGaps();
@@ -2276,7 +2824,7 @@
     const mv = e.target.closest(".stmt-move-row");
     if (mv) {   // a spreadsheet upload filed on the wrong side: move it to the other list (the entries it made are not touched)
       mv.disabled = true;
-      try { await callApi("setBatchOrigin", { batchId: mv.dataset.batch, origin: screenMode === "import" ? "statement" : "import" }); } catch (err) { alert(err.message || String(err)); }
+      try { await callApi("setBatchOrigin", { batchId: mv.dataset.batch, origin: screenMode === "import" ? "statement" : "import" }); } catch (err) { showAppMessage_(err.message || String(err)); }
       refreshStatementBatches();
       refreshStatementCoverage();
       return;
@@ -2292,7 +2840,10 @@
     if (tab && tab.dataset.mode !== screenMode) { showStatementsScreen(tab.dataset.mode); window.scrollTo(0, 0); }
   });
   $("statements-back-btn").addEventListener("click", () => { sessionPasswords = []; showMyDataScreen(); });
+  $("statement-file-input").addEventListener("click", () => setPickerWaiting(true));
+  $("statement-file-input").addEventListener("cancel", () => setPickerWaiting(false));
   $("statement-file-input").addEventListener("change", (e) => {
+    setPickerWaiting(false);
     const files = e.target.files;
     if (files && files.length) handleStatementFiles(files);
     e.target.value = ""; // lets the same file be picked again
@@ -2305,12 +2856,15 @@
   });
   $("stmt-status-toggle").addEventListener("click", () => setStatusOpen($("statement-coverage-list").hidden));
   $("stmt-step1-continue").addEventListener("click", () => showStep(2));
-  $("stmt-next-2").addEventListener("click", () => showStep(3));
+  $("stmt-next-2").addEventListener("click", () => { if (!readingBusy()) showStep(3); });
   $("stmt-add-more").addEventListener("click", () => showStep(1));
   $("stmt-back-3").addEventListener("click", () => showStep(2));
   $("stmt-another").addEventListener("click", () => { clearRun(); showStep(1); });
   $("statement-past-btn").addEventListener("click", () => { pastOpen = true; renderSteps(); window.scrollTo(0, 0); });
   $("statement-past-back").addEventListener("click", () => { pastOpen = false; renderSteps(); window.scrollTo(0, 0); });
+  $("statement-history").addEventListener("input", (e) => {   // a typed pay-by date survives the preview redrawing (a tick elsewhere)
+    if (e.target.dataset && e.target.dataset.dueStmt !== undefined) dueTyped[e.target.dataset.dueStmt] = e.target.value;
+  });
   $("statement-history").addEventListener("click", (e) => {
     if (e.target.closest("#statement-history-save")) { saveHistory(); return; }
     if (e.target.closest("#statement-add-accounts")) { addProposedAccounts(); return; }
@@ -2319,8 +2873,40 @@
     const one = e.target.closest("[data-aside]"), grp = e.target.closest("[data-agroup]");
     const pout = e.target.closest("[data-pout]"), pbulk = e.target.closest("[data-pbulk]"), pinc = e.target.closest("[data-pinc]");
     const bal = e.target.closest("[data-bal]"), balAll = e.target.closest("[data-balall]");
+    const sfix = e.target.closest("[data-startfix]"), sfixOff = e.target.closest("[data-startfixoff]");
+    if (sfixOff) { historyPlan.startFix.delete(Number(sfixOff.dataset.startfixoff)); historyPlan.balOpen = true; renderHistoryPlan(); return; }
+    if (sfix) {
+      const i = Number(sfix.dataset.startfix), c = historyPlan.checks[i];
+      if (!c || !c.startFix) return;
+      const line = (it) => `${fmtDate(it.date, true)} · ${startFixName_(c, it)}`;
+      const ins = c.startFix.items.filter((it) => (it.side || "in") === "in"), outs = c.startFix.items.filter((it) => it.side === "out");
+      const banks = c.startFix.items.filter((it) => it.side === "bank");
+      const names = [ins.length ? tr("stmt.startFix.whyIn", { n: ins.length }) + "\n" + ins.map(line).join("\n") : "",
+        outs.length ? tr("stmt.startFix.whyOut", { n: outs.length }) + "\n" + outs.map(line).join("\n") : "",
+        banks.length ? tr("stmt.startFix.whyBank", { n: banks.length }) + "\n" + banks.map(line).join("\n") : ""].filter(Boolean).join("\n\n");
+      const lc = liveCheck(c, coveredLines(historyActions(false))), corrected = startFixCorrected_(lc);
+      const keeps = Math.abs(corrected - c.startFix.amount) < 0.005;   // only "already charged": the number stays as typed
+      const text = tr(keeps ? "stmt.startFix.windowKeep" : "stmt.startFix.window", { account: acctOfCheck(c), date: fmtDate(c.startFix.date, true), amount: fmtMoney(c.currency, c.startFix.amount),
+        corrected: fmtMoney(c.currency, corrected), moved: fmtMoney(c.currency, r2_(c.startFix.amount + ((lc.startShift && lc.startShift.net) || 0))),
+        // after everything this upload adds or corrects, plus this correction: the statement minus what would still be unexplained
+        items: names, after: fmtMoney(c.currency, r2_(c.closing - (liveCheck(c, coveredLines(historyActions(false))).unexplained - startFixSum_(c)))), closing: fmtMoney(c.currency, c.closing) });
+      (async () => {   // the window waits for the answer; this click handler does not
+        if (!await askConfirmApp_(text, tr("stmt.startFix.ok"), { plain: true })) return;
+        if (!historyPlan || historyPlan.checks[i] !== c) return;
+        historyPlan.startFix.add(i);
+        historyPlan.balOpen = true;
+        renderHistoryPlan();
+      })();
+      return;
+    }
     const link = e.target.closest("[data-xlink]"), unlink = e.target.closest("[data-xunlink]"), manual = e.target.closest("[data-xmanual]");
     const aside = historyPlan.summary.aside || [];
+    const na = e.target.closest("[data-noacct]");
+    if (na) {
+      if (na.dataset.pick === "add") historyPlan.noAcctOff.add(na.dataset.noacct); else historyPlan.noAcctOff.delete(na.dataset.noacct);
+      renderHistoryPlan();
+      return;
+    }
     const rech = e.target.closest("[data-rech]");
     if (rech) {
       historyPlan.rechargeChoice.set(Number(rech.dataset.rech), rechargeOf(Number(rech.dataset.rech)) === rech.dataset.pick ? "" : rech.dataset.pick);
@@ -2340,12 +2926,22 @@
       return;
     }
     if (bal) {
-      const i = Number(bal.dataset.bal);
+      const i = Number(bal.dataset.bal), c = historyPlan.checks[i];
+      if (!historyPlan.bal.has(i) && c && c.sameDay) {
+        (async () => {   // replacing the number the person typed for that same day: asked first
+          if (!await askConfirmApp_(tr("stmt.balSameDayAsk", { date: fmtDate(c.end, true), amount: fmtMoney(c.currency, c.closing) }), tr("stmt.balSameDayOk"), { plain: true })) return;
+          if (!historyPlan || historyPlan.checks[i] !== c) return;
+          historyPlan.bal.add(i);
+          historyPlan.balOpen = true;
+          renderHistoryPlan();
+        })();
+        return;
+      }
       if (historyPlan.bal.has(i)) historyPlan.bal.delete(i); else historyPlan.bal.add(i);
       historyPlan.balOpen = true;
     } else if (balAll) {
       const can = settableChecks(), allOn = can.every(({ i }) => historyPlan.bal.has(i));
-      can.forEach(({ i }) => { if (allOn) historyPlan.bal.delete(i); else historyPlan.bal.add(i); });
+      can.forEach(({ i, c }) => { if (allOn) historyPlan.bal.delete(i); else if (!c.sameDay) historyPlan.bal.add(i); });   // a same-day one asks on its own button
       historyPlan.balOpen = true;
     } else if (one) {
       const i = Number(one.dataset.aside), mode = one.dataset.mode;
@@ -2405,6 +3001,9 @@
       if (e.target.open) historyPlan.openPeople.add(e.target.dataset.ppkey); else historyPlan.openPeople.delete(e.target.dataset.ppkey);
     }
     if (e.target.id === "statement-history-xch") historyPlan.xchOpen = e.target.open;
+    if (e.target.dataset && e.target.dataset.sec && historyPlan.openSec) {
+      if (e.target.open) historyPlan.openSec.add(e.target.dataset.sec); else historyPlan.openSec.delete(e.target.dataset.sec);
+    }
     if (e.target.dataset && e.target.dataset.gopen) {
       const g = Number(e.target.dataset.gopen);
       if (e.target.open) historyPlan.openGroups.add(g); else historyPlan.openGroups.delete(g);
@@ -2420,7 +3019,7 @@
       // Right after OK: the row's buttons give way to a "Removing…" line (the server call takes a moment; a second tap must not be possible).
       const buttons = dis.closest(".stmt-choices");
       if (buttons) buttons.innerHTML = loadingHtml(tr("stmt.removing"));
-      try { await callApi("dismissStatement", { id: dis.dataset.id }); } catch (err) { alert(tr("stmt.dismissFailed", { error: err.message })); }
+      try { await callApi("dismissStatement", { id: dis.dataset.id }); } catch (err) { showAppMessage_(tr("stmt.dismissFailed", { error: err.message })); }
       refreshStatementInbox(); refreshStatementCoverage();
     }
   });
@@ -2500,7 +3099,7 @@
     const part = (sel) => () => { const r = root(); return r ? r.querySelector(sel) : null; };
     const top = () => { const r = root(); return r && r.querySelector(".tm-preview") ? [r.querySelector(".stmt-note"), r.querySelector(".tm-single")].filter(Boolean) : null; };   // (the layout note and the account list; the lines below are the next step)
     const waitFor = async (cond, ms) => { for (let i = 0; i < ms / 400 && !cond(); i++) await sleep(400); return cond(); };
-    const failed = (key) => { alert(tr(key)); Spotlight.stop("skipped"); return false; };
+    const failed = (key) => { showAppMessage_(tr(key)); Spotlight.stop("skipped"); return false; };
     const preview = () => ($("statement-history-save") ? Array.from($("statement-history").children).filter((c) => c.id !== "statement-history-save") : null);   // (not its button: the next step taps that)
     return { root, part, top, waitFor, failed, preview };
   }
@@ -2600,7 +3199,7 @@
     practiceISave_();
     try {
       const res = await callApi("createPracticeBankAccount", { lang: I18n.getLang() });
-      if (res.existed) { practiceI_.accountMade = false; practiceISave_(); alert(tr("spot.s.accountExists")); Spotlight.stop("skipped"); return false; }
+      if (res.existed) { practiceI_.accountMade = false; practiceISave_(); showAppMessage_(tr("spot.s.accountExists")); Spotlight.stop("skipped"); return false; }
       practiceI_.accountId = String(res.id);
       practiceISave_();
       if (typeof loadMeta === "function") await loadMeta();
@@ -2611,7 +3210,7 @@
       try { if (typeof loadMeta === "function") await loadMeta(); } catch (e) { /* keep what we know */ }
       const there = ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).some((pm) => /^(Practice account|Cuenta de práctica)$/i.test(String(pm.nickname || "").trim()));
       if (!there) { practiceI_.accountMade = false; practiceISave_(); }
-      alert(tr("spot.s.createFailed", { error: err.message || String(err) }));
+      showAppMessage_(tr("spot.s.createFailed", { error: err.message || String(err) }));
       Spotlight.stop("skipped");
       return false;
     }
@@ -2682,14 +3281,18 @@
         text: () => (usable.length ? tr(readyCount() < stmtCards().length ? "rt.stmt.resultMixed" : "rt.stmt.result") + ($("statement-results").querySelector(".stmt-note.warn") ? " " + tr("rt.stmt.notes") : "") : tr("rt.stmt.bad")), before: async () => { await waitFor(readDone, 3000); return true; } },
       { key: "next", target: "#stmt-next-2", text: () => tr("rt.stmt.next"), tap: "#stmt-next-2", before: async () => usable.length > 0 },
       { key: "planning", target: "#statement-review-card", text: () => tr("rt.stmt.planning"), until: planSettled, before: async () => usable.length > 0 && !planSettled() },
-      { target: () => $("statement-history").querySelector(".stmt-new-accounts"), text: () => tr("rt.stmt.newAccounts"), button: realNext, before: async () => usable.length > 0 && !!$("statement-history").querySelector(".stmt-new-accounts") },
+      // Tapping the box's own "Add the account and continue" re-reads the statements and the box goes away: that ends this step too
+      // (journeys run, 2026-11-17: Lucía's tutorial waited on "One moment…" for a box that would never come back; only Exit freed it).
+      { target: () => $("statement-history").querySelector(".stmt-new-accounts"), text: () => tr("rt.stmt.newAccounts"), button: realNext,
+        until: () => addedAccounts.length > 0 && !$("statement-history").querySelector(".stmt-new-accounts"),
+        before: async () => usable.length > 0 && !!$("statement-history").querySelector(".stmt-new-accounts") },
       { key: "preview", target: previewParts, button: realNext, before: async () => usable.length > 0,
         text: () => tr(canSave() ? "rt.stmt.preview" : "rt.stmt.previewNone") + (canSave() && $("statement-history").querySelector("details.stmt-group, .stmt-choices button:not(#statement-history-save)") ? " " + tr("rt.stmt.questions") : "") },
       { key: "save", target: () => [$("statement-history-save"), planError() ? $("statement-plan-status") : null].filter(Boolean), text: () => tr(planError() ? "rt.stmt.saveErr" : "rt.stmt.save"), until: () => savedThisRun, before: async () => usable.length > 0 && canSave() },
       { keep: true, look: true, target: "#statement-review-status", text: () => tr(imp ? "rt.imp.done" : "rt.stmt.done") + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done, wait: 30000, waitText: () => tr("rt.saving"),
         before: async () => savedThisRun && !tidyBtn() },
       // Purchases with no category: the tutorial leads into Tidy my history, on these very purchases (owner, 2026-11-09).
-      { keep: true, target: () => [$("statement-review-status"), tidyBtn()], text: () => tr(imp ? "rt.imp.doneTidy" : "rt.stmt.doneTidy") + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done,
+      { keep: true, target: () => [$("statement-review-status"), tidyBtn()], text: () => tidyDoneText_(imp, tidyBtn()) + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done,
         until: () => !$("screen-tidy").hidden, before: async () => savedThisRun && !!tidyBtn() },
       { keep: true, text: () => tr(usable.length ? "rt.stmt.endNone" : "rt.stmt.endBad"), button: done, before: async () => !savedThisRun }
     );
@@ -2704,7 +3307,7 @@
     const intro = { key: "intro", text: () => tr(mode === "import" ? "rt.imp.intro" : "rt.stmt.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_(f, "real"); } };
     Spotlight.run(realSteps_([intro].concat(realStmtSteps_(mode, fromStart))), {
       labels: realLabels_(), busy: () => perfInflight_ > 0,
-      onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_(f); if (how === "lost") setTimeout(() => alert(tr("spot.g.lost")), 0); }
+      onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_(f); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); }
     });
   }
   // The practice brought from the two-week nudge on Home.
@@ -2726,7 +3329,7 @@
       } catch (e) { /* no key: the cleanup just has no layout to forget */ }
       await handleStatementFiles([new File([f.text], f.name, { type: "text/csv" })]);
     } catch (err) {
-      alert(tr(practiceI_ && practiceI_.kind === "bank" ? "spot.s.fileFailed" : "spot.f.fileFailed", { error: err.message || String(err) }));
+      showAppMessage_(tr(practiceI_ && practiceI_.kind === "bank" ? "spot.s.fileFailed" : "spot.f.fileFailed", { error: err.message || String(err) }));
       Spotlight.stop("skipped");
     }
   }

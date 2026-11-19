@@ -4181,3 +4181,6 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .stmt-due-ask .hint { margin-top: 4px; }
 .due-block { margin-top: 24px; }
 .due-block input[type="date"] { width: 100%; }
+/* WhatsApp invitation code (owner, 2026-11-19): big and spaced so it reads out easily */
+.wa-invite-code { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.08em; margin: 4px 0 8px; user-select: all; }
+#wa-invite { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }

@@ -15362,7 +15362,9 @@ async function showMyProfileScreen() {
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
   document.getElementById("my-profile-tabs-card").hidden = !caps.navTabs;      // nor this
-  document.getElementById("my-profile-wa-card").hidden = !caps.whatsappBot;   // only where the owner offers it (WhatsApp.gs)
+  // Where the owner offers it, or (owner, 2026-11-19) on any copy whose backend takes invitation codes: the row then holds the
+  // code entry ("By invitation from JP") until a right code turns it into the usual card.
+  document.getElementById("my-profile-wa-card").hidden = !(caps.whatsappBot || caps.whatsappInvite);
   waOpenRow_(false);
   tabsOpenRow_(false);
   drawTabsCard_();
@@ -15372,7 +15374,7 @@ async function showMyProfileScreen() {
       callApi("getOwnerNames", {}),
       caps.profileState && caps.profile ? callApi("getProfileState", {}) : Promise.resolve(null),
       loadDevices_().catch(() => null),   // a failure here only leaves the row without its count; opening it tries again
-      caps.whatsappBot ? callApi("getWhatsAppBot", {}) : Promise.resolve(null)
+      caps.whatsappBot || caps.whatsappInvite ? callApi("getWhatsAppBot", {}) : Promise.resolve(null)
     ]);
     drawWhatsAppBot_(wa);
     renderOwnerNames_(names);
@@ -15415,6 +15417,15 @@ function refreshPrivacyWa_() {
 }
 function drawWhatsAppBot_(s) {
   const on = !!(s && s.on);
+  // Not offered yet: only the invitation code entry (owner's plan "WhatsApp invitation code", 2026-11-19).
+  const invited = !(s && s.offered === false);
+  document.getElementById("wa-redeem").hidden = invited;
+  document.getElementById("wa-redeem-error").textContent = "";
+  if (!invited) {
+    document.getElementById("wa-count").textContent = tr("prof.waByInvite");
+    ["wa-off", "wa-on", "wa-invite"].forEach((id) => { document.getElementById(id).hidden = true; });
+    return;
+  }
   document.getElementById("wa-count").textContent = s ? tr(on ? "prof.waIsOn" : "prof.waIsOff") : "";
   document.getElementById("wa-off").hidden = on;
   document.getElementById("wa-on").hidden = !on;
@@ -15425,6 +15436,8 @@ function drawWhatsAppBot_(s) {
     document.getElementById("wa-code").value = s.code || "";
   }
   document.getElementById("wa-nocode").hidden = !on || !!(s && s.code);   // never an empty box without a word
+  if (!on && s && s.number && !document.getElementById("wa-number").value) document.getElementById("wa-number").value = s.number;   // invited: filled in
+  document.getElementById("wa-invite").hidden = !(meta && meta.capabilities && meta.capabilities.whatsappInviteMake);
   document.getElementById("wa-copy-btn").hidden = on && !(s && s.code);
   if (s && meta && meta.capabilities) meta.capabilities.whatsappBotOn = on;
   refreshPrivacyWa_();
@@ -15448,6 +15461,53 @@ document.getElementById("wa-off-btn").addEventListener("click", async () => {
   try { drawWhatsAppBot_(await callApi("turnOffWhatsAppBot", {})); }
   catch (e) { document.getElementById("wa-copied").textContent = e.message; }
   finally { btn.disabled = false; }
+});
+// The friend's side: the code JP sent + her own number. A right code marks the copy (backend/WhatsApp.gs) and the same row
+// becomes the usual card with the number filled in. It waits for the answer on purpose: what shows next depends on it.
+document.getElementById("wa-redeem-btn").addEventListener("click", async () => {
+  const err = document.getElementById("wa-redeem-error");
+  const code = document.getElementById("wa-redeem-code").value.trim();
+  const number = document.getElementById("wa-redeem-number").value.replace(/\D/g, "");
+  if (!code) { err.textContent = tr("prof.waRedeemNoCode"); return; }
+  if (number.length < 8 || number.length > 15) { err.textContent = tr("prof.waBadNumber"); return; }
+  const btn = document.getElementById("wa-redeem-btn");
+  btn.disabled = true;
+  err.textContent = "";
+  try {
+    const r = await callApi("useWhatsAppInvite", { code, number });
+    if (meta && meta.capabilities) meta.capabilities.whatsappBot = true;
+    document.getElementById("wa-redeem-code").value = "";
+    drawWhatsAppBot_(r.bot);
+    const box = document.getElementById("wa-number");
+    if (!box.value) box.value = number;
+  } catch (e) { err.textContent = e.message; }
+  finally { btn.disabled = false; }
+});
+
+// Invite a friend (the owner's copy only, capability whatsappInviteMake): the code is made from the friend's number on the server.
+let waInvite_ = null;
+document.getElementById("wa-invite-btn").addEventListener("click", async () => {
+  const err = document.getElementById("wa-invite-error");
+  const number = document.getElementById("wa-invite-number").value.replace(/\D/g, "");
+  document.getElementById("wa-invite-copied").textContent = "";
+  if (number.length < 8 || number.length > 15) { err.textContent = tr("prof.waBadNumber"); document.getElementById("wa-invite-result").hidden = true; return; }
+  const btn = document.getElementById("wa-invite-btn");
+  btn.disabled = true;
+  err.textContent = "";
+  try {
+    waInvite_ = await callApi("makeWhatsAppInvite", { number });
+    document.getElementById("wa-invite-for").textContent = tr("prof.waInviteFor", { number: "+" + waInvite_.number });
+    document.getElementById("wa-invite-code").textContent = waInvite_.code;
+    document.getElementById("wa-invite-result").hidden = false;
+  } catch (e) { err.textContent = e.message; }
+  finally { btn.disabled = false; }
+});
+document.getElementById("wa-invite-copy-btn").addEventListener("click", async () => {
+  const msg = document.getElementById("wa-invite-copied");
+  if (!waInvite_) return;
+  const text = tr("prof.waInviteMessage", { code: waInvite_.code, number: waInvite_.number });
+  try { await navigator.clipboard.writeText(text); msg.textContent = tr("prof.waInviteCopied"); }
+  catch (e) { msg.textContent = tr("prof.waCopyByHand"); }
 });
 document.getElementById("wa-copy-btn").addEventListener("click", async () => {
   const box = document.getElementById("wa-code"), msg = document.getElementById("wa-copied");
