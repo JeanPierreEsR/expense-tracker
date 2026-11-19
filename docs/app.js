@@ -18109,6 +18109,7 @@ function fillDueBlock_(prefix, pmId, rows) {
   document.getElementById(prefix + "-due-ask").hidden = true;
   const inp = document.getElementById(prefix + "-due-input");
   inp.value = ""; inp.dataset.pm = ""; inp.dataset.saved = "";
+  if (prefix === "bal") document.getElementById("balance-save-btn").textContent = tr("balance.save");   // (no statement: the long label)
   const r = cardLastStmtOf_(rows, pmId);
   if (!r) return;
   const owes = r.balances.some((b) => b.amount < -0.004);
@@ -18125,6 +18126,12 @@ function fillDueBlock_(prefix, pmId, rows) {
     document.getElementById(prefix + "-due-hint").hidden = !!r.due;
     document.getElementById(prefix + "-due-ask").hidden = false;
   }
+  if (prefix === "bal") document.getElementById("balance-save-btn").textContent = balanceSaveLabel_();
+}
+// The Balances screen's button says plain "Save" while it also saves a pay-by date (owner, 2026-11-18), else "Save starting balances".
+function balanceSaveLabel_() {
+  const ask = document.getElementById("bal-due-ask");
+  return tr(ask && !ask.hidden && !document.getElementById("bal-due-block").hidden ? "common.save" : "balance.save");
 }
 // The date typed in a block: "" when none, null when it is on or before the close (the caller says so and saves nothing).
 function dueBlockValue_(prefix) {
@@ -33983,7 +33990,7 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
       const seq = balanceOpenSeq_;
       let cands = null;
       try { cands = await balanceNyCandidates_(pmId, balances); } catch (e) { cands = null; }
-      saveBtn.textContent = tr("balance.save");
+      saveBtn.textContent = balanceSaveLabel_();
       // Closed, reopened or switched to another account while checking: this answer belongs to a sheet that is gone.
       if (seq !== balanceOpenSeq_ || document.getElementById("balance-modal-backdrop").hidden ||
           (balanceModalPmId || document.getElementById("balance-account-picker").value) !== pmId) return;
