@@ -13681,8 +13681,45 @@ function showFeedbackPrivacyScreen() {
   document.querySelectorAll(".nav-btn").forEach((btn) => { btn.classList.toggle("active", btn.dataset.screen === "more"); });
   refreshPrivacyStatus_();
   refreshPrivacyWa_();
+  drawFpInvite_();
   window.scrollTo(0, 0);
 }
+// "I have an invitation code from JP" (owner's plan "WhatsApp invitation code", 2026-11-19): only on a backend that takes codes
+// and a copy that does not have the WhatsApp bot card yet. A right code marks the copy (backend/WhatsApp.gs) and opens
+// My profile → WhatsApp bot with the number filled in. It waits for the answer on purpose: the next screen depends on it.
+function drawFpInvite_() {
+  const caps = (meta && meta.capabilities) || {};
+  const show = !!caps.whatsappInvite && !caps.whatsappBot;
+  document.getElementById("fp-invite-toggle").hidden = !show;
+  fpInviteOpen_(false);
+}
+function fpInviteOpen_(open) {
+  document.getElementById("fp-invite").hidden = !open;
+  document.getElementById("fp-invite-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  document.getElementById("fp-invite-error").textContent = "";
+}
+document.getElementById("fp-invite-toggle").addEventListener("click", () => fpInviteOpen_(document.getElementById("fp-invite").hidden));
+document.getElementById("fp-invite-btn").addEventListener("click", async () => {
+  const err = document.getElementById("fp-invite-error");
+  const code = document.getElementById("fp-invite-code").value.trim();
+  const number = document.getElementById("fp-invite-number").value.replace(/\D/g, "");
+  if (!code) { err.textContent = tr("fp.inviteNoCode"); return; }
+  if (number.length < 8 || number.length > 15) { err.textContent = tr("prof.waBadNumber"); return; }
+  const btn = document.getElementById("fp-invite-btn");
+  btn.disabled = true;
+  err.textContent = "";
+  try {
+    await callApi("useWhatsAppInvite", { code, number });
+    if (meta && meta.capabilities) meta.capabilities.whatsappBot = true;
+    document.getElementById("fp-invite-code").value = "";
+    await showMyProfileScreen();
+    waOpenRow_(true);
+    const box = document.getElementById("wa-number");
+    if (box && !box.value) box.value = number;
+    document.getElementById("my-profile-wa-card").scrollIntoView({ block: "start" });
+  } catch (e) { err.textContent = e.message; }
+  finally { btn.disabled = false; }
+});
 document.getElementById("more-feedback-privacy-btn").addEventListener("click", showFeedbackPrivacyScreen);
 document.getElementById("fp-back-btn").addEventListener("click", () => showScreen("more"));
 document.getElementById("privacy-change-btn").addEventListener("click", () => openPerfShareModal_(null));
@@ -15425,6 +15462,8 @@ function drawWhatsAppBot_(s) {
     document.getElementById("wa-code").value = s.code || "";
   }
   document.getElementById("wa-nocode").hidden = !on || !!(s && s.code);   // never an empty box without a word
+  if (!on && s && s.number && !document.getElementById("wa-number").value) document.getElementById("wa-number").value = s.number;   // invited: filled in
+  document.getElementById("wa-invite").hidden = !(meta && meta.capabilities && meta.capabilities.whatsappInviteMake);
   document.getElementById("wa-copy-btn").hidden = on && !(s && s.code);
   if (s && meta && meta.capabilities) meta.capabilities.whatsappBotOn = on;
   refreshPrivacyWa_();
@@ -15448,6 +15487,31 @@ document.getElementById("wa-off-btn").addEventListener("click", async () => {
   try { drawWhatsAppBot_(await callApi("turnOffWhatsAppBot", {})); }
   catch (e) { document.getElementById("wa-copied").textContent = e.message; }
   finally { btn.disabled = false; }
+});
+// Invite a friend (the owner's copy only, capability whatsappInviteMake): the code is made from the friend's number on the server.
+let waInvite_ = null;
+document.getElementById("wa-invite-btn").addEventListener("click", async () => {
+  const err = document.getElementById("wa-invite-error");
+  const number = document.getElementById("wa-invite-number").value.replace(/\D/g, "");
+  document.getElementById("wa-invite-copied").textContent = "";
+  if (number.length < 8 || number.length > 15) { err.textContent = tr("prof.waBadNumber"); document.getElementById("wa-invite-result").hidden = true; return; }
+  const btn = document.getElementById("wa-invite-btn");
+  btn.disabled = true;
+  err.textContent = "";
+  try {
+    waInvite_ = await callApi("makeWhatsAppInvite", { number });
+    document.getElementById("wa-invite-for").textContent = tr("prof.waInviteFor", { number: "+" + waInvite_.number });
+    document.getElementById("wa-invite-code").textContent = waInvite_.code;
+    document.getElementById("wa-invite-result").hidden = false;
+  } catch (e) { err.textContent = e.message; }
+  finally { btn.disabled = false; }
+});
+document.getElementById("wa-invite-copy-btn").addEventListener("click", async () => {
+  const msg = document.getElementById("wa-invite-copied");
+  if (!waInvite_) return;
+  const text = tr("prof.waInviteMessage", { code: waInvite_.code, number: waInvite_.number });
+  try { await navigator.clipboard.writeText(text); msg.textContent = tr("prof.waInviteCopied"); }
+  catch (e) { msg.textContent = tr("prof.waCopyByHand"); }
 });
 document.getElementById("wa-copy-btn").addEventListener("click", async () => {
   const box = document.getElementById("wa-code"), msg = document.getElementById("wa-copied");
@@ -25616,6 +25680,7 @@ const LINK_ICON_RULES_ = [
   [/^(installments|cuotas)\b/i, "calendar"],
   [/^(which would|¿cuál habría)/i, "chart"],
   [/^(what fits me|lo que va conmigo)/i, "user"],
+  [/^(i have an invitation code|tengo un código de invitación)/i, "check"],   // Feedback & privacy → Extra features (WhatsApp bot)
   [/^(past uploads|past imports|cargas anteriores|importaciones anteriores|already read|ya leídos)/i, "clock"],
   [/^(igv|all loans|todos los préstamos)/i, "file"],
   [/^(show|mostrar|see|ver|view|unhide|review|revisar\w*|open|abrir)\b/i, "eye"]
