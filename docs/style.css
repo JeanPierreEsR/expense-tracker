@@ -3885,6 +3885,7 @@ body.fab-room:has(#app-undo-toast:not([hidden])) #app-toast { bottom: calc(216px
 
 /* A tracked account moving in a currency with no starting balance of its own (owner, 2026-11-11). */
 .balance-row-missing { font-size: 0.8125rem; color: var(--warn-text); margin-top: 2px; font-weight: 400; }
+.balance-row-saving { font-size: 0.75rem; color: var(--muted); margin-top: 2px; font-weight: 600; }   /* its save is still on its way (2026-11-18) */
 .balances-missing { display: block; width: 100%; text-align: left; background: var(--warn-bg); color: var(--warn-text); border: none; border-radius: var(--r-md); padding: 10px 12px; margin: 8px 0; font-size: 0.875rem; line-height: 1.35; cursor: pointer; }
 
 /* "Already in / Not yet" when saving a starting balance (owner, 2026-11-11). */

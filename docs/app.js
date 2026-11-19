@@ -18355,6 +18355,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   const slotsNow = pmWalletSlots_();
   const curField = document.getElementById("pm-cur-box").hidden ? {} : accountListOn_() ? { currencies: pmModalState.currencies || [] } : { currency: document.getElementById("pm-currency").value };
   closePmModal_();
+  if (dueNow) markBalanceSaving_(state.id);   // its Balances row says "Saving…" until the new pay-by line arrives
   saveBehindScreen_(practiceATrack_(practiceITrack_(async () => {
     const saved = await callApi("savePaymentMethod", {
       id: state.id || undefined,
@@ -18383,13 +18384,13 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       else if (String(settings[k] || "") === String(saved.id)) links[k] = "";
     });
     if (Object.keys(links).length) { await callApi("saveRailLinks", links); Object.assign(settings, links); }
-    if (dueNow) { await callApi("setCardStatementDue", { id: saved.id, due: dueNow }); refreshBalances(); }
+    if (dueNow) await callApi("setCardStatementDue", { id: saved.id, due: dueNow });
     // Rebuild the entry form's pickers without losing what's already chosen there (once their list is closed: see whenPickersClosed_).
     whenPickersClosed_(["payment_method", "to_payment_method"], () => {
       rebuildAccountPickers_();
       if (state.selectIn) { const sel = document.getElementById(state.selectIn); sel.value = saved.id; sel.dispatchEvent(new Event("change")); }
     });
-  }, { nickname, type }), nickname), () => renderAccountsList_());
+  }, { nickname, type }), nickname), () => { renderAccountsList_(); if (dueNow) balanceSavedAfter_(state.id)(); });
 });
 
 // After a hide / show / delete the pickers are rebuilt the same way a save does it.
@@ -33453,6 +33454,20 @@ async function preloadBalancesWhenQuiet_() {
   }
 }
 
+// An account whose balance screen (or its card's pay-by date) is saving behind the screen says so on its own Balances row until the new
+// figures replace it (owner, 2026-11-18: Diners showed its old lines with only a toast saying "Saving…").
+const balanceSaving_ = new Set();
+function balanceSavingLine_(id) {
+  return balanceSaving_.has(id) ? `<div class="balance-row-saving">${escapeHtml(tr("common.savingToast"))}</div>` : "";
+}
+function markBalanceSaving_(id) {
+  if (!id) return;
+  balanceSaving_.add(id);
+  const name = document.querySelector(`#balances-list [data-pm="${CSS.escape(id)}"] .balance-row-name`);
+  if (name && !name.querySelector(".balance-row-saving")) name.insertAdjacentHTML("beforeend", balanceSavingLine_(id));
+}
+// The save's "after": the mark is dropped and the list reloaded; the row keeps the line on screen until that new list is drawn.
+function balanceSavedAfter_(id) { return () => { balanceSaving_.delete(id); return refreshBalances(); }; }
 async function refreshBalancesInner_() {
   // "right now (Nov 8, 2026)": the date the balances are worked out for (owner, 2026-11-08).
   document.getElementById("balances-hint").textContent = tr("balances.hint", { date: I18n.fmtDateMedium(new Date()) });
@@ -33483,8 +33498,9 @@ async function refreshBalancesInner_() {
     // also when no pay-by date was read (Diners' is not in the PDF's text; owner, 2026-11-18).
     const cs = !r.statement_closed && r.card_statement;
     const stmtLine = cs ? cardStmtLines_(cs) : "";
+    row.dataset.pm = r.id;
     row.innerHTML = `
-      <div class="balance-row-name">${escapeHtml(r.nickname)}${r.statement_closed ? "" : `<span class="loan-detail-row-chevron">›</span>`}${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${stmtLine}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}</div>
+      <div class="balance-row-name">${escapeHtml(r.nickname)}${r.statement_closed ? "" : `<span class="loan-detail-row-chevron">›</span>`}${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${stmtLine}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}${balanceSavingLine_(r.id)}</div>
       <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>
     `;
     if (!r.statement_closed) row.addEventListener("click", () => openBalanceModal(r.id));   // (a statement figure has no movements to show)
@@ -33503,7 +33519,8 @@ async function refreshBalancesInner_() {
     stmtCards.forEach((r) => {
       const item = document.createElement("div");
       item.className = "balance-row balance-stmt-item";
-      item.innerHTML = `<div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span>${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${cardStmtLines_(r)}</div>`;
+      item.dataset.pm = r.id;
+      item.innerHTML = `<div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span>${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${cardStmtLines_(r)}${balanceSavingLine_(r.id)}</div>`;
       item.addEventListener("click", () => openStmtCardBalance_(r.id));
       box.appendChild(item);
     });
@@ -33953,7 +33970,8 @@ document.getElementById("balance-notyet-save").addEventListener("click", () => {
   balanceNyState_ = null;
   closeBalanceModal();
   const due = balanceDuePending_; balanceDuePending_ = null;
-  saveBehindScreen_(() => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances }).then((r) => saveBalanceDue_(due, r)), refreshBalances);
+  markBalanceSaving_(pmId);
+  saveBehindScreen_(() => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances }).then((r) => saveBalanceDue_(due, r)), balanceSavedAfter_(pmId));
 });
 
 document.getElementById("balance-stmt-tip-btn").addEventListener("click", () => {
@@ -34014,7 +34032,8 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
     if (dueChanged && balanceRowsUntouched_()) {
       const due = balanceDuePending_; balanceDuePending_ = null;
       closeBalanceModal();
-      saveBehindScreen_(() => saveBalanceDue_(due), refreshBalances);
+      markBalanceSaving_(pmId);
+      saveBehindScreen_(() => saveBalanceDue_(due), balanceSavedAfter_(pmId));
       return;
     }
     const seen = new Set();
@@ -34055,7 +34074,8 @@ document.getElementById("balance-save-btn").addEventListener("click", async () =
     }
     closeBalanceModal();
     const due = balanceDuePending_; balanceDuePending_ = null;
-    saveBehindScreen_(practiceATrackBalance_(pmId, () => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances }).then((r) => saveBalanceDue_(due, r))), refreshBalances);
+    markBalanceSaving_(pmId);
+    saveBehindScreen_(practiceATrackBalance_(pmId, () => callApi("setPaymentMethodOpeningBalance", { id: pmId, balances }).then((r) => saveBalanceDue_(due, r))), balanceSavedAfter_(pmId));
   } catch (err) {
     errorEl.textContent = err.message;
   } finally {
