@@ -75,6 +75,8 @@ function getCapabilities_() {
     // (the privacy card then has its WhatsApp section, owner 2026-11-16: privacy changes only for people who use the bot).
     whatsappBot: whatsappOffered_(),
     whatsappBotOn: whatsappBotOn_(),
+    whatsappInvite: true,                            // this backend takes invitation codes (useWhatsAppInvite)
+    whatsappInviteMake: canMakeWhatsAppInvites_(),   // the owner's copy makes them (makeWhatsAppInvite)
     // Why Apple Pay is offered or not (owner's copy only; four yes/no answers, no address or key), shown in More → Performance log.
     applePayCheck: (isOwnerCopyByAddress_() || !isFriendCopy_()) ? applePayCheck_() : null,
     // Overview's summary blocks open the list behind them (listPeriodFlows, 2026-11-11); an older backend leaves the blocks as they were.

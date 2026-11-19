@@ -40,7 +40,7 @@ function getWhatsAppBot() {
   if (!whatsappOffered_()) return { offered: false };
   var props = PropertiesService.getScriptProperties();
   var on = whatsappBotOn_();
-  var number = String(props.getProperty('WA_OWNER_NUMBER') || '');
+  var number = String(props.getProperty('WA_OWNER_NUMBER') || props.getProperty('WA_INVITED_NUMBER') || '');   // invited: filled in
   var key = String(props.getProperty(WHATSAPP_SECRET_PROP_) || '');
   var url = getWebAppUrl_();
   if (!url) { try { url = String(ScriptApp.getService().getUrl() || ''); } catch (err) { url = ''; } }   // not learned yet: Google's own answer
@@ -68,6 +68,47 @@ function turnOffWhatsAppBot() {
   props.setProperty('WHATSAPP_BOT', 'off');
   props.deleteProperty('REVIEW_BOT');
   return getWhatsAppBot();
+}
+
+// ---- Invitation codes (owner's plan "WhatsApp invitation code", approved 2026-11-19) ----
+// Instead of the Settings row typed in the friend's Sheet: the owner's app makes a code from the friend's WhatsApp number, the
+// friend types code + number in Feedback & privacy → Extra features, and the copy marks itself (the same `whatsapp_offered` row).
+// The code is the number's fingerprint, so every copy can check it with nothing stored; a code only works with its own number.
+// It is not a secret (the recipe is in this public code): it only shows the card. Using the bot still needs the owner to add
+// the number in Meta and the route in Cloudflare.
+var WA_INVITE_LETTERS_ = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';   // no 0/O, 1/I/L: easy to read out and type
+
+function whatsappInviteCode_(number) {
+  var digits = String(number || '').replace(/\D/g, '');
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, 'expense-tracker-whatsapp-invite-v1:' + digits);
+  var out = '';
+  for (var i = 0; i < 8; i++) out += WA_INVITE_LETTERS_.charAt(((bytes[i] % 256) + 256) % 256 % WA_INVITE_LETTERS_.length);
+  return 'WA-' + out.slice(0, 4) + '-' + out.slice(4);
+}
+
+function whatsappInviteNumber_(payload) {
+  var number = String((payload && payload.number) || '').replace(/\D/g, '');
+  if (number.length < 8 || number.length > 15) throw codedError_('bad_number', tr_('whatsappBot.badNumber'));
+  return number;
+}
+
+// The owner's copy only (the one that runs the relay).
+function canMakeWhatsAppInvites_() { return !isFriendCopy_() || isOwnerCopyByAddress_(); }
+
+function makeWhatsAppInvite(payload) {
+  if (!canMakeWhatsAppInvites_()) throw codedError_('feature_off', tr_('whatsappBot.off'));
+  var number = whatsappInviteNumber_(payload);
+  return { number: number, code: whatsappInviteCode_(number) };
+}
+
+function useWhatsAppInvite(payload) {
+  var number = whatsappInviteNumber_(payload);
+  var typed = String((payload && payload.code) || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  if (typed !== whatsappInviteCode_(number).replace(/-/g, '')) throw codedError_('bad_invite', tr_('whatsappBot.inviteWrong'));
+  var already = whatsappOffered_();
+  if (String(getSettingsMap().whatsapp_offered || '').toLowerCase() !== 'yes') setSetting_('whatsapp_offered', 'yes');
+  PropertiesService.getScriptProperties().setProperty('WA_INVITED_NUMBER', number);
+  return { already: already, bot: getWhatsAppBot() };
 }
 
 // Sheet menu: paste the relay key (the same value as WA_RELAY_SECRET in Cloudflare and in the private secrets file).

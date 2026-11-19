@@ -239,6 +239,8 @@ function routeActionSwitch_(action, payload) {
     case 'getWhatsAppBot': return getWhatsAppBot();   // More → My profile → WhatsApp bot (WhatsApp.gs)
     case 'turnOnWhatsAppBot': return turnOnWhatsAppBot(payload);
     case 'turnOffWhatsAppBot': return turnOffWhatsAppBot();
+    case 'makeWhatsAppInvite': return makeWhatsAppInvite(payload);   // the owner's "Invite a friend" (WhatsApp.gs)
+    case 'useWhatsAppInvite': return useWhatsAppInvite(payload);     // a friend's "I have an invitation code"
     case 'makeApplePayKey': return makeApplePayKey(payload);
     case 'revokeSession': return revokeSession(payload);
     case 'revokeOtherSessions': return revokeOtherSessions();

@@ -1575,6 +1575,15 @@
               <span class="more-list-chevron" id="wa-chevron">›</span>
             </button>
             <div id="wa-body" hidden>
+              <div id="wa-redeem" hidden>
+                <p class="hint" data-i18n="prof.waRedeemHint">Add and confirm your transactions by writing to the app's WhatsApp bot. It works by invitation: type the code JP sent you and your WhatsApp number.</p>
+                <label for="wa-redeem-code" data-i18n="prof.waRedeemCodeLabel">Invitation code</label>
+                <input type="text" id="wa-redeem-code" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="WA-XXXX-XXXX">
+                <label for="wa-redeem-number" data-i18n="prof.waNumberLabel">Your WhatsApp number, with its country code</label>
+                <input type="tel" id="wa-redeem-number" inputmode="numeric" autocomplete="tel" data-i18n-placeholder="prof.waNumberPh" placeholder="51987654321">
+                <p class="hint error-text" id="wa-redeem-error" role="alert"></p>
+                <button type="button" class="primary" id="wa-redeem-btn" data-i18n="prof.waRedeemUse">Use the code</button>
+              </div>
               <div id="wa-off">
                 <p class="hint" data-i18n="prof.waHint">Add and confirm your transactions by writing to the app's WhatsApp bot. What you write goes only to your own app.</p>
                 <label for="wa-number" data-i18n="prof.waNumberLabel">Your WhatsApp number, with its country code</label>
@@ -1590,6 +1599,20 @@
                 <button type="button" class="primary" id="wa-copy-btn" data-i18n="prof.waCopy">Copy the code</button>
                 <p class="hint" id="wa-copied" role="status"></p>
                 <button type="button" class="secondary-btn" id="wa-off-btn" data-i18n="prof.waOff">Turn off</button>
+              </div>
+              <div id="wa-invite" hidden>
+                <p class="md-title" data-i18n="prof.waInviteHead">Invite a friend</p>
+                <p class="hint" data-i18n="prof.waInviteHint">Type your friend's WhatsApp number to get their invitation code. They type it in their app, in More → My profile → WhatsApp bot.</p>
+                <label for="wa-invite-number" data-i18n="prof.waInviteNumberLabel">Your friend's WhatsApp number, with its country code</label>
+                <input type="tel" id="wa-invite-number" inputmode="numeric" autocomplete="off" data-i18n-placeholder="prof.waNumberPh" placeholder="51987654321">
+                <p class="hint error-text" id="wa-invite-error" role="alert"></p>
+                <button type="button" class="primary" id="wa-invite-btn" data-i18n="prof.waInviteMake">Make the code</button>
+                <div id="wa-invite-result" hidden>
+                  <p class="hint" id="wa-invite-for"></p>
+                  <p class="wa-invite-code" id="wa-invite-code"></p>
+                  <button type="button" class="add-inline" id="wa-invite-copy-btn" data-i18n="prof.waInviteCopy">Copy the invitation</button>
+                  <p class="hint" id="wa-invite-copied" role="status"></p>
+                </div>
               </div>
             </div>
           </div>

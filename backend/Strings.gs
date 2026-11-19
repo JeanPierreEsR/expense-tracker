@@ -41,6 +41,7 @@ var BACKEND_STRINGS_ = {
   "whatsapp.savedConfirmed": { en: "Saved and confirmed: {amount} \u00b7 {what}.", es: "Guardado y confirmado: {amount} \u00b7 {what}." },
   "typed.noDesc.telegram": { en: "Added on Telegram", es: "Agregado por Telegram" },
   "whatsappBot.off": { en: "The WhatsApp bot is not available in this app.", es: "El bot de WhatsApp no est\u00e1 disponible en esta app." },
+  "whatsappBot.inviteWrong": { en: "That code doesn't match this number. Check it with JP.", es: "Ese c\u00f3digo no coincide con este n\u00famero. Rev\u00edsalo con JP." },
   "whatsappBot.badNumber": { en: "Write your WhatsApp number with its country code, digits only (for example 51987654321).", es: "Escribe tu n\u00famero de WhatsApp con el c\u00f3digo de pa\u00eds, solo d\u00edgitos (por ejemplo 51987654321)." },
   "whatsapp.photoNoReader": { en: "Photos can't be read in this app yet. Write the transaction instead, for example \"25 almuerzo\".", es: "Esta app todav\u00eda no puede leer fotos. Escribe el movimiento, por ejemplo \"25 almuerzo\"." },
   "whatsapp.photoNeedsBot": { en: "Photos are read here only when WhatsApp is your review bot. Send it to Telegram instead, or write the transaction.", es: "Las fotos se leen aqu\u00ed solo cuando WhatsApp es tu bot de revisi\u00f3n. Env\u00edala a Telegram, o escribe el movimiento." },
