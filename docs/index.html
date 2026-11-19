@@ -306,7 +306,7 @@
           </button>
           <div id="more-details-body">
           <label for="paid_by" id="paid-by-label" class="has-info" data-i18n="field.paidBy">Paid by</label><button type="button" class="info-btn" id="paid-by-info" data-info="paidBy" data-i18n-aria-label="info.paidBy.name" aria-label="About Paid by" aria-expanded="false"></button>
-          <select id="paid_by"></select>
+          <div id="paid-by-pick"><select id="paid_by"></select></div>
           <p class="hint" id="paid-by-friend-hint" hidden></p>
 
           <div id="income-waiting-field" hidden>
@@ -1923,6 +1923,19 @@
       <p class="hint" id="currency-screen-note" hidden></p>
       <div class="currency-option-list" id="currency-option-list"></div>
       <button type="button" class="primary" id="currency-screen-done" hidden data-i18n="currency.done">Done</button>
+    </div>
+  </div>
+
+  <!-- The one friends screen (owner, 2026-11-19): everyone by name with a search, like the currency screen; "More…" and the friend boxes open it. -->
+  <div id="friend-screen-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal currency-screen friend-screen">
+      <div class="currency-modal-header">
+        <span id="friend-screen-title" data-i18n="friendPick.choose">Choose a friend</span>
+        <button type="button" id="friend-screen-close" class="currency-modal-close">✕</button>
+      </div>
+      <input type="text" id="friend-search" data-i18n-placeholder="friendPick.search" placeholder="Search by name…" autocomplete="off">
+      <div class="currency-option-list" id="friend-option-list"></div>
+      <button type="button" class="primary" id="friend-screen-done" hidden data-i18n="currency.done">Done</button>
     </div>
   </div>
 
