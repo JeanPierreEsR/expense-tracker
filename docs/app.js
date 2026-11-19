@@ -2238,8 +2238,9 @@ let repaymentDirectionChoice = "i_owe_them"; // "I paid them"; or "they_owe_me" 
 // call (convertEntryToRepayment / convertEntryToLoan), which refuses safely
 // when the entry is already part of a loan/repayment and puts everything
 // back if anything fails.
+// A Needs review item opened with "Edit in full form" offers them too (owner, 2026-11-19): the same conversions its card's buttons make.
 function repaymentAvailable_() {
-  return selectedType === "transfer" && !confirmingPendingId &&
+  return selectedType === "transfer" &&
     (!editingEntryId || editingEntryOriginalType === "expense" || editingEntryOriginalType === "income" || editingEntryOriginalType === "transfer" || editingEntryOriginalType === "investment");
 }
 
@@ -3875,6 +3876,10 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // shared Airbnb balance due next week stayed in "Recent entries");
     // only an older backend (no programSplits) keeps it a normal entry.
     const isFutureDate = !editingEntryId && !confirmingPendingId && date > todayLocalISO();
+    // The same for a Needs review item in the full form (owner, 2026-11-19), after a question (below, before its confirm).
+    const pendingFuture = !!confirmingPendingId && date > todayLocalISO() && !!(meta.capabilities || {}).programPending &&
+      selectedType !== "transfer" && !isWithdrawal && selectedType !== "investment" && (selectedType === "income" || paidBy === "me") &&
+      (!splits || !!(meta.capabilities || {}).programSplits) && !waitingOn;
     const canProgram = isFutureDate && selectedType !== "transfer" && !isWithdrawal &&
       (selectedType === "income" || paidBy === "me") && (!splits || !!(meta.capabilities || {}).programSplits) &&
       !payingRecurringId_ && !waitingOn;
@@ -3918,6 +3923,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         // Swapping an existing expense/transfer for the repayment / loan: one
         // server call that checks everything first and undoes itself if
         // anything fails (see convertEntryInto_ in Loans.gs).
+        // A Needs review item too (opened with "Edit in full form"): the same call its card's buttons make, which also takes it out of Needs review.
+        const wasPending = !!confirmingPendingId;
         // A shared expense whose debts friends already (partly) repaid: the person decides what happens to those
         // repayments first, as when deleting the expense (keep = a "paid earlier, no loan" credit; cancel = they go).
         let repaymentsChoice;
@@ -3994,13 +4001,16 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           ...fields,
           repayments: repaymentsChoice,
           entry_id: editingEntryId,
-          ...(isLoanKind ? {} : { overpay_category_id: overpayCategoryId, overpay_pending_ok: !overpayCategoryId })
+          ...(isLoanKind ? {} : { overpay_category_id: overpayCategoryId, overpay_pending_ok: !overpayCategoryId }),
+          // Money that arrived from a bank is a repayment only of a debt on record (as the card's "Mark as repayment" asks).
+          ...(wasPending && !isLoanKind && direction === "they_owe_me" ? { require_owed: true } : {})
         };
         try {
           result = popupHiddenEarly ? await callApi(conversionAction, conversionPayload) : await callConversion_(conversionAction, conversionPayload);
         } finally {
           hideToast_(tr("common.savingToast"));
         }
+        if (wasPending) { dropReviewCard_(editingEntryId); refreshReviewQueue().catch(() => {}); refreshHomeGlance_(true); }
         exitEditMode();
       } else if (isLoanKind) {
         result = await callApi("addLoan", fields);
@@ -4048,6 +4058,39 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         : isLoanKind
         ? tr(direction === "they_owe_me" ? "repay.loanTo" : "repay.loanFrom", { name: friendName })
         : tr(direction === "they_owe_me" ? "repay.repaymentFrom" : "repay.repaymentTo", { name: friendName }) + (nothingOwedChoice === "before" ? tr("owed.openingNote") : "") + extraNote);
+    } else if (confirmingPendingId && pendingFuture) {
+      // A Needs review item given a future date in the full form (owner, 2026-11-19): asked first, then it becomes a Programmed item
+      // for that day, and leaves Needs review, in one server call (addRecurringExpense with pending_entry_id). From a bank or Apple Pay
+      // the money has usually already moved, so the question says so; "Fix the date" goes back to the form.
+      const w = lastConfirmPendingEntry_ && lastConfirmPendingEntry_.id === confirmingPendingId ? lastConfirmPendingEntry_ : {};
+      const fromBank = ["email", "shortcut", "statement", "house"].includes(w.source);
+      if (!categoryId) throw new Error(tr("error.pickCategory"));   // a Programmed item needs its category
+      if (!await askConfirmApp_(tr(fromBank ? "review.futureAskBank" : "review.futureAsk"), tr("confirmBtn.makeProgrammed"), { plain: true, cancel: tr("confirmBtn.fixDate") })) {
+        document.getElementById("date").focus();
+        throw new Error(tr("review.futureFixDate"));
+      }
+      const pendingId = confirmingPendingId;
+      const programmedExtras = {};
+      if (splits && splits.length) programmedExtras.splits = splits.map((s) => ({ friend_id: s.friend_id, amount: s.amount }));
+      if (programmedTagsOn_() && tagIds.length) programmedExtras.tag_ids = tagIds;
+      const item = repeat ? {
+        category_id: categoryId, description, amount, currency, active: true,
+        frequency: repeat.frequency, interval: repeat.interval, interval_unit: repeat.interval_unit,
+        start_date: date, day: Number(date.slice(8, 10)), month: Number(date.slice(5, 7)), ...programmedExtras
+      } : { category_id: categoryId, description, amount, currency, frequency: "once", date, active: true, trip_id: tripId, ...programmedExtras };
+      writesDone = true;   // the form closes now; a refusal comes back as a message and the item stays waiting
+      closeConfirmPendingPopup();
+      resetEntryFormFields_();
+      dropReviewCard_(pendingId);
+      saveBehindScreen_(async () => {
+        await callApi("addRecurringExpense", { ...item, pending_entry_id: pendingId });
+        showToast_(tr("entry.programmedNotice", { date: listDate_(date) }), false, 6000);
+      }, async () => {
+        refreshReviewQueue().catch(() => {});
+        refreshExpectedRecurring();
+        refreshHomeGlance_(true);
+      });
+      return;
     } else if (confirmingPendingId) {
       // Confirming a pending (review-queue) entry through the full form
       // — Phase 5.7's "Split" action. Same field set as a normal update,
@@ -4075,7 +4118,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         ...waitingFields
       }, confirmingPendingId), {
         splits: selectedType === "expense" && (paidBy !== "me" || (splits && splits.length)) ? (charge.splits || []) : null,
-        tagIds
+        tagIds,
+        planId: (reviewPlanFor_(confirmingPendingId) || {}).recurring_id || null,   // the card's "This is my Salary for August", left ticked
+        repeat   // "Repeat…": the confirmed entry becomes the first payment of a new Programmed item (saveEntryAll)
       });
       backgroundSaved = { kind: "confirm", id: confirmingPendingId };
     } else if (editingEntryId && editingRepayment_ && selectedType !== "transfer") {
@@ -5504,10 +5549,14 @@ function entriesSetTrip_(sendIds, tripId) {
     }, { busy: "entriesBulk.linking" });
 }
 
-function openEntriesTagSheet_() {
+// Also Needs review's Edit mode "Tag (n)" (owner, 2026-11-19): opts = { checked, stopEditing, send(action, payload), after }.
+function openEntriesTagSheet_(opts) {
+  opts = opts || {};
   const tags = (meta.tags || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
   if (!tags.length) { showAppMessage_(tr("entriesBulk.tagNone")); return; }
-  const checked = entriesChecked_();
+  const checked = opts.checked || entriesChecked_();
+  const send = opts.send || ((action, payload) => callApi(action, entriesListThen_(payload)));
+  const after = opts.after || entriesAfterChange_;
   const body = document.getElementById("entries-bulk-body");
   document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.tagTitle");
   body.innerHTML = `
@@ -5525,25 +5574,88 @@ function openEntriesTagSheet_() {
     closeEntriesBulkSheet_();
     const sendIds = checked.map((e) => e.id);
     const tagName = (tags.find((t) => t.id === tagId) || {}).name || "";
-    setEntriesEditing_(false);
+    (opts.stopEditing || (() => setEntriesEditing_(false)))();
     let result = null;
     saveBehindScreen_(async () => {
-      result = await callApi("setEntriesTag", entriesListThen_({ ids: sendIds, tag_id: tagId, mode }));
+      result = await send("setEntriesTag", { ids: sendIds, tag_id: tagId, mode });
     }, async () => {
-      await entriesAfterChange_();
+      await after();
       if (!result) return;
       if (!result.changed.length) { showAppMessage_(tr("entriesBulk.tagNoChange")); return; }
       showUndoToast_(tr(mode === "add" ? "entriesBulk.tagDoneAdd" : "entriesBulk.tagDoneRemove", { n: result.changed.length, tag: tagName }), async () => {
-        await callApi("undoSetEntriesTag", entriesListThen_({ ids: result.changed, tag_id: tagId, mode }));
+        await send("undoSetEntriesTag", { ids: result.changed, tag_id: tagId, mode });
         showToast_(tr("entriesBulk.catUndone"));
-        await entriesAfterChange_();
+        await after();
       });
     }, { busy: "entriesBulk.linking" });
   };
   document.getElementById("entries-bulk-tag-add").addEventListener("click", () => run("add"));
   document.getElementById("entries-bulk-tag-remove").addEventListener("click", () => run("remove"));
-  bringModalToFront_(document.getElementById("entries-bulk-backdrop"));
+  const backdrop = document.getElementById("entries-bulk-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
 }
+
+// ---- Tags on a Needs review item (owner, 2026-11-19) ----
+// The card stays small: its tags are a button under "More actions" (one item) and "Tag (n)" in Edit mode (several). Both save the tags
+// on the waiting entry at once; confirming keeps them, and the full form opens with them. Only where the backend says reviewTags.
+function reviewTagsOn_() { return !!(meta && meta.capabilities && meta.capabilities.reviewTags); }
+function reviewTagsLabel_(entry) {
+  const n = (entry.tagIds || []).length;
+  return n ? tr("review.tagsN", { n }) : tr("review.tags");
+}
+function openReviewTagsSheet_(entry) {
+  const picked = new Set(entry.tagIds || []);
+  const backdrop = document.getElementById("entries-bulk-backdrop");
+  const body = document.getElementById("entries-bulk-body");
+  document.getElementById("entries-bulk-title").textContent = tr("review.tagsTitle");
+  const draw = () => {
+    const tags = (meta.tags || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    body.innerHTML = `
+      <p class="hint">${escapeHtml(describeForConfirm_(entry.description || tr("review.noDescription"), formatAmount(entry.amount, entry.currency), entry.date))}</p>
+      ${tags.length ? "" : `<p class="hint">${escapeHtml(tr("review.tagsNone"))}</p>`}
+      <div class="tags-list review-tags-list">${tags.map((t) => `<div class="tag-chip${picked.has(t.id) ? " selected" : ""}" role="button" tabindex="0" aria-pressed="${picked.has(t.id)}" data-tag="${escapeHtml(t.id)}">${escapeHtml(t.name)}</div>`).join("")}</div>
+      <div class="add-inline" id="review-tags-add" role="button" tabindex="0">${escapeHtml(tr("common.addTag"))}</div>
+      <button type="button" class="primary" id="review-tags-save">${escapeHtml(tr("common.save"))}</button>`;
+    body.querySelectorAll(".tag-chip").forEach((chip) => chip.addEventListener("click", () => {
+      const id = chip.dataset.tag;
+      if (picked.has(id)) picked.delete(id); else picked.add(id);
+      draw();
+    }));
+    document.getElementById("review-tags-add").addEventListener("click", async () => {
+      const name = await askName_(tr("prompt.tagName"));
+      if (!name || !name.trim()) return;
+      try {
+        const tag = await callApi("addTag", { name: name.trim() });
+        if (!meta.tags.some((t) => t.id === tag.id)) meta.tags.push(tag);   // a tag of that name already there is reused
+        picked.add(tag.id);
+        populateTags();
+        draw();
+      } catch (err) { showAppMessage_(err.message); }
+    });
+    document.getElementById("review-tags-save").addEventListener("click", () => {
+      const tagIds = [...picked];
+      closeEntriesBulkSheet_();
+      entry.tagIds = tagIds;   // the card's button shows the new count at once
+      const btn = document.querySelector(`.review-item[data-entry-id="${CSS.escape(entry.id)}"] .review-tags-btn`);
+      if (btn) btn.textContent = reviewTagsLabel_(entry);
+      saveBehindScreen_(() => callApi("saveEntryTags", { entryId: entry.id, tagIds }), () => refreshReviewQueue().catch(() => {}));
+    });
+  };
+  draw();
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+document.getElementById("review-tag-selected-btn").addEventListener("click", () => {
+  const checked = reviewEntries_.filter((e) => reviewSelected_.has(e.id));
+  if (!checked.length) return;
+  openEntriesTagSheet_({
+    checked,
+    stopEditing: () => setReviewEditing_(false),
+    send: (action, payload) => callApi(action, payload),
+    after: () => refreshReviewQueue().catch(() => {})
+  });
+});
 document.getElementById("entries-bulk-close").addEventListener("click", closeEntriesBulkSheet_);
 
 // Sentence for entries that stay: one line per reason, naming them (up to a few).
@@ -6417,11 +6529,16 @@ function updateRepeatField_() {
   const field = document.getElementById("repeat-field");
   const can = !!(meta && meta.capabilities && meta.capabilities.entryRepeat);
   const typeOk = selectedType === "expense" || selectedType === "income";
-  const show = can && typeOk && !payingRecurringId_ && !confirmingPendingId;
+  const show = can && typeOk && !payingRecurringId_;
   field.hidden = !show;
   if (!show) { if (repeatFreq_) resetRepeat_(); return; }
-  const linked = !!(editingEntryId && editingEntryRecurringId_);
-  document.getElementById("repeat-linked").hidden = !linked;
+  // A Needs review item opened in the full form offers Repeat too (owner, 2026-11-19), except one the app matched to a Programmed
+  // item ("This is my Salary for August", left ticked): it already belongs to one, and Repeat would make a second.
+  const plan = confirmingPendingId ? reviewPlanFor_(confirmingPendingId) : null;
+  const linked = !!(editingEntryId && editingEntryRecurringId_) || !!plan;
+  const linkedEl = document.getElementById("repeat-linked");
+  linkedEl.hidden = !linked;
+  if (linked) linkedEl.textContent = plan ? tr("repeat.planned", { name: plan.description || tr("plan.thePlanned"), month: paceMonthName_(plan.month, true) }) : tr("repeat.linked");
   document.getElementById("repeat-open-btn").hidden = linked || !!repeatFreq_;
   document.getElementById("repeat-detail").hidden = linked || !repeatFreq_;
 }
@@ -6872,6 +6989,11 @@ function closeEditPopup() {
 // of a plain updateEntry) — everything about the form itself is
 // identical to a normal edit.
 let lastConfirmPendingEntry_ = null;   // the review-queue entry the full form was opened for, so a refusal can bring it back
+// The Programmed item a waiting entry will be linked to when confirmed (its card's "This is my Salary for August", left ticked), or null.
+function reviewPlanFor_(id) {
+  const e = lastConfirmPendingEntry_ && lastConfirmPendingEntry_.id === id ? lastConfirmPendingEntry_ : (reviewEntries_ || []).find((x) => x.id === id);
+  return e && e.plan_match && !reviewPlanOff_.has(id) ? e.plan_match : null;
+}
 async function openConfirmPendingPopup(entry) {
   lastConfirmPendingEntry_ = entry;
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
@@ -6893,6 +7015,7 @@ async function openConfirmPendingPopup(entry) {
   // Discarding is the review queue row's own separate action — hidden
   // here rather than duplicated, so there's only one place to do it.
   document.getElementById("delete-entry-btn").hidden = true;
+  updateRepeatField_();   // Repeat… is offered here too (owner, 2026-11-19), unless it is matched to a Programmed item
 }
 
 function closeConfirmPendingPopup() {
@@ -6997,7 +7120,7 @@ function setQueuedReviewActions_(actions) {
 // extra: { splits, tagIds } for a confirmation made through the full form (null/absent = nothing to send for them).
 function queueReviewAction_(id, action, fields, extra) {
   const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
-  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null });
+  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null, repeat: extra && extra.repeat ? extra.repeat : null });
   setQueuedReviewActions_(actions);
   // The item has left Needs review for the person: Overview / Budgets / Projections' "N wait" line drops it at once, not only after
   // Home's list is fetched again (journeys run, 2026-11-17: the old count stayed for 6 people). A failed save refetches the list.
@@ -7014,7 +7137,7 @@ function unqueueReviewAction_(id) {
 async function applyReviewAction_(a) {
   if (a.action === "confirm" && entrySaveOne_()) {
     // One trip: the row's changes, the confirm, its split and tags (backend saveEntryAll, kind "confirm").
-    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined, link_recurring_id: a.planId || undefined },
+    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined, link_recurring_id: a.planId || undefined, repeat: a.repeat || undefined },
       [["listEntries", { limit: entriesShown + 1 }]]));
     unqueueReviewAction_(a.id);
     if (res && res.tag_ask) askProgrammedTags_([res.tag_ask]);
@@ -7951,6 +8074,10 @@ function syncReviewEditBar_() {
   conf.disabled = disc.disabled = n === 0;
   conf.textContent = n ? tr("reviewBulk.confirmN", { n }) : tr("review.confirm");
   disc.textContent = n ? tr("reviewBulk.discardN", { n }) : tr("review.discard");
+  const tagBtn = document.getElementById("review-tag-selected-btn");   // tags on several waiting items at once (owner, 2026-11-19)
+  tagBtn.hidden = !reviewTagsOn_();
+  tagBtn.disabled = n === 0;
+  tagBtn.textContent = n ? tr("reviewBulk.tagN", { n }) : tr("reviewBulk.tag");
   const selectable = reviewEntries_.filter((e) => !isPracticeReviewEntry_(e)).length;
   document.getElementById("review-selectall-btn").textContent = tr(n && n === selectable ? "friends.selectNone" : "friends.selectAll");
 }
@@ -8241,8 +8368,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" || entry.type === "investment" ? `
       <button type="button" class="add-inline review-more-actions" aria-expanded="${moreOpen}">${tr("review.moreActions")}</button>
       <div class="review-item-secondary-actions">
-        <button type="button" class="add-inline review-type-btn">${tr("review.changeType")}</button>
-        ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
+        <button type="button" class="add-inline review-full-btn">${tr("review.editFull")}</button>
+        ${reviewTagsOn_() ? `<button type="button" class="add-inline review-tags-btn">${escapeHtml(reviewTagsLabel_(entry))}</button>` : ""}
         ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn${entry.loan_hint && entry.loan_hint.kind === "repayment" ? " review-hint-btn" : ""}">${tr("review.markRepayment")}</button>
         <button type="button" class="add-inline review-loan-btn${entry.loan_hint && entry.loan_hint.kind === "loan" ? " review-hint-btn" : ""}">${tr("review.convertLoan")}</button>` : ""}
         ${entry.type === "expense" || entry.type === "income" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
@@ -8477,18 +8604,20 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           category_id: rowCategory && rowCategory !== (entry.category_id || "") ? rowCategory : (fresh.category_id || rowCategory),
           description: rowDescription !== (entry.description || "") ? rowDescription : (fresh.description || ""),
           amount: amountEdited ? amt : fresh.amount,
-          loan_hint: entry.loan_hint   // the "looks like a loan again" friend, for the loan / repayment pop-up
+          loan_hint: entry.loan_hint,   // the "looks like a loan again" friend, for the loan / repayment pop-up
+          plan_match: entry.plan_match,   // "This is my Salary for August": the full form keeps that link (and offers no Repeat)
+          source: entry.source || fresh.source
         });
       };
       const withRowEdits = (open) => async () => {
         const merged = await entryWithRowEdits();
         if (merged) open(merged);
       };
-      // Any waiting entry can be opened in the full form to pick another type (Expense / Income / Investment / Transfer);
-      // saving there confirms it as that type. The Split button above does the same for an expense.
-      item.querySelector(".review-type-btn").addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
-      const splitBtn = item.querySelector(".review-split-btn"); // expenses only
-      if (splitBtn) splitBtn.addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
+      // "Edit in full form" (owner, 2026-11-19; it replaces "Change type" and "Split", which opened the same form): every field of the
+      // "+" form, Repeat and the transfer kinds included; saving there confirms it.
+      item.querySelector(".review-full-btn").addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
+      const tagsBtn = item.querySelector(".review-tags-btn");
+      if (tagsBtn) tagsBtn.addEventListener("click", () => openReviewTagsSheet_(entry));
       const repayBtn = item.querySelector(".review-repay-btn"); // not on a pending transfer
       if (repayBtn) repayBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "repay")));
       // Not an expense/income at all: the owner's own money moving between accounts. The card comes back as a
@@ -8675,7 +8804,7 @@ function applyExchangeLegLayout_(kind) {
 function syncExchangeKindOption_(kindSelect) {
   if (!exchangeKindOption_) exchangeKindOption_ = kindSelect.querySelector('option[value="exchange"]');
   const has = !!kindSelect.querySelector('option[value="exchange"]');
-  const allowed = !editingEntryId;
+  const allowed = !editingEntryId || !!confirmingPendingId;   // a waiting item becomes one side of the exchange (as its card's button does)
   if (!allowed && has) {
     if (kindSelect.value === "exchange") kindSelect.value = "between";
     exchangeKindOption_.remove();
@@ -8698,7 +8827,9 @@ function syncExchangeInline_() {
   if (inline && !exchangeFormIsInline_()) {
     exchangeContext_ = null;
     slot.appendChild(form);
-    fillExchangeForm_({});
+    // A Needs review item: it becomes the side that left or arrived, keeping its bank reference (as its card's button does).
+    const w = confirmingPendingId && lastConfirmPendingEntry_ && lastConfirmPendingEntry_.id === confirmingPendingId ? lastConfirmPendingEntry_ : null;
+    fillExchangeForm_(w ? { entry: w, leg: w.type === "income" || (w.type === "transfer" && w.to_payment_method_id && !w.payment_method_id) ? "in" : "out" } : {});
   } else if (!inline && exchangeFormIsInline_()) {
     document.getElementById("exchange-modal-body").appendChild(form);
   }
@@ -8812,6 +8943,7 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
     document.getElementById("transfer-kind").value = "between";   // the form goes back to its pop-up, the sheet closes
     updateRepaymentUi_();
     if (newEntrySheetOpen_) closeNewEntrySheet_();
+    else if (confirmingPendingId) { closeConfirmPendingPopup(); if (ctx) dropReviewCard_(ctx.entry.id); }   // a Needs review item in the full form
   } else {
     closeExchangeModal_();
   }
@@ -27863,7 +27995,7 @@ function startConvExchange_() {
     ...realWhereSteps_(() => document.querySelector("#entry-list .entry-exchange"), () => tr("rt.exchange.done"), { before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } })
   ]);
 }
-// Change type opens the full form: one bubble on the type buttons is enough, the form explains itself from there.
+// "Edit in full form" opens the full form: one bubble on the type buttons is enough, the form explains itself from there.
 function offerConvType_() {
   if (!convOffersOn_() || popGet_(POP_SEEN_KEY_, []).includes("conv-type")) return;
   clearInterval(convOfferTimer_);
@@ -27886,14 +28018,12 @@ document.addEventListener("click", (e) => {
   if (confirmed) { const r = confirmed.closest(".review-item"); reviewConfirmedId_ = r ? r.dataset.entryId : ""; }
   const toTransfer = e.target.closest(".review-transfer-btn");
   if (toTransfer) { const r = toTransfer.closest(".review-item"); reviewTransferJust_ = r ? r.dataset.entryId : ""; }
-  const splitBtn = e.target.closest(".review-split-btn");
-  if (splitBtn) offerConvGuide_("split", "rt.conv.offerSplit", () => !!confirmingPendingId && selectedType === "expense", splitTarget_, startSplitReal_);
-  const b = e.target.closest(".review-repay-btn, .review-loan-btn, .review-exchange-btn, .review-type-btn, #review-transfer-save-btn, #exchange-save-btn");
+  const b = e.target.closest(".review-repay-btn, .review-loan-btn, .review-exchange-btn, .review-full-btn, #review-transfer-save-btn, #exchange-save-btn");
   if (!b || (Spotlight.isRunning() && !b.closest(".review-item-secondary-actions"))) return;
   if (b.classList.contains("review-repay-btn")) offerConvGuide_("conv-repay", "rt.conv.offerRepay", () => open("review-transfer-modal-backdrop")() && reviewTransferMode === "repay", () => el("review-transfer-context"), () => startConvDebt_("repay"));
   else if (b.classList.contains("review-loan-btn")) offerConvGuide_("conv-loan", "rt.conv.offerLoan", () => open("review-transfer-modal-backdrop")() && reviewTransferMode === "loan", () => el("review-transfer-context"), () => startConvDebt_("loan"));
   else if (b.classList.contains("review-exchange-btn")) offerConvGuide_("conv-exchange", "rt.conv.offerExchange", open("exchange-modal-backdrop"), () => el("exchange-context"), startConvExchange_);
-  else if (b.classList.contains("review-type-btn")) offerConvType_();
+  else if (b.classList.contains("review-full-btn")) offerConvType_();
   else {   // saved without the guide: the offer ends
     const isDebt = b.id === "review-transfer-save-btn";
     const feature = isDebt ? (reviewTransferMode === "repay" ? "conv-repay" : "conv-loan") : (exchangeContext_ && exchangeContext_.entry ? "conv-exchange" : "");
@@ -27931,7 +28061,8 @@ function startConvType_(type) {
   }
   if (type === "income") steps.push({ target: tabSel, text: () => tr("rt.conv.incomeWhat"), button: next });
   if (type === "investment") steps.push({ target: tabSel, text: () => tr("rt.conv.investWhat"), button: next });
-  if (type === "transfer") steps.push({ target: tabSel, text: () => tr("rt.transfer.kind"), button: next });
+  // (with the kind of transfer, which a Needs review item offers too since 2026-11-19; "Between my accounts" is what this guide teaches)
+  if (type === "transfer") steps.push({ target: () => [document.querySelector(tabSel), el("repayment-field")].filter((x) => x && !x.hidden), text: () => tr("rt.transfer.kind"), button: next });
   if (type === "income") {
     steps.push({ field: "category", target: "#category-picker", text: () => tr("spot.g.catIncome"), until: () => !el("entry-form").hidden, before: async () => shownNow("category-picker") });
     if (isNew("payer")) steps.push(whenShown("paid_by", { field: "payer", target: "#paid_by", text: () => tr("spot.g.payer"), visit: "#paid_by", button: next }));
@@ -27956,7 +28087,7 @@ function startConvType_(type) {
     busy: () => perfInflight_ > 0
   });
 }
-// Split: checking "Split this expense" may be only a look, so it asks; Needs review's Split button offers the same guide inside the form it opens.
+// Split: checking "Split this expense" may be only a look, so it asks (in the "+" form and in a Needs review item opened in the full form).
 function splitTarget_() {
   const row = document.querySelector("#split-field .checkbox-row");
   if (row && !popInView_(row)) row.scrollIntoView({ block: "center" });
@@ -27964,7 +28095,9 @@ function splitTarget_() {
 }
 function splitTaught_() { return isTaught_("split") || isTaught_("loans"); }
 document.getElementById("split-toggle").addEventListener("change", (e) => {
-  if (!e.target.checked || !newEntrySheetOpen_ || editingEntryId || editingViaPopup || confirmingPendingId) return;
+  // A new entry, or a Needs review item opened with "Edit in full form" (it replaced the card's own "Split" button, 2026-11-19).
+  const fromNew = newEntrySheetOpen_ && !editingEntryId && !editingViaPopup && !confirmingPendingId;
+  if (!e.target.checked || !(fromNew || confirmingPendingId)) return;
   if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || splitTaught_()) return;
   if (!realAgain_() && !popGet_(TAUGHT_KEY_, {})["split-checked"]) {
     markTaught_("split-checked", "yes");

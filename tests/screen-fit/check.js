@@ -153,6 +153,7 @@ function audit() {
           change: [tr("entriesBulk.change"), tr("entriesBulk.changeN", { n })],
           confirm: [tr("review.confirm"), tr("reviewBulk.confirmN", { n })],
           discard: [tr("review.discard"), tr("reviewBulk.discardN", { n })],
+          tag: [tr("reviewBulk.tag"), tr("reviewBulk.tagN", { n })],
         };
         // Labels only some bars show (app.js: syncEntriesEditBar_, syncBudgetsEditBar_, syncOneKindBar_).
         const EXTRA = {
@@ -163,15 +164,16 @@ function audit() {
           "friends-delete-selected-btn": [tr("bulkShow.showN", { n })],
         };
         const slotOf = (b) => /selectall/.test(b.id) ? "selectall" : /done/.test(b.id) ? "done" : /change/.test(b.id) ? "change"
-          : /confirm/.test(b.id) ? "confirm" : /discard/.test(b.id) ? "discard" : "del";
+          : /confirm/.test(b.id) ? "confirm" : /discard/.test(b.id) ? "discard" : /-tag-/.test(b.id) ? "tag" : "del";
         const bars = [...document.querySelectorAll(".friends-editbar")];
         if (!bars.length) out.push("no Edit-mode bars found");
         for (const bar of bars) {
           document.body.appendChild(bar);   // out of its (hidden) screen, so it lays out as it does on the phone
           bar.hidden = false;
           const all = [...bar.querySelectorAll("button")];
-          // Home's "Change" button only shows with the right backend: try the bar both with and without it.
-          const variants = all.some((b) => slotOf(b) === "change") ? [all, all.filter((b) => slotOf(b) !== "change")] : [all];
+          // Home's "Change" and Needs review's "Tag" only show with the right backend: try the bar both with and without them.
+          const optional = ["change", "tag"];
+          const variants = all.some((b) => optional.includes(slotOf(b))) ? [all, all.filter((b) => !optional.includes(slotOf(b)))] : [all];
           for (const btns of variants) {
             all.forEach((b) => { b.hidden = !btns.includes(b); });
             let combos = [[]];
