@@ -332,7 +332,7 @@ function cardOwedFromStatements_(allPms, openingsByPm) {
   return Object.keys(info).map(function (id) {
     var pm = cards[id], st = info[id];
     return { id: pm.id, nickname: pm.nickname, type: pm.type, last_4: pm.last_4, bank_name: banksById[pm.bank_id] || '', openings: [],
-      balances: st.balances, balance_pen: null, statement_closed: st.statement_closed, due: st.due, paid_since: st.paid_since, last_paid: st.last_paid };
+      balances: st.balances, balance_pen: null, statement_closed: st.statement_closed, due: st.due, paid_since: st.paid_since, last_paid: st.last_paid, covered_on: st.covered_on };
   });
 }
 
@@ -361,14 +361,23 @@ function cardLastStatements_(cards) {
       .map(function (cur) { return { currency: cur, amount: Math.round(Number(closing[cur].closing) * 100) / 100 }; })
       .sort(function (a, b) { return a.currency === homeCurrency_() ? -1 : b.currency === homeCurrency_() ? 1 : (a.currency < b.currency ? -1 : 1); });
     if (!balances.length) return;
-    var paid = {}, lastPaid = '';
-    (paymentsByCard[id] || []).forEach(function (e) {
-      if (String(e.date) <= String(u.period_end)) return;
-      paid[e.currency] = Math.round(((paid[e.currency] || 0) + Math.abs(Number(e.amount))) * 100) / 100;
-      if (String(e.date) > lastPaid) lastPaid = String(e.date).substring(0, 10);
-    });
+    // `covered_on`: the day the payments, in date order, first reached what the statement owed, per currency (the latest of those days
+    // when it owed in several). A payment after that pays the next, still-open cycle early (e.g. to free credit line) and does not
+    // move it (owner, 2026-11-18). Empty while anything owed is not yet covered.
+    var paid = {}, lastPaid = '', coveredBy = {}, owedBy = {};
+    balances.forEach(function (b) { if (b.amount < -0.004) owedBy[b.currency] = -b.amount; });
+    (paymentsByCard[id] || []).filter(function (e) { return String(e.date) > String(u.period_end); })
+      .sort(function (a, b) { return String(a.date) < String(b.date) ? -1 : String(a.date) > String(b.date) ? 1 : 0; })
+      .forEach(function (e) {
+        var d = String(e.date).substring(0, 10);
+        paid[e.currency] = Math.round(((paid[e.currency] || 0) + Math.abs(Number(e.amount))) * 100) / 100;
+        if (d > lastPaid) lastPaid = d;
+        if (owedBy[e.currency] != null && !coveredBy[e.currency] && paid[e.currency] >= owedBy[e.currency] - 0.005) coveredBy[e.currency] = d;
+      });
+    var owedCurs = Object.keys(owedBy), coveredOn = '';
+    if (owedCurs.length && owedCurs.every(function (c) { return coveredBy[c]; })) owedCurs.forEach(function (c) { if (coveredBy[c] > coveredOn) coveredOn = coveredBy[c]; });
     out[id] = { statement_closed: String(u.period_end), balances: balances,
-      due: realDueAfter_(closing._due, u.period_end), paid_since: paid, last_paid: lastPaid };
+      due: realDueAfter_(closing._due, u.period_end), paid_since: paid, last_paid: lastPaid, covered_on: coveredOn };
   });
   return out;
 }
@@ -525,4 +534,47 @@ function realDueAfter_(due, closed) {
   var t = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
   if (t.getUTCMonth() !== +m[2] - 1 || t.getUTCDate() !== +m[3]) return '';
   return d > String(closed || '').substring(0, 10) ? d : '';
+}
+
+// A card's pay-by date typed by the person (owner's plan, 2026-11-18: Diners prints it as something that is not text). The gap in days
+// between the newest saved statement that has a pay-by date and that date: the next statement's box is filled with the same gap.
+// '' when the card never had one.
+function cardDueGapDays_(pmId) {
+  var best = null;
+  try { ensureStatementUploadsSheet_(); } catch (e) { return ''; }
+  getAllRows('Statement Uploads').forEach(function (u) {
+    if (String(u.payment_method_id) !== String(pmId) || !u.closing_json) return;
+    var c = {};
+    try { c = JSON.parse(String(u.closing_json)) || {}; } catch (e) { return; }
+    var due = realDueAfter_(c._due, u.period_end);
+    if (due && (!best || String(u.period_end) > best.end)) best = { end: String(u.period_end).substring(0, 10), due: due };
+  });
+  if (!best) return '';
+  return Math.round((Date.parse(best.due + 'T12:00:00Z') - Date.parse(best.end + 'T12:00:00Z')) / 86400000);
+}
+function addDaysIso_(iso, n) {
+  var d = new Date(String(iso).substring(0, 10) + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// The pay-by date of a card's LAST saved statement, typed on the card's screen (owner's plan, 2026-11-18): for a statement saved without
+// one. Only a real day after that statement closed; written into its `closing_json` as `_due`, like a date read from the file.
+function setCardStatementDue(payload) {
+  var pmId = String((payload && payload.id) || '');
+  ensureStatementUploadsSheet_();
+  var sheet = getSheet('Statement Uploads');
+  var headers = getHeaders(sheet);
+  var latest = null;
+  getAllRows('Statement Uploads').forEach(function (u) {
+    if (String(u.payment_method_id) === pmId && u.closing_json && (!latest || String(u.period_end) > String(latest.period_end))) latest = u;
+  });
+  if (!latest) throw new Error(tr_('err.cardNoStatement'));
+  var due = realDueAfter_(payload.due, latest.period_end);
+  if (!due) throw new Error(tr_('err.cardDueAfterClose'));
+  var c = {};
+  try { c = JSON.parse(String(latest.closing_json)) || {}; } catch (e) { c = {}; }
+  c._due = due;
+  setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, latest.id), 'closing_json', JSON.stringify(c));
+  return { ok: true, due: due };
 }

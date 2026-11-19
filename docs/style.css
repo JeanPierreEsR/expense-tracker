@@ -4172,3 +4172,11 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 /* Needs review's "Confirm the N that are ready": starts on the same left edge as the line above it and reads as an action
    (Tomás, 2026-11-18: 8px further in, and as plain as a link). */
 #review-confirm-ready-btn { padding-left: 0; padding-right: 0; text-align: left; font-weight: 600; font-size: 0.875rem; }
+
+/* A card statement's pay-by date the file did not show (owner's plan, 2026-11-18): an optional box in the statement preview, and a
+   "Last statement" section at the end of the card's screen and of its Balances screen. */
+.stmt-due-ask { margin: 12px 0; }
+.stmt-due-ask input[type="date"] { width: 100%; }
+.stmt-due-ask .hint { margin-top: 4px; }
+.due-block { margin-top: 24px; }
+.due-block input[type="date"] { width: 100%; }

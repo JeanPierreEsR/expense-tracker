@@ -128,6 +128,8 @@ var BACKEND_STRINGS_ = {
   "err.remindTemplateNoDebt": { en: "Keep [List] or [Amount] in the template, so the message says what is owed.", es: "Deja [Lista] o [Monto] en la plantilla, para que el mensaje diga lo que se debe." },
   "err.badPhone": { en: "That phone number doesn't look right. Use the country code and the number, e.g. +51 987 654 321.", es: "Ese número no parece correcto. Usa el código del país y el número, por ejemplo +51 987 654 321." },
   "err.paymentMethodNotFound": { en: "Account not found", es: "No se encontró la cuenta" },
+  "err.cardNoStatement": { en: "This card has no saved statement yet.", es: "Esta tarjeta aún no tiene un estado de cuenta guardado." },
+  "err.cardDueAfterClose": { en: "The pay-by date must be after the statement closed.", es: "La fecha límite de pago debe ser posterior al cierre del estado de cuenta." },
   "err.budgetNotFound": { en: "Budget not found", es: "No se encontró el presupuesto" },
   "err.projectionMethod": { en: "That projection method isn't available.", es: "Ese método de proyección no está disponible." },
   "err.categoryNotFound": { en: "Category not found", es: "No se encontró la categoría" },

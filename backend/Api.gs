@@ -601,6 +601,7 @@ function routeActionSwitch_(action, payload) {
     case 'listPaymentMethodBalances': return listPaymentMethodBalances();
     case 'getPaymentMethodMovements': return getPaymentMethodMovements(payload);
     case 'setPaymentMethodOpeningBalance': return setPaymentMethodOpeningBalance(payload);
+    case 'setCardStatementDue': return setCardStatementDue(payload);
     case 'listLoanBalances': return listLoanBalances(payload);
     case 'getFriendLoanDetail': return getFriendLoanDetail(payload.friendId);
     case 'getFriendRepaymentHistory': return getFriendRepaymentHistory(payload);

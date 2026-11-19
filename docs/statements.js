@@ -1572,14 +1572,44 @@
       holder: result.holder || "",   // the name printed on the statement: how the app learns the person's own name (backend/OwnerNames.gs)
       period: result.period,
       balances: result.balances,
+      due: result.due || "",   // a card's pay-by date read from the file: when missing, the preview asks for it (due_asks)
       verified: !!(result.ok && result.verified !== false),
       lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category, transfer: l.transfer }))
     }));
   }
 
+  // A card's pay-by date the file did not show (owner's plan, 2026-11-18): one optional box per card statement, filled with the card's
+  // usual gap after closing when an earlier statement had a date. What the person types is kept across redraws (`dueTyped`).
+  function dueAskHtml_() {
+    const asks = (historyPlan && historyPlan.due_asks) || [];
+    if (!asks.length) return "";
+    return asks.map((a) => {
+      const u = usable[a.stmt];
+      if (!u || !u.result.period || !u.result.period.end) return "";
+      const val = dueTyped[a.stmt] !== undefined ? dueTyped[a.stmt] : a.guess || "";
+      const min = (() => { const d = new Date(u.result.period.end + "T12:00:00"); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+      return `<div class="stmt-due-ask"><label for="stmt-due-${a.stmt}">${escapeHtml(tr("stmt.dueAsk", { account: a.account }))}</label>
+        <input type="date" id="stmt-due-${a.stmt}" data-due-stmt="${a.stmt}" min="${min}" value="${escapeHtml(val)}">
+        <p class="hint">${escapeHtml(tr(a.guess && dueTyped[a.stmt] === undefined ? "stmt.dueGuessed" : "stmt.dueNotFound"))}</p></div>`;
+    }).join("");
+  }
+  // The typed pay-by dates go onto their statements just before saving; one on or before the close is refused here, in the open screen.
+  function applyDueTyped_() {
+    document.querySelectorAll("[data-due-stmt]").forEach((inp) => { dueTyped[inp.dataset.dueStmt] = inp.value; });
+    for (const a of (historyPlan && historyPlan.due_asks) || []) {
+      const u = usable[a.stmt], v = dueTyped[a.stmt] !== undefined ? dueTyped[a.stmt] : a.guess || "";
+      if (!u) continue;
+      if (!v) { delete u.result.due; continue; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v) || v <= String(u.result.period.end)) return tr("stmt.dueTooEarly", { account: a.account });
+      u.result.due = v;
+    }
+    return "";
+  }
+
   // ---- "Fill my history": one approval for everything, no per-line choices (backend/StatementHistory.gs) ----
 
   let historyPlan = null;   // { actions, summary } from planStatementHistory, for the statements read right now
+  let dueTyped = {};        // pay-by dates typed in the preview, by statement number; emptied with each new plan
 
   async function runHistoryPlan() {
     const btn = $("statement-history-btn");
@@ -1590,6 +1620,7 @@
     out.innerHTML = loadingHtml(tr("hist.planning")) + `<p class="hint">${escapeHtml(tr("hist.keepOpen"))}</p>`;
     try {
       historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis(), startBank: true });
+      dueTyped = {};
       historyPlan.platform = new Map();    // index into summary.aside -> investment platform the person picked (else the guess is used)
       historyPlan.incMode = new Map();     // index into summary.incomeLines -> "transfer" | "investment" | "review" | "leave" (absent = income, the default)
       historyPlan.outMode = new Map();     // index into summary.peopleOut -> "review" or "leave" (absent = spending, the default)
@@ -2503,7 +2534,7 @@
     if (!c.entries && !c.charges && !c.discounts && !c.recharges) {
       // Nothing to add. Lines waiting for their other statement can still be remembered so they pair up later, and balances set.
       out.innerHTML = pre + `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map(sumLi_).join("")}</ul>` : ""}${noteHtml}
-        ${historyActions().length ? `<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
+        ${historyActions().length ? `${dueAskHtml_()}<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
       return;
     }
     const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(summary.from === summary.to ? tr("hist.rangeOne", { date: fmtDate(summary.from, true) })
@@ -2519,7 +2550,7 @@
     out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>${counters}
       <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map(sumLi_).join("")}</ul>
       ${newLinesHtml_()}${range}<p class="hint">${escapeHtml(tr(!usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategory" : usable.every((u) => u.catLeft === 0) ? "hist.categoryAsNamed" : "hist.noCategoryUnlessNamed"))}</p>${noteHtml}
-      ${planMatchesHtml_()}
+      ${planMatchesHtml_()}${dueAskHtml_()}
       <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;
   }
 
@@ -2548,6 +2579,8 @@
     const fixes = (historyPlan.checks || []).filter((c, i) => (c.startFix && historyPlan.startFix.has(i) && c.startFix.items.some((it) => it.side !== "bank")) ||
       ((liveCheck(c, coveredNow).startShift || {}).lines > 0)).length;
     const askFull = askText + (fixes ? " " + tr("hist.confirmStartFix", { n: fixes }) : "");
+    const dueProblem = applyDueTyped_();   // a pay-by date typed on or before the close: said here, nothing saved
+    if (dueProblem) { status.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(dueProblem)}</p>`; return; }
     if (!practiceNoConfirm_(practiceIOwns_(usable.map((u) => u.group || u.file))) && !await askConfirmApp_(askFull + "\n\n" + tr("stmt.confirmUndoable"), tr("confirmBtn.yes"), { plain: true })) return;   // (the practice's own file asks nothing while the walkthrough runs)
     btn.insertAdjacentHTML("afterend", loadingHtml(tr("hist.saving")));   // right where the person tapped, not in a box further down
     btn.hidden = true;
@@ -2829,6 +2862,9 @@
   $("stmt-another").addEventListener("click", () => { clearRun(); showStep(1); });
   $("statement-past-btn").addEventListener("click", () => { pastOpen = true; renderSteps(); window.scrollTo(0, 0); });
   $("statement-past-back").addEventListener("click", () => { pastOpen = false; renderSteps(); window.scrollTo(0, 0); });
+  $("statement-history").addEventListener("input", (e) => {   // a typed pay-by date survives the preview redrawing (a tick elsewhere)
+    if (e.target.dataset && e.target.dataset.dueStmt !== undefined) dueTyped[e.target.dataset.dueStmt] = e.target.value;
+  });
   $("statement-history").addEventListener("click", (e) => {
     if (e.target.closest("#statement-history-save")) { saveHistory(); return; }
     if (e.target.closest("#statement-add-accounts")) { addProposedAccounts(); return; }
