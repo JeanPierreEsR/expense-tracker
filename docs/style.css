@@ -1360,7 +1360,8 @@ body.sheet-open {
 /* The friends screen (owner, 2026-11-19) borrows the currency screen's look. */
 .friend-screen #friend-screen-done { flex: 0 0 auto; margin-top: 12px; }
 .friend-screen .friend-option { min-height: 44px; }
-.friend-screen .friend-screen-add { margin-top: 12px; }
+/* The add button sits under the scrolling list, so it is always in view (owner, 2026-11-19). */
+.friend-screen #friend-screen-add { flex: 0 0 auto; margin-top: 12px; }
 .cur-pick { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .cur-pick > select, .cur-pick > input { grid-area: 1 / 1; width: 100%; pointer-events: none; }
 .cur-pick-btn { grid-area: 1 / 1; width: 100%; height: 100%; min-height: 0; margin: 0; padding: 0; background: none; border: none; cursor: pointer; }
