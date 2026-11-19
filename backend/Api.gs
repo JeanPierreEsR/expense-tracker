@@ -1706,8 +1706,11 @@ function listPendingEntries() {
   var transferLinks = entries.length ? buildTransferLinkMap_() : {};
   var waitingIncome = entries.some(function (e) { return e.type === 'income'; }) ? listWaitingIncome_() : [];
   var payeeHist = entries.length ? buildPayeeHistory_() : null;   // PayeeGuess.gs
+  // Its tags (the card's "Tags" button and Edit mode's "Tag" can add them before it is confirmed; the full form opens with them).
+  var tagsByEntry = entries.length ? tagIdsByEntry_() : {};
   entries.forEach(function (entry) {
     if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];
+    entry.tagIds = tagsByEntry[entry.id] || [];
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
     entry.twins = findSameDayTwins_(entry, all);
     if (ownerNameMaybeOwn_(entry)) entry.maybe_own = true;   // "Maybe yours?" while no own name is confirmed (OwnerNames.gs)
