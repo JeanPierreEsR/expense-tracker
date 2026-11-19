@@ -647,10 +647,10 @@ const friendSearchText_ = currencySearchText_;   // (accents and capitals do not
 // By the name itself: a 👥 group or 🏢 business mark in front does not count.
 const nameKey_ = (label) => String(label || "").replace(/^[^\p{L}\p{N}]+/u, "");
 function byName_(a, b) { return nameKey_(a.label).localeCompare(nameKey_(b.label), I18n.getLang() === "es" ? "es" : "en", { sensitivity: "base" }); }
-// The date a person was last used: a friend's latest shared expense or loan, a payer's latest income.
+// The date a friend was last used: their latest shared expense or loan.
 function personLastUsed_(id) {
-  const f = (meta.friends || []).find((x) => x.id === id) || (meta.payors || []).find((x) => x.id === id);
-  return f ? String(f.last_used || f.last_income || "") : "";
+  const f = (meta.friends || []).find((x) => x.id === id);
+  return f ? String(f.last_used || "") : "";
 }
 // The quick ones: the most recently used first, then by name, so someone who used nobody yet still gets five.
 function friendQuickIds_(items, n, lastUsed) {
@@ -769,24 +769,23 @@ function renderFriendQuickChips_(opts) {
   return chips;
 }
 
-// A list box that holds a person (Paid by / Received from, a loan's or repayment's friend). The box stays underneath, so the code
+// A list box that holds a person (a new loan's friend): a tap on it opens the friends screen. The box stays underneath, so the code
 // keeps reading and setting it as before, and a pick sends its usual "change" (choosing "+ Add…" still means adding someone).
-// opts.quick: quick buttons beside it (Paid by); otherwise a tap on the box opens the screen directly. opts.fixed: values that are
-// always a quick button ("me"). opts.top(): ids for the screen's first section, opts.topTitle(); opts.lastUsed(id).
-function personSelectItems_(el, fixed) {
-  return [...el.options].filter((o) => o.value && !o.value.startsWith("__") && !o.disabled && !(fixed || []).includes(o.value))
+// opts.top(): ids for the screen's first section, opts.topTitle(); opts.lastUsed(id). (Paid by and a repayment's friend stay the
+// phone's own list, owner 2026-11-19.)
+function personSelectItems_(el) {
+  return [...el.options].filter((o) => o.value && !o.value.startsWith("__") && !o.disabled)
     .map((o) => ({ id: o.value, label: o.textContent }));
 }
 function personSelectPick_(el, value) {
-  if (el.value === value && !value.startsWith("__")) { renderPersonQuick_(el); return; }
+  if (el.value === value && !value.startsWith("__")) return;
   el.value = value;
   el.dispatchEvent(new Event("change", { bubbles: true }));
-  renderPersonQuick_(el);
 }
 function openPersonSelectScreen_(el) {
   const o = el._personPick;
   if (el.disabled) return;
-  const items = personSelectItems_(el, o.quick ? o.fixed : []);
+  const items = personSelectItems_(el);
   const add = [...el.options].find((x) => x.value.startsWith("__add"));
   openFriendScreen_({
     title: o.title ? o.title() : "",
@@ -797,61 +796,10 @@ function openPersonSelectScreen_(el) {
     onAdd: add ? () => personSelectPick_(el, add.value) : null,
   });
 }
-function renderPersonQuick_(el) {
-  const o = el && el._personPick;
-  if (!o || !o.quick) return;
-  const box = o.box;
-  box.innerHTML = "";
-  const fixed = [...el.options].filter((x) => (o.fixed || []).includes(x.value));
-  const items = personSelectItems_(el, o.fixed);
-  const quick = friendQuickIds_(items, FRIEND_QUICK_, o.lastUsed);
-  if (el.value && items.some((x) => x.id === el.value) && !quick.includes(el.value)) quick.push(el.value);
-  const chip = (value, label) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "tag-chip" + (el.value === value ? " selected" : "");
-    b.textContent = label;
-    b.dataset.id = value;
-    b.addEventListener("click", () => personSelectPick_(el, value));
-    box.appendChild(b);
-  };
-  fixed.forEach((x) => chip(x.value, x.textContent));
-  items.filter((x) => quick.includes(x.id)).sort((a, b) => quick.indexOf(a.id) - quick.indexOf(b.id)).forEach((x) => chip(x.id, x.label));
-  const more = document.createElement("button");
-  more.type = "button";
-  more.className = "tag-chip more-chip";
-  const add = [...el.options].find((x) => x.value.startsWith("__add"));
-  // Nobody beyond the quick ones: the last button adds someone instead of opening a screen with nothing more in it.
-  if (items.length > quick.length) {
-    more.textContent = tr("common.more");
-    more.addEventListener("click", () => openPersonSelectScreen_(el));
-  } else if (add) {
-    more.textContent = add.textContent;
-    more.addEventListener("click", () => personSelectPick_(el, add.value));
-  } else return;
-  box.appendChild(more);
-}
 function personPickOn_(el, opts) {
   if (!el || el._personPick) return;
   el._personPick = Object.assign({}, opts || {});
   if (el.id) document.querySelectorAll(`label[for="${el.id}"]`).forEach((l) => l.removeAttribute("for"));   // (a tap on the label would open the box's own list)
-  if (el._personPick.quick) {
-    el.classList.add("person-pick-box");
-    el.tabIndex = -1;
-    el.setAttribute("aria-hidden", "true");
-    const box = document.createElement("div");
-    box.className = "tags-list person-quick";
-    box.id = el.id + "-quick";
-    el.parentNode.insertBefore(box, el.nextSibling);
-    el._personPick.box = box;
-    // Code that sets the box (an entry opened for editing, a draft, a new friend) must show on the buttons too.
-    const proto = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
-    Object.defineProperty(el, "value", { configurable: true, get() { return proto.get.call(this); }, set(v) { proto.set.call(this, v); renderPersonQuick_(this); } });
-    new MutationObserver(() => renderPersonQuick_(el)).observe(el, { childList: true });
-    el.addEventListener("change", () => renderPersonQuick_(el));
-    renderPersonQuick_(el);
-    return;
-  }
   const wrap = document.createElement("span");
   wrap.className = "cur-pick";
   el.parentNode.insertBefore(wrap, el);
@@ -863,29 +811,6 @@ function personPickOn_(el, opts) {
   btn.addEventListener("click", () => openPersonSelectScreen_(el));
   wrap.appendChild(btn);
 }
-// "Paid by" / "Received from": Me and the five used most recently as buttons (a payer by the latest income they paid).
-personPickOn_(document.getElementById("paid_by"), {
-  quick: true, fixed: ["me"],
-  title: () => tr(selectedType === "income" ? "friendPick.payer" : "friendPick.choose"),
-  lastUsed: (id) => {
-    if (selectedType !== "income") return personLastUsed_(id);
-    const p = (meta.payors || []).find((x) => x.id === id);
-    return p ? String(p.last_income || "") : "";
-  },
-});
-// A repayment's or loan's friend: the box opens the screen; for a repayment, the people with something owed come first.
-personPickOn_(document.getElementById("repayment-friend"), {
-  top: () => {
-    const sel = document.getElementById("repayment-friend");
-    const owes = (id) => !!loansLastBalances_ && loansLastBalances_.some((b) => b.friend_id === id && (b.balances || []).some((x) => Math.abs(Number(x.net) || 0) > 0.004));
-    const withDebt = personSelectItems_(sel).filter((x) => owes(x.id)).sort(byName_).map((x) => x.id);
-    return withDebt.length ? withDebt : friendQuickIds_(personSelectItems_(sel));
-  },
-  topTitle: () => {
-    const sel = document.getElementById("repayment-friend");
-    return loansLastBalances_ && personSelectItems_(sel).some((x) => loansLastBalances_.some((b) => b.friend_id === x.id && (b.balances || []).some((y) => Math.abs(Number(y.net) || 0) > 0.004))) ? tr("friendPick.owing") : "";
-  },
-});
 personPickOn_(document.getElementById("loan-friend"));
 
 function getAccessCode() {
@@ -1926,7 +1851,7 @@ function populatePaidByOptions() {
 
     // By name (Lucho, 2026-11-18: in the order they were added, a long list was hard to search).
     const locale = I18n.getLang() === "es" ? "es" : "en";
-    plainFriends_().slice().sort((a, b) => friendLabel_(a).localeCompare(friendLabel_(b), locale, { sensitivity: "base" })).forEach((f) => {
+    plainFriends_().slice().sort((a, b) => a.name.localeCompare(b.name, locale, { sensitivity: "base" })).forEach((f) => {   // (the name itself: a 🏢 in front does not count)
       const opt = document.createElement("option");
       opt.value = f.id;
       opt.textContent = friendLabel_(f);
@@ -2315,7 +2240,9 @@ function populateRepaymentFriendOptions_() {
   // People with something owed either way come first (design review 2026-11-12); the rest keep their order. Names only:
   // the phone's own picker cuts long lines, so the balance shows in one line under it once a person is picked.
   const hasBalance = (f) => !!loansLastBalances_ && loansLastBalances_.some((b) => b.friend_id === f.id && (b.balances || []).some((x) => Math.abs(Number(x.net) || 0) > 0.004));
-  const plain = plainFriends_();
+  // Each part by name (owner, 2026-11-19: one sorting logic; the rest used to be in the order they were added).
+  const locale = I18n.getLang() === "es" ? "es" : "en";
+  const plain = plainFriends_().slice().sort((a, b) => a.name.localeCompare(b.name, locale, { sensitivity: "base" }));
   plain.filter(hasBalance).concat(plain.filter((f) => !hasBalance(f))).concat(groupFriendsNewestFirst_()).forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
@@ -26539,7 +26466,7 @@ function tripChipShown_() { const c = document.getElementById("trip-auto-chip");
 function watchPaidByTip_() {
   popTipWatch_({
     key: "paidBy", place: "entryForm", text: () => foldedNote_(document.getElementById("paid_by"), tr("pop.paidBy")), struggle: () => popStruggling_("paidBy"),
-    target: () => (selectedType !== "expense" || document.getElementById("paid-by-label").hidden || !(meta.friends || []).length ? null : (fieldFolded_(document.getElementById("paid_by")) ? document.getElementById("more-details-toggle") : document.getElementById("paid-by-pick"))),
+    target: () => (selectedType !== "expense" || document.getElementById("paid-by-label").hidden || !(meta.friends || []).length ? null : foldedTarget_(document.getElementById("paid_by"))),
     stillWanted: () => newEntrySheetOpen_,
     ready: () => !guidedEntryWanted_()
   });
@@ -27415,7 +27342,7 @@ function guidedEntrySteps_() {
     // The optional details are folded on a new entry: the person taps to open them (owner, 2026-11-12).
     { key: "unfold", target: "#more-details-toggle", text: () => tr("spot.g.moreDetails"), tap: "#more-details-toggle", until: () => !moreDetailsFolded_(),
       available: () => is("expense")() || is("income")(), before: async () => moreDetailsFolded_() },
-    { target: "#paid-by-pick", text: () => tr(selectedType === "income" ? "spot.g.payer" : "spot.g.paidBy"), visit: "#paid-by-pick", button: next,
+    { target: "#paid_by", text: () => tr(selectedType === "income" ? "spot.g.payer" : "spot.g.paidBy"), visit: "#paid_by", button: next,
       available: () => is("expense")() || is("income")(), before: async () => (is("expense")() || is("income")()) && shownNow("paid_by") },
     { target: "#to-payment-method-field", text: () => tr("spot.g.accTo"), visit: "#to_payment_method", button: next,
       available: is("transfer"), before: async () => is("transfer")() && shownNow("to-payment-method-field") },
@@ -27932,7 +27859,7 @@ function startConvType_(type) {
   if (type === "transfer") steps.push({ target: tabSel, text: () => tr("rt.transfer.kind"), button: next });
   if (type === "income") {
     steps.push({ field: "category", target: "#category-picker", text: () => tr("spot.g.catIncome"), until: () => !el("entry-form").hidden, before: async () => shownNow("category-picker") });
-    if (isNew("payer")) steps.push(whenShown("paid_by", { field: "payer", target: "#paid-by-pick", text: () => tr("spot.g.payer"), visit: "#paid-by-pick", button: next }));
+    if (isNew("payer")) steps.push(whenShown("paid_by", { field: "payer", target: "#paid_by", text: () => tr("spot.g.payer"), visit: "#paid_by", button: next }));
     steps.push(whenShown("payment-method-field", { field: "accountIn", target: "#payment-method-field", text: () => tr("spot.g.accInc"), visit: "#payment_method", button: next }));
   }
   if (type === "investment") {
