@@ -1575,6 +1575,15 @@
               <span class="more-list-chevron" id="wa-chevron">›</span>
             </button>
             <div id="wa-body" hidden>
+              <div id="wa-redeem" hidden>
+                <p class="hint" data-i18n="prof.waRedeemHint">Add and confirm your transactions by writing to the app's WhatsApp bot. It works by invitation: type the code JP sent you and your WhatsApp number.</p>
+                <label for="wa-redeem-code" data-i18n="prof.waRedeemCodeLabel">Invitation code</label>
+                <input type="text" id="wa-redeem-code" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="WA-XXXX-XXXX">
+                <label for="wa-redeem-number" data-i18n="prof.waNumberLabel">Your WhatsApp number, with its country code</label>
+                <input type="tel" id="wa-redeem-number" inputmode="numeric" autocomplete="tel" data-i18n-placeholder="prof.waNumberPh" placeholder="51987654321">
+                <p class="hint error-text" id="wa-redeem-error" role="alert"></p>
+                <button type="button" class="primary" id="wa-redeem-btn" data-i18n="prof.waRedeemUse">Use the code</button>
+              </div>
               <div id="wa-off">
                 <p class="hint" data-i18n="prof.waHint">Add and confirm your transactions by writing to the app's WhatsApp bot. What you write goes only to your own app.</p>
                 <label for="wa-number" data-i18n="prof.waNumberLabel">Your WhatsApp number, with its country code</label>
@@ -1593,7 +1602,7 @@
               </div>
               <div id="wa-invite" hidden>
                 <p class="md-title" data-i18n="prof.waInviteHead">Invite a friend</p>
-                <p class="hint" data-i18n="prof.waInviteHint">Type your friend's WhatsApp number to get their invitation code. They type it in their app, in More → Feedback &amp; privacy → Extra features.</p>
+                <p class="hint" data-i18n="prof.waInviteHint">Type your friend's WhatsApp number to get their invitation code. They type it in their app, in More → My profile → WhatsApp bot.</p>
                 <label for="wa-invite-number" data-i18n="prof.waInviteNumberLabel">Your friend's WhatsApp number, with its country code</label>
                 <input type="tel" id="wa-invite-number" inputmode="numeric" autocomplete="off" data-i18n-placeholder="prof.waNumberPh" placeholder="51987654321">
                 <p class="hint error-text" id="wa-invite-error" role="alert"></p>
@@ -1646,16 +1655,6 @@
           <h3 class="md-head" data-i18n="fp.extrasHead">Extra features</h3>
           <p class="hint" data-i18n="fp.extrasHint">Switch optional extras, like reading your bank emails, on or off, and see or take back the permissions your Google account gave the app.</p>
           <button type="button" class="primary" id="fp-extras-btn" data-i18n="fp.extrasBtn">Manage extra features</button>
-          <button type="button" class="add-inline" id="fp-invite-toggle" aria-expanded="false" aria-controls="fp-invite" data-i18n="fp.inviteToggle" hidden>I have an invitation code from JP</button>
-          <div id="fp-invite" hidden>
-            <p class="hint" data-i18n="fp.inviteHint">JP sends it to you on WhatsApp. It turns on the WhatsApp bot card in More → My profile.</p>
-            <label for="fp-invite-code" data-i18n="fp.inviteCodeLabel">Invitation code</label>
-            <input type="text" id="fp-invite-code" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="WA-XXXX-XXXX">
-            <label for="fp-invite-number" data-i18n="prof.waNumberLabel">Your WhatsApp number, with its country code</label>
-            <input type="tel" id="fp-invite-number" inputmode="numeric" autocomplete="tel" data-i18n-placeholder="prof.waNumberPh" placeholder="51987654321">
-            <p class="hint error-text" id="fp-invite-error" role="alert"></p>
-            <button type="button" class="primary" id="fp-invite-btn" data-i18n="fp.inviteUse">Use the code</button>
-          </div>
         </div>
 
         <div class="fp-card">
