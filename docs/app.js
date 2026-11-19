@@ -814,6 +814,42 @@ function installPersonShort_(sel) {
 function hasPersonPick_(sel, id) {
   return !!id && ([...sel.options].some((x) => x.value === id) || !!(sel._personShort && sel._personShort.optionFor && sel._personShort.optionFor[id]));
 }
+// A person added from a short dropdown: listed in it (and behind More…) and chosen.
+function addPersonToShortList_(sel, friend, plainName) {
+  const o = sel._personShort || {};
+  const opt = document.createElement("option");
+  opt.value = friend.id;
+  opt.textContent = plainName ? friend.name : friendLabel_(friend);
+  if (o.optionFor) { o.optionFor[friend.id] = opt; o.people = (o.people || []).concat([{ id: friend.id, label: opt.textContent }]); }
+  const before = [...sel.options].find((x) => x.value.startsWith("__"));
+  sel.insertBefore(opt, before || null);
+  sel.value = friend.id;
+}
+// The expected payment's and a project's client lists end with "+ New client…", as "Client will repay" does (owner, 2026-11-19):
+// a name, saved as a client, then chosen; the form stays open. No name = the list goes back to what it held.
+function addNewClientOption_(sel, plainName) {
+  const add = document.createElement("option");
+  add.value = "__new__";
+  add.textContent = tr("business.newClient");
+  sel.appendChild(add);
+  if (sel._newClientOn) return;
+  sel._newClientOn = true;
+  sel.addEventListener("change", async () => {
+    if (sel.value !== "__new__") return;
+    const back = (sel._personShort && sel._personShort.last) || "";
+    const name = await askName_(tr("business.newClientPrompt"));
+    if (!name || !name.trim()) { sel.value = back; return; }
+    try {
+      const friend = await callApi("addFriend", { name: name.trim(), role: "client" });
+      rememberPerson_(friend);
+      addPersonToShortList_(sel, friend, plainName);   // (a project's client list shows plain names)
+    } catch (err) {
+      sel.value = back;
+      const where = document.getElementById(sel.id === "project-client" ? "project-form-error" : "expected-form-error");
+      if (where) where.textContent = err.message;   // the form's own error line
+    }
+  });
+}
 // "More…" chosen: the box goes back to what it held, and the friends screen opens. The box's own listeners never see "More…".
 document.addEventListener("change", (e) => {
   const sel = e.target, o = sel && sel._personShort;
@@ -21163,6 +21199,7 @@ function openExpectedModal_(projectId, payment) {
       o.textContent = friendLabel_(f);
       sel.appendChild(o);
     });
+  addNewClientOption_(sel);
   personShortList_(sel, { title: () => tr("friendPick.client") });   // the five used most recently, then More… (owner, 2026-11-19)
   sel.value = payment ? payment.client_id : (project && project.client_id) || "";
   document.getElementById("expected-amount").value = payment ? String(payment.amount) : "";
@@ -21541,6 +21578,7 @@ function openProjectModal_(project, companyId, budgets) {
     o.textContent = f.name;
     clientSel.appendChild(o);
   });
+  addNewClientOption_(clientSel, true);
   personShortList_(clientSel, { title: () => tr("friendPick.client") });   // the five used most recently, then More… (owner, 2026-11-19)
   clientSel.value = project && project.client_id ? project.client_id : "";
   document.getElementById("project-budgets").innerHTML = "";
