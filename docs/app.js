@@ -8377,6 +8377,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       </div>` : ""}
     `;
 
+    // Going into the description box selects its whole text, so typing replaces the bank's wording at once (owner, 2026-11-19).
+    // Only on arriving: a second tap inside the box places the cursor as usual.
+    const descInput = item.querySelector(".review-description");
+    descInput.addEventListener("focus", () => setTimeout(() => { if (document.activeElement === descInput) descInput.setSelectionRange(0, descInput.value.length); }, 0));
     const amountInput = item.querySelector(".review-amount");
     amountInput.addEventListener("input", (e) => {
       const sanitized = sanitizeAmountInputValue(e.target.value);
@@ -25893,6 +25897,7 @@ const LINE_ICONS_ = {
   card: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
   mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22 6 12 13 2 6"/>',
   tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
+  exchange: '<path d="M20 11a8 8 0 0 0-14.3-4.9"/><polyline points="4.6 2.6 5.7 6.1 9.2 5.2"/><path d="M4 13a8 8 0 0 0 14.3 4.9"/><polyline points="19.4 21.4 18.3 17.9 14.8 18.8"/><path d="M14.2 9.6a2.4 2.4 0 0 0-2.2-1.1c-1.3 0-2.2.7-2.2 1.5s1 1.3 2.2 1.5 2.2.7 2.2 1.5-.9 1.5-2.2 1.5a2.4 2.4 0 0 1-2.2-1.1"/><line x1="12" y1="7" x2="12" y2="17"/>',
   coin: '<circle cx="12" cy="12" r="9"/><path d="M15 9.5a3 3 0 0 0-3-1.5c-1.7 0-3 .9-3 2s1.3 1.7 3 2 3 .9 3 2-1.3 2-3 2a3 3 0 0 1-3-1.5"/><line x1="12" y1="6" x2="12" y2="18"/>',
   users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/>',
   database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.7-4 3-9 3s-9-1.3-9-3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/>',
@@ -26012,7 +26017,9 @@ const LINK_ICON_RULES_ = [
   [/^(read|leer|volver a leer)\b.*(photo|foto|receipt|comprobante)/i, "camera"],
   [/^(read|leer)\b/i, "file"],
   [/^(find|buscar|look|check now|revisar ahora|also look)/i, "search"],
-  [/^(switch direction|cambiar el sentido|repeat|repetir|convert|convertir|make it a transfer|pasar a transferencia|currency exchange|cambio de moneda)/i, "swap"],
+  [/^(currency exchange|cambio de moneda)/i, "exchange"],   // money changing currency (owner, 2026-11-19: the swap arrows read as a transfer)
+  [/^(tags|etiquetas)\b/i, "tag"],   // a Needs review item's "Tags (2)"
+  [/^(switch direction|cambiar el sentido|repeat|repetir|convert|convertir|make it a transfer|pasar a transferencia)/i, "swap"],
   [/^(more actions|más acciones|more…|más…)$|^(more actions|más acciones)/i, "dots"],
   [/^(load more|cargar más)/i, "down"],
   [/^(edit|editar|change|cambiar|method|método)\b/i, "pencil"],
