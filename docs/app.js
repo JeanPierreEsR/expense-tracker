@@ -13064,6 +13064,7 @@ async function init() {
     checkEmailsNow_(false);   // not awaited: the app is already usable
     loadNotices_(true);       // likewise (and the server looks for new alerts, if it can)
     preloadOverviewSummary_();   // Overview's figures, before its tab is tapped (owner, 2026-11-11)
+    preloadBalancesWhenQuiet_();   // …and its balances, once nothing else is on its way (owner, 2026-11-18)
   } catch (err) {
     if (err.code === "invalid_access_code" || err.message === "Invalid access code") {
       // Keep showing cached data under a now-invalid code, and every
@@ -33374,6 +33375,26 @@ let balanceModalPmId = null;
 let balanceModalData = null;
 
 function refreshBalances() { return trackOverviewLoad_(refreshBalancesInner_()); }
+
+// Balances fetched once after the app opens, so Overview's card is already filled when its tab is tapped (owner, 2026-11-18: it was the
+// slow part of Overview). It never gets in the way: it waits until no call has been on its way for 1.5 s, the app is on screen and no
+// tutorial runs (a tutorial waits for every call); gives up after 2 minutes, or if Overview loaded its balances first. Opening Overview
+// still asks again, and shows these figures until the new ones arrive.
+async function preloadBalancesWhenQuiet_() {
+  const until = Date.now() + 120000;
+  let quietSince = 0;
+  while (Date.now() < until) {
+    if (balancesLoaded_) return;
+    const quiet = perfInflight_ === 0 && !document.hidden && !Spotlight.isRunning();
+    if (!quiet) quietSince = 0;
+    else if (!quietSince) quietSince = Date.now();
+    else if (Date.now() - quietSince >= 1500) {
+      try { await refreshBalancesInner_(); } catch (e) { /* Overview asks again when opened */ }
+      return;
+    }
+    await sleep(300);
+  }
+}
 
 async function refreshBalancesInner_() {
   // "right now (Nov 8, 2026)": the date the balances are worked out for (owner, 2026-11-08).
