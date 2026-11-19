@@ -826,8 +826,17 @@ function addRecurringExpense(payload) {
     var splitSum = splits.reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
     if (splitSum > Number(payload.amount) + 0.005) throw new Error(tr_('err.splitOverTotal'));
   }
+  // A waiting (Needs review) entry given a future date in the full form becomes this item (capability programPending): checked
+  // before anything is written, and the waiting entry is removed in the same call, as its Discard would.
+  var pendingId = payload.pending_entry_id ? String(payload.pending_entry_id) : '';
+  if (pendingId) {
+    var pending = getEntryById_(pendingId);
+    if (!pending || pending.status !== 'pending') throw new Error(tr_('err.pendingAlreadyHandled'));
+    refuseRepaymentPartDiscard_(pendingId);
+  }
   appendRowObject('Recurring Expenses', re);
   if (splits.length) saveRecurringExpenseSplits({ recurringExpenseId: re.id, splits: splits });
+  if (pendingId) discardEntryWithRepayments_(pendingId);
   var categoryById = rowsById_(getAllRows('Categories'));
   return recurringExpenseForClient_(re, categoryById);
 }

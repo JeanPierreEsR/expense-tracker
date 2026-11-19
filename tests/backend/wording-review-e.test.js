@@ -48,7 +48,8 @@ test("B6: the transfer 'To' hint is one idea, and the currency exchange is the L
   assert.equal(get("transfer.kind.exchange").es, JSON.stringify("Cambio de moneda"));
   const kinds = [...index.matchAll(/<option value="(\w+)" data-i18n="transfer\.kind\.\w+"/g)].map((m) => m[1]);
   assert.deepEqual(kinds, ["between", "repayment", "loan", "exchange"]);
-  assert.match(app, /const allowed = !editingEntryId;/);
+  // Only for a new entry, or a Needs review item opened in the full form (it becomes one side of the exchange, 2026-11-19).
+  assert.match(app, /const allowed = !editingEntryId \|\| !!confirmingPendingId;/);
   // One wording for "the other end is not one of my accounts" since 1.76.1 (transfer, exchange, loan).
   assert.equal(get("form.noneFromOutside").en, JSON.stringify("Outside my accounts"));
   assert.equal(get("form.noneToOutside").es, JSON.stringify("Fuera de mis cuentas"));

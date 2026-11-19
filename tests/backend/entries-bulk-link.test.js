@@ -90,8 +90,10 @@ test("the screen: one Change button with Category, Trip or event and Tag, the th
   assert.match(html, /id="entries-change-selected-btn"/);
   assert.match(app, /callApi\("setEntriesTrip", entriesListThen_\(\{ ids: sendIds, trip_id: tripId \}\)\)/);
   assert.match(app, /callApi\("undoSetEntriesTrip"/);
-  assert.match(app, /callApi\("setEntriesTag", entriesListThen_\(\{ ids: sendIds, tag_id: tagId, mode \}\)\)/);
-  assert.match(app, /callApi\("undoSetEntriesTag"/);
+  // (Home sends it with its list; Needs review's Edit mode "Tag (n)" uses the same sheet, 2026-11-19)
+  assert.match(app, /send\("setEntriesTag", \{ ids: sendIds, tag_id: tagId, mode \}\)/);
+  assert.match(app, /callApi\(action, entriesListThen_\(payload\)\)/);
+  assert.match(app, /send\("undoSetEntriesTag"/);
   assert.match(app, /busy: "entriesBulk\.linking"/);
   for (const key of ["entriesBulk.changeN", "entriesBulk.change", "entriesBulk.changeTitle", "entriesBulk.menuCategory", "entriesBulk.menuTrip", "entriesBulk.menuTag", "entriesBulk.tripTitle", "entriesBulk.tripPick",
     "entriesBulk.tripNone", "entriesBulk.tripMoveNote", "entriesBulk.tripLeftOut", "entriesBulk.tripNothingEligible", "entriesBulk.tripGo", "entriesBulk.tripDone", "entriesBulk.tripRemoved",
