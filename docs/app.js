@@ -637,6 +637,182 @@ document.getElementById("currency-search").addEventListener("input", (e) => {
 });
 document.getElementById("currency-screen-done").addEventListener("click", closeCurrencyModal);
 
+// ---- One friends screen (owner, 2026-11-19): the same idea as currencies. A place shows a few quick buttons (the friends used most
+// recently) and "More…", which opens a full-height screen with everyone by name and a search; a box with no quick buttons beside it
+// opens the screen directly, "Most used" first. opts: { title, items: [{ id, label }], current, onPick(id) } chooses one (a tap
+// closes it); { many: true, selected, onDone(ids) } chooses several (Done or ✕ brings them back). top: ids for the first section
+// (topTitle names it); onAdd(): a "+ Add a friend…" row at the bottom (the screen closes first).
+const FRIEND_QUICK_ = 5;
+const friendSearchText_ = currencySearchText_;   // (accents and capitals do not count)
+// By the name itself: a 👥 group or 🏢 business mark in front does not count.
+const nameKey_ = (label) => String(label || "").replace(/^[^\p{L}\p{N}]+/u, "");
+function byName_(a, b) { return nameKey_(a.label).localeCompare(nameKey_(b.label), I18n.getLang() === "es" ? "es" : "en", { sensitivity: "base" }); }
+// The date a friend was last used: their latest shared expense or loan.
+function personLastUsed_(id) {
+  const f = (meta.friends || []).find((x) => x.id === id);
+  return f ? String(f.last_used || "") : "";
+}
+// The quick ones: the most recently used first, then by name, so someone who used nobody yet still gets five.
+function friendQuickIds_(items, n, lastUsed) {
+  const when = lastUsed || personLastUsed_;
+  return items.slice().sort((a, b) => when(b.id).localeCompare(when(a.id)) || byName_(a, b)).slice(0, n || FRIEND_QUICK_).map((x) => x.id);
+}
+let friendScreen_ = null;
+function openFriendScreen_(opts) {
+  friendScreen_ = Object.assign({}, opts, opts.many ? { selected: [...(opts.selected || [])] } : {});
+  const backdrop = document.getElementById("friend-screen-backdrop");
+  document.querySelectorAll(".currency-modal-backdrop:not([hidden])").forEach((b) => { topModalZIndex = Math.max(topModalZIndex, Number(getComputedStyle(b).zIndex) || 0); });
+  bringModalToFront_(backdrop);
+  if (typeof Spotlight !== "undefined" && Spotlight.isRunning()) backdrop.style.zIndex = 100001;   // above a tutorial's dimmed screen (a "More…" inside its lit-up part)
+  backdrop.hidden = false;
+  document.getElementById("friend-screen-title").textContent = opts.title || tr(opts.many ? "friendPick.chooseMany" : "friendPick.choose");
+  document.getElementById("friend-screen-done").hidden = !opts.many;
+  document.getElementById("friend-search").value = "";
+  renderFriendOptionList_("");
+  document.getElementById("friend-option-list").scrollTop = 0;
+}
+function closeFriendScreen_() {
+  document.getElementById("friend-screen-backdrop").hidden = true;
+  const screen = friendScreen_;
+  friendScreen_ = null;
+  if (screen && screen.many && screen.onDone) screen.onDone(screen.selected);
+  return screen;
+}
+function friendRow_(item) {
+  const screen = friendScreen_;
+  const row = document.createElement(screen.many ? "label" : "div");
+  row.className = "currency-option friend-option" + (screen.many ? " checkbox-row" : "");
+  const on = screen.many ? screen.selected.includes(item.id) : item.id === screen.current;
+  row.innerHTML = `<span class="currency-option-text"><span class="currency-option-country">${escapeHtml(item.label)}</span></span>`
+    + (!screen.many && on ? `<span class="currency-option-check">✓</span>` : "");
+  if (!screen.many) {
+    row.addEventListener("click", () => { closeFriendScreen_(); screen.onPick(item.id); });
+    return row;
+  }
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.value = item.id;
+  input.checked = on;
+  input.addEventListener("change", () => {
+    screen.selected = input.checked ? [...screen.selected.filter((x) => x !== item.id), item.id] : screen.selected.filter((x) => x !== item.id);
+    // The same person in the two sections: both boxes follow.
+    document.querySelectorAll(`#friend-option-list input[type=checkbox]`).forEach((b) => { if (b.value === item.id) b.checked = input.checked; });
+  });
+  row.insertBefore(input, row.firstChild);
+  return row;
+}
+function renderFriendOptionList_(filterText) {
+  const screen = friendScreen_;
+  if (!screen) return;
+  const list = document.getElementById("friend-option-list");
+  list.innerHTML = "";
+  const q = friendSearchText_(String(filterText || "").trim());
+  const items = screen.items || [];
+  const found = items.filter((x) => !q || friendSearchText_(x.label).includes(q)).sort(byName_);
+  const title = (text) => { const h = document.createElement("div"); h.className = "currency-list-title"; h.textContent = text; list.appendChild(h); };
+  const top = (screen.top || []).map((id) => items.find((x) => x.id === id)).filter(Boolean);
+  if (top.length && !q && items.length > top.length) {
+    title(screen.topTitle || tr("friendPick.frequent"));
+    top.forEach((x) => list.appendChild(friendRow_(x)));
+    title(tr("friendPick.all"));
+  }
+  found.forEach((x) => list.appendChild(friendRow_(x)));
+  if (!found.length) {
+    const none = document.createElement("p");
+    none.className = "hint";
+    none.textContent = tr(items.length ? "friendPick.none" : "friendPick.empty");
+    list.appendChild(none);
+  }
+  if (screen.onAdd) {
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "add-inline friend-screen-add";
+    add.textContent = tr("common.addFriend");
+    add.addEventListener("click", () => { const s = closeFriendScreen_(); s.onAdd(); });
+    list.appendChild(add);
+  }
+}
+document.getElementById("friend-screen-close").addEventListener("click", () => closeFriendScreen_());
+document.getElementById("friend-screen-done").addEventListener("click", () => closeFriendScreen_());
+document.getElementById("friend-search").addEventListener("input", (e) => renderFriendOptionList_(e.target.value));
+
+// Quick buttons for choosing SEVERAL people (Shared with, a Programmed item's split, Split a bill): the five used most recently,
+// anyone already picked (so a pick never hides behind More), then "More…". opts: { box, items, selected (Set), first (ids that always
+// lead, e.g. a trip's group), lastUsed, onToggle(id), onMore(), chip(item, el) (extra set-up of each chip) }. Returns the chips.
+function renderFriendQuickChips_(opts) {
+  const box = opts.box;
+  box.innerHTML = "";
+  const items = opts.items;
+  const first = (opts.first || []).filter((id) => items.some((x) => x.id === id));
+  const rest = items.filter((x) => !first.includes(x.id));
+  const quick = new Set(first.concat(friendQuickIds_(rest, FRIEND_QUICK_, opts.lastUsed)));
+  items.forEach((x) => { if (opts.selected.has(x.id)) quick.add(x.id); });
+  const order = first.concat(friendQuickIds_(rest, rest.length, opts.lastUsed)).filter((id) => quick.has(id));
+  const chips = order.map((id) => {
+    const item = items.find((x) => x.id === id);
+    const chip = document.createElement("div");
+    chip.className = "tag-chip" + (opts.selected.has(id) ? " selected" : "");
+    chip.textContent = item.label;
+    chip.dataset.id = id;
+    chip.addEventListener("click", () => opts.onToggle(id));
+    if (opts.chip) opts.chip(item, chip);
+    box.appendChild(chip);
+    return { item, chip };
+  });
+  if (items.length > chips.length) {
+    const more = document.createElement("div");
+    more.className = "tag-chip more-chip";
+    more.textContent = tr("common.more");
+    more.addEventListener("click", () => opts.onMore());
+    box.appendChild(more);
+  }
+  return chips;
+}
+
+// A list box that holds a person (a new loan's friend): a tap on it opens the friends screen. The box stays underneath, so the code
+// keeps reading and setting it as before, and a pick sends its usual "change" (choosing "+ Add…" still means adding someone).
+// opts.top(): ids for the screen's first section, opts.topTitle(); opts.lastUsed(id). (Paid by and a repayment's friend stay the
+// phone's own list, owner 2026-11-19.)
+function personSelectItems_(el) {
+  return [...el.options].filter((o) => o.value && !o.value.startsWith("__") && !o.disabled)
+    .map((o) => ({ id: o.value, label: o.textContent }));
+}
+function personSelectPick_(el, value) {
+  if (el.value === value && !value.startsWith("__")) return;
+  el.value = value;
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+}
+function openPersonSelectScreen_(el) {
+  const o = el._personPick;
+  if (el.disabled) return;
+  const items = personSelectItems_(el);
+  const add = [...el.options].find((x) => x.value.startsWith("__add"));
+  openFriendScreen_({
+    title: o.title ? o.title() : "",
+    items, current: el.value,
+    top: o.top ? o.top() : friendQuickIds_(items, FRIEND_QUICK_, o.lastUsed),
+    topTitle: o.topTitle ? o.topTitle() : "",
+    onPick: (id) => personSelectPick_(el, id),
+    onAdd: add ? () => personSelectPick_(el, add.value) : null,
+  });
+}
+function personPickOn_(el, opts) {
+  if (!el || el._personPick) return;
+  el._personPick = Object.assign({}, opts || {});
+  if (el.id) document.querySelectorAll(`label[for="${el.id}"]`).forEach((l) => l.removeAttribute("for"));   // (a tap on the label would open the box's own list)
+  const wrap = document.createElement("span");
+  wrap.className = "cur-pick";
+  el.parentNode.insertBefore(wrap, el);
+  wrap.appendChild(el);
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "cur-pick-btn";
+  btn.setAttribute("aria-label", tr("friendPick.choose"));
+  btn.addEventListener("click", () => openPersonSelectScreen_(el));
+  wrap.appendChild(btn);
+}
+personPickOn_(document.getElementById("loan-friend"));
+
 function getAccessCode() {
   return localStorage.getItem("accessCode") || "";
 }
@@ -1675,7 +1851,7 @@ function populatePaidByOptions() {
 
     // By name (Lucho, 2026-11-18: in the order they were added, a long list was hard to search).
     const locale = I18n.getLang() === "es" ? "es" : "en";
-    plainFriends_().slice().sort((a, b) => friendLabel_(a).localeCompare(friendLabel_(b), locale, { sensitivity: "base" })).forEach((f) => {
+    plainFriends_().slice().sort((a, b) => a.name.localeCompare(b.name, locale, { sensitivity: "base" })).forEach((f) => {   // (the name itself: a 🏢 in front does not count)
       const opt = document.createElement("option");
       opt.value = f.id;
       opt.textContent = friendLabel_(f);
@@ -2064,7 +2240,9 @@ function populateRepaymentFriendOptions_() {
   // People with something owed either way come first (design review 2026-11-12); the rest keep their order. Names only:
   // the phone's own picker cuts long lines, so the balance shows in one line under it once a person is picked.
   const hasBalance = (f) => !!loansLastBalances_ && loansLastBalances_.some((b) => b.friend_id === f.id && (b.balances || []).some((x) => Math.abs(Number(x.net) || 0) > 0.004));
-  const plain = plainFriends_();
+  // Each part by name (owner, 2026-11-19: one sorting logic; the rest used to be in the order they were added).
+  const locale = I18n.getLang() === "es" ? "es" : "en";
+  const plain = plainFriends_().slice().sort((a, b) => a.name.localeCompare(b.name, locale, { sensitivity: "base" }));
   plain.filter(hasBalance).concat(plain.filter((f) => !hasBalance(f))).concat(groupFriendsNewestFirst_()).forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
@@ -2341,7 +2519,6 @@ function resetSplitState() {
   customSplitAmounts = {};
   splitPercents = {};
   customOwnAmount = "";
-  splitFriendsExpanded = false;
   document.getElementById("split-toggle").checked = false;
   paidByAutoSplit_ = null;
   document.getElementById("split-detail").hidden = true;
@@ -2408,8 +2585,6 @@ document.getElementById("date").addEventListener("change", paintSplitDueChips_);
 // the third row and expands to everyone (then "Less"). Rows are measured
 // from the real layout, since chip widths vary with the names. A selected
 // friend is never left hidden — that forces the list open instead.
-let splitFriendsExpanded = false;
-const SPLIT_FRIEND_MAX_ROWS = 3;
 
 // A trip's hidden "group" friend (Splitwise-style trips): one per trip, never in ordinary friend lists.
 function isGroupFriend_(f) { return !!f.trip_id; }
@@ -2514,78 +2689,49 @@ function syncSplitGroupSize_() {
 document.getElementById("split-group-count").addEventListener("input", () => renderSplitSummary());
 document.getElementById("split-group-count").addEventListener("change", () => { setSplitGroupCount_(splitGroupCount_()); renderSplitSummary(); });
 
+function toggleSplitFriend_(id, on) {
+  const f = (meta.friends || []).find((x) => x.id === id);
+  if (on === undefined) on = !splitFriendIds.has(id);
+  if (!on) {
+    splitFriendIds.delete(id);
+    delete customSplitAmounts[id];
+  } else if (!splitFriendIds.has(id)) {
+    splitFriendIds.add(id);
+    if (f && isGroupFriend_(f)) setSplitGroupCount_(tripGroupSizeSaved_(f.trip_id) || 2);
+  }
+}
+// Shared with: the trip's group (Splitwise) first, then the five friends used most recently and anyone already picked, then "More…",
+// which opens the friends screen with everyone by name (owner, 2026-11-19; it was three rows of buttons with a fold).
 function renderSplitFriendChips() {
   const container = document.getElementById("split-friend-chips");
-  container.innerHTML = "";
   const eligible = splitFriendsList_();
   document.getElementById("split-group-hint").hidden = !eligible.some(isGroupFriend_);
-  const sorted = eligible
-    .map((f, i) => ({ f, i }))
-    .sort((a, b) => (isGroupFriend_(b.f) - isGroupFriend_(a.f)) || (b.f.last_used || "").localeCompare(a.f.last_used || "") || a.i - b.i)
-    .map((x) => x.f);
-
-  const chips = sorted.map((f) => {
-    const chip = document.createElement("div");
-    chip.className = "tag-chip" + (splitFriendIds.has(f.id) ? " selected" : "");
-    chip.textContent = friendLabel_(f);
-    chip.addEventListener("click", () => {
-      if (splitFriendIds.has(f.id)) {
-        splitFriendIds.delete(f.id);
-        delete customSplitAmounts[f.id];
-      } else {
-        splitFriendIds.add(f.id);
-        if (isGroupFriend_(f)) setSplitGroupCount_(tripGroupSizeSaved_(f.trip_id) || 2);
-      }
-      renderSplitFriendChips();
-      renderSplitRows();
-      renderSplitSummary();
-    });
-    container.appendChild(chip);
-    return { f, chip };
+  const items = eligible.map((f) => ({ id: f.id, label: friendLabel_(f) }));
+  const redraw = () => { renderSplitFriendChips(); renderSplitRows(); renderSplitSummary(); };
+  const chips = renderFriendQuickChips_({
+    box: container, items, selected: splitFriendIds,
+    first: eligible.filter(isGroupFriend_).map((f) => f.id),
+    onToggle: (id) => { toggleSplitFriend_(id); redraw(); },
+    onMore: () => openFriendScreen_({
+      many: true, items: items.filter((x) => !isGroupFriend_(eligible.find((f) => f.id === x.id))),
+      selected: [...splitFriendIds],
+      top: friendQuickIds_(items.filter((x) => !isGroupFriend_(eligible.find((f) => f.id === x.id)))),
+      onDone: (ids) => {
+        eligible.filter((f) => !isGroupFriend_(f)).forEach((f) => toggleSplitFriend_(f.id, ids.includes(f.id)));
+        redraw();
+      },
+      onAdd: () => document.getElementById("split-add-friend-btn").click(),
+    }),
   });
 
   // The trip's group picked: everyone else folds away (its other people are counted in the group), so only the group chip
   // stays; tapping it again brings the whole list back (owner, 2026-11-15).
-  const groupPicked = sorted.some((f) => isGroupFriend_(f) && splitFriendIds.has(f.id));
+  const groupPicked = eligible.some((f) => isGroupFriend_(f) && splitFriendIds.has(f.id));
   document.getElementById("split-add-friend-btn").hidden = groupPicked;
   if (groupPicked) {
-    chips.forEach(({ f, chip }) => { chip.hidden = !splitFriendIds.has(f.id); });
-    return;
-  }
-
-  const toggle = document.createElement("div");
-  toggle.className = "tag-chip more-chip";
-  toggle.addEventListener("click", () => {
-    splitFriendsExpanded = !splitFriendsExpanded;
-    renderSplitFriendChips();
-  });
-
-  if (splitFriendsExpanded) {
-    toggle.textContent = tr("common.less");
-    container.appendChild(toggle);
-    return;
-  }
-
-  // Collapsed: needs a laid-out (visible) container to measure rows.
-  if (!container.offsetWidth) return;
-  const rowCount = () => {
-    const tops = new Set();
-    Array.from(container.children).forEach((el) => { if (!el.hidden) tops.add(el.offsetTop); });
-    return tops.size;
-  };
-  if (rowCount() <= SPLIT_FRIEND_MAX_ROWS) return; // everyone fits, no "More" needed
-
-  toggle.textContent = tr("common.more");
-  container.appendChild(toggle);
-  // Hide chips from the end until the "More…" chip lands within row 3.
-  let visible = chips.length;
-  while (visible > 0 && rowCount() > SPLIT_FRIEND_MAX_ROWS) {
-    visible--;
-    chips[visible].chip.hidden = true;
-  }
-  if (chips.slice(visible).some((c) => splitFriendIds.has(c.f.id))) {
-    splitFriendsExpanded = true;
-    renderSplitFriendChips();
+    chips.forEach(({ item, chip }) => { chip.hidden = !splitFriendIds.has(item.id); });
+    const more = container.querySelector(".more-chip");
+    if (more) more.hidden = true;
   }
 }
 
@@ -22602,25 +22748,23 @@ function resetRecurringSplitState() {
   document.getElementById("recurring-split-error").textContent = "";
 }
 
+// The same quick buttons as the "+" form's Shared with (owner, 2026-11-19): five used most recently, anyone picked, "More…".
 function renderRecurringSplitFriendChips() {
-  const container = document.getElementById("recurring-split-friend-chips");
-  container.innerHTML = "";
-  plainFriends_().forEach((f) => {
-    const chip = document.createElement("div");
-    chip.className = "tag-chip" + (recurringSplitFriendIds.has(f.id) ? " selected" : "");
-    chip.textContent = friendLabel_(f);
-    chip.addEventListener("click", () => {
-      if (recurringSplitFriendIds.has(f.id)) {
-        recurringSplitFriendIds.delete(f.id);
-        delete recurringCustomSplitAmounts[f.id];
-      } else {
-        recurringSplitFriendIds.add(f.id);
-      }
-      renderRecurringSplitFriendChips();
-      renderRecurringSplitRows();
-      renderRecurringSplitSummary();
-    });
-    container.appendChild(chip);
+  const items = plainFriends_().map((f) => ({ id: f.id, label: friendLabel_(f) }));
+  const toggle = (id, on) => {
+    if (on === undefined) on = !recurringSplitFriendIds.has(id);
+    if (on) recurringSplitFriendIds.add(id);
+    else { recurringSplitFriendIds.delete(id); delete recurringCustomSplitAmounts[id]; }
+  };
+  const redraw = () => { renderRecurringSplitFriendChips(); renderRecurringSplitRows(); renderRecurringSplitSummary(); };
+  renderFriendQuickChips_({
+    box: document.getElementById("recurring-split-friend-chips"), items, selected: recurringSplitFriendIds,
+    onToggle: (id) => { toggle(id); redraw(); },
+    onMore: () => openFriendScreen_({
+      many: true, items, selected: [...recurringSplitFriendIds], top: friendQuickIds_(items),
+      onDone: (ids) => { items.forEach((x) => toggle(x.id, ids.includes(x.id))); redraw(); },
+      onAdd: () => document.getElementById("recurring-split-add-friend-btn").click(),
+    }),
   });
 }
 
@@ -34170,7 +34314,6 @@ let receiptFormFile_ = null;
 let billItemsEdited = false;    // items typed/changed/inserted by hand since the last photo read
 let billApplied = false;        // "Use this split" was pressed in this form session
 let billNextId = 1;
-let billShowAllFriends = false;
 
 function newBillState_() {
   return {
@@ -34319,37 +34462,24 @@ function syncBillTabs_() {
   box.value = isPercent ? billState.tip.percent : billState.tip.amount;
 }
 
+// The people at the table: the same quick buttons as Shared with (owner, 2026-11-19; it showed ten, then "More").
 function renderBillPeople_() {
-  const box = document.getElementById("bill-people-chips");
-  box.innerHTML = "";
-  const sorted = plainFriends_().sort((a, b) =>
-    (billState.people.has(b.id) - billState.people.has(a.id)) || (b.last_used || "").localeCompare(a.last_used || ""));
-  const LIMIT = 10;
-  const shown = billShowAllFriends ? sorted : sorted.slice(0, Math.max(LIMIT, billState.people.size));
-  shown.forEach((f) => {
-    const chip = document.createElement("div");
-    chip.className = "tag-chip" + (billState.people.has(f.id) ? " selected" : "");
-    chip.textContent = f.name;
-    chip.addEventListener("click", () => {
-      if (billState.people.has(f.id)) {
-        billState.people.delete(f.id);
-        billState.items.forEach((it) => it.people.delete(f.id));
-      } else {
-        billState.people.add(f.id);
-      }
-      renderBillPeople_();
-      renderBillItems_();
-      recomputeBill_();
-    });
-    box.appendChild(chip);
+  const items = plainFriends_().map((f) => ({ id: f.id, label: f.name }));
+  const toggle = (id, on) => {
+    if (on === undefined) on = !billState.people.has(id);
+    if (on) billState.people.add(id);
+    else { billState.people.delete(id); billState.items.forEach((it) => it.people.delete(id)); }
+  };
+  const redraw = () => { renderBillPeople_(); renderBillItems_(); recomputeBill_(); };
+  renderFriendQuickChips_({
+    box: document.getElementById("bill-people-chips"), items, selected: billState.people,
+    onToggle: (id) => { toggle(id); redraw(); },
+    onMore: () => openFriendScreen_({
+      many: true, items, selected: [...billState.people], top: friendQuickIds_(items),
+      onDone: (ids) => { items.forEach((x) => toggle(x.id, ids.includes(x.id))); redraw(); },
+      onAdd: () => document.getElementById("bill-add-friend").click(),
+    }),
   });
-  if (sorted.length > shown.length || billShowAllFriends) {
-    const more = document.createElement("div");
-    more.className = "tag-chip more-chip";
-    more.textContent = billShowAllFriends ? tr("common.less") : tr("common.more");
-    more.addEventListener("click", () => { billShowAllFriends = !billShowAllFriends; renderBillPeople_(); });
-    box.appendChild(more);
-  }
 }
 
 function renderBillItems_() {
@@ -34621,7 +34751,6 @@ function applyBillToForm_() {
   friendIds.forEach((id) => { customSplitAmounts[id] = (res.perPerson[id].total / 100).toFixed(2); });
   customOwnAmount = (res.perPerson.me.total / 100).toFixed(2);
   splitMode = "custom";
-  splitFriendsExpanded = false;
   const on = friendIds.length > 0;
   document.getElementById("split-toggle").checked = on;
   document.getElementById("split-detail").hidden = !on;
