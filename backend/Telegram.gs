@@ -315,9 +315,9 @@ function formatEntryForTelegram_(entry, categoryName, autoReason, opts) {
     var cat = getAllRows('Categories').find(function (c) { return c.id === entry.category_id; });
     categoryName = cat ? categoryLabel_(cat) : null;
   }
-  var icon = entry.type === 'expense' ? '💸' : entry.type === 'income' ? '💰' : entry.type === 'investment' ? '📈' : '🔁';
+  var icon = entry.type === 'expense' ? '🧾' : entry.type === 'income' ? '💰' : entry.type === 'investment' ? '📈' : '🔁';
   var lines = [];
-  // Short card (owner, 2026-11-20): an expense's 💸 says its type, the rarer types keep their word on the first line.
+  // Short card (owner, 2026-11-20): an expense's 🧾 says its type, the rarer types keep their word on the first line.
   lines.push(icon + ' ' + (entry.description || tr_('bot.noDescription')) +
     (entry.type === 'expense' ? '' : ' · ' + tr_('bot.type.' + entry.type)) + (entry.status === 'confirmed' ? tr_('bot.confirmedTag') : ''));
   if (entry.type === 'investment') {
