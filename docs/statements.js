@@ -261,6 +261,7 @@
         <div class="stmt-row-sub">${escapeHtml(note)} · ${i.link ? escapeHtml(tr("stmt.viaLink")) : `${i.size_kb} KB`}</div>
         <div class="stmt-choices" style="padding-left:0">
           <button type="button" class="stmt-choice stmt-inbox-open" data-id="${escapeHtml(i.id)}">${escapeHtml(tr("stmt.open"))}</button>
+          <button type="button" class="stmt-choice stmt-inbox-see" data-id="${escapeHtml(i.id)}">${escapeHtml(tr("stmt.view.seeShort"))}</button>
           ${done ? "" : `<button type="button" class="stmt-choice stmt-inbox-dismiss" data-id="${escapeHtml(i.id)}">${escapeHtml(tr("stmt.dismiss"))}</button>`}
         </div></div></div>`;
   }
@@ -874,30 +875,40 @@
     } catch (err) { return ""; }
   }
 
+  // The password side of opening one PDF: every password that already opened a statement this visit is tried silently first, then the
+  // person is asked. `remember()` after it opened puts the one that worked first (the likeliest for the next file).
+  function pdfPasswordTries(fileName) {
+    let nextTry = 0, lastTried = null, asked = false, typed = null;
+    const tries = {
+      cancelled: false,
+      onPassword: async (reason) => {
+        if (nextTry < sessionPasswords.length) { lastTried = sessionPasswords[nextTry++]; return lastTried; }
+        // The silent tries failing are not the person's mistake, so the first prompt reads "protected", not "didn't work".
+        const pw = await askStatementPassword(fileName, sessionPasswords.length && !asked ? 1 : reason);
+        asked = true;
+        if (pw === null) tries.cancelled = true; else typed = pw;
+        return pw;
+      },
+      remember: () => {
+        const opened = typed !== null ? typed : lastTried;
+        if (opened !== null) sessionPasswords = [opened].concat(sessionPasswords.filter((p) => p !== opened));
+      }
+    };
+    return tries;
+  }
+
   async function readStatementFile(file) {
     const body = resultCardShell(file.name);
-    let cancelled = false;
-    let nextTry = 0, lastTried = null, asked = false, typed = null;
+    const pw = pdfPasswordTries(file.name);
     try {
       const pdfjs = await loadPdfjs();
       const data = new Uint8Array(await file.arrayBuffer());
-      const rows = await StatementParsers.readPdfRows(pdfjs, data, {
-        onPassword: async (reason) => {
-          // First: every password that already opened a statement this visit, silently, before bothering the person.
-          if (nextTry < sessionPasswords.length) { lastTried = sessionPasswords[nextTry++]; return lastTried; }
-          // The silent tries failing are not the person's mistake, so the first prompt reads "protected", not "didn't work".
-          const pw = await askStatementPassword(file.name, sessionPasswords.length && !asked ? 1 : reason);
-          asked = true;
-          if (pw === null) cancelled = true; else typed = pw;
-          return pw;
-        }
-      });
-      // The one that opened this file goes to the front: it is the likeliest for the next file.
-      const opened = typed !== null ? typed : lastTried;
-      if (opened !== null) sessionPasswords = [opened].concat(sessionPasswords.filter((p) => p !== opened));
+      const rows = await StatementParsers.readPdfRows(pdfjs, data, { onPassword: pw.onPassword });
+      pw.remember();
       let result = StatementParsers.parseStatement(rows);
       if (result.ok && result.kind === "sipcts") result = StatementParsers.trimSipCtsToHistory(result, await historyStartDate());
       renderResult(body, result, rows, file);
+      addSeeStatementButton(body, file, result);
       if (result.kind && result.ok) {
         // A statement that came from Gmail and was read: its sender is a bank this app now knows (the 15-minute check finds its next ones).
         if (file.inboxId) callApi("rememberStatementSender", { id: file.inboxId }).catch(() => {});
@@ -912,11 +923,136 @@
         updateReviewButton();
       }
     } catch (err) {
-      if (cancelled) body.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("stmt.skippedNoPw"))}</p>`;
+      if (pw.cancelled) body.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr("stmt.skippedNoPw"))}</p>`;
       else body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(err && err.message ? err.message : String(err))}</p>`;
     }
   }
 
+
+  // ---- "See the statement": the bank's own PDF pages on a screen of their own (owner, 2026-11-20) ----
+  // Its job is to tell WHICH document a PDF is: the top names the account, the period and what the app already has for that account;
+  // the pages below are the bank's own. Nothing is read into the steps and nothing is saved. Opened from an Inbox row ("See it", the PDF
+  // comes from Gmail) or from a reading card in step 2 (the same file, its password already known). Memory only, like the reading.
+
+  const VIEW_MAX_PAGES = 30;
+  let viewerSeq = 0;
+  let viewerUrls = [];   // the pages' pictures, released when the screen closes
+
+  function addSeeStatementButton(body, file, result) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "add-inline stmt-see-btn";
+    btn.textContent = tr("stmt.view.see");
+    btn.addEventListener("click", () => viewStatementPdf(file, result));
+    body.appendChild(btn);
+  }
+
+  function closeStatementViewer() {
+    viewerSeq++;   // a page still being drawn stops
+    $("stmt-viewer-backdrop").hidden = true;
+    $("stmt-viewer-pages").innerHTML = "";
+    viewerUrls.forEach((u) => URL.revokeObjectURL(u));
+    viewerUrls = [];
+  }
+
+  // What the top of the screen says: the account (the app's name for it when tracked, else the statement's own), the bank, the period,
+  // the closing balances, and how it stands against what the app already has (same notes as the reading card).
+  function viewerHeadHtml(file, result) {
+    const r = result || {};
+    const key = r.kind ? accountKeyOf(r) : "";
+    const acct = coverage && key ? coverage.accounts.find((a) => a.key === key) : null;
+    const own = r.account && r.account.label ? r.account.label + (r.account.last4 ? ` …${r.account.last4}` : "") : "";
+    const name = (acct && acct.label) || own;
+    const bank = r.kind ? StatementParsers.STATEMENT_BANK_BY_KIND[r.kind] || "" : "";
+    const kv = (label, value) => `<div class="stmt-kv"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`;
+    let html = `<div class="stmt-acct">${escapeHtml(name || tr("stmt.view.unknownAcct"))}</div>`;
+    if (bank && !(name || "").toLowerCase().includes(bank.toLowerCase())) html += kv(tr("stmt.view.bank"), bank);
+    if (r.period && r.period.end) html += kv(tr("stmt.period"), `${fmtDate(r.period.start, true)} – ${fmtDate(r.period.end, true)}`);
+    Object.entries(r.balances || {}).forEach(([cur, b]) => {
+      if (b && b.closing !== null && b.closing !== undefined) html += kv(tr("stmt.closing", { cur }), fmtMoney(cur, b.closing));
+    });
+    if (r.kind) html += coverageNotes(r).map(([cls, msg]) => `<p class="stmt-note ${cls}">${msg}</p>`).join("");
+    else html += `<p class="stmt-note info">${escapeHtml(tr("stmt.view.notRecognised"))}</p>`;
+    html += `<p class="hint stmt-viewer-file">${escapeHtml(file.name)}</p>`;
+    return html;
+  }
+
+  // Draws one page as a picture (a canvas per page would use too much of a phone's memory): wide enough to stay sharp when zoomed in.
+  async function pageToUrl(doc, n, cssWidth) {
+    const page = await doc.getPage(n);
+    const base = page.getViewport({ scale: 1 });
+    const scale = Math.min(1600, Math.round(cssWidth * 4)) / base.width;
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.85));
+    canvas.width = 0; canvas.height = 0;
+    page.cleanup();
+    const url = URL.createObjectURL(blob);
+    viewerUrls.push(url);
+    return url;
+  }
+
+  // `known`: the reading already made of this file (step 2); without it the PDF is read here, only to name it.
+  async function viewStatementPdf(file, known) {
+    const seq = ++viewerSeq;
+    const backdrop = $("stmt-viewer-backdrop"), head = $("stmt-viewer-head"), pages = $("stmt-viewer-pages"), loading = $("stmt-viewer-loading");
+    // Opens at once with "Loading…"; shows the account and the pages only when everything is ready (loading standard).
+    head.hidden = true; pages.hidden = true; pages.innerHTML = ""; pages.classList.remove("zoomed");
+    loading.hidden = false; loading.innerHTML = loadingHtml(tr("common.loading"));
+    bringModalToFront_(backdrop);
+    backdrop.hidden = false;
+    $("stmt-viewer-scroll").scrollTop = 0;
+    let doc = null;
+    const pw = pdfPasswordTries(file.name);
+    try {
+      const data = file.pdfBytes ? file.pdfBytes : new Uint8Array(await file.arrayBuffer());
+      const pdfjs = await loadPdfjs();
+      const rows = await StatementParsers.readPdfRows(pdfjs, data.slice(), { onPassword: pw.onPassword, onDoc: (d) => { doc = d; } });
+      pw.remember();
+      if (seq !== viewerSeq) return;
+      let result = known;
+      if (!result) { try { result = StatementParsers.parseStatement(rows); } catch (e) { result = null; } }
+      if (!coverage) { try { coverage = await callApi("listStatementCoverage", {}); } catch (e) { /* the notes just won't show */ } }
+      const cssWidth = Math.max(300, $("stmt-viewer-scroll").clientWidth - 8);
+      const count = Math.min(doc.numPages, VIEW_MAX_PAGES);
+      const urls = [];
+      for (let n = 1; n <= count; n++) {
+        if (seq !== viewerSeq) return;
+        urls.push(await pageToUrl(doc, n, cssWidth));
+      }
+      if (seq !== viewerSeq) return;
+      head.innerHTML = viewerHeadHtml(file, result);
+      pages.innerHTML = `<p class="hint">${escapeHtml(tr("stmt.view.pages", { n: doc.numPages }))} · ${escapeHtml(tr("stmt.view.zoomHint"))}</p>`
+        + urls.map((u, i) => `<img class="stmt-viewer-page" src="${u}" alt="${escapeHtml(tr("stmt.view.pageAlt", { i: i + 1, n: doc.numPages }))}">`).join("")
+        + (doc.numPages > count ? `<p class="hint">${escapeHtml(tr("stmt.view.morePages", { n: doc.numPages - count }))}</p>` : "");
+      loading.hidden = true; head.hidden = false; pages.hidden = false;
+    } catch (err) {
+      if (seq !== viewerSeq) return;
+      if (pw.cancelled) { closeStatementViewer(); return; }   // "Skip this file" on the password: nothing to show
+      loading.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.view.failed"))}</p><p class="hint">${escapeHtml(err && err.message ? err.message : String(err))}</p>`;
+    } finally {
+      if (doc) doc.destroy();
+    }
+  }
+
+  // An Inbox statement: fetched from Gmail only to look at it (the steps are not touched; Open still reads it).
+  async function seeInboxItem(id, btn) {
+    const item = inbox.find((i) => i.id === id);
+    if (!item) return;
+    btn.disabled = true; setBusy(btn, tr("stmt.fetching"));
+    try {
+      const att = await callApi("getStatementAttachment", { id });
+      const bin = atob(att.base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+      viewStatementPdf({ name: att.name, pdfBytes: bytes });
+    } catch (err) {
+      showAppMessage_(tr("stmt.fetchFailed", { error: err && err.message ? err.message : err }));
+    }
+    btn.disabled = false; btn.textContent = tr("stmt.view.seeShort");
+  }
 
   // ---- spreadsheet statements: CSV / Excel (docs/statement-table.js) ----
   // The person picks the account (the file has no digits to recognize it by) and confirms which column is which; the guess is made from
@@ -3182,11 +3318,23 @@
       if (e.target.open) historyPlan.openGroups.add(g); else historyPlan.openGroups.delete(g);
     }
   }, true);
+  $("stmt-viewer-back").addEventListener("click", closeStatementViewer);
+  // A tap on a page zooms in (twice the screen's width, scroll sideways); another tap zooms back out.
+  $("stmt-viewer-pages").addEventListener("click", (e) => {
+    const img = e.target.closest(".stmt-viewer-page");
+    if (!img) return;
+    const pages = $("stmt-viewer-pages"), scroll = $("stmt-viewer-scroll");
+    const at = img.offsetTop - scroll.scrollTop;   // keep the tapped page where it was
+    pages.classList.toggle("zoomed");
+    scroll.scrollTop = img.offsetTop - at;
+  });
   $("stmt-inbox-toggle").addEventListener("click", () => { inboxOpen = $("stmt-inbox-body").hidden; setInboxOpen(inboxOpen); });
   $("statement-inbox-list").addEventListener("click", async (e) => {
     const open = e.target.closest(".stmt-inbox-open"), dis = e.target.closest(".stmt-inbox-dismiss"), all = e.target.closest(".stmt-inbox-open-all");
     if (e.target.closest(".stmt-inbox-earlier-toggle")) { inboxEarlierOpen = !inboxEarlierOpen; renderInbox(); return; }
+    const see = e.target.closest(".stmt-inbox-see");
     if (all) openAllInboxItems(all);
+    else if (see) seeInboxItem(see.dataset.id, see);
     else if (open) openInboxItem(open.dataset.id, open);
     else if (dis && await askConfirmApp_(tr("stmt.confirmDismiss"), tr("confirmBtn.yes"), { plain: true })) {
       // Right after OK: the row's buttons give way to a "Removing…" line (the server call takes a moment; a second tap must not be possible).
