@@ -71,6 +71,17 @@ test("a friend's first message to the WhatsApp bot starts the tour; the whole to
   a.tap("confirm:" + e.id, a.cardIdOf(e.id));
   assert.equal(a.rt.rows("Entries").find((x) => x.id === e.id).status, "confirmed");
   assert.equal(a.tour().step, 4);
+  assert.match(a.last(), /Responder|Reply/);
+  assert.match(a.last(), /, monto 30/, "the example combines two keywords");
+
+  // Step 4: a reply in words to the step's message, two keywords at once.
+  const stepMsg = a.lastMsg();
+  a.text("descripción almuerzo con equipo, monto 30", { context_id: a.cardIdOf(e.id) });
+  const changed = a.rt.rows("Entries").find((x) => x.id === e.id);
+  assert.equal(changed.description, "almuerzo con equipo");
+  assert.equal(Number(changed.amount), 30);
+  assert.ok(stepMsg);
+  assert.equal(a.tour().step, 5);
   assert.match(a.last(), /pendientes/);
 
   a.text("pendientes");
@@ -78,7 +89,8 @@ test("a friend's first message to the WhatsApp bot starts the tour; the whole to
   assert.ok(a.done(), "remembered as done");
   assert.match(a.last(), /ayuda/);
   assert.match(a.last(), /24/, "WhatsApp's 24-hour tip");
-  assert.match(a.last(), /Responde para editar|Reply to edit/, "the last step says what that line is");
+  assert.match(a.last(), /Responde para editar|Reply to edit/, "the last step says what that line is (short: step 4 taught replying)");
+  assert.doesNotMatch(a.last(), /monto 30/);
   a.text("12 taxi");
   assert.match(a.said().split("---").slice(-3).join(" "), /Responde para editar|Reply to edit/, "after the tour the hint comes back");
 
@@ -101,8 +113,10 @@ test("\"prueba\" makes a test transaction and step 3 asks to Discard it; nothing
   assert.match(a.last(), /Descartar|Discard/);
   a.tap("discard:" + e.id, a.cardIdOf(e.id));
   assert.equal(a.entries().length, 0, "the test is gone");
-  assert.equal(a.tour().step, 4);
+  assert.equal(a.tour().step, 5, "nothing left to reply to: the reply step is left out");
   assert.match(a.last(), /prueba ya no est|test is gone/);
+  a.text("pendientes");
+  assert.match(a.last(), /monto 30/, "the full reply tip instead");
 });
 
 test("a first message that is already an expense is saved as usual and the tour starts at step 2", () => {
@@ -178,10 +192,27 @@ test("Telegram: \"tutorial\" runs the same tour with Telegram's buttons", () => 
   assert.equal(tour().step, 3);
   const card = rt.rows("Telegram Messages").filter((m) => m.entry_id === e.id).pop().message_id;
   tap("discard:" + e.id, Number(card) || card);
-  assert.equal(tour().step, 4);
+  assert.equal(tour().step, 5);
   text("pendientes");
   assert.equal(tour(), null);
   const last = sentTexts().pop();
   assert.match(last, /ayuda/);
   assert.doesNotMatch(last, /24 horas|24 hours/, "no WhatsApp window tip on Telegram");
+});
+
+test("the reply step: one keyword gets one nudge to try two; without replying works too", () => {
+  const a = waApp();
+  a.text("hola");
+  a.text("25 almuerzo");
+  const [e] = a.entries();
+  a.text("saltar");
+  const cat = a.rt.rows("Categories").find((c) => c.type !== "income" && String(c.hidden || "") !== "yes");
+  a.text("categoría " + cat.name, { context_id: a.cardIdOf(e.id) });   // a words reply at step 3 confirms a complete entry
+  assert.equal(a.tour().step, 4);
+  a.text("monto 40");   // not a reply: about the bot's last message, the step quoting the transaction
+  assert.equal(Number(a.rt.rows("Entries").find((x) => x.id === e.id).amount), 40);
+  assert.equal(a.tour().step, 4, "one keyword: asked to try two");
+  assert.match(a.last(), /dos a la vez|two at once/);
+  a.text("descripción taxi", { context_id: a.cardIdOf(e.id) });
+  assert.equal(a.tour().step, 5, "a second single change is accepted: nobody gets stuck");
 });
