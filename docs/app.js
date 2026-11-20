@@ -5979,10 +5979,12 @@ function clearSearchFilterKind_(key) {
 const SEARCH_CHEVRON_ = `<svg class="search-fbtn-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>`;
 function renderSearchFilterBar_() {
   const bar = document.getElementById("search-filter-bar");
+  // The filters in use come first, on the left (owner, 2026-11-20), so they show without scrolling the row; the rest keep their order.
+  const before = [...bar.querySelectorAll(".search-fbtn.on .search-fbtn-text")].map((x) => x.dataset.filter).join();
   bar.innerHTML = "";
-  SEARCH_FILTER_KINDS_.forEach((k) => {
-    if (k.ui === "list" && !searchFilterGroups_(k.key).length) return;
-    const summary = searchFilterSummary_(k.key);
+  const kinds = SEARCH_FILTER_KINDS_.filter((k) => !(k.ui === "list" && !searchFilterGroups_(k.key).length))
+    .map((k) => ({ k, summary: searchFilterSummary_(k.key) }));
+  kinds.filter((x) => x.summary).concat(kinds.filter((x) => !x.summary)).forEach(({ k, summary }) => {
     const wrap = document.createElement("span");
     wrap.className = "search-fbtn" + (summary ? " on" : "");
     const b = document.createElement("button");
@@ -6005,6 +6007,7 @@ function renderSearchFilterBar_() {
     }
     bar.appendChild(wrap);
   });
+  if ([...bar.querySelectorAll(".search-fbtn.on .search-fbtn-text")].map((x) => x.dataset.filter).join() !== before) bar.scrollLeft = 0;
   syncSearchFilterBarShown_();
 }
 function syncSearchFilterBarShown_() {
