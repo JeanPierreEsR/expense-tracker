@@ -27,7 +27,7 @@ test("once paid, the item matches its past payees only — a friend paid by Plin
   add("e1", "2026-02-10", "Plin a Ana Lo", "cat-sub");
   assert.equal(guess("Plin a Ana Lo", "2026-03-10", "payee"), "cat-sub");
   assert.equal(guess("Plin a Luis Ru", "2026-03-10", "payee"), "");
-  assert.equal(guess("STREAMING.COM", "2026-03-10", "payee"), "", "a known payee list wins over the name");
+  assert.equal(guess("STREAMING.COM", "2026-03-10", "payee"), "cat-sub", "the item's own name always fits");
   assert.equal(guess("Plin a Ana Lo", "2026-02-09", "payee"), "", "a payment after the date is not known yet (and the name shares no word)");
 });
 
@@ -43,4 +43,14 @@ test("backtest: counts right / wrong / none for both rules and lists what change
   assert.equal(r.changed.length, 1);
   assert.equal(r.changed[0].old, "wrong");
   assert.equal(r.changed[0]["new"], "none");
+});
+
+test("payees alike: a shared real word, or the same name without spaces; wallet and place words do not count", () => {
+  const { rt } = setup();
+  const alike = (a, b) => rt.run(`payeesAlike_(normalizeMerchant_(${JSON.stringify(a)}), normalizeMerchant_(${JSON.stringify(b)}))`);
+  assert.equal(alike("RIMAC USD2 RECURRENCIA", "RIMAC REC VH USD"), true);
+  assert.equal(alike("SMARTFIT", "Smart Fit"), true);
+  assert.equal(alike("Plin a Ana Lo", "Plin a Luis Ru"), false);
+  assert.equal(alike("DLC RAPPI PERU", "DLC TAMBO PERU"), false);
+  assert.equal(alike("Plin a Ana Lo", "Streaming TV"), false);
 });

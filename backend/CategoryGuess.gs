@@ -121,7 +121,7 @@ function telegramAutoReason_(guess) {
 }
 
 // mode 'payee' (PROPOSED 2026-11-20, not used by the live guess yet; see programmedGuessBacktest_): a Programmed item matches
-// only a payee it was paid to before, or, while it has none, a payee sharing a word with its name. Without a merchant
+// only a payee alike its name or alike a payee it was paid to before (payeesAlike_). Without a merchant
 // (statement lines) the old amount + date match stays.
 function guessFromProgrammed_(fields, dateStr, ctx, mode) {
   var d = new Date(dateStr + 'T00:00:00');
@@ -144,20 +144,28 @@ function guessFromProgrammed_(fields, dateStr, ctx, mode) {
   return { categoryId: hits[0].category_id, reason: tr_('guess.programmed', { name: hits[0].description }), itemName: hits[0].description };
 }
 
-// Words too common in payment texts to tie a payee to an item's name.
+// Words too common in payment texts to tie a payee to an item: payment words, wallets, places, company forms, currencies.
 var PAYEE_COMMON_WORDS_ = { pago: 1, pagos: 1, compra: 1, payment: 1, purchase: 1, transfer: 1, transferencia: 1, del: 1, los: 1,
-  las: 1, the: 1, por: 1, con: 1, para: 1, and: 1, com: 1, www: 1, plin: 1, yape: 1 };
+  las: 1, the: 1, por: 1, con: 1, para: 1, and: 1, com: 1, www: 1, web: 1, org: 1, plin: 1, yape: 1, dlc: 1, peru: 1, lima: 1,
+  san: 1, sac: 1, srl: 1, eirl: 1, tda: 1, shop: 1, store: 1, tienda: 1, online: 1, usd: 1, pen: 1 };
 
 function payeeNameWords_(normalized) {
   return String(normalized || '').split(' ').filter(function (w) { return w.length >= 3 && !PAYEE_COMMON_WORDS_[w]; });
 }
 
+// Two payee texts are about the same payee when they share a real word ("rimac rec vh usd" / "rimac usd2 recurrencia"), or one
+// holds the other written without spaces ("smartfit" / "Smart Fit").
+function payeesAlike_(a, b) {
+  var wa = payeeNameWords_(a), wb = payeeNameWords_(b);
+  if (wa.some(function (w) { return wb.indexOf(w) !== -1; })) return true;
+  var ja = wa.join(''), jb = wb.join('');
+  return (jb.length >= 6 && ja.indexOf(jb) !== -1) || (ja.length >= 6 && jb.indexOf(ja) !== -1);
+}
+
 function programmedPayeeFits_(r, merchant, dateStr, ctx) {
+  if (payeesAlike_(merchant, normalizeMerchant_(r.description))) return true;
   if (!ctx.payees) ctx.payees = programmedPayees_(ctx);
-  var known = (ctx.payees[r.id] || []).filter(function (p) { return p.date < dateStr; }).map(function (p) { return p.merchant; });
-  if (known.length) return known.indexOf(merchant) !== -1;
-  var itemWords = payeeNameWords_(normalizeMerchant_(r.description));
-  return payeeNameWords_(merchant).some(function (w) { return itemWords.indexOf(w) !== -1; });
+  return (ctx.payees[r.id] || []).some(function (p) { return p.date < dateStr && payeesAlike_(merchant, p.merchant); });
 }
 
 // recurring id -> [{ date, merchant }]: confirmed expenses with a merchant that paid that item (linked to it, or its category,
