@@ -120,7 +120,10 @@ function telegramAutoReason_(guess) {
   return guess && guess.quiet ? true : (guess ? guess.reason : '');
 }
 
-function guessFromProgrammed_(fields, dateStr, ctx) {
+// mode 'payee' (PROPOSED 2026-11-20, not used by the live guess yet; see programmedGuessBacktest_): a Programmed item matches
+// only a payee it was paid to before, or, while it has none, a payee sharing a word with its name. Without a merchant
+// (statement lines) the old amount + date match stays.
+function guessFromProgrammed_(fields, dateStr, ctx, mode) {
   var d = new Date(dateStr + 'T00:00:00');
   var start = formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() - RECURRING_MATCH_DAY_WINDOW));
   var end = formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() + RECURRING_MATCH_DAY_WINDOW));
@@ -131,12 +134,105 @@ function guessFromProgrammed_(fields, dateStr, ctx) {
     if (!(amt > 0) || !amountsCloseAcrossCurrencies_(Number(fields.amount), fields.currency, amt, r.currency || homeCurrency_(), dateStr)) return false;
     return recurringExpenseOccurrencesInRange_(r, start, end).length > 0;
   });
+  var merchant = mode === 'payee' ? normalizeMerchant_(fields.merchant) : '';
+  if (merchant) hits = hits.filter(function (r) { return programmedPayeeFits_(r, merchant, dateStr, ctx); });
   if (!hits.length) return null;
 
   var catIds = {};
   hits.forEach(function (r) { catIds[r.category_id] = true; });
   if (Object.keys(catIds).length !== 1) return null;
-  return { categoryId: hits[0].category_id, reason: tr_('guess.programmed', { name: hits[0].description }) };
+  return { categoryId: hits[0].category_id, reason: tr_('guess.programmed', { name: hits[0].description }), itemName: hits[0].description };
+}
+
+// Words too common in payment texts to tie a payee to an item's name.
+var PAYEE_COMMON_WORDS_ = { pago: 1, pagos: 1, compra: 1, payment: 1, purchase: 1, transfer: 1, transferencia: 1, del: 1, los: 1,
+  las: 1, the: 1, por: 1, con: 1, para: 1, and: 1, com: 1, www: 1, plin: 1, yape: 1 };
+
+function payeeNameWords_(normalized) {
+  return String(normalized || '').split(' ').filter(function (w) { return w.length >= 3 && !PAYEE_COMMON_WORDS_[w]; });
+}
+
+function programmedPayeeFits_(r, merchant, dateStr, ctx) {
+  if (!ctx.payees) ctx.payees = programmedPayees_(ctx);
+  var known = (ctx.payees[r.id] || []).filter(function (p) { return p.date < dateStr; }).map(function (p) { return p.merchant; });
+  if (known.length) return known.indexOf(merchant) !== -1;
+  var itemWords = payeeNameWords_(normalizeMerchant_(r.description));
+  return payeeNameWords_(merchant).some(function (w) { return itemWords.indexOf(w) !== -1; });
+}
+
+// recurring id -> [{ date, merchant }]: confirmed expenses with a merchant that paid that item (linked to it, or its category,
+// amount and date, the same test the Programmed items screen uses), oldest first.
+function programmedPayees_(ctx) {
+  var payees = {};
+  var entries = getAllRows('Entries').filter(function (e) {
+    return e.type === 'expense' && e.merchant && (e.status === 'confirmed' || e.source === 'import') && !isPracticeReview_(e);
+  });
+  ctx.recurring.forEach(function (r) {
+    var mine = entries.filter(function (e) { return e.recurring_expense_id === r.id || e.category_id === r.category_id; });
+    if (!mine.length) return;
+    var dates = mine.map(function (e) { return String(e.date); }).sort();
+    var occ = recurringExpenseOccurrencesInRange_(r, shiftIsoDays_(dates[0], -40), shiftIsoDays_(dates[dates.length - 1], 40));
+    var list = [];
+    mine.forEach(function (e) {
+      if (entryMatchesRecurringOccurrence_(e, r, occ, null, ctx.recurringSplitSums)) {
+        list.push({ date: String(e.date), merchant: normalizeMerchant_(e.merchant) });
+      }
+    });
+    list.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    if (list.length) payees[r.id] = list;
+  });
+  return payees;
+}
+
+function shiftIsoDays_(iso, days) {
+  var d = new Date(String(iso).substring(0, 10) + 'T00:00:00');
+  return formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days));
+}
+
+// Backtest (owner's copy only, reads only; tools/programmed-guess-backtest.py): replays every confirmed expense with a merchant
+// of the last `days`, oldest first, with only what was known before it, and compares the Programmed-item guess of the live rule
+// ('old') and of mode 'payee' ('new') with the category the owner kept. `reached` counts only the expenses the merchant
+// history did not already answer (where the Programmed step decides).
+function programmedGuessBacktest_(p) {
+  if (isFriendCopy_()) throw codedError_('backtest_not_here', 'This check runs on the owner\'s copy only.');
+  var days = Math.max(1, Math.min(1095, Math.floor(Number((p || {}).days) || 365)));
+  var since = shiftIsoDays_(Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd'), -days);
+  var ctx = buildGuessContext_();
+  ctx.history = {};
+  ctx.payees = programmedPayees_(ctx);
+  var catName = function (id) { return ctx.categoriesById[id] ? ctx.categoriesById[id].name : (id ? '?' : ''); };
+  var blank = function () { return { right: 0, wrong: 0, none: 0 }; };
+  var report = { days: days, expenses: 0, all: { old: blank(), 'new': blank() }, reached: { old: blank(), 'new': blank() },
+    pipeline: { old: blank(), 'new': blank() }, changed: [] };
+  var tally = function (bucket, guess, kept) { bucket[!guess ? 'none' : guess.categoryId === kept ? 'right' : 'wrong']++; };
+  var entries = getAllRows('Entries').filter(function (e) {
+    return e.type === 'expense' && e.merchant && ctx.expenseCatIds[e.category_id] && !isPracticeReview_(e) &&
+      (e.status === 'confirmed' || e.source === 'import');
+  }).sort(function (a, b) { return String(a.date) < String(b.date) ? -1 : String(a.date) > String(b.date) ? 1 : 0; });
+  entries.forEach(function (e) {
+    var merchant = normalizeMerchant_(e.merchant), date = String(e.date);
+    if (date >= since) {
+      report.expenses++;
+      var fields = { amount: Number(e.amount), currency: e.currency, merchant: e.merchant };
+      var fromHistory = merchant ? guessFromMerchantHistory_(merchant, ctx) : null;
+      var oldG = guessFromProgrammed_(fields, date, ctx), newG = guessFromProgrammed_(fields, date, ctx, 'payee');
+      tally(report.all.old, oldG, e.category_id); tally(report.all['new'], newG, e.category_id);
+      if (!fromHistory) { tally(report.reached.old, oldG, e.category_id); tally(report.reached['new'], newG, e.category_id); }
+      tally(report.pipeline.old, fromHistory || oldG, e.category_id); tally(report.pipeline['new'], fromHistory || newG, e.category_id);
+      var oldCat = oldG ? oldG.categoryId : '', newCat = newG ? newG.categoryId : '';
+      if (!fromHistory && oldCat !== newCat && report.changed.length < 60) {
+        var verdict = function (c) { return !c ? 'none' : c === e.category_id ? 'right' : 'wrong'; };
+        report.changed.push({ date: date, payee: merchant, item: oldG ? oldG.itemName : newG.itemName, kept: catName(e.category_id),
+          old: verdict(oldCat), 'new': verdict(newCat), oldCategory: catName(oldCat), newCategory: catName(newCat) });
+      }
+    }
+    if (merchant) {   // now known, for the expenses after it
+      var h = ctx.history[merchant] || (ctx.history[merchant] = { counts: {}, total: 0 });
+      h.counts[e.category_id] = (h.counts[e.category_id] || 0) + 1;
+      h.total++;
+    }
+  });
+  return report;
 }
 
 /**
