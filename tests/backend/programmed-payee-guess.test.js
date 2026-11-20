@@ -61,3 +61,16 @@ test("the live guess for a new e-mail / Apple Pay / typed expense uses the payee
   assert.equal(live("Plin a Ana Lo"), "", "an unrelated payee near the item's amount and date is no longer guessed");
   assert.equal(live("STREAMING.COM"), "cat-sub");
 });
+
+test("paid check: a payment whose payee fits neither the item's name nor its usual payee is a suspect", () => {
+  const { rt, add } = setup();
+  add("p1", "2026-01-10", "STREAMING.COM", "cat-sub");
+  add("p2", "2026-02-10", "Plin a Ana Lo", "cat-sub");
+  add("p3", "2026-03-10", "PAGO ACME TV", "cat-sub");
+  add("p4", "2026-04-10", "PAGO ACME", "cat-sub");
+  const r = rt.run("programmedPaidCheck_({ days: 1095 })");
+  assert.equal(r.payments, 4);
+  assert.equal(r.alike, 3, "the item's name (p1), and ACME seen in two months (p3, p4)");
+  assert.equal(r.suspect, 1);
+  assert.equal(r.suspects[0].payee, "plin a ana lo");
+});

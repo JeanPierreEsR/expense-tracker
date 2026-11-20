@@ -159,7 +159,7 @@ var LOGIN_MAX_FAILURES_ = 10;
 var LOGIN_LOCK_SECONDS_ = 600;
 var CURRENT_SESSION_ID_ = '';   // set per request by authenticateRequest_
 // The Mac helper's key opens ONLY these (the receipt-photo reader's four, plus promote.sh's read-only app-version counts).
-var HELPER_ACTIONS_ = { listPhotoJobs: true, getPhotoJob: true, submitPhotoJobText: true, failPhotoJob: true, listPerfAppVersions: true, listStatementSamples: true, rulePackTwinCheck: true, programmedGuessBacktest: true };
+var HELPER_ACTIONS_ = { listPhotoJobs: true, getPhotoJob: true, submitPhotoJobText: true, failPhotoJob: true, listPerfAppVersions: true, listStatementSamples: true, rulePackTwinCheck: true, programmedGuessBacktest: true, programmedPaidCheck: true };
 
 function isRequireSessions_() {
   return PropertiesService.getScriptProperties().getProperty('REQUIRE_SESSIONS') === 'true';
