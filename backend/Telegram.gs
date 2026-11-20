@@ -197,7 +197,9 @@ function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
 
   var payload = {
     chat_id: chatId,
-    text: formatEntryForTelegram_(entry, categoryName, autoReason, { hint: replyHintShow_() })
+    // No "Reply to edit" line while the bot's tour runs (owner, 2026-11-20: it teaches words while the tour teaches the buttons);
+    // its last step says what that line is. Not counted either.
+    text: formatEntryForTelegram_(entry, categoryName, autoReason, { hint: botTourState_() ? false : replyHintShow_() })
   };
   // A confirmed entry's card (shown after an edit reply) has no buttons — it
   // is already done, and can still be changed by replying.

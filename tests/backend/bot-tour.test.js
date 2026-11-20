@@ -52,6 +52,7 @@ test("a friend's first message to the WhatsApp bot starts the tour; the whole to
   a.text("25 almuerzo");
   const [e] = a.entries();
   assert.equal(e.status, "pending");
+  assert.doesNotMatch(a.said(), /Responde para editar|Reply to edit/, "no words hint on cards while the tour teaches the buttons");
   assert.equal(a.tour().step, 2);
   assert.match(a.last(), /Editar|Edit/);
   const quoted = a.lastMsg().context && a.lastMsg().context.message_id;
@@ -77,6 +78,9 @@ test("a friend's first message to the WhatsApp bot starts the tour; the whole to
   assert.ok(a.done(), "remembered as done");
   assert.match(a.last(), /ayuda/);
   assert.match(a.last(), /24/, "WhatsApp's 24-hour tip");
+  assert.match(a.last(), /Responde para editar|Reply to edit/, "the last step says what that line is");
+  a.text("12 taxi");
+  assert.match(a.said().split("---").slice(-3).join(" "), /Responde para editar|Reply to edit/, "after the tour the hint comes back");
 
   // Done once: a later first-message situation never starts it again by itself.
   a.text("hola otra vez");
