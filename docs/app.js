@@ -666,7 +666,14 @@ function openFriendScreen_(opts) {
   if (typeof Spotlight !== "undefined" && Spotlight.isRunning()) backdrop.style.zIndex = 100001;   // above a tutorial's dimmed screen (a "More…" inside its lit-up part)
   backdrop.hidden = false;
   document.getElementById("friend-screen-title").textContent = opts.title || tr(opts.many ? "friendPick.chooseMany" : "friendPick.choose");
-  document.getElementById("friend-screen-done").hidden = !opts.many;
+  const done = document.getElementById("friend-screen-done");
+  done.hidden = !opts.many;
+  done.textContent = opts.doneLabel || tr("currency.done");
+  // A search only when there is something to search: more than five (owner, 2026-11-20).
+  const count = opts.groups ? opts.groups.reduce((n, g) => n + g.items.length, 0) : (opts.items || []).length;
+  document.getElementById("friend-search").hidden = count <= FRIEND_QUICK_;
+  // Picked first (owner, 2026-11-20, the Home filters): fixed when the screen opens, so a row never jumps away while ticked.
+  friendScreen_.pickedAtOpen = new Set(opts.pickedFirst && opts.many ? friendScreen_.selected : []);
   const add = document.getElementById("friend-screen-add");
   add.hidden = !opts.onAdd;
   add.textContent = opts.addLabel || tr("common.addFriend");
@@ -698,6 +705,7 @@ function friendRow_(item) {
   input.checked = on;
   input.addEventListener("change", () => {
     screen.selected = input.checked ? [...screen.selected.filter((x) => x !== item.id), item.id] : screen.selected.filter((x) => x !== item.id);
+    if (screen.onToggle) screen.onToggle(screen.selected);
     // The same person in the two sections: both boxes follow.
     document.querySelectorAll(`#friend-option-list input[type=checkbox]`).forEach((b) => { if (b.value === item.id) b.checked = input.checked; });
   });
@@ -712,10 +720,22 @@ function renderFriendOptionList_(filterText) {
   const list = document.getElementById("friend-option-list");
   list.innerHTML = "";
   const q = friendSearchText_(String(filterText || "").trim());
-  const items = screen.items || [];
-  const found = items.filter((x) => !q || friendSearchText_(x.label).includes(q)).sort(byName_);
-  found.forEach((x) => list.appendChild(friendRow_(x)));
-  if (!found.length) {
+  // groups: [{ heading, items }] (a Home filter's categories under Expenses / Income); ordered: keep the order given (trips by date,
+  // "Other" last) instead of by name.
+  const groups = screen.groups || [{ heading: "", items: screen.items || [] }];
+  const items = groups.flatMap((g) => g.items);
+  let shown = 0;
+  groups.forEach((g) => {
+    const found = g.items.filter((x) => !q || friendSearchText_(x.label).includes(q));
+    if (!screen.ordered) found.sort(byName_);
+    const picked = screen.pickedAtOpen || new Set();
+    const rows = found.filter((x) => picked.has(x.id)).concat(found.filter((x) => !picked.has(x.id)));
+    if (!rows.length) return;
+    if (g.heading) { const h = document.createElement("h4"); h.className = "friend-option-heading"; h.textContent = g.heading; list.appendChild(h); }
+    rows.forEach((x) => list.appendChild(friendRow_(x)));
+    shown += rows.length;
+  });
+  if (!shown) {
     const none = document.createElement("p");
     none.className = "hint";
     none.textContent = tr(items.length ? (screen.noneKey || "friendPick.none") : "friendPick.empty");
@@ -5994,7 +6014,7 @@ function syncSearchFilterBarShown_() {
 // A tap anywhere away from the search (and from its filter windows) puts the row away again, unless it is in use.
 document.addEventListener("pointerdown", (e) => {
   if (!searchBarWanted_) return;
-  if (e.target.closest && e.target.closest(".entry-search-card, #search-filters-backdrop, #search-pick-backdrop")) return;
+  if (e.target.closest && e.target.closest(".entry-search-card, #search-filters-backdrop, #friend-screen-backdrop")) return;
   searchBarWanted_ = false;
   syncSearchFilterBarShown_();
 }, true);
@@ -6003,16 +6023,19 @@ document.addEventListener("pointerdown", (e) => {
 function searchFiltersChanged_() {
   renderSearchFilterBar_();
   document.getElementById("entry-search").dispatchEvent(new Event("input"));
-  const m = searchMatches_();
-  const label = m ? tr("search.f.show", { n: m.length }) : tr("search.f.showAll");
+  const label = searchShowLabel_();
   if (!document.getElementById("search-filters-backdrop").hidden) document.getElementById("search-filters-done").textContent = label;
-  if (!document.getElementById("search-pick-backdrop").hidden) document.getElementById("search-pick-done").textContent = label;
+  if (friendScreen_ && friendScreen_.filterKey) document.getElementById("friend-screen-done").textContent = label;
+}
+function searchShowLabel_() {
+  const m = searchMatches_();
+  return m ? tr("search.f.show", { n: m.length }) : tr("search.f.showAll");
 }
 
 function openSearchFilter_(key) {
   const k = SEARCH_FILTER_KINDS_.find((x) => x.key === key);
   if (!searchIndex && !searchIndexPromise) syncSearchIndex_().then(searchFiltersChanged_).catch(() => {});
-  if (k.ui === "list") { openSearchPick_(key, tr(k.title)); return; }
+  if (k.ui === "list") { openSearchPick_(key, tr(k.title)); searchFiltersChanged_(); return; }
   document.getElementById("search-filters-title").textContent = tr(k.title);
   renderSearchFilterBody_(k);
   document.getElementById("search-filters-backdrop").hidden = false;
@@ -6103,59 +6126,27 @@ function searchFilterUses_() {
   return u;
 }
 
-// A list filter (category, account, friend, tag, trip): a search box and checkmarks, most used first; checks apply at once.
-let searchPick_ = null;   // { key, groups }
+// A list filter (category, account, friend, tag, trip): the same full screen as "More…" (owner, 2026-11-20), checkmarks that apply
+// at once, what is already picked on top. By name (categories with "Other" last, under Expenses / Income); trips by date: current
+// and upcoming first, soonest first, then past ones, newest first.
 function openSearchPick_(key, title) {
-  const uses = searchFilterUses_()[key];
-  const n = (x) => uses.get(key === "friends" ? x.name : x.id) || 0;
-  const label = (x) => searchFilterItemLabel_(key, x);
-  const groups = searchFilterGroups_(key).map((g) => ({ heading: g.heading, items: g.items.slice().sort((a, b) => n(b) - n(a) || String(label(a)).localeCompare(String(label(b)))) }));
-  searchPick_ = { key, groups };
-  document.getElementById("search-pick-title").textContent = title;
-  document.getElementById("search-pick-find").value = "";
-  renderSearchPick_();
-  document.getElementById("search-pick-backdrop").hidden = false;
-  searchFiltersChanged_();
-}
-function renderSearchPick_() {
-  if (!searchPick_) return;
-  const { key, groups } = searchPick_;
-  const q = normalizeSearchText_(document.getElementById("search-pick-find").value.trim());
-  const list = document.getElementById("search-pick-list");
-  list.innerHTML = "";
-  let any = false;
-  groups.forEach((g) => {
-    const shown = g.items.filter((x) => !q || normalizeSearchText_(searchFilterItemLabel_(key, x)).includes(q));
-    if (!shown.length) return;
-    any = true;
-    if (g.heading) { const h = document.createElement("h4"); h.textContent = g.heading; list.appendChild(h); }
-    shown.forEach((x) => {
-      const row = document.createElement("button");
-      row.type = "button";
-      const on = () => searchFilters_[key].includes(x.id);
-      row.className = "search-pick-row" + (on() ? " on" : "");
-      row.setAttribute("aria-pressed", on() ? "true" : "false");
-      row.innerHTML = `<span class="search-pick-name"></span><span class="search-pick-check" aria-hidden="true">✓</span>`;
-      row.querySelector(".search-pick-name").textContent = searchFilterItemLabel_(key, x);
-      row.addEventListener("click", () => {
-        searchFilters_[key] = on() ? searchFilters_[key].filter((id) => id !== x.id) : searchFilters_[key].concat(x.id);
-        row.classList.toggle("on", on());
-        row.setAttribute("aria-pressed", on() ? "true" : "false");
-        searchFiltersChanged_();
-      });
-      list.appendChild(row);
-    });
+  const today = todayLocalISO();
+  const tripOrder = (a, b) => {
+    const aPast = a.end_date < today, bPast = b.end_date < today;
+    if (aPast !== bPast) return aPast ? 1 : -1;
+    return aPast ? String(b.start_date).localeCompare(String(a.start_date)) : String(a.start_date).localeCompare(String(b.start_date));
+  };
+  const groups = searchFilterGroups_(key).map((g) => {
+    const items = key === "cats" ? sortedCategories_(g.items) : key === "trips" ? g.items.slice().sort(tripOrder)
+      : g.items.slice().sort((x, y) => byName_({ label: searchFilterItemLabel_(key, x) }, { label: searchFilterItemLabel_(key, y) }));
+    return { heading: g.heading, items: items.map((x) => ({ id: x.id, label: searchFilterItemLabel_(key, x) })) };
   });
-  if (!any) list.innerHTML = `<p class="hint">${escapeHtml(tr("search.f.findNone"))}</p>`;
+  openFriendScreen_({
+    title, groups, ordered: true, many: true, pickedFirst: true, filterKey: key,
+    selected: searchFilters_[key], noneKey: "search.f.findNone", doneLabel: searchShowLabel_(),
+    onToggle: (ids) => { searchFilters_[key] = ids.slice(); searchFiltersChanged_(); }
+  });
 }
-function closeSearchPick_() {
-  document.getElementById("search-pick-backdrop").hidden = true;
-  searchPick_ = null;
-}
-document.getElementById("search-pick-find").addEventListener("input", renderSearchPick_);
-document.getElementById("search-pick-find").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); } });
-document.getElementById("search-pick-close").addEventListener("click", closeSearchPick_);
-document.getElementById("search-pick-done").addEventListener("click", closeSearchPick_);
 document.getElementById("search-filters-close").addEventListener("click", closeSearchFilters_);
 document.getElementById("search-filters-done").addEventListener("click", closeSearchFilters_);
 
@@ -22359,11 +22350,13 @@ function populateOverviewScope_(onOverview) {
   };
   add(sel, "all", tr("overview.scopeAll"));
   add(sel, "personal", tr("overview.scopePersonal"));
-  (meta.companies || []).forEach((c) => {
+  // By name (owner, 2026-11-20), each company's projects under it.
+  const byNm = (x, y) => byName_({ label: x.name }, { label: y.name });
+  (meta.companies || []).slice().sort(byNm).forEach((c) => {
     const group = document.createElement("optgroup");
     group.label = companyLabel_(c);
     add(group, "company:" + c.id, companyLabel_(c));
-    (meta.projects || []).filter((p) => p.company_id === c.id).forEach((p) => add(group, "project:" + p.id, `${c.name} › ${p.name}`));
+    (meta.projects || []).filter((p) => p.company_id === c.id).sort(byNm).forEach((p) => add(group, "project:" + p.id, `${c.name} › ${p.name}`));
     sel.appendChild(group);
   });
   if (!Array.from(sel.options).some((o) => o.value === overviewScope_)) overviewScope_ = "all";
@@ -25774,10 +25767,11 @@ function populateLoansScope_() {
   };
   add("", tr("overview.scopeAll"));
   add("personal", tr("overview.scopePersonal"));
-  (meta.projects || []).forEach((p) => {
+  // By name (owner, 2026-11-20): "Company › Project", so each company's projects sit together.
+  (meta.projects || []).map((p) => {
     const company = (meta.companies || []).find((c) => c.id === p.company_id);
-    add(p.id, company ? `${company.name} › ${p.name}` : p.name);
-  });
+    return { id: p.id, label: company ? `${company.name} › ${p.name}` : p.name };
+  }).sort(byName_).forEach((x) => add(x.id, x.label));
   if (!Array.from(sel.options).some((o) => o.value === loansScope_)) loansScope_ = "";
   sel.value = loansScope_;
 }
