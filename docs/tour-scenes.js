@@ -216,7 +216,7 @@
       else catIcon(cat, o.cat, "entry-cat-icon");
       cat.appendChild(document.createTextNode(o.name || ctx.tr(CATS[o.cat][1])));
       if (o.desc) h("div", "entry-desc", o.desc, l);
-      h("div", "entry-meta", fmtDay(0) + " · " + ctx.tr("common.me"), l);
+      h("div", "entry-meta", fmtDay(0) + " · " + ctx.tr("accounts.type.cash"), l);   // the account, as real rows show it
       const a = h("div", "entry-amount", null, r);
       h("span", "primary-amt" + (o.sign === "+" ? " income" : ""), o.amt, a);
       if (o.sub) h("span", "original-amt", o.sub, a);

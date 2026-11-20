@@ -1527,6 +1527,15 @@ body.sheet-open {
   margin-top: 2px;
 }
 
+/* The account on a row's grey line: kept whole on one line when it fits, wrapped (never cut with "…") when longer than the
+   line, so a card's last digits always show. */
+.entry-acct {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  vertical-align: bottom;
+}
+
 .entry-tags {
   display: inline-flex;
   flex-wrap: wrap;
