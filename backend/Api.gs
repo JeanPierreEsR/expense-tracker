@@ -449,6 +449,7 @@ function routeActionSwitch_(action, payload) {
     case 'listPerfAppVersions': return listPerfAppVersions_();
     case 'listStatementSamples': return listStatementSamples_(payload);
     case 'rulePackTwinCheck': return rulePackTwinCheck_(payload);
+    case 'programmedGuessBacktest': return programmedGuessBacktest_(payload);
     case 'findStatementEmails': return findStatementEmails(payload);
     case 'addStatementsToInbox': return addStatementsToInbox(payload);
     case 'rememberStatementSender': return rememberStatementSender(payload);
