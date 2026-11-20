@@ -91,7 +91,8 @@ function extractAccountLast4_(body, label) {
 }
 
 // A CCI (Peru's 20-digit interbank code: bank 3 + branch 3 + account 12 + check 2) after `label`: the last four digits of the
-// ACCOUNT, i.e. the four just before the two check digits. Read only from SIP's "Transferencia a otro banco" e-mail (2026-11-20).
+// ACCOUNT, i.e. the four just before the two check digits. Read from SIP's "Transferencia a otro banco" and Interbank's
+// "Constancia de transferencia" e-mails, only for a payee who is the person (2026-11-20).
 function cciAccountLast4_(body, label) {
   var i = String(body || '').search(new RegExp(label, 'i'));
   if (i === -1) return null;
@@ -565,14 +566,19 @@ var EMAIL_RULES = [
     extract: function (subject, body) {
       var amt = extractAmount_(afterLabel_(body, 'Monto y moneda') || body);
       if (!amt) return null;
-      var recipient = afterLabel_(body, 'Cuenta destino');
+      // Two layouts (2026-11-20, owner's transfer to Inteligo): "Cuenta a cargo" / "Cuenta destino", or "Cuenta cargo" / "Destinatario".
+      var recipient = afterLabel_(body, 'Cuenta destino') || afterLabel_(body, 'Destinatario');
       var own = isOwnAccount_(recipient);
-      return {
+      var fields = {
         type: own ? 'transfer' : 'expense', needsReview: !own,
         amount: amt.amount, currency: amt.currency, description: recipient,
-        last4: extractAccountLast4_(body, 'Cuenta a cargo'),
+        last4: extractAccountLast4_(body, 'Cuenta a cargo') || extractAccountLast4_(body, 'Cuenta cargo'),
         externalId: afterLabel_(body, 'Código de operación')
       };
+      // To the person's own account at another bank, named by its CCI: To = the account with those digits.
+      var toLast4 = own ? (cciAccountLast4_(body, 'Cuenta destino') || cciAccountLast4_(body, 'Destinatario')) : null;
+      if (toLast4) { fields.toLast4 = toLast4; fields.toOwnAlways = true; }
+      return fields;
     }
   },
   // Plin is a payment rail, not an account: the money always leaves one of

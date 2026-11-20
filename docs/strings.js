@@ -499,6 +499,8 @@
     "review.pickCategoryFirst": { en: "Pick a category first.", es: "Primero elige una categoría." },
     "review.pickPlatformFirst": { en: "Pick the platform first — an investment only counts once it has one.", es: "Primero elige la plataforma: una inversión solo cuenta cuando tiene una." },
     "review.confirmDiscard": { en: "Discard {what}? This can't be undone.", es: "¿Descartar {what}? No se puede deshacer." },
+    "review.exchangeDiscardAsk": { en: "Discard this currency exchange, both sides ({what})? This can't be undone.", es: "¿Descartar este cambio de moneda, los dos lados ({what})? No se puede deshacer." },
+    "review.exchangeConfirmed": { en: "Confirmed: both sides of the exchange.", es: "Confirmado: los dos lados del cambio." },
     "review.alreadyHandled": { en: "This entry was already confirmed, changed or removed elsewhere — refreshing the list.", es: "Este movimiento ya se confirmó, cambió o eliminó en otro lugar: se está actualizando la lista." },
     "review.repayTitle": { en: "Mark as repayment", es: "Marcar como repago" },
     "review.loanTitle": { en: "Convert to loan", es: "Convertir en préstamo" },

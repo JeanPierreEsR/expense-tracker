@@ -262,6 +262,41 @@ function exchangeHouseLegByCode_(fields) {
   }) || null;
 }
 
+// ---- The two sides of one exchange, as ONE item (owner, 2026-11-20) ----
+// Which side a leg is: the side whose account is set, else what the exchange house's id says ('' when neither tells).
+function exchangePairSide_(e) {
+  if (!e) return '';
+  if (e.payment_method_id && !e.to_payment_method_id) return 'out';
+  if (e.to_payment_method_id && !e.payment_method_id) return 'in';
+  var ext = String(e.external_id || '');
+  return /^cm-in-/.test(ext) ? 'in' : (/^cm-out-/.test(ext) ? 'out' : '');
+}
+
+// The other side of an exchange (same exchange_pair), or null.
+function exchangePartner_(entry, entries) {
+  var pair = String((entry && entry.exchange_pair) || '');
+  if (!pair || entry.type !== 'transfer') return null;
+  return (entries || getAllRows('Entries')).filter(function (e) {
+    return e.id !== entry.id && e.type === 'transfer' && String(e.exchange_pair || '') === pair;
+  })[0] || null;
+}
+
+// { out, in } when this leg and its partner are both waiting, else null. Either one may be the leg passed in.
+function pendingExchangePair_(entry, entries) {
+  return entry && entry.status === 'pending' ? exchangePairOf_(entry, entries) : null;
+}
+
+// { out, in } for a leg and its partner in the SAME state (both waiting or both confirmed), else null.
+function exchangePairOf_(entry, entries) {
+  if (!entry || (entry.status !== 'pending' && entry.status !== 'confirmed')) return null;
+  var partner = exchangePartner_(entry, entries);
+  if (!partner || partner.status !== entry.status || partner.currency === entry.currency) return null;
+  var a = exchangePairSide_(entry), b = exchangePairSide_(partner);
+  if (a === 'out' || b === 'in') return a === 'in' ? null : { out: entry, 'in': partner };
+  if (a === 'in' || b === 'out') return { out: partner, 'in': entry };
+  return null;
+}
+
 // Saves what an exchange-house e-mail says: up to two pending one-sided transfers. Returns how many were created, or -1 when unreadable.
 function processExchangeEmail_(rule, message, sender, dateStr, createdAt, results, existingExternalIds) {
   var parsed = parseExchangeConfirmation_(message.getSubject(), message.getPlainBody());
@@ -272,7 +307,9 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
   var description = tr_('desc.exchangeHouse', { name: rule.house });
   ensureEntriesToPaymentMethodColumn_();
   ensureEntriesExchangeColumn_();
-  var made = 0;
+  ensureColumn_('Entries', 'exchange_pair');
+  var made = 0, turned = false;
+  var legsBySide = { out: null, in: null };   // the two sides of THIS exchange, new or found, paired below (owner, 2026-11-20)
 
   [['out', parsed.out], ['in', parsed.in]].forEach(function (pair) {
     var side = pair[0], leg = pair[1];
@@ -285,7 +322,9 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
       // A bank e-mail that read as a plain pending expense becomes the leg itself, so it is not left behind as spending.
       if (twin.type === 'expense') {
         updateRowFields_('Entries', twin.id, { type: 'transfer', category_id: transferCat ? transferCat.id : '', description: description, merchant: '', to_payment_method_id: '', exchange: '1' });
+        turned = true;
       }
+      legsBySide[side] = twin;
       return;
     }
     var account = lastExchangeAccount_(entries, leg.currency, side);
@@ -300,8 +339,19 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
     EXCHANGE_HOUSE_LEGS_MEMO_ = null;
     results.created++;
     made++;
-    try { sendTelegramEntryNotification_(entry, null, null); } catch (err) { console.error('Telegram notification failed: ' + err); }
+    legsBySide[side] = entry;
   });
+  // Both sides carry one pair id, as the app's own exchange form does, so Needs review, Home and the bot show them as ONE exchange.
+  var outLeg = legsBySide.out, inLeg = legsBySide['in'];
+  if (outLeg && inLeg) {
+    var pairId = String(outLeg.exchange_pair || inLeg.exchange_pair || '') || Utilities.getUuid();
+    [outLeg, inLeg].forEach(function (e) { if (String(e.exchange_pair || '') !== pairId) updateRowFields_('Entries', e.id, { exchange_pair: pairId }); });
+  }
+  // ONE bot message for the exchange (owner, 2026-11-20): it shows both sides, and Confirm / Discard act on both.
+  if (made || turned) {
+    var card = [outLeg, inLeg].map(function (e) { return e ? getEntryById_(e.id) : null; }).filter(function (e) { return e && e.status === 'pending'; })[0];
+    if (card) { try { sendTelegramEntryNotification_(card, null, null); } catch (err) { console.error('Telegram notification failed: ' + err); } }
+  }
   EXCHANGE_HOUSES_MEMO_ = null;
   return made;
 }

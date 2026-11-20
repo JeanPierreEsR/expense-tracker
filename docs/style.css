@@ -1444,6 +1444,8 @@ body.sheet-open {
 .review-item-fields .review-trip,
 .review-item-fields .review-from,
 .review-item-fields .review-to,
+.review-item-fields .review-x-out,
+.review-item-fields .review-x-in,
 .review-item-fields .review-platform,
 .review-item-fields .review-land { grid-column: 1 / -1; }
 .review-item-fields .review-transfer-label { margin: 2px 0 -4px; font-size: 0.75rem; font-weight: 600; }
