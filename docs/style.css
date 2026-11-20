@@ -3742,13 +3742,11 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .pace-screen-body select { width: 100%; }
 #pace-s-other { margin-top: 8px; }
 .home-line-svg.pace-screen-svg { height: 200px; }
-/* "See the statement" (owner, 2026-11-20): the account on top, the bank's pages below; a tap on a page zooms to twice the width. */
-.stmt-viewer #stmt-viewer-scroll { position: relative; overflow-x: auto; }
+/* "See the statement" (owner, 2026-11-20): the account on top, the bank's pages below; two fingers zoom the pages (statements.js). */
+.stmt-viewer #stmt-viewer-scroll { position: relative; overflow-x: auto; touch-action: pan-x pan-y; }
 .stmt-viewer-head { padding-bottom: 8px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
 .stmt-viewer-file { margin: 6px 0 0; overflow-wrap: anywhere; }
-.stmt-viewer-pages .stmt-viewer-page { display: block; width: 100%; height: auto; margin: 0 0 10px; border: 1px solid var(--border); border-radius: var(--r-xs); cursor: zoom-in; }
-.stmt-viewer-pages.zoomed { width: 200%; }
-.stmt-viewer-pages.zoomed .stmt-viewer-page { cursor: zoom-out; }
+.stmt-viewer-pages .stmt-viewer-page { display: block; width: 100%; height: auto; margin: 0 0 10px; border: 1px solid var(--border); border-radius: var(--r-xs); }
 .stmt-see-btn { margin-top: 8px; }
 .pace-days { position: relative; height: 16px; font-size: 0.6875rem; color: var(--muted); }
 .pace-days span { position: absolute; transform: translateX(-50%); }
