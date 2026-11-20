@@ -84,7 +84,10 @@ test("a photo the relay cannot fetch any more: marked failed, the person is aske
 test("a friend's copy with no photo reader says so and queues nothing", () => {
   const a = waApp({ friend: true });
   a.post({ type: "image", media_id: "123456789", text: "" });
-  assert.equal(a.lastBody(), a.rt.run("tr_('whatsapp.photoNoReader')"));
+  // A new person's first message: the answer comes first, then the bot's tour greets (BotTour.gs).
+  const bodies = a.sent.map((m) => (m.text && m.text.body) || (m.interactive && m.interactive.body.text));
+  assert.equal(bodies[0], a.rt.run("tr_('whatsapp.photoNoReader')"));
+  assert.match(a.lastBody(), /tutorial|salir/);
   assert.equal(a.rt.run("SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Photo Jobs') ? getAllRows('Photo Jobs').length : 0"), 0, "nothing queued");
 });
 

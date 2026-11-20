@@ -203,6 +203,7 @@ function handleWhatsAppInbound_(p) {
   var from = String(p.from || '').replace(/\D/g, '');
   if (from) waSetProp_('WA_OWNER_NUMBER', from);   // the relay only forwards the owner's own number(s)
   var wasClosed = !whatsappWindowOpen_();   // before this message re-opens it: says whether the catch-up is about the window
+  var firstEver = !waProp_('WA_LAST_IN');   // the bot's tour starts by itself with a new person's first message (BotTour.gs)
   waSetProp_('WA_LAST_IN', Date.now());
   if (!reviewBotIsWhatsApp_()) {
     // Telegram is the review bot: a photo's card would go to Telegram, so WhatsApp only says where photos are read.
@@ -216,10 +217,14 @@ function handleWhatsAppInbound_(p) {
   // "The bot's last message" is the one the person saw before writing: not the cards the catch-up is about to send.
   p.lastTarget = whatsappLastTarget_();
   whatsappCatchUp_(false, wasClosed);
-  if (p.type === 'interactive' || p.type === 'button') whatsappTap_(String(p.reply_id || ''), p);
-  else if (p.type === 'text' || (p.type === undefined && p.text)) whatsappTextIn_(String(p.text || '').trim(), p);
-  else if (p.type === 'image' && p.media_id) whatsappPhotoIn_(p);
-  else botText_(tr_('whatsapp.onlyText'), p.id);
+  var isText = p.type === 'text' || (p.type === undefined && !!p.text);
+  if (!botTourBefore_(isText ? p.text : '', p, firstEver, !!p.context_id)) {
+    if (p.type === 'interactive' || p.type === 'button') whatsappTap_(String(p.reply_id || ''), p);
+    else if (isText) whatsappTextIn_(String(p.text || '').trim(), p);
+    else if (p.type === 'image' && p.media_id) whatsappPhotoIn_(p);
+    else botText_(tr_('whatsapp.onlyText'), p.id);
+  }
+  botTourAfter_();
   return { handled: true };
 }
 
@@ -264,6 +269,7 @@ function botAwaitingText_(text, p) {
     if (value !== null) {
       whatsappClearAwaiting_();
       whatsappEngineMessage_(p, w.word + ' ' + value, whatsappCardFor_(w.entryId), true);
+      botTourNote_('edited', w.entryId);
       return true;
     }
     // Not a value: re-ask, unless it is a message of its own (then it is handled and the question stays open).
@@ -313,6 +319,7 @@ function whatsappNewPurchase_(text, p) {
   var r = newTypedEntry_(p, 'whatsapp');
   if (!r.saved || !r.entry) { telegramTagAskAfter_ = ''; return botText_(r.reply, p.id); }
   var card = sendTelegramEntryNotification_(r.entry, r.categoryName);
+  botTourNote_('newEntry', r.entry.id);
   var cardId = card && card.ok ? card.result.message_id : '';
   if (r.editMessage) botText_(r.editMessage, cardId || p.id);
   if (telegramTagAskAfter_) { sendTelegramTagAsk_(WA_CHAT_ID_, telegramTagAskAfter_, cardId || null); sendTelegramPlanAsk_(WA_CHAT_ID_, telegramTagAskAfter_, cardId || null); }
@@ -335,6 +342,7 @@ function botListTap_(id, p) {
   var parts = id.split(':');
   var action = parts[0], entryId = parts[1] || '';
   whatsappClearAwaiting_();
+  botTourNote_(action === 'wapick' ? 'edited' : 'touched', entryId);
   if (action === 'waedit') return whatsappEditMenu_(entryId, p.context_id);
   if (action === 'wafield') return whatsappField_(entryId, parts[2], p.id);
   if (action === 'wapage') return whatsappPickList_(entryId, parts[2], Number(parts[3]) || 0, p.id);
@@ -402,6 +410,7 @@ function whatsappPendingEntries_() {
 
 // "pendientes": every waiting entry, newest first, WA_CARDS_PER_BATCH_ at a time.
 function whatsappSendPending_(offset) {
+  botTourNote_('pending');
   var list = whatsappPendingEntries_().sort(function (a, b) { return String(b.created_at).localeCompare(String(a.created_at)); });
   if (!list.length) return botText_(tr_('whatsapp.nothingWaiting'));
   list.slice(offset, offset + WA_CARDS_PER_BATCH_).forEach(function (e) { sendTelegramEntryNotification_(e); });
