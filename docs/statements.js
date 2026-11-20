@@ -834,7 +834,9 @@
     else if (result.verified === false) verdict = `<p class="stmt-verdict warn">${escapeHtml(tr("stmt.verdictWarn"))}</p>`;
     else verdict = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.verdictGood"))}</p>`;
 
-    const warnNotes = (result.warnings || []).map((w) => `<p class="stmt-note warn">${escapeHtml(w)}</p>`).join("");
+    const warnNotes = (result.warnings || []).map((w) => `<p class="stmt-note warn">${escapeHtml(w)}</p>`).join("")
+      + (result.skippedBeforeHistory ? `<p class="stmt-note info">${escapeHtml(tr(result.skippedBeforeHistory === 1 ? "stmt.noteBeforeHistoryOne" : "stmt.noteBeforeHistory",
+        { n: result.skippedBeforeHistory, date: fmtDate(result.historyStart, true) }))}</p>` : "");
     const notes = warnNotes + coverageNotes(result).map(([cls, msg]) => `<p class="stmt-note ${cls}">${msg}</p>`).join("");
     const period = result.period && result.period.end ? `${fmtDate(result.period.start, true)} – ${fmtDate(result.period.end, true)}` : "—";
     const balances = Object.entries(result.balances || {}).map(([cur, b]) => {
@@ -860,6 +862,18 @@
     if (!result.ok) offerSample(body, rows, "unverified", sender);   // a layout we know but cannot make add up: the owner wants to see it too
   }
 
+  // The day the person's history starts = their earliest entry, from the phone's copy of the entries (app.js `searchIndex`, loaded
+  // if it is not yet). SIP's CTS statement lists every movement since the account opened; the older ones are left out (owner,
+  // 2026-11-20). No entries, or the copy cannot be loaded: '' (nothing is left out).
+  async function historyStartDate() {
+    try {
+      if (!Array.isArray(searchIndex)) await syncSearchIndex_();
+      let first = "";
+      (searchIndex || []).forEach((e) => { const d = String(e.date || ""); if (/^\d{4}-\d{2}-\d{2}$/.test(d) && (!first || d < first)) first = d; });
+      return first;
+    } catch (err) { return ""; }
+  }
+
   async function readStatementFile(file) {
     const body = resultCardShell(file.name);
     let cancelled = false;
@@ -881,7 +895,8 @@
       // The one that opened this file goes to the front: it is the likeliest for the next file.
       const opened = typed !== null ? typed : lastTried;
       if (opened !== null) sessionPasswords = [opened].concat(sessionPasswords.filter((p) => p !== opened));
-      const result = StatementParsers.parseStatement(rows);
+      let result = StatementParsers.parseStatement(rows);
+      if (result.ok && result.kind === "sipcts") result = StatementParsers.trimSipCtsToHistory(result, await historyStartDate());
       renderResult(body, result, rows, file);
       if (result.kind && result.ok) {
         // A statement that came from Gmail and was read: its sender is a bank this app now knows (the 15-minute check finds its next ones).
