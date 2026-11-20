@@ -81,6 +81,7 @@
       };
     }
     return task.promise.then(function (doc) {
+      if (opts && opts.onDoc) opts.onDoc(doc);   // the opened document, for drawing its pages ("See the statement")
       var out = [];
       var chain = Promise.resolve();
       for (var p = 1; p <= doc.numPages; p++) {
