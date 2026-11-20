@@ -718,7 +718,7 @@ function renderFriendOptionList_(filterText) {
   if (!found.length) {
     const none = document.createElement("p");
     none.className = "hint";
-    none.textContent = tr(items.length ? "friendPick.none" : "friendPick.empty");
+    none.textContent = tr(items.length ? (screen.noneKey || "friendPick.none") : "friendPick.empty");
     list.appendChild(none);
   }
 }
@@ -773,29 +773,83 @@ function personShortList_(sel, opts) {
   installPersonShort_(sel);
   [...sel.options].filter((x) => x.value === PERSON_MORE_).forEach((x) => x.remove());
   const all = [...sel.options];
-  const isTail = (x) => x.value.startsWith("__");
-  const isFixed = (x) => !x.value || x.disabled || (o.fixed || []).includes(x.value);
+  // A line that is not a choice ("Choose…", "None", "+ Add…") stays where it was: above the list if it stood before the first
+  // choice, below it otherwise (an exchange's "Outside my accounts", a loan's "No account").
+  const special = (x) => !x.value || x.disabled || x.value.startsWith("__") || (o.fixed || []).includes(x.value);
+  const firstChoice = all.findIndex((x) => !special(x));
+  const isFixed = (x) => special(x) && (x.disabled || (o.fixed || []).includes(x.value) || firstChoice < 0 || all.indexOf(x) < firstChoice);
+  const isTail = (x) => special(x) && !isFixed(x);
   const always = (x) => !!(o.always && o.always(x.value));
-  o.people = all.filter((x) => !isTail(x) && !isFixed(x)).map((x) => ({ id: x.value, label: x.textContent }));
+  o.people = all.filter((x) => !special(x)).map((x) => ({ id: x.value, label: x.textContent }));
   o.optionFor = {};
-  all.forEach((x) => { if (!isTail(x) && !isFixed(x)) o.optionFor[x.value] = x; });
+  all.forEach((x) => { if (!special(x)) o.optionFor[x.value] = x; });
   const current = selectValue_.get.call(sel);
   const pickable = o.people.filter((p) => !always(o.optionFor[p.id]));
-  if (pickable.length <= FRIEND_QUICK_) { o.last = current; return; }
-  const top = (o.top ? o.top(pickable) : friendQuickIds_(pickable, FRIEND_QUICK_, o.lastUsed)).filter((id) => o.optionFor[id]);
-  if (current && o.optionFor[current] && !top.includes(current)) top.push(current);
+  // A short list shows everyone, the list's own top first, then the most recently used (owner, 2026-11-19); a long one the top five.
+  const short = pickable.length <= FRIEND_QUICK_;
+  const ranked = (list) => friendQuickIds_(list, list.length, o.lastUsed);
+  let top;
+  if (short) {
+    const lead = o.top ? o.top(pickable).filter((id) => o.optionFor[id]) : [];
+    top = lead.concat(ranked(pickable.filter((p) => !lead.includes(p.id))));
+  } else {
+    top = (o.top ? o.top(pickable) : friendQuickIds_(pickable, FRIEND_QUICK_, o.lastUsed)).filter((id) => o.optionFor[id]);
+    if (current && o.optionFor[current] && !top.includes(current)) top.push(current);
+  }
   const more = document.createElement("option");
   more.value = PERSON_MORE_;
   more.textContent = tr("common.more");
   const order = all.filter(isFixed)
     .concat(top.map((id) => o.optionFor[id]).filter((x) => !always(x)))
-    .concat(all.filter((x) => !isTail(x) && !isFixed(x) && always(x)))
-    .concat([more], all.filter(isTail));
-  sel.innerHTML = "";
-  order.forEach((x) => sel.appendChild(x));
-  selectValue_.set.call(sel, current);
+    .concat(all.filter((x) => !special(x) && always(x)))
+    .concat(short ? [] : [more], all.filter(isTail));
+  if (order.length !== all.length || order.some((x, i) => x !== all[i])) {   // (unchanged: the box is left alone)
+    sel.innerHTML = "";
+    order.forEach((x) => sel.appendChild(x));
+    selectValue_.set.call(sel, current);
+  }
+  sel._shortSig = order.map((x) => x.value).join("\n");
   o.last = current;
 }
+
+// Accounts follow the same rule (owner, 2026-11-19): the five used most recently, then "More…" with every account by name.
+// "Used" = the newest entry on the account, either side of a transfer, from the phone's own copy of the entries; by name until it loads.
+let accountLastUsedCache_ = { src: null, n: -1, map: {} };
+function accountLastUsed_() {
+  const rows = searchIndex || [];
+  const c = accountLastUsedCache_;
+  if (c.src === searchIndex && c.n === rows.length) return c.map;
+  const map = {};
+  rows.forEach((e) => {
+    const when = String(e.date || "") + "|" + String(e.created_at || "");
+    [e.payment_method_id, e.to_payment_method_id].forEach((id) => { if (id && (!map[id] || when > map[id])) map[id] = when; });
+  });
+  accountLastUsedCache_ = { src: searchIndex, n: rows.length, map };
+  return map;
+}
+function accountShortList_(sel) {
+  personShortList_(sel, { lastUsed: (id) => accountLastUsed_()[id] || "", title: () => tr("friendPick.account"), noneKey: "friendPick.noneThing" });
+}
+// Account boxes written as text (Needs review cards, Tidy, an exchange, a trip group) mark their lines data-acct; this shortens them
+// once they are on screen. A box already shortened (it has "More…", or the same lines as last time) is left alone.
+const ACCT_OPT_ = ' data-acct="1"';
+new MutationObserver((muts) => {
+  const boxes = new Set();
+  muts.forEach((m) => {
+    if (m.target.tagName === "SELECT") boxes.add(m.target);
+    m.addedNodes.forEach((n) => {
+      if (n.nodeType !== 1) return;
+      if (n.tagName === "SELECT") boxes.add(n);
+      else if (n.firstElementChild) n.querySelectorAll("select").forEach((b) => boxes.add(b));
+    });
+  });
+  boxes.forEach((b) => {
+    if (!b.isConnected || !b.querySelector("option[data-acct]")) return;
+    const values = [...b.options].map((x) => x.value);
+    if (values.includes(PERSON_MORE_) || b._shortSig === values.join("\n")) return;
+    accountShortList_(b);
+  });
+}).observe(document.body, { childList: true, subtree: true });
 // Code that sets the box to someone not among the five (an entry opened for editing, a draft, a new friend) puts them back in it.
 function installPersonShort_(sel) {
   if (sel._personShortOn) return;
@@ -860,7 +914,7 @@ document.addEventListener("change", (e) => {
   selectValue_.set.call(sel, o.last || "");
   const add = [...sel.options].find((x) => x.value.startsWith("__add") || x.value === "__new__");
   openFriendScreen_({
-    title: o.title ? o.title() : "",
+    title: o.title ? o.title() : "", noneKey: o.noneKey,
     items: o.people || [], current: o.last,
     onPick: (id) => { sel.value = id; sel.dispatchEvent(new Event("change", { bubbles: true })); },
     onAdd: add ? () => { selectValue_.set.call(sel, add.value); sel.dispatchEvent(new Event("change", { bubbles: true })); } : null,
@@ -1938,7 +1992,7 @@ function pmHidden_(pm) { return String(pm.hidden || "") === "yes"; }
 function keepHiddenAccountOption_(selectId, pmId) {
   const pm = pmId && meta.paymentMethods.find((p) => p.id === pmId);
   const select = document.getElementById(selectId);
-  if (!pm || !pmHidden_(pm) || Array.from(select.options).some((o) => o.value === pmId)) return;
+  if (!pm || !pmHidden_(pm) || hasPersonPick_(select, pmId)) return;
   const opt = document.createElement("option");
   opt.value = pm.id;
   opt.textContent = pmPickLabel_(pm);
@@ -1969,6 +2023,7 @@ function populatePaymentMethodOptions() {
   addOpt.value = "__add__";
   addOpt.textContent = tr("common.addPaymentMethod");
   select.appendChild(addOpt);
+  accountShortList_(select);
 }
 
 // Transfers only: "To" is the account the money lands in (see
@@ -2001,6 +2056,7 @@ function populateToPaymentMethodOptions() {
   }
   select.value = previous;
   if (select.value !== previous) select.value = "";
+  accountShortList_(select);
 }
 document.getElementById("to_payment_method").addEventListener("change", (e) => {
   if (e.target.value !== "__add__") return;
@@ -7891,7 +7947,7 @@ document.getElementById("save-failed-banner").addEventListener("click", async ()
 // already set through Telegram.
 function investmentPlatformOptions_(selectedId) {
   const opts = meta.paymentMethods.filter((pm) => pm.type === "investment" && (!pmHidden_(pm) || pm.id === selectedId)).map((pm) =>
-    `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname)}</option>`
+    `<option value="${pm.id}"${ACCT_OPT_} ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname)}</option>`
   );
   return `<option value="">${escapeHtml(tr("review.pickPlatform"))}</option>` + opts.join("");
 }
@@ -7919,7 +7975,7 @@ function reviewTransferSideOptions_(selectedId) {
 }
 function transferAccountOptions_(selectedId, blankLabel) {
   const opts = meta.paymentMethods.filter((pm) => !pmHidden_(pm) || pm.id === selectedId).map((pm) =>
-    `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`
+    `<option value="${pm.id}"${ACCT_OPT_} ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`
   );
   return `<option value="">${blankLabel}</option>` + opts.join("");
 }
@@ -8664,7 +8720,7 @@ var exchangeContext_;
 function exchangeAccountOptions_(selectedId) {
   const own = meta.paymentMethods.filter((pm) => pm.type !== "investment" && (!pmHidden_(pm) || pm.id === selectedId));
   return `<option value="__pick__">${escapeHtml(tr("xch.pickAccount"))}</option>` +
-    own.map((pm) => `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("") +
+    own.map((pm) => `<option value="${pm.id}"${ACCT_OPT_} ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("") +
     `<option value="">${escapeHtml(tr("xch.outside"))}</option>`;
 }
 
@@ -17088,7 +17144,7 @@ function noAcctOptions_(selectedId, investment) {
   const pms = meta.paymentMethods.filter((pm) => (investment || pm.type !== "investment") && (!pmHidden_(pm) || pm.id === selectedId))
     .sort((a, b) => a.nickname.localeCompare(b.nickname));
   return `<option value="">${escapeHtml(tr("noacct.pick"))}</option>` +
-    pms.map((pm) => `<option value="${escapeHtml(pm.id)}"${pm.id === selectedId ? " selected" : ""}>${escapeHtml(pm.nickname)}</option>`).join("");
+    pms.map((pm) => `<option value="${escapeHtml(pm.id)}"${ACCT_OPT_}${pm.id === selectedId ? " selected" : ""}>${escapeHtml(pm.nickname)}</option>`).join("");
 }
 
 function renderNoAccount_() {
@@ -17152,7 +17208,7 @@ document.getElementById("noacct-list").addEventListener("change", (ev) => {
     // change his mind); each can still be changed one by one afterwards.
     all.closest(".noacct-month").querySelectorAll(".noacct-row").forEach((row) => {
       const sel = row.querySelector(".noacct-select");
-      if (!Array.from(sel.options).some((o) => o.value === all.value)) return;
+      if (!hasPersonPick_(sel, all.value)) return;
       sel.value = all.value;
       noAcctPicked_.set(row.dataset.id, all.value);
     });
@@ -18821,7 +18877,7 @@ function whenPickersClosed_(ids, fn) {
 // "nothing chosen" state an iPhone shows as a blank ticked row.
 function setAccountPick_(selectId, id) {
   const sel = document.getElementById(selectId);
-  const has = () => Array.from(sel.options).some((o) => o.value === id);
+  const has = () => hasPersonPick_(sel, id);
   if (id && !has()) { rebuildAccountPickers_(); keepHiddenAccountOption_(selectId, id); }
   sel.value = id;
   if (sel.selectedIndex === -1) { if (selectId === "payment_method") pickDefaultAccount_(); else sel.value = ""; }
@@ -18835,7 +18891,7 @@ function rebuildAccountPickers_() {
   populateToPaymentMethodOptions();
   ["payment_method", "to_payment_method"].forEach((id, k) => {
     const sel = document.getElementById(id);
-    if (keep[k] && Array.from(sel.options).some((o) => o.value === keep[k])) sel.value = keep[k];
+    if (keep[k] && hasPersonPick_(sel, keep[k])) sel.value = keep[k];
   });
 }
 
@@ -20110,7 +20166,7 @@ function renderTripGroupForm_(form, d) {
     <label>${escapeHtml(tr("trips.groupDate"))}</label>
     <input type="date" id="trip-group-date" value="${escapeHtml(todayLocalISO())}">
     <label>${escapeHtml(tr("trips.groupAccount"))}</label>
-    <select id="trip-group-account">${methods.map((pm) => `<option value="${escapeHtml(pm.id)}">${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("")}</select>
+    <select id="trip-group-account">${methods.map((pm) => `<option value="${escapeHtml(pm.id)}"${ACCT_OPT_}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("")}</select>
     <div id="trip-group-cat-block">
       <label>${escapeHtml(tr("trips.groupCategory"))}</label>
       <select id="trip-group-category"></select>
@@ -21700,6 +21756,7 @@ function openProjectModal_(project, companyId, budgets) {
     sel.appendChild(o);
   });
   sel.value = companyId || meta.companies[0].id;
+  businessShortList_(sel, "c:", "friendPick.company");
   document.getElementById("project-name").value = project ? project.name : "";
   document.getElementById("project-emoji").value = project ? (project.emoji || "") : "";
   const clientSel = document.getElementById("project-client");
@@ -22422,7 +22479,7 @@ async function syncExpectedField_() {
   none.value = "";
   none.textContent = tr("xp.pickNone");
   sel.appendChild(none);
-  usable.forEach((x) => {
+  usable.slice().sort((a, b) => String(a.due_date || "").localeCompare(String(b.due_date || ""))).forEach((x) => {   // by due date, oldest first
     const o = document.createElement("option");
     o.value = x.id;
     o.textContent = tr("xp.pickRow", { label: expectedRowLabel_(x), cur: x.currency, amount: moneyFmt(x.state === "open" ? x.remaining : x.amount), date: I18n.fmtDateMedium(new Date(x.due_date + "T00:00:00")) });
@@ -29335,7 +29392,7 @@ function practiceASteps_() {
       before: async () => {   // the practice account is chosen for the person and, as a card, its row is checked "Negative — I owe this"
         const pm = practiceAPm_();
         const picker = document.getElementById("balance-account-picker");
-        if (pm && picker && picker.value !== pm.id && Array.from(picker.options).some((o) => o.value === pm.id)) { picker.value = pm.id; picker.dispatchEvent(new Event("change", { bubbles: true })); }
+        if (pm && picker && picker.value !== pm.id && hasPersonPick_(picker, pm.id)) { picker.value = pm.id; picker.dispatchEvent(new Event("change", { bubbles: true })); }
         await new Promise((r) => setTimeout(r, 150));
         const b = document.querySelector("#balance-rows .balance-row-negative");
         if (b && !b.checked) { b.checked = true; b.dispatchEvent(new Event("change", { bubbles: true })); }
@@ -31469,6 +31526,7 @@ function bankPopulateAccounts_(selectId, keep) {
   none.textContent = tr(accounts.length ? "loanModal.noAccount" : "form.noneAccount");
   sel.appendChild(none);
   sel.value = keep !== undefined && keep !== null && keep !== "" ? keep : (accounts.length ? accounts[0].id : "");
+  accountShortList_(sel);
 }
 
 // ---- A bank loan from before the app (owner, 2026-11-08) ----
@@ -32269,6 +32327,7 @@ function populateLoanPaymentMethodOptions() {
   noneOpt.value = "";
   noneOpt.textContent = tr(accounts.length ? "loanModal.noAccount" : "form.noneAccount");
   select.appendChild(noneOpt);
+  accountShortList_(select);
 }
 
 // The "from before the app" choice: no account (nothing moved now), no automatic due date, and the date is a rough "since when".
@@ -32607,6 +32666,13 @@ function populateLoanProjectOptions_(keep) {
     sel.appendChild(o);
   });
   sel.value = keep || "";
+  businessShortList_(sel, "p:", "friendPick.project");
+}
+
+// Companies and projects follow the people's rule too (owner, 2026-11-19): the five used most recently, then "More…" by name.
+// (The "+" form's Company / project box keeps its own grouped list, already newest first.)
+function businessShortList_(sel, prefix, titleKey) {
+  personShortList_(sel, { lastUsed: (id) => businessLastUsed_()[prefix + id] || "", title: () => tr(titleKey), noneKey: "friendPick.noneThing" });
 }
 
 function closeLoanModal() {
@@ -32814,6 +32880,7 @@ function populateSettlementPaymentMethodOptions() {
     opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
+  accountShortList_(select);
 }
 
 // `type` is "income" (they overpaid you) or "expense" (you overpaid
@@ -33681,6 +33748,7 @@ function populateReviewTransferPaymentMethodOptions() {
     opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
+  accountShortList_(select);
 }
 
 // Did the money of this waiting entry ARRIVE (an income, an investment withdrawal)? Otherwise it left.
@@ -34025,6 +34093,7 @@ async function openBalanceModal(pmId) {
       opt.textContent = pmPickLabel_(pm) + (tracked ? " ✓" : "");
       picker.appendChild(opt);
     });
+    accountShortList_(picker);
     if (!meta.paymentMethods.length) {
       showAppMessage_(tr("balance.noAccounts"));
       return;
@@ -34098,7 +34167,7 @@ document.getElementById("balance-from-stmt-btn").addEventListener("click", () =>
 function openStmtCardBalance_(pmId) {
   openBalanceModal(null);
   const picker = document.getElementById("balance-account-picker");
-  if (![...picker.options].some((o) => o.value === pmId)) return;
+  if (!hasPersonPick_(picker, pmId)) return;
   picker.value = pmId;
   picker.onchange();
 }
