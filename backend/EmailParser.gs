@@ -40,6 +40,18 @@ function extractAmount_(text) {
   };
 }
 
+// An amount that may come with no currency sign (Sip's CTS withdrawal: "Monto de retiro 1234.56"). A sign wins; with none, the
+// plain number is soles unless the e-mail says dollars.
+function ctsAmount_(value, body) {
+  var signed = extractAmount_(value);
+  if (signed) return signed;
+  var m = String(value || '').match(/([\d,]+(?:\.\d{1,2})?)/);
+  if (!m) return null;
+  var amount = parseFloat(m[1].replace(/,/g, ''));
+  if (!(amount > 0)) return null;
+  return { amount: amount, currency: /d[oó]lares|US\$|\bUSD\b/i.test(String(body || '')) ? 'USD' : 'PEN' };
+}
+
 function extractLast4_(text) {
   if (!text) return null;
   var m = text.match(/[*Xx•]{2,}\s*(\d{4})\b/); // Apple prints bullets: "Visa •••• 3052"
@@ -610,6 +622,38 @@ var EMAIL_RULES = [
       };
     }
   },
+  // ---- SIP CTS (2026-11-20, found in the owner's "couldn't read" list) ----
+  // "Constancia de Solicitud de Retiro CTS": money leaves the CTS account ("Cuenta de cargo") for one of the person's own accounts
+  // ("Cuenta de destino"; Sip only pays a withdrawal into an account of the CTS holder), so it is a transfer, never an expense. The
+  // amount ("Monto de retiro 1234.56") carries NO currency sign: soles unless the e-mail says dollars. Dated the day of the request
+  // (the bank says the money can take up to 2 business days). A destination that is not one of the person's accounts keeps the
+  // transfer with To blank (`toOwnAlways`) instead of turning it into an expense.
+  {
+    bank: 'SIP', sender: 'no-reply@servicioalcliente.sip.pe',
+    label: 'Retiro CTS',
+    match: function (subject) { return /solicitud de retiro (de )?cts/i.test(subject); },
+    extract: function (subject, body) {
+      var amt = ctsAmount_(afterLabel_(body, 'Monto de retiro'), body);
+      if (!amt) return null;
+      var request = afterLabel_(body, 'Número de solicitud');
+      return {
+        type: 'transfer', amount: amt.amount, currency: amt.currency,
+        description: 'Retiro CTS',
+        last4: extractAccountLast4_(body, 'Cuenta de cargo'),
+        toLast4: extractAccountLast4_(body, 'Cuenta de destino'),
+        toOwnAlways: true,
+        externalId: request ? 'cts-' + request : null
+      };
+    }
+  },
+  // "Abono semestral CTS": the employer's deposit, but the e-mail names NO amount, so nothing can be recorded from it (the CTS
+  // statement shows it). Ignored on purpose so it is not listed under "Bank emails I couldn't read".
+  {
+    bank: 'SIP', sender: 'no-reply@servicioalcliente.sip.pe',
+    label: 'Abono semestral CTS — IGNORED, the e-mail has no amount',
+    match: function (subject) { return /abono semestral (de )?cts/i.test(subject); },
+    skip: true
+  },
   // ---- SIP (account-level operations, one generic sender/subject) ----
   {
     bank: 'SIP', sender: 'no-reply@operaciones.agora.pe',
@@ -1060,6 +1104,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   if (fields.toLast4) {
     var dests = paymentMethods.filter(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.toLast4) && (!paymentMethod || pm.id !== paymentMethod.id); });
     if (dests.length === 1) { ensureEntriesToPaymentMethodColumn_(); entry.to_payment_method_id = dests[0].id; }
+    else if (fields.toOwnAlways) { /* always one of the person's own accounts: stays a transfer, To left blank for review */ }
     else { entry.type = 'expense'; entry.description = 'Pago de tarjeta …' + fields.toLast4; }
   }
 
