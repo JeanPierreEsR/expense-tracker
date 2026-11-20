@@ -968,10 +968,12 @@
     // Statements still do — a bank's statement is about one account (balances, gaps, coverage).
     const noneOk = screenMode === "import";
     if (!accounts.length && !noneOk) { body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(tr("table.noAccounts"))}</p>`; return; }
-    const guess = StatementTable.guessMapping(rows, {});
+    // Import reads another app's export or a person's own sheet: a few extra guesses (account column by more names, a comments column,
+    // a currency per line). A remembered or known layout keeps its own columns (below).
+    const guess = StatementTable.guessMapping(rows, { importMode: screenMode === "import" });
     const sig = StatementTable.signature(guess, rows);
     const width = guess.headers.length;
-    const state = { balStart: "", balEnd: "", balOpen: false, m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catCustom: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "" };
+    const state = { balStart: "", balEnd: "", balOpen: false, m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catCustom: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "", catDest: {} };
 
     // Where do the columns come from: this layout saved on the server, a layout the app knows by name, or the guess.
     let saved = null;
@@ -979,10 +981,11 @@
     const known = StatementTable.recognize(guess.headers);
     const fromSource = saved && saved.found ? saved.mapping : (known ? known.mapping : null);
     if (fromSource) {
-      ["date", "description", "amount", "out", "in", "currency", "account", "category", "type"].forEach((f) => {
+      ["date", "description", "amount", "out", "in", "currency", "account", "category", "type", "note"].forEach((f) => {
         if (typeof fromSource[f] === "number") state.m[f] = fromSource[f] >= 0 && fromSource[f] < width ? fromSource[f] : -1;
       });
-      ["dateOrder", "decimal", "sign", "currencyFixed", "source"].forEach((f) => { if (fromSource[f]) state.m[f] = fromSource[f]; });
+      if (typeof fromSource.note !== "number") state.m.note = -1;   // a layout remembered before the comments column existed keeps its descriptions
+      ["dateOrder", "decimal", "sign", "currencyFixed", "source", "dollarCurrency"].forEach((f) => { if (fromSource[f]) state.m[f] = fromSource[f]; });
       // A date in THIS file that proves the order (31/10) beats a remembered answer (Mark, re-check 2026-11-18: the remembered
       // month / day dropped that line without a word). Said in the preview.
       if (guess.dateProved && guess.dateOrder && state.m.dateOrder !== guess.dateOrder) { state.m.dateOrder = guess.dateOrder; state.dateFromFile = true; }
@@ -998,6 +1001,9 @@
     // A new layout whose amounts carry a dollar sign starts on dollars: "US$" is USD; a bare "$" is the main currency when that is a
     // dollar-sign currency (pesos…), else USD. Said in the preview, and the currency box can still be changed.
     const DOLLAR_SIGN_CURS = ["USD", "MXN", "CLP", "ARS", "COP", "UYU", "CAD", "AUD", "NZD", "SGD", "HKD", "DOP"];
+    // A file that mixes currency marks: each line takes its own (StatementTable.applyMapping). A bare "$" is asked once, starting on dollars
+    // (or the main currency when that is written with a "$").
+    if (state.m.lineCurrency && state.m.bareDollar && !state.m.dollarCurrency) state.m.dollarCurrency = DOLLAR_SIGN_CURS.includes(homeCur()) ? homeCur() : "USD";
     if (state.source === "new" && guess.currencySign && !state.m.currencyFixed) {
       state.m.currencyFixed = guess.currencySign === "$" && DOLLAR_SIGN_CURS.includes(homeCur()) ? homeCur() : "USD";
       state.signCurrency = state.m.currencyFixed;
@@ -1045,11 +1051,13 @@
       <div class="tm-one">${sel("amount", tr("table.colAmount"), colOptions(state.m.amount, true))}
         ${sel("sign", tr("table.sign"), `<option value="negative">${escapeHtml(tr("table.signNeg"))}</option><option value="positive">${escapeHtml(tr("table.signPos"))}</option>`)}</div>
       <div class="tm-two" hidden>${sel("out", tr("table.colOut"), colOptions(state.m.out, true))}${sel("in", tr("table.colIn"), colOptions(state.m.in, true))}</div>
+      <div class="tm-dollar-box" hidden>${sel("dollar", tr("table.dollarMeans"), currencyOptions(state.m.dollarCurrency || "USD"))}</div>
       <details class="stmt-lines"><summary>${escapeHtml(tr("table.more"))}</summary>
         <label>${escapeHtml(tr("table.layoutName"))}</label><input type="text" class="tm-name" maxlength="60" placeholder="${escapeHtml(tr("table.layoutNameHint"))}" value="${escapeHtml(state.label)}">
         ${sel("acol", tr("table.colAccount"), colOptions(state.m.account, true))}
         <div${screenMode === "import" ? "" : " hidden"}>${sel("cat", tr("table.colCategory"), colOptions(state.m.category, true))}</div>
         ${sel("type", tr("table.colType"), colOptions(state.m.type, true))}
+        <div${screenMode === "import" ? "" : " hidden"}>${sel("note", tr("table.colNote"), colOptions(state.m.note, true))}</div>
         ${sel("currency", tr("table.colCurrency"), colOptions(state.m.currency, true))}
         ${sel("fixed", tr("table.currencyFixed"), currencyOptions(state.m.currencyFixed || homeCur()))}
         ${sel("order", tr("table.dateOrder"), `<option value="dmy">${escapeHtml(tr("table.dmy"))}</option><option value="mdy">${escapeHtml(tr("table.mdy"))}</option>`)}
@@ -1066,6 +1074,7 @@
     const pm = () => accounts.find((a) => a.id === state.accountId) || null;
     const pmById = (id) => accounts.find((a) => a.id === id) || null;
     currencyPickOn_($q("fixed"));
+    currencyPickOn_($q("dollar"));
     const currentMapping = () => ({ ...state.m, currencyFixed: $q("fixed").value });
 
     // A guessed account for a name in the file: the app account whose nickname equals it or contains it (or the other way round).
@@ -1099,6 +1108,7 @@
       setVal("fixed", state.m.currencyFixed || homeCur());
       root.querySelector(".tm-single").hidden = multi();
       root.querySelector(".tm-multi").hidden = !multi();
+      root.querySelector(".tm-dollar-box").hidden = !(state.m.lineCurrency && state.m.bareDollar && state.m.currency < 0);
     }
     // The lines that will be used: for a multi-account file only the names the person assigned (or has not decided yet).
     const skippedCategory = (l) => !!l.category && state.catChoice[(l.amount > 0 ? "income" : "expense") + ":" + StatementTable.catNorm(l.category)] === "skip";
@@ -1116,6 +1126,77 @@
     // default (people are used to the names of their old app); it can be typed over, and a category the app depends on (Bank fees…)
     // keeps its own name.
     const myCategories = (type) => sortedCategories_(pickableCategories_((meta.categories || []).filter((c) => c.type === type)));
+    // ---- where a file's category goes when it is not spending or income (owner, 2026-11-20) ----
+    // A choice that starts with "@" is a place in the app instead of a category: "@loan" (Loans, with a person), "@move" (money moving to
+    // or from another of the person's accounts), "@invest" (Investments), "@review" (Needs review, sorted one by one). Its details live in
+    // state.catDest[key]; they are remembered with the layout under "~dest:<key>". Loans and moves need a backend that saves them.
+    const destCaps = () => !!(((typeof meta !== "undefined" && meta && meta.capabilities) || {}).importDest);
+    const isDest = (c) => typeof c === "string" && c.charAt(0) === "@";
+    const destFriends = () => ((meta && meta.friends) || []).filter((f) => !(typeof isGroupFriend_ === "function" && isGroupFriend_(f)))
+      .slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const destPlatforms = () => (((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).filter((pm) => pm.type === "investment" && !pmHidden_(pm)));
+    function destValid(d) {
+      if (!d || !d.kind) return false;
+      if (d.kind === "loan") return destCaps() && (!d.friendId || destFriends().some((f) => f.id === d.friendId));
+      if (d.kind === "move") return destCaps() && (!d.pmId || accounts.some((a) => a.id === d.pmId));
+      return d.kind === "invest" || d.kind === "review";
+    }
+    function parseDest(text) { try { const d = JSON.parse(String(text || "")); return d && typeof d === "object" ? d : null; } catch (e) { return null; } }
+    // The person the lines of this category name most ("prestamo ana" → Ana), when one stands out.
+    function guessFriendFor(it) {
+      const lines = StatementTable.applyMapping(rows, currentMapping()).lines.filter((l) => l.category && (l.amount > 0 ? "income" : "expense") + ":" + StatementTable.catNorm(l.category) === it.key);
+      let best = "", bestN = 0, tie = false;
+      destFriends().forEach((f) => {
+        const full = normName(f.name), first = full.split(" ")[0];
+        if (!first || first.length < 2) return;
+        const re = new RegExp("(^|[^a-z0-9])(" + full.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "|" + first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")([^a-z0-9]|$)");
+        const n = lines.filter((l) => re.test(normName(l.description))).length;
+        if (n > bestN) { best = f.id; bestN = n; tie = false; } else if (n && n === bestN) tie = true;
+      });
+      return bestN && !tie ? best : "";
+    }
+    function familyDest(it) {
+      const fam = it.family;
+      if (fam === "invest") return { kind: "invest", platformId: "" };
+      if (!destCaps()) return fam === "loan" || fam === "repay" || fam === "saving" || fam === "cash" ? { kind: "review" } : null;
+      if (fam === "loan" || fam === "repay") return { kind: "loan", friendId: guessFriendFor(it), loanKind: fam === "repay" ? "repayment" : "loan" };
+      const others = accounts.filter((a) => a.id !== state.accountId);
+      if (fam === "saving") { const a = others.find((x) => /ahorro|saving/.test(normName(x.nickname))); return { kind: "move", pmId: a ? a.id : "" }; }
+      if (fam === "cash") { const a = others.find((x) => x.type === "cash"); return { kind: "move", pmId: a ? a.id : "" }; }
+      return null;
+    }
+    const destMissing = () => state.catItems.some((it) => {
+      const c = state.catChoice[it.key], d = state.catDest[it.key] || {};
+      return (c === "@loan" && !d.friendId) || (c === "@move" && !d.pmId);
+    });
+    function destHtml(it) {
+      const c = state.catChoice[it.key], d = state.catDest[it.key] || {};
+      if (c === "@loan") {
+        const out = it.type === "expense";
+        return `<label>${escapeHtml(tr("table.destWho"))}</label><select class="tm-dfriend"><option value="">${escapeHtml(tr("table.destPickPerson"))}</option>${destFriends().map((f) => `<option value="${escapeHtml(f.id)}"${f.id === d.friendId ? " selected" : ""}>${escapeHtml(f.name)}</option>`).join("")}</select>
+          <label>${escapeHtml(tr("table.destKind"))}</label><select class="tm-dkind"><option value="loan"${d.loanKind !== "repayment" ? " selected" : ""}>${escapeHtml(tr(out ? "table.destOutLoan" : "table.destInLoan"))}</option><option value="repayment"${d.loanKind === "repayment" ? " selected" : ""}>${escapeHtml(tr(out ? "table.destOutRepay" : "table.destInRepay"))}</option></select>`;
+      }
+      if (c === "@move") {
+        return `<label>${escapeHtml(tr(it.type === "expense" ? "table.destMoveTo" : "table.destMoveFrom"))}</label><select class="tm-dpm"><option value="">${escapeHtml(tr("table.destPickAccount"))}</option>${accounts.filter((a) => a.id !== state.accountId).map((a) => `<option value="${escapeHtml(a.id)}"${a.id === d.pmId ? " selected" : ""}>${escapeHtml(a.nickname)}</option>`).join("")}</select>`;
+      }
+      if (c === "@invest") {
+        const plats = destPlatforms();
+        return plats.length ? `<label>${escapeHtml(tr("table.destPlatform"))}</label><select class="tm-dplat"><option value="">${escapeHtml(tr("table.destNoPlatform"))}</option>${plats.map((pl) => `<option value="${escapeHtml(pl.id)}"${pl.id === d.platformId ? " selected" : ""}>${escapeHtml(pl.nickname)}</option>`).join("")}</select>` : "";
+      }
+      return "";
+    }
+    // What the save sends (result.catDest) and what the layout remembers ("~dest:<key>", "" = none any more).
+    function destsToSend() {
+      const out = {};
+      state.catItems.forEach((it) => { const c = state.catChoice[it.key]; if (isDest(c)) out[it.key] = { ...(state.catDest[it.key] || {}), kind: c.slice(1) }; });
+      return out;
+    }
+    function destFlags() {
+      const out = {};
+      state.catItems.forEach((it) => { const c = state.catChoice[it.key]; out["~dest:" + it.key] = isDest(c) ? JSON.stringify({ ...(state.catDest[it.key] || {}), kind: c.slice(1) }) : ""; });
+      return out;
+    }
+    const plainChoices = (choices) => Object.fromEntries(Object.entries(choices).filter(([, v]) => v !== "skip" && !isDest(v)));
     let catTimer = null;
     function fileCategoryNames() {
       if (state.m.category < 0) return [];
@@ -1162,6 +1243,11 @@
       const valid = (c) => c === "create" || c === "" || state.catInfo.some((x) => x.id === c);   // "skip" is never remembered: leaving lines out is decided per file
       state.catItems.forEach((it) => {
         const remembered = state.catSaved[it.key];
+        const savedDest = parseDest(state.catSaved["~dest:" + it.key]);
+        if (state.catChoice[it.key] === undefined && savedDest && destValid(savedDest)) {   // remembered with the layout: the same place again
+          state.catChoice[it.key] = "@" + savedDest.kind; state.catDest[it.key] = savedDest; state.catNames[it.key] = "";
+          return;
+        }
         if (state.catChoice[it.key] === undefined) {
           state.catChoice[it.key] = remembered !== undefined && valid(remembered) ? remembered : (it.action === "match" ? it.categoryId : it.action === "create" ? "create" : "");
           const info = catInfo(state.catChoice[it.key]);
@@ -1172,9 +1258,13 @@
           state.catNames[it.key] = info && mine && !alreadyMine && !info.protected ? mine : defaultNameFor(it, state.catChoice[it.key]);
           const custom = state.catSaved["~custom:" + it.key];                // a new category the person named themselves last time
           if (state.catChoice[it.key] === "create" && custom) { state.catCustom[it.key] = true; state.catNames[it.key] = custom; }
+          // Not spending or income (a loan, savings, cash, an investment): the matching place in the app is suggested, shown open.
+          const fd = remembered === undefined && it.action !== "match" && screenMode === "import" ? familyDest(it) : null;
+          if (fd) { state.catChoice[it.key] = "@" + fd.kind; state.catDest[it.key] = fd; state.catNames[it.key] = ""; }
         }
       });
       renderCategories();
+      renderPreview();   // a place that still needs a person or an account holds the button
     }
     // What a row will do to its category's name: { from, to } for a rename, else null.
     function renameOf(it) {
@@ -1194,12 +1284,12 @@
     }
     const shownName = (name, type) => ambiguousNames().has(StatementTable.catNorm(name)) ? `${name} ${tr(type === "income" ? "table.catIncomeTag" : "table.catExpenseTag")}` : name;
     function categorySummary() {
-      let used = 0, created = 0, left = 0, renamed = 0, skipped = 0;
+      let used = 0, created = 0, left = 0, renamed = 0, skipped = 0, dest = 0;
       state.catItems.forEach((it) => {
         const c = state.catChoice[it.key];
-        if (c === "create") created++; else if (c === "") left++; else if (c === "skip") skipped++; else { used++; if (renameOf(it)) renamed++; }
+        if (c === "create") created++; else if (c === "") left++; else if (c === "skip") skipped++; else if (isDest(c)) dest++; else { used++; if (renameOf(it)) renamed++; }
       });
-      return tr(renamed ? "table.catSummaryRenamed" : "table.catSummary", { used, renamed, created, left }) + (skipped ? " · " + tr("table.catSummarySkipped", { n: skipped }) : "");
+      return tr(renamed ? "table.catSummaryRenamed" : "table.catSummary", { used, renamed, created, left }) + (dest ? " · " + tr("table.catSummaryDest", { n: dest }) : "") + (skipped ? " · " + tr("table.catSummarySkipped", { n: skipped }) : "");
     }
     // What the row will do, said from the file's side: the file's category is the subject, the person's existing one is what it joins.
     // What the "Goes into" list shows for a row: a category as it is, the same category renamed to the file's name ("ren:<id>"), a new category
@@ -1213,6 +1303,7 @@
     function rowHint(it) {
       const c = state.catChoice[it.key];
       if (c === "skip") return tr("table.catSkipHint", { n: it.count });
+      if (isDest(c)) return tr("table.destHint." + c.slice(1));
       if (c === "") return tr(it.why === "retired" ? "table.catWhyRetired" : "table.catLeaveHint");
       const typed = String(state.catNames[it.key] || "").replace(/\s+/g, " ").trim() || it.name;
       if (c === "create") return tr("table.catWhyNew", { name: shownName(typed, it.type) });
@@ -1254,7 +1345,12 @@
             `<option value="${escapeHtml(c.id)}"${selVal === c.id ? " selected" : ""}>${escapeHtml(catOptionText_(c) + n)}</option>`;
         }).join("");
         const nameInput = selVal === "custom" ? `<label>${escapeHtml(tr("table.catCustomLabel"))}</label><input type="text" class="tm-cname" maxlength="40" aria-label="${escapeHtml(tr("table.catName"))}" value="${escapeHtml(state.catNames[it.key] || "")}">` : "";
-        const note = it.why === "retired" ? `<p class="stmt-note warn" style="margin:6px 0">${escapeHtml(tr("table.catLoanNote"))}</p>` : "";
+        const note = isDest(cur) && it.family ? `<p class="stmt-note info" style="margin:6px 0">${escapeHtml(tr("table.destNote"))}</p>`
+          : it.why === "retired" && !isDest(cur) ? `<p class="stmt-note warn" style="margin:6px 0">${escapeHtml(tr("table.catLoanNote"))}</p>` : "";
+        const destOpts = screenMode === "import" ? `<optgroup label="${escapeHtml(tr("table.destGroup"))}">
+            ${destCaps() ? `<option value="@loan"${cur === "@loan" ? " selected" : ""}>${escapeHtml(tr("table.destLoan"))}</option><option value="@move"${cur === "@move" ? " selected" : ""}>${escapeHtml(tr("table.destMove"))}</option>` : ""}
+            <option value="@invest"${cur === "@invest" ? " selected" : ""}>${escapeHtml(tr("table.destInvest"))}</option>
+            <option value="@review"${cur === "@review" ? " selected" : ""}>${escapeHtml(tr("table.destReview"))}</option></optgroup>` : "";
         return `<div class="tm-cat-row" data-key="${escapeHtml(it.key)}" style="margin-bottom:14px">
           <div><span class="hint" style="margin-right:6px">${escapeHtml(tr("table.catFromFile"))}</span><strong>${escapeHtml(shownName(it.name, it.type))}</strong> <span class="hint">· ${escapeHtml(tr("table.catLines", { n: it.count }))}</span></div>
           ${note}
@@ -1263,15 +1359,19 @@
             <option value="create"${selVal === "create" ? " selected" : ""}>${escapeHtml(tr("table.catCreate", { name: it.name }))}</option>
             <option value="custom"${selVal === "custom" ? " selected" : ""}>${escapeHtml(tr("table.catCustom"))}</option>
             <option value=""${selVal === "" ? " selected" : ""}>${escapeHtml(tr("table.catLeave"))}</option>
-            <option value="skip"${selVal === "skip" ? " selected" : ""}>${escapeHtml(tr("table.catSkip"))}</option></select>
-          ${nameInput}
+            <option value="skip"${selVal === "skip" ? " selected" : ""}>${escapeHtml(tr("table.catSkip"))}</option>${destOpts}</select>
+          ${nameInput}${destHtml(it)}
           <p class="hint tm-cat-hint" style="margin:2px 0 0">${escapeHtml(rowHint(it))}</p></div>`;
       };
       const groupHtml = (type) => {
         const items = state.catItems.filter((it) => it.type === type);
         return items.length ? `<h4 class="accounts-group-title">${escapeHtml(tr(type === "income" ? "table.catGroupIncome" : "table.catGroupExpense"))}</h4>${items.map(rowHtml).join("")}` : "";
       };
-      const open = nameConflicts().length > 0 || (!Object.keys(state.catSaved).length && state.catItems.some((it) => state.catChoice[it.key] === "create" || renameOf(it) || it.why === "retired"));
+      const open = nameConflicts().length > 0 || destMissing() || (!Object.keys(state.catSaved).length && state.catItems.some((it) => state.catChoice[it.key] === "create" || renameOf(it) || it.why === "retired" || isDest(state.catChoice[it.key])));
+      setTimeout(() => {   // the five people used most recently, then More… (one friends screen); accounts the same way
+        box.querySelectorAll(".tm-dfriend").forEach((sel) => { if (typeof personShortList_ === "function") personShortList_(sel); });
+        box.querySelectorAll(".tm-dpm").forEach((sel) => { if (typeof accountShortList_ === "function") accountShortList_(sel); });
+      });
       box.innerHTML = `<p class="stmt-note info tm-cat-summary">${escapeHtml(categorySummary())}</p>
         <div class="tm-cat-conflict-box">${conflictHtml()}</div>
         <details class="stmt-lines tm-cat-details"${open ? " open" : ""}><summary>${escapeHtml(tr("table.catReview"))}</summary>${groupHtml("expense")}${groupHtml("income")}
@@ -1288,7 +1388,6 @@
       return out;
     }
     // Remembered per name: did the person let the app's category be renamed (true) or keep its own name (false)?
-    const withoutSkips = (choices) => Object.fromEntries(Object.entries(choices).filter(([, v]) => v !== "skip"));
     function renameFlags() {
       const out = {};
       state.catItems.forEach((it) => { if (state.catChoice[it.key] === "create") out["~custom:" + it.key] = state.catCustom[it.key] ? String(state.catNames[it.key] || "").trim() : ""; });
@@ -1340,7 +1439,7 @@
         return;
       }
       const needCategory = screenMode === "import" && state.m.category < 0;   // another app's export names a category for every line
-      use.disabled = needCategory || (multi() ? (undecided > 0 || !lines.length) : (!noneOk && !pm()));
+      use.disabled = needCategory || destMissing() || (multi() ? (undecided > 0 || !lines.length) : (!noneOk && !pm()));
       // Not blocking, only a heads-up: with accounts set up, a person usually wants the entries on one of them.
       // An import may leave a name of the file's account column with no account: say how many lines that is, before saving.
       const noAcctLines = multi() && noneOk ? lines.filter((l) => !state.map[l.account]).length : 0;
@@ -1353,13 +1452,16 @@
         <div class="stmt-kv"><span>${escapeHtml(tr("table.out"))}</span><span>${escapeHtml(sum("out"))}</span></div>
         <div class="stmt-kv"><span>${escapeHtml(tr("table.in"))}</span><span>${escapeHtml(sum("in"))}</span></div>
         ${skippedFold(r.skipped.filter((x) => x.reason !== "transfer"))}
+        ${r.skipped.some((x) => x.reason === "amountUnclear") ? `<p class="stmt-note warn">${escapeHtml(tr("table.warnUnclear", { n: r.skipped.filter((x) => x.reason === "amountUnclear").length }))}</p>` : ""}
         ${fileWarnings(lines)}
         ${r.skipped.some((x) => x.reason === "transfer") ? `<p class="stmt-note warn">${escapeHtml(tr("table.transferNoDirection", { n: r.skipped.filter((x) => x.reason === "transfer").length }))}</p>` : ""}
         ${lines.some((l) => l.transfer) ? `<p class="stmt-note info">${escapeHtml(tr("table.transfersMarked", { n: lines.filter((l) => l.transfer).length }))}</p>` : ""}
         ${(state.source === "new" || state.dateFromFile) && guess.dateProved && !state.dateAnswered && state.m.dateOrder === guess.dateOrder ? `<p class="stmt-note info">${escapeHtml(tr(state.m.dateOrder === "mdy" ? "table.datesReadMdy" : "table.datesReadDmy"))}</p>` : ""}
-        ${guess.currencyMixed && state.m.currency < 0 ? `<p class="stmt-note warn">${escapeHtml(tr("table.mixedCur", { signs: guess.currencyMixed, cur: m.currencyFixed || homeCur() }))}</p>` : ""}
+        ${state.m.lineCurrency && state.m.currency < 0 ? `<p class="stmt-note info">${escapeHtml(lineCurrencyText(lines, m))}</p>` : ""}
+        ${guess.currencyMixed && state.m.currency < 0 && !state.m.lineCurrency ? `<p class="stmt-note warn">${escapeHtml(tr("table.mixedCur", { signs: guess.currencyMixed, cur: m.currencyFixed || homeCur() }))}</p>` : ""}
         ${state.signCurrency && m.currencyFixed === state.signCurrency && state.m.currency < 0 ? `<p class="stmt-note info">${escapeHtml(tr("table.readAsSign", { cur: state.signCurrency, sign: guess.currencySign }))}</p>` : ""}
         ${needCategory ? `<p class="stmt-note warn">${escapeHtml(tr("imp.needCategory"))}</p>` : ""}
+        ${destMissing() ? `<p class="stmt-note warn">${escapeHtml(tr("table.destMissing"))}</p>` : ""}
         ${noAccountNote}
         ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
         ${multi() && noneOk && noAcctLines ? `<p class="stmt-note warn">${escapeHtml(tr("imp.noAccountLines", { n: noAcctLines }))}</p>` : ""}
@@ -1368,6 +1470,13 @@
         ${lines.slice(0, 5).map((l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`).join("")}
         ${balanceCheckHtml(lines)}`;
       lastPreviewLines = lines;
+    }
+    // "Each line keeps the currency written on its amount: 312 in PEN · 4 in USD. Lines with no mark: PEN."
+    function lineCurrencyText(lines, m) {
+      const n = {};
+      lines.forEach((l) => { n[l.currency] = (n[l.currency] || 0) + 1; });
+      const list = Object.keys(n).sort((a, b) => n[b] - n[a]).map((c) => tr("table.lineCurrencyCount", { n: n[c], cur: c })).join(" · ");
+      return tr("table.lineCurrency", { list, cur: m.currencyFixed || homeCur() });
     }
     // ---- quick troubleshooting of a spreadsheet (owner, 2026-11-17, after the journeys run): a spreadsheet has no totals the app can
     // check, so the preview names every line it left out and why, warns about what usually means a wrong reading, and can check the
@@ -1437,9 +1546,30 @@
       else if (cls === "currency") state.m.currency = Number(v);
       else if (cls === "acol") { state.m.account = Number(v); renderValues(); syncControlsFromState(); }
       else if (cls === "type") state.m.type = Number(v);
+      else if (cls === "note") state.m.note = Number(v);
+      else if (cls === "dollar") state.m.dollarCurrency = v;
+      else if (cls === "dfriend" || cls === "dkind" || cls === "dpm" || cls === "dplat") {
+        const row = e.target.closest(".tm-cat-row"), key = row.dataset.key;
+        const d = state.catDest[key] || (state.catDest[key] = {});
+        if (cls === "dfriend") d.friendId = v; else if (cls === "dkind") d.loanKind = v; else if (cls === "dpm") d.pmId = v; else d.platformId = v;
+        refreshCategoryRow(row);
+        renderPreview();
+        return;
+      }
       else if (cls === "cchoice") {
         const row = e.target.closest(".tm-cat-row"), it = state.catItems.find((x) => x.key === row.dataset.key);
         state.catCustom[it.key] = false;
+        if (isDest(v)) {
+          const kind = v.slice(1), was = state.catDest[it.key];
+          state.catChoice[it.key] = v; state.catNames[it.key] = "";
+          if (!was || was.kind !== kind) {
+            const fd = familyDest(it);
+            state.catDest[it.key] = fd && fd.kind === kind ? fd : { kind, loanKind: "loan" };
+          }
+          renderCategories();
+          renderPreview();
+          return;
+        }
         if (v === "custom") { state.catChoice[it.key] = "create"; state.catCustom[it.key] = true; if (!state.catNames[it.key]) state.catNames[it.key] = it.name; }
         else if (v === "create") { state.catChoice[it.key] = "create"; state.catNames[it.key] = it.name; }
         else if (v === "" || v === "skip") { state.catChoice[it.key] = v; state.catNames[it.key] = ""; }
@@ -1514,15 +1644,15 @@
         const accountKey = a ? tableAccountKey(a) : NO_ACCOUNT_KEY;
         results.push({ name: byAccount.size > 1 ? `${file.name} · ${a ? a.nickname : tr("imp.noAccountOption")}` : file.name,
           result: { kind: "csv", ok: true, verified: false, accountKey, account: { last4: /^\d{4}$/.test(accountKey) ? accountKey : "" }, holder: "",
-            period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [], source: state.m.source === "app" ? "app" : "", categoryMap: withoutSkips(state.catChoice), categoryNames: namesToSend() } });
+            period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [], source: state.m.source === "app" ? "app" : "", categoryMap: plainChoices(state.catChoice), categoryNames: namesToSend(), catDest: destsToSend() } });
       });
       // Remember the layout in the Sheet, under the name the person gave it (else the known name, else the account's name).
       const typed = $q("name").value.trim();
       const label = typed || state.label || (byAccount.size === 1 && pmById([...byAccount.keys()][0]) ? pmById([...byAccount.keys()][0]).nickname : "") || "";
       const accountsToSave = multi() ? { ...state.map } : { "*": state.accountId };
-      callApi("saveStatementFormat", { signature: sig, label, accounts: accountsToSave, categories: { ...state.catSaved, ...withoutSkips(state.catChoice), ...renameFlags() },
+      callApi("saveStatementFormat", { signature: sig, label, accounts: accountsToSave, categories: { ...state.catSaved, ...plainChoices(state.catChoice), ...renameFlags(), ...destFlags() },
         mapping: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, account: m.account, category: m.category, type: m.type,
-          dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed, source: m.source || "" } }).catch(() => {});
+          note: m.note, dateOrder: m.dateOrder, decimal: m.decimal, sign: m.sign, currencyFixed: m.currencyFixed, dollarCurrency: m.dollarCurrency || "", source: m.source || "" } }).catch(() => {});
       if (StatementTable.PRACTICE_FILE_NAMES.includes(file.name)) practiceINote_("used");   // the practice file's layout was just remembered: its cleanup forgets it
       // A re-read of the same card replaces its earlier reading.
       const slot = body.dataset.slot;
@@ -1541,7 +1671,7 @@
     loadCategories();
     syncControlsFromState();
     setVal("out", state.m.out); setVal("in", state.m.in); setVal("amount", state.m.amount); setVal("desc", state.m.description); setVal("date", state.m.date); setVal("currency", state.m.currency);
-    setVal("acol", state.m.account); setVal("cat", state.m.category); setVal("type", state.m.type);
+    setVal("acol", state.m.account); setVal("cat", state.m.category); setVal("type", state.m.type); setVal("note", state.m.note);
     if (state.accountId && !remembered) applyAccountGuess();
     syncControlsFromState();
     renderPreview();
@@ -1635,6 +1765,8 @@
     out.innerHTML = loadingHtml(tr("hist.planning")) + `<p class="hint">${escapeHtml(tr("hist.keepOpen"))}</p>`;
     try {
       historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis(), startBank: true });
+      // Lines whose file category the person already sent to a place in the app (Loans, another account…) are not offered again as income.
+      ["incomeLines", "peopleOut"].forEach((k) => { if (historyPlan.summary[k]) historyPlan.summary[k] = historyPlan.summary[k].filter((x) => !lineDest(x.stmt, x.line)); });
       dueTyped = {};
       historyPlan.platform = new Map();    // index into summary.aside -> investment platform the person picked (else the guess is used)
       historyPlan.incMode = new Map();     // index into summary.incomeLines -> "transfer" | "investment" | "review" | "leave" (absent = income, the default)
@@ -1881,6 +2013,27 @@
     return linked;
   }
 
+  // Where an imported line goes when the person sent its file category to a place in the app (renderTableMapping's "@" choices):
+  // { kind: "loan" | "move" | "invest" | "review", … } or null.
+  function lineDest(stmt, line) {
+    const u = usable[stmt], d = u && u.result && u.result.catDest;
+    if (!d) return null;
+    const l = u.result.lines[line];
+    if (!l || !l.category) return null;
+    return d[(l.amount > 0 ? "income" : "expense") + ":" + StatementTable.catNorm(l.category)] || null;
+  }
+  // The action that replaces a line's default expense / income for that place.
+  function destAction(a) {
+    if (a.stmt === undefined || (a.type !== "add_history_expense" && a.type !== "add_history_income")) return a;
+    const d = lineDest(a.stmt, a.line);
+    if (!d) return a;
+    const at = { stmt: a.stmt, line: a.line };
+    if (d.kind === "review") return { type: "add_history_pending", ...at };
+    if (d.kind === "invest") return { type: "add_history_investment", ...at, platformId: d.platformId || "" };
+    if (d.kind === "move" && d.pmId) return { type: "record_move", ...at, otherPmId: d.pmId };
+    if (d.kind === "loan" && d.friendId) return { type: "record_loan_line", ...at, friendId: d.friendId, kind: d.loanKind === "repayment" ? "repayment" : "loan" };
+    return a;
+  }
   function historyActions(withBalances = true) {
     const p = historyPlan, aside = p.summary.aside || [];
     const linked = linkedKeys();
@@ -1927,7 +2080,7 @@
       if (chargeKeys[lineKey(a)]) return false;                 // a transfer pair carries out/in instead of stmt/line
       const k = lineKey(a);
       return !linked[k] && !(a.type === "wait" && taken[k]) && !(a.type === "add_history_expense" && takenOut[k]) && !(a.type === "add_history_income" && takenInc[k]);
-    });
+    }).map(destAction);
     const optIns = [];
     // The action each choice stands for on a line that is counted by default (a payment you made to a person, or income).
     const choiceAction = (line, mode) => (mode === "transfer" ? line.optInTransfer : mode === "investment" ? line.optInInvestment : mode === "review" ? line.optInReview : line.optInLeave);
@@ -2077,7 +2230,7 @@
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
-    const c = { charges: 0, discounts: 0, recharges: 0, currencyFixed: 0, accountsFilled: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
+    const c = { loans: 0, charges: 0, discounts: 0, recharges: 0, currencyFixed: 0, accountsFilled: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
         const l = usable[a.stmt].result.lines[a.line];
@@ -2090,6 +2243,8 @@
       else if (a.type === "record_transfer_leg") c.legs++;
       else if (a.type === "add_history_investment") { c.investments++; if (!a.platformId) c.pendingInvestments++; }
       else if (a.type === "add_history_pending") c.pending++;
+      else if (a.type === "record_move") c.transfers++;
+      else if (a.type === "record_loan_line") c.loans++;
       else if (a.type === "ignore") c.left++;
       else if (a.type === "record_exchange") c.exchanges++;
       else if (a.type === "record_fee") c.fees++;
@@ -2100,7 +2255,7 @@
       else if (a.type === "assign_account") c.accountsFilled++;
       else if (["link", "complete_transfer"].includes(a.type)) c.linked++;
     });
-    c.entries = c.expenses + c.income + c.refunds + c.refundIncome + c.transfers + c.legs + c.investments + c.pending + 2 * c.exchanges + c.fees;
+    c.entries = c.expenses + c.income + c.refunds + c.refundIncome + c.transfers + c.legs + c.investments + c.pending + 2 * c.exchanges + c.fees + c.loans;
     c.reviewTotal = c.legs + c.pending + c.pendingInvestments;   // entries that will wait in Needs review for the person to finish
     return c;
   }
@@ -2514,6 +2669,7 @@
     if (c.transfers) lines.push(tr("hist.sum.transfers", { n: c.transfers }));
     if (c.legs) lines.push(tr("hist.sum.legs", { n: c.legs }));
     if (c.investments) lines.push(tr("hist.sum.investments", { n: c.investments }));
+    if (c.loans) lines.push(tr("hist.sum.loans", { n: c.loans }));
     if (c.exchanges) lines.push(tr("hist.sum.exchanges", { n: c.exchanges }));
     if (c.fees) lines.push(tr("hist.sum.fees", { n: c.fees }));
     if (c.pending) lines.push(tr("hist.sum.pending", { n: c.pending }));
@@ -2621,12 +2777,14 @@
       const res = await callApi("applyStatementDecisions", payload(false));
       lastBatchId = res.batchId;
       practiceINote_("saved", res.batchId);
-      const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0) + (res.created.investments || 0) + (res.created.pending || 0);
+      const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0) + (res.created.investments || 0) + (res.created.pending || 0) + (res.created.loans || 0) + (res.created.repayments || 0);
       // Say what did NOT happen too: entries waiting for the person in Needs review, and lines that were not added.
       const used = new Set(historyActions().filter((a) => a.type !== "wait" && a.stmt !== undefined).map(lineKey));
       const notAdded = (historyPlan.summary.aside || []).filter((a) => !used.has(lineKey(a))).length + historyCounts().left;
       const waiting = res.pendingCount || 0;
-      const outcome = (waiting ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedPending", { n: waiting }))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-goreview-btn">${escapeHtml(tr("added.goReview"))}</button></div>` : "")
+      // A loan or repayment the Loans code refused (a friend deleted meanwhile…): named, the rest is saved and Undo still removes it all.
+      const loanFails = (res.loanFailures || []).map((f) => tr("hist.loanFailedLine", { date: fmtDate(f.date, true), name: f.description, amount: fmtMoney(f.currency, Math.abs(f.amount)), friend: f.friend, error: f.error }));
+      const outcome = (loanFails.length ? `<p class="stmt-note warn">${escapeHtml(tr("hist.loanFailed", { n: loanFails.length }))}<br>${loanFails.map(escapeHtml).join("<br>")}</p>` : "") + (waiting ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedPending", { n: waiting }))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-goreview-btn">${escapeHtml(tr("added.goReview"))}</button></div>` : "")
         + (res.chargesFilled ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.charges", { n: res.chargesFilled }))}</p>` : "")
         + (res.discounts ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.discounts", { n: res.discounts }))}</p>` : "")
         + (res.recharges ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.recharges", { n: res.recharges }))}</p>` : "")
