@@ -233,7 +233,11 @@ function unreadIsNotPayment_(sender, subject) {
   var statement = (typeof STATEMENT_LINK_SENDERS_ !== 'undefined' ? STATEMENT_LINK_SENDERS_ : []).some(function (spec) {
     return spec.address === from && spec.subject.test(subj);
   });
-  return statement || UNREAD_NOT_PAYMENTS_.some(function (n) { return n.sender === from && n.subject.test(subj); });
+  // An account statement e-mailed by a bank the Statements inbox watches (2026-11-20): the inbox takes its PDF; it is not a payment.
+  var mailed = /estado de cuenta/i.test(subj) && (typeof STATEMENT_SENDERS_ !== 'undefined' ? STATEMENT_SENDERS_ : []).some(function (s) {
+    return s.address === from;
+  });
+  return statement || mailed || UNREAD_NOT_PAYMENTS_.some(function (n) { return n.sender === from && n.subject.test(subj); });
 }
 
 function logUnreadEmail_(sender, subject, kind, dateStr) {

@@ -24,7 +24,7 @@ function bankKindOfRule_(rule) {
   if (/pago de (tarjeta|deuda)/.test(label)) return 'card_payment';
   if (/seguro/.test(label)) return 'insurance';
   if (/pago de servicio/.test(label)) return 'bill';
-  if (/transferencia|enviar a celular/.test(label)) return 'transfer_out';
+  if (/transferencia|enviar a celular|retiro cts/.test(label)) return 'transfer_out';
   if (/consumo/.test(label)) return 'purchase';
   if (/recibo|viaje/.test(label)) return 'receipt';
   return 'other';
