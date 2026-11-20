@@ -14,7 +14,9 @@
  *   2. Programmed items — an active recurring/programmed expense with the
  *      same currency, an amount within RECURRING_MATCH_TOLERANCE, and an
  *      occurrence within RECURRING_MATCH_DAY_WINDOW days of the email's
- *      date; used only when every matching item agrees on one category.
+ *      date, AND a payee alike the item's name or one of its past payees
+ *      (2026-11-20, payeesAlike_); used only when every matching item
+ *      agrees on one category.
  *   3. Otherwise blank — a wrong default is worse than none.
  *
  * The Category Keywords sheet is no longer consulted (owner's decision,
@@ -120,8 +122,9 @@ function telegramAutoReason_(guess) {
   return guess && guess.quiet ? true : (guess ? guess.reason : '');
 }
 
-// mode 'payee' (PROPOSED 2026-11-20, not used by the live guess yet; see programmedGuessBacktest_): a Programmed item matches
-// only a payee alike its name or alike a payee it was paid to before (payeesAlike_). Without a merchant
+// mode 'payee' (live since 2026-11-20, owner's go after programmedGuessBacktest_ on his entries: wrong guesses 41 -> 0, right
+// 28 -> 20): a Programmed item matches only a payee alike its name or alike a payee it was paid to before (payeesAlike_).
+// Without a mode (the backtest's 'old', and statement lines, which pass no merchant) amount + date alone. Without a merchant
 // (statement lines) the old amount + date match stays.
 function guessFromProgrammed_(fields, dateStr, ctx, mode) {
   var d = new Date(dateStr + 'T00:00:00');
@@ -199,7 +202,7 @@ function shiftIsoDays_(iso, days) {
 
 // Backtest (owner's copy only, reads only; tools/programmed-guess-backtest.py): replays every confirmed expense with a merchant
 // of the last `days`, oldest first, with only what was known before it, and compares the Programmed-item guess of the live rule
-// ('old') and of mode 'payee' ('new') with the category the owner kept. `reached` counts only the expenses the merchant
+// (amount + date, 'old') and of mode 'payee' (live, 'new') with the category the owner kept. `reached` counts only the expenses the merchant
 // history did not already answer (where the Programmed step decides).
 function programmedGuessBacktest_(p) {
   if (isFriendCopy_()) throw codedError_('backtest_not_here', 'This check runs on the owner\'s copy only.');
@@ -264,7 +267,7 @@ function guessCategoryForEmail_(fields, dateStr, ctx) {
 
   var merchant = normalizeMerchant_(fields.merchant);
   var guess = (merchant && guessFromMerchantHistory_(merchant, ctx)) ||
-    guessFromProgrammed_(fields, dateStr, ctx);
+    guessFromProgrammed_(fields, dateStr, ctx, 'payee');
   return guess || { categoryId: '', reason: '' };
 }
 
