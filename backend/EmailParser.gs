@@ -42,7 +42,7 @@ function extractAmount_(text) {
 
 // An amount that may come with no currency sign (Sip's CTS withdrawal: "Monto de retiro 1234.56"). A sign wins; with none, the
 // plain number is soles unless the e-mail says dollars.
-function ctsAmount_(value, body) {
+function sipCtsAmount_(value, body) {
   var signed = extractAmount_(value);
   if (signed) return signed;
   var m = String(value || '').match(/([\d,]+(?:\.\d{1,2})?)/);
@@ -633,7 +633,7 @@ var EMAIL_RULES = [
     label: 'Retiro CTS',
     match: function (subject) { return /solicitud de retiro (de )?cts/i.test(subject); },
     extract: function (subject, body) {
-      var amt = ctsAmount_(afterLabel_(body, 'Monto de retiro'), body);
+      var amt = sipCtsAmount_(afterLabel_(body, 'Monto de retiro'), body);
       if (!amt) return null;
       var request = afterLabel_(body, 'Número de solicitud');
       return {
