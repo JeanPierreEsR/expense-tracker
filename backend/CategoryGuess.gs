@@ -358,7 +358,7 @@ function programmedPaidCheck_(p) {
     var since = shiftIsoDays_(Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd'), -days);
     var ctx = buildGuessContext_();
     var catName = function (id) { return ctx.categoriesById[id] ? ctx.categoriesById[id].name : ''; };
-    var report = { days: days, items: 0, payments: 0, linked: 0, alike: 0, noPayee: 0, suspect: 0, perItem: [], suspects: [] };
+    var report = { days: days, items: 0, payments: 0, linked: 0, alike: 0, noPayee: 0, suspect: 0, perItem: [], suspects: [], wouldDrop: [] };
     ctx.recurring.filter(function (r) { return ctx.expenseCatIds[r.category_id] && String(r.active) !== 'false'; }).forEach(function (r) {
       var pays = listRecurringPayments({ recurringExpenseId: r.id }).payments.filter(function (x) { return x.date >= since; });
       if (!pays.length) return;
@@ -375,6 +375,18 @@ function programmedPaidCheck_(p) {
         })) kind = 'alike';
         else kind = 'suspect';
         row[kind]++; report[kind]++; report.payments++;
+        // Proposed rule (2026-11-20): once the item has a regular payee (alike in 2+ months of its payments before this one),
+        // an automatic payment to another payee no longer counts. Linked, no-payee and name-alike payments always count.
+        if (!x.pay.linked && x.merchant && !payeesAlike_(x.merchant, name)) {
+          var before = rows.filter(function (y) { return y.merchant && y.pay.date < x.pay.date; });
+          var regular = before.filter(function (y) {
+            return before.some(function (z) { return z !== y && z.pay.for_month !== y.pay.for_month && payeesAlike_(y.merchant, z.merchant); });
+          });
+          if (regular.length && !regular.some(function (y) { return payeesAlike_(x.merchant, y.merchant); })) {
+            report.wouldDrop.push({ date: x.pay.date, month: x.pay.for_month, item: r.description, payee: x.merchant,
+              description: x.pay.description, regular: regular[regular.length - 1].merchant });
+          }
+        }
         if (kind === 'suspect' && report.suspects.length < 80) {
           report.suspects.push({ date: x.pay.date, month: x.pay.for_month, item: r.description, payee: x.merchant, description: x.pay.description });
         }
