@@ -4163,6 +4163,21 @@
     </div>
   </div>
 
+  <!-- "See the statement" (owner, 2026-11-20): a bank's PDF pages, with the account and period on top, to tell which document it is. -->
+  <div id="stmt-viewer-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal currency-screen pace-screen stmt-viewer">
+      <div class="currency-modal-header">
+        <button type="button" class="icon-btn back-btn" id="stmt-viewer-back" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <span data-i18n="stmt.view.title">The statement</span>
+      </div>
+      <div class="pace-screen-body" id="stmt-viewer-scroll">
+        <div id="stmt-viewer-loading"></div>
+        <div id="stmt-viewer-head" class="stmt-viewer-head" hidden></div>
+        <div id="stmt-viewer-pages" class="stmt-viewer-pages" hidden></div>
+      </div>
+    </div>
+  </div>
+
   <div id="statement-password-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
