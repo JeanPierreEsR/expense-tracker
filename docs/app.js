@@ -4726,6 +4726,17 @@ function findCategory(id) {
   return meta.categories.find((cat) => cat.id === id);
 }
 
+// The second part of a row's grey line (owner, 2026-11-20; it replaced "Me"): the account that paid or received, "BCP → Cash" for a move
+// between two accounts, and only the friend's name when a friend paid an expense. Nothing when no account is on record (income with no
+// account still names its payer). Shown only, never a button: a tap on it opens the entry like the rest of the row.
+function entryAccountMeta_(entry) {
+  const pmName = (id) => { const pm = id && meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname : ""; };
+  if (entry.type === "expense" && entry.paid_by && entry.paid_by !== "me") return escapeHtml(paidByLabel(entry));
+  const from = pmName(entry.payment_method_id), to = entry.type === "transfer" ? pmName(entry.to_payment_method_id) : "";
+  const text = from && to ? `${from} → ${to}` : (from || to || (entry.type === "income" ? paidByLabel(entry) : ""));
+  return text ? `<span class="entry-acct">${escapeHtml(text)}</span>` : "";
+}
+
 // What an entry's row leads with. An investment has no category in the app:
 // it shows the PLATFORM it went to — or, for a withdrawal, came back from —
 // instead (a historical investment with no platform falls back to its
@@ -4741,17 +4752,17 @@ function entryHeadline_(entry) {
     const text = l.kind === "repayment"
       ? tr(paidThem ? "entry.repaymentTo" : "entry.repaymentFrom", { friend: l.friend })
       : tr(paidThem ? "entry.loanFrom" : "entry.loanTo", { friend: l.friend });
-    return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(text)}`, meta: paidByLabel(entry) };
+    return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(text)}`, meta: entryAccountMeta_(entry) };
   }
   if (exchangeLegSide_(entry)) {   // grey transfer dot, named for what it is instead of "Between Accounts"
-    return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(tr("transfer.kind.exchange"))}`, meta: paidByLabel(entry) };
+    return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(tr("transfer.kind.exchange"))}`, meta: entryAccountMeta_(entry) };
   }
   if (entry.type !== "investment") {
     const cat = findCategory(entry.category_id);
     const marker = cat && cat.icon
       ? `<span class="entry-cat-icon" style="background:${safeColor_(cat.color)}">${escapeHtml(cat.icon)}</span>`
       : `<span class="type-dot" data-type="${entry.type}"></span>`;
-    return { title: `${marker}${escapeHtml(categoryName(entry.category_id))}`, meta: paidByLabel(entry) };
+    return { title: `${marker}${escapeHtml(categoryName(entry.category_id))}`, meta: entryAccountMeta_(entry) };
   }
   const withdrawal = Number(entry.amount) < 0;
   const pmName = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname : ""; };
@@ -4804,7 +4815,7 @@ function paidByLabel(entryOrPaidBy) {
   return f ? f.name : paidBy;
 }
 
-// The small grey line under an entry's description: date, who paid, then the
+// The small grey line under an entry's description: date, the account (entryAccountMeta_), then the
 // entry's labels (Tags) as little pills. Labels the app doesn't know (a tag
 // deleted since) are skipped.
 function entryMetaHtml_(entry, headline) {
@@ -5034,7 +5045,7 @@ function buildExchangePairRow_(p) {
   left.innerHTML = `
     <div class="entry-category">💱 ${escapeHtml(tr("transfer.kind.exchange"))}</div>
     ${house ? `<div class="entry-desc">${escapeHtml(house)}</div>` : ""}
-    <div class="entry-meta">${escapeHtml([p.date, accounts].filter(Boolean).join(" · "))}</div>
+    <div class="entry-meta">${escapeHtml(listDate_(p.date))}${accounts ? ` · <span class="entry-acct">${escapeHtml(accounts)}</span>` : ""}</div>
     ${deleting ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>` : ""}
   `;
   const amount = document.createElement("div");
