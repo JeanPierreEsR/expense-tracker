@@ -231,8 +231,11 @@ function findExchangeLegTwin_(entries, side, currency, amount, dateStr, codeKey,
   var found = null;
   entries.forEach(function (e) {
     if (found || e.currency !== currency || isPracticeExchange_(e)) return;   // the practice's legs are never a real exchange's twin
+    // A bank names the house by its legal name ("Inversiones <x> S.", not "Cambio Mundial"), so a pending bank expense with the house's
+    // operation code and the same amount is the same leg whatever its name (2026-11-20: every Cambio Mundial exchange counted twice).
+    var sameCode = side === 'out' && codeKey && exchangeCodeKey_(e.external_id) === codeKey && Math.abs(Number(e.amount) - Number(amount)) < 0.005;
     var isExchange = (e.type === 'transfer' && EXCHANGE_DESCRIPTION_RE_.test(String(e.description || '')))
-      || (side === 'out' && e.type === 'expense' && e.status === 'pending' && exchangeHouseIn_(e.description));
+      || (side === 'out' && e.type === 'expense' && e.status === 'pending' && (sameCode || exchangeHouseIn_(e.description)));
     if (!isExchange) return;
     var sideOk = side === 'out' ? !e.to_payment_method_id : !e.payment_method_id;
     if (!sideOk) return;
@@ -244,6 +247,19 @@ function findExchangeLegTwin_(entries, side, currency, amount, dateStr, codeKey,
     if (codeHit || amountHit) found = e;
   });
   return found;
+}
+
+// The exchange house's "left" leg already made from its own e-mail with this bank operation number (its code), same currency and amount,
+// or null. Lets a bank e-mail that names the house by another (legal) name be recognised as that leg instead of a second, spending entry.
+var EXCHANGE_HOUSE_LEGS_MEMO_ = null;   // the house's "left" legs (cm-out-…), read once per e-mail run; dropped whenever the house adds one
+function exchangeHouseLegByCode_(fields) {
+  var key = exchangeCodeKey_(fields.externalId);
+  if (!key) return null;
+  if (!EXCHANGE_HOUSE_LEGS_MEMO_) EXCHANGE_HOUSE_LEGS_MEMO_ = getAllRows('Entries').filter(function (e) { return /^cm-out-/.test(String(e.external_id || '')); });
+  return EXCHANGE_HOUSE_LEGS_MEMO_.find(function (e) {
+    return e.type === 'transfer' && String(e.external_id || '') === 'cm-out-' + key && e.currency === fields.currency
+      && Math.abs(Number(e.amount) - Number(fields.amount)) < 0.005 && !e.to_payment_method_id;
+  }) || null;
 }
 
 // Saves what an exchange-house e-mail says: up to two pending one-sided transfers. Returns how many were created, or -1 when unreadable.
@@ -281,6 +297,7 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
     };
     appendRowObject('Entries', entry);
     entries.push(entry);
+    EXCHANGE_HOUSE_LEGS_MEMO_ = null;
     results.created++;
     made++;
     try { sendTelegramEntryNotification_(entry, null, null); } catch (err) { console.error('Telegram notification failed: ' + err); }

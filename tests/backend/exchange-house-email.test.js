@@ -134,3 +134,46 @@ test("the coverage report counts an exchange confirmation as read once both legs
   assert.equal(house.missing.length, 0);
   assert.equal(house.unreadable.length, 0);
 });
+
+// The bank names the house by its LEGAL name, which the app never learned (2026-11-20: every exchange counted twice, as an exchange
+// AND as an expense). The bank's operation number equals the house's code, so that links them, in either order.
+const legalExpenses = (rt) => rt.rows("Entries").filter((e) => e.type === "expense" && /Inversiones Prueba/.test(e.description || ""));
+
+test("legal name, bank first: the bank's pending expense becomes the left leg (same code), no second leg, no expense left", () => {
+  const rt = setup();
+  bankSent(rt, { to: "Inversiones Prueba S.", amount: "2500.00", op: "07654321" });
+  run(rt, [BCP_SENDER]);
+  assert.equal(legalExpenses(rt).length, 1);
+  confirmation(rt, { sent: ["SOLES", "S/", "2,500.00"], got: ["DÓLARES", "$", "700.00"], code: "07654321" });
+  run(rt, [HOUSE_SENDER]);
+  assert.equal(legalExpenses(rt).length, 0, "no expense left");
+  const pen = legs(rt).filter((e) => e.status === "pending" && e.currency === "PEN");
+  assert.equal(pen.length, 1, "one left leg");
+  assert.equal(legs(rt).filter((e) => e.status === "pending" && e.currency === "USD").length, 1, "and the arrived leg");
+});
+
+test("legal name, house first: the bank e-mail only fills the account of the house's left leg", () => {
+  const rt = setup();
+  const bcp = (rt.rows("Banks").find((b) => b.name === "BCP") || {}).id;
+  const made = rt.api("addPaymentMethod", { nickname: "Clasica prueba", type: "debit", bank_id: bcp, last_4: "0005" });
+  const acct = made.id || (made.paymentMethod && made.paymentMethod.id);
+  confirmation(rt, { sent: ["SOLES", "S/", "2,500.00"], got: ["DÓLARES", "$", "700.00"], code: "07654322" });
+  run(rt, [HOUSE_SENDER]);
+  rt.run(`updateRowFields_('Entries', '${legs(rt).find((e) => e.currency === "PEN" && e.status === "pending").id}', { payment_method_id: '' })`);
+  bankSent(rt, { to: "Inversiones Prueba S.", amount: "2500.00", op: "07654322" });
+  const res = run(rt, [BCP_SENDER]);
+  assert.equal(res.created, 0);
+  assert.equal(legalExpenses(rt).length, 0);
+  const pen = legs(rt).filter((e) => e.status === "pending" && e.currency === "PEN");
+  assert.equal(pen.length, 1);
+  assert.equal(pen[0].payment_method_id, acct);
+});
+
+test("legal name, a different code: the bank e-mail stays its own expense", () => {
+  const rt = setup();
+  confirmation(rt, { sent: ["SOLES", "S/", "2,500.00"], got: ["DÓLARES", "$", "700.00"], code: "07654323" });
+  run(rt, [HOUSE_SENDER]);
+  bankSent(rt, { to: "Inversiones Prueba S.", amount: "2500.00", op: "07659999" });
+  run(rt, [BCP_SENDER]);
+  assert.equal(legalExpenses(rt).length, 1);
+});

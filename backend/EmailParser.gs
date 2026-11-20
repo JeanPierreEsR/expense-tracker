@@ -883,6 +883,7 @@ function processEmails(opts) {
 
   var senders = opts.senders || uniqueSenders_();
   EXCHANGE_HOUSES_MEMO_ = null;   // learned from the entries as they are NOW (CurrencyExchange.gs)
+  EXCHANGE_HOUSE_LEGS_MEMO_ = null;
   // Per-email memory (the "Processed Emails" tab): the one-off back-check
   // (opts.days) deliberately re-reads everything, so it skips it.
   var tracking = !opts.days;
@@ -1072,6 +1073,17 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     var leftTwin = findExchangeLegTwin_(getAllRows('Entries'), 'out', fields.currency, fields.amount, dateStr, exchangeCodeKey_(fields.externalId), 'bank');
     if (leftTwin) {
       if (paymentMethod && !leftTwin.payment_method_id) updateRowFields_('Entries', leftTwin.id, { payment_method_id: paymentMethod.id });
+      results.duplicates++;
+      return;
+    }
+  }
+
+  // The exchange house's own e-mail already made this "left" leg, and the bank names the house by its legal name: same operation code,
+  // currency and amount. This e-mail only tells which account paid.
+  if (!fields.exchangeLeg && fields.type === 'expense' && fields.externalId) {
+    var houseLeg = exchangeHouseLegByCode_(fields);
+    if (houseLeg) {
+      if (paymentMethod && !houseLeg.payment_method_id) { updateRowFields_('Entries', houseLeg.id, { payment_method_id: paymentMethod.id }); houseLeg.payment_method_id = paymentMethod.id; }
       results.duplicates++;
       return;
     }
