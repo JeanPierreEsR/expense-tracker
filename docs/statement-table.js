@@ -514,8 +514,11 @@
     var negative = /^\(.*\)$/.test(s) || /^[-−–]/.test(s.replace(/^[^\d(\-−–.,]+/, '')) || /[-−–]\s*$/.test(s);
     var digits = s.replace(/[^\d.,]/g, '');
     if (!/\d/.test(digits)) return NaN;
-    if (decimal === ',') digits = digits.replace(/\./g, '').replace(',', '.');
+    if (decimal === ',') digits = digits.replace(/\./g, '').replace(/,/g, '.');
     else digits = digits.replace(/,/g, '');
+    // Every digit in the cell must be part of the number read: a second decimal point ("1.500.00", ".1500.00") would make parseFloat stop
+    // half-way and give a far smaller amount without a word (the "S/." file, 2026-11-20). Such a cell is left unread and named instead.
+    if ((digits.match(/\./g) || []).length > 1) return NaN;
     var n = parseFloat(digits);
     return isNaN(n) ? NaN : (negative ? -Math.abs(n) : n);
   }
@@ -532,7 +535,8 @@
   // ---------- finding and mapping the columns ----------
 
   function cellText(v) { return typeof v === 'number' ? String(v) : String(v || ''); }
-  function looksNumeric(v) { return typeof v === 'number' || (/\d/.test(String(v)) && !isNaN(parseAmount(v, '.')) && !dateParts(v)); }
+  // (either way of writing decimals: "1.234.567,89" is a number even before the file's decimal mark is known)
+  function looksNumeric(v) { return typeof v === 'number' || (/\d/.test(String(v)) && (!isNaN(parseAmount(v, '.')) || !isNaN(parseAmount(v, ','))) && !dateParts(v)); }
 
   // The row holding the column names: the first row of mostly text whose following rows contain a date. -1 = no header row.
   function findHeaderRow(rows) {
@@ -553,6 +557,12 @@
     dateLoose: /fecha|date/,
     description: /descripcion|detalle|concepto|glosa|movimiento|referencia|narrativa|memo|payee|merchant|comercio|establecimiento|description|details?|transaction|^notes?$|^nota(s)?$|comentario|observacion/,
     account: /^(wallet|wallets|cartera|billetera|account|accounts|account name|cuenta|cuentas|nombre de la cuenta|nombre de cuenta)$/,
+    // Import only (another app's export, a person's own sheet): more ways to name the account column. A bank's file can have a "Tarjeta"
+    // column holding the card NUMBER, so a column found this way only counts when it holds a few repeated names (see accountLikeValues).
+    accountLoose: /^(tarjeta|tarjetas|medio de pago|medios de pago|metodo de pago|metodos de pago|forma de pago|formas de pago|pagado con|pago con|payment method|payment methods|paid with|card|cards)$/,
+    // Import only: a second text column with the person's own remarks, kept with the description.
+    // ("Notes" / "Memo" are left alone: other apps' exports — Mint, YNAB, Bluecoins — use them and keep their descriptions as they are.)
+    note: /^(comentario|comentarios|observacion|observaciones|comment|comments|remarks)$/,
     category: /^(category|category name|categoria|nombre de la categoria|nombre de categoria)$/,
     type: /^(type|tipo|transaction type|tipo de transaccion|tipo de movimiento|income\/expense|ingreso\/gasto|entry type)$/,
     amount: /^(monto|importe|amount|valor|total|monto total|importe total)$/,
@@ -564,6 +574,30 @@
 
   function columnValues(rows, from, col) {
     return rows.slice(from).map(function (r) { return r[col]; }).filter(function (v) { return cellText(v) !== ''; });
+  }
+
+  // The currency mark written on an amount: a code ('PEN', 'USD', …), '$' for a dollar sign that names no country, or '' for none.
+  function markOf(text) {
+    var t = String(text === undefined || text === null ? '' : text);
+    if (/US\$|\bUSD\b/i.test(t)) return 'USD';
+    if (/R\$|\bBRL\b/i.test(t)) return 'BRL';
+    if (/S\/|\bPEN\b|\bsoles?\b/i.test(t)) return 'PEN';
+    if (/€|\bEUR\b/i.test(t)) return 'EUR';
+    if (/£|\bGBP\b/i.test(t)) return 'GBP';
+    if (/¥|\bJPY\b/i.test(t)) return 'JPY';
+    if (/\$/.test(t)) return '$';
+    return '';
+  }
+
+  // A column of account NAMES (Yape, BCP, Visa…), not of card numbers: at least one value, few different ones, and most of them words.
+  function accountLikeValues(values) {
+    var texts = values.map(cellText).map(function (v) { return v.trim(); }).filter(Boolean);
+    if (!texts.length) return false;
+    var distinct = {}; texts.forEach(function (v) { distinct[v.toLowerCase()] = true; });
+    var n = Object.keys(distinct).length;
+    if (n > Math.max(12, texts.length * 0.2)) return false;
+    var wordy = texts.filter(function (v) { return /[a-z]{2,}/i.test(v) && !/\d{5,}|\*{2,}|x{4,}/i.test(v); }).length;
+    return wordy >= texts.length * 0.8;
   }
 
   // { headerRow, hasHeader, headers, date, description, amount, out, in, currency, dateOrder, decimal, sign }
@@ -590,6 +624,11 @@
     if (m.out < 0) { m.amount = find(HEADER_WORDS.amount, used); if (m.amount < 0) m.amount = find(HEADER_WORDS.amountLoose, used); if (m.amount >= 0) used.push(m.amount); }
     m.type = find(HEADER_WORDS.type, used); if (m.type >= 0) used.push(m.type);
     m.description = find(HEADER_WORDS.description, used); if (m.description >= 0) used.push(m.description);
+    m.note = -1;
+    if (opts.importMode) {
+      if (m.account < 0) { var al = find(HEADER_WORDS.accountLoose, used); if (al >= 0 && accountLikeValues(columnValues(rows, first, al))) { m.account = al; used.push(al); } }
+      if (m.description >= 0) { m.note = find(HEADER_WORDS.note, used); if (m.note >= 0) used.push(m.note); }
+    }
 
     // No usable words in the header (or no header at all): decide from the values.
     if (m.date < 0) {
@@ -638,6 +677,14 @@
       });
       var otherMarks = Object.keys(others);
       m.currencyMixed = '';
+      // Import only: two or more kinds of currency mark in one file ("S/ 12.50" and "US$ 30") — each line takes the currency of its own
+      // mark (applyMapping); a line with none takes the file's currency. `bareDollar`: some lines have a "$" that names no country.
+      m.lineCurrency = false; m.bareDollar = false;
+      if (opts.importMode) {
+        var kinds = {};
+        amtTexts.forEach(function (v) { var k = markOf(v); if (k) kinds[k] = true; });
+        if (Object.keys(kinds).length >= 2) { m.lineCurrency = true; m.bareDollar = !!kinds.$; }
+      }
       if (otherMarks.length && (us || dollar)) m.currencyMixed = (us ? ['US$'] : ['$']).concat(otherMarks).join(', ');
       else if (amtTexts.length && us >= amtTexts.length / 2) m.currencySign = 'US$';
       else if (amtTexts.length && dollar >= amtTexts.length / 2) m.currencySign = '$';
@@ -693,16 +740,23 @@
       var r = rows[i];
       var date = m.date >= 0 ? toIsoDate(r[m.date], m.dateOrder, tz) : '';
       if (!date) { skipped.push({ row: i + 1, reason: 'date' }); continue; }
-      var amount = NaN;
+      var amount = NaN, amountText = '';
       if (m.out >= 0 || m.in >= 0) {
         var o = m.out >= 0 ? parseAmount(r[m.out], m.decimal) : NaN, n = m.in >= 0 ? parseAmount(r[m.in], m.decimal) : NaN;
-        if (!isNaN(o) && o !== 0) amount = -Math.abs(o);
-        else if (!isNaN(n) && n !== 0) amount = Math.abs(n);
+        if (!isNaN(o) && o !== 0) { amount = -Math.abs(o); amountText = cellText(r[m.out]); }
+        else if (!isNaN(n) && n !== 0) { amount = Math.abs(n); amountText = cellText(r[m.in]); }
       } else if (m.amount >= 0) {
         var v = parseAmount(r[m.amount], m.decimal);
         amount = isNaN(v) ? NaN : (m.sign === 'positive' ? -v : v);
+        amountText = cellText(r[m.amount]);
       }
-      if (isNaN(amount) || Math.abs(amount) < 0.005) { skipped.push({ row: i + 1, reason: 'amount' }); continue; }
+      if (isNaN(amount) || Math.abs(amount) < 0.005) {
+        // A cell with digits that could not be read as one number is named apart from an empty one ("1.500.00").
+        var cells = (m.out >= 0 || m.in >= 0) ? [r[m.out], r[m.in]] : [r[m.amount]];
+        var unclear = isNaN(amount) && cells.some(function (c) { return typeof c !== 'number' && /\d/.test(cellText(c)) && isNaN(parseAmount(c, m.decimal)); });
+        skipped.push({ row: i + 1, reason: unclear ? 'amountUnclear' : 'amount' });
+        continue;
+      }
       var kind = m.type >= 0 ? typeKind(r[m.type]) : '';
       var catText = m.category >= 0 ? cellText(r[m.category]) : '';
       var isTransfer = kind === 'transfer' || (m.category >= 0 && typeKind(catText) === 'transfer');
@@ -710,8 +764,12 @@
       // A transfer with unsigned amounts has no direction: the file does not say which account it left, so it is left out and counted.
       if (isTransfer && !signed && m.out < 0 && m.in < 0) { skipped.push({ row: i + 1, reason: 'transfer' }); continue; }
       var description = m.description >= 0 ? cellText(r[m.description]).replace(/\s+/g, ' ').trim() : '';
+      var note = m.note >= 0 ? cellText(r[m.note]).replace(/\s+/g, ' ').trim() : '';
+      if (note && note !== description) description = description ? description + ' · ' + note : note;
       var category = m.category >= 0 ? cellText(r[m.category]).replace(/\s+/g, ' ').trim() : '';
-      var currency = (m.currency >= 0 && currencyFromText(r[m.currency])) || m.currencyFixed || 'PEN';
+      var currency = (m.currency >= 0 && currencyFromText(r[m.currency])) || '';
+      if (!currency && m.currency < 0 && m.lineCurrency) { var mk = markOf(amountText); currency = mk === '$' ? (m.dollarCurrency || 'USD') : mk; }
+      currency = currency || m.currencyFixed || 'PEN';
       var line = { date: date, description: description || category || '—', amount: roundCents(amount), currency: currency };
       if (category) line.category = category;
       if (isTransfer) line.transfer = true;
@@ -808,6 +866,6 @@
     decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readXls: readXls, parseHtmlTable: parseHtmlTable, readTable: readTable,
     findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature, recognize: recognize, distinctValues: distinctValues, KNOWN_FORMATS: KNOWN_FORMATS,
     practiceFile: practiceFile, PRACTICE_FILE_NAMES: PRACTICE_FILE_NAMES, canLinkExchange: canLinkExchange,
-    roundCents: roundCents, catNorm: catNorm, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, ambiguousDate: ambiguousDate, detectDecimal: detectDecimal, currencyFromText: currencyFromText
+    markOf: markOf, accountLikeValues: accountLikeValues, roundCents: roundCents, catNorm: catNorm, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, ambiguousDate: ambiguousDate, detectDecimal: detectDecimal, currencyFromText: currencyFromText
   };
 });
