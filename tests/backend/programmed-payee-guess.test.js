@@ -1,5 +1,5 @@
 // Proposed Programmed-item guess (2026-11-20, mode 'payee'): an item matches only a payee it was paid to before, or, with no
-// past payee, one sharing a word with its name. The live guess is unchanged until the backtest says so.
+// past payee, one sharing a word with its name. Live since 2026-11-20 (the backtest on the owner's entries).
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { freshApp } = require("./helpers");
@@ -53,4 +53,11 @@ test("payees alike: a shared real word, or the same name without spaces; wallet 
   assert.equal(alike("Plin a Ana Lo", "Plin a Luis Ru"), false);
   assert.equal(alike("DLC RAPPI PERU", "DLC TAMBO PERU"), false);
   assert.equal(alike("Plin a Ana Lo", "Streaming TV"), false);
+});
+
+test("the live guess for a new e-mail / Apple Pay / typed expense uses the payee rule", () => {
+  const { rt } = setup();
+  const live = (merchant) => rt.run(`guessCategoryForEmail_({ type: 'expense', amount: 23.75, currency: 'PEN', merchant: ${JSON.stringify(merchant)} }, '2026-03-10', buildGuessContext_()).categoryId`);
+  assert.equal(live("Plin a Ana Lo"), "", "an unrelated payee near the item's amount and date is no longer guessed");
+  assert.equal(live("STREAMING.COM"), "cat-sub");
 });
