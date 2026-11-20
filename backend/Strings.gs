@@ -509,6 +509,8 @@ var BACKEND_STRINGS_ = {
   "desc.forgave": { en: "Forgave {name}'s debt", es: "Perdoné la deuda de {name}" },
   "desc.forgaveMe": { en: "{name} forgave a debt I owed them", es: "{name} me perdonó una deuda" },
   "desc.transfer": { en: "Transfer {from} → {to}", es: "Transferencia {from} → {to}" },
+  "sa.moveNoAccount": { en: "Pick the account this money moved to or from.", es: "Elige la cuenta a la que pasó este dinero o de la que vino." },
+  "sa.moveSameAccount": { en: "These lines are already on {name}: pick the OTHER account the money moved to or from.", es: "Estas líneas ya son de {name}: elige la OTRA cuenta a la que pasó el dinero o de la que vino." },
   "desc.transferLeg": { en: "Transfer: {text}", es: "Transferencia: {text}" },
   "desc.exchangeOut": { en: "Currency exchange: {cur} sent", es: "Cambio de moneda: salida de {cur}" },
   "desc.exchangeIn": { en: "Currency exchange: {cur} received", es: "Cambio de moneda: entrada de {cur}" },

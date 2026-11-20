@@ -29,6 +29,11 @@
  *                    account and To empty, money in the reverse; the other statement completes it later
  *   record_exchange  { out, in }            a currency exchange: the line that left and the line that arrived in ANOTHER currency
  *                    become two one-sided transfers (confirmed) — never spending or income
+ *   record_move      { stmt, line, otherPmId }   an imported line that was money moving between the person's OWN accounts (savings, cash):
+ *                    one confirmed transfer, this line's account on one side and the chosen account on the other (owner, 2026-11-20)
+ *   record_loan_line { stmt, line, friendId, kind }   an imported line that was a loan ('loan') or a repayment ('repayment') with a
+ *                    friend: saved through Loans (addLoan / recordRepayment) AFTER everything else; every loan, repayment and money entry
+ *                    it makes is recorded so Undo removes them (owner, 2026-11-20)
  *   add_history_refund { stmt, line }     a refund that does NOT cancel a charge of its own month: confirmed income in "Refunds"
  *   add_history_expense / add_history_reversal / add_history_income   { stmt, line }   "Fill my history": a new expense
  *                    (a reversal is a NEGATIVE expense) or income, CONFIRMED, no category — the owner approved the whole
@@ -291,6 +296,7 @@ function applyStatementDecisions(payload) {
   var now = nowTimestamp_();
   var today = now.substring(0, 10);
   var creations = [], changes = [], outcomes = [], usedLines = {}, chargeFills = [], discountSplits = [], startOps = [], fixInbound = null;
+  var loanOps = [];   // record_loan_line: written through Loans.gs after the other entries (see the write phase)
   // entry id -> { period end: true } for the entries this save's lines will cover (matched, discount taken, transfer completed). A
   // statement closing on a starting balance's own day moves the entries it covers inside that balance by itself (Balances.gs), so the
   // starting-balance correction must not count them a second time (owner, 2026-11-11).
@@ -422,6 +428,38 @@ function applyStatementDecisions(payload) {
         status: platformId ? 'confirmed' : 'pending', external_id: 'stmt-' + iv.key });   // no platform yet: pending, the review row asks for one
       if (madeIv) report.created.investments = (report.created.investments || 0) + 1;
       remember(iv, 'added', madeIv ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'record_move') {
+      // Money moving between two of the person's own accounts (a file's "Savings" or "Cash" category): never spending or income.
+      var mv = line(a); useLine(mv);
+      if (!(Math.abs(mv.l.amount) > 0)) throw new Error(tr_('sa.notTransferLeg'));
+      var other = pmsById[a.otherPmId];
+      if (!other || other.type === 'investment') throw new Error(tr_('sa.moveNoAccount'));
+      var here = requirePm(mv);
+      if (here.id && here.id === other.id) throw new Error(tr_('sa.moveSameAccount', { name: other.nickname }));
+      var mvCat = catByName['transfer:Between Accounts'];
+      if (!mvCat) throw new Error(tr_('sa.catMissingBetween'));
+      var mvOut = mv.l.amount < 0;
+      var hereName = here.id ? here.nickname : stmtCleanDescription_(mv.l.description);
+      var madeMv = newEntry({ type: 'transfer', date: mv.l.date, amount: Math.abs(mv.l.amount), currency: mv.l.currency, category_id: mvCat,
+        description: mvOut ? tr_('desc.transfer', { from: hereName, to: other.nickname }) : tr_('desc.transfer', { from: other.nickname, to: hereName }),
+        payment_method_id: mvOut ? here.id : other.id, to_payment_method_id: mvOut ? other.id : here.id,
+        status: 'confirmed', external_id: 'stmt-' + mv.key });
+      if (madeMv) report.created.transfers++;
+      remember(mv, 'recorded', madeMv ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'record_loan_line') {
+      // A loan or a repayment with a friend. Checked here (dry run too); written after the other entries, in date order, so a repayment
+      // finds a loan the same file gives earlier. Money out: a loan the person GAVE or a debt they PAID back; money in: a loan they
+      // RECEIVED or a friend paying them back.
+      var ll = line(a); useLine(ll);
+      if (!(Math.abs(ll.l.amount) > 0)) throw new Error(tr_('sa.notPending'));
+      if (a.kind !== 'loan' && a.kind !== 'repayment') throw new Error(tr_('err.invalidDirection'));
+      if (!getAllRows('Friends').some(function (f) { return f.id === a.friendId; })) throw new Error(tr_('err.friendNotFound'));
+      checkMoneyFields_({ amount: Math.abs(ll.l.amount), date: ll.l.date, currency: ll.l.currency });
+      var llOut = ll.l.amount < 0;
+      var direction = a.kind === 'loan' ? (llOut ? 'they_owe_me' : 'i_owe_them') : (llOut ? 'i_owe_them' : 'they_owe_me');
+      loanOps.push({ L: ll, kind: a.kind, friendId: a.friendId, direction: direction, pmId: requirePm(ll).id || '' });
+      if (a.kind === 'loan') report.created.loans = (report.created.loans || 0) + 1;
+      else report.created.repayments = (report.created.repayments || 0) + 1;
     } else if (a.type === 'record_fee') {
       var f = line(a); useLine(f);
       if (f.l.amount >= 0) throw new Error(tr_('sa.feeOut'));
@@ -704,6 +742,7 @@ function applyStatementDecisions(payload) {
   report.categoriesRenamed = report.categoriesRenamed.filter(function (r) { return changes.some(function (c) { return c.sheet === 'Categories' && c.field === 'name' && c.new_value === r.to; }); });
   report.categoriesCreatedNames = Object.keys(createdCategoryIds).filter(function (ph) { return changes.some(function (c) { return c.sheet === 'Categories' && c.row_id === createdCategoryIds[ph]; }); }).map(function (ph) { return newCategories[ph].name; });
   appendRowsBulk_('Entries', creations);
+  if (loanOps.length) stmtWriteLoanOps_(loanOps, batchId, now, changes, remember, report);
   if (payload.inboxIds && payload.inboxIds.length) {
     // Read = saved (owner, 2026-11-11). Each one is recorded so Undo puts it back as waiting in the Inbox.
     markStatementInboxProcessed_(payload.inboxIds, payload.inboxKeys).forEach(function (m) {
@@ -860,6 +899,60 @@ function applyStatementDecisions(payload) {
 }
 
 /**
+ * The loans and repayments an import asked for (record_loan_line), through the same code as the Loans tab, oldest first (a loan before a
+ * repayment of the same day). Whatever they write — loans, repayments (Settlements), the money entries behind them, an extra beyond what
+ * was owed in Needs review — is found by comparing the tabs before and after and recorded for Undo: new entries take this batch's id,
+ * new loans and settlements get a '__created__' row in Statement Changes. One that the Loans code refuses is reported, not fatal: what
+ * was saved before it stays, and Undo still removes everything.
+ */
+function stmtWriteLoanOps_(loanOps, batchId, now, changes, remember, report) {
+  ensureLoansTransferEntryColumn_();
+  ensureSettlementsTransferEntryColumn_();
+  if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Loans']; delete ROWS_MEMO_['Settlements']; }
+  var idsOf = function (sheet) { var o = {}; getAllRows(sheet).forEach(function (r) { o[r.id] = true; }); return o; };
+  var loansBefore = idsOf('Loans'), settleBefore = idsOf('Settlements'), entriesBefore = idsOf('Entries');
+  var friends = {};
+  getAllRows('Friends').forEach(function (f) { friends[f.id] = f; });
+  loanOps.sort(function (x, y) {
+    if (x.L.l.date !== y.L.l.date) return x.L.l.date < y.L.l.date ? -1 : 1;
+    return (x.kind === 'loan' ? 0 : 1) - (y.kind === 'loan' ? 0 : 1);
+  });
+  var failed = [];
+  loanOps.forEach(function (op) {
+    var fields = { friend_id: op.friendId, direction: op.direction, amount: Math.abs(op.L.l.amount), currency: op.L.l.currency, date: op.L.l.date,
+      payment_method_id: op.pmId, description: stmtCleanDescription_(op.L.l.description) };
+    try {
+      if (op.kind === 'loan') addLoan(fields);
+      else recordRepayment(fields);   // an extra beyond what was owed waits in Needs review (recordRepayment's own rule)
+      remember(op.L, 'added', '');
+    } catch (err) {
+      failed.push({ date: op.L.l.date, description: op.L.l.description, amount: op.L.l.amount, currency: op.L.l.currency,
+        friend: (friends[op.friendId] || {}).name || '', error: String(err && err.message || err) });
+    }
+  });
+  if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Loans']; delete ROWS_MEMO_['Settlements']; }
+  getAllRows('Loans').forEach(function (l) {
+    if (!loansBefore[l.id]) changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Loans', row_id: l.id, field: '__created__', old_value: '', new_value: l.friend_id, created_at: now });
+  });
+  getAllRows('Settlements').forEach(function (st) {
+    if (!settleBefore[st.id]) changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Settlements', row_id: st.id, field: '__created__', old_value: '', new_value: st.loan_id + '|' + (st.offset_loan_id || ''), created_at: now });
+  });
+  // The new money entries take this batch's id (one write per column, not one per entry): Undo deletes them with the rest.
+  var esh = getSheet('Entries'), eh = getHeaders(esh), elast = esh.getLastRow();
+  var ci = eh.indexOf('id'), cb = eh.indexOf('import_batch_id'), cs = eh.indexOf('source');
+  if (elast > 1 && ci >= 0 && cb >= 0) {
+    var vals = esh.getRange(2, 1, elast - 1, eh.length).getValues(), hit = false;
+    vals.forEach(function (r) { if (r[ci] && !entriesBefore[String(r[ci])]) { r[cb] = batchId; if (cs >= 0) r[cs] = 'import'; hit = true; } });
+    if (hit) {
+      esh.getRange(2, cb + 1, vals.length, 1).setValues(vals.map(function (r) { return [r[cb]]; }));
+      if (cs >= 0) esh.getRange(2, cs + 1, vals.length, 1).setValues(vals.map(function (r) { return [r[cs]]; }));
+      if (ROWS_MEMO_) delete ROWS_MEMO_['Entries'];
+    }
+  }
+  report.loanFailures = failed;
+}
+
+/**
  * Undo one upload: reverts the changes it made to existing entries (only where
  * the cell still holds what the upload wrote), deletes the entries it created,
  * forgets its line outcomes (restoring any it replaced) and un-records its
@@ -926,6 +1019,25 @@ function undoStatementBatch(payload) {
   // The entries this upload created go FIRST: it is the slow part, and the upload stays in "Recent uploads" (its Statement
   // Uploads row) until everything is done, so an Undo that is cut short can simply be tapped again. It used to remove the
   // bookkeeping first, and a cut-short Undo left the entries behind with no way back (found 2026-10-22).
+  // Loans and repayments this upload recorded (record_loan_line): the repayments go first, then the loans; every other loan a repayment
+  // paid down (or cancelled out) is worked out again from what is left. Their money entries carry the batch id and go with the rest.
+  var madeSettle = {}, madeLoans = {}, touchedLoans = {};
+  changes.forEach(function (c) {
+    if (c.field !== '__created__') return;
+    if (c.sheet === 'Settlements') { madeSettle[c.row_id] = true; String(c.new_value || '').split('|').forEach(function (id) { if (id) touchedLoans[id] = true; }); }
+    if (c.sheet === 'Loans') madeLoans[c.row_id] = true;
+  });
+  if (Object.keys(madeSettle).length || Object.keys(madeLoans).length) {
+    getAllRows('Settlements').forEach(function (st) { if (madeSettle[st.id]) { touchedLoans[st.loan_id] = true; if (st.offset_loan_id) touchedLoans[st.offset_loan_id] = true; } });
+    if (Object.keys(madeSettle).length) deleteRowsWhere_('Settlements', function (r) { return madeSettle[r.id]; });
+    if (Object.keys(madeLoans).length) deleteRowsWhere_('Loans', function (r) { return madeLoans[r.id]; });
+    if (ROWS_MEMO_) { delete ROWS_MEMO_['Loans']; delete ROWS_MEMO_['Settlements']; }
+    var leftLoans = {};
+    getAllRows('Loans').forEach(function (l) { leftLoans[l.id] = true; });
+    Object.keys(touchedLoans).forEach(function (id) { if (leftLoans[id] && !madeLoans[id]) updateLoanStatusFromSettlements_(id); });
+    res.loansRemoved = Object.keys(madeLoans).length;
+    res.repaymentsRemoved = Object.keys(madeSettle).length;
+  }
   res.deletedEntries = getAllRows('Entries').filter(function (e) { return e.import_batch_id === batchId; }).length;
   deleteRowsWhere_('Entries', function (row) { return row.import_batch_id === batchId; });
 

@@ -29,6 +29,11 @@ test("numbers: thousands and decimals either way round, parentheses, trailing mi
   assert.equal(ST.parseAmount("12.50-", "."), -12.5);
   assert.equal(ST.parseAmount("−5,00", ","), -5);
   assert.equal(ST.parseAmount("USD 10", "."), 10);
+  // "S/." (the sol's older abbreviation): its dot belongs to the mark
+  assert.equal(ST.parseAmount("S/.1,234.50", "."), 1234.5);
+  assert.equal(ST.parseAmount("-S/.12.30", "."), -12.3);
+  assert.equal(ST.parseAmount("s/. 7.00", "."), 7);
+  assert.equal(ST.parseAmount("S/.1.234,50", ","), 1234.5);
   assert.ok(Number.isNaN(ST.parseAmount("", ".")));
   assert.ok(Number.isNaN(ST.parseAmount("n/a", ".")));
   assert.equal(ST.detectDecimal(["1.234,50", "20,00"]), ",");
@@ -460,4 +465,14 @@ test("amounts in more than one currency: no dollar assumed, the file is marked a
   const soles = ST.guessMapping(ST.parseCsv("Date,Payee,Category,Amount\n2026-10-04,Cafe Uno,Restaurants,-S/ 12.50\n"));
   assert.equal(soles.currencySign, "");
   assert.equal(soles.currencyMixed, "");
+});
+
+test("a hand-made sheet with \"S/.\" amounts reads every amount in full", () => {
+  const text = "FECHA,CATEGORÍA,DESCRIPCIÓN,MONTO\n05/01/2026,Sueldo,sueldo,\"S/.1,500.00\"\n06/01/2026,Comidas,almuerzo,-S/.28.00\n07/01/2026,Antojos,chocolate,-S/.3.50\n";
+  const rows = ST.parseCsv(text);
+  const m = ST.guessMapping(rows, {});
+  assert.equal(m.decimal, ".");
+  const { lines, skipped } = ST.applyMapping(rows, m, {});
+  assert.deepEqual(skipped, []);
+  assert.deepEqual(lines.map((l) => l.amount), [1500, -28, -3.5]);
 });
