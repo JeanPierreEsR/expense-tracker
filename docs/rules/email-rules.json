@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "rules": [
     { "id": "bcp-consumo-debito", "replaces": "Consumo tarjeta de débito", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Consumo tarjeta de débito (pack)",
       "accountByCurrency": true, "subjectHas": ["realizaste un consumo", "debito"], "type": "expense", "amount": { "label": "Total del consumo" },
@@ -54,7 +54,12 @@
 
     { "id": "interbank-pago-recurrente", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe", "label": "Pago recurrente con tarjeta (pack)",
       "subjectHas": ["pago recurrente"], "type": "expense", "amount": { "label": "Monto" }, "merchant": { "label": "Comercio" },
-      "last4": { "label": "Tarjeta", "kind": "masked" } }
+      "last4": { "label": "Tarjeta", "kind": "masked" } },
+
+    { "id": "bcp-consumo-credito", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Consumo tarjeta de crédito (pack)",
+      "subjectHas": ["realizaste un consumo", "credito"], "type": "expense", "amount": { "label": "Total del consumo" },
+      "merchant": { "label": "Empresa" }, "last4": { "label": "Número de Tarjeta de Crédito", "kind": "masked" },
+      "externalId": { "label": "Número de operación" } }
   ],
   "pairs": [
     { "id": "didi", "sender": "didi@pe.didiglobal.com", "merchantHas": ["didi"] },
