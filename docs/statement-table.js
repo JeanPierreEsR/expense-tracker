@@ -488,12 +488,16 @@
     return y + '-' + pad2(mo) + '-' + pad2(d);
   }
 
+  // "S/." (the sol's older abbreviation, still common in hand-made spreadsheets: "S/.1,500.00") — its dot is part of the mark, not
+  // a decimal point (a tester's own file, 2026-11-20: every amount came out a thousand times too small).
+  function dropMarkDot(s) { return String(s).replace(/(S\/)\s*\.(?=\s*\d)/ig, '$1 '); }
+
   // '.' or ',' — which one marks the decimals in this column's text.
   function detectDecimal(values) {
     var comma = 0, dot = 0;
     values.forEach(function (v) {
       if (typeof v === 'number') return;
-      var s = String(v).replace(/[^\d.,]/g, '');
+      var s = dropMarkDot(v).replace(/[^\d.,]/g, '');
       var lastC = s.lastIndexOf(','), lastD = s.lastIndexOf('.');
       if (lastC >= 0 && lastD >= 0) { if (lastC > lastD) comma++; else dot++; }
       else if (lastC >= 0 && /,\d{1,2}$/.test(s)) comma++;
@@ -502,10 +506,10 @@
     return comma > dot ? ',' : '.';
   }
 
-  // The number in a cell, or NaN. Handles "S/ 1,234.50", "1.234,50", "(12.50)", "12.50-", "−5", "USD 10".
+  // The number in a cell, or NaN. Handles "S/ 1,234.50", "S/.1,234.50", "1.234,50", "(12.50)", "12.50-", "−5", "USD 10".
   function parseAmount(value, decimal) {
     if (typeof value === 'number') return value;
-    var s = String(value === undefined || value === null ? '' : value).trim();
+    var s = dropMarkDot(value === undefined || value === null ? '' : value).trim();
     if (!s) return NaN;
     var negative = /^\(.*\)$/.test(s) || /^[-−–]/.test(s.replace(/^[^\d(\-−–.,]+/, '')) || /[-−–]\s*$/.test(s);
     var digits = s.replace(/[^\d.,]/g, '');
