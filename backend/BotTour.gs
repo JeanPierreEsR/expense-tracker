@@ -2,12 +2,13 @@
  * The bot's own tour (owner's plan "Bot tutorial - WhatsApp and Telegram", 2026-11-20; specs/review-telegram-email.md § Bot tour).
  * The bot teaches itself, in the chat, one short message per step, and moves on when the person really does the step:
  *   1 write an expense ("25 almuerzo"; "prueba" makes a test one instead) → 2 its card: tap Edit and change the category
- *   ("saltar" skips) → 3 tap Confirm (test: Discard) → 4 write "pendientes" → 5 two tips, done.
+ *   ("saltar" skips) → 3 tap Confirm (test: Discard) → 4 reply to it in words, two keywords at once ("descripción …, monto 30";
+ *   left out when the transaction is gone) → 5 write "pendientes" → 6 tips, done.
  * Starts by itself on a friend's copy with the first message ever sent to the WhatsApp bot; "tutorial" starts it on any copy and
  * on both bots. Nothing is blocked: every message is handled as usual, and only then does the tour look at what happened. A
  * message that did not fit repeats the step once; two in a row stop the tour. "salir" stops it. It ends by itself after 24 hours
  * without a step (WhatsApp's window anyway). The tour records nothing of its own: the expense is a normal waiting entry.
- * State: Script Property BOT_TOUR = { step, at, misses, entryId, test }; BOT_TOUR_DONE = the day it was finished or exited.
+ * State: Script Property BOT_TOUR = { v, step, at, misses, entryId, test, oneDone }; BOT_TOUR_DONE = the day it was finished or exited.
  */
 var BOT_TOUR_MAX_AGE_MS_ = 24 * 3600000;
 // What happened during the message being handled (reset by botTourBefore_, read by botTourAfter_).
@@ -19,11 +20,13 @@ function botTourState_() {
   try {
     var st = JSON.parse(raw);
     if (!st || !st.step || Date.now() - Number(st.at) > BOT_TOUR_MAX_AGE_MS_) { botTourEnd_(false); return null; }
+    if (!st.v) { st.v = 2; if (st.step >= 4) st.step++; }   // a tour started before the "reply in words" step (2.41.0)
     return st;
   } catch (err) { return null; }
 }
 function botTourSave_(st) {
   st.at = Date.now();
+  st.v = 2;
   PropertiesService.getScriptProperties().setProperty('BOT_TOUR', JSON.stringify(st));
 }
 // done: finished or exited by the person (it then counts as taught, like the app's tutorials).
@@ -43,7 +46,21 @@ function botTourNote_(kind, entryId) {
   BOT_TOUR_EV_[kind][String(entryId || '')] = true;
 }
 
-// The step's own message. Steps 2 and 3 quote the tour's transaction (its newest message), so the step reads as being about it.
+// The fields a reply in words can change (step 4 counts how many changed).
+var BOT_TOUR_FIELDS_ = ['amount', 'description', 'category_id', 'date', 'payment_method_id', 'to_payment_method_id', 'currency', 'paid_by', 'type', 'trip_id'];
+function botTourSnapshot_(entryId) {
+  var e = getEntryById_(entryId);
+  if (!e) return null;
+  var o = {};
+  BOT_TOUR_FIELDS_.forEach(function (f) { o[f] = String(e[f] === undefined || e[f] === null ? '' : e[f]); });
+  return o;
+}
+function botTourChanged_(before, after) {
+  if (!before || !after) return 0;
+  return BOT_TOUR_FIELDS_.filter(function (f) { return before[f] !== after[f]; }).length;
+}
+
+// The step's own message. Steps 2, 3 and 4 quote the tour's transaction (its newest message), so the step reads as being about it.
 function botTourStepText_(st) {
   var stop = '\n\n' + tr_('botTour.stopHint');
   if (st.step === 1) return { text: tr_('botTour.step1') + stop };
@@ -52,8 +69,10 @@ function botTourStepText_(st) {
     var key = st.step === 2 ? (e && e.category_id ? 'botTour.step2' : 'botTour.step2NoCat') : (st.test ? 'botTour.step3Test' : 'botTour.step3');
     return { text: tr_(key) + stop, replyTo: whatsappCardFor_(st.entryId) || null };
   }
-  if (st.step === 4) return { text: tr_('botTour.step4') + stop };
-  return { text: tr_('botTour.step5') + (botIsWa_() ? '\n\n' + tr_('botTour.step5Wa') : '') };
+  if (st.step === 4) return { text: tr_('botTour.stepWords') + stop, replyTo: whatsappCardFor_(st.entryId) || null };
+  if (st.step === 5) return { text: tr_('botTour.step4') + stop };
+  // The reply-in-words tip is short after step 4; in full when step 4 was left out (the transaction was discarded).
+  return { text: tr_('botTour.step5', { reply: tr_(st.wordsDone ? 'botTour.replyShort' : 'botTour.replyFull') }) + (botIsWa_() ? '\n\n' + tr_('botTour.step5Wa') : '') };
 }
 function botTourSay_(st, before) {
   var m = botTourStepText_(st);
@@ -61,7 +80,7 @@ function botTourSay_(st, before) {
 }
 
 function botTourStart_() {
-  var st = { step: 1, misses: 0, entryId: '', test: false };
+  var st = { v: 2, step: 1, misses: 0, entryId: '', test: false };
   botTourSave_(st);
   return st;
 }
@@ -84,6 +103,7 @@ function botTourBefore_(text, p, firstEver, isReply) {
     return true;
   }
   var st = botTourState_();
+  if (st && st.step === 4) BOT_TOUR_EV_.before = botTourSnapshot_(st.entryId);   // what a reply in words changes
   if (st && plain && /^(?:salir|stop|exit)$/i.test(t)) {
     botTourEnd_(true);
     botText_(tr_('botTour.stopped'), p.id);
@@ -125,21 +145,29 @@ function botTourAfter_() {
     if (!ev.newEntry) return botTourMiss_(st);
     st.entryId = ev.newEntry;
     var made = getEntryById_(st.entryId);
-    if (made && made.status === 'confirmed') return advance(4, tr_('botTour.confirmedAlready'));
+    if (made && made.status === 'confirmed') return advance(4, tr_('botTour.confirmedAlready'));   // straight to replying
     return advance(2);
   }
   if (st.step === 2 || st.step === 3) {
     var e = getEntryById_(st.entryId);
-    if (!e) return advance(4, tr_(st.test ? 'botTour.testDiscarded' : 'botTour.discarded'));
+    if (!e) return advance(5, tr_(st.test ? 'botTour.testDiscarded' : 'botTour.discarded'));   // nothing left to reply to
     if (e.status === 'confirmed') return advance(4, tr_(st.test ? 'botTour.testConfirmed' : 'botTour.confirmed'));
     if (st.step === 2 && ev.edited && ev.edited[st.entryId]) return advance(3);
     if ((ev.edited && ev.edited[st.entryId]) || (ev.touched && ev.touched[st.entryId])) return;   // still working on it
     return botTourMiss_(st);
   }
   if (st.step === 4) {
+    var n = botTourChanged_(ev.before, botTourSnapshot_(st.entryId));
+    if (!getEntryById_(st.entryId)) return advance(5);   // deleted meanwhile (in the app): nothing to reply to any more
+    if (n >= 2 || (n === 1 && st.oneDone)) { st.wordsDone = true; return advance(5, tr_(n >= 2 ? 'botTour.wordsBoth' : 'botTour.wordsOk')); }
+    if (n === 1) { st.oneDone = true; st.misses = 0; botTourSave_(st); botText_(tr_('botTour.wordsOne'), whatsappCardFor_(st.entryId) || null); return; }
+    if (ev.touched && ev.touched[st.entryId]) return;   // Edit taps on it: still working on it
+    return botTourMiss_(st);
+  }
+  if (st.step === 5) {
     if (!ev.pending) return botTourMiss_(st);
     botTourEnd_(true);
-    st.step = 5;
+    st.step = 6;
     botTourSay_(st);
   }
 }
