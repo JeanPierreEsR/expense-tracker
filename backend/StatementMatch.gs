@@ -8,7 +8,9 @@
  * out or card charge −), always in `currency`.
  */
 
-var STMT_WINDOW_DAYS = { savings: 2, visa: 5, diners: 5 };
+// SIP's CTS statement (2026-11-20): SIP's "Abono semestral CTS" e-mail arrives about a week after the deposit, and people record the
+// deposit on the e-mail's day (the owner: 6 Nov on the statement, 13 Nov in the app), so its lines look 8 days either way.
+var STMT_WINDOW_DAYS = { savings: 2, visa: 5, diners: 5, sipcts: 8 };
 var STMT_PAIR_WINDOW_DAYS = 3;
 var STMT_CHARGE_WINDOW_DAYS = 5;      // a statement line fills a pending charge 5 days before or after the purchase (owner, 2026-11-07)
 var STMT_CHARGE_RATE_SLACK = 0.10;    // a pair whose rate is within 10% of the rate table is clear enough to be filled in by default

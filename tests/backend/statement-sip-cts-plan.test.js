@@ -47,6 +47,14 @@ test("deposit -> Salary, interest -> Savings return, the e-mail's withdrawal mat
   assert.equal(rt.rows("Entries").filter((e) => e.type === "transfer" && Number(e.amount) === 1234.57).length, 1, "one transfer only");
 });
 
+test("a deposit recorded on the day SIP's e-mail came (a week after the statement's date) is matched, not added again", () => {
+  const rt = setup();
+  rt.run(`appendRowObject('Entries', { id: 'e-dep', type: 'income', date: '2026-01-17', amount: 1234.57, currency: 'PEN', description: 'CTS',
+          payment_method_id: 'pm-cts', status: 'confirmed', source: 'manual', paid_by: 'me', created_at: '2026-01-17 10:00:00' });`);
+  const p = plan(rt, stmt("5555", [LINES[0]]));
+  assert.ok(!p.actions.some((a) => a.line === 0 && /^add_/.test(a.type)), JSON.stringify(p.actions));
+});
+
 test("a CTS account the app does not have is proposed as a new SIP account", () => {
   const rt = setup();
   const p = plan(rt, stmt("7777", LINES));
