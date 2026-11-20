@@ -4706,11 +4706,6 @@ function findCategory(id) {
   return meta.categories.find((cat) => cat.id === id);
 }
 
-// What an entry's row leads with. An investment has no category in the app:
-// it shows the PLATFORM it went to — or, for a withdrawal, came back from —
-// instead (a historical investment with no platform falls back to its
-// category). `meta` is the account line under it: deposits say which account
-// the money left, withdrawals which one received it.
 // The second part of a row's grey line (owner, 2026-11-20; it replaced "Me"): the account that paid or received, "BCP → Cash" for a move
 // between two accounts, and only the friend's name when a friend paid an expense. Nothing when no account is on record (income with no
 // account still names its payer). Shown only, never a button: a tap on it opens the entry like the rest of the row.
@@ -4722,6 +4717,11 @@ function entryAccountMeta_(entry) {
   return text ? `<span class="entry-acct">${escapeHtml(text)}</span>` : "";
 }
 
+// What an entry's row leads with. An investment has no category in the app:
+// it shows the PLATFORM it went to — or, for a withdrawal, came back from —
+// instead (a historical investment with no platform falls back to its
+// category). `meta` is the account line under it: deposits say which account
+// the money left, withdrawals which one received it.
 function entryHeadline_(entry) {
   // A transfer that is really a repayment / cash loan with a friend says so
   // and names them; only a plain move between the owner's own accounts says
