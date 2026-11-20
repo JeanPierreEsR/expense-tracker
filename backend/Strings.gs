@@ -596,6 +596,7 @@ var BACKEND_STRINGS_ = {
   "bot.receivedFrom": { en: "📥 Received from: ", es: "📥 Recibido de: " },
   "bot.notSetPayor": { en: "❓ not set — reply \"paid by Acme\"", es: "❓ sin definir: responde \"pagado por Acme\"" },
   "bot.paidBy": { en: "Paid by: ", es: "Pagado por: " },
+  "bot.today": { en: "Today", es: "Hoy" },
   "bot.splitLabel": { en: "🔀 Split: ", es: "🔀 Repartición: " },
   "bot.you": { en: "you", es: "tú" },
   "bot.labelsLabel": { en: "🏷️ Tags: ", es: "🏷️ Etiquetas: " },
