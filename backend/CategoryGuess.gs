@@ -346,3 +346,41 @@ function backfillEntryMerchants(payload) {
   }
   return result;
 }
+
+// Check (owner's copy only, reads only; tools/programmed-paid-check.py): which transactions the Programmed items screen counts as
+// an item's payment (listRecurringPayments, the same pick of one payment per due date) over the last `days`, and whether each
+// one's payee fits the item. 'alike' = alike the item's name or a payee alike in another month of the same item (its usual
+// payee); 'suspect' = neither; 'noPayee' = no payee on record (typed by hand, old imports). Linked by hand is counted apart.
+function programmedPaidCheck_(p) {
+  if (isFriendCopy_()) throw codedError_('check_not_here', 'This check runs on the owner\'s copy only.');
+  return withRowsMemo_(function () {
+    var days = Math.max(1, Math.min(1095, Math.floor(Number((p || {}).days) || 365)));
+    var since = shiftIsoDays_(Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd'), -days);
+    var ctx = buildGuessContext_();
+    var catName = function (id) { return ctx.categoriesById[id] ? ctx.categoriesById[id].name : ''; };
+    var report = { days: days, items: 0, payments: 0, linked: 0, alike: 0, noPayee: 0, suspect: 0, perItem: [], suspects: [] };
+    ctx.recurring.filter(function (r) { return ctx.expenseCatIds[r.category_id] && String(r.active) !== 'false'; }).forEach(function (r) {
+      var pays = listRecurringPayments({ recurringExpenseId: r.id }).payments.filter(function (x) { return x.date >= since; });
+      if (!pays.length) return;
+      report.items++;
+      var name = normalizeMerchant_(r.description);
+      var rows = pays.map(function (x) { var e = getEntryById_(x.id) || {}; return { pay: x, merchant: normalizeMerchant_(e.merchant) }; });
+      var row = { item: r.description, category: catName(r.category_id), payments: rows.length, linked: 0, alike: 0, noPayee: 0, suspect: 0 };
+      rows.forEach(function (x) {
+        var kind;
+        if (x.pay.linked) kind = 'linked';
+        else if (!x.merchant) kind = 'noPayee';
+        else if (payeesAlike_(x.merchant, name) || rows.some(function (y) {
+          return y !== x && y.merchant && y.pay.for_month !== x.pay.for_month && payeesAlike_(x.merchant, y.merchant);
+        })) kind = 'alike';
+        else kind = 'suspect';
+        row[kind]++; report[kind]++; report.payments++;
+        if (kind === 'suspect' && report.suspects.length < 80) {
+          report.suspects.push({ date: x.pay.date, month: x.pay.for_month, item: r.description, payee: x.merchant, description: x.pay.description });
+        }
+      });
+      report.perItem.push(row);
+    });
+    return report;
+  });
+}
