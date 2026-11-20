@@ -197,7 +197,7 @@ function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
 
   var payload = {
     chat_id: chatId,
-    text: formatEntryForTelegram_(entry, categoryName, autoReason)
+    text: formatEntryForTelegram_(entry, categoryName, autoReason, { hint: replyHintShow_() })
   };
   // A confirmed entry's card (shown after an edit reply) has no buttons — it
   // is already done, and can still be changed by replying.
@@ -235,6 +235,48 @@ function noteLastTelegramNotification_(messageId, entryId) {
     JSON.stringify({ message_id: String(messageId), entry_id: entryId || '' }));
 }
 
+// The card's "Reply to edit" line (owner, 2026-11-20): on every card until the person has changed a transaction by writing
+// REPLY_HINT_LEARNED_ times, then on one card in REPLY_HINT_EVERY_ as a reminder. A sign they are stuck ("help", words the
+// bot did not understand) brings it back on the next REPLY_HINT_AGAIN_ cards. Edit taps on WhatsApp do not count as writing.
+// "help" still gives every word at any time. One count per copy of the app (script property).
+var REPLY_HINT_LEARNED_ = 3, REPLY_HINT_EVERY_ = 15, REPLY_HINT_AGAIN_ = 3;
+
+function replyHintState_() {
+  var raw = PropertiesService.getScriptProperties().getProperty('BOT_REPLY_HINT');
+  var s = null;
+  try { s = raw ? JSON.parse(raw) : null; } catch (err) { s = null; }
+  return { edits: Number(s && s.edits) || 0, cards: Number(s && s.cards) || 0, again: Number(s && s.again) || 0 };
+}
+
+function saveReplyHintState_(s) {
+  PropertiesService.getScriptProperties().setProperty('BOT_REPLY_HINT', JSON.stringify(s));
+}
+
+// Whether the card being sent now carries the line; counts the card.
+function replyHintShow_() {
+  var s = replyHintState_(), show;
+  if (s.edits < REPLY_HINT_LEARNED_) show = true;
+  else if (s.again > 0) { s.again--; show = true; }
+  else { s.cards++; show = s.cards % REPLY_HINT_EVERY_ === 0; }
+  saveReplyHintState_(s);
+  return show;
+}
+
+function noteReplyHintEdit_() {
+  if (WA_SAVE_ONLY_) return;
+  var s = replyHintState_();
+  if (s.edits >= REPLY_HINT_LEARNED_) return;
+  s.edits++;
+  saveReplyHintState_(s);
+}
+
+function noteReplyHintStuck_() {
+  var s = replyHintState_();
+  if (s.edits < REPLY_HINT_LEARNED_) return;   // still learning: every card has it anyway
+  s.again = REPLY_HINT_AGAIN_;
+  saveReplyHintState_(s);
+}
+
 function noteTelegramAlertSent_(res) {
   if (res && res.ok && res.result && res.result.message_id) noteLastTelegramNotification_(res.result.message_id, '');
 }
@@ -268,14 +310,16 @@ function moneyFmt_(n) {
 // the evidence, so it's clear it wasn't picked by hand — a reply like
 // "category groceries" changes it and the refreshed card drops the tag.
 // autoReason === true means a familiar merchant: just the bare "🤖 auto" tag.
-function formatEntryForTelegram_(entry, categoryName, autoReason) {
+function formatEntryForTelegram_(entry, categoryName, autoReason, opts) {
   if (!categoryName && entry.category_id) {
     var cat = getAllRows('Categories').find(function (c) { return c.id === entry.category_id; });
     categoryName = cat ? categoryLabel_(cat) : null;
   }
   var icon = entry.type === 'expense' ? '💸' : entry.type === 'income' ? '💰' : entry.type === 'investment' ? '📈' : '🔁';
   var lines = [];
-  lines.push(icon + ' ' + (entry.description || tr_('bot.noDescription')) + (entry.status === 'confirmed' ? tr_('bot.confirmedTag') : ''));
+  // Short card (owner, 2026-11-20): an expense's 💸 says its type, the rarer types keep their word on the first line.
+  lines.push(icon + ' ' + (entry.description || tr_('bot.noDescription')) +
+    (entry.type === 'expense' ? '' : ' · ' + tr_('bot.type.' + entry.type)) + (entry.status === 'confirmed' ? tr_('bot.confirmedTag') : ''));
   if (entry.type === 'investment') {
     // No category for investments (see defaultInvestmentCategoryId_); a type the app guessed from the place says so.
     lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) +
@@ -284,7 +328,9 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || tr_('bot.needsCategory')) +
       (autoReason === true ? tr_('bot.autoTagShort') : autoReason ? tr_('bot.autoTag', { reason: autoReason }) : ''));
   }
-  lines.push(entry.date + ' · ' + tr_('bot.type.' + entry.type));
+  var dateText = entry.date === Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd') ? tr_('bot.today') : entry.date;
+  var accountText = '💳 ' + paymentMethodDisplayName_(entry.payment_method_id, tr_('bot.notSetPaymentMethod'));
+  if (entry.type === 'transfer' || entry.type === 'investment') lines.push(dateText);
   if (entry.type === 'transfer') {
     // A transfer moves money between two of the owner's own accounts, so
     // it shows both ends explicitly (and no "Paid by" — it's always the
@@ -305,13 +351,14 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
   } else if (entry.type === 'income') {
     // Income holds a payor (who paid the owner), never a friend.
     var payor = entry.paid_by ? getPayorRows_().find(function (p) { return p.id === entry.paid_by; }) : null;
-    lines.push(tr_('bot.receivedFrom') + (payor ? payor.name : tr_('bot.notSetPayor')));
     // No payment method shows "❓ not set — reply ..." (same as a transfer's
-    // missing end) instead of leaving the line out.
-    lines.push('💳 ' + paymentMethodDisplayName_(entry.payment_method_id, tr_('bot.notSetPaymentMethod')));
+    // missing end) instead of leaving it out.
+    lines.push(dateText + ' · ' + accountText);
+    lines.push(tr_('bot.receivedFrom') + (payor ? payor.name : tr_('bot.notSetPayor')));
   } else {
-    lines.push(tr_('bot.paidBy') + paidByDisplayName_(entry.paid_by));
-    lines.push('💳 ' + paymentMethodDisplayName_(entry.payment_method_id, tr_('bot.notSetPaymentMethod')));
+    lines.push(dateText + ' · ' + accountText);
+    // "Paid by" only when someone else paid (owner, 2026-11-20): paid by the person is the usual case and needs no line.
+    if (entry.paid_by && entry.paid_by !== 'me') lines.push(tr_('bot.paidBy') + paidByDisplayName_(entry.paid_by));
   }
 
   if (entry.type === 'expense') {
@@ -367,16 +414,10 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     }).join(', ') }));
   }
 
+  // The "Reply to edit" line comes and goes (replyHintShow_); a caller that does not say shows it.
+  if (opts && opts.hint === false) return lines.join('\n');
   lines.push('');
-  if (entry.type === 'transfer') {
-    lines.push(tr_('bot.hintTransfer'));
-    return lines.join('\n');
-  }
-  if (entry.type === 'investment') {
-    lines.push(tr_('bot.hintInvestment'));
-    return lines.join('\n');
-  }
-  lines.push(tr_('bot.hintOther'));
+  lines.push(tr_(entry.type === 'transfer' ? 'bot.hintTransfer' : entry.type === 'investment' ? 'bot.hintInvestment' : 'bot.hintOther'));
   return lines.join('\n');
 }
 
@@ -828,6 +869,7 @@ function handleTelegramMessage_(msg) {
   // card itself. Checked before the edit parser so it can't also be read as
   // a (failing) field-edit segment.
   if (/^\/?(?:help|ayuda)$/i.test(text)) {
+    noteReplyHintStuck_();
     var helpEntry = getEntryById_(mapping.entry_id);
     telegramApi_('sendMessage', {
       chat_id: msg.chat.id,
@@ -1271,8 +1313,11 @@ function applyEditCommand_(entryId, text) {
   }
 
   if (!appliedFields.length) {
+    noteReplyHintStuck_();
     return { message: tr_('bot.notRecognized') + '\n\n' + helpText };
   }
+  if (failedSegments.length) noteReplyHintStuck_();
+  else noteReplyHintEdit_();
 
   var messageParts = [tr_('bot.updated', { fields: appliedFields.map(function (f) { return tr_('bot.field.' + String(f).replace(/ /g, '_')); }).join(', ') })];
   var statusNote = finishTelegramEdit_(entryId, statusBefore, !failedSegments.length);
