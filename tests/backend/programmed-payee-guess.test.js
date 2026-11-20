@@ -73,4 +73,8 @@ test("paid check: a payment whose payee fits neither the item's name nor its usu
   assert.equal(r.alike, 3, "the item's name (p1), and ACME seen in two months (p3, p4)");
   assert.equal(r.suspect, 1);
   assert.equal(r.suspects[0].payee, "plin a ana lo");
+  assert.equal(r.wouldDrop.length, 0, "no regular payee yet when the Plin was counted");
+  add("p5", "2026-05-10", "Plin a Luis Ru", "cat-sub");
+  const r2 = rt.run("programmedPaidCheck_({ days: 1095 })");
+  assert.deepEqual(r2.wouldDrop.map((d) => d.payee), ["plin a luis ru"], "ACME is regular by then");
 });

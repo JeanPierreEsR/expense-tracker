@@ -42,6 +42,9 @@ def main():
     print("Suspects:")
     for s in r["suspects"]:
         print("  %s  for %s  %-24s payee %-28s (%s)" % (s["date"], s["month"], s["item"][:24], s["payee"][:28], s["description"][:30]))
+    print("Would no longer count with the regular-payee rule (%d):" % len(r.get("wouldDrop", [])))
+    for s in r.get("wouldDrop", []):
+        print("  %s  for %s  %-24s payee %-28s regular %-24s (%s)" % (s["date"], s["month"], s["item"][:24], s["payee"][:28], s["regular"][:24], s["description"][:30]))
 
 
 if __name__ == "__main__":
