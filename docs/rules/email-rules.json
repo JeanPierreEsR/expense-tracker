@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "rules": [
     { "id": "bcp-consumo-debito", "replaces": "Consumo tarjeta de débito", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Consumo tarjeta de débito (pack)",
       "accountByCurrency": true, "subjectHas": ["realizaste un consumo", "debito"], "type": "expense", "amount": { "label": "Total del consumo" },
@@ -30,8 +30,9 @@
       "last4": { "label": "Cuenta cargo", "kind": "account" }, "to": { "label": "Tarjeta de crédito", "kind": "account" }, "externalId": { "label": "Código de operación" } },
 
     { "id": "interbank-transferencia", "replaces": "Transferencia", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe", "label": "Transferencia (pack)",
-      "subjectEndsWith": "constancia de transferencia", "type": "transferIfOwn", "amount": { "label": "Monto y moneda" }, "recipient": { "label": "Cuenta destino" },
-      "last4": { "label": "Cuenta a cargo", "kind": "account" }, "externalId": { "label": "Código de operación" } },
+      "subjectEndsWith": "constancia de transferencia", "type": "transferIfOwn", "amount": { "label": "Monto y moneda" }, "recipient": { "label": "Cuenta destino", "orLabel": "Destinatario" },
+      "last4": { "label": "Cuenta a cargo", "orLabel": "Cuenta cargo", "kind": "account" }, "to": { "label": "Cuenta destino", "orLabel": "Destinatario", "kind": "cci" },
+      "externalId": { "label": "Código de operación" } },
 
     { "id": "interbank-pago-deuda", "replaces": "Pago de deuda (transferencia interna)", "bank": "Interbank", "sender": "notificaciones@interbank.pe", "label": "Pago de deuda (pack)",
       "cardIsDestination": true, "type": "transfer", "amount": { "label": "Monto pagado" }, "description": { "text": "Pago tarjeta Interbank" },

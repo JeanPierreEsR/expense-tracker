@@ -56,8 +56,9 @@ function rulePackWords_(list, what, errors, max) {
 
 function rulePackLabel_(spec, what, errors) {
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) { errors.push(what + ': needs {label}'); return; }
-  Object.keys(spec).forEach(function (k) { if (k !== 'label') errors.push(what + ': unknown field ' + k); });
+  Object.keys(spec).forEach(function (k) { if (k !== 'label' && k !== 'orLabel') errors.push(what + ': unknown field ' + k); });
   rulePackText_(spec.label, what + '.label', errors);
+  if (spec.orLabel !== undefined) rulePackText_(spec.orLabel, what + '.orLabel', errors);
 }
 
 function rulePackCheckRule_(r, where, errors, strict) {
@@ -119,8 +120,9 @@ function rulePackCheckRule_(r, where, errors, strict) {
     var t = r.to;
     if (!t || typeof t !== 'object') errors.push(where + '.to: needs {label, kind}');
     else {
-      Object.keys(t).forEach(function (k) { if (k !== 'label' && k !== 'kind') errors.push(where + '.to: unknown field ' + k); });
+      Object.keys(t).forEach(function (k) { if (k !== 'label' && k !== 'kind' && k !== 'orLabel') errors.push(where + '.to: unknown field ' + k); });
       rulePackText_(t.label, where + '.to.label', errors);
+      if (t.orLabel !== undefined) rulePackText_(t.orLabel, where + '.to.orLabel', errors);
       if (['card', 'masked', 'account', 'cci'].indexOf(t.kind) === -1) errors.push(where + '.to.kind: card, masked, account or cci');
     }
   }
@@ -128,8 +130,9 @@ function rulePackCheckRule_(r, where, errors, strict) {
     var l = r.last4;
     if (!l || typeof l !== 'object') errors.push(where + '.last4: needs {label, kind}');
     else {
-      Object.keys(l).forEach(function (k) { if (k !== 'label' && k !== 'kind') errors.push(where + '.last4: unknown field ' + k); });
+      Object.keys(l).forEach(function (k) { if (k !== 'label' && k !== 'kind' && k !== 'orLabel') errors.push(where + '.last4: unknown field ' + k); });
       rulePackText_(l.label, where + '.last4.label', errors);
+      if (l.orLabel !== undefined) rulePackText_(l.orLabel, where + '.last4.orLabel', errors);
       if (['card', 'masked', 'account'].indexOf(l.kind) === -1) errors.push(where + '.last4.kind: card, masked or account');
     }
   }
@@ -251,7 +254,11 @@ function rulePackCompile_(r) {
       var mm = body.match(new RegExp(rulePackEscape_(r.merchant.between[0]) + '\\s*([^\\n]+?)\\s*' + rulePackEscape_(r.merchant.between[1]), 'i'));
       merchant = mm ? mm[1].trim() : null;
     }
-    var recipient = r.recipient ? afterLabel_(body, rulePackEscape_(r.recipient.label)) : null;
+    // `orLabel` (2026-11-20): a second wording of the same line, for a bank that sends two layouts (Interbank).
+    var labelled = function (spec) {
+      return afterLabel_(body, rulePackEscape_(spec.label)) || (spec.orLabel ? afterLabel_(body, rulePackEscape_(spec.orLabel)) : null);
+    };
+    var recipient = r.recipient ? labelled(r.recipient) : null;
     var description = null;
     if (r.description && r.description.labels) {
       description = r.description.labels.map(function (l) { return afterLabel_(body, rulePackEscape_(l)); }).filter(Boolean).join(' - ') || null;
@@ -259,6 +266,11 @@ function rulePackCompile_(r) {
     else description = merchant || recipient;
     if (description && r.description && r.description.prefix) description = r.description.prefix + description;
     var digitsAfter = function (spec) {
+      var first = digitsAfterLabel(spec, spec.label);
+      return first || (spec.orLabel ? digitsAfterLabel(spec, spec.orLabel) : null);
+    };
+    var digitsAfterLabel = function (spec, label) {
+      spec = { kind: spec.kind, label: label };
       if (spec.kind === 'cci') return cciAccountLast4_(body, rulePackEscape_(spec.label));
       return spec.kind === 'account'
         ? extractAccountLast4_(body, rulePackEscape_(spec.label))
