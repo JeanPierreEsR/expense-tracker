@@ -581,11 +581,20 @@ function isDuplicateTelegramUpdate_(updateId) {
 }
 
 function handleTelegramUpdate_(update) {
-  if (update.callback_query) {
-    handleTelegramCallback_(update.callback_query);
-  } else if (update.message) {
-    handleTelegramMessage_(update.message);
+  // The bot's tour (BotTour.gs) looks at each message from the linked chat: before (its own words) and after (was the step done?).
+  var msg = update.message, cb = update.callback_query;
+  var chatId = msg ? msg.chat.id : (cb && cb.message ? cb.message.chat.id : null);
+  var tour = chatId !== null && isOwnerChat_(chatId) && !(msg && String(msg.text || '').indexOf('/start') === 0);
+  if (tour && botTourBefore_(msg ? msg.text : '', { id: msg ? msg.message_id : cb.message.message_id, timestamp: msg ? msg.date : '' }, false, !!(msg && msg.reply_to_message))) {
+    botTourAfter_();
+    return;
   }
+  if (cb) {
+    handleTelegramCallback_(cb);
+  } else if (msg) {
+    handleTelegramMessage_(msg);
+  }
+  if (tour) botTourAfter_();
 }
 
 function handleTelegramCallback_(cb) {
@@ -612,6 +621,7 @@ function handleTelegramCallback_(cb) {
   var parts = String(cb.data).split(':');
   var action = parts[0];
   var entryId = parts[1];
+  botTourNote_('touched', entryId);   // Confirm / Discard on the tour's transaction: the tour checks what came of it
 
   // Once handled, take the buttons off the card so a second tap (easy when
   // the first reply is slow) can't confirm again — and answer a repeat tap
@@ -948,6 +958,7 @@ function telegramNewTypedEntry_(msg, text) {
     return;
   }
   var card = sendTelegramEntryNotification_(r.entry, r.categoryName);
+  botTourNote_('newEntry', r.entry.id);
   var cardId = card && card.ok && card.result ? card.result.message_id : null;
   if (r.editMessage) {
     telegramApi_('sendMessage', { chat_id: msg.chat.id, text: r.editMessage, reply_to_message_id: cardId || msg.message_id, allow_sending_without_reply: true });

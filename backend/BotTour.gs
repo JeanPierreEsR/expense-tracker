@@ -1,0 +1,160 @@
+/**
+ * The bot's own tour (owner's plan "Bot tutorial - WhatsApp and Telegram", 2026-11-20; specs/review-telegram-email.md § Bot tour).
+ * The bot teaches itself, in the chat, one short message per step, and moves on when the person really does the step:
+ *   1 write an expense ("25 almuerzo"; "prueba" makes a test one instead) → 2 its card: tap Edit and change the category
+ *   ("saltar" skips) → 3 tap Confirm (test: Discard) → 4 write "pendientes" → 5 two tips, done.
+ * Starts by itself on a friend's copy with the first message ever sent to the WhatsApp bot; "tutorial" starts it on any copy and
+ * on both bots. Nothing is blocked: every message is handled as usual, and only then does the tour look at what happened. A
+ * message that did not fit repeats the step once; two in a row stop the tour. "salir" stops it. It ends by itself after 24 hours
+ * without a step (WhatsApp's window anyway). The tour records nothing of its own: the expense is a normal waiting entry.
+ * State: Script Property BOT_TOUR = { step, at, misses, entryId, test }; BOT_TOUR_DONE = the day it was finished or exited.
+ */
+var BOT_TOUR_MAX_AGE_MS_ = 24 * 3600000;
+// What happened during the message being handled (reset by botTourBefore_, read by botTourAfter_).
+var BOT_TOUR_EV_ = null;
+
+function botTourState_() {
+  var raw = PropertiesService.getScriptProperties().getProperty('BOT_TOUR');
+  if (!raw) return null;
+  try {
+    var st = JSON.parse(raw);
+    if (!st || !st.step || Date.now() - Number(st.at) > BOT_TOUR_MAX_AGE_MS_) { botTourEnd_(false); return null; }
+    return st;
+  } catch (err) { return null; }
+}
+function botTourSave_(st) {
+  st.at = Date.now();
+  PropertiesService.getScriptProperties().setProperty('BOT_TOUR', JSON.stringify(st));
+}
+// done: finished or exited by the person (it then counts as taught, like the app's tutorials).
+function botTourEnd_(done) {
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty('BOT_TOUR');
+  if (done) props.setProperty('BOT_TOUR_DONE', Utilities.formatDate(new Date(), SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), 'yyyy-MM-dd'));
+}
+function botTourDone_() { return !!PropertiesService.getScriptProperties().getProperty('BOT_TOUR_DONE'); }
+
+// Called by the bots where something the tour waits for happens. kind: 'newEntry' | 'edited' | 'touched' | 'pending'.
+function botTourNote_(kind, entryId) {
+  if (!BOT_TOUR_EV_) return;
+  if (kind === 'pending') { BOT_TOUR_EV_.pending = true; return; }
+  if (kind === 'newEntry') { BOT_TOUR_EV_.newEntry = String(entryId || ''); return; }
+  BOT_TOUR_EV_[kind] = BOT_TOUR_EV_[kind] || {};
+  BOT_TOUR_EV_[kind][String(entryId || '')] = true;
+}
+
+// The step's own message. Steps 2 and 3 quote the tour's transaction (its newest message), so the step reads as being about it.
+function botTourStepText_(st) {
+  var stop = '\n\n' + tr_('botTour.stopHint');
+  if (st.step === 1) return { text: tr_('botTour.step1') + stop };
+  if (st.step === 2 || st.step === 3) {
+    var e = getEntryById_(st.entryId);
+    var key = st.step === 2 ? (e && e.category_id ? 'botTour.step2' : 'botTour.step2NoCat') : (st.test ? 'botTour.step3Test' : 'botTour.step3');
+    return { text: tr_(key) + stop, replyTo: whatsappCardFor_(st.entryId) || null };
+  }
+  if (st.step === 4) return { text: tr_('botTour.step4') + stop };
+  return { text: tr_('botTour.step5') + (botIsWa_() ? '\n\n' + tr_('botTour.step5Wa') : '') };
+}
+function botTourSay_(st, before) {
+  var m = botTourStepText_(st);
+  botText_((before ? before + '\n\n' : '') + m.text, m.replyTo);
+}
+
+function botTourStart_() {
+  var st = { step: 1, misses: 0, entryId: '', test: false };
+  botTourSave_(st);
+  return st;
+}
+
+// A friend's new WhatsApp bot, its very first message, a tour never done: the tour starts by itself (the one exception to "a
+// tutorial never starts by itself", like the app's guided practices). Never on the owner's copy.
+function botTourAutoStartOk_() {
+  return isFriendCopy_() && reviewBotIsWhatsApp_() && !botTourDone_() && !botTourState_();
+}
+
+// Before the message is handled. text: the message's text ('' for a tap or a photo); isReply: it quotes a message. Returns true
+// when the tour answered it and the bot must not handle it (its own words, or a first "hola" that would only get "no amount").
+function botTourBefore_(text, p, firstEver, isReply) {
+  BOT_TOUR_EV_ = {};
+  var t = String(text || '').trim();
+  var plain = t && !isReply;
+  if (plain && /^\/?(?:tutorial|tour)$/i.test(t)) {
+    botTourSay_(botTourStart_());
+    BOT_TOUR_EV_.skip = true;
+    return true;
+  }
+  var st = botTourState_();
+  if (st && plain && /^(?:salir|stop|exit)$/i.test(t)) {
+    botTourEnd_(true);
+    botText_(tr_('botTour.stopped'), p.id);
+    BOT_TOUR_EV_.skip = true;
+    return true;
+  }
+  if (st && plain && st.step === 1 && /^(?:prueba|test)$/i.test(t)) {
+    st.test = true;
+    botTourSave_(st);
+    botNewPurchase_('1 ' + tr_('botTour.testName'), p);   // the usual card; botTourAfter_ moves on to step 2
+    return true;
+  }
+  if (st && plain && st.step === 2 && /^(?:saltar|skip)$/i.test(t)) {
+    st.step = 3; st.misses = 0;
+    botTourSave_(st);
+    botTourSay_(st);
+    BOT_TOUR_EV_.skip = true;
+    return true;
+  }
+  if (!st && firstEver && botTourAutoStartOk_()) {
+    botTourStart_();
+    if (t && !isReply && typedIsNewEntry_(t)) return false;   // already an expense: handled as usual, the tour starts at step 2
+    if (t) { botTourSay_({ step: 1 }); BOT_TOUR_EV_.skip = true; return true; }   // "hola": the tour's greeting is the answer
+    BOT_TOUR_EV_.greet = true;   // a photo or a tap: handled as usual, then the greeting
+  }
+  return false;
+}
+
+// After the message was handled: did the person do the step?
+function botTourAfter_() {
+  var ev = BOT_TOUR_EV_ || {};
+  BOT_TOUR_EV_ = null;
+  if (ev.skip) return;
+  var st = botTourState_();
+  if (!st) return;
+  if (ev.greet) { botTourSay_(st); return; }
+  var advance = function (step, before) { st.step = step; st.misses = 0; botTourSave_(st); botTourSay_(st, before); };
+  if (st.step === 1) {
+    if (!ev.newEntry) return botTourMiss_(st);
+    st.entryId = ev.newEntry;
+    var made = getEntryById_(st.entryId);
+    if (made && made.status === 'confirmed') return advance(4, tr_('botTour.confirmedAlready'));
+    return advance(2);
+  }
+  if (st.step === 2 || st.step === 3) {
+    var e = getEntryById_(st.entryId);
+    if (!e) return advance(4, tr_(st.test ? 'botTour.testDiscarded' : 'botTour.discarded'));
+    if (e.status === 'confirmed') return advance(4, tr_(st.test ? 'botTour.testConfirmed' : 'botTour.confirmed'));
+    if (st.step === 2 && ev.edited && ev.edited[st.entryId]) return advance(3);
+    if ((ev.edited && ev.edited[st.entryId]) || (ev.touched && ev.touched[st.entryId])) return;   // still working on it
+    return botTourMiss_(st);
+  }
+  if (st.step === 4) {
+    if (!ev.pending) return botTourMiss_(st);
+    botTourEnd_(true);
+    st.step = 5;
+    botTourSay_(st);
+  }
+}
+
+// A message that did not fit the step: the step once more; the second in a row stops the tour (it lost its place).
+function botTourMiss_(st) {
+  st.misses = (Number(st.misses) || 0) + 1;
+  if (st.misses >= 2) { botTourEnd_(false); botText_(tr_('botTour.lost')); return; }
+  botTourSave_(st);
+  botTourSay_(st);
+}
+
+// A new transaction typed for the tour ("prueba"), through the bot of the moment's own path.
+function botNewPurchase_(text, p) {
+  var q = { id: p.id, text: text, timestamp: p.timestamp };
+  if (botIsWa_()) return whatsappNewPurchase_(text, q);
+  return telegramNewTypedEntry_({ chat: { id: getOwnerTelegramChatId_() }, message_id: p.id, date: p.timestamp }, text);
+}
