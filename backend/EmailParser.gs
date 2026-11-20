@@ -90,6 +90,36 @@ function extractAccountLast4_(body, label) {
   return m ? m[0].slice(-4) : extractLast4_(chunk);
 }
 
+// A CCI (Peru's 20-digit interbank code: bank 3 + branch 3 + account 12 + check 2) after `label`: the last four digits of the
+// ACCOUNT, i.e. the four just before the two check digits. Read only from SIP's "Transferencia a otro banco" e-mail (2026-11-20).
+function cciAccountLast4_(body, label) {
+  var i = String(body || '').search(new RegExp(label, 'i'));
+  if (i === -1) return null;
+  var m = body.substring(i, i + 300).replace(/(\d)[ -](?=\d)/g, '$1').match(/(?:^|\D)(\d{20})(?!\d)/);
+  return m ? m[1].slice(14, 18) : null;
+}
+
+// An e-mail that names the account the money left only by its product name (SIP: "Cuenta Ahorramás Soles"): the person's one account
+// whose name is in it as whole words ("AhorraMás"). Never a credit card or an investment platform; only accounts of that bank or with no bank.
+function emailAccountByName_(name, bank, paymentMethods) {
+  var words = ownerNameTokens_(name);
+  if (!words.length) return null;
+  var hits = paymentMethods.filter(function (pm) {
+    if (pm.type === 'credit' || pm.type === 'investment') return false;
+    if (pm.bank_id && (!bank || pm.bank_id !== bank.id)) return false;
+    var nick = ownerNameTokens_(pm.nickname).join('');
+    if (nick.length < 4) return false;
+    // whole words in a row, spaces ignored: "AhorraMás" = "Ahorra Más" = "Ahorramás"; never part of a word
+    for (var i = 0; i < words.length; i++) {
+      var run = '';
+      for (var j = i; j < words.length && run.length < nick.length; j++) run += words[j];
+      if (run === nick) return true;
+    }
+    return false;
+  });
+  return hits.length === 1 ? hits[0] : null;
+}
+
 // Real emails often glue "Label" straight onto its value with no space
 // (e.g. "Enviado aJean Pierre..."), and some senders' "plain text" body
 // still carries markdown-style *bold* markers or a stray <br>. The
@@ -670,12 +700,18 @@ var EMAIL_RULES = [
       if (!amt) return null;
       var recipient = afterLabel_(body, 'Destino');
       var own = isOwnAccount_(recipient);
-      return {
+      // SIP names the account the money left only by its product name ("Origen: Cuenta Ahorramás Soles", no digits), and the person's
+      // own account at the other bank by its CCI (2026-11-20, owner's 5,000 transfer to BCP landed with From and To blank).
+      var fields = {
         type: own ? 'transfer' : 'expense', needsReview: !own,
         amount: amt.amount, currency: amt.currency, description: recipient,
         last4: null,
-        externalId: afterLabel_(body, 'Nro. de Operación')
+        externalId: afterLabel_(body, 'Nro. de Operación'),
+        accountName: afterLabel_(body, 'Origen')
       };
+      var toLast4 = own ? cciAccountLast4_(body, 'Destino') : null;
+      if (toLast4) { fields.toLast4 = toLast4; fields.toOwnAlways = true; }
+      return fields;
     }
   },
   {
@@ -1160,6 +1196,7 @@ function emailAccountFor_(rule, fields, banks, paymentMethods) {
     var byCard = paymentMethods.filter(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); });
     if (byCard.length === 1) paymentMethod = byCard[0];
   }
+  if (!paymentMethod && fields.accountName) paymentMethod = emailAccountByName_(fields.accountName, bank, paymentMethods);
   // No account named in the email: the rule may say which account of that
   // currency the money always leaves (BCP, Yape).
   if (!paymentMethod && rule.rail) {

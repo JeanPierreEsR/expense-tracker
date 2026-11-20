@@ -28,7 +28,7 @@ var RULE_PACK_MAX_RULES_ = 150;
 var RULE_PACK_MAX_TEXT_ = 120;
 var RULE_PACK_TYPES_ = ['expense', 'income', 'transfer', 'transferIfOwn'];
 var RULE_PACK_RULE_KEYS_ = ['id', 'bank', 'sender', 'label', 'skip', 'cardIsDestination', 'accountByCurrency', 'first', 'replaces', 'type', 'subjectHas', 'subjectHasAny',
-  'subjectEndsWith', 'subjectIs', 'bodyHas', 'bodyHasAny', 'amount', 'merchant', 'recipient', 'description', 'last4', 'to', 'externalId'];
+  'subjectEndsWith', 'subjectIs', 'bodyHas', 'bodyHasAny', 'amount', 'merchant', 'recipient', 'description', 'last4', 'to', 'externalId', 'accountName'];
 var RULE_PACK_ADDRESS_ = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
 function rulePackEscape_(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -100,6 +100,9 @@ function rulePackCheckRule_(r, where, errors, strict) {
   }
   if (r.recipient !== undefined) rulePackLabel_(r.recipient, where + '.recipient', errors);
   if (r.externalId !== undefined) rulePackLabel_(r.externalId, where + '.externalId', errors);
+  // `accountName` (2026-11-20): the label of the line that names the account the money left by its product name, no digits (SIP's
+  // "Origen"); the scan picks the person's account whose name is in it.
+  if (r.accountName !== undefined) rulePackLabel_(r.accountName, where + '.accountName', errors);
   if (r.description !== undefined) {
     var d = r.description;
     if (!d || typeof d !== 'object') errors.push(where + '.description: needs {labels}');
@@ -118,7 +121,7 @@ function rulePackCheckRule_(r, where, errors, strict) {
     else {
       Object.keys(t).forEach(function (k) { if (k !== 'label' && k !== 'kind') errors.push(where + '.to: unknown field ' + k); });
       rulePackText_(t.label, where + '.to.label', errors);
-      if (['card', 'masked', 'account'].indexOf(t.kind) === -1) errors.push(where + '.to.kind: card, masked or account');
+      if (['card', 'masked', 'account', 'cci'].indexOf(t.kind) === -1) errors.push(where + '.to.kind: card, masked, account or cci');
     }
   }
   if (r.last4 !== undefined) {
@@ -256,6 +259,7 @@ function rulePackCompile_(r) {
     else description = merchant || recipient;
     if (description && r.description && r.description.prefix) description = r.description.prefix + description;
     var digitsAfter = function (spec) {
+      if (spec.kind === 'cci') return cciAccountLast4_(body, rulePackEscape_(spec.label));
       return spec.kind === 'account'
         ? extractAccountLast4_(body, rulePackEscape_(spec.label))
         : (spec.kind === 'masked'
@@ -264,7 +268,9 @@ function rulePackCompile_(r) {
     };
     var last4 = r.last4 ? digitsAfter(r.last4) : null;
     var toLast4 = null;
-    if (r.to) { toLast4 = digitsAfter(r.to); if (!toLast4) return null; }   // a rule that names the destination cannot read the e-mail without it
+    // A rule that names the destination cannot read the e-mail without it; for `transferIfOwn` the destination is read only when it is the
+    // person's own (below), and an e-mail without it is still read.
+    if (r.to && r.type !== 'transferIfOwn') { toLast4 = digitsAfter(r.to); if (!toLast4) return null; }
     var fields = { type: r.type, amount: amt.amount, currency: amt.currency, description: description, last4: last4,
       externalId: r.externalId ? afterLabel_(body, rulePackEscape_(r.externalId.label)) : null };
     if (toLast4) fields.toLast4 = toLast4;
@@ -273,7 +279,10 @@ function rulePackCompile_(r) {
       var own = isOwnAccount_(recipient);
       fields.type = own ? 'transfer' : 'expense';
       fields.needsReview = !own;   // spelled out for an own-account transfer too (false), exactly like the code rules: the twin check found the difference on the owner's real mail
+      var ownTo = own && r.to ? digitsAfter(r.to) : null;
+      if (ownTo) { fields.toLast4 = ownTo; fields.toOwnAlways = true; }   // the person's own account: a transfer even when the app lacks it
     }
+    if (r.accountName) fields.accountName = afterLabel_(body, rulePackEscape_(r.accountName.label));
     return fields;
   };
   return rule;
