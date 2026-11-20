@@ -8318,6 +8318,86 @@ document.getElementById("review-discard-selected-btn").addEventListener("click",
   });
 });
 
+// ---- A waiting currency exchange as ONE Needs review item (owner, 2026-11-20) ----
+// Both sides are stored as two one-sided transfers sharing exchange_pair (backend CurrencyExchange.gs). Which side a leg is: the side
+// whose account is set, else what the exchange house's id says.
+function reviewXSide_(e) {
+  if (e.payment_method_id && !e.to_payment_method_id) return "out";
+  if (e.to_payment_method_id && !e.payment_method_id) return "in";
+  const ext = String(e.external_id || "");
+  return /^cm-in-/.test(ext) ? "in" : (/^cm-out-/.test(ext) ? "out" : "");
+}
+function reviewExchangePairs_(entries) {
+  const byOut = new Map(), skip = new Set();
+  entries.forEach((e) => {
+    const pair = String(e.exchange_pair || "");
+    if (!pair || e.type !== "transfer" || skip.has(e.id) || byOut.has(e.id)) return;
+    const p = entries.find((x) => x.id !== e.id && x.type === "transfer" && String(x.exchange_pair || "") === pair && x.currency !== e.currency);
+    if (!p) return;
+    const a = reviewXSide_(e), b = reviewXSide_(p);
+    let out = null, inn = null;
+    if (a !== "in" && b !== "out" && (a === "out" || b === "in")) { out = e; inn = p; }
+    else if (b !== "in" && a !== "out" && (b === "out" || a === "in")) { out = p; inn = e; }
+    if (!out) return;
+    byOut.set(out.id, { out, in: inn });
+    skip.add(inn.id);
+  });
+  return { byOut, skip };
+}
+function exchangeReviewItem_(x, list) {
+  const item = document.createElement("div");
+  item.className = "review-item review-exchange";
+  item.dataset.entryId = x.out.id;
+  item.innerHTML = `
+    <div class="review-item-top">
+      <div>
+        <div class="review-item-desc">${escapeHtml(x.out.description || x.in.description || tr("transfer.kind.exchange"))}</div>
+        <div class="review-item-meta">${listDate_(x.out.date)} · ${escapeHtml(tr("transfer.kind.exchange").toLowerCase())}</div>
+      </div>
+    </div>
+    <div class="review-item-amount review-x-amounts">${formatAmount(x.out.amount, x.out.currency)} → ${formatAmount(x.in.amount, x.in.currency)}</div>
+    <div class="review-item-fields">
+      <label class="review-transfer-label">${escapeHtml(tr("xleg.leftFrom"))}</label>
+      <select class="review-x-out">${reviewTransferSideOptions_(x.out.payment_method_id || "")}</select>
+      <label class="review-transfer-label">${escapeHtml(tr("xleg.arrivedIn"))}</label>
+      <select class="review-x-in">${reviewTransferSideOptions_(x.in.to_payment_method_id || "")}</select>
+    </div>
+    <div class="review-item-actions">
+      <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
+      <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
+    </div>`;
+  const outside = (v) => (v === REVIEW_OUTSIDE_ ? "" : v);
+  const done = () => {
+    holdTaps_();
+    item.remove();
+    document.getElementById("review-count").textContent = list.children.length;
+    if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
+  };
+  item.querySelector(".review-confirm-btn").addEventListener("click", async () => {
+    const outPm = outside(item.querySelector(".review-x-out").value), inPm = outside(item.querySelector(".review-x-in").value);
+    if (!outPm && !inPm) { showAppMessage_(tr("error.pickAccount")); return; }
+    const legFields = (e, from, to) => ({ category_id: e.category_id, description: e.description || "", amount: Math.abs(Number(e.amount)), payment_method_id: from, to_payment_method_id: to });
+    const acts = [{ id: x.out.id, action: "confirm", fields: legFields(x.out, outPm, "") }, { id: x.in.id, action: "confirm", fields: legFields(x.in, "", inPm) }];
+    acts.forEach((a) => queueReviewAction_(a.id, a.action, a.fields));
+    done();
+    try {
+      for (const a of acts) await applyReviewAction_(a);
+      refreshEntryList();
+      refreshHomeGlance_(true);
+      showToast_(tr("review.exchangeConfirmed"));
+    } catch (err) { /* stays queued: the next refresh retries it */ }
+  });
+  item.querySelector(".review-discard-btn").addEventListener("click", async () => {
+    const what = `${formatAmount(x.out.amount, x.out.currency)} → ${formatAmount(x.in.amount, x.in.currency)}`;
+    if (!await askConfirmApp_(tr("review.exchangeDiscardAsk", { what }), tr("confirmBtn.discard"))) return;
+    const acts = [{ id: x.out.id, action: "discard", fields: null }, { id: x.in.id, action: "discard", fields: null }];
+    acts.forEach((a) => queueReviewAction_(a.id, a.action, null));
+    done();
+    for (const a of acts) await applyReviewAction_(a).catch(() => {});
+  });
+  return item;
+}
+
 let reviewExpanded_ = new Set(), reviewMoreOpen_ = new Set();   // Needs review items the person opened / whose extra actions are showing
 async function refreshReviewQueue(prefetchedPending, skipFlush) {
   if (!skipFlush) await flushQueuedReviewActions_();
@@ -8346,8 +8426,13 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   if (homeTipsReady_ && !document.getElementById("screen-entries").hidden) offerReviewTip_();   // the first entry to wait may arrive long after opening
   list.innerHTML = "";
 
+  // A waiting currency exchange is ONE item for both sides (owner, 2026-11-20); Edit mode keeps one tick row per side.
+  const xPairs = reviewEditing_ ? { byOut: new Map(), skip: new Set() } : reviewExchangePairs_(entries);
+  document.getElementById("review-count").textContent = entries.length - xPairs.skip.size;   // an exchange counts once
   entries.forEach((entry) => {
     if (reviewEditing_) { list.appendChild(compactReviewRow_(entry)); return; }   // Edit mode: a tick row instead of the whole card
+    if (xPairs.skip.has(entry.id)) return;
+    if (xPairs.byOut.has(entry.id)) { list.appendChild(exchangeReviewItem_(xPairs.byOut.get(entry.id), list)); return; }
     const item = document.createElement("div");
     // Short rows (owner, 2026-11-12): an item starts closed (its top, warnings, category and a ✓ that confirms it as it is);
     // a tap opens the full form; the extra actions sit behind "More actions" (open by themselves when the app suspects one).
@@ -8531,8 +8616,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const fromVal = item.querySelector(".review-from").value, toVal = item.querySelector(".review-to").value;
         // Each side is an account or, said on purpose, "Outside my accounts": a box left on "Pick the account…" used to be saved
         // quietly as someone else's account (1.76.1).
-        if (!fromVal || !toVal) { showAppMessage_(tr("review.pickBothSides")); return; }
-        const fromId = fromVal === REVIEW_OUTSIDE_ ? "" : fromVal, toId = toVal === REVIEW_OUTSIDE_ ? "" : toVal;
+        // One side of a currency exchange (its partner never arrived): its blank side is the exchange house, never asked (owner, 2026-11-20).
+        const xLeg = !!exchangeSideOf_(entry);
+        if ((!fromVal || !toVal) && !xLeg) { showAppMessage_(tr("review.pickBothSides")); return; }
+        const fromId = !fromVal || fromVal === REVIEW_OUTSIDE_ ? "" : fromVal, toId = !toVal || toVal === REVIEW_OUTSIDE_ ? "" : toVal;
         if (!fromId && !toId) { showAppMessage_(tr("error.pickAccount")); return; }
         if (fromId && toId && fromId === toId) {
           showAppMessage_(tr("error.sameAccount"));

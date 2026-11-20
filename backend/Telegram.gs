@@ -315,6 +315,20 @@ function formatEntryForTelegram_(entry, categoryName, autoReason, opts) {
     var cat = getAllRows('Categories').find(function (c) { return c.id === entry.category_id; });
     categoryName = cat ? categoryLabel_(cat) : null;
   }
+  // A waiting currency exchange is ONE card for both sides (owner, 2026-11-20): "PEN 5,000.00 → USD 1,448.44", where it left and
+  // where it arrived. Confirm / Discard act on both (handleTelegramCallback_), "from" / "to" reach the right side (applyOneEditSegment_).
+  var xPair = entry.type === 'transfer' ? exchangePairOf_(entry) : null;
+  if (xPair) {
+    var xLines = ['🔁 ' + (xPair.out.description || xPair['in'].description || tr_('bot.noDescription')) + (entry.status === 'confirmed' ? tr_('bot.confirmedTag') : ''),
+      xPair.out.currency + ' ' + moneyFmt_(xPair.out.amount) + ' → ' + xPair['in'].currency + ' ' + moneyFmt_(xPair['in'].amount),
+      entry.date === Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd') ? tr_('bot.today') : entry.date,
+      tr_('bot.exchangeLeftFrom') + paymentMethodDisplayName_(xPair.out.payment_method_id, tr_('bot.notSetFrom')),
+      tr_('bot.exchangeArrivedIn') + paymentMethodDisplayName_(xPair['in'].to_payment_method_id, tr_('bot.notSetTo'))];
+    if (opts && opts.hint === false) return xLines.join('\n');
+    xLines.push('');
+    xLines.push(tr_('bot.hintExchange'));
+    return xLines.join('\n');
+  }
   var icon = entry.type === 'expense' ? '🧾' : entry.type === 'income' ? '💰' : entry.type === 'investment' ? '📈' : '🔁';
   var lines = [];
   // Short card (owner, 2026-11-20): an expense's 🧾 says its type, the rarer types keep their word on the first line.
@@ -623,9 +637,11 @@ function handleTelegramCallback_(cb) {
       reply = tr_('bot.needPlatformFirst');
       keepButtons = true;
     } else {
+      var xConfirm = pendingExchangePair_(entry);   // a currency exchange's card is both sides: both are confirmed
       linkSuggestedTripOnTelegramConfirm_(entryId);   // the card said so (trip/event matching its date)
       confirmEntryWithLearning_(entryId);
-      reply = tr_('bot.confirmed');
+      if (xConfirm) confirmEntryWithLearning_(xConfirm.out.id === entryId ? xConfirm['in'].id : xConfirm.out.id);
+      reply = tr_(xConfirm ? 'bot.exchangeConfirmed' : 'bot.confirmed');
       telegramTagAskAfter_ = entryId;   // asked once the "Confirmed." reply is sent (below)
     }
   } else if (action === 'discard') {
@@ -644,8 +660,10 @@ function handleTelegramCallback_(cb) {
       reply = tr_('bot.alreadyConfirmedDelete');
     } else {
       try {
+        var xDiscard = pendingExchangePair_(entry);   // a currency exchange's card is both sides: both go
         discardEntryWithRepayments_(entryId);
-        reply = tr_('bot.discarded');
+        if (xDiscard) discardEntryWithRepayments_(xDiscard.out.id === entryId ? xDiscard['in'].id : xDiscard.out.id);
+        reply = tr_(xDiscard ? 'bot.exchangeDiscarded' : 'bot.discarded');
       } catch (err) {
         reply = tr_('bot.notDiscarded', { error: err.message });
       }
@@ -1046,8 +1064,9 @@ function isOwnerChat_(chatId) {
 // The type word in a "type ..." reply, in English (what is stored): "gasto" ->
 // "expense", "inversión" -> "investment", and so on.
 function entryTypeFromWord_(word) {
-  var w = String(word || '').trim().toLowerCase();
-  var map = { gasto: 'expense', ingreso: 'income', transferencia: 'transfer', 'inversión': 'investment', inversion: 'investment' };
+  var w = String(word || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  w = w.replace(/^(inversion)es$/, '$1').replace(/s$/, '');   // plurals: "investments", "gastos", "inversiones"
+  var map = { gasto: 'expense', ingreso: 'income', transferencia: 'transfer', inversion: 'investment' };
   return map[w] || w;
 }
 
@@ -1112,7 +1131,8 @@ var EDIT_COMMAND_PATTERNS = [
   // Investments only: which way the money moved. A withdrawal is stored as
   // a NEGATIVE amount (see Investments.gs), a deposit as a positive one.
   { field: 'direction', re: /^(withdrawal|deposit|retiro|dep[oó]sito)(?![\wáéíóúñ])/i },
-  { field: 'type', re: /^(?:type|tipo)\s+(expense|income|transfer|investment|gasto|ingreso|transferencia|inversi[oó]n)(?![\wáéíóúñ])/i }
+  // A plural is understood too ("type investments", owner 2026-11-20: it was answered "Didn't recognize that").
+  { field: 'type', re: /^(?:type|tipo)\s+(expenses?|incomes?|transfers?|investments?|gastos?|ingresos?|transferencias?|inversi[oó]n(?:es)?)(?![\wáéíóúñ])/i }
 ];
 
 // A reply can combine several edits in one message, comma-separated (e.g.
@@ -1166,8 +1186,10 @@ function finishTelegramEdit_(entryId, statusBefore, allApplied) {
     var blocker = telegramConfirmBlocker_(entry);
     if (!allApplied) return tr_('bot.notConfirmedPartial');
     if (blocker) return tr_('bot.notConfirmedBlocker', { blocker: blocker });
+    var xFinish = pendingExchangePair_(entry);   // one message for a currency exchange: its other side is confirmed with it
     linkSuggestedTripOnTelegramConfirm_(entryId);
     confirmEntryWithLearning_(entryId);
+    if (xFinish) confirmEntryWithLearning_(xFinish.out.id === entryId ? xFinish['in'].id : xFinish.out.id);
     telegramTagAskAfter_ = entryId;   // asked after the refreshed card (handleTelegramMessage_)
     return ''; // the refreshed card says "✅ Confirmed" itself
   }
@@ -1456,7 +1478,12 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     var clearEnd = /^(?:none|nothing|no\s+account|clear|-|ninguno|ninguna|nada|sin\s+cuenta)$/i.test(value);
     var endPm = clearEnd ? { id: '' } : fuzzyFindPaymentMethod_(value);
     if (!endPm) return null;
-    if (field === 'from') {
+    // One card for a waiting exchange: "from" is where the money LEFT, "to" where it ARRIVED, whichever side the card is.
+    var xEdit = exchangePairOf_(entry);
+    if (xEdit) {
+      if (field === 'from') setEntryField_(xEdit.out.id, 'payment_method_id', endPm.id);
+      else { ensureEntriesToPaymentMethodColumn_(); setEntryField_(xEdit['in'].id, 'to_payment_method_id', endPm.id); }
+    } else if (field === 'from') {
       setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', endPm.id);
     } else {
       ensureEntriesToPaymentMethodColumn_();
