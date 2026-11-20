@@ -15908,7 +15908,12 @@ function waOpenRow_(open) {
   document.getElementById("wa-toggle").setAttribute("aria-expanded", open ? "true" : "false");
   document.getElementById("wa-chevron").textContent = open ? "⌄" : "›";
 }
-document.getElementById("wa-toggle").addEventListener("click", () => waOpenRow_(document.getElementById("wa-body").hidden));
+document.getElementById("wa-toggle").addEventListener("click", () => {
+  const opening = document.getElementById("wa-body").hidden;
+  waOpenRow_(opening);
+  // The setup tutorial starts when the person opens the row, never when the screen loads (it waits for the row to be drawn).
+  if (opening) setTimeout(() => { if (waRealWanted_()) startWaReal_(); }, 300);
+});
 function refreshPrivacyWa_() {
   const el = document.getElementById("privacy-wa");
   if (el) el.hidden = !(meta && meta.capabilities && meta.capabilities.whatsappBotOn);
@@ -15919,7 +15924,9 @@ function refreshPrivacyWa_() {
   const relay = document.getElementById("privacy-tg-relay");
   if (relay) relay.hidden = !caps.telegramRelay;
 }
+let waBot_ = null;   // the server's last answer (getWhatsAppBot): the setup tutorial and "Open the bot" read it
 function drawWhatsAppBot_(s) {
+  waBot_ = s || null;
   const on = !!(s && s.on);
   // Not offered yet: only the invitation code entry (owner's plan "WhatsApp invitation code", 2026-11-19).
   const invited = !(s && s.offered === false);
@@ -15943,6 +15950,7 @@ function drawWhatsAppBot_(s) {
   if (!on && s && s.number && !document.getElementById("wa-number").value) document.getElementById("wa-number").value = s.number;   // invited: filled in
   document.getElementById("wa-invite").hidden = !(meta && meta.capabilities && meta.capabilities.whatsappInviteMake);
   document.getElementById("wa-copy-btn").hidden = on && !(s && s.code);
+  document.getElementById("wa-open-bot-btn").hidden = !(on && s && s.botNumber);
   if (s && meta && meta.capabilities) meta.capabilities.whatsappBotOn = on;
   refreshPrivacyWa_();
 }
@@ -15970,7 +15978,12 @@ document.getElementById("wa-off-btn").addEventListener("click", async () => {
 // becomes the usual card with the number filled in. It waits for the answer on purpose: what shows next depends on it.
 document.getElementById("wa-redeem-btn").addEventListener("click", async () => {
   const err = document.getElementById("wa-redeem-error");
-  const code = document.getElementById("wa-redeem-code").value.trim();
+  const typed = document.getElementById("wa-redeem-code").value.trim();
+  // The whole invitation pasted in the box works too (owner's plan "Bot tutorial", 2026-11-20): its code, and the bot's number
+  // from its link, so this copy can open the bot.
+  const found = typed.match(/WA-?[0-9A-Z]{4}-?[0-9A-Z]{4}/i);
+  const code = found ? found[0] : typed;
+  const link = typed.match(/wa\.me\/(\d{8,15})/);
   const number = document.getElementById("wa-redeem-number").value.replace(/\D/g, "");
   if (!code) { err.textContent = tr("prof.waRedeemNoCode"); return; }
   if (number.length < 8 || number.length > 15) { err.textContent = tr("prof.waBadNumber"); return; }
@@ -15978,7 +15991,7 @@ document.getElementById("wa-redeem-btn").addEventListener("click", async () => {
   btn.disabled = true;
   err.textContent = "";
   try {
-    const r = await callApi("useWhatsAppInvite", { code, number });
+    const r = await callApi("useWhatsAppInvite", { code, number, botNumber: link ? link[1] : "" });
     if (meta && meta.capabilities) meta.capabilities.whatsappBot = true;
     document.getElementById("wa-redeem-code").value = "";
     drawWhatsAppBot_(r.bot);
@@ -16009,7 +16022,9 @@ document.getElementById("wa-invite-btn").addEventListener("click", async () => {
 document.getElementById("wa-invite-copy-btn").addEventListener("click", async () => {
   const msg = document.getElementById("wa-invite-copied");
   if (!waInvite_) return;
-  const text = tr("prof.waInviteMessage", { code: waInvite_.code, number: waInvite_.number });
+  const text = waInvite_.botNumber
+    ? tr("prof.waInviteMessageLink", { code: waInvite_.code, number: waInvite_.number, link: `https://wa.me/${waInvite_.botNumber}?text=hola` })
+    : tr("prof.waInviteMessage", { code: waInvite_.code, number: waInvite_.number });
   try { await navigator.clipboard.writeText(text); msg.textContent = tr("prof.waInviteCopied"); }
   catch (e) { msg.textContent = tr("prof.waCopyByHand"); }
 });
@@ -16018,6 +16033,49 @@ document.getElementById("wa-copy-btn").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(box.value); msg.textContent = tr("prof.waCopied"); }
   catch (e) { box.focus(); box.select(); msg.textContent = tr("prof.waCopyByHand"); }
 });
+// Opens the chat with the app's bot, "hola" already typed: the bot's tour starts with a new person's first message (BotTour.gs).
+document.getElementById("wa-open-bot-btn").addEventListener("click", () => {
+  if (!waBot_ || !waBot_.botNumber) return;
+  const homeScreen = isHomeScreenApp_();
+  const url = LoanReminder.whatsappUrl(waBot_.botNumber, "hola", homeScreen);
+  if (!homeScreen) { window.open(url, "_blank", "noopener"); return; }
+  location.href = url;
+});
+
+// ---- Real tutorial: turning the WhatsApp bot on (owner's plan "Bot tutorial - WhatsApp and Telegram", 2026-11-20) ----
+// Starts when the person opens the "WhatsApp bot" row of My profile while the bot is off (a closed row has no size: never from the
+// screen's load). Two ways in: the invitation (code + number → Use the code), then Turn on, the app's question, Copy the code, and
+// "send it to JP; then write hola to the bot", which starts the bot's own tour in the chat. Nothing to clean: it is all real.
+function waRealWanted_() {
+  return !!waBot_ && !waBot_.on && !isTaught_("wabot") && realChanceLeft_("wabot", true) && realScreenFree_() &&
+    !document.getElementById("wa-body").hidden && !document.getElementById("screen-my-profile").hidden;
+}
+function startWaReal_() {
+  let started = false;
+  const shown = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && !!el.getClientRects().length; };
+  const digitsOk = (id) => { const n = document.getElementById(id).value.replace(/\D/g, ""); return n.length >= 8 && n.length <= 15; };
+  const redeemErr = () => document.getElementById("wa-redeem-error").textContent.trim();
+  const steps = [
+    { key: "intro", text: () => tr("rt.wa.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("wabot", "real"); } },
+    { key: "code", target: "#wa-redeem-code", blurTap: true, text: () => tr("rt.wa.code"), visit: "#wa-redeem-code",
+      ok: () => !!document.getElementById("wa-redeem-code").value.trim(), holdsUntil: "use", before: async () => shown("wa-redeem") },
+    { key: "number", target: "#wa-redeem-number", blurTap: true, text: (fix) => tr(fix ? "rt.wa.numberFix" : "rt.wa.number"), visit: "#wa-redeem-number",
+      ok: () => digitsOk("wa-redeem-number"), holdsUntil: "use", before: async () => shown("wa-redeem") },
+    // A refused code: the whole box lights up, so the code can be fixed right there (the card's own error says why).
+    { key: "use", target: () => (redeemErr() ? document.getElementById("wa-redeem") : document.getElementById("wa-redeem-btn")),
+      text: () => tr(redeemErr() ? "rt.wa.useFix" : "rt.wa.use"), until: () => shown("wa-off"), before: async () => shown("wa-redeem") },
+    { key: "number2", target: "#wa-number", blurTap: true, text: (fix) => tr(fix ? "rt.wa.numberFix" : "rt.wa.number2"), visit: "#wa-number",
+      ok: () => digitsOk("wa-number"), holdsUntil: "on", before: async () => shown("wa-off") },
+    { key: "on", target: "#wa-on-btn", text: () => tr("rt.wa.on"), until: () => shown("wa-on"), wait: 15000 },
+    { key: "copy", target: "#wa-copy-btn", text: () => tr("rt.wa.copy"), until: () => !!document.getElementById("wa-copied").textContent.trim(),
+      before: async () => !!(waBot_ && waBot_.code) },
+    { keep: true, text: () => tr("rt.wa.noCode"), button: () => tr("spot.g.done"), before: async () => !(waBot_ && waBot_.code) },
+    { keep: true, look: true, target: () => (waBot_ && waBot_.botNumber ? document.getElementById("wa-open-bot-btn") : document.getElementById("wa-code")),
+      text: () => tr(waBot_ && waBot_.botNumber ? "rt.wa.sendOpen" : "rt.wa.send"), button: () => tr("spot.g.done"), before: async () => !!(waBot_ && waBot_.code) }
+  ];
+  Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
+    onFinish: async (how) => { if (!started) spendRealChance_("wabot"); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); } });
+}
 
 // ---- Apple Pay capture: the "Apple Pay" tab of More → Bank emails (owner's plan, 2026-11-15; backend/ApplePay.gs) ----
 // The iPhone's Shortcuts app sends each Apple Pay payment to this copy's address with the person's own key in the link (?k=…); the
@@ -27624,7 +27682,9 @@ document.getElementById("tour-choice-tips").addEventListener("click", () => {
   try { localStorage.setItem(GUIDED_AGAIN_KEY_, "1"); } catch (e) { /* ignore */ }   // the guided "+" practice runs again, even with entries
   realTutorialsReset_();
   document.getElementById("tour-choice-backdrop").hidden = true;
-  showToast_(tr("spot.tipsReset"), false, 6000);
+  // The bot's own tour lives in the chat: the app cannot start it there (WhatsApp's 24-hour window), so it says how.
+  const botOn = !!(meta && meta.capabilities && (meta.capabilities.whatsappBotOn || meta.capabilities.telegramLinked));
+  showToast_(tr("spot.tipsReset") + (botOn ? " " + tr("spot.tipsResetBot") : ""), false, botOn ? 9000 : 6000);
 });
 
 // ---- Guided practice: the first new entry (owner's design, 2026-11-04; plan "Onboarding test fixes and guided practices") ----
@@ -27840,7 +27900,7 @@ function offerReviewTip_() {   // called whenever Needs review may have somethin
   if (!reviewEntries_.length) return;   // nothing waiting yet
   if (!reviewOpen_) return;   // the row starts closed: its tutorial starts when the person opens it (owner, 2026-11-09), never when Home loads
   if (reviewRealTimer_) return;
-  reviewRealTimer_ = setTimeout(() => { reviewRealTimer_ = null; startReviewReal_(); watchReviewHint_(); watchReviewManyTip_(); }, 400);
+  reviewRealTimer_ = setTimeout(() => { reviewRealTimer_ = null; startReviewReal_(); watchReviewHint_(); watchReviewManyTip_(); watchReviewBotTip_(); }, 400);
 }
 function reviewTypeSteps_(id, type, opts) {
   const row = () => practiceNRow_(id);
@@ -28334,6 +28394,19 @@ function watchReviewManyTip_() {
     text: readyBtn() ? tr("pop.reviewManyReady") : tr("pop.reviewManyEdit"),
     target: () => readyBtn() || editBtn(),
     stillWanted: () => reviewOpen_ && !document.getElementById("screen-entries").hidden && waiting() >= 10,
+    ready: realScreenFree_ });
+}
+
+// The WhatsApp bot is on and several items wait: once, a bubble at the list's row says they can be confirmed from WhatsApp too
+// (owner's plan "Bot tutorial - WhatsApp and Telegram", 2026-11-20; a kind-B bubble, inside the daily teaching budget).
+function watchReviewBotTip_() {
+  if (popWatch_ || popOpen_ || Spotlight.isRunning() || !reviewOpen_ || document.getElementById("screen-entries").hidden) return;
+  if (!(meta && meta.capabilities && meta.capabilities.whatsappBotOn) || popGet_(POP_SEEN_KEY_, []).includes("reviewBot")) return;
+  const waiting = () => (reviewEntries_ || []).filter((e) => !isPracticeReviewEntry_(e)).length;
+  if (waiting() < 3) return;
+  popTipWatch_({ key: "reviewBot", place: "home", level: "medium", text: tr("pop.reviewBot"),
+    target: () => { const b = document.getElementById("review-toggle"); return b && b.getClientRects().length ? b : null; },
+    stillWanted: () => reviewOpen_ && !document.getElementById("screen-entries").hidden && waiting() >= 3,
     ready: realScreenFree_ });
 }
 

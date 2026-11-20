@@ -44,7 +44,15 @@ function getWhatsAppBot() {
   var key = String(props.getProperty(WHATSAPP_SECRET_PROP_) || '');
   var url = getWebAppUrl_();
   if (!url) { try { url = String(ScriptApp.getService().getUrl() || ''); } catch (err) { url = ''; } }   // not learned yet: Google's own answer
-  return { offered: true, on: on, number: number, code: on && key && number && url ? ['WA1', number, url, key].join(' ') : '' };
+  return { offered: true, on: on, number: number, code: on && key && number && url ? ['WA1', number, url, key].join(' ') : '',
+    botNumber: whatsappBotNumber_(), tourDone: botTourDone_() };
+}
+
+// The app's WhatsApp bot number (plan "Bot tutorial", 2026-11-20): set on the owner's copy from the Sheet menu, and carried to a
+// friend's copy inside the invitation (a wa.me link the friend pastes with the code). Never in the code: the repo is public.
+function whatsappBotNumber_() {
+  var n = String(PropertiesService.getScriptProperties().getProperty('WA_BOT_NUMBER') || '').replace(/\D/g, '');
+  return n.length >= 8 && n.length <= 15 ? n : '';
 }
 
 function turnOnWhatsAppBot(payload) {
@@ -98,7 +106,7 @@ function canMakeWhatsAppInvites_() { return !isFriendCopy_() || isOwnerCopyByAdd
 function makeWhatsAppInvite(payload) {
   if (!canMakeWhatsAppInvites_()) throw codedError_('feature_off', tr_('whatsappBot.off'));
   var number = whatsappInviteNumber_(payload);
-  return { number: number, code: whatsappInviteCode_(number) };
+  return { number: number, code: whatsappInviteCode_(number), botNumber: whatsappBotNumber_() };
 }
 
 function useWhatsAppInvite(payload) {
@@ -108,6 +116,8 @@ function useWhatsAppInvite(payload) {
   var already = whatsappOffered_();
   if (String(getSettingsMap().whatsapp_offered || '').toLowerCase() !== 'yes') setSetting_('whatsapp_offered', 'yes');
   PropertiesService.getScriptProperties().setProperty('WA_INVITED_NUMBER', number);
+  var bot = String((payload && payload.botNumber) || '').replace(/\D/g, '');   // from the invitation's link, when it was pasted whole
+  if (bot.length >= 8 && bot.length <= 15) PropertiesService.getScriptProperties().setProperty('WA_BOT_NUMBER', bot);
   return { already: already, bot: getWhatsAppBot() };
 }
 
@@ -124,4 +134,19 @@ function promptSetWhatsAppRelaySecret() {
   if (key.length < 24) { ui.alert('That key is too short (at least 24 characters). Nothing was changed.'); return; }
   props.setProperty(WHATSAPP_SECRET_PROP_, key);
   ui.alert('Saved. WhatsApp messages from your number will now land in Needs review.');
+}
+
+// Sheet menu (owner's copy): the bot's WhatsApp number, so invitations carry a link to it and the app can open it.
+function promptSetWhatsAppBotNumber() {
+  var ui = SpreadsheetApp.getUi();
+  var result = ui.prompt('The WhatsApp bot\'s number',
+    'Type the app\'s WhatsApp Business number with its country code, digits only (for example 51987654321). Leave empty and press OK to forget it.',
+    ui.ButtonSet.OK_CANCEL);
+  if (result.getSelectedButton() !== ui.Button.OK) return;
+  var n = result.getResponseText().replace(/\D/g, '');
+  var props = PropertiesService.getScriptProperties();
+  if (!n) { props.deleteProperty('WA_BOT_NUMBER'); ui.alert('Forgotten. Invitations no longer carry a link to the bot.'); return; }
+  if (n.length < 8 || n.length > 15) { ui.alert('That doesn\'t look like a phone number with its country code. Nothing was changed.'); return; }
+  props.setProperty('WA_BOT_NUMBER', n);
+  ui.alert('Saved. New invitations carry a link to the bot.');
 }

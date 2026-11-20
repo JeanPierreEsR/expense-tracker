@@ -55,3 +55,18 @@ test("the error text exists in both languages", () => {
   assert.match(rt.run("tr_('whatsappBot.inviteWrong')"), /doesn't match/);
   assert.match(rt.run("BACKEND_STRINGS_['whatsappBot.inviteWrong'].es"), /no coincide/);
 });
+
+test("the bot's number travels in the invitation: the owner's copy gives it, the friend's copy keeps it from the pasted link", () => {
+  const owner = ownerCopy();
+  assert.equal(owner.api("makeWhatsAppInvite", { number: "51922222222" }).botNumber, "", "not set: no link");
+  owner.svc.props.set("WA_BOT_NUMBER", "51 911 111 111");
+  const inv = owner.api("makeWhatsAppInvite", { number: "51922222222" });
+  assert.equal(inv.botNumber, "51911111111");
+  const rt = friendCopy();
+  const r = rt.api("useWhatsAppInvite", { code: inv.code, number: "51922222222", botNumber: "51911111111" });
+  assert.equal(r.bot.botNumber, "51911111111");
+  assert.equal(r.bot.tourDone, false);
+  const other = friendCopy();
+  other.api("useWhatsAppInvite", { code: inv.code, number: "51922222222", botNumber: "12" });
+  assert.equal(other.api("getWhatsAppBot", {}).botNumber, "", "a wrong number is not kept");
+});
