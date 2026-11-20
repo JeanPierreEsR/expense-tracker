@@ -8751,7 +8751,11 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const rowDescription = item.querySelector(".review-description").value.trim();
         const amountEdited = !isNaN(amt) && amt > 0 && amt !== Math.abs(Number(entry.amount));
         const rowTripEl = item.querySelector(".review-trip");
+        // The account picked on the card (its box shows only when the item came with none) must reach the full form too (owner, 2026-11-20).
+        const rowAccountEl = item.querySelector(".review-account");
+        const rowAccount = rowAccountEl && !String(rowAccountEl.value || "").startsWith("__") ? rowAccountEl.value : "";
         return Object.assign({}, fresh, {
+          payment_method_id: rowAccount && rowAccount !== (entry.payment_method_id || "") ? rowAccount : (fresh.payment_method_id || ""),
           trip_id: rowTripEl ? rowTripEl.value : (fresh.trip_id || ""),
           category_id: rowCategory && rowCategory !== (entry.category_id || "") ? rowCategory : (fresh.category_id || rowCategory),
           description: rowDescription !== (entry.description || "") ? rowDescription : (fresh.description || ""),
