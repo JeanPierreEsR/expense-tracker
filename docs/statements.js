@@ -999,7 +999,7 @@
     const seq = ++viewerSeq;
     const backdrop = $("stmt-viewer-backdrop"), head = $("stmt-viewer-head"), pages = $("stmt-viewer-pages"), loading = $("stmt-viewer-loading");
     // Opens at once with "Loading…"; shows the account and the pages only when everything is ready (loading standard).
-    head.hidden = true; pages.hidden = true; pages.innerHTML = ""; pages.classList.remove("zoomed");
+    head.hidden = true; pages.hidden = true; pages.innerHTML = ""; pages.style.width = ""; pages.dataset.zoom = "1";
     loading.hidden = false; loading.innerHTML = loadingHtml(tr("common.loading"));
     bringModalToFront_(backdrop);
     backdrop.hidden = false;
@@ -3319,15 +3319,34 @@
     }
   }, true);
   $("stmt-viewer-back").addEventListener("click", closeStatementViewer);
-  // A tap on a page zooms in (twice the screen's width, scroll sideways); another tap zooms back out.
-  $("stmt-viewer-pages").addEventListener("click", (e) => {
-    const img = e.target.closest(".stmt-viewer-page");
-    if (!img) return;
-    const pages = $("stmt-viewer-pages"), scroll = $("stmt-viewer-scroll");
-    const at = img.offsetTop - scroll.scrollTop;   // keep the tapped page where it was
-    pages.classList.toggle("zoomed");
-    scroll.scrollTop = img.offsetTop - at;
-  });
+  // Two fingers zoom the pages in and out (owner, 2026-11-20; it was a tap), from the screen's width up to 4 times it. The pages are
+  // made wider (not magnified as a picture), so the screen scrolls both ways; the point between the fingers stays under them.
+  // The browser's own pinch is turned off here (touch-action in style.css), else it would zoom the whole app.
+  (() => {
+    const scroll = $("stmt-viewer-scroll"), pages = $("stmt-viewer-pages");
+    let pinch = null;
+    const gap = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const mid = (t) => { const r = scroll.getBoundingClientRect(); return { x: (t[0].clientX + t[1].clientX) / 2 - r.left, y: (t[0].clientY + t[1].clientY) / 2 - r.top }; };
+    scroll.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 2 || pages.hidden) return;
+      pinch = { gap: gap(e.touches), zoom: Number(pages.dataset.zoom || 1) };
+    }, { passive: true });
+    scroll.addEventListener("touchmove", (e) => {
+      if (!pinch || e.touches.length !== 2) return;
+      e.preventDefault();
+      const was = Number(pages.dataset.zoom || 1);
+      const zoom = Math.min(4, Math.max(1, pinch.zoom * gap(e.touches) / pinch.gap));
+      if (Math.abs(zoom - was) < 0.01) return;
+      const m = mid(e.touches), k = zoom / was;
+      const cx = scroll.scrollLeft + m.x - pages.offsetLeft, cy = scroll.scrollTop + m.y - pages.offsetTop;
+      pages.dataset.zoom = String(zoom);
+      pages.style.width = `${zoom * 100}%`;
+      scroll.scrollLeft = cx * k + pages.offsetLeft - m.x;
+      scroll.scrollTop = cy * k + pages.offsetTop - m.y;
+    }, { passive: false });
+    scroll.addEventListener("touchend", (e) => { if (e.touches.length < 2) pinch = null; }, { passive: true });
+    scroll.addEventListener("gesturestart", (e) => e.preventDefault());   // older iPhones: no page-wide zoom either
+  })();
   $("stmt-inbox-toggle").addEventListener("click", () => { inboxOpen = $("stmt-inbox-body").hidden; setInboxOpen(inboxOpen); });
   $("statement-inbox-list").addEventListener("click", async (e) => {
     const open = e.target.closest(".stmt-inbox-open"), dis = e.target.closest(".stmt-inbox-dismiss"), all = e.target.closest(".stmt-inbox-open-all");
