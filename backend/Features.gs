@@ -75,6 +75,9 @@ function getCapabilities_() {
     // (the privacy card then has its WhatsApp section, owner 2026-11-16: privacy changes only for people who use the bot).
     whatsappBot: whatsappOffered_(),
     whatsappBotOn: whatsappBotOn_(),
+    // Ever turned on (its relay key exists, kept when turned off): the privacy texts mention the bot only for people who used it
+    // (owner, 2026-11-21), and still after it is off, because JP's relay keeps the number until JP removes it.
+    whatsappBotUsed: whatsappBotUsed_(),
     whatsappInvite: true,                            // this backend takes invitation codes (useWhatsAppInvite)
     whatsappInviteMake: canMakeWhatsAppInvites_(),   // the owner's copy makes them (makeWhatsAppInvite)
     // Why Apple Pay is offered or not (owner's copy only; four yes/no answers, no address or key), shown in More → Performance log.

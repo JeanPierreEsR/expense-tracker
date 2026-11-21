@@ -20,6 +20,7 @@ test("a friend's copy the owner did not mark: nothing offered, nothing can be tu
   assert.deepEqual(JSON.parse(JSON.stringify(rt.api("getWhatsAppBot"))), { offered: false });
   assert.equal(rt.run("getCapabilities_().whatsappBot"), false);
   assert.equal(rt.run("getCapabilities_().whatsappBotOn"), false);
+  assert.equal(rt.run("getCapabilities_().whatsappBotUsed"), false, "never used: the privacy texts do not mention the bot");
   assert.throws(() => rt.api("turnOnWhatsAppBot", { number: "51911111111" }));
 });
 
@@ -55,8 +56,11 @@ test("only the copy's own key opens its door; off closes it and puts the review 
   assert.equal(off.on, false);
   assert.equal(off.code, "");
   assert.ok(!rt.svc.props.get("REVIEW_BOT"), "the review bot setting is cleared");
-  assert.equal(msg(key).ok, false, "off: the door is shut");
+  // Off: the door is shut, but the person is told so in their language instead of the relay's mixed "Not saved" (2026-11-21).
+  const offAnswer = msg(key);
+  assert.match(offAnswer.data.reply, /desactivado|is off/);
   assert.equal(rt.rows("Entries").filter((e) => e.source === "whatsapp").length, 1, "nothing deleted, nothing new");
+  assert.equal(rt.run("getCapabilities_().whatsappBotUsed"), true, "used once: the privacy texts still mention it when off");
 });
 
 test("the owner's copy: offered, and still on from the Sheet-menu setup (no change for him)", () => {

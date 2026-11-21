@@ -15922,10 +15922,19 @@ document.getElementById("wa-toggle").addEventListener("click", () => {
   if (opening) setTimeout(() => { if (waRealWanted_()) startWaReal_(); }, 300);
 });
 function refreshPrivacyWa_() {
-  const el = document.getElementById("privacy-wa");
-  if (el) el.hidden = !(meta && meta.capabilities && meta.capabilities.whatsappBotOn);
-  // Telegram (and its Cloudflare relay) only for someone whose bot is linked (owner, 2026-11-18).
   const caps = (meta && meta.capabilities) || {};
+  // The bot is mentioned only to people who used it (owner, 2026-11-21: a mention implies more notices), and still after they turn
+  // it off, since JP's relay keeps their number until JP removes it. An older backend only says whether it is on now.
+  const waUsed = caps.whatsappBotUsed !== undefined ? !!caps.whatsappBotUsed : !!caps.whatsappBotOn;
+  const el = document.getElementById("privacy-wa");
+  if (el) el.hidden = !waUsed;
+  [["privacy-send", "privacy.send", "privacy.sendWa"], ["erase-kept-by-jp", "erase.keptByJp", "erase.keptByJpWa"]].forEach(([id, plain, wa]) => {
+    const p = document.getElementById(id);
+    if (!p) return;
+    p.setAttribute("data-i18n", waUsed ? wa : plain);   // a language switch redraws it with the same choice
+    p.textContent = tr(waUsed ? wa : plain);
+  });
+  // Telegram (and its Cloudflare relay) only for someone whose bot is linked (owner, 2026-11-18).
   const tg = document.getElementById("privacy-tg");
   if (tg) tg.hidden = !caps.telegramLinked;
   const relay = document.getElementById("privacy-tg-relay");
