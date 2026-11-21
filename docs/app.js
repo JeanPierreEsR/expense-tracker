@@ -1740,12 +1740,16 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
 // follows the language), with "Other" last. A built-in carries key "other";
 // before the categories cleanup has run, the name is the test.
 function isOtherCategory_(c) { return c.key === "other" || (!c.key && c.name === "Other"); }
+// One sorter per language (speed, 2026-11-21: localeCompare with options built a new one for every comparison; Needs review sorts
+// the categories once per waiting entry). Same order as localeCompare(…, locale, { sensitivity: "base" }).
+const CATEGORY_COLLATORS_ = {};
 function sortedCategories_(list) {
   const locale = I18n.getLang() === "es" ? "es" : "en";
+  const coll = CATEGORY_COLLATORS_[locale] || (CATEGORY_COLLATORS_[locale] = new Intl.Collator(locale, { sensitivity: "base" }));
   return list.slice().sort((a, b) => {
     const aLast = isOtherCategory_(a), bLast = isOtherCategory_(b);
     if (aLast !== bLast) return aLast ? 1 : -1;
-    return String(a.name).localeCompare(String(b.name), locale, { sensitivity: "base" });
+    return coll.compare(String(a.name), String(b.name));
   });
 }
 
@@ -26275,6 +26279,16 @@ function linkIconFor_(text) {
   const rule = LINK_ICON_RULES_.find(([re]) => re.test(t));
   return rule ? rule[1] : null;
 }
+// The button's words without its hidden parts. Speed (2026-11-21): innerText made the phone lay out the whole page for each of the
+// ~1,500 link buttons at start-up (about 6 s of a slow phone, twice); this reads the same words without any layout.
+function linkVisibleText_(el) {
+  let out = "";
+  el.childNodes.forEach((n) => {
+    if (n.nodeType === 3) out += n.nodeValue;
+    else if (n.nodeType === 1 && !n.hidden && !n.classList.contains("hidden") && !n.classList.contains("link-ico")) out += n.tagName === "BR" ? " " : linkVisibleText_(n);
+  });
+  return out;
+}
 function linkIconize_(btn) {
   if (!btn || btn.dataset.noIcon != null || btn.closest(".friends-editbar, .ts-stage")) return;
   const old = btn.querySelector(":scope > .link-ico");
@@ -26283,7 +26297,7 @@ function linkIconize_(btn) {
   const first = [...btn.childNodes].find((n) => n !== old && (n.nodeType !== 3 || n.nodeValue.trim()));
   const plus = !!(first && first.nodeType === 3 && /^\s*\+\s/.test(first.nodeValue));
   if (plus) first.nodeValue = first.nodeValue.replace(/^\s*\+\s+/, "");
-  const name = plus ? "plus" : linkIconFor_(btn.innerText || btn.textContent);
+  const name = plus ? "plus" : linkIconFor_(linkVisibleText_(btn));
   if (old && old.dataset.name === name) return;
   if (old) old.remove();
   if (!name) return;
