@@ -1233,6 +1233,7 @@
     // ---- banner ----
     "banner.saveFailed": { en: { one: "⚠️ {n} entry couldn't save — tap to see it", other: "⚠️ {n} entries couldn't save — tap to see them" }, es: { one: "⚠️ {n} movimiento no se pudo guardar: toca para verlo", other: "⚠️ {n} movimientos no se pudieron guardar: toca para verlos" } },
     "banner.update": { en: "New version available — tap to reload", es: "Nueva versión disponible: toca para recargar" },
+    "banner.pullAfterUpdate": { en: "Back from updating? Pull down from the top of the screen to load the new version.", es: "¿Volviste de actualizar? Desliza hacia abajo desde arriba de la pantalla para cargar la nueva versión." },
     "banner.backendUpdate": { en: "⬆️ An update for your app is ready — tap to update", es: "⬆️ Hay una actualización de tu app: toca para actualizar" },
     "banner.backendUrgent": { en: "⚠️ Your app is out of date and can show dates one day early — tap to update", es: "⚠️ Tu app está desactualizada y puede mostrar las fechas un día antes: toca para actualizar" },
 

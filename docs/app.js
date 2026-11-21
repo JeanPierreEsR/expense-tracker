@@ -1688,9 +1688,11 @@ function refreshTelegramFields_() {
   ["budget-alert-fields", "trip-alert-fields"].forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = false; });
 }
 
+let metaReadAt_ = 0;   // when loadMeta last read the server itself (not the saved startup copy); see renderPullUpdateHint_
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", { tz: phoneTz_() });
   syncPairWithBackend_();
+  if (!meta.fromCache_) { metaReadAt_ = Date.now(); renderPullUpdateHint_(); }   // the server was really read: a "pull down after updating" bar is done
   (meta.categories || []).forEach(cleanCategoryLook_);
   refreshTelegramFields_();
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
@@ -13731,6 +13733,7 @@ window.addEventListener("online", () => { if (bundleCheckFailed_()) scheduleBund
     indicator.classList.add("refreshing");
     indicator.style.transform = "translateY(0)";
     try {
+      updateChecked_ = false;   // the update check runs again on what the server says now (it was skipped once done, so "Update available" stayed after updating)
       await loadMeta();
       await refreshEntryList();
       await refreshReviewQueue();
@@ -14059,7 +14062,7 @@ function updateBarClosed_() {
 // Stacks the fixed bars at the top (all are position:fixed): the new-screens bar, the server-update bar, the failed-save bar.
 function stackTopBanners_() {
   let top = 0;
-  ["update-banner", "backend-update-banner", "save-failed-banner"].forEach((id) => {
+  ["update-banner", "backend-update-banner", "save-failed-banner", "pull-update-hint"].forEach((id) => {
     const el = document.getElementById(id);
     if (!el || el.hidden) return;
     el.style.top = top + "px";
@@ -14221,12 +14224,35 @@ function openUpdateModal_() {
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
 }
+// Back from updating (owner, 2026-11-21): the update happens in Safari, and the app kept in the background comes back still holding what it
+// read from the server before (the "Update available" row included), so it looks as if the update did nothing. Opening or copying the update
+// link is remembered on the phone; when the app comes back to the front, a bar at the top says to pull down, until the app reads the server
+// again (a pull, or a fresh start) after that tap. Forgotten after a day.
+const UPDATE_OPENED_KEY = "etUpdateOpened";
+function noteUpdateOpened_() {
+  try { localStorage.setItem(UPDATE_OPENED_KEY, JSON.stringify({ at: Date.now() })); } catch (e) { /* no storage: no bar */ }
+}
+function renderPullUpdateHint_() {
+  const el = document.getElementById("pull-update-hint");
+  if (!el) return;
+  let rec = null;
+  try { rec = JSON.parse(localStorage.getItem(UPDATE_OPENED_KEY) || "null"); } catch (e) { /* nothing remembered */ }
+  const live = !!(rec && rec.at && Date.now() - rec.at < 24 * 3600 * 1000);
+  if (rec && (!live || (metaReadAt_ && metaReadAt_ > rec.at))) { try { localStorage.removeItem(UPDATE_OPENED_KEY); } catch (e) { /* ignore */ } rec = null; }
+  const show = !!rec && !!metaReadAt_ && !document.hidden && document.getElementById("update-modal-backdrop").hidden;
+  if (show) el.textContent = tr("banner.pullAfterUpdate");   // re-set so a screen reader announces it
+  el.hidden = !show;
+  stackTopBanners_();
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) renderPullUpdateHint_(); });
 document.getElementById("more-update-btn").addEventListener("click", openUpdateModal_);
-document.getElementById("update-close-btn").addEventListener("click", () => { document.getElementById("update-modal-backdrop").hidden = true; offerReviewTip_(); });   // (a tutorial waits while this window is open)
+document.getElementById("update-close-btn").addEventListener("click", () => { document.getElementById("update-modal-backdrop").hidden = true; renderPullUpdateHint_(); offerReviewTip_(); });   // (a tutorial waits while this window is open)
 document.getElementById("update-open-btn").addEventListener("click", () => {
+  noteUpdateOpened_();
   openInSafari_(updatePageUrl_(), () => { document.getElementById("update-stuck").hidden = false; });
 });
 document.getElementById("update-copy-btn").addEventListener("click", async () => {
+  noteUpdateOpened_();
   try { await navigator.clipboard.writeText(updatePageUrl_()); document.getElementById("update-copied").hidden = false; }
   catch (e) { window.prompt(tr("update.copyManual"), updatePageUrl_()); }
 });

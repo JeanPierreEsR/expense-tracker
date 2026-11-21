@@ -30,7 +30,7 @@ test("the bar has its markup, a real close button and the stacking of all the to
   assert.match(html, /id="backend-update-banner"[^>]*hidden/);
   assert.match(html, /id="backend-update-open"/);
   assert.match(html, /id="backend-update-close"/);
-  assert.match(app, /\["update-banner", "backend-update-banner", "save-failed-banner"\]/);
+  assert.match(app, /\["update-banner", "backend-update-banner", "save-failed-banner", "pull-update-hint"\]/);
 });
 
 test("the update link carries the id of the server this phone uses", () => {
@@ -41,8 +41,32 @@ test("the update link carries the id of the server this phone uses", () => {
 });
 
 test("both languages exist for the new texts", () => {
-  for (const key of ["banner.backendUpdate", "banner.backendUrgent"]) {
+  for (const key of ["banner.backendUpdate", "banner.backendUrgent", "banner.pullAfterUpdate"]) {
     const m = new RegExp(`"${key.replace(".", "\\.")}": \\{ en: "[^"]+", es: "[^"]+" \\}`);
     assert.match(strings, m, key);
   }
+});
+
+test("back from the update page: the tap is remembered and a pull-down bar shows until the app reads the server again", () => {
+  assert.match(html, /id="pull-update-hint"[^>]*hidden/);
+  assert.match(app, /"update-open-btn"\)\.addEventListener\("click", \(\) => \{\n  noteUpdateOpened_\(\);/);
+  assert.match(app, /"update-copy-btn"\)\.addEventListener\("click", async \(\) => \{\n  noteUpdateOpened_\(\);/);
+  assert.match(app, /if \(!meta\.fromCache_\) \{ metaReadAt_ = Date\.now\(\); renderPullUpdateHint_\(\); \}/, "only a real server read ends it, never the saved startup copy");
+  assert.match(app, /updateChecked_ = false;   \/\/ the update check runs again/, "a pull re-checks the server version");
+  // The rule itself, on a fake page.
+  const fn = /function renderPullUpdateHint_\(\) \{[\s\S]*?\n}\n/.exec(app)[0];
+  const run = (rec, readAt, now) => {
+    const store = { etUpdateOpened: rec ? JSON.stringify(rec) : null };
+    const el = { hidden: true, textContent: "" };
+    const doc = { hidden: false, getElementById: (id) => (id === "pull-update-hint" ? el : { hidden: true }) };
+    const ls = { getItem: (k) => store[k] || null, removeItem: (k) => { store[k] = null; } };
+    new Function("document", "localStorage", "tr", "stackTopBanners_", "Date", "metaReadAt_", "UPDATE_OPENED_KEY", `${fn}; renderPullUpdateHint_();`)(
+      doc, ls, (k) => k, () => {}, { now: () => now }, readAt, "etUpdateOpened");
+    return { shown: !el.hidden, kept: !!store.etUpdateOpened };
+  };
+  assert.deepEqual(run({ at: 1000 }, 500, 2000), { shown: true, kept: true }, "tapped after the last server read: the bar shows");
+  assert.deepEqual(run({ at: 1000 }, 1500, 2000), { shown: false, kept: false }, "the server was read since: done");
+  assert.deepEqual(run({ at: 1000 }, 0, 2000), { shown: false, kept: true }, "nothing read yet this open: waits");
+  assert.deepEqual(run({ at: 1000 }, 500, 1000 + 25 * 3600 * 1000), { shown: false, kept: false }, "forgotten after a day");
+  assert.deepEqual(run(null, 500, 2000), { shown: false, kept: false });
 });
