@@ -2525,6 +2525,8 @@ body.income-revealed .sens-mask { display: none; }
 .stmt-note { margin: 4px 0; font-size: 0.8125rem; }
 .stmt-note.warn { color: var(--warn-text); }
 .stmt-note.ok { color: var(--income-dark); }
+/* Import: the name and type of an account the save will create, set in under the file's name it belongs to (2026-11-21). */
+.tm-newacct { margin: 0 0 8px 12px; padding-left: 10px; border-left: 2px solid var(--border-strong); }
 .stmt-note.info { color: var(--muted); }
 .stmt-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 0.875rem; padding: 3px 0; }
 .stmt-kv span:first-child { color: var(--muted); }

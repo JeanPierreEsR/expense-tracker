@@ -816,6 +816,7 @@
     const key = accountKeyOf(result);
     const acct = coverage && key ? coverage.accounts.find((a) => a.key === key) : null;
     let label = acct ? acct.label : "";
+    if (!label && result.newAccount) label = tr("imp.newAcctHeader", { name: result.newAccount.name });   // an account the save will create
     if (!label && result.kind !== "csv" && result.account && result.account.label) {
       label = result.account.label + (result.account.last4 ? ` …${result.account.last4}` : "");
     }
@@ -1103,13 +1104,13 @@
     // Import data never needs an account (a person may be trying the app before setting any up): its entries are saved with none.
     // Statements still do — a bank's statement is about one account (balances, gaps, coverage).
     const noneOk = screenMode === "import";
-    if (!accounts.length && !noneOk) { body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(tr("table.noAccounts"))}</p>`; return; }
+    if (!accounts.length && !noneOk && !(((typeof meta !== "undefined" && meta && meta.capabilities) || {}).importNewAccounts)) { body.innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.readFailed"))}</p><p class="hint">${escapeHtml(tr("table.noAccounts"))}</p>`; return; }
     // Import reads another app's export or a person's own sheet: a few extra guesses (account column by more names, a comments column,
     // a currency per line). A remembered or known layout keeps its own columns (below).
     const guess = StatementTable.guessMapping(rows, { importMode: screenMode === "import" });
     const sig = StatementTable.signature(guess, rows);
     const width = guess.headers.length;
-    const state = { balStart: "", balEnd: "", balOpen: false, m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catCustom: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "", catDest: {} };
+    const state = { balStart: "", balEnd: "", balOpen: false, m: { ...guess }, accountId: "", map: {}, source: "new", label: "", uses: 0, catChoice: {}, catNames: {}, catCustom: {}, catInfo: [], catItems: [], catSaved: {}, catKey: "", catDest: {}, newAcct: {} };
 
     // Where do the columns come from: this layout saved on the server, a layout the app knows by name, or the guess.
     let saved = null;
@@ -1170,8 +1171,11 @@
       Array.from({ length: width }, (_, i) => `<option value="${i}"${i === selected ? " selected" : ""}>${escapeHtml(colName(i))}</option>`).join("");
     const sel = (cls, label, inner) => `<label>${escapeHtml(label)}</label><select class="tm-${cls}">${inner}</select>`;
     const currencyOptions = (selected) => CURRENCIES.map((c) => `<option value="${c.code}"${c.code === selected ? " selected" : ""}>${c.code}</option>`).join("");
-    const accountOptions = (selectedId, extra) => `<option value="">${escapeHtml(tr(noneOk ? "imp.noAccountOption" : "table.pickAccount"))}</option>` + (extra || "") +
-      accounts.map((a) => `<option value="${escapeHtml(a.id)}"${a.id === selectedId ? " selected" : ""}>${escapeHtml(a.nickname + (a.last_4 ? ` (${a.last_4})` : ""))}</option>`).join("");
+    const accountOptions = (selectedId, extra, after) => `<option value="">${escapeHtml(tr(noneOk ? "imp.noAccountOption" : "table.pickAccount"))}</option>` + (extra || "") +
+      accounts.map((a) => `<option value="${escapeHtml(a.id)}"${a.id === selectedId ? " selected" : ""}>${escapeHtml(a.nickname + (a.last_4 ? ` (${a.last_4})` : ""))}</option>`).join("") + (after || "");
+    // A file's account can be one the save creates (backend capability importNewAccounts; see "accounts the file names" below).
+    const newOk = !!(((typeof meta !== "undefined" && meta && meta.capabilities) || {}).importNewAccounts);
+    const singleNewOption = newOk ? `<option value="new:*">${escapeHtml(tr("imp.newAcctSingle"))}</option>` : "";
 
     const banner = state.source === "known" ? tr("table.layoutKnown", { name: state.label })
       : state.source === "saved" ? (state.label ? tr("table.layoutSaved", { name: state.label }) : tr("table.layoutSavedUnnamed"))
@@ -1179,8 +1183,8 @@
     body.innerHTML = `<div class="tm-root">
       <p class="stmt-note ${remembered ? "ok" : "info"}">${escapeHtml(banner)}${state.source === "saved" ? ` <button type="button" class="add-inline tm-forget">${escapeHtml(tr("table.forget"))}</button>` : ""}</p>
       <p class="hint">${escapeHtml(tr(screenMode === "import" ? "imp.tableHint" : "table.hint"))}</p>
-      <div class="tm-single">${sel("account", tr(noneOk ? "imp.account" : "table.account"), accountOptions(state.accountId))}</div>
-      <div class="tm-multi" hidden><p class="hint">${escapeHtml(tr("table.accountsHint"))}</p><div class="tm-values"></div></div>
+      <div class="tm-single">${sel("account", tr(noneOk ? "imp.account" : "table.account"), accountOptions(state.accountId, "", singleNewOption))}<div class="tm-single-new"></div></div>
+      <div class="tm-multi" hidden><p class="hint">${escapeHtml(tr("table.accountsHint"))}</p><div class="tm-newcard"></div><div class="tm-values"></div></div>
       ${sel("date", tr("table.colDate"), colOptions(state.m.date, false))}
       ${sel("desc", tr("table.colDesc"), colOptions(state.m.description, true))}
       ${sel("mode", tr("table.amounts"), `<option value="one">${escapeHtml(tr("table.amountOne"))}</option><option value="two">${escapeHtml(tr("table.amountTwo"))}</option>`)}
@@ -1209,6 +1213,55 @@
     const multi = () => state.m.account >= 0;
     const pm = () => accounts.find((a) => a.id === state.accountId) || null;
     const pmById = (id) => accounts.find((a) => a.id === id) || null;
+    // ---- accounts the file names that the app does not have (owner, 2026-11-21; backend/StatementAccounts.gs) ----
+    // A name of the file's account column that is none of the person's accounts starts on "New account: <name>"; the whole file can pick
+    // "New account…" too. Choice "new:<name>" ("new:*" = the whole file); its name and type live in state.newAcct[<name>]. Nothing is
+    // created until "Add to my history"; Undo removes it again. A hidden account of that name is shown again instead of a second one.
+    const isNew = (c) => typeof c === "string" && c.indexOf("new:") === 0;
+    const NEW_TYPES = ["debit", "credit", "wallet"];
+    const hiddenMatch = (value) => value === "*" ? null : ((meta && meta.paymentMethods) || []).find((a) => pmHidden_(a) && normName(a.nickname) === normName(value)) || null;
+    function guessNewType(value) {
+      const v = normName(value);
+      if (/(card|tarjeta|visa|master|amex|american express|diners|credit|credito|cmr)/.test(v)) return "credit";
+      if (/(yape|plin|paypal|wallet|billetera|monedero|mercado ?pago|tunki|lukita)/.test(v)) return "wallet";
+      return "debit";
+    }
+    function newSpec(value) {
+      if (!state.newAcct[value]) state.newAcct[value] = { name: value === "*" ? "" : String(value).replace(/\s+/g, " ").trim().slice(0, 60), type: guessNewType(value === "*" ? "" : value) };
+      return state.newAcct[value];
+    }
+    // What is wrong with the new accounts' names, if anything: "" | "empty" | the taken name.
+    function newNameProblem() {
+      const inFile = multi() ? new Set(StatementTable.distinctValues(rows, state.m, state.m.account).map((x) => x.value)) : null;
+      const values = multi() ? Object.keys(state.map).filter((v) => inFile.has(v) && isNew(state.map[v]) && !hiddenMatch(v)) : (isNew(state.accountId) ? ["*"] : []);
+      for (const v of values) {
+        const n = String(newSpec(v).name || "").trim();
+        if (!n) return "empty";
+        const other = accounts.find((a) => normName(a.nickname) === normName(n));
+        if (other) return other.nickname;
+      }
+      return "";
+    }
+    // What the save sends for a new account: the typed name and type, the digits and bank its name shows, the file's currencies.
+    function newAccountPayload(value, accLines) {
+      const hid = hiddenMatch(value);
+      if (hid) return { name: hid.nickname, type: hid.type, unhideId: hid.id };
+      const sp = newSpec(value), name = String(sp.name || "").trim().slice(0, 60);
+      const digits = name.match(/\d{4}/g) || [];
+      const nb = normName(name);
+      const bank = ((meta && meta.banks) || []).find((b) => normName(b.name).length >= 3 && nb.includes(normName(b.name)));
+      return { name, type: sp.type, last4: digits.length === 1 ? digits[0] : "", bankId: bank ? bank.id : "", currencies: [...new Set(accLines.map((l) => l.currency))].sort() };
+    }
+    const newTypeOptions = (sel) => NEW_TYPES.map((t) => `<option value="${t}"${t === sel ? " selected" : ""}>${escapeHtml(tr("accounts.type." + t))}</option>`).join("");
+    function newBoxHtml(value) {
+      const sp = newSpec(value);
+      return `<div class="tm-newacct" data-value="${escapeHtml(value)}"><label>${escapeHtml(tr("imp.newAcctName"))}</label><input type="text" class="tm-nname" maxlength="60" placeholder="${escapeHtml(tr("imp.newAcctNameHint"))}" value="${escapeHtml(sp.name)}">
+        <label>${escapeHtml(tr("imp.newAcctTypeLabel"))}</label><select class="tm-ntype">${newTypeOptions(sp.type)}</select></div>`;
+    }
+    function renderSingleNew() {
+      const box = root.querySelector(".tm-single-new");
+      box.innerHTML = isNew(state.accountId) ? newBoxHtml("*") : "";
+    }
     currencyPickOn_($q("fixed"));
     currencyPickOn_($q("dollar"));
     const currentMapping = () => ({ ...state.m, currencyFixed: $q("fixed").value });
@@ -1219,6 +1272,8 @@
       if (!v) return "";
       const hit = accounts.find((a) => normName(a.nickname) === v) || accounts.find((a) => normName(a.nickname).includes(v) || v.includes(normName(a.nickname)));
       if (hit) return hit.id;
+      // "Cash" / "Efectivo" in another app's export is the app's own Cash, whatever its name in this language (never a second cash account).
+      if (/^(cash|efectivo|dinero en efectivo|cash wallet)$/.test(v)) { const cash = accounts.find((a) => a.type === "cash"); if (cash) return cash.id; }
       // "Interbank 1408" in another app's export: the account whose last 4 digits are in the name, when only one has them (journeys run,
       // 2026-11-17: all 712 lines of a Money Manager file were saved with no account).
       const digits = String(value).match(/\d{4}/g) || [];
@@ -1229,9 +1284,27 @@
       const box = root.querySelector(".tm-values");
       if (!multi()) { box.innerHTML = ""; return; }
       const values = StatementTable.distinctValues(rows, state.m, state.m.account);
-      values.forEach((v) => { if (state.map[v.value] === undefined || (state.map[v.value] !== "skip" && !pmById(state.map[v.value]))) { const g = guessAccountFor(v.value); if (g) state.map[v.value] = g; else delete state.map[v.value]; } });
-      box.innerHTML = values.map((v) => `<div class="tm-value" data-value="${escapeHtml(v.value)}"><label>${escapeHtml(tr("table.valueLines", { value: v.value, n: v.count }))}</label>
-        <select class="tm-vacct">${accountOptions(state.map[v.value], `<option value="skip"${state.map[v.value] === "skip" ? " selected" : ""}>${escapeHtml(tr("table.skipValue"))}</option>`)}</select></div>`).join("");
+      values.forEach((v) => {
+        const c = state.map[v.value];
+        if (c === "skip" || c === "none" || pmById(c)) return;   // (a remembered "new" is looked up again: the account may exist by now)
+        const g = guessAccountFor(v.value);
+        if (g) state.map[v.value] = g;
+        else if (newOk) state.map[v.value] = "new:" + v.value;   // a name the app does not know starts on "New account" (owner, 2026-11-21)
+        else delete state.map[v.value];
+      });
+      box.innerHTML = values.map((v) => {
+        const c = state.map[v.value], hid = hiddenMatch(v.value);
+        const newOpt = newOk ? `<option value="new:${escapeHtml(v.value)}"${isNew(c) ? " selected" : ""}>${escapeHtml(tr(hid ? "imp.showAgainOption" : "imp.newAcctOption", { name: hid ? hid.nickname : v.value }))}</option>` : "";
+        return `<div class="tm-value" data-value="${escapeHtml(v.value)}"><label>${escapeHtml(tr("table.valueLines", { value: v.value, n: v.count }))}</label>
+        <select class="tm-vacct">${accountOptions(c === "none" ? "" : c, newOpt + `<option value="skip"${c === "skip" ? " selected" : ""}>${escapeHtml(tr("table.skipValue"))}</option>`)}</select>${isNew(c) && !hid ? newBoxHtml(v.value) : ""}</div>`;
+      }).join("");
+      renderNewCard();
+    }
+    // "2 accounts in this file aren't in your app yet": said once, above the names, while any name is on "New account".
+    function renderNewCard() {
+      const card = root.querySelector(".tm-newcard");
+      const n = multi() ? Object.keys(state.map).filter((v) => isNew(state.map[v]) && StatementTable.distinctValues(rows, state.m, state.m.account).some((x) => x.value === v)).length : 0;
+      card.innerHTML = n ? `<p class="stmt-note info">${escapeHtml(tr("imp.newAcctsCard", { n }))}</p>` : "";
     }
     function syncControlsFromState() {
       const two = state.m.out >= 0 && state.m.in >= 0;
@@ -1243,6 +1316,7 @@
       setVal("decimal", state.m.decimal || ".");
       setVal("fixed", state.m.currencyFixed || homeCur());
       root.querySelector(".tm-single").hidden = multi();
+      renderSingleNew();
       root.querySelector(".tm-multi").hidden = !multi();
       root.querySelector(".tm-dollar-box").hidden = !(state.m.lineCurrency && state.m.bareDollar && state.m.currency < 0);
     }
@@ -1575,11 +1649,12 @@
         return;
       }
       const needCategory = screenMode === "import" && state.m.category < 0;   // another app's export names a category for every line
-      use.disabled = needCategory || destMissing() || (multi() ? (undecided > 0 || !lines.length) : (!noneOk && !pm()));
+      const nameProblem = newNameProblem();
+      use.disabled = needCategory || destMissing() || !!nameProblem || (multi() ? (undecided > 0 || !lines.length) : (!noneOk && !pm() && !isNew(state.accountId)));
       // Not blocking, only a heads-up: with accounts set up, a person usually wants the entries on one of them.
       // An import may leave a name of the file's account column with no account: say how many lines that is, before saving.
-      const noAcctLines = multi() && noneOk ? lines.filter((l) => !state.map[l.account]).length : 0;
-      const noAccountNote = noneOk && !needCategory && !multi() && !pm() ? `<p class="stmt-note info">${escapeHtml(tr(accounts.some((a) => a.type !== "cash") ? "imp.noAccountWarn" : "imp.noAccountsInfo"))}</p>` : "";
+      const noAcctLines = multi() && noneOk ? lines.filter((l) => !state.map[l.account] || state.map[l.account] === "none").length : 0;
+      const noAccountNote = noneOk && !needCategory && !multi() && !pm() && !isNew(state.accountId) ? `<p class="stmt-note info">${escapeHtml(tr(accounts.some((a) => a.type !== "cash") ? "imp.noAccountWarn" : "imp.noAccountsInfo"))}</p>` : "";
       const totals = {};
       lines.forEach((l) => { const t = totals[l.currency] || (totals[l.currency] = { out: 0, in: 0 }); if (l.amount < 0) t.out += -l.amount; else t.in += l.amount; });
       const sum = (key) => Object.keys(totals).sort().filter((c) => totals[c][key] > 0).map((c) => fmtMoney(c, totals[c][key])).join(" + ") || "—";
@@ -1599,6 +1674,7 @@
         ${needCategory ? `<p class="stmt-note warn">${escapeHtml(tr("imp.needCategory"))}</p>` : ""}
         ${destMissing() ? `<p class="stmt-note warn">${escapeHtml(tr("table.destMissing"))}</p>` : ""}
         ${noAccountNote}
+        ${nameProblem ? `<p class="stmt-note warn">${escapeHtml(nameProblem === "empty" ? tr("imp.newAcctNeedName") : tr("imp.newAcctTaken", { name: nameProblem }))}</p>` : ""}
         ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
         ${multi() && noneOk && noAcctLines ? `<p class="stmt-note warn">${escapeHtml(tr("imp.noAccountLines", { n: noAcctLines }))}</p>` : ""}
         ${r.lines.length > TABLE_BIG_FILE ? `<p class="stmt-note warn">${escapeHtml(tr("table.bigFile", { n: r.lines.length }))}</p>` : ""}
@@ -1671,8 +1747,17 @@
       const cls = (e.target.className.match(/tm-(\w+)/) || [])[1];
       if (!cls || cls === "bal") return;   // the balance boxes only update their own result line (the "input" handler below)
       const v = e.target.value;
-      if (cls === "account") { state.accountId = v; applyAccountGuess(); syncControlsFromState(); }
-      else if (cls === "vacct") { const val = e.target.closest(".tm-value").dataset.value; if (v) state.map[val] = v; else delete state.map[val]; }
+      if (cls === "account") { state.accountId = v; applyAccountGuess(); syncControlsFromState(); if (isNew(v)) { const box = root.querySelector(".tm-single-new .tm-nname"); if (box && !box.value) box.focus(); } }
+      else if (cls === "vacct") {
+        const row = e.target.closest(".tm-value"), val = row.dataset.value;
+        if (v) state.map[val] = v; else if (noneOk) state.map[val] = "none"; else delete state.map[val];   // "none": the person's own "No account", kept on a redraw
+        const old = row.querySelector(".tm-newacct");
+        if (old) old.remove();
+        if (isNew(v) && !hiddenMatch(val)) row.insertAdjacentHTML("beforeend", newBoxHtml(val));
+        renderNewCard();
+      }
+      else if (cls === "ntype") { newSpec(e.target.closest(".tm-newacct").dataset.value).type = v; return; }
+      else if (cls === "nname") { newSpec(e.target.closest(".tm-newacct").dataset.value).name = v; renderPreview(); return; }
       else if (cls === "date") state.m.date = Number(v);
       else if (cls === "desc") state.m.description = Number(v);
       else if (cls === "amount") state.m.amount = Number(v);
@@ -1745,6 +1830,7 @@
         if (res) res.innerHTML = balanceResultHtml(lastPreviewLines);
         return;
       }
+      if (e.target.classList.contains("tm-nname")) { newSpec(e.target.closest(".tm-newacct").dataset.value).name = e.target.value; renderPreview(); return; }
       if (!e.target.classList.contains("tm-cname")) return;
       const row = e.target.closest(".tm-cat-row");
       state.catNames[row.dataset.key] = e.target.value;
@@ -1768,23 +1854,27 @@
       lines.forEach((l) => {
         let id = multi() ? state.map[l.account] : state.accountId;
         if (id === "skip") return;
-        if (!id || !pmById(id)) { if (!noneOk) return; id = ""; }   // an import keeps the lines with no account
+        if (isNew(id) && newOk) { /* an account the save will create */ }
+        else if (!id || !pmById(id)) { if (!noneOk) return; id = ""; }   // an import keeps the lines with no account
         if (!byAccount.has(id)) byAccount.set(id, []);
         byAccount.get(id).push(l);
       });
       if (!byAccount.size) { if (!multi() && !noneOk) root.querySelector(".tm-account").focus(); return; }
       const results = [];
+      let newIdx = 0;
       byAccount.forEach((accLines, id) => {
-        const a = pmById(id);   // null: the lines have no account
+        const a = pmById(id);   // null: the lines have no account, or go to a new one
         const dates = accLines.map((l) => l.date).sort();
-        const accountKey = a ? tableAccountKey(a) : NO_ACCOUNT_KEY;
-        results.push({ name: byAccount.size > 1 ? `${file.name} · ${a ? a.nickname : tr("imp.noAccountOption")}` : file.name,
-          result: { kind: "csv", ok: true, verified: false, accountKey, account: { last4: /^\d{4}$/.test(accountKey) ? accountKey : "" }, holder: "",
+        const newAccount = isNew(id) ? newAccountPayload(id.slice(4), accLines) : null;
+        const accountKey = a ? tableAccountKey(a) : newAccount ? `NEW-${body.dataset.slot || "x"}-${newIdx++}` : NO_ACCOUNT_KEY;
+        results.push({ name: byAccount.size > 1 ? `${file.name} · ${a ? a.nickname : newAccount ? newAccount.name : tr("imp.noAccountOption")}` : file.name,
+          result: { kind: "csv", ok: true, verified: false, accountKey, newAccount: newAccount || undefined, account: { last4: /^\d{4}$/.test(accountKey) ? accountKey : "" }, holder: "",
             period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [], source: state.m.source === "app" ? "app" : "", categoryMap: plainChoices(state.catChoice), categoryNames: namesToSend(), catDest: destsToSend() } });
       });
       // Remember the layout in the Sheet, under the name the person gave it (else the known name, else the account's name).
       const typed = $q("name").value.trim();
-      const label = typed || state.label || (byAccount.size === 1 && pmById([...byAccount.keys()][0]) ? pmById([...byAccount.keys()][0]).nickname : "") || "";
+      const oneId = byAccount.size === 1 ? [...byAccount.keys()][0] : "";
+      const label = typed || state.label || (pmById(oneId) ? pmById(oneId).nickname : isNew(oneId) && results[0].result.newAccount ? results[0].result.newAccount.name : "") || "";
       const accountsToSave = multi() ? { ...state.map } : { "*": state.accountId };
       callApi("saveStatementFormat", { signature: sig, label, accounts: accountsToSave, categories: { ...state.catSaved, ...plainChoices(state.catChoice), ...renameFlags(), ...destFlags() },
         mapping: { date: m.date, description: m.description, amount: m.amount, out: m.out, in: m.in, currency: m.currency, account: m.account, category: m.category, type: m.type,
@@ -1847,6 +1937,7 @@
   function statementsForAnalysis() {
     return usable.map(({ result }) => ({
       key: accountKeyOf(result),
+      newAccount: result.newAccount || undefined,   // an account the save will create (backend/StatementAccounts.gs)
       kind: result.kind,
       source: result.source || "",   // "app" = an app's export: no bank-wording rules on the server
       bank: result.bank || "", accountLast4: (result.account && result.account.last4) || "",   // an account the app does not have yet is proposed from these (never a full number)
@@ -2718,7 +2809,7 @@
   function addedAccountsHtml() {
     if (!addedAccounts.length) return "";
     return `<div class="stmt-note ok" style="margin-bottom:12px"><p style="margin:0 0 6px">${escapeHtml(tr("acct.added", { n: addedAccounts.length, names: addedAccounts.map((a) => a.nickname).join(", ") }))}</p>
-      <p class="hint" style="margin:0 0 6px">${escapeHtml(tr("acct.addedHint"))}</p>
+      <p class="hint" style="margin:0 0 6px">${escapeHtml(tr("acct.addedHint", { n: addedAccounts.length }))}</p>
       <button type="button" class="add-inline" id="statement-open-accounts">${escapeHtml(tr("acct.review"))}</button></div>`;
   }
 
@@ -2896,7 +2987,7 @@
       dryRun,
       filename: `History ${usable.map((u) => u.file).join(", ")}`.slice(0, 200),
       statements: usable.map(({ file, result }) => ({
-        key: accountKeyOf(result), kind: result.kind, source: result.source || "", period: result.period, file_name: file,
+        key: accountKeyOf(result), newAccount: result.newAccount || undefined, kind: result.kind, source: result.source || "", period: result.period, file_name: file,
         verified: !!(result.ok && result.verified !== false), balances: result.balances, due: result.due || "",
         lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category, transfer: l.transfer }))
       })),
@@ -2932,6 +3023,10 @@
         + (res.categoriesMissed ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedCategoriesMissed", { n: res.categoriesMissed, names: (res.categoryMissedNames || []).join(", ") }))}</p>` : "");
       // Only lines that really came in without a category lead to Tidy my history (an older backend does not count them: any purchase, as before).
       const uncategorized = res.uncategorized != null ? Number(res.uncategorized) || 0 : (res.created.purchases || 0);
+      if ((res.accountsCreated || []).length) {   // accounts a spreadsheet named, made with this save: said like the statements' new accounts
+        addedAccounts = addedAccounts.concat(res.accountsCreated);
+        if (typeof loadMeta === "function") loadMeta().catch(() => {});
+      }
       status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
         ${addedAccountsHtml()}${outcome}${rateNeedsHtml(res.rateNeeds)}
         <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button>${uncategorized > 0 ? `<button type="button" class="stmt-choice stmt-tidy-btn" data-n="${res.uncategorized != null ? uncategorized : ""}">${escapeHtml(tr("tidy.fromStatements"))}</button>` : ""}</div>
@@ -3607,12 +3702,19 @@
     const tidyBtn = () => $("statement-review-status").querySelector(".stmt-tidy-btn");
     const pendingBtn = () => $("statement-review-status").querySelector(".stmt-goreview-btn");
     const steps = [];
+    // Accounts the file names that the app does not have (2026-11-21): said on the account step, in one more sentence.
+    const newAcctTip = () => {
+      const r = root();
+      if (!r || !(((typeof meta !== "undefined" && meta && meta.capabilities) || {}).importNewAccounts)) return "";
+      if (r.querySelector(".tm-multi:not([hidden]) .tm-newcard .stmt-note")) return " " + tr("rt.imp.newAccts");
+      return r.querySelector(".tm-single:not([hidden])") ? " " + tr("rt.imp.newAcctPick") : "";
+    };
     const findShown = () => !$("statement-find-card").hidden;
     if (fromStart) steps.push({ key: "choose", target: imp ? ".stmt-upload-btn" : "#stmt-upload-card", text: () => tr(!imp && findShown() ? "rt.stmt.choose3" : pre + "choose"), until: () => stmtCards().length > 0,
       before: async () => { window.scrollTo(0, 0); return true; } });
     steps.push(
       { key: "reading", target: "#statement-results", text: () => tr("rt.stmt.reading"), until: readDone, wait: 8000, before: async () => !readDone() },
-      { key: "account", target: () => { const r = root(); return r ? (r.querySelector(".tm-multi:not([hidden])") || r.querySelector(".tm-single:not([hidden])")) : null; }, text: () => tr(pre === "rt.imp." ? "rt.imp.account" : "rt.stmt.account"), button: realNext, before: async () => mapper() },
+      { key: "account", target: () => { const r = root(); return r ? (r.querySelector(".tm-multi:not([hidden])") || r.querySelector(".tm-single:not([hidden])")) : null; }, text: () => tr(pre === "rt.imp." ? "rt.imp.account" : "rt.stmt.account") + newAcctTip(), button: realNext, before: async () => mapper() },
       { key: "columns", target: columns, text: () => tr("rt.stmt.columns"), button: realNext, before: async () => mapper() },
       { key: "cats", target: part(".tm-cats"), text: () => tr("rt.imp.cats"), button: realNext,
         before: async () => { if (!mapper()) return false; await waitFor(() => { const b = part(".tm-cats")(); return !!b && !b.querySelector(".stmt-loading"); }, 15000); return !!part(".tm-cat-row")(); } },

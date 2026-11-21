@@ -347,7 +347,10 @@ function analyzeStatements(payload) {
     .find(function (c) { return c.type === 'income' && c.name === 'Savings return'; }) || null;
   var pmByKey = {};
   pms.forEach(function (pm) { var k = covKey_(pm.last_4); if (k && !isPracticeAccount_(pm)) pmByKey[k] = pm; });
+  var newByKey = {};   // statements for an account the save will create (a spreadsheet's new account name): a stand-in plays it
+  stmts.forEach(function (s) { if (stmtIsNewAccount_(s)) newByKey[String(s.key)] = stmtNewAccountStandIn_(s); });
   function pmFor(key) {
+    if (newByKey[String(key)]) return newByKey[String(key)];
     // An import with no account: a stand-in with a made-up id that no entry carries (so only account-less entries can match it,
     // and nothing pairs with it as a transfer); the apply step writes '' (see stmtPmForKey_).
     if (String(key) === STMT_NO_ACCOUNT_KEY_) return { id: 'unknown:' + STMT_NO_ACCOUNT_KEY_, nickname: tr_('stmt.noAccountName'), type: 'debit', last_4: '', noAccount: true };
