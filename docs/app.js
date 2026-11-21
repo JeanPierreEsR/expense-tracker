@@ -2861,7 +2861,7 @@ function renderSplitFriendChips() {
   const chips = renderFriendQuickChips_({
     box: container, items, selected: splitFriendIds,
     first: eligible.filter(isGroupFriend_).map((f) => f.id),
-    onToggle: (id) => { toggleSplitFriend_(id); redraw(); },
+    onToggle: (id) => { toggleSplitFriend_(id); redraw(); saveEntryDraftNow_(); },   // at once: the app can be closed right after a tap
     onMore: () => openFriendScreen_({
       many: true, items: items.filter((x) => !isGroupFriend_(eligible.find((f) => f.id === x.id))),
       selected: [...splitFriendIds],
@@ -2869,6 +2869,7 @@ function renderSplitFriendChips() {
       onDone: (ids) => {
         eligible.filter((f) => !isGroupFriend_(f)).forEach((f) => toggleSplitFriend_(f.id, ids.includes(f.id)));
         redraw();
+        saveEntryDraftNow_();
       },
       onAdd: () => document.getElementById("split-add-friend-btn").click(),
     }),
@@ -6287,8 +6288,8 @@ function setupEntrySearch_() {
 // A half-typed NEW entry is kept on the phone as it is typed and restored the
 // next time the app opens (after the update banner's reload, an app switch the
 // phone kills, a call), then cleared the moment it is saved. Nothing is sent
-// anywhere; it never exists for an entry being edited or confirmed. Splits and
-// repayments are not part of it. Older than a day = dropped.
+// anywhere; it never exists for an entry being edited or confirmed. It keeps the
+// split (entryDraftSplit_); repayments are not part of it. Older than a day = dropped.
 const ENTRY_DRAFT_KEY = "entryDraft_v1";
 const ENTRY_DRAFT_MAX_AGE_MS = 24 * 3600 * 1000;
 let entryDraftTimer_ = null;
