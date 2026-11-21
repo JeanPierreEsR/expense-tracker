@@ -191,6 +191,10 @@ class FakeSheet {
   _read(row, col, nrows, ncols) {
     stats.reads++;
     stats.cellsRead += nrows * ncols;
+    if (stats.bySheet) {   // tests/perf-sweep.js: which sheet each read hit (big = more than one row)
+      const k = this.name + (nrows > 1 ? "" : " (1 row)");
+      stats.bySheet[k] = (stats.bySheet[k] || 0) + 1;
+    }
     const out = [];
     for (let r = row; r < row + nrows; r++) {
       const src = this.rows[r - 1] || [];

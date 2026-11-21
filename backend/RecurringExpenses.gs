@@ -41,8 +41,10 @@ function ensureRecurringExpensesSheet_() {
   // Columns added after the sheet already held real data are appended in
   // place, one at a time. The header row is read once and re-read only after an
   // append (this runs many times per request, and each read is a trip to Google).
+  var cols = ['date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit', 'trip_id', 'tag_ids'];
+  if (memoHasColumns_('Recurring Expenses', cols)) return;   // a looking call reads the whole sheet next anyway (Api.gs)
   var headers = getHeaders(sheet);
-  ['date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit', 'trip_id', 'tag_ids'].forEach(function (col) {
+  cols.forEach(function (col) {
     if (headers.indexOf(col) === -1) {
       sheet.getRange(1, headers.length + 1).setValue(col);
       if (col !== 'date') sheet.getRange(1, headers.length + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
@@ -1921,8 +1923,13 @@ function clampedCalendarDate_(year, month, day) {
   return new Date(year, month - 1, Math.min(day, lastDayOfMonth));
 }
 
+// Speed (2026-11-21): Projections formats ~800 occurrence dates per request, mostly the same few dozen; each date is formatted once
+// and the script's time zone (fixed for a run) asked once.
+var CALENDAR_DATE_MEMO_ = null;
 function formatCalendarDate_(d) {
-  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (!CALENDAR_DATE_MEMO_) CALENDAR_DATE_MEMO_ = { tz: Session.getScriptTimeZone(), out: {} };
+  var t = d.getTime();
+  return CALENDAR_DATE_MEMO_.out[t] || (CALENDAR_DATE_MEMO_.out[t] = Utilities.formatDate(d, CALENDAR_DATE_MEMO_.tz, 'yyyy-MM-dd'));
 }
 
 // Days remaining in a period, today's own day already excluded — the

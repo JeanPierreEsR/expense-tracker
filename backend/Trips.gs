@@ -132,10 +132,12 @@ var TRIP_BUDGETS_NONE_ = 'none';
 // trip id -> where its expenses count in budgets, only for trips that are not "as usual": {} = in none, { budgetId: true } = only
 // those. A list whose budgets were all deleted counts as usual again (the trip pop-up says so: listTrips' in_budgets_lost).
 function tripBudgetRoutes_(budgets) {
+  var routes = {};
+  var trips = getTripRows_().filter(function (t) { return String(t.in_budgets || '').trim(); });
+  if (!trips.length) return routes;   // no trip is "not as usual": Budgets need not be read (speed, 2026-11-21)
   var present = {};
   (budgets || getAllRows('Budgets')).forEach(function (b) { present[String(b.id)] = true; });
-  var routes = {};
-  getTripRows_().forEach(function (t) {
+  trips.forEach(function (t) {
     var raw = String(t.in_budgets || '').trim();
     if (!raw) return;
     if (raw === TRIP_BUDGETS_NONE_) { routes[t.id] = { route: {}, name: t.name }; return; }
