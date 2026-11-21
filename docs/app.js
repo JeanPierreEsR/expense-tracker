@@ -2846,6 +2846,9 @@ function toggleSplitFriend_(id, on) {
     splitFriendIds.add(id);
     if (f && isGroupFriend_(f)) setSplitGroupCount_(tripGroupSizeSaved_(f.trip_id) || 2);
   }
+  // The friends screen sits outside the form, so its picks never reached the draft (testers, 2026-11-20: a reopened draft
+  // came back without them and was saved as a smaller split). Every change of who shares it is saved with the draft.
+  scheduleEntryDraftSave_();
 }
 // Shared with: the trip's group (Splitwise) first, then the five friends used most recently and anyone already picked, then "More…",
 // which opens the friends screen with everyone by name (owner, 2026-11-19; it was three rows of buttons with a fold).
@@ -3197,6 +3200,7 @@ document.getElementById("split-add-friend-btn").addEventListener("click", async 
   renderSplitFriendChips();
   renderSplitRows();
   renderSplitSummary();
+  saveEntryDraftNow_();   // the friend arrives after the tap's own draft save: keep them in the draft now
 });
 
 document.getElementById("amount").addEventListener("input", () => {
@@ -6356,8 +6360,11 @@ function entryDraftSplit_() {
   const due = document.getElementById("split-due");
   const names = {};
   [...splitFriendIds].forEach((id) => { const f = (meta.friends || []).find((x) => x.id === id); if (f) names[id] = f.name; });
+  // Friends a restored draft is still waiting for (not in the friends list yet) stay in it: a save meanwhile must not drop them.
+  const waiting = draftSplitWaiting_ ? draftSplitWaiting_.missing.filter((id) => !splitFriendIds.has(id)) : [];
+  waiting.forEach((id) => { const n = draftSplitWaiting_.sp.names && draftSplitWaiting_.sp.names[id]; if (n) names[id] = n; });
   return {
-    friends: [...splitFriendIds], names, mode: splitMode, custom: { ...customSplitAmounts }, percents: { ...splitPercents },
+    friends: [...splitFriendIds, ...waiting], names, mode: splitMode, custom: { ...customSplitAmounts }, percents: { ...splitPercents },
     own: customOwnAmount, groupCount: splitGroupCount_(), due: document.getElementById("split-due-block").hidden ? "" : due.value
   };
 }

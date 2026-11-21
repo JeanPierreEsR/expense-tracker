@@ -106,21 +106,28 @@ function botTourBefore_(text, p, firstEver, isReply) {
   }
   var st = botTourState_();
   if (st && st.step === 4) BOT_TOUR_EV_.before = botTourSnapshot_(st.entryId);   // what a reply in words changes
-  if (st && plain && /^(?:salir|stop|exit)$/i.test(t)) {
+  // The tour's own words are never a transaction's text, at any step, sent plainly or as a reply (testers, 2026-11-20: "saltar"
+  // at step 4 became a confirmed expense's description). A word that does not fit the step just says the step again.
+  var word = botTourWord_(t);
+  if (st && word === 'exit') {
     botTourEnd_(true);
     botText_(tr_('botTour.stopped'), p.id);
     BOT_TOUR_EV_.skip = true;
     return true;
   }
-  if (st && plain && st.step === 1 && /^(?:prueba|test)$/i.test(t)) {
+  if (st && plain && st.step === 1 && word === 'test') {
     st.test = true;
     botTourSave_(st);
     botNewPurchase_('1 ' + tr_('botTour.testName'), p);   // the usual card; botTourAfter_ moves on to step 2
     return true;
   }
-  if (st && plain && st.step === 2 && /^(?:saltar|skip)$/i.test(t)) {
-    st.step = 3; st.misses = 0;
-    botTourSave_(st);
+  if (st && word === 'skip' && st.step >= 2) {
+    if (st.step >= 5) { botTourEnd_(true); st.step = 6; botTourSay_(st); }   // the last step: the tips, and the tour is done
+    else { st.step += 1; st.misses = 0; botTourSave_(st); botTourSay_(st); }
+    BOT_TOUR_EV_.skip = true;
+    return true;
+  }
+  if (st && word) {   // "test" after step 1, "skip" at step 1: the step again, not counted as a miss
     botTourSay_(st);
     BOT_TOUR_EV_.skip = true;
     return true;
@@ -132,6 +139,22 @@ function botTourBefore_(text, p, firstEver, isReply) {
     BOT_TOUR_EV_.greet = true;   // a photo or a tap: handled as usual, then the greeting
   }
   return false;
+}
+
+// The tour's own words, in either language: 'exit' | 'skip' | 'test' | ''.
+function botTourWord_(t) {
+  t = String(t || '').trim().replace(/[.!¡\s]+$/, '');
+  if (/^\/?(?:salir|stop|exit)$/i.test(t)) return 'exit';
+  if (/^(?:saltar|skip)$/i.test(t)) return 'skip';
+  if (/^(?:prueba|test)$/i.test(t)) return 'test';
+  return '';
+}
+
+// A word on its own that is never a transaction's new text, tour or not (owner, 2026-11-21): "ok", "gracias", the tour's words…
+// Before, the bot's last-message rule made it the description of the last transaction, even a confirmed one.
+function botFillerWord_(text) {
+  var t = String(text || '').trim().replace(/[.!¡\s]+$/, '');
+  return /^(?:ok|okay|vale|listo|gracias|thanks|exit|salir|stop|skip|saltar|test|prueba)$/i.test(t);
 }
 
 // After the message was handled: did the person do the step?

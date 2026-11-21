@@ -218,8 +218,8 @@ test("a message without replying is about the transaction of the bot's last mess
   assert.equal(a.entry(e.id).status, "confirmed");
   // After a message that is not about a transaction (the help), plain words are read normally.
   a.text("ayuda");
-  a.text("gracias");
-  assert.match(a.lastBody(), /couldn't find an amount/);
+  a.text("gracias");   // a word on its own that never edits (owner, 2026-11-21): the hint, not "no amount"
+  assert.match(a.lastBody(), /Nothing changed|No cambié nada/);
   assert.equal(a.entry(e.id).description, "Almuerzo con equipo");
 });
 

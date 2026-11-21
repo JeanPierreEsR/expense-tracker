@@ -691,6 +691,7 @@ var BACKEND_STRINGS_ = {
   "bot.codeNotRecognized": { en: "That code wasn't recognized.", es: "No se reconoció ese código." },
   "bot.linked": { en: "✅ Linked! I'll send you entries to review here.", es: "✅ ¡Vinculado! Aquí te enviaré los movimientos por revisar." },
   "bot.replyToACard": { en: "Reply directly to an entry message to edit it.", es: "Responde directamente al mensaje de un movimiento para editarlo." },
+  "bot.fillerHint": { en: "Nothing changed. To change an entry, reply to its message in words, for example “description lunch”.", es: "No cambié nada. Para cambiar un movimiento, responde a su mensaje con palabras, por ejemplo “descripción almuerzo”." },
   "bot.tooOld": { en: "Couldn't find that entry — it may be too old.", es: "No se encontró ese movimiento: puede que sea muy antiguo." },
   "bot.entryNotFound": { en: "Entry not found — it may have already been confirmed or discarded.", es: "No se encontró el movimiento: puede que ya se haya confirmado o descartado." },
   "bot.internalTransfer": { en: "This transfer has one of your own accounts on both ends, so repayment/loan doesn't apply. If it was really with a friend, first clear one end (\"from none\" or \"to none\").", es: "Esta transferencia tiene una cuenta tuya en ambos extremos, así que no aplica repago/préstamo. Si en realidad fue con un amigo, primero quita un extremo (\"desde ninguna\" o \"hacia ninguna\")." },

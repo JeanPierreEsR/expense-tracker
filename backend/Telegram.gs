@@ -846,6 +846,11 @@ function handleTelegramMessage_(msg) {
   // The same commands as WhatsApp (ayuda / pendientes / nuevo) and the answer to an open "send the new …" question
   // (WhatsAppBot.gs). Only for a real Telegram message, not a reply (WhatsApp's own messages come here as replies or commands).
   if (!msg.reply_to_message && String(msg.chat.id) !== WA_CHAT_ID_ && text && telegramSharedCommand_(msg, text)) return;
+  // "ok", "gracias"… on their own, plain or as a reply: never a transaction's new text (BotTour.gs; WhatsApp checks it in its own door).
+  if (String(msg.chat.id) !== WA_CHAT_ID_ && botFillerWord_(text)) {
+    telegramApi_('sendMessage', { chat_id: msg.chat.id, text: tr_('bot.fillerHint'), reply_to_message_id: msg.message_id, allow_sending_without_reply: true });
+    return;
+  }
 
   // A new transaction typed in one message (TypedEntry.gs, the same building block as WhatsApp; owner, 2026-11-16): not a reply,
   // and it starts with an amount or is a pasted bank notice ("25 almuerzo, account Interbank"). Before, such a text became the
