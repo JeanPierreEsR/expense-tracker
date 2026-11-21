@@ -286,6 +286,7 @@ function botAwaitingText_(text, p) {
 
 function whatsappTextIn_(text, p) {
   if (botAwaitingText_(text, p)) return;
+  if (botFillerWord_(text)) return botText_(tr_('bot.fillerHint'), p.id);   // "ok", "gracias"…: never a transaction's new text (BotTour.gs)
   if (p.context_id && whatsappCardEntry_(p.context_id)) return whatsappEngineMessage_(p, text, p.context_id);
   // General help (owner, 2026-11-16): "ayuda" / "help" / "menú" not replying to a transaction says what the bot can do. As a
   // reply to a transaction, "help" stays that transaction's reply words (the branch above).

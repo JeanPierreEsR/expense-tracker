@@ -1674,7 +1674,7 @@
         <p class="hint" data-i18n="privacy.agree">If you check “Help me improve the app”, your phone sends JP only small counts: how fast each action ran; which action failed, with a short code; whether each bank email was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. During setup, the installer page can also tell JP which step you reached, if you leave its box checked.</p>
 
         <p class="hint"><strong data-i18n="privacy.sendTitle">What reaches JP only when you send it</strong></p>
-        <p class="hint" data-i18n="privacy.send">A sample of a bank email or statement that the app cannot read yet (you see the exact text first, and digits, names and email addresses are hidden before it leaves your phone), and the notes you write in “Send feedback to JP” (you see them first). Nothing else.</p>
+        <p class="hint" id="privacy-send" data-i18n="privacy.send">A sample of a bank email or statement that the app cannot read yet (you see the exact text first, and digits, names and email addresses are hidden before it leaves your phone), and the notes you write in “Send feedback to JP” (you see them first). Nothing else.</p>
 
         <p class="hint"><strong data-i18n="privacy.neverTitle">Never sent to JP</strong></p>
         <p class="hint" data-i18n="privacy.never">Your expenses, amounts, descriptions, categories you created, names of friends or payees, account names or numbers, your emails, your photos and PDFs, and your sign-in.</p>
@@ -3072,7 +3072,7 @@
             <li data-i18n="erase.item3">The permissions your app and the setup page have in your Google account.</li>
             <li data-i18n="erase.item4">Your sign-in on every device.</li>
           </ul>
-          <p class="hint" data-i18n="erase.keptByJp">What you already sent JP (counts, notes, bank email samples) is not on your Sheet, so this does not erase it. Ask him and he deletes it.</p>
+          <p class="hint" id="erase-kept-by-jp" data-i18n="erase.keptByJp">What you already sent JP (counts, notes, bank email samples) is not on your Sheet, so this does not erase it. Ask him and he deletes it.</p>
           <p class="hint"><strong data-i18n="erase.noUndo">This cannot be undone. If you want to keep a copy of your data, close this and use More → My data → Export my data first.</strong></p>
           <label class="hint" for="erase-confirm-input" data-i18n="erase.typePrompt">To confirm, type DELETE here:</label>
           <input type="text" id="erase-confirm-input" autocomplete="off" autocapitalize="characters" spellcheck="false">

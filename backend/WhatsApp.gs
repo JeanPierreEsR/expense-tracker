@@ -12,9 +12,17 @@
 var WHATSAPP_SECRET_PROP_ = 'WHATSAPP_RELAY_SECRET';
 
 function isWhatsAppRelayAuthorized_(body) {
-  var stored = String(PropertiesService.getScriptProperties().getProperty(WHATSAPP_SECRET_PROP_) || '');
   // Not set up = closed (unlike Telegram's older door, which stayed open until protected); turned off = closed.
-  return stored.length >= 24 && String((body && body.relay_secret) || '') === stored && whatsappBotOn_();
+  return whatsappRelayKeyOk_(body) && whatsappBotOn_();
+}
+// The relay's key is right (whether or not the bot is on): a message for a bot the person turned off gets a plain "it is off".
+function whatsappRelayKeyOk_(body) {
+  var stored = String(PropertiesService.getScriptProperties().getProperty(WHATSAPP_SECRET_PROP_) || '');
+  return stored.length >= 24 && String((body && body.relay_secret) || '') === stored;
+}
+// The person turned the bot on at least once (the key is made then and kept when it is turned off; Delete everything removes it).
+function whatsappBotUsed_() {
+  return String(PropertiesService.getScriptProperties().getProperty(WHATSAPP_SECRET_PROP_) || '').length >= 24;
 }
 
 // ---- The bot for friends (owner's plan "WhatsApp bot for friends (Mia first)", approved 2026-11-16) ----

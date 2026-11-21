@@ -53,6 +53,12 @@ function doPost(e) {
       // A WhatsApp message, forwarded by the Cloudflare relay (cloudflare-worker/whatsapp-relay.js) only after it checked Meta's
       // signature and the sender's number. This address is public, so the relay's secret must be in the body (WhatsApp.gs).
       if (!isWhatsAppRelayAuthorized_(body)) {
+        // The right key, but the person turned the bot off: say so in their language (testers, 2026-11-20: they got the relay's
+        // mixed "No se pudo guardar / Not saved"), and it is not a failed access attempt.
+        if (whatsappRelayKeyOk_(body)) {
+          return ContentService.createTextOutput(JSON.stringify({ ok: true, data: { reply: tr_('whatsapp.botOff') } }))
+            .setMimeType(ContentService.MimeType.JSON);
+        }
         recordFailedAccessAttempt_('whatsapp webhook');
         return ContentService.createTextOutput(JSON.stringify({ ok: false }))
           .setMimeType(ContentService.MimeType.JSON);

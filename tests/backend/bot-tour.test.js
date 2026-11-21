@@ -129,11 +129,11 @@ test("a first message that is already an expense is saved as usual and the tour 
 test("two messages in a row that don't fit stop the tour; one repeats the step", () => {
   const a = waApp();
   a.text("hola");
-  a.text("gracias");
+  a.text("no entiendo");   // ("gracias" / "ok" only repeat the step since 2026-11-21: not misses)
   assert.equal(a.tour().step, 1);
   assert.equal(a.tour().misses, 1);
   assert.match(a.last(), /25 (almuerzo|lunch)/, "step 1 again");
-  a.text("ok");
+  a.text("qué hago");
   assert.equal(a.tour(), null);
   assert.equal(a.done(), "", "lost is not done");
   assert.match(a.last(), /tutorial/);
@@ -274,4 +274,82 @@ test("English copy: the tour asks for the English words; a change other than the
   assert.match(b.last(), /still has no category/);
   b.text("exit");
   assert.equal(b.tour(), null);
+});
+
+test("the tour's words never rename a transaction: \"saltar\" at every step moves on, the confirmed expense keeps its name", () => {
+  const a = waApp();
+  a.text("hola");
+  a.text("25 almuerzo");
+  const [e] = a.entries();
+  assert.equal(a.tour().step, 2);
+  a.text("saltar");
+  assert.equal(a.tour().step, 3);
+  a.tap("waedit:" + e.id, a.cardIdOf(e.id));               // Confirm needs a category
+  a.tap("wafield:" + e.id + ":category");
+  a.tap(a.lastRows().find((r) => /^wapick:/.test(r.id)).id);
+  a.tap("confirm:" + e.id, a.cardIdOf(e.id));
+  assert.equal(a.tour().step, 4);
+  a.text("saltar");                                        // plain: was the confirmed expense's new description (testers, 2026-11-20)
+  assert.equal(a.tour().step, 5);
+  a.text("saltar", { context_id: a.cardIdOf(e.id) });      // as a reply to the card too
+  assert.equal(a.tour(), null, "skipping the last step finishes the tour");
+  assert.ok(a.done(), "and counts it as done");
+  const after = a.rt.rows("Entries").find((x) => x.id === e.id);
+  assert.equal(after.status, "confirmed");
+  assert.match(after.description, /almuerzo/i);
+  assert.doesNotMatch(after.description, /saltar/i);
+});
+
+test("a word that does not fit the step repeats it, and is not counted as a miss", () => {
+  const a = waApp();
+  a.text("hola");
+  a.text("25 almuerzo");
+  const [e] = a.entries();
+  a.text("prueba");                                        // the test word after step 1
+  assert.equal(a.tour().step, 2);
+  assert.equal(a.tour().misses, 0);
+  assert.match(a.rt.rows("Entries").find((x) => x.id === e.id).description, /almuerzo/i);
+});
+
+test("\"ok\", \"gracias\", \"exit\"… on their own never rename the last transaction, outside the tour, on both bots", () => {
+  const a = waApp({ owner: true });
+  a.text("25 cafe");
+  const [e] = a.entries();
+  a.tap("confirm:" + e.id, a.cardIdOf(e.id));
+  for (const w of ["ok", "Gracias!", "exit", "listo", "skip"]) {
+    a.text(w);
+    assert.match(a.last(), /No cambié nada|Nothing changed/, w + " gets the hint");
+  }
+  a.text("ok", { context_id: a.cardIdOf(e.id) });          // as a reply to the card too
+  assert.match(a.rt.rows("Entries").find((x) => x.id === e.id).description, /cafe/i);
+  a.text("descripción café con Ana");                       // real words still edit it (the last-message rule stays)
+  assert.match(a.rt.rows("Entries").find((x) => x.id === e.id).description, /Ana/);
+
+  const { rt } = freshApp({ small: true });
+  const chat = linkTelegram(rt);
+  let n = 0;
+  const text = (t, replyTo) => rt.rawPost(JSON.stringify({ update_id: 9000 + (++n), message: Object.assign({ chat: { id: chat }, message_id: 900 + n, date: Math.floor(Date.now() / 1000), text: t }, replyTo ? { reply_to_message: { message_id: replyTo } } : {}) }));
+  const sentTexts = () => rt.svc.fetchLog.filter((f) => /sendMessage/.test(f.url)).map((f) => JSON.parse(f.options.payload).text);
+  text("25 cafe");
+  const te = rt.rows("Entries").filter((x) => x.source === "telegram").pop();
+  const card = rt.rows("Telegram Messages").filter((m) => m.entry_id === te.id).pop().message_id;
+  text("ok");
+  assert.match(sentTexts().pop(), /No cambié nada|Nothing changed/);
+  text("gracias", Number(card) || card);
+  assert.match(sentTexts().pop(), /No cambié nada|Nothing changed/);
+  assert.match(rt.rows("Entries").find((x) => x.id === te.id).description, /cafe/i);
+});
+
+test("during the tour, \"gracias\" / \"ok\" only repeat the step: one message, no miss, the tour goes on", () => {
+  const a = waApp();
+  a.text("hola");
+  a.text("25 almuerzo");
+  const n = a.sent.length;
+  a.text("gracias");
+  a.text("ok");
+  a.text("Gracias!");
+  assert.equal(a.tour().step, 2, "still on the step");
+  assert.equal(a.tour().misses, 0);
+  assert.equal(a.sent.length, n + 3, "one message each: the step");
+  assert.doesNotMatch(a.said(), /No cambié nada|Nothing changed/);
 });

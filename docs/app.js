@@ -2846,6 +2846,9 @@ function toggleSplitFriend_(id, on) {
     splitFriendIds.add(id);
     if (f && isGroupFriend_(f)) setSplitGroupCount_(tripGroupSizeSaved_(f.trip_id) || 2);
   }
+  // The friends screen sits outside the form, so its picks never reached the draft (testers, 2026-11-20: a reopened draft
+  // came back without them and was saved as a smaller split). Every change of who shares it is saved with the draft.
+  scheduleEntryDraftSave_();
 }
 // Shared with: the trip's group (Splitwise) first, then the five friends used most recently and anyone already picked, then "More…",
 // which opens the friends screen with everyone by name (owner, 2026-11-19; it was three rows of buttons with a fold).
@@ -2858,7 +2861,7 @@ function renderSplitFriendChips() {
   const chips = renderFriendQuickChips_({
     box: container, items, selected: splitFriendIds,
     first: eligible.filter(isGroupFriend_).map((f) => f.id),
-    onToggle: (id) => { toggleSplitFriend_(id); redraw(); },
+    onToggle: (id) => { toggleSplitFriend_(id); redraw(); saveEntryDraftNow_(); },   // at once: the app can be closed right after a tap
     onMore: () => openFriendScreen_({
       many: true, items: items.filter((x) => !isGroupFriend_(eligible.find((f) => f.id === x.id))),
       selected: [...splitFriendIds],
@@ -2866,6 +2869,7 @@ function renderSplitFriendChips() {
       onDone: (ids) => {
         eligible.filter((f) => !isGroupFriend_(f)).forEach((f) => toggleSplitFriend_(f.id, ids.includes(f.id)));
         redraw();
+        saveEntryDraftNow_();
       },
       onAdd: () => document.getElementById("split-add-friend-btn").click(),
     }),
@@ -3197,6 +3201,7 @@ document.getElementById("split-add-friend-btn").addEventListener("click", async 
   renderSplitFriendChips();
   renderSplitRows();
   renderSplitSummary();
+  saveEntryDraftNow_();   // the friend arrives after the tap's own draft save: keep them in the draft now
 });
 
 document.getElementById("amount").addEventListener("input", () => {
@@ -6283,8 +6288,8 @@ function setupEntrySearch_() {
 // A half-typed NEW entry is kept on the phone as it is typed and restored the
 // next time the app opens (after the update banner's reload, an app switch the
 // phone kills, a call), then cleared the moment it is saved. Nothing is sent
-// anywhere; it never exists for an entry being edited or confirmed. Splits and
-// repayments are not part of it. Older than a day = dropped.
+// anywhere; it never exists for an entry being edited or confirmed. It keeps the
+// split (entryDraftSplit_); repayments are not part of it. Older than a day = dropped.
 const ENTRY_DRAFT_KEY = "entryDraft_v1";
 const ENTRY_DRAFT_MAX_AGE_MS = 24 * 3600 * 1000;
 let entryDraftTimer_ = null;
@@ -6356,8 +6361,11 @@ function entryDraftSplit_() {
   const due = document.getElementById("split-due");
   const names = {};
   [...splitFriendIds].forEach((id) => { const f = (meta.friends || []).find((x) => x.id === id); if (f) names[id] = f.name; });
+  // Friends a restored draft is still waiting for (not in the friends list yet) stay in it: a save meanwhile must not drop them.
+  const waiting = draftSplitWaiting_ ? draftSplitWaiting_.missing.filter((id) => !splitFriendIds.has(id)) : [];
+  waiting.forEach((id) => { const n = draftSplitWaiting_.sp.names && draftSplitWaiting_.sp.names[id]; if (n) names[id] = n; });
   return {
-    friends: [...splitFriendIds], names, mode: splitMode, custom: { ...customSplitAmounts }, percents: { ...splitPercents },
+    friends: [...splitFriendIds, ...waiting], names, mode: splitMode, custom: { ...customSplitAmounts }, percents: { ...splitPercents },
     own: customOwnAmount, groupCount: splitGroupCount_(), due: document.getElementById("split-due-block").hidden ? "" : due.value
   };
 }
@@ -15915,10 +15923,19 @@ document.getElementById("wa-toggle").addEventListener("click", () => {
   if (opening) setTimeout(() => { if (waRealWanted_()) startWaReal_(); }, 300);
 });
 function refreshPrivacyWa_() {
-  const el = document.getElementById("privacy-wa");
-  if (el) el.hidden = !(meta && meta.capabilities && meta.capabilities.whatsappBotOn);
-  // Telegram (and its Cloudflare relay) only for someone whose bot is linked (owner, 2026-11-18).
   const caps = (meta && meta.capabilities) || {};
+  // The bot is mentioned only to people who used it (owner, 2026-11-21: a mention implies more notices), and still after they turn
+  // it off, since JP's relay keeps their number until JP removes it. An older backend only says whether it is on now.
+  const waUsed = caps.whatsappBotUsed !== undefined ? !!caps.whatsappBotUsed : !!caps.whatsappBotOn;
+  const el = document.getElementById("privacy-wa");
+  if (el) el.hidden = !waUsed;
+  [["privacy-send", "privacy.send", "privacy.sendWa"], ["erase-kept-by-jp", "erase.keptByJp", "erase.keptByJpWa"]].forEach(([id, plain, wa]) => {
+    const p = document.getElementById(id);
+    if (!p) return;
+    p.setAttribute("data-i18n", waUsed ? wa : plain);   // a language switch redraws it with the same choice
+    p.textContent = tr(waUsed ? wa : plain);
+  });
+  // Telegram (and its Cloudflare relay) only for someone whose bot is linked (owner, 2026-11-18).
   const tg = document.getElementById("privacy-tg");
   if (tg) tg.hidden = !caps.telegramLinked;
   const relay = document.getElementById("privacy-tg-relay");
