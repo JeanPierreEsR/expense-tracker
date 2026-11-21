@@ -127,7 +127,9 @@ function botTourBefore_(text, p, firstEver, isReply) {
     BOT_TOUR_EV_.skip = true;
     return true;
   }
-  if (st && word) {   // "test" after step 1, "skip" at step 1: the step again, not counted as a miss
+  // "test" after step 1, "skip" at step 1, and "ok" / "gracias"…: the step again, not counted as a miss (re-check, 2026-11-21:
+  // "gracias" twice lost the tour, and each got "Nothing changed" plus the step, two messages).
+  if (st && (word || botFillerWord_(t))) {
     botTourSay_(st);
     BOT_TOUR_EV_.skip = true;
     return true;

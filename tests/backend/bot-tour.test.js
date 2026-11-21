@@ -129,11 +129,11 @@ test("a first message that is already an expense is saved as usual and the tour 
 test("two messages in a row that don't fit stop the tour; one repeats the step", () => {
   const a = waApp();
   a.text("hola");
-  a.text("gracias");
+  a.text("no entiendo");   // ("gracias" / "ok" only repeat the step since 2026-11-21: not misses)
   assert.equal(a.tour().step, 1);
   assert.equal(a.tour().misses, 1);
   assert.match(a.last(), /25 (almuerzo|lunch)/, "step 1 again");
-  a.text("ok");
+  a.text("qué hago");
   assert.equal(a.tour(), null);
   assert.equal(a.done(), "", "lost is not done");
   assert.match(a.last(), /tutorial/);
@@ -338,4 +338,18 @@ test("\"ok\", \"gracias\", \"exit\"… on their own never rename the last transa
   text("gracias", Number(card) || card);
   assert.match(sentTexts().pop(), /No cambié nada|Nothing changed/);
   assert.match(rt.rows("Entries").find((x) => x.id === te.id).description, /cafe/i);
+});
+
+test("during the tour, \"gracias\" / \"ok\" only repeat the step: one message, no miss, the tour goes on", () => {
+  const a = waApp();
+  a.text("hola");
+  a.text("25 almuerzo");
+  const n = a.sent.length;
+  a.text("gracias");
+  a.text("ok");
+  a.text("Gracias!");
+  assert.equal(a.tour().step, 2, "still on the step");
+  assert.equal(a.tour().misses, 0);
+  assert.equal(a.sent.length, n + 3, "one message each: the step");
+  assert.doesNotMatch(a.said(), /No cambié nada|Nothing changed/);
 });
