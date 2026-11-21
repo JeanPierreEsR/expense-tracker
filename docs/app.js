@@ -14151,7 +14151,8 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) { up
 // ---- Rule pack: new banks without an update (specs/review-telegram-email.md § Rule pack) ----
 // Simple bank e-mail rules live in a public data file. The PHONE reads it (like pin.json: friends get the copy `./ship.sh --promote` put in setup/,
 // the owner's own copy the live one) and hands it to the person's own backend, which checks it and keeps it. No outside-connection permission is
-// needed. Only sent when the file's version differs from the one the backend holds; a file the backend refused is not re-sent for 6 hours.
+// needed. Only sent when the file's version differs from the one the backend holds; a file the backend refused is not re-sent to that same
+// backend for 6 hours (an updated backend gets it at once).
 // Nothing here ever bothers the person: the rules written in the backend keep working whatever happens.
 const RULE_PACK_TRIED_KEY = "etRulePackTried";
 let rulePackSyncing_ = false, rulePackSyncedAt_ = 0;
@@ -14172,12 +14173,15 @@ async function syncRulePack_() {
     if (have && have.version === version) return;
     let tried = null;
     try { tried = JSON.parse(localStorage.getItem(RULE_PACK_TRIED_KEY)); } catch (e) { /* no memory of an earlier try */ }
-    if (tried && tried.version === version && Date.now() - tried.at < 6 * 3600 * 1000) return;
+    // A refusal is remembered for THIS backend only: after "Update my app" the new backend is offered the list at once (2026-11-21: Lucia's
+    // old backend refused it, she updated, and the phone still waited 6 hours while a purchase went unread).
+    const ref = String(caps.backendRef || "");
+    if (tried && tried.version === version && String(tried.ref || "") === ref && Date.now() - tried.at < 6 * 3600 * 1000) return;
     try {
       const done = await callApi("setRulePack", { text });
       meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { rulePack: { version: done.version, count: done.count, at: new Date().toISOString(), error: "" } });
     } catch (err) {
-      try { localStorage.setItem(RULE_PACK_TRIED_KEY, JSON.stringify({ version, at: Date.now() })); } catch (e) { /* ignore */ }
+      try { localStorage.setItem(RULE_PACK_TRIED_KEY, JSON.stringify({ version, ref, at: Date.now() })); } catch (e) { /* ignore */ }
     }
   } catch (e) { /* offline or a hiccup: tried again at the next open */ } finally { rulePackSyncing_ = false; }
 }
