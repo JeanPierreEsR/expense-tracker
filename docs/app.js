@@ -6307,7 +6307,13 @@ function setupEntrySearch_() {
       renderSearchResults_();
     }
   });
-  setTimeout(() => { syncSearchIndex_().then(renderSearchResults_).catch(() => {}); }, 2500);
+  // Not while the app is still opening (speed sweep 2026-11-21: the first full copy, ~7,000 rows, shared the server with the start-up
+  // bundle): it waits until nothing else is on its way, at most 20 s more. Typing in the search box asks at once, as before.
+  setTimeout(async () => {
+    const until = Date.now() + 20000;
+    while (perfInflight_ > 0 && !searchIndexPromise && Date.now() < until) await sleep(300);
+    syncSearchIndex_().then(renderSearchResults_).catch(() => {});
+  }, 2500);
 }
 
 // ---- Unsaved new-entry draft ----
@@ -9987,7 +9993,7 @@ function showScreen(name) {
     loansLoad_ = refreshLoans();
   }
   if (name === "more") {
-    applyBusinessVisibility_();
+    applyBusinessVisibility_({ noCard: true });   // the "clients owe you" card is on Home: a More tap need not reload it (speed sweep 2026-11-21)
     popTipVisit_("more"); watchBringBackTip_();
   }
 }
@@ -11107,6 +11113,9 @@ async function refreshOverviewInner_() {
     screen.classList.add("overview-stale");
   }
 
+  // The period's entry list is asked at the same time as its figures (speed sweep 2026-11-21: it waited for them); drawn after them.
+  const entriesCall = overviewEntriesCall_(bounds);
+  entriesCall.catch(() => {});   // (a failure is shown by loadOverviewEntries_; unused if the figures fail or the period changes)
   let data;
   try {
     // A neighbour still being fetched in the background (preloadOverviewNeighbour_) is waited for, never asked twice.
@@ -11127,7 +11136,7 @@ async function refreshOverviewInner_() {
   setLoadFailed_("overview", null);
   overviewShownKey_ = key;
   paintOverviewSummary_(data);
-  loadOverviewEntries_(bounds).then(() => { if (token === overviewReqToken_) preloadOverviewNeighbour_(); });
+  loadOverviewEntries_(bounds, entriesCall).then(() => { if (token === overviewReqToken_) preloadOverviewNeighbour_(); });
 }
 
 // Overview's summary is ready before the tab is tapped (owner, 2026-11-11): (1) the last figures shown for each period are kept on this
@@ -11188,13 +11197,15 @@ function preloadOverviewNeighbour_() {
 // types), newest first, shown 50 at a time.
 const OVERVIEW_ENTRIES_PAGE = 20;   // was 50: a shorter Overview (owner, 2026-11-07); "Load more" adds 20 at a time
 let overviewEntriesToken_ = 0;
-function loadOverviewEntries_(bounds) { return trackOverviewLoad_(loadOverviewEntriesInner_(bounds)); }
-async function loadOverviewEntriesInner_(bounds) {
+function overviewEntriesCall_(bounds) { return callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() }); }
+// `early`: the same listEntries, already asked (refreshOverviewInner_ asks it with the figures; it waited for them before).
+function loadOverviewEntries_(bounds, early) { return trackOverviewLoad_(loadOverviewEntriesInner_(bounds, early)); }
+async function loadOverviewEntriesInner_(bounds, early) {
   const list = document.getElementById("overview-entries-list");
   const token = ++overviewEntriesToken_;
   list.innerHTML = loadingHtml_();
   try {
-    const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
+    const entries = await (early || overviewEntriesCall_(bounds));
     if (token !== overviewEntriesToken_) return;
     let shown = 0;
     const draw = () => {
@@ -13525,7 +13536,9 @@ async function init() {
       // section re-renders.
       setBundleCheckStatuses_("checking");
     }
-    const pendingPromise = timedStep("init:pendingCheck", () => callApi("listPendingEntries", {}))
+    // Only a screen drawn from the saved copy needs this quick check: with nothing saved the bundle below carries the same list
+    // (speed sweep 2026-11-21: a first open asked twice and waited for both).
+    const pendingPromise = !paintedFromCache ? Promise.resolve() : timedStep("init:pendingCheck", () => callApi("listPendingEntries", {}))
       .then((fresh) => {
         latestPending = fresh;
         pendingCheckSucceeded = true;
@@ -20955,7 +20968,7 @@ function businessOffered() {
   return c.businessOffered !== undefined ? !!c.businessOffered : !!(c.business || c.perfLog);
 }
 
-function applyBusinessVisibility_() {
+function applyBusinessVisibility_(opts) {
   // More → Friends: only when this backend can edit friends (an older one lacks it). Checked here so it also follows every fresh load of the settings.
   document.getElementById("more-friends-btn").hidden = !((meta && meta.capabilities) || {}).friendsEdit;
   document.getElementById("more-deleted-btn").hidden = !((meta && meta.capabilities) || {}).entriesRestore;
@@ -20972,7 +20985,7 @@ function applyBusinessVisibility_() {
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;
   document.getElementById("more-business-features-state").textContent = tr(on ? "business.state.on" : "business.state.off");
-  refreshBusinessHomeCard_();
+  if (!(opts && opts.noCard)) refreshBusinessHomeCard_();
 }
 
 // Shows one of the screens reached from the More list and keeps "More" highlighted in the bar.
@@ -21670,13 +21683,15 @@ document.getElementById("expected-delete-btn").addEventListener("click", async (
 
 // Home: a card of its own under "Programmed this month" — what clients still owe, due this month or overdue. Never mixed into
 // the personal figures, and only there while the pack is on and something is expected.
+let businessCardCall_ = null;   // one listExpectedPayments at a time: a second refresh while one is on its way shares it (speed sweep 2026-11-21)
 async function refreshBusinessHomeCard_() {
   const card = document.getElementById("business-expected-card");
   if (!card) return;
   if (!businessOn()) { card.hidden = true; return; }
   let r;
   try {
-    r = await callApi("listExpectedPayments", { scope: "home", today: todayLocalISO() });
+    const call = businessCardCall_ || (businessCardCall_ = callApi("listExpectedPayments", { scope: "home", today: todayLocalISO() }).finally(() => { businessCardCall_ = null; }));
+    r = await call;
   } catch (err) {
     return;   // keep what is there; the next refresh tries again
   }
@@ -30344,6 +30359,8 @@ async function refreshLoans() {
   if (firstLoad) { screen.classList.add("first-loading"); firstLoading.hidden = false; }
   const endFirstLoad = () => { screen.classList.remove("first-loading"); firstLoading.hidden = true; };
   let balances;
+  // The settled people are asked at the same time (speed sweep 2026-11-21: they waited for the balances), drawn after them.
+  const settledCall = callApi("listSettledLoanFriends", loansScopePayload_()).catch(() => []);
   try {
     balances = await callApi("listLoanBalances", { ...loansScopePayload_(), withUnreadable: true });
   } catch (err) {
@@ -30384,8 +30401,8 @@ async function refreshLoans() {
   const warn = document.getElementById("loans-unreadable");
   warn.hidden = !unreadable.length;
   warn.textContent = unreadable.length ? tr("loans.unreadable", { list: unreadable.map((u) => `${u.friend_name} ("${u.amount} ${u.currency}")`.replace(" \")", "\")")).join(", ") }) : "";
-  if (firstLoad) { await renderSettledPeople_().catch(() => {}); endFirstLoad(); }
-  else renderSettledPeople_();
+  if (firstLoad) { await renderSettledPeople_(settledCall).catch(() => {}); endFirstLoad(); }
+  else renderSettledPeople_(settledCall);
   offerLoansTip_();   // only now that everything has arrived (loading standard)
 }
 
@@ -31429,13 +31446,13 @@ document.getElementById("history-modal-backdrop").addEventListener("click", (e) 
 });
 
 // People with loan history but nothing owing: a collapsed list at the bottom of the Loans tab, so their history can still be opened.
-async function renderSettledPeople_() {
+async function renderSettledPeople_(call) {
   const card = document.getElementById("loans-settled-card");
   const toggle = document.getElementById("loans-settled-toggle");
   const list = document.getElementById("loans-settled-list");
   let people = [];
   try {
-    people = await callApi("listSettledLoanFriends", loansScopePayload_());
+    people = (await (call || callApi("listSettledLoanFriends", loansScopePayload_()))) || [];
   } catch (err) {
     people = [];
   }
