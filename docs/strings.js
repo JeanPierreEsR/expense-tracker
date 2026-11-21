@@ -407,6 +407,7 @@
     "review.pickBothSides": { en: "Pick an account for From and for To, or choose “Outside my accounts”.", es: "Elige una cuenta en Desde y en Hacia, o elige “Fuera de mis cuentas”." },
     "review.confirm": { en: "Confirm", es: "Confirmar" },
     "review.discard": { en: "Discard", es: "Descartar" },
+    "review.discardCopy": { en: "Discard this copy", es: "Descartar esta copia" },
     "review.noAccountAsk": { en: "No account or card is picked. Without one it counts in your spending but in no balance.", es: "No elegiste cuenta ni tarjeta. Sin una, cuenta en tus gastos pero en ningún saldo." },
     "review.confirmReady": { en: "Confirm the {n} that are ready", es: "Confirmar los {n} que están listos" },
     "reviewBulk.willLinkThis": { en: "It will be linked to its Programmed item ({names}), so Projections counts it once.", es: "Se emparejará con su programado ({names}), para que Proyecciones lo cuente una sola vez." },
