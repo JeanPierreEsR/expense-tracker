@@ -66,7 +66,9 @@ function botTourStepText_(st) {
   if (st.step === 1) return { text: tr_('botTour.step1') + stop };
   if (st.step === 2 || st.step === 3) {
     var e = getEntryById_(st.entryId);
-    var key = st.step === 2 ? (e && e.category_id ? 'botTour.step2' : 'botTour.step2NoCat') : (st.test ? 'botTour.step3Test' : 'botTour.step3');
+    // Step 3 for a transaction still without a category (another field was changed at step 2): Confirm would be refused, so say why.
+    var key = st.step === 2 ? (e && e.category_id ? 'botTour.step2' : 'botTour.step2NoCat')
+      : st.test ? 'botTour.step3Test' : (e && (e.category_id || e.type === 'investment') ? 'botTour.step3' : 'botTour.step3NoCat');
     return { text: tr_(key) + stop, replyTo: whatsappCardFor_(st.entryId) || null };
   }
   if (st.step === 4) return { text: tr_('botTour.stepWords') + stop, replyTo: whatsappCardFor_(st.entryId) || null };

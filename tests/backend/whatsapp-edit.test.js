@@ -189,7 +189,7 @@ test("general help: 'ayuda' / 'help' / 'menú' not replying says what the bot ca
     a.text(word);
     assert.equal(a.lastBody(), a.rt.run("tr_('whatsapp.help')"), word);
   }
-  assert.match(a.lastBody(), /pendientes/);
+  assert.match(a.lastBody(), /pendientes|"pending"/);
   assert.equal(a.waEntries().length, 0, "help made no entry");
   a.text("25 almuerzo");
   const [e] = a.waEntries();

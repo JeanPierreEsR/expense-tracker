@@ -82,12 +82,12 @@ test("a friend's first message to the WhatsApp bot starts the tour; the whole to
   assert.equal(Number(changed.amount), 30);
   assert.ok(stepMsg);
   assert.equal(a.tour().step, 5);
-  assert.match(a.last(), /pendientes/);
+  assert.match(a.last(), /pendientes|"pending"/);
 
   a.text("pendientes");
   assert.equal(a.tour(), null, "finished");
   assert.ok(a.done(), "remembered as done");
-  assert.match(a.last(), /ayuda/);
+  assert.match(a.last(), /ayuda|"help"/);
   assert.match(a.last(), /24/, "WhatsApp's 24-hour tip");
   assert.match(a.last(), /Responde para editar|Reply to edit/, "the last step says what that line is (short: step 4 taught replying)");
   assert.doesNotMatch(a.last(), /(monto|amount) 30/);
@@ -196,7 +196,7 @@ test("Telegram: \"tutorial\" runs the same tour with Telegram's buttons", () => 
   text("pendientes");
   assert.equal(tour(), null);
   const last = sentTexts().pop();
-  assert.match(last, /ayuda/);
+  assert.match(last, /ayuda|"help"/);
   assert.doesNotMatch(last, /24 horas|24 hours/, "no WhatsApp window tip on Telegram");
 });
 
@@ -241,4 +241,37 @@ test("too few accounts: transfer examples say (account) instead of naming one tw
   a.rt.run("BOT_EXAMPLES_RUN_ = null; CacheService.getScriptCache().remove(BOT_EXAMPLES_CACHE_KEY_)");
   const t = a.rt.run("tr_('help.t.combine', null, 'en')");
   assert.match(t, /"from \(account\), to \(account\), amount 90"/);
+});
+
+test("English copy: the tour asks for the English words; a change other than the category moves on and says Confirm needs one", () => {
+  const a = waApp();
+  a.rt.run("setSetting_('language', 'en')");
+  a.text("hola");
+  assert.match(a.last(), /Write "test"/);
+  assert.match(a.last(), /Write "exit"/);
+  assert.doesNotMatch(a.last(), /prueba|salir/);
+  a.text("test");
+  const [e] = a.entries();
+  assert.equal(a.tour().step, 2);
+  assert.match(a.last(), /"skip"/);
+  a.tap("waedit:" + e.id, a.cardIdOf(e.id));
+  a.tap("wafield:" + e.id + ":account");
+  const acc = a.lastRows().find((r) => /^wapick:/.test(r.id));
+  a.tap(acc.id);
+  assert.equal(a.tour().step, 3, "any change through Edit counts");
+  assert.match(a.last(), /Discard/, "test mode: Discard needs no category");
+
+  const b = waApp();
+  b.rt.run("setSetting_('language', 'en')");
+  b.text("hola");
+  b.text("25 snack");
+  const [f] = b.entries();
+  b.rt.run(`updateRowFields_('Entries', ${JSON.stringify(f.id)}, { category_id: '' })`);
+  b.tap("waedit:" + f.id, b.cardIdOf(f.id));
+  b.tap("wafield:" + f.id + ":account");
+  b.tap(b.lastRows().find((r) => /^wapick:/.test(r.id)).id);
+  assert.equal(b.tour().step, 3);
+  assert.match(b.last(), /still has no category/);
+  b.text("exit");
+  assert.equal(b.tour(), null);
 });
