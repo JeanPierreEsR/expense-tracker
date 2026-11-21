@@ -58,7 +58,7 @@
     <button type="button" id="backend-update-close" class="backend-update-close">✕</button>
   </div>
   <div id="save-failed-banner" class="update-banner save-failed-banner" hidden></div>
-  <div id="pull-update-hint" class="update-banner pull-update-hint" aria-live="polite" hidden data-i18n="banner.pullAfterUpdate">Back from updating? Pull down from the top of the screen to load the new version.</div>
+  <button type="button" id="pull-update-hint" class="update-banner pull-update-hint" aria-live="polite" hidden data-i18n="banner.pullAfterUpdate">Back from updating? Pull down from the top of the screen to load the new version.</button>
 
   <div id="pull-refresh-indicator" class="pull-refresh-indicator">
     <span id="pull-refresh-icon">↓</span>
@@ -4126,6 +4126,10 @@
   <div id="update-modal-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header"><span data-i18n="update.title">Update your app</span><button type="button" class="currency-modal-close" data-click="update-close-btn" data-i18n-aria-label="common.close" aria-label="Close">✕</button></div>
+      <div id="update-back-box" hidden>
+        <p data-i18n="update.backBody">Finished updating in Safari? Load the new version here.</p>
+        <button type="button" class="primary" id="update-back-btn" data-i18n="update.backBtn">Load the new version</button>
+      </div>
       <p data-i18n="update.body">A newer version of your app is ready.</p>
       <p class="hint" id="update-modal-hint"></p>
       <button type="button" class="primary" id="update-open-btn" data-i18n="update.open">Open the update page</button>

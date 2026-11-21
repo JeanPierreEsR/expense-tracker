@@ -13690,6 +13690,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && bu
 window.addEventListener("online", () => { if (bundleCheckFailed_()) scheduleBundleRetry_(1000); });
 
 // ---- Pull to refresh ----
+let pullRefreshNow_ = async () => {};   // the same refresh without a pull (set below): the "back from updating" bar and sheet use it
 // PWAs in standalone mode lose Safari's native pull-to-refresh, so this
 // gives it back: drag down from the very top of the page to re-fetch data.
 (function setupPullToRefresh() {
@@ -13728,7 +13729,11 @@ window.addEventListener("online", () => { if (bundleCheckFailed_()) scheduleBund
     pulling = false;
 
     if (!wasReady) { reset(); return; }
+    await refreshNow();
+  }
 
+  async function refreshNow() {
+    if (refreshing) return;
     refreshing = true;
     indicator.classList.add("refreshing");
     indicator.style.transform = "translateY(0)";
@@ -13759,6 +13764,7 @@ window.addEventListener("online", () => { if (bundleCheckFailed_()) scheduleBund
     refreshing = false;
   }
 
+  pullRefreshNow_ = refreshNow;
   reset();
   document.addEventListener("touchstart", onTouchStart, { passive: true });
   document.addEventListener("touchmove", onTouchMove, { passive: true });
@@ -14087,6 +14093,7 @@ function setUpdateAvailable_(on) {
   if (moreTab) { if (on) moreTab.setAttribute("aria-label", tr("nav.moreUpdate")); else moreTab.removeAttribute("aria-label"); }
   backendBehind_ = !!on;
   renderBackendUpdateBanner_();
+  renderPullUpdateHint_();
 }
 document.getElementById("backend-update-open").addEventListener("click", () => openUpdateModal_());
 document.getElementById("backend-update-close").addEventListener("click", () => {
@@ -14223,28 +14230,62 @@ function openUpdateModal_() {
   const backdrop = document.getElementById("update-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+  renderPullUpdateHint_();
 }
 // Back from updating (owner, 2026-11-21): the update happens in Safari, and the app kept in the background comes back still holding what it
 // read from the server before (the "Update available" row included), so it looks as if the update did nothing. Opening or copying the update
 // link is remembered on the phone; when the app comes back to the front, a bar at the top says to pull down, until the app reads the server
 // again (a pull, or a fresh start) after that tap. Forgotten after a day.
 const UPDATE_OPENED_KEY = "etUpdateOpened";
-function noteUpdateOpened_() {
-  try { localStorage.setItem(UPDATE_OPENED_KEY, JSON.stringify({ at: Date.now() })); } catch (e) { /* no storage: no bar */ }
+// { at: the tap, away: the last time the app went to the background after it }. Only a trip away counts (Safari that did not open leaves
+// the person in the app: nothing to say). Each trip within an hour of the tap counts again while the server still looks behind (someone who
+// came back halfway, pulled, and went back to finish). Done once a server read after the trip says the server is up to date; a day at most.
+function readUpdateOpened_() {
+  try { const r = JSON.parse(localStorage.getItem(UPDATE_OPENED_KEY) || "null"); return r && r.at && Date.now() - r.at < 24 * 3600 * 1000 ? r : null; }
+  catch (e) { return null; }
+}
+function writeUpdateOpened_(r) {
+  try { if (r) localStorage.setItem(UPDATE_OPENED_KEY, JSON.stringify(r)); else localStorage.removeItem(UPDATE_OPENED_KEY); } catch (e) { /* no storage: no bar */ }
+}
+function noteUpdateOpened_() { writeUpdateOpened_({ at: Date.now() }); }
+function noteUpdateTripAway_() {
+  const r = readUpdateOpened_();
+  if (!r || Date.now() - r.at > 3600 * 1000 || (r.away && !backendBehind_)) return;
+  r.away = Date.now();
+  writeUpdateOpened_(r);
+}
+function pullUpdateDue_() {
+  const r = readUpdateOpened_();
+  if (!r) { writeUpdateOpened_(null); return false; }
+  if (!r.away) return false;
+  if (metaReadAt_ > r.away) {   // read since: the bar is done; the record too once that read says the server is up to date
+    if (!backendBehind_) writeUpdateOpened_(null);
+    return false;
+  }
+  return !!metaReadAt_;   // (nothing read yet this open: a fresh start is reading the server right now)
 }
 function renderPullUpdateHint_() {
   const el = document.getElementById("pull-update-hint");
   if (!el) return;
-  let rec = null;
-  try { rec = JSON.parse(localStorage.getItem(UPDATE_OPENED_KEY) || "null"); } catch (e) { /* nothing remembered */ }
-  const live = !!(rec && rec.at && Date.now() - rec.at < 24 * 3600 * 1000);
-  if (rec && (!live || (metaReadAt_ && metaReadAt_ > rec.at))) { try { localStorage.removeItem(UPDATE_OPENED_KEY); } catch (e) { /* ignore */ } rec = null; }
-  const show = !!rec && !!metaReadAt_ && !document.hidden && document.getElementById("update-modal-backdrop").hidden;
-  if (show) el.textContent = tr("banner.pullAfterUpdate");   // re-set so a screen reader announces it
+  const due = pullUpdateDue_();
+  const sheetOpen = !document.getElementById("update-modal-backdrop").hidden;
+  const show = due && !sheetOpen && !document.hidden;
+  if (show && el.hidden) el.textContent = tr("banner.pullAfterUpdate");   // re-set so a screen reader announces it
   el.hidden = !show;
+  document.getElementById("update-back-box").hidden = !due;   // the update sheet, still open when the person comes back, says it too
   stackTopBanners_();
 }
-document.addEventListener("visibilitychange", () => { if (!document.hidden) renderPullUpdateHint_(); });
+async function loadAfterUpdate_() {
+  document.getElementById("update-modal-backdrop").hidden = true;
+  document.getElementById("pull-update-hint").hidden = true;
+  stackTopBanners_();
+  window.scrollTo(0, 0);
+  await pullRefreshNow_();
+  renderPullUpdateHint_();   // a refresh that failed (no connection) brings the bar back
+}
+document.addEventListener("visibilitychange", () => { if (document.hidden) noteUpdateTripAway_(); else renderPullUpdateHint_(); });
+document.getElementById("pull-update-hint").addEventListener("click", loadAfterUpdate_);
+document.getElementById("update-back-btn").addEventListener("click", loadAfterUpdate_);
 document.getElementById("more-update-btn").addEventListener("click", openUpdateModal_);
 document.getElementById("update-close-btn").addEventListener("click", () => { document.getElementById("update-modal-backdrop").hidden = true; renderPullUpdateHint_(); offerReviewTip_(); });   // (a tutorial waits while this window is open)
 document.getElementById("update-open-btn").addEventListener("click", () => {

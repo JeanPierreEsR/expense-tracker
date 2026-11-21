@@ -1233,7 +1233,7 @@
     // ---- banner ----
     "banner.saveFailed": { en: { one: "⚠️ {n} entry couldn't save — tap to see it", other: "⚠️ {n} entries couldn't save — tap to see them" }, es: { one: "⚠️ {n} movimiento no se pudo guardar: toca para verlo", other: "⚠️ {n} movimientos no se pudieron guardar: toca para verlos" } },
     "banner.update": { en: "New version available — tap to reload", es: "Nueva versión disponible: toca para recargar" },
-    "banner.pullAfterUpdate": { en: "Back from updating? Pull down from the top of the screen to load the new version.", es: "¿Volviste de actualizar? Desliza hacia abajo desde arriba de la pantalla para cargar la nueva versión." },
+    "banner.pullAfterUpdate": { en: "Back from updating? Pull down from the top of the screen, or tap here, to load the new version.", es: "¿Volviste de actualizar? Desliza hacia abajo desde arriba de la pantalla, o toca aquí, para cargar la nueva versión." },
     "banner.backendUpdate": { en: "⬆️ An update for your app is ready — tap to update", es: "⬆️ Hay una actualización de tu app: toca para actualizar" },
     "banner.backendUrgent": { en: "⚠️ Your app is out of date and can show dates one day early — tap to update", es: "⚠️ Tu app está desactualizada y puede mostrar las fechas un día antes: toca para actualizar" },
 
@@ -2819,6 +2819,8 @@
     "update.body": { en: "A newer version of the app is ready.", es: "Hay una versión más nueva de la app." },
     "update.hintHome": { en: "Google's sign-in works best in Safari. Tap “Open in Safari” and follow the steps. If Safari does not open, tap “Copy update link”, open Safari and paste the link in the address bar.", es: "El inicio de sesión de Google funciona mejor en Safari. Toca “Abrir en Safari” y sigue los pasos. Si Safari no se abre, toca “Copiar enlace de actualización”, abre Safari y pega el enlace en la barra de direcciones." },
     "update.hintSafari": { en: "Tap “Open the update page” and follow the steps.", es: "Toca “Abrir la página de actualización” y sigue los pasos." },
+    "update.backBody": { en: "Finished updating in Safari? Load the new version here.", es: "¿Terminaste de actualizar en Safari? Carga la nueva versión aquí." },
+    "update.backBtn": { en: "Load the new version", es: "Cargar la nueva versión" },
     "update.copy": { en: "Copy update link", es: "Copiar enlace de actualización" },
     "update.open": { en: "Open the update page", es: "Abrir la página de actualización" },
     "update.laterHint": { en: "Not now? Tap ✕. You can update any time from More → Update my app, and your app keeps working the way it is until then.", es: "¿Ahora no? Toca ✕. Puedes actualizar cuando quieras desde Más → Actualizar mi app, y tu app sigue funcionando como está hasta entonces." },

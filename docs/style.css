@@ -138,11 +138,10 @@ button.update-banner {
 }
 
 /* Back from the update page (Safari): the app still holds what it read before, until the person pulls down. */
-.pull-update-hint {
+button.pull-update-hint {
   background: var(--card);
   color: var(--accent);
   border-bottom: 1px solid var(--border);
-  cursor: default;
 }
 
 .pull-refresh-indicator {
