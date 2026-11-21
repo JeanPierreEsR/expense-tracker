@@ -1183,8 +1183,7 @@
     body.innerHTML = `<div class="tm-root">
       <p class="stmt-note ${remembered ? "ok" : "info"}">${escapeHtml(banner)}${state.source === "saved" ? ` <button type="button" class="add-inline tm-forget">${escapeHtml(tr("table.forget"))}</button>` : ""}</p>
       <p class="hint">${escapeHtml(tr(screenMode === "import" ? "imp.tableHint" : "table.hint"))}</p>
-      <div class="tm-single">${sel("account", tr(noneOk ? "imp.account" : "table.account"), accountOptions(state.accountId, "", singleNewOption))}<div class="tm-single-new"></div></div>
-      <div class="tm-multi" hidden><p class="hint">${escapeHtml(tr("table.accountsHint"))}</p><div class="tm-newcard"></div><div class="tm-values"></div></div>
+      <div class="tm-sec tm-sec-cols"><h4 class="accounts-group-title">${escapeHtml(tr("table.secColumns"))}</h4>
       ${sel("date", tr("table.colDate"), colOptions(state.m.date, false))}
       ${sel("desc", tr("table.colDesc"), colOptions(state.m.description, true))}
       ${sel("mode", tr("table.amounts"), `<option value="one">${escapeHtml(tr("table.amountOne"))}</option><option value="two">${escapeHtml(tr("table.amountTwo"))}</option>`)}
@@ -1192,9 +1191,9 @@
         ${sel("sign", tr("table.sign"), `<option value="negative">${escapeHtml(tr("table.signNeg"))}</option><option value="positive">${escapeHtml(tr("table.signPos"))}</option>`)}</div>
       <div class="tm-two" hidden>${sel("out", tr("table.colOut"), colOptions(state.m.out, true))}${sel("in", tr("table.colIn"), colOptions(state.m.in, true))}</div>
       <div class="tm-dollar-box" hidden>${sel("dollar", tr("table.dollarMeans"), currencyOptions(state.m.dollarCurrency || "USD"))}</div>
+      ${sel("acol", tr("table.colAccount"), colOptions(state.m.account, true))}
       <details class="stmt-lines"><summary>${escapeHtml(tr("table.more"))}</summary>
         <label>${escapeHtml(tr("table.layoutName"))}</label><input type="text" class="tm-name" maxlength="60" placeholder="${escapeHtml(tr("table.layoutNameHint"))}" value="${escapeHtml(state.label)}">
-        ${sel("acol", tr("table.colAccount"), colOptions(state.m.account, true))}
         <div${screenMode === "import" ? "" : " hidden"}>${sel("cat", tr("table.colCategory"), colOptions(state.m.category, true))}</div>
         ${sel("type", tr("table.colType"), colOptions(state.m.type, true))}
         <div${screenMode === "import" ? "" : " hidden"}>${sel("note", tr("table.colNote"), colOptions(state.m.note, true))}</div>
@@ -1202,10 +1201,15 @@
         ${sel("fixed", tr("table.currencyFixed"), currencyOptions(state.m.currencyFixed || homeCur()))}
         ${sel("order", tr("table.dateOrder"), `<option value="dmy">${escapeHtml(tr("table.dmy"))}</option><option value="mdy">${escapeHtml(tr("table.mdy"))}</option>`)}
         ${sel("decimal", tr("table.decimal"), `<option value=".">1,234.56</option><option value=",">1.234,56</option>`)}
-      </details>
+      </details></div>
+      <div class="tm-sec tm-sec-accts"><h4 class="accounts-group-title">${escapeHtml(tr("table.secAccounts"))}</h4>
+      <div class="tm-single">${sel("account", tr(noneOk ? "imp.account" : "table.account"), accountOptions(state.accountId, "", singleNewOption))}<div class="tm-single-new"></div></div>
+      <div class="tm-multi" hidden><p class="hint">${escapeHtml(tr("table.accountsHint"))}</p><div class="tm-newcard"></div><div class="tm-values"></div></div></div>
       <div class="tm-preview"></div>
       <div class="tm-cats"></div>
-      <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice tm-use">${escapeHtml(tr("table.use"))}</button></div></div>`;
+      <div class="tm-use-why"></div>
+      <p class="hint" style="margin:8px 0 0">${escapeHtml(tr("table.useHint"))}</p>
+      <div class="stmt-choices" style="padding-left:0"><button type="button" class="primary tm-use">${escapeHtml(tr("table.use"))}</button></div></div>`;
 
     const root = body.querySelector(".tm-root");
     const $q = (cls) => root.querySelector(".tm-" + cls);
@@ -1366,6 +1370,35 @@
         .map((v) => ({ id: "new:" + v.value, name: String((state.newAcct[v.value] || {}).name || v.value).trim() || v.value }));
     }
     function parseDest(text) { try { const d = JSON.parse(String(text || "")); return d && typeof d === "object" ? d : null; } catch (e) { return null; } }
+    // ---- the lines of one category of the file (owner, 2026-11-21: "see the lines of each group") ----
+    function itemLines(it) {
+      return StatementTable.applyMapping(rows, currentMapping()).lines.filter((l) => l.category && (l.amount > 0 ? "income" : "expense") + ":" + StatementTable.catNorm(l.category) === it.key);
+    }
+    const lineHtml = (l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`;
+    const ITEM_LINES_MAX = 200;
+    function itemLinesFold(it) {
+      const lines = itemLines(it);
+      if (!lines.length) return "";
+      return `<details class="tm-cat-lines"><summary>${escapeHtml(tr("table.catSeeLines", { n: lines.length }))}</summary>${lines.slice(0, ITEM_LINES_MAX).map(lineHtml).join("")}${lines.length > ITEM_LINES_MAX ? `<p class="hint">${escapeHtml(tr("table.catLinesMore", { n: lines.length - ITEM_LINES_MAX }))}</p>` : ""}</details>`;
+    }
+    // ---- a loan line's person: the one the person picked for it, else the friend its description names (one only) ----
+    const loanLineKey = (l) => [l.date, Number(l.amount).toFixed(2), l.currency, String(l.description || "").trim()].join("|");
+    const friendName = (id) => ((destFriends().find((f) => f.id === id) || {}).name || "");
+    function friendForLine(l) {
+      const text = normName(l.description);
+      const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const has = (t) => t && t.length >= 2 && new RegExp("(^|[^a-z0-9])" + esc(t) + "([^a-z0-9]|$)").test(text);
+      const full = destFriends().filter((f) => has(normName(f.name)));
+      if (full.length === 1) return full[0].id;
+      if (full.length > 1) return "";
+      const first = destFriends().filter((f) => has(normName(f.name).split(" ")[0]));
+      return first.length === 1 ? first[0].id : "";
+    }
+    function loanLineFriend(d, l) {
+      const k = loanLineKey(l), pick = d && d.lineFriends;
+      if (pick && Object.prototype.hasOwnProperty.call(pick, k)) return destFriends().some((f) => f.id === pick[k]) ? pick[k] : "";
+      return friendForLine(l);
+    }
     // The person the lines of this category name most ("prestamo ana" → Ana), when one stands out.
     function guessFriendFor(it) {
       const lines = StatementTable.applyMapping(rows, currentMapping()).lines.filter((l) => l.category && (l.amount > 0 ? "income" : "expense") + ":" + StatementTable.catNorm(l.category) === it.key);
@@ -1391,14 +1424,24 @@
     }
     const destMissing = () => state.catItems.some((it) => {
       const c = state.catChoice[it.key], d = state.catDest[it.key] || {};
-      return (c === "@loan" && !d.friendId) || (c === "@move" && !d.pmId);
+      return c === "@move" && !d.pmId;   // a loan line with no person waits in Needs review (owner, 2026-11-21)
     });
     function destHtml(it) {
       const c = state.catChoice[it.key], d = state.catDest[it.key] || {};
       if (c === "@loan") {
+        // No single "Who with?" (owner, 2026-11-21: a file's loans are usually with several people). Each line goes to the friend whose
+        // name its description shows; every line is listed under its person with its own choice, so a wrong guess is corrected there.
+        // A line with no person waits in Needs review, where the person is picked one by one.
         const out = it.type === "expense";
-        return `<label>${escapeHtml(tr("table.destWho"))}</label><select class="tm-dfriend"><option value="">${escapeHtml(tr("table.destPickPerson"))}</option>${destFriends().map((f) => `<option value="${escapeHtml(f.id)}"${f.id === d.friendId ? " selected" : ""}>${escapeHtml(f.name)}</option>`).join("")}</select>
-          <label>${escapeHtml(tr("table.destKind"))}</label><select class="tm-dkind"><option value="loan"${d.loanKind !== "repayment" ? " selected" : ""}>${escapeHtml(tr(out ? "table.destOutLoan" : "table.destInLoan"))}</option><option value="repayment"${d.loanKind === "repayment" ? " selected" : ""}>${escapeHtml(tr(out ? "table.destOutRepay" : "table.destInRepay"))}</option></select>`;
+        const lines = itemLines(it), fr = destFriends();
+        const groups = new Map();
+        lines.forEach((l) => { const f = loanLineFriend(d, l); if (!groups.has(f)) groups.set(f, []); groups.get(f).push(l); });
+        const order = [...groups.keys()].sort((a, b) => (a === "" ? 1 : b === "" ? -1 : friendName(a).localeCompare(friendName(b))));
+        const lineRow = (l) => `<div class="tm-loan-line">${lineHtml(l)}${fr.length ? `<select class="tm-lfriend" data-line="${escapeHtml(loanLineKey(l))}" aria-label="${escapeHtml(tr("table.destWho"))}"><option value="">${escapeHtml(tr("table.loanNoPerson"))}</option>${fr.map((f) => `<option value="${escapeHtml(f.id)}"${f.id === loanLineFriend(d, l) ? " selected" : ""}>${escapeHtml(f.name)}</option>`).join("")}</select>` : ""}</div>`;
+        const groupsHtml = order.map((f) => `<div class="tm-loan-group"><div class="tm-loan-who"><strong>${escapeHtml(f ? friendName(f) : tr("table.loanNobody"))}</strong> <span class="hint">· ${escapeHtml(tr("table.catLines", { n: groups.get(f).length }))}</span></div>
+          ${f ? "" : `<p class="hint" style="margin:2px 0 4px">${escapeHtml(tr(fr.length ? "table.loanNobodyHint" : "table.loanNoFriendsHint"))}</p>`}${groups.get(f).map(lineRow).join("")}</div>`).join("");
+        return `<label>${escapeHtml(tr("table.destKind"))}</label><select class="tm-dkind"><option value="loan"${d.loanKind !== "repayment" ? " selected" : ""}>${escapeHtml(tr(out ? "table.destOutLoan" : "table.destInLoan"))}</option><option value="repayment"${d.loanKind === "repayment" ? " selected" : ""}>${escapeHtml(tr(out ? "table.destOutRepay" : "table.destInRepay"))}</option></select>
+          <p class="hint" style="margin:8px 0 4px">${escapeHtml(tr("table.loanByPerson"))}</p>${groupsHtml}`;
       }
       if (c === "@move") {
         const news = newMoveTargets().filter((t) => t.id !== state.accountId).map((t) => `<option value="${escapeHtml(t.id)}"${t.id === d.pmId ? " selected" : ""}>${escapeHtml(tr("imp.newAcctHeader", { name: t.name }))}</option>`).join("");
@@ -1413,12 +1456,18 @@
     // What the save sends (result.catDest) and what the layout remembers ("~dest:<key>", "" = none any more).
     function destsToSend() {
       const out = {};
-      state.catItems.forEach((it) => { const c = state.catChoice[it.key]; if (isDest(c)) out[it.key] = { ...(state.catDest[it.key] || {}), kind: c.slice(1) }; });
+      state.catItems.forEach((it) => {
+        const c = state.catChoice[it.key];
+        if (!isDest(c)) return;
+        const d = { ...(state.catDest[it.key] || {}), kind: c.slice(1) };
+        if (d.kind === "loan") { const lf = {}; itemLines(it).forEach((l) => { lf[loanLineKey(l)] = loanLineFriend(state.catDest[it.key], l); }); d.lineFriends = lf; delete d.friendId; }
+        out[it.key] = d;
+      });
       return out;
     }
     function destFlags() {
       const out = {};
-      state.catItems.forEach((it) => { const c = state.catChoice[it.key]; out["~dest:" + it.key] = isDest(c) ? JSON.stringify({ ...(state.catDest[it.key] || {}), kind: c.slice(1) }) : ""; });
+      state.catItems.forEach((it) => { const c = state.catChoice[it.key]; out["~dest:" + it.key] = isDest(c) ? JSON.stringify({ ...(state.catDest[it.key] || {}), lineFriends: undefined, kind: c.slice(1) }) : ""; });
       return out;
     }
     const plainChoices = (choices) => Object.fromEntries(Object.entries(choices).filter(([, v]) => v !== "skip" && !isDest(v)));
@@ -1576,7 +1625,7 @@
             ${destCaps() ? `<option value="@loan"${cur === "@loan" ? " selected" : ""}>${escapeHtml(tr("table.destLoan"))}</option><option value="@move"${cur === "@move" ? " selected" : ""}>${escapeHtml(tr("table.destMove"))}</option>` : ""}
             <option value="@invest"${cur === "@invest" ? " selected" : ""}>${escapeHtml(tr("table.destInvest"))}</option>
             <option value="@review"${cur === "@review" ? " selected" : ""}>${escapeHtml(tr("table.destReview"))}</option></optgroup>` : "";
-        return `<div class="tm-cat-row" data-key="${escapeHtml(it.key)}" style="margin-bottom:14px">
+        return `<div class="tm-cat-row" data-key="${escapeHtml(it.key)}">
           <div><span class="hint" style="margin-right:6px">${escapeHtml(tr("table.catFromFile"))}</span><strong>${escapeHtml(shownName(it.name, it.type))}</strong> <span class="hint">· ${escapeHtml(tr("table.catLines", { n: it.count }))}</span></div>
           ${note}
           <label>${escapeHtml(tr("table.catGoesIntoLabel"))}</label>
@@ -1586,7 +1635,7 @@
             <option value=""${selVal === "" ? " selected" : ""}>${escapeHtml(tr("table.catLeave"))}</option>
             <option value="skip"${selVal === "skip" ? " selected" : ""}>${escapeHtml(tr("table.catSkip"))}</option>${destOpts}</select>
           ${nameInput}${destHtml(it)}
-          <p class="hint tm-cat-hint" style="margin:2px 0 0">${escapeHtml(rowHint(it))}</p></div>`;
+          <p class="hint tm-cat-hint" style="margin:2px 0 0">${escapeHtml(rowHint(it))}</p>${cur === "@loan" ? "" : itemLinesFold(it)}</div>`;
       };
       const groupHtml = (type) => {
         const items = state.catItems.filter((it) => it.type === type);
@@ -1594,7 +1643,7 @@
       };
       const open = nameConflicts().length > 0 || destMissing() || (!Object.keys(state.catSaved).length && state.catItems.some((it) => state.catChoice[it.key] === "create" || renameOf(it) || it.why === "retired" || isDest(state.catChoice[it.key])));
       setTimeout(() => {   // the five people used most recently, then More… (one friends screen); accounts the same way
-        box.querySelectorAll(".tm-dfriend").forEach((sel) => { if (typeof personShortList_ === "function") personShortList_(sel); });
+        box.querySelectorAll(".tm-dfriend, .tm-lfriend").forEach((sel) => { if (typeof personShortList_ === "function") personShortList_(sel); });
         box.querySelectorAll(".tm-dpm").forEach((sel) => { if (typeof accountShortList_ === "function") accountShortList_(sel); });
       });
       box.innerHTML = `<p class="stmt-note info tm-cat-summary">${escapeHtml(categorySummary())}</p>
@@ -1639,9 +1688,12 @@
       const { lines, undecided } = usableLines(r.lines);
       const box = root.querySelector(".tm-preview");
       const use = root.querySelector(".tm-use");
+      const why = root.querySelector(".tm-use-why");
+      const setWhy = (keys) => { why.innerHTML = keys.map((t) => `<p class="stmt-note warn">${escapeHtml(t)}</p>`).join(""); };
       if (!r.lines.length) {
         box.innerHTML = `<p class="stmt-note warn">${escapeHtml(tr("table.noLines"))}</p>`;
         use.disabled = true;
+        setWhy([tr("table.whyNoLines")]);
         return;
       }
       // Every date reads two ways and none proves the order (10/04/2026): the person says how the file writes them before anything is
@@ -1661,11 +1713,17 @@
           renderPreview();
         }));
         use.disabled = true;
+        setWhy([tr("table.whyDate")]);
         return;
       }
       const needCategory = screenMode === "import" && state.m.category < 0;   // another app's export names a category for every line
       const nameProblem = newNameProblem();
       use.disabled = needCategory || destMissing() || !!nameProblem || (multi() ? (undecided > 0 || !lines.length) : (!noneOk && !pm() && !isNew(state.accountId)));
+      // Every reason the button is off, said right above it (owner, 2026-11-21: a tap on a button that looked like the others did nothing).
+      setWhy(use.disabled ? [needCategory ? tr("imp.needCategory") : "", destMissing() ? tr("table.destMissing") : "",
+        nameProblem ? (nameProblem === "empty" ? tr("imp.newAcctNeedName") : tr("imp.newAcctTaken", { name: nameProblem })) : "",
+        multi() && undecided ? tr("table.pickEach") : "", !multi() && !noneOk && !pm() && !isNew(state.accountId) ? tr("table.whyAccount") : "",
+        multi() && !undecided && !lines.length ? tr("table.whyNoLines") : ""].filter(Boolean) : []);
       // Not blocking, only a heads-up: with accounts set up, a person usually wants the entries on one of them.
       // An import may leave a name of the file's account column with no account: say how many lines that is, before saving.
       const noAcctLines = multi() && noneOk ? lines.filter((l) => !state.map[l.account] || state.map[l.account] === "none").length : 0;
@@ -1686,11 +1744,7 @@
         ${state.m.lineCurrency && state.m.currency < 0 ? `<p class="stmt-note info">${escapeHtml(lineCurrencyText(lines, m))}</p>` : ""}
         ${guess.currencyMixed && state.m.currency < 0 && !state.m.lineCurrency ? `<p class="stmt-note warn">${escapeHtml(tr("table.mixedCur", { signs: guess.currencyMixed, cur: m.currencyFixed || homeCur() }))}</p>` : ""}
         ${state.signCurrency && m.currencyFixed === state.signCurrency && state.m.currency < 0 ? `<p class="stmt-note info">${escapeHtml(tr("table.readAsSign", { cur: state.signCurrency, sign: guess.currencySign }))}</p>` : ""}
-        ${needCategory ? `<p class="stmt-note warn">${escapeHtml(tr("imp.needCategory"))}</p>` : ""}
-        ${destMissing() ? `<p class="stmt-note warn">${escapeHtml(tr("table.destMissing"))}</p>` : ""}
         ${noAccountNote}
-        ${nameProblem ? `<p class="stmt-note warn">${escapeHtml(nameProblem === "empty" ? tr("imp.newAcctNeedName") : tr("imp.newAcctTaken", { name: nameProblem }))}</p>` : ""}
-        ${multi() && undecided ? `<p class="stmt-note warn">${escapeHtml(tr("table.pickEach"))}</p>` : ""}
         ${multi() && noneOk && noAcctLines ? `<p class="stmt-note warn">${escapeHtml(tr("imp.noAccountLines", { n: noAcctLines }))}</p>` : ""}
         ${r.lines.length > TABLE_BIG_FILE ? `<p class="stmt-note warn">${escapeHtml(tr("table.bigFile", { n: r.lines.length }))}</p>` : ""}
         <p class="hint">${escapeHtml(tr("table.checkSigns"))}</p>
@@ -1785,6 +1839,15 @@
       else if (cls === "type") state.m.type = Number(v);
       else if (cls === "note") state.m.note = Number(v);
       else if (cls === "dollar") state.m.dollarCurrency = v;
+      else if (cls === "lfriend") {
+        const row = e.target.closest(".tm-cat-row"), d = state.catDest[row.dataset.key] || (state.catDest[row.dataset.key] = {});
+        d.lineFriends = { ...(d.lineFriends || {}), [e.target.dataset.line]: v };
+        const y = window.scrollY;
+        renderCategories();
+        window.scrollTo(0, y);
+        renderPreview();
+        return;
+      }
       else if (cls === "dfriend" || cls === "dkind" || cls === "dpm" || cls === "dplat") {
         const row = e.target.closest(".tm-cat-row"), key = row.dataset.key;
         const d = state.catDest[key] || (state.catDest[key] = {});
@@ -2278,7 +2341,11 @@
     if (d.kind === "review") return { type: "add_history_pending", ...at };
     if (d.kind === "invest") return { type: "add_history_investment", ...at, platformId: d.platformId || "" };
     if (d.kind === "move" && d.pmId) return { type: "record_move", ...at, otherPmId: d.pmId };
-    if (d.kind === "loan" && d.friendId) return { type: "record_loan_line", ...at, friendId: d.friendId, kind: d.loanKind === "repayment" ? "repayment" : "loan" };
+    if (d.kind === "loan") {
+      const l = usable[a.stmt].result.lines[a.line];
+      const who = d.lineFriends ? d.lineFriends[[l.date, Number(l.amount).toFixed(2), l.currency, String(l.description || "").trim()].join("|")] : d.friendId;
+      return who ? { type: "record_loan_line", ...at, friendId: who, kind: d.loanKind === "repayment" ? "repayment" : "loan" } : { type: "add_history_pending", ...at };
+    }
     return a;
   }
   function historyActions(withBalances = true) {
@@ -3712,7 +3779,14 @@
     const reading = () => stmtCards().some((c) => { const b = c.querySelector(".stmt-result-body"); return !!b && !!b.firstElementChild && b.firstElementChild.classList.contains("stmt-loading"); });
     const readDone = () => stmtCards().length > 0 && !reading();
     const mapper = () => !!part(".tm-use")();
-    const needsAccount = () => { const r = root(), s = part(".tm-account")(); return !imp && !!r && !!s && !r.querySelector(".tm-single").hidden && !s.value; };
+    const useOff = () => { const b = part(".tm-use")(); return !!b && b.disabled; };
+    // A file not used yet: light up WHY (owner, 2026-11-21: "the reason is here" lit the whole card and the reason was not in it).
+    const resultTarget = () => {
+      if (usable.length) return $("statement-results");
+      if (useOff()) return [part(".tm-use-why")(), part(".tm-use")()].filter(Boolean);
+      const notes = Array.from($("statement-results").querySelectorAll(".stmt-verdict.bad, .stmt-verdict.warn, .stmt-note.warn")).slice(0, 3);
+      return notes.length ? notes : $("statement-results");
+    };
     const columns = () => { const r = root(); return r ? Array.from(r.querySelectorAll(".tm-date, .tm-desc, .tm-mode, .tm-one:not([hidden]), .tm-two:not([hidden]), .tm-preview")) : null; };
     const planSettled = () => !!historyPlan || !$("statement-history").querySelector(".stmt-loading");
     const previewParts = () => { const k = Array.from($("statement-history").children).filter((c) => c.id !== "statement-history-save"); return k.length ? k : $("statement-review-card"); };
@@ -3734,13 +3808,13 @@
       before: async () => { window.scrollTo(0, 0); return true; } });
     steps.push(
       { key: "reading", target: "#statement-results", text: () => tr("rt.stmt.reading"), until: readDone, wait: 8000, before: async () => !readDone() },
-      { key: "account", target: () => { const r = root(); return r ? (r.querySelector(".tm-multi:not([hidden])") || r.querySelector(".tm-single:not([hidden])")) : null; }, text: () => tr(pre === "rt.imp." ? "rt.imp.account" : "rt.stmt.account") + newAcctTip(), button: realNext, before: async () => mapper() },
       { key: "columns", target: columns, text: () => tr("rt.stmt.columns"), button: realNext, before: async () => mapper() },
+      { key: "account", target: () => { const r = root(); return r ? (r.querySelector(".tm-multi:not([hidden])") || r.querySelector(".tm-single:not([hidden])")) : null; }, text: () => tr(pre === "rt.imp." ? "rt.imp.account" : "rt.stmt.account") + newAcctTip(), button: realNext, before: async () => mapper() },
       { key: "cats", target: part(".tm-cats"), text: () => tr("rt.imp.cats"), button: realNext,
         before: async () => { if (!mapper()) return false; await waitFor(() => { const b = part(".tm-cats")(); return !!b && !b.querySelector(".stmt-loading"); }, 15000); return !!part(".tm-cat-row")(); } },
-      { key: "use", target: () => (needsAccount() ? root() : part(".tm-use")()), text: () => tr(needsAccount() ? "rt.stmt.useFix" : "rt.stmt.use"), until: () => !mapper() && readDone(), before: async () => mapper() },
-      { key: "result", target: "#statement-results", button: realNext,
-        text: () => (usable.length ? tr(readyCount() < stmtCards().length ? "rt.stmt.resultMixed" : "rt.stmt.result") + ($("statement-results").querySelector(".stmt-note.warn") ? " " + tr("rt.stmt.notes") : "") : tr("rt.stmt.bad")), before: async () => { await waitFor(readDone, 3000); return true; } },
+      { key: "use", target: () => (useOff() ? [part(".tm-use-why")(), part(".tm-use")()].filter(Boolean) : part(".tm-use")()), text: () => tr(useOff() ? "rt.stmt.useWhy" : "rt.stmt.use"), until: () => !mapper() && readDone(), before: async () => mapper() },
+      { key: "result", target: resultTarget, button: realNext,
+        text: () => (usable.length ? tr(readyCount() < stmtCards().length ? "rt.stmt.resultMixed" : "rt.stmt.result") + ($("statement-results").querySelector(".stmt-note.warn") ? " " + tr("rt.stmt.notes") : "") : tr(mapper() ? "rt.stmt.useWhy" : "rt.stmt.bad")), before: async () => { await waitFor(readDone, 3000); return true; } },
       { key: "next", target: "#stmt-next-2", text: () => tr("rt.stmt.next"), tap: "#stmt-next-2", before: async () => usable.length > 0 },
       { key: "planning", target: "#statement-review-card", text: () => tr("rt.stmt.planning"), until: planSettled, before: async () => usable.length > 0 && !planSettled() },
       // Tapping the box's own "Add the account and continue" re-reads the statements and the box goes away: that ends this step too
