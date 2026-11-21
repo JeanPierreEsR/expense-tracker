@@ -4727,7 +4727,7 @@
     "acct.adding": { en: "Adding…", es: "Agregando…" },
     "acct.added": { en: { one: "✓ Account added: {names}.", other: "✓ Accounts added: {names}." }, es: { one: "✓ Cuenta agregada: {names}.", other: "✓ Cuentas agregadas: {names}." } },
     "acct.addedHint": { en: { one: "It was added with default settings. Check its name, type and bank, and change them if you want, in More → Accounts, cards & platforms.", other: "They were added with default settings. Check their names, types and banks, and change them if you want, in More → Accounts, cards & platforms." }, es: { one: "Se agregó con valores por defecto. Revisa su nombre, tipo y banco, y cámbialos si quieres, en Más → Cuentas, tarjetas y plataformas.", other: "Se agregaron con valores por defecto. Revisa sus nombres, tipos y bancos, y cámbialos si quieres, en Más → Cuentas, tarjetas y plataformas." } },
-    "acct.review": { en: "Review it in Accounts, cards & platforms ›", es: "Revisarla en Cuentas, tarjetas y plataformas ›" },
+    "acct.review": { en: { one: "Review it in Accounts, cards & platforms ›", other: "Review them in Accounts, cards & platforms ›" }, es: { one: "Revisarla en Cuentas, tarjetas y plataformas ›", other: "Revisarlas en Cuentas, tarjetas y plataformas ›" } },
     "hist.planning": { en: "Working out what to add…", es: "Calculando qué agregar…" },
     "hist.planFailed": { en: "Couldn't prepare your history. Nothing was saved.", es: "No se pudo preparar tu historial. No se guardó nada." },
     "hist.sum.expensesMany": { en: { one: "{n} expense:", other: "{n} expenses:" }, es: { one: "{n} gasto:", other: "{n} gastos:" } },

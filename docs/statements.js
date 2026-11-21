@@ -1258,6 +1258,12 @@
       return `<div class="tm-newacct" data-value="${escapeHtml(value)}"><label>${escapeHtml(tr("imp.newAcctName"))}</label><input type="text" class="tm-nname" maxlength="60" placeholder="${escapeHtml(tr("imp.newAcctNameHint"))}" value="${escapeHtml(sp.name)}">
         <label>${escapeHtml(tr("imp.newAcctTypeLabel"))}</label><select class="tm-ntype">${newTypeOptions(sp.type)}</select></div>`;
     }
+    // A "move" whose new account is no longer new is asked again; the lists show the new accounts' names as typed.
+    function refreshNewMoves() {
+      const ok = new Set(newMoveTargets().map((t) => t.id));
+      Object.values(state.catDest).forEach((d) => { if (d && isNew(d.pmId) && !ok.has(d.pmId)) d.pmId = ""; });
+      if (state.catItems.some((it) => state.catChoice[it.key] === "@move")) renderCategories();
+    }
     function renderSingleNew() {
       const box = root.querySelector(".tm-single-new");
       box.innerHTML = isNew(state.accountId) ? newBoxHtml("*") : "";
@@ -1348,8 +1354,16 @@
     function destValid(d) {
       if (!d || !d.kind) return false;
       if (d.kind === "loan") return destCaps() && (!d.friendId || destFriends().some((f) => f.id === d.friendId));
-      if (d.kind === "move") return destCaps() && (!d.pmId || accounts.some((a) => a.id === d.pmId));
+      if (d.kind === "move") return destCaps() && (!d.pmId || accounts.some((a) => a.id === d.pmId) || newMoveTargets().some((t) => t.id === d.pmId));
       return d.kind === "invest" || d.kind === "review";
+    }
+    // The accounts this import will create, as places a "move" can go: [{ id: "new:<name>", name }] (owner's test, 2026-11-21: a file's
+    // "Ahorro" lines had nowhere to go on a copy whose savings account was itself one of the file's new names).
+    function newMoveTargets() {
+      if (!(((typeof meta !== "undefined" && meta && meta.capabilities) || {}).importNewAccounts)) return [];
+      if (state.m.account < 0) return state.accountId === "new:*" && state.newAcct["*"] ? [{ id: "new:*", name: String(state.newAcct["*"].name || "").trim() || "…" }] : [];
+      return StatementTable.distinctValues(rows, state.m, state.m.account).filter((v) => String(state.map[v.value] || "").indexOf("new:") === 0)
+        .map((v) => ({ id: "new:" + v.value, name: String((state.newAcct[v.value] || {}).name || v.value).trim() || v.value }));
     }
     function parseDest(text) { try { const d = JSON.parse(String(text || "")); return d && typeof d === "object" ? d : null; } catch (e) { return null; } }
     // The person the lines of this category name most ("prestamo ana" → Ana), when one stands out.
@@ -1387,7 +1401,8 @@
           <label>${escapeHtml(tr("table.destKind"))}</label><select class="tm-dkind"><option value="loan"${d.loanKind !== "repayment" ? " selected" : ""}>${escapeHtml(tr(out ? "table.destOutLoan" : "table.destInLoan"))}</option><option value="repayment"${d.loanKind === "repayment" ? " selected" : ""}>${escapeHtml(tr(out ? "table.destOutRepay" : "table.destInRepay"))}</option></select>`;
       }
       if (c === "@move") {
-        return `<label>${escapeHtml(tr(it.type === "expense" ? "table.destMoveTo" : "table.destMoveFrom"))}</label><select class="tm-dpm"><option value="">${escapeHtml(tr("table.destPickAccount"))}</option>${accounts.filter((a) => a.id !== state.accountId).map((a) => `<option value="${escapeHtml(a.id)}"${a.id === d.pmId ? " selected" : ""}>${escapeHtml(a.nickname)}</option>`).join("")}</select>`;
+        const news = newMoveTargets().filter((t) => t.id !== state.accountId).map((t) => `<option value="${escapeHtml(t.id)}"${t.id === d.pmId ? " selected" : ""}>${escapeHtml(tr("imp.newAcctHeader", { name: t.name }))}</option>`).join("");
+        return `<label>${escapeHtml(tr(it.type === "expense" ? "table.destMoveTo" : "table.destMoveFrom"))}</label><select class="tm-dpm"><option value="">${escapeHtml(tr("table.destPickAccount"))}</option>${accounts.filter((a) => a.id !== state.accountId).map((a) => `<option value="${escapeHtml(a.id)}"${a.id === d.pmId ? " selected" : ""}>${escapeHtml(a.nickname)}</option>`).join("")}${news}</select>`;
       }
       if (c === "@invest") {
         const plats = destPlatforms();
@@ -1747,7 +1762,7 @@
       const cls = (e.target.className.match(/tm-(\w+)/) || [])[1];
       if (!cls || cls === "bal") return;   // the balance boxes only update their own result line (the "input" handler below)
       const v = e.target.value;
-      if (cls === "account") { state.accountId = v; applyAccountGuess(); syncControlsFromState(); if (isNew(v)) { const box = root.querySelector(".tm-single-new .tm-nname"); if (box && !box.value) box.focus(); } }
+      if (cls === "account") { state.accountId = v; applyAccountGuess(); syncControlsFromState(); refreshNewMoves(); if (isNew(v)) { const box = root.querySelector(".tm-single-new .tm-nname"); if (box && !box.value) box.focus(); } }
       else if (cls === "vacct") {
         const row = e.target.closest(".tm-value"), val = row.dataset.value;
         if (v) state.map[val] = v; else if (noneOk) state.map[val] = "none"; else delete state.map[val];   // "none": the person's own "No account", kept on a redraw
@@ -1755,9 +1770,10 @@
         if (old) old.remove();
         if (isNew(v) && !hiddenMatch(val)) row.insertAdjacentHTML("beforeend", newBoxHtml(val));
         renderNewCard();
+        refreshNewMoves();
       }
       else if (cls === "ntype") { newSpec(e.target.closest(".tm-newacct").dataset.value).type = v; return; }
-      else if (cls === "nname") { newSpec(e.target.closest(".tm-newacct").dataset.value).name = v; renderPreview(); return; }
+      else if (cls === "nname") { newSpec(e.target.closest(".tm-newacct").dataset.value).name = v; refreshNewMoves(); renderPreview(); return; }
       else if (cls === "date") state.m.date = Number(v);
       else if (cls === "desc") state.m.description = Number(v);
       else if (cls === "amount") state.m.amount = Number(v);
@@ -1871,6 +1887,10 @@
           result: { kind: "csv", ok: true, verified: false, accountKey, newAccount: newAccount || undefined, account: { last4: /^\d{4}$/.test(accountKey) ? accountKey : "" }, holder: "",
             period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [], source: state.m.source === "app" ? "app" : "", categoryMap: plainChoices(state.catChoice), categoryNames: namesToSend(), catDest: destsToSend() } });
       });
+      // A "move" to an account this import creates goes to that statement's stand-in (backend: new:<key>, swapped for the real one on save).
+      const keyOfNew = {};
+      byAccount.forEach((accLines, id) => { if (isNew(id)) { const r = results.find((x) => x.result.newAccount && x.result.lines === accLines); if (r) keyOfNew[id] = "new:" + r.result.accountKey; } });
+      results.forEach((r) => Object.values(r.result.catDest || {}).forEach((d) => { if (d && d.kind === "move" && keyOfNew[d.pmId]) d.pmId = keyOfNew[d.pmId]; }));
       // Remember the layout in the Sheet, under the name the person gave it (else the known name, else the account's name).
       const typed = $q("name").value.trim();
       const oneId = byAccount.size === 1 ? [...byAccount.keys()][0] : "";
@@ -2810,7 +2830,7 @@
     if (!addedAccounts.length) return "";
     return `<div class="stmt-note ok" style="margin-bottom:12px"><p style="margin:0 0 6px">${escapeHtml(tr("acct.added", { n: addedAccounts.length, names: addedAccounts.map((a) => a.nickname).join(", ") }))}</p>
       <p class="hint" style="margin:0 0 6px">${escapeHtml(tr("acct.addedHint", { n: addedAccounts.length }))}</p>
-      <button type="button" class="add-inline" id="statement-open-accounts">${escapeHtml(tr("acct.review"))}</button></div>`;
+      <button type="button" class="add-inline" id="statement-open-accounts">${escapeHtml(tr("acct.review", { n: addedAccounts.length }))}</button></div>`;
   }
 
   async function addProposedAccounts() {

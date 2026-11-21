@@ -202,6 +202,9 @@ function applyStatementDecisionsCore_(payload) {
 
   var pms = getAllRows('Payment Methods');
   var pmsById = rowsById_(pms);
+  // An account this save creates (a spreadsheet's new account name) can be where a "move" goes: in the plan and the dry run it is
+  // its stand-in (the real save has swapped in the real account already, StatementAccounts.gs).
+  (payload.statements || []).forEach(function (s) { if (stmtIsNewAccount_(s)) { var sb = stmtNewAccountStandIn_(s); pmsById[sb.id] = sb; } });
   var openingsByPm = buildOpeningsByPm_(pms);
   var balanceOps = [];
   var gapOps = [];

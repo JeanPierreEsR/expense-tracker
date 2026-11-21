@@ -106,3 +106,20 @@ test("a new account with no name is refused before anything is made", () => {
   assert.throws(() => save(rt, [stmt("NEW-a-0", { name: "  ", type: "debit" })], false));
   assert.equal(pms(rt).length, n0);
 });
+
+test("a line can move money to an account the same import creates", () => {
+  const { rt } = freshApp({ entries: 30 });
+  const yape = stmt("NEW-a-0", { name: "Billetera Prueba", type: "wallet" }, [{ date: "2019-03-05", description: "Ahorro mes", amount: -100, currency: "PEN", category: "Ahorro" }]);
+  const savings = stmt("NEW-a-1", { name: "Ahorros Prueba", type: "debit" }, [{ date: "2019-03-06", description: "Bodega", amount: -5, currency: "PEN", category: "Food" }]);
+  const statements = [yape, savings];
+  const p = plan(rt, statements);
+  const actions = p.actions.map((a) => (a.stmt === 0 && a.line === 0 && /add_history/.test(a.type) ? { type: "record_move", stmt: 0, line: 0, otherPmId: "new:NEW-a-1" } : a));
+  assert.ok(actions.some((a) => a.type === "record_move"));
+  run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: true, filename: "f", statements, actions })})`);
+  run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "f", statements, actions })})`);
+  const all = pms(rt), w = all.find((a) => a.nickname === "Billetera Prueba"), s = all.find((a) => a.nickname === "Ahorros Prueba");
+  const mv = run(rt, "getAllRows('Entries').filter(function (e) { return e.type === 'transfer' && String(e.external_id).indexOf('stmt-') === 0; })");
+  assert.equal(mv.length, 1);
+  assert.equal(mv[0].payment_method_id, w.id);
+  assert.equal(mv[0].to_payment_method_id, s.id);
+});
