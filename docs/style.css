@@ -4194,6 +4194,13 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 #wa-code { white-space: pre-wrap; word-break: break-all; }
 /* Needs review: "This is my Salary for August" (2026-11-17), ticked when the match is clear; Confirm answers it. */
 .review-plan-match { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; font-size: 0.875rem; }
+/* Its tick box is a real tick box (owner, 2026-11-21: the global box style drew it as a wide empty text box). */
+.review-plan-match input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 22px; height: 22px; min-height: 0; padding: 0; margin: 0; flex: none; }
+/* Discard from the short row and from the duplicate warning (owner, 2026-11-21). */
+.review-quick-discard { flex: none; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--card); color: var(--muted); cursor: pointer; }
+.review-quick-discard svg { width: 20px; height: 20px; }
+.review-quick-cat { margin-right: auto; }
+.review-dup-discard { display: block; min-height: 44px; margin-top: 6px; padding: 0 16px; border: 1px solid currentColor; border-radius: var(--r-pill); background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
 
 /* Needs review's "Confirm the N that are ready": starts on the same left edge as the line above it and reads as an action
    (Tomás, 2026-11-18: 8px further in, and as plain as a link). */

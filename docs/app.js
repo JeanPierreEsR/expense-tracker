@@ -8518,9 +8518,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       ${entry.charge_match ? reviewChargeMatchHtml_(entry) : ""}
       ${entry.waiting_match ? `<div class="review-charge-match"><div>${escapeHtml(tr("income.matchAsk", { name: entry.waiting_match.friend_name, amount: formatAmount(entry.waiting_match.remaining, entry.waiting_match.currency) }))}</div><button type="button" class="stmt-choice review-waiting-btn">${escapeHtml(tr("income.matchYes"))}</button></div>` : ""}
       ${/^(Overpayment (from|to) |Pago de más (de|a) )/.test(entry.description || "") ? `<p class="hint review-overpay-note">${escapeHtml(tr("review.overpayNote"))}</p>` : ""}
-      ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
+      ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}<button type="button" class="review-dup-discard">${escapeHtml(tr("review.discardCopy"))}</button></div>` : ""}
       <div class="review-quick">
         <button type="button" class="review-quick-cat${entry.type !== "investment" && !entry.category_id ? " review-quick-cat-missing" : ""}">${escapeHtml(entry.type === "investment" ? (TYPE_LABELS.investment || "") : (entry.category_id ? categoryName(entry.category_id) : tr("review.pickCategory")))}</button>
+        <button type="button" class="review-quick-discard" aria-label="${escapeHtml(tr("review.discard"))}" title="${escapeHtml(tr("review.discard"))}">${lineIcon_("trash")}</button>
         <button type="button" class="review-quick-confirm">${tr("review.confirm")}</button>
       </div>
       <div class="review-item-fields">
@@ -8627,6 +8628,11 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       reviewExpanded_.add(entry.id);
       confirmBtn.click();
     });
+    // Discard without opening the card (owner, 2026-11-21): the short row's trash button, and the duplicate warning's own
+    // "Discard this copy". Both press the card's Discard, so its question and its repayment guard still apply.
+    item.querySelector(".review-quick-discard").addEventListener("click", () => discardBtn.click());
+    const dupDiscard = item.querySelector(".review-dup-discard");
+    if (dupDiscard) dupDiscard.addEventListener("click", () => discardBtn.click());
     const moreBtn = item.querySelector(".review-more-actions");
     if (moreBtn) moreBtn.addEventListener("click", () => {
       const nowOpen = item.classList.toggle("review-more-closed") === false;
