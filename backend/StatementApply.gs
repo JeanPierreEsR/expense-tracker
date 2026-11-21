@@ -193,7 +193,7 @@ function stmtRateNeeds_(creations) {
  * payload: { dryRun, filename, statements: [{ key, kind, period, file_name, verified, balances, lines }],
  *            actions: [...] }
  */
-function applyStatementDecisions(payload) {
+function applyStatementDecisionsCore_(payload) {
   var dryRun = !payload || payload.dryRun !== false;
   var stmts = payload.statements || [];
   var actions = payload.actions || [];
@@ -262,7 +262,7 @@ function applyStatementDecisions(payload) {
   var keys = [], accounts = [];
   stmts.forEach(function (s) {
     keys.push(stmtLineKeys_(s.key, s.lines));
-    accounts.push(stmtPmForKey_(pms, s.key));
+    accounts.push(stmtIsNewAccount_(s) ? stmtNewAccountStandIn_(s) : stmtPmForKey_(pms, s.key));   // an account the save will create (StatementAccounts.gs)
   });
   var storedRows = null;
   function line(ref) {
@@ -1132,6 +1132,9 @@ function undoStatementBatch(payload) {
   // One call for all of them (one per statement took ~1 s each on a real Sheet: 60 statements outlast the app's patience).
   if (Object.keys(createdUploadIds).length) deleteRowsWhere_('Statement Uploads', function (row) { return createdUploadIds[row.id]; });
 
+
+  // Accounts this upload created (a spreadsheet's new account names): removed once nothing uses them (StatementAccounts.gs).
+  stmtUndoFileAccounts_(changes, res);
 
   deleteRowsWhere_('Import Batches', function (row) { return row.id === batchId; });
   deleteRowsWhere_('Statement Changes', function (row) { return row.batch_id === batchId; });

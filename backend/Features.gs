@@ -134,6 +134,7 @@ function getCapabilities_() {
     noAccountTidy: true,   // listNoAccountEntries + assignEntryAccounts + undoEntryAccounts: "Entries with no account" in Tidy my history
     practiceTidy: true,   // createPracticeTidy + removePracticeTidy + listTidyGroups({pinPractice}): the Tidy my history practice is only offered where this exists
     practiceBank: true,   // createPracticeBankAccount + removePracticeBank: the Bank statements practice is only offered where this exists
+    importNewAccounts: true,   // Import / a bank's spreadsheet: a statement keyed NEW-… with newAccount creates that account with the save (StatementAccounts.gs)
     importDest: true,   // Import: a file's category can go to Loans or a move between the person's accounts (record_loan_line, record_move)
     practiceImport: true,   // removePracticeImport: the Import from another app practice is only offered where this exists
     practiceDeleted: true,   // createPracticeDeleted + removePracticeDeleted: the Recently deleted practice is only offered where this exists (and where entriesRestore + entriesBulk do)
