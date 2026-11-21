@@ -120,6 +120,8 @@ function stmtNewAccountSpec_(s) {
     type: STMT_NEW_ACCOUNT_TYPES_.indexOf(type) !== -1 ? type : 'debit',
     last4: /^\d{4}$/.test(String(n.last4 || '')) ? String(n.last4) : '',
     bankId: String(n.bankId || ''),
+    bankName: String(n.bankName || '').replace(/\s+/g, ' ').trim().slice(0, 60),   // a bank of the catalogue the person picked: found or added
+    rail: n.rail === 'yape' || n.rail === 'plin' ? n.rail : '',
     currencies: (Array.isArray(n.currencies) ? n.currencies : []).map(function (c) { return String(c || '').toUpperCase(); }).filter(function (c) { return /^[A-Z]{3}$/.test(c); }),
     unhideId: String(n.unhideId || '')
   };
@@ -161,6 +163,7 @@ function stmtMakeFileAccounts_(news) {
       // Digits another account already has would send this file's lines to that account: the new one is made without them.
       var last4 = n.last4 && !pms.some(function (p) { return covKey_(p.last_4) === covKey_(n.last4); }) ? n.last4 : '';
       var bankId = n.bankId && getAllRows('Banks').some(function (b) { return String(b.id) === n.bankId; }) ? n.bankId : '';
+      if (!bankId && n.bankName) bankId = (getAllRows('Banks').find(function (b) { return plainNickname_(b.name) === plainNickname_(n.bankName); }) || addBank({ name: n.bankName })).id;
       var payload = { nickname: n.name, type: n.type, bank_id: bankId, last_4: last4 };
       if ((n.type === 'debit' || n.type === 'credit') && n.currencies.length) payload.currencies = n.currencies;
       pm = savePaymentMethod(payload);
@@ -170,6 +173,23 @@ function stmtMakeFileAccounts_(news) {
     out.byKey[s.key] = pm;
   });
   if (out.created.length || out.shown.length) { bumpStructureVersion_(); if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods']; }
+  return out;
+}
+
+// Yape rides on a BCP bank account (yape_pen / yape_usd by currency); Plin on a Scotiabank / BBVA / Interbank one (plin_pen, or one more
+// in plin_pen_more when the main one is another account). An account the rail cannot ride on is left alone (report.railSkipped).
+// Returns the settings it changed: [{ key, from, to }].
+function stmtLinkRail_(rail, pm, currency, report) {
+  if (!pm || !pm.id) return [];
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
+  var fresh = getAllRows('Payment Methods').find(function (p) { return String(p.id) === String(pm.id); });
+  if (!fresh || !railAllowsAccount_(rail, fresh)) { report.railSkipped = (report.railSkipped || []).concat([rail]); return []; }
+  var settings = getSettingsMap(), id = String(fresh.id), out = [];
+  var set = function (key, value) { var from = String(settings[key] || ''); if (from === value) return; setSetting_(key, value); out.push({ key: key, from: from, to: value }); };
+  if (rail === 'yape') set(String(currency || '').toUpperCase() === 'USD' ? 'yape_usd' : 'yape_pen', id);
+  else if (!settings.plin_pen) set('plin_pen', id);
+  else if (String(settings.plin_pen) !== id && plinMoreIds_(settings).indexOf(id) === -1) set(PLIN_MORE_KEY_, plinMoreIds_(settings).concat([id]).join(','));
+  if (out.length) report.railsLinked = (report.railsLinked || []).concat([{ rail: rail, account: fresh.nickname }]);
   return out;
 }
 
@@ -184,6 +204,10 @@ function stmtUnmakeFileAccounts_(made) {
 function stmtUndoFileAccounts_(changes, res) {
   var made = changes.filter(function (c) { return c.sheet === 'Payment Methods' && c.field === '__created__'; });
   var shown = changes.filter(function (c) { return c.sheet === 'Payment Methods' && c.field === 'hidden'; });
+  // Yape / Plin links this upload set: back to what they were, unless changed since. First, so an account it made is free to go.
+  changes.filter(function (c) { return c.sheet === 'Settings' && c.field === 'value'; }).forEach(function (c) {
+    if (String(getSettingsMap()[c.row_id] || '') === String(c.new_value)) { setSetting_(c.row_id, c.old_value); res.railsUnlinked = (res.railsUnlinked || 0) + 1; }
+  });
   if (!made.length && !shown.length) return;
   if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
   var there = {};
@@ -206,12 +230,24 @@ function stmtUndoFileAccounts_(changes, res) {
 function applyStatementDecisions(payload) {
   var stmts = (payload && payload.statements) || [];
   var news = stmts.filter(stmtIsNewAccount_);
-  if (!news.length) return applyStatementDecisionsCore_(payload);
+  var railsOnly = !news.length && stmts.some(function (s) { return s && (s.rail === 'yape' || s.rail === 'plin'); });
+  if (!news.length && !railsOnly) return applyStatementDecisionsCore_(payload);
   if (news.length > 20) throw new Error(tr_('err.tooManyAccounts'));
+  if (news.some(function (s) { var l4 = String((s.newAccount || {}).last4 || ''); return l4 && !/^\d{4}$/.test(l4); })) throw new Error(tr_('err.pmLast4'));
   news.forEach(function (s) { if (!stmtNewAccountSpec_(s).name) throw new Error(tr_('err.enterName')); });
   if (payload.dryRun !== false) return applyStatementDecisionsCore_(payload);
   var made = stmtMakeFileAccounts_(news);
-  var real = Object.assign({}, payload, { statements: stmts.map(function (s) {
+  // A "move" to one of these accounts names its stand-in (new:<key>): it now goes to the real account.
+  var realIds = {};
+  news.forEach(function (s) { realIds['new:' + s.key] = made.byKey[s.key].id; });
+  var actions = (payload.actions || []).map(function (a) {
+    if (!a || (!realIds[a.otherPmId] && !realIds[a.herePmId])) return a;
+    var c = Object.assign({}, a);
+    if (realIds[a.otherPmId]) c.otherPmId = realIds[a.otherPmId];
+    if (realIds[a.herePmId]) c.herePmId = realIds[a.herePmId];
+    return c;
+  });
+  var real = Object.assign({}, payload, { actions: actions, statements: stmts.map(function (s) {
     if (!stmtIsNewAccount_(s)) return s;
     var c = Object.assign({}, s, { key: stmtTableKeyForPm_(made.byKey[s.key]) });
     delete c.newAccount;
@@ -220,9 +256,20 @@ function applyStatementDecisions(payload) {
   var report;
   try { report = applyStatementDecisionsCore_(real); } catch (err) { stmtUnmakeFileAccounts_(made); throw err; }
   var now = nowTimestamp_(), rows = [];
+  // Yape / Plin in the file: the account behind it now carries it (owner, 2026-11-21), recorded so Undo puts the old link back.
+  real.statements.forEach(function (s, i) {
+    var rail = stmtIsNewAccount_(stmts[i]) ? stmtNewAccountSpec_(stmts[i]).rail : (stmts[i].rail === 'yape' || stmts[i].rail === 'plin' ? stmts[i].rail : '');
+    if (!rail) return;
+    var pm = stmtIsNewAccount_(stmts[i]) ? made.byKey[stmts[i].key] : stmtPmForKey_(getAllRows('Payment Methods'), s.key);
+    var cur = ((s.lines || [])[0] || {}).currency;
+    stmtLinkRail_(rail, pm, cur, report).forEach(function (c) { rows.push({ id: Utilities.getUuid(), batch_id: report.batchId, sheet: 'Settings', row_id: c.key, field: 'value', old_value: c.from, new_value: c.to, created_at: now }); });
+  });
   made.created.forEach(function (pm) { rows.push({ id: Utilities.getUuid(), batch_id: report.batchId, sheet: 'Payment Methods', row_id: pm.id, field: '__created__', old_value: '', new_value: '', created_at: now }); });
   made.shown.forEach(function (pm) { rows.push({ id: Utilities.getUuid(), batch_id: report.batchId, sheet: 'Payment Methods', row_id: pm.id, field: 'hidden', old_value: 'yes', new_value: '', created_at: now }); });
   if (rows.length) { ensureStatementChangesSheet_(); appendRowsBulk_('Statement Changes', rows); }
-  report.accountsCreated = made.created.concat(made.shown).map(function (pm) { return { id: pm.id, nickname: pm.nickname }; });
+  // `incomplete`: a bank account or card with no bank or no last 4 digits yet — the saved message offers to complete it (owner, 2026-11-21).
+  report.accountsCreated = made.created.concat(made.shown).map(function (pm) {
+    return { id: pm.id, nickname: pm.nickname, incomplete: (pm.type === 'debit' || pm.type === 'credit') && (!pm.bank_id || !String(pm.last_4 || '').trim()) };
+  });
   return report;
 }

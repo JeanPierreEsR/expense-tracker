@@ -505,6 +505,22 @@
     });
     return comma > dot ? ',' : '.';
   }
+  // True when the column's text settles the decimal mark: some amounts show it (1,234.56 or 12,50) and none says the other way; or every
+  // amount is a real number (a spreadsheet cell), where there is no mark to read. Import shows the choice as "from the file" then.
+  function decimalClear(values) {
+    var comma = 0, dot = 0, text = 0;
+    values.forEach(function (v) {
+      if (v === '' || v === null || v === undefined) return;
+      if (typeof v === 'number') return;
+      text++;
+      var s = dropMarkDot(v).replace(/[^\d.,]/g, '');
+      var lastC = s.lastIndexOf(','), lastD = s.lastIndexOf('.');
+      if (lastC >= 0 && lastD >= 0) { if (lastC > lastD) comma++; else dot++; }
+      else if (lastC >= 0 && /,\d{1,2}$/.test(s)) comma++;
+      else if (lastD >= 0 && /\.\d{1,2}$/.test(s)) dot++;
+    });
+    return text === 0 || (comma > 0) !== (dot > 0);
+  }
 
   // The number in a cell, or NaN. Handles "S/ 1,234.50", "S/.1,234.50", "1.234,50", "(12.50)", "12.50-", "−5", "USD 10".
   function parseAmount(value, decimal) {
@@ -661,6 +677,10 @@
     m.dateProved = !!m.dateOrder && columnValues(rows, first, m.date).some(function (v) { var p = dateParts(v); return p && p.order === '?' && p.a !== p.b; });
     var numberCols = [m.amount, m.out, m.in].filter(function (i) { return i >= 0; });
     m.decimal = detectDecimal([].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })));
+    m.decimalClear = decimalClear([].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })));
+    // The dates leave no doubt: the order was proved (a 31/01), or they are written year first (2025-12-30, what a spreadsheet's date cells give).
+    m.dateClear = !!m.dateOrder && (m.dateProved || columnValues(rows, first, m.date).filter(function (v) { return String(v || '').trim(); })
+      .every(function (v) { return /^\d{4}-\d{2}-\d{2}/.test(String(v).trim()); }));
     // Amounts written with a dollar sign ("$18.40", "US$ 5") and no currency column: the screen offers the dollar as the file's currency
     // (Mark, 2026-11-18: a YNAB export came in as soles). 'US$' | '$' | ''.
     m.currencySign = '';

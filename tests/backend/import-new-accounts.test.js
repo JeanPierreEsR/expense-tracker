@@ -35,7 +35,7 @@ test("the plan and the dry run create nothing; the save creates the account and 
   assert.equal(all.length, n0 + 1);
   const acct = all.find((a) => a.nickname === "Mi Billetera Azul");
   assert.equal(acct.type, "wallet");
-  assert.deepEqual(res.accountsCreated, [{ id: acct.id, nickname: "Mi Billetera Azul" }]);
+  assert.deepEqual(res.accountsCreated, [{ id: acct.id, nickname: "Mi Billetera Azul", incomplete: false }]);
   const rows = made(rt);
   assert.equal(rows.length, 2);
   assert.ok(rows.every((e) => e.payment_method_id === acct.id));
@@ -105,4 +105,80 @@ test("a new account with no name is refused before anything is made", () => {
   const n0 = pms(rt).length;
   assert.throws(() => save(rt, [stmt("NEW-a-0", { name: "  ", type: "debit" })], false));
   assert.equal(pms(rt).length, n0);
+});
+
+test("a line can move money to an account the same import creates", () => {
+  const { rt } = freshApp({ entries: 30 });
+  const yape = stmt("NEW-a-0", { name: "Billetera Prueba", type: "wallet" }, [{ date: "2019-03-05", description: "Ahorro mes", amount: -100, currency: "PEN", category: "Ahorro" }]);
+  const savings = stmt("NEW-a-1", { name: "Ahorros Prueba", type: "debit" }, [{ date: "2019-03-06", description: "Bodega", amount: -5, currency: "PEN", category: "Food" }]);
+  const statements = [yape, savings];
+  const p = plan(rt, statements);
+  const actions = p.actions.map((a) => (a.stmt === 0 && a.line === 0 && /add_history/.test(a.type) ? { type: "record_move", stmt: 0, line: 0, otherPmId: "new:NEW-a-1" } : a));
+  assert.ok(actions.some((a) => a.type === "record_move"));
+  run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: true, filename: "f", statements, actions })})`);
+  run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "f", statements, actions })})`);
+  const all = pms(rt), w = all.find((a) => a.nickname === "Billetera Prueba"), s = all.find((a) => a.nickname === "Ahorros Prueba");
+  const mv = run(rt, "getAllRows('Entries').filter(function (e) { return e.type === 'transfer' && String(e.external_id).indexOf('stmt-') === 0; })");
+  assert.equal(mv.length, 1);
+  assert.equal(mv[0].payment_method_id, w.id);
+  assert.equal(mv[0].to_payment_method_id, s.id);
+});
+
+test("Yape in the file: a new BCP account named Yape carries Yape, and Undo takes the link and the account away", () => {
+  const { rt } = freshApp({ entries: 30 });
+  rt.run("setSetting_('yape_pen', ''); setSetting_('yape_usd', ''); deleteRowsWhere_('Payment Methods', function (p) { return /yape/i.test(p.nickname); })");
+  const s = [stmt("NEW-a-0", { name: "Yape", type: "debit", bankName: "BCP", last4: "1357", rail: "yape" })];
+  const res = save(rt, s, false);
+  const acct = pms(rt).find((a) => a.nickname === "Yape");
+  assert.equal(acct.type, "debit");
+  assert.equal(String(acct.last_4).padStart(4, "0"), "1357");
+  assert.equal(run(rt, "getSettingsMap().yape_pen"), acct.id);
+  assert.deepEqual(res.accountsCreated.map((a) => a.incomplete), [false]);
+  const u = run(rt, `undoStatementBatch(${JSON.stringify({ batchId: res.batchId })})`);
+  assert.equal(u.railsUnlinked, 1);
+  assert.equal(run(rt, "getSettingsMap().yape_pen"), "");
+  assert.ok(!pms(rt).some((a) => a.id === acct.id));
+});
+
+test("Yape on an existing BCP account: linked with no new account; a card is never linked", () => {
+  const { rt } = freshApp({ entries: 30 });
+  rt.run("setSetting_('yape_pen', ''); var b = addBank({ name: 'BCP' }); appendRowObject('Payment Methods', { id: 'pm-bcp', nickname: 'Mi BCP', type: 'debit', bank_id: b.id, last_4: '' }); appendRowObject('Payment Methods', { id: 'pm-card', nickname: 'Tarjeta X', type: 'credit', bank_id: b.id, last_4: '' });");
+  const n0 = pms(rt).length;
+  save(rt, [Object.assign(stmt("ACCT-pm-bcp"), { rail: "yape" })], false);
+  assert.equal(pms(rt).length, n0);
+  assert.equal(run(rt, "getSettingsMap().yape_pen"), "pm-bcp");
+  rt.run("setSetting_('yape_pen', '')");
+  const r2 = save(rt, [Object.assign(stmt("ACCT-pm-card", undefined, [{ date: "2019-04-05", description: "Otra", amount: -3, currency: "PEN", category: "Food" }]), { rail: "yape" })], false);
+  assert.equal(run(rt, "getSettingsMap().yape_pen"), "");
+  assert.deepEqual(r2.railSkipped, ["yape"]);
+});
+
+test("a new account with no bank or digits is marked incomplete", () => {
+  const { rt } = freshApp({ entries: 30 });
+  const res = save(rt, [stmt("NEW-a-0", { name: "Cuenta Gris", type: "debit" })], false);
+  assert.deepEqual(res.accountsCreated.map((a) => a.incomplete), [true]);
+});
+
+test("a move whose lines have no account takes the side the person named (an account the import creates, too)", () => {
+  const { rt } = freshApp({ entries: 30 });
+  const noAcct = { key: "NOACCOUNT", kind: "csv", source: "app", holder: "", verified: false, balances: {}, file_name: "f.csv",
+    period: { start: "2019-03-05", end: "2019-03-05" }, lines: [{ date: "2019-03-05", description: "Ahorro", amount: -70, currency: "PEN", category: "Ahorro" }] };
+  const savings = stmt("NEW-a-1", { name: "Ahorros Nuevos", type: "debit" }, [{ date: "2019-03-06", description: "Bodega", amount: -5, currency: "PEN", category: "Food" }]);
+  const cash = run(rt, "getAllRows('Payment Methods').find(function (p) { return p.type === 'cash'; }).id");
+  const statements = [noAcct, savings];
+  const p = plan(rt, statements);
+  const actions = p.actions.map((a) => (a.stmt === 0 && a.line === 0 && /add_history/.test(a.type) ? { type: "record_move", stmt: 0, line: 0, otherPmId: "new:NEW-a-1", herePmId: cash } : a));
+  run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: true, filename: "f", statements, actions })})`);
+  run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "f", statements, actions })})`);
+  const s = pms(rt).find((a) => a.nickname === "Ahorros Nuevos");
+  const mv = run(rt, "getAllRows('Entries').filter(function (e) { return e.type === 'transfer' && String(e.external_id).indexOf('stmt-') === 0; })");
+  assert.equal(mv.length, 1);
+  assert.equal(mv[0].payment_method_id, cash);
+  assert.equal(mv[0].to_payment_method_id, s.id);
+});
+
+test("an app's export on a credit card is never asked for a pay-by date", () => {
+  const { rt } = freshApp({ entries: 30 });
+  const p = plan(rt, [stmt("NEW-a-0", { name: "Tarjeta Azul", type: "credit" })]);
+  assert.deepEqual(p.due_asks, []);
 });
