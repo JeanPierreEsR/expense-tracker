@@ -2270,7 +2270,6 @@
     "recModal.addItem": { en: "Add programmed item", es: "Agregar movimiento programado" },
     "recModal.editItem": { en: "Edit programmed item", es: "Editar movimiento programado" },
     "recModal.undoSkip": { en: "Undo skip", es: "Deshacer omisión" },
-    "recModal.undoSkipFailed": { en: "Couldn't undo the skip ({error}).", es: "No se pudo deshacer la omisión ({error})." },
     "recModal.other": { en: "Custom", es: "Personalizada" },
     "recModal.repeatsEvery": { en: "Repeats every", es: "Se repite cada" },
     "recModal.unitDays": { en: "days", es: "días" },
@@ -2420,7 +2419,6 @@
     "expected.countPending": { en: "⏳ {kind} · {n}", es: "⏳ {kind} · {n}" },
     "expected.count": { en: "🔁 {kind} · {n}", es: "🔁 {kind} · {n}" },
     "expected.confirmSkip": { en: "Skip \"{label}\" for this month? It stops counting as expected for this month only. You can undo it from the item's edit screen.", es: "¿Omitir \"{label}\" este mes? Solo este mes deja de contar en lo Calculado. Puedes deshacerlo desde la pantalla de edición del movimiento." },
-    "expected.skipFailed": { en: "Couldn't skip it ({error}).", es: "No se pudo omitir ({error})." },
 
     // ---- more ----
     "more.programmed": { en: "Programmed income/expenses", es: "Ingresos y gastos programados" },
