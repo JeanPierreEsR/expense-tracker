@@ -189,7 +189,7 @@ test("general help: 'ayuda' / 'help' / 'menú' not replying says what the bot ca
     a.text(word);
     assert.equal(a.lastBody(), a.rt.run("tr_('whatsapp.help')"), word);
   }
-  assert.match(a.lastBody(), /pendientes/);
+  assert.match(a.lastBody(), /pendientes|"pending"/);
   assert.equal(a.waEntries().length, 0, "help made no entry");
   a.text("25 almuerzo");
   const [e] = a.waEntries();
@@ -323,7 +323,7 @@ test("'Other changes' lists only what the Edit list does not offer; 'help' as a 
     assert.ok(!other.includes(listed), "not repeated: " + listed);
   }
   a.text("help", { context_id: a.cardIdOf(e.id) });
-  assert.match(a.lastBody(), /"category groceries"/, "the full help as a reply");
+  assert.match(a.lastBody(), /"category [^"]+"/, "the full help as a reply");
   // A transfer: from / to / amount / description / date are rows; currency, category, tag, type are not.
   a.rt.run(`appendRowObject('Entries', { id: 'tr-1', type: 'transfer', date: '2026-11-16', amount: 50, currency: 'PEN', description: 'Move', status: 'pending', source: 'email', paid_by: 'me', created_at: '2999-06-01T10:00:00' })`);
   a.tap("wahelp:tr-1");

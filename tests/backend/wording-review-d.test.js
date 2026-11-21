@@ -30,8 +30,8 @@ test("C15: it is 'account or card' / 'cuenta o tarjeta' in every form, message a
   assert.match(get("field.paymentMethod").en, /Account or card/);
   assert.match(get("field.paymentMethod").es, /Cuenta o tarjeta/);
   assert.match(get("balance.noAccounts").en, /\+ Add account or card…/);
-  assert.match(get("bot.notSetPaymentMethod").en, /reply \\"account Interbank\\"/);
-  assert.match(get("bot.notSetPaymentMethod").es, /responde \\"cuenta Interbank\\"/);
+  assert.match(get("bot.notSetPaymentMethod").en, /reply \\"account \{exAcc\}\\"/);
+  assert.match(get("bot.notSetPaymentMethod").es, /responde \\"cuenta \{exAcc\}\\"/);
 });
 
 test("C15: the Telegram parser takes 'account' / 'cuenta' and still takes the old words; 'received in' too", () => {

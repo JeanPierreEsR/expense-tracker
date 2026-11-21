@@ -8,6 +8,11 @@ const { freshApp, linkTelegram } = require("./helpers");
 
 const gsSrc = fs.readFileSync(path.join(__dirname, "..", "..", "backend", "Strings.gs"), "utf8");
 
+// The bot's examples are the person's own names (BotExamples.gs, 2026-11-20); here, made-up ones stand in for them.
+const EX = { exAcc: "Main debit", exFrom: "Main debit", exTo: "Credit card", exPlatform: "Broker One", exFriend: "Ivo Luna", exFriend2: "Gus Rey",
+  exCat: "Home", exTag: "Health", exCur: "PEN", exCur2: "USD", exLunch: "lunch", exLunchWith: "lunch with", exIncome: "income", exSalary: "salary", exPhoto: "" };
+const fill = (t) => t.replace(/\{(ex\w+)\}/g, (w, k) => (EX[k] !== undefined ? EX[k] : w));
+
 // { key, lang, example } for every quoted command in the bot's own texts
 function commandExamples() {
   const out = [];
@@ -17,7 +22,7 @@ function commandExamples() {
     const key = m[1];
     if (!/^(help\.|bot\.(notSet|blocker|need|tripWillLink|transferNoEnds|internalTransfer))/.test(key) || key === "help.bothLanguages") continue;
     for (const [lang, raw] of [["en", m[2]], ["es", m[3]]]) {
-      for (const q of raw.matchAll(/\\"(.+?)\\"/g)) out.push({ key, lang, example: q[1] });
+      for (const q of fill(raw).matchAll(/\\"(.+?)\\"/g)) out.push({ key, lang, example: q[1] });
     }
   }
   return out;
@@ -26,8 +31,8 @@ function commandExamples() {
 test("the bot's texts quote commands, and there are many (so the check below means something)", () => {
   const ex = commandExamples();
   assert.ok(ex.length > 60, `found ${ex.length}`);
-  assert.ok(ex.some((e) => e.example === "account Interbank" && e.lang === "en"));
-  assert.ok(ex.some((e) => e.example === "cuenta Interbank" && e.lang === "es"));
+  assert.ok(ex.some((e) => e.example === "account Main debit" && e.lang === "en"));
+  assert.ok(ex.some((e) => e.example === "cuenta Main debit" && e.lang === "es"));
 });
 
 test("every command the help and the hints quote is understood by the parser, in English and in Spanish", () => {
@@ -47,7 +52,7 @@ test("the Spanish help speaks Spanish: 'cuenta', 'recibido en' — and none of t
   const texts = commandExamples().map((e) => e.example).join("\n");
   assert.ok(!/payment method|medio de pago/i.test(gsSrc.split("\n").filter((l) => /^\s*"(help|bot)\./.test(l)).join("\n")));
   assert.ok(!/Responde a la tarjeta|Reply to the card/.test(gsSrc));
-  assert.ok(/recibido en Interbank/.test(texts) && /received in Interbank/.test(texts));
+  assert.ok(/recibido en Main debit/.test(texts) && /received in Main debit/.test(texts));
 });
 
 function setup() {

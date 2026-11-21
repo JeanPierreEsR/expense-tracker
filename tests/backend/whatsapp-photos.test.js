@@ -87,7 +87,7 @@ test("a friend's copy with no photo reader says so and queues nothing", () => {
   // A new person's first message: the answer comes first, then the bot's tour greets (BotTour.gs).
   const bodies = a.sent.map((m) => (m.text && m.text.body) || (m.interactive && m.interactive.body.text));
   assert.equal(bodies[0], a.rt.run("tr_('whatsapp.photoNoReader')"));
-  assert.match(a.lastBody(), /tutorial|salir/);
+  assert.match(a.lastBody(), /tutorial|salir|"exit"/);
   assert.equal(a.rt.run("SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Photo Jobs') ? getAllRows('Photo Jobs').length : 0"), 0, "nothing queued");
 });
 
