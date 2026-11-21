@@ -160,6 +160,11 @@ function rulePackScan_(node, key, depth) {
 
 // Parses and checks pack text. Returns { ok:true, pack, skipped:[ids] } or { ok:false, errors:[...] } (at most 8 messages). Never throws.
 // opts.strict (the repo's tests, never a phone): an unknown field is an error too, so a typo in a field name is caught when the rule is written.
+// A rule error that only means "written for a newer backend": an unknown field or an unknown choice (kind, type, amount source).
+function rulePackNewerOnly_(err) {
+  return /: unknown field |\.kind: |\.type: one of |\.amount\.from: /.test(String(err));
+}
+
 function rulePackValidate_(text, opts) {
   var strict = !!(opts && opts.strict);
   var errors = [];
@@ -185,7 +190,13 @@ function rulePackValidate_(text, opts) {
         skipped.push(typeof r.id === 'string' ? r.id.slice(0, 40) : where);   // written for a newer backend: this rule waits, the others load
         return;
       }
-      rulePackCheckRule_(r, where, errors, strict);
+      // A rule whose only problems are things a NEWER backend knows (a field or kind it has not heard of, at any depth) waits on its own;
+      // the others load (2026-11-21: one Interbank rule with a new `orLabel` made older backends refuse the WHOLE list, BCP credit-card rule
+      // included). A real mistake or unsafe text still refuses the list, and the owner's strict check refuses both.
+      var ruleErrors = [];
+      rulePackCheckRule_(r, where, ruleErrors, strict);
+      if (!strict && ruleErrors.length && ruleErrors.every(rulePackNewerOnly_)) { skipped.push(r && typeof r.id === 'string' ? r.id.slice(0, 40) : where); return; }
+      ruleErrors.forEach(function (e) { errors.push(e); });
       if (r && typeof r.id === 'string') { if (ids[r.id]) errors.push(where + ': id used twice'); ids[r.id] = true; }
       kept.push(r);
     });
