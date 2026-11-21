@@ -428,6 +428,7 @@ function stmtDueAsks_(analysis, statements) {
     (analysis.statements || []).forEach(function (st, i) {
       var s = statements[i] || {};
       if (!st || !st.account || st.account.type !== 'credit' || s.due || !s.period || !s.period.end) return;
+      if (s.source === 'app') return;   // another app's export is not a card statement: no pay-by date to ask (owner, 2026-11-21)
       var gap = cardDueGapDays_(st.account.id);
       out.push({ stmt: i, account: st.account.nickname || '', guess: gap === '' ? '' : addDaysIso_(s.period.end, gap) });
     });

@@ -240,7 +240,13 @@ function applyStatementDecisions(payload) {
   // A "move" to one of these accounts names its stand-in (new:<key>): it now goes to the real account.
   var realIds = {};
   news.forEach(function (s) { realIds['new:' + s.key] = made.byKey[s.key].id; });
-  var actions = (payload.actions || []).map(function (a) { return a && realIds[a.otherPmId] ? Object.assign({}, a, { otherPmId: realIds[a.otherPmId] }) : a; });
+  var actions = (payload.actions || []).map(function (a) {
+    if (!a || (!realIds[a.otherPmId] && !realIds[a.herePmId])) return a;
+    var c = Object.assign({}, a);
+    if (realIds[a.otherPmId]) c.otherPmId = realIds[a.otherPmId];
+    if (realIds[a.herePmId]) c.herePmId = realIds[a.herePmId];
+    return c;
+  });
   var real = Object.assign({}, payload, { actions: actions, statements: stmts.map(function (s) {
     if (!stmtIsNewAccount_(s)) return s;
     var c = Object.assign({}, s, { key: stmtTableKeyForPm_(made.byKey[s.key]) });

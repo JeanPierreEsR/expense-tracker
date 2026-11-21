@@ -864,6 +864,27 @@
     if (!result.ok) offerSample(body, rows, "unverified", sender);   // a layout we know but cannot make add up: the owner wants to see it too
   }
 
+  // A spreadsheet with several accounts is ONE file: one card, its accounts listed inside (owner, 2026-11-21: seven cards titled with the
+  // same file name read as seven files).
+  function renderTableResults(body, results) {
+    const all = results.flatMap((r) => r.lines || []);
+    const dates = all.map((l) => l.date).sort();
+    const lineHtml = (l) => `<div class="stmt-line"><span class="stmt-line-date">${escapeHtml(fmtDate(l.date, true))}</span><span class="stmt-line-desc">${escapeHtml(l.description)}</span><span class="stmt-line-amt ${l.amount >= 0 ? "in" : "out"}">${escapeHtml(fmtMoney(l.currency, l.amount))}</span></div>`;
+    const label = (r) => {
+      if (r.newAccount) return tr("imp.newAcctHeader", { name: r.newAccount.name });
+      if (r.accountKey === NO_ACCOUNT_KEY) return tr("imp.noAccountOption");
+      const pm = ((meta && meta.paymentMethods) || []).find((a) => tableAccountKey(a) === r.accountKey);
+      return pm ? pm.nickname : r.accountKey;
+    };
+    body.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(tr(screenMode === "import" ? "imp.tableVerdict" : "table.verdict"))}</p>
+      <div class="stmt-kv"><span>${escapeHtml(tr("stmt.period"))}</span><span>${escapeHtml(dates.length ? `${fmtDate(dates[0], true)} – ${fmtDate(dates[dates.length - 1], true)}` : "—")}</span></div>
+      <div class="stmt-kv"><span>${escapeHtml(tr("stmt.linesRead"))}</span><span>${all.length}</span></div>
+      <h4 class="accounts-group-title">${escapeHtml(tr("table.secAccounts"))} · ${results.length}</h4>
+      ${results.map((r) => { const ls = r.lines || [], ds = ls.map((l) => l.date).sort(); return `<div class="tm-acct-sum"><div class="stmt-kv"><strong>${escapeHtml(label(r))}</strong><span>${escapeHtml(tr("table.catLines", { n: ls.length }))}</span></div>
+        <div class="hint">${escapeHtml(ds.length ? `${fmtDate(ds[0], true)} – ${fmtDate(ds[ds.length - 1], true)}` : "")}</div>
+        <details class="stmt-lines"><summary>${escapeHtml(tr("stmt.showLines", { n: ls.length }))}</summary>${ls.slice(0, 200).map(lineHtml).join("")}${ls.length > 200 ? `<p class="hint">${escapeHtml(tr("table.moreLines", { n: ls.length - 200 }))}</p>` : ""}</details></div>`; }).join("")}`;
+  }
+
   // The day the person's history starts = their earliest entry, from the phone's copy of the entries (app.js `searchIndex`, loaded
   // if it is not yet). SIP's CTS statement lists every movement since the account opened; the older ones are left out (owner,
   // 2026-11-20). No entries, or the copy cannot be loaded: '' (nothing is left out).
@@ -1199,7 +1220,7 @@
         <div${screenMode === "import" ? "" : " hidden"}>${sel("note", tr("table.colNote"), colOptions(state.m.note, true))}</div>
         ${sel("currency", tr("table.colCurrency"), colOptions(state.m.currency, true))}
         ${sel("fixed", tr("table.currencyFixed"), currencyOptions(state.m.currencyFixed || homeCur()))}
-        <p class="hint tm-fmt-read" hidden></p>
+        <div class="hint tm-fmt-read" hidden></div>
         <div class="tm-fmt-order">${sel("order", tr("table.dateOrder"), `<option value="dmy">${escapeHtml(tr("table.dmy"))}</option><option value="mdy">${escapeHtml(tr("table.mdy"))}</option>`)}</div>
         <div class="tm-fmt-decimal">${sel("decimal", tr("table.decimal"), `<option value=".">1,234.56</option><option value=",">1.234,56</option>`)}</div>
       </details>
@@ -1311,7 +1332,7 @@
     // A "move" whose new account is no longer new is asked again; the lists show the new accounts' names as typed.
     function refreshNewMoves() {
       const ok = new Set(newMoveTargets().map((t) => t.id));
-      Object.values(state.catDest).forEach((d) => { if (d && isNew(d.pmId) && !ok.has(d.pmId)) d.pmId = ""; });
+      Object.values(state.catDest).forEach((d) => { if (d && isNew(d.pmId) && !ok.has(d.pmId)) d.pmId = ""; if (d && isNew(d.herePmId) && !ok.has(d.herePmId)) d.herePmId = ""; });
       if (state.catItems.some((it) => state.catChoice[it.key] === "@move")) renderCategories();
     }
     function renderSingleNew() {
@@ -1386,7 +1407,8 @@
       root.querySelector(".tm-fmt-decimal").hidden = decSet;
       const read = root.querySelector(".tm-fmt-read");
       read.hidden = !dateSet && !decSet;
-      read.innerHTML = read.hidden ? "" : `${escapeHtml([dateSet ? tr("table.fmtDates", { order: tr(state.m.dateOrder === "mdy" ? "table.mdy" : "table.dmy") }) : "", decSet ? tr("table.fmtNumbers", { sample: state.m.decimal === "," ? "1.234,56" : "1,234.56" }) : ""].filter(Boolean).join(" · "))} <button type="button" class="add-inline tm-fmt-change">${escapeHtml(tr("table.fmtChange"))}</button>`;
+      read.innerHTML = read.hidden ? "" : [dateSet ? tr("table.fmtDates", { order: tr(state.m.dateOrder === "mdy" ? "table.mdy" : "table.dmy") }) : "", decSet ? tr("table.fmtNumbers", { sample: state.m.decimal === "," ? "1.234,56" : "1,234.56" }) : ""]
+        .filter(Boolean).map((t) => `<span style="display:block">${escapeHtml(t)}</span>`).join("") + `<button type="button" class="add-inline tm-fmt-change" style="margin-top:4px">${escapeHtml(tr("table.fmtChange"))}</button>`;
       setVal("fixed", state.m.currencyFixed || homeCur());
       root.querySelector(".tm-single").hidden = multi();
       renderSingleNew();
@@ -1443,6 +1465,13 @@
       const lines = itemLines(it);
       if (!lines.length) return "";
       return `<details class="tm-cat-lines"><summary>${escapeHtml(tr("table.catSeeLines", { n: lines.length }))}</summary>${lines.slice(0, ITEM_LINES_MAX).map(lineHtml).join("")}${lines.length > ITEM_LINES_MAX ? `<p class="hint">${escapeHtml(tr("table.catLinesMore", { n: lines.length - ITEM_LINES_MAX }))}</p>` : ""}</details>`;
+    }
+    // The account a line of the file will be saved on, as it reads ("Yape", "IO (new account)"), or "" for none.
+    function lineAccountLabel(l) {
+      const c = multi() ? state.map[l.account] : state.accountId;
+      if (isNew(c)) { const v = c.slice(4); const hid = hiddenMatch(v); return hid ? hid.nickname : tr("imp.newAcctHeader", { name: String(newSpec(v).name || v).trim() || v }); }
+      const a = pmById(c);
+      return a ? a.nickname : "";
     }
     // ---- a loan line's person: the one the person picked for it, else the friend its description names (one only) ----
     const loanLineKey = (l) => [l.date, Number(l.amount).toFixed(2), l.currency, String(l.description || "").trim()].join("|");
@@ -1507,8 +1536,16 @@
           <p class="hint" style="margin:8px 0 4px">${escapeHtml(tr("table.loanByPerson"))}</p>${groupsHtml}`;
       }
       if (c === "@move") {
+        // The lines' own side (owner, 2026-11-21): the account each line is in, shown; asked (optional) only for lines with no account.
+        const out = it.type === "expense", origins = new Map();
+        itemLines(it).forEach((l) => { const k = lineAccountLabel(l); origins.set(k, (origins.get(k) || 0) + 1); });
+        const known = [...origins.entries()].filter(([k]) => k), unknown = origins.get("") || 0;
+        const hereOpts = `<option value="">${escapeHtml(tr("table.destHereNone"))}</option>` + accounts.map((a) => `<option value="${escapeHtml(a.id)}"${a.id === d.herePmId ? " selected" : ""}>${escapeHtml(a.nickname)}</option>`).join("")
+          + newMoveTargets().map((t) => `<option value="${escapeHtml(t.id)}"${t.id === d.herePmId ? " selected" : ""}>${escapeHtml(tr("imp.newAcctHeader", { name: t.name }))}</option>`).join("");
+        const hereHtml = (known.length ? `<p class="tm-move-here"><span class="hint">${escapeHtml(tr(out ? "table.destFromLabel" : "table.destIntoLabel"))}</span> ${escapeHtml(known.map(([k, n]) => tr("table.destHereItem", { name: k, n })).join(", "))}</p>` : "")
+          + (unknown ? `<label>${escapeHtml(tr(out ? "table.destFromAsk" : "table.destIntoAsk", { n: unknown }))}</label><select class="tm-dhere">${hereOpts}</select>` : "");
         const news = newMoveTargets().filter((t) => t.id !== state.accountId).map((t) => `<option value="${escapeHtml(t.id)}"${t.id === d.pmId ? " selected" : ""}>${escapeHtml(tr("imp.newAcctHeader", { name: t.name }))}</option>`).join("");
-        return `<label>${escapeHtml(tr(it.type === "expense" ? "table.destMoveTo" : "table.destMoveFrom"))}</label><select class="tm-dpm"><option value="">${escapeHtml(tr("table.destPickAccount"))}</option>${accounts.filter((a) => a.id !== state.accountId).map((a) => `<option value="${escapeHtml(a.id)}"${a.id === d.pmId ? " selected" : ""}>${escapeHtml(a.nickname)}</option>`).join("")}${news}</select>`;
+        return `${hereHtml}<label>${escapeHtml(tr(it.type === "expense" ? "table.destMoveTo" : "table.destMoveFrom"))}</label><select class="tm-dpm"><option value="">${escapeHtml(tr("table.destPickAccount"))}</option>${accounts.filter((a) => a.id !== state.accountId).map((a) => `<option value="${escapeHtml(a.id)}"${a.id === d.pmId ? " selected" : ""}>${escapeHtml(a.nickname)}</option>`).join("")}${news}</select>`;
       }
       if (c === "@invest") {
         const plats = destPlatforms();
@@ -1913,10 +1950,10 @@
         renderPreview();
         return;
       }
-      else if (cls === "dfriend" || cls === "dkind" || cls === "dpm" || cls === "dplat") {
+      else if (cls === "dfriend" || cls === "dkind" || cls === "dpm" || cls === "dplat" || cls === "dhere") {
         const row = e.target.closest(".tm-cat-row"), key = row.dataset.key;
         const d = state.catDest[key] || (state.catDest[key] = {});
-        if (cls === "dfriend") d.friendId = v; else if (cls === "dkind") d.loanKind = v; else if (cls === "dpm") d.pmId = v; else d.platformId = v;
+        if (cls === "dfriend") d.friendId = v; else if (cls === "dkind") d.loanKind = v; else if (cls === "dpm") d.pmId = v; else if (cls === "dhere") d.herePmId = v; else d.platformId = v;
         refreshCategoryRow(row);
         renderPreview();
         return;
@@ -2022,7 +2059,7 @@
       // A "move" to an account this import creates goes to that statement's stand-in (backend: new:<key>, swapped for the real one on save).
       const keyOfNew = {};
       byAccount.forEach((accLines, id) => { if (isNew(id)) { const r = results.find((x) => x.result.newAccount && x.result.lines === accLines); if (r) keyOfNew[id] = "new:" + r.result.accountKey; } });
-      results.forEach((r) => Object.values(r.result.catDest || {}).forEach((d) => { if (d && d.kind === "move" && keyOfNew[d.pmId]) d.pmId = keyOfNew[d.pmId]; }));
+      results.forEach((r) => Object.values(r.result.catDest || {}).forEach((d) => { if (d && d.kind === "move") { if (keyOfNew[d.pmId]) d.pmId = keyOfNew[d.pmId]; if (keyOfNew[d.herePmId]) d.herePmId = keyOfNew[d.herePmId]; } }));
       // Remember the layout in the Sheet, under the name the person gave it (else the known name, else the account's name).
       const typed = $q("name").value.trim();
       const oneId = byAccount.size === 1 ? [...byAccount.keys()][0] : "";
@@ -2042,8 +2079,8 @@
       historyPlan = null;
       $("statement-history").innerHTML = "";
       updateReviewButton();
-      body.innerHTML = results.map(() => `<div class="tm-result"></div>`).join("");
-      results.forEach((r, i) => renderResult(body.children[i], r.result, null, file, byAccount.size > 1 ? r.name : ""));
+      if (results.length === 1) renderResult(body, results[0].result, null, file, "");
+      else renderTableResults(body, results.map((r) => r.result));
     });
     renderValues();
     loadCategories();
@@ -2146,7 +2183,9 @@
     try {
       historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis(), startBank: true });
       // Lines whose file category the person already sent to a place in the app (Loans, another account…) are not offered again as income.
-      ["incomeLines", "peopleOut"].forEach((k) => { if (historyPlan.summary[k]) historyPlan.summary[k] = historyPlan.summary[k].filter((x) => !lineDest(x.stmt, x.line)); });
+      // Another app's export: every line already went through its category ("Goes into"), so these two lists would ask it again (owner, 2026-11-21).
+      const fromApp = (x) => !!(usable[x.stmt] && usable[x.stmt].result && usable[x.stmt].result.source === "app");
+      ["incomeLines", "peopleOut"].forEach((k) => { if (historyPlan.summary[k]) historyPlan.summary[k] = historyPlan.summary[k].filter((x) => !lineDest(x.stmt, x.line) && !fromApp(x)); });
       dueTyped = {};
       historyPlan.platform = new Map();    // index into summary.aside -> investment platform the person picked (else the guess is used)
       historyPlan.incMode = new Map();     // index into summary.incomeLines -> "transfer" | "investment" | "review" | "leave" (absent = income, the default)
@@ -2410,7 +2449,7 @@
     const at = { stmt: a.stmt, line: a.line };
     if (d.kind === "review") return { type: "add_history_pending", ...at };
     if (d.kind === "invest") return { type: "add_history_investment", ...at, platformId: d.platformId || "" };
-    if (d.kind === "move" && d.pmId) return { type: "record_move", ...at, otherPmId: d.pmId };
+    if (d.kind === "move" && d.pmId) return { type: "record_move", ...at, otherPmId: d.pmId, herePmId: d.herePmId || undefined };
     if (d.kind === "loan") {
       const l = usable[a.stmt].result.lines[a.line];
       const who = d.lineFriends ? d.lineFriends[[l.date, Number(l.amount).toFixed(2), l.currency, String(l.description || "").trim()].join("|")] : d.friendId;
@@ -3942,11 +3981,12 @@
       { key: "preview", target: previewParts, button: realNext, before: async () => usable.length > 0,
         text: () => tr(canSave() ? "rt.stmt.preview" : "rt.stmt.previewNone") + (canSave() && $("statement-history").querySelector("details.stmt-group, .stmt-choices button:not(#statement-history-save)") ? " " + tr("rt.stmt.questions") : "") },
       { key: "save", target: () => [$("statement-history-save"), planError() ? $("statement-plan-status") : null].filter(Boolean), text: () => tr(planError() ? "rt.stmt.saveErr" : "rt.stmt.save"), until: () => savedThisRun, before: async () => usable.length > 0 && canSave() },
-      { keep: true, look: true, target: "#statement-review-status", text: () => tr(imp ? "rt.imp.done" : "rt.stmt.done") + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done, wait: 30000, waitText: () => tr("rt.saving"),
-        before: async () => savedThisRun && !tidyBtn() },
-      // Purchases with no category: the tutorial leads into Tidy my history, on these very purchases (owner, 2026-11-09).
-      { keep: true, target: () => [$("statement-review-status"), tidyBtn()], text: () => tidyDoneText_(imp, tidyBtn()) + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done,
-        until: () => !$("screen-tidy").hidden, before: async () => savedThisRun && !!tidyBtn() },
+      // The end, in ONE step (two raced each other, owner 2026-11-21): what was saved, and — purchases with no category — the way into Tidy
+      // my history, on these very purchases (owner, 2026-11-09). Its buttons can be tapped; any other one ends the walkthrough
+      // (startStmtReal_), so it never waits for a screen the person left.
+      { keep: true, target: () => [$("statement-review-status"), tidyBtn()].filter(Boolean), wait: 30000, waitText: () => tr("rt.saving"),
+        text: () => (tidyBtn() ? tidyDoneText_(imp, tidyBtn()) : tr(imp ? "rt.imp.done" : "rt.stmt.done")) + (pendingBtn() ? " " + tr("rt.stmt.pending") : ""), button: done,
+        until: () => !$("screen-tidy").hidden, before: async () => savedThisRun },
       { keep: true, text: () => tr(usable.length ? "rt.stmt.endNone" : "rt.stmt.endBad"), button: done, before: async () => !savedThisRun }
     );
     return steps;
@@ -3958,9 +3998,28 @@
     let started = false;
     guided_ = { savedId: "", split: null };
     const intro = { key: "intro", text: () => tr(mode === "import" ? "rt.imp.intro" : "rt.stmt.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_(f, "real"); } };
+    // Never left waiting (owner, 2026-11-21: "Review them in Accounts" led away and the next step said "One moment…" for good):
+    // leaving the screen at any step ends the walkthrough (Tidy my history, its own last step, excepted); on the last card, every
+    // button that leads elsewhere ends it too; Undo ends it without counting it as taught, so it is offered again.
+    const batchNow = () => (typeof lastBatchId === "undefined" ? null : lastBatchId);   // (set by the save; never declared before it)
+    const batchAtStart = batchNow();
+    const watch = setInterval(() => {
+      if (!Spotlight.isRunning()) return;
+      if ($("screen-statements").hidden && $("screen-tidy").hidden) Spotlight.stop(batchNow() !== batchAtStart ? "done" : "skipped");
+    }, 400);
+    const onStatusTap = (e) => {
+      if (!Spotlight.isRunning() || e.target.closest(".stmt-tidy-btn")) return;
+      if (e.target.closest("#stmt-undo-btn")) { delete taughtPending_[f]; setTimeout(() => Spotlight.stop("skipped"), 0); return; }
+      if (e.target.closest("button")) setTimeout(() => Spotlight.stop("done"), 0);
+    };
+    $("statement-review-status").addEventListener("click", onStatusTap, true);
     Spotlight.run(realSteps_([intro].concat(realStmtSteps_(mode, fromStart))), {
       labels: realLabels_(), busy: () => perfInflight_ > 0,
-      onFinish: async (how) => { guided_ = null; if (!started) spendRealChance_(f); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); }
+      onFinish: async (how) => {
+        clearInterval(watch);
+        $("statement-review-status").removeEventListener("click", onStatusTap, true);
+        guided_ = null; if (!started) spendRealChance_(f); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0);
+      }
     });
   }
   // The practice brought from the two-week nudge on Home.

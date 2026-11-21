@@ -438,6 +438,8 @@ function applyStatementDecisionsCore_(payload) {
       var other = pmsById[a.otherPmId];
       if (!other || other.type === 'investment') throw new Error(tr_('sa.moveNoAccount'));
       var here = requirePm(mv);
+      // Lines saved with no account: the side the person named for them ("From" / "Into" on the Import screen), if any (2026-11-21).
+      if (here.noAccount && a.herePmId && pmsById[a.herePmId] && pmsById[a.herePmId].type !== 'investment') here = pmsById[a.herePmId];
       if (here.id && here.id === other.id) throw new Error(tr_('sa.moveSameAccount', { name: other.nickname }));
       var mvCat = catByName['transfer:Between Accounts'];
       if (!mvCat) throw new Error(tr_('sa.catMissingBetween'));

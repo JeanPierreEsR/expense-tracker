@@ -158,3 +158,27 @@ test("a new account with no bank or digits is marked incomplete", () => {
   const res = save(rt, [stmt("NEW-a-0", { name: "Cuenta Gris", type: "debit" })], false);
   assert.deepEqual(res.accountsCreated.map((a) => a.incomplete), [true]);
 });
+
+test("a move whose lines have no account takes the side the person named (an account the import creates, too)", () => {
+  const { rt } = freshApp({ entries: 30 });
+  const noAcct = { key: "NOACCOUNT", kind: "csv", source: "app", holder: "", verified: false, balances: {}, file_name: "f.csv",
+    period: { start: "2019-03-05", end: "2019-03-05" }, lines: [{ date: "2019-03-05", description: "Ahorro", amount: -70, currency: "PEN", category: "Ahorro" }] };
+  const savings = stmt("NEW-a-1", { name: "Ahorros Nuevos", type: "debit" }, [{ date: "2019-03-06", description: "Bodega", amount: -5, currency: "PEN", category: "Food" }]);
+  const cash = run(rt, "getAllRows('Payment Methods').find(function (p) { return p.type === 'cash'; }).id");
+  const statements = [noAcct, savings];
+  const p = plan(rt, statements);
+  const actions = p.actions.map((a) => (a.stmt === 0 && a.line === 0 && /add_history/.test(a.type) ? { type: "record_move", stmt: 0, line: 0, otherPmId: "new:NEW-a-1", herePmId: cash } : a));
+  run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: true, filename: "f", statements, actions })})`);
+  run(rt, `applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "f", statements, actions })})`);
+  const s = pms(rt).find((a) => a.nickname === "Ahorros Nuevos");
+  const mv = run(rt, "getAllRows('Entries').filter(function (e) { return e.type === 'transfer' && String(e.external_id).indexOf('stmt-') === 0; })");
+  assert.equal(mv.length, 1);
+  assert.equal(mv[0].payment_method_id, cash);
+  assert.equal(mv[0].to_payment_method_id, s.id);
+});
+
+test("an app's export on a credit card is never asked for a pay-by date", () => {
+  const { rt } = freshApp({ entries: 30 });
+  const p = plan(rt, [stmt("NEW-a-0", { name: "Tarjeta Azul", type: "credit" })]);
+  assert.deepEqual(p.due_asks, []);
+});
