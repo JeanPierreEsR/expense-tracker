@@ -900,6 +900,9 @@ function processEmails(opts) {
   // (EmailCoverage.gs): such an e-mail is listed in the result, not created. `includeOverlaps: true` turns that off.
   BACKCHECK_OVERLAPS_ = (!tracking && !opts.includeOverlaps) ? buildEntryOverlapIndex_() : null;
   if (BACKCHECK_OVERLAPS_) { results.overlaps = 0; results.mayAlreadyBeIn = []; }
+  // A catch-up (MailCatchup.gs) re-reads old mail for ONE new pack rule only: every other kind was already decided (an entry the person
+  // discarded must not come back).
+  ONLY_PACK_IDS_ = !tracking && opts.onlyPackIds ? opts.onlyPackIds : null;
 
   try {
     processSenders_(senders, opts, tracking, handled, results, existingExternalIds, banks, paymentMethods, guessCtx);
@@ -909,6 +912,7 @@ function processEmails(opts) {
     }
   } finally {
     BACKCHECK_OVERLAPS_ = null;
+    ONLY_PACK_IDS_ = null;
   }
   // Once per copy: fill in which kinds of bank e-mail already arrived before the per-kind days existed (BankCoverage.gs).
   if (tracking && !opts.senders) { try { backfillBankKindDaysOnce_(senders, existingExternalIds); } catch (err) { console.error('backfillBankKindDaysOnce_: ' + err); } }
@@ -918,6 +922,7 @@ function processEmails(opts) {
 }
 
 var BACKCHECK_OVERLAPS_ = null;   // set only while a back-check runs
+var ONLY_PACK_IDS_ = null;   // set only while a catch-up runs: the pack rules it may use
 
 function processSenders_(senders, opts, tracking, handled, results, existingExternalIds, banks, paymentMethods, guessCtx) {
   // The normal scan looks back to just before the last good scan (3–30 days, EmailHealth.gs), so an outage loses no e-mail.
@@ -1023,6 +1028,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
 
   if (!rule) logUnreadEmail_(sender, subject, 'no_rule', dateStr);   // ManualGaps.gs; a rule with skip:true is a deliberate ignore, not logged
   if (!rule || rule.skip) { results.skipped++; return; }
+  if (ONLY_PACK_IDS_ && ONLY_PACK_IDS_.indexOf(rule.packId) === -1) { results.skipped++; return; }
 
   if (rule.exchange) {
     // An exchange house's confirmation: up to two legs, matched against what a bank e-mail already made (CurrencyExchange.gs).
