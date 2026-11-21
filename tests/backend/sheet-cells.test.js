@@ -178,3 +178,28 @@ test("names typed on the newer screens stay text too, on add and on update (test
   assert.equal(tpl.value, '=HYPERLINK("http://example.invalid",{list})', "read back unchanged");
   assert.ok(rt.rows("Tags").some((t) => t.name.startsWith("=HYPERLINK(")), "a tag name reads back as typed (cut to 40 letters)");
 });
+
+test("an account's name stays text, on add, on edit and when an import creates it (Rafael, 2026-11-21)", () => {
+  const { rt } = setup();
+  const F = '=HYPERLINK("http://example.invalid","x")';
+  const clean = () => {
+    const bad = JSON.stringify(rt.rows("Payment Methods")).indexOf("#FORMULA#");
+    assert.equal(bad, -1, "Payment Methods holds a formula: " + JSON.stringify(rt.rows("Payment Methods")).slice(bad, bad + 60));
+  };
+  const made = rt.api("savePaymentMethod", { nickname: F, type: "debit" });
+  clean();
+  const id = made.id || (made.paymentMethod && made.paymentMethod.id) || rt.rows("Payment Methods").find((p) => p.nickname === F).id;
+  rt.api("savePaymentMethod", { id, nickname: "+1+1", type: "debit" });
+  clean();
+  assert.ok(rt.rows("Payment Methods").some((p) => p.nickname === "+1+1"), "the name reads back as typed");
+});
+
+test("every column the formula guard lists exists in its sheet", () => {
+  const { rt } = setup();
+  const missing = rt.run(`(function () { var out = [];
+    Object.keys(SHEET_SAFE_COLUMNS_).forEach(function (sheet) {
+      var cols = TABLE_DEFINITIONS[sheet]; if (!cols) return;
+      SHEET_SAFE_COLUMNS_[sheet].forEach(function (c) { if (cols.indexOf(c) < 0) out.push(sheet + "." + c); });
+    }); return out; })()`);
+  assert.equal(JSON.stringify(missing), "[]");
+});
