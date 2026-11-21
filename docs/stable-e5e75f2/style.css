@@ -56,6 +56,7 @@
   --z-sheet: 250;
   --z-sheet-2: 260;
   --z-sheet-3: 270;
+  --z-info: 280;        /* the info button's card: above every sheet it may sit in */
   --z-welcome: 300;
   --z-toast: 400;
   --z-welcome-exit: 450;
@@ -452,7 +453,11 @@ button.type-tab { font: inherit; font-size: 0.75rem; color: var(--text); width: 
   position: relative; z-index: 1; width: 26px; height: 26px; margin: -5px auto -13px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 50%; background: var(--card); border: 1px solid var(--border);
-  font-size: 1rem; font-weight: 700; color: var(--text);
+}
+/* The "=" is drawn as two bars (owner, 2026-11-16): a typed "=" sits low in its circle because of the font. */
+.ov-sum-eq::before {
+  content: ""; width: 10px; height: 2px; background: var(--text);
+  box-shadow: 0 5px 0 var(--text); transform: translateY(-2.5px);
 }
 .ov-sum-net {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
@@ -663,6 +668,7 @@ input[type="date"] {
 
 .acur-row { padding: 10px 0; border-top: 1px solid var(--border); }
 .acur-name { font-weight: 600; overflow-wrap: anywhere; }
+.acur-bank { font-size: 0.875rem; color: var(--muted); overflow-wrap: anywhere; }
 .acur-ticks { display: flex; flex-wrap: wrap; gap: 0 16px; }
 .currency-checks .checkbox-row { margin-top: 0; }
 .currency-checks .add-inline { margin-top: 4px; }
@@ -1378,7 +1384,7 @@ body.sheet-open {
   background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .review-toggle-chev { color: var(--muted, var(--muted-2)); font-size: 1.25rem; transition: transform .15s ease; }
-.review-toggle[aria-expanded="true"] .review-toggle-chev { transform: rotate(90deg); }
+.fold-head:has(> .review-toggle[aria-expanded="true"]) .review-toggle-chev { transform: rotate(90deg); }
 .review-queue.review-closed .budgets-header { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
 
 .review-item {
@@ -1651,6 +1657,7 @@ body.sheet-open {
   font-size: 0.875rem;
   color: var(--text);
 }
+.expected-year-view { margin: -4px 0 8px; }
 
 /* Programmed income is masked until "Show income amounts" is tapped. */
 .sens-real { display: none; }
@@ -2345,6 +2352,19 @@ body.income-revealed .sens-mask { display: none; }
   margin-top: 2px;
 }
 
+/* Cards known only from their statements (owner, 2026-11-18): a grey note box under the accounts, never a live-looking amount. */
+.balance-stmt-group {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--surface);
+  border-radius: var(--r-md);
+}
+.balance-stmt-title { font-size: 0.875rem; font-weight: 600; color: var(--text-2); }
+.balance-stmt-hint { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+.balance-stmt-group .balance-stmt-item { border-top: 1px solid var(--border); border-bottom: none; margin-top: 10px; padding-bottom: 0; }
+.balance-row-meta.balance-due-late { color: var(--warn-text); }   /* the pay-by date passed with something still to pay */
+.balance-from-stmt { margin-bottom: 12px; }
+
 .balance-current-label {
   font-size: 0.75rem;
   color: var(--muted);
@@ -2702,6 +2722,8 @@ html:has(#welcome-overlay:not([hidden])) :is(body > header, #app, #bottom-nav, #
    Nothing inside can be tapped. */
 .ts-stage { position: relative; margin: 16px auto 0; max-width: 320px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .ts-device { position: relative; overflow: hidden; border: 1px solid var(--border); border-radius: var(--r-xl); background: var(--bg); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08); }
+.ts-device * { pointer-events: none; }
+.ts-example-tag { position: absolute; top: 8px; right: 8px; z-index: 2; padding: 2px 8px; border-radius: var(--r-sm); background: var(--warn-bg); color: var(--warn-text); font-size: 0.75rem; font-weight: 600; }
 .ts-app { position: absolute; top: 0; left: 0; width: 390px; display: flex; flex-direction: column; background: var(--bg); color: var(--text); transform-origin: 0 0; overflow: hidden; pointer-events: none; user-select: none; -webkit-user-select: none; }
 .ts-app header { flex: none; }
 .ts-main { position: relative; flex: 1; min-height: 0; overflow: hidden; padding: 0 16px; }
@@ -3059,6 +3081,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-glance-dots span.on { background: var(--muted); }
 
 .home-card-label { color: var(--muted); font-size: 0.875rem; }
+.home-card-label-info { display: flex; align-items: center; }   /* "Result this month ⓘ" (testers, 2026-11-17) */
 .home-big { font-size: 2rem; font-weight: 700; margin: 2px 0; letter-spacing: -0.5px; }
 .home-delta { font-size: 0.875rem; color: var(--muted); }
 .home-delta.good { color: var(--income); }
@@ -3102,8 +3125,16 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .home-pace-lines div { min-width: 0; }
 .home-pace-lines b { display: block; font-size: 1rem; }
 
-.home-meter { height: 12px; background: var(--bg); border-radius: var(--r-sm); overflow: hidden; margin: 10px 0 8px; }
-.home-meter-fill { height: 100%; border-radius: var(--r-sm); background: var(--income); }
+.home-meter { position: relative; height: 12px; background: var(--bg); border-radius: var(--r-sm); overflow: hidden; margin: 10px 0 8px; }
+/* Programmed items still to come this month: a lighter part after what is spent (as on the Budgets tab's rows). It starts at 0
+   and sits UNDER the spent part, so its left end flows out of the spent part's rounded end; its own right end is rounded (owner, 2026-11-17). */
+.home-meter-prog { position: absolute; top: 0; bottom: 0; left: 0; border-radius: var(--r-sm); background: var(--income); opacity: 0.3; }
+.home-meter-prog.warn { background: var(--warn); opacity: 0.35; }
+.home-meter-prog.over { background: var(--expense); opacity: 0.3; }
+.home-meter-progline { font-size: 0.8125rem; color: var(--muted); margin: -2px 0 8px; }
+.home-meter-progline.warn { color: var(--warn-text); }
+.home-meter-progline.over { color: var(--danger); }
+.home-meter-fill { position: relative; z-index: 1; height: 100%; border-radius: var(--r-sm); background: var(--income); }
 .home-meter-fill.warn { background: var(--warn); }
 .home-meter-fill.over { background: var(--expense); }
 .home-meter-facts { display: flex; justify-content: space-between; gap: 10px; font-size: 0.8125rem; color: var(--muted); flex-wrap: wrap; }
@@ -3215,7 +3246,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .md-head { margin: 18px 0 2px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .md-head:first-of-type { margin-top: 8px; }
 /* More → My profile: three cards on one screen, the second and third set off by a line */
-#my-profile-fits-card, #my-profile-dates-card, #my-profile-devices-card, .fp-card { margin-top: 26px; padding-top: 6px; border-top: 1px solid var(--border); }
+#my-profile-fits-card, #my-profile-dates-card, #my-profile-tabs-card, #my-profile-wa-card, #my-profile-devices-card, .fp-card { margin-top: 26px; padding-top: 6px; border-top: 1px solid var(--border); }
 /* The one list row for hub screens (My data, My profile, How to use the app; design review batch 2): title 1rem bold,
    grey subtitle 0.8125rem, chevron on the right, at least 64px tall, text centred on the row. */
 .md-row { text-align: left; min-height: 64px; }
@@ -3480,6 +3511,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .tip-invite[hidden] { display: none; }
 .tip-invite p { margin: 0; line-height: 1.35; }
 .tip-invite-buttons { display: flex; gap: 8px; justify-content: flex-end; }
+/* Home's suggestion card (2026-11-17): the tip card with an ✕ in its header instead of a second button. */
+.home-suggest-head { display: flex; align-items: center; justify-content: space-between; }
+.home-suggest .tip-invite-go { background: var(--accent); color: var(--white); border-color: var(--accent); }
 .tip-invite-buttons button { min-height: 44px; padding: 0 16px; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--white); color: var(--muted); font: inherit; }
 .loans-more-practice { display: flex; flex-direction: column; margin: 0 0 12px; padding: 0 4px; }
 .loans-more-head { display: flex; align-items: center; justify-content: space-between; }
@@ -3668,6 +3702,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .period-pending-line { display: block; width: 100%; margin: 0 0 12px; padding: 10px 12px; min-height: 44px; border: none; border-radius: var(--r-md);
   background: var(--warn-bg); color: var(--warn-text); font: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; }
 .period-pending-line[hidden] { display: none; }
+/* Home's month card: what waits in Needs review is not in its numbers (journeys run, 2026-11-17); same look as the period line. */
+.home-wait-line { display: block; width: 100%; margin: 6px 0 10px; padding: 10px 12px; min-height: 44px; border: none; border-radius: var(--r-md);
+  background: var(--warn-bg); color: var(--warn-text); font: inherit; font-size: 0.875rem; text-align: left; cursor: pointer; }
 .ov-sum-grid.folded .ov-sum-tile.investment, .ov-sum-grid.folded .ov-sum-tile.loans { display: none; }
 .ov-sum-zero-line { text-align: center; margin: 6px 0 0; }
 .pace-ref-switch { display: flex; gap: 8px; margin: 6px 0 4px; }
@@ -3790,6 +3827,15 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 .pop-tip[data-side="above"] .pop-tip-arrow { bottom: -7px; }
 
 .app-confirm-text { white-space: pre-line; font-size: 1rem; line-height: 1.4; margin: 0 0 14px; }
+/* A long question (a list of entries) scrolls by itself; its buttons stay on screen (Tomás, 2026-11-18: below the fold at 375px). */
+/* The buttons always stay inside the sheet and only the text shrinks (Tomás, re-check 2026-11-18: at 375 × 667 a fixed 52vh cap
+   still pushed Confirm and Cancel under the sheet's edge). */
+#app-confirm-backdrop .budget-modal-body { display: flex; flex-direction: column; }
+#app-confirm-backdrop .budget-modal-body > * { flex-shrink: 0; }
+#app-confirm-backdrop .budget-modal-body > #app-confirm-text { flex: 0 1 auto; min-height: 3em; overflow-y: auto; }
+#app-confirm-backdrop .budget-modal-body > [hidden] { display: none; }
+/* More answers than yes / no (which trip, when two cover a day): stacked under the first, same look. */
+#app-confirm-choices .primary { display: block; width: 100%; margin-top: 8px; }
 
 /* The part of a budget bar still to come (Programmed items this period): a lighter shade of the same colour, continuing the bar
    (owner, 2026-11-08: option A of four; the first dotted version looked busy). Blue, amber (75 %+) or red (100 %+) by the total. */
@@ -3839,6 +3885,7 @@ body.fab-room:has(#app-undo-toast:not([hidden])) #app-toast { bottom: calc(216px
 
 /* A tracked account moving in a currency with no starting balance of its own (owner, 2026-11-11). */
 .balance-row-missing { font-size: 0.8125rem; color: var(--warn-text); margin-top: 2px; font-weight: 400; }
+.balance-row-saving { font-size: 0.75rem; color: var(--muted); margin-top: 2px; font-weight: 600; }   /* its save is still on its way (2026-11-18) */
 .balances-missing { display: block; width: 100%; text-align: left; background: var(--warn-bg); color: var(--warn-text); border: none; border-radius: var(--r-md); padding: 10px 12px; margin: 8px 0; font-size: 0.875rem; line-height: 1.35; cursor: pointer; }
 
 /* "Already in / Not yet" when saving a starting balance (owner, 2026-11-11). */
@@ -3958,8 +4005,10 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .review-quick { display: none; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; }
 .review-collapsed .review-quick { display: flex; }
 .review-collapsed .review-item-fields, .review-collapsed .review-item-actions, .review-collapsed .review-item-secondary-actions, .review-collapsed .review-more-actions { display: none; }
-.review-collapsed .review-item-top { cursor: pointer; }
-.review-quick-cat { font-size: 0.875rem; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-collapsed { cursor: pointer; }
+.review-item-top { cursor: pointer; }
+.review-quick-cat { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0; border: none; background: none; font: inherit; font-size: 0.875rem; color: var(--muted); text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-quick-cat-missing { color: var(--accent); font-weight: 600; }
 .review-quick-confirm { flex: none; min-height: 44px; padding: 0 16px; border: none; border-radius: var(--r-pill); background: var(--accent); color: var(--white); font: inherit; font-weight: 600; cursor: pointer; }
 .review-more-closed .review-item-secondary-actions { display: none; }
 .review-item .review-more-actions { display: block; margin-top: 8px; }
@@ -4018,3 +4067,120 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 /* Trips & events: the year a run of trips starts in, inside Upcoming and Past (owner, 2026-11-14). */
 .trips-year-label { margin: 12px 0 2px; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
 .accounts-group-title + .trips-year-label { margin-top: 2px; }
+
+/* A screen put in the tab bar (More → My profile → My tabs) has no Back to More: its header buttons stay on the right, and a header
+   left with nothing in it goes away. */
+.budgets-header > .back-btn[hidden] + .friends-header-actions { margin-left: auto; }
+.budgets-header:not(:has(> :not([hidden]))) { display: none; }
+
+/* My tabs (More → My profile): one row per tab, the switch or lock, then the two arrows. */
+.tabs-row { display: flex; align-items: center; gap: 10px; min-height: 52px; border-top: 1px solid var(--border); }
+.tabs-row:first-child { border-top: 0; }
+.tabs-row .row-icon { flex: none; }
+.tabs-row-name { flex: 1; min-width: 0; font-weight: 600; }
+.tabs-row-name .hint { display: block; font-weight: 400; margin: 0; }
+.tabs-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 22px; height: 22px; min-height: 0; flex: none; margin: 0; }
+.tabs-row { background: var(--card); }
+.tabs-grip { flex: none; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0; margin: 0;
+  border: 0; background: none; color: var(--muted); cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.tabs-dragging { position: relative; z-index: 2; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15); border-radius: var(--r-md); }
+.tabs-dragging .tabs-grip { color: var(--accent); cursor: grabbing; }
+#tabs-bar-rows + .tabs-row { border-top: 1px solid var(--border); }
+.tabs-grip-space { flex: none; width: 44px; }
+/* The tick box keeps its look but takes a 44px tap (Paola, 2026-11-18). */
+.tabs-check { flex: none; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; margin: 0; cursor: pointer; }
+/* Found by a screen reader, not seen (My tabs' up / down buttons). */
+.sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+body.tabs-drag-on { -webkit-user-select: none; user-select: none; }
+.tabs-out-head { margin: 14px 0 4px; }
+
+/* ---- Info buttons (owner, 2026-11-16): a small blue outlined ⓘ after a label; a tap shows a small white card ---- */
+.info-btn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 15px; height: 15px; padding: 0; margin: 0 0 0 5px; border: 0; background: none; color: var(--accent);
+  vertical-align: -2px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.info-btn::before { content: ""; position: absolute; inset: -15px; }   /* drawn small, tapped like a 44 px button */
+.info-btn svg { display: block; }
+label.has-info { display: inline-block; }
+body:has(> .spot-root) .info-btn { visibility: hidden; }   /* nothing extra to tap while a tutorial runs */
+.info-card {
+  position: fixed; z-index: var(--z-info); width: max-content; max-width: min(280px, calc(100vw - 24px)); box-sizing: border-box;
+  background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md);
+  padding: 10px 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+.info-card p { margin: 0; font-size: 0.875rem; line-height: 1.4; }
+.info-card-arrow { position: absolute; width: 12px; height: 12px; background: var(--card); border: 1px solid var(--border); transform: translateX(-50%) rotate(45deg); }
+.info-card-arrow[hidden] { display: none; }
+.info-card[data-side="below"] .info-card-arrow { top: -7px; border-right: 0; border-bottom: 0; }
+.info-card[data-side="above"] .info-card-arrow { bottom: -7px; border-left: 0; border-top: 0; }
+[hidden] + .info-btn { display: none; }
+.ov-sum-net-head { display: inline-flex; align-items: center; }
+.info-btn[hidden] { display: none; }
+/* A heading that folds AND has an ⓘ (Needs review, Programmed this month): the toggle stays the tap target for the whole
+   row (its ::after is stretched over it), the ⓘ sits on top right after the title, the rest is pushed to the right. */
+.fold-head { position: relative; display: flex; flex-wrap: wrap; align-items: center; column-gap: 0; min-height: 44px; }
+.fold-head > .review-toggle, .fold-head > .expected-head { position: static; width: auto; flex: 0 1 auto; }
+.fold-head > .review-toggle::after, .fold-head > .expected-head::after { content: ""; position: absolute; inset: 0; }
+.fold-head > .info-btn { z-index: 1; margin-left: 6px; }
+.fold-head > .fold-end { margin-left: auto; padding-left: 10px; }
+/* Programmed this month: its summary always on its own line under the title, from the left (owner, 2026-11-17). */
+.fold-head > .expected-head-sum.fold-end { flex-basis: 100%; margin-left: 0; padding-left: 0; }
+/* A checkbox row with an ⓘ after its words. */
+.info-row { display: flex; align-items: center; }
+.info-row > .checkbox-row { flex: 0 1 auto; }
+.info-row > .info-btn { margin-top: 12px; margin-left: 8px; }
+.fold-head > .expected-head { align-items: center; }
+/* Overview's annual choices (owner, 2026-11-16): a small heading, then one row of three equal parts. */
+.ov-annual-views { margin: 4px 0 12px; }
+.ov-annual-head { display: flex; align-items: center; margin-bottom: 6px; font-size: 0.8125rem; font-weight: 600; color: var(--muted); }
+.ov-annual-tabs { grid-template-columns: repeat(3, 1fr); }
+/* Loans' ⓘ (batch 4): beside a friend's headline (only once it shows amounts), beside Record repayment, in the Forgive title. */
+/* The ⓘ beside the person's first amount, centred on it (owner, 2026-11-16). */
+.ld-head-amt-row { display: flex; align-items: center; }
+.ld-head-amt-row > .info-btn { margin-left: 8px; }
+.info-pair { display: inline-flex; align-items: center; }
+.info-pair > .info-btn { margin-left: 0; }
+.info-pair:has(> [hidden]:first-child) { display: none; }
+/* A window title with its ⓘ: written as running text, so a title that wraps (Larger Text, a narrow phone) keeps the ⓘ right after
+   its last word; where the ⓘ's 45 px tap area meets the ✕, the ✕ is on top, so a tap there closes (testers, 2026-11-17). */
+.cm-title-info { display: block; flex: 0 1 auto; min-width: 0; text-wrap: balance; }   /* balanced lines: the ⓘ goes down with the last word(s), never alone */
+.cm-title-info > .info-btn { vertical-align: -1px; }
+.currency-modal-header > .currency-modal-close { position: relative; z-index: 1; }/* ⓘ that ends a row before its › arrow: never closer than its own tap area. */
+.md-fold-line { padding-right: 16px; }
+.info-row > .settle-choose-row { flex: 0 1 auto; }
+.info-row > .settle-choose-row + .info-btn { margin-top: 0; }
+/* Forgive a debt (owner, 2026-11-16): the ⓘ beside the button, before it is pressed. */
+.loan-forgive-row { display: flex; align-items: center; gap: 10px; }
+.loan-forgive-row > .loan-forgive-btn { flex: 1 1 auto; min-width: 0; margin: 0; }
+.loan-forgive-row > .info-btn { margin: 0 4px 0 0; }
+#forgive-pick-hint { margin: 0 0 8px; }
+/* Batch 5. My profile's folding rows with an ⓘ: the button keeps the whole row as its tap target (stretched), the ⓘ on top. */
+.md-fold { position: relative; cursor: pointer; }
+.md-fold-line { display: flex; align-items: center; }
+.md-fold-btn { position: static; background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.md-fold-btn::after { content: ""; position: absolute; inset: 0; }
+.md-fold-line > .info-btn { z-index: 1; margin-left: 6px; }
+.md-fold .more-list-chevron { pointer-events: none; }
+/* A heading with an ⓘ keeps the two on one middle. */
+h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
+.drilldown-projection-label .info-pair > .info-btn { margin-left: 6px; }
+/* My profile → WhatsApp bot: the setup code wraps, so the whole code is visible before copying it (2026-11-16). */
+#wa-code { white-space: pre-wrap; word-break: break-all; }
+/* Needs review: "This is my Salary for August" (2026-11-17), ticked when the match is clear; Confirm answers it. */
+.review-plan-match { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; font-size: 0.875rem; }
+
+/* Needs review's "Confirm the N that are ready": starts on the same left edge as the line above it and reads as an action
+   (Tomás, 2026-11-18: 8px further in, and as plain as a link). */
+#review-confirm-ready-btn { padding-left: 0; padding-right: 0; text-align: left; font-weight: 600; font-size: 0.875rem; }
+
+/* A card statement's pay-by date the file did not show (owner's plan, 2026-11-18): an optional box in the statement preview, and a
+   "Last statement" section at the end of the card's screen and of its Balances screen. */
+.stmt-due-ask { margin: 12px 0; }
+.stmt-due-ask input[type="date"] { width: 100%; }
+.stmt-due-ask .hint { margin-top: 4px; }
+.due-block { margin-top: 24px; }
+.due-block input[type="date"] { width: 100%; }
+/* WhatsApp invitation code (owner, 2026-11-19): big and spaced so it reads out easily */
+.wa-invite-code { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.08em; margin: 4px 0 8px; user-select: all; }
+#wa-invite { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }

@@ -127,10 +127,13 @@
   }
 
   // The SIP "(C) DEUDA TOTAL" row: SALDO INICIAL, CONSUMOS E INTERESES, PAGOS Y OTROS, DEUDA TOTAL.
+  // A month paid beyond what was owed ends in a credit, printed "- 25.00" (space after the minus);
+  // it is read here too, since the scanned layout is only recognised through this row.
   function sipSummary(rows) {
     var summary = null;
     rows.forEach(function (r) {
-      var a = r.cells.filter(function (c) { return isAmount(c.str); }).map(function (c) { return num(c.str); });
+      var a = r.cells.map(function (c) { return c.str.replace(/^-\s+(?=[\d,]+\.\d{2}$)/, '-'); })
+        .filter(isAmount).map(num);
       if (a.length === 4 && round2(a[0] + a[1] - a[2]) === round2(a[3])) summary = a;
     });
     return summary;
@@ -142,6 +145,8 @@
     if (isInterbankCard(all)) return 'visa';
     if (/Estado de Cuenta Tarjeta/i.test(all) && /Ciclo de Facturaci[óo]n/i.test(all) && /MONTO TOTAL FACTURADO/i.test(all)) return 'bcpcard';
     if (/Listado de movimientos/i.test(all) && /Total Facturado Mes Anterior/i.test(all) && /\bCMR\b|Falabella/i.test(all)) return 'cmr';
+    if (/Tus movimientos del mes/i.test(all) && /N[úu]mero de Tarjeta Ripley/i.test(all)) return 'ripley';
+    if (/DETALLE DE MOVIMIENTOS HIST[ÓO]RICOS/i.test(all) && /SALDO ANTERIOR CONTABLE/i.test(all) && /Falabella/i.test(all)) return 'falabella';
     if (/PERIODO FACTURADO DEL/i.test(all)) return 'diners';
     if (/Estado de Cuenta de Ahorros/i.test(all) && /FECHA PROC/i.test(all)) return 'bcp';
     if (/Ahorros disponible/i.test(all) && /Estado de cuenta del/i.test(all)) return 'ahorramas';
@@ -645,7 +650,10 @@
     var endY = 2000 + +cycle[1][2], endM = +cycle[1][1];
     var end = iso(endY, endM, +cycle[1][0]);
 
-    var dolX = null;            // left edge of the "Dólares" heading: amounts left of it are soles
+    // Amounts are right-aligned, and on some statements a wide dollar amount starts LEFT of the "Dólares" heading, so the heading's
+    // own left edge is not the border. The border is the middle between the "Soles" and "Dólares" headings' left edges (checked
+    // on a real statement: soles amounts start left of it, dollar amounts right of it). See CHANGELOG.md § BCP card dollars.
+    var dolX = null;            // set once both headings are seen
     var lines = [], prev = {}, total = null, sums = {};
     var haveBalance = false;
     var phase = 'items';        // items -> fees (from "INTERESES") -> done (after the total)
@@ -663,7 +671,7 @@
       var t = r.text;
       var sh = r.cells.find(function (c) { return c.str === 'Soles'; });
       var dh = r.cells.find(function (c) { return /^D[óo]lares$/i.test(c.str); });
-      if (sh && dh) { dolX = dh.x0; return; }
+      if (sh && dh) { dolX = (sh.x0 + dh.x0) / 2; return; }
       if (phase === 'done' || dolX === null) return;
 
       if (/^SALDO ANTERIOR/i.test(t)) {
@@ -789,15 +797,159 @@
     };
   }
 
+  // ---- Banco Ripley credit cards (one layout: "EECC Tarjeta de Crédito Ripley", movements under "Tus movimientos del mes") ----
+
+  // Ripley prints amounts plain ("123.45", a credit "-123.45") in the table and "S/ 1,234.50" in the boxes. Returns the DEBT or null.
+  function ripleyAmount(str) {
+    var m = String(str).replace(/^(S\/|US\$)\s*/, '').match(/^(-?)([\d,]+\.\d{2})$/);
+    return m ? (m[1] ? -num(m[2]) : num(m[2])) : null;
+  }
+
+  function parseRipley(rows) {
+    var errors = [];
+    var last4 = null, currency = null, period = null, totalDue = null;
+    rows.forEach(function (r, i) {
+      r.cells.forEach(function (c) {
+        if (!last4) { var m = c.str.match(/^\d{4,6}\*{4,}(\d{4})$/); if (m) last4 = m[1]; }
+        if (!currency && /^Soles$/i.test(c.str)) currency = 'PEN';
+        if (!currency && /^D[óo]lares$/i.test(c.str)) currency = 'USD';
+        if (!period) period = c.str.match(/(\d{2})\/([A-Za-z]{3})\/(\d{4})\s*-\s*(\d{2})\/([A-Za-z]{3})\/(\d{4})/);
+      });
+      // "(*) Pago Total del Mes" box: the amount is on the next row, under the heading (the first one is the box; the formula repeats it)
+      var hd = totalDue === null && r.cells.find(function (c) { return /^\(\*\)\s*Pago Total del Mes/i.test(c.str); });
+      if (hd && rows[i + 1]) {
+        var below = rows[i + 1].cells.filter(function (c) { return ripleyAmount(c.str) !== null; })
+          .sort(function (a, b) { return Math.abs(a.x0 - hd.x0) - Math.abs(b.x0 - hd.x0); })[0];
+        if (below) totalDue = ripleyAmount(below.str);
+      }
+    });
+    if (!last4 || !currency || !period || !MONTHS[period[2].toLowerCase()] || !MONTHS[period[5].toLowerCase()]) return fail('ripley', [msg('sp.noCardCycle')]);
+    var start = iso(+period[3], MONTHS[period[2].toLowerCase()], +period[1]);
+    var end = iso(+period[6], MONTHS[period[5].toLowerCase()], +period[4]);
+
+    // The summary under "¿Cómo se calcula el pago total…?": a blank column means zero, so "Saldo anterior" is the amount nearest its heading.
+    var prevSummary = null, summarySeen = false;
+    rows.forEach(function (r, i) {
+      var hd = r.cells.find(function (c) { return /Saldo anterior$/i.test(c.str); });
+      if (!hd || summarySeen || !rows[i + 1]) return;
+      summarySeen = true;
+      var heads = r.cells.filter(function (c) { return /[A-Za-zÁ-ú]{4}/.test(c.str) && !/^\(\d\)$/.test(c.str); });
+      prevSummary = 0;
+      rows[i + 1].cells.forEach(function (c) {
+        var v = ripleyAmount(c.str);
+        if (v === null) return;
+        var nearest = heads.slice().sort(function (a, b) { return Math.abs(a.x0 - c.x0) - Math.abs(b.x0 - c.x0); })[0];
+        if (nearest === hd) prevSummary = v;
+      });
+    });
+
+    var dateRe = /^(\d{2})\/([A-Za-z]{3})\/(\d{4})$/;
+    var prevRow = null, lines = [], sum = 0, inTable = false;
+    rows.forEach(function (r) {
+      var cells = r.cells;
+      if (/^Tus movimientos del mes/i.test(r.text)) { inTable = true; return; }
+      if (/^¿C[óo]mo se calcula/i.test(r.text)) { inTable = false; return; }
+      if (!inTable) return;
+      if (/SALDO INICIAL/i.test(r.text)) {
+        var pa = cells.map(function (c) { return ripleyAmount(c.str); }).filter(function (v) { return v !== null; });
+        if (pa.length) prevRow = pa[pa.length - 1];
+        return;
+      }
+      // Movement: "dd/MMM/yyyy (operation)  dd/MMM/yyyy (processed)  [ticket]  DESCRIPTION  …  TOTAL"; the right-most amount is the row's total
+      var d1 = cells[0] && cells[0].str.match(dateRe), d2 = cells[1] && cells[1].str.match(dateRe);
+      if (!d1 || !d2 || !MONTHS[d1[2].toLowerCase()]) return;
+      var amts = cells.slice(2).filter(function (c) { return ripleyAmount(c.str) !== null; });
+      if (!amts.length) { errors.push(msg('sp.noAmount', { text: r.text })); return; }
+      var printed = ripleyAmount(amts[amts.length - 1].str);
+      var desc = cells.slice(2).filter(function (c) {
+        return ripleyAmount(c.str) === null && !/^\d{4,}$/.test(c.str) && !/^[TA]$/.test(c.str) && !/^\d+\/\d+$/.test(c.str) && !/%$/.test(c.str);
+      }).map(function (c) { return c.str; }).join(' ');
+      var section = /^PAGO/i.test(desc) ? 'payments'
+        : /SEGURO|INTER[EÉ]S|COMISI|MEMBRES|ITF|PENALIDAD|MORA/i.test(desc) ? 'fees'
+        : printed < 0 ? 'refunds' : 'purchases';
+      sum = round2(sum + printed);
+      if (printed !== 0) lines.push({ date: iso(+d1[3], MONTHS[d1[2].toLowerCase()], +d1[1]), description: desc, amount: round2(-printed), currency: currency, section: section });
+    });
+
+    var prev = prevSummary !== null ? prevSummary : prevRow;
+    if (prev === null) errors.push(msg('sp.ripleyNoSummary'));
+    else if (prevSummary !== null && prevRow !== null && round2(prevSummary) !== round2(prevRow)) errors.push(msg('sp.ripleyPrevDiffers', { a: prevSummary.toFixed(2), b: prevRow.toFixed(2) }));
+    if (totalDue === null) errors.push(msg('sp.ripleyNoTotal'));
+    else if (prev !== null && round2(prev + sum) !== round2(totalDue)) errors.push(msg('sp.ripleyTotal', { a: round2(prev + sum).toFixed(2), b: totalDue.toFixed(2) }));
+    var balances = {};
+    balances[currency] = { opening: prev === null ? null : (round2(-prev) || 0), closing: totalDue === null ? null : (round2(-totalDue) || 0) };   // "|| 0": never -0
+    return {
+      ok: errors.length === 0, errors: errors, kind: 'ripley', bank: 'Banco Ripley',
+      account: { last4: last4, label: 'Ripley card' },
+      period: { start: start, end: end }, balances: balances, lines: lines
+    };
+  }
+
+  // ---- Banco Falabella savings account ("Tu Estado de Cuenta", "DETALLE DE MOVIMIENTOS HISTÓRICOS") ----
+
+  function parseFalabellaSavings(rows) {
+    var errors = [];
+    var product = '', number = '', period = null, closing = null, opening = null;
+    rows.forEach(function (r) {
+      var cells = r.cells;
+      cells.forEach(function (c, i) {
+        var next = cells[i + 1];
+        if (!product && /^Producto:?$/i.test(c.str) && next) product = next.str;
+        if (!number && /^N[úu]mero de la cuenta:?$/i.test(c.str) && next) number = next.str.replace(/\D/g, '');
+        if (!period && /^Per[íi]odo:?$/i.test(c.str) && next) period = next.str.match(/(\d{2})\/(\d{2})\/(\d{4})\s*-\s*(\d{2})\/(\d{2})\/(\d{4})/);
+        // "Saldo / Contable   1,234.56   Disponible   1,234.56": the amount after the word "Contable"
+        if (closing === null && /^Contable$/i.test(c.str) && next && isAmount(next.str)) closing = num(next.str);
+      });
+    });
+    var currency = /D[ÓO]LARES/i.test(product) ? 'USD' : /SOLES/i.test(product) ? 'PEN' : null;
+    if (!product || number.length < 4 || !currency || !period) return fail('falabella', [msg('sp.noAccount')]);
+
+    var dateRe = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+    var lines = [], sum = 0, inTable = false;
+    rows.forEach(function (r) {
+      var cells = r.cells;
+      if (/DETALLE DE MOVIMIENTOS HIST[ÓO]RICOS/i.test(r.text)) { inTable = true; return; }
+      if (!inTable) return;
+      var d = cells[0] && cells[0].str.match(dateRe);
+      if (!d) return;
+      var amts = cells.slice(1).filter(function (c) { return isAmount(c.str); });
+      if (/^SALDO ANTERIOR/i.test(cells[1] ? cells[1].str : '')) {
+        if (amts.length) opening = num(amts[amts.length - 1].str);
+        return;
+      }
+      if (!amts.length) { errors.push(msg('sp.noAmount', { text: r.text })); return; }
+      var amount = num(amts[amts.length - 1].str);
+      var desc = cells.slice(1).filter(function (c) { return !isAmount(c.str); }).map(function (c) { return c.str; }).join(' ');
+      sum = round2(sum + amount);
+      lines.push({ date: iso(+d[3], +d[2], +d[1]), description: desc, amount: amount, currency: currency, section: 'movement' });
+    });
+
+    if (opening === null) errors.push(msg('sp.falNoOpening'));
+    if (closing === null) errors.push(msg('sp.falNoClosing'));
+    else if (opening !== null && round2(opening + sum) !== round2(closing)) errors.push(msg('sp.falTotal', { a: round2(opening + sum).toFixed(2), b: closing.toFixed(2) }));
+    var balances = {};
+    balances[currency] = { opening: opening, closing: closing };
+    return {
+      ok: errors.length === 0, errors: errors, kind: 'falabella', bank: 'Banco Falabella',
+      account: { last4: number.slice(-4), number: number, label: titleCase(product) },
+      period: { start: iso(+period[3], +period[2], +period[1]), end: iso(+period[6], +period[5], +period[4]) },
+      balances: balances, lines: lines
+    };
+  }
+
   // ---- who the statement belongs to ----
   // Every layout prints its holder near the top; the app uses it to learn the person's own name (backend/OwnerNames.gs). Returns
   // the name as printed (CAPITALS, any word order) or '' — an unrecognised line is never guessed. Ahorra Más only greets by first
   // name ("¡HOLA, …!"), which is not enough, so it gives nothing.
   var NAME_WORDS = '[A-ZÁÉÍÓÚÜÑ]{2,}(?: [A-ZÁÉÍÓÚÜÑ]{2,}){1,4}';
+  // Words of a statement's own headings, never of a person's name: an all-capitals heading must not be offered as "Is this you?"
+  // (journeys run, 2026-11-17: "DETALLE DE PAGO DEL MES" was).
+  var HEADING_WORDS_ = /^(DETALLE|DETALLES|PAGO|PAGOS|ESTADO|CUENTA|CUENTAS|RESUMEN|MOVIMIENTO|MOVIMIENTOS|TARJETA|TARJETAS|CREDITO|CRÉDITO|DEBITO|DÉBITO|FECHA|FECHAS|TOTAL|TOTALES|SALDO|SALDOS|MES|PERIODO|PERÍODO|CONSUMO|CONSUMOS|CARGO|CARGOS|INTERES|INTERÉS|INTERESES|MINIMO|MÍNIMO|LIMITE|LÍMITE|DISPONIBLE|BANCO|CLIENTE|OPERACION|OPERACIÓN|OPERACIONES|COMISION|COMISIÓN|COMISIONES|SOLES|DOLARES|DÓLARES|NUMERO|NÚMERO|CODIGO|CÓDIGO|IMPORTE|MONTO|CUOTA|CUOTAS|DEUDA|FACTURACION|FACTURACIÓN|INFORMACION|INFORMACIÓN|PRODUCTO|VISA|MASTERCARD|AMEX)$/;
+  function looksLikeHeading_(text) { return String(text).split(' ').some(function (w) { return HEADING_WORDS_.test(w); }); }
   function holderOf(kind, rows) {
     var texts = rows.slice(0, 16).map(function (r) { return String(r.text || '').trim(); });
     function first(re) {
-      for (var i = 0; i < texts.length; i++) { var m = texts[i].match(re); if (m) return m[1]; }
+      for (var i = 0; i < texts.length; i++) { var m = texts[i].match(re); if (m && !looksLikeHeading_(m[1])) return m[1]; }
       return '';
     }
     var name = '';
@@ -813,12 +965,49 @@
       var nameRe = new RegExp('^' + NAME_WORDS + '$');
       var hr = rows.slice(0, 16).find(function (r) { return r.cells.some(function (c) { return /^N[úu]mero de tarjeta$/i.test(c.str); }); });
       if (hr && hr.cells[0] && nameRe.test(hr.cells[0].str.trim())) name = hr.cells[0].str.trim();
+    } else if (kind === 'ripley') {
+      // the given name sits alone above the "EECC Tarjeta de Crédito Ripley" title, the surnames alone below it
+      var tAt = texts.findIndex(function (t) { return /^EECC Tarjeta/i.test(t); });
+      var wordsRe = /^[A-ZÁÉÍÓÚÜÑ]{2,}(?: [A-ZÁÉÍÓÚÜÑ]{2,}){0,3}$/;
+      if (tAt > 0 && texts[tAt + 1] && wordsRe.test(texts[tAt - 1]) && wordsRe.test(texts[tAt + 1])) {
+        var full = texts[tAt - 1] + ' ' + texts[tAt + 1];
+        if (new RegExp('^' + NAME_WORDS + '$').test(full)) name = full;
+      }
+    } else if (kind === 'falabella') {
+      // the holder is the first cell of the row that carries the "Producto:" label
+      var pr = rows.slice(0, 16).find(function (r) { return r.cells.some(function (c) { return /^Producto:?$/i.test(c.str); }); });
+      if (pr && pr.cells[0] && new RegExp('^' + NAME_WORDS + '$').test(pr.cells[0].str.trim())) name = pr.cells[0].str.trim();
     } else if (kind === 'cmr') {
       // the holder is the only text on a line above "Estado de Cuenta" (the first line is the file name)
       var stop = texts.findIndex(function (t) { return /^Estado de Cuenta$/i.test(t); });
       for (var i = 1; i < stop && !name; i++) if (new RegExp('^' + NAME_WORDS + '$').test(texts[i])) name = texts[i];
     }
-    return name;
+    return name && !looksLikeHeading_(name) ? name : '';
+  }
+
+  // A card statement's pay-by date (owner's plan, 2026-11-18): ONLY the date next to its label ("Último día de pago", "Fecha límite de
+  // pago"), on the label's own row after it, or alone at the start of one of the next 3 rows (a heading row over a row of figures). No
+  // label, no date: a page carries several dates (cycle, cut-off, next statement) and a guess would be worse than none. Checked on real
+  // statements of four banks (Interbank Visa, SIP, a BCP card, Banco Falabella); a 2-digit year is this century. '' when none.
+  var DUE_LABEL_ = /[uú]ltimo\s+d[ií]a\s+de\s+pago|fecha\s+l[ií]mite\s+de\s+pago/i;
+  function dueIso_(m) {
+    var d = Number(m[1]), mo = Number(m[2]), y = Number(m[3].length === 2 ? '20' + m[3] : m[3]);
+    if (!(d >= 1 && mo >= 1 && mo <= 12 && y >= 2000 && y <= 2099) || d > new Date(Date.UTC(y, mo, 0)).getUTCDate()) return '';   // (31/02 is no date)
+    return y + '-' + (mo < 10 ? '0' : '') + mo + '-' + (d < 10 ? '0' : '') + d;
+  }
+  function dueDateOf(rows) {
+    for (var i = 0; i < rows.length && i < 60; i++) {
+      var t = String(rows[i].text || ''), m = t.match(DUE_LABEL_);
+      if (!m) continue;
+      var same = t.slice(m.index + m[0].length).match(/(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})(?!\d)/);
+      if (same) return dueIso_(same);
+      for (var k = 1; k <= 3 && i + k < rows.length; k++) {
+        var lone = String(rows[i + k].text || '').match(/^\s*(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})(?!\d)/);
+        if (lone) return dueIso_(lone);
+      }
+      return '';   // the label with no date beside or under it: nothing (the first label decides)
+    }
+    return '';
   }
 
   function parseStatement(rows) {
@@ -830,12 +1019,29 @@
     else if (kind === 'bcp') res = parseBcp(rows);
     else if (kind === 'bcpcard') res = parseBcpCard(rows);
     else if (kind === 'cmr') res = parseCmr(rows);
+    else if (kind === 'ripley') res = parseRipley(rows);
+    else if (kind === 'falabella') res = parseFalabellaSavings(rows);
     else if (kind === 'ahorramas') res = parseAhorramas(rows);
     else if (kind === 'sip') res = parseSip(rows);
     else return fail(null, [msg('sp.notRecognized')]);
     if (res && res.ok) res.holder = holderOf(kind, rows);
+    if (res && res.ok && kind !== 'savings' && kind !== 'bcp' && kind !== 'ahorramas') { var due = dueDateOf(rows); if (due) res.due = due; }   // cards only
     return res;
   }
 
-  return { groupRows: groupRows, readPdfRows: readPdfRows, parseStatement: parseStatement, detectKind: detectKind, holderOf: holderOf };
+  // Which bank each statement layout (`kind`) belongs to, by the name the app's bank list uses. The welcome list and Accounts tick a
+  // bank from this ("Statements ✓"), so a reader added to parseStatement above must be added here too: tests/backend/bank-labels.test.js
+  // fails otherwise.
+  var STATEMENT_BANK_BY_KIND = {
+    savings: 'Interbank', visa: 'Interbank', diners: 'Diners', bcp: 'BCP', bcpcard: 'BCP',
+    cmr: 'Banco Falabella', falabella: 'Banco Falabella', ripley: 'Banco Ripley', ahorramas: 'SIP', sip: 'SIP'
+  };
+  function statementBanks() {
+    var seen = {};
+    Object.keys(STATEMENT_BANK_BY_KIND).forEach(function (k) { seen[STATEMENT_BANK_BY_KIND[k]] = true; });
+    return Object.keys(seen);
+  }
+
+  return { groupRows: groupRows, readPdfRows: readPdfRows, parseStatement: parseStatement, detectKind: detectKind, holderOf: holderOf, dueDateOf: dueDateOf,
+    STATEMENT_BANK_BY_KIND: STATEMENT_BANK_BY_KIND, statementBanks: statementBanks };
 });

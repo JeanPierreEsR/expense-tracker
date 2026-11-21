@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 7,
   "rules": [
     { "id": "bcp-consumo-debito", "replaces": "Consumo tarjeta de débito", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Consumo tarjeta de débito (pack)",
       "accountByCurrency": true, "subjectHas": ["realizaste un consumo", "debito"], "type": "expense", "amount": { "label": "Total del consumo" },
@@ -30,8 +30,9 @@
       "last4": { "label": "Cuenta cargo", "kind": "account" }, "to": { "label": "Tarjeta de crédito", "kind": "account" }, "externalId": { "label": "Código de operación" } },
 
     { "id": "interbank-transferencia", "replaces": "Transferencia", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe", "label": "Transferencia (pack)",
-      "subjectEndsWith": "constancia de transferencia", "type": "transferIfOwn", "amount": { "label": "Monto y moneda" }, "recipient": { "label": "Cuenta destino" },
-      "last4": { "label": "Cuenta a cargo", "kind": "account" }, "externalId": { "label": "Código de operación" } },
+      "subjectEndsWith": "constancia de transferencia", "type": "transferIfOwn", "amount": { "label": "Monto y moneda" }, "recipient": { "label": "Cuenta destino", "orLabel": "Destinatario" },
+      "last4": { "label": "Cuenta a cargo", "orLabel": "Cuenta cargo", "kind": "account" }, "to": { "label": "Cuenta destino", "orLabel": "Destinatario", "kind": "cci" },
+      "externalId": { "label": "Código de operación" } },
 
     { "id": "interbank-pago-deuda", "replaces": "Pago de deuda (transferencia interna)", "bank": "Interbank", "sender": "notificaciones@interbank.pe", "label": "Pago de deuda (pack)",
       "cardIsDestination": true, "type": "transfer", "amount": { "label": "Monto pagado" }, "description": { "text": "Pago tarjeta Interbank" },
@@ -50,11 +51,16 @@
 
     { "id": "sip-transferencia-otro-banco", "replaces": "Transferencia a otro banco", "bank": "SIP", "sender": "no-reply@operaciones.agora.pe", "label": "Transferencia a otro banco (pack)",
       "bodyHas": ["transferencia a otro banco"], "type": "transferIfOwn", "amount": { "label": "Monto" }, "recipient": { "label": "Destino" },
-      "externalId": { "label": "Nro. de Operación" } },
+      "to": { "label": "Destino", "kind": "cci" }, "accountName": { "label": "Origen" }, "externalId": { "label": "Nro. de Operación" } },
 
     { "id": "interbank-pago-recurrente", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe", "label": "Pago recurrente con tarjeta (pack)",
       "subjectHas": ["pago recurrente"], "type": "expense", "amount": { "label": "Monto" }, "merchant": { "label": "Comercio" },
-      "last4": { "label": "Tarjeta", "kind": "masked" } }
+      "last4": { "label": "Tarjeta", "kind": "masked" } },
+
+    { "id": "bcp-consumo-credito", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Consumo tarjeta de crédito (pack)",
+      "subjectHas": ["realizaste un consumo", "credito"], "type": "expense", "amount": { "label": "Total del consumo" },
+      "merchant": { "label": "Empresa" }, "last4": { "label": "Número de Tarjeta de Crédito", "kind": "masked" },
+      "externalId": { "label": "Número de operación" } }
   ],
   "pairs": [
     { "id": "didi", "sender": "didi@pe.didiglobal.com", "merchantHas": ["didi"] },
