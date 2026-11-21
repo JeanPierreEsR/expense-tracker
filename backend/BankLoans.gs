@@ -423,6 +423,7 @@ function bankInstallmentEntryIds_() {
     scheduled[r.loan_id] = true;
     if (r.transfer_entry_id && Number(r.principal) <= 0.004) out[r.transfer_entry_id] = true;   // an interest-only installment's own expense
   });
+  if (!Object.keys(scheduled).length) return out;   // no schedule: no repayment can count (skips a Settlements read)
   getAllRows('Settlements').forEach(function (s) { if (s.gap_entry_id && scheduled[s.loan_id]) out[s.gap_entry_id] = true; });
   return out;
 }

@@ -656,7 +656,7 @@ function routeActionSwitch_(action, payload) {
 // Whoever asks for the sheet itself may be about to change it: while the per-request read memory is on (withRowsMemo_), that
 // sheet's remembered rows are dropped, so a later getAllRows reads it again instead of handing back rows from before the change.
 function getSheet(name) {
-  if (ROWS_MEMO_) { delete ROWS_MEMO_[name]; delete ROWS_MEMO_['@h:' + name]; }
+  if (ROWS_MEMO_) { delete ROWS_MEMO_[name]; delete ROWS_MEMO_['@h:' + name]; delete ROWS_MEMO_['@c:' + name]; }
   return sheetRaw_(name);
 }
 
@@ -870,7 +870,7 @@ function appendRowObject(sheetName, obj) {
   var headers = getHeaders(sheet);
   var row = headers.map(function (h) { return obj[h] !== undefined ? safeCellValue_(sheetName, h, obj[h]) : ''; });
   sheet.appendRow(row);
-  if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
+  if (ROWS_MEMO_) { delete ROWS_MEMO_[sheetName]; delete ROWS_MEMO_['@c:' + sheetName]; }
   noteRowAppended_(sheetName, obj);
 }
 
@@ -975,12 +975,25 @@ function getFriendsWithLastUsed_() {
 var REFERENCE_CACHE_TTL_SECONDS = 3600;
 
 function getAllRowsCached_(sheetName) {
-  var cache = CacheService.getScriptCache();
   // The key includes STRUCTURE_VERSION (bumped on every write to Categories /
   // Payment Methods / Friends / Payors / Tags / Exchange Rates — see
   // DataVersion.gs), so adding or editing one of those is visible at once
   // instead of only after the 1-hour TTL.
+  // Speed (2026-11-21): inside withRowsMemo_ the version and the rows are also remembered for the rest of the request (Needs review
+  // asked the property store and the cache ~200 times each, once per waiting entry, for the same Settings). getSheet / appendRowObject
+  // drop a sheet's copy, and a new STRUCTURE_VERSION (bumpVersion_) changes the key.
   var key = 'rows_' + sheetName + '_' + getVersion_('STRUCTURE_VERSION');
+  var memoKey = '@c:' + sheetName;
+  if (ROWS_MEMO_ && ROWS_MEMO_[memoKey] && ROWS_MEMO_[memoKey].key === key) {
+    return ROWS_MEMO_[memoKey].rows.map(function (r) { return Object.assign({}, r); });
+  }
+  var rows = getAllRowsCachedRead_(sheetName, key);
+  if (ROWS_MEMO_) ROWS_MEMO_[memoKey] = { key: key, rows: rows.map(function (r) { return Object.assign({}, r); }) };
+  return rows;
+}
+
+function getAllRowsCachedRead_(sheetName, key) {
+  var cache = CacheService.getScriptCache();
   var cached = cache.get(key);
   if (cached) return JSON.parse(cached);
   var rows = getAllRows(sheetName);
@@ -1311,13 +1324,14 @@ function saveEntryAll(payload) {
     try { setTripGroupSize_(payload.trip_group_size.trip_id, payload.trip_group_size.size); } catch (e) { /* ignored */ }
   }
   // A payment that matches a Programmed item with tags the entry lacks: the app asks whether to add them (owner, 2026-11-16). Never fails the save.
-  if (!payload.link_recurring_id) {
+  // Both questions only LOOK, after every write above: they share one read of each sheet (speed, 2026-11-21: each read Entries whole).
+  if (!payload.link_recurring_id) withRowsMemo_(function () {
     try { var ask = programmedTagAsk_([id]); if (ask.length) out = Object.assign({}, out, { tag_ask: ask[0] }); } catch (e) { /* only a question */ }
     // "Is this your Salary for August?" after a typed payment (the "+" form asks; Needs review asked on its card already).
     if (kind === 'create') {
       try { var plan = planMatchFor_(getEntryById_(id)); if (plan) out = Object.assign({}, out, { plan_ask: plan }); } catch (e) { /* only a question */ }
     }
-  }
+  });
   return out;
 }
 
@@ -1685,6 +1699,11 @@ function entryTwinWho_(e) {
   return e.merchant ? String(e.merchant) : searchNormalize_(e.description);
 }
 
+// What findSameDayTwins_ compares first (same currency, same amount to the cent): entries with another key can never be twins.
+function twinGroupKey_(e) {
+  return e.currency + '|' + Math.abs(Number(e.amount)).toFixed(2);
+}
+
 function findSameDayTwins_(entry, allEntries) {
   var who = entryTwinWho_(entry);
   var amount = Math.abs(Number(entry.amount)).toFixed(2);
@@ -1716,18 +1735,26 @@ function listPendingEntries() {
   var payeeHist = entries.length ? buildPayeeHistory_() : null;   // PayeeGuess.gs
   // Its tags (the card's "Tags" button and Edit mode's "Tag" can add them before it is confirmed; the full form opens with them).
   var tagsByEntry = entries.length ? tagIdsByEntry_() : {};
+  // Speed (2026-11-21): each waiting entry scanned ALL entries twice (twins, card charges): ~200 waiting × 7,000. The entries are
+  // grouped once (same order inside each group), so each scan only looks at the entries it could ever pick; same answers.
+  var twinGroups = {}, chargePending = [];
+  if (entries.length) all.forEach(function (o) {
+    var k = twinGroupKey_(o);
+    (twinGroups[k] || (twinGroups[k] = [])).push(o);
+    if (isChargePending_(o)) chargePending.push(o);
+  });
   entries.forEach(function (entry) {
     if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];
     entry.tagIds = tagsByEntry[entry.id] || [];
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
-    entry.twins = findSameDayTwins_(entry, all);
+    entry.twins = findSameDayTwins_(entry, twinGroups[twinGroupKey_(entry)] || []);
     if (ownerNameMaybeOwn_(entry)) entry.maybe_own = true;   // "Maybe yours?" while no own name is confirmed (OwnerNames.gs)
     // A suggestion only (the review card pre-selects it; it is linked when the owner confirms).
     if (entry.type === 'expense' && !entry.trip_id && !isPracticeReview_(entry)) entry.suggested_trip_id = suggestedTripIdForDate_(entry.date, trips);
     // "Looks like a loan to Ana again" (a place the person turned into a loan / repayment before): a suggestion only.
     var loanHint = entry.source === 'email' ? payeeLoanHint_(entry, payeeHist) : null;
     if (loanHint) entry.loan_hint = loanHint;
-    var chargeMatch = chargeMatchForReview_(entry, all);   // "Is this the charge of …?" (Charges.gs)
+    var chargeMatch = chargeMatchForReview_(entry, chargePending);   // "Is this the charge of …?" (Charges.gs; only charge-pending entries can match)
     if (chargeMatch) entry.charge_match = chargeMatch;
     var waitingMatch = waitingMatchForPending_(entry, waitingIncome);   // "Is this the payment you were waiting for?" (IncomeWaiting.gs)
     if (waitingMatch) entry.waiting_match = waitingMatch;
