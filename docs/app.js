@@ -8498,7 +8498,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   entries.forEach((entry) => {
     if (reviewEditing_) { list.appendChild(compactReviewRow_(entry)); return; }   // Edit mode: a tick row instead of the whole card
     if (xPairs.skip.has(entry.id)) return;
-    if (xPairs.byOut.has(entry.id)) { list.appendChild(exchangeReviewItem_(xPairs.byOut.get(entry.id), list)); return; }
+    if (xPairs.byOut.has(entry.id)) { const xItem = exchangeReviewItem_(xPairs.byOut.get(entry.id), list); reviewPutBackRowEdits_(xItem, rowEdits.get(entry.id)); list.appendChild(xItem); return; }
     const item = document.createElement("div");
     // Short rows (owner, 2026-11-12): an item starts closed (its top, warnings, category and a ✓ that confirms it as it is);
     // a tap opens the full form; the extra actions sit behind "More actions" (open by themselves when the app suspects one).
@@ -8871,7 +8871,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
 }
 
 // What the person changed on a Needs review card and has not confirmed yet survives a redraw of the list (see refreshReviewQueue).
-const REVIEW_ROW_BOXES_ = [".review-category", ".review-description", ".review-amount", ".review-account", ".review-trip", ".review-from", ".review-to", ".review-platform", ".review-land"];
+const REVIEW_ROW_BOXES_ = [".review-category", ".review-description", ".review-amount", ".review-account", ".review-trip", ".review-from", ".review-to", ".review-platform", ".review-land", ".review-x-out", ".review-x-in"];
 function reviewBoxInUse_(list) {
   const a = document.activeElement;
   return !!(a && list.contains(a) && a.matches("input[type=text], input:not([type]), select, textarea") && a.closest(".review-item"));
@@ -17398,6 +17398,7 @@ async function showTidyScreen() {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
   tidySkipped_.clear();
+  tidyPicked_.clear();
   const list = document.getElementById("tidy-list");
   list.innerHTML = loadingHtml_();
   document.getElementById("noacct-card").hidden = true;
@@ -17434,6 +17435,9 @@ function tidyAmountHtml_(e) {
   const dir = entryFlowDirection_(e);
   return `<span class="tidy-amt${dir === "in" ? " tidy-amt-in" : ""}">${formatAmount(Math.abs(Number(e.amount)), e.currency, dir === "in" ? "+" : dir === "out" ? "−" : "")}</span>`;
 }
+// The category picked on a group and not applied yet (group key -> category id): a redraw (another group applied, skipped or undone)
+// keeps it instead of going back to the suggestion (owner, 2026-11-21: same as Needs review, a save behind the screen must not undo picks).
+const tidyPicked_ = new Map();
 function renderTidy_() {
   const data = tidyData_;
   const groups = tidyGroups_.filter((g) => !tidySkipped_.has(g.key));
@@ -17466,7 +17470,7 @@ function renderTidy_() {
       <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}
         ${sug ? `<br>${escapeHtml(tr(sug.similar ? "tidy.suggestedSimilar" : "tidy.suggested", { category: sug.categoryName, n: sug.n, total: sug.total }))}` : ""}</div>
       <div class="tidy-group-row">
-        <select class="tidy-select">${tidyCategoryOptions_(sug ? sug.categoryId : "")}</select>
+        <select class="tidy-select">${tidyCategoryOptions_(tidyPicked_.has(g.key) ? tidyPicked_.get(g.key) : sug ? sug.categoryId : "")}</select>
         <button type="button" class="add-inline tidy-apply">${escapeHtml(tr("tidy.apply"))}</button>
         <button type="button" class="add-inline tidy-lines">${escapeHtml(tr("tidy.showLines"))}</button>
         <button type="button" class="add-inline tidy-skip">${escapeHtml(tr("tidy.skip"))}</button>
@@ -17483,9 +17487,12 @@ let noAcctLastSave_ = null;   // { ok, count } of the last Save (the real tutori
 const noAcctPicked_ = new Map();   // entry id -> account id picked on the screen (not saved yet)
 const noAcctOpen_ = new Set();   // months opened on the screen ('YYYY-MM'); every month starts closed
 
-async function loadNoAccount_() {
+// keepPicks: the accounts picked on entries still listed stay picked (a Save or Undo running behind the screen must not undo what was picked
+// meanwhile; owner, 2026-11-21). Opening the screen starts clean.
+async function loadNoAccount_(keepPicks) {
   noAcctData_ = await callApi("listNoAccountEntries", {});
-  noAcctPicked_.clear();
+  const listed = new Set(((noAcctData_ && noAcctData_.entries) || []).map((e) => e.id));
+  [...noAcctPicked_.keys()].forEach((id) => { if (!keepPicks || !listed.has(id)) noAcctPicked_.delete(id); });
   renderNoAccount_();
 }
 
@@ -17575,19 +17582,20 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
   let saved = null;
   try {
     const res = await callApi("assignEntryAccounts", { items });
+    items.forEach((it) => { if (noAcctPicked_.get(it.id) === it.payment_method_id) noAcctPicked_.delete(it.id); });   // saved (a later change to it stays)
     saved = { ok: true, count: res.count || 0 };
     if (!res.count) showToast_(tr("noacct.nothing"));
     else {
       showUndoToast_(tr("noacct.saved", { n: res.count }), async () => {
         await callApi("undoEntryAccounts", { changes: res.changes });
         showToast_(tr("noacct.undone"));
-        await loadNoAccount_();
+        await loadNoAccount_(true);
         refreshEntryList().catch(() => {});
       });
       refreshEntryList().catch(() => {});
       refreshHomeGlance_(true);
     }
-    await loadNoAccount_();
+    await loadNoAccount_(true);
     noAcctLastSave_ = saved;   // only once the card shows what is left (the tutorial's last step depends on it; owner's walk 2026-11-12)
   } catch (err) {
     noAcctLastSave_ = saved || { ok: false, count: 0 };
@@ -17801,6 +17809,7 @@ document.getElementById("annualcu-finish-btn").addEventListener("click", async (
 // Fills the groups, then offers Undo; the list is reloaded so what is left (and any new suggestion) shows.
 async function applyTidy_(items, buttons) {
   buttons.forEach((b) => { b.disabled = true; });
+  items.forEach((it) => tidyPicked_.delete(it.key));   // filed: what is left of it comes back with its own suggestion
   showToast_(tr("common.savingToast"));
   try {
     const res = await callApi("applyTidyGroups", { items });
@@ -17841,6 +17850,10 @@ document.getElementById("tidy-list").addEventListener("click", (ev) => {
     if (!categoryId) { showFieldError_(row.querySelector(".tidy-select"), tr("review.pickCategoryFirst"), row.querySelector(".tidy-group-row")); return; }
     applyTidy_([{ key, categoryId }], [ev.target.closest(".tidy-apply")]);
   }
+});
+document.getElementById("tidy-list").addEventListener("change", (ev) => {
+  const sel = ev.target.closest(".tidy-select"), row = sel && sel.closest(".tidy-group[data-key]");
+  if (row) tidyPicked_.set(row.dataset.key, sel.value);
 });
 document.getElementById("tidy-apply-all-btn").addEventListener("click", (ev) => {
   const items = tidyGroups_.filter((g) => g.suggestion && !tidySkipped_.has(g.key)).map((g) => ({ key: g.key, categoryId: g.suggestion.categoryId }));
@@ -18280,6 +18293,7 @@ function beWhySave_(kind, reason, note) {
   const data = be_.data || {};
   const before = Object.assign({}, data.reasons || {});
   data.reasons = Object.assign({}, before, { [kind]: { reason, note: note || "" } });
+  be_.whySaving = kind;   // its own box shows what was saved, not a draft
   renderBeTx_(data);
   callApi("saveGapReason", { kind, reason, note: note || "" }).then((res) => {
     if (res && res.reasons) { data.reasons = res.reasons; renderBeTx_(data); }
@@ -18379,6 +18393,16 @@ function renderBeTx_(data) {
   if (!share.hidden) share.textContent = tr("notauto.share", { manual: data.manualShare.manual, total: data.manualShare.total });
   const owner = !!data.owner;
   const grouped = kinds.some((k) => k.need);
+  // Words being typed under "Other" for one kind survive a redraw caused by an answer on another (owner, 2026-11-21).
+  const drafts = new Map(), focused = document.activeElement;
+  let caret = null;
+  beEl_("be-groups").querySelectorAll("textarea[data-why-note]").forEach((t) => {
+    const key = t.dataset.whyNote;
+    if (key === be_.whySaving || t.closest(".be-why-other").hidden) return;
+    drafts.set(key, t.value);
+    if (t === focused) caret = { key, start: t.selectionStart, end: t.selectionEnd };
+  });
+  be_.whySaving = null;
   beEl_("be-groups").innerHTML = !grouped
     ? kinds.map((k) => beKindHtml_(k, owner)).join("")
     : BE_NEEDS_.map((need) => {
@@ -18386,6 +18410,12 @@ function renderBeTx_(data) {
       if (!list.length) return "";
       return `<div class="be-group be-${need}"><h3>${escapeHtml(tr("be.need." + need))}</h3><p class="hint">${escapeHtml(tr("be.need." + need + ".sub"))}</p>${list.map((k) => beKindHtml_(k, owner)).join("")}</div>`;
     }).join("");
+  beEl_("be-groups").querySelectorAll("textarea[data-why-note]").forEach((t) => {
+    if (!drafts.has(t.dataset.whyNote)) return;
+    t.value = drafts.get(t.dataset.whyNote);
+    t.closest(".be-why-other").hidden = false;
+    if (caret && caret.key === t.dataset.whyNote) { t.focus({ preventScroll: true }); t.setSelectionRange(caret.start, caret.end); }
+  });
 }
 
 // "Send this to JP": the same pop-up as More → Teach the app my bank's emails, with this bank's address already filled in.
@@ -32925,6 +32955,15 @@ function chargeDoneRefresh_() {
 }
 function renderChargesList_() {
   const box = document.getElementById("charges-list");
+  // What was typed on the other lines survives the redraw a saved line causes (owner, 2026-11-21: same as Needs review).
+  const typed = new Map(), focused = document.activeElement;
+  let caret = null;
+  box.querySelectorAll(".charge-line[data-id]").forEach((l) => {
+    const input = l.querySelector(".charge-line-input"), cur = l.querySelector(".charge-line-cur");
+    if (!input.dataset.touched && !cur.dataset.touched) return;
+    typed.set(l.dataset.id, { amount: input.value, cur: cur.dataset.touched ? cur.value : null });
+    if (focused === input) caret = { id: l.dataset.id, start: input.selectionStart, end: input.selectionEnd };
+  });
   box.innerHTML = "";
   if (!chargesList_.length) { box.innerHTML = `<p class="hint">${escapeHtml(tr("charges.none"))}</p>`; return; }
   chargesList_.forEach((c) => {
@@ -32932,6 +32971,7 @@ function renderChargesList_() {
     const list = accountCurrencyList_(pm);
     const line = document.createElement("div");
     line.className = "charge-line";
+    line.dataset.id = c.id;
     const name = c.description || (findCategory(c.category_id) ? categoryName(c.category_id) : tr("confirm.thisEntry"));
     line.innerHTML = `
       <div class="charge-line-top"><span class="charge-line-name">${c.old ? "⏰ " : ""}${escapeHtml(name)}</span><span class="charge-line-amount">${escapeHtml(formatAmount(c.amount, c.currency))}</span></div>
@@ -32945,8 +32985,15 @@ function renderChargesList_() {
     currencyPickOn_(curSel);
     const rateEl = line.querySelector(".charge-rate");
     const showRate = () => { const t = chargeRateText_(c.amount, c.currency, line.querySelector(".charge-line-input").value, curSel.value); rateEl.textContent = t; rateEl.hidden = !t; };
-    line.querySelector(".charge-line-input").addEventListener("input", showRate);
-    curSel.addEventListener("change", showRate);
+    const amtInput = line.querySelector(".charge-line-input");
+    amtInput.addEventListener("input", () => { amtInput.dataset.touched = "1"; showRate(); });
+    curSel.addEventListener("change", () => { curSel.dataset.touched = "1"; showRate(); });
+    const was = typed.get(String(c.id));
+    if (was) {
+      amtInput.value = was.amount; amtInput.dataset.touched = "1";
+      if (was.cur && [...curSel.options].some((o) => o.value === was.cur)) { curSel.value = was.cur; curSel.dataset.touched = "1"; }
+      showRate();
+    }
     const drop = () => { chargesList_ = chargesList_.filter((x) => x.id !== c.id); };
     line.querySelector(".charge-save").addEventListener("click", async () => {
       const amount = parseFloat(line.querySelector(".charge-line-input").value);
@@ -32969,6 +33016,7 @@ function renderChargesList_() {
       if (done) chargeDoneRefresh_();
     });
     box.appendChild(line);
+    if (caret && caret.id === String(c.id)) { amtInput.focus({ preventScroll: true }); amtInput.setSelectionRange(caret.start, caret.end); }
   });
 }
 document.getElementById("home-charges").addEventListener("click", openChargesModal_);
