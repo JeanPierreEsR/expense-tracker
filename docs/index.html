@@ -1169,10 +1169,10 @@
     <div id="screen-business-statement" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
-          <button type="button" class="add-inline" id="statement-back-btn" data-i18n="common.back">‹ Back</button>
+          <button type="button" class="icon-btn back-btn" id="statement-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
           <button type="button" class="add-inline" id="statement-csv-btn" data-i18n="statement.csv">Download (CSV)</button>
         </div>
-        <h2 style="margin-top:0;" id="statement-title"></h2>
+        <h2 class="screen-title" style="margin-top:0;" id="statement-title"></h2>
         <p class="hint" id="statement-sub"></p>
         <select id="statement-period" class="business-period-select"></select>
         <div id="statement-body"></div>

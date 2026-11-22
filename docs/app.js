@@ -609,7 +609,7 @@ function currencyPickOn_(el) {
   });
   wrap.appendChild(btn);
 }
-["bank-currency", "exchange-out-currency", "exchange-in-currency", "welcome-main-select", "igv-payment-currency", "expected-currency"]
+["bank-currency", "exchange-out-currency", "exchange-in-currency", "welcome-main-select", "igv-payment-currency", "expected-currency", "opening-currency", "accountant-currency"]
   .forEach((id) => currencyPickOn_(document.getElementById(id)));
 
 // One rule for every pop-up sheet (owner, 2026-11-04): it closes with its ✕, and a tap on the dimmed area outside it does the same
@@ -22420,6 +22420,15 @@ function statementScopePayload_() {
   return t.kind === "project" ? { project_id: t.id } : { company_id: t.id };
 }
 
+// The rules the server checks on opening and accountant figures that the phone can foresee, so they show in the open form.
+function statementFieldsProblem_(f, isOpening) {
+  if (!/^[A-Z]{3}$/.test(f.currency)) return tr("statement.errCurrency");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.as_of)) return tr("statement.errDate");
+  if (isOpening && f.as_of > todayLocalISO()) return tr("statement.errFuture");
+  if (Object.keys(STATEMENT_FIELD_IDS).some((k) => f[k] !== "" && !(Number(f[k]) >= 0))) return tr("statement.errFigure");
+  return "";
+}
+
 // -- Opening figures --
 
 let openingImpactTimer_ = null;
@@ -22472,36 +22481,25 @@ document.getElementById("opening-modal-backdrop").addEventListener("click", (e) 
 wireStatementAmountInputs_("opening");
 document.getElementById("opening-date").addEventListener("change", refreshOpeningImpact_);
 document.getElementById("opening-currency").addEventListener("input", refreshOpeningImpact_);
-document.getElementById("opening-save-btn").addEventListener("click", async () => {
+document.getElementById("opening-save-btn").addEventListener("click", () => {
   if (!editingOpening_ || !statementTarget_) return;
   const errorEl = document.getElementById("opening-error");
   errorEl.textContent = "";
-  const saveBtn = document.getElementById("opening-save-btn");
-  saveBtn.disabled = true;
-  try {
-    const fields = Object.assign(readStatementFields_("opening"), statementScopePayload_(), {
-      currency: document.getElementById("opening-currency").value.trim().toUpperCase(),
-      as_of: document.getElementById("opening-date").value,
-      note: document.getElementById("opening-note").value.trim()
-    });
-    await callApi("saveBusinessOpening", fields);
-    closeOpeningModal_();
-    await refreshStatement_();
-  } catch (err) {
-    errorEl.textContent = err.message;
-  } finally {
-    saveBtn.disabled = false;
-  }
+  const fields = Object.assign(readStatementFields_("opening"), statementScopePayload_(), {
+    currency: document.getElementById("opening-currency").value.trim().toUpperCase(),
+    as_of: document.getElementById("opening-date").value,
+    note: document.getElementById("opening-note").value.trim()
+  });
+  const problem = statementFieldsProblem_(fields, true);   // (what the server would refuse shows in the open form)
+  if (problem) { errorEl.textContent = problem; return; }
+  closeOpeningModal_();
+  saveBehindScreen_(() => callApi("saveBusinessOpening", fields), refreshStatement_);   // saving standard: the sheet closes, the save runs behind it
 });
 document.getElementById("opening-delete-btn").addEventListener("click", async () => {
   if (!editingOpening_ || !editingOpening_.opening || !await askConfirmApp_(tr("opening.confirmDelete"), tr("confirmBtn.delete"))) return;
-  try {
-    await callApi("deleteBusinessOpening", { id: editingOpening_.opening.id });
-    closeOpeningModal_();
-    await refreshStatement_();
-  } catch (err) {
-    document.getElementById("opening-error").textContent = err.message;
-  }
+  const id = editingOpening_.opening.id;
+  closeOpeningModal_();
+  saveBehindScreen_(() => callApi("deleteBusinessOpening", { id }), refreshStatement_, { busy: "common.deletingToast" });
 });
 
 // -- The accountant's figures --
@@ -22531,36 +22529,25 @@ document.getElementById("accountant-modal-backdrop").addEventListener("click", (
   if (e.target.id === "accountant-modal-backdrop") closeAccountantModal_();
 });
 wireStatementAmountInputs_("accountant");
-document.getElementById("accountant-save-btn").addEventListener("click", async () => {
+document.getElementById("accountant-save-btn").addEventListener("click", () => {
   if (!editingAccountant_ || !statementTarget_) return;
   const errorEl = document.getElementById("accountant-error");
   errorEl.textContent = "";
-  const saveBtn = document.getElementById("accountant-save-btn");
-  saveBtn.disabled = true;
-  try {
-    const fields = Object.assign(readStatementFields_("accountant"), statementScopePayload_(), {
-      currency: document.getElementById("accountant-currency").value.trim().toUpperCase(),
-      as_of: document.getElementById("accountant-date").value,
-      note: document.getElementById("accountant-note").value.trim()
-    });
-    await callApi("saveAccountantFigures", fields);
-    closeAccountantModal_();
-    await refreshStatement_();
-  } catch (err) {
-    errorEl.textContent = err.message;
-  } finally {
-    saveBtn.disabled = false;
-  }
+  const fields = Object.assign(readStatementFields_("accountant"), statementScopePayload_(), {
+    currency: document.getElementById("accountant-currency").value.trim().toUpperCase(),
+    as_of: document.getElementById("accountant-date").value,
+    note: document.getElementById("accountant-note").value.trim()
+  });
+  const problem = statementFieldsProblem_(fields, false);   // (what the server would refuse shows in the open form)
+  if (problem) { errorEl.textContent = problem; return; }
+  closeAccountantModal_();
+  saveBehindScreen_(() => callApi("saveAccountantFigures", fields), refreshStatement_);   // saving standard: the sheet closes, the save runs behind it
 });
 document.getElementById("accountant-delete-btn").addEventListener("click", async () => {
   if (!editingAccountant_ || !editingAccountant_.figures || !await askConfirmApp_(tr("accountant.confirmDelete"), tr("confirmBtn.delete"))) return;
-  try {
-    await callApi("deleteAccountantFigures", { id: editingAccountant_.figures.id });
-    closeAccountantModal_();
-    await refreshStatement_();
-  } catch (err) {
-    document.getElementById("accountant-error").textContent = err.message;
-  }
+  const id = editingAccountant_.figures.id;
+  closeAccountantModal_();
+  saveBehindScreen_(() => callApi("deleteAccountantFigures", { id }), refreshStatement_, { busy: "common.deletingToast" });
 });
 
 // ---- Project pop-up ----
