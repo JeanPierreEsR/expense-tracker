@@ -82,6 +82,21 @@ test("the same payment sent twice is saved once", () => {
   assert.equal(shortcutRows(rt).length, 1);
 });
 
+test("pressing play on the shortcut by hand saves nothing and says the link works (owner, 2026-11-22)", () => {
+  const { rt } = freshApp({ small: true });
+  const k = key(rt);
+  for (const body of [{}, { amount: "", merchant: "", card: "" }, { amount: "0", merchant: "", card: "Test Visa" }]) {
+    const res = pay(rt, k, body);
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(res.data.test, true);
+    assert.equal(res.data.message, "Test received: your link works. Nothing was added.");
+  }
+  assert.equal(shortcutRows(rt).length, 0);
+  // A real payment whose amount cannot be read still waits, with its shop, for the person to check.
+  assert.equal(pay(rt, k, { amount: "free", merchant: "Kiosk", card: "Test Visa" }).data.saved, true);
+  assert.equal(shortcutRows(rt).length, 1);
+});
+
 test("a Wallet card is learned once the person gives its account", () => {
   const { rt } = freshApp({ small: true });
   const k = key(rt);

@@ -35,6 +35,7 @@ var BACKEND_STRINGS_ = {
   "applepay.off": { en: "Apple Pay capture is not available in this app yet.", es: "La captura de Apple Pay aún no está disponible en esta app." },
   "applepay.saved": { en: "{amount} at {shop} is waiting in Needs review.", es: "{amount} en {shop} está esperando en Por revisar." },
   "applepay.savedCheck": { en: "{shop} is waiting in Needs review. Check its amount and currency there.", es: "{shop} está esperando en Por revisar. Revisa ahí su monto y moneda." },
+  "applepay.test": { en: "Test received: your link works. Nothing was added.", es: "Prueba recibida: tu enlace funciona. No se agregó nada." },
   "applepay.repeat": { en: "This payment was already in the app.", es: "Este pago ya estaba en la app." },
   "applepay.noShop": { en: "Apple Pay payment", es: "Pago con Apple Pay" },
   "whatsapp.saved": { en: "Saved for review: {amount} · {what}. Confirm it in Needs review.", es: "Guardado para revisar: {amount} · {what}. Confírmalo en Por revisar." },
