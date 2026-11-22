@@ -49,6 +49,15 @@ function setForwardAddresses(payload) {
   return { addresses: list };
 }
 
+// Who forwarded a waiting entry, as the bots' card shows it (the app's Needs review card does the same on the phone, reviewForwardedBy_):
+// '' when it was not forwarded, or came from this Gmail or one of the person's other addresses.
+function forwardShownBy_(entry) {
+  var by = String((entry && entry[FORWARDED_BY_COLUMN_]) || '').toLowerCase();
+  if (!by) return '';
+  if (by === String(mailboxAddress_() || '').toLowerCase() || forwardListed_().indexOf(by) !== -1) return '';
+  return by;
+}
+
 // ---- Finding forwards in the scan ----
 
 // The bare address inside "Name <a@b.c>" (lower case), or ''.
