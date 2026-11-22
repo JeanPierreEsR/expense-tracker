@@ -21403,6 +21403,17 @@ function applyBusinessVisibility_(opts) {
   });
   document.getElementById("be-tab-ap").hidden = !applePay;
   document.querySelector("#screen-bank-emails .info-btn, .info-btn[data-info^=\"bankViews\"]").dataset.info = applePay ? "bankViewsAp" : "bankViews";   // its card names the Apple Pay view too
+  // A company copy (Business 2, piece 3): the "bank loan" is a loan from a LENDER to the company, so its words say so.
+  [["add-bank-loan-btn", "bank.addButton"], ["bank-lender-label", "bank.lender"]].forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    el.setAttribute("data-i18n", bankWordKey_(key));
+    el.textContent = tr(bankWordKey_(key));
+  });
+  const peopleHint = document.getElementById("people-hint");
+  peopleHint.setAttribute("data-i18n", companyCopyOn_() ? "people.hintCo" : "people.hint");
+  peopleHint.textContent = tr(peopleHint.getAttribute("data-i18n"));
+  document.getElementById("bank-lender").setAttribute("data-i18n-placeholder", bankWordKey_("bank.lenderPlaceholder"));
+  document.getElementById("bank-lender").placeholder = tr(bankWordKey_("bank.lenderPlaceholder"));
   const on = businessOn();
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;
@@ -22897,7 +22908,7 @@ function renderPeopleList_(people) {
   if (peopleEditing_ && !people.length) setPeopleEditing_(false, false);
   const stillThere = new Set(people.map((p) => p.id));
   peopleSelected_ = new Set([...peopleSelected_].filter((id) => stillThere.has(id)));
-  ["client", "supplier", "partner"].forEach((role) => {
+  ["client", "supplier", "partner", "lender"].forEach((role) => {   // lender: Business 2, piece 3 (a company copy's lenders)
     const group = people.filter((p) => p.role === role);
     if (!group.length) return;
     const head = document.createElement("h3");
@@ -23227,7 +23238,8 @@ function openPersonModal_(person, friendsMode) {
   setPhoneField_("person-phone", (person && person.phone) || "");
   const sel = document.getElementById("person-role");
   sel.innerHTML = "";
-  ["client", "supplier", "partner", "friend"].forEach((role) => {
+  // "Lender" is offered on a company copy (Business 2, piece 3), and kept for someone who already is one.
+  ["client", "supplier", "partner", ...(companyCopyOn_() || (person && person.role === "lender") ? ["lender"] : []), "friend"].forEach((role) => {
     const o = document.createElement("option");
     o.value = role;
     o.textContent = tr(`people.role.${role}`);
@@ -32654,12 +32666,21 @@ autoBeforeApp_("bank-date", "bank-opening", () => !document.getElementById("bank
 document.querySelectorAll('input[name="bank-opening-how"]').forEach((r) => r.addEventListener("change", bankApplyOpening_));
 document.getElementById("bank-next-number").addEventListener("input", () => bankDraft_ && bankRenderRows_());
 
+// A company copy (Business 2, piece 3): a "bank loan" there is a loan from a lender to the company.
+function companyCopyOn_() { return !!(meta && meta.capabilities && meta.capabilities.companyCopy) && businessOn(); }
+const BANK_CO_KEYS_ = ["bank.addButton", "bank.formTitle", "bank.lender", "bank.lenderPlaceholder", "bank.save"];
+function bankWordKey_(key) { return companyCopyOn_() && BANK_CO_KEYS_.includes(key) ? key.replace(/^bank\./, "bank.co.") : key; }
+
 function openBankLoanForm_() {
   bankDraft_ = { mode: "new", rows: [], currency: homeCur() };
-  document.getElementById("bank-loan-title").textContent = tr("bank.formTitle");
+  document.getElementById("bank-loan-title").textContent = tr(bankWordKey_("bank.formTitle"));
   document.getElementById("bank-loan-fields").hidden = false;
   document.getElementById("bank-gen-box").hidden = false;
-  document.getElementById("bank-save").textContent = tr("bank.save");
+  document.getElementById("bank-save").textContent = tr(bankWordKey_("bank.save"));
+  // The company and, optionally, a project the loan belongs to (company copies only; starts on the company).
+  const bizField = document.getElementById("bank-business-field");
+  bizField.hidden = !(companyCopyOn_() && (meta.companies || []).length);
+  if (!bizField.hidden) fillBusinessOptions_(document.getElementById("bank-business"), companyDefaultPick_() || "c:" + meta.companies[0].id);
   ["bank-lender", "bank-description", "bank-amount", "bank-gen-count", "bank-gen-payment", "bank-gen-rate", "bank-gen-fee"].forEach((id) => { document.getElementById(id).value = ""; });
   document.getElementById("bank-date").value = todayLocalISO();
   document.getElementById("bank-gen-first").value = bankAddMonths_(todayLocalISO(), 1);
@@ -32833,7 +32854,9 @@ document.getElementById("bank-save").addEventListener("click", () => {
     currency: document.getElementById("bank-currency").value,
     date: document.getElementById("bank-date").value,
     payment_method_id: document.getElementById("bank-account").value,
-    installments: rows
+    installments: rows,
+    // a company copy: the person is a lender, the loan belongs to the company / project picked (Business 2, piece 3)
+    ...(document.getElementById("bank-business-field").hidden ? {} : Object.assign({ lender: true }, reviewBusinessFields_(document.getElementById("bank-business").value)))
   } : null;
   if (newLoan && bankOpening_()) {
     // From before the app: only the installments still to pay, what they still owe, no account, and the bank's numbering.
@@ -32898,7 +32921,9 @@ async function openBankSchedule_(loanId, friend) {
     tr("bank.remainingPrincipal", { amount: m(sched.remaining_principal) }),
     next ? tr("bank.nextDue", { date: listDate_(next.due_date), amount: m(next.total) }) : "",
     // a loan from before the app that starts at installment 7: say where 1–6 went
-    sched.loan.opening && firstNo > 1 && firstNo !== Infinity ? tr(firstNo === 2 ? "bank.openingEarlierOne" : "bank.openingEarlier", { to: firstNo - 1 }) : ""
+    sched.loan.opening && firstNo > 1 && firstNo !== Infinity ? tr(firstNo === 2 ? "bank.openingEarlierOne" : "bank.openingEarlier", { to: firstNo - 1 }) : "",
+    // a company's loan: what was kept for SUNAT on the installments paid this month (Business 2, piece 3)
+    sched.loan.company_id && companyCopyOn_() ? tr("bank.withheldMonth", { amount: m(sched.withheld_month || 0) }) : ""
   ].filter(Boolean).join(" · ");
   const list = document.getElementById("bank-schedule-list");
   list.innerHTML = "";
@@ -33090,8 +33115,12 @@ function bankCountOf_(sched) { return sched.installments.reduce((n, r) => Math.m
 let bankRecordCtx_ = null;
 function bankRecordTotal_() {
   const cur = bankRecordCtx_.sched.loan.currency;
-  const t = bankNum_(document.getElementById("bank-record-principal").value) + bankNum_(document.getElementById("bank-record-interest").value) + bankNum_(document.getElementById("bank-record-fees").value);
+  const principal = bankNum_(document.getElementById("bank-record-principal").value), interest = bankNum_(document.getElementById("bank-record-interest").value);
+  const held = document.getElementById("bank-record-withholding-field").hidden ? 0 : bankNum_(document.getElementById("bank-record-withholding").value);
+  const t = principal + interest + bankNum_(document.getElementById("bank-record-fees").value) - held;
   document.getElementById("bank-record-total").textContent = tr("bank.recordTotal", { amount: `${cur} ${moneyFmt(t)}` });
+  // A lender's loan: what reaches the lender (the gross interest minus what is kept for SUNAT), shown, never typed.
+  document.getElementById("bank-record-net").textContent = held > 0 ? tr("bank.netToLender", { amount: `${cur} ${moneyFmt(principal + interest - held)}`, held: `${cur} ${moneyFmt(held)}` }) : "";
 }
 
 function openBankRecord_(inst, sched) {
@@ -33108,6 +33137,12 @@ function openBankRecord_(inst, sched) {
   later.textContent = tr("bank.recordLater");
   document.getElementById("bank-record-category").prepend(later);
   document.getElementById("bank-record-category").value = "";
+  // A company's loan (Business 2, piece 3): its interest goes to "Loan interest" when that category exists, and a withholding box shows.
+  const coLoan = !!sched.loan.company_id && companyCopyOn_();
+  document.getElementById("bank-record-withholding-field").hidden = !coLoan;
+  document.getElementById("bank-record-withholding").value = "";
+  const interestCat = coLoan ? (meta.categories || []).find((c) => c.type === "expense" && c.key === "loan_interest" && c.hidden !== "yes") : null;
+  if (interestCat && [...document.getElementById("bank-record-category").options].some((o) => o.value === interestCat.id)) document.getElementById("bank-record-category").value = interestCat.id;
   document.getElementById("bank-record-error").textContent = "";
   bankRecordTotal_();
   const backdrop = document.getElementById("bank-record-modal-backdrop");
@@ -33115,7 +33150,7 @@ function openBankRecord_(inst, sched) {
   backdrop.hidden = false;
 }
 
-["bank-record-principal", "bank-record-interest", "bank-record-fees"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankRecordCtx_ && bankRecordTotal_()));
+["bank-record-principal", "bank-record-interest", "bank-record-fees", "bank-record-withholding"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankRecordCtx_ && bankRecordTotal_()));
 document.getElementById("bank-record-close").addEventListener("click", () => { document.getElementById("bank-record-modal-backdrop").hidden = true; });
 document.getElementById("bank-record-cancel").addEventListener("click", () => { document.getElementById("bank-record-modal-backdrop").hidden = true; });
 document.getElementById("bank-record-save").addEventListener("click", () => {
@@ -33128,8 +33163,11 @@ document.getElementById("bank-record-save").addEventListener("click", () => {
     principal: bankNum_(document.getElementById("bank-record-principal").value),
     interest: bankNum_(document.getElementById("bank-record-interest").value),
     fees: bankNum_(document.getElementById("bank-record-fees").value),
-    category_id: document.getElementById("bank-record-category").value
+    category_id: document.getElementById("bank-record-category").value,
+    ...(document.getElementById("bank-record-withholding-field").hidden ? {} : { withholding: bankNum_(document.getElementById("bank-record-withholding").value) })
   };
+  // checked here, while the window is open: the withholding is part of the interest
+  if (payload.withholding > 0 && payload.withholding - payload.interest > 0.004) { document.getElementById("bank-record-error").textContent = tr("bank.withholdingTooBig"); return; }
   const friend = bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name };
   document.getElementById("bank-record-modal-backdrop").hidden = true;
   bankLoanDetailUpdating_(friend);

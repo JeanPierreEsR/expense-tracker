@@ -626,7 +626,8 @@ function createLoan_(fields) {
     transfer_entry_id: '',
     project_id: fields.project_id || ''   // Business pack: the project this debt belongs to (blank = personal)
   };
-  if (loan.project_id) ensureBusinessSheets_();   // the column is created by the pack's first use, never on a copy that does not opt in
+  if (fields.company_id) loan.company_id = fields.company_id;   // ... and its company (a project's own, or a company with no project)
+  if (loan.project_id || loan.company_id) ensureBusinessSheets_();   // the column is created by the pack's first use, never on a copy that does not opt in
   if (fields.opening) {
     // A debt from BEFORE the person started using the app: only the debt is recorded, no money moved now, so no money entry
     // and no account (nothing on Home, no balance changes). A later repayment is the only thing that moves money.
@@ -753,6 +754,7 @@ function addLoan(payload) {
     payment_method_id: opening ? '' : (payload.payment_method_id || ''),
     description: payload.description || '',
     project_id: projectIdForLoan_(payload.project_id),
+    company_id: companyIdForLoan_(payload.company_id, payload.project_id),
     opening: opening
   });
 }
@@ -1320,7 +1322,11 @@ function createOverpaymentEntry_(type, payload) {
     import_batch_id: '',
     created_at: nowTimestamp_()
   };
-  if (defaultCompanyId_()) { entry.company_id = ''; entry.project_id = ''; }   // money with a friend stays personal (CompanyCopy.gs)
+  // A company's loan (a lender's installment interest, Business 2 piece 3) puts it on the loan's company / project; otherwise money with
+  // a friend stays personal, also on a company copy (CompanyCopy.gs).
+  var link = payload.company_id || payload.project_id ? businessLinkFor_(type, payload.project_id, payload.company_id) : null;
+  if (link && link.company_id) { ensureBusinessSheets_(); entry.company_id = link.company_id; entry.project_id = link.project_id; }
+  else if (defaultCompanyId_()) { entry.company_id = ''; entry.project_id = ''; }
   appendRowObject('Entries', entry);
   return entry;
 }

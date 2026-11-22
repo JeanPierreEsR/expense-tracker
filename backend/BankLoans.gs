@@ -49,6 +49,7 @@ function loanInstallmentsOf_(loanId) {
         id: r.id, loan_id: r.loan_id, number: Number(r.number), due_date: String(r.due_date),
         principal: principal, interest: interest, fees: fees, total: bankRound_(principal + interest + fees),
         paid: paid, paid_date: paid ? String(r.paid_date || '') : '', transfer_entry_id: paid ? r.transfer_entry_id : '',
+        withholding: paid ? Number(r.withholding) || 0 : 0,   // the part of the interest kept for the tax office (a company's loan)
         status: paid ? 'paid' : (String(r.due_date) < today ? 'overdue' : 'due')
       };
     })
@@ -120,15 +121,50 @@ function saveBankLoan(payload) {
   var rows = cleanInstallments_(payload.installments, bankRound_(payload.amount));   // checked first: nothing is created when it is wrong
   var opening = payload.opening === true || payload.opening === 'true' || payload.opening === 1 || payload.opening === '1';
   var firstNumber = Math.max(1, Math.round(Number(payload.first_number) || 1));
-  if (!friendId) friendId = addFriend({ name: payload.friend_name }).id;
+  // A lender's loan to a company (Business 2, piece 3; `lender: true` comes from a company copy): the person is a "lender", and the
+  // loan belongs to the company and, optionally, a project. Only while the pack is on; a bank's loan stays as it was.
+  var asLender = !!payload.lender && businessOn_();
+  if (!friendId) friendId = addFriend(asLender ? { name: payload.friend_name, role: 'lender' } : { name: payload.friend_name }).id;
+  else if (asLender) markLender_(friendId);
   var loan = addLoan({
     friend_id: friendId, direction: 'i_owe_them', amount: bankRound_(payload.amount), currency: payload.currency,
     date: payload.date, due_date: rows[rows.length - 1].due_date, payment_method_id: opening ? '' : payload.payment_method_id,
-    description: payload.description, opening: opening
+    description: payload.description, opening: opening, project_id: payload.project_id, company_id: payload.company_id
   });
   ensureLoanInstallmentsSheet_();
   appendInstallmentRows_(loan.id, rows, firstNumber);
   return { loan: loan, installments: loanInstallmentsOf_(loan.id) };
+}
+
+// The company a loan belongs to ('' = personal): its own, else its project's.
+function loanCompanyOf_(loanId) {
+  var loan = getAllRows('Loans').find(function (l) { return l.id === loanId; });
+  if (!loan) return '';
+  if (loan.company_id) return String(loan.company_id);
+  var project = loan.project_id ? projectById_(loan.project_id) : null;
+  return project ? String(project.company_id || '') : '';
+}
+
+// A plain friend who lends to the company becomes a lender (a client, supplier or partner keeps their role).
+function markLender_(friendId) {
+  var f = getAllRows('Friends').find(function (x) { return x.id === friendId; });
+  if (!f || friendRoleOf_(f) !== 'friend' || f.trip_id) return;
+  ensureBusinessSheets_();
+  var sheet = getSheet('Friends');
+  var headers = getHeaders(sheet);
+  setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, friendId), 'role', 'lender');
+}
+
+// ---- The withholding on a lender's interest (Business 2, piece 3; owner's choice 2026-11-22: "a debt with SUNAT") ----
+// The company pays the lender the interest MINUS a part it keeps for the tax office. The interest expense is the gross amount; the part
+// kept is money the company now OWES the tax office: an ordinary loan "I owe them" to a person named SUNAT (role lender), on the same
+// company / project, whose own transfer puts that part back in the account. So the account drops by what really left (net), the
+// interest is counted once, and paying the tax office later is a repayment of that debt (Needs review → repayment), never an expense.
+function withholdingPersonId_() {
+  var name = tr_('bank.withholdingPerson');
+  var f = getAllRows('Friends').find(function (x) { return !x.trip_id && String(x.name).trim().toLowerCase() === name.toLowerCase(); });
+  if (f) { markLender_(f.id); return f.id; }
+  return addFriend({ name: name, role: 'lender' }).id;
 }
 
 function getLoanSchedule(payload) {
@@ -139,9 +175,12 @@ function getLoanSchedule(payload) {
   // what is still owed counts EVERYTHING repaid on the loan (installments and early payments), not just the paid installments
   var paidPrincipal = getAllRows('Settlements').filter(function (st) { return st.loan_id === loan.id; }).reduce(function (n, st) { return n + Number(st.amount); }, 0);
   return {
-    loan: { id: loan.id, amount: Number(loan.amount), currency: loan.currency, date: loan.date, description: loan.description || '', friend_id: loan.friend_id, friend_name: friend ? friend.name : '', payment_method_id: loan.payment_method_id || '', opening: isOpeningLoan_(loan) },   // (the installment window starts on the account it arrived in)
+    loan: { id: loan.id, amount: Number(loan.amount), currency: loan.currency, date: loan.date, description: loan.description || '', friend_id: loan.friend_id, friend_name: friend ? friend.name : '', payment_method_id: loan.payment_method_id || '', opening: isOpeningLoan_(loan),
+      company_id: loanCompanyOf_(loan.id), project_id: String(loan.project_id || '') },   // (the installment window starts on the account it arrived in)
     installments: rows,
     remaining_principal: bankRound_(Number(loan.amount) - paidPrincipal),
+    // A company's loan: what was kept for the tax office on installments paid this month (Business 2, piece 3). 0 otherwise.
+    withheld_month: bankRound_(rows.reduce(function (n, r) { return n + (r.paid && String(r.paid_date).substring(0, 7) === bankToday_().substring(0, 7) ? r.withholding : 0); }, 0)),
     totals: {
       principal: bankRound_(rows.reduce(function (n, r) { return n + r.principal; }, 0)),
       interest: bankRound_(rows.reduce(function (n, r) { return n + r.interest; }, 0)),
@@ -192,6 +231,9 @@ function recordInstallment(payload) {
   var interest = payload.interest !== undefined && payload.interest !== '' ? bankRound_(payload.interest) : live.interest;
   var fees = payload.fees !== undefined && payload.fees !== '' ? bankRound_(payload.fees) : live.fees;
   if (principal < 0 || interest < 0 || fees < 0 || !(principal + interest + fees > 0)) throw new Error(tr_('err.validAmount'));
+  // The part of the interest the company keeps for the tax office (a lender's loan only; never more than the interest).
+  var withholding = businessOn_() && loanCompanyOf_(row.loan_id) && Number(payload.withholding) > 0 ? bankRound_(payload.withholding) : 0;
+  if (withholding - interest > 0.004) throw new Error(tr_('bank.withholdingTooBig'));
   var settled = getAllRows('Settlements').filter(function (s) { return s.loan_id === loan.id; })
     .reduce(function (n, s) { return n + Number(s.amount); }, 0);
   var room = bankRound_(Number(loan.amount) - settled);
@@ -211,7 +253,8 @@ function recordInstallment(payload) {
     var extraEntry = createOverpaymentEntry_('expense', {
       friend_id: loan.friend_id, amount: extra, currency: loan.currency, date: payload.date, payment_method_id: payload.payment_method_id,
       category_id: payload.category_id || '', pending: !payload.category_id,
-      description: tr_('bank.extraDesc', { n: live.number, count: count, what: what })
+      description: tr_('bank.extraDesc', { n: live.number, count: count, what: what }),
+      project_id: loan.project_id || '', company_id: loan.company_id || ''   // a company's loan: its interest is the company's expense
     });
     extraId = extraEntry.id;
   }
@@ -220,6 +263,16 @@ function recordInstallment(payload) {
     updateLoanStatusFromSettlements_(loan.id);
   }
   var backingId = transfer ? transfer.id : extraId;
+  // The withholding: a debt with the tax office whose own transfer brings that part back into the account (see withholdingPersonId_).
+  var withholdingLoanId = '';
+  if (withholding > 0.004) {
+    var held = addLoan({
+      friend_id: withholdingPersonId_(), direction: 'i_owe_them', amount: withholding, currency: loan.currency, date: payload.date,
+      due_date: '', payment_method_id: payload.payment_method_id || '', project_id: loan.project_id || '', company_id: loan.company_id || '',
+      description: tr_('bank.withholdingDesc', { n: live.number, count: count, what: what })
+    });
+    withholdingLoanId = held.id;
+  }
 
   var sheet = getSheet('Loan Installments');
   var headers = getHeaders(sheet);
@@ -229,7 +282,14 @@ function recordInstallment(payload) {
   setCellByRow_(sheet, headers, idx, 'fees', fees);
   setCellByRow_(sheet, headers, idx, 'transfer_entry_id', backingId);
   setCellByRow_(sheet, headers, idx, 'paid_date', payload.date);
-  return { installment: loanInstallmentsOf_(loan.id).find(function (r) { return r.id === row.id; }), transfer_entry_id: transfer ? transfer.id : '', extra_entry_id: extraId };
+  if (withholding > 0.004 || row.withholding) {
+    ['withholding', 'withholding_loan_id'].forEach(function (c) { ensureColumn_('Loan Installments', c); });
+    sheet = getSheet('Loan Installments'); headers = getHeaders(sheet); idx = findRowIndexById(sheet, headers, row.id);
+    setCellByRow_(sheet, headers, idx, 'withholding', withholding || '');
+    setCellByRow_(sheet, headers, idx, 'withholding_loan_id', withholdingLoanId);
+  }
+  return { installment: loanInstallmentsOf_(loan.id).find(function (r) { return r.id === row.id; }), transfer_entry_id: transfer ? transfer.id : '', extra_entry_id: extraId,
+    withholding_loan_id: withholdingLoanId };
 }
 
 // An EARLY payment (prepago, owner's request, 2026-10-29): extra principal paid ahead of the schedule, with an optional prepayment fee

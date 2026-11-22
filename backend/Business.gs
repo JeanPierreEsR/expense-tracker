@@ -89,6 +89,7 @@ function ensureBusinessSheets_() {
   // Step 2: a person's business role and the project a debt belongs to (both created only on first use of the pack).
   ensureColumn_('Friends', 'role');
   ensureColumn_('Loans', 'project_id');
+  ensureColumn_('Loans', 'company_id');     // Business 2, piece 3: a loan to the company with no project
   ensureColumn_('Projects', 'client_id');   // the person who repays this project's reimbursable costs (optional)
 }
 
@@ -742,7 +743,7 @@ function listCompaniesAndProjects(payload) {
 // A person keeps ONE role (friend by default). It only decides where they are listed; the debts themselves are the ordinary Loans,
 // each now optionally carrying the project it belongs to (Loans.project_id). Everything stays per currency, never converted.
 
-var BUSINESS_ROLES_ = { friend: true, client: true, supplier: true, partner: true };
+var BUSINESS_ROLES_ = { friend: true, client: true, supplier: true, partner: true, lender: true };   // lender: Business 2, piece 3
 
 function friendRoleOf_(f) {
   var role = f && f.role;
@@ -752,6 +753,16 @@ function friendRoleOf_(f) {
 // The role a request asks for; anything unknown (or while the pack is off) is a plain friend.
 function businessRoleFromPayload_(role) {
   return businessOn_() && BUSINESS_ROLES_[role] ? role : 'friend';
+}
+
+// The company a debt belongs to (Business 2, piece 3: a lender's loan to the company): a project forces its own company; else a
+// real company id; '' while the pack is off or for anything unknown.
+function companyIdForLoan_(companyId, projectId) {
+  if (!businessOn_()) return '';
+  var project = projectId ? projectById_(projectId) : null;
+  if (project) return String(project.company_id || '');
+  var company = companyId ? companyById_(companyId) : null;
+  return company ? String(company.id) : '';
 }
 
 // A project id a debt may carry: only a real one, only while the pack is on. Anything else = none.
@@ -771,7 +782,7 @@ function loanProjectScope_(payload) {
 function loanInProjectScope_(loan, scope) {
   if (!scope) return true;
   var mine = String(loan.project_id || '');
-  return scope === 'personal' ? !mine : mine === scope;
+  return scope === 'personal' ? !mine && !String(loan.company_id || '') : mine === scope;   // a company's loan with no project is not personal
 }
 
 // Puts an expense/income entry (an overpayment, a forgiveness) on a project and its company.
