@@ -1320,6 +1320,7 @@ function createOverpaymentEntry_(type, payload) {
     import_batch_id: '',
     created_at: nowTimestamp_()
   };
+  if (defaultCompanyId_()) { entry.company_id = ''; entry.project_id = ''; }   // money with a friend stays personal (CompanyCopy.gs)
   appendRowObject('Entries', entry);
   return entry;
 }

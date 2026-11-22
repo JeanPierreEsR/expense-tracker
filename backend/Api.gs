@@ -877,6 +877,7 @@ function appendRowObject(sheetName, obj) {
   }
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
+  if (sheetName === 'Entries') companyDefaultForNewEntry_(obj, headers);   // a company copy's one company (CompanyCopy.gs)
   var row = headers.map(function (h) { return obj[h] !== undefined ? safeCellValue_(sheetName, h, obj[h]) : ''; });
   sheet.appendRow(row);
   if (ROWS_MEMO_) { delete ROWS_MEMO_[sheetName]; delete ROWS_MEMO_['@c:' + sheetName]; }
@@ -1126,6 +1127,8 @@ function createEntry(payload) {
     // The IGV inside the amount (a company's expense or income only; refused if it is not smaller than the amount).
     var igv = cleanIgv_(entry.type, entry.amount, businessLink, payload.igv_amount);
     if (igv) entry.igv_amount = igv;
+  } else if (payload.company_id !== undefined || payload.project_id !== undefined) {
+    entry.company_id = ''; entry.project_id = '';   // "Personal", chosen: never given a company copy's company (CompanyCopy.gs)
   }
   // Saved with no category (the person chose not to pick one): fill it from what they decided for the same merchant
   // or description before, else leave it blank for Tidy my history. See CategoryFollow.gs.
@@ -1164,7 +1167,7 @@ function createEntry(payload) {
 }
 
 function confirmEntryFromApp_(payload) {
-  confirmEntryWithLearning_(payload.id);
+  confirmEntryWithLearning_(payload.id, { personal: !!payload.personal });
   // Confirming gives the entry its category for good: the blank look-alikes (imports waiting in Tidy my history) follow, with Undo.
   var followed = null;
   try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }
@@ -1313,7 +1316,9 @@ function saveEntryAll(payload) {
   } else if (kind === 'update' || kind === 'confirm') {
     id = payload.id;
     out = updateEntryFromApp_({ id: id, fields: payload.fields === undefined ? null : payload.fields });
-    if (kind === 'confirm') out = confirmEntryFromApp_({ id: id });
+    // "Personal" chosen on the card or in the form arrives as a blank company AND project: Confirm then gives no company.
+    var chosePersonal = !!payload.personal || !!(payload.fields && payload.fields.company_id === '' && payload.fields.project_id === '');
+    if (kind === 'confirm') out = confirmEntryFromApp_({ id: id, personal: chosePersonal });
     // Needs review's "This is my Salary for August" line, left ticked: the confirm links it (owner's plan, 2026-11-17).
     if (kind === 'confirm' && payload.link_recurring_id) {
       try {

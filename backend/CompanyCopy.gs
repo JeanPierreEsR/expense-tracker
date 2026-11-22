@@ -152,3 +152,34 @@ function applySectorPack_(sector) {
   if (ROWS_MEMO_) delete ROWS_MEMO_['Categories'];
   return { added: added, hidden: hidden };
 }
+
+// ---- Piece 2: everything belongs to the company (Business 2 plan, 2026-11-22) ----
+// On a company copy with exactly ONE company, every new expense or income belongs to it, whatever made it (the "+" form,
+// bank e-mails, Apple Pay, the bots, photos, statements), and Confirm checks again. Two or more companies: nothing is
+// guessed (''). Outside a company copy: always '' (the owner's and friends' copies never change).
+function defaultCompanyId_() {
+  if (!isCompanyCopy_() || !businessOn_()) return '';
+  var ids = getCompanyRows_().map(function (c) { return String(c.id || ''); }).filter(function (id) { return id; });
+  return ids.length === 1 ? ids[0] : '';
+}
+
+// Called for every row written to Entries (appendRowObject, appendRowsBulk_). A row that already says something about its
+// company (the "+" form sends '' for "Personal") is left alone; so are transfers, investments, practice entries and an
+// income not received yet (it may not belong to a company: checkWaitingIncome_).
+function companyDefaultForNewEntry_(obj, headers) {
+  if (!obj || (obj.type !== 'expense' && obj.type !== 'income')) return;
+  if (obj.company_id !== undefined || obj.project_id !== undefined) return;
+  if (headers.indexOf('company_id') === -1 || headers.indexOf('project_id') === -1) return;
+  if (obj.income_waiting || isPracticeEntry_(obj)) return;
+  var id = defaultCompanyId_();
+  if (id) { obj.company_id = id; obj.project_id = ''; }
+}
+
+// Confirm's second check (confirmEntryWithLearning_): an expense or income still with no company gets it, unless the person
+// chose "Personal" on the card or in the form (`personal`).
+function companyDefaultOnConfirm_(entry, personal) {
+  if (personal || !entry || (entry.type !== 'expense' && entry.type !== 'income')) return;
+  if (entry.company_id || entry.project_id || String(entry.income_waiting || '') !== '') return;
+  var id = defaultCompanyId_();
+  if (id) setEntryField_(entry.id, 'company_id', id);
+}

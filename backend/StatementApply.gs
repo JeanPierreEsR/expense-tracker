@@ -164,6 +164,7 @@ function appendRowsBulk_(sheetName, objs) {
   if (sheetName === 'Statement Lines') STMT_COVERAGE_MEMO_ = null;
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
+  if (sheetName === 'Entries') objs.forEach(function (o) { companyDefaultForNewEntry_(o, headers); });   // CompanyCopy.gs
   var rows = objs.map(function (o) { return headers.map(function (h) { return o[h] !== undefined ? (sheetName === 'Entries' ? sheetSafeText_(o[h]) : o[h]) : ''; }); });
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
 }
