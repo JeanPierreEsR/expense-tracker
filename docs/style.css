@@ -3420,6 +3420,18 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .business-cur-head { font-weight: 700; font-size: 0.875rem; color: var(--muted); margin-bottom: 4px; }
 .business-cur-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 1rem; }
 .business-cur-row.margin { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; font-weight: 700; }
+/* Step 4: the statement's table (label + three number columns) and the accountant comparison */
+.statement-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 1fr); gap: 4px; padding: 3px 0; font-size: 0.8125rem; align-items: baseline; }
+.statement-row.statement-head { font-size: 0.6875rem; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.statement-row.result { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; font-weight: 700; }
+.statement-head .statement-num { overflow-wrap: normal; font-size: 0.875em; }   /* "Movimientos" must not break in two */
+.statement-label { overflow-wrap: anywhere; }
+.statement-num { text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.statement-sub-title { font-weight: 600; margin: 10px 0 2px; }
+.statement-compare { cursor: pointer; }
+.statement-compare-head { font-weight: 600; margin-bottom: 4px; }
+.statement-match { color: var(--income); font-size: 0.875rem; padding-top: 4px; }
+.statement-opening-row { cursor: pointer; }
 .business-neg { color: var(--expense); }
 .business-pos { color: var(--income); }
 .business-company-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 18px 0 4px; }

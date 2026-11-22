@@ -164,7 +164,10 @@ function sheetSafeText_(v) {
 // Rafael, 2026-11-21: an account's name is its 'nickname' column (it was listed as 'name', a column that does not exist, so account
 // names were never guarded; an import can now create accounts from a file). Every column listed here must exist (sheet-cells test).
 var SHEET_SAFE_COLUMNS_ = { Friends: ['name', 'notes'], Loans: ['description'], Categories: ['name'], 'Payment Methods': ['nickname'],
-  Tags: ['name'], Trips: ['name', 'emoji'], Banks: ['name'], Payors: ['name', 'notes'], Budgets: ['name'], 'Recurring Expenses': ['description'], Settings: ['value'] };
+  Tags: ['name'], Trips: ['name', 'emoji'], Banks: ['name'], Payors: ['name', 'notes'], Budgets: ['name'], 'Recurring Expenses': ['description'], Settings: ['value'],
+  // Business pack tabs (2026-11-21, found when step 4's CSV test met the formula-aware fake: a project named "=Casa, Lima" was stored as a formula).
+  Companies: ['name', 'emoji', 'tax_id'], Projects: ['name', 'emoji'], 'Expected Payments': ['invoice_no', 'note'], 'IGV Payments': ['note'],
+  'Business Openings': ['note'], 'Accountant Figures': ['note'] };
 function safeCellValue_(sheetName, column, value) {
   if (sheetName === 'Entries') return sheetSafeText_(value);
   return (SHEET_SAFE_COLUMNS_[sheetName] || []).indexOf(column) >= 0 ? sheetSafeText_(value) : value;

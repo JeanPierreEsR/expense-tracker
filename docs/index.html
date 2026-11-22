@@ -1166,6 +1166,20 @@
       </div>
     </div>
 
+    <div id="screen-business-statement" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="icon-btn back-btn" id="statement-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <button type="button" class="add-inline" id="statement-csv-btn" data-i18n="statement.csv">Download (CSV)</button>
+        </div>
+        <h2 class="screen-title" style="margin-top:0;" id="statement-title"></h2>
+        <p class="hint" id="statement-sub"></p>
+        <select id="statement-period" class="business-period-select"></select>
+        <div id="statement-body"></div>
+        <p class="hint error-text" id="statement-error"></p>
+      </div>
+    </div>
+
     <div id="screen-business-detail" class="screen" hidden>
       <div class="card">
         <div class="budgets-header">
@@ -3587,6 +3601,75 @@
         <p class="hint error-text" id="igv-payment-error"></p>
         <button type="button" class="primary" id="igv-payment-save-btn" data-i18n="business.save">Save</button>
         <button type="button" class="delete-entry-btn" id="igv-payment-delete-btn" hidden data-i18n="igv.paymentDelete">Delete this IGV payment</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="opening-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="opening-modal-title" data-i18n="opening.title">Opening figures</span>
+        <button type="button" id="opening-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="opening.hint">What this was worth up to a date, without IGV.</p>
+
+        <label for="opening-currency" data-i18n="field.currency">Currency</label>
+        <input type="text" id="opening-currency" maxlength="3" autocapitalize="characters">
+
+        <label for="opening-date" data-i18n="opening.asOf">As of</label>
+        <input type="date" id="opening-date">
+
+        <label for="opening-income" data-i18n="statement.line.income">Income received</label>
+        <input type="text" inputmode="decimal" id="opening-income" placeholder="0.00">
+        <label for="opening-igv-collected" data-i18n="statement.line.igv_collected">IGV collected</label>
+        <input type="text" inputmode="decimal" id="opening-igv-collected" placeholder="0.00">
+        <label for="opening-costs" data-i18n="statement.line.costs">Costs paid</label>
+        <input type="text" inputmode="decimal" id="opening-costs" placeholder="0.00">
+        <label for="opening-igv-credit" data-i18n="statement.line.igv_credit">IGV credit</label>
+        <input type="text" inputmode="decimal" id="opening-igv-credit" placeholder="0.00">
+
+        <label for="opening-note"><span data-i18n="xp.note">Note</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="opening-note" maxlength="200">
+
+        <p class="hint" id="opening-impact"></p>
+        <p class="hint error-text" id="opening-error"></p>
+        <button type="button" class="primary" id="opening-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="opening-delete-btn" hidden data-i18n="opening.delete">Delete these opening figures</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="accountant-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="accountant.title">Accountant's figures</span>
+        <button type="button" id="accountant-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="accountant.hint">The figures your accountant gives you as of a date, without IGV.</p>
+
+        <label for="accountant-currency" data-i18n="field.currency">Currency</label>
+        <input type="text" id="accountant-currency" maxlength="3" autocapitalize="characters">
+
+        <label for="accountant-date" data-i18n="opening.asOf">As of</label>
+        <input type="date" id="accountant-date">
+
+        <label for="accountant-income" data-i18n="statement.line.income">Income received</label>
+        <input type="text" inputmode="decimal" id="accountant-income" placeholder="0.00">
+        <label for="accountant-igv-collected" data-i18n="statement.line.igv_collected">IGV collected</label>
+        <input type="text" inputmode="decimal" id="accountant-igv-collected" placeholder="0.00">
+        <label for="accountant-costs" data-i18n="statement.line.costs">Costs paid</label>
+        <input type="text" inputmode="decimal" id="accountant-costs" placeholder="0.00">
+        <label for="accountant-igv-credit" data-i18n="statement.line.igv_credit">IGV credit</label>
+        <input type="text" inputmode="decimal" id="accountant-igv-credit" placeholder="0.00">
+
+        <label for="accountant-note"><span data-i18n="xp.note">Note</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="accountant-note" maxlength="200">
+
+        <p class="hint error-text" id="accountant-error"></p>
+        <button type="button" class="primary" id="accountant-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="accountant-delete-btn" hidden data-i18n="accountant.delete">Delete these figures</button>
       </div>
     </div>
   </div>

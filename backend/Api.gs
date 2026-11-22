@@ -319,6 +319,13 @@ function routeActionSwitch_(action, payload) {
     case 'listExpectedPayments': return listExpectedPayments(payload);
     case 'addExpectedPayment': return addExpectedPayment(payload);
     case 'getCompanyIgv': return getCompanyIgv(payload);
+    case 'getProjectStatement': return getProjectStatement(payload);
+    case 'getCompanyStatement': return getCompanyStatement(payload);
+    case 'saveAccountantFigures': return saveAccountantFigures(payload);
+    case 'deleteAccountantFigures': return deleteAccountantFigures(payload);
+    case 'saveBusinessOpening': return saveBusinessOpening(payload);
+    case 'deleteBusinessOpening': return deleteBusinessOpening(payload);
+    case 'getOpeningImpact': return getOpeningImpact(payload);
     case 'addIgvPayment': return addIgvPayment(payload);
     case 'updateIgvPayment': return updateIgvPayment(payload);
     case 'deleteIgvPayment': return deleteIgvPayment(payload);

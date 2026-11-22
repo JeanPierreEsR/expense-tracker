@@ -30,7 +30,8 @@ var EXPORT_BACKUP_TABS_ = [
   'Exchange Rates', 'Friends', 'Payors', 'Loans', 'Settlements', 'Budgets',
   'Recurring Expenses', 'Recurring Skips', 'Recurring Expense Splits',
   'Projection Overrides', 'Period Templates', 'Import Batches',
-  'Companies', 'Projects', 'Project Budgets', 'Expected Payments', 'IGV Payments'   // Business pack: always included when they exist, whatever the switch says
+  'Companies', 'Projects', 'Project Budgets', 'Expected Payments', 'IGV Payments',
+  'Business Openings', 'Accountant Figures'   // Business pack: always included when they exist, whatever the switch says
 ];
 
 // A value with no translated text (typed by hand in the Sheet) is written as it is.

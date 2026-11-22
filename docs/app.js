@@ -609,7 +609,7 @@ function currencyPickOn_(el) {
   });
   wrap.appendChild(btn);
 }
-["bank-currency", "exchange-out-currency", "exchange-in-currency", "welcome-main-select", "igv-payment-currency", "expected-currency"]
+["bank-currency", "exchange-out-currency", "exchange-in-currency", "welcome-main-select", "igv-payment-currency", "expected-currency", "opening-currency", "accountant-currency"]
   .forEach((id) => currencyPickOn_(document.getElementById(id)));
 
 // One rule for every pop-up sheet (owner, 2026-11-04): it closes with its ✕, and a tap on the dimmed area outside it does the same
@@ -10201,7 +10201,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["feedback-privacy", "recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
+const MORE_SUBSCREENS = ["feedback-privacy", "recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-statement", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
 // ---- The tab bar: the person chooses its tabs (owner, 2026-11-15; More → My profile → My tabs, specs/home-tab.md § My tabs) ----
 // Home is always there (its place can change); More is always there and always last; up to 6 tabs in all. A main screen taken out of the bar
 // is a row at the top of More; Trips, Programmed items and My data, put in the bar, leave More and their screens lose the Back to More.
@@ -21318,6 +21318,7 @@ function fillBusinessPeriodSelects_() {
 function refreshBusinessPeriodScreens_() {
   if (!document.getElementById("screen-business").hidden) refreshBusinessList_();
   if (!document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_();
+  if (!document.getElementById("screen-business-statement").hidden) refreshStatement_();
 }
 
 document.querySelectorAll(".business-period-select").forEach((sel) => sel.addEventListener("change", () => {
@@ -21707,6 +21708,8 @@ function renderBusinessDetail_(d) {
     ${currencies.length ? businessCurrencyCardsHtml_(currencies) : `<p class="hint">${escapeHtml(tr("business.nothingYet"))}</p>`}
     ${businessApproxHtml_(d)}
     ${currencies.some((c) => c.igv) ? `<p class="hint" style="margin-top:2px;">${escapeHtml(tr("igv.netNote"))}</p>` : ""}
+    ${d.openings && d.openings.length ? `<p class="hint" style="margin-top:2px;">${escapeHtml(tr("statement.detailNote", { dates: [...new Set(d.openings.map((o) => I18n.fmtDateMedium(new Date(o.as_of + "T00:00:00"))))].join(", ") }))}</p>` : ""}
+    <button type="button" class="add-inline" id="business-detail-statement-btn">${escapeHtml(tr(isProject ? "statement.openProject" : "statement.openCompany"))}</button>
     ${isProject ? businessOwedHtml_(d.debts || []) : ""}
     ${businessExpectedHtml_(d.expected || [], isProject)}
     ${chips}
@@ -21725,6 +21728,7 @@ function renderBusinessDetail_(d) {
   wireBusinessExpected_(d, isProject);
   const igvBtn = document.getElementById("business-detail-igv-btn");
   if (igvBtn) igvBtn.addEventListener("click", () => showIgvScreen_(d.company.id));
+  document.getElementById("business-detail-statement-btn").addEventListener("click", () => showStatementScreen_(businessDetail_.kind, businessDetail_.id));
   const statusBtn = document.getElementById("business-detail-status-btn");
   if (statusBtn) statusBtn.addEventListener("click", async () => {
     const closing = d.project.status !== "closed";
@@ -22126,7 +22130,8 @@ function renderIgvScreen_() {
     ${totals || `<p class="hint">${escapeHtml(tr("igv.nothingYet"))}</p>`}
     ${months ? `<h3 class="accounts-group-title">${escapeHtml(tr("igv.byMonth"))}</h3>${months}` : ""}
     ${payments ? `<h3 class="accounts-group-title">${escapeHtml(tr("igv.payments"))}</h3>${payments}` : ""}
-    <p class="hint">${escapeHtml(tr("igv.note"))}</p>`;
+    <p class="hint">${escapeHtml(tr("igv.note"))}</p>
+    ${d.hasOpenings ? `<p class="hint">${escapeHtml(tr("igv.openingNote"))}</p>` : ""}`;
   document.querySelectorAll("#igv-body .igv-payment-row").forEach((row) => row.addEventListener("click", () => {
     openIgvPaymentModal_(d.payments.find((p) => p.id === row.dataset.id) || null);
   }));
@@ -22191,6 +22196,358 @@ document.getElementById("igv-payment-delete-btn").addEventListener("click", asyn
   } catch (err) {
     document.getElementById("igv-payment-error").textContent = err.message;
   }
+});
+
+// ---- The project / company STATEMENT (step 4): Opening · Movements · Closing per currency, "right now", compare with the accountant ----
+
+let statementTarget_ = null;   // { kind: "project" | "company", id }
+let statementData_ = null;
+let editingOpening_ = null;    // { opening | null }
+let editingAccountant_ = null; // { figures | null }
+const STATEMENT_LINES = ["income", "igv_collected", "costs", "igv_credit", "result"];
+
+async function showStatementScreen_(kind, id) {
+  statementTarget_ = { kind, id };
+  statementData_ = null;
+  showMoreSub_("business-statement");
+  fillBusinessPeriodSelects_();
+  const known = kind === "project" ? (meta.projects || []).find((p) => p.id === id) : (meta.companies || []).find((c) => c.id === id);
+  document.getElementById("statement-title").textContent = tr(kind === "project" ? "statement.titleProject" : "statement.titleCompany");
+  document.getElementById("statement-sub").textContent = known ? (kind === "project" ? projectLabel_(known) : companyLabel_(known)) : "";
+  document.getElementById("statement-body").innerHTML = loadingHtml_();
+  document.getElementById("statement-csv-btn").disabled = true;
+  await refreshStatement_();
+}
+
+async function refreshStatement_() {
+  const target = statementTarget_;
+  if (!target) return;
+  const errorEl = document.getElementById("statement-error");
+  errorEl.textContent = "";
+  try {
+    await waitForEntryEditsToSave_();
+    const b = businessBounds_();
+    const data = await callApi(target.kind === "project" ? "getProjectStatement" : "getCompanyStatement", { id: target.id, startDate: b.startDate || "", endDate: b.endDate || "", today: todayLocalISO() });
+    if (!statementTarget_ || statementTarget_.id !== target.id) return;   // moved on while loading
+    statementData_ = data;
+    renderStatement_();
+  } catch (err) {
+    document.getElementById("statement-body").innerHTML = "";
+    errorEl.textContent = tr("statement.loadFailed", { error: err.message });
+  }
+}
+
+function statementFigureHtml_(n, line) {
+  const cls = line === "result" ? (n < -0.004 ? "business-neg" : (n > 0.004 ? "business-pos" : "")) : "";
+  return `<span class="${cls}">${moneyFmt(n)}</span>`;
+}
+
+function statementBlockHtml_(b) {
+  const rows = STATEMENT_LINES.map((line) => `
+    <div class="statement-row${line === "result" ? " result" : ""}">
+      <span class="statement-label">${escapeHtml(tr("statement.line." + line))}</span>
+      ${["opening", "movements", "closing"].map((col) => `<span class="statement-num">${statementFigureHtml_(b[col][line], line)}</span>`).join("")}
+    </div>`).join("");
+  return `
+    <div class="business-cur-card">
+      <div class="business-cur-head">${escapeHtml(b.currency)}</div>
+      <div class="statement-row statement-head">
+        <span class="statement-label"></span>
+        <span class="statement-num">${escapeHtml(tr("statement.colOpening"))}</span>
+        <span class="statement-num">${escapeHtml(tr("statement.colMovements"))}</span>
+        <span class="statement-num">${escapeHtml(tr("statement.colClosing"))}</span>
+      </div>
+      ${rows}
+    </div>`;
+}
+
+function statementRightNowHtml_(d) {
+  const people = d.rightNow.people.flatMap((p) => p.balances.map((bal) => {
+    const amount = businessAmount_(bal.currency, Math.abs(bal.net));
+    return `<div class="recurring-row trip-static-row"><div class="recurring-row-name">${escapeHtml(tr(bal.net > 0 ? "statement.owesYou" : "statement.youOwe", { name: p.name, amount }))}</div></div>`;
+  })).join("");
+  const expected = d.rightNow.expected.items.map((x) => `
+    <div class="recurring-row trip-static-row">
+      <div>
+        <div class="recurring-row-name">${escapeHtml(x.invoice_no || x.client_name || tr("xp.title"))}</div>
+        <div class="recurring-row-sub">${escapeHtml(expectedDueText_(x))}</div>
+      </div>
+      <div class="recurring-row-amount">${escapeHtml(businessAmount_(x.currency, x.remaining))}</div>
+    </div>`).join("");
+  return `
+    <h3 class="accounts-group-title">${escapeHtml(tr("statement.rightNow"))}</h3>
+    <p class="hint" style="margin-top:0;">${escapeHtml(tr(d.kind === "project" ? "statement.rightNowHint" : "statement.rightNowCompanyHint"))}</p>
+    ${people}
+    ${expected ? `<div class="statement-sub-title">${escapeHtml(tr("statement.expectedTitle"))}</div>${expected}` : ""}
+    ${!people && !expected ? `<p class="hint">${escapeHtml(tr("statement.nothingNow"))}</p>` : ""}`;
+}
+
+function statementOpeningsHtml_(d) {
+  const rows = d.openings.map((o) => `
+    <div class="recurring-row statement-opening-row" data-id="${escapeHtml(o.id)}">
+      <div>
+        <div class="recurring-row-name">${escapeHtml(tr(d.kind === "company" && !o.project_id ? "statement.openingRowCompanyLevel" : "statement.openingRow", { currency: o.currency, date: I18n.fmtDateMedium(new Date(o.as_of + "T00:00:00")) }))}</div>
+        <div class="recurring-row-sub">${escapeHtml([o.project_name || "", o.note || ""].filter(Boolean).join(" · "))}</div>
+      </div>
+    </div>`).join("");
+  return `
+    <h3 class="accounts-group-title">${escapeHtml(tr("statement.openingTitle"))}</h3>
+    <p class="hint" style="margin-top:0;">${escapeHtml(tr("statement.openingHint"))}</p>
+    ${rows}
+    <button type="button" class="add-inline" id="statement-add-opening-btn">${escapeHtml(tr("statement.addOpening"))}</button>`;
+}
+
+function statementCompareHtml_(d) {
+  const sets = d.accountant.map((a) => {
+    const head = `<div class="statement-compare-head">${escapeHtml(tr("statement.compareAsOf", { date: I18n.fmtDateMedium(new Date(a.as_of + "T00:00:00")), currency: a.currency }))}</div>`;
+    if (a.status === "beforeOpening") {
+      return `<div class="business-cur-card statement-compare" data-id="${escapeHtml(a.id)}">${head}<p class="hint">${escapeHtml(tr("statement.beforeOpening"))}</p></div>`;
+    }
+    const rows = STATEMENT_LINES.map((line) => {
+      const diff = a.diff[line];
+      const cls = Math.abs(diff) < 0.005 ? "business-pos" : "business-neg";
+      return `
+        <div class="statement-row${line === "result" ? " result" : ""}">
+          <span class="statement-label">${escapeHtml(tr("statement.line." + line))}</span>
+          <span class="statement-num">${moneyFmt(a.app[line])}</span>
+          <span class="statement-num">${moneyFmt(a.accountant[line])}</span>
+          <span class="statement-num"><span class="${cls}">${Math.abs(diff) < 0.005 ? "✓" : moneyFmt(diff)}</span></span>
+        </div>`;
+    }).join("");
+    return `
+      <div class="business-cur-card statement-compare" data-id="${escapeHtml(a.id)}">
+        ${head}
+        <div class="statement-row statement-head">
+          <span class="statement-label"></span>
+          <span class="statement-num">${escapeHtml(tr("statement.appAt"))}</span>
+          <span class="statement-num">${escapeHtml(tr("statement.accountantAt"))}</span>
+          <span class="statement-num">${escapeHtml(tr("statement.differs"))}</span>
+        </div>
+        ${rows}
+        ${a.status === "match" ? `<div class="statement-match">${escapeHtml(tr("statement.match"))}</div>` : ""}
+      </div>`;
+  }).join("");
+  return `
+    <h3 class="accounts-group-title">${escapeHtml(tr("statement.compareTitle"))}</h3>
+    <p class="hint" style="margin-top:0;">${escapeHtml(tr("statement.compareHint"))}</p>
+    ${sets}
+    <button type="button" class="add-inline" id="statement-add-compare-btn">${escapeHtml(tr("statement.addCompare"))}</button>`;
+}
+
+function renderStatement_() {
+  const d = statementData_;
+  document.getElementById("statement-csv-btn").disabled = false;
+  const blocks = d.currencies.map(statementBlockHtml_).join("");
+  document.getElementById("statement-body").innerHTML = `
+    ${blocks || `<p class="hint">${escapeHtml(tr("statement.nothing"))}</p>`}
+    <p class="hint" style="margin-top:2px;">${escapeHtml(tr("statement.withoutIgv"))}</p>
+    ${d.coveredEntries ? `<p class="hint">${escapeHtml(tr("statement.coveredNote", { n: d.coveredEntries }))}</p>` : ""}
+    ${statementRightNowHtml_(d)}
+    ${statementOpeningsHtml_(d)}
+    ${statementCompareHtml_(d)}`;
+  document.querySelectorAll("#statement-body .statement-opening-row").forEach((row) => row.addEventListener("click", () => {
+    openOpeningModal_(d.openings.find((o) => o.id === row.dataset.id) || null);
+  }));
+  document.getElementById("statement-add-opening-btn").addEventListener("click", () => openOpeningModal_(null));
+  document.querySelectorAll("#statement-body .statement-compare").forEach((card) => card.addEventListener("click", () => {
+    openAccountantModal_(d.accountant.find((a) => a.id === card.dataset.id) || null);
+  }));
+  document.getElementById("statement-add-compare-btn").addEventListener("click", () => openAccountantModal_(null));
+}
+
+document.getElementById("statement-back-btn").addEventListener("click", () => {
+  const t = statementTarget_;
+  statementTarget_ = null;
+  if (t) showBusinessDetail_(t.kind, t.id); else showBusinessScreen();
+});
+
+// The file is built by the server (so it is tested and follows the app's language); here it only goes to the share sheet / a download.
+document.getElementById("statement-csv-btn").addEventListener("click", async () => {
+  const f = statementData_ && statementData_.csv;
+  if (!f) return;
+  const errorEl = document.getElementById("statement-error");
+  errorEl.textContent = "";
+  const file = new File([f.text], f.name, { type: f.mime });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file] });
+      return;
+    }
+  } catch (err) {
+    if (err && err.name === "AbortError") return;   // closed the share sheet: not an error
+  }
+  try {
+    const url = URL.createObjectURL(file);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = f.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (err) {
+    errorEl.textContent = tr("statement.csvFailed", { error: err.message });
+  }
+});
+
+// Both pop-ups (opening figures, accountant's figures) share the same four amount fields.
+const STATEMENT_FIELD_IDS = { income: "income", igv_collected: "igv-collected", costs: "costs", igv_credit: "igv-credit" };
+
+function wireStatementAmountInputs_(prefix) {
+  Object.values(STATEMENT_FIELD_IDS).forEach((suffix) => {
+    document.getElementById(`${prefix}-${suffix}`).addEventListener("input", (e) => {
+      const sanitized = sanitizeAmountInputValue(e.target.value);
+      if (sanitized !== e.target.value) e.target.value = sanitized;
+    });
+  });
+}
+
+function fillStatementFields_(prefix, figures) {
+  Object.keys(STATEMENT_FIELD_IDS).forEach((k) => {
+    document.getElementById(`${prefix}-${STATEMENT_FIELD_IDS[k]}`).value = figures && Number(figures[k]) ? String(figures[k]) : "";
+  });
+}
+
+function readStatementFields_(prefix) {
+  const out = {};
+  Object.keys(STATEMENT_FIELD_IDS).forEach((k) => { out[k] = document.getElementById(`${prefix}-${STATEMENT_FIELD_IDS[k]}`).value.trim(); });
+  return out;
+}
+
+// What a person typed refers to the project (or, on a company statement, to the company's own level).
+function statementScopePayload_() {
+  const t = statementTarget_;
+  return t.kind === "project" ? { project_id: t.id } : { company_id: t.id };
+}
+
+// The rules the server checks on opening and accountant figures that the phone can foresee, so they show in the open form.
+function statementFieldsProblem_(f, isOpening) {
+  if (!/^[A-Z]{3}$/.test(f.currency)) return tr("statement.errCurrency");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.as_of)) return tr("statement.errDate");
+  if (isOpening && f.as_of > todayLocalISO()) return tr("statement.errFuture");
+  if (Object.keys(STATEMENT_FIELD_IDS).some((k) => f[k] !== "" && !(Number(f[k]) >= 0))) return tr("statement.errFigure");
+  return "";
+}
+
+// -- Opening figures --
+
+let openingImpactTimer_ = null;
+
+function openOpeningModal_(opening) {
+  editingOpening_ = { opening };
+  document.getElementById("opening-modal-title").textContent = tr("opening.title");
+  document.getElementById("opening-error").textContent = "";
+  document.getElementById("opening-currency").value = opening ? opening.currency : homeCur();
+  document.getElementById("opening-currency").disabled = !!opening;   // one opening per currency: to change the currency, add a new one
+  document.getElementById("opening-date").value = opening ? opening.as_of : "";
+  document.getElementById("opening-date").max = todayLocalISO();
+  fillStatementFields_("opening", opening);
+  document.getElementById("opening-note").value = opening ? opening.note : "";
+  document.getElementById("opening-delete-btn").hidden = !opening;
+  document.getElementById("opening-impact").textContent = "";
+  const backdrop = document.getElementById("opening-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  refreshOpeningImpact_();
+}
+
+function closeOpeningModal_() {
+  document.getElementById("opening-modal-backdrop").hidden = true;
+  editingOpening_ = null;
+}
+
+// "N entries dated on or before this date will stop counting here" — shown before saving, so nothing changes by surprise.
+function refreshOpeningImpact_() {
+  clearTimeout(openingImpactTimer_);
+  openingImpactTimer_ = setTimeout(async () => {
+    if (!editingOpening_ || !statementTarget_) return;
+    const el = document.getElementById("opening-impact");
+    const asOf = document.getElementById("opening-date").value;
+    if (!asOf) { el.textContent = ""; return; }
+    try {
+      const res = await callApi("getOpeningImpact", Object.assign(statementScopePayload_(), { currency: document.getElementById("opening-currency").value.trim().toUpperCase(), as_of: asOf }));
+      if (!editingOpening_ || document.getElementById("opening-date").value !== asOf) return;
+      el.textContent = res.ignored ? tr("opening.impact", { n: res.ignored }) : tr("opening.impactNone");
+    } catch (err) {
+      el.textContent = "";
+    }
+  }, 250);
+}
+
+document.getElementById("opening-modal-close").addEventListener("click", closeOpeningModal_);
+document.getElementById("opening-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "opening-modal-backdrop") closeOpeningModal_();
+});
+wireStatementAmountInputs_("opening");
+document.getElementById("opening-date").addEventListener("change", refreshOpeningImpact_);
+document.getElementById("opening-currency").addEventListener("input", refreshOpeningImpact_);
+document.getElementById("opening-save-btn").addEventListener("click", () => {
+  if (!editingOpening_ || !statementTarget_) return;
+  const errorEl = document.getElementById("opening-error");
+  errorEl.textContent = "";
+  const fields = Object.assign(readStatementFields_("opening"), statementScopePayload_(), {
+    currency: document.getElementById("opening-currency").value.trim().toUpperCase(),
+    as_of: document.getElementById("opening-date").value,
+    note: document.getElementById("opening-note").value.trim()
+  });
+  const problem = statementFieldsProblem_(fields, true);   // (what the server would refuse shows in the open form)
+  if (problem) { errorEl.textContent = problem; return; }
+  closeOpeningModal_();
+  saveBehindScreen_(() => callApi("saveBusinessOpening", fields), refreshStatement_);   // saving standard: the sheet closes, the save runs behind it
+});
+document.getElementById("opening-delete-btn").addEventListener("click", async () => {
+  if (!editingOpening_ || !editingOpening_.opening || !await askConfirmApp_(tr("opening.confirmDelete"), tr("confirmBtn.delete"))) return;
+  const id = editingOpening_.opening.id;
+  closeOpeningModal_();
+  saveBehindScreen_(() => callApi("deleteBusinessOpening", { id }), refreshStatement_, { busy: "common.deletingToast" });
+});
+
+// -- The accountant's figures --
+
+function openAccountantModal_(figures) {
+  editingAccountant_ = { figures };
+  document.getElementById("accountant-error").textContent = "";
+  document.getElementById("accountant-currency").value = figures ? figures.currency : homeCur();
+  document.getElementById("accountant-currency").disabled = !!figures;
+  document.getElementById("accountant-date").value = figures ? figures.as_of : todayLocalISO();
+  document.getElementById("accountant-date").disabled = !!figures;   // one set per currency and date: another date is another set
+  fillStatementFields_("accountant", figures ? figures.accountant : null);
+  document.getElementById("accountant-note").value = figures ? figures.note : "";
+  document.getElementById("accountant-delete-btn").hidden = !figures;
+  const backdrop = document.getElementById("accountant-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeAccountantModal_() {
+  document.getElementById("accountant-modal-backdrop").hidden = true;
+  editingAccountant_ = null;
+}
+
+document.getElementById("accountant-modal-close").addEventListener("click", closeAccountantModal_);
+document.getElementById("accountant-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "accountant-modal-backdrop") closeAccountantModal_();
+});
+wireStatementAmountInputs_("accountant");
+document.getElementById("accountant-save-btn").addEventListener("click", () => {
+  if (!editingAccountant_ || !statementTarget_) return;
+  const errorEl = document.getElementById("accountant-error");
+  errorEl.textContent = "";
+  const fields = Object.assign(readStatementFields_("accountant"), statementScopePayload_(), {
+    currency: document.getElementById("accountant-currency").value.trim().toUpperCase(),
+    as_of: document.getElementById("accountant-date").value,
+    note: document.getElementById("accountant-note").value.trim()
+  });
+  const problem = statementFieldsProblem_(fields, false);   // (what the server would refuse shows in the open form)
+  if (problem) { errorEl.textContent = problem; return; }
+  closeAccountantModal_();
+  saveBehindScreen_(() => callApi("saveAccountantFigures", fields), refreshStatement_);   // saving standard: the sheet closes, the save runs behind it
+});
+document.getElementById("accountant-delete-btn").addEventListener("click", async () => {
+  if (!editingAccountant_ || !editingAccountant_.figures || !await askConfirmApp_(tr("accountant.confirmDelete"), tr("confirmBtn.delete"))) return;
+  const id = editingAccountant_.figures.id;
+  closeAccountantModal_();
+  saveBehindScreen_(() => callApi("deleteAccountantFigures", { id }), refreshStatement_, { busy: "common.deletingToast" });
 });
 
 // ---- Project pop-up ----
@@ -26550,6 +26907,7 @@ const LINK_ICON_RULES_ = [
   [/^(hide|ocultar)\b/i, "eyeOff"],
   [/^(open my google|abrir las apps)/i, "external"],
   [/^(read|leer|volver a leer)\b.*(photo|foto|receipt|comprobante)/i, "camera"],
+  [/^(download|descargar)\b/i, "download"],   // a project statement's "Download (CSV)"
   [/^(read|leer)\b/i, "file"],
   [/^(find|buscar|look|check now|revisar ahora|also look)/i, "search"],
   [/^(currency exchange|cambio de moneda)/i, "exchange"],   // money changing currency (owner, 2026-11-19: the swap arrows read as a transfer)
