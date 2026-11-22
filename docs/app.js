@@ -7671,6 +7671,7 @@ async function flushEntryEdit_(id) {
         const sharedExpense = edit.fields && (edit.fields.type === "expense" || edit.fields.type === undefined)
           && ((edit.kind === "create" ? (edit.splits && edit.splits.length) : edit.splits !== null) || (edit.fields.paid_by && edit.fields.paid_by !== "me"));
         if (edit.loan || (sharedExpense && !document.getElementById("screen-loans").hidden)) refreshLoans().catch(() => {});
+        refreshTabsAhead_();   // an edit changes Overview's and Budgets' figures too
         if (edit.kind === "create") {
           // The real row (PEN value, guessed category…) replaces the typed one a moment later.
           refreshEntryList().catch(() => {});
@@ -9451,6 +9452,24 @@ function afterNewEntrySaved_() {
   refreshHomeGlance_(true);
   // A trip's screen open behind (its Edit mode, or an entry edited from it) shows the change.
   if (!document.getElementById("screen-trip-detail").hidden && tripDetailId_) refreshTripDetail_().catch(() => {});
+  refreshTabsAhead_();
+}
+
+// Overview and Budgets, when seen before and not on screen, are refreshed quietly once a save has landed, so their figures are
+// already right when their tab is tapped (Andrés, testers 2026-11-21: Overview showed the old total for ~4.5 s after the tap;
+// owner approved 2026-11-21). One call each, 1.5 s after the last save of a burst; a tab on screen refreshes by itself.
+let tabsAheadTimer_ = null;
+function refreshTabsAhead_() {
+  clearTimeout(tabsAheadTimer_);
+  tabsAheadTimer_ = setTimeout(() => {
+    tabsAheadTimer_ = null;
+    if (Spotlight.isRunning()) return;
+    if (document.getElementById("screen-overview").hidden && overviewShownKey_) refreshOverview().catch(() => {});
+    if (document.getElementById("screen-budgets").hidden && budgetsLoadedKey_) {
+      Object.keys(budgetsCache_).forEach((k) => delete budgetsCache_[k]);   // no remembered period may come back with old figures
+      refreshBudgets().catch(() => {});
+    }
+  }, 1500);
 }
 
 // The "+" shows only on Home ("entries") and Overview, and only while the bottom bar does.
@@ -9999,6 +10018,7 @@ function showScreen(name) {
   });
   if (name === "entries") {
     refreshHomeGlance_(false);   // skipped when fetched less than a minute ago
+    if (meta && (meta.payorMergeAsk || []).length && !payorMergeOpen_) setTimeout(maybeAskPayorMerge_, 1500);   // it waits for Home
     if (homeTipsReady_) { offerReviewTip_(); watchHomeTips_(); }
 
   }
@@ -24447,7 +24467,8 @@ let pausedAskRetries_ = 0;
 // Payors and friends become one list (once per copy; friends' copies too since 1.76.1): payers who share a name with a friend are shown with
 // what each side holds (incomes, debts) and a two-way choice whose result is spelled out under it before Done. Shown only once Home has
 // finished loading, so it never lands on top of something half-drawn or in the middle of a tap.
-let payorMergeOpen_ = false, payorMergeRetries_ = 0;
+let payorMergeOpen_ = false, payorMergeRetries_ = 0, payorMergeTouchAt_ = 0;
+document.addEventListener("pointerdown", () => { payorMergeTouchAt_ = Date.now(); }, { capture: true, passive: true });
 function payorMergeHomeBusy_() {
   return [...document.querySelectorAll("#screen-entries .stmt-loading")].some((el) => el.offsetParent);
 }
@@ -24462,8 +24483,11 @@ function payorMergeFriendLine_(owed) {
 function maybeAskPayorMerge_() {
   const pairs = (meta && meta.payorMergeAsk) || [];
   if (!pairs.length || payorMergeOpen_ || meta.fromCache_) return;
-  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning() || payorMergeHomeBusy_()) {
-    if (payorMergeRetries_++ < 40) setTimeout(maybeAskPayorMerge_, payorMergeHomeBusy_() ? 1000 : 4000);
+  // Only on Home, and not within 2 s of a touch (Andrés, testers 2026-11-21: it covered whatever screen he was on ~15 s after
+  // opening). Away from Home it waits; coming back to Home asks again (showScreen).
+  const away = document.getElementById("screen-entries").hidden, touched = Date.now() - payorMergeTouchAt_ < 2000;
+  if (away || touched || !document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning() || payorMergeHomeBusy_()) {
+    if (!away && payorMergeRetries_++ < 40) setTimeout(maybeAskPayorMerge_, payorMergeHomeBusy_() || touched ? 1000 : 4000);
     return;
   }
   payorMergeOpen_ = true;
@@ -26382,6 +26406,7 @@ const LINK_ICON_RULES_ = [
   [/^(add up|sumar|fill the rows|llenar las filas)/i, "calc"],
   [/^(add screenshots|agregar capturas)/i, "camera"],
   [/^\d+ (emails?|correos?)\b/i, "mail"],
+  [/^(starting balance|saldo inicial)/i, "plus"],   // the import's Done screen: gives a new account its starting balance
   [/^(add|agregar|añadir)\b|^\+ /i, "plus"],
   [/^(copy|copiar)\b/i, "copy"],
   [/^(make my link|crear mi enlace)/i, "plus"],
@@ -34324,6 +34349,10 @@ async function refreshBalancesInner_() {
   balancesCache = rows;
   list.innerHTML = "";
   emptyNote.hidden = rows.length > 0;
+  // A person who already has accounts (an import made some, say) is told THEY need a starting balance, not to add an account
+  // (Elena, testers 2026-11-21: "No balances yet" right after an import made three).
+  const hasAccounts = ((meta && meta.paymentMethods) || []).some((pm) => pm.type !== "cash" && pm.type !== "investment" && !pmHidden_(pm));
+  emptyNote.textContent = tr(hasAccounts ? "balances.emptyHasAccounts" : "balances.empty");
   // An account moving in a currency with no starting balance of its own (owner, 2026-11-11): said above the list, which starts closed.
   const missingN = rows.filter((r) => !r.statement_closed && balanceMissingCurrencies_(r).length).length;
   const missingNote = document.getElementById("balances-missing");
@@ -34421,6 +34450,23 @@ function formatSignedBalance_(amount, currency) {
 // `pmId` set → that account's detail; null → "+ Add balance" (pick any
 // account that isn't tracked yet).
 let balanceOpenSeq_ = 0;   // which opening of the balance sheet is on screen (a late check from an older one is dropped: Nico, Tomás 2026-11-11)
+// A starting balance for one account, whether or not it has a balance yet (the import's Done screen, testers 2026-11-21): an account
+// with no balance row opens the "add" window with that account already picked.
+async function openStartBalanceFor_(pmId) {
+  if (!balancesCache) { try { balancesCache = await callApi("listPaymentMethodBalances", {}); } catch (e) { balancesCache = []; } }
+  if (balancesCache.some((b) => b.id === pmId)) return openBalanceModal(pmId);
+  await openBalanceModal();
+  const picker = document.getElementById("balance-account-picker");
+  if (![...picker.options].some((o) => o.value === pmId)) {   // beyond the short list's five: put it in, chosen
+    const pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === pmId);
+    if (!pm) return;
+    const opt = document.createElement("option");
+    opt.value = pm.id; opt.textContent = pmPickLabel_(pm);
+    picker.insertBefore(opt, picker.firstChild);
+  }
+  picker.value = pmId;
+  if (picker.onchange) picker.onchange();
+}
 async function openBalanceModal(pmId) {
   balanceOpenSeq_++;
   balanceModalPmId = pmId;

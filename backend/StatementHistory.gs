@@ -442,7 +442,7 @@ function stmtPlanMatches_(statements, actions) {
   var out = [], taken = {};
   try {
     var index = categoryNameIndex_(getAllRows('Categories'), false);
-    var all = getAllRows('Entries');
+    var all = getAllRows('Entries'), planLists = null;
     actions.forEach(function (a) {
       if (a.type !== 'add_history_expense' && a.type !== 'add_history_income') return;
       var st = statements[a.stmt], l = st && st.lines ? st.lines[a.line] : null;   // (the file's own lines: they keep the category name)
@@ -450,7 +450,7 @@ function stmtPlanMatches_(statements, actions) {
       var type = a.type === 'add_history_income' ? 'income' : 'expense';
       var catId = index[type + ':' + catNameNorm_(l.category)];
       if (!catId) return;
-      var plan = planMatchFor_({ id: '', type: type, category_id: catId, amount: Math.abs(Number(l.amount)), currency: l.currency, date: l.date }, all);
+      var plan = planMatchFor_({ id: '', type: type, category_id: catId, amount: Math.abs(Number(l.amount)), currency: l.currency, date: l.date }, all, planLists || (planLists = planMatchLists_()));
       if (!plan || taken[plan.recurring_id + '|' + plan.month]) return;
       taken[plan.recurring_id + '|' + plan.month] = true;
       out.push({ stmt: a.stmt, line: a.line, recurring_id: plan.recurring_id, name: plan.description, month: plan.month,

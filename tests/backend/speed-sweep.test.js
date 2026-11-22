@@ -63,3 +63,33 @@ test("a looking call asks the property store for a version once, not once per re
   })()`));
   assert.ok(n <= 3, "version asked " + n + " times (was ~200: once per waiting entry)");
 });
+
+test("Import's preview reads the Programmed items once, not once per line (Andrés, testers 2026-11-21)", () => {
+  const { rt } = freshApp({ entries: 300 });
+  const cats = rt.rows("Categories").filter((c) => c.type === "expense").slice(0, 4).map((c) => c.name);
+  const lines = Array.from({ length: 300 }, (_, i) => ({ date: `2024-${String((i % 12) + 1).padStart(2, "0")}-1${i % 9}`, description: "Line " + i,
+    amount: -(10 + (i % 50)), currency: "PEN", category: cats[i % cats.length] }));
+  const statements = [{ key: "NOACCOUNT", kind: "csv", source: "app", holder: "", verified: false, balances: {}, file_name: "big.csv",
+    period: { start: "2024-01-10", end: "2024-12-18" }, lines }];
+  rt.stats.bySheet = {};
+  rt.run(`planStatementHistory(${JSON.stringify({ statements })})`);
+  const reads = rt.stats.bySheet;
+  delete rt.stats.bySheet;
+  assert.ok((reads["Recurring Expenses"] || 0) <= 2, "Programmed items read " + reads["Recurring Expenses"] + " times");
+  assert.ok((reads["Recurring Expense Splits (1 row)"] || 0) + (reads["Recurring Expense Splits"] || 0) <= 4, "their splits read too often (a few fixed reads, not one per line): " + JSON.stringify(reads));
+});
+
+test("a Programmed item match is the same with the lists read once as with each read on its own", () => {
+  const { rt } = freshApp({});
+  const same = rt.run(`(function () {
+    var all = getAllRows('Entries'), lists = planMatchLists_(), n = 0, diff = 0;
+    all.filter(function (e) { return (e.type === 'expense' || e.type === 'income') && !e.recurring_expense_id; }).slice(0, 400).forEach(function (e) {
+      var a = JSON.stringify(planMatchFor_(e, all)), b = JSON.stringify(planMatchFor_(e, all, lists));
+      n++; if (a !== b) diff++;
+    });
+    return JSON.stringify({ n: n, diff: diff });
+  })()`);
+  const r = JSON.parse(same);
+  assert.ok(r.n > 50);
+  assert.equal(r.diff, 0);
+});

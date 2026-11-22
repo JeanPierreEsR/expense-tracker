@@ -2231,9 +2231,12 @@
     btn.disabled = true;
     $("statement-review-status").innerHTML = "";   // an old "Saved" / "Undone" message is not about this run
     $("statement-plan-status").innerHTML = "";
-    out.innerHTML = loadingHtml(tr("hist.planning")) + `<p class="hint">${escapeHtml(tr("hist.keepOpen"))}</p>`;
+    const forPlan = statementsForAnalysis();
+    // A big file says how many lines it is working out, so a long wait reads as work (Andrés, testers 2026-11-21: 1,000 lines).
+    const nLines = forPlan.reduce((n, st) => n + ((st && st.lines) || []).length, 0);
+    out.innerHTML = loadingHtml(nLines >= 200 ? tr("hist.planningN", { n: nLines }) : tr("hist.planning")) + `<p class="hint">${escapeHtml(tr("hist.keepOpen"))}</p>`;
     try {
-      historyPlan = await callApi("planStatementHistory", { statements: statementsForAnalysis(), startBank: true });
+      historyPlan = await callApi("planStatementHistory", { statements: forPlan, startBank: true });
       // Lines whose file category the person already sent to a place in the app (Loans, another account…) are not offered again as income.
       // Another app's export: every line already went through its category ("Goes into"), so these two lists would ask it again (owner, 2026-11-21).
       const fromApp = (x) => !!(usable[x.stmt] && usable[x.stmt].result && usable[x.stmt].result.source === "app");
@@ -3064,9 +3067,17 @@
   // since bank e-mails and statements recognise an account by its bank and digits.
   function incompleteHtml() {
     const list = addedAccounts.filter((a) => a.incomplete);
-    if (!list.length) return "";
+    if (!list.length) return startBalHtml();
     return `<p class="stmt-note warn" style="margin:10px 0 4px">${escapeHtml(tr(list.some((a) => a.noBank != null) ? "acct.incompleteEach" : "acct.incomplete", { n: list.length }))}</p>
-      ${list.map((a) => `<div class="stmt-kv"><span>${escapeHtml(a.nickname)}${a.noBank != null ? `<br><span class="hint">${escapeHtml(tr(a.noBank && a.noDigits ? "acct.missBoth" : a.noBank ? "acct.missBank" : "acct.missDigits"))}</span>` : ""}</span><button type="button" class="add-inline stmt-complete-acct" data-id="${escapeHtml(a.id)}">${escapeHtml(tr("acct.complete"))}</button></div>`).join("")}`;
+      ${list.map((a) => `<div class="stmt-kv"><span>${escapeHtml(a.nickname)}${a.noBank != null ? `<br><span class="hint">${escapeHtml(tr(a.noBank && a.noDigits ? "acct.missBoth" : a.noBank ? "acct.missBank" : "acct.missDigits"))}</span>` : ""}</span><button type="button" class="add-inline stmt-complete-acct" data-id="${escapeHtml(a.id)}">${escapeHtml(tr("acct.complete"))}</button></div>`).join("")}${startBalHtml()}`;
+  }
+  // A starting balance for each account the import made (Elena, testers 2026-11-21: Balances stayed "No balances yet" and nothing
+  // said why). Optional; the button opens the account's own balance window (app.js openBalanceModal).
+  function startBalHtml() {
+    const list = addedAccounts.filter((a) => a.id);
+    if (!list.length || typeof openStartBalanceFor_ !== "function") return "";
+    return `<p class="hint" style="margin:10px 0 4px">${escapeHtml(tr("acct.startBalHint", { n: list.length }))}</p>
+      ${list.map((a) => `<div class="stmt-kv"><span>${escapeHtml(a.nickname)}</span><button type="button" class="add-inline stmt-start-bal" data-id="${escapeHtml(a.id)}">${escapeHtml(tr("acct.startBal"))}</button></div>`).join("")}`;
   }
   async function completeAccount(id) {
     let pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === id);
@@ -3735,6 +3746,12 @@
     if (e.target.closest("#statement-open-accounts")) $("more-accounts-btn").click();
     const done = e.target.closest(".stmt-complete-acct");
     if (done) completeAccount(done.dataset.id);
+    const bal = e.target.closest(".stmt-start-bal");
+    if (bal) (async () => {
+      const id = bal.dataset.id;
+      if (!((meta && meta.paymentMethods) || []).some((p) => p.id === id) && typeof loadMeta === "function") await loadMeta().catch(() => {});
+      openStartBalanceFor_(id);
+    })();
   });
   $("statement-added-close").addEventListener("click", closeAdded);
   // "Go to Needs review": the card at the top of the Entries tab, where pending entries are finished.

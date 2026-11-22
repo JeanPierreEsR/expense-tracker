@@ -2130,7 +2130,10 @@ function planMonthForLink_(entry, r) {
   var pick = planMonthForItem_(entry, r, entries, own, next, paid, false);
   return pick ? pick.key : month;
 }
-function planMatchFor_(entry, allEntries) {
+// lists (optional): { recurring, splits } read once by a caller that asks for many entries (Import's preview, Needs review): the
+// two sheets were read again for every line — 800 reads for a 1,000-line import, ~90 s on Google (Andrés, testers 2026-11-21).
+function planMatchLists_() { return { recurring: getAllRows('Recurring Expenses'), splits: getAllRows('Recurring Expense Splits') }; }
+function planMatchFor_(entry, allEntries, lists) {
   if (!entry || entry.recurring_expense_id || !entry.category_id || (entry.type !== 'expense' && entry.type !== 'income')) return null;
   var date = String(entry.date || '').substring(0, 10), month = date.substring(0, 7);
   if (!/^\d{4}-\d{2}$/.test(month)) return null;
@@ -2141,7 +2144,7 @@ function planMatchFor_(entry, allEntries) {
   var own = bounds(y, m), next = bounds(m === 12 ? y + 1 : y, m === 12 ? 1 : m + 1);
   var entries = allEntries || getAllRows('Entries');
   var splitSums = {};
-  getAllRows('Recurring Expense Splits').forEach(function (sp) { splitSums[sp.recurring_expense_id] = (splitSums[sp.recurring_expense_id] || 0) + Number(sp.amount); });
+  (lists ? lists.splits : getAllRows('Recurring Expense Splits')).forEach(function (sp) { splitSums[sp.recurring_expense_id] = (splitSums[sp.recurring_expense_id] || 0) + Number(sp.amount); });
   // Paid: another confirmed entry linked to this item for that month, or one the item matches by itself in that month.
   function paid(r, occ, key) {
     return entries.some(function (e) {
@@ -2151,7 +2154,7 @@ function planMatchFor_(entry, allEntries) {
     });
   }
   var best = null;
-  getAllRows('Recurring Expenses').forEach(function (r) {
+  (lists ? lists.recurring : getAllRows('Recurring Expenses')).forEach(function (r) {
     if (String(r.active) === 'false' || String(r.category_id) !== String(entry.category_id)) return;
     if ((r.currency || homeCurrency_()) !== entry.currency) return;
     var whole = Math.abs(Number(r.variable && r.base_amount != null && r.base_amount !== '' ? r.base_amount : r.amount));
