@@ -15,6 +15,8 @@ const channels = require("./channels");
 const { createRuntime, ACCESS_CODE } = require("./gas-runtime");
 const { seedData } = require("./seed");
 
+// COMPANY_COPY=1: a brand-new company copy is a brand-new friend's copy plus the company mark (see boot()).
+if (process.env.COMPANY_COPY) { process.env.EMPTY = "1"; process.env.FRIEND_COPY = "1"; }
 const PORT = Number(process.env.PORT || 4180);
 const DOCS = path.join(__dirname, "..", "..", "docs");
 const VERSION_AT_START = fs.readFileSync(path.join(DOCS, "version.json"), "utf8");
@@ -110,6 +112,9 @@ function boot() {
   rt.api("admin_setExportEmail", { email: "owner@example.com" });
   // FRIEND_COPY=1 behaves like an app made by the installer (FEATURES set), e.g. to check what a new person does not see.
   if (process.env.FRIEND_COPY) rt.svc.props.set("FEATURES", "gmail,keepawake");
+  // COMPANY_COPY=1 (Business 2, piece 1): a brand-new COMPANY copy (it implies EMPTY=1 and FRIEND_COPY=1, set at the top of this file),
+  // marked the way the owner marks a real one: the Settings row company_copy = yes. Its welcome asks the sector, the company and its projects.
+  if (process.env.COMPANY_COPY) rt.run("setSetting_('company_copy', 'yes')");
   // SHEET_TZ=UTC: the Sheet's own time zone differs from the script's (America/Lima), like a friend's Sheet made by the installer.
   // SHEET_DATES=1: Sheets turns written date strings into real dates (as it does on a real Sheet) instead of keeping them as text.
   if (process.env.SHEET_TZ) require("./fake-google").setSheetTimeZone(process.env.SHEET_TZ);

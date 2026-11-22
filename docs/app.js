@@ -14972,10 +14972,12 @@ function startWelcome_(preview) {
     accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null,
     business: false,   // the optional Business pack question (on the "What fits you?" screen, only where the pack is offered; off unless chosen)
     fits: [],          // the "What fits you?" answers (category packs)
-    ownName: "" };     // the optional full name typed on the accounts screen (confirmed at once when saved)
+    ownName: "",       // the optional full name typed on the accounts screen (confirmed at once when saved)
+    company: { sector: "", name: "", projects: [] } };   // a company copy's step 2 (sector, name, projects), instead of "What fits you?"
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
   welcomeEl_("welcome-fits").hidden = true;
+  welcomeEl_("welcome-company").hidden = true;
   welcomeEl_("welcome-accounts").hidden = true;
   welcomeEl_("welcome-platforms").hidden = true;
   welcomeEl_("welcome-tour").hidden = true;
@@ -15174,16 +15176,75 @@ function waDisplayNames_() {
 const waBanksOfList_ = (list) => list.slice().sort((x, y) => x.name.localeCompare(y.name, I18n.getLang()));
 
 function showWelcomeStep_(step) {
+  const company = companyWelcome_();
   welcomeEl_("welcome-questions").hidden = step !== 1;
-  welcomeEl_("welcome-fits").hidden = step !== 2;
+  welcomeEl_("welcome-fits").hidden = step !== 2 || company;
+  welcomeEl_("welcome-company").hidden = step !== 2 || !company;
   welcomeEl_("welcome-accounts").hidden = step !== 3;
   welcomeEl_("welcome-platforms").hidden = step !== 4;
   welcomeEl_("welcome-overlay").scrollTop = 0;
   if (step === 3) { welcome_.bankOpen = null; welcome_.form = null; renderWelcomeAccounts_(); }
   else if (step === 4) renderWelcomePlatforms_();
+  else if (step === 2 && company) renderWelcomeCompany_();
   else if (step === 2) renderWelcomeFits_();
   else renderWelcomeQuestions_();
 }
+
+// ---- Welcome step 2 on a COMPANY copy (backend/CompanyCopy.gs; Business 2, piece 1): the sector, the company's name, its projects ----
+// It replaces "What fits you?" (the personal questions are skipped). Nothing is saved until the end of the welcome, in ONE call
+// (saveCompanySetup): the company with its sector, its projects and the sector's categories. The sectors mirror SECTOR_ORDER_.
+const COMPANY_SECTORS_ = ["construction", "other"];
+const companyWelcome_ = () => !!(meta && meta.capabilities && meta.capabilities.companyCopy);
+function renderWelcomeCompany_() {
+  const root = welcomeEl_("welcome-company");
+  const co = welcome_.company;
+  I18n.applyStatic(root);
+  welcomeEl_("wc-step").textContent = tr("welcome.step", { n: 2, total: welcomeSteps_() });
+  const sectors = welcomeEl_("wc-sectors");
+  sectors.innerHTML = "";
+  COMPANY_SECTORS_.forEach((id) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "welcome-choice" + (co.sector === id ? " active" : "");
+    b.setAttribute("aria-pressed", String(co.sector === id));
+    b.textContent = tr("sector." + id);
+    b.addEventListener("click", () => { co.sector = id; welcomeEl_("wc-error").textContent = ""; renderWelcomeCompany_(); });
+    sectors.appendChild(b);
+  });
+  const name = welcomeEl_("wc-name");
+  if (document.activeElement !== name) name.value = co.name;
+  const list = welcomeEl_("wc-projects");
+  list.innerHTML = "";
+  co.projects.forEach((p) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "welcome-choice active";
+    b.textContent = `${p} ✕`;
+    b.setAttribute("aria-label", tr("co.projectRemove", { name: p }));
+    b.addEventListener("click", () => { co.projects = co.projects.filter((x) => x !== p); renderWelcomeCompany_(); });
+    list.appendChild(b);
+  });
+  list.hidden = !co.projects.length;
+}
+function addWelcomeProject_() {
+  const input = welcomeEl_("wc-project-input");
+  const name = input.value.trim().slice(0, 60);
+  if (!name) return;
+  if (!welcome_.company.projects.some((p) => p.toLowerCase() === name.toLowerCase())) welcome_.company.projects.push(name);
+  input.value = "";
+  renderWelcomeCompany_();
+}
+welcomeEl_("wc-name").addEventListener("input", (e) => { welcome_.company.name = e.target.value; welcomeEl_("wc-error").textContent = ""; });
+welcomeEl_("wc-project-add").addEventListener("click", addWelcomeProject_);
+welcomeEl_("wc-project-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addWelcomeProject_(); } });
+welcomeEl_("wc-back-btn").addEventListener("click", () => showWelcomeStep_(1));
+welcomeEl_("wc-next-btn").addEventListener("click", () => {
+  const co = welcome_.company;
+  addWelcomeProject_();   // a project typed but not added yet still counts
+  const err = !co.sector ? "co.errSector" : !co.name.trim() ? "co.errName" : "";
+  if (err) { welcomeEl_("wc-error").textContent = tr(err); return; }
+  showWelcomeStep_(3);
+});
 
 // ---- Welcome step 2: "What fits you?" (optional) ----
 // Two groups of picks, "My responsibilities" and "My lifestyle"; each pick adds exactly one category (backend/Profile.gs applyProfile, called when the
@@ -15681,11 +15742,13 @@ async function finishWelcome_() {
     }
     if (welcome_.platforms.length) await callApi("saveOnboardingPlatforms", { batch: welcome_.platformsBatch, names: welcome_.platforms });
     if (welcome_.ownName && meta && meta.capabilities && meta.capabilities.ownName) await callApi("saveOwnerNames", { names: [welcome_.ownName] });   // a typed name is confirmed at once
-    if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
+    // A company copy: the company, its projects and the sector's categories in one call (it also turns the pack on).
+    if (companyWelcome_()) await callApi("saveCompanySetup", { sector: welcome_.company.sector, name: welcome_.company.name.trim(), projects: welcome_.company.projects });
+    else if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
     // The category packs. An older backend lacks the action (the app only asks one that says it has it), and a failure here never blocks the
     // welcome: the same packs can be added later from More → My profile → What fits me.
     const occ = welcome_.occ && welcome_.occ.list.length && meta && meta.capabilities && meta.capabilities.occupation ? welcome_.occ : null;
-    if ((welcome_.fits.length || occ) && meta && meta.capabilities && meta.capabilities.profile) {
+    if (!companyWelcome_() && (welcome_.fits.length || occ) && meta && meta.capabilities && meta.capabilities.profile) {
       try { await callApi("applyProfile", Object.assign({ answers: occ ? fitsAnswersWithOcc_(welcome_.fits, occ) : welcome_.fits }, occ ? { occupation: occ } : {})); } catch (e) { /* see above */ }
     }
     await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, homeCurrency: welcome_.home, currencies: welcome_.currencies });
@@ -15707,7 +15770,7 @@ async function finishWelcome_() {
   welcomeEl_("welcome-accounts").hidden = true;
   welcomeEl_("welcome-platforms").hidden = true;
   // The new accounts, platforms and categories must show up in the app right away (entry form, Accounts & cards): reload on the way out.
-  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName || !!(welcome_.occ && welcome_.occ.list.length);
+  const reloadAfter = companyWelcome_() || welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName || !!(welcome_.occ && welcome_.occ.list.length);
   const toTour = () => {
     if (perfShareState_().asked) offerTour_(reloadAfter);
     else openWelcomeShare_(() => offerTour_(reloadAfter));   // the last welcome question (step 5 of 5): share app speed with the owner

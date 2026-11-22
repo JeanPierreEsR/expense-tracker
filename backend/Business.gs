@@ -42,11 +42,14 @@ var BUSINESS_OPEN_TO_FRIENDS_ = false;
 
 function businessOffered_() {
   if (!isFriendCopy_() || BUSINESS_OPEN_TO_FRIENDS_) return true;
-  return String(getSettingsMap().business_offered || '') === 'yes';
+  return String(getSettingsMap().business_offered || '') === 'yes' || isCompanyCopy_();   // a company copy (CompanyCopy.gs) is always offered
 }
 
+// A company copy has the pack ON from the start, until the person turns it off (business_features = 'no').
 function businessOn_() {
-  return businessOffered_() && String(getSettingsMap().business_features || '') === 'yes';
+  if (!businessOffered_()) return false;
+  var v = String(getSettingsMap().business_features || '');
+  return v === 'yes' || (v === '' && isCompanyCopy_());
 }
 
 // Business actions answer with a plain sentence while the pack is off (like requireFeature_).

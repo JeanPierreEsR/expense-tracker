@@ -2889,6 +2889,30 @@
         <button type="button" class="primary" id="welcome-continue-btn" data-i18n="welcome.next">Next</button>
       </div>
 
+      <!-- A company copy (backend/CompanyCopy.gs) asks these instead of "What fits you?": sector, company name, projects. -->
+      <div id="welcome-company" hidden>
+        <p class="hint" id="wc-step"></p>
+        <h2 data-i18n="co.title">Your company</h2>
+        <p class="hint" data-i18n="co.intro">With these answers the app sets up your company's categories and projects.</p>
+        <h3 data-i18n="co.sectorQ">What does your company do?</h3>
+        <div class="welcome-choices" id="wc-sectors"></div>
+        <p class="hint" data-i18n="co.sectorHint">Each sector comes with its own expense and income categories.</p>
+        <h3 id="wc-name-title" data-i18n="co.nameLabel">Company name</h3>
+        <input type="text" id="wc-name" maxlength="60" autocomplete="off" aria-labelledby="wc-name-title" data-i18n-placeholder="co.namePh" placeholder="For example: Andina Builders">
+        <h3 id="wc-projects-title" data-i18n="co.projectsLabel">Projects (optional)</h3>
+        <p class="hint" data-i18n="co.projectsHint">A project is a building job or any work you want to follow on its own.</p>
+        <div class="welcome-currencies" id="wc-projects"></div>
+        <div class="wp-add">
+          <input type="text" id="wc-project-input" maxlength="60" autocomplete="off" aria-labelledby="wc-projects-title" data-i18n-placeholder="co.projectPh" placeholder="Project name">
+          <button type="button" class="primary" id="wc-project-add" data-i18n="common.add">+ Add</button>
+        </div>
+        <p class="hint error-text" id="wc-error"></p>
+        <div class="welcome-tour-buttons">
+          <button type="button" id="wc-back-btn" data-i18n="tour.back">Back</button>
+          <button type="button" class="primary" id="wc-next-btn" data-i18n="welcome.next">Next</button>
+        </div>
+      </div>
+
       <div id="welcome-fits" hidden>
         <p class="hint" id="wf-step"></p>
         <h2 data-i18n="wf.title">What fits you?</h2>

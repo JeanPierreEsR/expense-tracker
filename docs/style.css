@@ -2960,6 +2960,8 @@ html:has(#welcome-overlay:not([hidden])) :is(body > header, #app, #bottom-nav, #
 .wp-add input { flex: 1; min-width: 0; }
 .wp-add .primary { width: auto; margin: 0; padding: 0 18px; min-height: 44px; border-radius: var(--r-md); }
 .wp-add input { margin: 0; }
+/* Welcome on a company copy: the projects added so far sit above their box */
+#wc-projects { margin-bottom: 12px; }
 
 
 /* Welcome tour as a swipeable row of cards (no Next button). Each card scrolls up and down on its own; the bottom bar is fixed. */
