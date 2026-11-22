@@ -258,10 +258,27 @@ function logUnreadEmail_(sender, subject, kind, dateStr) {
   }
 }
 
+/**
+ * A "no rule" row whose wording a rule now reads (or ignores on purpose) is old news: its e-mails were logged before that rule existed
+ * (owner, 2026-11-22: the SIP CTS and Interbank "pago recurrente" rows stayed listed after their rules shipped). Only the subject is
+ * known (lower-case, digits as #), so a rule that needs words from the body never hides a row. An "unreadable" row stays: there a rule
+ * matched and still could not read the e-mail.
+ */
+function unreadNowCovered_(row, rules) {
+  if (String(row.kind) !== 'no_rule') return false;
+  var sender = String(row.sender || '').toLowerCase(), subject = String(row.subject || '');
+  return rules.some(function (r) {
+    if (r.sender !== sender) return false;
+    try { return !!r.match(subject, ''); } catch (e) { return false; }
+  });
+}
+
 function listUnreadEmails_(fromIso) {
   ensureUnreadEmailsSheet_();
+  var rules = emailRules_();
   return getAllRows('Unread Emails')
     .filter(function (r) { return String(r.last_seen) >= fromIso && !unreadIsNotPayment_(r.sender, r.subject); })   // rows logged before the list above
+    .filter(function (r) { return !unreadNowCovered_(r, rules); })
     // Every sender + wording + kind is a row (owner's request, 2026-10-29), grouped by sender, the most frequent wording first.
     .sort(function (a, b) { return String(a.sender).localeCompare(String(b.sender)) || Number(b.count) - Number(a.count); })
     .slice(0, 200)

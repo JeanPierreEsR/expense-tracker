@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.47.2"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="2.47.3"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-22T08:10:11Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-22T16:47:33Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -1381,16 +1381,17 @@
           <button type="button" class="add-inline" id="apple-pay-copy-btn" hidden data-i18n="ap.copy">Copy my link</button>
           <p class="hint" id="apple-pay-msg" role="status"></p>
           <div id="apple-pay-quick" hidden>
-            <h3 data-i18n="ap.quickHead">2. Set it up on your iPhone (once, about 1 minute)</h3>
-            <ol class="bm-steps">
-              <li id="apple-pay-q1"></li>
-              <li id="apple-pay-qlink"></li>
-              <li data-i18n="ap.q2">In the Shortcuts app, tap Automation at the bottom, then +. Choose Wallet (older iPhones call it Transaction), pick the cards you pay with (all of them is fine), tap Run Immediately, then Next.</li>
-              <li id="apple-pay-q3"></li>
-              <li id="apple-pay-q4"></li>
-            </ol>
-            <button type="button" class="add-inline" id="apple-pay-add-btn" data-i18n="ap.add">Add the shortcut</button>
+            <h3 data-i18n="ap.quickHead">2. Set it up on your iPhone (once, about 2 minutes)</h3>
+            <button type="button" class="primary" id="apple-pay-add-btn" data-i18n="ap.add">Add the shortcut</button>
             <p class="hint" id="apple-pay-add-msg" role="status"></p>
+            <ol class="bm-steps">
+              <li data-i18n="ap.q1">Tap Add the shortcut, above: it copies your link and opens the Shortcuts app. (If Shortcuts opens without showing the shortcut, come back here and tap the button again.)</li>
+              <li data-i18n="ap.qLink">If you see Set Up Shortcut, tap it. When it asks for your link, paste it and tap Add Shortcut. If nothing happens, tap Skip Setup: your link is kept.</li>
+              <li id="apple-pay-q2"></li>
+              <li data-i18n="ap.q3">At the top it says "Automation is turned off": tap it and switch Automation on. (Older iPhones: in the Automation tab, tap +, choose Wallet or Transaction, tap Run Immediately, then Next, and pick the shortcut.)</li>
+              <li data-i18n="ap.q4">To check it, tap the play button at the bottom right, and Allow notifications if asked: you will see "Test received: your link works." Nothing is added.</li>
+            </ol>
+            <p class="hint" id="apple-pay-icloud-line"><button type="button" class="add-inline" id="apple-pay-icloud-btn" data-i18n="ap.icloud">Open it from iCloud instead</button></p>
           </div>
           <details id="apple-pay-manual-fold" class="bm-more" hidden>
             <summary data-i18n="ap.manualFold">Build it by hand instead</summary>
@@ -1433,7 +1434,7 @@
             <p class="hint" id="be-empty" hidden data-i18n="notauto.empty">Nothing in the last 90 days — everything arrived by itself.</p>
           </div>
 
-          <div class="bm-reading">
+          <div class="bm-reading be-mail-foot">
             <details class="bm-more">
               <summary data-i18n="bankMail.addrTitle">Do your bank emails arrive at another address?</summary>
 <p class="hint" data-i18n="bankMail.copyLead">This is the address to use in the steps below:</p>
@@ -4332,25 +4333,25 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="i18n.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="tour-scenes.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="signin-link.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="country-guess.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="rate-quotes.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="bank-sample.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="perf-share.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="spotlight.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="receipt-parse.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="receipt-fields.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="in-process.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="bill-split.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="loan-reminder.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="company-invite.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="app.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="statement-sample.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="statement-table.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="statement-parsers.js?v=2026-11-22T08:10:11Z"></script>
-  <script src="statements.js?v=2026-11-22T08:10:11Z"></script>
+  <script src="strings.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="i18n.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="tour-scenes.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="signin-link.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="country-guess.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="rate-quotes.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="bank-sample.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="perf-share.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="spotlight.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="receipt-parse.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="receipt-fields.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="in-process.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="bill-split.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="loan-reminder.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="company-invite.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="app.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="statement-sample.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="statement-table.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="statement-parsers.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="statements.js?v=2026-11-22T16:47:33Z"></script>
 </body>
 </html>
