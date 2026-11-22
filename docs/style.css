@@ -4263,3 +4263,15 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 /* WhatsApp invitation code (owner, 2026-11-19): big and spaced so it reads out easily */
 .wa-invite-code { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.08em; margin: 4px 0 8px; user-select: all; }
 #wa-invite { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+/* A company copy's Overview (Business 2, piece 4): what it does not need is hidden; its two cards reuse the owed-row look. */
+#screen-overview.company-ov #overview-scope-row,
+#screen-overview.company-ov #pace-card,
+#screen-overview.company-ov #investments-card,
+#screen-overview.company-ov #months-card,
+#screen-overview.company-ov #ov-annual-views,
+#screen-overview.company-ov #loans-ov-card { display: none; }
+.co-ov-total { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 8px; }
+.co-funding-row { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 10px 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.co-funding-row:last-child { border-bottom: 0; }
+.co-funding-row small { font-size: 0.75rem; font-weight: 400; color: var(--muted); }

@@ -11231,8 +11231,83 @@ function paintOverviewSummary_(data) {
   else renderPaceBig_();   // Week / Year / Custom: their own day-by-day ranges (All time: no card)
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
   renderLoansPeriod_(data.loans || { people: [], totals: [] }, data.owed);
+  renderCompanyOverview_(data.company);
   fitOverviewSummary_();
 }
+
+// ---- A company copy's Overview (Business 2, piece 4) ----
+// Under the period picker: What is owed (each lender, per currency, and the total), Still to finance (per project, typed by the person
+// with its date), then the Balances card as it is; under them the period's totals and entries. Spending pace, Investments, Month by
+// month, the annual views, the friends' Loans card and the "Showing" picker are hidden (CSS `.company-ov`): here everything is the company.
+// The data comes with the period's figures (getPeriodSummary `company`), so the cards are drawn with them, never half.
+function applyCompanyOverview_() {
+  const on = companyCopyOn_();
+  const screen = document.getElementById("screen-overview");
+  screen.classList.toggle("company-ov", on);
+  const balances = document.getElementById("balances-card");
+  if (!balancesHome_) { balancesHome_ = document.createComment("balances-card home"); balances.parentNode.insertBefore(balancesHome_, balances); }
+  if (on) document.getElementById("co-funding-card").after(balances);
+  else balancesHome_.after(balances);
+  if (!on) ["co-owed-card", "co-funding-card"].forEach((id) => { document.getElementById(id).hidden = true; });
+}
+let balancesHome_ = null;   // where the Balances card sits on every other copy
+
+function renderCompanyOverview_(company) {
+  const show = companyCopyOn_() && !!company;
+  document.getElementById("co-owed-card").hidden = !show;
+  document.getElementById("co-funding-card").hidden = !show;
+  if (!show) return;
+  const amounts = (lines) => lines.map((l) => `<span>${escapeHtml(formatAmount(l.amount, l.currency))}</span>`).join("");
+  const owedBox = document.getElementById("co-owed-list");
+  owedBox.innerHTML = company.owed.map((p) => `<div class="loans-ov-owed-row"><span>${escapeHtml(p.name)}</span><b>${amounts(p.lines)}</b></div>`).join("") +
+    (company.owed.length > 1 ? `<div class="loans-ov-owed-row co-ov-total"><span>${escapeHtml(tr("coOv.owedTotal"))}</span><b>${amounts(company.owedTotals)}</b></div>` : "");
+  document.getElementById("co-owed-empty").hidden = company.owed.length > 0;
+  const fundBox = document.getElementById("co-funding-list");
+  fundBox.innerHTML = "";
+  company.funding.forEach((f) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "loans-ov-owed-row co-funding-row";
+    row.dataset.projectId = f.project_id;
+    const value = f.amount === null ? `<span class="hint">${escapeHtml(tr("coOv.fundingNone"))}</span>`
+      : `<span>${escapeHtml(formatAmount(f.amount, f.currency))}</span><small>${escapeHtml(tr("coOv.fundingAsOfShort", { date: listDate_(f.as_of) }))}</small>`;
+    row.innerHTML = `<span>${escapeHtml((f.emoji ? f.emoji + " " : "") + f.name)}</span><b>${value}</b>`;
+    row.addEventListener("click", () => openCompanyFunding_(f));
+    fundBox.appendChild(row);
+  });
+  document.getElementById("co-funding-empty").hidden = company.funding.length > 0;
+}
+
+// "Still to finance" for one project: amount, currency and the day it is true (today by default). Saves behind the screen.
+let companyFundingCtx_ = null;
+function openCompanyFunding_(f) {
+  companyFundingCtx_ = f;
+  document.getElementById("co-funding-title").textContent = `${f.emoji ? f.emoji + " " : ""}${f.name}`;
+  document.getElementById("co-funding-amount").value = f.amount === null ? "" : String(f.amount);
+  const curSel = document.getElementById("co-funding-currency");
+  curSel.innerHTML = "";
+  [...new Set([f.currency || homeCur(), homeCur(), ...getRecentCurrencies()])].slice(0, 5).forEach((code) => { const o = document.createElement("option"); o.value = code; o.textContent = `${findCurrency(code).flag} ${code}`; curSel.appendChild(o); });
+  curSel.value = f.currency || homeCur();
+  document.getElementById("co-funding-date").value = todayLocalISO();
+  document.getElementById("co-funding-error").textContent = "";
+  const backdrop = document.getElementById("co-funding-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+document.getElementById("co-funding-close").addEventListener("click", () => { document.getElementById("co-funding-modal-backdrop").hidden = true; });
+document.getElementById("co-funding-save").addEventListener("click", () => {
+  const f = companyFundingCtx_;
+  const raw = document.getElementById("co-funding-amount").value.trim();
+  const parsed = parseFloat(raw.replace(/,/g, ""));
+  const amount = raw === "" ? "" : (Number.isFinite(parsed) ? parsed : NaN);
+  const asOf = document.getElementById("co-funding-date").value;
+  const err = document.getElementById("co-funding-error");
+  if (amount !== "" && !(amount >= 0)) { err.textContent = tr("error.validAmount"); return; }
+  if (amount !== "" && !asOf) { err.textContent = tr("error.dateRequired"); return; }
+  document.getElementById("co-funding-modal-backdrop").hidden = true;
+  saveBehindScreen_(() => callApi("setProjectFunding", { project_id: f.project_id, amount, currency: document.getElementById("co-funding-currency").value, as_of: asOf }),
+    () => refreshOverview());
+});
 
 async function refreshOverviewInner_() {
   renderPeriodSelector();
@@ -21409,6 +21484,7 @@ function applyBusinessVisibility_(opts) {
     el.setAttribute("data-i18n", bankWordKey_(key));
     el.textContent = tr(bankWordKey_(key));
   });
+  applyCompanyOverview_();   // a company copy's Overview: its own cards and order (Business 2, piece 4)
   const peopleHint = document.getElementById("people-hint");
   peopleHint.setAttribute("data-i18n", companyCopyOn_() ? "people.hintCo" : "people.hint");
   peopleHint.textContent = tr(peopleHint.getAttribute("data-i18n"));
@@ -23370,6 +23446,7 @@ document.getElementById("person-delete-btn").addEventListener("click", async () 
 let overviewScope_ = "all";
 
 function overviewScopeParam_() {
+  if (companyCopyOn_()) return undefined;   // a company copy: everything is the company, no "Showing" picker (Business 2, piece 4)
   return businessOn() && overviewScope_ !== "all" ? overviewScope_ : undefined;
 }
 

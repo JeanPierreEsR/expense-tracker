@@ -553,6 +553,18 @@
         </div>
       </div>
       <button type="button" class="period-pending-line" id="period-pending-line" hidden></button>
+      <!-- A company copy's Overview (Business 2, piece 4): What is owed, Still to finance, then Balances (moved here by applyCompanyOverview_). -->
+      <div class="card ov-period" id="co-owed-card" hidden>
+        <h2 data-i18n="coOv.owedTitle">What is owed</h2>
+        <div id="co-owed-list"></div>
+        <p class="hint" id="co-owed-empty" hidden data-i18n="coOv.owedEmpty">Nothing is owed to any lender.</p>
+      </div>
+      <div class="card ov-period" id="co-funding-card" hidden>
+        <h2 data-i18n="coOv.fundingTitle">Still to finance</h2>
+        <p class="hint" data-i18n="coOv.fundingHint">Per project, the amount you type and update when you like. Tap a project to change it.</p>
+        <div id="co-funding-list"></div>
+        <p class="hint" id="co-funding-empty" hidden data-i18n="coOv.fundingEmpty">No open projects.</p>
+      </div>
 
       <div class="card ov-period">
         <div class="ov-sum-grid">
@@ -2262,6 +2274,25 @@
     </div>
   </div>
 
+  <div id="co-funding-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="co-funding-title"></span>
+        <button type="button" id="co-funding-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="co-funding-amount" data-i18n="coOv.fundingAmount">Still to finance</label>
+        <input type="text" inputmode="decimal" id="co-funding-amount" placeholder="0.00">
+        <label for="co-funding-currency" data-i18n="field.currency">Currency</label>
+        <select id="co-funding-currency"></select>
+        <label for="co-funding-date" data-i18n="coOv.fundingAsOf">As of</label>
+        <input type="date" id="co-funding-date">
+        <p class="hint" data-i18n="coOv.fundingClearHint">Leave the amount empty to remove it.</p>
+        <p class="hint error-text" id="co-funding-error"></p>
+        <button type="button" class="primary" id="co-funding-save" data-i18n="common.save">Save</button>
+      </div>
+    </div>
+  </div>
   <div id="bank-loan-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">

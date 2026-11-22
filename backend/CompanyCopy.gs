@@ -183,3 +183,54 @@ function companyDefaultOnConfirm_(entry, personal) {
   var id = defaultCompanyId_();
   if (id) setEntryField_(entry.id, 'company_id', id);
 }
+
+// ---- Piece 4: the company's Overview (Business 2 plan, 2026-11-22) ----
+// Two of its three cards, sent with getPeriodSummary so Overview needs no extra call (the third is the Balances card as it is):
+// owed = every LENDER (Business 2 piece 3; SUNAT's withholding included) with what the company still owes them, per currency, never
+// converted, by name; owedTotals = the same added per currency. funding = every project still open with the amount "still to finance"
+// the person typed and the day it was true (the app never works it out: owner, plan "Fase 1 en detalle", answer 4: one per project).
+function companyOverview_() {
+  var owed = [], totals = {};
+  listLoanBalances({}).forEach(function (f) {
+    if (f.role !== 'lender') return;
+    var lines = f.balances.filter(function (b) { return b.net < -0.004; })
+      .map(function (b) { return { currency: b.currency, amount: round2_(-b.net) }; });
+    if (!lines.length) return;
+    lines.forEach(function (l) { totals[l.currency] = round2_((totals[l.currency] || 0) + l.amount); });
+    owed.push({ friend_id: f.friend_id, name: f.friend_name, lines: lines });
+  });
+  owed.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+  var home = homeCurrency_();
+  var owedTotals = Object.keys(totals).sort(function (a, b) { return a === home ? -1 : (b === home ? 1 : (a < b ? -1 : 1)); })
+    .map(function (c) { return { currency: c, amount: totals[c] }; });
+  var funding = getProjectRows_().filter(function (p) { return String(p.status || 'active') !== 'closed'; }).map(function (p) {
+    var has = p.funding_gap !== undefined && p.funding_gap !== '' && p.funding_gap !== null;
+    return { project_id: String(p.id), company_id: String(p.company_id || ''), name: String(p.name || ''), emoji: String(p.emoji || ''),
+      amount: has ? Number(p.funding_gap) : null, currency: String(p.funding_currency || home), as_of: has ? String(p.funding_as_of || '') : '' };
+  }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+  return { owed: owed, owedTotals: owedTotals, funding: funding };
+}
+
+// "Still to finance" for one project: a figure the person types and updates when they like, with the day it is true. Blank amount clears it.
+// payload: { project_id, amount, currency, as_of }
+function setProjectFunding(payload) {
+  requireBusiness_();
+  var project = projectById_(payload && payload.project_id);
+  if (!project) throw new Error(tr_('business.projectNotFound'));
+  var blank = payload.amount === '' || payload.amount === null || payload.amount === undefined;
+  var amount = blank ? '' : Number(payload.amount);
+  if (!blank && !(isFinite(amount) && amount >= 0)) throw new Error(tr_('err.validAmount'));
+  var asOf = String(payload.as_of || '');
+  if (!blank && !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new Error(tr_('err.dateRequired'));
+  ensureBusinessSheets_();
+  ensureBusinessColumn_('Projects', 'funding_gap', false);
+  ensureBusinessColumn_('Projects', 'funding_currency', true);
+  ensureBusinessColumn_('Projects', 'funding_as_of', true);   // a date as TEXT (Sheets would turn it into a Date)
+  var sheet = getSheet('Projects');
+  var headers = getHeaders(sheet);
+  var row = findRowIndexById(sheet, headers, project.id);
+  setCellByRow_(sheet, headers, row, 'funding_gap', blank ? '' : round2_(amount));
+  setCellByRow_(sheet, headers, row, 'funding_currency', blank ? '' : String(payload.currency || homeCurrency_()).toUpperCase());
+  setCellByRow_(sheet, headers, row, 'funding_as_of', blank ? '' : asOf);
+  return { done: true };
+}

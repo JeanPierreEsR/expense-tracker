@@ -138,6 +138,7 @@ function getPeriodSummary(payload) {
     investmentsByPlatform: investmentFlowsToList_(investmentFlows, pmById),
     loans: { people: loanFlows.people, totals: loanFlows.totals },
     owed: owedNow_(payload && payload.scope),
+    company: isCompanyCopy_() ? companyOverview_() : null,   // a company copy's two cards (CompanyCopy.gs, Business 2 piece 4)
     incomeVaries: incomeVariesSummary_(entries, everyConfirmed, categoryById, startDate, endDate),   // null when no income category varies
     breakdowns: {
       expense: {
