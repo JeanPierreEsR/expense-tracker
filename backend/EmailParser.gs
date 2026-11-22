@@ -841,6 +841,7 @@ function getEmailInfo_() {
   return { address: address, banks: Object.keys(seen), seen: bankMailSeenMap_(settings), since: String(settings.onboarded_at || ''),
     health: featureOn_('gmail') ? emailHealthForApp_() : null,
     rulePack: rulePackStatus_(),
+    forwardFrom: forwardListed_(settings),   // the person's other addresses: their forwards are not marked "Forwarded by" (ForwardedEmail.gs)
     coverage: bankCoverage_(settings) };   // per bank: the kinds its rules read + the day each last arrived (BankCoverage.gs)
 }
 
@@ -919,6 +920,11 @@ function processEmails(opts) {
     // Interbank "Constancia de pago" PDFs (money received), from the bank or sent to himself (PaymentNotice.gs).
     if (!opts.senders || opts.senders.indexOf(PAYMENT_NOTICE_SENDER_) >= 0) {
       processPaymentNotices_(opts.days || emailLookbackDays_(), tracking, handled, results, existingExternalIds, banks, paymentMethods);
+    }
+    // Bank e-mails the person forwarded to this Gmail, from another address or sent again later (ForwardedEmail.gs). Normal scan only.
+    if (tracking && !opts.senders) {
+      try { processForwardedEmails_(emailLookbackDays_(), handled, results, existingExternalIds, banks, paymentMethods, guessCtx); }
+      catch (err) { console.error('processForwardedEmails_: ' + err); }
     }
   } finally {
     BACKCHECK_OVERLAPS_ = null;
@@ -1189,6 +1195,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
 
   if (fields.exchangeLeg) { ensureEntriesExchangeColumn_(); entry.exchange = '1'; }
   if (pairRole) { ensureColumn_('Entries', EMAIL_PAIR_COLUMN_); entry[EMAIL_PAIR_COLUMN_] = pairRole.pair.id + '|' + pairRole.role; }   // waits for its partner
+  if (message.forwardedBy) { ensureColumn_('Entries', FORWARDED_BY_COLUMN_); entry[FORWARDED_BY_COLUMN_] = message.forwardedBy; }   // ForwardedEmail.gs
   // Same place, same treatment (PayeeGuess.gs): a place the person always files as an investment, or under one category,
   // arrives that way. A rule's own fixed category is certain and is left alone. The entry stays pending either way.
   var payeeGuess = (guessCtx.payee && !fields.defaultCategory && !fields.exchangeLeg)
