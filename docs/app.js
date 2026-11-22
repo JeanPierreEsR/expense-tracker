@@ -16371,6 +16371,24 @@ function startWaReal_() {
 // The iPhone's Shortcuts app sends each Apple Pay payment to this copy's address with the person's own key in the link (?k=…); the
 // payment waits in Needs review. The tab makes / copies / replaces that link and shows the steps to add the automation.
 let applePaySetup_ = null;
+// The ready-made shortcut friends add from iCloud (owner, 2026-11-21). It holds no key: a setup question asks for the person's own link
+// when it is added. On the owner's iPhone "Add Shortcut" then does nothing, but "Skip Setup" adds it AND keeps the pasted link, so the
+// step names both.
+const APPLE_PAY_SHORTCUT_URL_ = "https://www.icloud.com/shortcuts/73f300c75c6e46b2a56bc13ecb50786b";
+const APPLE_PAY_SHORTCUT_NAME_ = "Expense Tracker - Apple Pay";
+function applePayShortcutUrl_() { return /^https:\/\/www\.icloud\.com\/shortcuts\/[0-9a-f]{32}$/.test(APPLE_PAY_SHORTCUT_URL_) ? APPLE_PAY_SHORTCUT_URL_ : ""; }
+// With the shared shortcut, the hand-made steps fold away under "Build it by hand instead"; without it they stay open as before.
+function drawApplePayQuick_() {
+  const url = applePayShortcutUrl_(), manual = document.getElementById("apple-pay-manual"), fold = document.getElementById("apple-pay-manual-fold");
+  document.getElementById("apple-pay-quick").hidden = !url;
+  fold.hidden = !url;
+  if (url && manual.parentElement !== fold) fold.appendChild(manual);
+  if (!url && manual.parentElement === fold) fold.after(manual);
+  if (!url) return;
+  document.getElementById("apple-pay-q1").textContent = tr("ap.q1");
+  document.getElementById("apple-pay-qlink").textContent = tr("ap.qLink");
+  document.getElementById("apple-pay-q3").textContent = tr("ap.q3", { name: APPLE_PAY_SHORTCUT_NAME_ });
+}
 function applePayLink_() {
   const url = getApiUrl() || OWNER_API_URL;
   return applePaySetup_ && applePaySetup_.key && url ? `${url}?k=${encodeURIComponent(applePaySetup_.key)}` : "";
@@ -16380,6 +16398,7 @@ function drawApplePay_() {
   document.getElementById("apple-pay-make-btn").hidden = has;
   document.getElementById("apple-pay-copy-btn").hidden = !has;
   document.getElementById("apple-pay-replace-btn").disabled = !has;
+  drawApplePayQuick_();
   const st = applePaySetup_ || {};
   document.getElementById("apple-pay-status").textContent = st.lastAt
     ? tr("ap.last", { when: I18n.fmtDateTime(new Date(st.lastAt)), n: Number(st.count || 0) })
@@ -16422,6 +16441,18 @@ document.getElementById("apple-pay-copy-btn").addEventListener("click", async ()
   if (!link) { msg.textContent = tr("ap.noAddress"); return; }
   try { await navigator.clipboard.writeText(link); msg.textContent = tr("ap.copied"); }
   catch (e) { msg.textContent = tr("ap.copyFailed"); }
+});
+// "Add the shortcut" copies the person's own link (for the question the shortcut asks when it is added) and opens the iCloud page, which
+// hands over to the Shortcuts app. Both start inside the tap itself: iOS refuses a copy or a new window that comes later.
+document.getElementById("apple-pay-add-btn").addEventListener("click", () => {
+  const msg = document.getElementById("apple-pay-add-msg");
+  const link = applePayLink_(), url = applePayShortcutUrl_();
+  if (!url) return;
+  if (!link) { msg.textContent = tr(applePaySetup_ && applePaySetup_.key ? "ap.noAddress" : "ap.addFirst"); return; }
+  msg.textContent = tr("ap.addCopied");
+  try { navigator.clipboard.writeText(link).catch(() => { msg.textContent = tr("ap.addNoCopy"); }); }
+  catch (err) { msg.textContent = tr("ap.addNoCopy"); }
+  window.open(url, "_blank", "noopener");
 });
 document.getElementById("my-profile-back-btn").addEventListener("click", () => showScreen("more"));
 // How I type dates: the highlighted choice is the order the app really uses now (the language's own until one is chosen).
