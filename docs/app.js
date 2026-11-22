@@ -203,6 +203,7 @@ let editingRepayment_ = null;    // the entry being edited is a repayment's mone
 // submit handler checks this FIRST so a pending confirmation never falls
 // through to the normal "update an existing entry" path.
 let confirmingPendingId = null;
+let businessAutoPick_ = false;   // true while the form's company was put there by companyDefaultPick_, not by the person
 // The date the entry had when its edit form was opened: a save that leaves it alone does not send it (withoutUnchangedDate_).
 let editingEntryOriginalDate_ = null;
 // Set while the new-entry sheet was opened from a programmed item's Mark as paid: the saved entry is linked to it.
@@ -3968,9 +3969,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       asIsCounts[tripId] = (asIsCounts[tripId] || 0) + 1;
       try { localStorage.setItem("tripGroupAsIs", JSON.stringify(asIsCounts)); } catch (err) { /* only a convenience */ }
     }
-    const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
-    if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
     const waitingOn = incomeWaitingOn_();
+    // A company copy's company, put there by the form itself (not by the person), steps aside where a company cannot go yet:
+    // a future date (a Programmed item) or an income not received yet. The person's own pick is still refused below.
+    const autoAside = businessAutoPick_ && (waitingOn || (!editingEntryId && !confirmingPendingId && date > todayLocalISO()));
+    const businessLink = autoAside ? { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "" } : businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
+    if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
     if (waitingOn && !paidBy) throw new Error(tr("income.waitingNeedsPerson"));
     if (waitingOn && (businessLink.project_id || businessLink.company_id)) throw new Error(tr("income.waitingNoBusiness"));
     const waitingFields = selectedType === "income" && !document.getElementById("income-waiting-field").hidden ? { income_waiting: waitingOn, due_date: waitingOn ? document.getElementById("income-waiting-due").value : "" } : {};
@@ -4578,7 +4582,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     selectedTagIds.clear();
     populateTags();
     document.getElementById("entry-trip").value = "";   // each expense picks its own trip, so a forgotten one never sticks
-    setBusinessPick_("");                               // same for the company / project
+    resetBusinessPick_();                               // same for the company / project (a company copy's one company)
     repaymentFriendTouched_ = false;
     resetSplitState();
     resetRepeat_();
@@ -6852,7 +6856,9 @@ async function startEditEntry(entry) {
   entryTagIds.forEach((id) => selectedTagIds.add(id));
   populateTags();
   setTripPick_(entry.trip_id);
-  setBusinessPick_(businessPickValue_(entry));
+  // Confirming a waiting item that has no company yet, on a company copy: the form shows the company Confirm would give it.
+  if (confirmingPendingId && !businessPickValue_(entry)) resetBusinessPick_();
+  else setBusinessPick_(businessPickValue_(entry));
   if (entry.expected_payment_id) setExpectedPick_(entry.expected_payment_id);
   setIgvState_(Number(entry.igv_amount) > 0, entry.igv_amount, true);   // the stored figure is kept exactly until the person changes it
 
@@ -6894,7 +6900,7 @@ function exitEditMode() {
   selectedTagIds.clear();
   populateTags();
   document.getElementById("entry-trip").value = "";
-  setBusinessPick_("");
+  resetBusinessPick_();
   resetSplitState();
 }
 
@@ -7285,7 +7291,7 @@ async function applyReviewAction_(a) {
   }
   if (a.action === "confirm") {
     await callApi("updateEntry", { id: a.id, fields: a.fields });
-    const res = await callApi("confirmEntry", { id: a.id });
+    const res = await callApi("confirmEntry", { id: a.id, personal: !!(a.fields && a.fields.company_id === "" && a.fields.project_id === "") });
     if (a.splits) await callApi("saveEntrySplits", { entryId: a.id, splits: a.splits });
     if (a.tagIds) await callApi("saveEntryTags", { entryId: a.id, tagIds: a.tagIds });
     unqueueReviewAction_(a.id);
@@ -8594,6 +8600,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         ${entry.type === "expense" && reviewTripFits_(entry) ? `
         <label class="review-transfer-label">${tr("field.trip")}</label>
         <select class="review-trip">${reviewTripOptions_(entry.trip_id || entry.suggested_trip_id || "")}</select>` : ""}
+        ${reviewBusinessFits_(entry) ? `
+        <label class="review-transfer-label">${escapeHtml(tr("field.business"))}</label>
+        <select class="review-business"></select>` : ""}
         ${entry.type === "transfer" ? `
         <label class="review-transfer-label">${tr("review.fromLabel")}</label>
         <select class="review-from">${reviewTransferSideOptions_(entry.payment_method_id)}</select>
@@ -8647,6 +8656,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     };
     // The top is the item's open/close button for a screen reader or a keyboard (Paola, 2026-11-18: the card was a plain block, never
     // reached by Tab, and nothing said it opens). It holds no buttons of its own, so nothing is nested.
+    fillReviewBusiness_(item, entry);   // the company / project box, on a company copy (its options are built, not templated)
     const top = item.querySelector(".review-item-top");
     top.setAttribute("role", "button");
     top.tabIndex = 0;
@@ -8758,6 +8768,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       // whose dates match (or "None"). Always sent, so choosing "None" clears a suggestion.
       const tripEl = item.querySelector(".review-trip");
       if (tripEl) fields.trip_id = tripEl.value;
+      // A company copy's company / project picked on the card (piece 2): sent only when the card has the box.
+      const bizEl = item.querySelector(".review-business");
+      if (bizEl) Object.assign(fields, reviewBusinessFields_(bizEl.value));
       // The account the money left (expense) or arrived in (income): changed here when the e-mail did not name it, or named the wrong one.
       const accountEl = item.querySelector(".review-account");
       // No account picked while there are accounts to pick: ask once (journeys run, 2026-11-17: items confirmed with no account count in
@@ -8862,6 +8875,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         return Object.assign({}, fresh, {
           payment_method_id: rowAccount && rowAccount !== (entry.payment_method_id || "") ? rowAccount : (fresh.payment_method_id || ""),
           trip_id: rowTripEl ? rowTripEl.value : (fresh.trip_id || ""),
+          ...(item.querySelector(".review-business") ? reviewBusinessFields_(item.querySelector(".review-business").value) : {}),
           category_id: rowCategory && rowCategory !== (entry.category_id || "") ? rowCategory : (fresh.category_id || rowCategory),
           description: rowDescription !== (entry.description || "") ? rowDescription : (fresh.description || ""),
           amount: amountEdited ? amt : fresh.amount,
@@ -8915,7 +8929,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
 }
 
 // What the person changed on a Needs review card and has not confirmed yet survives a redraw of the list (see refreshReviewQueue).
-const REVIEW_ROW_BOXES_ = [".review-category", ".review-description", ".review-amount", ".review-account", ".review-trip", ".review-from", ".review-to", ".review-platform", ".review-land", ".review-x-out", ".review-x-in"];
+const REVIEW_ROW_BOXES_ = [".review-category", ".review-description", ".review-amount", ".review-account", ".review-trip", ".review-business", ".review-from", ".review-to", ".review-platform", ".review-land", ".review-x-out", ".review-x-in"];
 function reviewBoxInUse_(list) {
   const a = document.activeElement;
   return !!(a && list.contains(a) && a.matches("input[type=text], input:not([type]), select, textarea") && a.closest(".review-item"));
@@ -9334,6 +9348,8 @@ function openNewEntrySheet_() {
     document.getElementById("form-error").textContent = "";
     if (ICON_PICKER_TYPES.includes(selectedType)) showCategoryPicker();
   }
+  // A company copy: the company is already chosen (the app may have reset the form before its companies were known).
+  if (!document.getElementById("entry-business").value && companyDefaultPick_()) resetBusinessPick_();
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
   // Always opens at its top (owner, 2026-11-13): the trip chip, the type tabs and the banner show first, also when an
   // entry closed with ✕ comes back filled in. Again on the next frame, after the form has drawn its fields.
@@ -23399,6 +23415,25 @@ function businessLastUsed_() {
   return last;
 }
 
+// Needs review's company / project box (Business 2 plan, piece 2): only on a company copy, for an expense or income that can
+// belong to a company (an income not received yet cannot). It starts on what the item carries, else on the company Confirm gives.
+function reviewBusinessFits_(entry) {
+  return !!(meta && meta.capabilities && meta.capabilities.companyCopy) && businessOn() && (meta.companies || []).length > 0 &&
+    (entry.type === "expense" || entry.type === "income") && !String(entry.income_waiting || "");
+}
+function fillReviewBusiness_(item, entry) {
+  const sel = item.querySelector(".review-business");
+  if (sel) fillBusinessOptions_(sel, businessPickValue_(entry) || companyDefaultPick_());
+}
+// "" = personal, "c:<id>" = the company, "p:<id>" = a project (its company comes with it). Both keys always, so "Personal" is a choice.
+function reviewBusinessFields_(value) {
+  if (value.startsWith("p:")) {
+    const project = (meta.projects || []).find((p) => p.id === value.slice(2));
+    return { project_id: value.slice(2), company_id: project ? project.company_id : "" };
+  }
+  return { project_id: "", company_id: value.startsWith("c:") ? value.slice(2) : "" };
+}
+
 // Fills the picker and keeps `keep` chosen (a closed project stays listed only while it is the one chosen).
 function fillBusinessOptions_(sel, keep) {
   sel.innerHTML = "";
@@ -23435,7 +23470,7 @@ function populateBusinessOptions_() {
   populateOverviewScope_(!document.getElementById("screen-overview").hidden);
   const canLink = businessOn() && (meta.companies || []).length > 0 &&
     (selectedType === "expense" || selectedType === "income" || (selectedType === "transfer" && repaymentActive_()));
-  fillBusinessOptions_(sel, canLink ? sel.value : "");
+  fillBusinessOptions_(sel, canLink ? (sel.value || (businessAutoPick_ ? companyDefaultPick_() : "")) : "");
   document.getElementById("business-field").hidden = !canLink;
   syncClientButton_();
   syncExpectedField_();
@@ -23666,7 +23701,21 @@ document.getElementById("split-client-select").addEventListener("change", async 
 });
 document.getElementById("entry-business").addEventListener("change", syncClientButton_);
 
+// A company copy with ONE company (Business 2 plan, piece 2): every new expense or income starts on it, as the server would give
+// it anyway ("c:<id>"); "" anywhere else, so the owner's and friends' copies never change.
+function companyDefaultPick_() {
+  const companies = meta && meta.companies || [];
+  return meta && meta.capabilities && meta.capabilities.companyCopy && businessOn() && companies.length === 1 ? "c:" + companies[0].id : "";
+}
+function resetBusinessPick_() {
+  const value = companyDefaultPick_();
+  setBusinessPick_(value);
+  businessAutoPick_ = !!value;
+}
+document.getElementById("entry-business").addEventListener("change", () => { businessAutoPick_ = false; });
+
 function setBusinessPick_(value) {
+  businessAutoPick_ = false;
   const sel = document.getElementById("entry-business");
   if (!sel) return;
   value = value || "";

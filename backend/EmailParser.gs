@@ -788,7 +788,7 @@ function computeEmailExternalId_(sender, dateStr, fields, messageId) {
  * calling it again with an empty list here would silently wipe out a
  * split the owner just went to the trouble of setting up.
  */
-function confirmEntryWithLearning_(entryId) {
+function confirmEntryWithLearning_(entryId, opts) {
   var entry = getEntryById_(entryId);
   // Every confirmed entry has a category (the app's own Confirm enforces it
   // too); one without would show as uncategorised in every report.
@@ -807,6 +807,9 @@ function confirmEntryWithLearning_(entryId) {
     saveEntrySplits(entryId, []);
   }
   if (entry && entry.trip_id === TRIP_DECLINED_) setEntryField_(entryId, 'trip_id', '');   // see Trips.gs
+  // A company copy: an expense or income confirmed with no company gets its one company (CompanyCopy.gs). Every Confirm comes
+  // through here (one, several, Telegram), so no source escapes.
+  companyDefaultOnConfirm_(entry, opts && opts.personal);
   setEntryField_(entryId, 'status', 'confirmed');
 }
 

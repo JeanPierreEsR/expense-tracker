@@ -1449,6 +1449,7 @@ body.sheet-open {
 .review-field-label { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
 .review-item-fields .review-transfer-label,
 .review-item-fields .review-trip,
+.review-item-fields .review-business,
 .review-item-fields .review-from,
 .review-item-fields .review-to,
 .review-item-fields .review-x-out,
