@@ -3504,6 +3504,9 @@ const knownRateMonths_ = new Set();
 
 // Speed (2026-11-21): the month's rate is asked as soon as the entry's currency or date is picked (or an entry in another currency
 // is opened), so Save does not wait for it. A missing rate is asked again at Save (it may have been added meanwhile).
+// "USD|2026-11" -> when the early check found NO rate: Save then opens the rate window at once instead of asking the server again
+// (Nico, testers 2026-11-21: a USD Save waited ~2.5 s with no "Saving…" for that second answer). Trusted for 2 minutes.
+const rateMissingAt_ = new Map();
 const rateMonthPrefetch_ = new Map();   // "USD|2026-11" -> promise of getExchangeRate (null on failure)
 function prefetchEntryRate_(currency, dateStr) {
   currency = String(currency || "").toUpperCase();
@@ -3512,7 +3515,7 @@ function prefetchEntryRate_(currency, dateStr) {
   const key = currency + "|" + dateStr.slice(0, 7);
   if (knownRateMonths_.has(key) || rateMonthPrefetch_.has(key)) return;
   const p = callApi("getExchangeRate", { currency, month: dateStr.slice(0, 7) })
-    .then((r) => { if (r) knownRateMonths_.add(key); else rateMonthPrefetch_.delete(key); return r; })
+    .then((r) => { if (r) knownRateMonths_.add(key); else { rateMonthPrefetch_.delete(key); rateMissingAt_.set(key, Date.now()); } return r; })
     .catch(() => { rateMonthPrefetch_.delete(key); return null; });
   rateMonthPrefetch_.set(key, p);
 }
@@ -3530,7 +3533,9 @@ async function ensureExchangeRate(currency, dateStr) {
   const key = currency + "|" + month;
   if (knownRateMonths_.has(key)) return;
   const pre = rateMonthPrefetch_.get(key);
-  const existing = (pre && await pre) || await callApi("getExchangeRate", { currency, month });
+  const missing = !pre && Date.now() - (rateMissingAt_.get(key) || 0) < 120000;
+  const existing = (pre && await pre) || (missing ? null : await callApi("getExchangeRate", { currency, month }));
+  rateMissingAt_.delete(key);
   if (existing) { knownRateMonths_.add(key); return; }
 
   const rate = await openRateModal(currency, month, /* required */ true);
@@ -3781,6 +3786,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
   showToast_(tr("common.savingToast"));
   try {
     const saved = await callApi("setExchangeRate", usd ? { currency, month, per_usd: rate } : { currency, month, rate });
+    rateMissingAt_.clear();   // a month that had no rate may have one now
     resolve(usd ? saved.rate : rate);   // the opener always gets "1 <currency> = rate <main>"
     refreshHomeGlance_(true);   // foreign amounts are worth something else in the main currency now
     refreshEntryList().catch(() => {});
@@ -7233,12 +7239,30 @@ function queueReviewAction_(id, action, fields, extra) {
   const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
   actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null, repeat: extra && extra.repeat ? extra.repeat : null });
   setQueuedReviewActions_(actions);
+  syncReviewTwins_(id, action === "discard" ? null : "confirmed");
   // The item has left Needs review for the person: Overview / Budgets / Projections' "N wait" line drops it at once, not only after
   // Home's list is fetched again (journeys run, 2026-11-17: the old count stayed for 6 people). A failed save refetches the list.
   reviewEntries_ = reviewEntries_.filter((e) => e.id !== id);
   updatePeriodPendingLine_();
   syncReviewReadyBtn_();
   if (homeGlance_) renderHomeGlance_();   // and Home's month card says one fewer waits
+}
+
+// A waiting item that leaves Needs review also leaves its copies' "Possible duplicate" warning (Valeria, testers 2026-11-21: after
+// "Discard this copy" the last copy still called itself a copy of a discarded one). Discarded: it is dropped from their list, and a
+// copy left with none loses its warning; confirmed: it stays listed, now as confirmed (it really is a copy of a confirmed entry).
+function syncReviewTwins_(id, newStatus) {
+  const list = document.getElementById("review-list");
+  reviewEntries_.forEach((e) => {
+    if (!(e.twins || []).some((t) => t.id === id)) return;
+    e.twins = newStatus ? e.twins.map((t) => (t.id === id ? { ...t, status: newStatus } : t)) : e.twins.filter((t) => t.id !== id);
+    const warn = list && list.querySelector(`.review-item[data-entry-id="${CSS.escape(String(e.id))}"] .review-dup-warning`);
+    if (!warn) return;
+    if (!e.twins.length) { warn.remove(); return; }
+    const btn = warn.querySelector(".review-dup-discard");
+    warn.innerHTML = tr("review.dupWarning", { list: e.twins.map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") });
+    if (btn) warn.appendChild(btn);
+  });
 }
 
 function unqueueReviewAction_(id) {
@@ -7564,6 +7588,9 @@ async function flushEntryEdit_(id) {
   const mySend = Date.now() + Math.random();
   entryEditFlushing_.add(id);
   entryEditFlushStarted_.set(id, mySend);
+  // With no connection at all the phone says so at once, not only once the call has given up (Nico, testers 2026-11-21: "Saving…"
+  // was not even shown for the seconds before that).
+  if (navigator.onLine === false && !Spotlight.isRunning()) noteSaveWaiting_();
   try {
     // Loops so that if this entry's queued edit gets REPLACED by a newer
     // one while this attempt is still sending — the one case where that
@@ -7644,6 +7671,7 @@ async function flushEntryEdit_(id) {
         const sharedExpense = edit.fields && (edit.fields.type === "expense" || edit.fields.type === undefined)
           && ((edit.kind === "create" ? (edit.splits && edit.splits.length) : edit.splits !== null) || (edit.fields.paid_by && edit.fields.paid_by !== "me"));
         if (edit.loan || (sharedExpense && !document.getElementById("screen-loans").hidden)) refreshLoans().catch(() => {});
+        refreshTabsAhead_();   // an edit changes Overview's and Budgets' figures too
         if (edit.kind === "create") {
           // The real row (PEN value, guessed category…) replaces the typed one a moment later.
           refreshEntryList().catch(() => {});
@@ -9424,6 +9452,24 @@ function afterNewEntrySaved_() {
   refreshHomeGlance_(true);
   // A trip's screen open behind (its Edit mode, or an entry edited from it) shows the change.
   if (!document.getElementById("screen-trip-detail").hidden && tripDetailId_) refreshTripDetail_().catch(() => {});
+  refreshTabsAhead_();
+}
+
+// Overview and Budgets, when seen before and not on screen, are refreshed quietly once a save has landed, so their figures are
+// already right when their tab is tapped (Andrés, testers 2026-11-21: Overview showed the old total for ~4.5 s after the tap;
+// owner approved 2026-11-21). One call each, 1.5 s after the last save of a burst; a tab on screen refreshes by itself.
+let tabsAheadTimer_ = null;
+function refreshTabsAhead_() {
+  clearTimeout(tabsAheadTimer_);
+  tabsAheadTimer_ = setTimeout(() => {
+    tabsAheadTimer_ = null;
+    if (Spotlight.isRunning()) return;
+    if (document.getElementById("screen-overview").hidden && overviewShownKey_) refreshOverview().catch(() => {});
+    if (document.getElementById("screen-budgets").hidden && budgetsLoadedKey_) {
+      Object.keys(budgetsCache_).forEach((k) => delete budgetsCache_[k]);   // no remembered period may come back with old figures
+      refreshBudgets().catch(() => {});
+    }
+  }, 1500);
 }
 
 // The "+" shows only on Home ("entries") and Overview, and only while the bottom bar does.
@@ -9972,6 +10018,7 @@ function showScreen(name) {
   });
   if (name === "entries") {
     refreshHomeGlance_(false);   // skipped when fetched less than a minute ago
+    if (meta && (meta.payorMergeAsk || []).length && !payorMergeOpen_) setTimeout(maybeAskPayorMerge_, 1500);   // it waits for Home
     if (homeTipsReady_) { offerReviewTip_(); watchHomeTips_(); }
 
   }
@@ -18602,7 +18649,7 @@ function renderRatesUsdOffer_(rates) {
     callApi("convertRatesToUsd", {}).then(() => {
       meta.settings.rate_base = "USD";
       meta.settings.rate_form = "per_base";
-      knownRateMonths_.clear(); rateMonthPrefetch_.clear();
+      knownRateMonths_.clear(); rateMonthPrefetch_.clear(); rateMissingAt_.clear();
       refreshExchangeRates();
     }).catch(() => { ratesUsdQuiet_ = false; });   // tried again the next time Currencies opens
     return;
@@ -18660,7 +18707,7 @@ document.getElementById("rates-usd-apply").addEventListener("click", () => {
     await callApi("convertRatesToUsd", {});
     meta.settings.rate_base = "USD";
     meta.settings.rate_form = "per_base";
-    knownRateMonths_.clear(); rateMonthPrefetch_.clear();
+    knownRateMonths_.clear(); rateMonthPrefetch_.clear(); rateMissingAt_.clear();
   }, async () => {
     refreshExchangeRates();
     refreshHomeGlance_(true);   // amounts in a third currency now go through the dollar
@@ -24420,7 +24467,8 @@ let pausedAskRetries_ = 0;
 // Payors and friends become one list (once per copy; friends' copies too since 1.76.1): payers who share a name with a friend are shown with
 // what each side holds (incomes, debts) and a two-way choice whose result is spelled out under it before Done. Shown only once Home has
 // finished loading, so it never lands on top of something half-drawn or in the middle of a tap.
-let payorMergeOpen_ = false, payorMergeRetries_ = 0;
+let payorMergeOpen_ = false, payorMergeRetries_ = 0, payorMergeTouchAt_ = 0;
+document.addEventListener("pointerdown", () => { payorMergeTouchAt_ = Date.now(); }, { capture: true, passive: true });
 function payorMergeHomeBusy_() {
   return [...document.querySelectorAll("#screen-entries .stmt-loading")].some((el) => el.offsetParent);
 }
@@ -24435,8 +24483,11 @@ function payorMergeFriendLine_(owed) {
 function maybeAskPayorMerge_() {
   const pairs = (meta && meta.payorMergeAsk) || [];
   if (!pairs.length || payorMergeOpen_ || meta.fromCache_) return;
-  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning() || payorMergeHomeBusy_()) {
-    if (payorMergeRetries_++ < 40) setTimeout(maybeAskPayorMerge_, payorMergeHomeBusy_() ? 1000 : 4000);
+  // Only on Home, and not within 2 s of a touch (Andrés, testers 2026-11-21: it covered whatever screen he was on ~15 s after
+  // opening). Away from Home it waits; coming back to Home asks again (showScreen).
+  const away = document.getElementById("screen-entries").hidden, touched = Date.now() - payorMergeTouchAt_ < 2000;
+  if (away || touched || !document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning() || payorMergeHomeBusy_()) {
+    if (!away && payorMergeRetries_++ < 40) setTimeout(maybeAskPayorMerge_, payorMergeHomeBusy_() || touched ? 1000 : 4000);
     return;
   }
   payorMergeOpen_ = true;
@@ -26355,6 +26406,7 @@ const LINK_ICON_RULES_ = [
   [/^(add up|sumar|fill the rows|llenar las filas)/i, "calc"],
   [/^(add screenshots|agregar capturas)/i, "camera"],
   [/^\d+ (emails?|correos?)\b/i, "mail"],
+  [/^(starting balance|saldo inicial)/i, "plus"],   // the import's Done screen: gives a new account its starting balance
   [/^(add|agregar|añadir)\b|^\+ /i, "plus"],
   [/^(copy|copiar)\b/i, "copy"],
   [/^(make my link|crear mi enlace)/i, "plus"],
@@ -34297,6 +34349,10 @@ async function refreshBalancesInner_() {
   balancesCache = rows;
   list.innerHTML = "";
   emptyNote.hidden = rows.length > 0;
+  // A person who already has accounts (an import made some, say) is told THEY need a starting balance, not to add an account
+  // (Elena, testers 2026-11-21: "No balances yet" right after an import made three).
+  const hasAccounts = ((meta && meta.paymentMethods) || []).some((pm) => pm.type !== "cash" && pm.type !== "investment" && !pmHidden_(pm));
+  emptyNote.textContent = tr(hasAccounts ? "balances.emptyHasAccounts" : "balances.empty");
   // An account moving in a currency with no starting balance of its own (owner, 2026-11-11): said above the list, which starts closed.
   const missingN = rows.filter((r) => !r.statement_closed && balanceMissingCurrencies_(r).length).length;
   const missingNote = document.getElementById("balances-missing");
@@ -34394,6 +34450,23 @@ function formatSignedBalance_(amount, currency) {
 // `pmId` set → that account's detail; null → "+ Add balance" (pick any
 // account that isn't tracked yet).
 let balanceOpenSeq_ = 0;   // which opening of the balance sheet is on screen (a late check from an older one is dropped: Nico, Tomás 2026-11-11)
+// A starting balance for one account, whether or not it has a balance yet (the import's Done screen, testers 2026-11-21): an account
+// with no balance row opens the "add" window with that account already picked.
+async function openStartBalanceFor_(pmId) {
+  if (!balancesCache) { try { balancesCache = await callApi("listPaymentMethodBalances", {}); } catch (e) { balancesCache = []; } }
+  if (balancesCache.some((b) => b.id === pmId)) return openBalanceModal(pmId);
+  await openBalanceModal();
+  const picker = document.getElementById("balance-account-picker");
+  if (![...picker.options].some((o) => o.value === pmId)) {   // beyond the short list's five: put it in, chosen
+    const pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === pmId);
+    if (!pm) return;
+    const opt = document.createElement("option");
+    opt.value = pm.id; opt.textContent = pmPickLabel_(pm);
+    picker.insertBefore(opt, picker.firstChild);
+  }
+  picker.value = pmId;
+  if (picker.onchange) picker.onchange();
+}
 async function openBalanceModal(pmId) {
   balanceOpenSeq_++;
   balanceModalPmId = pmId;

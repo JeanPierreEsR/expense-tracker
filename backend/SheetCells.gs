@@ -161,7 +161,9 @@ function sheetSafeText_(v) {
 // Free-text columns of the other tabs, none of them plain-text columns (Rafael, 2026-11-09: a friend named =IMPORTDATA(...) was stored as a formula).
 // Testers, 2026-11-15: also the names typed on newer screens (tags, trips, banks, payers, budgets, Programmed items) and Settings
 // values (the WhatsApp reminder template), on add AND on update (updateRowFields_, setSetting_). Never a plain-text ('@') column here.
-var SHEET_SAFE_COLUMNS_ = { Friends: ['name', 'notes'], Loans: ['description'], Settlements: ['description'], Categories: ['name'], 'Payment Methods': ['name'],
+// Rafael, 2026-11-21: an account's name is its 'nickname' column (it was listed as 'name', a column that does not exist, so account
+// names were never guarded; an import can now create accounts from a file). Every column listed here must exist (sheet-cells test).
+var SHEET_SAFE_COLUMNS_ = { Friends: ['name', 'notes'], Loans: ['description'], Categories: ['name'], 'Payment Methods': ['nickname'],
   Tags: ['name'], Trips: ['name', 'emoji'], Banks: ['name'], Payors: ['name', 'notes'], Budgets: ['name'], 'Recurring Expenses': ['description'], Settings: ['value'] };
 function safeCellValue_(sheetName, column, value) {
   if (sheetName === 'Entries') return sheetSafeText_(value);

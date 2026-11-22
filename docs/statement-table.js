@@ -489,8 +489,9 @@
   }
 
   // "S/." (the sol's older abbreviation, still common in hand-made spreadsheets: "S/.1,500.00") — its dot is part of the mark, not
-  // a decimal point (a tester's own file, 2026-11-20: every amount came out a thousand times too small).
-  function dropMarkDot(s) { return String(s).replace(/(S\/)\s*\.(?=\s*\d)/ig, '$1 '); }
+  // a decimal point (a tester's own file, 2026-11-20: every amount came out a thousand times too small). A sign or bracket may sit
+  // between the mark and the number ("S/. -1,234.50", "S/. (1,234.50)"; Mark, testers 2026-11-21: such lines were left out).
+  function dropMarkDot(s) { return String(s).replace(/(S\/)\s*\.(?=\s*[-−–(]?\s*\d)/ig, '$1 '); }
 
   // '.' or ',' — which one marks the decimals in this column's text.
   function detectDecimal(values) {
@@ -527,7 +528,8 @@
     if (typeof value === 'number') return value;
     var s = dropMarkDot(value === undefined || value === null ? '' : value).trim();
     if (!s) return NaN;
-    var negative = /^\(.*\)$/.test(s) || /^[-−–]/.test(s.replace(/^[^\d(\-−–.,]+/, '')) || /[-−–]\s*$/.test(s);
+    var bare = s.replace(/^[^\d(\-−–.,]+/, '');   // without a leading currency mark ("S/ (1,234.50)" is negative too)
+    var negative = /^\(.*\)$/.test(s) || /^\(.*\)$/.test(bare) || /^[-−–]/.test(bare) || /[-−–]\s*$/.test(s);
     var digits = s.replace(/[^\d.,]/g, '');
     if (!/\d/.test(digits)) return NaN;
     if (decimal === ',') digits = digits.replace(/\./g, '').replace(/,/g, '.');

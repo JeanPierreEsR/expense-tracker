@@ -1743,6 +1743,7 @@ function listPendingEntries() {
     (twinGroups[k] || (twinGroups[k] = [])).push(o);
     if (isChargePending_(o)) chargePending.push(o);
   });
+  var planLists = null;   // Programmed items and their splits, read once for every waiting entry (planMatchFor_)
   entries.forEach(function (entry) {
     if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];
     entry.tagIds = tagsByEntry[entry.id] || [];
@@ -1759,7 +1760,7 @@ function listPendingEntries() {
     var waitingMatch = waitingMatchForPending_(entry, waitingIncome);   // "Is this the payment you were waiting for?" (IncomeWaiting.gs)
     if (waitingMatch) entry.waiting_match = waitingMatch;
     // "This is my Salary for August": the Programmed item this waiting payment most likely pays (RecurringExpenses.gs planMatchFor_).
-    var planMatch = isPracticeReview_(entry) ? null : planMatchFor_(entry, all);
+    var planMatch = isPracticeReview_(entry) ? null : planMatchFor_(entry, all, planLists || (planLists = planMatchLists_()));
     if (planMatch) entry.plan_match = planMatch;
   });
   entries.sort(compareEntriesRecency_);

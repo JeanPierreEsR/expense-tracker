@@ -269,7 +269,9 @@ function applyStatementDecisions(payload) {
   if (rows.length) { ensureStatementChangesSheet_(); appendRowsBulk_('Statement Changes', rows); }
   // `incomplete`: a bank account or card with no bank or no last 4 digits yet — the saved message offers to complete it (owner, 2026-11-21).
   report.accountsCreated = made.created.concat(made.shown).map(function (pm) {
-    return { id: pm.id, nickname: pm.nickname, incomplete: (pm.type === 'debit' || pm.type === 'credit') && (!pm.bank_id || !String(pm.last_4 || '').trim()) };
+    var card = pm.type === 'debit' || pm.type === 'credit', noBank = card && !pm.bank_id, noDigits = card && !String(pm.last_4 || '').trim();
+    // noBank / noDigits: the message names only what is missing (Mark, testers 2026-11-21: the bank had been picked).
+    return { id: pm.id, nickname: pm.nickname, incomplete: noBank || noDigits, noBank: noBank, noDigits: noDigits };
   });
   return report;
 }
