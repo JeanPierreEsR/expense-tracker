@@ -5886,6 +5886,8 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
 const emptySearchFilters_ = () => ({ types: [], period: "", from: "", to: "", cats: [], accts: [], min: "", max: "", friends: [], tags: [], trips: [] });
 let searchFilters_ = emptySearchFilters_();
 const SEARCH_FILTER_LISTS_ = ["types", "cats", "accts", "friends", "tags", "trips"];
+// The Tags filter's "No tag" choice (owner, 2026-11-21): entries with no tag at all, so "Transport + No tag" can sit next to "Transport + Work".
+const SEARCH_NO_TAG_ = "__notag__";
 function searchFiltersOn_() {
   const f = searchFilters_;
   return SEARCH_FILTER_LISTS_.some((k) => f[k].length) || !!searchPeriodRange_() || f.min !== "" || f.max !== "";
@@ -5928,7 +5930,7 @@ function searchFilterTest_() {
     if (cats.size && !cats.has(e.category_id)) return false;
     if (accts.size && !accts.has(e.payment_method_id) && !accts.has(e.to_payment_method_id)) return false;
     if (friendIds.size && !friendIds.has(e.paid_by) && !(e.link && friendNames.has(e.link.friend))) return false;
-    if (f.tags.length && !(e.tagIds || []).some((id) => f.tags.includes(id))) return false;
+    if (f.tags.length && !(e.tagIds || []).some((id) => f.tags.includes(id)) && !(f.tags.includes(SEARCH_NO_TAG_) && !(e.tagIds || []).length)) return false;
     if (f.trips.length && !f.trips.includes(e.trip_id)) return false;
     if (min != null || max != null) {
       const v = searchRowMain_(e);
@@ -6009,7 +6011,8 @@ function searchFilterSummary_(key) {
     return f.min !== "" && f.max !== "" ? `${cur} ${moneyFmt(f.min)} – ${moneyFmt(f.max)}`
       : f.min !== "" ? tr("search.f.atLeast", { amount: `${cur} ${moneyFmt(f.min)}` }) : tr("search.f.atMost", { amount: `${cur} ${moneyFmt(f.max)}` });
   }
-  const all = key === "cats" ? meta.categories : key === "accts" ? meta.paymentMethods : key === "friends" ? meta.friends : key === "tags" ? (meta.tags || []) : (meta.trips || []);
+  const all = key === "cats" ? meta.categories : key === "accts" ? meta.paymentMethods : key === "friends" ? meta.friends
+    : key === "tags" ? [{ id: SEARCH_NO_TAG_, name: tr("search.f.noTag") }].concat(meta.tags || []) : (meta.trips || []);
   const names = f[key].map((id) => { const x = all.find((y) => y.id === id); return x ? searchFilterItemLabel_(key, x) : ""; }).filter(Boolean);
   return !names.length ? "" : names.length > 1 ? tr("search.f.andMore", { first: names[0], n: names.length - 1 }) : names[0];
 }
@@ -6186,7 +6189,9 @@ function openSearchPick_(key, title) {
   const groups = searchFilterGroups_(key).map((g) => {
     const items = key === "cats" ? sortedCategories_(g.items) : key === "trips" ? g.items.slice().sort(tripOrder)
       : g.items.slice().sort((x, y) => byName_({ label: searchFilterItemLabel_(key, x) }, { label: searchFilterItemLabel_(key, y) }));
-    return { heading: g.heading, items: items.map((x) => ({ id: x.id, label: searchFilterItemLabel_(key, x) })) };
+    const rows = items.map((x) => ({ id: x.id, label: searchFilterItemLabel_(key, x) }));
+    // "No tag" leads the tags, ahead of the names.
+    return { heading: g.heading, items: key === "tags" ? [{ id: SEARCH_NO_TAG_, label: tr("search.f.noTag") }].concat(rows) : rows };
   });
   openFriendScreen_({
     title, groups, ordered: true, many: true, pickedFirst: true, filterKey: key,
@@ -11550,7 +11555,7 @@ let drilldownBudget = null;
 let drilldownProjection = null;
 let drilldownProjectionDetail = null;
 
-async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
+async function openDrilldownWithPayload_(payload, titleText, subtitleText, render) {
   const backdrop = document.getElementById("drilldown-modal-backdrop");
   const title = document.getElementById("drilldown-title");
   const subtitle = document.getElementById("drilldown-subtitle");
@@ -11574,7 +11579,7 @@ async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
   try {
     const entries = await callApi("listEntries", payload);
     if (currentDrilldown !== thisDrilldown) return;
-    renderDrilldownEntries(entries);
+    (render || renderDrilldownEntries)(entries);
   } catch (err) {
     if (currentDrilldown !== thisDrilldown) return;
     list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
@@ -11611,9 +11616,51 @@ async function openBreakdownDrilldown(kind, item) {
   await openDrilldownWithPayload_(
     payload,
     `${item.icon ? item.icon + " " : ""}${item.name}`,
-    `${bounds.label} · ${kind === "platform" ? TYPE_LABELS.investment : TYPE_LABELS[overviewType]}`
+    `${bounds.label} · ${kind === "platform" ? TYPE_LABELS.investment : TYPE_LABELS[overviewType]}`,
+    kind === "category" ? (entries) => renderCatTagSplit_(entries, "cat:" + (item.id || "") + ":" + (item.annualView || "")) : null
   );
 }
+
+// ---- A category split by tag (owner, 2026-11-21) ----
+// An Overview category's list gets chips on top: All, one per tag, and No tag, each with its total (my share, in the main currency,
+// as Overview counts it: an entry with two tags is in both). A chip shows only that part of the list, from the entries already on
+// the phone (no server call). No chips when nothing in the list has a tag. The chip picked is kept while the same list reloads.
+let catTagSplit_ = null;   // { key, filter, entries } while a category's list is open
+function renderCatTagSplit_(entries, key) {
+  const box = document.getElementById("drilldown-chips");
+  const tagById = new Map((meta.tags || []).map((t) => [t.id, t]));
+  const known = (e) => (e.tagIds || []).filter((id) => tagById.has(id));
+  const sums = new Map();
+  let all = 0, none = 0;
+  entries.forEach((e) => {
+    const v = searchRowMain_(e);
+    if (v == null) return;
+    all += v;
+    if (!(e.tagIds || []).length) none += v;
+    known(e).forEach((id) => sums.set(id, (sums.get(id) || 0) + v));
+  });
+  if (!sums.size) { catTagSplit_ = null; box.hidden = true; renderDrilldownEntries(entries); return; }
+  const prev = catTagSplit_ && catTagSplit_.key === key ? catTagSplit_.filter : "all";
+  const chips = [{ id: "all", label: tr("flows.all"), sum: all }]
+    .concat([...sums.keys()].sort((a, b) => sums.get(b) - sums.get(a)).map((id) => ({ id, label: tagById.get(id).name, sum: sums.get(id) })))
+    .concat(entries.some((e) => !(e.tagIds || []).length) ? [{ id: SEARCH_NO_TAG_, label: tr("search.f.noTag"), sum: none }] : []);
+  const filter = chips.some((c) => c.id === prev) ? prev : "all";
+  catTagSplit_ = { key, filter, entries };
+  const sign = overviewType === "income" ? 1 : -1;
+  box.innerHTML = chips.map((c) => `<button type="button" class="flow-chip flow-${overviewType === "income" ? "income" : "expense"}${c.id === filter ? " active" : ""}" data-tagsplit="${escapeHtml(c.id)}" aria-pressed="${c.id === filter}">` +
+    `<span class="flow-chip-label">${escapeHtml(c.label)}</span><span class="flow-chip-amt">${escapeHtml(formatPenSigned_(sign * c.sum))}</span></button>`).join("");
+  box.hidden = false;
+  renderDrilldownEntries(filter === "all" ? entries
+    : filter === SEARCH_NO_TAG_ ? entries.filter((e) => !(e.tagIds || []).length)
+    : entries.filter((e) => (e.tagIds || []).includes(filter)));
+}
+document.getElementById("drilldown-chips").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-tagsplit]");
+  if (!chip || !catTagSplit_ || chip.dataset.tagsplit === catTagSplit_.filter) return;
+  catTagSplit_.filter = chip.dataset.tagsplit;
+  document.getElementById("drilldown-scroll-area").scrollTop = 0;
+  renderCatTagSplit_(catTagSplit_.entries, catTagSplit_.key);
+});
 
 // ---- Overview summary blocks: the list behind each number (owner, 2026-11-11) ----
 // Tapping any block (Income, Expenses, Investments, Loans) or What's left opens ONE screen: the drill-down sheet with five chips
@@ -12157,6 +12204,7 @@ function renderEntriesInto_(list, entries, emptyKey) {
 function closeDrilldown() {
   document.getElementById("drilldown-modal-backdrop").hidden = true;
   flowsState_ = null;
+  catTagSplit_ = null;
   document.getElementById("drilldown-chips").hidden = true;
   document.getElementById("drilldown-menu").hidden = true;
   collapseDrilldownExpand_();
