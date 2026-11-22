@@ -16514,10 +16514,10 @@ document.getElementById("apple-pay-copy-btn").addEventListener("click", async ()
   try { await navigator.clipboard.writeText(link); msg.textContent = tr(applePayShortcutUrl_() ? "ap.addCopied" : "ap.copied"); }
   catch (e) { msg.textContent = tr("ap.copyFailed"); }
 });
-// "Add the shortcut" copies the person's own link (for the question the shortcut asks when it is added) and opens the iCloud page, which
-// hands over to the Shortcuts app. Both start inside the tap: iOS refuses either one later. (Apple's own shortcuts://import-shortcut
-// address was tried on 2026-11-22 to avoid the web window over the app: it takes only a shortcut FILE, and an iCloud link gives
-// "The file isn't in the correct format".)
+// "Add the shortcut" copies the person's own link (for the question the shortcut asks when it is added) and opens the iCloud page in
+// real Safari (openInSafari_, like the update button: no web window over the app), which hands over to the Shortcuts app. Both start
+// inside the tap: iOS refuses either one later. (Apple's own shortcuts://import-shortcut address was tried on 2026-11-22: it takes
+// only a shortcut FILE, and an iCloud link gives "The file isn't in the correct format".)
 document.getElementById("apple-pay-add-btn").addEventListener("click", () => {
   const msg = document.getElementById("apple-pay-add-msg");
   const link = applePayLink_(), url = applePayShortcutUrl_();
@@ -16526,7 +16526,7 @@ document.getElementById("apple-pay-add-btn").addEventListener("click", () => {
   msg.textContent = tr("ap.addCopied");
   try { navigator.clipboard.writeText(link).catch(() => { msg.textContent = tr("ap.addNoCopy"); }); }
   catch (err) { msg.textContent = tr("ap.addNoCopy"); }
-  window.open(url, "_blank", "noopener");
+  openInSafari_(url, () => { msg.textContent = tr("ap.safariStuck"); });
 });
 document.getElementById("my-profile-back-btn").addEventListener("click", () => showScreen("more"));
 // How I type dates: the highlighted choice is the order the app really uses now (the language's own until one is chosen).
