@@ -14,7 +14,9 @@
  *   2. Programmed items — an active recurring/programmed expense with the
  *      same currency, an amount within RECURRING_MATCH_TOLERANCE, and an
  *      occurrence within RECURRING_MATCH_DAY_WINDOW days of the email's
- *      date; used only when every matching item agrees on one category.
+ *      date, AND a payee alike the item's name or one of its past payees
+ *      (2026-11-20, payeesAlike_); used only when every matching item
+ *      agrees on one category.
  *   3. Otherwise blank — a wrong default is worse than none.
  *
  * The Category Keywords sheet is no longer consulted (owner's decision,
@@ -34,6 +36,7 @@ var AUTO_REASON_FIRST_TIMES_ = 3;
 // Entries pre-date this column, so it's appended in place the first time
 // it's needed — same self-heal as recurring_expense_id.
 function ensureEntriesMerchantColumn_() {
+  if (memoHasColumns_('Entries', ['merchant'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   if (headers.indexOf('merchant') === -1) {
@@ -79,7 +82,7 @@ function buildGuessContext_() {
 
   var history = {};
   getAllRows('Entries').forEach(function (e) {
-    if (e.type !== 'expense' || !e.merchant || !expenseCatIds[e.category_id]) return;
+    if (e.type !== 'expense' || !e.merchant || !expenseCatIds[e.category_id] || isPracticeReview_(e)) return;
     if (e.status !== 'confirmed' && e.source !== 'import') return;
     var h = history[e.merchant] || (history[e.merchant] = { counts: {}, total: 0 });
     h.counts[e.category_id] = (h.counts[e.category_id] || 0) + 1;
@@ -119,7 +122,11 @@ function telegramAutoReason_(guess) {
   return guess && guess.quiet ? true : (guess ? guess.reason : '');
 }
 
-function guessFromProgrammed_(fields, dateStr, ctx) {
+// mode 'payee' (live since 2026-11-20, owner's go after programmedGuessBacktest_ on his entries: wrong guesses 41 -> 0, right
+// 28 -> 20): a Programmed item matches only a payee alike its name or alike a payee it was paid to before (payeesAlike_).
+// Without a mode (the backtest's 'old', and statement lines, which pass no merchant) amount + date alone. Without a merchant
+// (statement lines) the old amount + date match stays.
+function guessFromProgrammed_(fields, dateStr, ctx, mode) {
   var d = new Date(dateStr + 'T00:00:00');
   var start = formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() - RECURRING_MATCH_DAY_WINDOW));
   var end = formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() + RECURRING_MATCH_DAY_WINDOW));
@@ -130,12 +137,113 @@ function guessFromProgrammed_(fields, dateStr, ctx) {
     if (!(amt > 0) || !amountsCloseAcrossCurrencies_(Number(fields.amount), fields.currency, amt, r.currency || homeCurrency_(), dateStr)) return false;
     return recurringExpenseOccurrencesInRange_(r, start, end).length > 0;
   });
+  var merchant = mode === 'payee' ? normalizeMerchant_(fields.merchant) : '';
+  if (merchant) hits = hits.filter(function (r) { return programmedPayeeFits_(r, merchant, dateStr, ctx); });
   if (!hits.length) return null;
 
   var catIds = {};
   hits.forEach(function (r) { catIds[r.category_id] = true; });
   if (Object.keys(catIds).length !== 1) return null;
-  return { categoryId: hits[0].category_id, reason: tr_('guess.programmed', { name: hits[0].description }) };
+  return { categoryId: hits[0].category_id, reason: tr_('guess.programmed', { name: hits[0].description }), itemName: hits[0].description };
+}
+
+// Words too common in payment texts to tie a payee to an item: payment words, wallets, places, company forms, currencies.
+var PAYEE_COMMON_WORDS_ = { pago: 1, pagos: 1, compra: 1, payment: 1, purchase: 1, transfer: 1, transferencia: 1, del: 1, los: 1,
+  las: 1, the: 1, por: 1, con: 1, para: 1, and: 1, com: 1, www: 1, web: 1, org: 1, plin: 1, yape: 1, dlc: 1, peru: 1, lima: 1,
+  san: 1, sac: 1, srl: 1, eirl: 1, tda: 1, shop: 1, store: 1, tienda: 1, online: 1, usd: 1, pen: 1 };
+
+function payeeNameWords_(normalized) {
+  return String(normalized || '').split(' ').filter(function (w) { return w.length >= 3 && !PAYEE_COMMON_WORDS_[w]; });
+}
+
+// Two payee texts are about the same payee when they share a real word ("rimac rec vh usd" / "rimac usd2 recurrencia"), or one
+// holds the other written without spaces ("smartfit" / "Smart Fit").
+function payeesAlike_(a, b) {
+  var wa = payeeNameWords_(a), wb = payeeNameWords_(b);
+  if (wa.some(function (w) { return wb.indexOf(w) !== -1; })) return true;
+  var ja = wa.join(''), jb = wb.join('');
+  return (jb.length >= 6 && ja.indexOf(jb) !== -1) || (ja.length >= 6 && jb.indexOf(ja) !== -1);
+}
+
+function programmedPayeeFits_(r, merchant, dateStr, ctx) {
+  if (payeesAlike_(merchant, normalizeMerchant_(r.description))) return true;
+  if (!ctx.payees) ctx.payees = programmedPayees_(ctx);
+  return (ctx.payees[r.id] || []).some(function (p) { return p.date < dateStr && payeesAlike_(merchant, p.merchant); });
+}
+
+// recurring id -> [{ date, merchant }]: confirmed expenses with a merchant that paid that item (linked to it, or its category,
+// amount and date, the same test the Programmed items screen uses), oldest first.
+function programmedPayees_(ctx) {
+  var payees = {};
+  var entries = getAllRows('Entries').filter(function (e) {
+    return e.type === 'expense' && e.merchant && (e.status === 'confirmed' || e.source === 'import') && !isPracticeReview_(e);
+  });
+  ctx.recurring.forEach(function (r) {
+    var mine = entries.filter(function (e) { return e.recurring_expense_id === r.id || e.category_id === r.category_id; });
+    if (!mine.length) return;
+    var dates = mine.map(function (e) { return String(e.date); }).sort();
+    var occ = recurringExpenseOccurrencesInRange_(r, shiftIsoDays_(dates[0], -40), shiftIsoDays_(dates[dates.length - 1], 40));
+    var list = [];
+    mine.forEach(function (e) {
+      if (entryMatchesRecurringOccurrence_(e, r, occ, null, ctx.recurringSplitSums)) {
+        list.push({ date: String(e.date), merchant: normalizeMerchant_(e.merchant) });
+      }
+    });
+    list.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    if (list.length) payees[r.id] = list;
+  });
+  return payees;
+}
+
+function shiftIsoDays_(iso, days) {
+  var d = new Date(String(iso).substring(0, 10) + 'T00:00:00');
+  return formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() + days));
+}
+
+// Backtest (owner's copy only, reads only; tools/programmed-guess-backtest.py): replays every confirmed expense with a merchant
+// of the last `days`, oldest first, with only what was known before it, and compares the Programmed-item guess of the live rule
+// (amount + date, 'old') and of mode 'payee' (live, 'new') with the category the owner kept. `reached` counts only the expenses the merchant
+// history did not already answer (where the Programmed step decides).
+function programmedGuessBacktest_(p) {
+  if (isFriendCopy_()) throw codedError_('backtest_not_here', 'This check runs on the owner\'s copy only.');
+  var days = Math.max(1, Math.min(1095, Math.floor(Number((p || {}).days) || 365)));
+  var since = shiftIsoDays_(Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd'), -days);
+  var ctx = buildGuessContext_();
+  ctx.history = {};
+  ctx.payees = programmedPayees_(ctx);
+  var catName = function (id) { return ctx.categoriesById[id] ? ctx.categoriesById[id].name : (id ? '?' : ''); };
+  var blank = function () { return { right: 0, wrong: 0, none: 0 }; };
+  var report = { days: days, expenses: 0, all: { old: blank(), 'new': blank() }, reached: { old: blank(), 'new': blank() },
+    pipeline: { old: blank(), 'new': blank() }, changed: [] };
+  var tally = function (bucket, guess, kept) { bucket[!guess ? 'none' : guess.categoryId === kept ? 'right' : 'wrong']++; };
+  var entries = getAllRows('Entries').filter(function (e) {
+    return e.type === 'expense' && e.merchant && ctx.expenseCatIds[e.category_id] && !isPracticeReview_(e) &&
+      (e.status === 'confirmed' || e.source === 'import');
+  }).sort(function (a, b) { return String(a.date) < String(b.date) ? -1 : String(a.date) > String(b.date) ? 1 : 0; });
+  entries.forEach(function (e) {
+    var merchant = normalizeMerchant_(e.merchant), date = String(e.date);
+    if (date >= since) {
+      report.expenses++;
+      var fields = { amount: Number(e.amount), currency: e.currency, merchant: e.merchant };
+      var fromHistory = merchant ? guessFromMerchantHistory_(merchant, ctx) : null;
+      var oldG = guessFromProgrammed_(fields, date, ctx), newG = guessFromProgrammed_(fields, date, ctx, 'payee');
+      tally(report.all.old, oldG, e.category_id); tally(report.all['new'], newG, e.category_id);
+      if (!fromHistory) { tally(report.reached.old, oldG, e.category_id); tally(report.reached['new'], newG, e.category_id); }
+      tally(report.pipeline.old, fromHistory || oldG, e.category_id); tally(report.pipeline['new'], fromHistory || newG, e.category_id);
+      var oldCat = oldG ? oldG.categoryId : '', newCat = newG ? newG.categoryId : '';
+      if (!fromHistory && oldCat !== newCat && report.changed.length < 60) {
+        var verdict = function (c) { return !c ? 'none' : c === e.category_id ? 'right' : 'wrong'; };
+        report.changed.push({ date: date, payee: merchant, item: oldG ? oldG.itemName : newG.itemName, kept: catName(e.category_id),
+          old: verdict(oldCat), 'new': verdict(newCat), oldCategory: catName(oldCat), newCategory: catName(newCat) });
+      }
+    }
+    if (merchant) {   // now known, for the expenses after it
+      var h = ctx.history[merchant] || (ctx.history[merchant] = { counts: {}, total: 0 });
+      h.counts[e.category_id] = (h.counts[e.category_id] || 0) + 1;
+      h.total++;
+    }
+  });
+  return report;
 }
 
 /**
@@ -152,10 +260,14 @@ function guessCategoryForEmail_(fields, dateStr, ctx) {
   if (fields.defaultCategory && ctx.expenseCatIdByName[fields.defaultCategory]) {
     return { categoryId: ctx.expenseCatIdByName[fields.defaultCategory], reason: '' };
   }
+  // Same, for a copy that does not have that category (a new install has no "Credit card"): the rule's second choice.
+  if (fields.defaultCategoryAlt && ctx.expenseCatIdByName[fields.defaultCategoryAlt]) {
+    return { categoryId: ctx.expenseCatIdByName[fields.defaultCategoryAlt], reason: '' };
+  }
 
   var merchant = normalizeMerchant_(fields.merchant);
   var guess = (merchant && guessFromMerchantHistory_(merchant, ctx)) ||
-    guessFromProgrammed_(fields, dateStr, ctx);
+    guessFromProgrammed_(fields, dateStr, ctx, 'payee');
   return guess || { categoryId: '', reason: '' };
 }
 
@@ -196,7 +308,7 @@ function backfillEntryMerchants(payload) {
     rowByExternalId[r[0]] = i;
   });
 
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var senders = uniqueSenders_();
   outer:
   for (var s = 0; s < senders.length; s++) {
@@ -229,8 +341,58 @@ function backfillEntryMerchants(payload) {
   }
 
   if (!dryRun && result.matched) {
-    sheet.getRange(2, merchCol + 1, merchants.length, 1).setValues(merchants);
+    sheet.getRange(2, merchCol + 1, merchants.length, 1).setValues(sheetSafeRows_(merchants));
     bumpStructureVersion_();   // bulk column write — phones reload fully
   }
   return result;
+}
+
+// Check (owner's copy only, reads only; tools/programmed-paid-check.py): which transactions the Programmed items screen counts as
+// an item's payment (listRecurringPayments, the same pick of one payment per due date) over the last `days`, and whether each
+// one's payee fits the item. 'alike' = alike the item's name or a payee alike in another month of the same item (its usual
+// payee); 'suspect' = neither; 'noPayee' = no payee on record (typed by hand, old imports). Linked by hand is counted apart.
+function programmedPaidCheck_(p) {
+  if (isFriendCopy_()) throw codedError_('check_not_here', 'This check runs on the owner\'s copy only.');
+  return withRowsMemo_(function () {
+    var days = Math.max(1, Math.min(1095, Math.floor(Number((p || {}).days) || 365)));
+    var since = shiftIsoDays_(Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd'), -days);
+    var ctx = buildGuessContext_();
+    var catName = function (id) { return ctx.categoriesById[id] ? ctx.categoriesById[id].name : ''; };
+    var report = { days: days, items: 0, payments: 0, linked: 0, alike: 0, noPayee: 0, suspect: 0, perItem: [], suspects: [], wouldDrop: [] };
+    ctx.recurring.filter(function (r) { return ctx.expenseCatIds[r.category_id] && String(r.active) !== 'false'; }).forEach(function (r) {
+      var pays = listRecurringPayments({ recurringExpenseId: r.id }).payments.filter(function (x) { return x.date >= since; });
+      if (!pays.length) return;
+      report.items++;
+      var name = normalizeMerchant_(r.description);
+      var rows = pays.map(function (x) { var e = getEntryById_(x.id) || {}; return { pay: x, merchant: normalizeMerchant_(e.merchant) }; });
+      var row = { item: r.description, category: catName(r.category_id), payments: rows.length, linked: 0, alike: 0, noPayee: 0, suspect: 0 };
+      rows.forEach(function (x) {
+        var kind;
+        if (x.pay.linked) kind = 'linked';
+        else if (!x.merchant) kind = 'noPayee';
+        else if (payeesAlike_(x.merchant, name) || rows.some(function (y) {
+          return y !== x && y.merchant && y.pay.for_month !== x.pay.for_month && payeesAlike_(x.merchant, y.merchant);
+        })) kind = 'alike';
+        else kind = 'suspect';
+        row[kind]++; report[kind]++; report.payments++;
+        // Proposed rule (2026-11-20): once the item has a regular payee (alike in 2+ months of its payments before this one),
+        // an automatic payment to another payee no longer counts. Linked, no-payee and name-alike payments always count.
+        if (!x.pay.linked && x.merchant && !payeesAlike_(x.merchant, name)) {
+          var before = rows.filter(function (y) { return y.merchant && y.pay.date < x.pay.date; });
+          var regular = before.filter(function (y) {
+            return before.some(function (z) { return z !== y && z.pay.for_month !== y.pay.for_month && payeesAlike_(y.merchant, z.merchant); });
+          });
+          if (regular.length && !regular.some(function (y) { return payeesAlike_(x.merchant, y.merchant); })) {
+            report.wouldDrop.push({ date: x.pay.date, month: x.pay.for_month, item: r.description, payee: x.merchant,
+              description: x.pay.description, regular: regular[regular.length - 1].merchant });
+          }
+        }
+        if (kind === 'suspect' && report.suspects.length < 80) {
+          report.suspects.push({ date: x.pay.date, month: x.pay.for_month, item: r.description, payee: x.merchant, description: x.pay.description });
+        }
+      });
+      report.perItem.push(row);
+    });
+    return report;
+  });
 }

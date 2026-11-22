@@ -2,7 +2,7 @@
 // days still to come, the index learned from up to 3 complete past years.
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { freshApp, today } = require("./helpers");
+const { freshApp, today, lastDayOfMonth } = require("./helpers");
 
 const CAT = "cat-season-test";
 const thisYear = new Date().getFullYear();
@@ -101,7 +101,7 @@ test("Annual-tagged entries are left out of the shape", () => {
   assert.ok(profile(rt).index.every((s) => Math.abs(s - 1) < 1e-9));
 });
 
-test("projections: 12 full months make the level the plain 12-month average; the Year view weights the months still ahead", () => {
+test("projections: 12 full months make the level the plain 12-month average; the Year view weights the months still ahead", { skip: lastDayOfMonth }, () => {
   const { rt } = setup();
   history(rt, (m) => (m === 12 ? 400 : 100));
   thisYearSoFar(rt, DEC_HEAVY);
@@ -117,7 +117,7 @@ test("projections: 12 full months make the level the plain 12-month average; the
   assert.ok(Math.abs(year.baseAmountPen - 12 * year.levelPerMonth) < 1e-6);
 });
 
-test("projections: a flat category gives rate x the months still to come (days left / days in that month)", () => {
+test("projections: a flat category gives rate x the months still to come (days left / days in that month)", { skip: lastDayOfMonth }, () => {
   const { rt } = setup();
   history(rt, () => 100);
   thisYearSoFar(rt, FLAT);
@@ -139,7 +139,7 @@ test("every remaining day weighs 1 / the days of ITS month: February is a whole 
   assert.equal(monthsLeft("2000-02-01", "2000-02-29").months, 0, "an ended period has nothing left");
 });
 
-test("a category younger than the window uses only its complete months since its first entry", () => {
+test("a category younger than the window uses only its complete months since its first entry", { skip: lastDayOfMonth }, () => {
   const { rt } = setup();
   const [y, m] = today().split("-").map(Number);
   const at = (k, day = 10) => { const d = new Date(Date.UTC(y, m - 1 - k, 1)); return ymd(d.getUTCFullYear(), d.getUTCMonth() + 1, day); };

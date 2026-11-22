@@ -76,7 +76,7 @@ function scanFollow_() {
   var groups = {}, families = {};
   function famOf(tok) { return families[tok] || (families[tok] = { key: tok, counts: {}, total: 0, blanks: [], keys: {} }); }
   getAllRows('Entries').forEach(function (e) {
-    if (e.type !== 'expense') return;
+    if (e.type !== 'expense' || isPracticeReview_(e)) return;   // the Needs review practice teaches nothing
     var key = followKey_(e);
     if (!key) return;
     var g = groups[key] || (groups[key] = { key: key, counts: {}, total: 0, blanks: [] });
@@ -176,15 +176,16 @@ function bulkSetEntryCategories_(changes) {
 // Entries just moved into Travel become Annual too (autoTagTravelEntry_ does it
 // for a single edit). Returns the ids that got a NEW Annual tag, for Undo.
 function annualForTravelMoves_(ids, categoryId) {
-  if (!ids.length || !travelCategoryIdSet_()[categoryId]) return [];
+  if (!ids.length || !travelCategoryIdSet_()[categoryId] || !travelAnnualOn_()) return [];
   ensureAnnualTag_();
   var has = annualEntryIdSet_();
   var added = [];
   ids.forEach(function (id) {
     if (has[id]) return;
-    appendRowObject('Entry Tags', { entry_id: id, tag_id: ANNUAL_TAG_ID });
     added.push(id);
   });
+  // One write for all of them (one row at a time cost a trip to Google per entry; speed, 2026-11-12).
+  appendObjectsBatch_('Entry Tags', added.map(function (id) { return { entry_id: id, tag_id: ANNUAL_TAG_ID }; }));
   return added;
 }
 
@@ -200,7 +201,7 @@ function categoryNameForMessage_(categoryId) {
  */
 function categoryFollowAfterEdit_(entryId) {
   var e = getEntryById_(entryId);
-  if (!e || e.type !== 'expense' || e.status !== 'confirmed' || !e.category_id) return null;
+  if (!e || e.type !== 'expense' || e.status !== 'confirmed' || !e.category_id || isPracticeReview_(e)) return null;
   var key = followKey_(e);
   if (!key) return null;
   var scan = scanFollow_();
@@ -255,7 +256,9 @@ function updateEntryFromApp_(payload) {
   syncLoanBeforeEntryEdit_(payload.id, payload.fields);   // a loan's money entry and the loan are one: the loan follows (and may refuse)
   var before = payload.fields && payload.fields.category_id !== undefined ? (getEntryById_(payload.id) || {}).category_id : null;
   var wasExchangeLeg = !!exchangeLegSide_(getEntryById_(payload.id));
+  var afterIncomeEdit = prepareWaitingIncomeEdit_(payload.id, payload.fields);   // an income not received yet and its debt are one
   var entry = updateEntryFields(payload.id, payload.fields);
+  if (afterIncomeEdit) { afterIncomeEdit(); entry = getEntryById_(payload.id); }
   // No longer an exchange leg once it is another type: drop the marker so nothing treats it as one.
   if (wasExchangeLeg && entry && entry.type !== 'transfer' && entry.exchange) {
     updateRowFields_('Entries', payload.id, { exchange: '' });
@@ -322,6 +325,7 @@ function listTidyGroups(payload) {
     var s = categorySuggestion_(scan, key);
     out.push({
       key: key, label: label, count: sorted.length, totalMain: Math.round(total * 100) / 100,
+      practice: sorted.some(isPracticeTidy_),
       firstDate: sorted[sorted.length - 1].date, lastDate: sorted[0].date,
       suggestion: s ? { categoryId: s.categoryId, categoryName: categoryNameForMessage_(s.categoryId), n: s.n, total: s.total, similar: !!s.similar } : null,
       samples: sorted.slice(0, FOLLOW_SAMPLES).map(function (e) {
@@ -330,6 +334,8 @@ function listTidyGroups(payload) {
     });
   });
   out.sort(function (a, b) { return b.totalMain - a.totalMain || b.count - a.count; });
+  // The Tidy practice (payload.pinPractice): its own small group goes first, so it is always on screen however many real groups there are.
+  if (payload && payload.pinPractice) out = out.filter(function (g) { return g.practice; }).concat(out.filter(function (g) { return !g.practice; }));
   return { groups: out.slice(0, limit), totalEntries: totalEntries, groupCount: out.length, shown: Math.min(limit, out.length), main: main };
 }
 

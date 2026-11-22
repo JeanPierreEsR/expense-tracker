@@ -9,7 +9,7 @@ const addEntry = (rt, id, extra) => rt.run(`appendRowObject('Entries', Object.as
 
 test("an unused account is deleted, together with its starting balance", () => {
   const { rt } = freshApp({ entries: 50 });
-  const pm = post(rt, "savePaymentMethod", { nickname: "Throwaway", type: "transfer" }).data;
+  const pm = post(rt, "savePaymentMethod", { nickname: "Throwaway", type: "wallet" }).data;
   post(rt, "setPaymentMethodOpeningBalance", { id: pm.id, balances: [{ currency: "PEN", amount: 5, date: "2026-01-01" }] });
   assert.ok(rt.rows("Account Opening Balances").some((r) => r.payment_method_id === pm.id), "the starting balance was saved");
   const before = rt.rows("Payment Methods").length;
@@ -51,7 +51,7 @@ test("deleting a missing account says so", () => {
 
 test("hide and show: the row and past entries stay, only the flag changes", () => {
   const { rt } = freshApp({ entries: 50 });
-  const pm = post(rt, "savePaymentMethod", { nickname: "Old transfer", type: "transfer" }).data;
+  const pm = post(rt, "savePaymentMethod", { nickname: "Old wallet", type: "wallet" }).data;
   addEntry(rt, "e-hide-1", { payment_method_id: pm.id });
   const hid = post(rt, "setPaymentMethodHidden", { id: pm.id, hidden: true });
   assert.equal(hid.data.hidden, "yes", JSON.stringify(hid));

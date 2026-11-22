@@ -6,7 +6,7 @@
  * delete"); the newer Gmail service asks only for read-only. Everything else in
  * the backend goes through the three functions below and sees "messages" with
  * the same methods GmailApp's messages have (getId, getSubject, getFrom, getTo,
- * getDate, getPlainBody, getAttachments), so the bank rules did not change.
+ * getDate, getPlainBody, getBody, getAttachments), so the bank rules did not change.
  *
  *   gmailUsesReadonly_()          which way is in use
  *   gmailSearchMessages_(q, opts) messages matching a Gmail search, newest first
@@ -37,7 +37,7 @@ function gmailSearchMessages_(query, opts) {
   if (!gmailUsesReadonly_()) {
     var out = [];
     GmailApp.search(query, 0, Math.min(max, 500)).forEach(function (thread) {
-      thread.getMessages().forEach(function (m) { out.push(m); });
+      thread.getMessages().forEach(function (m) { out.push(gmailFixedMessage_(m)); });
     });
     return out.slice(0, max);
   }
@@ -56,7 +56,57 @@ function gmailSearchMessages_(query, opts) {
 }
 
 function gmailGetMessage_(id) {
-  return gmailUsesReadonly_() ? gmailLazyMessage_(id) : GmailApp.getMessageById(id);
+  return gmailUsesReadonly_() ? gmailLazyMessage_(id) : gmailFixedMessage_(GmailApp.getMessageById(id));
+}
+
+// A GmailApp message with its texts repaired (gmailFixMojibake_); the same eight methods the rest of the backend uses.
+function gmailFixedMessage_(m) {
+  if (!m) return m;
+  return {
+    getId: function () { return m.getId(); },
+    getSubject: function () { return gmailFixMojibake_(m.getSubject()); },
+    getFrom: function () { return gmailFixMojibake_(m.getFrom()); },
+    getTo: function () { return m.getTo(); },
+    getDate: function () { return m.getDate(); },
+    getPlainBody: function () { return gmailFixMojibake_(m.getPlainBody()); },
+    getBody: function () { return gmailFixMojibake_(m.getBody()); },
+    getAttachments: function (opts) { return opts === undefined ? m.getAttachments() : m.getAttachments(opts); }
+  };
+}
+
+// Accents a bank's e-mail garbled: some send UTF-8 text but label it Latin-1 (or the other way round), so "operación"
+// arrives as "operaciÃ³n" and "Nº" as "NÂº". Each such run of characters is read back as the UTF-8 it really was;
+// a run that is not valid UTF-8 is left exactly as it is, so correct text (and any other language) never changes.
+var GMAIL_CP1252_ = { 0x20AC: 0x80, 0x201A: 0x82, 0x0192: 0x83, 0x201E: 0x84, 0x2026: 0x85, 0x2020: 0x86, 0x2021: 0x87, 0x02C6: 0x88,
+  0x2030: 0x89, 0x0160: 0x8A, 0x2039: 0x8B, 0x0152: 0x8C, 0x017D: 0x8E, 0x2018: 0x91, 0x2019: 0x92, 0x201C: 0x93, 0x201D: 0x94,
+  0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97, 0x02DC: 0x98, 0x2122: 0x99, 0x0161: 0x9A, 0x203A: 0x9B, 0x0153: 0x9C, 0x017E: 0x9E, 0x0178: 0x9F };
+
+function gmailFixMojibake_(text) {
+  if (typeof text !== 'string' || !/[\u00C2-\u00F4]/.test(text)) return text;
+  var byteOf = function (ch) {
+    var c = ch.charCodeAt(0);
+    if (c >= 0x80 && c <= 0xFF) return c;
+    return GMAIL_CP1252_[c] || -1;
+  };
+  var out = '', i = 0;
+  while (i < text.length) {
+    var lead = text.charCodeAt(i);
+    var need = lead >= 0xC2 && lead <= 0xDF ? 1 : lead >= 0xE0 && lead <= 0xEF ? 2 : lead >= 0xF0 && lead <= 0xF4 ? 3 : 0;
+    var cp = -1;
+    if (need) {
+      cp = lead & (need === 1 ? 0x1F : need === 2 ? 0x0F : 0x07);
+      for (var k = 1; k <= need; k++) {
+        var b = i + k < text.length ? byteOf(text.charAt(i + k)) : -1;
+        if (b < 0x80 || b > 0xBF) { cp = -1; break; }
+        cp = (cp << 6) | (b & 0x3F);
+      }
+      // overlong forms and surrogates are not real UTF-8
+      if (cp >= 0 && ((need === 2 && cp < 0x800) || (need === 3 && (cp < 0x10000 || cp > 0x10FFFF)) || (cp >= 0xD800 && cp <= 0xDFFF))) cp = -1;
+    }
+    if (cp >= 0) { out += String.fromCodePoint(cp); i += need + 1; }
+    else { out += text.charAt(i); i++; }
+  }
+  return out;
 }
 
 // ---- A message read through the Gmail service ----
@@ -70,11 +120,12 @@ function gmailLazyMessage_(id) {
   }
   return {
     getId: function () { return id; },
-    getSubject: function () { return gmailHeader_(load().payload, 'Subject'); },
-    getFrom: function () { return gmailHeader_(load().payload, 'From'); },
+    getSubject: function () { return gmailFixMojibake_(gmailHeader_(load().payload, 'Subject')); },
+    getFrom: function () { return gmailFixMojibake_(gmailHeader_(load().payload, 'From')); },
     getTo: function () { return gmailHeader_(load().payload, 'To'); },
     getDate: function () { return new Date(Number(load().internalDate)); },
-    getPlainBody: function () { return gmailPlainBody_(id, load().payload); },
+    getPlainBody: function () { return gmailFixMojibake_(gmailPlainBody_(id, load().payload)); },
+    getBody: function () { return gmailFixMojibake_(gmailHtmlBody_(id, load().payload)); },
     getAttachments: function (opts) { return gmailAttachments_(id, load().payload, opts); }
   };
 }
@@ -130,6 +181,15 @@ function gmailPlainBody_(messageId, payload) {
   if (plain.length) return plain.map(function (p) { return gmailPartText_(messageId, p); }).join('\n');
   if (html.length) return gmailHtmlToText_(html.map(function (p) { return gmailPartText_(messageId, p); }).join('\n'));
   return '';
+}
+
+// The HTML a mail program would show (links included); if the e-mail has no HTML part, its plain text.
+function gmailHtmlBody_(messageId, payload) {
+  var html = [];
+  gmailWalkParts_(payload, function (part) {
+    if (!part.filename && String(part.mimeType || '').toLowerCase() === 'text/html') html.push(part);
+  });
+  return html.length ? html.map(function (p) { return gmailPartText_(messageId, p); }).join('\n') : gmailPlainBody_(messageId, payload);
 }
 
 function gmailPartText_(messageId, part) {
@@ -252,7 +312,7 @@ function compareGmailReaders(opts) {
   uniqueSenders_().forEach(function (sender) {
     var q = 'from:' + sender + ' newer_than:' + days + 'd';
     var oldById = {};
-    GmailApp.search(q, 0, 500).forEach(function (t) { t.getMessages().forEach(function (m) { oldById[String(m.getId())] = m; }); });
+    GmailApp.search(q, 0, 500).forEach(function (t) { t.getMessages().forEach(function (m) { oldById[String(m.getId())] = gmailFixedMessage_(m); }); });
     var newById = {};
     gmailSearchMessagesViaService_(q).forEach(function (m) { newById[String(m.getId())] = m; });
     Object.keys(oldById).forEach(function (id) {

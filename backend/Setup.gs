@@ -10,6 +10,9 @@ var TABLE_DEFINITIONS = {
     'description', 'payment_method_id', 'paid_by', 'status', 'source',
     'external_id', 'import_batch_id', 'created_at', 'recurring_expense_id', 'merchant', 'to_payment_method_id', 'updated_at', 'trip_id'],
   'Entry Splits': ['id', 'entry_id', 'friend_id', 'amount'],
+  // Places the person turned into a loan / repayment (PayeeGuess.gs): the conversion deletes the entry, so this note is
+  // the memory. Self-heals via ensurePayeeHabitsSheet_.
+  'Payee Habits': ['key', 'kind', 'friend_id', 'direction', 'created_at'],
   // key (added 2026-10-13, see adminMigrateCategories in Migrations.gs): the
   // hidden internal name of a BUILT-IN category (e.g. 'groceries'); `name`
   // keeps the English text forever and the Spanish name is looked up by key
@@ -23,7 +26,7 @@ var TABLE_DEFINITIONS = {
   // budget ones); the column is added to an existing tab by ensureTripsSheet_. Self-heals via ensureTripsSheet_.
   // `currency` (2026-10-19): the trip's OWN main currency — every total, phase, category/day figure and its
   // budget are shown in it. Blank = budget_currency (older trips) or else the app's main currency.
-  Trips: ['id', 'name', 'kind', 'start_date', 'end_date', 'emoji', 'budget_amount', 'budget_currency', 'alert_thresholds', 'currency'],
+  Trips: ['id', 'name', 'kind', 'start_date', 'end_date', 'emoji', 'budget_amount', 'budget_currency', 'alert_thresholds', 'currency', 'in_budgets', 'group_size'],
   'Entry Tags': ['entry_id', 'tag_id'],
   // Not part of the original spec — the bill behind a split expense (see
   // EntryBills.gs). Self-heals via ensureEntryBillsSheet_ on first save.
@@ -34,7 +37,7 @@ var TABLE_DEFINITIONS = {
   // (Balances.gs). Entries.to_payment_method_id (transfers only) likewise.
   'Payment Methods': ['id', 'nickname', 'type', 'bank_id', 'last_4',
     'opening_balance', 'opening_balance_date', 'opening_balance_currency',
-    'alias_kind', 'alias_auto', 'alias_show_last4', 'hidden'],
+    'alias_kind', 'alias_auto', 'alias_show_last4', 'hidden', 'currencies'],
   Banks: ['id', 'name'],
   'Exchange Rates': ['id', 'month', 'currency', 'rate'],
   // trip_id: set on a trip's hidden "group" friend (Trips.gs); self-heals via ensureFriendsTripColumn_.
@@ -66,6 +69,7 @@ var TABLE_DEFINITIONS = {
   Settlements: ['id', 'loan_id', 'date', 'amount', 'payment_method_id', 'offset_loan_id', 'transfer_entry_id'],
   Budgets: ['id', 'category_id', 'amount', 'currency', 'period_type', 'thresholds', 'name'],
   'Budget Alert Log': ['id', 'budget_id', 'threshold', 'period', 'sent_at'],
+  'Budget History': ['id', 'budget_id', 'from_period', 'amount', 'currency', 'category_id', 'ended', 'changed_at'],
   // Not part of the original spec — added after Loans already held real
   // data (self-heals via ensureLoanAlertLogSheet_ in Loans.gs, same
   // pattern as Payors/Recurring Expenses). Same dedup idea as Budget
@@ -73,6 +77,8 @@ var TABLE_DEFINITIONS = {
   // date to something new is naturally alert-worthy again, without
   // needing a separate "reset" step.
   'Loan Alert Log': ['id', 'loan_id', 'due_date', 'sent_at'],
+  // Personal bank loans (2026-10-29, BankLoans.gs): the schedule of installments of a loan; self-heals via ensureLoanInstallmentsSheet_.
+  'Loan Installments': ['id', 'loan_id', 'number', 'due_date', 'principal', 'interest', 'fees', 'transfer_entry_id', 'paid_date'],
   // Not part of the original spec — added so budgets and Projections can
   // account for known fixed costs (rent, subscriptions) instead of
   // treating every expense as unpredictable. `day` is the day of the month
@@ -89,7 +95,7 @@ var TABLE_DEFINITIONS = {
   // a monthly item whose amount changes every time (electricity, gas). `amount`
   // is then only the starting estimate; the app uses the average of the last 3
   // payments it can recognise by `match_words` (see RecurringExpenses.gs).
-  'Recurring Expenses': ['id', 'category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'active', 'date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit', 'trip_id'],
+  'Recurring Expenses': ['id', 'category_id', 'description', 'amount', 'currency', 'frequency', 'day', 'month', 'active', 'date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit', 'trip_id', 'tag_ids'],
   // One row per skipped occurrence ("rent waived this month"). `month` is the
   // occurrence's YYYY-MM, so a skip survives the item's day being edited.
   'Recurring Skips': ['id', 'recurring_expense_id', 'month'],
@@ -112,7 +118,7 @@ var TABLE_DEFINITIONS = {
   // account per currency — self-heals via ensureAccountOpeningBalancesSheet_
   // (Balances.gs). Replaces the older three-column single balance on
   // Payment Methods, which is still read as a fallback.
-  'Account Opening Balances': ['id', 'payment_method_id', 'currency', 'amount', 'date', 'as_of'],
+  'Account Opening Balances': ['id', 'payment_method_id', 'currency', 'amount', 'date', 'as_of', 'not_yet'],
   'Recurring Expense Splits': ['id', 'recurring_expense_id', 'friend_id', 'amount'],
   // Not part of the original spec — lets the owner manually override a
   // category's calculated Projections figure (see Projections.gs) for one
@@ -150,7 +156,9 @@ var DATE_LIKE_COLUMNS = {
   Settlements: ['date'],
   'Exchange Rates': ['month'],
   'Budget Alert Log': ['period', 'sent_at'],
+  'Budget History': ['from_period', 'changed_at'],
   'Loan Alert Log': ['due_date', 'sent_at'],
+  'Loan Installments': ['due_date', 'paid_date'],
   'Import Batches': ['date'],
   'Statement Uploads': ['period_start', 'period_end', 'processed_at'],
   'Projection Overrides': ['period_key']
@@ -322,8 +330,10 @@ function seedCategories() {
     });
   }
 
-  addCatsWithIcons(EXPENSE_CATEGORIES, 'expense');
-  addCatsWithIcons(INCOME_CATEGORIES, 'income');
+  // A copy made by the installer starts with the short starter lists (Profile.gs); the owner's copy keeps his own long one.
+  var friend = isFriendCopy_();
+  addCatsWithIcons(friend ? STARTER_EXPENSE_CATEGORIES_ : EXPENSE_CATEGORIES, 'expense');
+  addCatsWithIcons(friend ? STARTER_INCOME_CATEGORIES_ : INCOME_CATEGORIES, 'income');
   addCats(['Contribution', 'Withdrawal'], 'investment');
   addCats(['Between Accounts'], 'transfer');
 
@@ -435,11 +445,14 @@ function seedFriends() {
 }
 
 function seedSettings() {
-  seedIfEmpty('Settings', [
+  var rows = [
     { key: 'default_currency', value: 'PEN' },
     { key: 'language', value: 'en' },
     { key: 'alert_thresholds', value: '50,80,100' },
     { key: 'notification_channel', value: '' },
     { key: 'notification_target', value: '' }
-  ]);
+  ];
+  // A new person's copy gets the defaults that are not the owner's habits (PersonDefaults.gs, owner 2026-11-16).
+  if (isFriendCopy_()) rows.push({ key: NEW_PERSON_DEFAULTS_SETTING_, value: 'yes' });
+  seedIfEmpty('Settings', rows);
 }

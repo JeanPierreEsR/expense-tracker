@@ -8,14 +8,37 @@
  * out or card charge −), always in `currency`.
  */
 
-var STMT_WINDOW_DAYS = { savings: 2, visa: 5, diners: 5 };
+// SIP's CTS statement (2026-11-20): SIP's "Abono semestral CTS" e-mail arrives about a week after the deposit, and people record the
+// deposit on the e-mail's day (the owner: 6 Nov on the statement, 13 Nov in the app), so its lines look 8 days either way.
+var STMT_WINDOW_DAYS = { savings: 2, visa: 5, diners: 5, sipcts: 8 };
 var STMT_PAIR_WINDOW_DAYS = 3;
+var STMT_CHARGE_WINDOW_DAYS = 5;      // a statement line fills a pending charge 5 days before or after the purchase (owner, 2026-11-07)
+var STMT_CHARGE_RATE_SLACK = 0.10;    // a pair whose rate is within 10% of the rate table is clear enough to be filled in by default
 // The bank's small transaction tax (ITF) is real money leaving the account
 // and must be recorded for a balance to match to the cent. Anything labeled
 // "ITF" but larger than this is a mislabeled transfer, not the tax.
 var STMT_FEE_MAX = 5;
 // Words a bank uses for money moving between accounts (own or otherwise).
 var STMT_TRANSFER_HINT = /TRANSF|PAGO|DINERS|I-BANC|INTERBANK|BPI|AHORRA|TARJ|CUENTAS|\bTC\b|\bSIP\b/i;
+
+var STMT_DISCOUNT_WINDOW_DAYS = 3;   // owner, 2026-11-10
+var STMT_DISCOUNT_MAX = 0.15;        // the card charged at most 15% less than recorded: pre-filled (owner, 2026-11-10)
+var STMT_DISCOUNT_SUGGEST_MAX = 0.30;   // over 15% and up to 30% less: only suggested, never ticked, after every other method (owner, 2026-11-11)
+var STMT_HIGHER_SUGGEST_MAX = 0.10;    // up to 10% MORE than recorded (a tip, a final fare, a fee): only suggested, never ticked (owner, 2026-11-11)
+// Words that say nothing about WHICH shop: never enough on their own to pair a discounted charge with a purchase.
+var STMT_COMMON_WORDS_ = { pago: 1, pagos: 1, compra: 1, compras: 1, consumo: 1, lima: 1, peru: 1, per: 1, sac: 1, saa: 1, eirl: 1,
+  srl: 1, cia: 1, compania: 1, company: 1, tienda: 1, tiendas: 1, store: 1, shop: 1, online: 1, app: 1, web: 1, www: 1, com: 1,
+  ibk: 1, bcp: 1, sip: 1, plin: 1, yape: 1, transf: 1, transferencia: 1, the: 1, and: 1, del: 1, los: 1, las: 1, por: 1, con: 1,
+  san: 1, santa: 1, miraflores: 1, isidro: 1, surco: 1, borja: 1, mall: 1, plaza: 1, centro: 1, food: 1, drive: 1 };
+// One company under several names (owner, 2026-11-11: an "iCloud" purchase in the app is "Apple" on the card): each name also counts
+// as the company's, so the two still share a word. Only for pairing a charge with a purchase; never shown.
+var STMT_SAME_COMPANY_ = { icloud: 'apple', itunes: 'apple', appstore: 'apple', youtube: 'google', gmail: 'google' };
+function stmtDistinctWords_(text) {
+  var words = stmtWords_(String(text || '').replace(/app\s+store/gi, 'appstore'))
+    .filter(function (w) { return !STMT_COMMON_WORDS_[w] && !/^\d+$/.test(w); });
+  words.slice().forEach(function (w) { var c = STMT_SAME_COMPANY_[w]; if (c && words.indexOf(c) === -1) words.push(c); });
+  return words;
+}
 
 function stmtDayNumber_(iso) {
   var p = String(iso).split('-');
@@ -194,8 +217,133 @@ function matchStatements_(statements, entries, opts) {
         entryHadNoAccount: !p.e.payment_method_id && !p.e.to_payment_method_id,
         viaTotal: !!p.viaTotal,
         viaRepayment: !!p.viaRepayment,
+        gapEntryId: p.gapId || '',   // the repayment's extra entry, explained by this same line
         guess: res[p.li].guess
       };
+    });
+  });
+
+  // A purchase the person recorded only in what was paid (ARS on a USD card; Charges.gs) and this statement's line in another
+  // currency on the same card, up to 5 days apart either way: the line is that purchase's charge (owner, 2026-11-07). A pair is CLEAR
+  // when exactly one nearby purchase fits the rate table (within 10%) and that purchase fits no other line; when the table cannot
+  // tell, when the line has only that purchase and the purchase only that line. Clear pairs are filled in by default; else the person picks.
+  statements.forEach(function (st) {
+    if (String(st.pmId).indexOf('unknown:') === 0) return;
+    var cands = {}, perEntry = {}, perEntryOk = {}, sameDayOk = {};
+    st.lines.forEach(function (l, li) {
+      var r = perLine[st.key][li];
+      if (r.status !== 'unregistered' || l.handled || l.stored || l.appLine || !(l.amount < 0)) return;
+      var ld = stmtDayNumber_(l.date), list = [];
+      near(ld, STMT_CHARGE_WINDOW_DAYS).forEach(function (ei) {
+        var e = entries[ei];
+        if (e.status !== 'confirmed' || e.type !== 'expense' || String(e.charge_pending || '') !== '1' || e.payment_method_id !== st.pmId) return;
+        if (e.currency === l.currency || used[e.id] || !(Number(e.amount) > 0)) return;
+        var dd = Math.abs(index.days[ei] - ld);
+        if (dd > STMT_CHARGE_WINDOW_DAYS) return;
+        var expected = opts.chargeRatio ? opts.chargeRatio(e.currency, l.currency, e.date) : null;   // the line's currency per 1 of the entry's
+        var ratio = Math.abs(l.amount) / Number(e.amount);
+        var rateOk = expected ? Math.abs(ratio / expected - 1) <= STMT_CHARGE_RATE_SLACK : null;
+        list.push({ entryId: e.id, dd: dd, rateOk: rateOk });
+        perEntry[e.id] = (perEntry[e.id] || 0) + 1;
+        if (rateOk === true) perEntryOk[e.id] = (perEntryOk[e.id] || 0) + 1;
+        if (rateOk === true && dd === 0) sameDayOk[e.id] = (sameDayOk[e.id] || 0) + 1;
+      });
+      if (list.length) cands[li] = list.sort(function (a, b) { return ((b.rateOk === true) - (a.rateOk === true)) || ((a.rateOk === false) - (b.rateOk === false)) || (a.dd - b.dd); });
+    });
+    Object.keys(cands).forEach(function (li) {
+      var list = cands[li], best = list[0];
+      // Several purchases near each other (a trip): the rate tells them apart when only one fits it, both ways; when several fit,
+      // one recorded the same day as the line wins (owner, 2026-11-07: most purchases are recorded and charged the same day).
+      var fitting = list.filter(function (c) { return c.rateOk === true; });
+      if (fitting.length > 1) {
+        var sameDay = fitting.filter(function (c) { return c.dd === 0; });
+        if (sameDay.length === 1 && sameDayOk[sameDay[0].entryId] === 1) { fitting = sameDay; perEntryOk[sameDay[0].entryId] = 1; }
+      }
+      var clear = fitting.length === 1 ? perEntryOk[fitting[0].entryId] === 1
+        : (list.length === 1 && perEntry[best.entryId] === 1 && best.rateOk === null);
+      if (clear) used[best.entryId] = true;
+      perLine[st.key][li] = { status: 'fills', fillsCharge: { entryId: clear ? best.entryId : '', clear: clear, options: list }, guess: 'expense' };
+    });
+  });
+
+  // A card charged LESS than the purchase recorded in the app (owner, 2026-11-10): the bank's e-mail shows the price, the card applies a
+  // discount (SIP at Plaza Vea / Agora Shop). Card statements only; an expense on this card (or with no account yet), same currency, up
+  // to STMT_DISCOUNT_WINDOW_DAYS apart, the bank's amount lower by at most STMT_DISCOUNT_MAX, and a DISTINCTIVE word in common (shop
+  // names, not "PAGO", "LIMA", "SHOP"…). Runs after the exact matches, so a purchase that really matches a line exactly is never taken.
+  // CLEAR (ticked by default) only when the line has exactly one such purchase and that purchase fits no other line; else the person picks.
+  statements.forEach(function (st) {
+    if (!st.card || String(st.pmId).indexOf('unknown:') === 0) return;
+    var cands = {}, perEntry = {};
+    st.lines.forEach(function (l, li) {
+      var r = perLine[st.key][li];
+      if (r.status !== 'unregistered' || l.handled || l.stored || l.appLine || !(l.amount < 0)) return;
+      var charged = -l.amount, ld = stmtDayNumber_(l.date), lw = stmtDistinctWords_(l.description), list = [];
+      if (!lw.length) return;
+      near(ld, STMT_DISCOUNT_WINDOW_DAYS).forEach(function (ei) {
+        var e = entries[ei];
+        if (e.status !== 'confirmed' || e.type !== 'expense' || e.currency !== l.currency || used[e.id]) return;
+        if (e.payment_method_id && e.payment_method_id !== st.pmId) return;
+        if (String(e.charge_pending || '') === '1' || stmtFromStatement_(e) || (e.paid_by && e.paid_by !== 'me')) return;
+        var recorded = Number(e.amount);
+        if (!(recorded > charged + 0.004) || charged < recorded * (1 - STMT_DISCOUNT_MAX) - 0.004) return;
+        var dd = Math.abs(index.days[ei] - ld);
+        if (dd > STMT_DISCOUNT_WINDOW_DAYS) return;
+        var ew = stmtDistinctWords_(e.description + ' ' + (e.merchant || ''));
+        if (!lw.some(function (w) { return ew.indexOf(w) !== -1; })) return;
+        list.push({ entryId: e.id, dd: dd, recorded: recorded, gap: recorded - charged });
+        perEntry[e.id] = (perEntry[e.id] || 0) + 1;
+      });
+      if (list.length) cands[li] = list.sort(function (a, b) { return (a.dd - b.dd) || (a.gap - b.gap); });
+    });
+    Object.keys(cands).forEach(function (li) {
+      var list = cands[li], best = list[0];
+      var clear = list.length === 1 && perEntry[best.entryId] === 1;
+      if (clear) used[best.entryId] = true;
+      perLine[st.key][li] = { status: 'discount', discount: { entryId: clear ? best.entryId : '', clear: clear,
+        options: list.map(function (c) { return { entryId: c.entryId, dd: c.dd, recorded: c.recorded }; }) }, guess: 'expense' };
+    });
+  });
+
+  // A card charged a purchase in ANOTHER currency than the one recorded in the app (owner, 2026-11-10): Apple's and Spotify's e-mails
+  // say soles, the card bills dollars. Card statements only; an expense on this card (or with no account yet) that is NOT a "charge to
+  // fill in" (those are paired above), paid by the person, up to STMT_DISCOUNT_WINDOW_DAYS apart, a distinctive word in common, and the
+  // two amounts within STMT_CHARGE_RATE_SLACK of the rate table (no rate on file = no pair). Same CLEAR rule as the discounts.
+  // Also a purchase recorded in the WRONG currency (owner, 2026-11-14: Amazon typed as PEN 76.46, the card charged USD 76.46): the same
+  // digits in another currency, same window and shop word, with or without a rate. Such a pair is never ticked by itself (a guess);
+  // saving it changes the purchase's currency and keeps no "paid" amount (StatementApply.gs, `wrong`).
+  statements.forEach(function (st) {
+    if (!st.card || String(st.pmId).indexOf('unknown:') === 0) return;
+    var cands = {}, perEntry = {};
+    st.lines.forEach(function (l, li) {
+      var r = perLine[st.key][li];
+      if (r.status !== 'unregistered' || l.handled || l.stored || l.appLine || !(l.amount < 0)) return;
+      var charged = -l.amount, ld = stmtDayNumber_(l.date), lw = stmtDistinctWords_(l.description), list = [];
+      if (!lw.length) return;
+      near(ld, STMT_DISCOUNT_WINDOW_DAYS).forEach(function (ei) {
+        var e = entries[ei];
+        if (e.status !== 'confirmed' || e.type !== 'expense' || !e.currency || e.currency === l.currency || used[e.id]) return;
+        if (e.payment_method_id && e.payment_method_id !== st.pmId) return;
+        if (String(e.charge_pending || '') === '1' || e.paid_currency || stmtFromStatement_(e) || (e.paid_by && e.paid_by !== 'me')) return;
+        var dd = Math.abs(index.days[ei] - ld);
+        if (dd > STMT_DISCOUNT_WINDOW_DAYS || !(Number(e.amount) > 0)) return;
+        var wrong = Math.abs(charged - Number(e.amount)) < 0.005;
+        var expected = opts.chargeRatio ? opts.chargeRatio(e.currency, l.currency, e.date) : null;
+        var off = expected ? Math.abs(charged / Number(e.amount) / expected - 1) : null;
+        if (!wrong && !(off !== null && off <= STMT_CHARGE_RATE_SLACK)) return;
+        if (wrong && off !== null && off <= STMT_CHARGE_RATE_SLACK) wrong = false;   // the rate explains it (two currencies close in value)
+        var ew = stmtDistinctWords_(e.description + ' ' + (e.merchant || ''));
+        if (!lw.some(function (w) { return ew.indexOf(w) !== -1; })) return;
+        list.push({ entryId: e.id, dd: dd, off: wrong ? 9 : off, wrong: wrong });
+        perEntry[e.id] = (perEntry[e.id] || 0) + 1;
+      });
+      if (list.length) cands[li] = list.sort(function (a, b) { return (a.dd - b.dd) || (a.off - b.off); });
+    });
+    Object.keys(cands).forEach(function (li) {
+      var list = cands[li], best = list[0];
+      var clear = list.length === 1 && perEntry[best.entryId] === 1 && !best.wrong;
+      if (clear) used[best.entryId] = true;
+      perLine[st.key][li] = { status: 'recharge', recharge: { entryId: clear ? best.entryId : '', clear: clear,
+        options: list.map(function (c) { return { entryId: c.entryId, dd: c.dd, wrong: !!c.wrong }; }) }, guess: 'expense' };
     });
   });
 
@@ -340,6 +488,50 @@ function matchStatements_(statements, entries, opts) {
     perLine[a.key][a.i].pairedWith = { key: b.key, i: b.i };
     perLine[b.key][b.i].pairedWith = { key: a.key, i: a.i };
     pairsOut.push({ a: { key: a.key, i: a.i }, b: { key: b.key, i: b.i } });
+  });
+
+  // LAST of all (owner, 2026-11-11): a card charge more than STMT_DISCOUNT_MAX but at most STMT_DISCOUNT_SUGGEST_MAX lower than a
+  // purchase in the app is only SUGGESTED as that purchase with a discount — never ticked, the person decides. Same rules as the
+  // discount pass otherwise (card, same currency, 3 days, a distinctive shop word), and only for lines every other method left alone
+  // (not matched, not paired as a transfer, no "possibly this entry"), against purchases no line has taken.
+  var takenIds = {};
+  Object.keys(perLine).forEach(function (k) {
+    perLine[k].forEach(function (r) {
+      if (r.entryId) takenIds[r.entryId] = true;
+      if (r.discount && r.discount.entryId) takenIds[r.discount.entryId] = true;
+      if (r.recharge && r.recharge.entryId) takenIds[r.recharge.entryId] = true;
+      if (r.fillsCharge && r.fillsCharge.entryId) takenIds[r.fillsCharge.entryId] = true;
+      if (r.possibleEntry && r.possibleEntry.entryId) takenIds[r.possibleEntry.entryId] = true;
+    });
+  });
+  statements.forEach(function (st) {
+    if (!st.card || String(st.pmId).indexOf('unknown:') === 0) return;
+    st.lines.forEach(function (l, li) {
+      var r = perLine[st.key][li];
+      if (r.status !== 'unregistered' || r.pairedWith || r.possibleEntry || l.handled || l.stored || l.appLine || !(l.amount < 0)) return;
+      var charged = -l.amount, ld = stmtDayNumber_(l.date), lw = stmtDistinctWords_(l.description), list = [];
+      if (!lw.length) return;
+      near(ld, STMT_DISCOUNT_WINDOW_DAYS).forEach(function (ei) {
+        var e = entries[ei];
+        if (e.status !== 'confirmed' || e.type !== 'expense' || e.currency !== l.currency || used[e.id] || takenIds[e.id]) return;
+        if (e.payment_method_id && e.payment_method_id !== st.pmId) return;
+        if (String(e.charge_pending || '') === '1' || stmtFromStatement_(e) || (e.paid_by && e.paid_by !== 'me')) return;
+        var recorded = Number(e.amount);
+        // Lower: only the band ABOVE the pre-filled one (15–30%). Higher (owner, 2026-11-11: a tip, a final fare, a fee): up to 10% more.
+        var lowerBand = charged < recorded * (1 - STMT_DISCOUNT_MAX) - 0.004 && charged >= recorded * (1 - STMT_DISCOUNT_SUGGEST_MAX) - 0.004;
+        var higherBand = charged > recorded + 0.004 && charged <= recorded * (1 + STMT_HIGHER_SUGGEST_MAX) + 0.004;
+        if (!lowerBand && !higherBand) return;
+        var dd = Math.abs(index.days[ei] - ld);
+        if (dd > STMT_DISCOUNT_WINDOW_DAYS) return;
+        var ew = stmtDistinctWords_(e.description + ' ' + (e.merchant || ''));
+        if (!lw.some(function (w) { return ew.indexOf(w) !== -1; })) return;
+        list.push({ entryId: e.id, dd: dd, recorded: recorded, gap: Math.abs(recorded - charged) });
+      });
+      if (!list.length) return;
+      list.sort(function (a, b) { return (a.dd - b.dd) || (a.gap - b.gap); });
+      perLine[st.key][li] = { status: 'discount', discount: { entryId: '', clear: false, suggested: true, higher: charged > list[0].recorded,
+        options: list.map(function (c) { return { entryId: c.entryId, dd: c.dd, recorded: c.recorded }; }) }, guess: 'expense' };
+    });
   });
 
   return { perLine: perLine, pairs: pairsOut };

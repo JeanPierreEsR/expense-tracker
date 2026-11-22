@@ -11,13 +11,15 @@
  * so that when EVERY bank account still has an automatic name, changing the app's language renames them all in the new
  * language. As soon as one name was typed or edited by hand, nothing is renamed automatically.
  *
- * Yape and Plin are not accounts: they ride on a bank account. Yape works ONLY with BCP accounts; Plin works with other banks and NOT
+ * Yape and Plin are not accounts: they ride on a bank account. Yape works ONLY with BCP accounts; Plin only with Scotiabank, BBVA and
+ * Interbank (PLIN_BANKS_; owner 2026-11-13), and NOT
  * with BCP. (Wallets of other banks behave the same way: no money of their own, so linking them is never needed.) Settings `yape_pen`, `yape_usd`, `plin_pen`, `plin_usd`
  * hold the id of the account each one is linked to, per currency (changeable any time). An account that is not linked
  * falls back to the owner's original names (BCP_ACCOUNTS / PLIN_ACCOUNTS), which `ensureRailDefaults_` also writes into
  * the settings once, for the owner's own copy.
  *
- * Credit cards are treated as two-currency (soles and dollars) by default; nothing about that is stored.
+ * Credit cards are treated as two-currency (soles and dollars) by default ('credit'); a card in one currency only (a foreign card) is
+ * 'credit_usd' etc. (2026-11-04). More → Accounts can change an account's currency (savePaymentMethod `currency`).
  */
 
 var BANKS_MAIN_ = [
@@ -45,12 +47,38 @@ var BANKS_OTHER_ = [
 
 // Sueldo = the account a salary is paid into (very common in Peru; freelancers may have none).
 var ACCOUNT_KINDS_ = ['debit_pen', 'debit_usd', 'credit', 'sueldo'];
+// Since 2026-11-04 the welcome offers any currency for a debit or salary account: 'debit_eur', 'sueldo_usd'… (three letters,
+// lower case). 'debit_pen', 'debit_usd' and 'sueldo' (soles) keep their old spelling. The currency only names the account and
+// decides which Yape / Plin boxes it offers; an account itself holds payments in any currency.
+// 'credit_usd' (2026-11-04, owner): a card that is in ONE currency only (a foreign card); plain 'credit' stays soles and dollars.
+function isAccountKind_(kind) {
+  return ACCOUNT_KINDS_.indexOf(String(kind)) !== -1 || /^(debit|sueldo|credit)_[a-z]{3}$/.test(String(kind));
+}
+// The kind an account gets for a type ('debit' / 'sueldo' / 'credit') and a currency code ('' = a card in soles and dollars).
+function accountKindFor_(type, currency) {
+  var cur = String(currency || '').toLowerCase();
+  if (!/^[a-z]{3}$/.test(cur)) cur = '';
+  if (type === 'credit') return cur ? 'credit_' + cur : 'credit';
+  if (type === 'sueldo') return !cur || cur === 'pen' ? 'sueldo' : 'sueldo_' + cur;
+  return 'debit_' + (cur || 'pen');
+}
 var ACCOUNT_ALIAS_WORDS_ = {
-  en: { debit_pen: 'soles', debit_usd: 'dollars', credit: 'credit', sueldo: 'salary' },
-  es: { debit_pen: 'soles', debit_usd: 'dólares', credit: 'crédito', sueldo: 'sueldo' }
+  en: { debit_pen: 'soles', debit_usd: 'dollars', debit_eur: 'euros', credit: 'credit', sueldo: 'salary' },
+  es: { debit_pen: 'soles', debit_usd: 'dólares', debit_eur: 'euros', credit: 'crédito', sueldo: 'sueldo' }
 };
 // Plin exists only in soles (owner, 2026-10-23); an old `plin_usd` setting is still read by railAccount_ but never written.
 var RAIL_LINK_KEYS_ = ['yape_pen', 'yape_usd', 'plin_pen'];
+// Plin can ride on several accounts (owner, 2026-11-06: a savings account and an Interbank card). `plin_pen` stays the main one, which a
+// Plin with no account named (a photo) goes to; an e-mail names its account by the last digits. The others are listed in this setting.
+var PLIN_MORE_KEY_ = 'plin_pen_more';
+function plinMoreIds_(settings) {
+  return String((settings || getSettingsMap())[PLIN_MORE_KEY_] || '').split(',').filter(function (id) { return !!id; });
+}
+// True when the account carries Yape or Plin (those cannot be deleted or hidden without moving the link first).
+function accountHasRailLink_(id, settings) {
+  id = String(id);
+  return RAIL_LINK_KEYS_.some(function (k) { return String(settings[k] || '') === id; }) || plinMoreIds_(settings).indexOf(id) !== -1;
+}
 
 function sortedBankList_(list) {
   return list.slice().sort(function (a, b) { return a.name.localeCompare(b.name, 'es'); });
@@ -72,12 +100,22 @@ function bankShortName_(bankName) {
   return String(bankName || '').trim();
 }
 
-function accountKindType_(kind) { return kind === 'credit' ? 'credit' : 'debit'; }
+function accountKindType_(kind) { return /^credit/.test(String(kind)) ? 'credit' : 'debit'; }
+
+// The word after the bank: soles / dólares / euros / crédito / sueldo. These words are for PERUVIAN banks, which open accounts in
+// soles, dollars and euros (owner, 2026-11-04); any other currency's debit account gets its code ("Bank GBP"), and a salary account
+// in another currency stays "sueldo".
+function accountKindWord_(kind, lang) {
+  var words = ACCOUNT_ALIAS_WORDS_[lang] || ACCOUNT_ALIAS_WORDS_.en;
+  if (words[kind]) return words[kind];
+  if (/^credit_/.test(String(kind))) return words.credit;
+  var m = /^(debit|sueldo)_([a-z]{3})$/.exec(String(kind));
+  return m ? (m[1] === 'sueldo' ? words.sueldo : m[2].toUpperCase()) : '';
+}
 
 // {bank} {word} (1234) — the digits only when asked for.
 function autoAccountAlias_(bankShort, kind, last4, showLast4, lang) {
-  var words = ACCOUNT_ALIAS_WORDS_[lang] || ACCOUNT_ALIAS_WORDS_.en;
-  var name = String(bankShort) + ' ' + words[kind];
+  var name = String(bankShort) + ' ' + accountKindWord_(kind, lang);
   if (showLast4 && /^\d{4}$/.test(String(last4 || ''))) name += ' (' + last4 + ')';
   return name;
 }
@@ -100,6 +138,7 @@ function plainNickname_(s) {
 
 // The three columns that remember how an account's name was made (older sheets get them on first use).
 function ensurePaymentMethodAliasColumns_() {
+  if (memoHasColumns_('Payment Methods', ['alias_kind', 'alias_auto', 'alias_show_last4'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Payment Methods');
   var headers = getHeaders(sheet);
   var added = false;
@@ -111,6 +150,95 @@ function ensurePaymentMethodAliasColumns_() {
     }
   });
   if (added) { if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods']; bumpStructureVersion_(); }
+}
+
+// The currencies an account has (owner, 2026-11-06): a column of its own, "PEN,USD". Empty = nothing said, so the account's kind decides;
+// "none" = the person cleared the list on purpose. alias_kind keeps naming the account and choosing its Yape / Plin boxes.
+function ensurePaymentMethodCurrenciesColumn_() {
+  if (memoHasColumns_('Payment Methods', ['currencies'])) return;
+  var sheet = getSheet('Payment Methods');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('currencies') !== -1) return;
+  sheet.getRange(1, headers.length + 1).setValue('currencies');
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
+  bumpStructureVersion_();
+}
+
+/** Pure: a clean list of currency codes, as stored. ['pen', 'USD', 'PEN'] -> 'PEN,USD'; [] -> 'none'. */
+function accountCurrenciesValue_(list) {
+  var seen = {};
+  var codes = (list || []).map(function (c) { return String(c || '').trim().toUpperCase(); }).filter(function (c) {
+    if (!/^[A-Z]{3}$/.test(c) || seen[c]) return false;
+    seen[c] = true;
+    return true;
+  });
+  return codes.length ? codes.join(',') : 'none';
+}
+
+// ---- Suggested currencies for older accounts (owner, 2026-11-06) ----
+// Accounts made before kinds existed have no known currency. The app proposes one from the name or the entries, the person sees it in More →
+// Accounts and nothing is written until they tap Apply (the owner asked to see it first, so this is not a heal). Only on the owner's copy.
+/** Pure: the currency an account's name states ('' when none, or more than one). 'BCP soles' -> 'PEN', 'IBK dolares' -> 'USD'. */
+function accountNameCurrency_(name) {
+  var n = ' ' + String(name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9$\/]+/g, ' ') + ' ';
+  var found = [];
+  if (/ (sol|soles|pen) | s\/ /.test(n)) found.push('PEN');
+  if (/ (dolar|dolares|dollar|dollars|usd) | us\$ /.test(n)) found.push('USD');
+  if (/ (euro|euros|eur) /.test(n)) found.push('EUR');
+  return found.length === 1 ? found[0] : '';
+}
+
+/** Pure: every currency with at least 10% of an account's entries (5 entries or more), most used first, or []. */
+function accountEntriesCurrencies_(currencies) {
+  if (currencies.length < 5) return [];
+  var counts = {};
+  currencies.forEach(function (c) { counts[c] = (counts[c] || 0) + 1; });
+  return Object.keys(counts).filter(function (c) { return counts[c] / currencies.length >= 0.1; }).sort(function (a, b) { return counts[b] - counts[a]; });
+}
+
+// The app knows nothing about this account's currency yet (the same reading as the phone's accountCurrencyList_).
+function accountCurrencyUnknown_(pm) {
+  var kind = String(pm.alias_kind || '');
+  return (pm.type === 'debit' || pm.type === 'credit') && !String(pm.currencies || '') && kind !== 'credit' && kind !== 'sueldo' && !/_[a-z]{3}$/.test(kind) && !isPracticeAccount_(pm);
+}
+
+function getAccountCurrencySuggestions() {
+  if (isFriendCopy_()) return { accounts: [] };
+  var accounts = getAllRows('Payment Methods').filter(accountCurrencyUnknown_);
+  var byAccount = {};
+  if (accounts.length) getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed' || !e.currency) return;
+    [e.payment_method_id, e.to_payment_method_id].forEach(function (id) {
+      if (id) (byAccount[String(id)] = byAccount[String(id)] || []).push(String(e.currency));
+    });
+  });
+  return { accounts: accounts.map(function (pm) {
+    var list = byAccount[String(pm.id)] || [];
+    var counts = {};
+    list.forEach(function (c) { counts[c] = (counts[c] || 0) + 1; });
+    var named = accountNameCurrency_(pm.nickname);
+    var fromEntries = accountEntriesCurrencies_(list);
+    return { id: pm.id, nickname: pm.nickname, type: pm.type, source: named ? 'name' : fromEntries.length ? 'entries' : 'none',
+      proposed: named ? [named] : fromEntries, counts: counts, total: list.length };
+  }) };
+}
+
+/** payload: { items: [{ id, currencies }] }. Writes only the list, only on an account the app still knows nothing about. */
+function applyAccountCurrencySuggestions(payload) {
+  if (isFriendCopy_()) throw new Error(tr_('err.pmNotFound'));
+  ensurePaymentMethodCurrenciesColumn_();
+  var sheet = getSheet('Payment Methods');
+  var headers = getHeaders(sheet);
+  var rows = getAllRows('Payment Methods');
+  var changed = 0;
+  ((payload && payload.items) || []).forEach(function (item) {
+    var pm = rows.find(function (p) { return String(p.id) === String(item.id); });
+    if (!pm || !accountCurrencyUnknown_(pm) || !(item.currencies || []).length) return;
+    setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, pm.id), 'currencies', accountCurrenciesValue_(item.currencies));
+    changed++;
+  });
+  if (changed) { if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods']; bumpStructureVersion_(); }
+  return { changed: changed };
 }
 
 function cleanLast4_(v) {
@@ -141,7 +269,7 @@ function saveOnboardingAccounts(payload) {
   var created = [], idByCid = {};
   list.forEach(function (a) {
     var kind = String(a.kind || '');
-    if (ACCOUNT_KINDS_.indexOf(kind) === -1) throw new Error(tr_('err.pmType'));
+    if (!isAccountKind_(kind)) throw new Error(tr_('err.pmType'));
     var bankName = String(a.bank || '').trim().slice(0, 60);
     if (!bankName) throw new Error(tr_('err.pmBank'));
     var bank = addBank({ name: bankName });
@@ -154,6 +282,7 @@ function saveOnboardingAccounts(payload) {
     nickname = uniqueAccountName_(nickname, last4, taken);
     var pm = { id: Utilities.getUuid(), nickname: nickname, type: accountKindType_(kind), bank_id: bank.id, last_4: '',
       alias_kind: kind, alias_auto: auto ? 'yes' : 'no', alias_show_last4: show ? 'yes' : 'no' };
+    if (Array.isArray(a.currencies)) { ensurePaymentMethodCurrenciesColumn_(); pm.currencies = accountCurrenciesValue_(a.currencies); }
     appendRowObject('Payment Methods', pm);
     if (last4) setPaymentMethodLast4_(sheet, getHeaders(sheet), findRowIndexById(sheet, getHeaders(sheet), pm.id), last4);
     pm.last_4 = last4;
@@ -196,13 +325,17 @@ function saveOnboardingPlatforms(payload) {
 
 // Yape works ONLY with BCP debit accounts. Plin works with other banks' accounts and NOT with BCP debit accounts — but an INTERBANK CREDIT CARD
 // can pay through Plin (owner, 2026-10-19; narrowed 2026-10-23: only Interbank cards, no other card offers Yape or Plin).
+// Plin works only with these banks (owner, 2026-11-13: not SIP, nor any bank outside this list). Same list in docs/app.js (PLIN_BANKS_).
+var PLIN_BANKS_ = ['scotiabank', 'bbva', 'interbank'];
+function plinBank_(name) { return PLIN_BANKS_.indexOf(String(name || '').trim().toLowerCase()) >= 0; }
 function railAllowsAccount_(rail, pm) {
+  if (isPracticeAccount_(pm)) return false;   // the practice account never carries Yape / Plin payments
   var banks = getAllRows('Banks');
   var bank = banks.find(function (b) { return String(b.id) === String(pm.bank_id); });
   var isBcp = !!bank && String(bank.name).trim().toLowerCase() === 'bcp';
   if (rail === 'yape') return isBcp && pm.type !== 'credit';
   if (pm.type === 'credit') return !!bank && String(bank.name).trim().toLowerCase() === 'interbank';
-  return !isBcp;
+  return !!bank && plinBank_(bank.name);
 }
 
 // Yape and Plin ride on an account (a different one per currency); more → Accounts & cards changes it any time.
@@ -220,9 +353,26 @@ function saveRailLinks(payload) {
     }
     setSetting_(key, id);
   });
+  if (payload[PLIN_MORE_KEY_] !== undefined) {
+    var more = [];
+    String(payload[PLIN_MORE_KEY_] || '').split(',').forEach(function (raw) {
+      var moreId = String(raw).trim();
+      if (!moreId || more.indexOf(moreId) !== -1) return;
+      var morePm = pms.find(function (p) { return String(p.id) === moreId && p.type !== 'investment'; });
+      if (!morePm) throw new Error(tr_('err.pmNotFound'));
+      if (!railAllowsAccount_('plin', morePm)) throw new Error(tr_('err.railPlin'));
+      more.push(moreId);
+    });
+    setSetting_(PLIN_MORE_KEY_, more.join(','));
+  }
+  // The main account is never left empty while another one has Plin, and is not listed twice.
+  var now = getSettingsMap(), rest = plinMoreIds_(now).filter(function (id) { return id !== String(now.plin_pen || ''); });
+  if (!now.plin_pen && rest.length) setSetting_('plin_pen', rest.shift());
+  if (rest.join(',') !== String(now[PLIN_MORE_KEY_] || '')) setSetting_(PLIN_MORE_KEY_, rest.join(','));
   var out = {};
   var s = getSettingsMap();
   RAIL_LINK_KEYS_.forEach(function (k) { out[k] = String(s[k] || ''); });
+  out[PLIN_MORE_KEY_] = String(s[PLIN_MORE_KEY_] || '');
   return out;
 }
 
@@ -257,6 +407,32 @@ function ensureRailDefaults_() {
 }
 
 /**
+ * Language changed: the built-in cash account follows it while it still has the built-in name ("Cash" / "Efectivo"), so a Spanish copy
+ * never shows "Cash" (found in the 2026-11-04 new-user test: the account is made before the welcome sets the language). A name the
+ * person typed is never touched, and nothing is renamed onto a name another account already uses.
+ */
+function relocalizeCashName_(lang) {
+  lang = normalizeLang_(lang);
+  var cid = cashAccountId_();
+  if (!lang || !cid) return 0;
+  var rows = getAllRows('Payment Methods');
+  var pm = rows.find(function (p) { return String(p.id) === cid; });
+  if (!pm) return 0;
+  var name = String(pm.nickname || '').trim();
+  var builtIn = [tr_('pm.cashName', null, 'en'), tr_('pm.cashName', null, 'es')].map(function (n) { return n.toLowerCase(); });
+  if (builtIn.indexOf(name.toLowerCase()) === -1) return 0;
+  var want = tr_('pm.cashName', null, lang);
+  if (want === name) return 0;
+  if (rows.some(function (p) { return String(p.id) !== cid && String(p.nickname || '').trim().toLowerCase() === want.toLowerCase(); })) return 0;
+  var sheet = getSheet('Payment Methods');
+  var headers = getHeaders(sheet);
+  setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, cid), 'nickname', want);
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
+  bumpStructureVersion_();
+  return 1;
+}
+
+/**
  * Language changed: rename the accounts whose names were all made automatically. If even one bank account has a name
  * that was typed or edited by hand (or predates this feature), nothing is renamed — the person has seen those names
  * and may have changed some on purpose. Wallets, cash and investment platforms are not bank accounts and are ignored.
@@ -265,9 +441,10 @@ function relocalizeAutoAliases_(lang) {
   lang = normalizeLang_(lang);
   if (!lang) return 0;
   var rows = getAllRows('Payment Methods');
-  var bankAccounts = rows.filter(function (pm) { return pm.type === 'debit' || pm.type === 'credit'; });
+  // The first-use practice's account ("Practice account") is nobody's real account: it must not stop the rename.
+  var bankAccounts = rows.filter(function (pm) { return (pm.type === 'debit' || pm.type === 'credit') && !isPracticeAccount_(pm); });
   if (!bankAccounts.length) return 0;
-  var allAuto = bankAccounts.every(function (pm) { return String(pm.alias_auto) === 'yes' && ACCOUNT_KINDS_.indexOf(String(pm.alias_kind)) !== -1; });
+  var allAuto = bankAccounts.every(function (pm) { return String(pm.alias_auto) === 'yes' && isAccountKind_(pm.alias_kind); });
   if (!allAuto) return 0;
 
   var banks = getAllRows('Banks');
@@ -290,4 +467,58 @@ function relocalizeAutoAliases_(lang) {
   });
   if (changed) { if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods']; bumpStructureVersion_(); }
   return changed;
+}
+
+// ---- First-use practice: Accounts, cards & platforms ----
+// The practice adds an account named like this (both languages), gives it a starting balance and deletes it again. It is made-up money:
+// no e-mail, statement line, Telegram message or rail may ever land on it, so every place that PICKS an account for something automatic
+// leaves it out (withoutPracticeAccounts_), and the cleanup below removes it. See tests/backend/practice-accounts.test.js.
+function isPracticeAccount_(pm) {
+  return /^(Practice account|Cuenta de pr\u00e1ctica)$/i.test(String((pm && pm.nickname) || '').trim());
+}
+function withoutPracticeAccounts_(list) {
+  return (list || []).filter(function (pm) { return !isPracticeAccount_(pm); });
+}
+
+// The cleanup in ONE call: every account with the practice's name, its starting balances, and anything pointing at it. A REAL entry (or loan,
+// repayment, statement record) that somehow got the practice account is never deleted: it only loses the account, like a deleted one would.
+//   payload: { started_on }  (kept for symmetry with the other practices; the account is removed whatever the date)
+// Returns { accounts, balances, cleared }.
+function removePracticeAccounts(payload) {
+  return withScriptLockOnce_(function () {
+    var out = { accounts: 0, balances: 0, cleared: 0 };
+    var ids = {};
+    getAllRows('Payment Methods').filter(isPracticeAccount_).forEach(function (pm) { ids[String(pm.id)] = true; });
+    if (!Object.keys(ids).length) return out;
+    getAllRows('Entries').forEach(function (e) {
+      ['payment_method_id', 'to_payment_method_id'].forEach(function (f) {
+        if (ids[String(e[f] || '')]) { setEntryField_(e.id, f, ''); out.cleared++; }
+      });
+    });
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    [['Loans', ['payment_method_id']], ['Settlements', ['payment_method_id']],
+     ['Statement Uploads', ['payment_method_id']], ['Statement Gaps', ['payment_method_id']]].forEach(function (spec) {
+      if (!ss.getSheetByName(spec[0])) return;
+      getAllRows(spec[0]).forEach(function (r) {
+        spec[1].forEach(function (f) {
+          if (ids[String(r[f] || '')]) { updateRowFields_(spec[0], r.id, (function (o) { o[f] = ''; return o; })({})); out.cleared++; }
+        });
+      });
+    });
+    var settings = getSettingsMap();
+    RAIL_LINK_KEYS_.forEach(function (k) { if (ids[String(settings[k] || '')]) setSetting_(k, ''); });
+    if (plinMoreIds_(settings).length) setSetting_(PLIN_MORE_KEY_, plinMoreIds_(settings).filter(function (id) { return !ids[id]; }).join(','));
+    ensureAccountOpeningBalancesSheet_();
+    out.balances = getAllRows('Account Opening Balances').filter(function (row) { return !!ids[String(row.payment_method_id)]; }).length;
+    deleteRowsWhere_('Account Opening Balances', function (row) { return !!ids[String(row.payment_method_id)]; });
+    var sheet = getSheet('Payment Methods');
+    var headers = getHeaders(sheet);
+    Object.keys(ids).forEach(function (id) {
+      var idx = findRowIndexById(sheet, headers, id);
+      if (idx !== -1) { deleteSheetRows_(sheet, idx, 1); out.accounts++; }
+    });
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
+    bumpStructureVersion_();
+    return out;
+  });
 }

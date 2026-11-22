@@ -21,7 +21,7 @@ const get = (key) => ALL.find((e) => e.key === key);
 const setupEs = setup.slice(setup.indexOf("  es: {"), setup.indexOf("}[LANG]"));
 
 test("C1/C2 kept: 'repago' and 'Repartición' stay; only 'cuenta' (the bill) became 'boleta' in the bill-splitting texts", () => {
-  assert.match(get("transfer.kind.repayment").es, /Repagos/);
+  assert.match(get("transfer.kind.repayment").es, /"Repago"/);   // singular like the other kinds (Inés, 2026-11-15)
   assert.match(get("bill.apply").es, /repartición/);
   assert.equal(get("bill.title").es, JSON.stringify("🧾 Repartir una boleta por ítems"));
   for (const e of ALL.filter((x) => /^bill\.(title|stale|total|who|err|loading|check|items|tipBase|format|onlyExpense|tooLarge)/.test(x.key) || x.key === "split.openBill")) {
@@ -49,7 +49,7 @@ test("C5, C9, C6: no 'otra bandeja', no 'gestionado', no 'teléfono' (it is 'cel
     assert.ok(!/tel[eé]fono/i.test(e.es), `${e.key} teléfono`);
   }
   assert.ok(!/tel[eé]fono/i.test(setupEs), "installer (es)");
-  assert.match(get("privacy.signin").es, /solo en tu celular/);
+  assert.match(get("privacy.signin").es, /en tu celular y en tu propia cuenta de Google/);
 });
 
 test("C7, C8: the loan form asks '¿Quién le debe a quién?'; Telegram texts say 'mensaje', not 'tarjeta'", () => {
@@ -61,15 +61,14 @@ test("C7, C8: the loan form asks '¿Quién le debe a quién?'; Telegram texts sa
 
 test("C11: the small Spanish items", () => {
   assert.match(get("trips.emoji").es, /^"Emoji/);
-  assert.match(get("wa.kind.debit_pen").es, /ahorros o débito/);
+  assert.match(get("wa.type.debit").es, /ahorros o débito/);
   assert.match(get("accounts.type.transfer").es, /Transferencia bancaria/);
   assert.match(get("accounts.confirmDelete").es, /no se podrá eliminar/);
   assert.match(get("stmt.choice.complete").es, /Completar transferencia/);
   assert.match(get("export.send").es, /en lugar de guardar/);
   assert.match(get("rec.customInterval").es, /Se repite cada/);
-  assert.match(get("tour.flow.body").es, /la imagen/);
   for (const e of ALL) assert.ok(!/excedente/i.test(e.es), `${e.key} excedente`);
-  assert.match(get("privacy.never").es, /las personas a quienes pagas/);
+  assert.match(get("privacy.never").es, /las categorías que creaste/);
 });
 
 test("C12: 'gap' no longer means two things; C13: no 'offset'; C14: 'payer', not 'payor/payee'; C16: no local words in English", () => {
@@ -80,17 +79,17 @@ test("C12: 'gap' no longer means two things; C13: no 'offset'; C14: 'payer', not
   assert.equal(get("gaps.title").en, JSON.stringify("Unexplained differences"));
   assert.match(get("stmt.noteGap").en, /^"Missing period:/);
   assert.match(get("stmt.noteGap").es, /^"Periodo sin cubrir:/);
-  for (const k of ["wa.kind.debit_pen", "wa.kind.debit_usd", "wa.kind.credit", "wa.kind.sueldo", "wa.rail.yape_pen", "wa.rail.yape_usd", "wa.rail.plin_pen"]) {
+  for (const k of ["wa.type.debit", "wa.type.sueldo", "wa.type.credit", "wa.rail.yape_pen", "wa.rail.yape_usd", "wa.rail.plin_pen"]) {
     assert.ok(!/\bsoles\b|\bdollars\b|Sueldo/.test(get(k).en), k);
   }
   assert.match(get("rec.variableNeedsWords").en, /luz\\" \(electricity\)/);
 });
 
 test("C19: error texts say what to do next", () => {
-  assert.match(get("error.rateRequired").en, /Add it in More → Exchange rates/);
-  assert.match(get("error.rateRequired").es, /Agrégalo en Más → Tipos de cambio/);
-  assert.match(get("feature.gmailOff").en, /Turn it on in More → Extra features/);
-  assert.match(get("feature.gmailOff").es, /Actívala en Más → Funciones extra/);
+  assert.match(get("error.rateRequired").en, /Add it in More → Currencies/);
+  assert.match(get("error.rateRequired").es, /Agrégalo en Más → Monedas/);
+  assert.match(get("feature.gmailOff").en, /Turn it on in More → Feedback & privacy → Extra features/);
+  assert.match(get("feature.gmailOff").es, /Actívala en Más → Comentarios y privacidad → Funciones extra/);
   assert.match(get("err.catProtected").en, /built-in category/);
   for (const k of ["err.catInUse", "err.pmInUse"]) assert.ok(!/pickers/.test(get(k).en), k);
 });

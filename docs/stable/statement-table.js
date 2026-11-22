@@ -437,17 +437,30 @@
     return null;
   }
 
-  // 'dmy' | 'mdy' for dd/mm/yyyy-style text, decided by the whole column: a first part above 12 means day first, a second part
-  // above 12 means month first. Undecided: day first (Peru's own order).
+  // 'dmy' | 'mdy' for dd/mm/yyyy-style text, decided by the whole column: a first part above 12 means day first (even 31/02/2026), a
+  // second part above 12 means month first. '' when it cannot tell: some date reads two different ways (10/04/2026) and none proves the
+  // order. Then the PERSON decides (owner, 2026-11-18; it used to fall back to day first and put an American file's dates in wrong months).
+  // A column with nothing to read either way (year first, month names, 05/05) is 'dmy', and nothing is asked.
   function detectDateOrder(values) {
-    var dmy = 0, mdy = 0;
+    var dmy = 0, mdy = 0, twoWays = 0;
     values.forEach(function (v) {
       var p = dateParts(v);
       if (!p || p.order !== '?') return;
       if (p.a > 12) dmy++;
       if (p.b > 12) mdy++;
+      if (p.a <= 12 && p.b <= 12 && p.a !== p.b) twoWays++;
     });
-    return mdy > dmy ? 'mdy' : 'dmy';
+    if (dmy || mdy) return mdy > dmy ? 'mdy' : 'dmy';
+    return twoWays ? '' : 'dmy';
+  }
+
+  // The first date in the column that reads two ways, for the question's examples ('' if none).
+  function ambiguousDate(values) {
+    for (var i = 0; i < values.length; i++) {
+      var p = dateParts(values[i]);
+      if (p && p.order === '?' && p.a <= 12 && p.b <= 12 && p.a !== p.b) return String(values[i]).trim().split(/[T ]/)[0];
+    }
+    return '';
   }
 
   var ISO_WITH_OFFSET = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)\s*(Z|[+-]\d{2}:?\d{2})$/i;
@@ -475,12 +488,17 @@
     return y + '-' + pad2(mo) + '-' + pad2(d);
   }
 
+  // "S/." (the sol's older abbreviation, still common in hand-made spreadsheets: "S/.1,500.00") — its dot is part of the mark, not
+  // a decimal point (a tester's own file, 2026-11-20: every amount came out a thousand times too small). A sign or bracket may sit
+  // between the mark and the number ("S/. -1,234.50", "S/. (1,234.50)"; Mark, testers 2026-11-21: such lines were left out).
+  function dropMarkDot(s) { return String(s).replace(/(S\/)\s*\.(?=\s*[-−–(]?\s*\d)/ig, '$1 '); }
+
   // '.' or ',' — which one marks the decimals in this column's text.
   function detectDecimal(values) {
     var comma = 0, dot = 0;
     values.forEach(function (v) {
       if (typeof v === 'number') return;
-      var s = String(v).replace(/[^\d.,]/g, '');
+      var s = dropMarkDot(v).replace(/[^\d.,]/g, '');
       var lastC = s.lastIndexOf(','), lastD = s.lastIndexOf('.');
       if (lastC >= 0 && lastD >= 0) { if (lastC > lastD) comma++; else dot++; }
       else if (lastC >= 0 && /,\d{1,2}$/.test(s)) comma++;
@@ -488,17 +506,37 @@
     });
     return comma > dot ? ',' : '.';
   }
+  // True when the column's text settles the decimal mark: some amounts show it (1,234.56 or 12,50) and none says the other way; or every
+  // amount is a real number (a spreadsheet cell), where there is no mark to read. Import shows the choice as "from the file" then.
+  function decimalClear(values) {
+    var comma = 0, dot = 0, text = 0;
+    values.forEach(function (v) {
+      if (v === '' || v === null || v === undefined) return;
+      if (typeof v === 'number') return;
+      text++;
+      var s = dropMarkDot(v).replace(/[^\d.,]/g, '');
+      var lastC = s.lastIndexOf(','), lastD = s.lastIndexOf('.');
+      if (lastC >= 0 && lastD >= 0) { if (lastC > lastD) comma++; else dot++; }
+      else if (lastC >= 0 && /,\d{1,2}$/.test(s)) comma++;
+      else if (lastD >= 0 && /\.\d{1,2}$/.test(s)) dot++;
+    });
+    return text === 0 || (comma > 0) !== (dot > 0);
+  }
 
-  // The number in a cell, or NaN. Handles "S/ 1,234.50", "1.234,50", "(12.50)", "12.50-", "−5", "USD 10".
+  // The number in a cell, or NaN. Handles "S/ 1,234.50", "S/.1,234.50", "1.234,50", "(12.50)", "12.50-", "−5", "USD 10".
   function parseAmount(value, decimal) {
     if (typeof value === 'number') return value;
-    var s = String(value === undefined || value === null ? '' : value).trim();
+    var s = dropMarkDot(value === undefined || value === null ? '' : value).trim();
     if (!s) return NaN;
-    var negative = /^\(.*\)$/.test(s) || /^[-−–]/.test(s.replace(/^[^\d(\-−–.,]+/, '')) || /[-−–]\s*$/.test(s);
+    var bare = s.replace(/^[^\d(\-−–.,]+/, '');   // without a leading currency mark ("S/ (1,234.50)" is negative too)
+    var negative = /^\(.*\)$/.test(s) || /^\(.*\)$/.test(bare) || /^[-−–]/.test(bare) || /[-−–]\s*$/.test(s);
     var digits = s.replace(/[^\d.,]/g, '');
     if (!/\d/.test(digits)) return NaN;
-    if (decimal === ',') digits = digits.replace(/\./g, '').replace(',', '.');
+    if (decimal === ',') digits = digits.replace(/\./g, '').replace(/,/g, '.');
     else digits = digits.replace(/,/g, '');
+    // Every digit in the cell must be part of the number read: a second decimal point ("1.500.00", ".1500.00") would make parseFloat stop
+    // half-way and give a far smaller amount without a word (the "S/." file, 2026-11-20). Such a cell is left unread and named instead.
+    if ((digits.match(/\./g) || []).length > 1) return NaN;
     var n = parseFloat(digits);
     return isNaN(n) ? NaN : (negative ? -Math.abs(n) : n);
   }
@@ -515,7 +553,8 @@
   // ---------- finding and mapping the columns ----------
 
   function cellText(v) { return typeof v === 'number' ? String(v) : String(v || ''); }
-  function looksNumeric(v) { return typeof v === 'number' || (/\d/.test(String(v)) && !isNaN(parseAmount(v, '.')) && !dateParts(v)); }
+  // (either way of writing decimals: "1.234.567,89" is a number even before the file's decimal mark is known)
+  function looksNumeric(v) { return typeof v === 'number' || (/\d/.test(String(v)) && (!isNaN(parseAmount(v, '.')) || !isNaN(parseAmount(v, ','))) && !dateParts(v)); }
 
   // The row holding the column names: the first row of mostly text whose following rows contain a date. -1 = no header row.
   function findHeaderRow(rows) {
@@ -535,18 +574,48 @@
     date: /^(fecha( de)?( operacion| proceso| movimiento| consumo| transaccion| contable)?|f\.? ?(operacion|proceso|valor)|date|transaction date|posting date|booking date|dia)$/,
     dateLoose: /fecha|date/,
     description: /descripcion|detalle|concepto|glosa|movimiento|referencia|narrativa|memo|payee|merchant|comercio|establecimiento|description|details?|transaction|^notes?$|^nota(s)?$|comentario|observacion/,
-    account: /^(wallet|cartera|billetera|account|account name|cuenta|nombre de la cuenta|nombre de cuenta)$/,
+    account: /^(wallet|wallets|cartera|billetera|account|accounts|account name|cuenta|cuentas|nombre de la cuenta|nombre de cuenta)$/,
+    // Import only (another app's export, a person's own sheet): more ways to name the account column. A bank's file can have a "Tarjeta"
+    // column holding the card NUMBER, so a column found this way only counts when it holds a few repeated names (see accountLikeValues).
+    accountLoose: /^(tarjeta|tarjetas|medio de pago|medios de pago|metodo de pago|metodos de pago|forma de pago|formas de pago|pagado con|pago con|payment method|payment methods|paid with|card|cards)$/,
+    // Import only: a second text column with the person's own remarks, kept with the description.
+    // ("Notes" / "Memo" are left alone: other apps' exports — Mint, YNAB, Bluecoins — use them and keep their descriptions as they are.)
+    note: /^(comentario|comentarios|observacion|observaciones|comment|comments|remarks)$/,
     category: /^(category|category name|categoria|nombre de la categoria|nombre de categoria)$/,
     type: /^(type|tipo|transaction type|tipo de transaccion|tipo de movimiento|income\/expense|ingreso\/gasto|entry type)$/,
     amount: /^(monto|importe|amount|valor|total|monto total|importe total)$/,
     amountLoose: /monto|importe|amount/,
-    out: /cargo|retiro|debito|egreso|salida|debit|withdraw|paid out|money out|gasto|pago|payment out/,
-    in: /abono|deposito|ingreso|entrada|credito|credit|paid in|money in|deposit/,
+    out: /cargo|retiro|debito|egreso|salida|debit|withdraw|paid out|money out|gasto|pago|payment out|outflow|expense amount|expenses amount/,
+    in: /abono|deposito|ingreso|entrada|credito|credit|paid in|money in|deposit|inflow|income amount/,
     currency: /moneda|currency|divisa/
   };
 
   function columnValues(rows, from, col) {
     return rows.slice(from).map(function (r) { return r[col]; }).filter(function (v) { return cellText(v) !== ''; });
+  }
+
+  // The currency mark written on an amount: a code ('PEN', 'USD', …), '$' for a dollar sign that names no country, or '' for none.
+  function markOf(text) {
+    var t = String(text === undefined || text === null ? '' : text);
+    if (/US\$|\bUSD\b/i.test(t)) return 'USD';
+    if (/R\$|\bBRL\b/i.test(t)) return 'BRL';
+    if (/S\/|\bPEN\b|\bsoles?\b/i.test(t)) return 'PEN';
+    if (/€|\bEUR\b/i.test(t)) return 'EUR';
+    if (/£|\bGBP\b/i.test(t)) return 'GBP';
+    if (/¥|\bJPY\b/i.test(t)) return 'JPY';
+    if (/\$/.test(t)) return '$';
+    return '';
+  }
+
+  // A column of account NAMES (Yape, BCP, Visa…), not of card numbers: at least one value, few different ones, and most of them words.
+  function accountLikeValues(values) {
+    var texts = values.map(cellText).map(function (v) { return v.trim(); }).filter(Boolean);
+    if (!texts.length) return false;
+    var distinct = {}; texts.forEach(function (v) { distinct[v.toLowerCase()] = true; });
+    var n = Object.keys(distinct).length;
+    if (n > Math.max(12, texts.length * 0.2)) return false;
+    var wordy = texts.filter(function (v) { return /[a-z]{2,}/i.test(v) && !/\d{5,}|\*{2,}|x{4,}/i.test(v); }).length;
+    return wordy >= texts.length * 0.8;
   }
 
   // { headerRow, hasHeader, headers, date, description, amount, out, in, currency, dateOrder, decimal, sign }
@@ -573,6 +642,11 @@
     if (m.out < 0) { m.amount = find(HEADER_WORDS.amount, used); if (m.amount < 0) m.amount = find(HEADER_WORDS.amountLoose, used); if (m.amount >= 0) used.push(m.amount); }
     m.type = find(HEADER_WORDS.type, used); if (m.type >= 0) used.push(m.type);
     m.description = find(HEADER_WORDS.description, used); if (m.description >= 0) used.push(m.description);
+    m.note = -1;
+    if (opts.importMode) {
+      if (m.account < 0) { var al = find(HEADER_WORDS.accountLoose, used); if (al >= 0 && accountLikeValues(columnValues(rows, first, al))) { m.account = al; used.push(al); } }
+      if (m.description >= 0) { m.note = find(HEADER_WORDS.note, used); if (m.note >= 0) used.push(m.note); }
+    }
 
     // No usable words in the header (or no header at all): decide from the values.
     if (m.date < 0) {
@@ -601,8 +675,42 @@
     }
 
     m.dateOrder = detectDateOrder(columnValues(rows, first, m.date));
+    m.dateSample = m.dateOrder ? '' : ambiguousDate(columnValues(rows, first, m.date));
+    m.dateProved = !!m.dateOrder && columnValues(rows, first, m.date).some(function (v) { var p = dateParts(v); return p && p.order === '?' && p.a !== p.b; });
     var numberCols = [m.amount, m.out, m.in].filter(function (i) { return i >= 0; });
     m.decimal = detectDecimal([].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })));
+    m.decimalClear = decimalClear([].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })));
+    // The dates leave no doubt: the order was proved (a 31/01), or they are written year first (2025-12-30, what a spreadsheet's date cells give).
+    m.dateClear = !!m.dateOrder && (m.dateProved || columnValues(rows, first, m.date).filter(function (v) { return String(v || '').trim(); })
+      .every(function (v) { return /^\d{4}-\d{2}-\d{2}/.test(String(v).trim()); }));
+    // Amounts written with a dollar sign ("$18.40", "US$ 5") and no currency column: the screen offers the dollar as the file's currency
+    // (Mark, 2026-11-18: a YNAB export came in as soles). 'US$' | '$' | ''.
+    m.currencySign = '';
+    if (m.currency < 0) {
+      var amtTexts = [].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })).map(cellText).filter(function (v) { return /\d/.test(v); });
+      var us = amtTexts.filter(function (v) { return /US\$/i.test(v); }).length;
+      var dollar = amtTexts.filter(function (v) { return /(^|[^A-Za-z\/])\$/.test(v); }).length;
+      // Another currency's mark on some lines too ("S/ 12.50" next to "$ 30.00"): no currency is assumed for the whole file, and the
+      // screen warns that it mixes currencies (Mark, re-check 2026-11-18: the soles lines were read as dollars).
+      var others = {};
+      amtTexts.forEach(function (v) {
+        var t = v.replace(/US\$/ig, '');
+        (t.match(/S\/|€|£|¥|R\$|\b(PEN|EUR|GBP|BRL|JPY|soles?)\b/ig) || []).forEach(function (k) { others[/^s(\/|oles?)$/i.test(k) ? 'S/' : k.toUpperCase()] = 1; });
+      });
+      var otherMarks = Object.keys(others);
+      m.currencyMixed = '';
+      // Import only: two or more kinds of currency mark in one file ("S/ 12.50" and "US$ 30") — each line takes the currency of its own
+      // mark (applyMapping); a line with none takes the file's currency. `bareDollar`: some lines have a "$" that names no country.
+      m.lineCurrency = false; m.bareDollar = false;
+      if (opts.importMode) {
+        var kinds = {};
+        amtTexts.forEach(function (v) { var k = markOf(v); if (k) kinds[k] = true; });
+        if (Object.keys(kinds).length >= 2) { m.lineCurrency = true; m.bareDollar = !!kinds.$; }
+      }
+      if (otherMarks.length && (us || dollar)) m.currencyMixed = (us ? ['US$'] : ['$']).concat(otherMarks).join(', ');
+      else if (amtTexts.length && us >= amtTexts.length / 2) m.currencySign = 'US$';
+      else if (amtTexts.length && dollar >= amtTexts.length / 2) m.currencySign = '$';
+    }
     m.sign = 'negative';
     if (m.amount >= 0) {
       var vs = columnValues(rows, first, m.amount).map(function (v) { return parseAmount(v, m.decimal); }).filter(function (n) { return !isNaN(n) && n !== 0; });
@@ -619,8 +727,9 @@
   // Only a plain statement of it counts — a line is a transfer ONLY when the file says so, never from the wording of a note.
   var TYPE_WORDS = {
     transfer: /^(transfer|transfers|transferencia|transferencias|traspaso|traspasos|transfer between accounts|transferencia entre cuentas)$/,
-    expense: /^(expense|expenses|gasto|gastos|egreso|egresos|debit|debito|withdrawal|retiro|salida|outflow|spending)$/,
-    income: /^(income|ingreso|ingresos|credit|credito|deposit|deposito|entrada|inflow|abono)$/
+    // short forms too: Money Manager writes "Exp." / "Income" (journeys run, 2026-11-17: every line was read as income)
+    expense: /^(expense|expenses|exp|exp\.|expense\.|gasto|gastos|gto|gto\.|egreso|egresos|egr|egr\.|debit|debito|withdrawal|retiro|salida|outflow|spending)$/,
+    income: /^(income|inc|inc\.|ingreso|ingresos|ing|ing\.|credit|credito|deposit|deposito|entrada|inflow|abono)$/
   };
   function typeKind(value) {
     var t = norm(value);
@@ -653,16 +762,23 @@
       var r = rows[i];
       var date = m.date >= 0 ? toIsoDate(r[m.date], m.dateOrder, tz) : '';
       if (!date) { skipped.push({ row: i + 1, reason: 'date' }); continue; }
-      var amount = NaN;
+      var amount = NaN, amountText = '';
       if (m.out >= 0 || m.in >= 0) {
         var o = m.out >= 0 ? parseAmount(r[m.out], m.decimal) : NaN, n = m.in >= 0 ? parseAmount(r[m.in], m.decimal) : NaN;
-        if (!isNaN(o) && o !== 0) amount = -Math.abs(o);
-        else if (!isNaN(n) && n !== 0) amount = Math.abs(n);
+        if (!isNaN(o) && o !== 0) { amount = -Math.abs(o); amountText = cellText(r[m.out]); }
+        else if (!isNaN(n) && n !== 0) { amount = Math.abs(n); amountText = cellText(r[m.in]); }
       } else if (m.amount >= 0) {
         var v = parseAmount(r[m.amount], m.decimal);
         amount = isNaN(v) ? NaN : (m.sign === 'positive' ? -v : v);
+        amountText = cellText(r[m.amount]);
       }
-      if (isNaN(amount) || Math.abs(amount) < 0.005) { skipped.push({ row: i + 1, reason: 'amount' }); continue; }
+      if (isNaN(amount) || Math.abs(amount) < 0.005) {
+        // A cell with digits that could not be read as one number is named apart from an empty one ("1.500.00").
+        var cells = (m.out >= 0 || m.in >= 0) ? [r[m.out], r[m.in]] : [r[m.amount]];
+        var unclear = isNaN(amount) && cells.some(function (c) { return typeof c !== 'number' && /\d/.test(cellText(c)) && isNaN(parseAmount(c, m.decimal)); });
+        skipped.push({ row: i + 1, reason: unclear ? 'amountUnclear' : 'amount' });
+        continue;
+      }
       var kind = m.type >= 0 ? typeKind(r[m.type]) : '';
       var catText = m.category >= 0 ? cellText(r[m.category]) : '';
       var isTransfer = kind === 'transfer' || (m.category >= 0 && typeKind(catText) === 'transfer');
@@ -670,8 +786,12 @@
       // A transfer with unsigned amounts has no direction: the file does not say which account it left, so it is left out and counted.
       if (isTransfer && !signed && m.out < 0 && m.in < 0) { skipped.push({ row: i + 1, reason: 'transfer' }); continue; }
       var description = m.description >= 0 ? cellText(r[m.description]).replace(/\s+/g, ' ').trim() : '';
+      var note = m.note >= 0 ? cellText(r[m.note]).replace(/\s+/g, ' ').trim() : '';
+      if (note && note !== description) description = description ? description + ' · ' + note : note;
       var category = m.category >= 0 ? cellText(r[m.category]).replace(/\s+/g, ' ').trim() : '';
-      var currency = (m.currency >= 0 && currencyFromText(r[m.currency])) || m.currencyFixed || 'PEN';
+      var currency = (m.currency >= 0 && currencyFromText(r[m.currency])) || '';
+      if (!currency && m.currency < 0 && m.lineCurrency) { var mk = markOf(amountText); currency = mk === '$' ? (m.dollarCurrency || 'USD') : mk; }
+      currency = currency || m.currencyFixed || 'PEN';
       var line = { date: date, description: description || category || '—', amount: roundCents(amount), currency: currency };
       if (category) line.category = category;
       if (isTransfer) line.transfer = true;
@@ -729,9 +849,45 @@
     return order.map(function (v) { return { value: v, count: counts[v] }; }).sort(function (a, b) { return b.count - a.count; });
   }
 
+  // The made-up file of the "Import from another app" practice (docs/statements.js § First-use practice): three purchases with a category, as if
+  // exported from another app. Pure: `lang` 'en' | 'es', `todayISO` 'yyyy-mm-dd' (the lines are dated the three days before). The last column
+  // carries a made-up header so this layout can never be mistaken for a real file's (the remembered layout is keyed by the header words).
+  // Descriptions are written the way the import SAVES them (it capitalises each word), which are the practice entry names the server knows (backend/Practice.gs). The amounts end in odd cents on purpose: a round price (12.50) can look like a real entry of the same day, and the import then sends that line to Needs review. Returns { name, text }.
+  var PRACTICE_FILE_NAMES = ['Practice import.csv', 'Importación de práctica.csv', 'Practice statement.csv', 'Estado de cuenta de práctica.csv'];
+  // kind 'import' (default): another app's export, with a category column. kind 'bank': a bank-style statement of ONE account (Date, Description,
+  // Amount; no categories), for the Bank statements practice. Bank descriptions are written in capitals, like a bank's, and come out cleaned.
+  // Can two of these lines be linked as a currency exchange? Only money out in one currency with money in on another: the same test as the picker's two steps.
+  function canLinkExchange(lines) {
+    var list = lines || [];
+    return list.some(function (o) { return o.amount < 0 && list.some(function (n) { return n.amount > 0 && n.currency !== o.currency; }); });
+  }
+
+  function practiceFile(lang, todayISO, kind) {
+    var es = String(lang || '').toLowerCase().indexOf('es') === 0;
+    var parts = String(todayISO).split('-').map(Number);
+    var day = function (back) {
+      var d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] - back));
+      return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2);
+    };
+    if (kind === 'bank') {
+      var bhead = es ? 'Fecha,Descripción,Monto,Archivo de práctica' : 'Date,Description,Amount,Practice file';
+      var blines = es
+        ? [[1, 'PANADERÍA DE PRÁCTICA', '-8.65'], [2, 'LIBRERÍA DE PRÁCTICA', '-23.45'], [3, 'FARMACIA DE PRÁCTICA', '-15.85']]
+        : [[1, 'PRACTICE BAKERY', '-8.65'], [2, 'PRACTICE BOOKSTORE', '-23.45'], [3, 'PRACTICE PHARMACY', '-15.85']];
+      return { name: PRACTICE_FILE_NAMES[es ? 3 : 2], text: bhead + '\n' + blines.map(function (l) { return day(l[0]) + ',' + l[1] + ',' + l[2] + ',practice'; }).join('\n') + '\n' };
+    }
+    var head = es ? 'Fecha,Descripción,Monto,Categoría,Archivo de práctica' : 'Date,Description,Amount,Category,Practice file';
+    var lines = es
+      ? [[1, 'Almuerzo De Práctica', '-14.35', 'Restaurantes'], [2, 'Cena De Práctica', '-36.85', 'Restaurantes'], [3, 'Paseo De Práctica', '-7.15', 'Paseos de práctica']]
+      : [[1, 'Practice Lunch', '-14.35', 'Restaurants'], [2, 'Practice Dinner', '-36.85', 'Restaurants'], [3, 'Practice Ride', '-7.15', 'Practice rides']];
+    var text = head + '\n' + lines.map(function (l) { return day(l[0]) + ',' + l[1] + ',' + l[2] + ',' + l[3] + ',practice'; }).join('\n') + '\n';
+    return { name: PRACTICE_FILE_NAMES[es ? 1 : 0], text: text };
+  }
+
   return {
     decodeText: decodeText, parseCsv: parseCsv, readXlsx: readXlsx, readXls: readXls, parseHtmlTable: parseHtmlTable, readTable: readTable,
     findHeaderRow: findHeaderRow, guessMapping: guessMapping, applyMapping: applyMapping, signature: signature, recognize: recognize, distinctValues: distinctValues, KNOWN_FORMATS: KNOWN_FORMATS,
-    roundCents: roundCents, catNorm: catNorm, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, detectDecimal: detectDecimal, currencyFromText: currencyFromText
+    practiceFile: practiceFile, PRACTICE_FILE_NAMES: PRACTICE_FILE_NAMES, canLinkExchange: canLinkExchange,
+    markOf: markOf, accountLikeValues: accountLikeValues, roundCents: roundCents, catNorm: catNorm, typeKind: typeKind, parseAmount: parseAmount, toIsoDate: toIsoDate, detectDateOrder: detectDateOrder, ambiguousDate: ambiguousDate, detectDecimal: detectDecimal, currencyFromText: currencyFromText
   };
 });

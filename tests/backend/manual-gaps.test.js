@@ -70,3 +70,15 @@ test("unread emails: a date Sheets turned into a Date comes back as yyyy-MM-dd (
   assert.equal(list.length, 1);
   assert.match(list[0].last, /^\d{4}-\d{2}-\d{2}$/);
 });
+
+test("every sender + wording is listed (not only the 20 most frequent), grouped by sender", () => {
+  const { rt } = freshApp({ small: true });
+  rt.run("ensureUnreadEmailsSheet_()");
+  for (let i = 0; i < 30; i++) {
+    rt.run(`appendRowObject('Unread Emails', { id: 's${i % 3}@bank.test|aviso ${i}|no_rule', sender: 's${i % 3}@bank.test', subject: 'aviso ${i}', kind: 'no_rule', count: ${i + 1}, first_seen: '2026-10-20', last_seen: '2026-10-26' })`);
+  }
+  const list = JSON.parse(JSON.stringify(rt.run("listUnreadEmails_('2026-10-01')")));
+  assert.equal(list.length, 30);
+  assert.deepEqual(list.map((u) => u.sender), list.map((u) => u.sender).slice().sort());
+  assert.ok(list[0].count > list[1].count, "within a sender the most frequent wording comes first");
+});

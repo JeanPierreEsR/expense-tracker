@@ -234,3 +234,27 @@ test("an e-mail whose text cannot be read is not marked handled, so the next sca
   const second = JSON.parse(JSON.stringify(rt.run("processEmails()")));
   assert.equal(second.created, 1, "the same e-mail becomes an entry on the retry");
 });
+
+// A bank that labels UTF-8 text as Latin-1 makes "operación" arrive as "operaciÃ³n" (owner's Telegram alert, 2026-11-19).
+test("garbled accents (UTF-8 read as Latin-1) are repaired; correct text never changes", () => {
+  const { rt } = freshApp({ small: true });
+  const fix = (s) => rt.run(`gmailFixMojibake_(${JSON.stringify(s)})`);
+  assert.equal(fix("Yape a Ana Lo NÂº de operaciÃ³n 01234567"), "Yape a Ana Lo Nº de operación 01234567");
+  assert.equal(fix("CompaÃ±Ã­a â€“ cafÃ© â€œbuenoâ€\u009d"), "Compañía – café “bueno”");
+  assert.equal(fix("Ã‰xito"), "Éxito");
+  for (const ok of ["Operación Nº 12 – café", "Ñandú ¿qué? ¡sí!", "plain text", "Âcorn Ã", "S/ 10.00 💳", ""]) {
+    assert.equal(fix(ok), ok, ok);
+  }
+});
+
+test("both ways of reading mail hand the bank rules repaired text", () => {
+  for (const way of ["old", "readonly"]) {
+    const { rt } = freshApp({ small: true });
+    rt.svc.props.delete("GMAIL_READER");
+    rt.svc.gmail.addEmail({ from: "x@example.com", subject: "ConfirmaciÃ³n", body: "NÂº de operaciÃ³n 01234567" });
+    if (way === "readonly") readonly(rt);
+    const got = q(rt, `(function () { var m = gmailSearchMessages_("from:x@example.com newer_than:3d")[0];
+      return { s: m.getSubject(), b: m.getPlainBody(), again: gmailGetMessage_(m.getId()).getPlainBody() }; })()`);
+    assert.deepEqual(got, { s: "Confirmación", b: "Nº de operación 01234567", again: "Nº de operación 01234567" }, way);
+  }
+});

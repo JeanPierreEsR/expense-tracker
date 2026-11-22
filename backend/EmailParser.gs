@@ -40,6 +40,18 @@ function extractAmount_(text) {
   };
 }
 
+// An amount that may come with no currency sign (Sip's CTS withdrawal: "Monto de retiro 1234.56"). A sign wins; with none, the
+// plain number is soles unless the e-mail says dollars.
+function sipCtsAmount_(value, body) {
+  var signed = extractAmount_(value);
+  if (signed) return signed;
+  var m = String(value || '').match(/([\d,]+(?:\.\d{1,2})?)/);
+  if (!m) return null;
+  var amount = parseFloat(m[1].replace(/,/g, ''));
+  if (!(amount > 0)) return null;
+  return { amount: amount, currency: /d[oó]lares|US\$|\bUSD\b/i.test(String(body || '')) ? 'USD' : 'PEN' };
+}
+
 function extractLast4_(text) {
   if (!text) return null;
   var m = text.match(/[*Xx•]{2,}\s*(\d{4})\b/); // Apple prints bullets: "Visa •••• 3052"
@@ -78,15 +90,54 @@ function extractAccountLast4_(body, label) {
   return m ? m[0].slice(-4) : extractLast4_(chunk);
 }
 
+// A CCI (Peru's 20-digit interbank code: bank 3 + branch 3 + account 12 + check 2) after `label`: the last four digits of the
+// ACCOUNT, i.e. the four just before the two check digits. Read from SIP's "Transferencia a otro banco" and Interbank's
+// "Constancia de transferencia" e-mails, only for a payee who is the person (2026-11-20).
+function cciAccountLast4_(body, label) {
+  var i = String(body || '').search(new RegExp(label, 'i'));
+  if (i === -1) return null;
+  var m = body.substring(i, i + 300).replace(/(\d)[ -](?=\d)/g, '$1').match(/(?:^|\D)(\d{20})(?!\d)/);
+  return m ? m[1].slice(14, 18) : null;
+}
+
+// An e-mail that names the account the money left only by its product name (SIP: "Cuenta Ahorramás Soles"): the person's one account
+// whose name is in it as whole words ("AhorraMás"). Never a credit card or an investment platform; only accounts of that bank or with no bank.
+function emailAccountByName_(name, bank, paymentMethods) {
+  var words = ownerNameTokens_(name);
+  if (!words.length) return null;
+  var hits = paymentMethods.filter(function (pm) {
+    if (pm.type === 'credit' || pm.type === 'investment') return false;
+    if (pm.bank_id && (!bank || pm.bank_id !== bank.id)) return false;
+    var nick = ownerNameTokens_(pm.nickname).join('');
+    if (nick.length < 4) return false;
+    // whole words in a row, spaces ignored: "AhorraMás" = "Ahorra Más" = "Ahorramás"; never part of a word
+    for (var i = 0; i < words.length; i++) {
+      var run = '';
+      for (var j = i; j < words.length && run.length < nick.length; j++) run += words[j];
+      if (run === nick) return true;
+    }
+    return false;
+  });
+  return hits.length === 1 ? hits[0] : null;
+}
+
 // Real emails often glue "Label" straight onto its value with no space
 // (e.g. "Enviado aJean Pierre..."), and some senders' "plain text" body
 // still carries markdown-style *bold* markers or a stray <br>. The
 // connector below tolerates a colon, an asterisk, and/or a newline in any
 // combination between the label and the value.
+// A label may be followed by the Spanish "es" ("Tu código de operación es:\n517632", Interbank card payments since 2026): that word
+// is part of the label, never the value. Reading "es:" as the operation code gave EVERY such e-mail the same id, so after the first
+// one each new card payment was dropped as a repeat (found 2026-11-10 on the owner's mailbox).
 function afterLabel_(body, label) {
-  var re = new RegExp(label + '\\s*:?\\s*\\*?\\s*\\r?\\n?\\s*([^\\r\\n]+)', 'i');
+  var re = new RegExp(label + '(?:\\s+es\\b)?\\s*:?\\s*\\*?\\s*\\r?\\n?\\s*([^\\r\\n]+)', 'i');
   var m = body.match(re);
   return m ? cleanText_(m[1]) : null;
+}
+
+// Invisible text-direction and zero-width characters some senders put inside numbers and subjects (Amazon).
+function stripDirectionMarks_(text) {
+  return String(text || '').replace(/[​-‏‪-‮⁦-⁩﻿]/g, '');
 }
 
 function cleanText_(text) {
@@ -229,6 +280,36 @@ var EMAIL_RULES = [
       };
     }
   },
+  // ---- Amazon.com shipment (owner's request, 2026-11-02) ----
+  // Diners sends no e-mail for Amazon charges, so Amazon's own "Shipped …" e-mail is read instead. Amazon charges the card when it ships,
+  // so this e-mail's day is the day the money left (the earlier "Ordered …" e-mail is not read). It names no card (the person pays Amazon
+  // with several), so there is no `bank` and the account stays blank for review. When the card's bank ALSO e-mails the charge, the two are
+  // one purchase: see amazonShipmentTwin_ below. An order shipped in several packages sends one e-mail per package, each with its own
+  // Total, so the dedup id is the order number AND that total. English e-mails only (the only kind seen).
+  // Amazon hides text-direction marks in its e-mails ("Order # <U+202B>112-…", "and <U+2066>5<U+2069> more items" in the subject, seen
+  // in the owner's real mailbox 2026-11-03): without removing them the order number is not found and the bank-e-mail match never happens.
+  {
+    sender: 'shipment-tracking@amazon.com', house: 'Amazon', amazonShipment: true,
+    label: 'Envío de Amazon.com',
+    match: function (subject, body) { return /^\s*Shipped\b/i.test(stripDirectionMarks_(subject)) && /(?:^|\n)[ \t]*\*?Total\b/i.test(body); },
+    extract: function (subject, body) {
+      subject = stripDirectionMarks_(subject);
+      body = stripDirectionMarks_(body);
+      var total = body.match(/(?:^|\n)[ \t]*\*?Total\*?[ \t]*:?\s*([^\r\n]+)/i);
+      var amt = extractAmount_(total ? total[1] : null);
+      if (!amt) return null;
+      var order = body.match(/Order\s*#\s*([\d-]{10,})/i);
+      var what = cleanText_(String(subject).replace(/^\s*Shipped\s*:?\s*/i, '').replace(/"/g, ''));
+      return {
+        type: 'expense', needsReview: true,
+        amount: amt.amount, currency: amt.currency,
+        description: 'Amazon' + (what ? ' - ' + what.slice(0, 60) : ''),
+        merchant: 'Amazon',
+        last4: null,
+        externalId: order ? 'amazon-' + order[1] + '-' + amt.amount.toFixed(2) : null
+      };
+    }
+  },
   // ---- Exchange house: one confirmation names BOTH sides of the exchange (CurrencyExchange.gs) ----
   // The sender is the exact address the e-mails really come from (a look-alike of a webmail domain, so it is matched whole, never by domain);
   // the rule also needs the "Enviaste" and "Recibirás" lines, so a spoofed or unrelated mail from that address matches nothing.
@@ -284,11 +365,15 @@ var EMAIL_RULES = [
       var service = body.match(/thanks for riding with ([^\n*]+)/i);
       var dateLine = body.match(/[A-Za-z]{3}, \d{1,2} [A-Za-z]{3}, \d{4}/);
       var times = body.match(/\d{1,2}:\d{2}\s*[ap]m/gi) || [];
+      // The pinned card is the OWNER's. On a friend's copy no card is guessed (2026-11-05): the bank's own e-mail, when there is one, is
+      // joined to this receipt and names the card (EmailPairs.gs); otherwise the person picks it.
+      var friend = isFriendCopy_();
       return {
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: 'DiDi' + (service ? ' ' + cleanText_(service[1]) : ''),
         merchant: 'DiDi', defaultCategory: 'Transport',
-        last4: '3052', // Interbank Visa Infinite — pinned, see rule comment
+        last4: friend ? null : '3052', // Interbank Visa Infinite — pinned, see rule comment
+        cardUnknown: friend,
         externalId: fallbackExternalId_('didi', dateLine ? dateLine[0] : '', amt.amount, times.join('-'))
       };
     }
@@ -310,7 +395,7 @@ var EMAIL_RULES = [
       return {
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: 'Crecer Seguros' + (product ? ' - ' + product.replace(/([a-z])([A-Z])/g, '$1 $2') : ''),
-        merchant: 'Crecer Seguros', defaultCategory: 'Credit card',
+        merchant: 'Crecer Seguros', defaultCategory: 'Credit card', defaultCategoryAlt: 'Insurance',
         last4: null,
         externalId: afterLabel_(body, 'Número')
       };
@@ -429,10 +514,39 @@ var EMAIL_RULES = [
       };
     }
   },
+  // A "Constancia de pago" that pays one of the person's OWN cards (owner, 2026-11-17): it names the card under "Tarjeta de crédito"
+  // (or "Tarjeta de crédito pagada" when paid with a debit card) and has no "Empresa". It is a transfer: From = the account under
+  // "Cuenta cargo" (blank when a debit card paid: "Tarjeta de cargo" names a card, not an account), To = the card with those last four
+  // digits (`toLast4`, resolved in processOneMessage_; a card that is not one of the person's accounts stays an expense for review).
+  // Checked on the owner's whole mailbox (2026-11-17): the "pagaste la deuda" e-mail never comes for the same payment, so no join.
+  {
+    bank: 'Interbank', sender: 'servicioalcliente@netinterbank.com.pe',
+    label: 'Pago de tarjeta (Constancia)',
+    match: function (subject, body) {
+      return /^constancia de pago$/i.test(subject.trim()) && /tarjeta de cr[eé]dito/i.test(body || '') && !/\bempresa\b/i.test(body || '');
+    },
+    extract: function (subject, body) {
+      var amt = extractAmount_(afterLabel_(body, 'Moneda y monto') || body);
+      if (!amt) return null;
+      var toLast4 = extractAccountLast4_(body, 'Tarjeta de cr[eé]dito');
+      if (!toLast4) return null;
+      var byDebitCard = /tarjeta de cargo/i.test(body);
+      var fields = {
+        type: 'transfer', amount: amt.amount, currency: amt.currency,
+        description: 'Pago tarjeta Interbank',
+        last4: byDebitCard ? null : extractAccountLast4_(body, 'Cuenta cargo'),
+        toLast4: toLast4,
+        externalId: afterLabel_(body, 'Código de operación')
+      };
+      if (byDebitCard) fields.cardUnknown = true;   // a debit card paid: never guess the account
+      return fields;
+    }
+  },
   {
     bank: 'Interbank', sender: 'servicioalcliente@netinterbank.com.pe',
     label: 'Pago de servicios',
-    match: function (subject) { return /^constancia de pago$/i.test(subject.trim()); },
+    // A bill payment always names the company ("Empresa"); a card payment is the rule above.
+    match: function (subject, body) { return /^constancia de pago$/i.test(subject.trim()) && /\bempresa\b/i.test(body || ''); },
     extract: function (subject, body) {
       var amt = extractAmount_(afterLabel_(body, 'Moneda y monto') || body);
       if (!amt) return null;
@@ -452,14 +566,19 @@ var EMAIL_RULES = [
     extract: function (subject, body) {
       var amt = extractAmount_(afterLabel_(body, 'Monto y moneda') || body);
       if (!amt) return null;
-      var recipient = afterLabel_(body, 'Cuenta destino');
+      // Two layouts (2026-11-20, owner's transfer to Inteligo): "Cuenta a cargo" / "Cuenta destino", or "Cuenta cargo" / "Destinatario".
+      var recipient = afterLabel_(body, 'Cuenta destino') || afterLabel_(body, 'Destinatario');
       var own = isOwnAccount_(recipient);
-      return {
+      var fields = {
         type: own ? 'transfer' : 'expense', needsReview: !own,
         amount: amt.amount, currency: amt.currency, description: recipient,
-        last4: extractAccountLast4_(body, 'Cuenta a cargo'),
+        last4: extractAccountLast4_(body, 'Cuenta a cargo') || extractAccountLast4_(body, 'Cuenta cargo'),
         externalId: afterLabel_(body, 'Código de operación')
       };
+      // To the person's own account at another bank, named by its CCI: To = the account with those digits.
+      var toLast4 = own ? (cciAccountLast4_(body, 'Cuenta destino') || cciAccountLast4_(body, 'Destinatario')) : null;
+      if (toLast4) { fields.toLast4 = toLast4; fields.toOwnAlways = true; }
+      return fields;
     }
   },
   // Plin is a payment rail, not an account: the money always leaves one of
@@ -482,7 +601,9 @@ var EMAIL_RULES = [
         type: own ? 'transfer' : 'expense', needsReview: !own,
         amount: amt.amount, currency: amt.currency,
         description: own ? 'Plin (propio)' : 'Plin a ' + recipient,
-        last4: extractAccountLast4_(body, 'Cuenta cargo'),
+        // "Constancia de Pago Plin TC" (Plin paid with the Interbank credit card) names the card under "Tarjeta cargo"
+        // ("Tarjeta infinite 400000******0000") instead of "Cuenta cargo" (owner, 2026-11-12).
+        last4: extractAccountLast4_(body, 'Cuenta cargo') || extractAccountLast4_(body, 'Tarjeta cargo'),
         externalId: afterLabel_(body, 'Código de operación')
       };
     }
@@ -537,6 +658,38 @@ var EMAIL_RULES = [
       };
     }
   },
+  // ---- SIP CTS (2026-11-20, found in the owner's "couldn't read" list) ----
+  // "Constancia de Solicitud de Retiro CTS": money leaves the CTS account ("Cuenta de cargo") for one of the person's own accounts
+  // ("Cuenta de destino"; Sip only pays a withdrawal into an account of the CTS holder), so it is a transfer, never an expense. The
+  // amount ("Monto de retiro 1234.56") carries NO currency sign: soles unless the e-mail says dollars. Dated the day of the request
+  // (the bank says the money can take up to 2 business days). A destination that is not one of the person's accounts keeps the
+  // transfer with To blank (`toOwnAlways`) instead of turning it into an expense.
+  {
+    bank: 'SIP', sender: 'no-reply@servicioalcliente.sip.pe',
+    label: 'Retiro CTS',
+    match: function (subject) { return /solicitud de retiro (de )?cts/i.test(subject); },
+    extract: function (subject, body) {
+      var amt = sipCtsAmount_(afterLabel_(body, 'Monto de retiro'), body);
+      if (!amt) return null;
+      var request = afterLabel_(body, 'Número de solicitud');
+      return {
+        type: 'transfer', amount: amt.amount, currency: amt.currency,
+        description: 'Retiro CTS',
+        last4: extractAccountLast4_(body, 'Cuenta de cargo'),
+        toLast4: extractAccountLast4_(body, 'Cuenta de destino'),
+        toOwnAlways: true,
+        externalId: request ? 'cts-' + request : null
+      };
+    }
+  },
+  // "Abono semestral CTS": the employer's deposit, but the e-mail names NO amount, so nothing can be recorded from it (the CTS
+  // statement shows it). Ignored on purpose so it is not listed under "Bank emails I couldn't read".
+  {
+    bank: 'SIP', sender: 'no-reply@servicioalcliente.sip.pe',
+    label: 'Abono semestral CTS — IGNORED, the e-mail has no amount',
+    match: function (subject) { return /abono semestral (de )?cts/i.test(subject); },
+    skip: true
+  },
   // ---- SIP (account-level operations, one generic sender/subject) ----
   {
     bank: 'SIP', sender: 'no-reply@operaciones.agora.pe',
@@ -553,12 +706,18 @@ var EMAIL_RULES = [
       if (!amt) return null;
       var recipient = afterLabel_(body, 'Destino');
       var own = isOwnAccount_(recipient);
-      return {
+      // SIP names the account the money left only by its product name ("Origen: Cuenta Ahorramás Soles", no digits), and the person's
+      // own account at the other bank by its CCI (2026-11-20, owner's 5,000 transfer to BCP landed with From and To blank).
+      var fields = {
         type: own ? 'transfer' : 'expense', needsReview: !own,
         amount: amt.amount, currency: amt.currency, description: recipient,
         last4: null,
-        externalId: afterLabel_(body, 'Nro. de Operación')
+        externalId: afterLabel_(body, 'Nro. de Operación'),
+        accountName: afterLabel_(body, 'Origen')
       };
+      var toLast4 = own ? cciAccountLast4_(body, 'Destino') : null;
+      if (toLast4) { fields.toLast4 = toLast4; fields.toOwnAlways = true; }
+      return fields;
     }
   },
   {
@@ -671,7 +830,8 @@ function getEmailInfo_() {
   // `health`: is the scan working (EmailHealth.gs); null while e-mail reading is off so the app never warns about it.
   return { address: address, banks: Object.keys(seen), seen: bankMailSeenMap_(settings), since: String(settings.onboarded_at || ''),
     health: featureOn_('gmail') ? emailHealthForApp_() : null,
-    rulePack: rulePackStatus_() };
+    rulePack: rulePackStatus_(),
+    coverage: bankCoverage_(settings) };   // per bank: the kinds its rules read + the day each last arrived (BankCoverage.gs)
 }
 
 // Settings `bank_mail_seen` = JSON {bank: 'yyyy-mm-dd'}: the day of the newest e-mail that became an entry, per bank. It is JSON on
@@ -715,15 +875,21 @@ function processEmails(opts) {
   var existingExternalIds = {};
   getAllRows('Entries').forEach(function (e) {
     if (e.external_id) existingExternalIds[e.external_id] = true;
+    var joinedId = emailPairJoinedId_(e.email_pair);   // the second e-mail of a joined pair (EmailPairs.gs) is already in
+    if (joinedId) existingExternalIds[joinedId] = true;
+    var applePayId = applePayJoinedId_(e[APPLE_PAY_COLUMN_]);   // a bank e-mail already joined into an Apple Pay entry (ApplePay.gs)
+    if (applePayId) existingExternalIds[applePayId] = true;
   });
   var banks = getAllRows('Banks');
-  var paymentMethods = getAllRows('Payment Methods');
+  var paymentMethods = withoutPracticeAccounts_(getAllRows('Payment Methods'));   // the first-use practice's account never receives an e-mail
   ensureEntriesMerchantColumn_();
   ensureEntriesToPaymentMethodColumn_();
   var guessCtx = buildGuessContext_();
+  guessCtx.payee = { hist: buildPayeeHistory_(), lookups: payeeLookups_() };   // PayeeGuess.gs: same place, same treatment
 
   var senders = opts.senders || uniqueSenders_();
   EXCHANGE_HOUSES_MEMO_ = null;   // learned from the entries as they are NOW (CurrencyExchange.gs)
+  EXCHANGE_HOUSE_LEGS_MEMO_ = null;
   // Per-email memory (the "Processed Emails" tab): the one-off back-check
   // (opts.days) deliberately re-reads everything, so it skips it.
   var tracking = !opts.days;
@@ -734,18 +900,29 @@ function processEmails(opts) {
   // (EmailCoverage.gs): such an e-mail is listed in the result, not created. `includeOverlaps: true` turns that off.
   BACKCHECK_OVERLAPS_ = (!tracking && !opts.includeOverlaps) ? buildEntryOverlapIndex_() : null;
   if (BACKCHECK_OVERLAPS_) { results.overlaps = 0; results.mayAlreadyBeIn = []; }
+  // A catch-up (MailCatchup.gs) re-reads old mail for ONE new pack rule only: every other kind was already decided (an entry the person
+  // discarded must not come back).
+  ONLY_PACK_IDS_ = !tracking && opts.onlyPackIds ? opts.onlyPackIds : null;
 
   try {
     processSenders_(senders, opts, tracking, handled, results, existingExternalIds, banks, paymentMethods, guessCtx);
+    // Interbank "Constancia de pago" PDFs (money received), from the bank or sent to himself (PaymentNotice.gs).
+    if (!opts.senders || opts.senders.indexOf(PAYMENT_NOTICE_SENDER_) >= 0) {
+      processPaymentNotices_(opts.days || emailLookbackDays_(), tracking, handled, results, existingExternalIds, banks, paymentMethods);
+    }
   } finally {
     BACKCHECK_OVERLAPS_ = null;
+    ONLY_PACK_IDS_ = null;
   }
+  // Once per copy: fill in which kinds of bank e-mail already arrived before the per-kind days existed (BankCoverage.gs).
+  if (tracking && !opts.senders) { try { backfillBankKindDaysOnce_(senders, existingExternalIds); } catch (err) { console.error('backfillBankKindDaysOnce_: ' + err); } }
 
   Logger.log('processEmails: ' + JSON.stringify(results));
   return results;
 }
 
 var BACKCHECK_OVERLAPS_ = null;   // set only while a back-check runs
+var ONLY_PACK_IDS_ = null;   // set only while a catch-up runs: the pack rules it may use
 
 function processSenders_(senders, opts, tracking, handled, results, existingExternalIds, banks, paymentMethods, guessCtx) {
   // The normal scan looks back to just before the last good scan (3–30 days, EmailHealth.gs), so an outage loses no e-mail.
@@ -839,7 +1016,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   var subject = message.getSubject();
   var body = message.getPlainBody();
   learnOwnNameFromMail_(message, sender);
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var dateStr = Utilities.formatDate(message.getDate(), tz, 'yyyy-MM-dd');
   // The email's own timestamp, not "now" — automation runs on a delay
   // (up to 15 min), so this is closer to when the transaction actually
@@ -851,6 +1028,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
 
   if (!rule) logUnreadEmail_(sender, subject, 'no_rule', dateStr);   // ManualGaps.gs; a rule with skip:true is a deliberate ignore, not logged
   if (!rule || rule.skip) { results.skipped++; return; }
+  if (ONLY_PACK_IDS_ && ONLY_PACK_IDS_.indexOf(rule.packId) === -1) { results.skipped++; return; }
 
   if (rule.exchange) {
     // An exchange house's confirmation: up to two legs, matched against what a bank e-mail already made (CurrencyExchange.gs).
@@ -899,31 +1077,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   }
   existingExternalIds[externalId] = true;
 
-  var bank = banks.find(function (b) { return b.name === rule.bank; });
-  var paymentMethod = null;
-  if (bank) {
-    var pms = paymentMethods.filter(function (pm) { return pm.bank_id === bank.id; });
-    paymentMethod = fields.last4
-      ? pms.find(function (pm) { return String(pm.last_4) === String(fields.last4); })
-      : ((!rule.accountByCurrency && pms.length === 1) ? pms[0] : null);
-    // The e-mail names digits but none of the bank's accounts has them: when the person never filled in ANY digits for this bank (they are
-    // optional in the welcome questions) the digits cannot disprove anything, so "the bank's only account" still applies, as it did before
-    // the masked digits of BCP / Diners / Interbank card payments were read (2026-10-28). Digits that were filled in and do not match: blank.
-    if (!paymentMethod && fields.last4 && !rule.accountByCurrency && pms.length === 1 && !String(pms[0].last_4 || '').trim()) paymentMethod = pms[0];
-  }
-  // A rule with no bank (EBANX) still names the card by its last four digits: use them when exactly one account has them.
-  if (!paymentMethod && !rule.bank && fields.last4) {
-    var byCard = paymentMethods.filter(function (pm) { return String(pm.last_4) === String(fields.last4); });
-    if (byCard.length === 1) paymentMethod = byCard[0];
-  }
-  // No account named in the email: the rule may say which account of that
-  // currency the money always leaves (BCP, Yape).
-  if (!paymentMethod && rule.rail) {
-    paymentMethod = railAccount_(rule.rail, fields.currency, paymentMethods);   // Yape: the account the person linked (Accounts.gs)
-  }
-  if (!paymentMethod && rule.accountByCurrency && rule.accountByCurrency[fields.currency]) {
-    paymentMethod = paymentMethods.find(function (pm) { return plainNickname_(pm.nickname) === plainNickname_(rule.accountByCurrency[fields.currency]); }) || null;
-  }
+  var paymentMethod = emailAccountFor_(rule, fields, banks, paymentMethods);
 
   // The exchange house's own confirmation may already have made this "left" leg (it names both sides): then this e-mail only
   // tells which account paid, and a second leg would count the exchange twice.
@@ -936,7 +1090,53 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     }
   }
 
+  // The exchange house's own e-mail already made this "left" leg, and the bank names the house by its legal name: same operation code,
+  // currency and amount. This e-mail only tells which account paid.
+  if (!fields.exchangeLeg && fields.type === 'expense' && fields.externalId) {
+    var houseLeg = exchangeHouseLegByCode_(fields);
+    if (houseLeg) {
+      if (paymentMethod && !houseLeg.payment_method_id) { updateRowFields_('Entries', houseLeg.id, { payment_method_id: paymentMethod.id }); houseLeg.payment_method_id = paymentMethod.id; }
+      results.duplicates++;
+      return;
+    }
+  }
+
+  // An Amazon shipment and the card's own e-mail for its charge are ONE purchase: whichever arrives second makes no entry, and a bank
+  // e-mail tells the shipment which card paid.
+  var amazonTwin = fields.type === 'expense' ? amazonShipmentTwin_(rule, fields, dateStr, paymentMethod) : null;
+  if (amazonTwin) {
+    if (!rule.amazonShipment && paymentMethod && !amazonTwin.payment_method_id) updateRowFields_('Entries', amazonTwin.id, { payment_method_id: paymentMethod.id });
+    results.duplicates++;
+    return;
+  }
+
+  // The same purchase paid with Apple Pay may already be waiting from the iPhone's shortcut (ApplePay.gs): this e-mail only tells
+  // which account paid, and no second entry is made.
+  var applePayTwin = rule.bank ? findApplePayTwin_(fields, createdAt, paymentMethod) : null;
+  if (applePayTwin) {
+    joinApplePayTwin_(applePayTwin, externalId, rule.cardIsDestination ? null : paymentMethod);
+    results.duplicates++;
+    results.joined = (results.joined || 0) + 1;
+    try { noteBankMailSeen_(rule.bank, dateStr); } catch (err) { console.error('noteBankMailSeen_: ' + err); }
+    try { noteBankKindSeen_(rule, dateStr); } catch (err) { console.error('noteBankKindSeen_: ' + err); }
+    return;
+  }
+
   var guess = guessCategoryForEmail_(fields, dateStr, guessCtx);
+
+  // A shop's receipt and a bank's e-mail for the same charge are ONE entry (EmailPairs.gs): the second to arrive joins the first, silently.
+  var pairRole = emailPairRole_(rule, fields);
+  if (pairRole) {
+    var pairPartner = findEmailPairPartner_(pairRole, fields, createdAt);
+    if (pairPartner) {
+      joinEmailPair_(pairPartner, pairRole, fields, externalId, dateStr, paymentMethod, guess.categoryId);
+      results.duplicates++;
+      results.joined = (results.joined || 0) + 1;
+      try { noteBankMailSeen_(rule.bank, dateStr); } catch (err) { console.error('noteBankMailSeen_: ' + err); }
+      try { noteBankKindSeen_(rule, dateStr); } catch (err) { console.error('noteBankKindSeen_: ' + err); }
+      return;
+    }
+  }
 
   var entry = {
     id: Utilities.getUuid(),
@@ -953,8 +1153,20 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     external_id: externalId,
     import_batch_id: '',
     created_at: createdAt,
-    merchant: normalizeMerchant_(fields.merchant)
+    // The name the bank's e-mail gave, kept for good (a rename of the entry never touches it): a place without a merchant
+    // (a transfer, "Yape a Ana Lo*") is filed under its description, the key PayeeGuess.gs / CategoryFollow.gs read.
+    merchant: normalizeMerchant_(fields.merchant) || normalizeMerchant_(fields.description)
   };
+
+  // A rule that names the destination card by its digits (`toLast4`, Interbank "Constancia de pago" of a card): To = the person's account
+  // with those digits. None (another person's card, or a card not in the app) = it is not a transfer between own accounts: it stays an
+  // expense, waiting in Needs review like everything automated.
+  if (fields.toLast4) {
+    var dests = paymentMethods.filter(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.toLast4) && (!paymentMethod || pm.id !== paymentMethod.id); });
+    if (dests.length === 1) { ensureEntriesToPaymentMethodColumn_(); entry.to_payment_method_id = dests[0].id; }
+    else if (fields.toOwnAlways) { /* always one of the person's own accounts: stays a transfer, To left blank for review */ }
+    else { entry.type = 'expense'; entry.description = 'Pago de tarjeta …' + fields.toLast4; }
+  }
 
   // A card-bill-payment email comes from the CARD's bank and names the
   // card, but the money left some other account of the owner's — so the
@@ -966,10 +1178,17 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   }
 
   if (fields.exchangeLeg) { ensureEntriesExchangeColumn_(); entry.exchange = '1'; }
+  if (pairRole) { ensureColumn_('Entries', EMAIL_PAIR_COLUMN_); entry[EMAIL_PAIR_COLUMN_] = pairRole.pair.id + '|' + pairRole.role; }   // waits for its partner
+  // Same place, same treatment (PayeeGuess.gs): a place the person always files as an investment, or under one category,
+  // arrives that way. A rule's own fixed category is certain and is left alone. The entry stays pending either way.
+  var payeeGuess = (guessCtx.payee && !fields.defaultCategory && !fields.exchangeLeg)
+    ? applyPayeeGuessToNewEntry_(entry, guessCtx.payee.hist, guessCtx.payee.lookups) : null;
+  if (payeeGuess) { ensureEntriesToPaymentMethodColumn_(); guess = { categoryId: entry.type === 'investment' ? '' : entry.category_id, reason: payeeGuess.reason, quiet: payeeGuess.quiet }; }
   appendRowObject('Entries', entry);
   autoTagTravelEntry_(entry);   // Travel is Annual by default
   results.created++;
   try { noteBankMailSeen_(rule.bank, dateStr); } catch (err) { console.error('noteBankMailSeen_: ' + err); }   // More → Bank emails ticks this bank
+  try { noteBankKindSeen_(rule, dateStr); } catch (err) { console.error('noteBankKindSeen_: ' + err); }   // ...and this kind of transaction
 
   var guessedCategory = guess.categoryId ? guessCtx.categoriesById[guess.categoryId] : null;
   // The entry is already saved as pending, so a failed Telegram send must
@@ -980,6 +1199,60 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   } catch (err) {
     console.error('Telegram notification failed: ' + err);
   }
+}
+
+// Which of the person's accounts a read e-mail names (also used for a bank notice forwarded on WhatsApp, WhatsApp.gs); null when not known.
+function emailAccountFor_(rule, fields, banks, paymentMethods) {
+  var bank = banks.find(function (b) { return b.name === rule.bank; });
+  var paymentMethod = null;
+  if (bank && !fields.cardUnknown) {
+    var pms = paymentMethods.filter(function (pm) { return pm.bank_id === bank.id; });
+    paymentMethod = fields.last4
+      ? pms.find(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); })
+      : ((!rule.accountByCurrency && pms.length === 1) ? pms[0] : null);
+    // The e-mail names digits but none of the bank's accounts has them: when the person never filled in ANY digits for this bank (they are
+    // optional in the welcome questions) the digits cannot disprove anything, so "the bank's only account" still applies, as it did before
+    // the masked digits of BCP / Diners / Interbank card payments were read (2026-10-28). Digits that were filled in and do not match: blank.
+    if (!paymentMethod && fields.last4 && !rule.accountByCurrency && pms.length === 1 && !String(pms[0].last_4 || '').trim()) paymentMethod = pms[0];
+  }
+  // A rule with no bank (EBANX) still names the card by its last four digits: use them when exactly one account has them.
+  if (!paymentMethod && !rule.bank && fields.last4) {
+    var byCard = paymentMethods.filter(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); });
+    if (byCard.length === 1) paymentMethod = byCard[0];
+  }
+  if (!paymentMethod && fields.accountName) paymentMethod = emailAccountByName_(fields.accountName, bank, paymentMethods);
+  // No account named in the email: the rule may say which account of that
+  // currency the money always leaves (BCP, Yape).
+  if (!paymentMethod && rule.rail) {
+    paymentMethod = railAccount_(rule.rail, fields.currency, paymentMethods);   // Yape: the account the person linked (Accounts.gs)
+  }
+  if (!paymentMethod && rule.accountByCurrency && rule.accountByCurrency[fields.currency]) {
+    paymentMethod = paymentMethods.find(function (pm) { return plainNickname_(pm.nickname) === plainNickname_(rule.accountByCurrency[fields.currency]); }) || null;
+  }
+  return paymentMethod;
+}
+
+// Amazon charges the card when it ships, so the bank's e-mail for that charge comes the same day or a day or two from the shipment e-mail.
+// A bank e-mail for an Amazon charge of the SAME currency and EXACT amount, within AMAZON_CHARGE_DAYS_ of the shipment, is that shipment's
+// charge. Returns the entry already in the sheet that this e-mail repeats, or null.
+//  - a shipment e-mail: a bank e-mail entry for Amazon that came first;
+//  - a bank e-mail for Amazon: the shipment's entry, when it has no account yet or already has this one (so a re-read e-mail is still a repeat).
+var AMAZON_CHARGE_DAYS_ = 5;
+
+function amazonShipmentTwin_(rule, fields, dateStr, paymentMethod) {
+  var isShipment = !!rule.amazonShipment;
+  var isAmazon = function (text) { return /amazon|amzn/i.test(String(text || '')); };
+  if (!isShipment && !(rule.bank && isAmazon(fields.merchant || fields.description))) return null;
+  var day = overlapDayNumber_(dateStr);
+  var amount = Math.abs(Number(fields.amount)).toFixed(2);
+  return getAllRows('Entries').find(function (e) {
+    if (e.type !== 'expense' || e.currency !== fields.currency || Math.abs(Number(e.amount)).toFixed(2) !== amount) return false;
+    if (Math.abs(overlapDayNumber_(e.date) - day) > AMAZON_CHARGE_DAYS_) return false;
+    var eIsShipment = /^amazon-/.test(String(e.external_id || ''));
+    if (isShipment) return !eIsShipment && e.source === 'email' && isAmazon(e.merchant);
+    if (!eIsShipment) return false;
+    return !e.payment_method_id || (!!paymentMethod && String(e.payment_method_id) === String(paymentMethod.id));
+  }) || null;
 }
 
 /**
@@ -1039,7 +1312,7 @@ function seedParsingRulesDoc() {
  */
 function debugListEmails_(senders, days) {
   var out = [];
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   senders.forEach(function (sender) {
     gmailSearchMessages_('from:' + sender + ' newer_than:' + (days || 7) + 'd', { max: 50 }).forEach(function (message) {
       var subject = message.getSubject();
@@ -1065,7 +1338,7 @@ function debugListEmails_(senders, days) {
  * by email.
  */
 function debugSearchEmails_(query, max) {
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var out = [];
   gmailSearchMessages_(query, { max: Math.min(max || 20, 40) }).forEach(function (m) {
     out.push({

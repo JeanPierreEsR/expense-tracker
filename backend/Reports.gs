@@ -11,11 +11,18 @@ function getRateForEntryCurrency_(currency, dateStr) {
   return getLatestRateOnOrBefore_(currency, month);
 }
 
+// Totals' conversion: as above, but a month before the currency's first rate borrows that first rate (an estimate; rateIsEstimate_).
+function getRateForTotals_(currency, dateStr) {
+  if (currency === homeCurrency_()) return 1;
+  return rateToMainOrFirst_(buildRatesByCurrency_(), currency, String(dateStr).substring(0, 7));
+}
+
 function getPeriodSummary(payload) {
   var startDate = payload && payload.startDate;
   var endDate = payload && payload.endDate;
 
   var entries = getAllRows('Entries').filter(function (e) { return e.status === 'confirmed'; });
+  var everyConfirmed = filterEntriesByScope_(entries.filter(function (e) { return e.type !== 'transfer'; }), payload && payload.scope);   // income that varies: the months before
   if (startDate) entries = entries.filter(function (e) { return e.date >= startDate; });
   if (endDate) entries = entries.filter(function (e) { return e.date <= endDate; });
   // Transfers between the owner's own accounts are never income/expense —
@@ -38,9 +45,20 @@ function getPeriodSummary(payload) {
   var categoryById = rowsById_(getAllRows('Categories'));
   var tagById = rowsById_(localizeTags_(getAllRows('Tags')));
   var pmById = rowsById_(getAllRows('Payment Methods'));
+  var sliceCtx = buildAccountSliceContext_();
+  var sliceRefs = specialSliceRefs_();
 
   var totals = { income: 0, expense: 0, investment: 0 };
   var excludedCount = 0;
+  // Entries converted with a first rate borrowed from a later month (HomeCurrency.gs baseRateAt_): counted per currency, so the screen
+  // can say which currency, from which month on, is an estimate.
+  var ratesAll = buildRatesByCurrency_(), estimated = {};
+  function noteEstimate(cur) {
+    if (!estimated[cur]) { var l = ratesAll[cur]; estimated[cur] = { currency: cur, n: 0, from: l && l.length ? l[0].month : '' }; }
+    estimated[cur].n++;
+  }
+  var annualIds = annualMarkedIdSet_();
+  var annualByCategory = {};
   // Investments are flows per platform in each entry's OWN currency (no conversion).
   var investmentFlows = {};
 
@@ -56,8 +74,9 @@ function getPeriodSummary(payload) {
       var f = investmentFlows[pk] || (investmentFlows[pk] = {});
       f[cur] = (f[cur] || 0) + Number(e.amount);
     }
-    var rate = getRateForEntryCurrency_(e.currency, e.date);
+    var rate = getRateForTotals_(e.currency, e.date);
     if (rate == null) { excludedCount++; return; }
+    if (e.currency !== homeCurrency_() && rateIsEstimate_(ratesAll, e.currency, String(e.date).substring(0, 7))) noteEstimate(e.currency);
 
     // own_share: amount minus whatever's been split off to friends. Only
     // expenses can carry splits (Entry Splits is expense-only per the data
@@ -80,6 +99,8 @@ function getPeriodSummary(payload) {
     if (!bucket) return;
 
     addToBucket_(bucket.category, e.category_id, ownAmountPen, categoryById);
+    // The Annual-tagged part of each expense category: a monthly budget leaves it out, so the category row says "incl. … annual" (2026-11-07).
+    if (e.type === 'expense' && annualIds[e.id]) annualByCategory[e.category_id || ''] = (annualByCategory[e.category_id || ''] || 0) + ownAmountPen;
     // An entry with no tag / no account of the owner's still counts, in its
     // own "no tag" / "no account" slice, so each pie covers the whole total.
     var tagIds = tagIdsByEntry[e.id] || [];
@@ -87,27 +108,40 @@ function getPeriodSummary(payload) {
     tagIds.forEach(function (tagId) {
       addToBucket_(bucket.tag, tagId, ownAmountPen, tagById);
     });
-    if (e.paid_by === 'me' && e.payment_method_id) {
-      addToBucket_(bucket.paymentMethod, e.payment_method_id, ownAmountPen, pmById);
-    } else {
-      addToBucket_(bucket.paymentMethod, '', ownAmountPen, pmById);
-    }
+    // By account or card (owner's design, 2026-11-10, AccountSlices.gs): a friend-paid expense splits by what happened to its
+    // debt (repaid from an account, forgiven, still owed); an income counts where it arrived. Same split as the drill-down.
+    entryAccountSliceParts_(e, sliceCtx).forEach(function (part) {
+      addToBucket_(bucket.paymentMethod, part.key, ownAmountPen * part.fraction, isSpecialSliceKey_(part.key) ? sliceRefs : pmById);
+    });
   });
 
-  var net = totals.income - totals.expense - totals.investment;
+  // Loans (owner's design, 2026-10-29): the Overview summary is four blocks that ADD UP to What's left, so the net money borrowed
+  // and repaid in the period (a loan received and a repayment received are in, a loan given and a repayment paid are out) counts
+  // in it, converted with the monthly rate table like every other figure. The Loans card keeps each currency apart.
+  var loanFlows = loanFlowsForPeriod_(startDate, endDate, payload && payload.scope);
+  totals.loans = loanFlows.netPen;
+  excludedCount += loanFlows.excluded;
+  var net = totals.income - totals.expense - totals.investment + totals.loans;
+  var expenseByCategory = bucketToList_(acc.expense.category, totals.expense, tr_('report.uncategorized'));
+  expenseByCategory.forEach(function (item) { if (annualByCategory[item.id] > 0.005) item.annual_pen = annualByCategory[item.id]; });
 
   return {
     totals: {
       income: totals.income,
       expense: totals.expense,
       investment: totals.investment,
+      loans: totals.loans,
       net: net
     },
     excludedCount: excludedCount,
+    estimated: Object.keys(estimated).map(function (k) { return estimated[k]; }),
     investmentsByPlatform: investmentFlowsToList_(investmentFlows, pmById),
+    loans: { people: loanFlows.people, totals: loanFlows.totals },
+    owed: owedNow_(payload && payload.scope),
+    incomeVaries: incomeVariesSummary_(entries, everyConfirmed, categoryById, startDate, endDate),   // null when no income category varies
     breakdowns: {
       expense: {
-        byCategory: bucketToList_(acc.expense.category, totals.expense, tr_('report.uncategorized')),
+        byCategory: expenseByCategory,
         byTag: bucketToList_(acc.expense.tag, totals.expense, tr_('report.untagged')),
         byPaymentMethod: bucketToList_(acc.expense.paymentMethod, totals.expense, tr_('report.noAccount'))
       },
@@ -117,6 +151,167 @@ function getPeriodSummary(payload) {
         byPaymentMethod: bucketToList_(acc.income.paymentMethod, totals.income, tr_('report.noAccount'))
       }
     }
+  };
+}
+
+// What friends owe the owner and what he owes them TODAY, per currency (never converted), for the line under Overview's Loans card
+// (owner, 2026-11-07: the card shows the period's flows, not what is tied up). Same balances as the Loans tab; only on "Everything".
+function owedNow_(scope) {
+  if (scope) return null;
+  var toMe = {}, iOwe = {};
+  listLoanBalances({}).forEach(function (f) {
+    f.balances.forEach(function (b) {
+      if (b.net > 0) toMe[b.currency] = (toMe[b.currency] || 0) + b.net;
+      else iOwe[b.currency] = (iOwe[b.currency] || 0) - b.net;
+    });
+  });
+  var list = function (o) { return Object.keys(o).sort(function (a, b) { return a === homeCurrency_() ? -1 : (b === homeCurrency_() ? 1 : (a < b ? -1 : 1)); }).map(function (c) { return { currency: c, amount: o[c] }; }); };
+  return { toMe: list(toMe), iOwe: list(iOwe) };
+}
+
+// Overview's Loans card (owner's request, 2026-10-29): debts with friends AND banks, as FLOWS in the period, each in the loan's own
+// currency (never converted). Four kinds: borrowed (a loan received, +), lent (a loan given, -), repaid by the owner (-) and repaid to
+// the owner (+). Never income or expense, so none of it touches the totals; forgiveness is not a flow (it books its own entry) and a
+// repayment cancelled out against another loan (offset_loan_id) moved no money. Shared-bill shares are loans too (entry origin).
+// Scope (Business pack): personal = loans with no project, project/company = that project's loans; anything else = all.
+// Returns { people: [{ id, name, lines: [{ currency, borrowed, lent, paidBack, receivedBack, net }] }], totals: [same lines],
+// netPen: the net in the main currency (monthly rate table), excluded: movements left out for lack of a rate }.
+function loanFlowsForPeriod_(startDate, endDate, scope) {
+  scope = String(scope || '');
+  var inRange = function (d) {
+    d = String(d || '').substring(0, 10);
+    return !!d && (!startDate || d >= startDate) && (!endDate || d <= endDate);
+  };
+  var projectOk = function (loan) { return true; };
+  if (scope && scope !== 'all' && businessOn_()) {
+    var parts = scope.split(':');
+    var id = parts.slice(1).join(':');
+    if (scope === 'personal') {
+      projectOk = function (loan) { return !loan.project_id; };
+    } else if (parts[0] === 'project') {
+      projectOk = function (loan) { return String(loan.project_id || '') === id; };
+    } else if (parts[0] === 'company') {
+      var ids = {};
+      getProjectRows_().forEach(function (p) { if (String(p.company_id || '') === id) ids[p.id] = true; });
+      projectOk = function (loan) { return !!ids[String(loan.project_id || '')]; };
+    }
+  }
+  var loans = getAllRows('Loans').filter(projectOk);
+  var loanById = rowsById_(loans);
+  var friendById = rowsById_(getAllRows('Friends'));
+  var people = {};
+  var totals = {};
+  var netPen = 0;
+  var excluded = 0;
+  var moves = [];
+  var add = function (loan, kind, amount, date, settlementId) {
+    var cur = loan.currency || homeCurrency_();
+    moves.push({ loan: loan, kind: kind, amount: amount, currency: cur, date: String(date || '').substring(0, 10), settlement_id: settlementId || '' });
+    var rate = getRateForTotals_(cur, date);
+    if (rate == null) excluded++;
+    else netPen += (kind === 'borrowed' || kind === 'receivedBack' ? 1 : -1) * amount * rate;
+    [people[loan.friend_id] || (people[loan.friend_id] = {}), totals].forEach(function (bag) {
+      var l = bag[cur] || (bag[cur] = { currency: cur, borrowed: 0, lent: 0, paidBack: 0, receivedBack: 0 });
+      l[kind] += amount;
+    });
+  };
+  // Forgiven money is no longer a loan (owner, 2026-11-18): the forgiveness books its own expense (or income), so the loan's
+  // money out (or in) shrinks by what was forgiven, on the loan's OWN date, even if that changes an earlier month. Otherwise
+  // Result would count it twice (lent 100, got 70 back, forgave 30: −60 instead of −30).
+  var settledByLoan = {};
+  getAllRows('Settlements').forEach(function (st) { settledByLoan[st.loan_id] = (settledByLoan[st.loan_id] || 0) + (Number(st.amount) || 0); });
+  loans.forEach(function (l) {
+    if (!inRange(l.date)) return;
+    var amount = Number(l.amount) || 0;
+    var amt = Math.max(0, amount - loanForgivenAmount_(l, settledByLoan[l.id] || 0));
+    if (amt > 0.004) add(l, l.direction === 'i_owe_them' ? 'borrowed' : 'lent', Math.round(amt * 100) / 100, l.date);
+  });
+  getAllRows('Settlements').forEach(function (st) {
+    if (st.offset_loan_id || !inRange(st.date)) return;
+    var loan = loanById[st.loan_id];
+    if (loan) add(loan, loan.direction === 'i_owe_them' ? 'paidBack' : 'receivedBack', Number(st.amount) || 0, st.date, st.id);
+  });
+  var finish = function (bag) {
+    return Object.keys(bag).sort().map(function (cur) {
+      var l = bag[cur];
+      ['borrowed', 'lent', 'paidBack', 'receivedBack'].forEach(function (k) { l[k] = Math.round(l[k] * 100) / 100; });
+      l.net = Math.round((l.borrowed - l.lent - l.paidBack + l.receivedBack) * 100) / 100;
+      return l;
+    }).filter(function (l) { return l.borrowed || l.lent || l.paidBack || l.receivedBack; });
+  };
+  return {
+    people: Object.keys(people).map(function (fid) {
+      var f = friendById[fid];
+      return { id: fid, name: f ? f.name : '', lines: finish(people[fid]) };
+    }).filter(function (r) { return r.lines.length; }).sort(function (a, b) {
+      return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0);
+    }),
+    totals: finish(totals),
+    netPen: netPen,
+    excluded: excluded,
+    moves: moves,
+    friendById: friendById
+  };
+}
+
+// Loan movements as the phone shows them, newest first (Overview's summary list and the Loans tab's "All loans and repayments").
+// kind: borrowed / lent / paidBack / receivedBack move money (signed by the owner's pocket); forgiven / canceledOut moved none (signed 0).
+// moves: [{ loan, kind, amount, currency, date, settlement_id }].
+function loanMoveRows_(moves, friendById) {
+  var entryTypeById = {};
+  moves.forEach(function (m) { if (m.loan.origin === 'entry' && m.loan.entry_id) entryTypeById[m.loan.entry_id] = ''; });
+  if (Object.keys(entryTypeById).length) getAllRows('Entries').forEach(function (e) { if (e.id in entryTypeById) entryTypeById[e.id] = e.type; });
+  return moves.map(function (m) {
+    var f = friendById[m.loan.friend_id];
+    var sign = m.kind === 'borrowed' || m.kind === 'receivedBack' ? 1 : (m.kind === 'lent' || m.kind === 'paidBack' ? -1 : 0);
+    return {
+      kind: m.kind, origin: m.loan.origin || 'cash', entry_type: m.loan.origin === 'entry' ? (entryTypeById[m.loan.entry_id] || '') : '',
+      direction: m.loan.direction, friend_id: m.loan.friend_id, friend_name: f ? f.name : '', loan_id: m.loan.id, settlement_id: m.settlement_id || '',
+      amount: Math.round(m.amount * 100) / 100, signed: Math.round(sign * m.amount * 100) / 100,
+      currency: m.currency, date: m.date, description: m.loan.description || ''
+    };
+  }).filter(function (m) { return Math.abs(m.amount) > 0.004; }).sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+}
+
+// Overview's summary blocks open ONE list of what is behind them (owner, 2026-11-11): the period's income, expenses and investments
+// (entries, the same ones the totals count) and the loan movements behind the Loans block, newest first, mixed, 100 at a time.
+// filter: 'all' (What's left) | 'income' | 'expense' | 'investment' | 'loans'. Entries come decorated exactly as listEntries sends them.
+// Returns { items: [{ entry } | { loan: { kind, origin, entry_type, friend_id, friend_name, amount, currency, date, loan_id, signed } }], more }.
+function listPeriodFlows(payload) {
+  payload = payload || {};
+  var startDate = payload.startDate, endDate = payload.endDate, scope = payload.scope;
+  var filter = String(payload.filter || 'all');
+  var offset = Math.max(0, Number(payload.offset) || 0);
+  var limit = Math.max(1, Math.min(500, Number(payload.limit) || 100));
+  var types = filter === 'all' ? { income: true, expense: true, investment: true } : {};
+  if (filter === 'income' || filter === 'expense' || filter === 'investment') types[filter] = true;
+  var entries = [];
+  if (Object.keys(types).length) {
+    entries = getAllRows('Entries').filter(function (e) {
+      return e.status === 'confirmed' && types[e.type] && (!startDate || e.date >= startDate) && (!endDate || e.date <= endDate);
+    });
+    entries = filterEntriesByScope_(entries, scope);
+    entries.sort(compareEntriesRecency_);
+  }
+  var moves = [];
+  if (filter === 'all' || filter === 'loans') {
+    var flows = loanFlowsForPeriod_(startDate, endDate, scope);
+    moves = loanMoveRows_(flows.moves, flows.friendById);
+  }
+  // Merge newest first (on the same day, entries before loan movements), then take one page.
+  var merged = [];
+  var i = 0, j = 0;
+  while (i < entries.length || j < moves.length) {
+    if (j >= moves.length || (i < entries.length && String(entries[i].date).substring(0, 10) >= moves[j].date)) merged.push({ e: entries[i++] });
+    else merged.push({ m: moves[j++] });
+  }
+  var page = merged.slice(offset, offset + limit);
+  var ids = page.filter(function (x) { return x.e; }).map(function (x) { return x.e.id; });
+  var decorated = {};
+  if (ids.length) listEntries({ entryIds: ids }).forEach(function (e) { decorated[e.id] = e; });
+  return {
+    items: page.map(function (x) { return x.e ? { entry: decorated[x.e.id] } : { loan: x.m }; }).filter(function (x) { return x.loan || x.entry; }),
+    more: merged.length > offset + limit
   };
 }
 
@@ -138,6 +333,7 @@ function rowsById_(rows) {
   rows.forEach(function (r) { map[r.id] = r; });
   return map;
 }
+
 
 function addToBucket_(bucket, key, amountPen, lookup) {
   var k = key || '__none__';

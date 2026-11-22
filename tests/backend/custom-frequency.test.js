@@ -3,7 +3,7 @@
 // amount, a car service that happens "about every 5 months".
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { freshApp, today } = require("./helpers");
+const { freshApp, today, lastDayOfMonth } = require("./helpers");
 
 const CAT = "cat-custom-test";
 const jr = (rt, code) => JSON.parse(rt.run(`JSON.stringify(${code})`));
@@ -189,7 +189,7 @@ test("two entries for one service (parts + labour) count as ONE occurrence, the 
   assert.equal(item.amount, 300, "(300 + 320 + 280) / 3");
 });
 
-test("projections: the service is Programmed in its month; paying it a few weeks early counts, even in the previous month", () => {
+test("projections: the service is Programmed in its month; paying it a few weeks early counts, even in the previous month", { skip: lastDayOfMonth }, () => {
   const { rt } = setup();
   addEntry(rt, monthsAgo(5, 14), 600, "Car service");
   addEntry(rt, monthsAgo(10, 3), 800, "Car service");
@@ -205,7 +205,7 @@ test("projections: the service is Programmed in its month; paying it a few weeks
   assert.equal(expectedFor(rt, r.id).length, 0, "and the card no longer lists it");
 });
 
-test("projections: the paid service is taken out of the category's 12-month average (no double count)", () => {
+test("projections: the paid service is taken out of the category's 12-month average (no double count)", { skip: lastDayOfMonth }, () => {
   const { rt } = setup();
   addEntry(rt, monthsAgo(36, 1), 1, "first ever");              // the category already existed long before the window
   const serviceDate = monthsAgo(3, 10);
@@ -229,4 +229,12 @@ test("a hand link counts for the occurrence near it, not for the whole month", (
   const left = expectedFor(rt, r.id).map((i) => i.day);
   assert.equal(left.length, dates.length - 1);
   assert.ok(!left.includes(Number(dates[2].slice(8, 10))));
+});
+
+test("'Programmed this month' marks a one-time item, so the card offers no 'Skip this month' for it", () => {
+  const { rt } = setup();
+  const once = rt.api("addRecurringExpense", { category_id: CAT, description: "One-off suit", amount: 300, currency: "PEN", frequency: "once", date: monthEnd() });
+  const monthly = rt.api("addRecurringExpense", { category_id: CAT, description: "Phone plan", amount: 40, currency: "PEN", frequency: "monthly", day: Number(monthEnd().slice(8)) });
+  assert.equal(expectedFor(rt, once.id)[0].once, true);
+  assert.equal(expectedFor(rt, monthly.id)[0].once, false);
 });

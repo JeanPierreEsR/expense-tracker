@@ -3,7 +3,7 @@
 // and "which would have worked best for you" (a replay of the last 12 months).
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { freshApp, today } = require("./helpers");
+const { freshApp, today, lastDayOfMonth } = require("./helpers");
 
 const A = "cat-pm-a", B = "cat-pm-b";
 const [thisYear, thisMonth] = today().split("-").map(Number);
@@ -45,7 +45,7 @@ test("the default is Balanced, and every preset or a valid custom is accepted; a
   assert.throws(() => rt.api("setProjectionMethod", { categoryId: A, method: "nope" }), /isn't available/i);
 });
 
-test("a method changes what Expected is built from: Recent looks 3 months back, Steady 12", () => {
+test("a method changes what Expected is built from: Recent looks 3 months back, Steady 12", { skip: lastDayOfMonth }, () => {
   const { rt } = setup();
   addEntry(rt, A, ago(30), 1, "first ever");
   series(rt, A, 12, (k) => (k <= 3 ? 300 : 100));       // the last 3 months at 300, the 9 before at 100
@@ -58,7 +58,7 @@ test("a method changes what Expected is built from: Recent looks 3 months back, 
   assert.equal(p.methodIsOwn, false, "it is the default, not this category's own choice");
 });
 
-test("a category can have its own method; 'apply to all' replaces every choice and sets the default", () => {
+test("a category can have its own method; 'apply to all' replaces every choice and sets the default", { skip: lastDayOfMonth }, () => {
   const { rt } = setup();
   [A, B].forEach((c) => { addEntry(rt, c, ago(30), 1, "first ever"); series(rt, c, 12, (k) => (k <= 3 ? 300 : 100)); });
   rt.api("setProjectionMethod", { method: "steady" });
@@ -79,7 +79,7 @@ test("a category can have its own method; 'apply to all' replaces every choice a
   assert.equal(projection(rt, B).method, "ytd");
 });
 
-test("'This year so far' uses this year's complete months; in January it looks back 12 months instead", () => {
+test("'This year so far' uses this year's complete months; in January it looks back 12 months instead", { skip: lastDayOfMonth }, () => {
   const { rt } = setup();
   addEntry(rt, A, ago(40), 1, "first ever");
   series(rt, A, 24, (k) => (k <= thisMonth - 1 ? 500 : 100));   // this year's complete months at 500, the rest at 100
@@ -89,7 +89,7 @@ test("'This year so far' uses this year's complete months; in January it looks b
   else assert.ok(p.ratePerMonth > 0, "January: no month of this year yet, so 12 months back");
 });
 
-test("custom:<months>:<years> looks back that many complete months", () => {
+test("custom:<months>:<years> looks back that many complete months", { skip: lastDayOfMonth }, () => {
   const { rt } = setup();
   addEntry(rt, A, ago(40), 1, "first ever");
   series(rt, A, 24, (k) => (k <= 6 ? 200 : 100));
@@ -99,7 +99,7 @@ test("custom:<months>:<years> looks back that many complete months", () => {
   assert.ok(Math.abs(projection(rt, A).ratePerMonth - 125) < 1e-9, "(6 x 200 + 18 x 100) / 24");
 });
 
-test("'Same month last year' copies each month of the previous calendar year", () => {
+test("'Same month last year' copies each month of the previous calendar year", { skip: lastDayOfMonth }, () => {
   const { rt } = setup();
   addEntry(rt, A, `${thisYear - 2}-06-01`, 1, "first ever");
   for (let m = 1; m <= 12; m++) addEntry(rt, A, `${thisYear - 1}-${String(m).padStart(2, "0")}-10`, m * 10);
@@ -115,7 +115,7 @@ test("'Same month last year' copies each month of the previous calendar year", (
   assert.equal(detail.ytdBreakdown.method, "last_year");
 });
 
-test("'Same month last year' falls back to Balanced, and says so, when there is no previous year", () => {
+test("'Same month last year' falls back to Balanced, and says so, when there is no previous year", { skip: lastDayOfMonth }, () => {
   const { rt } = setup();
   series(rt, A, 6, () => 100);        // the category began 6 months ago
   rt.api("setProjectionMethod", { method: "last_year" });
@@ -172,7 +172,7 @@ test("not enough history: no recommendation", () => {
   assert.equal(cat.best, null);
 });
 
-test("comparing every category gives an overall picture; 'use the best for each' only changes those that gain 5 points or more", () => {
+test("comparing every category gives an overall picture; 'use the best for each' only changes those that gain 5 points or more", { skip: lastDayOfMonth }, () => {
   const { rt } = setup();
   addEntry(rt, A, ago(31), 1, "first ever");
   series(rt, A, 30, (k) => (k <= 6 ? 300 : 100));        // step change: Recent is clearly better

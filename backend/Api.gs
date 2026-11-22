@@ -18,6 +18,9 @@
 // round-trip time to tell network/wake-up delay from real Sheet work.
 var PERF_INSTANCE_WARM_ = false;
 
+// A Sheet cell not set to text turns 0123 into 123: read as what was meant.
+function pmLast4_(v) { var s = String(v === undefined || v === null ? '' : v).trim(); return /^\d{1,3}$/.test(s) ? ('000' + s).slice(-4) : s; }
+
 function doPost(e) {
   var perfStart = Date.now();
   var perfCold = !PERF_INSTANCE_WARM_;
@@ -25,9 +28,13 @@ function doPost(e) {
   RATES_MEMO_ = null;   // never carry rates over from a previous request
   HOME_CURRENCY_MEMO_ = null;   // nor the main currency (HomeCurrency.gs)
   RATE_BASE_MEMO_ = null;       // nor the rates' base currency
+  RATE_FORM_MEMO_ = null;       // nor how its rows read (RatesUsd.gs)
   STMT_COVERAGE_MEMO_ = null;   // nor statement coverage (see Balances.gs)
   REQUEST_LANG_ = null;         // nor the previous request's language (see Strings.gs)
   var response;
+  // Apple Pay capture (ApplePay.gs): the iPhone's shortcut posts to this address with the person's Apple Pay key in the link. That key
+  // opens this one door only, so it is answered here, before anything else; a wrong key gets the same refusal as a wrong code.
+  if (e && e.parameter && e.parameter.k !== undefined) return applePayDoor_(e);
   try {
     var body = JSON.parse(e.postData.contents);
     // The app tells us which language the person is using; everything this
@@ -39,6 +46,29 @@ function doPost(e) {
       // the access-code check since it carries none and needs no data,
       // just to have actually run doPost on this instance.
       return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (body && body.whatsapp !== undefined) {
+      // A WhatsApp message, forwarded by the Cloudflare relay (cloudflare-worker/whatsapp-relay.js) only after it checked Meta's
+      // signature and the sender's number. This address is public, so the relay's secret must be in the body (WhatsApp.gs).
+      if (!isWhatsAppRelayAuthorized_(body)) {
+        // The right key, but the person turned the bot off: say so in their language (testers, 2026-11-20: they got the relay's
+        // mixed "No se pudo guardar / Not saved"), and it is not a failed access attempt.
+        if (whatsappRelayKeyOk_(body)) {
+          return ContentService.createTextOutput(JSON.stringify({ ok: true, data: { reply: tr_('whatsapp.botOff') } }))
+            .setMimeType(ContentService.MimeType.JSON);
+        }
+        recordFailedAccessAttempt_('whatsapp webhook');
+        return ContentService.createTextOutput(JSON.stringify({ ok: false }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      try {
+        response = { ok: true, data: handleWhatsAppInbound_(body.whatsapp) };   // WhatsAppBot.gs
+      } catch (err) {
+        response = { ok: false, error: err.message, reply: tr_('whatsapp.failed') };
+      }
+      return ContentService.createTextOutput(JSON.stringify(response))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -94,7 +124,11 @@ function doPost(e) {
       response = { ok: false, error: tr_('auth.invalidCode'), code: 'invalid_access_code' };
     } else {
       healWebAppUrl_(body.apiUrl);   // learns this copy's own address from the app (Features.gs)
-      response = { ok: true, data: routeActionOnce_(body.action, body.payload || {}) };
+      var payload = body.payload || {};
+      var thenReads = payload._then;   // reads the app wants back with this save (see runThenReads_)
+      if (thenReads) delete payload._then;
+      response = { ok: true, data: routeActionOnce_(body.action, payload) };
+      if (thenReads) response.then = runThenReads_(thenReads);
     }
   } catch (err) {
     response = { ok: false, error: err.message, code: err.code || undefined };
@@ -120,12 +154,54 @@ var ONCE_ACTIONS_ = {
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1, recordTripSettlement: 1,
   addCompany: 1, addProject: 1, addExpectedPayment: 1, addIgvPayment: 1,   // Business pack (Business.gs): a resend must not create a second one
   addLoan: 1, addFriend: 1, addRecurringExpense: 1,
+  saveEntryAll: 1,   // may create an entry (the lock also keeps a resend from running next to the first)
   exportData: 1,   // a resend must not email the same files twice
   // The two long statement writes: the app waits at most 150 s for them, but a resend that does arrive must not run a second copy
   // next to the first (the lock below makes it wait, then get the first one's answer).
   applyStatementDecisions: 1, undoStatementBatch: 1,
-  applyTidyGroups: 1   // a resend must not run a second copy next to the first
+  applyTidyGroups: 1,   // a resend must not run a second copy next to the first
+  assignEntryAccounts: 1,   // the same for filling accounts (NoAccount.gs)
+  // Everything else that CREATES something (owner, 2026-11-14: a trip saved while the phone was locked was made three times: the
+  // answer was lost, and each "try again" made it again). With the phone keeping one id per save across its retries, a repeat
+  // gets the first one's answer instead of a second copy.
+  addTrip: 1, addBudget: 1, addPaymentMethod: 1, savePaymentMethod: 1, addTag: 1, addBank: 1, addPayor: 1, saveCategory: 1,
+  saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1
 };
+
+// Speed (2026-11-02): the app can ask a save to bring back the lists it reloads right after (payload._then =
+// [[action, payload], …]); each costs the phone a whole extra trip to Google otherwise (~2.5 s). Only looking actions
+// (get…/list…), at most 5; each answers { ok, data } or { ok: false } on its own, never failing the save that already
+// happened. Capability thenReads.
+function runThenReads_(reads) {
+  if (!Array.isArray(reads)) return [];
+  return reads.slice(0, 5).map(function (r) {
+    var action = r && r[0];
+    if (typeof action !== 'string' || !/^(get|list)[A-Z]/.test(action)) return { ok: false };
+    try { return { ok: true, data: routeAction(action, (r[1] && typeof r[1] === 'object') ? r[1] : {}) }; }
+    catch (e) { return { ok: false }; }
+  });
+}
+
+function applePayDoor_(e) {
+  var reply;
+  try {
+    if (!isApplePayKey_(e.parameter.k)) {
+      recordFailedAccessAttempt_('apple pay');
+      reply = { ok: false, error: tr_('auth.invalidCode'), code: 'invalid_access_code' };
+    } else {
+      var data = {};
+      try { data = JSON.parse((e.postData && e.postData.contents) || '{}') || {}; } catch (parseErr) { data = {}; }
+      // A shortcut set to send a form instead of JSON: the same fields arrive as parameters.
+      ['amount', 'merchant', 'card', 'time'].forEach(function (f) { if (data[f] === undefined && e.parameter[f] !== undefined) data[f] = e.parameter[f]; });
+      reply = { ok: true, data: captureApplePay_(data) };
+    }
+  } catch (err) {
+    reply = { ok: false, error: err.message };
+  }
+  // The shortcut shows `message` as a notification (one key: Shortcuts reads a nested one awkwardly).
+  reply.message = reply.ok ? reply.data.message : reply.error;
+  return ContentService.createTextOutput(JSON.stringify(reply)).setMimeType(ContentService.MimeType.JSON);
+}
 
 function routeActionOnce_(action, payload) {
   var id = payload && payload._requestId;
@@ -149,38 +225,70 @@ function routeActionOnce_(action, payload) {
   }
 }
 
+// Speed (2026-11-02): a call that only LOOKS (get…/list…) reads each sheet from Google once and reuses it (withRowsMemo_);
+// these used to re-read the same sheet 2-9 times per call. Anything that opens a sheet to change it drops that sheet's copy
+// (getSheet), so getMeta's repairs are safe here too (2026-11-19: it read Entries three times and took 34-53 s on the owner's
+// Sheet, past the app's 25 s limit). The start-up bundle handles its own memory.
+var MEMO_SKIP_ACTIONS_ = { getStartupBundle: 1 };
+
 function routeAction(action, payload) {
+  if (/^(get|list)[A-Z]/.test(action) && !MEMO_SKIP_ACTIONS_[action]) {
+    return withRowsMemo_(function () { return routeActionSwitch_(action, payload); });
+  }
+  return routeActionSwitch_(action, payload);
+}
+
+function routeActionSwitch_(action, payload) {
   switch (action) {
     case 'logout': return logout();
     case 'listSessions': return listSessions();
+    case 'getApplePaySetup': return getApplePaySetup();
+    case 'getWhatsAppBot': return getWhatsAppBot();   // More → My profile → WhatsApp bot (WhatsApp.gs)
+    case 'turnOnWhatsAppBot': return turnOnWhatsAppBot(payload);
+    case 'turnOffWhatsAppBot': return turnOffWhatsAppBot();
+    case 'makeWhatsAppInvite': return makeWhatsAppInvite(payload);   // the owner's "Invite a friend" (WhatsApp.gs)
+    case 'useWhatsAppInvite': return useWhatsAppInvite(payload);     // a friend's "I have an invitation code"
+    case 'makeApplePayKey': return makeApplePayKey(payload);
     case 'revokeSession': return revokeSession(payload);
     case 'revokeOtherSessions': return revokeOtherSessions();
-    case 'getMeta': ensureEntriesEditTrigger_(); return getMeta();   // once per copy: manual Sheet edits keep loans / repayments in step (EditSync.gs)
+    case 'getMeta': applyPhoneTimeZone_(payload && payload.tz); ensureEntriesEditTrigger_(); return getMeta();
+    case 'setTimeZone': return setTimeZone(payload);   // the phone is in another zone now (PersonDefaults.gs)
+    case 'setTravelAnnual': return setTravelAnnual(payload);   // once per copy: manual Sheet edits keep loans / repayments in step (EditSync.gs)
     case 'setLanguage': return setLanguage(payload);
     case 'listSampleEmails': return listSampleEmails(payload);
     case 'getSampleEmail': return getSampleEmail(payload);
     case 'saveOnboarding': return saveOnboarding(payload);
+    case 'saveDateOrder': return saveDateOrder(payload);
+    case 'saveNavTabs': return saveNavTabs(payload);
     case 'eraseEverything': return eraseEverything(payload);
     case 'setExtraOff': return setExtraOff(payload);
+    case 'setExtraOn': return setExtraOn(payload);
     case 'takeBackPermissions': return takeBackPermissions(payload);
     case 'saveOnboardingAccounts': return saveOnboardingAccounts(payload);
     case 'saveOnboardingPlatforms': return saveOnboardingPlatforms(payload);
     case 'saveRailLinks': return saveRailLinks(payload);
     case 'getStartupBundle': return getStartupBundle(payload);
     case 'createEntry': return createEntry(payload);
+    case 'saveEntryAll': return saveEntryAll(payload);
     case 'listEntries': return listEntries(payload);
+    case 'listPeriodFlows': return listPeriodFlows(payload);
+    case 'listLoanMovements': return listLoanMovements(payload);
     case 'getPeriodSummary': return getPeriodSummary(payload);
     case 'getHomeGlance': return getHomeGlance();
-    case 'getMonthlyHistory': return getMonthlyHistory();
+    case 'getMonthlyHistory': return getMonthlyHistory(payload);
+    case 'getSpendingPace': return getSpendingPace(payload);
     case 'getExchangeRate': return getExchangeRate(payload.currency, payload.month);
-    case 'getLatestRateOnOrBefore': return { rate: getLatestRateOnOrBefore_(payload.currency, payload.month) };
+    case 'getLatestRateOnOrBefore': return { rate: getLatestRateOnOrBefore_(payload.currency, payload.month), per_usd: perUsdAt_(payload.currency, payload.month) };
     case 'listExchangeRates': return listExchangeRates();
-    case 'setExchangeRate': return setExchangeRate(payload.currency, payload.month, payload.rate);
+    case 'setExchangeRate': return payload.per_usd != null ? setUsdRate(payload.currency, payload.month, payload.per_usd) : setExchangeRate(payload.currency, payload.month, payload.rate);
+    case 'previewRatesToUsd': return previewRatesToUsd();
+    case 'convertRatesToUsd': return convertRatesToUsd();
     case 'previewMainCurrencyChange': return previewMainCurrencyChange(payload);
     case 'changeMainCurrency': return changeMainCurrency(payload);
     case 'addFriend': return addFriend(payload);
     case 'listPayors': return listPayors();
     case 'addPayor': return addPayor(payload);
+    case 'applyPayorMerge': return applyPayorMerge(payload);
     case 'admin_deletePayor':
       var payorSheet = getSheet('Payors');
       var payorHeaders = getHeaders(payorSheet);
@@ -190,20 +298,24 @@ function routeAction(action, payload) {
     case 'admin_setCategoryPeriodType': return adminSetCategoryPeriodType(payload.categoryId, payload.periodType);
     case 'admin_linkEntryToRecurring': return adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);
     case 'findRecurringLinkCandidates': return findRecurringLinkCandidates(payload);
+    case 'listRecurringPayments': return listRecurringPayments(payload);
     case 'linkEntriesToRecurring': return linkEntriesToRecurring(payload);
     case 'addTag': return addTag(payload);
     case 'getManualGaps': return getManualGaps(payload);
+    case 'saveGapReason': return saveGapReason(payload);
     case 'listTrips': return listTrips();
     case 'getTripDetail': return getTripDetail(payload);
-    case 'addTrip': return addTrip(payload);
+    case 'addTrip': return addTripAndOpen_(payload);
     case 'updateTrip': return updateTrip(payload);
     case 'deleteTrip': return deleteTrip(payload);
+    case 'deleteTrips': return deleteTrips(payload);
     case 'findTripCandidates': return findTripCandidates(payload);
     case 'linkEntriesToTrip': return linkEntriesToTrip(payload);
     case 'recordTripSettlement': return recordTripSettlement(payload);
     case 'setBusinessFeatures': return setBusinessFeatures(payload);
     case 'enableBusinessForOwnerOnce': return enableBusinessForOwnerOnce();
     case 'listBusinessPeople': return listBusinessPeople();
+    case 'listMyFriends': return listMyFriends();
     case 'listExpectedPayments': return listExpectedPayments(payload);
     case 'addExpectedPayment': return addExpectedPayment(payload);
     case 'getCompanyIgv': return getCompanyIgv(payload);
@@ -221,7 +333,13 @@ function routeAction(action, payload) {
     case 'coverExpectedPayment': return coverExpectedPayment(payload);
     case 'deleteExpectedPayment': return deleteExpectedPayment(payload);
     case 'updateFriend': return updateFriend(payload);
+    case 'setFriendPhone': return setFriendPhone(payload);
+    case 'setFriendRemind': return setFriendRemind(payload);
+    case 'setReminderTemplate': return setReminderTemplate(payload);
     case 'deleteFriend': return deleteFriend(payload);
+    case 'deleteFriends': return deleteFriends(payload);
+    case 'unhideFriend': return unhideFriend(payload);
+    case 'restoreFriends': return restoreFriends(payload);
     case 'getProjectDebts': return getProjectDebts(payload);
     case 'listCompaniesAndProjects': return listCompaniesAndProjects(payload);
     case 'addCompany': return addCompany(payload);
@@ -230,12 +348,24 @@ function routeAction(action, payload) {
     case 'addProject': return addProject(payload);
     case 'updateProject': return updateProject(payload);
     case 'deleteProject': return deleteProject(payload);
+    case 'previewBusinessDelete': return previewBusinessDelete(payload);
+    case 'deleteBusinessItems': return deleteBusinessItems(payload);
+    case 'deleteBusinessPeople': return deleteBusinessPeople(payload);
     case 'getProjectDetail': return getProjectDetail(payload);
     case 'getCompanyDetail': return getCompanyDetail(payload);
     case 'addPaymentMethod': return addPaymentMethod(payload);
     case 'savePaymentMethod': return savePaymentMethod(payload);
+    case 'getAccountCurrencySuggestions': return getAccountCurrencySuggestions();
+    case 'listPendingCharges': return listPendingCharges();
+    case 'fillEntryCharge': return fillEntryCharge(payload);
+    case 'keepEntryCharge': return keepEntryCharge(payload);
+    case 'fillChargeFromReview': return fillChargeFromReview(payload);
+    case 'applyAccountCurrencySuggestions': return applyAccountCurrencySuggestions(payload);
+    case 'removePaymentMethod': return removePaymentMethod(payload);
+    case 'removePaymentMethods': return removePaymentMethods(payload);
     case 'deletePaymentMethod': return deletePaymentMethod(payload);
     case 'setPaymentMethodHidden': return setPaymentMethodHidden(payload);
+    case 'restorePaymentMethods': return restorePaymentMethods(payload);
     case 'addBank': return addBank(payload);
     case 'admin_resetBanks': resetBanks(); return { done: true };
     case 'admin_linkPaymentMethodsToBanks': linkPaymentMethodsToBanks(); return { done: true };
@@ -332,6 +462,8 @@ function routeAction(action, payload) {
     case 'listPerfAppVersions': return listPerfAppVersions_();
     case 'listStatementSamples': return listStatementSamples_(payload);
     case 'rulePackTwinCheck': return rulePackTwinCheck_(payload);
+    case 'programmedGuessBacktest': return programmedGuessBacktest_(payload);
+    case 'programmedPaidCheck': return programmedPaidCheck_(payload);
     case 'findStatementEmails': return findStatementEmails(payload);
     case 'addStatementsToInbox': return addStatementsToInbox(payload);
     case 'rememberStatementSender': return rememberStatementSender(payload);
@@ -347,6 +479,10 @@ function routeAction(action, payload) {
     case 'getStatementBatchDetails': return getStatementBatchDetails(payload);
     case 'getOwnerNames': return getOwnerNames();
     case 'saveOwnerNames': return saveOwnerNames(payload);
+    case 'answerOwnName': return answerOwnName(payload);
+    case 'applyProfile': return applyProfile(payload);
+    case 'getProfileState': return getProfileState();
+    case 'getAnnualHints': return getAnnualHints();
     case 'listStatementGaps': return listStatementGaps();
     case 'resolveStatementGap': return resolveStatementGap(payload);
     case 'getEntriesNear': return getEntriesNear(payload);
@@ -356,25 +492,47 @@ function routeAction(action, payload) {
     case 'admin_bulkImportSpendeeCsv': return bulkImportSpendeeCsv(payload.csvText, payload.filename);
     case 'admin_mergeDuplicatePaymentMethods': return mergeDuplicatePaymentMethods();
     case 'saveCategory': return saveCategory(payload);
+    case 'setPay': return setPay(payload);
     case 'deleteCategory': return deleteCategory(payload);
+    case 'previewCategoryDelete': return previewCategoryDelete(payload);
+    case 'deleteCategories': return deleteCategories(payload);
     case 'getCategoryCounts': return getCategoryCounts();
+    case 'getTagCounts': return getTagCounts();
+    case 'renameTag': return renameTag(payload);
+    case 'deleteTag': return deleteTag(payload);
     case 'setCategoryHidden': return setCategoryHidden(payload);
+    case 'showCategories': return showCategories(payload);
     case 'addCategoryKeyword':
       var kw = { id: Utilities.getUuid(), keyword: payload.keyword, category_name: payload.category_name };
       appendRowObject('Category Keywords', kw);
       return kw;
     case 'listBudgets': return listBudgets(payload);
+    case 'listBudgetChoices': return listBudgetChoices();
+    case 'setOverviewCategoryView': return setOverviewCategoryView(payload);
+    case 'listAnnualCleanup': return listAnnualCleanup();
+    case 'applyAnnualCleanup': return applyAnnualCleanup(payload);
+    case 'undoAnnualCleanup': return undoAnnualCleanup(payload);
+    case 'finishAnnualCleanup': return finishAnnualCleanup();
     case 'addBudget': return addBudget(payload);
     case 'updateBudget': return updateBudget(payload);
     case 'deleteBudget': return deleteBudget(payload.id);
+    case 'endBudget': return endBudget(payload);
+    case 'endBudgets': return endBudgets(payload);
+    case 'deleteBudgets': return deleteBudgets(payload);
     case 'getBudgetChartSeries': return getBudgetChartSeries(payload);
     case 'listRecurringExpenses': return listRecurringExpenses();
     case 'addRecurringExpense': return addRecurringExpense(payload);
     case 'updateRecurringExpense': return updateRecurringExpense(payload);
     case 'deleteRecurringExpense': return deleteRecurringExpense(payload.id);
+    case 'convertPausedProgrammedForOwnerOnce': return convertPausedProgrammedForOwnerOnce();
+    case 'stopRecurringAtLastPayment': return stopRecurringAtLastPayment(payload);
+    case 'deleteRecurringExpenses': return deleteRecurringExpenses(payload);
+    case 'previewProgrammedDelete': return withRowsMemo_(function () { return previewProgrammedDelete(payload); });
     case 'skipRecurringOccurrence': return skipRecurringOccurrence(payload);
     case 'unskipRecurringOccurrence': return unskipRecurringOccurrence(payload);
     case 'linkEntryToRecurring': return linkEntryToRecurring(payload);
+    case 'addEntriesTags': return addEntriesTags(payload);
+    case 'answerAnnualItems': return answerAnnualItems(payload);
     case 'recordRecurringPayment': return recordRecurringPayment(payload);
     case 'listEntriesForRecurringMonth': return listEntriesForRecurringMonth(payload);
     case 'getRecurringExpenseSplits': return getRecurringExpenseSplits(payload);
@@ -399,16 +557,45 @@ function routeAction(action, payload) {
     case 'saveStatementFormat': return saveStatementFormat(payload);
     case 'deleteStatementFormat': return deleteStatementFormat(payload);
     case 'listPendingEntries': return listPendingEntries();
+    case 'suggestForDescription': return suggestForDescription(payload);
     case 'listSupportedSenders': return listSupportedSenders();
     case 'setRulePack': return setRulePack(payload);
-    case 'confirmEntry': {
-      confirmEntryWithLearning_(payload.id);
-      // Confirming gives the entry its category for good: the blank look-alikes (imports waiting in Tidy my history) follow, with Undo.
-      var followed = null;
-      try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }
-      return followed ? { done: true, follow: followed } : { done: true };
-    }
+    case 'confirmEntry': return confirmEntryFromApp_(payload);
+    case 'unconfirmEntry': return unconfirmEntry_(payload);
+    case 'unconfirmEntries': return unconfirmEntries(payload);
+    case 'createPracticePending': return createPracticePending(payload);
+    case 'removePracticeReview': return removePracticeReview(payload);
+    case 'createPracticeTidy': return createPracticeTidy(payload);
+    case 'removePracticeTidy': return removePracticeTidy();
+    case 'createPracticeDeleted': return createPracticeDeleted(payload);
+    case 'removePracticeDeleted': return removePracticeDeleted();
+    case 'removePracticeImport': return removePracticeImport(payload);
+    case 'createPracticeBankAccount': return createPracticeBankAccount(payload);
+    case 'removePracticeBank': return removePracticeBank(payload);
+    case 'removePracticeProgrammed': return removePracticeProgrammed(payload);
+    case 'removePracticeBudgets': return removePracticeBudgets();
+    case 'removePracticeInvestments': return removePracticeInvestments(payload);
+    case 'removePracticeAccounts': return removePracticeAccounts(payload);
+    case 'removePracticeTrips': return removePracticeTrips(payload);
+    case 'createPracticeTripExpenses': return createPracticeTripExpenses(payload);
+    case 'removePracticeExchange': return removePracticeExchange(payload);
+    case 'removePracticeData': return removePracticeData(payload);
+    case 'removePracticeLoans': return removePracticeLoans(payload);
     case 'discardEntry': refuseRepaymentPartDiscard_(payload.id); return discardEntryWithRepayments_(payload.id, payload.repayments);
+    case 'confirmEntries': return confirmEntries(payload);
+    case 'previewEntriesDelete': return withRowsMemo_(function () { return previewEntriesDelete(payload); });
+    case 'deleteEntries': return withRowsMemo_(function () { return deleteEntries(payload); });
+    case 'listDeletedEntries': return listDeletedEntries();
+    case 'restoreDeletedEntries': return restoreDeletedEntries(payload);
+    case 'forgetDeletedEntries': return forgetDeletedEntries(payload);
+    // Each tab read once for the whole action, like the delete above: looking the entries up one by one cost ~4 trips to Google per entry (speed, 2026-11-12).
+    case 'setEntriesCategory': return withRowsMemo_(function () { return setEntriesCategory(payload); });
+    case 'setEntriesTrip': return withRowsMemo_(function () { return setEntriesTrip(payload); });
+    case 'undoSetEntriesTrip': return withRowsMemo_(function () { return undoSetEntriesTrip(payload); });
+    case 'setEntriesTag': return withRowsMemo_(function () { return setEntriesTag(payload); });
+    case 'undoSetEntriesTag': return withRowsMemo_(function () { return undoSetEntriesTag(payload); });
+    case 'undoSetEntriesCategory': return withRowsMemo_(function () { return undoSetEntriesCategory(payload); });
+    case 'discardEntries': return discardEntries(payload);
     case 'getEntryRepaymentLinks': return getEntryRepaymentLinks(payload);
     case 'checkEntryTypeChange': return checkEntryTypeChange(payload);
     case 'releaseEntryRepaidLoans': return releaseEntryRepaidLoans(payload);
@@ -417,6 +604,10 @@ function routeAction(action, payload) {
     case 'undoCategoryFollow': return undoCategoryFollow(payload);
     case 'listTidyGroups': return listTidyGroups(payload);
     case 'applyTidyGroups': return applyTidyGroups(payload);
+    case 'listNoAccountEntries': return listNoAccountEntries(payload);
+    case 'listStartBalanceCandidates': return listStartBalanceCandidates(payload);
+    case 'assignEntryAccounts': return assignEntryAccounts(payload);
+    case 'undoEntryAccounts': return undoEntryAccounts(payload);
     case 'getEntry': return getEntryById_(payload.id);
     case 'recordCurrencyExchange': return recordCurrencyExchange(payload);
     case 'getEntrySplits': return getEntrySplits(payload.entryId);
@@ -428,11 +619,17 @@ function routeAction(action, payload) {
     case 'listPaymentMethodBalances': return listPaymentMethodBalances();
     case 'getPaymentMethodMovements': return getPaymentMethodMovements(payload);
     case 'setPaymentMethodOpeningBalance': return setPaymentMethodOpeningBalance(payload);
+    case 'setCardStatementDue': return setCardStatementDue(payload);
     case 'listLoanBalances': return listLoanBalances(payload);
     case 'getFriendLoanDetail': return getFriendLoanDetail(payload.friendId);
     case 'getFriendRepaymentHistory': return getFriendRepaymentHistory(payload);
     case 'reassignRepayment': return reassignRepayment(payload);
     case 'recordRepaymentEntry': return recordRepaymentEntry(payload);
+    case 'saveBankLoan': return saveBankLoan(payload);
+    case 'getLoanSchedule': return getLoanSchedule(payload);
+    case 'saveLoanSchedule': return saveLoanSchedule(payload);
+    case 'recordInstallment': return recordInstallment(payload);
+    case 'recordEarlyPayment': return recordEarlyPayment(payload);
     case 'undoCancelOut': return undoCancelOut(payload);
     case 'applyUnappliedPayment': return applyUnappliedPayment(payload);
     case 'listSettledLoanFriends': return listSettledLoanFriends(payload);
@@ -463,7 +660,14 @@ function routeAction(action, payload) {
 
 // ---- Generic sheet helpers ----
 
+// Whoever asks for the sheet itself may be about to change it: while the per-request read memory is on (withRowsMemo_), that
+// sheet's remembered rows are dropped, so a later getAllRows reads it again instead of handing back rows from before the change.
 function getSheet(name) {
+  if (ROWS_MEMO_) { delete ROWS_MEMO_[name]; delete ROWS_MEMO_['@h:' + name]; delete ROWS_MEMO_['@c:' + name]; }
+  return sheetRaw_(name);
+}
+
+function sheetRaw_(name) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
   if (!sheet) throw new Error('Sheet not found: ' + name);
   return sheet;
@@ -493,6 +697,8 @@ var DATE_FIELD_FORMATS = {
   last_seen: 'yyyy-MM-dd',
   month: 'yyyy-MM',
   period: 'yyyy-MM',
+  recurring_month: 'yyyy-MM',   // Entries: the month a linked payment pays (a Sheets Date back to text; 2026-11-18)
+  from_period: 'yyyy-MM-dd',   // Budget History: a start Sheets turned into a date (budgetFromKey_ cuts it to the budget's kind)
   // Full timestamp (not date-only) — lets same-day entries sort by the
   // exact moment they were captured, not just insertion order.
   created_at: "yyyy-MM-dd'T'HH:mm:ss"
@@ -528,13 +734,65 @@ function withRowsMemo_(fn) {
   }
 }
 
+// True when, in this request, the sheet's columns were already read (and the sheet has not been opened for a change since)
+// and every one of `cols` is among them; a "make sure the column exists" check can then stop without a call to Google.
+// Anything uncertain answers false and the check runs as it always did. Outside withRowsMemo_ always false.
+function memoHasColumns_(sheetName, cols) {
+  if (!ROWS_MEMO_) return false;
+  var headers = ROWS_MEMO_['@h:' + sheetName];
+  if (!headers && !ROWS_MEMO_[sheetName]) {
+    // Not read yet in this request: read it now (a looking call reads it right after anyway), so the check and the read
+    // that follows cost one trip to Google instead of two.
+    try { getAllRows(sheetName); } catch (e) { return false; }
+    headers = ROWS_MEMO_ && ROWS_MEMO_['@h:' + sheetName];
+  }
+  if (!headers) return false;
+  return cols.every(function (c) { return headers.indexOf(c) !== -1; });
+}
+
 function getAllRows(sheetName) {
   if (ROWS_MEMO_ && ROWS_MEMO_[sheetName]) {
     return ROWS_MEMO_[sheetName].map(function (r) { return Object.assign({}, r); });
   }
   var rows = readAllRows_(sheetName);
+  if (sheetName === 'Loans' || sheetName === 'Settlements') rows.forEach(cleanHandTypedMoneyRow_);
   if (ROWS_MEMO_) ROWS_MEMO_[sheetName] = rows.map(function (r) { return Object.assign({}, r); });
   return rows;
+}
+
+// A hand-typed amount: a clear text form becomes its number ("1,200.50", "1.200,50", "12,50"). NaN = it cannot be read for sure: "1,200"
+// could be a thousand or a decimal, and the app never guesses (same rule as the amount boxes).
+function parseHandTypedAmount_(v) {
+  if (typeof v === 'number') return v;
+  var s = String(v === null || v === undefined ? '' : v).trim();
+  if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+  if (/^\d{1,3}(,\d{3})+\.\d{1,2}$/.test(s)) return Number(s.replace(/,/g, ''));
+  if (/^\d{1,3}(\.\d{3})+,\d{1,2}$/.test(s)) return Number(s.replace(/\./g, '').replace(',', '.'));
+  if (/^\d+,\d{1,2}$/.test(s)) return Number(s.replace(',', '.'));
+  return NaN;
+}
+
+// Rows of Loans / Settlements as the rest of the code expects them, whatever was typed in the Sheet. An amount or currency that cannot
+// be read counts as 0 (a NaN would poison every total) and the row is marked; the Loans tab names it (Ingrid, 2026-11-09).
+function cleanHandTypedMoneyRow_(row) {
+  var blank = row.amount === '' || row.amount === null || row.amount === undefined;
+  if (blank && !row.friend_id && !row.loan_id) return;   // an empty row
+  var amount = parseHandTypedAmount_(row.amount);
+  var loanRow = row.direction !== undefined;
+  var currency = loanRow ? String(row.currency === null || row.currency === undefined ? '' : row.currency).trim().toUpperCase() : '';
+  var badCurrency = loanRow && !(currency && (currency === homeCurrency_() || isKnownCurrencyCode_(currency)));
+  // The direction, typed by hand, is read when it clearly names one of the two ("They owe me", "they_owe_me"); anything else is never
+  // guessed (it used to count as "You owe": Ingrid, 2026-11-09) and the row is named like an unreadable amount.
+  var direction = loanRow ? String(row.direction === null || row.direction === undefined ? '' : row.direction).trim().toLowerCase().replace(/[\s-]+/g, '_') : '';
+  var badDirection = loanRow && direction !== 'they_owe_me' && direction !== 'i_owe_them';
+  if (blank || isNaN(amount) || amount < 0 || badCurrency || badDirection) {
+    row.unreadable_amount = row.amount;
+    row.unreadable_currency = row.currency;
+    row.amount = 0;
+    return;
+  }
+  row.amount = amount;
+  if (loanRow) { row.currency = currency; row.direction = direction; }
 }
 
 // The time zone Sheets used when it turned a written date into a Date cell. Dates must be turned back into text in THIS
@@ -547,26 +805,66 @@ function sheetDateTz_() {
   return Session.getScriptTimeZone();
 }
 
+// The person's own time zone (owner, 2026-11-16): the Sheet's zone, which the phone keeps on the zone it is in
+// (applyPhoneTimeZone_, PersonDefaults.gs). Used for every "today" / "this month" and for the day an e-mail, notice or photo is
+// dated. Internal stamps (sign-ins, clean-up cutoffs, nowTimestamp_) stay on the script's zone, so they always compare alike.
+function personTz_() {
+  return (ROWS_MEMO_ && ROWS_MEMO_['@tz']) || sheetDateTz_();
+}
+
+// Speed (2026-11-02): ONE read of the whole sheet (headers + rows) instead of four calls to Google (last row, last column,
+// headers, rows); the Sheet's time zone asked once per request; and each date converted once (the same day repeats across
+// thousands of rows, and every Utilities.formatDate is a call into Google's side). See CHANGELOG.md § Speed pass.
 function readAllRows_(sheetName) {
-  var sheet = getSheet(sheetName);
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-  var headers = getHeaders(sheet);
-  var values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
-  var tz = sheetDateTz_();
-  return values.map(function (row) {
-    var obj = {};
-    headers.forEach(function (h, i) {
-      var v = row[i];
-      if (v instanceof Date && DATE_FIELD_FORMATS[h]) {
-        v = Utilities.formatDate(v, tz, DATE_FIELD_FORMATS[h]);
-      } else if (STRING_FIELDS[h] && v !== '' && v != null) {
-        v = String(v);
-      }
-      obj[h] = v;
-    });
-    return obj;
+  var sheet = sheetRaw_(sheetName);
+  var all = sheet.getDataRange().getValues();
+  var headers = all[0] || [];
+  if (ROWS_MEMO_) ROWS_MEMO_['@h:' + sheetName] = headers.slice();   // for memoHasColumns_
+  if (all.length < 2) return [];
+  var values = all.slice(1);
+  var tz = ROWS_MEMO_ ? (ROWS_MEMO_['@tz'] || (ROWS_MEMO_['@tz'] = sheetDateTz_())) : sheetDateTz_();
+  var dates = {};
+  return values.map(function (row, i) { return cleanSheetRow_(sheetName, rowToObject_(headers, row, tz, dates), headers, i + 2); });
+}
+
+// One sheet row as the object getAllRows gives (dates back to text, ids as text). `dates` remembers converted dates.
+function rowToObject_(headers, row, tz, dates) {
+  var obj = {};
+  headers.forEach(function (h, i) {
+    var v = row[i];
+    if (v instanceof Date && DATE_FIELD_FORMATS[h]) {
+      var key = DATE_FIELD_FORMATS[h] + '|' + v.getTime();
+      v = dates[key] || (dates[key] = Utilities.formatDate(v, tz, DATE_FIELD_FORMATS[h]));
+    } else if (STRING_FIELDS[h] && v !== '' && v != null) {
+      v = String(v);
+    }
+    obj[h] = v;
   });
+  return obj;
+}
+
+// The FIRST row whose id is `id` (exactly what getAllRows(sheetName).find(id) gives), without reading the whole sheet:
+// the id column, then that one row. Speed (2026-11-02): looking up one entry read all of Entries (thousands of rows x
+// ~30 columns) and a single save did it up to ten times. Inside withRowsMemo_ the remembered rows are used instead.
+function findRowById_(sheetName, id) {
+  if (ROWS_MEMO_) return getAllRows(sheetName).find(function (r) { return r.id === id; });
+  var sheet = sheetRaw_(sheetName);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return undefined;
+  var lastCol = sheet.getLastColumn();
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var idCol = headers.indexOf('id');
+  if (idCol === -1) return getAllRows(sheetName).find(function (r) { return r.id === id; });
+  var ids = sheet.getRange(2, idCol + 1, lastRow - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    var v = ids[i][0];
+    var asText = (v !== '' && v != null) ? String(v) : v;   // as getAllRows hands it back
+    if (asText === id) {
+      var row = sheet.getRange(i + 2, 1, 1, lastCol).getValues()[0];
+      return cleanSheetRow_(sheetName, rowToObject_(headers, row, sheetDateTz_(), {}), headers, i + 2);
+    }
+  }
+  return undefined;
 }
 
 function appendRowObject(sheetName, obj) {
@@ -577,9 +875,9 @@ function appendRowObject(sheetName, obj) {
   }
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
-  var row = headers.map(function (h) { return obj[h] !== undefined ? obj[h] : ''; });
+  var row = headers.map(function (h) { return obj[h] !== undefined ? safeCellValue_(sheetName, h, obj[h]) : ''; });
   sheet.appendRow(row);
-  if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
+  if (ROWS_MEMO_) { delete ROWS_MEMO_[sheetName]; delete ROWS_MEMO_['@c:' + sheetName]; }
   noteRowAppended_(sheetName, obj);
 }
 
@@ -597,14 +895,17 @@ function findRowIndexById(sheet, headers, id) {
 // ---- Meta (everything the form's dropdowns need, in one call) ----
 
 function getMeta() {
+  runHealsOnce_();   // one-time repairs of a copy installed before a fix existed (Heals.gs); friends' copies only
   ensureInvestmentPlatforms_();
+  ensureCashAccount_();   // every copy has one built-in Cash account (owner, 2026-11-02)
   ensureRailDefaults_();
   ensureAnnualTag_();
   ensureAllTripGroupFriends_();
+  var payorMergeAsk = payorMergeAskForApp_();   // the owner's copy: names to confirm before payors and friends become one list
   return {
     categories: localizeCategories_(getAllRowsCached_('Categories')),
     banks: getAllRowsCached_('Banks'),
-    paymentMethods: getAllRowsCached_('Payment Methods'),
+    paymentMethods: getAllRowsCached_('Payment Methods').map(function (pm) { return Object.assign({}, pm, { last_4: pmLast4_(pm.last_4) }); }),
     tags: localizeTags_(getAllRowsCached_('Tags')),
     trips: getTripRows_(),
     // Business pack (Business.gs): empty, and no sheet is read, while the person has not turned it on.
@@ -612,7 +913,8 @@ function getMeta() {
     projects: getProjectRows_(),
     expectedPayments: getExpectedRows_(),   // empty (and nothing read) while the pack is off
     friends: getFriendsWithLastUsed_(),
-    payors: getPayorRows_(),
+    payors: getPayorsWithLastIncome_(),
+    payorMergeAsk: payorMergeAsk,
     settings: settingsForApp_(),
     // What this copy of the backend can do beyond the spreadsheet (Features.gs). The
     // Export screen offers "Send to my email" only when an address was saved.
@@ -620,7 +922,15 @@ function getMeta() {
     // Banks for the welcome questions (two alphabetical groups) and the words account names are built from.
     bankCatalog: getBankCatalog_(),
     // Which Google account's inbox bank e-mails are read from, and the banks whose e-mails have a rule (EmailParser.gs): More → Bank emails.
-    emailInfo: getEmailInfo_()
+    emailInfo: getEmailInfo_(),
+    // "Is this you?" (OwnerNames.gs): the name the Home card asks about, '' when there is none.
+    ownNameAsk: ownerNameAsk_(),
+    // The day this copy started being used: "from before the app" dates start on the day before (Loans.gs).
+    firstUseDate: firstUseDate_(),
+    // Programmed items still PAUSED (Pause no longer exists: the app makes the person choose Reactivate / Stop / Delete for each, once).
+    pausedProgrammed: pausedProgrammedForApp_(),
+    // Existing items repeating every 3 months or more, to tag Annual once the person has seen the list (RecurringExpenses.gs; 2026-11-16).
+    annualItemsAsk: annualItemsAsk_()
   };
 }
 
@@ -636,8 +946,18 @@ function getFriendsWithLastUsed_() {
     var d = String(l.date || '');
     if (d && (!last[l.friend_id] || d > last[l.friend_id])) last[l.friend_id] = d;
   });
+  // A bank you borrowed from is a person of that name in the lists: marked so it can be told apart (🏦, 2026-11-09).
+  var bankLender = {};
+  if (SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Loan Installments')) {
+    var withSchedule = {};
+    getAllRows('Loan Installments').forEach(function (r) { withSchedule[r.loan_id] = true; });
+    getAllRows('Loans').forEach(function (l) { if (withSchedule[l.id]) bankLender[l.friend_id] = true; });
+  }
+  var lastIncome = lastIncomeByPerson_();
   return getAllRowsCached_('Friends').map(function (f) {
     f.last_used = last[f.id] || '';
+    f.bank_lender = !!bankLender[f.id];
+    f.last_income = lastIncome[f.id] || '';
     return f;
   });
 }
@@ -662,12 +982,25 @@ function getFriendsWithLastUsed_() {
 var REFERENCE_CACHE_TTL_SECONDS = 3600;
 
 function getAllRowsCached_(sheetName) {
-  var cache = CacheService.getScriptCache();
   // The key includes STRUCTURE_VERSION (bumped on every write to Categories /
   // Payment Methods / Friends / Payors / Tags / Exchange Rates — see
   // DataVersion.gs), so adding or editing one of those is visible at once
   // instead of only after the 1-hour TTL.
+  // Speed (2026-11-21): inside withRowsMemo_ the version and the rows are also remembered for the rest of the request (Needs review
+  // asked the property store and the cache ~200 times each, once per waiting entry, for the same Settings). getSheet / appendRowObject
+  // drop a sheet's copy, and a new STRUCTURE_VERSION (bumpVersion_) changes the key.
   var key = 'rows_' + sheetName + '_' + getVersion_('STRUCTURE_VERSION');
+  var memoKey = '@c:' + sheetName;
+  if (ROWS_MEMO_ && ROWS_MEMO_[memoKey] && ROWS_MEMO_[memoKey].key === key) {
+    return ROWS_MEMO_[memoKey].rows.map(function (r) { return Object.assign({}, r); });
+  }
+  var rows = getAllRowsCachedRead_(sheetName, key);
+  if (ROWS_MEMO_) ROWS_MEMO_[memoKey] = { key: key, rows: rows.map(function (r) { return Object.assign({}, r); }) };
+  return rows;
+}
+
+function getAllRowsCachedRead_(sheetName, key) {
+  var cache = CacheService.getScriptCache();
   var cached = cache.get(key);
   if (cached) return JSON.parse(cached);
   var rows = getAllRows(sheetName);
@@ -691,11 +1024,14 @@ function getAllRowsCached_(sheetName) {
 // Pure aggregation — no new business logic, so nothing here changes what
 // any of the four screens show.
 function getStartupBundle(payload) {
-  // getMeta first and uncached: it can self-heal (add header columns / seed
-  // platforms), so the cache only starts once the sheets are in final shape.
-  var meta = getMeta();
+  applyPhoneTimeZone_(payload && payload.tz);   // the person's own zone, before anything works out "today" (PersonDefaults.gs)
+  // Each sheet is read from Google once for the WHOLE request, getMeta included (2026-11-19): getMeta alone read Entries three
+  // times (last income per person, paused and Annual programmed items) and the list a fourth; on the owner's real Sheet the start
+  // took 34-53 s and the app gave up at 25 s, so it kept showing its saved copy. getMeta's self-heals are safe under the memory:
+  // whatever changes a sheet opens it with getSheet, which drops that sheet's remembered rows and headers.
   ROWS_MEMO_ = {};
   try {
+    var meta = getMeta();
     return {
       meta: meta,
       entries: listEntries({ limit: (payload && payload.entriesLimit) || 20 }),
@@ -708,10 +1044,20 @@ function getStartupBundle(payload) {
 }
 
 // What the phone gets of the Settings: all of them except the rule pack, which can be 40,000 characters and only the backend reads.
+// Overview "By category" view (owner, 2026-11-14): Everything / Annual as one line / Only annual. Kept in Settings, so reopening the
+// app (or another phone) shows the same view; it comes back in getMeta's settings.
+var OVERVIEW_CATEGORY_VIEWS_ = { all: true, oneLine: true, onlyAnnual: true };
+function setOverviewCategoryView(payload) {
+  var view = String((payload && payload.view) || '');
+  if (!OVERVIEW_CATEGORY_VIEWS_[view]) throw new Error(tr_('err.validView'));
+  setSetting_('overview_category_view', view);
+  return { view: view };
+}
+
 function settingsForApp_() {
   var map = getSettingsMap();
   delete map[RULE_PACK_SETTING_];
-  return map;
+  return addPersonDefaultsToSettings_(map);   // the defaults that depend on whose copy this is (PersonDefaults.gs)
 }
 
 function getSettingsMap() {
@@ -723,7 +1069,15 @@ function getSettingsMap() {
 // ---- Entries ----
 
 function createEntry(payload) {
-  var id = Utilities.getUuid();
+  // A save the phone sends from its background queue carries its own id (client_id), so sending it again — after a lost
+  // reply, or when the app was closed mid-save — never makes a second entry: the same id answers with the entry it made.
+  var clientId = String(payload.client_id || '');
+  var validClientId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId);
+  if (validClientId) {
+    var already = getEntryById_(clientId);
+    if (already) return already;
+  }
+  var id = validClientId ? clientId : Utilities.getUuid();
   var entry = {
     id: id,
     type: payload.type,
@@ -778,7 +1132,20 @@ function createEntry(payload) {
     guessedCategory = guessCategoryForNewEntry_(entry);
     if (guessedCategory) entry.category_id = guessedCategory;
   }
+  if (entry.type === 'expense' && entry.paid_by === 'me' && (payload.charge_pending || payload.paid_amount)) {
+    ensureEntriesChargeColumns_();
+    if (payload.charge_pending) entry.charge_pending = '1';
+    if (Number(payload.paid_amount) > 0 && payload.paid_currency) { entry.paid_amount = Number(payload.paid_amount); entry.paid_currency = String(payload.paid_currency).toUpperCase(); }
+  }
+  var incomeWaits = entry.type === 'income' && !!payload.income_waiting;
+  if (incomeWaits) {
+    checkWaitingIncome_(entry.paid_by, !!entry.company_id);
+    ensureIncomeWaitingColumns_();
+    entry.payment_method_id = '';   // no account until the money arrives
+    entry.income_waiting = '1';
+  }
   appendRowObject('Entries', entry);
+  if (incomeWaits) createWaitingIncomeLoan_(entry, payload.due_date);
   if (guessedCategory) entry.guessed_category_name = categoryNameForMessage_(guessedCategory);
 
   if (payload.tag_ids && payload.tag_ids.length) {
@@ -792,6 +1159,187 @@ function createEntry(payload) {
   if (!payload.tag_ids) autoTagTravelEntry_(entry);
 
   return entry;
+}
+
+function confirmEntryFromApp_(payload) {
+  confirmEntryWithLearning_(payload.id);
+  // Confirming gives the entry its category for good: the blank look-alikes (imports waiting in Tidy my history) follow, with Undo.
+  var followed = null;
+  try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }
+  return followed ? { done: true, follow: followed } : { done: true };
+}
+
+// Undo of a Needs review Confirm (owner, 2026-11-12): the entry goes back to waiting. Only a plain one (an expense or income
+// that came in automatically, with no split): a split made debts at confirm time, and "waiting" cannot hold a debt. What the
+// confirm taught the email rules is kept (the next e-mail from that shop still gets its category).
+function unconfirmEntry_(payload) {
+  var id = String((payload && payload.id) || '');
+  var entry = getEntryById_(id);
+  if (!entry) throw new Error(tr_('err.entryNotFound'));
+  if (entry.status !== 'confirmed') return { done: true, already: true };
+  if (entry.source === 'manual' || (entry.type !== 'expense' && entry.type !== 'income')) throw new Error(tr_('err.cannotUnconfirm'));
+  var hasSplits = getAllRows('Entry Splits').some(function (sp) { return sp.entry_id === id; });
+  if (hasSplits) throw new Error(tr_('err.cannotUnconfirm'));
+  setEntryField_(id, 'status', 'pending');
+  return { done: true };
+}
+
+// ---- Needs review: several entries at once (Home → Needs review → Edit, owner's request 2026-11-03) ----
+// Each is judged by the SAME rules as the row's own Confirm / Discard, in ONE call, never throwing for a single entry.
+// confirmEntries({ items: [{ id, trip_id? }] }): an entry is confirmed only if it is still pending and READY — it has a category (an investment: a platform) and
+// an amount; `trip_id` is the trip the card suggested (a trip is linked only by the owner's Confirm, as in the single path). Answers
+// { confirmed: [ids], kept: [{ id, reason: missing|notPending|needsCategory|needsPlatform|badAmount|refused, message? }] }. The "blank look-alikes follow" learning
+// (categoryFollowAfterEdit_) is NOT run here — it belongs to the single Confirm; Telegram's Confirm does not run it either.
+function confirmEntries(payload) {
+  var items = [], seen = {};
+  ((payload && payload.items) || []).forEach(function (it) {
+    var id = String((it && it.id) || '');
+    if (id && !seen[id]) { seen[id] = true; items.push({ id: id, trip_id: it.trip_id, link_recurring_id: it.link_recurring_id ? String(it.link_recurring_id) : '' }); }
+  });
+  var out = { confirmed: [], kept: [] };   // (+ linked / link_skipped, only when links were asked for)
+  items.forEach(function (it) {
+    var entry = getEntryById_(it.id);
+    if (!entry) { out.kept.push({ id: it.id, reason: 'missing' }); return; }
+    if (entry.status !== 'pending') { out.kept.push({ id: it.id, reason: 'notPending' }); return; }
+    if (entry.type !== 'investment' && !entry.category_id) { out.kept.push({ id: it.id, reason: 'needsCategory' }); return; }
+    if (entry.type === 'investment' && !entry.to_payment_method_id) { out.kept.push({ id: it.id, reason: 'needsPlatform' }); return; }
+    if (!(Math.abs(Number(entry.amount)) > 0)) { out.kept.push({ id: it.id, reason: 'badAmount' }); return; }
+    try {
+      if (it.trip_id !== undefined && entry.type === 'expense') updateEntryFromApp_({ id: it.id, fields: { trip_id: it.trip_id } });
+      confirmEntryWithLearning_(it.id);
+      out.confirmed.push(it.id);
+      // "N of them will be linked to their planned item" (owner's plan, 2026-11-18): checked again now, so a plan deleted or a month paid
+      // meanwhile (or a second item for the same month, earlier in this same list) is confirmed without a link, and said so. A failed
+      // link never undoes the confirm.
+      if (it.link_recurring_id) {
+        try {
+          var plan = planMatchFor_(getEntryById_(it.id));
+          if (plan && plan.recurring_id === it.link_recurring_id) { linkEntryToRecurring({ entryId: it.id, recurringExpenseId: plan.recurring_id, month: plan.month }); (out.linked = out.linked || []).push({ id: it.id, name: plan.description }); }
+          else (out.link_skipped = out.link_skipped || []).push({ id: it.id });
+        } catch (linkErr) { (out.link_skipped = out.link_skipped || []).push({ id: it.id, message: String(linkErr && linkErr.message || linkErr) }); }
+      }
+    } catch (err) {
+      out.kept.push({ id: it.id, reason: 'refused', message: String(err && err.message || err) });
+    }
+  });
+  try { var asks = programmedTagAsk_(out.confirmed); if (asks.length) out.tag_asks = asks; } catch (e) { /* only a question */ }
+  return out;
+}
+
+// unconfirmEntries({ items: [{ id, trip, link }] }): Undo of a "confirm many at once" (testers 2026-11-18: 70 entries in one tap could not be sent
+// back). Each entry goes back to Needs review; the trip (trip: true) and the Programmed item link (link: true) THAT confirm set are taken off
+// again. One already back is fine; one the single Undo would refuse (a manual entry, a split) stays and is listed.
+function unconfirmEntries(payload) {
+  var out = { undone: [], kept: [] }, seen = {};
+  ((payload && payload.items) || []).forEach(function (it) {
+    var id = String((it && it.id) || '');
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    try {
+      var entry = getEntryById_(id);
+      if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
+      if (entry.status === 'pending') { out.undone.push(id); return; }
+      // Like the single Undo, but a transfer or investment confirmed in the same go goes back too (a confirm made it nothing else); one
+      // tied to a loan or a repayment, a manual entry or a split one stays (the single Undo's own refusals).
+      if (entry.source === 'manual' || getAllRows('Entry Splits').some(function (sp) { return sp.entry_id === id; }) ||
+          getAllRows('Loans').some(function (l) { return l.entry_id === id; }) ||
+          getAllRows('Settlements').some(function (st) { return st.transfer_entry_id === id || st.gap_entry_id === id; })) throw new Error(tr_('err.cannotUnconfirm'));
+      setEntryField_(id, 'status', 'pending');
+      if (it.link && entry.recurring_expense_id) adminLinkEntryToRecurring(id, '', '');
+      if (it.trip && entry.trip_id) setEntryField_(id, 'trip_id', '');
+      out.undone.push(id);
+    } catch (err) {
+      out.kept.push({ id: id, reason: 'refused', message: String(err && err.message || err) });
+    }
+  });
+  return out;
+}
+
+// discardEntries({ ids }): the row's Discard for each waiting entry. Only entries still pending are discarded; a repayment's entries are never discarded on their
+// own (`repayment`, the person deletes the whole repayment from Loans); anything the single discard would refuse is kept with its message.
+// Answers { discarded: [ids], kept: [{ id, reason: missing|notPending|repayment|refused, message? }] }.
+function discardEntries(payload) {
+  var ids = uniqueIds_(payload && payload.ids);
+  var out = { discarded: [], kept: [] };
+  var candidates = [];
+  ids.forEach(function (id) {
+    var entry = getEntryById_(id);
+    if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
+    if (entry.status !== 'pending') { out.kept.push({ id: id, reason: 'notPending' }); return; }
+    if (repaymentPartInfo_(id)) { out.kept.push({ id: id, reason: 'repayment' }); return; }
+    // The single Discard asks what to do with repayments recorded against the entry (or its exchange partner); a bulk one cannot ask per entry, and
+    // silently dropping the choice turned a friend's 30 owed into 20 owed to them (QA round 1, 2026-11-03). Such entries are left for their own Discard.
+    var verdict = entryBulkVerdict_(entry);
+    if (verdict) { out.kept.push({ id: id, reason: verdict }); return; }
+    candidates.push(id);
+  });
+  // The same 30-day safety copy as the Home bulk delete, written FIRST (a waiting entry is real data: a bulk Discard of 200 had no way back).
+  // Restoring brings each entry back still waiting in Needs review. `batch_id` is only answered when something was discarded.
+  var batchId = candidates.length && typeof snapshotEntriesForUndo_ === 'function' ? snapshotEntriesForUndo_(candidates) : '';
+  candidates.forEach(function (id) {
+    try {
+      discardEntryWithRepayments_(id, undefined);
+      out.discarded.push(id);
+    } catch (err) {
+      out.kept.push({ id: id, reason: 'refused', message: String(err && err.message || err) });
+    }
+  });
+  if (out.discarded.length && batchId) { out.batch_id = batchId; out.undoable = out.discarded.slice(); }
+  return out;
+}
+
+// Speed (2026-11-02): one trip to Google for what used to be 2-4 in a row (each costs ~2.5 s on a phone before any work).
+// The same functions run in the same order as the separate calls did:
+//   create:  createEntry (fields carry client_id + tag_ids), then the Programmed-item link, the split and the bill;
+//   update:  updateEntry, then the split, the tags and the bill;
+//   confirm: updateEntry, confirmEntry, then the split and the tags (a waiting entry from Needs review).
+// A create sent again answers with the entry its client_id already made and lays the split / bill over it again (each
+// replaces what is there), so a resend after a lost reply is safe. A failed Programmed-item link does not fail the save
+// (the entry is kept; `link_failed` says so), as before.
+function saveEntryAll(payload) {
+  var kind = payload.kind;
+  var id, out;
+  // "Repeat…" in the entry form (owner, 2026-11-05): checked BEFORE anything is written, so a bad choice saves nothing.
+  if (payload.repeat) validateEntryRepeat_(payload.repeat);
+  if (kind === 'create') {
+    out = createEntry(payload.fields || {});
+    id = out.id;
+    if (payload.link_recurring_id) {
+      try { linkEntryToRecurring({ entryId: id, recurringExpenseId: payload.link_recurring_id, addTags: false }); }   // (the form carried its tags)
+      catch (linkErr) { out = Object.assign({}, out, { link_failed: true }); }
+    }
+  } else if (kind === 'update' || kind === 'confirm') {
+    id = payload.id;
+    out = updateEntryFromApp_({ id: id, fields: payload.fields === undefined ? null : payload.fields });
+    if (kind === 'confirm') out = confirmEntryFromApp_({ id: id });
+    // Needs review's "This is my Salary for August" line, left ticked: the confirm links it (owner's plan, 2026-11-17).
+    if (kind === 'confirm' && payload.link_recurring_id) {
+      try {
+        var cp = planMatchFor_(getEntryById_(id));   // the month it pays (its own, or next month's for an early payment), checked again
+        linkEntryToRecurring({ entryId: id, recurringExpenseId: payload.link_recurring_id, month: cp && cp.recurring_id === payload.link_recurring_id ? cp.month : '' });
+      }
+      catch (linkErr) { out = Object.assign({}, out, { link_failed: true }); }
+    }
+  } else {
+    throw new Error('Unknown kind: ' + kind);
+  }
+  if (payload.splits) saveEntrySplits(id, payload.splits);
+  if (kind !== 'create' && payload.tag_ids) saveEntryTags({ entryId: id, tagIds: payload.tag_ids });
+  if (payload.bill) saveEntryBill({ entryId: id, bill: payload.bill });
+  if (payload.repeat) out = Object.assign({}, out, { repeat: repeatEntryAsProgrammed_(id, payload.repeat) });
+  if (payload.trip_group_size) {   // never fails the save: it only sets where the next group split starts
+    try { setTripGroupSize_(payload.trip_group_size.trip_id, payload.trip_group_size.size); } catch (e) { /* ignored */ }
+  }
+  // A payment that matches a Programmed item with tags the entry lacks: the app asks whether to add them (owner, 2026-11-16). Never fails the save.
+  // Both questions only LOOK, after every write above: they share one read of each sheet (speed, 2026-11-21: each read Entries whole).
+  if (!payload.link_recurring_id) withRowsMemo_(function () {
+    try { var ask = programmedTagAsk_([id]); if (ask.length) out = Object.assign({}, out, { tag_ask: ask[0] }); } catch (e) { /* only a question */ }
+    // "Is this your Salary for August?" after a typed payment (the "+" form asks; Needs review asked on its card already).
+    if (kind === 'create') {
+      try { var plan = planMatchFor_(getEntryById_(id)); if (plan) out = Object.assign({}, out, { plan_ask: plan }); } catch (e) { /* only a question */ }
+    }
+  });
+  return out;
 }
 
 // entry id -> its tag ids, from one read of the Entry Tags tab.
@@ -866,17 +1414,31 @@ function listEntries(payload) {
   // Multi-category budget drill-down (see openBudgetDrilldown in app.js) —
   // an "ALL categories" budget passes neither this nor categoryId, so
   // every category matches, same as no filter at all.
+  // A budget's drill-down sends budgetId: a trip set to "Leave out of my budgets" or "Count only in…" (Trips.gs tripBudgetRoutes_)
+  // decides for its own expenses, whatever their category, so the list adds up to the budget's "spent".
+  var budgetTripRoutes = payload && payload.budgetId ? tripBudgetRoutes_() : null;
+  var routedHere = function (e) {
+    var t = budgetTripRoutes && e.trip_id ? budgetTripRoutes[e.trip_id] : null;
+    return t ? (t.route[String(payload.budgetId)] === true) : null;   // null = as usual
+  };
   if (payload && payload.categoryIds && payload.categoryIds.length) {
     var wantedCategoryIds = {};
     payload.categoryIds.forEach(function (id) { wantedCategoryIds[id] = true; });
-    entries = entries.filter(function (e) { return wantedCategoryIds[e.category_id]; });
+    entries = entries.filter(function (e) { var r = routedHere(e); return r === null ? !!wantedCategoryIds[e.category_id] : r; });
+  } else if (budgetTripRoutes) {
+    entries = entries.filter(function (e) { return routedHere(e) !== false; });
   }
+  // An "Annual expenses" budget's drill-down: every annual expense (AnnualTag.gs § What counts as ANNUAL) it counts.
+  if (payload && payload.annualKind) {
+    var markedAnnual = annualMarkedIdSet_();
+    entries = entries.filter(function (e) { return routedHere(e) === true || (routedHere(e) === null && !!markedAnnual[e.id]); });
+  }
+  // Overview "By account or card" slices (only Overview sends these): an account, a special slice ("Not repaid yet", …) or
+  // "No account" — the same split the pie uses (AccountSlices.gs), each entry with its part in that slice.
   if (payload && payload.paymentMethodId) {
-    entries = entries.filter(function (e) { return e.payment_method_id === payload.paymentMethodId; });
-  }
-  // Overview "No account" slice: same test the report uses (not paid with one of the owner's accounts).
-  if (payload && payload.noAccount) {
-    entries = entries.filter(function (e) { return !(e.paid_by === 'me' && e.payment_method_id); });
+    entries = filterEntriesBySlice_(entries, String(payload.paymentMethodId));
+  } else if (payload && payload.noAccount) {
+    entries = filterEntriesBySlice_(entries, '');
   }
   // Overview Investments card: deposits into / withdrawals from one platform.
   if (payload && payload.toPaymentMethodId !== undefined && payload.toPaymentMethodId !== null) {
@@ -886,8 +1448,19 @@ function listEntries(payload) {
   // adds up to the budget's own "spent" figure (Annual-tagged ones don't count
   // against a monthly budget — see excludeAnnual in Budgets.gs).
   if (payload && payload.excludeAnnual) {
-    var annualIds = annualEntryIdSet_();
+    var annualIds = annualMarkedIdSet_();
     entries = entries.filter(function (e) { return !annualIds[e.id]; });
+  }
+  // The other way round: only the Annual-tagged ones (a monthly budget's "… tagged Annual, not counted ›", 2026-11-07).
+  if (payload && payload.onlyAnnual) {
+    var annualOnly = annualMarkedIdSet_();
+    entries = entries.filter(function (e) { return !!annualOnly[e.id]; });
+  }
+  // Exactly these entries (Overview's summary list sends one page of ids, Reports.gs listPeriodFlows).
+  if (payload && payload.entryIds && payload.entryIds.length) {
+    var wantedIds = {};
+    payload.entryIds.forEach(function (id) { wantedIds[id] = true; });
+    entries = entries.filter(function (e) { return wantedIds[e.id]; });
   }
   if (payload && payload.tripId) {
     entries = entries.filter(function (e) { return e.trip_id === payload.tripId; });
@@ -930,7 +1503,7 @@ function listEntries(payload) {
   // slice — never cap it, even without a date range (e.g. "All-time").
   var hasFilter = payload && (payload.startDate || payload.endDate ||
     payload.categoryId !== undefined || (payload.categoryIds && payload.categoryIds.length) ||
-    payload.tagId || payload.noTag || payload.noAccount || payload.toPaymentMethodId !== undefined || payload.tripId || payload.projectId || payload.companyId || (payload.scope && payload.scope !== 'all') || payload.paymentMethodId || payload.importBatchId);
+    payload.tagId || payload.noTag || payload.noAccount || (payload.entryIds && payload.entryIds.length) || payload.toPaymentMethodId !== undefined || payload.tripId || payload.projectId || payload.companyId || (payload.scope && payload.scope !== 'all') || payload.paymentMethodId || payload.importBatchId);
   var limit = (payload && payload.limit) || (hasFilter ? null : DEFAULT_ENTRY_LIMIT);
   // `offset` (Entries tab's "Load more"): skip that many of the newest rows
   // first, so the next page can be fetched without re-sending earlier ones.
@@ -952,6 +1525,13 @@ function listEntries(payload) {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
     (splitsByEntry[s.entry_id] = splitsByEntry[s.entry_id] || []).push({ friend_id: s.friend_id, amount: Number(s.amount) });
   });
+  // The due date the split's debts carry (one for the whole entry, '' = none), so the edit form can show it at once.
+  var splitDueByEntry = {};
+  if (Object.keys(splitsByEntry).length) {
+    getAllRows('Loans').forEach(function (l) {
+      if (l.origin === 'entry' && l.due_date && splitsByEntry[l.entry_id] && !splitDueByEntry[l.entry_id]) splitDueByEntry[l.entry_id] = String(l.due_date);
+    });
+  }
 
   // Transfers that are a repayment / cash loan with a friend carry `link`
   // (see buildTransferLinkMap_) so the app can name the friend instead of
@@ -967,10 +1547,13 @@ function listEntries(payload) {
     // Already read above — lets the edit form show a split instantly instead of
     // waiting on a separate getEntrySplits call.
     entry.splits = splitsByEntry[entry.id] || [];
+    entry.split_due_date = splitDueByEntry[entry.id] || '';
     // Same idea for the labels: the row shows them after "who paid", and the
     // edit form reuses them instead of a separate getEntryTags call.
     entry.tagIds = tagIdsByEntry[entry.id] || [];
     entry.own_share_pen = computeAmountPen(ownShare, entry.currency, entry.date);
+    var usdShare = usdLineAmount_(buildRatesByCurrency_(), ownShare, entry.currency, entry.date);
+    if (usdShare != null) entry.own_share_usd = usdShare;   // third currency: the share in dollars, under the main amount (RatesUsd.gs)
   });
   return entries;
 }
@@ -992,13 +1575,21 @@ function buildSearchLookups_() {
     (tagNamesByEntry[et.entry_id] = tagNamesByEntry[et.entry_id] || []).push(tag.name);
     (tagSearchNamesByEntry[et.entry_id] = tagSearchNamesByEntry[et.entry_id] || []).push(tagSearchNames_(tag));
   });
+  // Who an expense was shared with ("With Pablo, Rosa"): searching a friend's name finds it (Lucho, 2026-11-18).
+  var friendsAll = rowsById_(getAllRows('Friends'));
+  var splitNamesByEntry = {};
+  getAllRows('Entry Splits').forEach(function (sp) {
+    var f = friendsAll[sp.friend_id];
+    if (f && f.name) (splitNamesByEntry[sp.entry_id] = splitNamesByEntry[sp.entry_id] || []).push(f.name);
+  });
   return {
+    splitNamesByEntry: splitNamesByEntry,
     tripsById: rowsById_(getTripRows_()),
     companiesById: rowsById_(getCompanyRows_()),     // empty (and nothing read) while the Business pack is off
     projectsById: rowsById_(getProjectRows_()),
     categoriesById: rowsById_(getAllRows('Categories')),
     methodsById: rowsById_(getAllRows('Payment Methods')),
-    friendsById: rowsById_(getAllRows('Friends')),
+    friendsById: friendsAll,
     payorsById: rowsById_(getPayorRows_()),
     tagNamesByEntry: tagNamesByEntry,
     tagSearchNamesByEntry: tagSearchNamesByEntry,
@@ -1026,6 +1617,7 @@ function entrySearchText_(e, lk) {
     lk.methodsById[e.to_payment_method_id] && lk.methodsById[e.to_payment_method_id].nickname,
     e.paid_by === 'me' ? 'me' : (payer && payer.name),
     (lk.tagSearchNamesByEntry[e.id] || []).join(' '),
+    lk.splitNamesByEntry && (lk.splitNamesByEntry[e.id] || []).join(' '),
     e.trip_id && lk.tripsById && lk.tripsById[e.trip_id] && lk.tripsById[e.trip_id].name,
     e.company_id && lk.companiesById && lk.companiesById[e.company_id] && lk.companiesById[e.company_id].name,
     e.project_id && lk.projectsById && lk.projectsById[e.project_id] && lk.projectsById[e.project_id].name,
@@ -1091,9 +1683,13 @@ function buildSearchIndexRows_(entries) {
       tagIds: tagIdsByEntry[e.id] || [],
       trip_id: e.trip_id || '',
       exchange: e.exchange ? '1' : '',
+      exchange_pair: e.exchange_pair || '',
       _s: entrySearchText_(e, lk)
     };
+    var usdShare = usdLineAmount_(ratesByCurrency, ownShare, e.currency, e.date);
+    if (usdShare != null) row.own_share_usd = usdShare;   // third currency: the share in dollars (RatesUsd.gs)
     // Only while the Business pack is on, so a personal-only copy's search data is exactly what it was.
+    if (e.income_waiting) row.income_waiting = e.income_waiting;
     if (business) { row.company_id = e.company_id || ''; row.project_id = e.project_id || ''; row.expected_payment_id = e.expected_payment_id || ''; row.igv_amount = e.igv_amount || ''; }
     return row;
   });
@@ -1110,13 +1706,26 @@ function entryTwinWho_(e) {
   return e.merchant ? String(e.merchant) : searchNormalize_(e.description);
 }
 
+// What findSameDayTwins_ compares first (same currency, same amount to the cent): entries with another key can never be twins.
+function twinGroupKey_(e) {
+  return e.currency + '|' + Math.abs(Number(e.amount)).toFixed(2);
+}
+
 function findSameDayTwins_(entry, allEntries) {
   var who = entryTwinWho_(entry);
-  if (!who) return [];
   var amount = Math.abs(Number(entry.amount)).toFixed(2);
+  // Wider for an entry read from a bank e-mail (2026-11-05, the double-count map): the same money already recorded by HAND, from a
+  // photo or from a statement/import usually carries another name and often another day (a subscription typed in, a statement
+  // line). So: same currency and amount within 1 day either side (owner, 2026-11-05: 2 days was too wide), whatever the name,
+  // when the other entry did not come from an e-mail.
+  // E-mail vs e-mail keeps the same-day, same-name rule (bank operation numbers already stop real repeats there). Warn only.
+  var fromEmail = entry.source === 'email';
+  if (!who && !fromEmail) return [];
   return allEntries.filter(function (o) {
-    return o.id !== entry.id && o.date === entry.date && o.currency === entry.currency &&
-      Math.abs(Number(o.amount)).toFixed(2) === amount && entryTwinWho_(o) === who;
+    if (o.id === entry.id || o.currency !== entry.currency || Math.abs(Number(o.amount)).toFixed(2) !== amount) return false;
+    if (who && o.date === entry.date && entryTwinWho_(o) === who) return true;
+    return fromEmail && o.source !== 'email' && (o.status === 'confirmed' || o.status === 'pending') &&
+      Math.abs(daysBetweenDates_(String(o.date).substring(0, 10), String(entry.date).substring(0, 10))) <= 1;
   }).map(function (o) {
     return { id: o.id, status: o.status, description: o.description || '' };
   });
@@ -1129,12 +1738,37 @@ function listPendingEntries() {
   // A waiting entry can be a repayment's extra (income / expense with no category yet): it carries `link` like a confirmed one
   // so the Needs review row can send Discard to the repayment's screen instead of deleting it on its own.
   var transferLinks = entries.length ? buildTransferLinkMap_() : {};
+  var waitingIncome = entries.some(function (e) { return e.type === 'income'; }) ? listWaitingIncome_() : [];
+  var payeeHist = entries.length ? buildPayeeHistory_() : null;   // PayeeGuess.gs
+  // Its tags (the card's "Tags" button and Edit mode's "Tag" can add them before it is confirmed; the full form opens with them).
+  var tagsByEntry = entries.length ? tagIdsByEntry_() : {};
+  // Speed (2026-11-21): each waiting entry scanned ALL entries twice (twins, card charges): ~200 waiting × 7,000. The entries are
+  // grouped once (same order inside each group), so each scan only looks at the entries it could ever pick; same answers.
+  var twinGroups = {}, chargePending = [];
+  if (entries.length) all.forEach(function (o) {
+    var k = twinGroupKey_(o);
+    (twinGroups[k] || (twinGroups[k] = [])).push(o);
+    if (isChargePending_(o)) chargePending.push(o);
+  });
+  var planLists = null;   // Programmed items and their splits, read once for every waiting entry (planMatchFor_)
   entries.forEach(function (entry) {
     if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];
+    entry.tagIds = tagsByEntry[entry.id] || [];
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
-    entry.twins = findSameDayTwins_(entry, all);
+    entry.twins = findSameDayTwins_(entry, twinGroups[twinGroupKey_(entry)] || []);
+    if (ownerNameMaybeOwn_(entry)) entry.maybe_own = true;   // "Maybe yours?" while no own name is confirmed (OwnerNames.gs)
     // A suggestion only (the review card pre-selects it; it is linked when the owner confirms).
-    if (entry.type === 'expense' && !entry.trip_id) entry.suggested_trip_id = suggestedTripIdForDate_(entry.date, trips);
+    if (entry.type === 'expense' && !entry.trip_id && !isPracticeReview_(entry)) entry.suggested_trip_id = suggestedTripIdForDate_(entry.date, trips);
+    // "Looks like a loan to Ana again" (a place the person turned into a loan / repayment before): a suggestion only.
+    var loanHint = entry.source === 'email' ? payeeLoanHint_(entry, payeeHist) : null;
+    if (loanHint) entry.loan_hint = loanHint;
+    var chargeMatch = chargeMatchForReview_(entry, chargePending);   // "Is this the charge of …?" (Charges.gs; only charge-pending entries can match)
+    if (chargeMatch) entry.charge_match = chargeMatch;
+    var waitingMatch = waitingMatchForPending_(entry, waitingIncome);   // "Is this the payment you were waiting for?" (IncomeWaiting.gs)
+    if (waitingMatch) entry.waiting_match = waitingMatch;
+    // "This is my Salary for August": the Programmed item this waiting payment most likely pays (RecurringExpenses.gs planMatchFor_).
+    var planMatch = isPracticeReview_(entry) ? null : planMatchFor_(entry, all, planLists || (planLists = planMatchLists_()));
+    if (planMatch) entry.plan_match = planMatch;
   });
   entries.sort(compareEntriesRecency_);
   return entries;
@@ -1142,7 +1776,20 @@ function listPendingEntries() {
 
 function updateEntryFields(entryId, fields) {
   fields = businessFieldsForUpdate_(entryId, fields);   // Business pack link cleaned (Business.gs); untouched when it is not involved
+  // A payment linked for another month (an early salary for August) whose date is moved 2 or more months away from that month: the month
+  // is dropped quietly and it counts for its own month again (owner, 2026-11-18).
+  if (fields && fields.date) {
+    var linkedNow = getEntryById_(entryId);
+    var pm = linkedNow && String(linkedNow.recurring_month || '');
+    if (/^\d{4}-\d{2}$/.test(pm)) {
+      var nd = String(fields.date).substring(0, 7);
+      var diff = (Number(nd.substring(0, 4)) * 12 + Number(nd.substring(5, 7))) - (Number(pm.substring(0, 4)) * 12 + Number(pm.substring(5, 7)));
+      if (Math.abs(diff) >= 2 || diff === 0) fields = Object.assign({}, fields, { recurring_month: '' });   // (its own month again: nothing to keep)
+    }
+  }
   if (fields && fields.to_payment_method_id !== undefined) ensureEntriesToPaymentMethodColumn_();
+  if (fields && fields.exchange !== undefined) ensureEntriesExchangeColumn_();   // "Not an exchange" clears it (a statement-made side may predate the column)
+  if (fields && (fields.paid_amount !== undefined || fields.charge_pending !== undefined)) ensureEntriesChargeColumns_();
   if (fields && fields.trip_id !== undefined) {
     fields = Object.assign({}, fields, { trip_id: validTripIdOrBlank_(fields.trip_id) });
     if (fields.trip_id) ensureEntriesTripColumn_();
@@ -1222,18 +1869,23 @@ function computeAmountPen(amount, currency, dateStr) {
 function listExchangeRates() {
   var by = buildRatesByCurrency_();
   var main = homeCurrency_(), base = rateBase_();
+  var usd = ratesThroughUsd_();   // each row also says "1 USD = per_usd <currency>" (RatesUsd.gs)
   var out = [];
   getAllRows('Exchange Rates').forEach(function (r) {
     var cur = String(r.currency).toUpperCase();
-    var rate = Number(r.rate);
+    var rate = rowRateToBase_(r.rate);
     if (cur === base) return;   // the base has no rate of its own (it is 1)
+    var row;
     if (cur === main) {
       // The main currency's own row, shown from the other side: 1 BASE = 1/rate MAIN.
-      out.push({ id: r.id, currency: base, month: r.month, rate: 1 / rate });
+      row = { id: r.id, currency: base, month: r.month, rate: 1 / rate };
     } else {
       var m = mainBaseRateAt_(by, r.month);
-      if (m != null) out.push({ id: r.id, currency: cur, month: r.month, rate: rate / m });
+      if (m != null) row = { id: r.id, currency: cur, month: r.month, rate: rate / m };
     }
+    if (!row) return;
+    if (usd) row.per_usd = Number(r.rate);
+    out.push(row);
   });
   return out.sort(function (a, b) {
     if (a.month !== b.month) return a.month < b.month ? 1 : -1;
@@ -1257,12 +1909,12 @@ function getExchangeRate(currency, month) {
   if (currency === main) return null;
   if (currency === base) {
     var mainRow = getRateRow_(main, month);
-    return mainRow ? { id: mainRow.id, month: month, currency: base, rate: 1 / Number(mainRow.rate) } : null;
+    return mainRow ? { id: mainRow.id, month: month, currency: base, rate: 1 / rowRateToBase_(mainRow.rate) } : null;
   }
   var row = getRateRow_(currency, month);
   if (!row) return null;
   var m = mainBaseRateAt_(buildRatesByCurrency_(), month);
-  return m == null ? null : { id: row.id, month: month, currency: currency, rate: Number(row.rate) / m };
+  return m == null ? null : { id: row.id, month: month, currency: currency, rate: rowRateToBase_(row.rate) / m };
 }
 
 // Every rate on file, grouped by currency and sorted ascending by month —
@@ -1282,7 +1934,7 @@ function buildRatesByCurrency_() {
   var map = {};
   getAllRows('Exchange Rates').forEach(function (r) {
     if (!map[r.currency]) map[r.currency] = [];
-    map[r.currency].push({ month: r.month, rate: Number(r.rate) });
+    map[r.currency].push({ month: r.month, rate: rowRateToBase_(r.rate) });   // "1 USD = r X" rows turned around (RatesUsd.gs)
   });
   Object.keys(map).forEach(function (c) {
     map[c].sort(function (a, b) { return a.month < b.month ? -1 : 1; });
@@ -1341,6 +1993,24 @@ function setExchangeRate(currency, month, rate) {
   return { id: (getRateRow_(storeCurrency, month) || {}).id, month: month, currency: currency, rate: rate };
 }
 
+// Once rates go through the dollar (RatesUsd.gs): `perUsd` is what the person typed, 1 USD = perUsd <currency> (for USD
+// itself, 1 USD = perUsd <MAIN>). Answers like setExchangeRate (rate = 1 <currency> = rate <MAIN>), plus per_usd.
+function setUsdRate(currency, month, perUsd) {
+  currency = String(currency || '').trim().toUpperCase();
+  month = String(month || '').trim();
+  if (!ratesThroughUsd_()) throw new Error(tr_('rates.usdNotYet'));
+  if (!/^[A-Z]{3}$/.test(currency)) throw new Error(tr_('err.currencyCode'));
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error(tr_('err.monthFormat'));
+  perUsd = Number(perUsd);
+  if (!isFinite(perUsd) || perUsd <= 0) throw new Error(tr_('err.rateGreater'));
+  var main = homeCurrency_();
+  if (currency === main) throw new Error(tr_('err.rateMain'));
+  var code = currency === 'USD' ? main : currency;   // the row that holds it: 1 USD = perUsd <code>
+  upsertBaseRate_(code, month, 1 / perUsd);
+  var rate = getLatestRateOnOrBefore_(currency, month);
+  return { id: (getRateRow_(code, month) || {}).id, month: month, currency: currency, rate: rate, per_usd: perUsd };
+}
+
 // Writes one row of the Exchange Rates table (rate in BASE terms), replacing the month's row if there is one.
 function upsertBaseRate_(currency, month, baseRate) {
   var existing = getRateRow_(currency, month);
@@ -1348,10 +2018,10 @@ function upsertBaseRate_(currency, month, baseRate) {
     var sheet = getSheet('Exchange Rates');
     var headers = getHeaders(sheet);
     var rowIndex = findRowIndexById(sheet, headers, existing.id);
-    sheet.getRange(rowIndex, headers.indexOf('rate') + 1).setValue(baseRate);
+    sheet.getRange(rowIndex, headers.indexOf('rate') + 1).setValue(baseRateToRow_(baseRate));
     bumpStructureVersion_();
   } else {
-    appendRowObject('Exchange Rates', { id: Utilities.getUuid(), month: month, currency: currency, rate: baseRate });
+    appendRowObject('Exchange Rates', { id: Utilities.getUuid(), month: month, currency: currency, rate: baseRateToRow_(baseRate) });
   }
   RATES_MEMO_ = null;
 }
@@ -1363,15 +2033,29 @@ function addFriend(payload) {
   // that person's loans across two friends and break their FIFO balance.
   var name = String(payload.name || '').trim();
   if (!name) throw new Error(tr_('err.enterName'));
+  // More → Friends → Add can carry a WhatsApp number (Business.gs § setFriendPhone); checked before anything is written.
+  var phone = payload.phone ? normalizeFriendPhone_(payload.phone) : '';
   var existing = getAllRows('Friends').find(function (f) {
     return String(f.name).trim().toLowerCase() === name.toLowerCase();
   });
-  if (existing) return existing;
+  if (existing) {
+    // A HIDDEN friend with this name comes back (with their history) instead of a second person being created.
+    if (String(existing.hidden) === 'yes') { setFriendHidden_(existing.id, false); existing.hidden = ''; existing.unhidden = true; }
+    // A number is only filled in where there is none: typing a name that already exists must not silently replace that friend's number (QA round 2).
+    // `existed` tells the app it was NOT a new person; `phoneKept` that the number it sent was not used.
+    existing.existed = true;
+    if (phone) {
+      if (!String(existing.phone || '').replace(/\D/g, '')) { writeFriendPhone_(existing.id, phone); existing.phone = phone; }
+      else if (String(existing.phone).replace(/\D/g, '') !== phone.replace(/\D/g, '')) existing.phoneKept = true;
+    }
+    return existing;
+  }
   var friend = { id: Utilities.getUuid(), name: name, notes: payload.notes || '' };
   // Business pack: a client / supplier / partner. Ignored while the pack is off, so a personal copy never gets the column.
   var role = businessRoleFromPayload_(payload.role);
   if (role !== 'friend') { ensureBusinessSheets_(); friend.role = role; }
   appendRowObject('Friends', friend);
+  if (phone) { writeFriendPhone_(friend.id, phone); friend.phone = phone; }
   return friend;
 }
 
@@ -1381,6 +2065,10 @@ function addTag(payload) {
     ensureAnnualTag_();
     return localizeTags_(getAllRows('Tags').filter(function (t) { return t.id === ANNUAL_TAG_ID; }))[0];
   }
+  // A tag of the same name (any case, accents) is reused, never a second one (More → Categories & tags adds tags too).
+  var wanted = searchNormalize_(String(payload.name || '').trim());
+  var same = getAllRows('Tags').find(function (t) { return searchNormalize_(String(t.name).trim()) === wanted; });
+  if (same) return same;
   var tag = { id: Utilities.getUuid(), name: payload.name, color: payload.color || '' };
   appendRowObject('Tags', tag);
   return tag;
@@ -1411,6 +2099,40 @@ function addPaymentMethod(payload) {
 // ---- Accounts & cards screen (More tab): add + edit in one action ----
 
 var PAYMENT_METHOD_TYPES_ = ['credit', 'debit', 'cash', 'transfer', 'wallet', 'investment'];
+// 'transfer' is no longer offered for a NEW account (owner, 2026-11-02: a bank transfer always leaves a real account, and the
+// word already means a move between your own accounts); an account that has it keeps it.
+
+// ---- The built-in Cash account (owner, 2026-11-02) ----
+// Every copy has one account for cash, in any currency (soles and dollars together: balances are kept per currency). It is made
+// on the first open (or the first existing cash account is adopted, so nobody gets a second one), remembered in Settings
+// `cash_account_id`, and can be renamed but never deleted, hidden or turned into another type.
+function cashAccountId_() {
+  return String(getSettingsMap().cash_account_id || '');
+}
+function isBasicCashAccount_(id) {
+  var cid = cashAccountId_();
+  return !!cid && String(id || '') === cid;
+}
+function ensureCashAccount_() {
+  var pms = getAllRows('Payment Methods');
+  var cid = cashAccountId_();
+  if (cid && pms.some(function (p) { return String(p.id) === cid; })) return;
+  var existing = pms.find(function (p) { return p.type === 'cash' && String(p.hidden || '') !== 'yes'; }) ||
+    pms.find(function (p) { return p.type === 'cash'; });
+  if (existing) {
+    if (String(existing.hidden || '') === 'yes') setPaymentMethodHidden({ id: existing.id, hidden: false });
+    setSetting_('cash_account_id', String(existing.id));
+    return;
+  }
+  var taken = {};
+  pms.forEach(function (p) { taken[String(p.nickname).trim().toLowerCase()] = true; });
+  var name = tr_('pm.cashName'), n = 2;
+  while (taken[name.toLowerCase()]) name = tr_('pm.cashName') + ' ' + (n++);
+  var pm = { id: Utilities.getUuid(), nickname: name, type: 'cash', bank_id: '', last_4: '' };
+  appendRowObject('Payment Methods', pm);
+  setSetting_('cash_account_id', pm.id);
+  bumpStructureVersion_();
+}
 
 // last_4 is digits that may start with 0 ("0123"): Sheets turns a typed "0123"
 // into the number 123 unless the cell is text first (CLAUDE.md: text-date trap).
@@ -1438,6 +2160,8 @@ function savePaymentMethod(payload) {
     throw new Error(tr_('err.pmBank'));
   }
   var id = payload.id ? String(payload.id) : '';
+  if (!id && type === 'transfer') throw new Error(tr_('err.pmType'));
+  if (id && type !== 'cash' && isBasicCashAccount_(id)) throw new Error(tr_('err.pmCashType'));
   var taken = getAllRows('Payment Methods').some(function (pm) {
     return String(pm.id) !== id && String(pm.nickname).trim().toLowerCase() === nickname.toLowerCase();
   });
@@ -1450,8 +2174,23 @@ function savePaymentMethod(payload) {
 
   var sheet = getSheet('Payment Methods');
   var headers = getHeaders(sheet);
+  // A list of currencies (2026-11-06). One names the account's kind as `currency` always did; several or none leave a savings account's kind as it
+  // is, and make a card plain 'credit'.
+  var hasList = Array.isArray(payload.currencies) && (type === 'debit' || type === 'credit');
+  var listValue = hasList ? accountCurrenciesValue_(payload.currencies) : '';
+  if (hasList) {
+    payload = Object.assign({}, payload);
+    delete payload.currency;
+    if (/^[A-Z]{3}$/.test(listValue)) payload.currency = listValue;
+    else if (type === 'credit') payload.currency = '';
+    ensurePaymentMethodCurrenciesColumn_();
+    headers = getHeaders(sheet);
+  }
   if (!id) {
     var pm = { id: Utilities.getUuid(), nickname: nickname, type: type, bank_id: bankId, last_4: '' };
+    var newKind = accountCurrencyKind_(payload, type, null);
+    if (newKind) { ensurePaymentMethodAliasColumns_(); headers = getHeaders(sheet); pm.alias_kind = newKind; pm.alias_auto = 'no'; }
+    if (hasList) pm.currencies = listValue;
     appendRowObject('Payment Methods', pm);
     if (last4) {
       setPaymentMethodLast4_(sheet, headers, findRowIndexById(sheet, headers, pm.id), last4);
@@ -1475,11 +2214,38 @@ function savePaymentMethod(payload) {
       nickname = uniqueAccountName_(autoAccountAlias_(bankShortName_(bank ? bank.name : ''), String(before.alias_kind), last4, !!last4, currentLang_()), last4, taken);
     }
   }
+  // The account's currency (More → Accounts, 2026-11-04): a savings / salary account names one; a card is soles and dollars ('') or one
+  // currency only. Stored in alias_kind, which the welcome already uses; an automatic name follows the new currency.
+  var kind = accountCurrencyKind_(payload, type, before);
+  if (kind && kind !== String(before.alias_kind || '')) {
+    ensurePaymentMethodAliasColumns_();
+    headers = getHeaders(sheet);
+    if (String(before.alias_auto) === 'yes' && String(before.nickname) === nickname && String(before.bank_id || '') === bankId) {
+      var bankK = getAllRows('Banks').find(function (b) { return String(b.id) === bankId; });
+      var takenK = {};
+      getAllRows('Payment Methods').forEach(function (p) { if (String(p.id) !== id) takenK[String(p.nickname).trim().toLowerCase()] = true; });
+      nickname = uniqueAccountName_(autoAccountAlias_(bankShortName_(bankK ? bankK.name : ''), kind, last4, String(before.alias_show_last4) === 'yes', currentLang_()), last4, takenK);
+    }
+    setCellByRow_(sheet, headers, rowIndex, 'alias_kind', kind);
+  }
+  // An older phone that sends one `currency` replaces the list too.
+  var currencies = hasList ? listValue : (kind ? '' : String(before.currencies || ''));
+  if (headers.indexOf('currencies') !== -1 && currencies !== String(before.currencies || '')) setCellByRow_(sheet, headers, rowIndex, 'currencies', currencies);
   setCellByRow_(sheet, headers, rowIndex, 'nickname', nickname);
   setCellByRow_(sheet, headers, rowIndex, 'type', type);
   setCellByRow_(sheet, headers, rowIndex, 'bank_id', bankId);
   setPaymentMethodLast4_(sheet, headers, rowIndex, last4);
-  return { id: id, nickname: nickname, type: type, bank_id: bankId, last_4: last4 };
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
+  return { id: id, nickname: nickname, type: type, bank_id: bankId, last_4: last4, alias_kind: kind || String(before.alias_kind || ''), currencies: currencies };
+}
+
+// The alias_kind a save asks for, or '' when it says nothing about the currency (an older phone) or the type has none (cash, wallet,
+// platform). A salary account stays a salary account.
+function accountCurrencyKind_(payload, type, before) {
+  if (!payload || payload.currency === undefined || payload.currency === null) return '';
+  if (type !== 'debit' && type !== 'credit') return '';
+  var base = type === 'credit' ? 'credit' : (/^sueldo/.test(String((before && before.alias_kind) || '')) ? 'sueldo' : 'debit');
+  return accountKindFor_(base, payload.currency);
 }
 
 // How many records point at an account. Entries (either end), loans, settlements and the
@@ -1507,15 +2273,133 @@ function deletePaymentMethod(payload) {
   var headers = getHeaders(sheet);
   var rowIndex = id ? findRowIndexById(sheet, headers, id) : -1;
   if (rowIndex === -1) throw new Error(tr_('err.pmNotFound'));
+  if (isBasicCashAccount_(id)) throw new Error(tr_('err.pmCashBasic'));
   var used = paymentMethodUsage_(id);
   if (used > 0) throw new Error(tr_('err.pmInUse', { n: used }));
   var settings = getSettingsMap();
-  if (RAIL_LINK_KEYS_.some(function (k) { return String(settings[k] || '') === id; })) throw new Error(tr_('err.pmRailLinked'));
+  if (accountHasRailLink_(id, settings)) throw new Error(tr_('err.pmRailLinked'));
   deleteRowsWhere_('Account Opening Balances', function (row) { return String(row.payment_method_id) === id; });
   deleteSheetRows_(sheet, rowIndex, 1);
   if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
   bumpStructureVersion_();
   return { id: id, deleted: true };
+}
+
+// The account window's one Delete (owner, 2026-11-02 — the same rule as deleting a friend): an account nothing uses is deleted
+// (with its starting balances); one with history (entries, loans, repayments, statements) is HIDDEN instead, so its past records
+// keep their account. One linked to Yape / Plin is still refused (hiding it would leave the wallet pointing at a hidden account);
+// the built-in Cash is refused. Answers { deleted: true } or { hidden: 'yes', used: n }.
+function removePaymentMethod(payload) {
+  var id = String((payload && payload.id) || '');
+  if (isBasicCashAccount_(id)) throw new Error(tr_('err.pmCashBasic'));
+  if (!getAllRows('Payment Methods').some(function (p) { return String(p.id) === id; })) throw new Error(tr_('err.pmNotFound'));
+  var settings = getSettingsMap();
+  if (accountHasRailLink_(id, settings)) throw new Error(tr_('err.pmRailLinked'));
+  var used = paymentMethodUsage_(id);
+  if (used > 0) {
+    setPaymentMethodHidden({ id: id, hidden: true });
+    return { id: id, hidden: 'yes', used: used };
+  }
+  return deletePaymentMethod({ id: id });
+}
+
+// How many records point at each of several accounts, in ONE pass over the sheets (paymentMethodUsage_ asks about one). A record counts once per account.
+function paymentMethodUsageMap_(ids) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var want = {}, usage = {};
+  ids.forEach(function (id) { want[String(id)] = true; usage[String(id)] = 0; });
+  [['Entries', ['payment_method_id', 'to_payment_method_id']], ['Loans', ['payment_method_id']],
+   ['Settlements', ['payment_method_id']], ['Statement Uploads', ['payment_method_id']],
+   ['Statement Gaps', ['payment_method_id']]].forEach(function (spec) {
+    if (!ss.getSheetByName(spec[0])) return;
+    getAllRows(spec[0]).forEach(function (r) {
+      var counted = {};
+      spec[1].forEach(function (f) {
+        var v = String(r[f] || '');
+        if (want[v] && !counted[v]) { counted[v] = true; usage[v]++; }
+      });
+    });
+  });
+  return usage;
+}
+
+// Several accounts at once (More → Accounts → Edit, owner's request 2026-11-03): the SAME rule as removePaymentMethod for each one, decided in one pass and
+// never throwing for a single account: unused → deleted (with its starting balances); with history → hidden (its past records keep it; the Balances card
+// is not affected by Hide); the built-in Cash, one linked to Yape / Plin, one that no longer exists, or one that is already hidden → left as it is.
+// Answers { deleted: [{id,name}], hidden: [{id,name,used}], kept: [{id,name,reason: cash|rail|missing|hiddenAlready}] }.
+function removePaymentMethods(payload) {
+  var ids = [], seen = {};
+  ((payload && payload.ids) || []).forEach(function (id) { id = String(id || ''); if (id && !seen[id]) { seen[id] = true; ids.push(id); } });
+  var out = { deleted: [], hidden: [], kept: [] };
+  if (!ids.length) return out;
+  var byId = {};
+  getAllRows('Payment Methods').forEach(function (p) { byId[String(p.id)] = p; });
+  var settings = getSettingsMap();
+  var linked = {};
+  RAIL_LINK_KEYS_.forEach(function (k) { if (settings[k]) linked[String(settings[k])] = true; });
+  plinMoreIds_(settings).forEach(function (id) { linked[id] = true; });
+  var usage = paymentMethodUsageMap_(ids);
+  var gone = {}, toHide = [];
+  ids.forEach(function (id) {
+    var pm = byId[id];
+    if (!pm) { out.kept.push({ id: id, name: '', reason: 'missing' }); return; }
+    var name = String(pm.nickname || '');
+    if (isBasicCashAccount_(id)) { out.kept.push({ id: id, name: name, reason: 'cash' }); return; }
+    if (linked[id]) { out.kept.push({ id: id, name: name, reason: 'rail' }); return; }
+    if (usage[id] > 0) {
+      if (String(pm.hidden || '') === 'yes') { out.kept.push({ id: id, name: name, reason: 'hiddenAlready' }); return; }
+      toHide.push(id);
+      out.hidden.push({ id: id, name: name, used: usage[id] });
+      return;
+    }
+    gone[id] = true;
+    out.deleted.push({ id: id, name: name });
+  });
+  out.deletedRows = { accounts: [], balances: [] };   // kept for Undo (restorePaymentMethods)
+  if (out.deleted.length) {
+    out.deletedRows.accounts = Object.keys(gone).map(function (id) { return byId[id]; });
+    out.deletedRows.balances = getAllRows('Account Opening Balances').filter(function (row) { return gone[String(row.payment_method_id)] === true; });
+    deleteRowsWhere_('Account Opening Balances', function (row) { return gone[String(row.payment_method_id)] === true; });
+    deleteRowsWhere_('Payment Methods', function (row) { return gone[String(row.id)] === true; });
+    bumpStructureVersion_();
+  }
+  toHide.forEach(function (id) { setPaymentMethodHidden({ id: id, hidden: true }); });
+  return out;
+}
+
+// Undo of a bulk delete AND the bulk "Show again" (More → Accounts → Edit): shows the given hidden accounts again and puts back the accounts that were
+// deleted (an account is only deleted when nothing uses it, so the row and its starting balances are the whole account). One pass, never throws for one
+// account: an id that no longer exists is skipped; a deleted account whose id or nickname is back already is skipped, never duplicated.
+// Answers { shown: n, restored: n, skipped: [names] }.
+function restorePaymentMethods(payload) {
+  payload = payload || {};
+  var methods = getAllRows('Payment Methods');
+  var byId = {}, names = {};
+  methods.forEach(function (p) { byId[String(p.id)] = p; names[String(p.nickname).trim().toLowerCase()] = true; });
+  var out = { shown: 0, restored: 0, skipped: [] };
+  uniqueIds_(payload.show).forEach(function (id) {
+    if (!byId[id]) return;
+    setPaymentMethodHidden({ id: id, hidden: false });
+    out.shown++;
+  });
+  var rows = payload.rows || {}, add = [], addedIds = {};
+  (rows.accounts || []).forEach(function (r) {
+    var id = String((r && r.id) || ''), name = String((r && r.nickname) || '').trim();
+    if (!id || !name) return;
+    if (byId[id] || names[name.toLowerCase()]) { out.skipped.push(name); return; }
+    byId[id] = true; names[name.toLowerCase()] = true; addedIds[id] = true;
+    var copy = {};
+    Object.keys(r).forEach(function (k) { copy[k] = r[k]; });
+    copy.hidden = '';
+    add.push(copy);
+  });
+  if (add.length) {
+    appendObjectsBatch_('Payment Methods', add);
+    var bal = (rows.balances || []).filter(function (b) { return b && addedIds[String(b.payment_method_id)]; });
+    appendObjectsBatch_('Account Opening Balances', bal);
+    out.restored = add.length;
+  }
+  return out;
 }
 
 // Hide / show an account. A hidden account keeps its row (past records still show its name
@@ -1532,6 +2416,7 @@ function setPaymentMethodHidden(payload) {
   var rowIndex = id ? findRowIndexById(sheet, headers, id) : -1;
   if (rowIndex === -1) throw new Error(tr_('err.pmNotFound'));
   var hidden = payload.hidden === true || payload.hidden === 'yes' ? 'yes' : '';
+  if (hidden && isBasicCashAccount_(id)) throw new Error(tr_('err.pmCashBasic'));
   setCellByRow_(sheet, headers, rowIndex, 'hidden', hidden);
   bumpStructureVersion_();
   return { id: id, hidden: hidden };
@@ -1614,7 +2499,7 @@ function mergeDuplicatePaymentMethods() {
     }
   });
   if (entriesReassigned > 0) {
-    entrySheet.getRange(2, 1, entryValues.length, entryHeaders.length).setValues(entryValues);
+    entrySheet.getRange(2, 1, entryValues.length, entryHeaders.length).setValues(sheetSafeRows_(entryValues));
   }
 
   // Delete duplicate Payment Methods rows, bottom-up so row indices stay valid.

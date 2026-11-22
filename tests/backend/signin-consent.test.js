@@ -53,6 +53,7 @@ test("the checkbox on the setup page has the app's own words", () => {
 
 test("the setup page says where the person can change the choice later", () => {
   const page = pageTexts();
-  assert.ok(page.en.shareBody.includes(STRINGS["more.privacy"].en.replace(/^\S+\s/, "")), "English names More → Privacy");
-  assert.ok(page.es.shareBody.includes(STRINGS["more.privacy"].es.replace(/^\S+\s/, "")), "Spanish names Más → Privacidad");
+  // It names the privacy section of the More tab, not a row: copies not yet promoted still have "Privacy", promoted ones "Feedback & privacy".
+  assert.ok(/More tab, in the privacy section/.test(page.en.shareBody), "English says where");
+  assert.ok(/pestaña Más de la app, en la parte de privacidad/.test(page.es.shareBody), "Spanish says where");
 });

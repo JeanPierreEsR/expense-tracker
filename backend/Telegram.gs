@@ -35,7 +35,14 @@ function getTelegramToken_() {
 }
 
 function getOwnerTelegramChatId_() {
+  // While WhatsApp is the review bot (WhatsAppBot.gs), the "chat" is WhatsApp: the Telegram chat gets nothing and is not listened to.
+  if (reviewBotIsWhatsApp_()) return WA_CHAT_ID_;
   return PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
+}
+
+// Something can be sent: Telegram linked, or WhatsApp is the review bot.
+function reviewBotCanSend_(chatId) {
+  return !!chatId && (chatId === WA_CHAT_ID_ || !!getTelegramToken_());
 }
 
 function promptSetTelegramToken() {
@@ -152,6 +159,8 @@ function disableTelegramWebhook() {
 }
 
 function telegramApi_(method, payload) {
+  // One review bot at a time: while it is WhatsApp, the messages go there instead (WhatsAppBot.gs); set-up calls stay Telegram's.
+  if (WA_TELEGRAM_METHODS_[method] && reviewBotIsWhatsApp_()) return whatsappFromTelegram_(method, payload);
   var token = getTelegramToken_();
   if (!token) throw new Error('Telegram bot token not set');
   var res = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/' + method, {
@@ -160,25 +169,47 @@ function telegramApi_(method, payload) {
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   });
-  return JSON.parse(res.getContentText());
+  var out = JSON.parse(res.getContentText());
+  if (method === 'sendMessage' && out && out.ok && out.result && out.result.message_id) telegramNoteSent_(out.result.message_id, payload);
+  return out;
+}
+
+// The "last message" rule, the same as WhatsApp's (owner, 2026-11-16): every message the bot sends is remembered (TG_LAST_OUT),
+// and an answer that quotes a transaction's message ("✅ Confirmed.", a list, the tag question) belongs to that transaction too,
+// like its card. A message sent without replying is then about the transaction of the bot's last message, waiting or confirmed.
+function telegramNoteSent_(messageId, payload) {
+  try {
+    PropertiesService.getScriptProperties().setProperty('TG_LAST_OUT', String(messageId));
+    var entryId = payload && payload.reply_to_message_id ? whatsappCardEntry_(payload.reply_to_message_id) : '';
+    if (entryId) appendRowObject('Telegram Messages', { message_id: String(messageId), entry_id: entryId, created_at: new Date().toISOString() });
+  } catch (err) { /* remembering never fails a send */ }
+}
+function telegramLastTarget_() {
+  var id = String(PropertiesService.getScriptProperties().getProperty('TG_LAST_OUT') || '');
+  return id && whatsappCardEntry_(id) ? id : '';
 }
 
 // ---- Outgoing notifications ----
 
 function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return null;
+  if (!reviewBotCanSend_(chatId)) return null;
 
   var payload = {
     chat_id: chatId,
-    text: formatEntryForTelegram_(entry, categoryName, autoReason)
+    // No "Reply to edit" line while the bot's tour runs (owner, 2026-11-20: it teaches words while the tour teaches the buttons);
+    // its last step says what that line is. Not counted either.
+    text: formatEntryForTelegram_(entry, categoryName, autoReason, { hint: botTourState_() ? false : replyHintShow_() })
   };
   // A confirmed entry's card (shown after an edit reply) has no buttons — it
   // is already done, and can still be changed by replying.
   if (entry.status !== 'confirmed') {
+    // Confirm · Edit · Discard on both bots (owner, 2026-11-16). Edit opens the shared lists (WhatsAppBot.gs); "It's the income
+    // I was waiting for" (IncomeWaiting.gs) is a row of that list when it fits, as on WhatsApp, no longer a button here.
     payload.reply_markup = {
       inline_keyboard: [[
         { text: tr_('bot.confirmButton'), callback_data: 'confirm:' + entry.id },
+        { text: tr_('whatsapp.editButton'), callback_data: 'waedit:' + entry.id },
         { text: tr_('bot.discardButton'), callback_data: 'discard:' + entry.id }
       ]]
     };
@@ -204,6 +235,48 @@ function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
 function noteLastTelegramNotification_(messageId, entryId) {
   PropertiesService.getScriptProperties().setProperty('TELEGRAM_LAST_NOTIFICATION',
     JSON.stringify({ message_id: String(messageId), entry_id: entryId || '' }));
+}
+
+// The card's "Reply to edit" line (owner, 2026-11-20): on every card until the person has changed a transaction by writing
+// REPLY_HINT_LEARNED_ times, then on one card in REPLY_HINT_EVERY_ as a reminder. A sign they are stuck ("help", words the
+// bot did not understand) brings it back on the next REPLY_HINT_AGAIN_ cards. Edit taps on WhatsApp do not count as writing.
+// "help" still gives every word at any time. One count per copy of the app (script property).
+var REPLY_HINT_LEARNED_ = 3, REPLY_HINT_EVERY_ = 15, REPLY_HINT_AGAIN_ = 3;
+
+function replyHintState_() {
+  var raw = PropertiesService.getScriptProperties().getProperty('BOT_REPLY_HINT');
+  var s = null;
+  try { s = raw ? JSON.parse(raw) : null; } catch (err) { s = null; }
+  return { edits: Number(s && s.edits) || 0, cards: Number(s && s.cards) || 0, again: Number(s && s.again) || 0 };
+}
+
+function saveReplyHintState_(s) {
+  PropertiesService.getScriptProperties().setProperty('BOT_REPLY_HINT', JSON.stringify(s));
+}
+
+// Whether the card being sent now carries the line; counts the card.
+function replyHintShow_() {
+  var s = replyHintState_(), show;
+  if (s.edits < REPLY_HINT_LEARNED_) show = true;
+  else if (s.again > 0) { s.again--; show = true; }
+  else { s.cards++; show = s.cards % REPLY_HINT_EVERY_ === 0; }
+  saveReplyHintState_(s);
+  return show;
+}
+
+function noteReplyHintEdit_() {
+  if (WA_SAVE_ONLY_) return;
+  var s = replyHintState_();
+  if (s.edits >= REPLY_HINT_LEARNED_) return;
+  s.edits++;
+  saveReplyHintState_(s);
+}
+
+function noteReplyHintStuck_() {
+  var s = replyHintState_();
+  if (s.edits < REPLY_HINT_LEARNED_) return;   // still learning: every card has it anyway
+  s.again = REPLY_HINT_AGAIN_;
+  saveReplyHintState_(s);
 }
 
 function noteTelegramAlertSent_(res) {
@@ -239,22 +312,41 @@ function moneyFmt_(n) {
 // the evidence, so it's clear it wasn't picked by hand — a reply like
 // "category groceries" changes it and the refreshed card drops the tag.
 // autoReason === true means a familiar merchant: just the bare "🤖 auto" tag.
-function formatEntryForTelegram_(entry, categoryName, autoReason) {
+function formatEntryForTelegram_(entry, categoryName, autoReason, opts) {
   if (!categoryName && entry.category_id) {
     var cat = getAllRows('Categories').find(function (c) { return c.id === entry.category_id; });
     categoryName = cat ? categoryLabel_(cat) : null;
   }
-  var icon = entry.type === 'expense' ? '💸' : entry.type === 'income' ? '💰' : entry.type === 'investment' ? '📈' : '🔁';
+  // A waiting currency exchange is ONE card for both sides (owner, 2026-11-20): "PEN 5,000.00 → USD 1,448.44", where it left and
+  // where it arrived. Confirm / Discard act on both (handleTelegramCallback_), "from" / "to" reach the right side (applyOneEditSegment_).
+  var xPair = entry.type === 'transfer' ? exchangePairOf_(entry) : null;
+  if (xPair) {
+    var xLines = ['🔁 ' + (xPair.out.description || xPair['in'].description || tr_('bot.noDescription')) + (entry.status === 'confirmed' ? tr_('bot.confirmedTag') : ''),
+      xPair.out.currency + ' ' + moneyFmt_(xPair.out.amount) + ' → ' + xPair['in'].currency + ' ' + moneyFmt_(xPair['in'].amount),
+      entry.date === Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd') ? tr_('bot.today') : entry.date,
+      tr_('bot.exchangeLeftFrom') + paymentMethodDisplayName_(xPair.out.payment_method_id, tr_('bot.notSetFrom')),
+      tr_('bot.exchangeArrivedIn') + paymentMethodDisplayName_(xPair['in'].to_payment_method_id, tr_('bot.notSetTo'))];
+    if (opts && opts.hint === false) return xLines.join('\n');
+    xLines.push('');
+    xLines.push(tr_('bot.hintExchange'));
+    return xLines.join('\n');
+  }
+  var icon = entry.type === 'expense' ? '🧾' : entry.type === 'income' ? '💰' : entry.type === 'investment' ? '📈' : '🔁';
   var lines = [];
-  lines.push(icon + ' ' + (entry.description || tr_('bot.noDescription')) + (entry.status === 'confirmed' ? tr_('bot.confirmedTag') : ''));
+  // Short card (owner, 2026-11-20): an expense's 🧾 says its type, the rarer types keep their word on the first line.
+  lines.push(icon + ' ' + (entry.description || tr_('bot.noDescription')) +
+    (entry.type === 'expense' ? '' : ' · ' + tr_('bot.type.' + entry.type)) + (entry.status === 'confirmed' ? tr_('bot.confirmedTag') : ''));
   if (entry.type === 'investment') {
-    // No category for investments (see defaultInvestmentCategoryId_).
-    lines.push(entry.currency + ' ' + moneyFmt_(entry.amount));
+    // No category for investments (see defaultInvestmentCategoryId_); a type the app guessed from the place says so.
+    lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) +
+      (autoReason === true ? tr_('bot.autoTagShort') : autoReason ? tr_('bot.autoTag', { reason: autoReason }) : ''));
   } else {
     lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || tr_('bot.needsCategory')) +
       (autoReason === true ? tr_('bot.autoTagShort') : autoReason ? tr_('bot.autoTag', { reason: autoReason }) : ''));
   }
-  lines.push(entry.date + ' · ' + tr_('bot.type.' + entry.type));
+  var dateText = entry.date === Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd') ? tr_('bot.today') : entry.date;
+  var accountText = '💳 ' + paymentMethodDisplayName_(entry.payment_method_id, tr_('bot.notSetPaymentMethod'));
+  if (entry.type === 'transfer' || entry.type === 'investment') lines.push(dateText);
   if (entry.type === 'transfer') {
     // A transfer moves money between two of the owner's own accounts, so
     // it shows both ends explicitly (and no "Paid by" — it's always the
@@ -274,14 +366,15 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     }
   } else if (entry.type === 'income') {
     // Income holds a payor (who paid the owner), never a friend.
-    var payor = entry.paid_by ? getAllRows('Payors').find(function (p) { return p.id === entry.paid_by; }) : null;
-    lines.push(tr_('bot.receivedFrom') + (payor ? payor.name : tr_('bot.notSetPayor')));
+    var payor = entry.paid_by ? getPayorRows_().find(function (p) { return p.id === entry.paid_by; }) : null;
     // No payment method shows "❓ not set — reply ..." (same as a transfer's
-    // missing end) instead of leaving the line out.
-    lines.push('💳 ' + paymentMethodDisplayName_(entry.payment_method_id, tr_('bot.notSetPaymentMethod')));
+    // missing end) instead of leaving it out.
+    lines.push(dateText + ' · ' + accountText);
+    lines.push(tr_('bot.receivedFrom') + (payor ? payor.name : tr_('bot.notSetPayor')));
   } else {
-    lines.push(tr_('bot.paidBy') + paidByDisplayName_(entry.paid_by));
-    lines.push('💳 ' + paymentMethodDisplayName_(entry.payment_method_id, tr_('bot.notSetPaymentMethod')));
+    lines.push(dateText + ' · ' + accountText);
+    // "Paid by" only when someone else paid (owner, 2026-11-20): paid by the person is the usual case and needs no line.
+    if (entry.paid_by && entry.paid_by !== 'me') lines.push(tr_('bot.paidBy') + paidByDisplayName_(entry.paid_by));
   }
 
   if (entry.type === 'expense') {
@@ -323,6 +416,12 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     }
   }
 
+  var waitingMatch = waitingMatchForPending_(entry, entry.type === 'income' && entry.status === 'pending' ? listWaitingIncome_() : []);
+  if (waitingMatch) {
+    lines.push('');
+    lines.push(tr_('bot.waitingAsk', { name: waitingMatch.friend_name, cur: waitingMatch.currency, amount: moneyFmt_(waitingMatch.remaining) }));
+  }
+
   var twins = entry.status === 'pending' ? findSameDayTwins_(entry, getAllRows('Entries')) : [];
   if (twins.length) {
     lines.push('');
@@ -331,16 +430,10 @@ function formatEntryForTelegram_(entry, categoryName, autoReason) {
     }).join(', ') }));
   }
 
+  // The "Reply to edit" line comes and goes (replyHintShow_); a caller that does not say shows it.
+  if (opts && opts.hint === false) return lines.join('\n');
   lines.push('');
-  if (entry.type === 'transfer') {
-    lines.push(tr_('bot.hintTransfer'));
-    return lines.join('\n');
-  }
-  if (entry.type === 'investment') {
-    lines.push(tr_('bot.hintInvestment'));
-    return lines.join('\n');
-  }
-  lines.push(tr_('bot.hintOther'));
+  lines.push(tr_(entry.type === 'transfer' ? 'bot.hintTransfer' : entry.type === 'investment' ? 'bot.hintInvestment' : 'bot.hintOther'));
   return lines.join('\n');
 }
 
@@ -385,7 +478,7 @@ function paidByDisplayName_(id) {
 // knows not to mark the threshold as alerted — it'll try again next cycle.
 function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progress) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return false;
+  if (!reviewBotCanSend_(chatId)) return false;
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: budgetAlertText_(budget, categoryDisplayName, progress) });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
@@ -393,7 +486,7 @@ function sendTelegramBudgetAlert_(budget, categoryDisplayName, threshold, progre
 
 // The words of a budget alert (also the in-app notice, Notices.gs).
 function budgetAlertText_(budget, categoryDisplayName, progress) {
-  var periodLabel = tr_(budget.period_type === 'yearly' ? 'bot.thisYear' : 'bot.thisMonth');
+  var periodLabel = tr_(budget.period_type === 'yearly' ? 'bot.thisYear' : budget.period_type === 'weekly' ? 'bot.thisWeek' : 'bot.thisMonth');
   var emoji = progress.percent >= 100 ? '🚨' : '⚠️';
   var spentStr = progress.spent != null ? moneyFmt_(progress.spent) : '?';
   var amountStr = moneyFmt_(budget.amount);
@@ -411,7 +504,7 @@ function budgetAlertText_(budget, categoryDisplayName, progress) {
 // caller doesn't log the alert as delivered and never retry it.
 function sendTelegramTripBudgetAlert_(trip, percent) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return false;
+  if (!reviewBotCanSend_(chatId)) return false;
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: tripBudgetAlertText_(trip, percent) });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
@@ -429,7 +522,7 @@ function tripBudgetAlertText_(trip, percent) {
 // sendTelegramBudgetAlert_ above.
 function sendTelegramLoanOverdueAlert_(loan, friendName) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return false;
+  if (!reviewBotCanSend_(chatId)) return false;
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: loanOverdueAlertText_(loan, friendName) });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
@@ -490,24 +583,53 @@ function isDuplicateTelegramUpdate_(updateId) {
 }
 
 function handleTelegramUpdate_(update) {
-  if (update.callback_query) {
-    handleTelegramCallback_(update.callback_query);
-  } else if (update.message) {
-    handleTelegramMessage_(update.message);
+  // The bot's tour (BotTour.gs) looks at each message from the linked chat: before (its own words) and after (was the step done?).
+  var msg = update.message, cb = update.callback_query;
+  var chatId = msg ? msg.chat.id : (cb && cb.message ? cb.message.chat.id : null);
+  var tour = chatId !== null && isOwnerChat_(chatId) && !(msg && String(msg.text || '').indexOf('/start') === 0);
+  if (tour && botTourBefore_(msg ? msg.text : '', { id: msg ? msg.message_id : cb.message.message_id, timestamp: msg ? msg.date : '' }, false, !!(msg && msg.reply_to_message))) {
+    botTourAfter_();
+    return;
   }
+  if (cb) {
+    handleTelegramCallback_(cb);
+  } else if (msg) {
+    handleTelegramMessage_(msg);
+  }
+  if (tour) botTourAfter_();
 }
 
 function handleTelegramCallback_(cb) {
   if (!isOwnerChat_(cb.message.chat.id)) return;
 
+  // A long list action travels as a short code (botCallbackData_, WhatsAppBot.gs); one older than 6 hours is gone.
+  var data = botResolveCallback_(cb.data);
+  if (!data) {
+    telegramApi_('sendMessage', { chat_id: cb.message.chat.id, text: tr_('bot.listExpired'), reply_to_message_id: cb.message.message_id, allow_sending_without_reply: true });
+    telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
+    return;
+  }
+  cb.data = data;
+  // The shared lists (Edit, its pick lists, Repayment / Loan, "Show more"): the same code as WhatsApp's. Once a list is used,
+  // its buttons go away (owner, 2026-11-16); Edit tapped on a transaction's own message keeps that message's buttons.
+  if (BOT_LIST_ACTIONS_.test(data) && String(cb.message.chat.id) !== WA_CHAT_ID_) {
+    var onCard = /^waedit:/.test(data) && !!whatsappCardEntry_(cb.message.message_id);
+    botListTap_(data, { id: cb.message.message_id, context_id: cb.message.message_id });
+    if (!onCard) removeCardButtons_(cb.message.chat.id, cb.message.message_id);
+    telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
+    return;
+  }
+
   var parts = String(cb.data).split(':');
   var action = parts[0];
   var entryId = parts[1];
+  botTourNote_('touched', entryId);   // Confirm / Discard on the tour's transaction: the tour checks what came of it
 
   // Once handled, take the buttons off the card so a second tap (easy when
   // the first reply is slow) can't confirm again — and answer a repeat tap
   // on an already-handled entry with a note instead of "Confirmed." again.
-  var entry = action === 'confirm' || action === 'discard' ? getEntryById_(entryId) : null;
+  var entry = action === 'confirm' || action === 'discard' || action === 'waitpay' ? getEntryById_(entryId) : null;
+  telegramTagAskAfter_ = '';
   var reply = null;
   var replyMarkup = null;   // buttons on the bot's own reply (only the "delete the whole repayment" offer has any)
   var keepButtons = false;
@@ -527,9 +649,12 @@ function handleTelegramCallback_(cb) {
       reply = tr_('bot.needPlatformFirst');
       keepButtons = true;
     } else {
+      var xConfirm = pendingExchangePair_(entry);   // a currency exchange's card is both sides: both are confirmed
       linkSuggestedTripOnTelegramConfirm_(entryId);   // the card said so (trip/event matching its date)
       confirmEntryWithLearning_(entryId);
-      reply = tr_('bot.confirmed');
+      if (xConfirm) confirmEntryWithLearning_(xConfirm.out.id === entryId ? xConfirm['in'].id : xConfirm.out.id);
+      reply = tr_(xConfirm ? 'bot.exchangeConfirmed' : 'bot.confirmed');
+      telegramTagAskAfter_ = entryId;   // asked once the "Confirmed." reply is sent (below)
     }
   } else if (action === 'discard') {
     if (!entry) {
@@ -547,11 +672,49 @@ function handleTelegramCallback_(cb) {
       reply = tr_('bot.alreadyConfirmedDelete');
     } else {
       try {
+        var xDiscard = pendingExchangePair_(entry);   // a currency exchange's card is both sides: both go
         discardEntryWithRepayments_(entryId);
-        reply = tr_('bot.discarded');
+        if (xDiscard) discardEntryWithRepayments_(xDiscard.out.id === entryId ? xDiscard['in'].id : xDiscard.out.id);
+        reply = tr_(xDiscard ? 'bot.exchangeDiscarded' : 'bot.discarded');
       } catch (err) {
         reply = tr_('bot.notDiscarded', { error: err.message });
       }
+    }
+  } else if (action === 'waitpay') {
+    // Worked out again from today's debts: the card may be old. If it no longer fits, Confirm and Discard stay on the card.
+    var waitMatch = entry ? waitingMatchForPending_(entry, listWaitingIncome_()) : null;
+    if (!entry) {
+      reply = tr_('bot.entryGone');
+    } else if (!waitMatch) {
+      reply = tr_('bot.waitingGone');
+      keepButtons = entry.status === 'pending';
+    } else {
+      try {
+        applyWaitingPayment_(entry, waitMatch);
+        reply = tr_('bot.waitingDone', { name: waitMatch.friend_name });
+      } catch (err) {
+        reply = tr_('bot.waitingFailed', { error: err.message });
+        keepButtons = true;
+      }
+    }
+  } else if (action === 'ptags' || action === 'ptagsno') {
+    // The answer to "Add its tags?" (owner, 2026-11-16): worked out again from today's data, so an old message adds only what is still
+    // missing. Only adds tags.
+    if (action === 'ptags') {
+      var asks = programmedTagAsk_([entryId]);
+      var added = asks.length ? addTagsToEntry_(entryId, asks[0].tag_ids) : [];
+      reply = added.length ? tr_('bot.tagsAdded', { tags: telegramTagNames_(added) }) : tr_('bot.tagsNothing');
+    } else {
+      reply = tr_('bot.tagsNo');
+    }
+  } else if (action === 'plink' || action === 'plinkno') {
+    // The answer to "Is this your Salary for August?": linked only if it still matches today.
+    if (action === 'plink') {
+      var plan = planMatchFor_(getEntryById_(entryId));
+      if (plan) { linkEntryToRecurring({ entryId: entryId, recurringExpenseId: plan.recurring_id, month: plan.month }); reply = tr_('bot.planLinked'); }
+      else reply = tr_('bot.planGone');
+    } else {
+      reply = tr_('bot.planKept');
     }
   } else if (action === 'delrep') {
     // The owner chose to delete the whole repayment: loans part, money entry and extra entry together (deleteRepayment).
@@ -576,8 +739,56 @@ function handleTelegramCallback_(cb) {
     telegramApi_('sendMessage', replyPayload);
     if (!keepButtons) removeCardButtons_(cb.message.chat.id, cb.message.message_id);
   }
+  if (telegramTagAskAfter_) { sendTelegramTagAsk_(cb.message.chat.id, telegramTagAskAfter_, cb.message.message_id); sendTelegramPlanAsk_(cb.message.chat.id, telegramTagAskAfter_, cb.message.message_id); }
+  telegramTagAskAfter_ = '';
 
   telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
+}
+
+// ---- "Add its tags?" after a confirm (owner, 2026-11-16; the app asks the same, specs/recurring.md § Tags) ----
+// A confirmed entry that pays a Programmed item with tags it lacks gets one question with two buttons. Nothing is written until
+// "Add tags" is tapped; a wrong match (shoes near the gym's due date) is answered No.
+var telegramTagAskAfter_ = '';
+function telegramTagNames_(ids) {
+  var byId = {};
+  getAllRows('Tags').forEach(function (t) { byId[String(t.id)] = tagLabel_(t); });
+  return ids.map(function (id) { return byId[String(id)]; }).filter(Boolean).join(', ');
+}
+// ---- "Is this your Salary for August?" after a bot confirm (owner's plan, 2026-11-17; the app asks the same after "+") ----
+// Worked out again when the answer comes (planMatchFor_), so an old message never links something that changed.
+function botMonthLabel_(ym) {
+  var names = tr_('bot.monthNames').split(',');
+  return (names[Number(String(ym).substring(5, 7)) - 1] || ym) + ' ' + String(ym).substring(0, 4);
+}
+function sendTelegramPlanAsk_(chatId, entryId, replyTo) {
+  var entry, plan;
+  try { entry = getEntryById_(entryId); plan = planMatchFor_(entry); } catch (e) { return; }   // only a question: never fails the confirm
+  if (!plan) return;
+  telegramApi_('sendMessage', {
+    chat_id: chatId,
+    text: tr_('bot.planAsk', { entry: entry.description || '', name: plan.description, month: botMonthLabel_(plan.month) }),
+    reply_to_message_id: replyTo, allow_sending_without_reply: true,
+    reply_markup: { inline_keyboard: [[
+      { text: tr_('bot.planYes'), callback_data: 'plink:' + entryId },
+      { text: tr_('bot.planNo'), callback_data: 'plinkno:' + entryId }
+    ]] }
+  });
+}
+function sendTelegramTagAsk_(chatId, entryId, replyTo) {
+  var ask;
+  try { ask = programmedTagAsk_([entryId])[0]; } catch (e) { return; }   // only a question: never fails the confirm
+  if (!ask) return;
+  var tags = telegramTagNames_(ask.tag_ids);
+  if (!tags) return;
+  telegramApi_('sendMessage', {
+    chat_id: chatId,
+    text: tr_('bot.tagAsk', { entry: ask.description || ask.item, item: ask.item, tags: tags }),
+    reply_to_message_id: replyTo, allow_sending_without_reply: true,
+    reply_markup: { inline_keyboard: [[
+      { text: tr_('bot.tagAskYes'), callback_data: 'ptags:' + entryId },
+      { text: tr_('bot.tagAskNo'), callback_data: 'ptagsno:' + entryId }
+    ]] }
+  });
 }
 
 function handleTelegramMessage_(msg) {
@@ -632,10 +843,43 @@ function handleTelegramMessage_(msg) {
     return;
   }
 
+  // The same commands as WhatsApp (ayuda / pendientes / nuevo) and the answer to an open "send the new …" question
+  // (WhatsAppBot.gs). Only for a real Telegram message, not a reply (WhatsApp's own messages come here as replies or commands).
+  if (!msg.reply_to_message && String(msg.chat.id) !== WA_CHAT_ID_ && text && telegramSharedCommand_(msg, text)) return;
+  // "ok", "gracias"… on their own, plain or as a reply: never a transaction's new text (BotTour.gs; WhatsApp checks it in its own door).
+  if (String(msg.chat.id) !== WA_CHAT_ID_ && botFillerWord_(text)) {
+    telegramApi_('sendMessage', { chat_id: msg.chat.id, text: tr_('bot.fillerHint'), reply_to_message_id: msg.message_id, allow_sending_without_reply: true });
+    return;
+  }
+
+  // A new transaction typed in one message (TypedEntry.gs, the same building block as WhatsApp; owner, 2026-11-16): not a reply,
+  // and it starts with an amount or is a pasted bank notice ("25 almuerzo, account Interbank"). Before, such a text became the
+  // last card's description.
+  if (!msg.reply_to_message && !startsWithEditKeyword_(text) && typedIsNewEntry_(text)) {
+    telegramNewTypedEntry_(msg, text);
+    return;
+  }
+
   // Not a reply to anything: assume it is about the last notification, if
   // that was an entry card still pending approval. Otherwise (an alert, a
   // confirmed/removed entry, nothing yet) ask for a direct reply.
-  var targetMessageId = msg.reply_to_message ? msg.reply_to_message.message_id : lastPendingCardMessageId_();
+  var targetMessageId;
+  if (msg.reply_to_message) targetMessageId = msg.reply_to_message.message_id;
+  else if (String(msg.chat.id) === WA_CHAT_ID_) targetMessageId = lastPendingCardMessageId_();   // WhatsApp chose its target already
+  else {
+    // The same rule as WhatsApp (owner, 2026-11-16): the transaction of the bot's last message, waiting or confirmed. When that
+    // message was not about a transaction (an alert, the help): an edit word goes to the last waiting transaction, as before;
+    // plain words are read as a new purchase, and with no amount the bot says how to write one.
+    var lastTg = telegramLastTarget_();
+    var isCommand = startsWithEditKeyword_(text) || /^\/?(?:help|ayuda)$/i.test(text) ||
+      /^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)\b|^(?:(?:convert\s+to|convertir\s+en)\s+)?(?:loan|pr[eé]stamo)\b/i.test(text);
+    if (lastTg) targetMessageId = lastTg;
+    else if (isCommand) targetMessageId = lastPendingCardMessageId_();
+    else {
+      telegramApi_('sendMessage', { chat_id: msg.chat.id, text: tr_('whatsapp.unreadable'), reply_to_message_id: msg.message_id, allow_sending_without_reply: true });
+      return;
+    }
+  }
   if (!targetMessageId) {
     telegramApi_('sendMessage', {
       chat_id: msg.chat.id, text: tr_('bot.replyToACard'),
@@ -660,6 +904,7 @@ function handleTelegramMessage_(msg) {
   // card itself. Checked before the edit parser so it can't also be read as
   // a (failing) field-edit segment.
   if (/^\/?(?:help|ayuda)$/i.test(text)) {
+    noteReplyHintStuck_();
     var helpEntry = getEntryById_(mapping.entry_id);
     telegramApi_('sendMessage', {
       chat_id: msg.chat.id,
@@ -697,6 +942,8 @@ function handleTelegramMessage_(msg) {
   if (result.entry && !result.removed) {
     sendTelegramEntryNotification_(result.entry, result.categoryName);
   }
+  if (telegramTagAskAfter_ && result.entry && !result.removed) { sendTelegramTagAsk_(msg.chat.id, telegramTagAskAfter_, msg.message_id); sendTelegramPlanAsk_(msg.chat.id, telegramTagAskAfter_, msg.message_id); }
+  telegramTagAskAfter_ = '';
 
   // The card that was replied to is now superseded (by the refreshed card,
   // or by the entry being removed) — take its buttons off so it can't be
@@ -705,6 +952,26 @@ function handleTelegramMessage_(msg) {
   if ((result.entry && !result.removed) || result.removed) {
     removeCardButtons_(msg.chat.id, targetMessageId);
   }
+}
+
+// The same steps as WhatsApp's whatsappNewPurchase_: the shared block, then the card with its buttons, the engine's note, and the
+// tag question when the keywords confirmed it.
+function telegramNewTypedEntry_(msg, text) {
+  telegramTagAskAfter_ = '';
+  var r = newTypedEntry_({ id: 'tg:' + msg.chat.id + ':' + msg.message_id, text: text, timestamp: msg.date }, 'telegram');
+  if (!r.saved || !r.entry) {
+    telegramTagAskAfter_ = '';
+    telegramApi_('sendMessage', { chat_id: msg.chat.id, text: r.reply, reply_to_message_id: msg.message_id, allow_sending_without_reply: true });
+    return;
+  }
+  var card = sendTelegramEntryNotification_(r.entry, r.categoryName);
+  botTourNote_('newEntry', r.entry.id);
+  var cardId = card && card.ok && card.result ? card.result.message_id : null;
+  if (r.editMessage) {
+    telegramApi_('sendMessage', { chat_id: msg.chat.id, text: r.editMessage, reply_to_message_id: cardId || msg.message_id, allow_sending_without_reply: true });
+  }
+  if (telegramTagAskAfter_) { sendTelegramTagAsk_(msg.chat.id, telegramTagAskAfter_, cardId || msg.message_id); sendTelegramPlanAsk_(msg.chat.id, telegramTagAskAfter_, cardId || msg.message_id); }
+  telegramTagAskAfter_ = '';
 }
 
 function removeCardButtons_(chatId, messageId) {
@@ -725,7 +992,8 @@ function removeCardButtons_(chatId, messageId) {
 //   repayment = the friend paying back what they owed ('they_owe_me'),
 //   loan = the friend lending it to the owner ('i_owe_them').
 // Reuses the exact same backend calls the app's buttons make.
-function applyTerminalReviewAction_(entryId, fullText, friendText) {
+// friendObj (optional): the friend already chosen from a list (WhatsApp's Repayment / Loan buttons), so no name is looked up.
+function applyTerminalReviewAction_(entryId, fullText, friendText, friendObj) {
   var entry = getEntryById_(entryId);
   if (!entry) return { message: tr_('bot.entryNotFound') };
 
@@ -748,8 +1016,10 @@ function applyTerminalReviewAction_(entryId, fullText, friendText) {
     return { message: tr_('bot.onlyExpenseIncome', { type: tr_('bot.type.' + entry.type) }) };
   }
 
-  var friend;
-  if (!String(friendText || '').trim()) {
+  var friend = friendObj || null;
+  if (friend) {
+    // chosen from a list: nothing to look up
+  } else if (!String(friendText || '').trim()) {
     // No name given: during a trip, that trip's group (one trip covering the date, never a guess between two).
     var tripId = suggestedTripIdForDate_(entry.date);
     friend = tripId ? tripGroupFriend_(tripId) : null;
@@ -812,8 +1082,9 @@ function isOwnerChat_(chatId) {
 // The type word in a "type ..." reply, in English (what is stored): "gasto" ->
 // "expense", "inversión" -> "investment", and so on.
 function entryTypeFromWord_(word) {
-  var w = String(word || '').trim().toLowerCase();
-  var map = { gasto: 'expense', ingreso: 'income', transferencia: 'transfer', 'inversión': 'investment', inversion: 'investment' };
+  var w = String(word || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  w = w.replace(/^(inversion)es$/, '$1').replace(/s$/, '');   // plurals: "investments", "gastos", "inversiones"
+  var map = { gasto: 'expense', ingreso: 'income', transferencia: 'transfer', inversion: 'investment' };
   return map[w] || w;
 }
 
@@ -878,7 +1149,8 @@ var EDIT_COMMAND_PATTERNS = [
   // Investments only: which way the money moved. A withdrawal is stored as
   // a NEGATIVE amount (see Investments.gs), a deposit as a positive one.
   { field: 'direction', re: /^(withdrawal|deposit|retiro|dep[oó]sito)(?![\wáéíóúñ])/i },
-  { field: 'type', re: /^(?:type|tipo)\s+(expense|income|transfer|investment|gasto|ingreso|transferencia|inversi[oó]n)(?![\wáéíóúñ])/i }
+  // A plural is understood too ("type investments", owner 2026-11-20: it was answered "Didn't recognize that").
+  { field: 'type', re: /^(?:type|tipo)\s+(expenses?|incomes?|transfers?|investments?|gastos?|ingresos?|transferencias?|inversi[oó]n(?:es)?)(?![\wáéíóúñ])/i }
 ];
 
 // A reply can combine several edits in one message, comma-separated (e.g.
@@ -927,11 +1199,16 @@ function finishTelegramEdit_(entryId, statusBefore, allApplied) {
   var entry = getEntryById_(entryId);
   if (!entry) return '';
   if (statusBefore === 'pending') {
+    // WhatsApp's Edit taps only save (owner, 2026-11-16): the person finishes with Confirm. Replies in words still confirm.
+    if (WA_SAVE_ONLY_) return '';
     var blocker = telegramConfirmBlocker_(entry);
     if (!allApplied) return tr_('bot.notConfirmedPartial');
     if (blocker) return tr_('bot.notConfirmedBlocker', { blocker: blocker });
+    var xFinish = pendingExchangePair_(entry);   // one message for a currency exchange: its other side is confirmed with it
     linkSuggestedTripOnTelegramConfirm_(entryId);
     confirmEntryWithLearning_(entryId);
+    if (xFinish) confirmEntryWithLearning_(xFinish.out.id === entryId ? xFinish['in'].id : xFinish.out.id);
+    telegramTagAskAfter_ = entryId;   // asked after the refreshed card (handleTelegramMessage_)
     return ''; // the refreshed card says "✅ Confirmed" itself
   }
   if (statusBefore === 'confirmed') {
@@ -990,6 +1267,10 @@ function syncRepaymentAfterTelegramEdit_(entryId, before) {
   var link = repaymentOfEntry_(entryId);
   var now = getEntryById_(entryId);
   if (!link || !now || !before) return '';
+  if (String(now.currency) !== String(before.currency)) {   // another currency is another debt: re-recorded in the app only
+    setEntryField_(entryId, 'currency', before.currency);
+    return tr_('bot.repaymentRefused', { reason: tr_('repay.editCurrencyRerecord') });
+  }
   if (Math.abs(Number(now.amount) - Number(before.amount)) > 0.004) {
     setEntryField_(entryId, 'amount', before.amount);
     return tr_('bot.repaymentRefused', { reason: tr_(link.kind === 'transfer' ? 'repay.editAmountInHistory' : 'repay.editExtraInHistory') });
@@ -1031,7 +1312,11 @@ function applyEditCommand_(entryId, text) {
 
   withWriteBatch_(function () {
     var previousField = null;
-    splitEditCommands_(text).forEach(function (segment) {
+    // A split is applied last: "split group" needs the trip a "trip …" in the same reply sets, in whatever order it was written.
+    var segments = splitEditCommands_(text);
+    var isSplit = function (s) { return /^(?:split|repartir|dividir)\s/i.test(String(s).trim()); };
+    segments = segments.filter(function (s) { return !isSplit(s); }).concat(segments.filter(isSplit));
+    segments.forEach(function (segment) {
       var field = applyOneEditSegment_(sheet, headers, rowIndex, entryId, segment);
       if (field) {
         appliedFields.push(field);
@@ -1068,8 +1353,11 @@ function applyEditCommand_(entryId, text) {
   }
 
   if (!appliedFields.length) {
+    noteReplyHintStuck_();
     return { message: tr_('bot.notRecognized') + '\n\n' + helpText };
   }
+  if (failedSegments.length) noteReplyHintStuck_();
+  else noteReplyHintEdit_();
 
   var messageParts = [tr_('bot.updated', { fields: appliedFields.map(function (f) { return tr_('bot.field.' + String(f).replace(/ /g, '_')); }).join(', ') })];
   var statusNote = finishTelegramEdit_(entryId, statusBefore, !failedSegments.length);
@@ -1099,7 +1387,7 @@ var FORMAT_KEYWORD_RE_ = /^(?:date|fecha|currency|moneda|amount|monto)(?![a-zá�
 
 // The currencies the app's picker offers (docs/app.js CURRENCIES), plus any
 // already in the exchange-rate table.
-var KNOWN_CURRENCY_CODES_ = ['PEN', 'USD', 'EUR', 'ARS', 'MXN', 'BRL', 'CLP', 'COP', 'BOB', 'UYU', 'PYG', 'VES', 'GTQ', 'CRC', 'PAB', 'DOP', 'HNL', 'NIO', 'CUP', 'GBP', 'CAD', 'CHF', 'JPY', 'CNY', 'KRW', 'INR', 'AUD', 'NZD', 'SGD', 'HKD', 'SEK', 'NOK', 'DKK', 'PLN', 'TRY', 'ZAR', 'AED', 'THB', 'RUB', 'ILS'];
+var KNOWN_CURRENCY_CODES_ = ['PEN', 'USD', 'EUR', 'ARS', 'MXN', 'BRL', 'CLP', 'COP', 'BOB', 'UYU', 'PYG', 'VES', 'GTQ', 'CRC', 'PAB', 'DOP', 'HNL', 'NIO', 'CUP', 'GBP', 'CAD', 'CHF', 'JPY', 'CNY', 'KRW', 'INR', 'AUD', 'NZD', 'SGD', 'HKD', 'SEK', 'NOK', 'DKK', 'PLN', 'TRY', 'ZAR', 'AED', 'THB', 'RUB', 'ILS', 'AFN', 'ALL', 'DZD', 'AOA', 'AMD', 'AWG', 'AZN', 'BSD', 'BHD', 'BDT', 'BBD', 'BYN', 'BZD', 'BMD', 'BTN', 'BAM', 'BWP', 'BND', 'BIF', 'KHR', 'CVE', 'KYD', 'XAF', 'KMF', 'CDF', 'XCG', 'CZK', 'DJF', 'XCD', 'EGP', 'SVC', 'ERN', 'SZL', 'ETB', 'FKP', 'FJD', 'XPF', 'GMD', 'GEL', 'GHS', 'GIP', 'GNF', 'GYD', 'HTG', 'HUF', 'ISK', 'IDR', 'IRR', 'IQD', 'JMD', 'JOD', 'KZT', 'KES', 'KWD', 'KGS', 'LAK', 'LBP', 'LSL', 'LRD', 'LYD', 'MOP', 'MGA', 'MWK', 'MYR', 'MVR', 'MRU', 'MUR', 'MDL', 'MNT', 'MAD', 'MZN', 'MMK', 'NAD', 'NPR', 'NGN', 'KPW', 'MKD', 'OMR', 'PKR', 'PGK', 'PHP', 'QAR', 'RON', 'RWF', 'SHP', 'WST', 'STN', 'SAR', 'RSD', 'SCR', 'SLE', 'SBD', 'SOS', 'SSP', 'LKR', 'SDG', 'SRD', 'SYP', 'TWD', 'TJS', 'TZS', 'TOP', 'TTD', 'TND', 'TMT', 'UGX', 'UAH', 'UZS', 'VUV', 'VND', 'XOF', 'YER', 'ZMW', 'ZWG'];
 
 function isKnownCurrencyCode_(code) {
   if (KNOWN_CURRENCY_CODES_.indexOf(code) >= 0) return true;
@@ -1208,7 +1496,12 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     var clearEnd = /^(?:none|nothing|no\s+account|clear|-|ninguno|ninguna|nada|sin\s+cuenta)$/i.test(value);
     var endPm = clearEnd ? { id: '' } : fuzzyFindPaymentMethod_(value);
     if (!endPm) return null;
-    if (field === 'from') {
+    // One card for a waiting exchange: "from" is where the money LEFT, "to" where it ARRIVED, whichever side the card is.
+    var xEdit = exchangePairOf_(entry);
+    if (xEdit) {
+      if (field === 'from') setEntryField_(xEdit.out.id, 'payment_method_id', endPm.id);
+      else { ensureEntriesToPaymentMethodColumn_(); setEntryField_(xEdit['in'].id, 'to_payment_method_id', endPm.id); }
+    } else if (field === 'from') {
       setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', endPm.id);
     } else {
       ensureEntriesToPaymentMethodColumn_();
@@ -1334,9 +1627,57 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
 // Returns the splits array to hand to saveEntrySplits, or null if
 // anything couldn't be resolved (an unrecognized friend name, a bad
 // amount, or an over-total).
+// Each part may give its number AFTER or BEFORE the name ("Ana 20" / "20 Ana"), and as an
+// amount or a percentage of the entry's amount ("Ana 50%" / "50% Ana"); parts are still
+// separated by commas (owner, 2026-11-03).
+function parseSplitPart_(part) {
+  var s = String(part).trim();
+  var m = s.match(/^([\d.,]+)\s*(%?)\s+(.+)$/);
+  if (m) return { name: m[3].trim(), num: m[1], pct: !!m[2] };
+  m = s.match(/^(.+?)\s+([\d.,]+)\s*(%?)$/);
+  if (m) return { name: m[1].trim(), num: m[2], pct: !!m[3] };
+  return null;
+}
+
+// The amount (in the entry's currency, to the cent) a split part stands for; null when the number is unreadable.
+function splitPartAmount_(p, entry) {
+  var n = parseFloat(p.num.replace(/,/g, ''));
+  if (isNaN(n)) return null;
+  return p.pct ? Math.round(Number(entry.amount) * n) / 100 : n;
+}
+
+// The trip a "split group" means: the trip set on the entry, else the one whose dates cover it (never a guess between two).
+function splitGroupTrip_(entry) {
+  var id = entry.trip_id && entry.trip_id !== TRIP_DECLINED_ ? entry.trip_id : suggestedTripIdForDate_(entry.date);
+  return id ? tripById_(id) : null;
+}
+
+// An equal split with a trip's group (owner, 2026-11-16): the amount is divided by the people in the group (the owner included),
+// exactly like the app's "People in the group" box (groupEqualShares_ in app.js): each share rounded to the cent, the group owes
+// everyone else's shares as one debt, the owner keeps the leftover cent. `size` given = that number, and it becomes the trip's
+// new starting number (as on the app's form); else the trip's own group_size (2 when empty).
+function splitWithGroup_(entry, trip, size) {
+  var friend = ensureTripGroupFriend_(trip);
+  var n = size ? Math.round(Number(size)) : (Number(trip.group_size) || 2);
+  if (!isFinite(n) || n < 2 || n > 99) return null;
+  if (size && n !== Number(trip.group_size)) setTripGroupSize_(trip.id, n);
+  var totalCents = Math.round(Number(entry.amount) * 100);
+  var groupCents = Math.round(totalCents / n) * (n - 1);
+  if (groupCents <= 0 || groupCents >= totalCents) return null;
+  return [{ friend_id: friend.id, amount: groupCents / 100 }];
+}
+
 function parseSplitCommand_(entry, text) {
   var trimmed = String(text).trim();
   if (/^(none|clear|off|ninguno|ninguna|borrar)$/i.test(trimmed)) return [];
+
+  // "group", "with the group", "equal group", "group 5" (Spanish: "grupo", "con el grupo", "igual grupo", "grupo 5"): the
+  // trip's group, divided by its people.
+  var groupMatch = trimmed.match(/^(?:(?:equal|igual)\s+)?(?:with\s+(?:the\s+)?|con\s+(?:el\s+)?)?(?:group|grupo)(?:\s+(?:of\s+|de\s+)?(\d{1,2})(?:\s+(?:people|personas))?)?$/i);
+  if (groupMatch) {
+    var gTrip = splitGroupTrip_(entry);
+    return gTrip ? splitWithGroup_(entry, gTrip, groupMatch[1]) : null;
+  }
 
   var equalMatch = trimmed.match(/^(?:equal|igual)\s+(.+)/i);
   if (equalMatch) {
@@ -1347,6 +1688,11 @@ function parseSplitCommand_(entry, text) {
       var f = fuzzyFindFriend_(names[i]);
       if (!f) return null;
       friends.push(f);
+    }
+    // The group of a trip named by hand ("equal Costa Rica 2026 group"): divided by its people, not as one person.
+    if (friends.length === 1 && friends[0].trip_id) {
+      var named = tripById_(friends[0].trip_id);
+      if (named) return splitWithGroup_(entry, named, null);
     }
     var n = friends.length;
     var totalCents = Math.round(Number(entry.amount) * 100);
@@ -1362,21 +1708,21 @@ function parseSplitCommand_(entry, text) {
   // several, leftover cents to the last one).
   var ownerIdx = -1, ownerAmt = 0;
   for (var k = 0; k < parts.length; k++) {
-    var om = parts[k].match(/^(?:me|jp|yo)\s+([\d.,]+)$/i);
-    if (om) { ownerIdx = k; ownerAmt = parseFloat(om[1].replace(/,/g, '')); break; }
+    var om = parseSplitPart_(parts[k]);
+    if (om && /^(?:me|jp|yo)$/i.test(om.name)) { ownerIdx = k; ownerAmt = splitPartAmount_(om, entry); break; }
   }
   if (ownerIdx !== -1) {
-    if (isNaN(ownerAmt) || ownerAmt < 0) return null;
+    if (ownerAmt === null || ownerAmt < 0) return null;
     var others = parts.filter(function (_, idx) { return idx !== ownerIdx; });
     if (!others.length) return null;
     var fixed = [], open = [], fixedTotal = 0;
     for (var p = 0; p < others.length; p++) {
-      var pm2 = others[p].match(/^(.+?)\s+([\d.,]+)$/);
-      var fr2 = fuzzyFindFriend_(pm2 ? pm2[1].trim() : others[p]);
+      var pm2 = parseSplitPart_(others[p]);
+      var fr2 = fuzzyFindFriend_(pm2 ? pm2.name : others[p]);
       if (!fr2) return null;
       if (pm2) {
-        var a2 = parseFloat(pm2[2].replace(/,/g, ''));
-        if (isNaN(a2) || a2 <= 0) return null;
+        var a2 = splitPartAmount_(pm2, entry);
+        if (a2 === null || a2 <= 0) return null;
         fixed.push({ friend_id: fr2.id, amount: a2 });
         fixedTotal += a2;
       } else {
@@ -1400,12 +1746,12 @@ function parseSplitCommand_(entry, text) {
   var splits = [];
   var assigned = 0;
   for (var j = 0; j < parts.length; j++) {
-    var m = parts[j].match(/^(.+?)\s+([\d.,]+)$/);
+    var m = parseSplitPart_(parts[j]);
     if (!m) return null;
-    var friend2 = fuzzyFindFriend_(m[1].trim());
+    var friend2 = fuzzyFindFriend_(m.name);
     if (!friend2) return null;
-    var amt = parseFloat(m[2].replace(/,/g, ''));
-    if (isNaN(amt) || amt <= 0) return null;
+    var amt = splitPartAmount_(m, entry);
+    if (amt === null || amt <= 0) return null;
     splits.push({ friend_id: friend2.id, amount: amt });
     assigned += amt;
   }
@@ -1523,17 +1869,17 @@ function fuzzyFindTag_(text) {
 }
 
 function fuzzyFindPaymentMethod_(text) {
-  return pickByName_(getAllRows('Payment Methods'), text, function (p) { return p.nickname; });
+  return pickByName_(withoutPracticeAccounts_(getAllRows('Payment Methods')), text, function (p) { return p.nickname; });
 }
 
 function getEntryById_(entryId) {
-  return getAllRows('Entries').find(function (e) { return e.id === entryId; });
+  return findRowById_('Entries', entryId);   // the id column and one row, not the whole sheet (Api.gs)
 }
 
 function setCellByRow_(sheet, headers, rowIndex, fieldName, value) {
   var col = headers.indexOf(fieldName);
   if (col === -1) return;
-  sheet.getRange(rowIndex, col + 1).setValue(value);
+  sheet.getRange(rowIndex, col + 1).setValue(safeCellValue_(sheet.getName(), fieldName, value));
   noteCellWrite_(sheet, rowIndex, fieldName);
 }
 

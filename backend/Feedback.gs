@@ -11,7 +11,7 @@
 
 var FEEDBACK_SHEET_ = 'Feedback';
 var FEEDBACK_HEADERS_ = ['received_at', 'install_id', 'label', 'kind', 'screen', 'language', 'app_version', 'device', 'text'];
-var FEEDBACK_KINDS_ = { broke: 1, confused: 1, idea: 1 };
+var FEEDBACK_KINDS_ = { broke: 1, confused: 1, idea: 1, email_gap: 1 };   // email_gap: an answer to "Why didn't an email come?" (ManualGaps.gs)
 var FEEDBACK_MAX_TEXT_ = 1000;
 var FEEDBACK_MIN_TEXT_ = 5;
 var FEEDBACK_MAX_PER_INSTALL_PER_DAY_ = 10;

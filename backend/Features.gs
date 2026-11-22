@@ -48,6 +48,9 @@ function healWebAppUrl_(url) {
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty('WEB_APP_URL')) return;
   if (!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(String(url || ''))) return;
+  // Never the owner's own address (Rafael, 2026-11-18): it is public, and a copy that saved it would count as the owner's copy
+  // (Apple Pay, the WhatsApp card). The owner's copy has its address saved already, so it never needs this.
+  if (String(url).indexOf('/s/' + OWNER_WEB_APP_ID_ + '/') !== -1) return;
   props.setProperty('WEB_APP_URL', String(url));
 }
 
@@ -63,22 +66,127 @@ function installedBackendRef_() {
 function getCapabilities_() {
   return {
     backendRef: installedBackendRef_(),
+    // Dates are read in the Sheet's own time zone (2026-10-25). A server without this reads a Sheet in another zone a day early, and the app then
+    // warns the person at once (REQUIRED_BACKEND_CAPS_ in app.js).
+    sheetDates: true,
+    // More → Apple Pay capture (ApplePay.gs; owner's copy first, 2026-11-15).
+    applePay: applePayOffered_(),
+    // More → My profile → WhatsApp bot (WhatsApp.gs): offered on the owner's copy and on copies he marks; on = the person turned it on
+    // (the privacy card then has its WhatsApp section, owner 2026-11-16: privacy changes only for people who use the bot).
+    whatsappBot: whatsappOffered_(),
+    whatsappBotOn: whatsappBotOn_(),
+    // Ever turned on (its relay key exists, kept when turned off): the privacy texts mention the bot only for people who used it
+    // (owner, 2026-11-21), and still after it is off, because JP's relay keeps the number until JP removes it.
+    whatsappBotUsed: whatsappBotUsed_(),
+    whatsappInvite: true,                            // this backend takes invitation codes (useWhatsAppInvite)
+    whatsappInviteMake: canMakeWhatsAppInvites_(),   // the owner's copy makes them (makeWhatsAppInvite)
+    // Why Apple Pay is offered or not (owner's copy only; four yes/no answers, no address or key), shown in More → Performance log.
+    applePayCheck: (isOwnerCopyByAddress_() || !isFriendCopy_()) ? applePayCheck_() : null,
+    // Overview's summary blocks open the list behind them (listPeriodFlows, 2026-11-11); an older backend leaves the blocks as they were.
+    periodFlows: true,
+    // The Loans tab's "All loans and repayments" (listLoanMovements, 2026-11-11).
+    loanMovements: true,
     emailExport: !!PropertiesService.getScriptProperties().getProperty('EXPORT_EMAIL'),
     bankEmails: featureOn_('gmail'),
     keepAwake: featureOn_('keepawake'),
     telegram: !!getTelegramToken_(),
     // A chat is actually linked (the token alone sends nothing): the app mentions Telegram in alert hints only then.
     telegramLinked: telegramLinked_(),
+    // Its messages go through a Cloudflare relay (Telegram.gs): the privacy card says so only then (owner, 2026-11-18).
+    telegramRelay: telegramLinked_() && !!PropertiesService.getScriptProperties().getProperty('TELEGRAM_RELAY_URL'),
+    // setExtraOn: More → Feedback & privacy → Extra features turns an extra back on in the app; an older backend sends the person to the setup page
+    extrasOn: true,
     // This backend keeps in-app alerts (Notices.gs); an older one lacks it and the app then never asks for them.
     notices: true,
     // This backend checks alerts when asked (checkAlertsNow), so a copy without a timer still gets them; an older one lacks it.
     alertCheck: true,
     // More → Performance log is a diagnostic for the owner only; a copy made by the installer never shows it.
     perfLog: !isFriendCopy_(),
+    // createEntry accepts the phone's own id (client_id) and answers a repeat with the same entry, so the app can save a NEW entry in the background.
+    clientEntryId: true,
+    // addLoan, recordCurrencyExchange, forgiveLoan and the overpayment entries accept the phone's own id (client_id) and answer a repeat with what they already made, so the app can save them in the background; an older backend lacks it and the app then waits for the answer as before.
+    clientMoneyId: true,
+    bulkUndo: true,   // unconfirmEntries: the Undo of a "confirm many at once" (2026-11-18)
+    bulkPlanLink: true,   // confirmEntries links items to their Programmed item (link_recurring_id), re-checked; an older backend: the phone promises no link
     // This backend can say which bank addresses it reads (listSupportedSenders), so the app can tell a friend "your bank is ready".
     bankReady: true,
     // This backend takes a rule pack from the phone (setRulePack, RulePack.gs); an older one lacks it and the app then never sends one.
     rulePack: true,
+    practiceProgrammed: true,   // removePracticeProgrammed: the Programmed items practice is only offered where this exists
+    practiceBudgets: true,   // removePracticeBudgets + the alert check skips the practice's budget: the Budgets practice is only offered where this exists
+    practiceLoansMore: true,   // removePracticeLoans + the overdue check skips the practice's loans: the standalone-loan and bank-loan practices are only offered where this exists
+    practiceInvestments: true,   // removePracticeInvestments: the Investments practice is only offered where this exists
+    practiceAccounts: true,   // removePracticeAccounts + the automatic matchers (e-mail, statements, Telegram, Yape/Plin) skip the practice's account: the Accounts practice is only offered where this exists
+    practiceTripsFind: true,   // createPracticeTripExpenses + removePracticeTrips finds them by marker: the Trips practice teaches "Find expenses in these dates"; an older backend gets no Trips practice offered
+    practiceTrips: true,   // removePracticeTrips + suggestions/alerts skip the practice trip: the Trips & events practice is only offered where this exists
+    practiceExchange: true,   // removePracticeExchange + the exchange-house / pairing / last-account memories skip the practice's legs: the Currency exchange practice is only offered where this exists
+    pmRemove: true,   // removePaymentMethod (one Delete: unused = deleted, with history = hidden) + the built-in Cash account (settings.cash_account_id); an older backend keeps Delete + Hide
+    thenReads: true,   // a save may carry payload._then (reads to answer in the same reply, runThenReads_ in Api.gs); an older backend never gets it
+    entryRepeat: true,
+    reviewTags: true,   // listPendingEntries carries each waiting entry's tagIds; Needs review's "Tags" button and Edit mode's "Tag (n)" save tags on waiting entries
+    programPending: true,   // addRecurringExpense takes `pending_entry_id`: a waiting (Needs review) entry given a future date in the full form becomes that Programmed item, in the same call
+    programSplits: true,   // addRecurringExpense takes `splits` (and saves them in the same call): a future-dated SHARED expense becomes a Programmed item; an older backend keeps it a normal entry
+    recurringPayments: true,   // listRecurringPayments: the "Past payments" group of the Programmed item window    // saveEntryAll takes `repeat`: the entry form's "Repeat…" makes a Programmed item from the entry and links it
+    entrySaveOne: true,   // saveEntryAll: a new / edited / confirmed entry with its split, tags and bill in ONE call (was 2-4 trips to Google); an older backend gets the separate calls
+    practiceRemove: true,   // removePracticeData: the first-use practice's cleanup in one call; an older backend makes the phone do it step by step
+    startNotYet: true,
+    startFix: true,      // statement check: startFix / startShift on balance checks, start_not_yet action, bank amount moves an inside balance (owner, 2026-11-11)   // listStartBalanceCandidates + not_yet on a starting balance: "Already in / Not yet" when saving one (owner, 2026-11-11)
+    noAccountTidy: true,   // listNoAccountEntries + assignEntryAccounts + undoEntryAccounts: "Entries with no account" in Tidy my history
+    practiceTidy: true,   // createPracticeTidy + removePracticeTidy + listTidyGroups({pinPractice}): the Tidy my history practice is only offered where this exists
+    practiceBank: true,   // createPracticeBankAccount + removePracticeBank: the Bank statements practice is only offered where this exists
+    importNewAccounts: true,   // Import / a bank's spreadsheet: a statement keyed NEW-… with newAccount creates that account with the save (StatementAccounts.gs)
+    importDest: true,   // Import: a file's category can go to Loans or a move between the person's accounts (record_loan_line, record_move)
+    practiceImport: true,   // removePracticeImport: the Import from another app practice is only offered where this exists
+    practiceDeleted: true,   // createPracticeDeleted + removePracticeDeleted: the Recently deleted practice is only offered where this exists (and where entriesRestore + entriesBulk do)
+    practiceReview: true,  // createPracticePending + removePracticeReview + the practice entries are ignored by learning / follow / guesses: the Needs review practice is only offered where this exists
+    repayNothingOwed: true,   // recordRepayment answers ask_if_nothing_owed ({nothing_owed}) and takes opening_loan (a debt from before the app saved with its repayment); an older backend lacks them, so Home's "+" saves as before
+    openingLoan: true,   // addLoan understands `opening` (a debt from before the app: no money entry); an older backend would save a normal loan, so the app hides the switch
+    incomeWaiting: true,   // an income can be saved as not received yet (IncomeWaiting.gs)
+    peopleOneList: true,   // payors and friends are one list; applyPayorMerge answers the one-time question on the owner's copy
+    friendsEdit: true,   // listMyFriends + updateFriend / deleteFriend for plain friends in any copy (More → Friends); an older backend lacks it, so the app hides the card
+    friendPhone: true,   // setFriendPhone (the loan screen's "Remind on WhatsApp" remembers the number); an older backend lacks it, so the app does not offer to remember it
+    remindTemplate: true,   // setFriendRemind (number + the language the reminder was written in) and setReminderTemplate (the person's own wording, Settings remind_template_en/es); an older backend lacks them, so the app hides "Change my template" and does not remember the language
+    friendPhoneEdit: true,   // addFriend / updateFriend take `phone` and listMyFriends returns it (More → Friends shows and edits the number); an older backend ignores it, so the app hides the field
+    friendsBulkDelete: true,   // deleteFriends (several at once, More → Friends → Edit); an older backend lacks it, so the app hides the Edit button
+    programmedStop: true,   // stopRecurringAtLastPayment / deleteRecurringExpenses / previewProgrammedDelete / convertPausedProgrammedForOwnerOnce + `paid` on one-time items (Programmed items: Stop or Delete); an older backend lacks them, so the app keeps its plain Delete
+    incomeVaries: true,     // income categories regular / varies (saveCategory income_kind), setPay, getPeriodSummary.incomeVaries (IncomeVaries.gs)
+    occupation: true,       // applyProfile({occupation}): What fits me → These days…
+    budgetHistory: true,    // budgets change forward only: addBudget({start}), endBudget(s), updateBudget({restart}) (Budgets.gs § Budget history)
+    paceCategories: true,   // getMonthlyHistory({categoryIds}): the Spending pace screen's 'Which expenses' (an older backend would ignore it and draw all expenses)
+    paceRanges: true,       // getSpendingPace({ranges}): the Spending pace card in the Week, Year and Custom views
+    budgetsBulkDelete: true,   // deleteBudgets (several at once, Budgets → Edit); an older backend lacks it, so the app hides the Edit button
+    bulkShowAgain: true,   // restoreFriends / restorePaymentMethods / showCategories + `deletedRows` in deleteFriends / removePaymentMethods (Undo after a bulk delete or hide, and a bulk "Show again" in Edit mode); an older backend lacks them, so the app shows no Undo and no Show again button
+    pmBulkRemove: true,   // removePaymentMethods (several accounts at once, More → Accounts → Edit); an older backend lacks it, so the app hides the Edit button
+    annualCleanup: true,   // listAnnualCleanup / applyAnnualCleanup / undoAnnualCleanup / finishAnnualCleanup: the owner's one-time move out of the old "Annual budget" category (AnnualCleanup.gs); the card shows only where this exists AND listAnnualCleanup says available
+    annualHints: true,   // getAnnualHints: each category's usual month and this year's count of annual expenses, for the Annual expenses bubbles (2026-11-14); an older backend lacks it, so those two bubbles never show
+    annualBudgets: true,   // "Everything marked Annual" yearly budgets (category_id ANNUAL) + one rule for what counts as annual (AnnualTag.gs); an older backend lacks it, so the budget form hides that choice
+    tripOpenOnCreate: true,   // addTrip with _open brings the new trip's screen and its "Find expenses" list in the same answer (one call: save → link)
+    tripBudgets: true,   // Trips.in_budgets ("In my budgets": as usual / left out / only in chosen budgets) counted by every budget sum; an older backend lacks it, so the trip pop-up hides the field
+    tripsBulkDelete: true,   // deleteTrips (several trips / events at once, More → Trips & events → Edit); an older backend lacks it, so the app hides the Edit button
+    tagsManage: true,   // getTagCounts + renameTag + deleteTag (the Tags part of More → Categories & tags); an older backend lacks them, so the app shows the list and Add only
+    categoriesBulkDelete: true,   // previewCategoryDelete + deleteCategories (several categories at once: move into one, or hide; More → Categories → Edit); an older backend lacks them, so the app hides the Edit button
+    businessBulkDelete: true,   // deleteBusinessItems + deleteBusinessPeople (several companies / projects / people at once, Edit on the Business screens); an older backend lacks them, so the app hides the Edit buttons
+    reviewBulk: true,   // confirmEntries + discardEntries (several waiting entries at once, Home → Needs review → Edit); an older backend lacks them, so the app hides the Edit button
+    entriesBulk: true,   // previewEntriesDelete + deleteEntries (several Home entries at once, Home / search → Edit); an older backend lacks them, so the app hides the Edit buttons
+    unconfirmEntry: true,   // Undo of a Needs review Confirm (design review 2026-11-12): unconfirmEntry sends a plain confirmed entry back to waiting
+    entriesRestore: true,   // a bulk delete keeps a 30-day safety copy: listDeletedEntries / restoreDeletedEntries / forgetDeletedEntries (Undo + More → Recently deleted); an older backend lacks them, so the app shows no Undo and no card
+    entriesBulkLink: true,   // setEntriesTrip / setEntriesTag + their undo (link several Home entries to a trip or event, add / remove a tag); an older backend lacks them, so the app hides those two choices
+    entriesBulkCategory: true,   // setEntriesCategory + undoSetEntriesCategory (change the category of several Home entries at once); an older backend lacks them, so the app hides the Category button
+    ownName: true,   // answerOwnName + `ownNameAsk` in getMeta: the Home "Is this you?" card and the welcome name line; an older backend lacks them
+    gapReasons: true,   // saveGapReason + `reasons` in getManualGaps: More → Bank emails → By transaction asks why no email came; an older backend lacks them, so the question is not shown
+    accountCurrencyEdit: true,   // savePaymentMethod takes `currency` (More → Accounts); a card may be in one currency only ('credit_usd'); 2026-11-04
+    accountCurrencyList: true,   // savePaymentMethod and saveOnboardingAccounts take `currencies`, a list: an account can have several (2026-11-06)
+    plinMany: true,   // Plin on several accounts (saveRailLinks plin_pen_more)
+    ratesUsdConvert: !isFriendCopy_(),   // previewRatesToUsd + convertRatesToUsd: store every rate as "1 USD = x" (RatesUsd.gs); the owner's copy only for now
+    bankOpening: true,   // saveBankLoan takes opening + first_number: a bank loan from before the app (2026-11-08)
+    chargeFill: true,   // an entry's charge and what was paid (Charges.gs): the form's box, Home's card
+    accountCurrencySuggest: true,   // getAccountCurrencySuggestions + apply: older accounts, shown in More → Accounts on the owner's copy (2026-11-06)
+    accountCurrencies: true,   // saveOnboardingAccounts takes any currency for a debit / salary account ('debit_eur', 'sueldo_usd'); an older backend gets only soles / dollars offered in the welcome
+    profileState: true,   // getProfileState (which saved picks still have their category) + applyProfile brings a hidden / deleted pick's category back: More → My profile → What fits me; an older backend shows the saved picks as they are
+    dateOrder: true,   // saveDateOrder: More → My profile → How I type dates (Settings `date_format`); an older backend lacks it, so the app hides that card
+    programmedTags: true,   // a Programmed item's tags (tag_ids), Annual items counted as annual, the tag question after a matching save (tag_ask / tag_asks + addEntriesTags); 2026-11-16
+    navTabs: true,   // saveNavTabs: More → My profile → My tabs (Settings `nav_tabs`); an older backend lacks it, so the app hides that card
+    profile: true,   // applyProfile: "What fits you?" category packs (Profile.gs); an older backend lacks it, so the app never asks
     // Business pack (Business.gs): off until the person chooses it; the app shows nothing business while false.
     business: businessOn_(),
     // Whether this copy may see the pack at all (the welcome question and the More row). False on a new person's copy until the owner opens it.
@@ -92,8 +200,8 @@ function getCapabilities_() {
 // The two optional extras can be switched off without deleting anything: the app stops using the ability at once
 // (FEATURES loses it; the keep-awake timer is removed; the e-mail steps already check featureOn_). The name is also kept in
 // FEATURES_OFF so a later "Update my app" (installApplyCode_ in docs/setup/Install.gs, which rewrites FEATURES from what the
-// installer was built with) does not silently turn it back on. Turning one ON again goes through the setup page (the Google
-// approval cannot be given from here); its approval visit clears the name from FEATURES_OFF.
+// installer was built with) does not silently turn it back on. Turning one ON again: setExtraOn below while Google's permission is still
+// there; otherwise the setup page (only Google can ask for an approval), whose approval visit clears the name from FEATURES_OFF.
 var OPT_OUT_EXTRAS_ = ['keepawake', 'gmail'];
 
 function csvList_(raw) {
@@ -122,6 +230,49 @@ function setExtraOff(payload) {
   if (off.indexOf(name) === -1) off.push(name);
   props.setProperty('FEATURES_OFF', off.join(','));
   if (name === 'keepawake') removeKeepWarmPingTriggers_();
+  return { capabilities: getCapabilities_() };
+}
+
+// Turning an extra ON again from the app (2026-11-04). Switching one off never removes Google's permission, so most of the time it can
+// simply come back: first a harmless call proves Google still allows it (Gmail: the mailbox profile, no e-mail content; keep-awake: one
+// outside request), then FEATURES gets the name, FEATURES_OFF loses it and the timer is (re)created. If Google says no (never approved at
+// setup, or "Take back all permissions" was used), nothing changes and the answer says `needsApproval`: only Google's own page can ask,
+// so the app then sends the person to the setup page as before.
+function extraAllowedByGoogle_(name) {
+  try {
+    if (name === 'gmail') Gmail.Users.getProfile('me');
+    else UrlFetchApp.fetch('https://www.google.com/generate_204', { muteHttpExceptions: true });
+    return true;
+  } catch (err) {
+    Logger.log('extra ' + name + ' not allowed: ' + err);
+    return false;
+  }
+}
+
+function setExtraOn(payload) {
+  requireFriendCopy_();
+  var name = String((payload && payload.name) || '');
+  if (OPT_OUT_EXTRAS_.indexOf(name) === -1) {
+    var bad = new Error(tr_('extras.unknown'));
+    bad.code = 'bad_request';
+    throw bad;
+  }
+  if (!extraAllowedByGoogle_(name)) return { needsApproval: true, capabilities: getCapabilities_() };
+  try {
+    if (name === 'keepawake') {
+      removeKeepWarmPingTriggers_();
+      ScriptApp.newTrigger('pingWebApp_').timeBased().everyMinutes(5).create();
+    } else if (!ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'runAutomation'; })) {
+      ScriptApp.newTrigger('runAutomation').timeBased().everyMinutes(15).create();
+    }
+  } catch (err) {
+    Logger.log('extra ' + name + ' timer: ' + err);
+    return { needsApproval: true, capabilities: getCapabilities_() };
+  }
+  var props = PropertiesService.getScriptProperties();
+  var on = csvList_(props.getProperty('FEATURES')).filter(function (f) { return f !== name && f !== 'base'; });
+  props.setProperty('FEATURES', ['base'].concat(on, [name]).join(','));
+  props.setProperty('FEATURES_OFF', csvList_(props.getProperty('FEATURES_OFF')).filter(function (f) { return f !== name; }).join(','));
   return { capabilities: getCapabilities_() };
 }
 

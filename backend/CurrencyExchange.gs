@@ -20,11 +20,42 @@ function exchangeHouseWordLists_() {
   var seen = {};
   getAllRows('Entries').forEach(function (e) {
     if (e.type !== 'transfer') return;
+    if (isPracticeExchange_(e)) return;   // the first-use practice's own "house" is never learned
     var m = String(e.description || '').match(/^(?:Currency exchange|Cambio de moneda) \((.+)\)\s*$/i);
     if (m && !seen[m[1].toLowerCase()]) { seen[m[1].toLowerCase()] = true; names.push(m[1]); }
   });
   EXCHANGE_HOUSES_MEMO_ = names.map(ownerNameTokens_).filter(function (t) { return t.length >= 1 && t.join('').length >= 5; });
   return EXCHANGE_HOUSES_MEMO_;
+}
+
+// First-use Currency exchange practice (docs/app.js § First-use practice: Currency exchange). Its exchange carries the "house" name
+// "Practice exchange" / "Cambio de práctica", so each of its two legs reads "Currency exchange (Practice exchange)" /
+// "Cambio de moneda (Cambio de práctica)". Every guard and the cleanup below look for exactly that, nothing looser.
+var PRACTICE_EXCHANGE_RE_ = /^(?:Currency exchange|Cambio de moneda) \((?:Practice exchange|Cambio de práctica)\)$/i;
+function isPracticeExchange_(e) {
+  return !!e && e.type === 'transfer' && PRACTICE_EXCHANGE_RE_.test(String(e.description || '').trim());
+}
+
+/**
+ * The Currency exchange practice's cleanup in ONE call: deletes the exchange legs carrying the practice's name that were made since
+ * the day the practice started (by their date or by the moment they were saved, in case the person changed the date). Nothing else is
+ * touched: not a real exchange, not a rate. (Recording an exchange never writes a rate - the rate line in the form is only shown -
+ * so there is no rate to remove; Exchange Rates is not read or written here.)
+ *   payload: { started_on 'yyyy-MM-dd' }   returns { entries }
+ */
+function removePracticeExchange(payload) {
+  return withScriptLockOnce_(function () {
+    var startedOn = String((payload && payload.started_on) || '');
+    var out = { entries: 0 };
+    getAllRows('Entries').forEach(function (e) {
+      if (!isPracticeExchange_(e)) return;
+      var since = !startedOn || String(e.date) >= startedOn || String(e.created_at || '').slice(0, 10) >= startedOn;
+      if (!since) return;
+      try { discardEntryWithRepayments_(e.id, 'cancel'); out.entries++; } catch (err) { /* it stays: the person can delete it by hand */ }
+    });
+    EXCHANGE_HOUSES_MEMO_ = null;
+    return out;
+  });
 }
 
 // Does this recipient text name a known exchange house? Every word of the house must
@@ -52,6 +83,13 @@ function exchangeLeg_(leg, label) {
   return { amount: amount, currency: String(leg.currency), pmId: pmId };
 }
 
+// The two legs' ids from one client_id: the money-out leg uses it as is, the money-in leg the same id with its last digit
+// moved on by one (still a valid id, always different).
+function exchangeLegIds_(clientId) {
+  var last = parseInt(clientId.charAt(clientId.length - 1), 16);
+  return { out: clientId, in: clientId.slice(0, -1) + ((last + 1) % 16).toString(16) };
+}
+
 /**
  * payload: { date 'yyyy-MM-dd', out: {payment_method_id, amount, currency}, in: {...}, house?: text,
  *            pending_entry_id?: a pending review entry to turn into one leg, pending_leg?: 'out' | 'in' }
@@ -74,6 +112,15 @@ function recordCurrencyExchange(payload) {
     return house ? tr_('desc.exchangeHouse', { name: house }) : tr_(side === 'out' ? 'desc.exchangeOut' : 'desc.exchangeIn', { cur: leg.currency });
   };
 
+  // The phone's background queue sends its own id (client_id); the two legs get ids made from it, so sending the same
+  // exchange again (a lost reply, the app closed mid-save) answers with the legs already made instead of making two more.
+  var clientId = payload.pending_entry_id ? '' : clientSaveId_(payload);
+  var legIds = clientId ? exchangeLegIds_(clientId) : null;
+  if (legIds) {
+    var legOut = out.pmId ? getEntryById_(legIds.out) : null, legIn = inn.pmId ? getEntryById_(legIds.in) : null;
+    if (legOut || legIn) return { out: legOut, in: legIn };
+  }
+
   var pending = null, pendingLeg = payload.pending_leg === 'in' ? 'in' : 'out';
   if (payload.pending_entry_id) {
     pending = getEntryById_(String(payload.pending_entry_id));
@@ -83,6 +130,9 @@ function recordCurrencyExchange(payload) {
   if (pending && !(pendingLeg === 'out' ? out.pmId : inn.pmId)) throw new Error(tr_('xch.pendingSide'));
   ensureEntriesToPaymentMethodColumn_();
   ensureEntriesExchangeColumn_();
+  ensureColumn_('Entries', 'exchange_pair');
+  // Both sides carry the same pair id, so the app can show and delete them as ONE exchange (owner, 2026-11-02).
+  var pairId = clientId || Utilities.getUuid();
 
   var result = { out: null, in: null };
   [['out', out], ['in', inn]].forEach(function (pair) {
@@ -97,13 +147,15 @@ function recordCurrencyExchange(payload) {
       // Turned in place so its e-mail reference stays: a later back-check must not make it again.
       fields.status = 'confirmed';
       fields.exchange = '1';
+      fields.exchange_pair = pairId;
       fields.merchant = '';
       fields.trip_id = '';
       updateRowFields_('Entries', pending.id, fields);
       result[side] = getEntryById_(pending.id);
     } else {
+      if (legIds) fields.client_id = legIds[side];
       result[side] = createEntry(fields);
-      updateRowFields_('Entries', result[side].id, { exchange: '1' });
+      updateRowFields_('Entries', result[side].id, { exchange: '1', exchange_pair: pairId });
       result[side] = getEntryById_(result[side].id);
     }
   });
@@ -160,7 +212,7 @@ function exchangeDayDiff_(a, b) {
 function lastExchangeAccount_(entries, currency, side) {
   var best = null;
   entries.forEach(function (e) {
-    if (e.type !== 'transfer' || e.status !== 'confirmed' || e.currency !== currency || !EXCHANGE_DESCRIPTION_RE_.test(String(e.description || ''))) return;
+    if (e.type !== 'transfer' || e.status !== 'confirmed' || e.currency !== currency || !EXCHANGE_DESCRIPTION_RE_.test(String(e.description || '')) || isPracticeExchange_(e)) return;
     var id = side === 'out' ? (!e.to_payment_method_id && e.payment_method_id) : (!e.payment_method_id && e.to_payment_method_id);
     if (id && (!best || String(e.date) >= String(best.date))) best = { date: String(e.date), id: id };
   });
@@ -178,9 +230,12 @@ function lastExchangeAccount_(entries, currency, side) {
 function findExchangeLegTwin_(entries, side, currency, amount, dateStr, codeKey, source) {
   var found = null;
   entries.forEach(function (e) {
-    if (found || e.currency !== currency) return;
+    if (found || e.currency !== currency || isPracticeExchange_(e)) return;   // the practice's legs are never a real exchange's twin
+    // A bank names the house by its legal name ("Inversiones <x> S.", not "Cambio Mundial"), so a pending bank expense with the house's
+    // operation code and the same amount is the same leg whatever its name (2026-11-20: every Cambio Mundial exchange counted twice).
+    var sameCode = side === 'out' && codeKey && exchangeCodeKey_(e.external_id) === codeKey && Math.abs(Number(e.amount) - Number(amount)) < 0.005;
     var isExchange = (e.type === 'transfer' && EXCHANGE_DESCRIPTION_RE_.test(String(e.description || '')))
-      || (side === 'out' && e.type === 'expense' && e.status === 'pending' && exchangeHouseIn_(e.description));
+      || (side === 'out' && e.type === 'expense' && e.status === 'pending' && (sameCode || exchangeHouseIn_(e.description)));
     if (!isExchange) return;
     var sideOk = side === 'out' ? !e.to_payment_method_id : !e.payment_method_id;
     if (!sideOk) return;
@@ -194,6 +249,54 @@ function findExchangeLegTwin_(entries, side, currency, amount, dateStr, codeKey,
   return found;
 }
 
+// The exchange house's "left" leg already made from its own e-mail with this bank operation number (its code), same currency and amount,
+// or null. Lets a bank e-mail that names the house by another (legal) name be recognised as that leg instead of a second, spending entry.
+var EXCHANGE_HOUSE_LEGS_MEMO_ = null;   // the house's "left" legs (cm-out-…), read once per e-mail run; dropped whenever the house adds one
+function exchangeHouseLegByCode_(fields) {
+  var key = exchangeCodeKey_(fields.externalId);
+  if (!key) return null;
+  if (!EXCHANGE_HOUSE_LEGS_MEMO_) EXCHANGE_HOUSE_LEGS_MEMO_ = getAllRows('Entries').filter(function (e) { return /^cm-out-/.test(String(e.external_id || '')); });
+  return EXCHANGE_HOUSE_LEGS_MEMO_.find(function (e) {
+    return e.type === 'transfer' && String(e.external_id || '') === 'cm-out-' + key && e.currency === fields.currency
+      && Math.abs(Number(e.amount) - Number(fields.amount)) < 0.005 && !e.to_payment_method_id;
+  }) || null;
+}
+
+// ---- The two sides of one exchange, as ONE item (owner, 2026-11-20) ----
+// Which side a leg is: the side whose account is set, else what the exchange house's id says ('' when neither tells).
+function exchangePairSide_(e) {
+  if (!e) return '';
+  if (e.payment_method_id && !e.to_payment_method_id) return 'out';
+  if (e.to_payment_method_id && !e.payment_method_id) return 'in';
+  var ext = String(e.external_id || '');
+  return /^cm-in-/.test(ext) ? 'in' : (/^cm-out-/.test(ext) ? 'out' : '');
+}
+
+// The other side of an exchange (same exchange_pair), or null.
+function exchangePartner_(entry, entries) {
+  var pair = String((entry && entry.exchange_pair) || '');
+  if (!pair || entry.type !== 'transfer') return null;
+  return (entries || getAllRows('Entries')).filter(function (e) {
+    return e.id !== entry.id && e.type === 'transfer' && String(e.exchange_pair || '') === pair;
+  })[0] || null;
+}
+
+// { out, in } when this leg and its partner are both waiting, else null. Either one may be the leg passed in.
+function pendingExchangePair_(entry, entries) {
+  return entry && entry.status === 'pending' ? exchangePairOf_(entry, entries) : null;
+}
+
+// { out, in } for a leg and its partner in the SAME state (both waiting or both confirmed), else null.
+function exchangePairOf_(entry, entries) {
+  if (!entry || (entry.status !== 'pending' && entry.status !== 'confirmed')) return null;
+  var partner = exchangePartner_(entry, entries);
+  if (!partner || partner.status !== entry.status || partner.currency === entry.currency) return null;
+  var a = exchangePairSide_(entry), b = exchangePairSide_(partner);
+  if (a === 'out' || b === 'in') return a === 'in' ? null : { out: entry, 'in': partner };
+  if (a === 'in' || b === 'out') return { out: partner, 'in': entry };
+  return null;
+}
+
 // Saves what an exchange-house e-mail says: up to two pending one-sided transfers. Returns how many were created, or -1 when unreadable.
 function processExchangeEmail_(rule, message, sender, dateStr, createdAt, results, existingExternalIds) {
   var parsed = parseExchangeConfirmation_(message.getSubject(), message.getPlainBody());
@@ -204,7 +307,9 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
   var description = tr_('desc.exchangeHouse', { name: rule.house });
   ensureEntriesToPaymentMethodColumn_();
   ensureEntriesExchangeColumn_();
-  var made = 0;
+  ensureColumn_('Entries', 'exchange_pair');
+  var made = 0, turned = false;
+  var legsBySide = { out: null, in: null };   // the two sides of THIS exchange, new or found, paired below (owner, 2026-11-20)
 
   [['out', parsed.out], ['in', parsed.in]].forEach(function (pair) {
     var side = pair[0], leg = pair[1];
@@ -217,7 +322,9 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
       // A bank e-mail that read as a plain pending expense becomes the leg itself, so it is not left behind as spending.
       if (twin.type === 'expense') {
         updateRowFields_('Entries', twin.id, { type: 'transfer', category_id: transferCat ? transferCat.id : '', description: description, merchant: '', to_payment_method_id: '', exchange: '1' });
+        turned = true;
       }
+      legsBySide[side] = twin;
       return;
     }
     var account = lastExchangeAccount_(entries, leg.currency, side);
@@ -229,10 +336,22 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
     };
     appendRowObject('Entries', entry);
     entries.push(entry);
+    EXCHANGE_HOUSE_LEGS_MEMO_ = null;
     results.created++;
     made++;
-    try { sendTelegramEntryNotification_(entry, null, null); } catch (err) { console.error('Telegram notification failed: ' + err); }
+    legsBySide[side] = entry;
   });
+  // Both sides carry one pair id, as the app's own exchange form does, so Needs review, Home and the bot show them as ONE exchange.
+  var outLeg = legsBySide.out, inLeg = legsBySide['in'];
+  if (outLeg && inLeg) {
+    var pairId = String(outLeg.exchange_pair || inLeg.exchange_pair || '') || Utilities.getUuid();
+    [outLeg, inLeg].forEach(function (e) { if (String(e.exchange_pair || '') !== pairId) updateRowFields_('Entries', e.id, { exchange_pair: pairId }); });
+  }
+  // ONE bot message for the exchange (owner, 2026-11-20): it shows both sides, and Confirm / Discard act on both.
+  if (made || turned) {
+    var card = [outLeg, inLeg].map(function (e) { return e ? getEntryById_(e.id) : null; }).filter(function (e) { return e && e.status === 'pending'; })[0];
+    if (card) { try { sendTelegramEntryNotification_(card, null, null); } catch (err) { console.error('Telegram notification failed: ' + err); } }
+  }
   EXCHANGE_HOUSES_MEMO_ = null;
   return made;
 }
@@ -241,14 +360,14 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
 // What is left over and older than 2 days is returned (newest first, at most 30): the exchange is missing a side.
 function unpairedExchangeLegs_() {
   var legs = getAllRows('Entries').filter(function (e) {
-    return e.type === 'transfer' && EXCHANGE_DESCRIPTION_RE_.test(String(e.description || '')) && (!!e.payment_method_id !== !!e.to_payment_method_id);
+    return e.type === 'transfer' && EXCHANGE_DESCRIPTION_RE_.test(String(e.description || '')) && !isPracticeExchange_(e) && (!!e.payment_method_id !== !!e.to_payment_method_id);
   }).map(function (e) { return { e: e, side: e.payment_method_id ? 'out' : 'in', used: false }; });
   legs.forEach(function (a) {
     if (a.used || a.side !== 'out') return;
     var b = legs.find(function (x) { return !x.used && x.side === 'in' && x.e.currency !== a.e.currency && exchangeDayDiff_(x.e.date, a.e.date) <= 3; });
     if (b) { a.used = true; b.used = true; }
   });
-  var cutoff = overlapDayNumber_(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')) - 2;
+  var cutoff = overlapDayNumber_(Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd')) - 2;
   return legs.filter(function (l) { return !l.used && overlapDayNumber_(l.e.date) <= cutoff; })
     .sort(function (a, b) { return String(b.e.date).localeCompare(String(a.e.date)); })
     .slice(0, 30)

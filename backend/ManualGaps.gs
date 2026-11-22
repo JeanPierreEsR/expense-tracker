@@ -15,7 +15,7 @@ var GAP_WINDOW_DAYS_ = 90;
 var GAP_KINDS_ = ['plin_out_whatsapp', 'yape_in', 'plin_in', 'yape_out', 'plin_out', 'cash', 'friend_paid', 'no_email_bank', 'other_manual'];
 
 function gapIsoToday_() {
-  return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd');
 }
 
 function gapIsoDaysAgo_(n) {
@@ -48,22 +48,75 @@ function gapClassify_(item, ctx) {
   return 'other_manual';
 }
 
-/** Pure: items -> [{ key, count, last, totals? }] in GAP_KINDS_ order, only kinds that occurred. */
-function gapSummarize_(items, ctx, withTotals) {
+// How necessary adding one thing by hand was (owner, 2026-11-03: "optional if an e-mail was capturing it, mandatory if not"):
+//   must     - no e-mail can bring it (cash, a friend paid, money received, a bank the app cannot read, a Yape under S/ 10, ...)
+//   check    - an e-mail exists for it but none of that kind has reached THIS person (the bank's alert may be off): needed for now
+//   optional - e-mails of that kind ARE reaching this person, so adding it by hand was not needed
+// Judged only from the bank's rules and the days e-mails really arrived (ctx.coverage = bankCoverage_(), ctx.bankSeen = bankMailSeenMap_());
+// without ctx.coverage nothing is claimed (need stays undefined). A line a statement revealed was by definition NOT captured, so never optional.
+var GAP_NEED_ORDER_ = ['must', 'check', 'optional'];
+
+function gapCoverageOf_(ctx, bank) {
+  var cov = ctx && ctx.coverage, want = String(bank || '').toLowerCase();
+  if (!cov || !want) return null;
+  var name = Object.keys(cov).filter(function (b) { return b.toLowerCase() === want; })[0];
+  return name ? { bank: name, cov: cov[name] } : null;
+}
+
+// 'optional' / 'check' for a kind the bank's rules read; null when no rule reads it.
+function gapKindState_(ctx, bank, kind) {
+  var c = gapCoverageOf_(ctx, bank);
+  if (!c) return null;
+  var k = c.cov.kinds.filter(function (x) { return x.key === kind; })[0];
+  return k ? (k.seen ? 'optional' : 'check') : null;
+}
+
+/** Pure: 'must' | 'check' | 'optional' for one item already classified as `key`; undefined when ctx carries no coverage. */
+function gapNeed_(item, key, ctx) {
+  if (!ctx || !ctx.coverage) return undefined;
+  var need = 'must';
+  var bank = item.bankName;
+  if (key === 'yape_in') need = (gapKindState_(ctx, bank, 'yape_in') || 'must');
+  else if (key === 'yape_out') need = (item.currency === 'PEN' || !item.currency) && Math.abs(Number(item.amount) || 0) < 10 ? 'must' : (gapKindState_(ctx, 'Yape', 'yape_out') || 'must');   // Yape e-mails start at S/ 10
+  else if (key === 'plin_out') need = (gapKindState_(ctx, bank, 'plin_out') || 'must');
+  else if (key === 'other_manual' && item.direction !== 'in') {
+    var c = gapCoverageOf_(ctx, bank);
+    if (c) need = (ctx.bankSeen && Object.keys(ctx.bankSeen).some(function (b) { return b.toLowerCase() === c.bank.toLowerCase() && ctx.bankSeen[b]; })) ? 'optional' : 'check';
+  }
+  if (item.source === 'statement' && need === 'optional') need = 'check';
+  return need;
+}
+
+/**
+ * Pure: items -> [{ key, need?, count, last, totals?, items? }]: GAP_KINDS_ order (and, when ctx carries coverage, grouped by need:
+ * must, check, optional), only what occurred. withItems = true adds the newest `itemsMax` (default 20) things of each group.
+ */
+function gapSummarize_(items, ctx, withTotals, withItems, itemsMax) {
   var by = {};
   items.forEach(function (it) {
     var key = gapClassify_(it, ctx);
-    var g = by[key] || (by[key] = { key: key, count: 0, last: '', totals: {} });
+    var need = gapNeed_(it, key, ctx);
+    var gid = (need || '') + '|' + key;
+    var g = by[gid] || (by[gid] = { key: key, need: need, count: 0, last: '', totals: {}, list: [] });
     g.count++;
     if (it.date && it.date > g.last) g.last = it.date;
     if (withTotals && it.currency) g.totals[it.currency] = Math.round(((g.totals[it.currency] || 0) + Math.abs(Number(it.amount) || 0)) * 100) / 100;
+    if (withItems) g.list.push({ date: it.date || '', description: String(it.text || ''), amount: Math.abs(Number(it.amount) || 0), currency: it.currency || '', direction: it.direction, source: it.source });
   });
-  return GAP_KINDS_.filter(function (k) { return by[k]; }).map(function (k) {
-    var g = by[k];
-    var out = { key: g.key, count: g.count, last: g.last };
-    if (withTotals) out.totals = g.totals;
-    return out;
+  var needs = (ctx && ctx.coverage) ? GAP_NEED_ORDER_ : [undefined];
+  var out = [];
+  needs.forEach(function (need) {
+    GAP_KINDS_.forEach(function (k) {
+      var g = by[(need || '') + '|' + k];
+      if (!g) return;
+      var o = { key: g.key, count: g.count, last: g.last };
+      if (need) o.need = need;
+      if (withTotals) o.totals = g.totals;
+      if (withItems) o.items = g.list.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; }).slice(0, itemsMax || 20);
+      out.push(o);
+    });
   });
+  return out;
 }
 
 function getManualGaps(payload) {
@@ -110,10 +163,44 @@ function getManualGaps(payload) {
     });
   });
 
-  var ctx = { emailBanks: getEmailInfo_().banks };
-  var out = { windowDays: GAP_WINDOW_DAYS_, kinds: gapSummarize_(items, ctx, owner), owner: owner, unread: listUnreadEmails_(from) };
+  var info = getEmailInfo_();
+  var ctx = { emailBanks: info.banks, coverage: info.coverage, bankSeen: info.seen };
+  var out = { windowDays: GAP_WINDOW_DAYS_, kinds: gapSummarize_(items, ctx, owner, true, 20), owner: owner, unread: listUnreadEmails_(from) };
+  out.coverage = info.coverage;   // the Bank emails screen draws both of its views from this one answer
+  out.seen = info.seen;
   if (owner) out.manualShare = { manual: manualEntries, total: totalEntries };
+  out.reasons = gapReasons_();
   return out;
+}
+
+// ---- "Why didn't an email come?" (owner, 2026-11-05) ----
+// The person says why a kind they added by hand had no e-mail. Kept in Settings `gap_reasons` = JSON {kind: {reason, note, at}}; the phone
+// uses it to name and place the group, and sends the same answer to the owner (reportFeedback, kind 'email_gap') so every case is collected.
+var GAP_REASONS_ = ['whatsapp', 'alert_off', 'under_min', 'dont_know', 'other'];
+var GAP_REASON_KINDS_ = ['yape_in', 'yape_out', 'plin_out', 'other_manual'];   // the kinds whose reason the app cannot know by itself
+var GAP_REASON_NOTE_MAX_ = 300;
+
+function gapReasons_() {
+  try {
+    var map = JSON.parse(String(getSettingsMap().gap_reasons || '{}'));
+    return (map && typeof map === 'object') ? map : {};
+  } catch (err) { return {}; }
+}
+
+function saveGapReason(p) {
+  p = p || {};
+  var kind = String(p.kind || ''), reason = String(p.reason || '');
+  if (GAP_REASON_KINDS_.indexOf(kind) === -1) throw new Error(tr_('err.gapReasonBad'));
+  var map = gapReasons_();
+  if (!reason) { delete map[kind]; }   // "change my answer": back to unanswered
+  else {
+    if (GAP_REASONS_.indexOf(reason) === -1 || (reason === 'whatsapp' && kind !== 'plin_out')) throw new Error(tr_('err.gapReasonBad'));
+    var note = reason === 'other' ? feedbackScrub_(p.note).substring(0, GAP_REASON_NOTE_MAX_) : '';
+    if (reason === 'other' && !note) throw new Error(tr_('err.gapReasonNote'));
+    map[kind] = { reason: reason, note: note, at: Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd') };
+  }
+  setSetting_('gap_reasons', JSON.stringify(map));
+  return { reasons: map };
 }
 
 // ---- Bank emails the app could not read (tab "Unread Emails") ----
@@ -134,8 +221,28 @@ function unreadSubjectShape_(subject) {
   return String(subject || '').toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().slice(0, 60);
 }
 
+// Bank e-mails that are not a payment, so "couldn't read" would mislead (owner, 2026-11-05): a statement the Statements inbox already reads
+// (STATEMENT_LINK_SENDERS_, StatementInbox.gs: SIP's AhorraMás "movimientos") and plain notices listed here. Matched on the subject's wording.
+var UNREAD_NOT_PAYMENTS_ = [
+  { sender: 'notificaciones@notificacionesbcp.com.pe', subject: /configuraci[oó]n de clave/i }   // "your password was set" notice
+];
+
+/** Pure: true when an e-mail of this sender and subject is not a payment the app should have read. */
+function unreadIsNotPayment_(sender, subject) {
+  var from = String(sender || '').toLowerCase(), subj = String(subject || '');
+  var statement = (typeof STATEMENT_LINK_SENDERS_ !== 'undefined' ? STATEMENT_LINK_SENDERS_ : []).some(function (spec) {
+    return spec.address === from && spec.subject.test(subj);
+  });
+  // An account statement e-mailed by a bank the Statements inbox watches (2026-11-20): the inbox takes its PDF; it is not a payment.
+  var mailed = /estado de cuenta/i.test(subj) && (typeof STATEMENT_SENDERS_ !== 'undefined' ? STATEMENT_SENDERS_ : []).some(function (s) {
+    return s.address === from;
+  });
+  return statement || mailed || UNREAD_NOT_PAYMENTS_.some(function (n) { return n.sender === from && n.subject.test(subj); });
+}
+
 function logUnreadEmail_(sender, subject, kind, dateStr) {
   if (!UNREAD_LOGGING_) return;
+  if (unreadIsNotPayment_(sender, subject)) return;
   try {
     ensureUnreadEmailsSheet_();
     var shape = unreadSubjectShape_(subject);
@@ -154,8 +261,9 @@ function logUnreadEmail_(sender, subject, kind, dateStr) {
 function listUnreadEmails_(fromIso) {
   ensureUnreadEmailsSheet_();
   return getAllRows('Unread Emails')
-    .filter(function (r) { return String(r.last_seen) >= fromIso; })
-    .sort(function (a, b) { return Number(b.count) - Number(a.count); })
-    .slice(0, 20)
+    .filter(function (r) { return String(r.last_seen) >= fromIso && !unreadIsNotPayment_(r.sender, r.subject); })   // rows logged before the list above
+    // Every sender + wording + kind is a row (owner's request, 2026-10-29), grouped by sender, the most frequent wording first.
+    .sort(function (a, b) { return String(a.sender).localeCompare(String(b.sender)) || Number(b.count) - Number(a.count); })
+    .slice(0, 200)
     .map(function (r) { return { sender: String(r.sender), subject: String(r.subject), kind: String(r.kind), count: Number(r.count), last: String(r.last_seen) }; });
 }

@@ -69,8 +69,8 @@ test("'my app' means this app everywhere: balance checks speak of the bank or wa
 });
 
 test("signing out says the data stays in the Google Sheet, and no text calls the sign-in a 'session key'", () => {
-  assert.match(get("signin.confirmSignOut").en, /stays safe in your Google Sheet/);
-  assert.match(get("signin.confirmSignOut").es, /siguen seguros en tu archivo de Google Sheets/);
+  assert.match(get("signin.confirmSignOut").en, /Your data is not deleted/);
+  assert.match(get("signin.confirmSignOut").es, /Tus datos no se borran/);
   assert.ok(!/session key|clave de sesión/i.test(get("devices.statusCode").en + get("devices.statusSession").en + get("devices.statusCode").es + get("devices.statusSession").es));
   assert.ok(!/earlier method|método anterior/.test(get("projMethod.ytd.desc").en + get("projMethod.ytd.desc").es));
   for (const k of ["check.failed.review", "check.failed.entries", "check.failed.meta", "check.failed.recurring"]) assert.ok(!/Couldn't confirm|No se pudo confirmar/.test(get(k).en + get(k).es), k);
@@ -85,8 +85,8 @@ test("'Pro' is now 'Advanced' (it suggested a paid tier)", () => {
 });
 
 test("two kinds of 'update' are told apart: the More row is about the person's own app in Google, and says so", () => {
-  assert.match(get("more.update").en, /Update my app \(in my Google account\)/);
-  assert.match(get("more.update").es, /Actualizar mi app \(en mi cuenta de Google\)/);
+  assert.match(get("more.update").en, /Update my app/);
+  assert.match(get("more.update").es, /Actualizar mi app/);
 });
 
 // update.body used to spell out how this differs from the "tap to reload" banner; the owner traded that

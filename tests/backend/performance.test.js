@@ -36,6 +36,7 @@ test("rate changes are still picked up after the shared lookup (no stale rates)"
 
 test("app-open bundle reads far fewer cells, and returns exactly the same data as before", () => {
   const { rt } = freshApp();
+  rt.api("getMeta");   // a copy's first open stores its first-use day once (firstUseDate_): not part of what is compared
   // reference: same request with the read cache forced off
   rt.run("var __origBundle = getStartupBundle; var __noMemo = function (p) { return { meta: getMeta(), entries: listEntries({ limit: 20 }), pending: listPendingEntries(), expectedRecurring: listExpectedRecurringItems() }; };");
   rt.resetStats();

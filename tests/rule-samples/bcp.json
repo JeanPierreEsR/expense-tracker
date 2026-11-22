@@ -5,6 +5,12 @@
       "expect": { "type": "expense", "amount": 15, "currency": "USD", "merchant": "TIENDA PRUEBA", "last4": "1234", "externalId": "000111" } },
     { "subject": "Realizaste un consumo con tu Tarjeta de Crédito BCP", "body": "Total del consumo S/ 5.00", "matches": false }
   ],
+  "bcp-consumo-credito": [
+    { "subject": "Realizaste un consumo con tu Tarjeta de Crédito BCP - Servicio de Notificaciones BCP",
+      "body": "Hola Ana,\nRealizaste un consumo de S/ 9.50 con tu Tarjeta de Crédito BCP en TIENDA PRUEBA.\nTotal del consumo S/ 9.50\nOperación realizada Consumo Tarjeta de Crédito\nFecha y hora 01 de febrero de 2026 - 09:15 AM\nNúmero de Tarjeta de Crédito ************5678\nEmpresa TIENDA PRUEBA\nNúmero de operación 0000222333",
+      "expect": { "type": "expense", "amount": 9.5, "currency": "PEN", "merchant": "TIENDA PRUEBA", "last4": "5678", "externalId": "0000222333" } },
+    { "subject": "Realizaste un consumo con tu Tarjeta de Debito BCP", "body": "Total del consumo S/ 5.00", "matches": false }
+  ],
   "bcp-pago-servicios": [
     { "subject": "ENVIO AUTOMATICO - CONSTANCIA DE PAGO DE SERVICIO - BANCA MOVIL BCP",
       "body": "Monto total     S/ 80.00\nEmpresa     LUZ PRUEBA\nServicio     Recibo de luz\nCuenta de origen     ****1234\nNúmero de operación     555111",

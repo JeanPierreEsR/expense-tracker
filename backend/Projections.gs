@@ -114,6 +114,7 @@ function projectionPeriodBounds_(displayPeriodType, anchorDate) {
 // time it's needed. Blank/missing on any existing row reads as 'monthly'
 // (the default, unchanged behavior) — nothing needs backfilling.
 function ensureCategoryPeriodTypeColumn_() {
+  if (memoHasColumns_('Categories', ['period_type'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Categories');
   var headers = getHeaders(sheet);
   if (headers.indexOf('period_type') !== -1) return;
@@ -238,7 +239,7 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
   var recurringSplitSums = getRecurringExpenseSplitSums_();
   // Entries tagged Annual are one-off lumps, not part of the monthly rate
   // (see the YTD pool below). They still count as "actual" in their own month.
-  var annualEntryIds = annualEntryIdSet_();
+  var annualEntryIds = annualMarkedIdSet_();
 
   var splitSumByEntry = {};
   getAllRows('Entry Splits').forEach(function (s) {
@@ -254,13 +255,21 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
 
   var overridesByKey = {};
   getProjectionOverrideRows_().forEach(function (o) {
-    overridesByKey[o.category_id + '|' + String(o.period_key)] = Number(o.amount);
+    var overrideAmount = Number(o.amount);
+    if (o.amount !== '' && isFinite(overrideAmount) && overrideAmount >= 0) overridesByKey[o.category_id + '|' + String(o.period_key)] = overrideAmount;   // (a row typed by hand may be anything)
   });
 
   var recurringByCategory = {};
   allRecurring.forEach(function (r) {
     if (!recurringByCategory[r.category_id]) recurringByCategory[r.category_id] = [];
     recurringByCategory[r.category_id].push(r);
+  });
+  // Bank-loan installments still to pay in the period (BankLoans.gs): their interest + fees are programmed expenses of the category
+  // they are filed under; their principal is a loan payment, summed apart by getProjections (never an expense).
+  var installmentPenByCategory = {};
+  bankInstallmentsDue_(bounds.startDate, bounds.endDate).expenses.forEach(function (x) {
+    var pen = toPen_(x.amount, x.currency, x.date);
+    if (pen != null) installmentPenByCategory[x.category_id] = (installmentPenByCategory[x.category_id] || 0) + pen;
   });
 
   var results = categories.map(function (category) {
@@ -323,9 +332,10 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
     // no YTD fallback to catch the amount instead, so excluding it would
     // just make a real, known, once-a-year payment disappear in its own
     // month.
+    // An item tagged Annual (owner, 2026-11-16) is left out of a month view the same way, like an Annual-tagged entry.
     var recurringForPeriod = (category.type === 'income' || bounds.periodType === 'yearly')
       ? categoryRecurring
-      : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly'; });
+      : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly' && !recurringIsAnnual_(r); });
 
     // Recurring portion for the exact period being shown — each
     // occurrence converted at its own actual date's rate, since a yearly
@@ -373,6 +383,8 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
       if (category.type === 'investment') { baseAmountPen = 0; ratePerMonth = 0; levelPerMonth = 0; }
     }
 
+    var installmentPen = category.type === 'expense' ? (installmentPenByCategory[category.id] || 0) : 0;
+    recurringAmountPen += installmentPen;
     var calculatedAmountPen = recurringAmountPen + baseAmountPen;
     var overrideKey = category.id + '|' + bounds.periodKey;
     var hasOverride = overridesByKey[overrideKey] !== undefined;
@@ -417,6 +429,7 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
         if (pen != null) programmedRemainingPen += pen;
       });
     });
+    programmedRemainingPen += installmentPen;   // an unpaid installment is still to come, like an unpaid programmed item
 
     // "Expected remaining" — the YTD monthly rate pro-rated down to just
     // the days actually left in the period (daysLeft/30 "months"), not
@@ -440,10 +453,9 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
     // breakdown lines a category's own row shows (actual + programmed +
     // expected always equals this exactly, with an override folding into
     // it the same way it folds into remainingTotalPen above). `amountPen`
-    // (the old flat full-period figure) is kept only for
-    // openProjectionOverrideModal_'s own pre-fill — an override still
-    // targets "what I think the FULL period will total," a genuinely
-    // different question than "what's happened plus what's left."
+    // (the old flat full-period figure) is only what a typed figure is
+    // kept in now: the override form shows totalPen, the card's own figure
+    // (2026-11-09, two different "calculated" totals read as a contradiction).
     var totalPen = actualPen + remainingTotalPen;
 
     return {
@@ -546,7 +558,7 @@ function getCategoryProjectionDetail(payload) {
 
   var dailyActualPen = {};
   var annualLeftOut = bounds.periodType === 'monthly' && category && category.type !== 'income';
-  var annualIdsInDetail = annualLeftOut ? annualEntryIdSet_() : {};
+  var annualIdsInDetail = annualLeftOut ? annualMarkedIdSet_() : {};
   getAllRows('Entries')
     .filter(function (e) {
       return e.status === 'confirmed' && e.category_id === payload.categoryId &&
@@ -601,7 +613,7 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
   });
   var recurringForPeriod = (category && category.type === 'income') || bounds.periodType === 'yearly'
     ? categoryRecurring
-    : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly'; });
+    : categoryRecurring.filter(function (r) { return r.frequency !== 'yearly' && !recurringIsAnnual_(r); });
 
   // Entries of ANY date in this category: "is this occurrence already paid"
   // looks around the occurrence's own date (see computeAllCategoryProjections_).
@@ -652,6 +664,20 @@ function computeCategoryProgrammedBreakdown_(categoryId, bounds, category) {
       amountPen: amountPen
     };
   }).filter(function (item) { return item.occurrences > 0; });
+
+  // A bank loan's installments still to pay in this category (their interest + fees), one line per loan.
+  var byLoan = {};
+  bankInstallmentsDue_(bounds.startDate, bounds.endDate).expenses.forEach(function (x) {
+    if (x.category_id !== categoryId || !category || category.type !== 'expense') return;
+    var pen = toPen_(x.amount, x.currency, x.date);
+    if (pen == null) return;
+    var it = byLoan[x.loan_id] || (byLoan[x.loan_id] = { id: 'loan:' + x.loan_id, description: tr_('proj.installmentItem', { what: x.description }),
+      amount: x.amount, currency: x.currency, occurrences: 0, amountPen: 0, installments: true });
+    it.occurrences++;
+    it.amountPen += pen;
+    dailyPen[x.date] = (dailyPen[x.date] || 0) + pen;
+  });
+  Object.keys(byLoan).forEach(function (k) { items.push(byLoan[k]); });
 
   items.sort(function (a, b) { return b.amountPen - a.amountPen; });
 
@@ -708,6 +734,10 @@ function computeCategoryYtdBreakdown_(categoryId, methodId) {
 }
 
 function setProjectionOverride(payload) {
+  var typed = Number(payload.amount);
+  if (!isFinite(typed) || typed < 0 || payload.amount === '' || payload.amount === null || payload.amount === undefined) throw new Error(tr_('err.validAmount'));
+  if (!/^\d{4}(-\d{2})?$/.test(String(payload.periodKey))) throw new Error(tr_('err.validPeriod'));
+  if (!rowsById_(getAllRows('Categories'))[payload.categoryId]) throw new Error(tr_('err.categoryNotFound'));
   ensureProjectionOverridesSheet_();
   var sheet = getSheet('Projection Overrides');
   var headers = getHeaders(sheet);
@@ -773,6 +803,19 @@ function getProjections(payload) {
     return all.reduce(function (sum, c) { return c.category_type === type ? sum + c[field] : sum; }, 0);
   }
 
+  // The explanation lines under the headline: a category set by hand has no Programmed or Expected part, only what is left of the
+  // figure typed for it, or those lines would not add up to the headline (Carlos, 2026-11-09).
+  function sumPlannedByType_(type, field) {
+    return all.reduce(function (sum, c) { return c.category_type === type && !c.hasOverride ? sum + c[field] : sum; }, 0);
+  }
+  function sumManualByType_(type) {
+    return all.reduce(function (sum, c) { return c.category_type === type && c.hasOverride ? sum + c.remainingTotalPen : sum; }, 0);
+  }
+  // Nothing could be estimated because the history is too short (not because the period is over or every category was set by hand).
+  var expensesCalculated = all.filter(function (c) { return c.category_type === 'expense' && !c.hasOverride; });
+  var notEnoughHistory = bounds.endDate >= formatCalendarDate_(new Date()) && expensesCalculated.length > 0
+    && expensesCalculated.every(function (c) { return !(c.baseAmountPen > 0.004); });
+
   // Rolled up from `totalPen` (added 2026-09-16, replacing `amountPen`) —
   // actual so far plus what's genuinely still left for every category of
   // that type, the same reality-aware figure the "By category" list and
@@ -785,23 +828,44 @@ function getProjections(payload) {
   var investmentsPutInNet = sumByType_('investment', 'totalPen');
   var investments = -investmentsPutInNet;
 
+  // Loans (2026-11-04, owner: a bank loan's installments show in Projections, split in their loan leg and their expense leg). Like
+  // Overview, money borrowed and repaid counts in What's left: the loan flows confirmed so far in the period, minus the principal of
+  // the installments still to pay. The interest + fees are already in Expenses (programmed, in their category).
+  var todayStr = formatCalendarDate_(new Date());
+  var loansActual = todayStr < bounds.startDate ? 0
+    : loanFlowsForPeriod_(bounds.startDate, todayStr < bounds.endDate ? todayStr : bounds.endDate, 'all').netPen;
+  var ratesByCurrency = buildRatesByCurrency_();
+  var loansProgrammed = 0;
+  bankInstallmentsDue_(bounds.startDate, bounds.endDate).principal.forEach(function (x) {
+    var rate = x.currency === homeCurrency_() ? 1 : rateToMain_(ratesByCurrency, x.currency, String(x.date).substring(0, 7));
+    if (rate != null) loansProgrammed += x.amount * rate;
+  });
+  var loans = loansActual - loansProgrammed;
+
   return {
     monthLabel: periodLabel,
     defaultMethod: getProjectionDefaultMethod_(),   // the predictor categories use unless they chose their own
     periodType: bounds.periodType,
     income: income,
     incomeActual: sumByType_('income', 'actualPen'),
-    incomeProgrammed: sumByType_('income', 'programmedRemainingPen'),
+    incomeProgrammed: sumPlannedByType_('income', 'programmedRemainingPen'),
+    incomeManual: sumManualByType_('income'),
     expenses: expenses,
     expensesActual: sumByType_('expense', 'actualPen'),
-    expensesProgrammed: sumByType_('expense', 'programmedRemainingPen'),
-    expensesExpected: sumByType_('expense', 'expectedRemainingPen'),
+    expensesProgrammed: sumPlannedByType_('expense', 'programmedRemainingPen'),
+    expensesExpected: sumPlannedByType_('expense', 'expectedRemainingPen'),
+    expensesManual: sumManualByType_('expense'),
+    notEnoughHistory: notEnoughHistory,
     investments: investments,
     investmentsActual: -sumByType_('investment', 'actualPen'),
     investmentsIn: sumByType_('investment', 'flowInPen'),
     investmentsOut: sumByType_('investment', 'flowOutPen'),
-    investmentsProgrammed: sumByType_('investment', 'programmedRemainingPen'),   // money to be put in
+    investmentsProgrammed: sumPlannedByType_('investment', 'programmedRemainingPen'),   // money to be put in
+    investmentsManual: sumManualByType_('investment'),
     investmentsExpected: sumByType_('investment', 'expectedRemainingPen'),
-    net: income - expenses - investmentsPutInNet
+    loans: loans,
+    loansActual: loansActual,
+    loansProgrammed: loansProgrammed,   // principal of installments still to pay (money going out)
+    net: income - expenses - investmentsPutInNet + loans
   };
 }

@@ -169,10 +169,12 @@ test("one phone records at most 5 of the same error and 40 errors a day, then st
 
 // ---- scope 3: what was done with a pending entry, weekly screen counts, the feedback text ----
 
-test("the consent version is 3, and someone at version 2 is asked again about the newer parts", () => {
-  assert.equal(PerfShare.SCOPE, 3);
+test("the consent version is 4 (tips, 2026-11-12), and someone at an older version is asked again about the newer parts", () => {
+  assert.equal(PerfShare.SCOPE, 4);
   assert.equal(PerfShare.needsAsk({ asked: true, on: true, scope: 2 }, false), true);
-  assert.equal(PerfShare.needsAsk({ asked: true, on: true, scope: 3 }, false), false);
+  assert.equal(PerfShare.needsAsk({ asked: true, on: true, scope: 3 }, false), true);
+  assert.equal(PerfShare.needsAsk({ asked: true, on: true, scope: 3, scopeSkips: PerfShare.MAX_REASKS }, false), false, "'Keep what I agreed to before' ends the question");
+  assert.equal(PerfShare.needsAsk({ asked: true, on: true, scope: 4 }, false), false);
   assert.equal(PerfShare.needsAsk({ asked: true, on: false, scope: 2 }, false), false, "a no stays a no");
 });
 

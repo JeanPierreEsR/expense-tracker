@@ -60,7 +60,9 @@ test("the Mark-as-paid picker ranks an own-share-only entry high for the shared 
 test("the old rent is counted twice until it is linked: Expected carries it, then linking takes it out", () => {
   const { rt, rent } = setup();
   const before = projection(rt);
-  assert.ok(before.expectedRemainingPen > 100, "the unmatched old rent sits in the average and is added on top of the programmed rent");
+  // "Expected" is for the REST of the month, so it shrinks toward 0 as the month ends: compare with the days left, not a fixed amount.
+  const daysLeft = new Date(Date.UTC(thisYear, thisMonth, 0)).getUTCDate() - Number(today().slice(8, 10));
+  if (daysLeft > 0) assert.ok(before.expectedRemainingPen > 0, "the unmatched old rent sits in the average and is added on top of the programmed rent");
   assert.ok(before.ratePerMonth > 900, "about USD 266.67 x 3.8 = 1,013 a month");
   const ids = rt.api("findRecurringLinkCandidates", { recurringExpenseId: rent.id }).candidates.map((c) => c.id);
   rt.api("linkEntriesToRecurring", { recurringExpenseId: rent.id, entryIds: ids });

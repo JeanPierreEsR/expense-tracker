@@ -32,19 +32,44 @@ test("a plain message edits the last notification when it is a pending entry car
 test("after a budget alert, a plain message gets the 'reply directly' note and edits nothing", () => {
   const { rt, pending, card, say, sent, entry } = setup();
   card(pending[0]);
-  rt.run("noteTelegramAlertSent_({ ok: true, result: { message_id: 999 } });");   // an alert arrives after the card
+  rt.run("noteTelegramAlertSent_(telegramApi_('sendMessage', { chat_id: getOwnerTelegramChatId_(), text: 'Budget alert' }));");   // a real alert arrives after the card
   const before = entry(pending[0].id).description;
   say("description Should not apply");
   assert.equal(entry(pending[0].id).description, before);
   assert.match(sent(), /Reply directly to an entry message/);
 });
 
-test("when the last card's entry is no longer pending, a plain message gets the 'reply directly' note", () => {
-  const { rt, pending, card, say, sent, entry } = setup();
+// Since 2026-11-16 Telegram has WhatsApp's "last message" rule (owner): the transaction of the bot's last message, waiting OR
+// confirmed; one deleted meanwhile says so.
+test("when the last card's entry was deleted meanwhile, a plain message says so and edits nothing", () => {
+  const { rt, pending, card, say, sent } = setup();
   card(pending[0]);
   rt.run(`deleteEntry_(${JSON.stringify(pending[0].id)});`);
   say("description Nope");
-  assert.match(sent(), /Reply directly to an entry message/);
+  assert.match(sent(), new RegExp(rt.run("tr_('bot.entryNotFound')").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("after the bot's 'Confirmed.' about a transaction, a plain message edits that confirmed transaction (the WhatsApp rule)", () => {
+  const { rt, pending, card, say, entry } = setup();
+  const e = pending[0];
+  const cat = rt.rows("Categories").find((c) => c.type === "expense");
+  rt.run(`updateRowFields_('Entries', ${JSON.stringify(e.id)}, { category_id: ${JSON.stringify(cat.id)} });`);
+  const cardId = card(e);
+  rt.rawPost(JSON.stringify({ update_id: 7999, callback_query: { id: "cbx", data: "confirm:" + e.id, message: { chat: { id: Number(rt.svc.props.get("TELEGRAM_CHAT_ID")) }, message_id: cardId } } }));
+  assert.equal(entry(e.id).status, "confirmed");
+  say("description Edited after confirming");
+  assert.equal(entry(e.id).description, "Edited after confirming");
+  assert.equal(entry(e.id).status, "confirmed");
+});
+
+test("plain words after a message that is not about a transaction: not taken as an edit; with no amount the bot says how to write one", () => {
+  const { rt, pending, card, say, sent, entry } = setup();
+  card(pending[0]);
+  rt.run("telegramApi_('sendMessage', { chat_id: getOwnerTelegramChatId_(), text: 'Some other message' })");
+  const before = entry(pending[0].id).description;
+  say("hola");
+  assert.equal(entry(pending[0].id).description, before);
+  assert.match(sent(), /couldn't find an amount/);
 });
 
 test("with no notification at all, a plain message gets the 'reply directly' note", () => {
@@ -58,5 +83,5 @@ test("a card for an expense with no payment method shows a ❓ line", () => {
   const e = pending[0];
   rt.run(`updateRowFields_('Entries', ${JSON.stringify(e.id)}, { payment_method_id: '' });`);
   const text = rt.run(`formatEntryForTelegram_(getEntryById_(${JSON.stringify(e.id)}), null)`);
-  assert.match(text, /💳 ❓ not set — reply "account Interbank"/);
+  assert.match(text, /💳 ❓ not set — reply "account [^"]+"/);
 });

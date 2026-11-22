@@ -11,7 +11,9 @@
  */
 
 var STATEMENT_INBOX_COLUMNS_ = ['id', 'message_id', 'attachment_name', 'sender_key', 'bank_label', 'bank_keyword',
-  'received', 'status', 'size_kb', 'notified', 'created_at'];
+  'received', 'status', 'size_kb', 'notified', 'created_at', 'account_key'];
+// account_key (2026-11-18): the account a statement turned out to be for, written when it is saved (only then is the PDF read), so
+// "Already read" can show the latest statement of each account. Empty for rows saved before, or saved from an older phone.
 
 // One entry per sender address that mails statements. `bank` is the word looked
 // for in the Payment Methods' bank name (to tell which accounts it belongs to);
@@ -26,6 +28,57 @@ var STATEMENT_SENDERS_ = [
   // address also sends SIP operation emails, but those carry no PDF, so only statements get through.
   { address: 'no-reply@operaciones.agora.pe', label: 'AhorraMás', bank: 'sip', creditOnly: false }
 ];
+
+// Statements a bank does not attach but sends as a DOWNLOAD LINK (SIP's AhorraMás "movimientos", sent when the person asks for them
+// in the Sip app; the link leads to a PDF on Google's file storage, needs no sign-in and expires after ~6 weeks). The inbox keeps only
+// the e-mail's id (attachment_name = STMT_LINK_MARK_, no size); the link is read again from the e-mail and followed only on Open.
+// `hosts`: the only places the link and its redirects may lead (a forged e-mail cannot make the app fetch anything else).
+var STMT_LINK_MARK_ = '(link)';
+var STATEMENT_LINK_SENDERS_ = [
+  { address: 'no-reply@operaciones.agora.pe', subject: /movimientos con ahorram/i, linkText: /descarga/i,
+    hosts: /(^|\.)(agora\.pe|sip\.pe|storage\.googleapis\.com)$/i, label: 'AhorraMás', bank: 'sip' }
+];
+
+function stmtIsLinkItem_(row) { return String(row.attachment_name) === STMT_LINK_MARK_; }
+
+/** "AhorraMás soles" / "AhorraMás dólares" when the subject says which; else the plain label. */
+function stmtLinkLabel_(spec, subject) {
+  var cur = (/\b(soles|d[oó]lares)\b/i.exec(String(subject || '')) || [])[1];
+  return cur ? spec.label + ' ' + cur.toLowerCase() : spec.label;
+}
+
+/** The href of the first <a> whose visible text matches spec.linkText, or ''. */
+function stmtStatementLink_(html, spec) {
+  var re = /<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, m;
+  while ((m = re.exec(String(html || '')))) {
+    var text = m[2].replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ');
+    if (spec.linkText.test(text)) return m[1].replace(/&amp;/gi, '&');
+  }
+  return '';
+}
+
+/** Follows the link (redirects one by one, each checked against spec.hosts) and returns { name, bytes } of the PDF. */
+function stmtFetchLinkedPdf_(url, spec) {
+  for (var hop = 0; hop < 6; hop++) {
+    var host = (/^https:\/\/([^\/?#:]+)/i.exec(url) || [])[1];
+    if (!host || !spec.hosts.test(host)) throw new Error(tr_('inbox.linkFailed'));
+    var res = UrlFetchApp.fetch(url, { followRedirects: false, muteHttpExceptions: true });
+    var code = res.getResponseCode();
+    if (code >= 300 && code < 400) {
+      var h = res.getAllHeaders();
+      var next = String(h.Location || h.location || '');
+      url = next.charAt(0) === '/' ? 'https://' + host + next : next;
+      continue;
+    }
+    if (code === 400 || code === 403 || code === 404 || code === 410) throw new Error(tr_('inbox.linkExpired'));
+    var bytes = code === 200 ? res.getContent() : [];
+    if (!(bytes.length > 4 && bytes[0] === 37 && bytes[1] === 80 && bytes[2] === 68 && bytes[3] === 70)) throw new Error(tr_('inbox.linkFailed'));   // "%PDF"
+    var file = String(url.split('?')[0].split('/').pop() || '');
+    try { file = decodeURIComponent(file); } catch (e) { /* keep it as printed */ }
+    return { name: /\.pdf$/i.test(file) ? file : spec.label + '.pdf', bytes: bytes };
+  }
+  throw new Error(tr_('inbox.linkFailed'));
+}
 
 // Banks learned on this copy: when a statement found by "Find statements in Gmail" is read successfully, its sender address is
 // remembered here so the 15-minute scan and later searches know that bank too, with no code change. (The built-in list above is the
@@ -54,7 +107,8 @@ function ensureStatementInboxSheet_() {
 /** Only real statement PDFs: not promos, brochures, logos, or other file types. */
 function stmtIsStatementAttachment_(name) {
   var n = String(name || '');
-  return /\.pdf$/i.test(n) && !/promo|retira|logo|folleto|brochure|cartilla/i.test(n);
+  // Interbank's "Constancia de pago" (date_time_number_code.pdf) is a payment received, read by PaymentNotice.gs, never a statement.
+  return /\.pdf$/i.test(n) && !/promo|retira|logo|folleto|brochure|cartilla/i.test(n) && !PAYMENT_NOTICE_FILE_.test(n);
 }
 
 // Statements the owner mails to himself (banks that send nothing automatically).
@@ -98,13 +152,61 @@ function scanStatementInbox_() {
   var seenMessage = {};
   rows.forEach(function (r) { seenMessage[r.message_id] = true; });
   var window = ' has:attachment filename:pdf newer_than:' + (first ? '75d' : '6d');
-  var tz = Session.getScriptTimeZone();
+  var tz = personTz_();
   var added = [];
-  function note(m, sender, att, selfSent) {
-    added.push({ id: Utilities.getUuid(), message_id: m.getId(), attachment_name: att.getName(), sender_key: selfSent ? 'self' : sender.address,
-      bank_label: sender.label, bank_keyword: sender.bank, received: Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd'),
-      status: 'new', size_kb: Math.round(att.getSize() / 1024), notified: first ? 'true' : '', created_at: nowTimestamp_() });
+  // A bank that sends the same statement twice (Diners, 2026-11-13: two identical e-mails a minute apart)
+  // must give ONE row and ONE nudge. A file is a repeat only when its CONTENT is identical to one already
+  // listed (or added in this scan) from the same sender within 7 days. Name and size only pick the
+  // candidates to compare: statements the owner mails himself all share one file name (account_summary.pdf),
+  // so two different statements must never be taken for one. If the earlier file cannot be read, it is
+  // NOT a repeat (a second message is better than a lost statement).
+  var seenFile = {};
+  function fileKey(senderKey, name, sizeKb) { return senderKey + '|' + name + '|' + sizeKb; }
+  function rememberFile(r, att) {
+    if (stmtIsLinkItem_(r)) return;
+    var k = fileKey(r.sender_key, r.attachment_name, r.size_kb);
+    (seenFile[k] = seenFile[k] || []).push({ received: String(r.received), message_id: r.message_id, name: r.attachment_name, att: att || null });
   }
+  function dayNum(d) { var p = String(d).split('-'); return Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000; }
+  function bytesOf(c) {
+    try {
+      var a = c.att || gmailGetMessage_(c.message_id).getAttachments({ includeInlineImages: false })
+        .filter(function (x) { return x.getName() === c.name; })[0];
+      return a ? a.getBytes() : null;
+    } catch (e) { return null; }
+  }
+  function sameBytes(x, y) {
+    if (!x || !y || x.length !== y.length) return false;
+    for (var i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+    return true;
+  }
+  rows.forEach(function (r) { rememberFile(r); });
+  function note(m, sender, att, selfSent) {
+    var senderKey = selfSent ? 'self' : sender.address;
+    var sizeKb = Math.round(att.getSize() / 1024);
+    var received = Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd');
+    var near = (seenFile[fileKey(senderKey, att.getName(), sizeKb)] || [])
+      .filter(function (c) { return Math.abs(dayNum(c.received) - dayNum(received)) <= 7; });
+    if (near.length) {
+      var mine = att.getBytes();
+      if (near.some(function (c) { return sameBytes(mine, bytesOf(c)); })) return;
+    }
+    added.push({ id: Utilities.getUuid(), message_id: m.getId(), attachment_name: att.getName(), sender_key: senderKey,
+      bank_label: sender.label, bank_keyword: sender.bank, received: received,
+      status: 'new', size_kb: sizeKb, notified: first ? 'true' : '', created_at: nowTimestamp_() });
+    rememberFile(added[added.length - 1], att);
+  }
+  // Download-link statements first (they carry no attachment, so the search below never sees them).
+  STATEMENT_LINK_SENDERS_.forEach(function (spec) {
+    gmailSearchMessages_('from:' + spec.address + ' subject:movimientos newer_than:' + (first ? '75d' : '6d'), { max: 50 }).forEach(function (m) {
+      var id = m.getId();
+      if (seenMessage[id] || !spec.subject.test(m.getSubject()) || !stmtStatementLink_(m.getBody(), spec)) return;
+      seenMessage[id] = true;
+      added.push({ id: Utilities.getUuid(), message_id: id, attachment_name: STMT_LINK_MARK_, sender_key: spec.address,
+        bank_label: stmtLinkLabel_(spec, m.getSubject()), bank_keyword: spec.bank, received: Utilities.formatDate(m.getDate(), tz, 'yyyy-MM-dd'),
+        status: 'new', size_kb: '', notified: first ? 'true' : '', created_at: nowTimestamp_() });
+    });
+  });
   var senders = statementSenders_();
   gmailSearchMessages_('from:(' + senders.map(function (s) { return s.address; }).join(' OR ') + ')' + window, { max: 150 }).forEach(function (m) {
     var id = m.getId();
@@ -159,7 +261,7 @@ function retryStatementInboxNudges_() {
 
 function sendTelegramText_(text) {
   var chatId = getOwnerTelegramChatId_();
-  if (!chatId || !getTelegramToken_()) return false;
+  if (!reviewBotCanSend_(chatId)) return false;
   var res = telegramApi_('sendMessage', { chat_id: chatId, text: text });
   noteTelegramAlertSent_(res);
   return !!(res && res.ok);
@@ -170,7 +272,7 @@ function updateRowFields_(sheetName, id, fields) {
   var headers = getHeaders(sheet);
   var idx = findRowIndexById(sheet, headers, id);
   if (idx === -1) return false;
-  Object.keys(fields).forEach(function (f) { sheet.getRange(idx, headers.indexOf(f) + 1).setValue(fields[f]); });
+  Object.keys(fields).forEach(function (f) { sheet.getRange(idx, headers.indexOf(f) + 1).setValue(safeCellValue_(sheetName, f, fields[f])); });
   return true;
 }
 
@@ -178,6 +280,7 @@ function updateRowFields_(sheetName, id, fields) {
 function stmtInboxAccounts_(item, pms, banksById) {
   var sender = statementSenders_().filter(function (s) { return s.address === item.sender_key; })[0] || {};
   return pms.filter(function (pm) {
+    if (isPracticeAccount_(pm)) return false;   // first-use practice account
     var bank = String((banksById[pm.bank_id] || {}).name || '').toLowerCase();
     if (bank.indexOf(item.bank_keyword) < 0) return false;
     if (sender.creditOnly && pm.type !== 'credit') return false;
@@ -194,18 +297,32 @@ function stmtLastProcessedFor_(accounts, uploads) {
   return last;
 }
 
+/**
+ * Read = saved (owner, 2026-11-11): an Inbox statement counts as read ONLY once the person finished every step for it — the final save
+ * of the Statements screen, with that statement in it (markStatementInboxProcessed_, StatementApply.gs). The app no longer guesses
+ * "probably already read" from other statements of the bank (that guess hid, first, a bank's other accounts and then, with a 40-day
+ * look-back, October statements because September's were saved). `probably_processed` stays in the answer, always false, for phones
+ * still on an older release. Undo puts the statement back as waiting.
+ */
 function listStatementInbox() {
   ensureStatementInboxSheet_();
   ensureStatementUploadsSheet_();
   var rows = getAllRows('Statement Inbox').filter(function (r) { return r.status === 'new' || r.status === 'processed'; });
   var pms = getAllRows('Payment Methods'), banksById = rowsById_(getAllRows('Banks')), uploads = getAllRows('Statement Uploads').filter(function (u) { return u.source !== 'import'; });
   var items = rows.map(function (r) {
-    var last = stmtLastProcessedFor_(stmtInboxAccounts_(r, pms, banksById), uploads);
-    return { id: r.id, bank: r.bank_label, received: String(r.received), file_name: r.attachment_name, size_kb: Number(r.size_kb),
-      status: r.status, sender: r.sender_key === 'self' ? '' : String(r.sender_key), last_processed: last, probably_processed: r.status === 'new' && !!last && String(r.received) <= last };
+    var accts = stmtInboxAccounts_(r, pms, banksById);
+    var last = stmtLastProcessedFor_(accts, uploads);
+    var link = stmtIsLinkItem_(r);
+    return { id: r.id, bank: r.bank_label, received: String(r.received), file_name: link ? '' : r.attachment_name, size_kb: link ? null : Number(r.size_kb), link: link,
+      status: r.status, sender: r.sender_key === 'self' ? '' : String(r.sender_key), last_processed: last, probably_processed: false,
+      account_key: r.account_key, sender_key: r.sender_key, bank_label: r.bank_label };
   });
   items.sort(function (a, b) { return (a.status === b.status ? 0 : (a.status === 'new' ? -1 : 1)) || (a.received < b.received ? 1 : -1); });
-  return { items: items.filter(function (i) { return i.status === 'new'; }).concat(items.filter(function (i) { return i.status === 'processed'; }).slice(0, 8)) };
+  var read = stmtInboxLatestPerAccount_(items.filter(function (i) { return i.status === 'processed'; }), pms);
+  return { items: items.filter(function (i) { return i.status === 'new'; }).concat(read).map(function (i) {
+    delete i.account_key; delete i.sender_key; delete i.bank_label;   // used only to group
+    return i;
+  }) };
 }
 
 /** Fetches ONE statement PDF from the owner's Gmail (only when he taps Open). */
@@ -214,6 +331,13 @@ function getStatementAttachment(payload) {
   if (!row) throw new Error(tr_('inbox.notThere'));
   requireFeature_('gmail', 'feature.gmailOff');
   var msg = gmailGetMessage_(row.message_id);
+  if (stmtIsLinkItem_(row)) {
+    var spec = STATEMENT_LINK_SENDERS_.filter(function (s) { return s.address === row.sender_key; })[0];
+    var url = spec ? stmtStatementLink_(msg.getBody(), spec) : '';
+    if (!url) throw new Error(tr_('inbox.linkGone'));
+    var pdf = stmtFetchLinkedPdf_(url, spec);
+    return { id: row.id, name: pdf.name, base64: Utilities.base64Encode(pdf.bytes) };
+  }
   var att = msg.getAttachments({ includeInlineImages: false }).filter(function (a) { return a.getName() === row.attachment_name; })[0];
   if (!att) throw new Error(tr_('inbox.attachmentGone'));
   return { id: row.id, name: att.getName(), base64: Utilities.base64Encode(att.getBytes()) };
@@ -225,9 +349,41 @@ function dismissStatement(payload) {
   return { ok: true };
 }
 
-/** Called after a review is saved: the inbox items whose PDFs were used are done. */
-function markStatementInboxProcessed_(ids) {
-  (ids || []).forEach(function (id) { updateRowFields_('Statement Inbox', id, { status: 'processed' }); });
+/** Called after a review is saved: the inbox items whose PDFs were used are done. `keys` = { inbox id: account key } when the phone sent it. */
+function markStatementInboxProcessed_(ids, keys) {
+  keys = keys || {};
+  if ((ids || []).some(function (id) { return keys[id]; })) ensureColumn_('Statement Inbox', 'account_key');   // copies made before 2026-11-18
+  var rows = getAllRows('Statement Inbox'), done = [];
+  (ids || []).forEach(function (id) {
+    var row = rows.find(function (r) { return r.id === id; });
+    if (!row || row.status === 'processed') return;
+    done.push({ id: id, from: String(row.status || 'new') });
+    var fields = { status: 'processed' };
+    if (keys[id]) fields.account_key = String(keys[id]);
+    updateRowFields_('Statement Inbox', id, fields);
+  });
+  return done;   // what changed, so the save can record it for Undo
+}
+
+// "Already read" shows the latest statement of each account (owner, 2026-11-18; it used to be the 8 newest of any account). A row saved
+// before the account was recorded counts as one account per sender and bank label, and drops out once a statement of that sender
+// with its account recorded was read after it (else it would stay as an extra row for good). `account` = the account's name.
+function stmtInboxLatestPerAccount_(rows, pms) {
+  var seen = {}, out = [], keyedSenders = {};
+  var keyOf = function (r) { return String(r.account_key === undefined || r.account_key === null ? '' : r.account_key).trim(); };
+  rows.forEach(function (r) {   // rows: processed, newest first
+    var key = keyOf(r);
+    if (key) { keyedSenders[r.sender_key + '|' + r.bank_label] = true; }
+    else if (keyedSenders[r.sender_key + '|' + r.bank_label]) return;   // an older account-less row of a sender already shown by account
+    var group = key ? 'a:' + covKey_(key) : 's:' + r.sender_key + '|' + r.bank_label;
+    if (seen[group]) return;
+    seen[group] = true;
+    var pm = key ? stmtPmForKey_(pms, key) : null;
+    var k = covKey_(key);
+    r.account = pm && pm.nickname ? (/^\d{4}$/.test(k) ? pm.nickname + ' …' + k : String(pm.nickname)) : '';
+    out.push(r);
+  });
+  return out;
 }
 
 /** Read-only: how many unprocessed inbox statements wait per account key (for the coverage list). */

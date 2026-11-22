@@ -17,11 +17,11 @@
 
 var BANK_SAMPLES_SHEET_ = 'Bank Samples';
 var BANK_SAMPLE_HEADERS_ = ['received_at', 'install_id', 'label', 'sender', 'subject', 'language', 'app_version', 'how', 'text'];
+var BANK_SAMPLE_KINDS_ = ['purchase', 'transfer', 'deposit'];
 var BANK_SAMPLE_MAX_TEXT_ = 6000;
 var BANK_SAMPLE_MAX_SUBJECT_ = 200;
 var BANK_SAMPLE_MAX_PER_INSTALL_PER_DAY_ = 10;
 var BANK_SAMPLE_MAX_ROWS_ = 3000;
-var BANK_SAMPLE_TELEGRAM_CHARS_ = 3600;   // Telegram refuses a message over 4,096 characters
 var BANK_SAMPLE_ADDRESS_ = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
 function ensureBankSamplesSheet_() {
@@ -55,11 +55,21 @@ function bankSampleScrub_(text, sender, maxChars) {
 
 // ---- friend's copy: pick an e-mail from their own Gmail ----
 
+// The e-mails a sample may come from: the newest 15 of one sender, or - with a `shape` (the wording of a row of More -> Not captured
+// automatically, see unreadSubjectShape_) - the ones of that wording out of the newest 100, so an older one of that kind is still found.
+function bankSampleCandidates_(sender, shape) {
+  var wanted = String(shape || '').toLowerCase().trim().slice(0, 60);
+  if (!wanted) return gmailSearchMessages_('from:' + sender + ' newer_than:180d', { max: 15 });
+  return gmailSearchMessages_('from:' + sender + ' newer_than:180d', { max: 100 }).filter(function (m) {
+    return unreadSubjectShape_(m.getSubject()) === wanted;
+  });
+}
+
 function listSampleEmails(p) {
   requireFeature_('gmail', 'err.bankSampleGmailOff');
   var sender = bankSampleSender_(p && p.sender);
   if (!sender) throw codedError_('sample_bad_sender', tr_('err.bankSampleBadSender'));
-  var msgs = gmailSearchMessages_('from:' + sender + ' newer_than:180d', { max: 15 });
+  var msgs = bankSampleCandidates_(sender, p && p.shape);
   return msgs.map(function (m) {
     return {
       id: m.getId(),
@@ -76,7 +86,7 @@ function getSampleEmail(p) {
   if (!sender || !/^[A-Za-z0-9_-]{2,64}$/.test(id)) throw codedError_('sample_bad_sender', tr_('err.bankSampleBadSender'));
   // only mail from the address the person named: this screen is not a general e-mail reader. The check is "was it in the
   // list this screen showed" (the same search), not a read of the From header, which Gmail may write in another form.
-  var listed = gmailSearchMessages_('from:' + sender + ' newer_than:180d', { max: 15 }).some(function (x) { return x.getId() === id; });
+  var listed = bankSampleCandidates_(sender, p && p.shape).some(function (x) { return x.getId() === id; });
   if (!listed) throw codedError_('sample_wrong_sender', tr_('err.bankSampleWrongSender'));
   var m = gmailGetMessage_(id);
   return {
@@ -146,6 +156,10 @@ function reportBankSample_(p) {
   var language = p.language === 'es' ? 'es' : 'en';
   var app = /^[0-9A-Za-z:.\-]{1,30}$/.test(String(p.app || '')) ? String(p.app) : '';
   var how = p.how === 'pasted' ? 'pasted' : 'picked';
+  // Which kind of e-mail the person was asked for (guided sending). Kept in the existing "how" column ("picked:purchase")
+  // so the tab's columns do not change; anything outside the three kinds is simply not recorded.
+  var kind = BANK_SAMPLE_KINDS_.indexOf(p.kind) >= 0 ? p.kind : '';
+  if (kind) how += ':' + kind;
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(8000)) throw codedError_('sample_busy', 'Busy, try again in a moment.');
@@ -167,8 +181,8 @@ function reportBankSample_(p) {
 
   // The Sheet row is the record; the Telegram message is the heads-up. A Telegram failure never loses the sample.
   try {
-    var shown = text.length > BANK_SAMPLE_TELEGRAM_CHARS_ ? text.substring(0, BANK_SAMPLE_TELEGRAM_CHARS_) + '\n[…]' : text;
-    sendTelegramText_(tr_('bankSample.notice', { label: label, sender: sender, subject: subject || '-', text: shown, demand: bankSampleDemandLine_(sheet, sender) }));
+    // Heads-up only: who, which sender, which subject. The body stays in the Sheet tab (owner's request, 2026-10-30).
+    sendTelegramText_(tr_('bankSample.notice', { label: label, kind: kind ? tr_('bankSample.kind.' + kind) : '', sender: sender, subject: subject || '-', demand: bankSampleDemandLine_(sheet, sender) }));
   } catch (err) {
     console.error('bank sample notice: ' + err);
   }

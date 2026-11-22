@@ -55,3 +55,17 @@ test("an exchange side can become an investment deposit", () => {
   assert.equal(row(res.out.id).type, "investment");
   assert.ok(!row(res.out.id).exchange);
 });
+
+test("'Not an exchange: my own transfer' (owner, 2026-11-11): the side becomes a plain transfer and stays one; the other side is named", () => {
+  const { rt, pen, usd, res, row } = setup();
+  const other = rt.api("addPaymentMethod", { nickname: "Leg USD 2", type: "debit" });
+  assert.equal(rt.api("checkEntryTypeChange", { id: res.in.id, type: "transfer", unexchange: true }).exchangePartner.id, res.out.id);
+  rt.api("updateEntry", { id: res.in.id, fields: { type: "transfer", payment_method_id: other.id, to_payment_method_id: usd.id, exchange: "", description: "Transfer (Cambios Zeta)" } });
+  const e = row(res.in.id);
+  assert.equal(e.exchange, "");
+  assert.equal(e.payment_method_id, other.id);
+  assert.equal(e.to_payment_method_id, usd.id);
+  assert.equal(rt.run(`exchangeLegSide_(getEntryById_(${JSON.stringify(res.in.id)}))`), "", "no longer read as an exchange side");
+  assert.equal(row(res.out.id).exchange, "1", "the other side is left alone");
+  void pen;
+});

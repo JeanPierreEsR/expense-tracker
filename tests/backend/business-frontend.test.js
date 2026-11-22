@@ -33,8 +33,8 @@ test("the More card is hidden in the page itself, so a copy that never opts in n
 test("the entry form sends the business link only through businessLinkFields_ (nothing while the pack is off)", () => {
   const fn = app.match(/function businessLinkFields_\(\) \{[\s\S]*?\n\}/)[0];
   assert.match(fn, /if \(!businessOn\(\)[^\n]*return \{\};/);
-  // all five save paths spread it (new entry, edit, confirm-from-review, loan and repayment turned into an expense / income)
-  assert.equal((app.match(/\.\.\.businessLink\b/g) || []).length, 5);
+  // all six save paths spread it (new entry saved at once, new entry saved in the background, edit, confirm-from-review, loan and repayment turned into an expense / income)
+  assert.equal((app.match(/\.\.\.businessLink\b/g) || []).length, 6);
 });
 
 test("the owner's own copy is switched on once, and only when nothing was ever chosen (friends' copies never)", () => {
@@ -68,8 +68,8 @@ test("the project budget button says 'Add a budget' in both languages", () => {
 test("step 2: People is a remembered More screen; business people hide from ordinary pickers while the pack is off", () => {
   assert.ok(app.match(/const MORE_SUBSCREENS = \[([^\]]*)\]/)[1].includes('"business-people"'));
   assert.ok(html.includes('id="screen-business-people"'));
-  assert.match(app, /function plainFriends_\(\) \{ return meta\.friends\.filter\(\(f\) => !isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\)\); \}/);
-  assert.match(app, /\(!isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\)\) \|\| \(tripId/, "the split list follows the same rule");
+  assert.match(app, /function plainFriends_\(\) \{\s+const list = meta\.friends\.filter\(\(f\) => !isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\) && friendPickable_\(f\)\);/);
+  assert.match(app, /\(!isGroupFriend_\(f\) && \(!isBusinessPerson_\(f\) \|\| businessOn\(\)\) && friendPickable_\(f\)\) \|\| \(tripId/, "the split list follows the same rule");
 });
 
 test("step 2: a repayment from a project sheet carries the project; the Loans tab never does", () => {
@@ -117,9 +117,18 @@ test("step 3A: the income form sends the expected payment only for an income on 
 });
 
 test("step 3A: the repayment sends the chosen loans only when the panel was opened, never while fixing a recorded repayment", () => {
-  assert.match(app, /const allocations = !editingSettlementId && !document\.getElementById\("settlement-choose-panel"\)\.hidden \? settlementAssignments_\(\) : \[\];/);
+  assert.match(app, /let allocations = !editingSettlementId && !document\.getElementById\("settlement-choose-panel"\)\.hidden \? settlementAssignments_\(\) : \[\];/);
   assert.match(app, /allocations: allocations\.length \? allocations : undefined/);
-  assert.match(app, /wrap\.hidden = !!editingSettlementId \|\| settlementChoosableLoans_\(\)\.length < 2;/);
+  assert.match(app, /resetChoose_\(CHOOSE_SHEET_, !editingSettlementId && settlementChoosableLoans_\(\)\.length >= 2\);/);
+});
+
+test("Home's \"+\" → Repayment offers the same choice (owner, 2026-11-14): new entries only, two or more open loans, sent as allocations", () => {
+  const html = read("docs", "index.html");
+  assert.match(html, /<div id="entry-repay-choose" hidden>/);
+  assert.match(app, /const on = repaymentActive_\(\) && transferKind_\(\) === "repayment" && entryFormIsNewEntry_\(\) && !entryOpeningOn_\(\)/);
+  assert.match(app, /resetChoose_\(CHOOSE_ENTRY_, CHOOSE_ENTRY_\.loans\(\)\.length >= 2\);/);
+  assert.match(app, /if \(chosen && chosen\.length\) repayPayload\.allocations = chosen;/);
+  assert.match(app, /resetEntryRepayChoose_\(\);   \/\/ "Choose which loans this pays"/);
 });
 
 test("step 3A: the loan picker shows only while fixing a recorded repayment, and its choice is sent as loan_id", () => {

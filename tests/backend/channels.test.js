@@ -250,7 +250,7 @@ test("paired screens: the app remembers its backend version, a kept older copy m
   assert.match(app, /function syncPairWithBackend_\(\)/);
   assert.match(app, /localStorage\.setItem\("etBackendRef", caps\.backendRef\)/);
   assert.match(app, /m\("app-archived"\)/);
-  assert.match(app, /meta = prefetchedMeta \|\| await callApi\("getMeta", \{\}\);\n  syncPairWithBackend_\(\);/);
+  assert.match(app, /meta = prefetchedMeta \|\| await callApi\("getMeta", \{ tz: phoneTz_\(\) \}\);\n  syncPairWithBackend_\(\);/);
   assert.match(app, /function promptBackendUpdateOnce_\(latest\)/);
   assert.match(app, /etUpdatePrompted/);
 });

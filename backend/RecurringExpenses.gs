@@ -41,8 +41,10 @@ function ensureRecurringExpensesSheet_() {
   // Columns added after the sheet already held real data are appended in
   // place, one at a time. The header row is read once and re-read only after an
   // append (this runs many times per request, and each read is a trip to Google).
+  var cols = ['date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit', 'trip_id', 'tag_ids'];
+  if (memoHasColumns_('Recurring Expenses', cols)) return;   // a looking call reads the whole sheet next anyway (Api.gs)
   var headers = getHeaders(sheet);
-  ['date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit', 'trip_id'].forEach(function (col) {
+  cols.forEach(function (col) {
     if (headers.indexOf(col) === -1) {
       sheet.getRange(1, headers.length + 1).setValue(col);
       if (col !== 'date') sheet.getRange(1, headers.length + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
@@ -514,11 +516,30 @@ function validateRecurringWindow_(startDate, endDate) {
 // for everyone. This lets specific historical Entries be pointed at the
 // recurring item they actually represent instead.
 function ensureEntriesRecurringLinkColumn_() {
+  if (memoHasColumns_('Entries', ['recurring_expense_id'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   if (headers.indexOf('recurring_expense_id') === -1) {
     sheet.getRange(1, headers.length + 1).setValue('recurring_expense_id');
   }
+}
+// The month a linked payment pays when it is not its own (a salary paid on 29 July for August's; owner's plan, 2026-11-18). Added only
+// when a link is written (never on a read, which would make every screen read the Sheet again).
+function ensureEntriesRecurringMonthColumn_() {
+  if (memoHasColumns_('Entries', ['recurring_month'])) return;
+  var sheet = getSheet('Entries');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('recurring_month') === -1) sheet.getRange(1, headers.length + 1).setValue('recurring_month');
+}
+// The month a payment linked to a Programmed item pays: the one stored with the link, else its own.
+function entryPlanMonth_(e) {
+  var m = String((e && e.recurring_month) || '');
+  var own = String((e && e.date) || '').substring(0, 7);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m) || !/^\d{4}-\d{2}$/.test(own)) return own;
+  // A month more than a year from the payment is not one the app would link (only its own or the next month), so a hand-typed one
+  // like that falls back to the payment's own month (Ingrid, 2026-11-18: 2019-06 counted a 2026 payment as paying 2019).
+  var gap = Math.abs((+m.slice(0, 4) * 12 + +m.slice(5)) - (+own.slice(0, 4) * 12 + +own.slice(5)));
+  return gap <= 12 ? m : own;
 }
 
 // Self-heals like every other post-hoc table (Payors, Loan Alert Log,
@@ -595,8 +616,12 @@ function recurringOwnAmount_(r, splitSums) {
 function listRecurringExpenses() {
   var categoryById = rowsById_(getAllRows('Categories'));
   var splitSums = getRecurringExpenseSplitSums_();
-  return getRecurringExpenseRows_().map(function (r) {
-    return recurringExpenseForClient_(r, categoryById, splitSums);
+  var rows = getRecurringExpenseRows_();
+  var paidOnce = paidOneTimeIds_(rows, splitSums);
+  return rows.map(function (r) {
+    var out = recurringExpenseForClient_(r, categoryById, splitSums);
+    if (out.frequency === 'once') out.paid = !!paidOnce[r.id];   // a one-time item whose date has come and a real entry matches it: the app files it under "Past"
+    return out;
   }).sort(function (a, b) {
     var aOnce = a.frequency === 'once', bOnce = b.frequency === 'once';
     if (aOnce !== bOnce) return aOnce ? 1 : -1; // one-time items sort after recurring ones
@@ -604,6 +629,28 @@ function listRecurringExpenses() {
     if (a.day !== b.day) return a.day - b.day;
     return a.category_name.localeCompare(b.category_name);
   });
+}
+
+// id -> true for the one-time items whose date has come (today or earlier) and that a confirmed entry already matches.
+function paidOneTimeIds_(rows, splitSums) {
+  var today = formatCalendarDate_(new Date());
+  var due = rows.filter(function (r) { return normalizeRecurringFrequency_(r.frequency) === 'once' && r.date && String(r.date) <= today && String(r.active) !== 'false'; });
+  var paid = {};
+  if (!due.length) return paid;
+  var wanted = {};
+  due.forEach(function (r) { wanted[r.category_id] = true; });
+  var byCategory = {};
+  var entrySplitSums = {};
+  getAllRows('Entry Splits').forEach(function (sp) { entrySplitSums[sp.entry_id] = (entrySplitSums[sp.entry_id] || 0) + Number(sp.amount); });
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status === 'confirmed' && wanted[e.category_id]) (byCategory[e.category_id] = byCategory[e.category_id] || []).push(e);
+  });
+  due.forEach(function (r) {
+    paid[r.id] = (byCategory[r.category_id] || []).some(function (e) {
+      return entryMatchesRecurringOccurrence_(e, r, [String(r.date)], entrySplitSums, splitSums);
+    });
+  });
+  return paid;
 }
 
 function normalizeRecurringFrequency_(freq) {
@@ -738,7 +785,8 @@ function recurringExpenseForClient_(r, categoryById, splitSums) {
     payments_used: r.payments_used || 0,
     amount_low: r.amount_low !== undefined ? Math.round(r.amount_low * 100) / 100 : null,
     amount_high: r.amount_high !== undefined ? Math.round(r.amount_high * 100) / 100 : null,
-    trip_id: r.trip_id ? String(r.trip_id) : ''   // a one-time item counted as an estimate in this trip/event (Trips.gs)
+    trip_id: r.trip_id ? String(r.trip_id) : '',   // a one-time item counted as an estimate in this trip/event (Trips.gs)
+    tag_ids: recurringTagIds_(r)   // its tags (owner, 2026-11-16): Annual makes its planned amounts annual (recurringIsAnnual_)
   };
 }
 
@@ -770,9 +818,27 @@ function addRecurringExpense(payload) {
     end_date: windowDates.end_date,
     variable: variable.variable ? 'true' : 'false',
     match_words: variable.match_words,
-    trip_id: frequency === 'once' ? tripIdForProgrammed_(payload.trip_id, payload.category_id) : ''
+    trip_id: frequency === 'once' ? tripIdForProgrammed_(payload.trip_id, payload.category_id) : '',
+    tag_ids: cleanRecurringTagIds_(payload.tag_ids)
   };
+  // A future-dated shared expense from the entry form arrives with its split (capability programSplits): checked before
+  // anything is written, then saved in the same call.
+  var splits = Array.isArray(payload.splits) ? payload.splits.filter(function (s) { return s && s.friend_id && Number(s.amount) > 0; }) : [];
+  if (splits.length) {
+    var splitSum = splits.reduce(function (sum, s) { return sum + Number(s.amount); }, 0);
+    if (splitSum > Number(payload.amount) + 0.005) throw new Error(tr_('err.splitOverTotal'));
+  }
+  // A waiting (Needs review) entry given a future date in the full form becomes this item (capability programPending): checked
+  // before anything is written, and the waiting entry is removed in the same call, as its Discard would.
+  var pendingId = payload.pending_entry_id ? String(payload.pending_entry_id) : '';
+  if (pendingId) {
+    var pending = getEntryById_(pendingId);
+    if (!pending || pending.status !== 'pending') throw new Error(tr_('err.pendingAlreadyHandled'));
+    refuseRepaymentPartDiscard_(pendingId);
+  }
   appendRowObject('Recurring Expenses', re);
+  if (splits.length) saveRecurringExpenseSplits({ recurringExpenseId: re.id, splits: splits });
+  if (pendingId) discardEntryWithRepayments_(pendingId);
   var categoryById = rowsById_(getAllRows('Categories'));
   return recurringExpenseForClient_(re, categoryById);
 }
@@ -840,7 +906,8 @@ function updateRecurringExpense(payload) {
       : '';
   }
 
-  ['category_id', 'description', 'amount', 'currency', 'frequency', 'interval', 'interval_unit', 'day', 'month', 'date', 'active', 'start_date', 'end_date', 'variable', 'match_words', 'trip_id'].forEach(function (field) {
+  if (payload.tag_ids !== undefined) payload.tag_ids = cleanRecurringTagIds_(payload.tag_ids);
+  ['category_id', 'description', 'amount', 'currency', 'frequency', 'interval', 'interval_unit', 'day', 'month', 'date', 'active', 'start_date', 'end_date', 'variable', 'match_words', 'trip_id', 'tag_ids'].forEach(function (field) {
     if (payload[field] === undefined) return;
     var value = payload[field];
     if (field === 'variable') value = value ? 'true' : 'false';
@@ -859,13 +926,19 @@ function updateRecurringExpense(payload) {
 // above). Pass recurringExpenseId: '' to unlink. Self-heals the Entries
 // column here too, rather than depending on some other call having
 // already gone through getRecurringExpenseRows_() first.
-function adminLinkEntryToRecurring(entryId, recurringExpenseId) {
+function adminLinkEntryToRecurring(entryId, recurringExpenseId, month) {
   ensureEntriesRecurringLinkColumn_();
+  ensureEntriesRecurringMonthColumn_();
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, entryId);
   if (rowIndex === -1) throw new Error(tr_('err.entryNotFound'));
   setCellByRow_(sheet, headers, rowIndex, 'recurring_expense_id', recurringExpenseId || '');
+  // Only a month other than the payment's own is stored; unlinking, or linking for its own month, clears it.
+  var cur = getEntryById_(entryId);
+  var own = String((cur && cur.date) || '').substring(0, 7);
+  var m = recurringExpenseId && /^\d{4}-\d{2}$/.test(String(month || '')) && String(month) !== own ? String(month) : '';
+  setCellByRow_(sheet, headers, rowIndex, 'recurring_month', m);
   return { done: true };
 }
 
@@ -906,6 +979,48 @@ function significantWords_(text) {
 // linked to some recurring item, or one the heuristic already matches
 // against any active item in this category, is left out — nothing to
 // fix there.
+// "Past payments" in the Programmed item window (owner, 2026-11-05): the confirmed entries this item already counts as its
+// payments — linked to it, or matched automatically (same rule as everywhere: category, ~10% amount, a few days from a due
+// date) and not linked to another item. Newest first, at most 60. Only looks (a list… action).
+function listRecurringPayments(payload) {
+  var re = getRecurringExpenseRows_().filter(function (r) { return r.id === payload.recurringExpenseId; })[0];
+  if (!re) throw new Error(tr_('err.recurringItemNotFound'));
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSumByEntry = {};
+  getAllRows('Entry Splits').forEach(function (s) {
+    entrySplitSumByEntry[s.entry_id] = (entrySplitSumByEntry[s.entry_id] || 0) + Number(s.amount);
+  });
+  var out = [];
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status !== 'confirmed') return;
+    var linked = e.recurring_expense_id === re.id;
+    if (!linked && (e.recurring_expense_id || e.category_id !== re.category_id)) return;
+    var d = new Date(String(e.date).substring(0, 10) + 'T00:00:00');
+    var from = formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() - RECURRING_MATCH_DAY_WINDOW));
+    var to = formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() + RECURRING_MATCH_DAY_WINDOW));
+    var occDate = '';
+    if (!linked) {
+      var occ = recurringExpenseOccurrencesInRange_(re, from, to);
+      if (!entryMatchesRecurringOccurrence_(e, re, occ, entrySplitSumByEntry, recurringSplitSums)) return;
+      occDate = occ.slice().sort(function (x, y) {
+        return Math.abs(daysBetweenDates_(e.date, x)) - Math.abs(daysBetweenDates_(e.date, y));
+      })[0] || '';
+    }
+    out.push({ id: e.id, date: String(e.date).substring(0, 10), amount: Number(e.amount), currency: e.currency,
+      description: e.description || '', linked: linked, _occ: occDate,
+      for_month: linked ? entryPlanMonth_(e) : String(occDate || e.date).substring(0, 7),   // the month it pays (Ingrid, 2026-11-18)
+      _gap: Math.abs(Number(e.amount) - Number(re.amount)) * 1000 + (occDate ? Math.abs(daysBetweenDates_(e.date, occDate)) : 0) });
+  });
+  // Several entries can fit the same due date (same category, ~10% amount, a few days): only the closest one is shown as
+  // that date's automatic payment, so the list reads as one payment per due date. Linked entries always show.
+  var bestByOcc = {};
+  out.forEach(function (p) { if (p._occ && (!bestByOcc[p._occ] || p._gap < bestByOcc[p._occ]._gap)) bestByOcc[p._occ] = p; });
+  out = out.filter(function (p) { return p.linked || bestByOcc[p._occ] === p; })
+    .map(function (p) { return { id: p.id, date: p.date, amount: p.amount, currency: p.currency, description: p.description, linked: p.linked, for_month: p.for_month }; });
+  out.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+  return { payments: out.slice(0, 60), total: out.length };
+}
+
 function findRecurringLinkCandidates(payload) {
   var re = getRecurringExpenseRows_().filter(function (r) { return r.id === payload.recurringExpenseId; })[0];
   if (!re) throw new Error(tr_('err.recurringItemNotFound'));
@@ -1002,9 +1117,13 @@ function linkEntriesToRecurring(payload) {
   var sheet = getSheet('Entries');
   var headers = getHeaders(sheet);
   var entryIds = payload.entryIds || [];
+  // Each with the month it pays (owner, 2026-11-18): a payment picked by hand follows the same rule as "Is this your Salary for August?".
+  var item = payload.recurringExpenseId ? getAllRows('Recurring Expenses').find(function (r) { return r.id === payload.recurringExpenseId; }) : null;
   entryIds.forEach(function (entryId) {
     var rowIndex = findRowIndexById(sheet, headers, entryId);
-    if (rowIndex !== -1) setCellByRow_(sheet, headers, rowIndex, 'recurring_expense_id', payload.recurringExpenseId);
+    if (rowIndex === -1) return;
+    var e = item ? getEntryById_(entryId) : null;
+    adminLinkEntryToRecurring(entryId, payload.recurringExpenseId, e ? planMonthForLink_(e, item) : '');
   });
   return { linked: entryIds.length };
 }
@@ -1020,6 +1139,254 @@ function deleteRecurringExpense(id) {
   ensureRecurringSkipsSheet_();
   deleteRowsWhere_('Recurring Skips', function (row) { return row.recurring_expense_id === id; });
   return { done: true };
+}
+
+// The programmed items that are still paused, just enough to name them: the app asks what to do with each one (getMeta). Reads nothing,
+// and creates no sheet, for a copy that has never programmed anything.
+function pausedProgrammedForApp_() {
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Recurring Expenses')) return [];
+  var categoryById = rowsById_(getAllRowsCached_('Categories'));
+  return getRecurringExpenseRows_().filter(function (r) { return String(r.active) === 'false'; }).map(function (r) {
+    var cat = categoryById[r.category_id];
+    return {
+      id: String(r.id), description: r.description || '', category_name: cat ? categoryLabel_(cat) : tr_('label.unknownCategory'),
+      category_icon: cat ? cat.icon : '', amount: Number(r.amount), currency: r.currency || homeCurrency_(),
+      frequency: normalizeRecurringFrequency_(r.frequency), start_date: r.start_date || ''
+    };
+  });
+}
+
+// Pause no longer exists (2026-10-31). A PAUSED repeating item behaves like one that ended on its last paid occurrence: nothing is projected, and
+// the payments it explains (every one matched up to today, even made after the pause) stay out of the averages. So a paused item becomes ACTIVE
+// with end_date = its last paid occurrence (and start_date = its first paid occurrence when it had none), and NO figure changes. That only holds
+// when the converted item has no UNPAID occurrence (an active item counts those as "Programmed", a paused one counted nothing) and explains
+// exactly the same payments, so every candidate is simulated first (pausedConversionPlan_) and anything that would change a figure stays paused
+// for the person to decide: never paid, missed months, one-time items, items whose start is still ahead. Nothing is ever deleted.
+// Idempotent: a converted item is no longer paused. Returns { converted: n, remaining: [ids still paused] }.
+function convertPausedProgrammed_() {
+  var rows = getRecurringExpenseRows_();
+  var paused = rows.filter(function (r) { return String(r.active) === 'false'; });
+  if (!paused.length) return { converted: 0, remaining: [] };
+  var today = formatCalendarDate_(new Date());
+  var categories = rowsById_(getAllRows('Categories'));
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSums = {};
+  getAllRows('Entry Splits').forEach(function (sp) { entrySplitSums[sp.entry_id] = (entrySplitSums[sp.entry_id] || 0) + Number(sp.amount); });
+  var wanted = {};
+  paused.forEach(function (r) { wanted[r.category_id] = true; });
+  var byCategory = {};
+  getAllRows('Entries').forEach(function (e) {
+    var cat = categories[e.category_id];
+    if (e.status === 'confirmed' && wanted[e.category_id] && cat && e.type === cat.type) (byCategory[e.category_id] = byCategory[e.category_id] || []).push(e);
+  });
+  var sheet = getSheet('Recurring Expenses');
+  var headers = getHeaders(sheet);
+  var converted = 0, remaining = [];
+  paused.forEach(function (r) {
+    var plan = normalizeRecurringFrequency_(r.frequency) === 'once' || (r.start_date && String(r.start_date) > today)
+      ? null
+      : pausedConversionPlan_(r, byCategory[r.category_id] || [], today, entrySplitSums, recurringSplitSums);
+    var rowIndex = plan ? findRowIndexById(sheet, headers, r.id) : -1;
+    if (!plan || rowIndex === -1) { remaining.push(String(r.id)); return; }
+    setCellByRow_(sheet, headers, rowIndex, 'active', 'true');
+    if (!r.start_date) setCellByRow_(sheet, headers, rowIndex, 'start_date', plan.start);
+    if (!r.end_date) setCellByRow_(sheet, headers, rowIndex, 'end_date', plan.end);
+    converted++;
+  });
+  return { converted: converted, remaining: remaining };
+}
+
+// The occurrence dates (ascending, up to today) of a repeating item that a confirmed entry already matches, ignoring pause and nothing else: its
+// own start/end dates and skipped months still apply. [] when nothing was ever paid.
+function paidOccurrenceDates_(r, entries, today, entrySplitSums, recurringSplitSums) {
+  if (!entries.length) return [];
+  var minDate = '9999-99-99';
+  entries.forEach(function (e) { if (String(e.date) < minDate) minDate = String(e.date); });
+  var history = Object.assign({}, r, { active: 'true' });
+  var from = r.start_date && String(r.start_date) < minDate ? String(r.start_date) : minDate;
+  return recurringExpenseOccurrencesInRange_(history, from, today).filter(function (o) {
+    return entries.some(function (e) { return entryMatchesRecurringOccurrence_(e, history, [o], entrySplitSums, recurringSplitSums); });
+  }).map(String).sort();
+}
+
+// { start, end } for a paused repeating item, or null when converting it would change a figure (see convertPausedProgrammed_).
+function pausedConversionPlan_(r, entries, today, entrySplitSums, recurringSplitSums) {
+  if (!entries.length) return null;
+  var minDate = '9999-99-99';
+  entries.forEach(function (e) { if (String(e.date) < minDate) minDate = String(e.date); });
+  var history = Object.assign({}, r, { active: 'true' });
+  function matches_(item, e, occ) { return entryMatchesRecurringOccurrence_(e, item, occ, entrySplitSums, recurringSplitSums); }
+  // The entries this item explains today (what ProjectionMethods.buildMonthlySeries_ leaves out of the averages), as a set of ids.
+  function explained_(item) {
+    var occ = recurringExpenseOccurrencesInRange_(item, minDate, today);
+    var ids = {};
+    if (occ.length) entries.forEach(function (e) { if (matches_(item, e, occ)) ids[e.id] = true; });
+    return ids;
+  }
+  var paid = paidOccurrenceDates_(r, entries, today, entrySplitSums, recurringSplitSums);
+  if (!paid.length) return null;   // never paid: nothing to anchor an end date to, and its past occurrences would turn into "unpaid"
+  var start = r.start_date ? String(r.start_date) : paid[0];
+  var end = r.end_date ? String(r.end_date) : paid[paid.length - 1];
+  var candidate = Object.assign({}, history, { start_date: start, end_date: end });
+  // Every occurrence of the converted item must already be paid, or it would show up as "Programmed" ...
+  var candidateFrom = start < minDate ? start : minDate;
+  var unpaid = recurringExpenseOccurrencesInRange_(candidate, candidateFrom, today).some(function (o) {
+    return !entries.some(function (e) { return matches_(candidate, e, [o]); });
+  });
+  if (unpaid) return null;
+  // ... and it must explain exactly the payments it explains now, or the averages would move.
+  var before = explained_(history), after = explained_(candidate);
+  var same = Object.keys(before).length === Object.keys(after).length && Object.keys(before).every(function (id) { return after[id]; });
+  return same ? { start: start, end: end } : null;
+}
+
+// Your own copy is not healed (heals are for friends' copies): the app calls this once when it finds paused items, and it does the same
+// conversion one time (the answer is remembered). A friend's copy answers "skip": its heal did it. Returns { ran, converted, remaining }.
+function convertPausedProgrammedForOwnerOnce() {
+  var props = PropertiesService.getScriptProperties();
+  if (isFriendCopy_() || props.getProperty('PAUSED_CONVERTED_OWNER') === 'yes') return { ran: false, converted: 0, remaining: pausedProgrammedForApp_().map(function (x) { return x.id; }) };
+  var out = convertPausedProgrammed_();
+  props.setProperty('PAUSED_CONVERTED_OWNER', 'yes');
+  return { ran: true, converted: out.converted, remaining: out.remaining };
+}
+
+// Several items at once (the Delete choices on More → Programmed items). One pass over the three sheets.
+// First-use Programmed items practice: its item is named like this (both languages). The cleanup (below) only ever touches that name.
+function isPracticeProgrammed_(r) {
+  return /^(Practice item|Elemento de pr\u00e1ctica)$/.test(String((r && r.description) || '').trim());
+}
+
+// The Programmed items practice cleanup in ONE call: every item named like the practice's (with its splits and skipped months), and
+// the payment the practice recorded for it ("Record the payment…" fills the entry's description from the item, so it carries the same
+// name). A REAL entry the person may have linked to the practice item is never deleted, only unlinked.
+//   payload: { started_on }  (the practice's own entries are never older than the day it started)
+function removePracticeProgrammed(payload) {
+  return withScriptLockOnce_(function () {
+    var out = { items: 0, entries: 0, unlinked: 0 };
+    ensureRecurringExpensesSheet_();
+    var ids = getAllRows('Recurring Expenses').filter(isPracticeProgrammed_).map(function (r) { return String(r.id); });
+    var startedOn = String((payload && payload.started_on) || '');
+    getAllRows('Entries').forEach(function (e) {
+      var isMine = /^(Practice item|Elemento de pr\u00e1ctica)$/.test(String(e.description || '').trim()) && (!startedOn || String(e.date) >= startedOn);
+      if (isMine && e.type !== 'transfer') {
+        try { discardEntryWithRepayments_(e.id, 'cancel'); out.entries++; } catch (err) { /* it stays: the person can delete it by hand */ }
+      } else if (ids.indexOf(String(e.recurring_expense_id)) !== -1) {
+        setEntryField_(e.id, 'recurring_expense_id', '');
+        out.unlinked++;
+      }
+    });
+    if (ids.length) out.items = deleteRecurringExpenses({ ids: ids }).deleted.length;
+    return out;
+  });
+}
+
+function deleteRecurringExpenses(payload) {
+  var ids = {};
+  ((payload && payload.ids) || []).forEach(function (id) { ids[String(id)] = true; });
+  if (!Object.keys(ids).length) return { deleted: [] };
+  ensureRecurringExpensesSheet_();
+  var deleted = getAllRows('Recurring Expenses').filter(function (r) { return ids[String(r.id)]; }).map(function (r) { return String(r.id); });
+  deleteRowsWhere_('Recurring Expenses', function (row) { return ids[String(row.id)] === true; });
+  ensureRecurringExpenseSplitsSheet_();
+  deleteRowsWhere_('Recurring Expense Splits', function (row) { return ids[String(row.recurring_expense_id)] === true; });
+  ensureRecurringSkipsSheet_();
+  deleteRowsWhere_('Recurring Skips', function (row) { return ids[String(row.recurring_expense_id)] === true; });
+  return { deleted: deleted };
+}
+
+// Bulk "Stop them" (Edit → Delete on More → Programmed items): each repeating item ends on the date of ITS OWN last matched payment (the same date the
+// "choose its last day" calendar opens on), so no date is asked and no figure changes (what it explained stays explained; nothing is forecast after
+// it). It also switches the item on if it was paused. Skipped, and reported back: a one-time item (no end date), an item whose start is still ahead,
+// an item that was never paid (nothing to anchor to), an unknown id. An item whose end date is already on or before that date is left as it is.
+// Returns { stopped: [{ id, end_date }], skipped: [{ id, reason: 'once' | 'notStarted' | 'neverPaid' | 'missing' }] }.
+function stopRecurringAtLastPayment(payload) {
+  ensureRecurringExpensesSheet_();
+  var rows = getRecurringExpenseRows_();
+  var today = formatCalendarDate_(new Date());
+  var categories = rowsById_(getAllRows('Categories'));
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSums = {};
+  getAllRows('Entry Splits').forEach(function (sp) { entrySplitSums[sp.entry_id] = (entrySplitSums[sp.entry_id] || 0) + Number(sp.amount); });
+  var ids = ((payload && payload.ids) || []).map(String);
+  var wanted = {};
+  rows.forEach(function (r) { if (ids.indexOf(String(r.id)) !== -1) wanted[r.category_id] = true; });
+  var byCategory = {};
+  getAllRows('Entries').forEach(function (e) {
+    var cat = categories[e.category_id];
+    if (e.status === 'confirmed' && wanted[e.category_id] && cat && e.type === cat.type) (byCategory[e.category_id] = byCategory[e.category_id] || []).push(e);
+  });
+  var sheet = getSheet('Recurring Expenses');
+  var headers = getHeaders(sheet);
+  var stopped = [], skipped = [], seen = {};
+  ids.forEach(function (id) {
+    if (seen[id]) return;
+    seen[id] = true;
+    var r = rows.find(function (x) { return String(x.id) === id; });
+    if (!r) { skipped.push({ id: id, reason: 'missing' }); return; }
+    if (normalizeRecurringFrequency_(r.frequency) === 'once') { skipped.push({ id: id, reason: 'once' }); return; }
+    if (r.start_date && String(r.start_date) > today) { skipped.push({ id: id, reason: 'notStarted' }); return; }
+    var paid = paidOccurrenceDates_(r, byCategory[r.category_id] || [], today, entrySplitSums, recurringSplitSums);
+    if (!paid.length) { skipped.push({ id: id, reason: 'neverPaid' }); return; }
+    var last = paid[paid.length - 1];
+    var rowIndex = findRowIndexById(sheet, headers, id);
+    var end = r.end_date && String(r.end_date) <= last ? String(r.end_date) : last;
+    if (String(r.end_date || '') !== end) setCellByRow_(sheet, headers, rowIndex, 'end_date', end);
+    if (String(r.active) === 'false') setCellByRow_(sheet, headers, rowIndex, 'active', 'true');
+    stopped.push({ id: id, end_date: end });
+  });
+  return { stopped: stopped, skipped: skipped };
+}
+
+// What deleting these programmed items would add to each category's monthly average ("Expected"), in the main currency: the payments they
+// explain stop being explained and become ordinary spending. Worked out with the category's own projection method, from the same series
+// Projections uses, once with the items and once without. Income and one-time items that explain nothing in the window come out as 0.
+// Returns { items: [{ id, monthlyEffectPen, lastPaid }], totalPen }; the total is per category, so items sharing a category are not double counted.
+function previewProgrammedDelete(payload) {
+  var ids = ((payload && payload.ids) || []).map(String);
+  var rows = getRecurringExpenseRows_().filter(function (r) { return ids.indexOf(String(r.id)) !== -1; });
+  var categories = rowsById_(getAllRows('Categories'));
+  ensureCategoryProjectionMethodColumn_();
+  var asOfKey = formatCalendarDate_(new Date()).substring(0, 7);
+  var defaultMethodId = getProjectionDefaultMethod_();
+  function rateFor_(categoryId, excludeIds) {
+    var series = buildMonthlySeries_([categoryId], excludeIds);
+    var cat = categories[categoryId];
+    return predictCategoryBase_(series[categoryId], parseProjectionMethod_(categoryMethodId_(cat, defaultMethodId)), asOfKey).ratePerMonth || 0;
+  }
+  var byCategory = {};
+  rows.forEach(function (r) {
+    var cat = categories[r.category_id];
+    if (!cat || (cat.type !== 'expense' && cat.type !== 'investment')) return;   // income has no average to fall back on
+    (byCategory[r.category_id] = byCategory[r.category_id] || []).push(String(r.id));
+  });
+  // The date of each repeating item's last matched payment: where the "choose its last day" calendar opens (and what it tells the person).
+  var today = formatCalendarDate_(new Date());
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSums = {};
+  var wantedCats = {};
+  rows.forEach(function (r) { wantedCats[r.category_id] = true; });
+  var entriesByCategory = {};
+  getAllRows('Entry Splits').forEach(function (sp) { entrySplitSums[sp.entry_id] = (entrySplitSums[sp.entry_id] || 0) + Number(sp.amount); });
+  getAllRows('Entries').forEach(function (e) {
+    var cat = categories[e.category_id];
+    if (e.status === 'confirmed' && wantedCats[e.category_id] && cat && e.type === cat.type) (entriesByCategory[e.category_id] = entriesByCategory[e.category_id] || []).push(e);
+  });
+  var items = rows.map(function (r) {
+    var paid = normalizeRecurringFrequency_(r.frequency) === 'once' ? [] : paidOccurrenceDates_(r, entriesByCategory[r.category_id] || [], today, entrySplitSums, recurringSplitSums);
+    return { id: String(r.id), monthlyEffectPen: 0, lastPaid: paid.length ? paid[paid.length - 1] : '' };
+  });
+  var total = 0;
+  Object.keys(byCategory).forEach(function (categoryId) {
+    var group = byCategory[categoryId];
+    var before = rateFor_(categoryId, null);
+    group.forEach(function (id) {
+      var one = items.find(function (x) { return x.id === id; });
+      one.monthlyEffectPen = Math.max(0, Math.round((rateFor_(categoryId, [id]) - before) * 100) / 100);
+    });
+    // One item in the category: its own figure IS the category's; no second pass.
+    total += group.length === 1 ? items.find(function (x) { return x.id === group[0]; }).monthlyEffectPen : Math.max(0, rateFor_(categoryId, group) - before);
+  });
+  return { items: items, totalPen: Math.round(total * 100) / 100 };
 }
 
 // ---- Skipping one occurrence / marking an entry as the payment ----
@@ -1061,9 +1428,49 @@ function unskipRecurringOccurrence(payload) {
 // Manual override for the rare case automatic matching (same category and
 // currency, ~10% amount, within 5 days) misses a real payment: point one
 // entry at the item it paid ('' to unlink). Automatic matching stays on.
+// ---- "Repeat…" in the entry form (owner, 2026-11-05) ----
+// Saving an entry with a frequency also makes a Programmed item from it (same category, amount, currency, description and
+// split, starting on the entry's date) and links the entry as its first payment. Monthly, yearly or "Other" (every N days /
+// weeks / months / years); never one-time. A repeat of the same save finds the entry already linked and makes nothing new.
+function validateEntryRepeat_(rep) {
+  var freq = String(rep && rep.frequency || '');
+  if (freq !== 'monthly' && freq !== 'yearly' && freq !== 'custom') throw new Error(tr_('rec.repeatFrequency'));
+  if (freq === 'custom') validateCustomRecurring_(rep.interval, rep.interval_unit, '2000-01-01');
+  if (rep.end_date) validateRecurringWindow_('2000-01-01', rep.end_date);
+}
+
+function repeatEntryAsProgrammed_(entryId, rep) {
+  var e = getEntryById_(entryId);
+  if (!e) throw new Error(tr_('err.entryNotFound'));
+  if (e.recurring_expense_id) return { id: e.recurring_expense_id, existing: true };
+  if (e.type !== 'expense' && e.type !== 'income') throw new Error(tr_('rec.repeatType'));
+  if (!e.category_id) throw new Error(tr_('rec.repeatNeedsCategory'));
+  var item = addRecurringExpense({
+    category_id: e.category_id,
+    description: e.description || '',
+    amount: Math.abs(Number(e.amount)),
+    currency: e.currency,
+    frequency: rep.frequency,
+    interval: rep.interval,
+    interval_unit: rep.interval_unit,
+    start_date: String(e.date).substring(0, 10),
+    day: Number(String(e.date).substring(8, 10)),     // day and month come from the start date, as in the Programmed item form
+    month: Number(String(e.date).substring(5, 7)),
+    end_date: rep.end_date || '',
+    active: true
+  });
+  if (e.type === 'expense') {
+    var splits = getAllRows('Entry Splits').filter(function (s) { return s.entry_id === entryId; })
+      .map(function (s) { return { friend_id: s.friend_id, amount: Number(s.amount) }; });
+    if (splits.length) saveRecurringExpenseSplits({ recurringExpenseId: item.id, splits: splits });
+  }
+  linkEntryToRecurring({ entryId: entryId, recurringExpenseId: item.id });
+  return { id: item.id, frequency: item.frequency };
+}
+
 function linkEntryToRecurring(payload) {
   if (payload.recurringExpenseId) assertRecurringExists_(payload.recurringExpenseId);
-  var result = adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId);
+  var result = adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId, payload.month);
   // The owner just said this entry IS the payment for an estimate that sits in a
   // trip/event: the payment joins that trip too (unless it already has one).
   if (payload.recurringExpenseId) {
@@ -1072,6 +1479,12 @@ function linkEntryToRecurring(payload) {
     if (item && item.trip_id && entry && entry.type === 'expense' && !entry.trip_id && validTripIdOrBlank_(item.trip_id)) {
       ensureEntriesTripColumn_();
       setEntryField_(payload.entryId, 'trip_id', String(item.trip_id));
+    }
+    // Picked by hand in "Mark as paid…": the payment gets the item's tags (only added, never removed). The "Record the payment…" form
+    // already carried them and the person may have removed one there, so it links with addTags false.
+    if (item && payload.addTags !== false) {
+      var added = addTagsToEntry_(payload.entryId, recurringTagIds_(item));
+      if (added.length) result.tagsAdded = added;
     }
   }
   return result;
@@ -1127,6 +1540,8 @@ function listEntriesForRecurringMonth(payload) {
   });
   var candidates = getAllRows('Entries')
     .filter(function (e) {
+      // An entry that already paid another item is not offered: linking it here would leave that item unpaid.
+      if (e.recurring_expense_id && e.recurring_expense_id !== re.id) return false;
       return e.status === 'confirmed' && e.type === type && e.date >= win.lo && e.date <= win.hi;
     })
     .map(function (e) {
@@ -1324,7 +1739,7 @@ function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates, ent
       var linkWindow = Math.max(recurringMatchWindowDays_(recurring), Math.min(10, Math.floor(customPeriodDays_(recurring) / 2)));
       return occurrenceDates.some(function (occDate) { return Math.abs(daysBetweenDates_(entry.date, occDate)) <= linkWindow; });
     }
-    var entryMonth = String(entry.date).substring(0, 7);
+    var entryMonth = entryPlanMonth_(entry);   // the month the link pays (an early salary pays next month's)
     return occurrenceDates.some(function (occDate) { return String(occDate).substring(0, 7) === entryMonth; });
   }
   if (entry.category_id !== recurring.category_id) return false;
@@ -1444,6 +1859,7 @@ function listExpectedRecurringItems() {
       amount: ownAmount,
       category_id: r.category_id,
       trip_id: r.trip_id || '',
+      tag_ids: recurringTagIds_(r),   // carried into "Record the payment…" (owner, 2026-11-16)
       full_amount: Number(r.amount),   // the whole bill, for the "Mark as paid" pre-fill (a shared item's `amount` is only the owner's share)
       estimated: isVariableRecurring_(r),   // variable bill: the amount is an average, shown with "≈"
       // The occurrence's own actual (clamped) day, not the raw configured
@@ -1451,7 +1867,26 @@ function listExpectedRecurringItems() {
       // and also fixes a latent mismatch for a monthly item whose day
       // (e.g. 31) got clamped to a shorter month's real last day.
       day: Number(entry.occurrenceDate.slice(8, 10)),
-      overdue: entry.occurrenceDate < todayStr
+      sort_date: entry.occurrenceDate,
+      overdue: entry.occurrenceDate < todayStr,
+      once: normalizeRecurringFrequency_(r.frequency) === 'once',   // a one-time item has no "Skip this month" (it is not monthly)
+      // Left out of Projections' MONTH view (Projections.gs, recurringForPeriod: yearly or tagged Annual; never income), so Home
+      // says where it counts instead (testers, 2026-11-17: the two screens' "programmed" totals differed with no reason shown).
+      yearView: type !== 'income' && (r.frequency === 'yearly' || recurringIsAnnual_(r))
+    });
+  });
+
+  // Income not received yet is still to come: its own row on the card, one per currency (IncomeWaiting.gs), by expected date, or last with none.
+  var waitingIncome = listWaitingIncome_();
+  waitingIncome.forEach(function (w) {
+    var key = 'pending_income|' + w.currency;
+    if (!groupsByKey[key]) groupsByKey[key] = { type: 'income', pending: true, currency: w.currency, total: 0, items: [] };
+    var cat = categoryById[(getEntryById_(w.entry_id) || {}).category_id];
+    groupsByKey[key].total += w.remaining;
+    groupsByKey[key].items.push({
+      id: w.loan_id, waiting: true, loan_id: w.loan_id, friend_id: w.friend_id, friend_name: w.friend_name, description: w.description,
+      category_name: cat ? categoryLabel_(cat) : '', category_icon: cat ? cat.icon : '', amount: w.remaining,
+      expected_date: w.due_date, sort_date: w.due_date, overdue: !!w.due_date && w.due_date < todayStr
     });
   });
 
@@ -1461,7 +1896,10 @@ function listExpectedRecurringItems() {
       var rate = latestRateAtOrBefore_(ctx, group.currency, cutoffMonth);
       group.totalPen = rate != null ? group.total * rate : null;
     }
-    group.items.sort(function (a, b) { return a.day - b.day; });
+    group.items.sort(function (a, b) {   // a stable sort: those with no expected date stay in their own order, at the end
+      if (!a.sort_date || !b.sort_date) return (a.sort_date ? 0 : 1) - (b.sort_date ? 0 : 1);
+      return a.sort_date < b.sort_date ? -1 : (a.sort_date > b.sort_date ? 1 : 0);
+    });
     return group;
   });
 
@@ -1471,12 +1909,13 @@ function listExpectedRecurringItems() {
   // predictable rather than whatever order object keys land in.
   groups.sort(function (a, b) {
     if (a.type !== b.type) return a.type === 'income' ? -1 : 1;
+    if (!!a.pending !== !!b.pending) return a.pending ? -1 : 1;   // pending income, then programmed income, then the rest
     if (a.currency === homeCurrency_()) return -1;
     if (b.currency === homeCurrency_()) return 1;
     return a.currency < b.currency ? -1 : 1;
   });
 
-  return { groups: groups };
+  return { groups: groups, waitingIncome: waitingIncome };
 }
 
 function clampedCalendarDate_(year, month, day) {
@@ -1484,8 +1923,13 @@ function clampedCalendarDate_(year, month, day) {
   return new Date(year, month - 1, Math.min(day, lastDayOfMonth));
 }
 
+// Speed (2026-11-21): Projections formats ~800 occurrence dates per request, mostly the same few dozen; each date is formatted once
+// and the script's time zone (fixed for a run) asked once.
+var CALENDAR_DATE_MEMO_ = null;
 function formatCalendarDate_(d) {
-  return Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (!CALENDAR_DATE_MEMO_) CALENDAR_DATE_MEMO_ = { tz: Session.getScriptTimeZone(), out: {} };
+  var t = d.getTime();
+  return CALENDAR_DATE_MEMO_.out[t] || (CALENDAR_DATE_MEMO_.out[t] = Utilities.formatDate(d, CALENDAR_DATE_MEMO_.tz, 'yyyy-MM-dd'));
 }
 
 // Days remaining in a period, today's own day already excluded — the
@@ -1508,4 +1952,219 @@ function daysBetweenDates_(dateStrA, dateStrB) {
   var a = new Date(dateStrA + 'T00:00:00');
   var b = new Date(dateStrB + 'T00:00:00');
   return Math.round((a.getTime() - b.getTime()) / msPerDay);
+}
+
+// ---- Tags on a Programmed item (owner, 2026-11-16; specs/recurring.md § Tags) ----
+// Kept in the item's own `tag_ids` column (comma-separated tag ids): saving an item stays one call. A tag that no longer exists is
+// dropped when read, so deleting a tag needs nothing here (deleteTag also cleans the column).
+function recurringTagIds_(r, fresh) {
+  var raw = String((r && r.tag_ids) || '');
+  if (!raw) return [];
+  // Matched without regard to capitals (Ingrid, 2026-11-18: an id typed in capitals in the Sheet was dropped, and lost on the next save);
+  // the tag's own id is what comes back.
+  var known = {};
+  (fresh ? getAllRows('Tags') : getAllRowsCached_('Tags')).forEach(function (t) { known[String(t.id).toLowerCase()] = String(t.id); });
+  var seen = {}, out = [];
+  raw.split(',').forEach(function (s) {
+    var id = known[s.trim().toLowerCase()];
+    if (!id || seen[id]) return;
+    seen[id] = true;
+    out.push(id);
+  });
+  return out;
+}
+function cleanRecurringTagIds_(list) {
+  var ids = Array.isArray(list) ? list : String(list || '').split(',');
+  return recurringTagIds_({ tag_ids: ids.map(String).join(',') }, true).join(',');   // (a tag added a moment ago is known)
+}
+// An item tagged Annual: its planned amounts count like an annual expense (out of monthly / weekly budgets and a Projections month
+// view; in yearly budgets and "Annual expenses"). A trip's "In my budgets" choice still wins, as for entries.
+function recurringIsAnnual_(r) {
+  return ('' + (r && r.tag_ids || '')).split(',').some(function (s) { return s.trim().toLowerCase() === ANNUAL_TAG_ID.toLowerCase(); });
+}
+// Adds these tags to an entry (never removes one), stamping it so every phone's search copy sees them. Returns the ids added.
+function addTagsToEntry_(entryId, tagIds) {
+  if (!entryId || !tagIds || !tagIds.length) return [];
+  var has = {};
+  getAllRows('Entry Tags').forEach(function (et) { if (String(et.entry_id) === String(entryId)) has[String(et.tag_id)] = true; });
+  var add = tagIds.filter(function (id) { return !has[String(id)]; });
+  if (!add.length) return [];
+  appendObjectsBatch_('Entry Tags', add.map(function (id) { return { entry_id: entryId, tag_id: id }; }));
+  touchEntriesById_([entryId]);
+  return add;
+}
+
+// The question after a save (owner, 2026-11-16, the "ask" version): for each of these confirmed entries, the first Programmed item with
+// tags that it pays (linked to it, or matched by the usual rule: category, ~10% amount, near a due date) and the item's tags the entry
+// does not have yet. [{ entry_id, description, item_id, item, tag_ids }] — nothing is written here; addEntriesTags writes the answer.
+function programmedTagAsk_(entryIds) {
+  if (!entryIds || !entryIds.length) return [];
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Recurring Expenses')) return [];
+  var items = getRecurringExpenseRows_().filter(function (r) { return String(r.active) !== 'false' && recurringTagIds_(r).length; });
+  if (!items.length) return [];
+  var tagsByEntry = tagIdsByEntry_();
+  var recurringSplitSums = getRecurringExpenseSplitSums_();
+  var entrySplitSums = {};
+  getAllRows('Entry Splits').forEach(function (s) { entrySplitSums[s.entry_id] = (entrySplitSums[s.entry_id] || 0) + Number(s.amount); });
+  var out = [];
+  entryIds.forEach(function (id) {
+    var e = getEntryById_(id);
+    if (!e || e.status !== 'confirmed') return;
+    var has = tagsByEntry[id] || [];
+    for (var i = 0; i < items.length; i++) {
+      var r = items[i];
+      var linked = e.recurring_expense_id === r.id;
+      if (!linked && (e.recurring_expense_id || e.category_id !== r.category_id)) continue;
+      if (!linked) {
+        var w = isCustomRecurring_(r) ? customPeriodDays_(r) : RECURRING_MATCH_DAY_WINDOW + 1;
+        var d = new Date(String(e.date).substring(0, 10) + 'T00:00:00');
+        var occ = recurringExpenseOccurrencesInRange_(r,
+          formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() - w)),
+          formatCalendarDate_(new Date(d.getFullYear(), d.getMonth(), d.getDate() + w)));
+        if (!occ.length || !entryMatchesRecurringOccurrence_(e, r, occ, entrySplitSums, recurringSplitSums)) continue;
+      }
+      var missing = recurringTagIds_(r).filter(function (t) { return has.indexOf(t) < 0; });
+      if (!missing.length) continue;
+      out.push({ entry_id: id, description: e.description || '', item_id: r.id, item: r.description || '', tag_ids: missing });
+      break;
+    }
+  });
+  return out;
+}
+
+// The answer "Add tags": { items: [{ entry_id, tag_ids }] }. Only adds (safe to send twice). Answers { added: { entryId: [tagIds] } }.
+function addEntriesTags(payload) {
+  var known = {};
+  getAllRows('Tags').forEach(function (t) { known[String(t.id)] = true; });
+  var added = {};
+  ((payload && payload.items) || []).forEach(function (it) {
+    var entryId = String((it && it.entry_id) || '');
+    var ids = ((it && it.tag_ids) || []).map(String).filter(function (t) { return known[t]; });
+    if (!entryId || !ids.length || !getEntryById_(entryId)) return;
+    var got = addTagsToEntry_(entryId, ids);
+    if (got.length) added[entryId] = got;
+  });
+  return { added: added };
+}
+
+// Repeats every 3 months or more (owner, 2026-11-16): yearly, or "Other" every 3+ months, 13+ weeks, 90+ days, or every N years. Such an
+// EXPENSE item starts tagged Annual in the form, and existing ones are tagged once (after the person sees the list: annualItemsAsk_).
+function recurringEveryThreeMonthsOrMore_(r) {
+  var f = normalizeRecurringFrequency_(r.frequency);
+  if (f === 'yearly') return true;
+  if (f !== 'custom') return false;
+  var iv = customIntervalOf_(r);
+  return iv.unit === 'years' || (iv.unit === 'months' && iv.n >= 3) || (iv.unit === 'weeks' && iv.n >= 13) || (iv.unit === 'days' && iv.n >= 90);
+}
+// The existing expense items that would be tagged Annual, until the person has answered once (Settings `annual_items_asked`).
+function annualItemsAsk_() {
+  if (String(getSettingsMap().annual_items_asked || '') === 'yes') return [];
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Recurring Expenses')) return [];
+  var cats = rowsById_(getAllRowsCached_('Categories'));
+  return getRecurringExpenseRows_().filter(function (r) {
+    var c = cats[r.category_id];
+    return String(r.active) !== 'false' && c && c.type === 'expense' && recurringEveryThreeMonthsOrMore_(r) && !recurringIsAnnual_(r);
+  }).map(function (r) {
+    var c = cats[r.category_id];
+    return { id: r.id, description: r.description || categoryLabel_(c) };
+  });
+}
+// The answer: apply = true tags them all Annual (only those still on the list); either way the question is not asked again.
+function answerAnnualItems(payload) {
+  var tagged = 0;
+  if (payload && payload.apply) {
+    ensureAnnualTag_();
+    annualItemsAsk_().forEach(function (x) {
+      var row = getAllRows('Recurring Expenses').find(function (r) { return r.id === x.id; });
+      var ids = String((row && row.tag_ids) || '').split(',').map(function (t) { return t.trim(); }).filter(Boolean);
+      if (ids.indexOf(ANNUAL_TAG_ID) >= 0) return;
+      ids.push(ANNUAL_TAG_ID);
+      updateRowFields_('Recurring Expenses', x.id, { tag_ids: ids.join(',') });
+      tagged++;
+    });
+  }
+  setSetting_('annual_items_asked', 'yes');
+  return { tagged: tagged };
+}
+
+// ---- "Is this your Salary for August?" (owner's plan, 2026-11-17; month rule 2026-11-18) ----
+// A typed or confirmed payment that its Programmed item did not match by itself (another day than planned) was counted twice in
+// Projections (Andrés: 9,800 typed on the 28th + 9,800 planned for the 3rd). This finds the item and the MONTH it most likely pays, for
+// the app to ASK; it never links. Same kind and category, same currency, amount within 20% of the item's amount or of the person's
+// share of it (a shared rent typed either way). The month (owner, 2026-11-18): the payment's own month first, if that month has an
+// occurrence and is not yet paid; only when it is paid (or has none), next month's, if its planned date is at most 15 days after the
+// payment (a salary paid early). Custom frequencies keep their own day window (no next-month rule). Returns
+// { recurring_id, description, month } or null.
+var PLAN_EARLY_DAYS_ = 15;
+// The month rule alone, for one item (also used when a payment is linked by hand in the item's "match past entries" list): the payment's
+// own month if it has an occurrence and is not yet paid; else next month's if its date is at most PLAN_EARLY_DAYS_ ahead and unpaid.
+// `skipIfMatched`: a payment its own month already counts by itself gives null (nothing to ask). { key, days } or null.
+function planMonthForItem_(entry, r, entries, own, next, paid, skipIfMatched) {
+  var date = String(entry.date || '').substring(0, 10);
+  var occOwn = recurringExpenseOccurrencesInRange_(r, own.start, own.end);
+  if (occOwn.length) {
+    if (skipIfMatched && entryMatchesRecurringOccurrence_(entry, r, occOwn)) return null;
+    if (!paid(r, occOwn, own.key)) return { key: own.key, days: Math.abs(daysBetweenDates_(occOwn[0], date)) };
+  }
+  if (isCustomRecurring_(r)) return null;
+  var occNext = recurringExpenseOccurrencesInRange_(r, next.start, next.end);
+  var ahead = occNext.length ? daysBetweenDates_(occNext[0], date) : -1;
+  if (ahead > 0 && ahead <= PLAN_EARLY_DAYS_ && !paid(r, occNext, next.key)) return { key: next.key, days: ahead };
+  return null;
+}
+// The month a payment linked by hand to item `r` pays (the same rule; its own month when the rule finds none).
+function planMonthForLink_(entry, r) {
+  var date = String(entry.date || '').substring(0, 10), month = date.substring(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return '';
+  var y = Number(month.substring(0, 4)), m = Number(month.substring(5, 7));
+  var bounds = function (yy, mm) { var d = new Date(Date.UTC(yy, mm - 1, 1)); var k = d.toISOString().substring(0, 7); return { key: k, start: k + '-01', end: k + '-' + pad2_(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()) }; };
+  var own = bounds(y, m), next = bounds(m === 12 ? y + 1 : y, m === 12 ? 1 : m + 1);
+  var entries = getAllRows('Entries');
+  var paid = function (item, occ, key) {
+    return entries.some(function (e) {
+      if (e.id === entry.id || e.status !== 'confirmed') return false;
+      if (e.recurring_expense_id === item.id) return entryPlanMonth_(e) === key;
+      return !e.recurring_expense_id && String(e.date).substring(0, 7) === key && entryMatchesRecurringOccurrence_(e, item, occ);
+    });
+  };
+  var pick = planMonthForItem_(entry, r, entries, own, next, paid, false);
+  return pick ? pick.key : month;
+}
+// lists (optional): { recurring, splits } read once by a caller that asks for many entries (Import's preview, Needs review): the
+// two sheets were read again for every line — 800 reads for a 1,000-line import, ~90 s on Google (Andrés, testers 2026-11-21).
+function planMatchLists_() { return { recurring: getAllRows('Recurring Expenses'), splits: getAllRows('Recurring Expense Splits') }; }
+function planMatchFor_(entry, allEntries, lists) {
+  if (!entry || entry.recurring_expense_id || !entry.category_id || (entry.type !== 'expense' && entry.type !== 'income')) return null;
+  var date = String(entry.date || '').substring(0, 10), month = date.substring(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(month)) return null;
+  var amt = Math.abs(Number(entry.amount));
+  if (!(amt > 0)) return null;
+  var y = Number(month.substring(0, 4)), m = Number(month.substring(5, 7));
+  var bounds = function (yy, mm) { var d = new Date(Date.UTC(yy, mm - 1, 1)); var k = d.toISOString().substring(0, 7); return { key: k, start: k + '-01', end: k + '-' + pad2_(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()) }; };
+  var own = bounds(y, m), next = bounds(m === 12 ? y + 1 : y, m === 12 ? 1 : m + 1);
+  var entries = allEntries || getAllRows('Entries');
+  var splitSums = {};
+  (lists ? lists.splits : getAllRows('Recurring Expense Splits')).forEach(function (sp) { splitSums[sp.recurring_expense_id] = (splitSums[sp.recurring_expense_id] || 0) + Number(sp.amount); });
+  // Paid: another confirmed entry linked to this item for that month, or one the item matches by itself in that month.
+  function paid(r, occ, key) {
+    return entries.some(function (e) {
+      if (e.id === entry.id || e.status !== 'confirmed') return false;
+      if (e.recurring_expense_id === r.id) return entryPlanMonth_(e) === key;
+      return !e.recurring_expense_id && String(e.date).substring(0, 7) === key && entryMatchesRecurringOccurrence_(e, r, occ);
+    });
+  }
+  var best = null;
+  (lists ? lists.recurring : getAllRows('Recurring Expenses')).forEach(function (r) {
+    if (String(r.active) === 'false' || String(r.category_id) !== String(entry.category_id)) return;
+    if ((r.currency || homeCurrency_()) !== entry.currency) return;
+    var whole = Math.abs(Number(r.variable && r.base_amount != null && r.base_amount !== '' ? r.base_amount : r.amount));
+    var share = Math.abs(recurringOwnAmount_(r, splitSums));
+    var gapOf = function (ra) { return ra > 0 ? Math.abs(ra - amt) / Math.max(ra, amt) : Infinity; };
+    var gap = Math.min(gapOf(whole), gapOf(share));
+    if (!(gap <= 0.2)) return;
+    var pick = planMonthForItem_(entry, r, entries, own, next, paid, true);
+    if (!pick) return;
+    if (!best || gap < best.gap || (gap === best.gap && pick.days < best.days)) best = { gap: gap, days: pick.days, out: { recurring_id: r.id, description: String(r.description || ''), month: pick.key } };
+  });
+  return best ? best.out : null;
 }

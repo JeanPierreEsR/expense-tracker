@@ -29,12 +29,22 @@
  *                    account and To empty, money in the reverse; the other statement completes it later
  *   record_exchange  { out, in }            a currency exchange: the line that left and the line that arrived in ANOTHER currency
  *                    become two one-sided transfers (confirmed) — never spending or income
+ *   record_move      { stmt, line, otherPmId }   an imported line that was money moving between the person's OWN accounts (savings, cash):
+ *                    one confirmed transfer, this line's account on one side and the chosen account on the other (owner, 2026-11-20)
+ *   record_loan_line { stmt, line, friendId, kind }   an imported line that was a loan ('loan') or a repayment ('repayment') with a
+ *                    friend: saved through Loans (addLoan / recordRepayment) AFTER everything else; every loan, repayment and money entry
+ *                    it makes is recorded so Undo removes them (owner, 2026-11-20)
  *   add_history_refund { stmt, line }     a refund that does NOT cancel a charge of its own month: confirmed income in "Refunds"
  *   add_history_expense / add_history_reversal / add_history_income   { stmt, line }   "Fill my history": a new expense
  *                    (a reversal is a NEGATIVE expense) or income, CONFIRMED, no category — the owner approved the whole
  *                    batch once and can undo it in one step (StatementHistory.gs builds these)
  *   match            { stmt, line, entryId, overwriteAccount? } line IS that entry
  *   complete_transfer{ stmt, line, entryId, side } fills the blank end of a transfer
+ *   fill_charge      { stmt, line, entryId }  the line is what the card charged for a purchase left pending in what was paid
+ *   use_bank_charge  { stmt, line, entryId, wrong? }  the card charged this purchase in another currency: it takes the charge, keeps what was paid
+ *                    (wrong: recorded in the wrong currency, same digits: it keeps nothing as paid)
+ *   use_bank_amount  { stmt, line, entryId }  the card charged LESS than this purchase (a discount): it takes the line's amount
+ *                    (Charges.gs fillEntryCharge); Undo puts it back to pending
  *   assign_account   { stmt, line, entryId }  entry has no account yet
  *   link             { stmt, line, entryId }  remember a matched line (no change)
  *   ignore / wait    { stmt, line }
@@ -57,12 +67,16 @@ var STATEMENT_CHANGES_COLUMNS_ = ['id', 'batch_id', 'sheet', 'row_id', 'field', 
 // balances or loans. Informational only: `gap` and `app_balance` are the figures
 // the phone showed, stored as-is. Undo removes the notes its upload created.
 var STATEMENT_GAPS_COLUMNS_ = ['id', 'payment_method_id', 'account_key', 'account_label', 'currency', 'period_end',
-  'closing', 'app_balance', 'gap', 'status', 'note', 'batch_id', 'created_at', 'resolved_at'];
+  'closing', 'app_balance', 'gap', 'status', 'note', 'batch_id', 'created_at', 'resolved_at', 'likely'];
 function ensureStatementGapsSheet_() {
   ensureStatementSheet_('Statement Gaps', STATEMENT_GAPS_COLUMNS_, ['account_key', 'period_end', 'created_at', 'resolved_at']);
+  ensureColumn_('Statement Gaps', 'likely');   // added 2026-11-11: what the balance check named as the likely cause (a sheet made earlier lacks it)
 }
 
-var STATEMENT_HANDLED_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true, ignored: true, reversed: true };
+var STATEMENT_HANDLED_OUTCOMES_ = { matched: true, added: true, recorded: true, completed: true, ignored: true, reversed: true, charge_filled: true };
+// The card charged less than recorded (a discount; owner, 2026-11-10): the purchase takes the bank's amount, within this share of it.
+var STMT_DISCOUNT_APPLY_MAX_ = 0.30;   // a pre-filled pair is within 15%, a suggestion the person picked within 30% (StatementMatch.gs)
+var STMT_HIGHER_APPLY_MAX_ = 0.10;     // a picked "charged more" suggestion: at most 10% above what was recorded
 
 function ensureStatementSheet_(name, columns, textColumns) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -120,15 +134,19 @@ function stmtPmForKey_(pms, key) {
     return pms.find(function (pm) { return String(pm.nickname).toLowerCase().replace(/[^a-z]/g, '').indexOf('ahorra') === 0; }) || null;
   }
   var k = covKey_(key);
-  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k; }) || null;
+  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k && !isPracticeAccount_(pm); }) || null;
 }
 
+// Capital letter on each word. NOT `\b`: in JavaScript an accented letter is not a "word" letter, so `\b` found a word start inside "práctica" and made it
+// "PrÁctica" ("Café" -> "CafÉ"). A word starts after anything that is not a letter (accents and ñ included).
 function stmtTitleCase_(text) {
-  return String(text || '').toLowerCase().replace(/\b[a-zñáéíóú]/g, function (c) { return c.toUpperCase(); });
+  return String(text || '').toLowerCase().replace(/(^|[^a-zñáéíóúü])([a-zñáéíóúü])/g, function (m, before, c) { return before + c.toUpperCase(); });
 }
 
 function stmtCleanDescription_(text) {
-  return stmtTitleCase_(String(text || '').replace(/\*/g, ' ').replace(/\s+(LIMA\s+)?PER$/i, '').replace(/\s+/g, ' ').trim());
+  var clean = String(text || '').replace(/\*/g, ' ').replace(/\s+(LIMA\s+)?PER$/i, '').replace(/\s+/g, ' ').trim();
+  if (/[a-zñáéíóúü]/.test(clean) && /[A-ZÑÁÉÍÓÚÜ]/.test(clean)) return clean;   // written with care ("October pay"): only ALL CAPS or all-lowercase text is tidied
+  return stmtTitleCase_(clean);
 }
 
 function stmtFeeDescription_(text) {
@@ -146,7 +164,7 @@ function appendRowsBulk_(sheetName, objs) {
   if (sheetName === 'Statement Lines') STMT_COVERAGE_MEMO_ = null;
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
-  var rows = objs.map(function (o) { return headers.map(function (h) { return o[h] !== undefined ? o[h] : ''; }); });
+  var rows = objs.map(function (o) { return headers.map(function (h) { return o[h] !== undefined ? (sheetName === 'Entries' ? sheetSafeText_(o[h]) : o[h]) : ''; }); });
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
 }
 
@@ -175,15 +193,18 @@ function stmtRateNeeds_(creations) {
  * payload: { dryRun, filename, statements: [{ key, kind, period, file_name, verified, balances, lines }],
  *            actions: [...] }
  */
-function applyStatementDecisions(payload) {
+function applyStatementDecisionsCore_(payload) {
   var dryRun = !payload || payload.dryRun !== false;
   var stmts = payload.statements || [];
   var actions = payload.actions || [];
-  var report = { dryRun: dryRun, batchId: null, created: { transfers: 0, fees: 0, purchases: 0, income: 0, reversals: 0 }, changed: 0,
+  var report = { dryRun: dryRun, batchId: null, created: { transfers: 0, fees: 0, purchases: 0, income: 0, reversals: 0 }, uncategorized: 0, changed: 0,
     linesRemembered: 0, statementsRecorded: 0, skippedExisting: 0, warnings: [] };
 
   var pms = getAllRows('Payment Methods');
   var pmsById = rowsById_(pms);
+  // An account this save creates (a spreadsheet's new account name) can be where a "move" goes: in the plan and the dry run it is
+  // its stand-in (the real save has swapped in the real account already, StatementAccounts.gs).
+  (payload.statements || []).forEach(function (s) { if (stmtIsNewAccount_(s)) { var sb = stmtNewAccountStandIn_(s); pmsById[sb.id] = sb; } });
   var openingsByPm = buildOpeningsByPm_(pms);
   var balanceOps = [];
   var gapOps = [];
@@ -225,6 +246,15 @@ function applyStatementDecisions(payload) {
     var s = categorySuggestion_(guessScan, stmtMerchantKey_(description));
     return s ? s.categoryId : '';
   }
+  // "These lines look like planned items", left ticked in the preview: the new entry is that Programmed item's payment (2026-11-17).
+  var planLinks = {};
+  ((payload && payload.planLinks) || []).forEach(function (p) {
+    if (p && p.recurring_id && getAllRows('Recurring Expenses').some(function (r) { return r.id === p.recurring_id; })) planLinks[p.stmt + ':' + p.line] = { id: String(p.recurring_id), month: /^\d{4}-\d{2}$/.test(String(p.month || '')) ? String(p.month) : '' };
+  });
+  if (Object.keys(planLinks).length && !dryRun) { ensureEntriesRecurringLinkColumn_(); ensureEntriesRecurringMonthColumn_(); }
+  function planLinkFor(a) { var l = planLinks[a.stmt + ':' + a.line]; return l ? l.id : ''; }
+  // The month it pays when not its own (an early payment for next month's plan).
+  function planMonthFor(a, date) { var l = planLinks[a.stmt + ':' + a.line]; return l && l.month && l.month !== String(date).substring(0, 7) ? l.month : ''; }
   function countLineCategory(lc) {
     if (!lc.text) return;
     if (lc.id) report.categoriesFiled = (report.categoriesFiled || 0) + 1;
@@ -235,7 +265,7 @@ function applyStatementDecisions(payload) {
   var keys = [], accounts = [];
   stmts.forEach(function (s) {
     keys.push(stmtLineKeys_(s.key, s.lines));
-    accounts.push(stmtPmForKey_(pms, s.key));
+    accounts.push(stmtIsNewAccount_(s) ? stmtNewAccountStandIn_(s) : stmtPmForKey_(pms, s.key));   // an account the save will create (StatementAccounts.gs)
   });
   var storedRows = null;
   function line(ref) {
@@ -268,7 +298,22 @@ function applyStatementDecisions(payload) {
   var batchId = Utilities.getUuid();
   var now = nowTimestamp_();
   var today = now.substring(0, 10);
-  var creations = [], changes = [], outcomes = [], usedLines = {};
+  var creations = [], changes = [], outcomes = [], usedLines = {}, chargeFills = [], discountSplits = [], startOps = [], fixInbound = null;
+  var loanOps = [];   // record_loan_line: written through Loans.gs after the other entries (see the write phase)
+  // entry id -> { period end: true } for the entries this save's lines will cover (matched, discount taken, transfer completed). A
+  // statement closing on a starting balance's own day moves the entries it covers inside that balance by itself (Balances.gs), so the
+  // starting-balance correction must not count them a second time (owner, 2026-11-11).
+  var coverBySave = {};
+  // Purchases inside a starting balance that the accepted correction says were ALREADY charged at the bank's amount when it was typed
+  // (start_not_yet's `bank_ids`, owner 2026-11-11): they take the bank's amount, but the starting number does not move for them.
+  var keepStart = {};
+  actions.forEach(function (a) { if (a.type === 'start_not_yet') (a.bank_ids || []).forEach(function (id) { keepStart[String(id)] = true; }); });
+  actions.forEach(function (a) {
+    if (!(a.type === 'match' || a.type === 'assign_account' || a.type === 'link' || a.type === 'use_bank_amount' || a.type === 'complete_transfer') || !a.entryId || a.stored) return;
+    var s = stmts[a.stmt];
+    var end = s && s.period ? s.period.end : '';
+    if (end) (coverBySave[String(a.entryId)] = coverBySave[String(a.entryId)] || {})[end] = true;
+  });
   var colChanged = {};   // field -> true, so only touched columns are rewritten
 
   function useLine(L) {
@@ -386,6 +431,40 @@ function applyStatementDecisions(payload) {
         status: platformId ? 'confirmed' : 'pending', external_id: 'stmt-' + iv.key });   // no platform yet: pending, the review row asks for one
       if (madeIv) report.created.investments = (report.created.investments || 0) + 1;
       remember(iv, 'added', madeIv ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'record_move') {
+      // Money moving between two of the person's own accounts (a file's "Savings" or "Cash" category): never spending or income.
+      var mv = line(a); useLine(mv);
+      if (!(Math.abs(mv.l.amount) > 0)) throw new Error(tr_('sa.notTransferLeg'));
+      var other = pmsById[a.otherPmId];
+      if (!other || other.type === 'investment') throw new Error(tr_('sa.moveNoAccount'));
+      var here = requirePm(mv);
+      // Lines saved with no account: the side the person named for them ("From" / "Into" on the Import screen), if any (2026-11-21).
+      if (here.noAccount && a.herePmId && pmsById[a.herePmId] && pmsById[a.herePmId].type !== 'investment') here = pmsById[a.herePmId];
+      if (here.id && here.id === other.id) throw new Error(tr_('sa.moveSameAccount', { name: other.nickname }));
+      var mvCat = catByName['transfer:Between Accounts'];
+      if (!mvCat) throw new Error(tr_('sa.catMissingBetween'));
+      var mvOut = mv.l.amount < 0;
+      var hereName = here.id ? here.nickname : stmtCleanDescription_(mv.l.description);
+      var madeMv = newEntry({ type: 'transfer', date: mv.l.date, amount: Math.abs(mv.l.amount), currency: mv.l.currency, category_id: mvCat,
+        description: mvOut ? tr_('desc.transfer', { from: hereName, to: other.nickname }) : tr_('desc.transfer', { from: other.nickname, to: hereName }),
+        payment_method_id: mvOut ? here.id : other.id, to_payment_method_id: mvOut ? other.id : here.id,
+        status: 'confirmed', external_id: 'stmt-' + mv.key });
+      if (madeMv) report.created.transfers++;
+      remember(mv, 'recorded', madeMv ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'record_loan_line') {
+      // A loan or a repayment with a friend. Checked here (dry run too); written after the other entries, in date order, so a repayment
+      // finds a loan the same file gives earlier. Money out: a loan the person GAVE or a debt they PAID back; money in: a loan they
+      // RECEIVED or a friend paying them back.
+      var ll = line(a); useLine(ll);
+      if (!(Math.abs(ll.l.amount) > 0)) throw new Error(tr_('sa.notPending'));
+      if (a.kind !== 'loan' && a.kind !== 'repayment') throw new Error(tr_('err.invalidDirection'));
+      if (!getAllRows('Friends').some(function (f) { return f.id === a.friendId; })) throw new Error(tr_('err.friendNotFound'));
+      checkMoneyFields_({ amount: Math.abs(ll.l.amount), date: ll.l.date, currency: ll.l.currency });
+      var llOut = ll.l.amount < 0;
+      var direction = a.kind === 'loan' ? (llOut ? 'they_owe_me' : 'i_owe_them') : (llOut ? 'i_owe_them' : 'they_owe_me');
+      loanOps.push({ L: ll, kind: a.kind, friendId: a.friendId, direction: direction, pmId: requirePm(ll).id || '' });
+      if (a.kind === 'loan') report.created.loans = (report.created.loans || 0) + 1;
+      else report.created.repayments = (report.created.repayments || 0) + 1;
     } else if (a.type === 'record_fee') {
       var f = line(a); useLine(f);
       if (f.l.amount >= 0) throw new Error(tr_('sa.feeOut'));
@@ -427,10 +506,12 @@ function applyStatementDecisions(payload) {
         if (guessed) { hxCat = { id: guessed, text: '' }; report.categoriesGuessed = (report.categoriesGuessed || 0) + 1; }
       }
       var madeH = newEntry({ type: 'expense', date: hx.l.date, currency: hx.l.currency, category_id: revFor ? (revFor[col.category_id] || '') : hxCat.id, payment_method_id: requirePm(hx).id,
+        recurring_expense_id: isRev ? '' : planLinkFor(a), recurring_month: isRev ? '' : planMonthFor(a, hx.l.date),
         amount: isRev ? -hx.l.amount : Math.abs(hx.l.amount),
         description: isRev ? tr_('desc.reversal', { text: stmtCleanDescription_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) }) : stmtCleanDescription_(hx.l.description),
         status: 'confirmed', external_id: 'stmt-' + hx.key, merchant: stmtMerchantKey_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) });
       if (madeH) { if (isRev) report.created.reversals++; else { report.created.purchases++; countLineCategory(hxCat); } }
+      if (madeH && !(revFor ? (revFor[col.category_id] || '') : hxCat.id)) report.uncategorized++;
       remember(hx, 'added', madeH ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_history_refund') {
       // A refund that does not cancel a charge of its own month: income in the category "Refunds" (the line-by-line comparison's rule).
@@ -450,9 +531,12 @@ function applyStatementDecisions(payload) {
       // Interest earned has a known home (the line-by-line comparison files it there too); every other income stays uncategorized.
       var interestCat = /INTER[EÉ]S/i.test(hi.l.description) ? (catByName['income:Savings return'] || '') : '';
       var hiCat = lineCategory('income', hi.l.category);
-      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: hiCat.id || interestCat,
-        description: stmtCleanDescription_(hi.l.description), payment_method_id: requirePm(hi).id, status: 'confirmed', external_id: 'stmt-' + hi.key });
+      // It may be an income the person was waiting for: then it goes to Needs review, which asks, instead of counting the same money twice.
+      var hiWaits = !!waitingMatchFor_({ currency: hi.l.currency, amount: hi.l.amount }, listWaitingIncome_());
+      var madeHI = newEntry({ type: 'income', date: hi.l.date, amount: hi.l.amount, currency: hi.l.currency, category_id: hiCat.id || interestCat, recurring_expense_id: planLinkFor(a), recurring_month: planMonthFor(a, hi.l.date),
+        description: stmtCleanDescription_(hi.l.description), payment_method_id: requirePm(hi).id, status: hiWaits ? 'pending' : 'confirmed', external_id: 'stmt-' + hi.key });
       if (madeHI) { report.created.income++; countLineCategory(hiCat); }
+      if (madeHI && !hiWaits && !(hiCat.id || interestCat)) report.uncategorized++;
       remember(hi, 'added', madeHI ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_income') {
       var inc = line(a); useLine(inc);
@@ -495,6 +579,55 @@ function applyStatementDecisions(payload) {
         if (a.type === 'match' && !values[i][col.external_id]) setCell(a.entryId, 'external_id', 'stmt-' + m.key);
       }
       remember(m, 'matched', a.entryId);
+    } else if (a.type === 'fill_charge') {
+      var fc = line(a); useLine(fc);
+      if (!(fc.l.amount < 0)) throw new Error(tr_('sa.chargeOut'));
+      var pendingE = getEntryById_(a.entryId);
+      if (!pendingE) throw new Error(tr_('sa.entryNotFound', { id: a.entryId }));
+      if (pendingE.type !== 'expense' || String(pendingE.charge_pending || '') !== '1' || pendingE.payment_method_id !== requirePm(fc).id) throw new Error(tr_('sa.notPendingCharge'));
+      if (chargeFills.some(function (x) { return x.entryId === a.entryId; })) throw new Error(tr_('sa.chargeTwice'));
+      chargeFills.push({ entryId: a.entryId, amount: Math.abs(fc.l.amount), currency: fc.l.currency });
+      report.chargesFilled = (report.chargesFilled || 0) + 1;
+      remember(fc, 'charge_filled', a.entryId);
+    } else if (a.type === 'use_bank_charge') {
+      var rc = line(a); useLine(rc);
+      if (!(rc.l.amount < 0)) throw new Error(tr_('sa.chargeOut'));
+      var re = getEntryById_(String(a.entryId));
+      if (!re) throw new Error(tr_('sa.entryNotFound', { id: a.entryId }));
+      var pmR = requirePm(rc);
+      if (re.type !== 'expense' || !re.currency || re.currency === rc.l.currency || String(re.charge_pending || '') === '1' || re.paid_currency ||
+          (re.payment_method_id && re.payment_method_id !== pmR.id) || repaymentOfEntry_(re.id)) throw new Error(tr_('sa.discountMismatch'));
+      if (chargeFills.some(function (x) { return x.entryId === String(a.entryId); })) throw new Error(tr_('sa.chargeTwice'));
+      // Recorded in the wrong currency (same digits): only when the digits really are the same; it keeps no "paid" amount.
+      var wrongCur = !!a.wrong && Math.abs(Math.abs(rc.l.amount) - Number(re.amount)) < 0.005;
+      if (!re.payment_method_id && !pmR.noAccount) setCell(a.entryId, 'payment_method_id', pmR.id);
+      chargeFills.push({ entryId: String(a.entryId), amount: Math.abs(rc.l.amount), currency: rc.l.currency, force: true, wrong: wrongCur });
+      report.recharges = (report.recharges || 0) + 1;
+      remember(rc, 'charge_filled', a.entryId);
+    } else if (a.type === 'use_bank_amount') {
+      var du = line(a); useLine(du);
+      var di = rowById[String(a.entryId)];
+      if (di === undefined) throw new Error(tr_('sa.entryNotFound', { id: a.entryId }));
+      var pmD = requirePm(du), charged = Math.round(-Number(du.l.amount) * 100) / 100, recordedAmt = Number(values[di][col.amount]);
+      var curFromD = values[di][col.payment_method_id];
+      if (values[di][col.type] !== 'expense' || String(values[di][col.currency] || homeCurrency_()) !== du.l.currency || !(charged > 0) ||
+          Math.abs(recordedAmt - charged) < 0.005 || charged < recordedAmt * (1 - STMT_DISCOUNT_APPLY_MAX_) - 0.004 ||
+          charged > recordedAmt * (1 + STMT_HIGHER_APPLY_MAX_) + 0.004 || (curFromD && curFromD !== pmD.id)) {
+        throw new Error(tr_('sa.discountMismatch'));
+      }
+      if (repaymentOfEntry_(String(a.entryId))) throw new Error(tr_('sa.discountMismatch'));
+      if (discountSplits.some(function (x) { return x.entryId === String(a.entryId); })) throw new Error(tr_('sa.chargeTwice'));
+      setCell(a.entryId, 'amount', charged);
+      if (!curFromD && !pmD.noAccount) setCell(a.entryId, 'payment_method_id', pmD.id);
+      if (!values[di][col.merchant] && stmtMerchantKey_(du.l.description)) setCell(a.entryId, 'merchant', stmtMerchantKey_(du.l.description));
+      discountSplits.push({ entryId: String(a.entryId), from: recordedAmt, to: charged });
+      // A purchase INSIDE the account's starting balance (owner, 2026-11-11): the balance was typed with the old amount in it, so it moves
+      // by the same difference (else the app stays off by it, since that purchase is not counted again).
+      var ownD = (openingsByPm[pmD.id] || []).find(function (o) { return o.currency === du.l.currency; });
+      var entD = ownD ? getEntryById_(String(a.entryId)) : null;
+      if (entD && stmtInsideStart_(entD, ownD) && !keepStart[String(a.entryId)]) startOps.push({ pm: pmD, currency: du.l.currency, shift: Math.round((recordedAmt - charged) * 100) / 100, entryId: String(a.entryId) });
+      report.discounts = (report.discounts || 0) + 1;
+      remember(du, 'matched', a.entryId);
     } else if (a.type === 'complete_transfer') {
       var c = line(a); useLine(c);
       var j = rowById[String(a.entryId)];
@@ -506,6 +639,26 @@ function applyStatementDecisions(payload) {
       // Both ends are known now, and the line is on the second statement: nothing is missing any more, so it is confirmed.
       if (String(values[j][col.status]) === 'pending') setCell(a.entryId, 'status', 'confirmed');
       remember(c, 'completed', a.entryId);
+    } else if (a.type === 'start_not_yet') {
+      // The person accepted the correction the balance check offered (StatementBalance.gs, startFix). Owner's choice (2026-11-11): the
+      // starting NUMBER changes by these entries' effect (99.95 → 16.80 for a payment of 83.15 the bank had not posted yet); the entries
+      // stay inside it. Written after the balances below, and skipped when this statement sets a newer balance for the same currency.
+      var pmN = accounts[a.stmt];
+      if (!pmN || !(openingsByPm[pmN.id] || []).some(function (o) { return o.currency === a.currency; })) throw new Error(tr_('sa.unknownBalance'));
+      if (!fixInbound) fixInbound = buildInboundTransferIds_();
+      var ownN = (openingsByPm[pmN.id] || []).find(function (o) { return o.currency === a.currency; });
+      var fixShift = 0;
+      (a.ids || []).forEach(function (id) {
+        var fe = getEntryById_(String(id));   // as it is in the Sheet: an amount this save changes is not written yet
+        if (!fe || fe.status !== 'confirmed' || (fe.currency || homeCurrency_()) !== a.currency) return;
+        var eff = signedEffectOnPaymentMethod_(fe, pmN.id, fixInbound);
+        var insideN = stmtInsideStart_(fe, ownN);
+        // counted after, but a statement of this save closing on the balance's own day covers it: the save moves it inside by itself
+        if (!insideN && coverBySave[String(id)] && coverBySave[String(id)][ownN.date]) return;
+        // inside the balance but not posted yet: the number takes it; counted after but already posted: the number gives it back
+        fixShift += insideN ? eff : -eff;
+      });
+      startOps.push({ pm: pmN, currency: a.currency, shift: Math.round(fixShift * 100) / 100 });
     } else if (a.type === 'set_balance') {
       var sb = stmts[a.stmt];
       var pmB = accounts[a.stmt];
@@ -515,13 +668,14 @@ function applyStatementDecisions(payload) {
       if (!bal || bal.closing === null || bal.closing === undefined) throw new Error(tr_('sa.noClosing', { cur: a.currency }));
       if (!sb.period || !sb.period.end) throw new Error(tr_('sa.noEnd'));
       var ownRow = (openingsByPm[pmB.id] || []).find(function (o) { return o.currency === a.currency; });
-      if (ownRow && !(sb.period.end > ownRow.date)) throw new Error(tr_('sa.balanceNotOlder', { date: ownRow.date }));
+      if (ownRow && sb.period.end < ownRow.date) throw new Error(tr_('sa.balanceNotOlder', { date: ownRow.date }));   // the same day may replace it (owner, 2026-11-11)
       balanceOps.push({ pm: pmB, currency: a.currency, amount: Math.round(Number(bal.closing) * 100) / 100, date: sb.period.end });
       var gapAmt = Math.round(Number(a.gap) * 100) / 100;
       if (a.gap !== undefined && a.gap !== null && a.gap !== '' && isFinite(gapAmt) && gapAmt !== 0) {
         var appBal = Number(a.app_balance);
         gapOps.push({ pm: pmB, accountKey: covKey_(sb.key), currency: a.currency, period_end: sb.period.end,
-          closing: Math.round(Number(bal.closing) * 100) / 100, app_balance: isFinite(appBal) ? Math.round(appBal * 100) / 100 : '', gap: gapAmt });
+          closing: Math.round(Number(bal.closing) * 100) / 100, app_balance: isFinite(appBal) ? Math.round(appBal * 100) / 100 : '', gap: gapAmt,
+          likely: String(a.likely || '').slice(0, 300) });
       }
     } else if (a.type === 'ignore' || a.type === 'wait') {
       var g = line(a); useLine(g);
@@ -545,6 +699,7 @@ function applyStatementDecisions(payload) {
     uploadOps.push({ s: s, si: si, existing: existing || null, acctKey: acctKey, isImport: isImport });
   });
   report.statementsRecorded = uploadOps.length;
+  report.startFixes = startOps.filter(function (o) { return !balanceOps.some(function (b) { return b.pm.id === o.pm.id && b.currency === o.currency; }); }).length;
   report.balancesSet = balanceOps.map(function (b) { return { account: b.pm.nickname, currency: b.currency, amount: b.amount, date: b.date }; });
   report.gapsRecorded = gapOps.map(function (g) { return { account: g.pm.nickname, currency: g.currency, gap: g.gap, date: g.period_end }; });
   report.linesRemembered = outcomes.length;
@@ -592,17 +747,64 @@ function applyStatementDecisions(payload) {
   report.categoriesRenamed = report.categoriesRenamed.filter(function (r) { return changes.some(function (c) { return c.sheet === 'Categories' && c.field === 'name' && c.new_value === r.to; }); });
   report.categoriesCreatedNames = Object.keys(createdCategoryIds).filter(function (ph) { return changes.some(function (c) { return c.sheet === 'Categories' && c.row_id === createdCategoryIds[ph]; }); }).map(function (ph) { return newCategories[ph].name; });
   appendRowsBulk_('Entries', creations);
-  if (payload.inboxIds && payload.inboxIds.length) markStatementInboxProcessed_(payload.inboxIds);
+  if (loanOps.length) stmtWriteLoanOps_(loanOps, batchId, now, changes, remember, report);
+  if (payload.inboxIds && payload.inboxIds.length) {
+    // Read = saved (owner, 2026-11-11). Each one is recorded so Undo puts it back as waiting in the Inbox.
+    markStatementInboxProcessed_(payload.inboxIds, payload.inboxKeys).forEach(function (m) {
+      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Statement Inbox', row_id: m.id, field: 'status',
+        old_value: m.from, new_value: 'processed', created_at: now });
+    });
+  }
   Object.keys(colChanged).forEach(function (f) {
     var colValues = values.map(function (r) { return [r[col[f]]]; });
     if (values.length) sheet.getRange(2, col[f] + 1, values.length, 1).setValues(colValues);
   });
 
+  // Purchases that took the bank's lower amount: a shared one's split shrinks in the same proportion (its debts follow), and a marker
+  // lets Undo put the split back too.
+  if (discountSplits.length) {
+    if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Entry Splits']; }
+    discountSplits.forEach(function (d) {
+      var factor = d.to / d.from;
+      var splits = getAllRows('Entry Splits').filter(function (sp) { return sp.entry_id === d.entryId; })
+        .map(function (sp) { return { friend_id: sp.friend_id, amount: Math.round(Number(sp.amount) * factor * 100) / 100 }; });
+      if (splits.length) {
+        saveEntrySplits(d.entryId, splits);
+        changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: d.entryId, field: '__discount__',
+          old_value: String(d.from), new_value: String(d.to), created_at: now });
+      }
+    });
+  }
+
+  // Charges filled in from the statement: after the column writes above, through the same code as Home's "Charges to fill in", each
+  // changed cell recorded for Undo, plus a marker so Undo can also put a shared expense's split back in what was paid.
+  if (chargeFills.length) {
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Entries'];
+    chargeFills.forEach(function (f) {
+      var before = getEntryById_(f.entryId);
+      // A purchase recorded in another currency with no pending marker (StatementMatch.gs, 'recharge'): marked for this one fill only,
+      // so the same code fills it in; Undo then finds the cells as they were before (no marker), and '__recharge__' brings the split back.
+      if (f.force) { ensureEntriesChargeColumns_(); updateEntryFields(f.entryId, { charge_pending: '1' }); }
+      fillEntryCharge({ id: f.entryId, amount: f.amount, currency: f.currency });
+      if (f.wrong) updateEntryFields(f.entryId, { paid_amount: '', paid_currency: '' });
+      var after = getEntryById_(f.entryId);
+      ['amount', 'currency', 'paid_amount', 'paid_currency', 'charge_pending', 'charge_told'].forEach(function (field) {
+        var o = before[field], n = after[field];
+        if (String(o === undefined || o === null ? '' : o) === String(n === undefined || n === null ? '' : n)) return;
+        changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: String(f.entryId), field: field,
+          old_value: String(o === undefined || o === null ? '' : o), new_value: String(n === undefined || n === null ? '' : n), created_at: now });
+      });
+      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: String(f.entryId), field: f.force ? '__recharge__' : '__charge_fill__',
+        old_value: String(before.amount), new_value: String(f.amount), created_at: now });
+    });
+  }
+
   var usheet = getSheet('Statement Uploads');
   var uheaders = getHeaders(usheet);
   var newUploadRows = [];   // written in ONE call after the loop: a year of statements is dozens of rows
   uploadOps.forEach(function (op) {
-    var closing = JSON.stringify(op.s.balances || {});
+    // A card's pay-by date travels with its closing balance (`_due`; only the card's own screens read it, Balances.gs).
+    var closing = JSON.stringify(Object.assign({}, op.s.balances || {}, /^\d{4}-\d{2}-\d{2}$/.test(String(op.s.due || '')) ? { _due: String(op.s.due) } : {}));
     var fields = { closing_json: closing, file_name: op.s.file_name || '', processed_at: today, batch_id: batchId,
       lines_total: (op.s.lines || []).length, verified: op.s.verified === false ? 'false' : 'true', source: op.isImport ? 'import' : 'upload' };
     if (op.existing) {
@@ -643,6 +845,37 @@ function applyStatementDecisions(payload) {
       old_value: '', new_value: '', created_at: now });
   });
 
+  // Starting-balance corrections (owner, 2026-11-11): "Not yet" marks and amount shifts, each cell recorded so Undo puts it back. A
+  // currency whose balance this statement replaced is left alone (the newer balance prevails).
+  var startByRow = {};
+  startOps.forEach(function (o) {
+    var k = o.pm.id + '|' + o.currency;
+    var g = startByRow[k] || (startByRow[k] = { pm: o.pm, currency: o.currency, ids: [], shift: 0 });
+    (o.ids || []).forEach(function (id) { if (g.ids.indexOf(id) === -1) g.ids.push(id); });
+  });
+  // Every shift adds up: a correction moves the number by the entries' recorded effect, a bank amount by its difference (Elena's case,
+  // 2026-11-11: −100 − 50 + 5 = −145, the statement's figure).
+  startOps.forEach(function (o) { if (o.shift) startByRow[o.pm.id + '|' + o.currency].shift += o.shift; });
+  Object.keys(startByRow).forEach(function (k) {
+    var o = startByRow[k];
+    if (balanceOps.some(function (b) { return b.pm.id === o.pm.id && b.currency === o.currency; })) return;
+    var row = getAllRows('Account Opening Balances').find(function (r) { return r.payment_method_id === o.pm.id && String(r.currency).toUpperCase() === o.currency; });
+    if (!row) return;
+    var fields = {};
+    if (o.ids.length) {
+      var list = notYetList_(row.not_yet);
+      o.ids.forEach(function (id) { if (list.indexOf(id) === -1) list.push(id); });
+      fields.not_yet = list.join(',');
+    }
+    if (Math.abs(o.shift) > 0.004) fields.amount = Math.round((Number(row.amount) + o.shift) * 100) / 100;
+    Object.keys(fields).forEach(function (f) {
+      if (String(row[f] === undefined ? '' : row[f]) === String(fields[f])) return;
+      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Account Opening Balances', row_id: row.id, field: f,
+        old_value: String(row[f] === undefined ? '' : row[f]), new_value: String(fields[f]), created_at: now });
+      updateRowFields_('Account Opening Balances', row.id, (function () { var x = {}; x[f] = fields[f]; return x; })());
+    });
+  });
+
   // Gap notes (see Statement Gaps, above).
   if (gapOps.length) {
     ensureStatementGapsSheet_();
@@ -650,7 +883,7 @@ function applyStatementDecisions(payload) {
       var gid = Utilities.getUuid();
       appendRowObject('Statement Gaps', { id: gid, payment_method_id: g.pm.id, account_key: g.accountKey, account_label: g.pm.nickname,
         currency: g.currency, period_end: g.period_end, closing: g.closing, app_balance: g.app_balance, gap: g.gap,
-        status: 'open', note: '', batch_id: batchId, created_at: now, resolved_at: '' });
+        status: 'open', note: '', batch_id: batchId, created_at: now, resolved_at: '', likely: g.likely || '' });
       changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Statement Gaps', row_id: gid, field: '__created__',
         old_value: '', new_value: '', created_at: now });
     });
@@ -668,6 +901,60 @@ function applyStatementDecisions(payload) {
   appendRowsBulk_('Statement Lines', outcomes);
   appendRowsBulk_('Statement Changes', changes);
   return report;
+}
+
+/**
+ * The loans and repayments an import asked for (record_loan_line), through the same code as the Loans tab, oldest first (a loan before a
+ * repayment of the same day). Whatever they write — loans, repayments (Settlements), the money entries behind them, an extra beyond what
+ * was owed in Needs review — is found by comparing the tabs before and after and recorded for Undo: new entries take this batch's id,
+ * new loans and settlements get a '__created__' row in Statement Changes. One that the Loans code refuses is reported, not fatal: what
+ * was saved before it stays, and Undo still removes everything.
+ */
+function stmtWriteLoanOps_(loanOps, batchId, now, changes, remember, report) {
+  ensureLoansTransferEntryColumn_();
+  ensureSettlementsTransferEntryColumn_();
+  if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Loans']; delete ROWS_MEMO_['Settlements']; }
+  var idsOf = function (sheet) { var o = {}; getAllRows(sheet).forEach(function (r) { o[r.id] = true; }); return o; };
+  var loansBefore = idsOf('Loans'), settleBefore = idsOf('Settlements'), entriesBefore = idsOf('Entries');
+  var friends = {};
+  getAllRows('Friends').forEach(function (f) { friends[f.id] = f; });
+  loanOps.sort(function (x, y) {
+    if (x.L.l.date !== y.L.l.date) return x.L.l.date < y.L.l.date ? -1 : 1;
+    return (x.kind === 'loan' ? 0 : 1) - (y.kind === 'loan' ? 0 : 1);
+  });
+  var failed = [];
+  loanOps.forEach(function (op) {
+    var fields = { friend_id: op.friendId, direction: op.direction, amount: Math.abs(op.L.l.amount), currency: op.L.l.currency, date: op.L.l.date,
+      payment_method_id: op.pmId, description: stmtCleanDescription_(op.L.l.description) };
+    try {
+      if (op.kind === 'loan') addLoan(fields);
+      else recordRepayment(fields);   // an extra beyond what was owed waits in Needs review (recordRepayment's own rule)
+      remember(op.L, 'added', '');
+    } catch (err) {
+      failed.push({ date: op.L.l.date, description: op.L.l.description, amount: op.L.l.amount, currency: op.L.l.currency,
+        friend: (friends[op.friendId] || {}).name || '', error: String(err && err.message || err) });
+    }
+  });
+  if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Loans']; delete ROWS_MEMO_['Settlements']; }
+  getAllRows('Loans').forEach(function (l) {
+    if (!loansBefore[l.id]) changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Loans', row_id: l.id, field: '__created__', old_value: '', new_value: l.friend_id, created_at: now });
+  });
+  getAllRows('Settlements').forEach(function (st) {
+    if (!settleBefore[st.id]) changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Settlements', row_id: st.id, field: '__created__', old_value: '', new_value: st.loan_id + '|' + (st.offset_loan_id || ''), created_at: now });
+  });
+  // The new money entries take this batch's id (one write per column, not one per entry): Undo deletes them with the rest.
+  var esh = getSheet('Entries'), eh = getHeaders(esh), elast = esh.getLastRow();
+  var ci = eh.indexOf('id'), cb = eh.indexOf('import_batch_id'), cs = eh.indexOf('source');
+  if (elast > 1 && ci >= 0 && cb >= 0) {
+    var vals = esh.getRange(2, 1, elast - 1, eh.length).getValues(), hit = false;
+    vals.forEach(function (r) { if (r[ci] && !entriesBefore[String(r[ci])]) { r[cb] = batchId; if (cs >= 0) r[cs] = 'import'; hit = true; } });
+    if (hit) {
+      esh.getRange(2, cb + 1, vals.length, 1).setValues(vals.map(function (r) { return [r[cb]]; }));
+      if (cs >= 0) esh.getRange(2, cs + 1, vals.length, 1).setValues(vals.map(function (r) { return [r[cs]]; }));
+      if (ROWS_MEMO_) delete ROWS_MEMO_['Entries'];
+    }
+  }
+  report.loanFailures = failed;
 }
 
 /**
@@ -693,7 +980,7 @@ function undoStatementBatch(payload) {
   var rowById = {};
   evalues.forEach(function (r, i) { rowById[String(r[eid])] = i; });
   var touched = {};
-  changes.filter(function (c) { return c.sheet === 'Entries'; }).forEach(function (c) {
+  changes.filter(function (c) { return c.sheet === 'Entries' && c.field.indexOf('__') !== 0; }).forEach(function (c) {
     var i = rowById[c.row_id], ci = eheaders.indexOf(c.field);
     if (i === undefined || ci === -1) { res.skipped++; return; }
     if (String(evalues[i][ci]) !== String(c.new_value)) { res.skipped++; return; } // changed since — leave it
@@ -703,13 +990,59 @@ function undoStatementBatch(payload) {
   });
   Object.keys(touched).forEach(function (f) {
     var ci = eheaders.indexOf(f);
-    esheet.getRange(2, ci + 1, evalues.length, 1).setValues(evalues.map(function (r) { return [r[ci]]; }));
+    esheet.getRange(2, ci + 1, evalues.length, 1).setValues(sheetSafeRows_(evalues.map(function (r) { return [r[ci]]; })));
   });
   if (Object.keys(touched).length) bumpStructureVersion_();   // bulk column write — phones reload fully
+  // A charge this upload filled in is pending again: a shared expense's split goes back to what was paid (its debts already are).
+  var chargeMarks = changes.filter(function (c) { return c.sheet === 'Entries' && c.field === '__charge_fill__'; });
+  if (chargeMarks.length) {
+    if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Entry Splits']; }
+    chargeMarks.forEach(function (c) {
+      var e = getEntryById_(c.row_id);
+      if (!e || String(e.charge_pending || '') !== '1') return;
+      var factor = Number(c.old_value) / Number(c.new_value);
+      var splits = getAllRows('Entry Splits').filter(function (s) { return s.entry_id === e.id; })
+        .map(function (s) { return { friend_id: s.friend_id, amount: Math.round(Number(s.amount) * factor * 100) / 100 }; });
+      if (splits.length) saveEntrySplits(e.id, splits);
+    });
+  }
+
+  // A shared purchase that took the bank's lower amount, or the charge in another currency: its split goes back in the same proportion.
+  var discountMarks = changes.filter(function (c) { return c.sheet === 'Entries' && (c.field === '__discount__' || c.field === '__recharge__'); });
+  if (discountMarks.length) {
+    if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Entry Splits']; }
+    discountMarks.forEach(function (c) {
+      var e = getEntryById_(c.row_id);
+      if (!e || Math.abs(Number(e.amount) - Number(c.old_value)) > 0.004) return;   // the amount was not put back (changed since)
+      var factor = Number(c.old_value) / Number(c.new_value);
+      var splits = getAllRows('Entry Splits').filter(function (s) { return s.entry_id === e.id; })
+        .map(function (s) { return { friend_id: s.friend_id, amount: Math.round(Number(s.amount) * factor * 100) / 100 }; });
+      if (splits.length) saveEntrySplits(e.id, splits);
+    });
+  }
 
   // The entries this upload created go FIRST: it is the slow part, and the upload stays in "Recent uploads" (its Statement
   // Uploads row) until everything is done, so an Undo that is cut short can simply be tapped again. It used to remove the
   // bookkeeping first, and a cut-short Undo left the entries behind with no way back (found 2026-10-22).
+  // Loans and repayments this upload recorded (record_loan_line): the repayments go first, then the loans; every other loan a repayment
+  // paid down (or cancelled out) is worked out again from what is left. Their money entries carry the batch id and go with the rest.
+  var madeSettle = {}, madeLoans = {}, touchedLoans = {};
+  changes.forEach(function (c) {
+    if (c.field !== '__created__') return;
+    if (c.sheet === 'Settlements') { madeSettle[c.row_id] = true; String(c.new_value || '').split('|').forEach(function (id) { if (id) touchedLoans[id] = true; }); }
+    if (c.sheet === 'Loans') madeLoans[c.row_id] = true;
+  });
+  if (Object.keys(madeSettle).length || Object.keys(madeLoans).length) {
+    getAllRows('Settlements').forEach(function (st) { if (madeSettle[st.id]) { touchedLoans[st.loan_id] = true; if (st.offset_loan_id) touchedLoans[st.offset_loan_id] = true; } });
+    if (Object.keys(madeSettle).length) deleteRowsWhere_('Settlements', function (r) { return madeSettle[r.id]; });
+    if (Object.keys(madeLoans).length) deleteRowsWhere_('Loans', function (r) { return madeLoans[r.id]; });
+    if (ROWS_MEMO_) { delete ROWS_MEMO_['Loans']; delete ROWS_MEMO_['Settlements']; }
+    var leftLoans = {};
+    getAllRows('Loans').forEach(function (l) { leftLoans[l.id] = true; });
+    Object.keys(touchedLoans).forEach(function (id) { if (leftLoans[id] && !madeLoans[id]) updateLoanStatusFromSettlements_(id); });
+    res.loansRemoved = Object.keys(madeLoans).length;
+    res.repaymentsRemoved = Object.keys(madeSettle).length;
+  }
   res.deletedEntries = getAllRows('Entries').filter(function (e) { return e.import_batch_id === batchId; }).length;
   deleteRowsWhere_('Entries', function (row) { return row.import_batch_id === batchId; });
 
@@ -737,6 +1070,21 @@ function undoStatementBatch(payload) {
     bumpStructureVersion_();
   }
 
+  // Inbox statements this upload marked as read: waiting again (only if nothing else changed them since).
+  changes.filter(function (c) { return c.sheet === 'Statement Inbox' && c.field === 'status'; }).forEach(function (c) {
+    var row = getAllRows('Statement Inbox').find(function (r) { return r.id === c.row_id; });
+    if (row && String(row.status) === String(c.new_value)) updateRowFields_('Statement Inbox', c.row_id, { status: c.old_value || 'new' });
+  });
+
+  // Starting-balance corrections: back to what they were, newest first (only where nothing changed them since).
+  changes.filter(function (c) { return c.sheet === 'Account Opening Balances' && (c.field === 'amount' || c.field === 'not_yet'); }).reverse().forEach(function (c) {
+    var row = getAllRows('Account Opening Balances').find(function (r) { return r.id === c.row_id; });
+    if (!row || String(row[c.field] === undefined ? '' : row[c.field]) !== String(c.new_value)) return;
+    var x = {}; x[c.field] = c.field === 'amount' ? Number(c.old_value) : c.old_value;
+    updateRowFields_('Account Opening Balances', c.row_id, x);
+    res.startFixesUndone = (res.startFixesUndone || 0) + 1;
+  });
+
   // Account Opening Balances: remove the rows this batch created, bring back the ones it replaced.
   var createdBalanceIds = {};
   changes.filter(function (c) { return c.sheet === 'Account Opening Balances' && c.field === '__created__'; }).forEach(function (c) { createdBalanceIds[c.row_id] = true; });
@@ -749,7 +1097,7 @@ function undoStatementBatch(payload) {
         return o.payment_method_id === r.payment_method_id && String(o.currency).toUpperCase() === String(r.currency).toUpperCase() && String(o.date).substring(0, 10) === String(r.date).substring(0, 10);
       });
       if (there) return;
-      addOpeningRow_(r.payment_method_id, String(r.currency).toUpperCase(), Number(r.amount), String(r.date), String(r.as_of || ''));
+      addOpeningRow_(r.payment_method_id, String(r.currency).toUpperCase(), Number(r.amount), String(r.date), String(r.as_of || ''), String(r.not_yet || ''));
       res.balancesRestored = (res.balancesRestored || 0) + 1;
     } catch (e) { /* unreadable — leave */ }
   });
@@ -790,6 +1138,9 @@ function undoStatementBatch(payload) {
   if (Object.keys(createdUploadIds).length) deleteRowsWhere_('Statement Uploads', function (row) { return createdUploadIds[row.id]; });
 
 
+  // Accounts this upload created (a spreadsheet's new account names): removed once nothing uses them (StatementAccounts.gs).
+  stmtUndoFileAccounts_(changes, res);
+
   deleteRowsWhere_('Import Batches', function (row) { return row.id === batchId; });
   deleteRowsWhere_('Statement Changes', function (row) { return row.batch_id === batchId; });
   return res;
@@ -805,7 +1156,7 @@ function listStatementGaps() {
     return { id: r.id, payment_method_id: r.payment_method_id, account_key: r.account_key, account_label: r.account_label,
       currency: r.currency, period_end: String(r.period_end), closing: Number(r.closing),
       app_balance: r.app_balance === '' ? null : Number(r.app_balance), gap: Number(r.gap),
-      status: r.status === 'resolved' ? 'resolved' : 'open', note: String(r.note || ''),
+      status: r.status === 'resolved' ? 'resolved' : 'open', note: String(r.note || ''), likely: String(r.likely || ''),
       created_at: String(r.created_at), resolved_at: String(r.resolved_at || '') };
   });
   rows.sort(function (x, y) {
@@ -919,7 +1270,7 @@ function getEntriesNear(payload) {
   var catsById = rowsById_(getAllRows('Categories'));
   var pmsById = rowsById_(getAllRows('Payment Methods'));
   var candidates = getAllRows('Entries').filter(function (e) {
-    return e.date >= win.lo && e.date <= win.hi && ((e.type === 'income') === wantIncome);
+    return e.date >= win.lo && e.date <= win.hi && ((e.type === 'income') === wantIncome) && !isPracticeReview_(e);
   }).map(function (e) { return stmtEntrySummary_(e, catsById, pmsById); });
   return orderMatchCandidates_(candidates, {
     amount: payload.amount, currency: payload.currency, date: payload.date, description: payload.description

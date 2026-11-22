@@ -102,9 +102,9 @@ test("the file's unmatched categories are created on save with the file's names;
   assert.equal(pet.type, "expense");
   assert.ok(pet && gifts);
   const rows = Object.fromEntries(made().map((e) => [e.description, e.category_id]));
-  assert.equal(rows["Pet Food"], pet.id);
+  assert.equal(rows["Pet food"], pet.id);
   assert.equal(rows["Vet"], pet.id, "the same name in another case is the same category");
-  assert.equal(rows["Gift In"], gifts.id);
+  assert.equal(rows["Gift in"], gifts.id);
   assert.equal(rows["Lunch"], cats().find((c) => c.key === "restaurants").id, "'Food & Drink' went to Restaurants");
   assert.equal(rows["Move"], "", "'Savings' was left");
   assert.equal(rows["Plain"], "");
@@ -125,10 +125,10 @@ test("the person's own choices win: another category, or none; a category that n
   const groceries = cats().find((c) => c.key === "groceries").id;
   apply(false, { "expense:pet care": groceries, "expense:food and drink": "", "income:pocket money": "gone-id" });
   const rows = Object.fromEntries(made().map((e) => [e.description, e.category_id]));
-  assert.equal(rows["Pet Food"], groceries);
+  assert.equal(rows["Pet food"], groceries);
   assert.equal(rows["Lunch"], "", "left as chosen");
   const gifts = cats().find((c) => c.name === "Pocket money" && c.type === "income");
-  assert.ok(gifts && rows["Gift In"] === gifts.id, "a stale id means nothing: the name is created");
+  assert.ok(gifts && rows["Gift in"] === gifts.id, "a stale id means nothing: the name is created");
 });
 
 test("a hidden category of the same name is used, not duplicated", () => {
@@ -136,7 +136,7 @@ test("a hidden category of the same name is used, not duplicated", () => {
   rt.run(`appendRowObject('Categories', { id: 'c-hid', name: 'Pet care', type: 'expense', icon: '', color: '#ccc', parent_id: '', hidden: 'yes' });`);
   const before = cats().length;
   apply(false, { "expense:pet care": "create" });
-  assert.equal(made().find((e) => e.description === "Pet Food").category_id, "c-hid");
+  assert.equal(made().find((e) => e.description === "Pet food").category_id, "c-hid");
   assert.equal(cats().filter((c) => c.name === "Pet care").length, 1);
   assert.equal(cats().length, before);
 });

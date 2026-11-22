@@ -1,0 +1,120 @@
+// A card statement's pay-by date and what it means today (owner's plan, 2026-11-18). Made-up rows and amounts only; the readers were
+// checked on the owner's real statements on his Mac (four banks), never copied here.
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("fs");
+const path = require("path");
+const P = require("../../docs/statement-parsers.js");
+const { freshApp } = require("./helpers");
+const rows = (a) => a.map((t) => ({ text: t, cells: [{ str: t, x: 0 }] }));
+
+test("the pay-by date is read only next to its label: same row, or alone at the start of one of the next rows", () => {
+  assert.equal(P.dueDateOf(rows(["CICLO DE FACTURACION del 09/08/2026 al 08/09/2026 FECHA LIMITE DE PAGO 05/10/2026"])), "2026-10-05");
+  assert.equal(P.dueDateOf(rows(["Al cierre de 26/08/2026", "ULTIMO DIA DE PAGO PAGO DEL MES PAGO MINIMO", "S/ 10.00 S/ 1.00", "21/09/2026"])), "2026-09-21");
+  assert.equal(P.dueDateOf(rows(["LIMA Fecha límite de pago", "19/10/26"])), "2026-10-19", "a 2-digit year");
+  assert.equal(P.dueDateOf(rows(["Último día de pago 05/11/2026"])), "2026-11-05");
+});
+
+test("no label, no date; a label with no date near it gives none; the cycle's dates never count", () => {
+  assert.equal(P.dueDateOf(rows(["del 09/09/2026 al 08/10/2026 05/11/2026"])), "");
+  assert.equal(P.dueDateOf(rows(["ULTIMO DIA DE PAGO", "S/ 1.00", "S/ 2.00", "S/ 3.00", "21/09/2026"])), "");
+  assert.equal(P.dueDateOf(rows(["Fecha límite de pago 31/02/2026"])), "", "an impossible date is not read");
+});
+
+test("the server sums payments INTO the card after the close; one before it, and a refund, do not count", () => {
+  const { rt } = freshApp({ entries: 10 });
+  rt.run(`appendRowObject('Payment Methods', { id: 'pm-cd', nickname: 'Visa Prueba', type: 'credit', bank_id: '', last_4: '0009', currency: 'PEN' });`);
+  rt.run(`appendRowObject('Payment Methods', { id: 'pm-sv', nickname: 'Savings Prueba', type: 'debit', bank_id: '', last_4: '0010', currency: 'PEN' });`);
+  rt.run(`ensureStatementUploadsSheet_();`);
+  rt.run(`appendRowObject('Statement Uploads', { id: 'su-cd', account_key: '0009', payment_method_id: 'pm-cd', kind: 'visa', period_end: '2026-10-26', closing_json: ${JSON.stringify(JSON.stringify({ PEN: { opening: 0, closing: -1000 }, _due: "2026-11-21" }))}, source: 'upload' });`);
+  const t = (id, date, amount, o) => rt.run(`appendRowObject('Entries', ${JSON.stringify({ id, type: "transfer", date, amount, currency: "PEN", payment_method_id: "pm-sv", to_payment_method_id: "pm-cd", status: "confirmed", description: "Pago Prueba", ...o })});`);
+  t("cd-before", "2026-10-20", 300);
+  t("cd-after-1", "2026-11-05", 400);
+  t("cd-after-2", "2026-11-09", 100);
+  rt.run(`appendRowObject('Entries', ${JSON.stringify({ id: "cd-refund", type: "income", date: "2026-11-06", amount: 50, currency: "PEN", payment_method_id: "pm-cd", status: "confirmed", description: "Refund Prueba" })});`);
+  const row = rt.api("listPaymentMethodBalances", {}).find((r) => r.id === "pm-cd");
+  assert.equal(row.due, "2026-11-21");
+  assert.deepEqual(row.paid_since, { PEN: 500 });
+  assert.equal(row.last_paid, "2026-11-09");
+  assert.equal(row.covered_on, "", "500 of 1000 paid: not covered yet");
+  assert.deepEqual(row.balances, [{ currency: "PEN", amount: -1000 }], "the date is not mistaken for a currency");
+});
+
+test("a card WITH a starting balance keeps its live balance and carries its last statement for the pay-by line (owner, 2026-11-18)", () => {
+  const { rt } = freshApp({ entries: 10 });
+  rt.run(`appendRowObject('Payment Methods', { id: 'pm-lv', nickname: 'Visa Viva', type: 'credit', bank_id: '', last_4: '0011', currency: 'PEN' });`);
+  rt.run(`appendRowObject('Payment Methods', { id: 'pm-sv', nickname: 'Savings Prueba', type: 'debit', bank_id: '', last_4: '0010', currency: 'PEN' });`);
+  rt.run(`buildOpeningsByPm_(getAllRows('Payment Methods')); appendRowObject('Account Opening Balances', { id: 'ob-lv', payment_method_id: 'pm-lv', currency: 'PEN', amount: -200, date: '2026-10-01' });`);
+  rt.run(`ensureStatementUploadsSheet_();`);
+  rt.run(`appendRowObject('Statement Uploads', { id: 'su-lv', account_key: '0011', payment_method_id: 'pm-lv', kind: 'visa', period_end: '2026-10-26', closing_json: ${JSON.stringify(JSON.stringify({ PEN: { opening: 0, closing: -700 }, _due: "2026-11-21" }))}, source: 'upload' });`);
+  rt.run(`appendRowObject('Entries', ${JSON.stringify({ id: "lv-pay", type: "transfer", date: "2026-11-05", amount: 300, currency: "PEN", payment_method_id: "pm-sv", to_payment_method_id: "pm-lv", status: "confirmed", description: "Pago Prueba" })});`);
+  const row = rt.api("listPaymentMethodBalances", {}).find((r) => r.id === "pm-lv");
+  assert.ok(!row.statement_closed, "still a live balance");
+  assert.equal(row.balances[0].amount, 100, "starting balance −200 plus the 300 paid in");
+  assert.deepEqual(row.card_statement, { statement_closed: "2026-10-26", balances: [{ currency: "PEN", amount: -700 }], due: "2026-11-21", paid_since: { PEN: 300 }, last_paid: "2026-11-05", covered_on: "" });
+});
+
+test("'Paid' is dated the day the statement's debt was covered; an early payment on the next cycle does not move it (owner, 2026-11-18)", () => {
+  const { rt } = freshApp({ entries: 10 });
+  rt.run(`appendRowObject('Payment Methods', { id: 'pm-cv', nickname: 'Visa Cubre', type: 'credit', bank_id: '', last_4: '0012', currency: 'PEN' });`);
+  rt.run(`appendRowObject('Payment Methods', { id: 'pm-sv', nickname: 'Savings Prueba', type: 'debit', bank_id: '', last_4: '0010', currency: 'PEN' });`);
+  rt.run(`ensureStatementUploadsSheet_();`);
+  rt.run(`appendRowObject('Statement Uploads', { id: 'su-cv', account_key: '0012', payment_method_id: 'pm-cv', kind: 'visa', period_end: '2026-10-26', closing_json: ${JSON.stringify(JSON.stringify({ PEN: { opening: 0, closing: -500 }, USD: { opening: 0, closing: -20 }, _due: "2026-11-21" }))}, source: 'upload' });`);
+  const t = (id, date, amount, currency) => rt.run(`appendRowObject('Entries', ${JSON.stringify({ id, type: "transfer", date, amount, currency, payment_method_id: "pm-sv", to_payment_method_id: "pm-cv", status: "confirmed", description: "Pago Prueba" })});`);
+  const row = () => rt.api("listPaymentMethodBalances", {}).find((r) => r.id === "pm-cv");
+  t("cv-1", "2026-11-03", 200, "PEN");
+  t("cv-2", "2026-11-08", 300, "PEN");
+  assert.equal(row().covered_on, "", "the dollars are still owed");
+  t("cv-3", "2026-11-10", 20, "USD");
+  t("cv-4", "2026-11-15", 400, "PEN");   // early payment on the open cycle
+  assert.equal(row().covered_on, "2026-11-10", "the later of the two currencies' covering days, not the 11-15 payment");
+  assert.equal(row().last_paid, "2026-11-15");
+});
+
+test("the card line: paid, part paid, pay by, nothing recorded after the date — never 'overdue'", () => {
+  const app = fs.readFileSync(path.join(__dirname, "../../docs/app.js"), "utf8");
+  const src = app.match(/function cardDueText_\(r\) \{[\s\S]*?\n\}/)[0] + "\n" + app.match(/function cardDueTextRaw_\(r\) \{[\s\S]*?\n\}/)[0];
+  const T = { "cardDue.paid": "Paid ✓ ({date})", "cardDue.paidSince": "{amount} paid since", "cardDue.left": "{amount} left", "cardDue.payBy": "pay by {date}", "cardDue.wasDue": "was due {date}", "cardDue.nothingRecorded": "No payment recorded since this statement (was due {date})" };
+  const tr = (k, p) => T[k].replace(/\{(\w+)\}/g, (_, n) => p[n]);
+  const f = new Function("tr", "I18n", "formatAmount", "todayLocalISO", src + "\nreturn cardDueText_;")(tr, { fmtDateMedium: (d) => d.toISOString().slice(5, 10) }, (a, c) => c + " " + a.toFixed(2), () => "2026-11-15");
+  const r = (o) => Object.assign({ balances: [{ currency: "PEN", amount: -1000 }], paid_since: {}, due: "2026-11-21", last_paid: "" }, o);
+  assert.equal(f(r({ paid_since: { PEN: 1000 }, last_paid: "2026-11-09" })), "Paid ✓ (11-09)");
+  assert.equal(f(r({ paid_since: { PEN: 1400 }, last_paid: "2026-11-15", covered_on: "2026-11-09" })), "Paid ✓ (11-09)", "the covering day wins over the latest payment");
+  assert.equal(f(r({ paid_since: { PEN: 500 } })), "PEN 500.00 paid since · PEN 500.00 left · pay by 11-21");
+  assert.equal(f(r({})), "Pay by 11-21", "a capital P: it starts its own line (owner, 2026-11-18)");
+  assert.equal(f(r({ due: "2026-11-10" })), "No payment recorded since this statement (was due 11-10)");
+  assert.equal(f(r({ due: "" })), "", "no pay-by date and nothing paid: nothing to say");
+  assert.equal(f(r({ balances: [{ currency: "PEN", amount: 20 }] })), "", "a card in credit owes nothing");
+  assert.doesNotMatch(src, /overdue|vencid/i);
+});
+
+test("a card statement with no pay-by date: the preview asks for it, filled with last time's gap after closing (owner's plan, 2026-11-18)", () => {
+  const { rt } = freshApp({ entries: 10 });
+  rt.run(`appendRowObject('Payment Methods', { id: 'pm-dn', nickname: 'Diners Prueba', type: 'credit', bank_id: '', last_4: '0013', currency: 'PEN' });`);
+  const stmt = (end, due) => ({ key: "0013", kind: "diners", verified: true, period: { start: end.slice(0, 8) + "01", end }, balances: { PEN: { opening: 0, closing: -100 } }, file_name: "d.pdf", due: due || "",
+    lines: [{ date: end, description: "COMPRA TIENDA PRUEBA", amount: -100, currency: "PEN" }] });
+  const plan = (s) => JSON.parse(rt.run(`JSON.stringify(planStatementHistory(${JSON.stringify({ statements: [s] })}))`));
+  let p = plan(stmt("2026-09-09"));
+  assert.deepEqual(p.due_asks, [{ stmt: 0, account: "Diners Prueba", guess: "" }], "never had a date: an empty box");
+  rt.run(`applyStatementDecisions(${JSON.stringify({ dryRun: false, filename: "h", statements: [stmt("2026-09-09", "2026-10-04")], actions: p.actions })})`);
+  p = plan(stmt("2026-10-09"));
+  assert.deepEqual(p.due_asks, [{ stmt: 0, account: "Diners Prueba", guess: "2026-11-03" }], "25 days after closing, like last time");
+  assert.deepEqual(plan(stmt("2026-10-09", "2026-11-04")).due_asks, [], "a date read from the file asks nothing");
+});
+
+test("the pay-by date typed on the card's screen goes onto its LAST statement, only after it closed", () => {
+  const { rt } = freshApp({ entries: 10 });
+  rt.run(`appendRowObject('Payment Methods', { id: 'pm-dt', nickname: 'Diners Tipeo', type: 'credit', bank_id: '', last_4: '0014', currency: 'PEN' });`);
+  assert.throws(() => rt.api("setCardStatementDue", { id: "pm-dt", due: "2026-12-01" }), /no saved statement/);
+  const up = (id, end) => rt.run(`appendRowObject('Statement Uploads', { id: '${id}', account_key: '0014', payment_method_id: 'pm-dt', kind: 'diners', period_end: '${end}', closing_json: ${JSON.stringify(JSON.stringify({ PEN: { opening: 0, closing: -300 } }))}, source: 'upload' });`);
+  up("su-old", "2026-10-09");
+  up("su-new", "2026-11-09");
+  assert.throws(() => rt.api("setCardStatementDue", { id: "pm-dt", due: "2026-11-09" }), /after the statement closed/);
+  assert.throws(() => rt.api("setCardStatementDue", { id: "pm-dt", due: "2026-02-30" }), /after the statement closed/);
+  rt.api("setCardStatementDue", { id: "pm-dt", due: "2026-12-04" });
+  const row = rt.api("listPaymentMethodBalances", {}).find((r) => r.id === "pm-dt");
+  assert.equal(row.statement_closed, "2026-11-09");
+  assert.equal(row.due, "2026-12-04");
+  assert.deepEqual(row.balances, [{ currency: "PEN", amount: -300 }], "the date is not mistaken for a currency");
+  assert.equal(Number(rt.run(`cardDueGapDays_('pm-dt')`)), 25, "and the next statement's box will guess 25 days");
+});

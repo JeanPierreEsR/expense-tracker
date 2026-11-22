@@ -22,7 +22,8 @@
 // Only equivalents that are safe to assume belong here: a wrong merge hides a person's own distinction.
 var CATEGORY_ALIASES_ = {
   expense: {
-    restaurants: ['food and drink', 'food and drinks', 'food', 'dining', 'dining out', 'eating out', 'comida', 'comidas', 'comida y bebida', 'comida y bebidas', 'bares y restaurantes', 'restaurantes y bares'],
+    restaurants: ['food and drink', 'food and drinks', 'food', 'dining', 'dining out', 'eating out', 'comida', 'comidas', 'comida y bebida', 'comida y bebidas', 'bares y restaurantes', 'restaurantes y bares',
+      'restaurant', 'restaurante', 'restaurant fast food', 'fast food', 'comida rapida', 'bar cafe', 'cafe', 'cafes', 'coffee', 'coffee shops'],
     groceries: ['supermarket', 'supermarkets', 'supermercado', 'supermercados', 'grocery', 'mercado', 'abarrotes', 'despensa'],
     transport: ['transportation', 'transporte', 'public transport', 'public transportation', 'transporte publico', 'taxi', 'taxis'],
     car: ['auto', 'vehicle', 'vehicles', 'vehiculo', 'vehiculos', 'carro', 'coche', 'automovil'],
@@ -31,10 +32,10 @@ var CATEGORY_ALIASES_ = {
     entertainment: ['leisure', 'ocio', 'entretenimiento', 'fun', 'diversion', 'recreation', 'recreacion'],
     party: ['parties', 'fiestas', 'fiesta', 'nightlife', 'vida nocturna'],
     gifts: ['gift', 'regalos', 'regalo', 'presents'],
-    home: ['house', 'housing', 'hogar', 'casa', 'vivienda', 'household'],
+    home: ['house', 'housing', 'hogar', 'casa', 'vivienda', 'household', 'servicios', 'servicios basicos', 'servicios del hogar', 'utilities'],
     travel: ['trip', 'trips', 'viajes', 'viaje', 'vacation', 'vacations', 'vacaciones', 'holiday', 'holidays'],
     work: ['job', 'trabajo', 'office', 'oficina'],
-    education: ['school', 'educacion', 'estudios', 'universidad'],
+    education: ['school', 'educacion', 'estudios', 'universidad', 'cursos', 'courses'],
     gym: ['fitness', 'gimnasio'],
     sports: ['sport', 'deporte', 'deportes'],
     donations: ['donation', 'charity', 'donaciones', 'caridad', 'donativos'],
@@ -49,10 +50,10 @@ var CATEGORY_ALIASES_ = {
   income: {
     salary: ['salaries', 'sueldo', 'salario', 'wages', 'paycheck', 'nomina', 'payroll'],
     business: ['negocio', 'business income', 'freelance'],
-    extra_income: ['extra', 'ingreso extra', 'ingresos extra', 'side income', 'other income', 'bonus', 'bono'],
+    extra_income: ['extra', 'ingreso extra', 'ingresos extra', 'side income', 'other income', 'other incomes', 'otros ingresos', 'otro ingreso', 'ingresos varios', 'bonus', 'bono'],
     savings_return: ['interest', 'interest income', 'intereses', 'interes', 'retorno de ahorros'],
     sales: ['sale', 'ventas', 'venta'],
-    refunds: ['refund', 'reembolso', 'reembolsos', 'devoluciones', 'devolucion'],
+    refunds: ['refund', 'reembolso', 'reembolsos', 'devoluciones', 'devolucion', 'cashback', 'cash back'],
     insurance_payout: ['insurance', 'seguro', 'pago de seguro']
   }
 };
@@ -129,6 +130,36 @@ function categoryIdByAlias_(cats, type, normName) {
   return '';
 }
 
+// A name made of two parts ("Salud/Higiene", "Food & Drinks, Bars"): the category its parts point to, when they all point to the same one
+// (by name or by a well-known equivalent); '' when no part does or two parts point to different ones.
+function categoryIdByParts_(cats, index, type, name) {
+  var parts = String(name || '').split(/[\/,+|]| y | e | and /i).map(catNameNorm_).filter(Boolean);
+  if (parts.length < 2) return '';
+  var hits = {};
+  parts.forEach(function (p) { var id = index[type + ':' + p] || categoryIdByAlias_(cats, type, p); if (id) hits[id] = true; });
+  var ids = Object.keys(hits);
+  return ids.length === 1 ? ids[0] : '';
+}
+
+// What a file's category says the money WAS when it is not spending or income (owner, 2026-11-20): 'loan', 'repay' (paying a debt
+// back), 'saving', 'invest', 'cash', or ''. By whole words, so "Cashback" is not cash. The phone offers the matching place in the app
+// (Loans, a move between the person's accounts, Investments) instead of a category; the person confirms it.
+var CATEGORY_FAMILY_WORDS_ = {
+  loan: /\b(prestamo|prestamos|deuda|deudas|loan|loans|debt|debts|fiado|fiados)\b/,
+  repay: /\b(pago|pagos|devolucion|devoluciones|repayment|repayments|payback|cuota|cuotas)\b/,
+  saving: /\b(ahorro|ahorros|saving|savings)\b/,
+  invest: /\b(inversion|inversiones|invest|investment|investments|investing)\b/,
+  cash: /\b(efectivo|cash|retiro|retiros|withdrawal|withdrawals|atm|cajero)\b/
+};
+function categoryFamily_(normName) {
+  var w = CATEGORY_FAMILY_WORDS_;
+  if (w.loan.test(normName)) return w.repay.test(normName) ? 'repay' : 'loan';
+  if (w.saving.test(normName)) return 'saving';
+  if (w.invest.test(normName)) return 'invest';
+  if (w.cash.test(normName)) return 'cash';
+  return '';
+}
+
 /**
  * payload: { names: [{ type: 'expense'|'income', name, count }] }. For each, what the merge would do by default:
  *   { key, type, name, count, action: 'match' | 'create' | 'left', categoryId, categoryName, why: 'name' | 'equivalent' | 'new' | 'retired' }
@@ -153,9 +184,10 @@ function suggestCategoryMap(payload) {
     if (id) { item.action = 'match'; item.why = 'name'; }
     else if (CATEGORY_RETIRED_NAMES_.indexOf(norm) !== -1) { item.action = 'left'; item.why = 'retired'; }
     else {
-      id = categoryIdByAlias_(cats, type, norm);
+      id = categoryIdByAlias_(cats, type, norm) || categoryIdByParts_(cats, index, type, name);
       if (id) { item.action = 'match'; item.why = 'equivalent'; }
     }
+    if (item.action !== 'match') { var fam = categoryFamily_(norm); if (fam) item.family = fam; }
     if (id) {
       item.categoryId = id; item.categoryName = categoryLabel_(byId[id]);
       item.protected = categoryIsProtected_(byId[id]);

@@ -25,7 +25,11 @@ function createRuntime(opts = {}) {
   svc.props.set("ACCESS_CODE", ACCESS_CODE);
   // Run the whole suite either way: GMAIL_READER=readonly node --test tests/backend/ (deploy.sh does both).
   if (process.env.GMAIL_READER) svc.props.set("GMAIL_READER", process.env.GMAIL_READER);
+  // opts.installerStart: the Sheet is built the way the installer builds a new person's copy (FEATURES set while seeding: the short
+  // starter categories and the bank catalogue). FEATURES is removed again afterwards unless the caller keeps it (FRIEND_COPY).
+  if (opts.installerStart) svc.props.set("FEATURES", "gmail,keepawake");
   vm.runInContext("setupSpreadsheet(); seedStarterData();", ctx);
+  if (opts.installerStart && !opts.keepFeatures) svc.props.delete("FEATURES");
 
   const rt = {
     ctx, svc, state, ACCESS_CODE, stats, resetStats,

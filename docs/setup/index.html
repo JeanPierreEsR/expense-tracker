@@ -394,7 +394,7 @@ const T = {
     c_api4: '4. Come back to this page. It continues by itself.',
     g_settings: 'Settings',
     c_acct: '1. Google asks you to sign in. Tap your account.',
-    c_unver: '2. Google says it hasn’t verified the app. That’s normal: tap the small “Continue” on the left. Never the big blue button.',
+    c_unver: '2. Google says it hasn’t verified the app. That’s normal: JP made this app, not Google. Tap the small “Continue” on the left. Never the big blue button.',
     c_all: '3. Check “Select all”.',
     c_scroll: '4. Scroll down to the end.',
     c_cont: '5. Tap “Continue”.',
@@ -421,7 +421,7 @@ const T = {
     rmReady: 'Ready. Tap the red button to finish deleting.',
     updReady: 'Ready. Tap “Update my app” to begin.',
     allDone: '✓ Your app is ready.',
-    allDoneUpdate: '✓ Your app is up to date. Close it and open it again from its icon on your Home Screen.',
+    allDoneUpdate: '✓ Your app is up to date. Go back to it and pull down from the top of the screen, or close it and open it again from its icon on your Home Screen.',
     keepOpen: 'Please keep this screen open and your phone unlocked until it finishes.',
     stepSetup: 'Step 1 of 2',
     stepAllow: 'Step 2 of 2',
@@ -457,13 +457,13 @@ const T = {
     shareTitle: 'Help me improve the app',
     // This card is the ONE place the person decides about sharing: the choice travels with the sign-in to the app (signin-link.js), which then does not ask again.
     // Its list of counts must say the same as the app's own pop-up (strings.js perfShare.body): tests/backend/signin-consent.test.js checks it.
-    shareBody: 'I’m JP, who made this app. It is in beta, and your help makes it better. If you leave the box below checked, your phone sends me only small counts: how fast each action ran; which action failed, with a short code; whether each bank email was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. While you set up, this page also tells me which step you reached and how many seconds it took. It never sends your Google account, email, expenses, amounts, names, accounts or anything you type, so it does not affect your privacy, and it does not slow the app down. You can change this at any time in the app, under More → Privacy. It would be greatly appreciated. — JP',
+    shareBody: 'I’m JP, who made this app. It is in beta, and your help makes it better. If you leave the box below checked, your phone sends me only small counts: how fast each action ran; which action failed, with a short code; whether each bank email was confirmed as it came, changed or discarded, and which field you changed (never what is in it); which tips the app showed you, and whether you then used what they explain; and how many times you open each screen. Each report also carries the app version, the type of phone and a random number for this phone (it only tells me two reports come from the same phone); for a bank email, also which bank sent it. While you set up, this page also tells me which step you reached and how many seconds it took. It never sends your Google account, email, expenses, amounts, the names in your entries, accounts or anything else you type (only the first name below, if you write one), and it does not slow the app down. You can change this at any time in the app, in the More tab, in the privacy section. It would be greatly appreciated. — JP',
     shareShort: 'Share small counts (speed, problems) to help improve the app. Never your account, email or spending.',
     optShareLabel: '<b>Share how the app is doing</b> (speed, problems, screens I use)',
     shareNameLabel: 'Your first name (optional), so JP knows who to help',
     sharePlaceholder: 'e.g. Ana',
     shareWhatSummary: 'Exactly what is sent',
-    shareWhat: '<ul><li>Once the app is set up, the small counts described above (speed; which action failed, with a short code; what you did with each bank email, never its content; how many times you open each screen), through the app itself.</li><li>While you set up, the name of each step you reach: you tapped the button, Google’s setting was needed, your sheet was created, your app was created, you were sent to Google, you came back, the help card was shown, you allowed it, your app is ready, or a step did not finish (which part).</li><li>How many seconds after you tapped the button.</li><li>Your phone type (for example iPhone), and the first name above if you wrote one.</li></ul><p>Nothing is sent until you tap “Set up my app”. Never sent: your Google account or email, your access code, or anything about your spending.</p>',
+    shareWhat: '<ul><li>Once the app is set up, the small counts described above (speed; which action failed, with a short code; what you did with each bank email, never its content; how many times you open each screen; which tips the app showed and whether they were then used), through the app itself.</li><li>While you set up, the name of each step you reach: you tapped the button, Google’s setting was needed, your sheet was created, your app was created, you were sent to Google, you came back, the help card was shown, you allowed it, your app is ready, or a step did not finish (which part).</li><li>How many seconds after you tapped the button.</li><li>Your phone type (for example iPhone), a random number for this phone (it only tells me two reports come from the same phone), and the first name above if you wrote one.</li></ul><p>Nothing is sent until you tap “Set up my app”. Never sent: your Google account or email, your access code, or anything about your spending.</p>',
     createTitle: '1. Set up my app',
     createAskMore: '<b>Google will ask you to allow “Expense Tracker Installer” (this page) to:</b><ul><li>create the Google Sheet where your expenses are saved;</li><li>set up your app in your own Google account.</li></ul><p>On Google’s screen, check <b>Select all</b> (if Google is in Spanish: <b>Seleccionar todo</b>), then tap <b>Continue</b> (if Google is in Spanish: <b>Continuar</b>).</p><p>Google may then say “<b>Google hasn’t verified this app</b>” (if Google is in Spanish: <b>Google no ha verificado esta aplicación</b>). That is normal for a small app. Tap the <b>small word Continue / Continuar</b> on the left. <b>Do not tap the big blue button</b> (“Back to safety” (in Spanish: “Volver a un sitio seguro”)): it takes you out.</p><p>After that it takes about a minute. You will see the progress at the top of this page.</p>',
     createBtn: 'Set up my app',
@@ -500,8 +500,9 @@ const T = {
     updBody: 'A newer version of your app is ready. Updating keeps your data and your access code, and Google does not ask for any new permission. It takes about a minute: keep this screen open.',
     updBtn: 'Update my app',
     updNone: 'No app of yours was found in this Google account. Make sure you signed in with the same Google account you used to set up your app.',
-    updDone: '✓ Your app is up to date. Open it from its icon on your Home Screen (close it first if it was open).',
+    updDone: '✓ Your app is up to date. Go back to it and pull down from the top of the screen, or open it from its icon on your Home Screen (close it first if it was open).',
     versionCap: 'Google limits how many versions an app can keep, and yours has reached that limit, so it cannot be updated here. Nothing is lost. Please message JP, who will help you move to a fresh copy.',
+    updWrongApp: 'The app on your phone is not in this Google account. Use the "Change account" button and pick the Google account you set the app up with.',
     blockedPage: 'Google answered with a page instead of your app. This usually means that Google’s approval screen is not finished, or that your phone is signed in to more than one Google account. Open this page in a Private tab (Safari: tabs button, then Private), sign in with only the account you used for setup, and tap the button again.',
     tooBusy: 'Google is limiting how fast this page can ask for things. Wait a minute and tap the button again. Nothing is lost.',
     p_updCheck: 'Checking your app…',
@@ -595,7 +596,7 @@ const T = {
     c_api4: '4. Vuelve a esta página. Continúa sola.',
     g_settings: 'Configuración',
     c_acct: '1. Google te pide iniciar sesión. Toca tu cuenta.',
-    c_unver: '2. Google dice que no verificó la app. Es normal: toca el “Continuar” pequeño de la izquierda. Nunca el botón azul grande.',
+    c_unver: '2. Google dice que no verificó la app. Es normal: esta app la hizo JP, no Google. Toca el “Continuar” pequeño de la izquierda. Nunca el botón azul grande.',
     c_all: '3. Marca “Seleccionar todo”.',
     c_scroll: '4. Baja hasta el final.',
     c_cont: '5. Toca “Continuar”.',
@@ -622,13 +623,13 @@ const T = {
     rmReady: 'Listo. Toca el botón rojo para terminar de borrar.',
     updReady: 'Lista. Toca “Actualizar mi app” para empezar.',
     allDone: '✓ Tu app está lista.',
-    allDoneUpdate: '✓ Tu app está al día. Ciérrala y ábrela de nuevo desde su ícono en la pantalla de inicio.',
+    allDoneUpdate: '✓ Tu app está al día. Vuelve a ella y desliza hacia abajo desde arriba de la pantalla, o ciérrala y ábrela de nuevo desde su ícono en la pantalla de inicio.',
     keepOpen: 'Por favor deja esta pantalla abierta y el celular desbloqueado hasta que termine.',
     stepSetup: 'Paso 1 de 2',
     stepAllow: 'Paso 2 de 2',
     stepOptional: 'Paso opcional',
     privateTitle: 'Consejo: usa una pestaña privada',
-    privateBody: '<p style="color:inherit">Es la forma más segura de configurar sin problemas. Muchos celulars tienen varias cuentas de Google con sesión iniciada, y la pantalla de aprobación de Google se confunde con eso. Una pestaña privada empieza sin cuentas, así que inicias sesión solo con la que elijas.</p><ol><li>Toca <b>Copiar la dirección de esta página</b> aquí abajo.</li><li>En Safari toca el ícono de pestañas (dos cuadrados), luego <b>Privada</b> y luego el <b>+</b>.</li><li>Pega la dirección en la barra y ábrela. Esta página aparece otra vez: sigue desde ahí.</li></ol><p style="color:inherit" class="small">¿Ya estás en una pestaña privada? Entonces todo listo: sigue con los pasos de abajo.</p>',
+    privateBody: '<p style="color:inherit">Es la forma más segura de configurar sin problemas. Muchos celulares tienen varias cuentas de Google con sesión iniciada, y la pantalla de aprobación de Google se confunde con eso. Una pestaña privada empieza sin cuentas, así que inicias sesión solo con la que elijas.</p><ol><li>Toca <b>Copiar la dirección de esta página</b> aquí abajo.</li><li>En Safari toca el ícono de pestañas (dos cuadrados), luego <b>Privada</b> y luego el <b>+</b>.</li><li>Pega la dirección en la barra y ábrela. Esta página aparece otra vez: sigue desde ahí.</li></ol><p style="color:inherit" class="small">¿Ya estás en una pestaña privada? Entonces todo listo: sigue con los pasos de abajo.</p>',
     accountTip: '<b>¿Con qué cuenta de Google?</b> El Gmail que <b>recibe los correos de tu banco</b>.',
     accountTipMore: '<b>¿Con qué cuenta de Google?</b> Inicia sesión con la cuenta de Gmail que <b>recibe los correos de tu banco</b>. Tu app lee tus movimientos del banco desde esa cuenta, así que usa esa. Si tus bancos escriben a varias direcciones, después puedes reenviarlos todos a esta (en la app: Más → Correos del banco). ¿No tienes Gmail porque tu banco escribe a Outlook, iCloud o Yahoo? Crea un Gmail gratis y reenvía a él; la app te explica cómo.',
     whatTitle: 'Qué va a pasar (unos 3 minutos)',
@@ -645,7 +646,7 @@ const T = {
     optAwakeLabel: '<b>Abrir más rápido</b> (recomendado)',
     optAwakeMore: '<b>Abrir más rápido (recomendado)</b> — tu app abre rápido siempre, en vez de hacerte esperar unos segundos la primera vez cada día.',
     optGmailLabel: '<b>Agregar movimientos del banco automáticamente</b> (recomendado)',
-    optGmailMore: '<b>Agregar mis movimientos del banco automáticamente (recomendado)</b> — tu app lee los correos que te envía tu banco y agrega cada pago por ti, así no los escribes. Nada cuenta hasta que lo confirmes. Solo puede leer correos, nunca enviar ni borrar.',
+    optGmailMore: '<b>Agregar movimientos del banco automáticamente (recomendado)</b> — tu app lee los correos que te envía tu banco y agrega cada pago por ti, así no los escribes. Nada cuenta hasta que lo confirmes. Solo puede leer correos, nunca enviar ni borrar.',
     choicesSummaryOne: 'Sin extras. Puedes continuar sin ellos.',
     choicesSummaryMany: 'Más adelante, Google te pedirá confirmar estos extras. Solo toma un momento.',
     choicesLocked: 'Tus elecciones: {list}.',
@@ -656,13 +657,13 @@ const T = {
     approveExtraAwake: 'mantenerse lista para abrir rápido: un pequeño temporizador corre cada 5 minutos, aunque no la estés usando, y solo contacta la dirección de la propia app',
     approveExtraGmail: '<b>leer</b> tu correo — nunca puede enviar, cambiar ni borrar uno; revisar con regularidad si hay correos nuevos del banco (un pequeño temporizador corre en segundo plano)',
     shareTitle: 'Ayúdame a mejorar la app',
-    shareBody: 'Soy JP, quien hizo esta app. Está en beta, y tu ayuda la mejora. Si dejas marcada la casilla de abajo, tu celular me envía solo conteos pequeños: qué tan rápido funcionó cada acción; qué acción falló, con un código corto; si cada correo del banco se confirmó tal como llegó, se cambió o se descartó, y qué campo cambiaste (nunca lo que dice); y cuántas veces abres cada pantalla. Mientras la configuras, esta página también me avisa a qué paso llegaste y cuántos segundos tomó. Nunca envía tu cuenta de Google, tu correo, tus gastos, montos, nombres, cuentas ni nada de lo que escribes, así que no afecta tu privacidad y no hace más lenta la app. Puedes cambiarlo cuando quieras en la app, en Más → Privacidad. Te lo voy a agradecer mucho. — JP',
+    shareBody: 'Soy JP, quien hizo esta app. Está en beta, y tu ayuda la mejora. Si dejas marcada la casilla de abajo, tu celular me envía solo conteos pequeños: qué tan rápido funcionó cada acción; qué acción falló, con un código corto; si cada correo del banco se confirmó tal como llegó, se cambió o se descartó, y qué campo cambiaste (nunca lo que dice); qué consejos te mostró la app y si después usaste lo que explican; y cuántas veces abres cada pantalla. Cada envío lleva también la versión de la app, el tipo de celular y un número al azar de este celular (solo me dice que dos envíos vienen del mismo celular); para un correo del banco, también qué banco lo envió. Mientras la configuras, esta página también me avisa a qué paso llegaste y cuántos segundos tomó. Nunca envía tu cuenta de Google, tu correo, tus gastos, montos, los nombres de tus movimientos, cuentas ni nada más de lo que escribes (solo el nombre de abajo, si lo escribes), y no hace más lenta la app. Puedes cambiarlo cuando quieras en la pestaña Más de la app, en la parte de privacidad. Te lo voy a agradecer mucho. — JP',
     shareShort: 'Comparte conteos pequeños (velocidad, problemas) para mejorar la app. Nunca tu cuenta, correo ni gastos.',
     optShareLabel: '<b>Compartir cómo le va a la app</b> (velocidad, problemas, pantallas que uso)',
     shareNameLabel: 'Tu nombre (opcional), para que JP sepa a quién ayudar',
     sharePlaceholder: 'p. ej. Ana',
     shareWhatSummary: 'Exactamente qué se envía',
-    shareWhat: '<ul><li>Cuando la app ya está configurada, los conteos pequeños descritos arriba (velocidad; qué acción falló, con un código corto; qué hiciste con cada correo del banco, nunca su contenido; cuántas veces abres cada pantalla), a través de la app misma.</li><li>Mientras la configuras, el nombre de cada paso al que llegas: tocaste el botón, hizo falta el ajuste de Google, se creó tu archivo, se creó tu app, te enviamos a Google, volviste, se mostró la tarjeta de ayuda, lo permitiste, tu app quedó lista, o un paso no terminó (cuál).</li><li>Cuántos segundos pasaron desde que tocaste el botón.</li><li>El tipo de celular (por ejemplo iPhone) y el nombre de arriba, si lo escribiste.</li></ul><p>No se envía nada hasta que toques “Configurar mi app”. Nunca se envía: tu cuenta de Google ni tu correo, tu código de acceso, ni nada sobre tus gastos.</p>',
+    shareWhat: '<ul><li>Cuando la app ya está configurada, los conteos pequeños descritos arriba (velocidad; qué acción falló, con un código corto; qué hiciste con cada correo del banco, nunca su contenido; cuántas veces abres cada pantalla; qué consejos mostró la app y si después se usaron), a través de la app misma.</li><li>Mientras la configuras, el nombre de cada paso al que llegas: tocaste el botón, hizo falta el ajuste de Google, se creó tu archivo, se creó tu app, te enviamos a Google, volviste, se mostró la tarjeta de ayuda, lo permitiste, tu app quedó lista, o un paso no terminó (cuál).</li><li>Cuántos segundos pasaron desde que tocaste el botón.</li><li>El tipo de celular (por ejemplo iPhone), un número al azar de este celular (solo me dice que dos envíos vienen del mismo celular) y el nombre de arriba, si lo escribiste.</li></ul><p>No se envía nada hasta que toques “Configurar mi app”. Nunca se envía: tu cuenta de Google ni tu correo, tu código de acceso, ni nada sobre tus gastos.</p>',
     createTitle: '1. Configurar mi app',
     createAskMore: '<b>Google te pedirá permitir que “Expense Tracker Installer” (esta página):</b><ul><li>cree el archivo de Google Sheets donde se guardan tus gastos;</li><li>prepare tu app en tu propia cuenta de Google.</li></ul><p>En la pantalla de Google, marca <b>Seleccionar todo</b> (si Google está en inglés: <b>Select all</b>) y toca <b>Continuar</b> (si Google está en inglés: <b>Continue</b>).</p><p>Luego Google puede decir “<b>Google no ha verificado esta aplicación</b>” (si Google está en inglés: <b>Google hasn’t verified this app</b>). Es normal en una app pequeña. Toca la <b>palabra pequeña Continuar / Continue</b> a la izquierda. <b>No toques el botón azul grande</b> (“Volver a un sitio seguro” (en inglés: “Back to safety”)): te saca de aquí.</p><p>Después tarda como un minuto. Verás el avance arriba en esta página.</p>',
     createBtn: 'Configurar mi app',
@@ -699,8 +700,9 @@ const T = {
     updBody: 'Hay una versión más nueva de tu app. Al actualizar se conservan tus datos y tu código de acceso, y Google no pide ningún permiso nuevo. Toma cerca de un minuto: deja esta pantalla abierta.',
     updBtn: 'Actualizar mi app',
     updNone: 'No se encontró ninguna app tuya en esta cuenta de Google. Revisa que hayas iniciado sesión con la misma cuenta de Google con la que configuraste tu app.',
-    updDone: '✓ Tu app está al día. Ábrela desde su ícono en la pantalla de inicio (ciérrala antes si estaba abierta).',
+    updDone: '✓ Tu app está al día. Vuelve a ella y desliza hacia abajo desde arriba de la pantalla, o ábrela desde su ícono en la pantalla de inicio (ciérrala antes si estaba abierta).',
     versionCap: 'Google limita cuántas versiones puede guardar una app, y la tuya llegó a ese límite, así que no se puede actualizar aquí. No se perdió nada. Escríbele a JP, quien te ayudará a pasar a una copia nueva.',
+    updWrongApp: 'La app de tu celular no está en esta cuenta de Google. Usa el botón "Cambiar de cuenta" y elige la cuenta de Google con la que configuraste la app.',
     blockedPage: 'Google respondió con una página en vez de tu app. Normalmente significa que la pantalla de aprobación de Google no está terminada, o que tu celular tiene más de una cuenta de Google con sesión iniciada. Abre esta página en una pestaña privada (Safari: botón de pestañas, luego Privada), inicia sesión solo con la cuenta que usaste para configurar y toca el botón de nuevo.',
     tooBusy: 'Google está limitando qué tan rápido esta página puede pedir cosas. Espera un minuto y toca el botón de nuevo. No se perdió nada.',
     p_updCheck: 'Revisando tu app…',
@@ -757,6 +759,7 @@ const T = {
 }[LANG];
 const WANT_REMOVE = /(^|[#&?])remove\b/.test(location.hash + location.search);   // the app's "Delete everything" opens this page that way
 if (WANT_REMOVE) { document.body.classList.add('removing'); document.querySelector('h1').setAttribute('data-t', 'rmPageTitle'); }
+const WANT_DEP = ((location.hash + location.search).match(/[#&?]dep=([A-Za-z0-9_-]+)/) || [])[1] || '';   // the app tells this page WHICH server the phone uses (the id in its address), so the right tracker is updated
 const WANT_UPDATE = /(^|[#&?])update\b/.test(location.hash + location.search);   // the app's "Update available" button opens this page that way
 // An update asks Google for nothing new and touches nothing the install cards cover, so none of them belong on screen here —
 // same trick as "removing" above (owner, 2026-10-24: the update page looked identical to a fresh install and confused people).
@@ -1018,6 +1021,9 @@ function resetBar(pct) {
   bar.style.transition = 'width .5s ease';
 }
 function setTop(kind, step, text, pct) {
+  // Finished (or failed): the bar fills at once. It may still carry a step's slow 14 s "creep", which made the last
+  // stretch to 100% crawl after the page already said it was done (owner, 2026-11-03).
+  if (kind !== 'running') $('tsBar').style.transition = 'width .3s ease';
   $('topStatus').className = 'topstatus ' + kind;
   $('tsStep').textContent = step || '';
   $('tsText').textContent = text || '';
@@ -1038,7 +1044,7 @@ function progress(text, pct, step, creepTo) {
   setTop('running', currentStep, text, pct);
   if (activeBtn) activeBtn.textContent = text;
   // Slow Google steps (10+ s with nothing to report): let the bar keep moving slowly so it never looks frozen.
-  if (creepTo) requestAnimationFrame(() => { $('tsBar').style.transition = 'width 14s linear'; $('tsBar').style.width = creepTo + '%'; });
+  if (creepTo) requestAnimationFrame(() => { if (!$('topStatus').classList.contains('running')) return; $('tsBar').style.transition = 'width 14s linear'; $('tsBar').style.width = creepTo + '%'; });
 }
 function startClock() {
   clockStart = Date.now(); lastProgressAt = Date.now(); $('tsTime').textContent = '0 s';
@@ -1242,8 +1248,13 @@ async function restoreIfNeeded(includeTestApps) {
     : "appProperties has { key='etSetup' and value='1' }";
   const q = encodeURIComponent(mark + " and trashed=false");
   const res = await google_('GET', 'https://www.googleapis.com/drive/v3/files?q=' + q + '&orderBy=createdTime%20desc&fields=files(id,webViewLink,appProperties)');
-  const f = (res.files || [])[0];
+  const found = res.files || [];
+  // The phone's own server first: the newest tracker is only a guess (found 2026-10-28: a person with more than one tracker had the NEWEST one updated while the phone kept using another).
+  const mine = WANT_DEP ? found.find((x) => x.appProperties && x.appProperties.deploymentId === WANT_DEP) : null;
+  if (WANT_DEP && !mine && found.length && found.every((x) => x.appProperties && x.appProperties.deploymentId)) throw new Error(T.updWrongApp);
+  const f = mine || found[0];
   if (!f) return;
+  if (mine && found[0] !== mine) log('You have more than one tracker: updating the one this phone uses.', 'ok');
   state.spreadsheetId = f.id; state.spreadsheetUrl = f.webViewLink;
   propsToProgress(f.appProperties || {});
   save();
@@ -1540,7 +1551,7 @@ function handoff() {
 }
 // The sign-in text for the app, with the person's "Help me improve the app" choice from the card above inside it (the app then does not ask again).
 function signinText() {
-  return SigninLink.make(state.webAppUrl, state.accessCode, { on: !!beta.on, label: PerfShare.cleanLabel(beta.label || ''), scope: PerfShare.SCOPE });
+  return SigninLink.make(state.webAppUrl, state.accessCode, { on: !!beta.on, label: PerfShare.cleanLabel(beta.label || ''), scope: PerfShare.SCOPE }, LANG);
 }
 async function continueAfterApproval() {
   await restoreIfNeeded();
@@ -1658,8 +1669,15 @@ async function versionCount() {
 // "Update my app": the same permissions, so Google asks for nothing new. Works from any phone signed in to the person's Google account:
 // the app is found again in Drive (restoreIfNeeded) and its own sign-in code is left alone.
 let updateJustDone = false;   // true once an update finishes here: switches the top banner to the "close and reopen" wording (render(), below)
+// This page remembers the tracker it last worked on. If the phone says it uses a different one, that memory (including the sign-in
+// code, which belongs to that other tracker) is dropped, so nothing of it is ever written into the phone's own server.
+function forgetOtherApp_() {
+  ['spreadsheetId', 'spreadsheetUrl', 'scriptId', 'deploymentId', 'webAppUrl', 'release', 'codeRelease', 'versionNumber', 'permissionDone', 'stages', 'pending', 'accessCode', 'gmailOk'].forEach((k) => { delete state[k]; });
+  save();
+}
 async function updateMyApp() {
   progress(T.p_google, 5, T.stepUpdate);
+  if (WANT_DEP && state.deploymentId && state.deploymentId !== WANT_DEP) { log('This page remembered a different tracker than the one your phone uses: looking for the right one.'); forgetOtherApp_(); }
   await restoreIfNeeded(true);
   accountReady = showAccount();
   if (!state.scriptId || !state.deploymentId) throw new Error(T.updNone);

@@ -9,7 +9,9 @@ const app = fs.readFileSync(path.join(__dirname, "../../docs/app.js"), "utf8");
 const css = fs.readFileSync(path.join(__dirname, "../../docs/style.css"), "utf8");
 
 test("the app knows the welcome overlay's real z-index (kept in step with style.css)", () => {
-  const fromCss = Number(/\.welcome-overlay \{[^}]*z-index:\s*(\d+)/.exec(css)[1]);
+  // The layer is named in :root since the design base (2026-11-12): read the name, then its value.
+  const zName = /\.welcome-overlay \{[^}]*z-index:\s*var\(--(z-[\w-]+)\)/.exec(css)[1];
+  const fromCss = Number(new RegExp(`--${zName}:\\s*(\\d+);`).exec(css)[1]);
   const fromApp = Number(/const WELCOME_OVERLAY_Z_ = (\d+);/.exec(app)[1]);
   assert.equal(fromApp, fromCss);
 });

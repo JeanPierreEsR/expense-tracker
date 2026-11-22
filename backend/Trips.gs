@@ -24,6 +24,8 @@ function ensureTripsSheet_() {
       tripsColumnsChecked_ = true;
       ensureColumn_('Trips', 'alert_thresholds');   // a tab made before the alerts existed
       ensureColumn_('Trips', 'currency');           // ... and before each trip had its own currency
+      ensureColumn_('Trips', 'in_budgets');         // ... and before "In my budgets" (2026-11-14)
+      ensureColumn_('Trips', 'group_size');         // ... and before the group's head count (2026-11-15)
     }
     return;
   }
@@ -46,7 +48,10 @@ function ensureEntriesTripColumn_() {
 
 function getTripRows_() {
   ensureTripsSheet_();
-  return getAllRowsCached_('Trips');
+  var rows = getAllRowsCached_('Trips');
+  // "In my budgets" typed by hand as NONE / None means none (Ingrid, 2026-11-15: it counted as usual).
+  rows.forEach(function (t) { if (String(t.in_budgets || '').trim().toLowerCase() === TRIP_BUDGETS_NONE_) t.in_budgets = TRIP_BUDGETS_NONE_; });
+  return rows;
 }
 
 function tripById_(id) {
@@ -98,11 +103,49 @@ function cleanTripInput_(p) {
   // Alert percentages (only meaningful with a budget). Blank = the usual budget ones; anything else is checked.
   var thresholdsRaw = String(p.alert_thresholds === undefined || p.alert_thresholds === null ? '' : p.alert_thresholds).trim();
   var thresholds = amount !== '' && thresholdsRaw !== '' ? normalizeBudgetThresholds_(thresholdsRaw) : '';
-  return {
+  var out = {
     name: name, kind: kind, start_date: start, end_date: end,
     emoji: String(p.emoji || '').trim(), budget_amount: amount, budget_currency: amount !== '' ? currency : '',
     alert_thresholds: thresholds, currency: currency
   };
+  // Left out when the caller did not send it (an older screen), so an edit keeps what was chosen.
+  if (p.in_budgets !== undefined && p.in_budgets !== null) out.in_budgets = cleanTripInBudgets_(p.in_budgets);
+  return out;
+}
+
+// "In my budgets" (owner, 2026-11-14): '' = as usual (each expense counts in its category's budgets), 'none' = left out of every
+// budget, else the comma-separated ids of the only budgets its expenses count in, whatever their category.
+function cleanTripInBudgets_(raw) {
+  var text = String(raw).trim();
+  if (!text) return '';
+  if (text.toLowerCase() === TRIP_BUDGETS_NONE_) return TRIP_BUDGETS_NONE_;
+  var present = {};
+  getAllRows('Budgets').forEach(function (b) { present[String(b.id)] = true; });
+  var seen = {}, ids = [];
+  text.split(',').forEach(function (id) { id = id.trim(); if (id && present[id] && !seen[id]) { seen[id] = true; ids.push(id); } });
+  if (!ids.length) throw new Error(tr_('trip.errInBudgets'));
+  return ids.join(',');
+}
+
+var TRIP_BUDGETS_NONE_ = 'none';
+
+// trip id -> where its expenses count in budgets, only for trips that are not "as usual": {} = in none, { budgetId: true } = only
+// those. A list whose budgets were all deleted counts as usual again (the trip pop-up says so: listTrips' in_budgets_lost).
+function tripBudgetRoutes_(budgets) {
+  var routes = {};
+  var trips = getTripRows_().filter(function (t) { return String(t.in_budgets || '').trim(); });
+  if (!trips.length) return routes;   // no trip is "not as usual": Budgets need not be read (speed, 2026-11-21)
+  var present = {};
+  (budgets || getAllRows('Budgets')).forEach(function (b) { present[String(b.id)] = true; });
+  trips.forEach(function (t) {
+    var raw = String(t.in_budgets || '').trim();
+    if (!raw) return;
+    if (raw === TRIP_BUDGETS_NONE_) { routes[t.id] = { route: {}, name: t.name }; return; }
+    var set = {}, any = false;
+    raw.split(',').forEach(function (id) { id = id.trim(); if (present[id]) { set[id] = true; any = true; } });
+    if (any) routes[t.id] = { route: set, name: t.name };
+  });
+  return routes;
 }
 
 function addTrip(payload) {
@@ -112,6 +155,25 @@ function addTrip(payload) {
   appendRowObject('Trips', trip);
   ensureTripGroupFriend_(trip);
   return trip;
+}
+
+// A new trip saved from the Trips list opens at once on its own screen with "Find expenses in these dates" open (owner, 2026-11-14:
+// save → link took ~16 s as four calls one after another). `_open` = { lookBack }: the same answer brings the trip's screen and the
+// finder's list, so the phone needs this ONE call. A failure there never undoes the save: the phone then loads them itself.
+function addTripAndOpen_(payload) {
+  var open = payload && payload._open;
+  if (payload) delete payload._open;
+  var trip = addTrip(payload);
+  if (!open) return trip;
+  var out = {};
+  Object.keys(trip).forEach(function (k) { out[k] = trip[k]; });
+  try {
+    // (both read Entries: inside one memory they read each sheet once, as a get… action does)
+    out.opened = withRowsMemo_(function () {
+      return { detail: getTripDetail({ id: trip.id }), found: findTripCandidates({ id: trip.id, lookBack: open.lookBack }) };
+    });
+  } catch (e) { /* the phone loads them itself */ }
+  return out;
 }
 
 function updateTrip(payload) {
@@ -127,6 +189,20 @@ function updateTrip(payload) {
   clean.id = payload.id;
   renameTripGroupFriend_(clean, payload.id);
   return clean;
+}
+
+// How many people share the trip's group (the owner included), the number an Equal split with the group starts at next time
+// (owner, 2026-11-15). Each expense may still use another number; the phone sends it with the save (saveEntryAll
+// `trip_group_size`) only when it differs from what is stored. Whole numbers 2-99; anything else is ignored.
+function setTripGroupSize_(tripId, size) {
+  var n = Math.round(Number(size));
+  if (!tripId || !isFinite(n) || n < 2 || n > 99) return;
+  ensureTripsSheet_();
+  var sheet = getSheet('Trips');
+  var headers = getHeaders(sheet);
+  var rowIndex = findRowIndexById(sheet, headers, String(tripId));
+  if (rowIndex === -1) return;
+  setCellByRow_(sheet, headers, rowIndex, 'group_size', n);
 }
 
 // Deleting a trip never deletes expenses: they just stop belonging to it.
@@ -162,6 +238,46 @@ function deleteTrip(payload) {
   return { done: true };
 }
 
+// Several trips / events at once (More → Trips & events → Edit, owner's request 2026-11-03): what deleteTrip does, for all of them in ONE pass over the
+// sheets. Expenses and estimates are never deleted, only unlinked; each trip's group friend is released (deleted when it has no loans); the trips' budget
+// alert history goes. Answers { deleted: [{id,name}], missing: [ids already gone] }.
+function deleteTrips(payload) {
+  ensureTripsSheet_();
+  var ids = [], seen = {};
+  ((payload && payload.ids) || []).forEach(function (id) { id = String(id || ''); if (id && !seen[id]) { seen[id] = true; ids.push(id); } });
+  var out = { deleted: [], missing: [], groupsKept: [] };
+  if (!ids.length) return out;
+  var byId = {};
+  getAllRows('Trips').forEach(function (t) { byId[String(t.id)] = t; });
+  var want = {};
+  ids.forEach(function (id) {
+    if (byId[id]) { want[id] = true; out.deleted.push({ id: id, name: String(byId[id].name || '') }); }
+    else out.missing.push(id);
+  });
+  if (!out.deleted.length) return out;
+  var unlink = function (sheetName, ensure) {
+    if (ensure) ensure();
+    var sheet = getSheet(sheetName);
+    var headers = getHeaders(sheet);
+    var col = headers.indexOf('trip_id');
+    if (col === -1 || sheet.getLastRow() < 2) return;
+    sheet.getRange(2, col + 1, sheet.getLastRow() - 1, 1).getValues().forEach(function (row, i) {
+      if (want[String(row[0])] === true) setCellByRow_(sheet, headers, i + 2, 'trip_id', '');
+    });
+  };
+  withWriteBatch_(function () {
+    unlink('Entries');
+    unlink('Recurring Expenses', ensureRecurringExpensesSheet_);   // estimates (one-time Programmed items) stay, just unlinked
+    out.deleted.forEach(function (d) {
+      var released = releaseTripGroupFriend_(d.id);
+      if (released && released.kept) out.groupsKept.push({ trip: d.name, friend: released.name });
+    });
+    deleteRowsWhere_('Trips', function (row) { return want[String(row.id)] === true; });
+    deleteRowsWhere_('Budget Alert Log', function (r) { return want[String(r.budget_id)] === true && r.period === TRIP_ALERT_PERIOD_; });
+  });
+  return out;
+}
+
 // The confirmed expenses linked to trips (all trips, or one), each with the
 // owner's share in the main currency. Entries with no usable rate are counted
 // in `missingRate` instead of silently dropped.
@@ -178,6 +294,8 @@ function tripExpenseRows_(onlyTripId) {
     var rate = getRateForEntryCurrency_(e.currency, e.date);
     rows.push({
       entry: e, own: own, currency: e.currency,
+      paidCurrency: Number(e.paid_amount) > 0 ? String(e.paid_currency || '') : '',   // a trip in what was paid uses that figure (Charges.gs)
+      paidOwn: Number(e.paid_amount) > 0 ? Number(e.paid_amount) * own / Number(e.amount) : 0,
       ownMain: rate == null ? null : own * rate,
       full: Number(e.amount), fullMain: rate == null ? null : Number(e.amount) * rate
     });
@@ -240,6 +358,7 @@ function tripCurrency_(t) {
 // needed rate is missing (the row is then counted in `missingRate`, never silently dropped).
 function tripAmountIn_(cur, r) {
   if (r.currency === cur) return r.own;
+  if (r.paidCurrency === cur) return r.paidOwn;
   if (r.ownMain == null) return null;
   if (cur === homeCurrency_()) return r.ownMain;
   var rate = rateToMain_(buildRatesByCurrency_(), cur, String(tripRowDate_(r)).substring(0, 7));
@@ -273,6 +392,7 @@ function tripAllRows_(onlyTripId) {
 // For the Trips & events list: every trip with its running total (real + estimated), in its own currency.
 function listTrips() {
   var trips = getTripRows_().map(function (t) { return Object.assign({}, t); });
+  var routes = tripBudgetRoutes_();
   var byTrip = {};
   tripAllRows_(null).forEach(function (r) {
     var id = r.entry ? r.entry.trip_id : r.item.trip_id;
@@ -294,6 +414,9 @@ function listTrips() {
     t.spentMain = total;
     t.estimatedMain = estimated;
     t.budgetSpent = Number(t.budget_amount) > 0 ? total : null;
+    // "In my budgets" named budgets that were all deleted since: it counts as usual again, and the pop-up says so.
+    var inBudgets = String(t.in_budgets || '').trim();
+    t.in_budgets_lost = !!inBudgets && inBudgets !== TRIP_BUDGETS_NONE_ && !routes[t.id];
   });
   return trips;
 }
@@ -381,10 +504,20 @@ function getTripDetail(payload) {
 
 // ---- Suggestions by date (always confirmed by the owner; nothing links on its own) ----
 
-// The trips/events whose dates include `date` (YYYY-MM-DD).
+// First-use Trips practice: its trip and its expense are named like this (both languages). Every cleanup below only ever touches these names.
+function isPracticeTrip_(t) {
+  return /^(Practice trip|Viaje de pr\u00e1ctica)$/.test(String((t && t.name) || '').trim());
+}
+function isPracticeTripExpense_(e) {
+  return /^(Practice trip expense|Gasto de viaje de pr\u00e1ctica)$/.test(String((e && e.description) || '').trim());
+}
+
+// The trips/events whose dates include `date` (YYYY-MM-DD). The practice trip never counts: a suggestion ("Will be linked to...",
+// the review queue's pre-selected trip, Telegram's default link, "repayment" with no name) must not point a REAL entry at it, and it
+// must not make a real trip ambiguous (two covering one date = no guess).
 function tripsCoveringDate_(date, trips) {
   var d = String(date || '');
-  return (trips || getTripRows_()).filter(function (t) { return d >= t.start_date && d <= t.end_date; });
+  return (trips || getTripRows_()).filter(function (t) { return !isPracticeTrip_(t) && d >= t.start_date && d <= t.end_date; });
 }
 
 // The one trip a date points to — or '' when none or SEVERAL cover it (never guess between two).
@@ -467,6 +600,60 @@ function linkEntriesToTrip(payload) {
   return { linked: linked };
 }
 
+// First-use Trips practice, since 2026-11-05 (owner): it teaches "🔎 Find expenses in these dates", so it first makes TWO made-up expenses in
+// the practice trip's past days (yesterday and the day before), confirmed, no trip, no account, the first visible expense category, named like
+// the practice's expense. They are dated BEFORE the practice started, so the cleanup finds them by the marker in their external_id (the person
+// cannot edit it), not by date. A budget alert skips them by name (PRACTICE_ENTRY_NAMES_); nothing sends a message for a manual expense.
+//   payload: { lang }  -> { ids: [two ids], dates: [two YYYY-MM-DD] }
+var PRACTICE_TRIP_MARK_ = 'practice-trip-';
+function createPracticeTripExpenses(payload) {
+  return withScriptLockOnce_(function () {
+    ensureEntriesMerchantColumn_();
+    var es = String((payload && payload.lang) || '').toLowerCase().indexOf('es') === 0;
+    var name = es ? 'Gasto de viaje de pr\u00e1ctica' : 'Practice trip expense';
+    var cat = '';
+    getAllRows('Categories').some(function (c) {
+      if (c.type === 'expense' && String(c.hidden || '') !== 'yes') { cat = String(c.id); return true; }
+      return false;
+    });
+    var ids = [], dates = [];
+    [[1, 23.7], [2, 41.3]].forEach(function (d) {   // odd cents: they never look like a real entry the matchers could pair
+      var id = Utilities.getUuid();
+      var date = formatCalendarDate_(new Date(Date.now() - d[0] * 24 * 3600 * 1000));
+      appendRowObject('Entries', {
+        id: id, type: 'expense', date: date, amount: d[1], currency: homeCurrency_(), category_id: cat, description: name,
+        payment_method_id: '', paid_by: 'me', status: 'confirmed', source: 'manual', external_id: PRACTICE_TRIP_MARK_ + id,
+        import_batch_id: '', created_at: nowTimestamp_(), merchant: ''
+      });
+      ids.push(id); dates.push(date);
+    });
+    return { ids: ids, dates: dates };
+  });
+}
+
+// First-use Trips practice cleanup in ONE call: deletes every trip named like the practice's (with its hidden group friend and alert
+// history, through deleteTrip) and the expense the practice recorded for it (named like it, dated since the practice started). A REAL
+// entry the person linked to the practice trip is never deleted, only unlinked (deleteTrip does that).
+//   payload: { started_on }  -> { trips, entries, unlinked }
+function removePracticeTrips(payload) {
+  return withScriptLockOnce_(function () {
+    var out = { trips: 0, entries: 0, unlinked: 0 };
+    ensureTripsSheet_();
+    var ids = getTripRows_().filter(isPracticeTrip_).map(function (t) { return String(t.id); });
+    var startedOn = String((payload && payload.started_on) || '');
+    getAllRows('Entries').forEach(function (e) {
+      var marked = String(e.external_id || '').indexOf(PRACTICE_TRIP_MARK_) === 0;   // the two made-up past expenses
+      if (e.type === 'expense' && (marked || (isPracticeTripExpense_(e) && (!startedOn || String(e.date) >= startedOn)))) {
+        try { discardEntryWithRepayments_(e.id, 'cancel'); out.entries++; } catch (err) { /* it stays: the person can delete it by hand */ }
+      } else if (ids.indexOf(String(e.trip_id)) !== -1) {
+        out.unlinked++;
+      }
+    });
+    ids.forEach(function (id) { deleteTrip({ id: id }); out.trips++; });
+    return out;
+  });
+}
+
 // ---- Budget alerts through Telegram (same idea and cycle as category budgets) ----
 // A trip with a budget warns when what it counts (paid + estimates, the same figure as its budget bar)
 // first crosses each alert percentage. Dedup is by the shared Budget Alert Log with the trip's id as
@@ -492,9 +679,11 @@ function checkTripBudgets() {
 
 function checkTripBudgetsLocked_() {
   var cutoff = formatCalendarDate_(new Date(Date.now() - TRIP_ALERT_GRACE_DAYS_ * 24 * 3600 * 1000));
-  var trips = listTrips().filter(function (t) {
-    return Number(t.budget_amount) > 0 && t.budgetSpent != null && t.end_date >= cutoff;
+  var allTrips = listTrips();
+  var trips = allTrips.filter(function (t) {
+    return Number(t.budget_amount) > 0 && t.budgetSpent != null && t.end_date >= cutoff && !isPracticeTrip_(t);   // (the first-use practice's trip never alerts)
   });
+  syncTripNotices_(allTrips);
   // The first run on an existing copy only writes down what is already over a limit, without alerting (Notices.gs § Alerts only from now on).
   var baseline = alertBaselinePending_('trips');
   if (!trips.length) {
@@ -511,7 +700,7 @@ function checkTripBudgetsLocked_() {
   var staleKeys = {};
   trips.forEach(function (t) {
     var percent = Number(t.budgetSpent) / Number(t.budget_amount) * 100;
-    var thresholds = String(t.alert_thresholds || DEFAULT_BUDGET_THRESHOLDS)
+    var thresholds = String(t.alert_thresholds || budgetDefaultThresholds_())
       .split(',')
       .map(function (x) { return Number(String(x).trim()); })
       .filter(function (x) { return !isNaN(x); })
@@ -532,7 +721,7 @@ function checkTripBudgetsLocked_() {
     newlyCrossed.forEach(function (threshold) {
       appendRowObject('Budget Alert Log', {
         id: Utilities.getUuid(), budget_id: t.id, threshold: threshold, period: TRIP_ALERT_PERIOD_,
-        sent_at: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd')
+        sent_at: Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd')
       });
       alertedSet[t.id + '|' + threshold] = true;
     });
@@ -546,6 +735,19 @@ function checkTripBudgetsLocked_() {
   }
   if (baseline) markAlertBaselineDone_('trips');
   return { checked: trips.length, alertsSent: alertsSent };
+}
+
+// The same rule as a budget's alert (syncBudgetNotices_): trip deleted, budget taken off or spending under the lowest alert level = the alert goes; still over = today's figures.
+function syncTripNotices_(allTrips) {
+  var tripById = rowsById_(allTrips);
+  syncOpenNotices_('trip', function (notice) {
+    var t = tripById[String(notice.key).split('|')[1]];   // trip|<id>
+    if (!t || !(Number(t.budget_amount) > 0)) return CLOSE_NOTICE_;
+    if (t.budgetSpent == null) return '';
+    var percent = Number(t.budgetSpent) / Number(t.budget_amount) * 100;
+    var lowest = Math.min.apply(null, String(t.alert_thresholds || budgetDefaultThresholds_()).split(',').map(function (x) { return Number(String(x).trim()); }).filter(function (x) { return !isNaN(x); }));
+    return percent >= lowest ? tripBudgetAlertText_(t, percent) : CLOSE_NOTICE_;
+  });
 }
 
 // ---- Telegram's Confirm links the suggested trip by default ----
@@ -616,6 +818,7 @@ function releaseTripGroupFriend_(tripId) {
   var hasLoans = getAllRows('Loans').some(function (l) { return l.friend_id === friend.id; });
   if (hasLoans) updateRowFields_('Friends', friend.id, { trip_id: '' });
   else deleteRowsWhere_('Friends', function (row) { return row.id === friend.id; });
+  return { kept: hasLoans, name: String(friend.name || '') };   // (the bulk delete tells the owner which group friends stayed in Friends)
 }
 
 // The balance check: per currency what the group owes the owner (positive pending) or the owner owes it

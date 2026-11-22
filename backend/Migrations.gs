@@ -89,7 +89,7 @@ function adminSetupIbkAccounts(payload) {
 
 // Same cell handling as setPaymentMethodOpeningBalance: date and as_of are
 // plain-text cells so Sheets doesn't turn them into Date values.
-function addOpeningRow_(pmId, currency, amount, date, asOf) {
+function addOpeningRow_(pmId, currency, amount, date, asOf, notYet) {
   var sheet = getSheet('Account Opening Balances');
   var headers = getHeaders(sheet);
   var newId = Utilities.getUuid();
@@ -103,6 +103,7 @@ function addOpeningRow_(pmId, currency, amount, date, asOf) {
   var asOfCell = sheet.getRange(row, headers.indexOf('as_of') + 1);
   asOfCell.setNumberFormat('@');
   asOfCell.setValue(asOf);
+  if (notYet && headers.indexOf('not_yet') !== -1) sheet.getRange(row, headers.indexOf('not_yet') + 1).setValue(String(notYet));
   return newId;
 }
 
@@ -218,6 +219,7 @@ var RETIRED_CATEGORY_NAMES_ = ['Savings', 'Loan'];
 // Same as ensureCategoryPeriodTypeColumn_: an existing sheet can't have its
 // headers recreated, so the one missing column is appended in place.
 function ensureCategoryKeyColumn_() {
+  if (memoHasColumns_('Categories', ['key'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Categories');
   var headers = getHeaders(sheet);
   if (headers.indexOf('key') !== -1) return;
@@ -245,7 +247,7 @@ function rewriteColumn_(sheetName, col, fn, dryRun) {
     else out.push([before]);
   });
   if (!dryRun && ids.length) {
-    sheet.getRange(2, ci + 1, out.length, 1).setValues(out);
+    sheet.getRange(2, ci + 1, out.length, 1).setValues(sheetName === 'Entries' ? sheetSafeRows_(out) : out);
     if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
   }
   return { changed: ids.length, ids: ids };

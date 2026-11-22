@@ -330,6 +330,130 @@ function deleteCompany(payload) {
   return { done: true };
 }
 
+// ---- Several companies / projects at once (More → Companies & projects → Edit, owner's request 2026-11-03) ----
+// What deleteProject and deleteCompany do, for a whole batch in ONE call: projects first (their entries keep the company and lose the project; the
+// project's budgets and expected payments go), then companies: a company that still has projects or entries is kept, never deleted behind the owner's
+// back. Answers { projects: { deleted: [{id,name}], missing: [ids] }, companies: { deleted: [{id,name}], kept: [{id,name,reason: projects|entries|missing}] } }.
+function deleteBusinessItems(payload) {
+  requireBusiness_();
+  ensureBusinessSheets_();
+  payload = payload || {};
+  var out = { projects: { deleted: [], missing: [] }, companies: { deleted: [], kept: [] } };
+  var projectIds = uniqueIds_(payload.project_ids), companyIds = uniqueIds_(payload.company_ids);
+  var projectsById = {};
+  getProjectRows_().forEach(function (p) { projectsById[String(p.id)] = p; });
+  var goneProjects = {};
+  projectIds.forEach(function (id) {
+    if (projectsById[id]) { goneProjects[id] = true; out.projects.deleted.push({ id: id, name: String(projectsById[id].name || '') }); }
+    else out.projects.missing.push(id);
+  });
+  if (out.projects.deleted.length) {
+    var entrySheet = getSheet('Entries');
+    var entryHeaders = getHeaders(entrySheet);
+    var col = entryHeaders.indexOf('project_id');
+    withWriteBatch_(function () {
+      if (col !== -1 && entrySheet.getLastRow() >= 2) {
+        entrySheet.getRange(2, col + 1, entrySheet.getLastRow() - 1, 1).getValues().forEach(function (row, i) {
+          if (goneProjects[String(row[0])] === true) setCellByRow_(entrySheet, entryHeaders, i + 2, 'project_id', '');
+        });
+      }
+      deleteRowsWhere_('Project Budgets', function (row) { return goneProjects[String(row.project_id)] === true; });
+      clearLoanProjects_(goneProjects);
+      out.projects.deleted.forEach(function (d) { deleteExpectedForProject_(d.id); });
+      deleteRowsWhere_('Projects', function (row) { return goneProjects[String(row.id)] === true; });
+    });
+  }
+  if (companyIds.length) {
+    var companiesById = {};
+    getCompanyRows_().forEach(function (c) { companiesById[String(c.id)] = c; });
+    var withProjects = {};
+    getProjectRows_().forEach(function (p) { withProjects[String(p.company_id)] = true; });
+    var withEntries = {};
+    getAllRows('Entries').forEach(function (e) { if (e.company_id) withEntries[String(e.company_id)] = true; });
+    var goneCompanies = {};
+    companyIds.forEach(function (id) {
+      var c = companiesById[id];
+      if (!c) { out.companies.kept.push({ id: id, name: '', reason: 'missing' }); return; }
+      var name = String(c.name || '');
+      if (withProjects[id]) { out.companies.kept.push({ id: id, name: name, reason: 'projects' }); return; }
+      if (withEntries[id]) { out.companies.kept.push({ id: id, name: name, reason: 'entries' }); return; }
+      goneCompanies[id] = true;
+      out.companies.deleted.push({ id: id, name: name });
+    });
+    if (out.companies.deleted.length) {
+      deleteRowsWhere_('IGV Payments', function (row) { return goneCompanies[String(row.company_id)] === true; });   // information-only records go with it
+      deleteRowsWhere_('Companies', function (row) { return goneCompanies[String(row.id)] === true; });
+    }
+  }
+  return out;
+}
+
+// What a bulk delete of companies / projects takes with it besides the items themselves (More → Companies & projects → Edit), so the confirmation can say it:
+// the expected payments of the projects (count and what is still expected per currency) and the IGV payment records of the companies that would really go
+// (a company with projects left or with entries is kept). Answers { expected: { count, byCurrency: [{ currency, amount }] }, igv: { count } }.
+function previewBusinessDelete(payload) {
+  requireBusiness_();
+  ensureBusinessSheets_();
+  payload = payload || {};
+  var projectIds = uniqueIds_(payload.project_ids), companyIds = uniqueIds_(payload.company_ids);
+  var goneProjects = {};
+  var known = {};
+  getProjectRows_().forEach(function (p) { known[String(p.id)] = p; });
+  projectIds.forEach(function (id) { if (known[id]) goneProjects[id] = true; });
+  var byCur = {}, count = 0;
+  getExpectedRows_().forEach(function (x) {
+    if (goneProjects[String(x.project_id)] !== true) return;
+    count++;
+    if (x.status === 'covered') return;
+    byCur[x.currency] = (byCur[x.currency] || 0) + Number(x.amount || 0);
+  });
+  var withProjectsLeft = {}, withEntries = {};
+  getProjectRows_().forEach(function (p) { if (goneProjects[String(p.id)] !== true) withProjectsLeft[String(p.company_id)] = true; });
+  getAllRows('Entries').forEach(function (e) { if (e.company_id) withEntries[String(e.company_id)] = true; });
+  var goneCompanies = {};
+  var companyKnown = {};
+  getCompanyRows_().forEach(function (c) { companyKnown[String(c.id)] = true; });
+  companyIds.forEach(function (id) { if (companyKnown[id] && !withProjectsLeft[id] && !withEntries[id]) goneCompanies[id] = true; });
+  var igv = getAllRows('IGV Payments').filter(function (r) { return goneCompanies[String(r.company_id)] === true; }).length;
+  return {
+    expected: { count: count, byCurrency: Object.keys(byCur).sort().map(function (c) { return { currency: c, amount: Math.round(byCur[c] * 100) / 100 }; }) },
+    igv: { count: igv }
+  };
+}
+
+// Several clients / suppliers / partners at once (More → Companies & projects → People → Edit). The single delete's rule for each: a person who has loans,
+// shares or paid entries is kept (nothing is deleted behind the owner's back), and so is a trip's group. Answers
+// { deleted: [{id,name}], kept: [{id,name,reason: inUse|client|group|notPerson|missing}] }.
+function deleteBusinessPeople(payload) {
+  requireBusiness_();
+  var ids = uniqueIds_(payload && payload.ids);
+  var out = { deleted: [], kept: [] };
+  if (!ids.length) return out;
+  var byId = {};
+  getAllRows('Friends').forEach(function (f) { byId[String(f.id)] = f; });
+  var used = {};
+  getAllRows('Loans').forEach(function (l) { used[String(l.friend_id)] = true; });
+  getAllRows('Entry Splits').forEach(function (sp) { used[String(sp.friend_id)] = true; });
+  getAllRows('Entries').forEach(function (e) { if (e.type !== 'income' && e.paid_by) used[String(e.paid_by)] = true; });
+  var progSplits = recurringSplitFriendIds_();
+  Object.keys(progSplits).forEach(function (id) { used[id] = true; });
+  var clients = businessClientIds_();
+  var gone = {};
+  ids.forEach(function (id) {
+    var f = byId[id];
+    if (!f) { out.kept.push({ id: id, name: '', reason: 'missing' }); return; }
+    var name = String(f.name || '');
+    if (f.trip_id) { out.kept.push({ id: id, name: name, reason: 'group' }); return; }
+    if (friendRoleOf_(f) === 'friend') { out.kept.push({ id: id, name: name, reason: 'notPerson' }); return; }   // a plain friend is deleted from More → Friends
+    if (used[id]) { out.kept.push({ id: id, name: name, reason: 'inUse' }); return; }
+    if (clients[id]) { out.kept.push({ id: id, name: name, reason: 'client' }); return; }
+    gone[id] = true;
+    out.deleted.push({ id: id, name: name });
+  });
+  if (out.deleted.length) deleteRowsWhere_('Friends', function (row) { return gone[String(row.id)] === true; });
+  return out;
+}
+
 function cleanProjectInput_(p, ownId, ownCompanyId) {
   var name = String(p.name || '').trim();
   if (!name) throw new Error(tr_('err.enterName'));
@@ -401,6 +525,8 @@ function deleteProject(payload) {
       });
     }
     deleteRowsWhere_('Project Budgets', function (row) { return String(row.project_id) === id; });
+    var goneOne = {}; goneOne[id] = true;
+    clearLoanProjects_(goneOne);
     deleteExpectedForProject_(id);
     deleteOpeningsFor_(id, '');   // its typed opening figures and the accountant's go with it (its entries come back to the company level)
     deleteRowsWhere_('Projects', function (row) { return String(row.id) === id; });
@@ -698,6 +824,30 @@ function listBusinessPeople() {
   });
 }
 
+// More → Friends: the plain friends (clients, suppliers and partners live in Companies & projects → People; a trip's group is edited with
+// the trip), each with what is still owed in total per currency (they owe me positive, I owe them negative). Works in every copy.
+// What is still owed per friend and currency ({ friendId: { CUR: net } }; positive = they owe me). Forgiven and fully repaid loans count as nothing.
+function friendOpenBalances_() {
+  var settled = buildSettlementTotalsByLoan_();
+  var byFriend = {};
+  getAllRows('Loans').forEach(function (l) {
+    if (l.status === 'forgiven') return;
+    var remaining = Number(l.amount) - (settled[l.id] || 0);
+    if (remaining <= 0.004) return;
+    var slot = byFriend[l.friend_id] || (byFriend[l.friend_id] = {});
+    slot[l.currency] = (slot[l.currency] || 0) + (l.direction === 'they_owe_me' ? remaining : -remaining);
+  });
+  return byFriend;
+}
+
+// More → Friends: every plain friend, hidden ones included (flagged `hidden`), so the screen can offer "Hidden friends" and Unhide.
+function listMyFriends() {
+  var byFriend = friendOpenBalances_();
+  return getAllRowsCached_('Friends').filter(function (f) { return !f.trip_id && friendRoleOf_(f) === 'friend'; }).map(function (f) {
+    return { id: f.id, name: f.name, notes: f.notes || '', phone: friendPhoneText_(f.phone), hidden: String(f.hidden) === 'yes', totals: netMapToList_(byFriend[f.id] || {}) };
+  });
+}
+
 // What each person owes (or is owed) on ONE project, per currency — the project screen's "Owed" block.
 function getProjectDebts(payload) {
   requireBusiness_();
@@ -708,40 +858,269 @@ function getProjectDebts(payload) {
 
 function personKey_(name) { return searchNormalize_(String(name || '').trim()); }
 
+// Renames a person and/or changes their notes (and, when `phone` is sent, their WhatsApp number; More → Friends). A plain friend can be edited in ANY copy (More → Friends); a business role (client,
+// supplier, partner) needs the Business pack, so asking for one while it is off is refused like every other business action.
 function updateFriend(payload) {
-  requireBusiness_();
-  ensureBusinessSheets_();
+  var biz = businessOn_();
+  if (!biz && payload && payload.role && payload.role !== 'friend') requireBusiness_();
+  if (biz) ensureBusinessSheets_();
   var sheet = getSheet('Friends');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, payload && payload.id);
   if (rowIndex === -1) throw new Error(tr_('err.friendNotFound'));
   var name = String(payload.name || '').trim();
   if (!name) throw new Error(tr_('err.enterName'));
-  var role = BUSINESS_ROLES_[payload.role] ? payload.role : 'friend';
+  var role = biz ? (BUSINESS_ROLES_[payload.role] ? payload.role : 'friend') : 'friend';
   getAllRows('Friends').forEach(function (f) {
-    if (String(f.id) !== String(payload.id) && personKey_(f.name) === personKey_(name)) throw new Error(tr_('business.errPersonExists'));
+    if (String(f.id) !== String(payload.id) && personKey_(f.name) === personKey_(name)) throw new Error(tr_(String(f.hidden) === 'yes' ? 'friends.errHiddenName' : 'business.errPersonExists'));
   });
   var existing = getAllRows('Friends').find(function (f) { return String(f.id) === String(payload.id); });
   if (existing && existing.trip_id) throw new Error(tr_('business.errPersonGroup'));
+  var phone = payload.phone !== undefined ? normalizeFriendPhone_(payload.phone) : null;   // checked before anything is written
   withWriteBatch_(function () {
     setCellByRow_(sheet, headers, rowIndex, 'name', name);
-    setCellByRow_(sheet, headers, rowIndex, 'role', role);
+    if (biz) setCellByRow_(sheet, headers, rowIndex, 'role', role);   // a personal copy has no role column
     if (payload.notes !== undefined) setCellByRow_(sheet, headers, rowIndex, 'notes', String(payload.notes));
   });
-  return { id: payload.id, name: name, role: role, notes: payload.notes !== undefined ? String(payload.notes) : (existing ? existing.notes : '') };
+  if (phone !== null) writeFriendPhone_(payload.id, phone);
+  return {
+    id: payload.id, name: name, role: role, notes: payload.notes !== undefined ? String(payload.notes) : (existing ? existing.notes : ''),
+    phone: phone !== null ? phone : friendPhoneText_(existing && existing.phone)
+  };
 }
 
 // A person who has debts, shares or paid entries is kept (nothing is ever deleted behind the owner's back).
+// Ids of the friends a Programmed item still splits its amount with (tab Recurring Expense Splits; older copies may not have it yet).
+// A friend there is "in use": deleting the row would leave a split pointing at nobody, so the friend is hidden instead (QA round 1, 2026-11-03).
+function recurringSplitFriendIds_() {
+  var out = {};
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Recurring Expense Splits')) return out;
+  getAllRows('Recurring Expense Splits').forEach(function (s) { if (s.friend_id) out[String(s.friend_id)] = true; });
+  return out;
+}
+
+// Ids of the people that are a project's client or an expected payment's client (Business pack). Such a person is kept: deleting the row would leave
+// the project's / payment's client pointing at nobody and its name blank (QA round 1, 2026-11-03).
+function businessClientIds_() {
+  var out = {};
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (ss.getSheetByName('Projects')) getAllRows('Projects').forEach(function (p) { if (p.client_id) out[String(p.client_id)] = true; });
+  if (ss.getSheetByName('Expected Payments')) getAllRows('Expected Payments').forEach(function (x) { if (x.client_id) out[String(x.client_id)] = true; });
+  return out;
+}
+
+// A deleted project's loans become plain loans: the project link is cleared, never left pointing at a project that no longer exists.
+function clearLoanProjects_(goneProjectIds) {
+  rewriteColumn_('Loans', 'project_id', function (v) { return goneProjectIds[String(v)] === true ? '' : v; }, false);
+}
+
 function deleteFriend(payload) {
-  requireBusiness_();
   var id = String((payload && payload.id) || '');
   var friend = getAllRows('Friends').find(function (f) { return String(f.id) === id; });
   if (!friend) throw new Error(tr_('err.friendNotFound'));
   if (friend.trip_id) throw new Error(tr_('business.errPersonGroup'));
   var used = getAllRows('Loans').some(function (l) { return String(l.friend_id) === id; }) ||
     getAllRows('Entry Splits').some(function (s) { return String(s.friend_id) === id; }) ||
-    getAllRows('Entries').some(function (e) { return e.type !== 'income' && String(e.paid_by) === id; });
+    recurringSplitFriendIds_()[id] === true ||
+    getAllRows('Entries').some(function (e) { return String(e.paid_by) === id; });   // income too: payors and friends are one list
   if (used) throw new Error(tr_('business.errPersonInUse'));
+  if (businessClientIds_()[id] === true) throw new Error(tr_('business.errPersonClient'));
   deleteRowsWhere_('Friends', function (row) { return String(row.id) === id; });
   return { done: true };
+}
+
+// A friend's WhatsApp number, for the "Remind on WhatsApp" sheet on their loan screen (specs/loans.md § Reminders). Optional: an empty
+// number clears it. Stored as text, "+" and digits only, so Sheets never turns it into a number. Also editable in More → Friends
+// (updateFriend / addFriend with `phone`).
+function setFriendPhone(payload) {
+  var phone = normalizeFriendPhone_(payload && payload.phone);
+  writeFriendPhone_(payload && payload.id, phone);
+  return { id: payload.id, phone: phone };
+}
+
+// What "Remind on WhatsApp" remembers about a friend when a reminder is sent: the number (`phone`, as setFriendPhone) and the
+// language the message was written in (`lang`, 'en' / 'es', stored in the Friends column `remind_lang`). A field that is not
+// sent is kept. Everything is checked before anything is written. specs/loans.md § Reminders.
+function setFriendRemind(payload) {
+  payload = payload || {};
+  var hasPhone = payload.phone !== undefined && payload.phone !== null;
+  var phone = hasPhone ? normalizeFriendPhone_(payload.phone) : null;
+  var lang = payload.lang === undefined || payload.lang === null ? null : String(payload.lang);
+  if (lang !== null && lang !== '' && REMIND_LANGS_.indexOf(lang) === -1) throw new Error(tr_('err.remindLang'));
+  if (!getAllRows('Friends').some(function (f) { return String(f.id) === String(payload.id); })) throw new Error(tr_('err.friendNotFound'));
+  if (hasPhone) writeFriendPhone_(payload.id, phone);
+  if (lang !== null) {
+    var headers = ensureFriendsColumn_('remind_lang');
+    var sheet = getSheet('Friends');
+    setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, payload.id), 'remind_lang', lang);
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
+  }
+  bumpStructureVersion_();   // the app's friends list (getMeta, cached by structure version) shows it at once
+  var row = getAllRows('Friends').filter(function (f) { return String(f.id) === String(payload.id); })[0] || {};
+  return { id: payload.id, phone: friendPhoneText_(row.phone), remind_lang: String(row.remind_lang || '') };
+}
+
+// The person's own wording of the reminder, one per language (Settings `remind_template_en` / `remind_template_es`). It holds
+// {name}, {list} and {amount} where the app fills in the friend's name, the list of debts and the amount (docs/loan-reminder.js).
+// An empty text goes back to the app's wording.
+var REMIND_LANGS_ = ['en', 'es'];
+var REMIND_TEMPLATE_MAX_ = 2000;
+function setReminderTemplate(payload) {
+  payload = payload || {};
+  var lang = String(payload.lang || '');
+  if (REMIND_LANGS_.indexOf(lang) === -1) throw new Error(tr_('err.remindLang'));
+  var text = String(payload.text === undefined || payload.text === null ? '' : payload.text).replace(/\r\n?/g, '\n').trim();
+  if (text.length > REMIND_TEMPLATE_MAX_) throw new Error(tr_('err.remindTemplateLong', { max: REMIND_TEMPLATE_MAX_ }));
+  if (text && text.indexOf('{list}') === -1 && text.indexOf('{amount}') === -1) throw new Error(tr_('err.remindTemplateNoDebt'));
+  setSetting_('remind_template_' + lang, text);
+  return { lang: lang, text: text };
+}
+
+// Header of one optional Friends column, created on first use.
+function ensureFriendsColumn_(name) {
+  var sheet = getSheet('Friends');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf(name) === -1) {
+    sheet.getRange(1, headers.length + 1).setValue(name);
+    headers.push(name);
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
+  }
+  return headers;
+}
+
+// "+51 987-654-321" → "+51987654321"; "" stays "" (clears it); anything that is not 7-15 digits is refused.
+function normalizeFriendPhone_(raw) {
+  raw = String(raw === undefined || raw === null ? '' : raw).trim();
+  var digits = raw.replace(/\D/g, '');
+  if (raw && (digits.length < 7 || digits.length > 15)) throw new Error(tr_('err.badPhone'));
+  return digits ? '+' + digits : '';
+}
+
+// What the app shows for a stored number. A number typed by hand in the Sheet may have lost its "+" (Sheets read it as a number).
+function friendPhoneText_(stored) {
+  var digits = String(stored === undefined || stored === null ? '' : stored).replace(/\D/g, '');
+  return digits ? '+' + digits : '';
+}
+
+function writeFriendPhone_(id, phone) {
+  var headers = ensureFriendsPhoneColumn_();
+  var sheet = getSheet('Friends');
+  var rowIndex = findRowIndexById(sheet, headers, id);
+  if (rowIndex === -1) throw new Error(tr_('err.friendNotFound'));
+  sheet.getRange(rowIndex, headers.indexOf('phone') + 1).setNumberFormat('@');
+  setCellByRow_(sheet, headers, rowIndex, 'phone', phone);
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
+}
+
+// Header of the Friends sheet's `phone` column. Created on first use (a copy that never saves a number never gets it).
+function ensureFriendsPhoneColumn_() {
+  var sheet = getSheet('Friends');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('phone') === -1) {
+    sheet.getRange(1, headers.length + 1).setValue('phone');
+    headers.push('phone');
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
+  }
+  return headers;
+}
+
+// Header of the Friends sheet's `hidden` column ('yes' = hidden from lists and pickers; the history stays). Created on first use, like Categories' one.
+function ensureFriendsHiddenColumn_() {
+  var sheet = getSheet('Friends');
+  var headers = getHeaders(sheet);
+  if (headers.indexOf('hidden') === -1) {
+    sheet.getRange(1, headers.length + 1).setValue('hidden');
+    headers.push('hidden');
+    if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
+  }
+  return headers;
+}
+
+function setFriendHidden_(id, hidden) {
+  var headers = ensureFriendsHiddenColumn_();
+  var sheet = getSheet('Friends');
+  var rowIndex = findRowIndexById(sheet, headers, id);
+  if (rowIndex === -1) throw new Error(tr_('err.friendNotFound'));
+  setCellByRow_(sheet, headers, rowIndex, 'hidden', hidden ? 'yes' : '');
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Friends'];
+}
+
+// Several friends at once (More → Friends → Edit → Delete), one pass, never throws for a single person (one refusal must not undo the others):
+//  - nobody has any record with them → deleted;
+//  - they have history (loans, shared expenses, entries they paid) and NOTHING is owed either way → HIDDEN, the history stays and old entries
+//    keep showing their name (adding the same name later brings them back, see addFriend);
+//  - money is still owed either way, or the person is a trip's group → kept as they are ('balance' / 'group');
+//  - an unknown id → 'missing'.
+// Returns { deleted: [ids], hidden: [{ id, name }], kept: [{ id, name, reason }] }.
+function deleteFriends(payload) {
+  var ids = ((payload && payload.ids) || []).map(String);
+  var friends = getAllRows('Friends');
+  var inUse = {};
+  getAllRows('Loans').forEach(function (l) { inUse[String(l.friend_id)] = true; });
+  getAllRows('Entry Splits').forEach(function (s) { inUse[String(s.friend_id)] = true; });
+  var progSplits = recurringSplitFriendIds_();
+  Object.keys(progSplits).forEach(function (id) { inUse[id] = true; });
+  getAllRows('Entries').forEach(function (e) { if (e.paid_by) inUse[String(e.paid_by)] = true; });
+  var open = friendOpenBalances_();
+  var deleted = [], hidden = [], kept = [], seen = {};
+  ids.forEach(function (id) {
+    if (seen[id]) return;
+    seen[id] = true;
+    var friend = friends.find(function (f) { return String(f.id) === id; });
+    if (!friend) { kept.push({ id: id, name: '', reason: 'missing' }); return; }
+    var name = String(friend.name);
+    if (friend.trip_id) kept.push({ id: id, name: name, reason: 'group' });
+    else if (!inUse[id]) deleted.push(id);
+    else if (Object.keys(open[id] || {}).some(function (c) { return Math.abs(open[id][c]) > 0.004; })) kept.push({ id: id, name: name, reason: 'balance' });
+    else hidden.push({ id: id, name: name });
+  });
+  var deletedRows = [];
+  if (deleted.length) {
+    var gone = {};
+    deleted.forEach(function (id) { gone[id] = true; });
+    deletedRows = friends.filter(function (f) { return gone[String(f.id)] === true; });   // kept for Undo (restoreFriends)
+    deleteRowsWhere_('Friends', function (row) { return gone[String(row.id)] === true; });
+  }
+  hidden.forEach(function (h) { setFriendHidden_(h.id, true); });
+  return { deleted: deleted, deletedRows: deletedRows, hidden: hidden, kept: kept };
+}
+
+// Undo of a bulk delete AND the bulk "Show again" (More → Friends → Edit): shows the given hidden friends again and puts back the friends that were
+// deleted for good (a friend deleted that way had no history at all, so the row is the whole friend). One pass, never throws for one person:
+// an id that no longer exists is skipped; a deleted friend whose id or name is back already (added again meanwhile) is skipped, never duplicated.
+// Answers { shown: n, restored: n, skipped: [names] }.
+function restoreFriends(payload) {
+  payload = payload || {};
+  var friends = getAllRows('Friends');
+  var byId = {}, names = {};
+  friends.forEach(function (f) { byId[String(f.id)] = f; names[String(f.name).trim().toLowerCase()] = true; });
+  var out = { shown: 0, restored: 0, skipped: [] };
+  uniqueIds_(payload.show).forEach(function (id) {
+    if (!byId[id]) return;
+    setFriendHidden_(id, false);
+    out.shown++;
+  });
+  var add = [];
+  (payload.rows || []).forEach(function (r) {
+    var id = String((r && r.id) || ''), name = String((r && r.name) || '').trim();
+    if (!id || !name) return;
+    if (byId[id] || names[name.toLowerCase()]) { out.skipped.push(name); return; }
+    byId[id] = true; names[name.toLowerCase()] = true;
+    add.push({ id: id, name: name, notes: String(r.notes || ''), phone: String(r.phone || ''), hidden: '' });
+  });
+  if (add.length) {
+    ensureFriendsPhoneColumn_();
+    ensureFriendsHiddenColumn_();
+    appendObjectsBatch_('Friends', add);
+    out.restored = add.length;
+  }
+  return out;
+}
+
+// Brings a hidden friend back to the lists and pickers (More → Friends → Hidden friends → Unhide).
+function unhideFriend(payload) {
+  var id = String((payload && payload.id) || '');
+  if (!getAllRows('Friends').some(function (f) { return String(f.id) === id; })) throw new Error(tr_('err.friendNotFound'));
+  setFriendHidden_(id, false);
+  return { id: id, hidden: false };
 }

@@ -39,13 +39,33 @@ test("anything that is not exactly the allowed shape is refused", () => {
   assert.match(errorsOf(rt, pack([], 1.5)), /version/);
   assert.match(errorsOf(rt, { version: 1 }), /rules/);
   assert.match(errorsOf(rt, pack([withRule({ code: "x" })]), true), /unknown field code/);
-  assert.match(errorsOf(rt, pack([withRule({ type: "gift" })])), /type/);
+  assert.match(errorsOf(rt, pack([withRule({ type: "gift" })]), true), /type/);
   assert.match(errorsOf(rt, pack([withRule({ type: "transferIfOwn" })])), /recipient/);
-  assert.match(errorsOf(rt, pack([withRule({ amount: { label: "Monto", regex: ".*" } })])), /unknown field regex/);
-  assert.match(errorsOf(rt, pack([withRule({ last4: { label: "Tarjeta", kind: "iban" } })])), /card, masked or account/);
+  assert.match(errorsOf(rt, pack([withRule({ amount: { label: "Monto", regex: ".*" } })]), true), /unknown field regex/);
+  assert.match(errorsOf(rt, pack([withRule({ last4: { label: "Tarjeta", kind: "iban" } })]), true), /card, masked/);
   assert.match(errorsOf(rt, pack([withRule({ subjectHas: [] })])), /short list/);
   assert.match(errorsOf(rt, pack([withRule({ skip: "yes" })])), /true or false/);
   assert.match(errorsOf(rt, pack([GOOD_RULE, GOOD_RULE])), /id used twice/);
+});
+
+// 2026-11-21: one rule with a detail only a newer backend knows (deep inside it, not a top field) made older backends refuse the WHOLE
+// list, so a friend who had not updated lost every new rule. Such a rule now waits on its own; a real mistake still refuses the list.
+test("a rule written for a newer backend, at any depth, is skipped on its own and the others load", () => {
+  const { rt } = freshApp({ small: true });
+  const other = Object.assign({}, GOOD_RULE, { id: "other-rule" });
+  for (const newer of [
+    withRule({ type: "gift" }),
+    withRule({ amount: { label: "Monto", regex: "x" } }),
+    withRule({ last4: { label: "Tarjeta", kind: "iban" } }),
+    withRule({ recipient: { label: "Destino", orWord: "Para" } })
+  ]) {
+    const v = validate(rt, pack([newer, other]));
+    assert.equal(v.ok, true, JSON.stringify(v));
+    assert.deepEqual(v.pack.rules.map((r) => r.id), ["other-rule"]);
+    assert.deepEqual(v.skipped, [GOOD_RULE.id]);
+  }
+  assert.equal(validate(rt, pack([withRule({ label: "Compra 1234567" }), other])).ok, false, "unsafe text still refuses the list");
+  assert.equal(validate(rt, pack([withRule({ type: "transferIfOwn" }), other])).ok, false, "a real mistake still refuses the list");
 });
 
 test("the file is public, so a rule may not hold digits runs, addresses, links, control characters or a bad sender", () => {

@@ -223,7 +223,11 @@ function stmtHistoryPlan_(analysis, platforms) {
   var sts = analysis.statements || [];
   var actions = [];
   var aside = [];
-  var counts = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, fees: 0, linked: 0, completed: 0 };
+  var counts = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, fees: 0, linked: 0, completed: 0, charges: 0, discounts: 0, recharges: 0 };
+  var charges = [];   // statement lines that are the charge of a purchase left pending (Charges.gs)
+  var noAccount = [];   // lines that ARE an entry the person saved with no account: that entry gets this statement's account
+  var recharges = [];   // card lines in another currency than a purchase recorded in the app (StatementMatch.gs)
+  var discounts = [];   // card lines that charged LESS than a purchase recorded in the app (StatementMatch.gs)
   var usedCharges = {};   // a charge is reversed by one refund only
   var leftOut = { handled: 0, waiting: 0, possible: 0, noAccount: 0, fromPeople: 0 };
   function setAside(si, li, st, l, reason) {
@@ -265,10 +269,39 @@ function stmtHistoryPlan_(analysis, platforms) {
       var ref = { stmt: si, line: li };
       if (l.status === 'handled') { leftOut.handled++; return; }
       if (!st.account) { leftOut.noAccount++; return; }
+      if (l.status === 'recharge') {
+        // The card charged a purchase in another currency: it takes the charge, and what was paid is kept (Charges.gs). Ticked when
+        // the pair is clear, else the person picks. Never added as a second purchase.
+        recharges.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname,
+          clear: l.recharge.clear, entryId: l.recharge.entryId, options: l.recharge.options });
+        if (l.recharge.clear) { actions.push({ type: 'use_bank_charge', stmt: si, line: li, entryId: l.recharge.entryId }); counts.recharges++; }
+        return;
+      }
+      if (l.status === 'discount') {
+        // The card charged less than the purchase in the app (a discount): the app's amount becomes the bank's when the pair is clear
+        // (ticked by default), else the person picks. Never added as a second purchase.
+        discounts.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname,
+          clear: l.discount.clear, suggested: !!l.discount.suggested, higher: !!l.discount.higher, entryId: l.discount.entryId, options: l.discount.options });
+        if (l.discount.clear) { actions.push({ type: 'use_bank_amount', stmt: si, line: li, entryId: l.discount.entryId }); counts.discounts++; }
+        return;
+      }
+      if (l.status === 'fills') {
+        // The charge of a purchase recorded in what was paid: filled in by default when the pair is clear, else the person picks
+        // (no action until then, so the line is never added as a second purchase by itself).
+        charges.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname,
+          clear: l.fillsCharge.clear, entryId: l.fillsCharge.entryId, options: l.fillsCharge.options });
+        if (l.fillsCharge.clear) { actions.push({ type: 'fill_charge', stmt: si, line: li, entryId: l.fillsCharge.entryId }); counts.charges++; }
+        return;
+      }
       if (l.status === 'completes') {
         actions.push({ type: 'complete_transfer', stmt: si, line: li, entryId: l.completesTransfer.entry.id, side: l.completesTransfer.side });
         counts.completed++;
         return;
+      }
+      if (l.status === 'matched' && l.entryHadNoAccount && l.entry) {
+        // Shown on their own (owner, 2026-11-11): the entry is in the app, only its account is missing. Ticked by default.
+        noAccount.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname,
+          entry: l.entry });
       }
       if (l.status === 'matched') {
         actions.push(l.entryHadNoAccount
@@ -360,7 +393,7 @@ function stmtHistoryPlan_(analysis, platforms) {
   return {
     actions: actions,
     summary: {
-      counts: counts, leftOut: leftOut, spent: spent, aside: aside, peopleOut: peopleOut, incomeLines: incomeLines, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
+      counts: counts, leftOut: leftOut, spent: spent, aside: aside, charges: charges, discounts: discounts, recharges: recharges, noAccount: noAccount, peopleOut: peopleOut, incomeLines: incomeLines, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
       candidates: candidates, exchangeSuggestions: stmtExchangeSuggestions_(candidates),
       unknownAccounts: Object.keys(unknownAccounts),
       newAccounts: stmtNewAccountProposals_(sts),   // accounts the statements name that the app does not have yet, with the defaults it would give them
@@ -383,5 +416,46 @@ function planStatementHistory(payload) {
     var st = (analysis.statements || [])[c.stmt];
     return Object.assign({}, c, { accountName: st && st.account ? st.account.nickname : '' });
   });
-  return { actions: plan.actions, summary: plan.summary, balance_checks: checks };
+  return { actions: plan.actions, summary: plan.summary, balance_checks: checks, plan_matches: stmtPlanMatches_((payload && payload.statements) || [], plan.actions),
+    due_asks: stmtDueAsks_(analysis, (payload && payload.statements) || []) };
+}
+
+// Card statements whose pay-by date was not read from the file (owner's plan, 2026-11-18): the preview offers a box for it, filled with
+// the card's usual gap after closing when an earlier statement had one (`guess`), else empty. [{ stmt, account, guess }]
+function stmtDueAsks_(analysis, statements) {
+  var out = [];
+  try {
+    (analysis.statements || []).forEach(function (st, i) {
+      var s = statements[i] || {};
+      if (!st || !st.account || st.account.type !== 'credit' || s.due || !s.period || !s.period.end) return;
+      if (s.source === 'app') return;   // another app's export is not a card statement: no pay-by date to ask (owner, 2026-11-21)
+      var gap = cardDueGapDays_(st.account.id);
+      out.push({ stmt: i, account: st.account.nickname || '', guess: gap === '' ? '' : addDaysIso_(s.period.end, gap) });
+    });
+  } catch (e) { return []; }
+  return out;
+}
+
+// Lines that look like a Programmed item's month (owner's plan, 2026-11-17): only lines whose file names a category the app has (an
+// app's export); a bank's own lines have none. One line per item and month. The preview lists them ticked; the save links the ticked.
+function stmtPlanMatches_(statements, actions) {
+  var out = [], taken = {};
+  try {
+    var index = categoryNameIndex_(getAllRows('Categories'), false);
+    var all = getAllRows('Entries'), planLists = null;
+    actions.forEach(function (a) {
+      if (a.type !== 'add_history_expense' && a.type !== 'add_history_income') return;
+      var st = statements[a.stmt], l = st && st.lines ? st.lines[a.line] : null;   // (the file's own lines: they keep the category name)
+      if (!l || !l.category) return;
+      var type = a.type === 'add_history_income' ? 'income' : 'expense';
+      var catId = index[type + ':' + catNameNorm_(l.category)];
+      if (!catId) return;
+      var plan = planMatchFor_({ id: '', type: type, category_id: catId, amount: Math.abs(Number(l.amount)), currency: l.currency, date: l.date }, all, planLists || (planLists = planMatchLists_()));
+      if (!plan || taken[plan.recurring_id + '|' + plan.month]) return;
+      taken[plan.recurring_id + '|' + plan.month] = true;
+      out.push({ stmt: a.stmt, line: a.line, recurring_id: plan.recurring_id, name: plan.description, month: plan.month,
+        description: String(l.description || ''), amount: Math.abs(Number(l.amount)), currency: l.currency, date: l.date });
+    });
+  } catch (e) { return []; }
+  return out;
 }

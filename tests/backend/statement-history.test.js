@@ -348,6 +348,20 @@ test("the plan carries the balance checks, with the account's name, and nothing 
   assert.ok(!p.actions.some((a) => a.type === "set_balance"));
 });
 
+test("a balance check names the lines it counts as not in the app, so the screen can recount when one is left out (owner, 2026-11-11)", () => {
+  const { rt, savings, savingsStmt, cardStmt } = setup();
+  rt.run(`addOpeningRow_(${JSON.stringify(savings.id)}, 'PEN', 500, '2019-02-28', '2019-02-28T23:59:59')`);   // a balance on file before the statement
+  const p = plan(rt, [savingsStmt, cardStmt]);
+  const c = p.balance_checks.find((x) => x.stmt === 0 && x.currency === "PEN");
+  assert.equal(c.direction, "forward");
+  assert.ok(c.notInApp.lines > 0);
+  assert.ok(Array.isArray(c.notInApp.items));
+  assert.equal(c.notInApp.items.length, c.notInApp.lines);
+  const sum = c.notInApp.items.reduce((t, it) => t + it.amount, 0);
+  assert.equal(Math.round(sum * 100) / 100, c.notInApp.net);
+  c.notInApp.items.forEach((it) => assert.equal(savingsStmt.lines[it.line].amount, it.amount, "the index is the statement line the actions use"));
+});
+
 test("a balance chosen on the plan is set with the batch, and Undo restores it", () => {
   const { rt, savingsStmt, cardStmt } = setup();
   const stmts = [savingsStmt, cardStmt];

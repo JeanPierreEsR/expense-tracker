@@ -40,6 +40,9 @@ function onOpen() {
     .addItem('31. Read e-mail the new read-only way (on/off)', 'menuToggleGmailReader')
     .addItem('32. Tag Travel expenses as Annual: preview (changes nothing)', 'menuTagTravelAnnualPreview')
     .addItem('33. Tag Travel expenses as Annual: apply', 'menuTagTravelAnnualApply')
+    .addItem('34. Set the WhatsApp relay key', 'promptSetWhatsAppRelaySecret')
+    .addItem('35. Review bot: Telegram or WhatsApp', 'menuSwitchReviewBot')
+    .addItem('36. Set the WhatsApp bot\'s number', 'promptSetWhatsAppBotNumber')
     .addToUi();
 }
 
@@ -157,7 +160,7 @@ var LOGIN_MAX_FAILURES_ = 10;
 var LOGIN_LOCK_SECONDS_ = 600;
 var CURRENT_SESSION_ID_ = '';   // set per request by authenticateRequest_
 // The Mac helper's key opens ONLY these (the receipt-photo reader's four, plus promote.sh's read-only app-version counts).
-var HELPER_ACTIONS_ = { listPhotoJobs: true, getPhotoJob: true, submitPhotoJobText: true, failPhotoJob: true, listPerfAppVersions: true, listStatementSamples: true, rulePackTwinCheck: true };
+var HELPER_ACTIONS_ = { listPhotoJobs: true, getPhotoJob: true, submitPhotoJobText: true, failPhotoJob: true, listPerfAppVersions: true, listStatementSamples: true, rulePackTwinCheck: true, programmedGuessBacktest: true, programmedPaidCheck: true };
 
 function isRequireSessions_() {
   return PropertiesService.getScriptProperties().getProperty('REQUIRE_SESSIONS') === 'true';

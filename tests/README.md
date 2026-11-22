@@ -16,3 +16,70 @@ a Google feature the fake lacks — add it to `fake-google.js`.
 The fake is much faster than real Sheets, so wall-clock times understate the
 real app; compare read COUNTS instead. It also can't cover real Gmail, Telegram
 or iPhone behaviour.
+
+**Demo data for trying features by hand (2026-11-01).** `node tests/harness/server.js` also adds made-up demo scenarios (`tests/harness/demo-data.js`): friends to delete / hide / keep,
+programmed items in every state, and legacy PAUSED items for the heal (`NO_DEMO=1` leaves them out; the automated tests never use them). **Since 2026-11-07 the six paused items (and the forced "Pause has been replaced" sheet they open at every start, which blocks every tab) come only with `PAUSE_DEMO=1`**; the demo shared rent is saved through the real split save, so its friend's share is a debt in Loans too. `POST /__pending` with `{description, amount, currency?, category? (name or id), date?, type?}` adds an entry waiting in Needs review, as if a bank e-mail had brought it (the app's own saves are always confirmed). `version.json` is served as it was when the server started, so a ship by another chat no longer shows the "tap to reload" banner on an open test copy; `LIVE_VERSION=1` serves the real file. `FRIEND_COPY=1` behaves like a friend's copy
+(the heal runs on its first open; on the default copy the app converts once for the owner). `EMPTY=1 FRIEND_COPY=1` starts like a brand-new
+person's copy: only the starter categories and banks, the built-in Cash account, no friends, no entries (the welcome questions show first).
+**Categories (owner, 2026-11-04):** the blank copy (`EMPTY=1`) is built the way the installer builds one — the SHORT starter list (8 expense +
+5 income) and the bank catalogue — so the welcome's "What fits me" decides the rest. The everyday copies (no `EMPTY`) use the categories
+a person gets by ticking EVERY "What fits me" choice (starter list + one per pick; Settings `profile` = all picks), and the made-up entries
+are spread over those. `OWNER_CATEGORIES=1` brings back the owner's own long list. Open `http://<this computer>:<port>/login` once to sign a browser in (works from a phone on
+the same Wi-Fi). Restart the server to get the data back exactly as it was. **Friend-style copy and "owner's copy" (2026-11-04):** the server rewrites the owner's web address in `app.js` to `/api`, and the app treats a copy using exactly the owner's address as the owner's (`perfIsOwnerCopy_`), so friends-only rows (Feedback & privacy and others) stayed hidden even with `FRIEND_COPY=1`. With `FRIEND_COPY=1` the `/login` page now also stores a full address (`<origin>/api`), so the app sees a friend's phone; open `/login` again on a copy started before this change. In a desktop browser the same is `localStorage.setItem("apiUrl", location.origin + "/api")`.
+
+## Screen-fit check (2026-11-07)
+
+`node tests/screen-fit/check.js` starts its own test server on a free port, opens the real app at 375 px wide (iPhone SE 2nd/3rd gen,
+12/13 mini) in English and then Spanish, and goes through Home, Overview, Budgets, Projections, Loans, More, the new-entry window and
+every More screen (My data's screens included). It lists anything that runs off the right edge, text cut by its box, and any number
+shortened with "…" (a name may be; an amount may not). `ship.sh` runs it before publishing an app change and stops on a finding; it
+only measures, so a screen that fits but looks crowded is the testers' job. `WIDTH=320` tries another width by hand;
+`SCREEN_FIT_SELFTEST=1` adds a too-wide box to every screen to prove the check still sees one. It needs Playwright, installed once
+outside the repo: `npm install --prefix ~/.expense-tracker-tools playwright@1.65.0` then, in that folder, `npx playwright install
+chromium-headless-shell`. Without it, `ship.sh` warns and ships anyway. A new More screen: add its row's id to `MORE_ROWS` (or
+`MY_DATA_ROWS`) in the script.
+
+**Edit-mode bars (2026-11-12):** it also takes every Edit-mode bar (`.friends-editbar`: Home, Needs review, Budgets, Programmed
+items, Accounts, Categories, Trips, Companies, People, Friends) and tries EVERY combination of the labels its buttons can show, with
+big counts ("Select all 99999 matches", "Delete (999)", Home with and without Change), and fails on two buttons overlapping, one
+running off the bar, a cut label or a button under 44 px. A new label for a bar button goes in `SLOTS` (every bar) or `EXTRA` (one
+button) in the script.
+
+**`ANNUAL_DEMO=1` (2026-11-14):** adds an owner-style "Annual budget" category (key `annual_budget`) with five made-up expenses (one waiting in Needs review, one with no description) and a yearly budget on it, to try the owner's one-time clean-up card in More → My data → Tidy my history. Not with `FRIEND_COPY` (the card is the owner's only).
+
+**`REAL_NEW=1` (2026-11-09, with `FRIEND_COPY=1`):** opening `/login` makes this browser look like a person who finished the welcome and the first entry and has met no real tutorial yet, so Needs review and transfers can be tried on the demo data. Opening `/login` again starts over.
+
+**`POP_MONTH_OLD=1` (2026-11-09):** opening `/login` also makes this browser count as having used the app for 40 days, and gets every pop-up tip again with no 3-visit wait and no daily limit for that day, so all of them can be walked at once on a test copy (open `/login` again the next day). Since 2026-11-11 it also restarts every bubble series, offers the idle bubbles again (7 seconds since 2026-11-12), and makes the Projections method reminder due (as if 6 complete months had been reached 20 days ago). Since 2026-11-12 it also passes the basics gate (8 active days, 40 entries), makes the receipt-photo and bring-back moments due, and sets Overview and Projections to their 2nd visit, so the month-bars and own-amount bubbles come on the next one. **`BUBBLE_EXTRAS=1` (2026-11-12):** the demo data the later bubbles need: the Business pack on (receipt photos), "Travel card" charging only in USD and "Shop card" in PEN and USD (the charged-amount box and the listed-price link), a PEN starting balance on "Daily debit" (Interbank: its balance window has starting balances and payments in process) and the rates moved to the dollar (the dollar line). Use `EMPTY=1` for the bubbles that need a copy with no loans yet. **`SKIP_WELCOME=1` (2026-11-11):** opening `/login` marks the welcome screens as done, so a friend-style copy opens straight on Home.
+
+## Journeys: months of use in an afternoon (2026-11-17)
+
+A made-up person starts from zero on their own test copy and lives through 6-12 months while the app's clock moves forward, so the
+**education path** (what the app teaches, when, and what it never teaches) can be watched as a real person would meet it.
+
+**Time travel** (`TIME_TRAVEL=1`, `CLOCK_START=YYYY-MM-DD[THH:MM]` Lima): `tests/harness/clock.js` shifts "now" for the fake backend AND
+the phone (a small script the server puts first in every page). `POST /__clock {to | days | hours}` moves it forward and runs the copy's
+timer (`runAutomation`: e-mails, bots, budget alerts, loan reminders) every 2 hours from 07:00 to 23:00 on the way; `GET /__clock` says
+where it is. A date written out (`new Date("2027-01-05")`) is not shifted, only "now".
+
+**The outside world** (`tests/harness/channels.js`, every value made up): `POST /__bankmail` drops bank e-mails in the real formats
+(BCP, Yape, Interbank, Diners, SIP; BBVA and Scotiabank have no rule and are read by nothing), optionally at a later moment (`at`), with
+PDF attachments for statement e-mails; `POST /__bots {telegram | whatsapp}` sets a copy up like one with the Telegram bot token saved /
+marked for the WhatsApp bot; `POST /__chat {bot, text | tap}` writes to the REAL bot code through doPost (as Telegram's webhook / the
+WhatsApp relay would) and `GET /__chat` (or the page `/chat`) shows the conversation. Checked by `tests/backend/journey-channels.test.js`.
+
+**Files people bring** (`tests/journey/files.js`): statement PDFs in the four layouts the app reads (Interbank savings and card, BCP
+savings and card), bank "movements" spreadsheets (BCP, Interbank, BBVA, Scotiabank: plausible imitations, not copies of real files) and
+other apps' exports (Spendee, Wallet, Monefy, Money Manager, a home-made Excel). `node tests/journey/check-files.js [files…]` runs them
+through the app's own readers (needs `pdfjs-dist@3.11.174` in `$PDFJS/node_modules`, default `~/scratch-journey`).
+
+**People and their lives** (`tests/journey/personas.js`, `life.js`): the 14 everyday testers of the cast, each starting from zero
+(this kind of run only): 5 blank, 4 bringing another app's export, 5 bringing last month's statements; their banks, habits, how often
+they open the app, gaps. `life.js` turns that into the same days every time (seeded).
+
+**Driving it** (`tests/journey/j.js`; Playwright from `~/.expense-tracker-tools` or `PLAYWRIGHT_DIR`; folder `$JOURNEY_ROOT/$JOURNEY_RUN/<persona>`,
+default `~/journeys/pilot`): `start <persona>` starts the copy (EMPTY + FRIEND_COPY + TIME_TRAVEL, ports 4400-4427) and a **phone** that
+stays open (so a tutorial can be followed tap by tap); `look` / `tap` / `fill` / `type` / `scroll` / `upload` act like a finger;
+`live --until <day>` runs the routine days (clock, e-mails, the purchases the person would type, through the app's own save) and STOPS
+when the app teaches something or when Needs review first fills, so a tester takes over; `chat` talks to the bots. Every teaching
+surface the phone shows is logged with the simulated time in `ledger.jsonl` (who was acting: the tester or the routine); `memory`
+dumps what the phone remembers about teaching. `stop` ends the copy (its data is gone).

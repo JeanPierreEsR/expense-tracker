@@ -29,6 +29,17 @@ test("numbers: thousands and decimals either way round, parentheses, trailing mi
   assert.equal(ST.parseAmount("12.50-", "."), -12.5);
   assert.equal(ST.parseAmount("−5,00", ","), -5);
   assert.equal(ST.parseAmount("USD 10", "."), 10);
+  // "S/." (the sol's older abbreviation): its dot belongs to the mark
+  assert.equal(ST.parseAmount("S/.1,234.50", "."), 1234.5);
+  assert.equal(ST.parseAmount("-S/.12.30", "."), -12.3);
+  assert.equal(ST.parseAmount("s/. 7.00", "."), 7);
+  assert.equal(ST.parseAmount("S/.1.234,50", ","), 1234.5);
+  // a sign or bracket between "S/." and the number (Mark, testers 2026-11-21: these lines were left out of an import)
+  assert.equal(ST.parseAmount("S/. -1,234.50", "."), -1234.5);
+  assert.equal(ST.parseAmount("S/.-12.30", "."), -12.3);
+  assert.equal(ST.parseAmount("S/. (1,234.50)", "."), -1234.5);
+  assert.equal(ST.parseAmount("S/ (12.50)", "."), -12.5);
+  assert.equal(ST.parseAmount("S/ -1,234.50", "."), -1234.5);
   assert.ok(Number.isNaN(ST.parseAmount("", ".")));
   assert.ok(Number.isNaN(ST.parseAmount("n/a", ".")));
   assert.equal(ST.detectDecimal(["1.234,50", "20,00"]), ",");
@@ -39,7 +50,10 @@ test("numbers: thousands and decimals either way round, parentheses, trailing mi
 test("dates: day first unless the column proves month first; named months; times are ignored", () => {
   assert.equal(ST.detectDateOrder(["05/03/2019", "17/03/2019"]), "dmy");
   assert.equal(ST.detectDateOrder(["03/05/2019", "03/17/2019"]), "mdy");
-  assert.equal(ST.detectDateOrder(["03/05/2019"]), "dmy");
+  assert.equal(ST.detectDateOrder(["03/05/2019"]), "", "reads two ways and nothing proves it: the person is asked");
+  assert.equal(ST.detectDateOrder(["10/04/2026", "31/02/2026"]), "dmy", "one impossible-as-month first part settles it");
+  assert.equal(ST.detectDateOrder(["05/05/2026", "2026-04-10"]), "dmy", "nothing reads two ways: nothing to ask");
+  assert.equal(ST.ambiguousDate(["05/05/2026", "10/04/2026"]), "10/04/2026");
   assert.equal(ST.toIsoDate("05/03/2019", "dmy"), "2019-03-05");
   assert.equal(ST.toIsoDate("03/05/2019", "mdy"), "2019-03-05");
   assert.equal(ST.toIsoDate("2019-03-05 14:30:00", "dmy"), "2019-03-05");
@@ -445,4 +459,26 @@ test("Type words: only plain ones count", () => {
   assert.equal(ST.typeKind("Ingreso"), "income");
   assert.equal(ST.typeKind("Pago de tarjeta"), "");
   assert.equal(ST.typeKind(""), "");
+});
+
+test("amounts in more than one currency: no dollar assumed, the file is marked as mixed (Mark, re-check 2026-11-18)", () => {
+  const mixed = ST.guessMapping(ST.parseCsv("Date,Payee,Category,Amount\n2026-10-04,Cafe Uno,Restaurants,-S/ 12.50\n2026-10-05,Shop Dos,Groceries,-$ 30.00\n"));
+  assert.equal(mixed.currencySign, "");
+  assert.equal(mixed.currencyMixed, "$, S/");
+  const dollars = ST.guessMapping(ST.parseCsv("Date,Payee,Category,Amount\n2026-10-04,Cafe Uno,Restaurants,-$12.50\n2026-10-05,Shop Dos,Groceries,-US$ 30.00\n"));
+  assert.equal(dollars.currencyMixed, "");
+  assert.ok(dollars.currencySign);
+  const soles = ST.guessMapping(ST.parseCsv("Date,Payee,Category,Amount\n2026-10-04,Cafe Uno,Restaurants,-S/ 12.50\n"));
+  assert.equal(soles.currencySign, "");
+  assert.equal(soles.currencyMixed, "");
+});
+
+test("a hand-made sheet with \"S/.\" amounts reads every amount in full", () => {
+  const text = "FECHA,CATEGORÍA,DESCRIPCIÓN,MONTO\n05/01/2026,Sueldo,sueldo,\"S/.1,500.00\"\n06/01/2026,Comidas,almuerzo,-S/.28.00\n07/01/2026,Antojos,chocolate,-S/.3.50\n";
+  const rows = ST.parseCsv(text);
+  const m = ST.guessMapping(rows, {});
+  assert.equal(m.decimal, ".");
+  const { lines, skipped } = ST.applyMapping(rows, m, {});
+  assert.deepEqual(skipped, []);
+  assert.deepEqual(lines.map((l) => l.amount), [1500, -28, -3.5]);
 });

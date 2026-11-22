@@ -28,7 +28,7 @@ var RULE_PACK_MAX_RULES_ = 150;
 var RULE_PACK_MAX_TEXT_ = 120;
 var RULE_PACK_TYPES_ = ['expense', 'income', 'transfer', 'transferIfOwn'];
 var RULE_PACK_RULE_KEYS_ = ['id', 'bank', 'sender', 'label', 'skip', 'cardIsDestination', 'accountByCurrency', 'first', 'replaces', 'type', 'subjectHas', 'subjectHasAny',
-  'subjectEndsWith', 'subjectIs', 'bodyHas', 'bodyHasAny', 'amount', 'merchant', 'recipient', 'description', 'last4', 'externalId'];
+  'subjectEndsWith', 'subjectIs', 'bodyHas', 'bodyHasAny', 'amount', 'merchant', 'recipient', 'description', 'last4', 'to', 'externalId', 'accountName'];
 var RULE_PACK_ADDRESS_ = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
 function rulePackEscape_(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -56,8 +56,9 @@ function rulePackWords_(list, what, errors, max) {
 
 function rulePackLabel_(spec, what, errors) {
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) { errors.push(what + ': needs {label}'); return; }
-  Object.keys(spec).forEach(function (k) { if (k !== 'label') errors.push(what + ': unknown field ' + k); });
+  Object.keys(spec).forEach(function (k) { if (k !== 'label' && k !== 'orLabel') errors.push(what + ': unknown field ' + k); });
   rulePackText_(spec.label, what + '.label', errors);
+  if (spec.orLabel !== undefined) rulePackText_(spec.orLabel, what + '.orLabel', errors);
 }
 
 function rulePackCheckRule_(r, where, errors, strict) {
@@ -100,6 +101,9 @@ function rulePackCheckRule_(r, where, errors, strict) {
   }
   if (r.recipient !== undefined) rulePackLabel_(r.recipient, where + '.recipient', errors);
   if (r.externalId !== undefined) rulePackLabel_(r.externalId, where + '.externalId', errors);
+  // `accountName` (2026-11-20): the label of the line that names the account the money left by its product name, no digits (SIP's
+  // "Origen"); the scan picks the person's account whose name is in it.
+  if (r.accountName !== undefined) rulePackLabel_(r.accountName, where + '.accountName', errors);
   if (r.description !== undefined) {
     var d = r.description;
     if (!d || typeof d !== 'object') errors.push(where + '.description: needs {labels}');
@@ -110,12 +114,25 @@ function rulePackCheckRule_(r, where, errors, strict) {
       if (d.text !== undefined) rulePackText_(d.text, where + '.description.text', errors);
     }
   }
+  // `to` (2026-11-17): the digits of the person's OWN account the money went to (a card paid from an account). Read like `last4`; the
+  // scan turns it into the transfer's To, or keeps the entry an expense when no account of the person has those digits.
+  if (r.to !== undefined) {
+    var t = r.to;
+    if (!t || typeof t !== 'object') errors.push(where + '.to: needs {label, kind}');
+    else {
+      Object.keys(t).forEach(function (k) { if (k !== 'label' && k !== 'kind' && k !== 'orLabel') errors.push(where + '.to: unknown field ' + k); });
+      rulePackText_(t.label, where + '.to.label', errors);
+      if (t.orLabel !== undefined) rulePackText_(t.orLabel, where + '.to.orLabel', errors);
+      if (['card', 'masked', 'account', 'cci'].indexOf(t.kind) === -1) errors.push(where + '.to.kind: card, masked, account or cci');
+    }
+  }
   if (r.last4 !== undefined) {
     var l = r.last4;
     if (!l || typeof l !== 'object') errors.push(where + '.last4: needs {label, kind}');
     else {
-      Object.keys(l).forEach(function (k) { if (k !== 'label' && k !== 'kind') errors.push(where + '.last4: unknown field ' + k); });
+      Object.keys(l).forEach(function (k) { if (k !== 'label' && k !== 'kind' && k !== 'orLabel') errors.push(where + '.last4: unknown field ' + k); });
       rulePackText_(l.label, where + '.last4.label', errors);
+      if (l.orLabel !== undefined) rulePackText_(l.orLabel, where + '.last4.orLabel', errors);
       if (['card', 'masked', 'account'].indexOf(l.kind) === -1) errors.push(where + '.last4.kind: card, masked or account');
     }
   }
@@ -143,6 +160,11 @@ function rulePackScan_(node, key, depth) {
 
 // Parses and checks pack text. Returns { ok:true, pack, skipped:[ids] } or { ok:false, errors:[...] } (at most 8 messages). Never throws.
 // opts.strict (the repo's tests, never a phone): an unknown field is an error too, so a typo in a field name is caught when the rule is written.
+// A rule error that only means "written for a newer backend": an unknown field or an unknown choice (kind, type, amount source).
+function rulePackNewerOnly_(err) {
+  return /: unknown field |\.kind: |\.type: one of |\.amount\.from: /.test(String(err));
+}
+
 function rulePackValidate_(text, opts) {
   var strict = !!(opts && opts.strict);
   var errors = [];
@@ -154,7 +176,8 @@ function rulePackValidate_(text, opts) {
   if (!pack || typeof pack !== 'object' || Array.isArray(pack)) return { ok: false, errors: ['not a pack'] };
   var scan = rulePackScan_(pack, '', 0);
   if (scan) return { ok: false, errors: [scan] };
-  if (strict) Object.keys(pack).forEach(function (k) { if (k !== 'version' && k !== 'rules') errors.push('unknown field ' + k); });
+  if (strict) Object.keys(pack).forEach(function (k) { if (k !== 'version' && k !== 'rules' && k !== 'pairs') errors.push('unknown field ' + k); });
+  var pairs = rulePackCheckPairs_(pack.pairs, errors, strict);
   if (typeof pack.version !== 'number' || Math.floor(pack.version) !== pack.version || pack.version < 1 || pack.version > 1000000) errors.push('version: a whole number');
   var kept = [], skipped = [];
   if (!Array.isArray(pack.rules)) errors.push('rules: a list is needed');
@@ -167,12 +190,43 @@ function rulePackValidate_(text, opts) {
         skipped.push(typeof r.id === 'string' ? r.id.slice(0, 40) : where);   // written for a newer backend: this rule waits, the others load
         return;
       }
-      rulePackCheckRule_(r, where, errors, strict);
+      // A rule whose only problems are things a NEWER backend knows (a field or kind it has not heard of, at any depth) waits on its own;
+      // the others load (2026-11-21: one Interbank rule with a new `orLabel` made older backends refuse the WHOLE list, BCP credit-card rule
+      // included). A real mistake or unsafe text still refuses the list, and the owner's strict check refuses both.
+      var ruleErrors = [];
+      rulePackCheckRule_(r, where, ruleErrors, strict);
+      if (!strict && ruleErrors.length && ruleErrors.every(rulePackNewerOnly_)) { skipped.push(r && typeof r.id === 'string' ? r.id.slice(0, 40) : where); return; }
+      ruleErrors.forEach(function (e) { errors.push(e); });
       if (r && typeof r.id === 'string') { if (ids[r.id]) errors.push(where + ': id used twice'); ids[r.id] = true; }
       kept.push(r);
     });
   }
-  return errors.length ? { ok: false, errors: errors.slice(0, 8) } : { ok: true, pack: { version: pack.version, rules: kept }, skipped: skipped };
+  return errors.length ? { ok: false, errors: errors.slice(0, 8) } : { ok: true, pack: { version: pack.version, rules: kept, pairs: pairs }, skipped: skipped };
+}
+
+// Pairs (2026-11-05, owner's design): a shop that e-mails its own receipt AND a bank that e-mails the same charge. Both e-mails are read, and the
+// scan joins them into ONE entry (EmailPairs.gs). A pair names the shop's sender and the words a bank e-mail's merchant contains for that shop:
+//   { "id": "didi", "sender": "didi@pe.didiglobal.com", "merchantHas": ["didi"] }
+// No pairs = nothing is joined. A pair with an unknown field (written for a newer backend) is left out on its own, like a rule.
+var RULE_PACK_MAX_PAIRS_ = 20;
+var RULE_PACK_PAIR_KEYS_ = ['id', 'sender', 'merchantHas'];
+
+function rulePackCheckPairs_(list, errors, strict) {
+  if (list === undefined) return [];
+  if (!Array.isArray(list) || list.length > RULE_PACK_MAX_PAIRS_) { errors.push('pairs: a short list is needed'); return []; }
+  var kept = [], ids = {};
+  list.forEach(function (p, i) {
+    var where = 'pair ' + (i + 1);
+    if (!p || typeof p !== 'object' || Array.isArray(p)) { errors.push(where + ': not a pair'); return; }
+    var unknown = Object.keys(p).filter(function (k) { return RULE_PACK_PAIR_KEYS_.indexOf(k) === -1; });
+    if (unknown.length) { if (strict) errors.push(where + ': unknown field ' + unknown[0]); return; }
+    rulePackText_(p.id, where + '.id', errors);
+    if (rulePackText_(p.sender, where + '.sender', errors, { address: true }) && !RULE_PACK_ADDRESS_.test(String(p.sender))) errors.push(where + '.sender: not an e-mail address in lower case');
+    rulePackWords_(p.merchantHas, where + '.merchantHas', errors);
+    if (typeof p.id === 'string') { if (ids[p.id]) errors.push(where + ': id used twice'); ids[p.id] = true; }
+    kept.push({ id: p.id, sender: p.sender, merchantHas: p.merchantHas });
+  });
+  return kept;
 }
 
 // ---- compiling a rule into the shape the code rules have: { bank, sender, label, match(subject, body), extract(subject, body), ... } ----
@@ -211,29 +265,47 @@ function rulePackCompile_(r) {
       var mm = body.match(new RegExp(rulePackEscape_(r.merchant.between[0]) + '\\s*([^\\n]+?)\\s*' + rulePackEscape_(r.merchant.between[1]), 'i'));
       merchant = mm ? mm[1].trim() : null;
     }
-    var recipient = r.recipient ? afterLabel_(body, rulePackEscape_(r.recipient.label)) : null;
+    // `orLabel` (2026-11-20): a second wording of the same line, for a bank that sends two layouts (Interbank).
+    var labelled = function (spec) {
+      return afterLabel_(body, rulePackEscape_(spec.label)) || (spec.orLabel ? afterLabel_(body, rulePackEscape_(spec.orLabel)) : null);
+    };
+    var recipient = r.recipient ? labelled(r.recipient) : null;
     var description = null;
     if (r.description && r.description.labels) {
       description = r.description.labels.map(function (l) { return afterLabel_(body, rulePackEscape_(l)); }).filter(Boolean).join(' - ') || null;
     } else if (r.description && r.description.text) description = r.description.text;
     else description = merchant || recipient;
     if (description && r.description && r.description.prefix) description = r.description.prefix + description;
-    var last4 = null;
-    if (r.last4) {
-      last4 = r.last4.kind === 'account'
-        ? extractAccountLast4_(body, rulePackEscape_(r.last4.label))
-        : (r.last4.kind === 'masked'
-          ? lastFourAfter_(body, rulePackEscape_(r.last4.label))
-          : extractLast4_(afterLabel_(body, rulePackEscape_(r.last4.label)) || body));
-    }
+    var digitsAfter = function (spec) {
+      var first = digitsAfterLabel(spec, spec.label);
+      return first || (spec.orLabel ? digitsAfterLabel(spec, spec.orLabel) : null);
+    };
+    var digitsAfterLabel = function (spec, label) {
+      spec = { kind: spec.kind, label: label };
+      if (spec.kind === 'cci') return cciAccountLast4_(body, rulePackEscape_(spec.label));
+      return spec.kind === 'account'
+        ? extractAccountLast4_(body, rulePackEscape_(spec.label))
+        : (spec.kind === 'masked'
+          ? lastFourAfter_(body, rulePackEscape_(spec.label))
+          : extractLast4_(afterLabel_(body, rulePackEscape_(spec.label)) || body));
+    };
+    var last4 = r.last4 ? digitsAfter(r.last4) : null;
+    var toLast4 = null;
+    // A rule that names the destination cannot read the e-mail without it; for `transferIfOwn` the destination is read only when it is the
+    // person's own (below), and an e-mail without it is still read.
+    if (r.to && r.type !== 'transferIfOwn') { toLast4 = digitsAfter(r.to); if (!toLast4) return null; }
     var fields = { type: r.type, amount: amt.amount, currency: amt.currency, description: description, last4: last4,
       externalId: r.externalId ? afterLabel_(body, rulePackEscape_(r.externalId.label)) : null };
+    if (toLast4) fields.toLast4 = toLast4;
     if (r.merchant) fields.merchant = merchant;   // like the code rules: a transfer names no merchant
     if (r.type === 'transferIfOwn') {
       var own = isOwnAccount_(recipient);
       fields.type = own ? 'transfer' : 'expense';
       fields.needsReview = !own;   // spelled out for an own-account transfer too (false), exactly like the code rules: the twin check found the difference on the owner's real mail
+      var ownTo = own && r.to ? digitsAfter(r.to) : null;
+      if (ownTo) { fields.toLast4 = ownTo; fields.toOwnAlways = true; }   // the person's own account: a transfer even when the app lacks it
     }
+    if (r.accountName) fields.accountName = afterLabel_(body, rulePackEscape_(r.accountName.label));
     return fields;
   };
   return rule;
@@ -241,20 +313,23 @@ function rulePackCompile_(r) {
 
 // ---- storage ----
 
-var rulePackCache_ = { raw: null, rules: [] };
+var rulePackCache_ = { raw: null, rules: [], pairs: [] };
 
-function rulePackRules_() {
+function rulePackLoad_() {
   var raw = '';
   try { raw = String(getSettingsMap()[RULE_PACK_SETTING_] || ''); } catch (err) { raw = ''; }
-  if (rulePackCache_.raw === raw) return rulePackCache_.rules;
-  var rules = [];
+  if (rulePackCache_.raw === raw) return rulePackCache_;
+  var rules = [], pairs = [];
   if (raw) {
     var v = rulePackValidate_(raw);   // checked again on every read: a hand-edited Settings cell can never reach the reader unchecked
-    if (v.ok) rules = v.pack.rules.map(rulePackCompile_);
+    if (v.ok) { rules = v.pack.rules.map(rulePackCompile_); pairs = v.pack.pairs || []; }
   }
-  rulePackCache_ = { raw: raw, rules: rules };
-  return rules;
+  rulePackCache_ = { raw: raw, rules: rules, pairs: pairs };
+  return rulePackCache_;
 }
+
+function rulePackRules_() { return rulePackLoad_().rules; }
+function rulePackPairs_() { return rulePackLoad_().pairs; }
 
 // Every rule the app can read an e-mail with: the ones written in code first (they keep winning), then the pack's.
 // A pack rule marked `first` (a twin whose code rule has been proven identical) goes in front of the code rules, which stay behind it as the fallback.

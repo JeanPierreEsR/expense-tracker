@@ -21,12 +21,14 @@ function runAutomation() {
   var scan = featureOn_('gmail') ? runAutomationStep_('emails', failures, function () { return scanEmailsGuarded_('timer'); }) : null;
   var emailResults = scan && scan.ran ? scan.results : null;
   runAutomationStep_('telegram', failures, pollTelegramUpdates);
+  runAutomationStep_('whatsapp', failures, whatsappNudgeIfDue_);   // "keep it open" message (WhatsAppBot.gs)
   // The slower housekeeping (budget alerts, trip budgets, loan reminders, investment categories) takes 15-25 s a run and
   // changes little within 15 minutes, so it runs about once an hour; e-mail, Telegram and the statement inbox stay every run.
   if (heavyStepsDue_()) {
     runAutomationStep_('budgets', failures, checkBudgets);
     runAutomationStep_('trip budgets', failures, checkTripBudgets);
     runAutomationStep_('loan reminders', failures, checkOverdueLoans);
+    runAutomationStep_('pending charges', failures, notifyOldPendingCharges_);
     runAutomationStep_('investment categories', failures, backfillInvestmentCategories_);
   }
   if (featureOn_('gmail')) runAutomationStep_('statement inbox', failures, function () { scanStatementInbox_(); retryStatementInboxNudges_(); });
@@ -113,6 +115,8 @@ function scanEmailsGuarded_(source) {
   }
   try {
     var results = processEmails();
+    // Once per copy, after a new pack rule arrived: its older e-mails, read now (MailCatchup.gs). Never breaks the scan.
+    try { runMailCatchups_(results); } catch (catchupErr) { console.error('runMailCatchups_: ' + catchupErr); }
     props.setProperty(EMAIL_SCAN_LAST_KEY_, String(Date.now()));
     recordEmailScanDone_(results);   // EmailHealth.gs: what the app shows as "last checked" and warns from
     return { ran: true, results: results };

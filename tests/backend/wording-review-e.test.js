@@ -30,7 +30,7 @@ test("B1: the thing you copy and paste is the 'access code' / 'código de acceso
   assert.equal(get("link.pasteBtn").es, JSON.stringify("Pegar mi código de acceso"));
   assert.match(setupEn, /Copy my access code again/);
   assert.match(setupEs, /Copiar mi código de acceso otra vez/);
-  assert.match(get("privacy.signin").en, /Your access code is kept only on your phone/);
+  assert.match(get("privacy.signin").en, /Your access code is kept on your phone and in your own Google account/);   // 2026-11-04: it is also in the person's Google project
 });
 
 test("B2: the place for detected entries is always “Needs review” / “Por revisar” (no 'review queue', 'review list', 'lista por revisar')", () => {
@@ -48,18 +48,25 @@ test("B6: the transfer 'To' hint is one idea, and the currency exchange is the L
   assert.equal(get("transfer.kind.exchange").es, JSON.stringify("Cambio de moneda"));
   const kinds = [...index.matchAll(/<option value="(\w+)" data-i18n="transfer\.kind\.\w+"/g)].map((m) => m[1]);
   assert.deepEqual(kinds, ["between", "repayment", "loan", "exchange"]);
-  assert.match(app, /const allowed = !editingEntryId;/);
-  assert.equal(get("form.noneFromOutside").en, JSON.stringify("Someone else's account"));
-  assert.equal(get("form.noneToOutside").es, JSON.stringify("Cuenta de otra persona"));
+  // Only for a new entry, or a Needs review item opened in the full form (it becomes one side of the exchange, 2026-11-19).
+  assert.match(app, /const allowed = !editingEntryId \|\| !!confirmingPendingId;/);
+  // One wording for "the other end is not one of my accounts" since 1.76.1 (transfer, exchange, loan).
+  assert.equal(get("form.noneFromOutside").en, JSON.stringify("Outside my accounts"));
+  assert.equal(get("form.noneToOutside").es, JSON.stringify("Fuera de mis cuentas"));
+  assert.equal(get("xch.outside").es, JSON.stringify("Fuera de mis cuentas"));
+  assert.equal(get("loanModal.noAccount").en, JSON.stringify("Outside my accounts"));
 });
 
 test("B7: each loan form says what really happens with the due date", () => {
   assert.match(get("loan.dueDateHint").en, /Without a date there is no overdue reminder/);
   assert.match(get("loanModal.dueHint").en, /Pre-filled with 7 days after the loan date/);
   assert.match(get("loanModal.dueHint").es, /Viene con 7 días después/);
-  // the claims match the code: the Loans-tab form pre-fills date + 7 and the backend defaults the same; the entry form leaves a blank date blank
+  // the claims match the code: the Loans-tab form pre-fills date + 7 and the backend defaults the same (except a debt from before the app, which gets no automatic date); the entry form leaves a blank date blank
   assert.match(app, /defaultDueDate_\(entryDate\)/);
-  assert.match(read("backend", "Loans.gs"), /due_date: payload\.due_date \|\| defaultLoanDueDate_\(payload\.date\)/);
+  assert.match(read("backend", "Loans.gs"), /due_date: payload\.due_date \|\| \(opening \|\| !loanDueWeekOn_\(\) \? '' : defaultLoanDueDate_\(payload\.date\)\)/);
+  // a new person's copy pre-fills nothing (owner, 2026-11-16), and its form says so instead
+  assert.match(get("loanModal.dueHintBlank").en, /Optional/);
+  assert.match(app, /meta\.settings\.loan_due_week === "no" \? "loanModal\.dueHintBlank" : "loanModal\.dueHint"/);
   assert.match(read("backend", "Loans.gs"), /due_date: fields\.due_date \|\| ''/);
 });
 
@@ -81,7 +88,6 @@ test("B10: money back on a card is a 'refund' (no 'reversal', no 'negative expen
 test("B11, B12, B13: the long texts are split into short sentences, and statement checks are in plain words", () => {
   assert.match(get("projections.method").en, /Each figure has three parts\. Confirmed:.*Programmed:.*Expected/);
   assert.match(get("projections.seasonHigh").en, /Calculation:/);
-  assert.ok(get("tour.statements.body").en.length < 460, "tour statements card");
   assert.ok(get("stmt.balBackward").en.split(". ").length >= 2);
   assert.match(get("sp.runningBreaks").en, /The balance stops adding up at/);
   assert.ok(!/≠/.test(ALL.filter((e) => e.key.startsWith("sp.")).map((e) => e.en + e.es).join("")), "no ≠ in the statement checks");
@@ -90,12 +96,14 @@ test("B11, B12, B13: the long texts are split into short sentences, and statemen
 
 test("B14, B15, B16, B17: currency hint, shared amount, discount buttons, 'What's left' instead of 'Net'", () => {
   assert.ok(!/restores everything exactly/.test(get("welcome.curHint").en));
-  assert.match(get("welcome.curHint").es, /Para elegir tu moneda principal/);
+  assert.ok(!/restores everything exactly/.test(get("welcome.mainHint").en));   // the main currency now has its own row (2026-10-28): the hint moved there
+  assert.match(get("welcome.mainHint").es, /Más → Monedas/);   // Main currency and Exchange rates became one row, Currencies (2026-11-03)
   assert.match(get("recurring.suggestShared").en, /large amount is your share; the small grey amount is the total/);
   assert.match(read("docs", "app.js"), /original-amt">\$\{tr\("common.total"\)/);   // the grey "Total" really is what the hint describes
   assert.match(get("bill.discountLine").en, /Discount on this item/);
   assert.match(get("bill.addDiscount").en, /Discount on the whole bill/);
-  assert.equal(get("summary.net").en, JSON.stringify("What's left"));
-  assert.equal(get("summary.net").es, JSON.stringify("Lo que queda"));
-  for (const k of ["scene.flow.s1", "scene.flow.s2", "scene.flow.s3", "scene.flow.s4", "tour.overview.body"]) assert.ok(!/\bNet\b|\bNeto\b/.test(get(k).en + get(k).es), k);
+  // Still never "Net": renamed from "What's left" to "Result" (owner, 2026-11-13: "What's left" read like an account balance).
+  assert.equal(get("summary.net").en, JSON.stringify("Result"));
+  assert.equal(get("summary.net").es, JSON.stringify("Resultado"));
+  for (const k of ["tour.flow.body", "tour.overview.body"]) assert.ok(!/\bNet\b|\bNeto\b/.test(get(k).en + get(k).es), k);
 });

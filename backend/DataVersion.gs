@@ -43,12 +43,17 @@ function nowStamp_() {
 
 function bumpVersion_(key) {
   PropertiesService.getScriptProperties().setProperty(key, nowStamp_() + '-' + Math.random().toString(36).slice(2, 8));
+  if (ROWS_MEMO_) delete ROWS_MEMO_['@v:' + key];
 }
 
+// Inside withRowsMemo_ a version is asked from the property store once per request (getAllRowsCached_ asked it on every call);
+// bumpVersion_ above drops the remembered one.
 function getVersion_(key) {
+  if (ROWS_MEMO_ && ROWS_MEMO_['@v:' + key]) return ROWS_MEMO_['@v:' + key];
   var props = PropertiesService.getScriptProperties();
   var v = props.getProperty(key);
   if (!v) { bumpVersion_(key); v = props.getProperty(key); }
+  if (ROWS_MEMO_) ROWS_MEMO_['@v:' + key] = v;
   return v;
 }
 

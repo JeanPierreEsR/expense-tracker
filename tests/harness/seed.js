@@ -68,9 +68,12 @@ function seedData(rt, options = {}) {
 
   // Exchange rates: monthly, 3 currencies, slow drift
   const today = new Date();
+  // The newest month is the one the BACKEND calls "this month" (its own time zone), not the UTC month: on the last evening of a month UTC is
+  // already next month, which shifted every rate by one and broke tests that expect the current month's seeded rate.
+  const [ty, tm] = new Intl.DateTimeFormat("en-CA", { timeZone: process.env.SCRIPT_TZ || "America/Lima", year: "numeric", month: "2-digit" }).format(today).split("-").map(Number);
   const months = [];
   for (let i = o.months - 1; i >= 0; i--) {
-    const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - i, 1));
+    const d = new Date(Date.UTC(ty, tm - 1 - i, 1));
     months.push(d.toISOString().slice(0, 7));
   }
   const base = { USD: 3.7, EUR: 4.0, CLP: 0.0041 };
@@ -139,6 +142,16 @@ function seedData(rt, options = {}) {
     waiting({ type: "investment", amount: -160, description: "MX investment withdrawal " + k, payment_method_id: debit.id, to_payment_method_id: platform.id });
     waiting({ type: "expense", amount: 170, description: "MX expense " + k, payment_method_id: debit.id });
     }
+    // The same kinds in a foreign currency (each with its flag), once: for checking how a flag and a sign sit together.
+    const foreign = (fields) => entries.push(Object.assign({
+      id: uuid(), date: "2026-10-27", status: "pending", source: "email", paid_by: "me", category_id: "",
+      created_at: "2026-10-27T10:00:00", updated_at: "2026-10-27T10:00:00", merchant: "", external_id: uuid(), import_batch_id: ""
+    }, fields));
+    foreign({ type: "expense", currency: "USD", amount: 24.5, description: "MX foreign expense USD", payment_method_id: debit.id });
+    foreign({ type: "expense", currency: "EUR", amount: 61.9, description: "MX foreign expense EUR", payment_method_id: debit.id });
+    foreign({ type: "income", currency: "USD", amount: 300, description: "MX foreign income USD", payment_method_id: debit.id });
+    foreign({ type: "investment", currency: "USD", amount: 150, description: "MX foreign investment deposit USD", payment_method_id: debit.id, to_payment_method_id: platform.id });
+    foreign({ type: "investment", currency: "USD", amount: -160, description: "MX foreign investment withdrawal USD", payment_method_id: debit.id, to_payment_method_id: platform.id });
   }
 
   // Shared expenses -> splits + entry-origin loans, some repaid / forgiven
@@ -181,6 +194,29 @@ function seedData(rt, options = {}) {
     id: uuid(), category_id: pick(expenseCats).id, description: "Programmed " + (i + 1), amount: money(20, 900), currency: "PEN",
     frequency: pick(["monthly", "monthly", "yearly"]), day: 1 + Math.floor(rnd() * 28), month: 1 + Math.floor(rnd() * 12), active: true, date: ""
   })));
+
+  // Programmed items in a foreign currency (an expense, a variable-amount expense, an income), for checking flags beside signs.
+  bulk("Recurring Expenses", [
+    { id: uuid(), category_id: pick(expenseCats).id, description: "Programmed foreign expense USD", amount: 15, currency: "USD", frequency: "monthly", day: 28, month: 1, active: true, date: "" },
+    { id: uuid(), category_id: pick(expenseCats).id, description: "Programmed foreign variable EUR", amount: 40, currency: "EUR", frequency: "monthly", day: 27, month: 1, active: true, date: "", variable: true },
+    { id: uuid(), category_id: pick(incomeCats).id, description: "Programmed foreign income USD", amount: 500, currency: "USD", frequency: "monthly", day: 29, month: 1, active: true, date: "" }
+  ]);
+
+  // "Bank emails I couldn't read" (More → Not captured automatically): two made-up senders, three wordings, with matching mail in the fake Gmail.
+  // Only for the click-through server (demoUnreadMail): the backend tests count these tabs and mailboxes themselves.
+  if (o.demoUnreadMail) {
+  rt.run("ensureUnreadEmailsSheet_()");
+  const unreadDay = new Date().toISOString().slice(0, 10);
+  bulk("Unread Emails", [
+    { id: "alertas@examplebank.test|aviso especial #|no_rule", sender: "alertas@examplebank.test", subject: "aviso especial #", kind: "no_rule", count: 2, first_seen: unreadDay, last_seen: unreadDay },
+    { id: "alertas@examplebank.test|movimiento raro #|unreadable", sender: "alertas@examplebank.test", subject: "movimiento raro #", kind: "unreadable", count: 1, first_seen: unreadDay, last_seen: unreadDay },
+    { id: "avisos@otrobank.test|constancia #|no_rule", sender: "avisos@otrobank.test", subject: "constancia #", kind: "no_rule", count: 3, first_seen: unreadDay, last_seen: unreadDay }
+  ]);
+  rt.svc.gmail.addEmail({ from: "alertas@examplebank.test", subject: "Aviso especial 101", body: "Texto de prueba uno", daysAgo: 3 });
+  rt.svc.gmail.addEmail({ from: "alertas@examplebank.test", subject: "Aviso especial 102", body: "Texto de prueba dos", daysAgo: 1 });
+  rt.svc.gmail.addEmail({ from: "alertas@examplebank.test", subject: "Movimiento raro 55", body: "Texto de prueba tres", daysAgo: 2 });
+  rt.svc.gmail.addEmail({ from: "alertas@examplebank.test", subject: "Otro tema 9", body: "No es de las filas", daysAgo: 0 });
+  }
 
   return { friends, pms, payors, tags, cats, entries, loans, splits, settlements, months };
 }

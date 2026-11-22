@@ -13,6 +13,9 @@ function setup() {
   // Start from an empty ledger so every number below is exactly what the test put in.
   rt.run(`deleteRowsWhere_('Entries', function () { return true; });`);
   rt.run(`deleteRowsWhere_('Budgets', function () { return true; });`);
+  // The made-up ledger's loans and repayments fall on random dates; one in this month moved Home's result (2026-11-17), so they go too.
+  rt.run(`deleteRowsWhere_('Settlements', function () { return true; });`);
+  rt.run(`deleteRowsWhere_('Loans', function () { return true; });`);
   return rt;
 }
 let n = 0;
@@ -70,7 +73,7 @@ test("pace: running totals per day for this month (up to today) and for the whol
   const g = rt.api("getHomeGlance", {});
   assert.equal(g.pace.curDay, day);
   assert.equal(g.pace.cur.length, day);
-  assert.equal(g.pace.cur[0], 10);
+  assert.equal(g.pace.cur[0], day === 1 ? 15 : 10);   // on the 1st both entries fall on day 1
   assert.equal(g.pace.cur[day - 1], 15, "ends at this month's total");
   assert.equal(g.pace.prevDays, new Date(y, m - 1, 0).getDate());
   assert.equal(g.pace.prev.length, g.pace.prevDays);
@@ -87,6 +90,22 @@ test("budget: no monthly budget = no card; otherwise the total against spend ins
   assert.equal(b.totalPen, 400);
   assert.equal(b.spentPen, 40, "cat-b has no budget, so it is not part of this bar");
   assert.ok(b.daysLeft >= 0);
+});
+
+test("budget: the card counts the monthly budgets already over; 'left' still adds them together", () => {
+  const rt = setup();
+  rt.api("addBudget", { category_id: "cat-a", amount: 100, currency: "PEN", period_type: "monthly" });
+  rt.api("addBudget", { category_id: "cat-b", amount: 500, currency: "PEN", period_type: "monthly" });
+  entry(rt, { amount: 100, category_id: "cat-a" });   // exactly at the limit: not over
+  let b = rt.api("getHomeGlance", {}).budget;
+  assert.equal(b.overCount, 0);
+  entry(rt, { amount: 60, category_id: "cat-a" });    // 160 of 100: over
+  b = rt.api("getHomeGlance", {}).budget;
+  assert.equal(b.overCount, 1);
+  assert.equal(b.totalPen - b.spentPen, 440, "600 in all minus 160 spent: the overrun eats the other budget's room, on purpose");
+  rt.api("addBudget", { category_id: "cat-b", amount: 10, currency: "PEN", period_type: "yearly" });
+  entry(rt, { amount: 50, category_id: "cat-b" });    // over the yearly 10, but a yearly budget is not part of the monthly card
+  assert.equal(rt.api("getHomeGlance", {}).budget.overCount, 1);
 });
 
 test("trips: only those running today, with their cost so far and budget", () => {
@@ -132,4 +151,19 @@ test("monthly history: every month from the first entry to today, with each mont
   assert.equal(h.months[9].cum.length, h.curDay, "this month stops at today");
   assert.deepEqual([h.months[9].expense, h.months[9].income], [80, 500]);
   assert.equal(h.months[4].expense, 0, "a quiet month is still there");
+});
+
+test("month-by-month history for some categories only (the Spending pace screen's 'Which expenses')", () => {
+  const rt = setup();
+  entry(rt, { amount: 40, category_id: "cat-a" });
+  entry(rt, { amount: 90, category_id: "cat-b" });
+  entry(rt, { amount: 500, type: "income", category_id: "cat-i" });
+  const last = (h) => h.months[h.months.length - 1];
+  const all = last(rt.api("getMonthlyHistory", {}));
+  const onlyA = last(rt.api("getMonthlyHistory", { categoryIds: ["cat-a"] }));
+  assert.equal(all.expense, 130);
+  assert.equal(onlyA.expense, 40);
+  assert.equal(onlyA.income, 0, "only those categories' expenses");
+  assert.equal(onlyA.cum[onlyA.cum.length - 1], 40);
+  assert.equal(rt.api("getMeta", {}).capabilities.paceCategories, true);
 });

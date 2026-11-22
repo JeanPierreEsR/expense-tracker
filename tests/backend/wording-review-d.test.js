@@ -30,8 +30,8 @@ test("C15: it is 'account or card' / 'cuenta o tarjeta' in every form, message a
   assert.match(get("field.paymentMethod").en, /Account or card/);
   assert.match(get("field.paymentMethod").es, /Cuenta o tarjeta/);
   assert.match(get("balance.noAccounts").en, /\+ Add account or card…/);
-  assert.match(get("bot.notSetPaymentMethod").en, /reply \\"account Interbank\\"/);
-  assert.match(get("bot.notSetPaymentMethod").es, /responde \\"cuenta Interbank\\"/);
+  assert.match(get("bot.notSetPaymentMethod").en, /reply \\"account \{exAcc\}\\"/);
+  assert.match(get("bot.notSetPaymentMethod").es, /responde \\"cuenta \{exAcc\}\\"/);
 });
 
 test("C15: the Telegram parser takes 'account' / 'cuenta' and still takes the old words; 'received in' too", () => {
@@ -39,10 +39,10 @@ test("C15: the Telegram parser takes 'account' / 'cuenta' and still takes the ol
   assert.match(telegram, /received\\s\*\(\?:at\|in\)/);
 });
 
-test("C17: the alert fields of budgets and trips are hidden when this copy has no Telegram (and kept when the backend does not say)", () => {
+test("C17 (changed 2026-11-02): the alert fields of budgets and trips are shown on every copy, because alerts always arrive on Home", () => {
   assert.match(index, /<div id="budget-alert-fields">[\s\S]*?budget-thresholds[\s\S]*?<\/div>/);
   assert.match(index, /<div id="trip-alert-fields">[\s\S]*?trip-alerts[\s\S]*?<\/div>/);
-  assert.match(app, /capabilities\.telegram === false/);
+  assert.ok(!/capabilities\.telegram === false/.test(app), "no copy hides the alert fields any more");
   assert.match(app, /refreshTelegramFields_\(\);\s*\n\s*if \(typeof refreshExtrasRow_/);
 });
 
@@ -75,12 +75,12 @@ test("C21: the statements buttons, trips labels, loans and rates read as propose
   assert.match(get("stmt.choice.refundIncome").en, /Record as refund/);
   assert.match(get("stmt.dismiss").en, /Remove from the list/);
   assert.match(get("trips.before").en, /Spent before/);
-  assert.match(get("trips.covered").en, /Replaced by a real expense/);
+  assert.match(get("trips.covered").en, /Covered/);   // the hint names it "✓ Covered" (Inés, 2026-11-15)
   assert.match(get("transfer.kind.between").en, /Between my accounts/);
   assert.match(get("loanModal.direction").en, /Who owes whom\?/);
-  assert.match(get("forgive.title").en, /Forgive the debt/);
+  assert.match(get("forgive.title").en, /Forgive part or all of the debt/);
   assert.match(get("repay.overpaidRecordedIncome").en, /The payment of \{cur\} \{amount\} was more than the debt/);
-  assert.match(get("rates.hint").en, /Tap a rate to change it/);
+  assert.match(get("rates.hint").en, /a month to change its rate/);
   for (const k of ["rates.empty", "rateModal.none", "budgetModal.noRate", "trips.noRate"]) assert.ok(!/on file/.test(get(k).en), k);
   assert.match(get("pmm.catSuggestion").en, /percentage points closer/);
   assert.match(get("wa.alias").en, /Name \(optional\)/);
@@ -92,7 +92,6 @@ test("C22: 'Confirmed' (not 'Actual'/'Real') in labels; 'entry/movimiento' (not 
     assert.match(get(k).es, /Confirmado/i, k);
     assert.ok(!/\bActual\b|\bReal\b|\breal\b/.test(get(k).en + get(k).es), k);
   }
-  assert.ok(!/✅ (Actual|Real)/.test(get("scene.proj.s2").en + get("scene.proj.s2").es + get("scene.proj.s3").en + get("scene.proj.s3").es));
   assert.ok(!/\b(past|every|\{n\}) records?\b/i.test(ALL.map((e) => e.en).join("\n")), "records");
   assert.ok(!/\bregistros? (anteriores|la usa|la usan)\b|Cada registro/.test(ALL.map((e) => e.es).join("\n")), "registros");
   assert.match(get("err.catInUse").en, /entries use it/);

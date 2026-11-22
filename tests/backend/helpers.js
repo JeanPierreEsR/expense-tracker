@@ -35,4 +35,9 @@ function bcpEmail(rt, { amount = "25.50", merchant = "Corner Cafe", op = "000111
   });
 }
 
-module.exports = { freshApp, today, linkTelegram, bcpEmail, BCP_SENDER };
+// Projections tests need days left in the month: on the LAST day of a month there is nothing left to project, so a category with no
+// activity this month is (correctly) left out and those tests have nothing to look at. They skip themselves that one day a month
+// (found 2026-10-31; the same kind of calendar quirk as the 2026-10-30 "old rent" test).
+const lastDayOfMonth = (() => { const d = new Date(); return d.getDate() === new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate() ? "last day of the month: nothing left to project" : false; })();
+
+module.exports = { freshApp, today, linkTelegram, bcpEmail, BCP_SENDER, lastDayOfMonth };

@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { freshApp, today } = require("./helpers");
 
-const ym = (d = new Date()) => d.toISOString().slice(0, 7);
+const ym = () => today().slice(0, 7);   // the backend's month (Lima), not UTC: UTC is already next month on the last evening of a month
 const jr = (rt, code) => JSON.parse(rt.run(`JSON.stringify(${code})`));
 const rowOf = (rt, id) => jr(rt, `getRecurringExpenseRows_().filter(function (r) { return r.id === ${JSON.stringify(id)}; })[0]`);
 const occ = (rt, id, a, b) => jr(rt, `recurringExpenseOccurrencesInRange_(getRecurringExpenseRows_().filter(function (r) { return r.id === ${JSON.stringify(id)}; })[0], '${a}', '${b}')`);
@@ -332,4 +332,20 @@ test("Mark as paid carries the split to the new entry and creates the loan", () 
   const loans = jr(rt, `getAllRows('Loans').filter(function (l) { return l.entry_id === ${JSON.stringify(e.id)}; })`);
   assert.equal(loans.length, 1);
   assert.equal(Number(loans[0].amount), 40);
+});
+
+// ---- a future-dated SHARED expense becomes a one-time item with its split (owner, 2026-11-16) ----
+test("a one-time item made from a future shared expense keeps its split, in one call", () => {
+  const { rt, data } = freshApp();
+  const friend = rt.api("addFriend", { name: "Ana Lo" });
+  const r = item(rt, data, { frequency: "once", date: "2099-01-23", amount: 128.5, currency: "USD", splits: [{ friend_id: friend.id, amount: 64.25 }] });
+  assert.deepEqual(rt.api("getRecurringExpenseSplits", { recurringExpenseId: r.id }), [{ friend_id: friend.id, amount: 64.25 }]);
+});
+
+test("a split larger than the bill is refused before anything is written", () => {
+  const { rt, data } = freshApp();
+  const friend = rt.api("addFriend", { name: "Ana Lo" });
+  const before = jr(rt, "getRecurringExpenseRows_().length");
+  assert.throws(() => item(rt, data, { frequency: "once", date: "2099-01-23", amount: 50, splits: [{ friend_id: friend.id, amount: 60 }] }));
+  assert.equal(jr(rt, "getRecurringExpenseRows_().length"), before);
 });

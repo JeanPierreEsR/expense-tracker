@@ -158,6 +158,12 @@ test("the backend version this copy was built from is reported (check=version an
   assert.equal(bare.rt.run("getCapabilities_().backendRef"), "");
 });
 
+test("every copy says it reads dates in the Sheet's own time zone (the app warns a server that does not)", () => {
+  const { rt } = withInstall({ ref: "abc1234def" });
+  rt.run("doGet({ parameter: {} })");
+  assert.equal(rt.run("getCapabilities_().sheetDates"), true);
+});
+
 test("an UPDATE sent without an access code keeps the one this copy already has (so the person's other phone keeps working)", () => {
   const { rt, load, get } = withInstall({ release: "r1", code: "first-code-0123456789abcdef", features: "base" });
   get({});
@@ -236,4 +242,49 @@ test("taking back all permissions keeps the data and the sign-ins, stops every t
   assert.equal(rt.svc.props.get("FEATURES"), "base");
   assert.equal(rt.svc.ss.getSheets().reduce((n, s) => n + s.getLastRow(), 0), rowsBefore, "no data touched");
   assert.ok(rt.svc.props.get("ACCESS_CODE"), "sign-in kept");
+});
+
+// Turning an extra back on from the app (setExtraOn, 2026-11-04).
+test("an extra switched off comes back on from the app while Google still allows it, timer included", () => {
+  const { rt, triggers } = withInstall({ features: "base,keepawake,gmail", url: MAIN });
+  rt.run("doGet({ parameter: {} })");
+  rt.svc.props.set("ACCESS_CODE", rt.ACCESS_CODE);
+  rt.api("setExtraOff", { name: "keepawake" });
+  rt.api("setExtraOff", { name: "gmail" });
+  rt.run("ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); })");   // no timers left at all
+  const a = rt.api("setExtraOn", { name: "keepawake" });
+  assert.equal(a.needsApproval, undefined);
+  assert.equal(a.capabilities.keepAwake, true);
+  assert.equal(triggers.filter((t) => t.fn === "pingWebApp_").length, 1);
+  const g = rt.api("setExtraOn", { name: "gmail" });
+  assert.equal(g.capabilities.bankEmails, true);
+  assert.equal(triggers.filter((t) => t.fn === "runAutomation").length, 1);
+  assert.equal(rt.svc.props.get("FEATURES"), "base,keepawake,gmail");
+  assert.equal(rt.svc.props.get("FEATURES_OFF"), "");
+  rt.api("setExtraOn", { name: "gmail" });   // a second tap changes nothing
+  assert.equal(triggers.filter((t) => t.fn === "runAutomation").length, 1);
+  assert.equal(rt.svc.props.get("FEATURES"), "base,keepawake,gmail");
+  assert.equal(rt.api("getMeta").capabilities.extrasOn, true);
+});
+
+test("when Google no longer allows it, turning on changes nothing and says the setup page is needed", () => {
+  const { rt, triggers } = withInstall({ features: "base,gmail", url: MAIN });
+  rt.run("doGet({ parameter: {} })");
+  rt.svc.props.set("ACCESS_CODE", rt.ACCESS_CODE);
+  rt.api("setExtraOff", { name: "gmail" });
+  const timers = triggers.length;
+  rt.run("Gmail.Users.getProfile = function () { throw new Error('Authorization is required to perform that action.'); }");
+  const r = rt.api("setExtraOn", { name: "gmail" });
+  assert.equal(r.needsApproval, true);
+  assert.equal(r.capabilities.bankEmails, false);
+  assert.equal(rt.svc.props.get("FEATURES"), "base");
+  assert.equal(rt.svc.props.get("FEATURES_OFF"), "gmail", "still remembered as off for the next update");
+  assert.equal(triggers.length, timers);
+});
+
+test("turning on is refused on the owner's copy and for an unknown name", () => {
+  const { rt } = freshApp({ small: true });
+  assert.throws(() => rt.api("setExtraOn", { name: "gmail" }), /only for copies/);
+  rt.svc.props.set("FEATURES", "base");
+  assert.throws(() => rt.api("setExtraOn", { name: "telegram" }), /does not exist/);
 });

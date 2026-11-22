@@ -100,7 +100,7 @@ function adminApplyStatementActions(payload) {
 function ensureImportBatchRow_(batchId, filename, count) {
   appendRowObject('Import Batches', {
     id: batchId, filename: filename,
-    date: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+    date: Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd'),
     row_count: count
   });
 }
@@ -185,7 +185,7 @@ function listStatementCoverage() {
   var accounts = {};
   getAllRows('Payment Methods').forEach(function (pm) {
     var key = covKey_(pm.last_4);
-    if (!key || (pm.type !== 'credit' && pm.type !== 'debit')) return;
+    if (!key || (pm.type !== 'credit' && pm.type !== 'debit') || isPracticeAccount_(pm)) return;
     var bank = banksById[pm.bank_id] ? banksById[pm.bank_id].name : '';
     accounts[key] = { key: key, label: pm.nickname + ' …' + key, lag: covLagDays_(pm, bank) };
   });
@@ -195,7 +195,7 @@ function listStatementCoverage() {
     if (!accounts[uk]) accounts[uk] = { key: uk, label: u.account_label || uk, lag: 1 };
   });
 
-  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var today = Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd');
   var rows = Object.keys(accounts).map(function (key) {
     var a = accounts[key];
     var mine = uploads.filter(function (u) { return covKey_(u.account_key) === key; })
@@ -346,8 +346,11 @@ function analyzeStatements(payload) {
   var savingsReturn = Object.keys(catsById).map(function (k) { return catsById[k]; })
     .find(function (c) { return c.type === 'income' && c.name === 'Savings return'; }) || null;
   var pmByKey = {};
-  pms.forEach(function (pm) { var k = covKey_(pm.last_4); if (k) pmByKey[k] = pm; });
+  pms.forEach(function (pm) { var k = covKey_(pm.last_4); if (k && !isPracticeAccount_(pm)) pmByKey[k] = pm; });
+  var newByKey = {};   // statements for an account the save will create (a spreadsheet's new account name): a stand-in plays it
+  stmts.forEach(function (s) { if (stmtIsNewAccount_(s)) newByKey[String(s.key)] = stmtNewAccountStandIn_(s); });
   function pmFor(key) {
+    if (newByKey[String(key)]) return newByKey[String(key)];
     // An import with no account: a stand-in with a made-up id that no entry carries (so only account-less entries can match it,
     // and nothing pairs with it as a transfer); the apply step writes '' (see stmtPmForKey_).
     if (String(key) === STMT_NO_ACCOUNT_KEY_) return { id: 'unknown:' + STMT_NO_ACCOUNT_KEY_, nickname: tr_('stmt.noAccountName'), type: 'debit', last_4: '', noAccount: true };
@@ -367,7 +370,7 @@ function analyzeStatements(payload) {
     });
   });
   tick('small_tables');
-  var allEntries = getAllRows('Entries');
+  var allEntries = getAllRows('Entries').filter(function (e) { return !isPracticeReview_(e); });   // the Needs review practice never pairs with a statement line
   var entries = lo === null ? [] : allEntries.filter(function (e) {
     return e.date >= covAddDays_(lo, -12) && e.date <= covAddDays_(hi, 12);
   });
@@ -386,7 +389,7 @@ function analyzeStatements(payload) {
   var lineKeys = stmts.map(function (s) { return stmtLineKeys_(s.key, s.lines); });
   var matcherInput = stmts.map(function (s, idx) {
     var pm = pmFor(s.key);
-    return { key: s.key + '#' + idx, pmId: pm ? pm.id : ('unknown:' + s.key), kind: s.kind,
+    return { key: s.key + '#' + idx, pmId: pm ? pm.id : ('unknown:' + s.key), kind: s.kind, card: !!(pm && pm.type === 'credit'),
       lines: (s.lines || []).map(function (l, i) {
         var flags = {};
         if (handledRows[lineKeys[idx][i]]) flags.handled = true;
@@ -420,7 +423,9 @@ function analyzeStatements(payload) {
   ['Loans', 'Settlements'].forEach(function (t) {
     getAllRows(t).forEach(function (r) { if (r.transfer_entry_id) loanTransferIds[r.transfer_entry_id] = true; });
   });
-  var result = matchStatements_(matcherInput, entries, { loanTransferIds: loanTransferIds, repaymentTotals: buildRepaymentTotalsForMatching_() });
+  // What forgiving a debt booked moved no money, so no bank line is ever that entry.
+  var forgivenIds = forgivenessEntryIds_();
+  var result = matchStatements_(matcherInput, entries.filter(function (e) { return !forgivenIds[e.id]; }), { loanTransferIds: loanTransferIds, repaymentTotals: buildRepaymentTotalsForMatching_(), chargeRatio: chargeExpectedRatio_ });
   tick('matcher');
   var entryById = {};
   entries.forEach(function (e) { entryById[e.id] = e; });
@@ -450,6 +455,24 @@ function analyzeStatements(payload) {
         counts.handled++;
         return o;
       }
+      if (r.status === 'recharge') {
+        o.recharge = { clear: r.recharge.clear, entryId: r.recharge.entryId, options: r.recharge.options.map(function (c) {
+          return Object.assign(stmtEntrySummary_(entryById[c.entryId], catsById, pmsById), { dayDiff: c.dd, wrong: !!c.wrong }); }) };
+        counts.recharges = (counts.recharges || 0) + 1;
+        return o;
+      }
+      if (r.status === 'discount') {
+        o.discount = { clear: r.discount.clear, suggested: !!r.discount.suggested, higher: !!r.discount.higher, entryId: r.discount.entryId, options: r.discount.options.map(function (c) {
+          return Object.assign(stmtEntrySummary_(entryById[c.entryId], catsById, pmsById), { dayDiff: c.dd }); }) };
+        counts.discounts = (counts.discounts || 0) + 1;
+        return o;
+      }
+      if (r.status === 'fills') {
+        o.fillsCharge = { clear: r.fillsCharge.clear, entryId: r.fillsCharge.entryId, options: r.fillsCharge.options.map(function (c) {
+          return Object.assign(stmtEntrySummary_(entryById[c.entryId], catsById, pmsById), { dayDiff: c.dd, rateOk: c.rateOk }); }) };
+        counts.charges = (counts.charges || 0) + 1;
+        return o;
+      }
       if (r.status === 'completes') {
         o.completesTransfer = { entry: stmtEntrySummary_(entryById[r.completesTransfer.entryId], catsById, pmsById), side: r.completesTransfer.side, dayDiff: r.completesTransfer.dd };
         counts.completes++;
@@ -459,6 +482,7 @@ function analyzeStatements(payload) {
         o.dayDiff = r.dayDiff;
         o.viaTotal = !!r.viaTotal;
         o.viaRepayment = !!r.viaRepayment;
+        if (r.gapEntryId) o.gapEntryId = r.gapEntryId;
         o.entryHadNoAccount = !!r.entryHadNoAccount;
         counts.matched++;
         if (r.entryHadNoAccount) counts.assignAccount++;
@@ -524,6 +548,22 @@ function analyzeStatements(payload) {
   var allById = {};
   allEntries.forEach(function (e) { allById[e.id] = e; });
   var balanceChecks = [];
+  // Each account's statements in this upload by closing day: a later one is checked knowing what a same-day one will cover (StatementBalance.gs).
+  var linesByPmDay = {};
+  stmts.forEach(function (s, idx) {
+    var pm = pmFor(s.key);
+    if (!pm || !s.period || !s.period.end) return;
+    var byDay = linesByPmDay[pm.id] || (linesByPmDay[pm.id] = {});
+    (byDay[s.period.end] || (byDay[s.period.end] = [])).push({ idx: idx, lines: out[idx].lines });
+  });
+  var otherLinesByDay = function (pmId, idx) {
+    var res = {}, byDay = linesByPmDay[pmId] || {};
+    Object.keys(byDay).forEach(function (d) {
+      var l = byDay[d].filter(function (x) { return x.idx !== idx; }).map(function (x) { return x.lines; });
+      if (l.length) res[d] = l;
+    });
+    return res;
+  };
   stmts.forEach(function (s, idx) {
     var pm = pmFor(s.key);
     if (!pm || !s.period || !s.period.end || !s.balances) return;
@@ -531,9 +571,17 @@ function analyzeStatements(payload) {
       var b = s.balances[cur];
       if (!b || b.closing === null || b.closing === undefined) return;
       var chk = stmtBalanceCheck_({ pm: pm, currency: cur, closing: b.closing, start: s.period.start, end: s.period.end,
-        lines: out[idx].lines, openings: openingsByPm[pm.id] || [], confirmed: confirmedAll, inboundIds: inboundIds, entryById: allById });
+        lines: out[idx].lines, openings: openingsByPm[pm.id] || [], confirmed: confirmedAll, inboundIds: inboundIds, entryById: allById,
+        sameDayLines: otherLinesByDay(pm.id, idx), startBank: !!payload.startBank });
       chk.stmt = idx;
       chk.verified = s.verified !== false;
+      // A "charged differently" option on a purchase inside this account's starting balance (owner, 2026-11-11): picking it also moves
+      // that balance, so the screen can count it at once.
+      out[idx].lines.forEach(function (l) {
+        if (l.currency !== cur || !l.discount) return;
+        var own = (openingsByPm[pm.id] || []).find(function (o) { return o.currency === cur; });
+        (l.discount.options || []).forEach(function (o) { var e = allById[o.id]; if (own && e && stmtInsideStart_(e, own)) o.insideStart = true; });
+      });
       if (!chk.verified) chk.canSet = false;
       balanceChecks.push(chk);
     });

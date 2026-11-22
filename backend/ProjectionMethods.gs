@@ -71,6 +71,7 @@ function getProjectionDefaultMethod_() {
 // Categories already held real data when this was added: append the column in
 // place, once (blank = "use the default"), like period_type.
 function ensureCategoryProjectionMethodColumn_() {
+  if (memoHasColumns_('Categories', ['projection_method'])) return;   // already there (read earlier in this request)
   var sheet = getSheet('Categories');
   var headers = getHeaders(sheet);
   if (headers.indexOf('projection_method') !== -1) return;
@@ -97,9 +98,9 @@ function monthKeyAdd_(key, delta) {
 // ids asked for). `totals` is the NON-recurring spend: own share, PEN at the
 // entry's month rate, entries matched to a programmed item left out, entries
 // tagged Annual left out of `totals` and counted in `annual` instead (the trace
-// reports them). `firstMonth` is the month of the first confirmed entry of any
+// reports them). `excludeRecurringIds` (optional) leaves those programmed items out, as if deleted. `firstMonth` is the month of the first confirmed entry of any
 // type in the category — nothing existed before it, so zero there means nothing.
-function buildMonthlySeries_(categoryIds) {
+function buildMonthlySeries_(categoryIds, excludeRecurringIds) {
   var wanted = {};
   getAllRows('Categories').forEach(function (c) {
     if (c.type !== 'expense' && c.type !== 'investment') return;
@@ -123,6 +124,8 @@ function buildMonthlySeries_(categoryIds) {
   var recurringByCategory = {};
   getRecurringExpenseRows_().forEach(function (r) {
     if (!wanted[r.category_id]) return;
+    // "What if these programmed items were deleted?" (previewProgrammedDelete): they explain no payment, so those fall into the series.
+    if (excludeRecurringIds && excludeRecurringIds.indexOf(String(r.id)) !== -1) return;
     // A PAUSED item (Active off) projects nothing, but its past payments are still
     // its own history: they stay out of the averages until the item is DELETED
     // (owner's rule, 2026-10-19). An ended item (end date) already keeps matching
@@ -136,7 +139,8 @@ function buildMonthlySeries_(categoryIds) {
     var rate = rateToMain_(ratesByCurrency, currency, String(dateStr).substring(0, 7));
     return rate != null ? amount * rate : null;
   }
-  var annualEntryIds = annualEntryIdSet_();
+  var annualEntryIds = annualMarkedIdSet_();
+  var installmentEntryIds = bankInstallmentEntryIds_();   // a bank loan's interest: its schedule says what comes next (BankLoans.gs)
   var todayStr = formatCalendarDate_(new Date());
 
   ids.forEach(function (id) {
@@ -156,7 +160,7 @@ function buildMonthlySeries_(categoryIds) {
     });
     var totals = {}, annual = {};
     typed.forEach(function (e) {
-      if (matched[e.id]) return;
+      if (matched[e.id] || installmentEntryIds[e.id]) return;
       var pen = toPen_(Number(e.amount) - (splitSumByEntry[e.id] || 0), e.currency, e.date);
       if (pen == null) return;
       var key = String(e.date).substring(0, 7);

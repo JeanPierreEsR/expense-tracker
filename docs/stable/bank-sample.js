@@ -16,7 +16,7 @@
 //   parseSender(text)            -> "name@bank.com" or "" (accepts `Bank <name@bank.com>` too)
 //   redact(text, { sender, hide }) -> the safe text
 //   MAX_CHARS                    the most that is ever sent (the backend enforces the same limit)
-//   rememberSender(list, sender, now) / pending(list) / readyBanks(list, supported) / markTold(list, senders)
+//   rememberSender(list, sender, now, kind) / kindsSent(list, sender) / nextKind(sent) / pending(list) / readyBanks(list, supported) / markTold(list, senders)
 //       "tell the person when their bank is ready": the phone keeps the addresses it sent samples for; once the app's rules
 //       cover one of them (backend listSupportedSenders), the person is told once.
 //
@@ -97,14 +97,35 @@
 
   // ---- "your bank is ready" ----
   // list = [{ s: "alerts@bank.com", at: 1700000000000, told: false }]; every function returns a new list and never throws.
-  function rememberSender(list, sender, now) {
+  // The kinds of e-mail the guided sending asks for, in order. The phone remembers which ones were sent per address so the
+  // ticks are still there when the person comes back; a kind never gets a "missing" mark, only a tick or nothing.
+  var KINDS = ["purchase", "transfer", "deposit"];
+  function kindsOf(entry) {
+    return (entry && Array.isArray(entry.kinds) ? entry.kinds : []).filter(function (k) { return KINDS.indexOf(k) >= 0; });
+  }
+  function rememberSender(list, sender, now, kind) {
     var s = parseSender(sender);
     var out = (Array.isArray(list) ? list : []).filter(function (e) { return e && typeof e.s === "string"; });
     if (!s) return out;
+    var before = out.filter(function (e) { return e.s === s; })[0];
+    var kinds = kindsOf(before);
+    if (KINDS.indexOf(kind) >= 0 && kinds.indexOf(kind) < 0) kinds.push(kind);
     // sending again for an address that was already told about is a new wait: the person may be sending a kind of e-mail the rules still lack
     out = out.filter(function (e) { return e.s !== s; });
-    out.push({ s: s, at: now, told: false });
+    var entry = { s: s, at: now, told: false };
+    if (kinds.length) entry.kinds = kinds;   // an address with no kind sent keeps the plain shape older versions saved
+    out.push(entry);
     return out.slice(-20);
+  }
+  function kindsSent(list, sender) {
+    var s = parseSender(sender);
+    return kindsOf((Array.isArray(list) ? list : []).filter(function (e) { return e && e.s === s; })[0]);
+  }
+  // The kind to suggest next: the first one not sent yet, or "" when all three have a tick.
+  function nextKind(sent) {
+    var have = Array.isArray(sent) ? sent : [];
+    for (var i = 0; i < KINDS.length; i++) if (have.indexOf(KINDS[i]) < 0) return KINDS[i];
+    return "";
   }
   function pending(list) {
     return (Array.isArray(list) ? list : []).filter(function (e) { return e && typeof e.s === "string" && !e.told; });
@@ -126,9 +147,12 @@
   }
   function markTold(list, senders) {
     return (Array.isArray(list) ? list : []).map(function (e) {
-      return e && senders.indexOf(e.s) >= 0 ? { s: e.s, at: e.at, told: true } : e;
+      if (!e || senders.indexOf(e.s) < 0) return e;
+      var told = { s: e.s, at: e.at, told: true };
+      if (kindsOf(e).length) told.kinds = kindsOf(e);
+      return told;
     });
   }
 
-  return { parseSender: parseSender, redact: redact, MAX_CHARS: MAX_CHARS, rememberSender: rememberSender, pending: pending, readyBanks: readyBanks, markTold: markTold };
+  return { parseSender: parseSender, redact: redact, MAX_CHARS: MAX_CHARS, rememberSender: rememberSender, KINDS: KINDS, kindsSent: kindsSent, nextKind: nextKind, pending: pending, readyBanks: readyBanks, markTold: markTold };
 });

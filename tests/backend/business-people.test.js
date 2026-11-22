@@ -31,9 +31,11 @@ test("OFF: a role is ignored, nothing is created on the friends or loans tabs, a
   assert.ok(!f.role);
   assert.ok(!rt.run(`getHeaders(getSheet('Friends'))`).includes("role"));
   assert.ok(!rt.run(`getHeaders(getSheet('Loans'))`).includes("project_id"));
-  for (const action of ["listBusinessPeople", "updateFriend", "deleteFriend", "getProjectDebts"]) {
+  for (const action of ["listBusinessPeople", "getProjectDebts"]) {
     assert.throws(() => rt.api(action, { id: f.id, name: "X", project_id: "p" }), /turned off/i, action);
   }
+  // A plain friend can be edited and deleted in any copy (More → Friends); a business role still needs the pack.
+  assert.throws(() => rt.api("updateFriend", { id: f.id, name: "X", role: "client" }), /turned off/i);
   // A loan made while off carries no project, and the Loans list is the one it always was.
   rt.api("addLoan", { friend_id: f.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: "2026-10-05", project_id: "ghost" });
   assert.ok(!rt.run(`getHeaders(getSheet('Loans'))`).includes("project_id"));
