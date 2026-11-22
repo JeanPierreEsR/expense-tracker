@@ -16440,11 +16440,11 @@ document.getElementById("apple-pay-copy-btn").addEventListener("click", async ()
   try { await navigator.clipboard.writeText(link); msg.textContent = tr(applePayShortcutUrl_() ? "ap.addCopied" : "ap.copied"); }
   catch (e) { msg.textContent = tr("ap.copyFailed"); }
 });
-// "Add the shortcut" copies the person's own link (for the question the shortcut asks when it is added) and hands the shortcut straight
-// to the Shortcuts app by its own address (shortcuts://import-shortcut), so no web window opens over the app (owner, 2026-11-22: the
-// iCloud page inside the app looked odd when coming back). "Open it from iCloud instead" is the old way, kept in case that address
-// stops working. The copy and the opening both start inside the tap: iOS refuses either one later.
-function applePayAddTap_(viaIcloud) {
+// "Add the shortcut" copies the person's own link (for the question the shortcut asks when it is added) and opens the iCloud page, which
+// hands over to the Shortcuts app. Both start inside the tap: iOS refuses either one later. (Apple's own shortcuts://import-shortcut
+// address was tried on 2026-11-22 to avoid the web window over the app: it takes only a shortcut FILE, and an iCloud link gives
+// "The file isn't in the correct format".)
+document.getElementById("apple-pay-add-btn").addEventListener("click", () => {
   const msg = document.getElementById("apple-pay-add-msg");
   const link = applePayLink_(), url = applePayShortcutUrl_();
   if (!url) return;
@@ -16452,11 +16452,8 @@ function applePayAddTap_(viaIcloud) {
   msg.textContent = tr("ap.addCopied");
   try { navigator.clipboard.writeText(link).catch(() => { msg.textContent = tr("ap.addNoCopy"); }); }
   catch (err) { msg.textContent = tr("ap.addNoCopy"); }
-  if (viaIcloud) window.open(url, "_blank", "noopener");
-  else location.href = "shortcuts://import-shortcut?url=" + encodeURIComponent(url) + "&name=" + encodeURIComponent(APPLE_PAY_SHORTCUT_NAME_);
-}
-document.getElementById("apple-pay-add-btn").addEventListener("click", () => applePayAddTap_(false));
-document.getElementById("apple-pay-icloud-btn").addEventListener("click", () => applePayAddTap_(true));
+  window.open(url, "_blank", "noopener");
+});
 document.getElementById("my-profile-back-btn").addEventListener("click", () => showScreen("more"));
 // How I type dates: the highlighted choice is the order the app really uses now (the language's own until one is chosen).
 function drawProfileDates_() {
@@ -26942,7 +26939,7 @@ const LINK_ICON_RULES_ = [
   [/^(delete|eliminar|clear|borrar|forget|olvidar)\b/i, "trash"],
   [/^(remove|quitar|don't repeat|no repetir|dismiss|descartar|stop it|detenerlo)\b/i, "cross"],
   [/^(hide|ocultar)\b/i, "eyeOff"],
-  [/^(open my google|abrir las apps|open it from icloud|abrirlo desde icloud)/i, "external"],
+  [/^(open my google|abrir las apps)/i, "external"],
   [/^(read|leer|volver a leer)\b.*(photo|foto|receipt|comprobante)/i, "camera"],
   [/^(download|descargar)\b/i, "download"],   // a project statement's "Download (CSV)"
   [/^(read|leer)\b/i, "file"],
