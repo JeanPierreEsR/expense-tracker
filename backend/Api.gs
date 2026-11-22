@@ -561,6 +561,7 @@ function routeActionSwitch_(action, payload) {
     case 'suggestForDescription': return suggestForDescription(payload);
     case 'listSupportedSenders': return listSupportedSenders();
     case 'setRulePack': return setRulePack(payload);
+    case 'setForwardAddresses': return setForwardAddresses(payload);
     case 'confirmEntry': return confirmEntryFromApp_(payload);
     case 'unconfirmEntry': return unconfirmEntry_(payload);
     case 'unconfirmEntries': return unconfirmEntries(payload);

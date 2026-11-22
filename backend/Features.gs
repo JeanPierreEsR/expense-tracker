@@ -88,6 +88,8 @@ function getCapabilities_() {
     loanMovements: true,
     emailExport: !!PropertiesService.getScriptProperties().getProperty('EXPORT_EMAIL'),
     bankEmails: featureOn_('gmail'),
+    // Bank e-mails forwarded to this Gmail are read (ForwardedEmail.gs, 2026-11-22): More → Bank emails says so and keeps the person's other addresses.
+    forwardedEmails: true,
     keepAwake: featureOn_('keepawake'),
     telegram: !!getTelegramToken_(),
     // A chat is actually linked (the token alone sends nothing): the app mentions Telegram in alert hints only then.

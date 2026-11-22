@@ -8049,6 +8049,16 @@ function reviewHasAccountBox_(entry) {
 
 // The account a waiting expense, income or investment deposit was registered with, shown on its card as a plain line (not changeable
 // there). Transfers and investment withdrawals already show their accounts in their own boxes; no account = the "Pick the account" box.
+// Who forwarded a waiting bank e-mail (backend ForwardedEmail.gs, owner 2026-11-22): forwards from any address are read, so the item says
+// who sent it, unless it is this Gmail or one of the person's other addresses (More → Bank emails). "" = nothing to show.
+function reviewForwardedBy_(entry) {
+  const by = String((entry && entry.forwarded_by) || "").toLowerCase();
+  if (!by) return "";
+  const info = (meta && meta.emailInfo) || {};
+  if (by === String(info.address || "").toLowerCase() || (info.forwardFrom || []).includes(by)) return "";
+  return tr("review.forwardedBy", { address: by });
+}
+
 function reviewAccountLine_(entry) {
   if (!entry.payment_method_id) return "";
   if (!(entry.type === "expense" || entry.type === "income" || (entry.type === "investment" && Number(entry.amount) > 0))) return "";
@@ -8551,6 +8561,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           <div class="review-item-meta">${listDate_(entry.date)} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
           ${reviewAccountLine_(entry) ? `<div class="review-item-meta review-account-line">${escapeHtml(reviewAccountLine_(entry))}</div>` : ""}
           ${entry.maybe_own ? `<div class="review-maybe-own">${escapeHtml(tr("review.maybeYours"))}</div>` : ""}
+          ${reviewForwardedBy_(entry) ? `<div class="review-item-meta review-forwarded">${escapeHtml(reviewForwardedBy_(entry))}</div>` : ""}
           ${reviewLoanHintText_(entry) ? `<div class="review-loan-hint">${escapeHtml(reviewLoanHintText_(entry))}</div>` : ""}
         </div>
         <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−", "": "" }[entryFlowDirection_(entry)])}</div>
@@ -16503,11 +16514,11 @@ document.getElementById("apple-pay-copy-btn").addEventListener("click", async ()
   try { await navigator.clipboard.writeText(link); msg.textContent = tr(applePayShortcutUrl_() ? "ap.addCopied" : "ap.copied"); }
   catch (e) { msg.textContent = tr("ap.copyFailed"); }
 });
-// "Add the shortcut" copies the person's own link (for the question the shortcut asks when it is added) and hands the shortcut straight
-// to the Shortcuts app by its own address (shortcuts://import-shortcut), so no web window opens over the app (owner, 2026-11-22: the
-// iCloud page inside the app looked odd when coming back). "Open it from iCloud instead" is the old way, kept in case that address
-// stops working. The copy and the opening both start inside the tap: iOS refuses either one later.
-function applePayAddTap_(viaIcloud) {
+// "Add the shortcut" copies the person's own link (for the question the shortcut asks when it is added) and opens the iCloud page, which
+// hands over to the Shortcuts app. Both start inside the tap: iOS refuses either one later. (Apple's own shortcuts://import-shortcut
+// address was tried on 2026-11-22 to avoid the web window over the app: it takes only a shortcut FILE, and an iCloud link gives
+// "The file isn't in the correct format".)
+document.getElementById("apple-pay-add-btn").addEventListener("click", () => {
   const msg = document.getElementById("apple-pay-add-msg");
   const link = applePayLink_(), url = applePayShortcutUrl_();
   if (!url) return;
@@ -16515,11 +16526,8 @@ function applePayAddTap_(viaIcloud) {
   msg.textContent = tr("ap.addCopied");
   try { navigator.clipboard.writeText(link).catch(() => { msg.textContent = tr("ap.addNoCopy"); }); }
   catch (err) { msg.textContent = tr("ap.addNoCopy"); }
-  if (viaIcloud) window.open(url, "_blank", "noopener");
-  else location.href = "shortcuts://import-shortcut?url=" + encodeURIComponent(url) + "&name=" + encodeURIComponent(APPLE_PAY_SHORTCUT_NAME_);
-}
-document.getElementById("apple-pay-add-btn").addEventListener("click", () => applePayAddTap_(false));
-document.getElementById("apple-pay-icloud-btn").addEventListener("click", () => applePayAddTap_(true));
+  window.open(url, "_blank", "noopener");
+});
 document.getElementById("my-profile-back-btn").addEventListener("click", () => showScreen("more"));
 // How I type dates: the highlighted choice is the order the app really uses now (the language's own until one is chosen).
 function drawProfileDates_() {
@@ -18299,6 +18307,7 @@ function renderBankEmails_() {
   beEl_("be-copy-btn").hidden = !info.address;
   beEl_("be-msg").textContent = "";
   beEl_("be-teach").hidden = perfIsOwnerCopy_();   // the owner writes the e-mail rules himself
+  renderBeForward_();
   const applePay = !!(meta && meta.capabilities && meta.capabilities.applePay);
   beEl_("be-tabs").hidden = !reading && !applePay;
   beEl_("be-tab-bank").hidden = !reading;   // no e-mail reading: only "By transaction" (and Apple Pay where offered)
@@ -18307,6 +18316,49 @@ function renderBankEmails_() {
   renderBeTx_(be_.data || {});
   setBeView_((be_.view === "bank" && !reading) || (be_.view === "ap" && !applePay) ? "tx" : be_.view);
 }
+
+// Bank e-mails already sent to another address: forward them here (backend ForwardedEmail.gs, 2026-11-22). Only where the backend reads
+// forwards; there the old "e-mails forwarded by hand are not read" warning goes. The person's other addresses: their forwards are not
+// marked "Forwarded by" in Needs review.
+function renderBeForward_() {
+  const on = !!(meta && meta.capabilities && meta.capabilities.forwardedEmails);
+  beEl_("be-forward").hidden = !on;
+  beEl_("be-w3").hidden = on;
+  if (!on) return;
+  const list = ((meta && meta.emailInfo) || {}).forwardFrom || [];
+  const box = beEl_("be-fwd-list");
+  box.innerHTML = "";
+  list.forEach((addr) => {
+    const row = document.createElement("div");
+    row.className = "be-fwd-row";
+    row.innerHTML = `<span class="bm-status-addr">${escapeHtml(addr)}</span><button type="button" class="add-inline be-fwd-remove">${escapeHtml(tr("bankMail.fwdRemove"))}</button>`;
+    row.querySelector("button").setAttribute("aria-label", tr("bankMail.fwdRemoveAria", { address: addr }));
+    row.querySelector("button").addEventListener("click", () => saveBeForward_(list.filter((a) => a !== addr)));
+    box.appendChild(row);
+  });
+  beEl_("be-fwd-empty").hidden = list.length > 0;
+}
+
+function saveBeForward_(addresses) {
+  if (meta) meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { forwardFrom: addresses });
+  renderBeForward_();   // shows the change at once; the server's answer replaces it
+  saveBehindScreen_(async () => {
+    const res = await callApi("setForwardAddresses", { addresses });
+    if (meta) meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { forwardFrom: res.addresses || [] });
+  }, () => { if (!beEl_("screen-bank-emails").hidden) renderBeForward_(); });
+}
+
+beEl_("be-fwd-add-btn").addEventListener("click", () => {
+  const input = beEl_("be-fwd-input");
+  const addr = String(input.value || "").trim().toLowerCase();
+  const msg = beEl_("be-fwd-msg");
+  msg.textContent = "";
+  if (!/^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[a-z]{2,}$/i.test(addr)) { msg.textContent = tr("bankMail.fwdBad"); input.focus(); return; }
+  const list = ((meta && meta.emailInfo) || {}).forwardFrom || [];
+  input.value = "";
+  if (list.includes(addr)) return;
+  saveBeForward_(list.concat([addr]));
+});
 
 function setBeView_(view) {
   be_.view = view;
@@ -27029,7 +27081,7 @@ const LINK_ICON_RULES_ = [
   [/^(delete|eliminar|clear|borrar|forget|olvidar)\b/i, "trash"],
   [/^(remove|quitar|don't repeat|no repetir|dismiss|descartar|stop it|detenerlo)\b/i, "cross"],
   [/^(hide|ocultar)\b/i, "eyeOff"],
-  [/^(open my google|abrir las apps|open it from icloud|abrirlo desde icloud)/i, "external"],
+  [/^(open my google|abrir las apps)/i, "external"],
   [/^(read|leer|volver a leer)\b.*(photo|foto|receipt|comprobante)/i, "camera"],
   [/^(download|descargar)\b/i, "download"],   // a project statement's "Download (CSV)"
   [/^(read|leer)\b/i, "file"],

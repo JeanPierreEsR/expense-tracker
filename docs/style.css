@@ -3683,6 +3683,13 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .bm-status { border: 1px solid var(--border, var(--border-warm)); border-radius: var(--r-md); padding: 10px 12px; margin: 4px 0 14px; }
 .bm-status .hint:first-child { margin-top: 0; }
 .bm-status-addr { font-weight: 700; overflow-wrap: anywhere;   /* words stay whole; only a long address breaks (break-all split the fallback sentence mid-word) */ margin: 4px 0; }
+/* More → Bank emails → the person's other addresses (forwarded bank e-mails, 2026-11-22): one row per address, Remove on its right;
+   the add row = the box and its button side by side, lined up (no stacked-button margin inside the row). */
+.be-fwd-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.be-fwd-row .bm-status-addr { min-width: 0; }
+.be-fwd-add { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.be-fwd-add input { flex: 1; min-width: 0; }
+.be-fwd-row .add-inline, .be-fwd-add .add-inline, .be-fwd-add .add-inline + .add-inline { margin: 0; flex: none; }
 
 /* Extra features: one on/off switch per extra (2026-11-04). A checkbox drawn as an iPhone-style switch. */
 .extras-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 600; margin-top: 12px; cursor: pointer; }

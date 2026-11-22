@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.47.3"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="2.48.1"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-22T16:47:33Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-22T17:08:10Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -1391,7 +1391,6 @@
               <li data-i18n="ap.q3">At the top it says "Automation is turned off": tap it and switch Automation on. (Older iPhones: in the Automation tab, tap +, choose Wallet or Transaction, tap Run Immediately, then Next, and pick the shortcut.)</li>
               <li data-i18n="ap.q4">To check it, tap the play button at the bottom right, and Allow notifications if asked: you will see "Test received: your link works." Nothing is added.</li>
             </ol>
-            <p class="hint" id="apple-pay-icloud-line"><button type="button" class="add-inline" id="apple-pay-icloud-btn" data-i18n="ap.icloud">Open it from iCloud instead</button></p>
           </div>
           <details id="apple-pay-manual-fold" class="bm-more" hidden>
             <summary data-i18n="ap.manualFold">Build it by hand instead</summary>
@@ -1448,7 +1447,21 @@
                 <li data-i18n="bankMail.w1">Best, if you can: change the email your bank uses for notifications to the address above. You do it in the bank's app or website, on your phone, bank by bank, and nothing else is needed.</li>
                 <li data-i18n="bankMail.w2">To keep several addresses (recommended for that): Gmail forwarding. In each other Gmail, open Settings, See all settings, Forwarding and POP/IMAP, Add a forwarding address, and enter the address above. Google sends a confirmation code to this account. Then create a filter that forwards your bank's emails automatically. You do it once, on a computer, and it works for as many addresses as you have.</li>
               </ol>
-              <p class="hint" style="font-weight:600;" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
+              <p class="hint" style="font-weight:600;" id="be-w3" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
+              <div id="be-forward" hidden>
+                <h3 data-i18n="bankMail.fwdTitle">Bank emails that already went to another address</h3>
+                <p class="hint" data-i18n="bankMail.fwdLead">Forward them to the address above, as they are. The app reads them like your bank's own emails, with the date of the purchase, and they wait in Needs review.</p>
+                <p class="hint" data-i18n="bankMail.fwdMany">Many at once: in Gmail on a computer, select them, then tap ⋮ and Forward as attachment.</p>
+                <h3 data-i18n="bankMail.fwdMineTitle">My other addresses</h3>
+                <p class="hint" data-i18n="bankMail.fwdMineHint">An email forwarded from an address not listed here shows who sent it in Needs review, so nobody can slip a payment in unnoticed.</p>
+                <div id="be-fwd-list"></div>
+                <p class="hint" id="be-fwd-empty" data-i18n="bankMail.fwdEmpty">None yet.</p>
+                <div class="be-fwd-add">
+                  <input type="email" id="be-fwd-input" autocomplete="email" inputmode="email" data-i18n-placeholder="bankMail.fwdPlaceholder" placeholder="name@example.com" data-i18n-aria-label="bankMail.fwdInputAria" aria-label="Another address of mine">
+                  <button type="button" class="add-inline" id="be-fwd-add-btn" data-i18n="bankMail.fwdAdd">Add</button>
+                </div>
+                <p class="hint" id="be-fwd-msg" role="status"></p>
+              </div>
               <h3 data-i18n="bankMail.otherMailTitle">Do your bank emails arrive at Outlook, iCloud or Yahoo?</h3>
               <p class="hint" data-i18n="bankMail.otherMailIntro">The app can only read a Gmail account. If you have none, create a free one and use it when you set up the app. Then send the bank emails from your other mailbox to the address above:</p>
               <ul class="bm-steps">
@@ -4333,25 +4346,25 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="i18n.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="tour-scenes.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="signin-link.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="country-guess.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="rate-quotes.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="bank-sample.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="perf-share.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="spotlight.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="receipt-parse.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="receipt-fields.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="in-process.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="bill-split.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="loan-reminder.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="company-invite.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="app.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="statement-sample.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="statement-table.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="statement-parsers.js?v=2026-11-22T16:47:33Z"></script>
-  <script src="statements.js?v=2026-11-22T16:47:33Z"></script>
+  <script src="strings.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="i18n.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="tour-scenes.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="signin-link.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="country-guess.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="rate-quotes.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="bank-sample.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="perf-share.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="spotlight.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="receipt-parse.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="receipt-fields.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="in-process.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="bill-split.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="loan-reminder.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="company-invite.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="app.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="statement-sample.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="statement-table.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="statement-parsers.js?v=2026-11-22T17:08:10Z"></script>
+  <script src="statements.js?v=2026-11-22T17:08:10Z"></script>
 </body>
 </html>
