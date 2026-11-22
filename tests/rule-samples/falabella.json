@@ -1,0 +1,19 @@
+{
+  "falabella-cmr-consumo": [
+    {
+      "subject": "Notificación de Operaciones CMR",
+      "body": "Hola Ana\n\nTe informamos que se ha realizado un consumo con tu Tarjeta CMR, te adjuntamos el detalle:\n\nRealizado por: Ana Lopez Ruiz\nTarjeta: 400000******1234\nFecha: 01-febrero-2026\nHora: 09:15\nComercio: Tienda Prueba Pe\nMonto: S/ 12.34\nNúmero de operación: 000000001111\n\nInformación Importante:\nSi compraste en comercios electrónicos, el monto de tu compra podría variar de acuerdo a la disponibilidad de los productos.\n\n¡Gracias!",
+      "expect": { "type": "expense", "amount": 12.34, "currency": "PEN", "merchant": "Tienda Prueba Pe", "last4": "1234", "externalId": "000000001111" }
+    },
+    {
+      "subject": "Notificación de Operaciones CMR",
+      "body": "Hola Ana\n\nTe informamos que se ha realizado un consumo con tu Tarjeta CMR, te adjuntamos el detalle:\n\nRealizado por: Ana Lopez Ruiz\nTarjeta: 400000******5678\nFecha: 02-febrero-2026\nHora: 20:40\nComercio: Shop Example\nMonto: US$ 45.60\nNúmero de operación: 000000002222\n\n¡Gracias!",
+      "expect": { "type": "expense", "amount": 45.6, "currency": "USD", "merchant": "Shop Example", "last4": "5678", "externalId": "000000002222" }
+    },
+    {
+      "subject": "Notificación de Operaciones CMR",
+      "body": "Hola Ana\n\nTe informamos que se ha realizado un pago a tu Tarjeta CMR.\n\nMonto: S/ 100.00",
+      "matches": false
+    }
+  ]
+}
