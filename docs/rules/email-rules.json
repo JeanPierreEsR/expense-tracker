@@ -64,7 +64,11 @@
 
     { "id": "falabella-cmr-consumo", "bank": "Banco Falabella", "sender": "notificaciones@pe.notificaciones.bancofalabella.com", "label": "Consumo tarjeta CMR (pack)",
       "subjectHas": ["notificacion de operaciones cmr"], "bodyHas": ["se ha realizado un consumo"], "type": "expense", "amount": { "label": "Monto:" },
-      "merchant": { "label": "Comercio:" }, "last4": { "label": "Tarjeta:", "kind": "masked" }, "externalId": { "label": "Número de operación:" } }
+      "merchant": { "label": "Comercio:" }, "last4": { "label": "Tarjeta:", "kind": "masked" }, "externalId": { "label": "Número de operación:" } },
+
+    { "id": "falabella-pago-tarjeta", "bank": "Banco Falabella", "sender": "notificaciones@pe.notificaciones.bancofalabella.com", "label": "Pago de tarjeta CMR (pack)",
+      "cardIsDestination": true, "subjectHas": ["aviso de pago de tarjeta de credito"], "type": "transfer", "amount": { "label": "Monto pagado" },
+      "description": { "text": "Pago tarjeta CMR" }, "last4": { "label": "N° de tarjeta", "kind": "masked" } }
   ],
   "pairs": [
     { "id": "didi", "sender": "didi@pe.didiglobal.com", "merchantHas": ["didi"] },

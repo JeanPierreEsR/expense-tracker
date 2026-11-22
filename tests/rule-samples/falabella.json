@@ -15,5 +15,17 @@
       "body": "Hola Ana\n\nTe informamos que se ha realizado un pago a tu Tarjeta CMR.\n\nMonto: S/ 100.00",
       "matches": false
     }
+  ],
+  "falabella-pago-tarjeta": [
+    {
+      "subject": "Aviso de pago de tarjeta de crédito - Banco Falabella",
+      "body": "ANA, el pago de tu CMR fue\nrealizado con éxito\n\nDe acuerdo a tu instrucción se ha realizado el pago a tu tarjeta:\n\nDetalle de pago\nTarjeta pagada CMR VISA Prueba\nN° de tarjeta • • • • 1234\nÚltimo día de pago 05/02/2026\n\nMonto pagado S/ 250.50\nForma de pago Cta Banco Falabella\nProveedor Banco Falabella\n\nDatos de operación\nFecha 05/02/2026\nHora 17:24",
+      "expect": { "type": "transfer", "amount": 250.5, "currency": "PEN", "description": "Pago tarjeta CMR", "last4": "1234" }
+    },
+    {
+      "subject": "Notificación de Operaciones CMR",
+      "body": "Te informamos que se ha realizado un consumo con tu Tarjeta CMR.\nMonto pagado S/ 5.00",
+      "matches": false
+    }
   ]
 }
