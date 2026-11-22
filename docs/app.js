@@ -19904,6 +19904,68 @@ document.getElementById("tags-add-btn").addEventListener("click", async () => {
   saveBehindScreen_(() => callApi("addTag", { name }), refreshTagsAfterChange_);
 });
 
+// ---- "Add units" (Business 2, piece 5; company copies only) ----
+// Each unit is an ordinary tag; the bots read them in a short message ("ingreso 30000 separación depa 3 Pérez", CompanyBot.gs).
+function unitsMode_() { return (document.querySelector('input[name="units-mode"]:checked') || {}).value || "floors"; }
+function unitsNames_() {
+  const n = (id) => Math.floor(Number(String(document.getElementById(id).value || "").trim()));
+  const prefix = document.getElementById("units-prefix").value;
+  const withPrefix = (x) => (prefix ? `${prefix} ${x}` : String(x));
+  const mode = unitsMode_();
+  if (mode === "list") {
+    return document.getElementById("units-list").value.split(/[\n,]+/).map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean).map(withPrefix);
+  }
+  if (mode === "seq") { const c = n("units-seq-count"); return c > 0 ? Array.from({ length: Math.min(c, 300) }, (_, i) => withPrefix(i + 1)) : []; }
+  const from = n("units-floor-from"), to = n("units-floor-to"), per = n("units-per-floor");
+  if (!(from >= 0 && to >= from && per > 0 && per <= 99)) return [];
+  const out = [];
+  for (let f = from; f <= to && out.length <= 300; f++) for (let u = 1; u <= per; u++) out.push(withPrefix(f * 100 + u));
+  return out;
+}
+function unitsRefresh_() {
+  const mode = unitsMode_();
+  document.getElementById("units-floors-box").hidden = mode !== "floors";
+  document.getElementById("units-seq-box").hidden = mode !== "seq";
+  document.getElementById("units-list-box").hidden = mode !== "list";
+  const names = unitsNames_();
+  const taken = new Set((meta.tags || []).map((t) => String(t.name).trim().toLowerCase()));
+  const fresh = names.filter((x, i) => names.indexOf(x) === i && !taken.has(x.toLowerCase()));
+  // The whole list, before anything is created (owner's plan: check it first).
+  document.getElementById("units-preview").textContent = !names.length ? "" : names.length > 300 ? tr("units.tooMany")
+    : tr("units.preview", { n: fresh.length, list: fresh.join(", ") }) + (fresh.length < names.length ? " " + tr("units.already", { n: names.length - fresh.length }) : "");
+  return fresh;
+}
+function openUnits_() {
+  document.querySelector('input[name="units-mode"][value="floors"]').checked = true;
+  ["units-floor-to", "units-per-floor", "units-seq-count", "units-list"].forEach((id) => { document.getElementById(id).value = ""; });
+  document.getElementById("units-floor-from").value = "1";
+  document.getElementById("units-prefix").value = "Depa";
+  document.getElementById("units-error").textContent = "";
+  unitsRefresh_();
+  const backdrop = document.getElementById("units-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+document.getElementById("units-add-btn").addEventListener("click", openUnits_);
+document.getElementById("units-close").addEventListener("click", () => { document.getElementById("units-modal-backdrop").hidden = true; });
+document.querySelectorAll('input[name="units-mode"]').forEach((r) => r.addEventListener("change", () => {
+  if (unitsMode_() === "list") document.getElementById("units-prefix").value = "";   // a typed list carries its own names ("Shop 1")
+  unitsRefresh_();
+}));
+["units-floor-from", "units-floor-to", "units-per-floor", "units-seq-count", "units-list", "units-prefix"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", unitsRefresh_);
+  document.getElementById(id).addEventListener("change", unitsRefresh_);
+});
+document.getElementById("units-save").addEventListener("click", () => {
+  const names = unitsNames_();
+  const fresh = unitsRefresh_();
+  const err = document.getElementById("units-error");
+  if (names.length > 300) { err.textContent = tr("units.tooMany"); return; }
+  if (!fresh.length) { err.textContent = tr(names.length ? "units.nothingNew" : "units.nothing"); return; }
+  document.getElementById("units-modal-backdrop").hidden = true;
+  saveBehindScreen_(() => callApi("addTagsBulk", { names: fresh }), refreshTagsAfterChange_);
+});
+
 function catCountText_(id) {
   return id in categoryCounts_ || Object.keys(categoryCounts_).length ? escapeHtml(tr("categories.entryCount", { n: categoryCounts_[id] || 0 })) : "";
 }
@@ -21485,6 +21547,7 @@ function applyBusinessVisibility_(opts) {
     el.textContent = tr(bankWordKey_(key));
   });
   applyCompanyOverview_();   // a company copy's Overview: its own cards and order (Business 2, piece 4)
+  document.getElementById("units-add-btn").hidden = !companyCopyOn_();   // "Add units" (Business 2, piece 5)
   const peopleHint = document.getElementById("people-hint");
   peopleHint.setAttribute("data-i18n", companyCopyOn_() ? "people.hintCo" : "people.hint");
   peopleHint.textContent = tr(peopleHint.getAttribute("data-i18n"));

@@ -34,12 +34,12 @@ function newTypedEntry_(payload, source) {
     first.text = parts[0];
   }
   var r = saveTypedEntry_(first, source);
-  r.editMessage = '';
+  r.editMessage = r.coNote || '';   // a company copy's notes under the card (CompanyBot.gs)
   if (!r.saved || !r.entry || parts.length < 2) return r;
   var res = applyEditCommand_(r.entry.id, parts.slice(1).join(', '));
   r.entry = getEntryById_(r.entry.id) || r.entry;
   if (res.categoryName) r.categoryName = res.categoryName;
-  r.editMessage = res.message || '';
+  r.editMessage = [r.coNote || '', res.message || ''].filter(function (m) { return m; }).join('\n\n');
   if (r.entry.status === 'confirmed') r.reply = tr_('whatsapp.savedConfirmed', { amount: formatAmountText_(r.entry.amount, r.entry.currency), what: r.entry.description });
   if (r.editMessage) r.reply += '\n\n' + r.editMessage;
   return r;
@@ -135,7 +135,10 @@ function saveTypedEntry_(payload, source) {
 
   var home = homeCurrency_();
   var read = typedReadByRules_(text);
-  var fields = read ? read.fields : typedReadLine_(text, home);
+  // A company copy reads a line in parts, in any order: unit, amount, concept, client (CompanyBot.gs, Business 2 piece 5).
+  var co = !read && isCompanyCopy_() ? companyReadLine_(text, companyBotContext_()) : null;
+  if (co && co.ask) return { saved: false, reply: tr_('coBot.whichAmount', { list: co.ask.join(tr_('coBot.or')) }) };
+  var fields = read ? read.fields : (co || typedReadLine_(text, home));
   if (!fields) return { saved: false, reply: tr_('whatsapp.unreadable') };
 
   var lock = LockService.getScriptLock();
@@ -154,7 +157,7 @@ function saveTypedEntry_(payload, source) {
     var description = fields.description || tr_(source === 'telegram' ? 'typed.noDesc.telegram' : 'whatsapp.noDesc');
     // The same guess a bank e-mail gets. A category the person names goes after a comma with its keyword ("25 almuerzo, category
     // restaurants", WhatsAppBot.gs; owner 2026-11-16): a word inside the description is never read as one.
-    var guess = guessCategoryForEmail_({ type: type, amount: fields.amount, currency: fields.currency, merchant: fields.merchant || fields.description,
+    var guess = co && co.category ? { categoryId: co.category.id } : guessCategoryForEmail_({ type: type, amount: fields.amount, currency: fields.currency, merchant: fields.merchant || fields.description,
         defaultCategory: fields.defaultCategory, defaultCategoryAlt: fields.defaultCategoryAlt }, dateStr, guessCtx);
 
     var entry = {
@@ -184,7 +187,14 @@ function saveTypedEntry_(payload, source) {
       var payeeGuess = applyPayeeGuessToNewEntry_(entry, buildPayeeHistory_(), payeeLookups_());
       if (payeeGuess) ensureEntriesToPaymentMethodColumn_();
     }
+    // The client of a company's income (a new one is made, with the client role): the payer of the income.
+    var clientName = co && co.type === 'income' ? (co.client ? co.client.name : co.clientNew) : '';
+    if (clientName) {
+      if (co.clientNew) addFriend({ name: clientName, role: 'client' });
+      entry.paid_by = findOrCreatePayorByName_(clientName).id;
+    }
     appendRowObject('Entries', entry);
+    if (co && co.unit) appendRowObject('Entry Tags', { entry_id: entry.id, tag_id: co.unit.id });   // the unit is a tag
     autoTagTravelEntry_(entry);
 
     var cat = entry.category_id ? guessCtx.categoriesById[entry.category_id] : null;
@@ -193,8 +203,9 @@ function saveTypedEntry_(payload, source) {
       saved: true,
       entryId: entry.id,
       entry: entry,
+      coNote: co ? companyNotes_(co, false) : '',
       categoryName: cat ? categoryLabel_(cat) : null,
-      reply: tr_('whatsapp.saved', {
+      reply: co ? companyUnderstood_(co) + '\n' + tr_('coBot.waits') : tr_('whatsapp.saved', {
         amount: formatAmountText_(entry.amount, entry.currency),
         what: entry.description + (cat ? ' · ' + categoryLabel_(cat) : '')
       })
