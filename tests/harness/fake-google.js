@@ -226,6 +226,19 @@ class FakeSpreadsheet {
 
 // ---- Everything else -----------------------------------------------------------
 
+// The words the forwarded-e-mail search uses (ForwardedEmail.gs): -from:(a OR b) leaves those senders out; {"x" "y" filename:eml} keeps
+// a message whose text or From names one of the quoted words, or that carries an attached .eml.
+function matchesForwardWords(m, query) {
+  const notFrom = (/(?:^|\s)-from:\(([^)]*)\)/.exec(query) || [])[1];
+  if (notFrom && notFrom.split(/\s+OR\s+/).some((f) => m.getFrom().toLowerCase().includes(f.toLowerCase()))) return false;
+  const anyOf = (/\{([^}]*)\}/.exec(query) || [])[1];
+  if (!anyOf) return true;
+  const words = [...anyOf.matchAll(/"([^"]+)"/g)].map((x) => x[1].toLowerCase());
+  const text = (m.getFrom() + "\n" + m.getPlainBody() + "\n" + (m._html || "")).toLowerCase();
+  if (words.some((w) => text.includes(w))) return true;
+  return /filename:eml/.test(anyOf) && m.getAttachments().some((a) => /\.eml$/i.test(a.getName()));
+}
+
 // ---- Gmail -----------------------------------------------------------------
 // Threads hold messages and labels. search() understands just what the backend
 // uses: from:<address>, -label:<name>, newer_than:<N>d (+ start/max).
@@ -250,6 +263,7 @@ function buildGmail() {
       return threads
         .filter((t) => (!froms || t.messages.some((m) => froms.some((f) => m.getFrom().includes(f)))))
         .filter((t) => !needAttachment || t.messages.some((m) => m.getAttachments().length))
+        .filter((t) => t.messages.some((m) => matchesForwardWords(m, query)))
         .filter((t) => !notLabel || !t.labelNames.has(notLabel))
         .filter((t) => !mustLabel || t.labelNames.has(mustLabel))
         .filter((t) => t.messages.some((m) => m.getDate().getTime() >= cutoff))
@@ -271,7 +285,7 @@ function buildGmail() {
       getSubject: () => subject, getTo: () => to || "Owner <test@example.com>", getPlainBody: () => (body === undefined ? "" : body), getFrom: () => from, getBody: () => (html !== undefined ? html : (body === undefined ? "" : body)),
       getDate: () => new Date(sentAt),   // fixed at creation: a real e-mail's date does not change between two reads
       getId() { return this._id; },
-      getAttachments: () => attachments.map((a) => ({ getName: () => a.name, getSize: () => a.size || 2048, getBytes: () => (a.bytes ? [...a.bytes] : []) }))
+      getAttachments: () => attachments.map((a) => ({ getName: () => a.name, getSize: () => a.size || 2048, getContentType: () => a.type || "application/pdf", getBytes: () => (a.bytes ? [...a.bytes] : []) }))
     };
     let thread = threadWith;
     if (!thread) {
@@ -298,6 +312,7 @@ function buildGmail() {
     const cutoff = days ? Date.now() - Number(days) * 86400000 : 0;
     if (froms && !froms.some((f) => m.getFrom().includes(f))) return false;
     if (/has:attachment/.test(query) && !m.getAttachments().length) return false;
+    if (!matchesForwardWords(m, query)) return false;
     return m.getDate().getTime() >= cutoff;
   }
   function resource(m, t) {
@@ -306,7 +321,7 @@ function buildGmail() {
     if (m.getPlainBody() !== "" || m._html === undefined) parts.push({ mimeType: "text/plain", headers: [header("Content-Type", "text/plain; charset=UTF-8")], body: { size: 1, data: b64u(m.getPlainBody()) } });
     if (m._html !== undefined) parts.push({ mimeType: "text/html", headers: [header("Content-Type", "text/html; charset=UTF-8")], body: { size: 1, data: b64u(m._html) } });
     const body = parts.length > 1 ? [{ mimeType: "multipart/alternative", parts }] : parts;
-    const atts = m._attachments.map((a, i) => ({ mimeType: "application/pdf", filename: a.name, headers: [header("Content-Disposition", "attachment; filename=\"" + a.name + "\"")], body: { attachmentId: m._id + "-att" + i, size: a.size || 2048 } }));
+    const atts = m._attachments.map((a, i) => ({ mimeType: a.type || "application/pdf", filename: a.name, headers: [header("Content-Disposition", "attachment; filename=\"" + a.name + "\"")], body: { attachmentId: m._id + "-att" + i, size: a.size || 2048 } }));
     return {
       id: m._id, threadId: "t" + threads.indexOf(t), internalDate: String(m.getDate().getTime()),
       payload: { mimeType: "multipart/mixed", headers: [header("From", m.getFrom()), header("To", m.getTo()), header("Subject", m.getSubject())], body: { size: 0 }, parts: body.concat(atts) }

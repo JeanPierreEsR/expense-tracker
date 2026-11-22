@@ -1438,7 +1438,21 @@
                 <li data-i18n="bankMail.w1">Best, if you can: change the email your bank uses for notifications to the address above. You do it in the bank's app or website, on your phone, bank by bank, and nothing else is needed.</li>
                 <li data-i18n="bankMail.w2">To keep several addresses (recommended for that): Gmail forwarding. In each other Gmail, open Settings, See all settings, Forwarding and POP/IMAP, Add a forwarding address, and enter the address above. Google sends a confirmation code to this account. Then create a filter that forwards your bank's emails automatically. You do it once, on a computer, and it works for as many addresses as you have.</li>
               </ol>
-              <p class="hint" style="font-weight:600;" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
+              <p class="hint" style="font-weight:600;" id="be-w3" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
+              <div id="be-forward" hidden>
+                <h3 data-i18n="bankMail.fwdTitle">Bank emails that already went to another address</h3>
+                <p class="hint" data-i18n="bankMail.fwdLead">Forward them to the address above, as they are. The app reads them like your bank's own emails, with the date of the purchase, and they wait in Needs review.</p>
+                <p class="hint" data-i18n="bankMail.fwdMany">Many at once: in Gmail on a computer, select them, then tap ⋮ and Forward as attachment.</p>
+                <h3 data-i18n="bankMail.fwdMineTitle">My other addresses</h3>
+                <p class="hint" data-i18n="bankMail.fwdMineHint">An email forwarded from an address not listed here shows who sent it in Needs review, so nobody can slip a payment in unnoticed.</p>
+                <div id="be-fwd-list"></div>
+                <p class="hint" id="be-fwd-empty" data-i18n="bankMail.fwdEmpty">None yet.</p>
+                <div class="be-fwd-add">
+                  <input type="email" id="be-fwd-input" autocomplete="email" inputmode="email" data-i18n-placeholder="bankMail.fwdPlaceholder" placeholder="name@example.com" data-i18n-aria-label="bankMail.fwdInputAria" aria-label="Another address of mine">
+                  <button type="button" class="add-inline" id="be-fwd-add-btn" data-i18n="bankMail.fwdAdd">Add</button>
+                </div>
+                <p class="hint" id="be-fwd-msg" role="status"></p>
+              </div>
               <h3 data-i18n="bankMail.otherMailTitle">Do your bank emails arrive at Outlook, iCloud or Yahoo?</h3>
               <p class="hint" data-i18n="bankMail.otherMailIntro">The app can only read a Gmail account. If you have none, create a free one and use it when you set up the app. Then send the bank emails from your other mailbox to the address above:</p>
               <ul class="bm-steps">
