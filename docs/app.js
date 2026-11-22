@@ -16374,7 +16374,7 @@ let applePaySetup_ = null;
 // The ready-made shortcut friends add from iCloud (owner, 2026-11-21). It holds no key: a setup question asks for the person's own link
 // when it is added. On the owner's iPhone "Add Shortcut" then does nothing, but "Skip Setup" adds it AND keeps the pasted link, so the
 // step names both.
-const APPLE_PAY_SHORTCUT_URL_ = "https://www.icloud.com/shortcuts/8f3032f2edb94291b1f084f675dfd682";
+const APPLE_PAY_SHORTCUT_URL_ = "https://www.icloud.com/shortcuts/73f300c75c6e46b2a56bc13ecb50786b";
 const APPLE_PAY_SHORTCUT_NAME_ = "Expense Tracker - Apple Pay";
 function applePayShortcutUrl_() { return /^https:\/\/www\.icloud\.com\/shortcuts\/[0-9a-f]{32}$/.test(APPLE_PAY_SHORTCUT_URL_) ? APPLE_PAY_SHORTCUT_URL_ : ""; }
 // With the shared shortcut, the hand-made steps fold away under "Build it by hand instead"; without it they stay open as before.
