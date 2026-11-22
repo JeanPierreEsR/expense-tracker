@@ -16371,8 +16371,9 @@ function startWaReal_() {
 // The iPhone's Shortcuts app sends each Apple Pay payment to this copy's address with the person's own key in the link (?k=…); the
 // payment waits in Needs review. The tab makes / copies / replaces that link and shows the steps to add the automation.
 let applePaySetup_ = null;
-// The ready-made shortcut friends add from iCloud (owner, 2026-11-21): it asks for the person's own link when it is added, so the
-// link shared here holds no key. Empty = not made yet: the tab shows only the steps to build it by hand.
+// The ready-made shortcut friends add from iCloud (owner, 2026-11-21). It holds no key: its first box says "URL" and the person pastes
+// their own link there after adding it. (An iCloud "setup question" asking for the link was tried: on the owner's iPhone the Add Shortcut button
+// then does nothing; only Skip Setup works.) Empty = not made yet: the tab shows only the steps to build it by hand.
 const APPLE_PAY_SHORTCUT_URL_ = "https://www.icloud.com/shortcuts/8f3032f2edb94291b1f084f675dfd682";
 const APPLE_PAY_SHORTCUT_NAME_ = "Expense Tracker - Apple Pay";
 function applePayShortcutUrl_() { return /^https:\/\/www\.icloud\.com\/shortcuts\/[0-9a-f]{32}$/.test(APPLE_PAY_SHORTCUT_URL_) ? APPLE_PAY_SHORTCUT_URL_ : ""; }
@@ -16385,6 +16386,7 @@ function drawApplePayQuick_() {
   if (!url && manual.parentElement === fold) fold.after(manual);
   if (!url) return;
   document.getElementById("apple-pay-q1").textContent = tr("ap.q1");
+  document.getElementById("apple-pay-qlink").textContent = tr("ap.qLink", { name: APPLE_PAY_SHORTCUT_NAME_ });
   document.getElementById("apple-pay-q3").textContent = tr("ap.q3", { name: APPLE_PAY_SHORTCUT_NAME_ });
 }
 function applePayLink_() {
