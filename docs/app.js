@@ -26926,6 +26926,8 @@ const LINK_ICON_RULES_ = [
   [/^(add up|sumar|fill the rows|llenar las filas)/i, "calc"],
   [/^(add screenshots|agregar capturas)/i, "camera"],
   [/^\d+ (emails?|correos?)\b/i, "mail"],
+  [/^(close project|cerrar proyecto|closing project|cerrando proyecto)/i, "lock"],   // a project's Close (owner, 2026-11-21: the button had no icon)
+  [/^(reopen|reabrir|reopening|reabriendo)/i, "refresh"],   // its Reopen, and every other "Reopen"
   [/^(starting balance|saldo inicial)/i, "plus"],   // the import's Done screen: gives a new account its starting balance
   [/^(add|agregar|añadir)\b|^\+ /i, "plus"],
   [/^(copy|copiar)\b/i, "copy"],
