@@ -1122,6 +1122,15 @@
         <p class="hint" id="business-empty-note" hidden data-i18n="business.empty">No company yet. A company can be your own practice or any business you earn from.</p>
         <button type="button" class="primary" id="business-first-btn" hidden data-i18n="business.setupFirst">Set up my first company</button>
         <p class="hint error-text" id="business-error"></p>
+        <!-- The owner's copy only (docs/company-invite.js): an install link that makes the new copy a company copy. -->
+        <div id="business-invite" class="business-invite" hidden>
+          <h3 id="business-invite-title" data-i18n="coInv.title">Invite a company</h3>
+          <p class="hint" data-i18n="coInv.hint">Makes an install link for one person. Their copy opens with your company welcome.</p>
+          <input type="email" id="business-invite-email" autocomplete="off" autocapitalize="none" spellcheck="false" aria-labelledby="business-invite-title" data-i18n-placeholder="coInv.emailPh" placeholder="Their Google account email">
+          <button type="button" class="primary" id="business-invite-copy" data-i18n="coInv.copy">Copy the invitation</button>
+          <p class="hint" id="business-invite-msg" role="status"></p>
+          <textarea id="business-invite-text" readonly rows="6" hidden></textarea>
+        </div>
         <div class="friends-editbar" id="business-editbar" hidden>
           <button type="button" class="add-inline" id="business-selectall-btn" data-i18n="friends.selectAll">Select all</button>
           <button type="button" class="add-inline" id="business-done-btn" data-i18n="friends.done">Done</button>
@@ -4337,6 +4346,7 @@
   <script src="in-process.js?v=2026-11-22T08:10:11Z"></script>
   <script src="bill-split.js?v=2026-11-22T08:10:11Z"></script>
   <script src="loan-reminder.js?v=2026-11-22T08:10:11Z"></script>
+  <script src="company-invite.js?v=2026-11-22T08:10:11Z"></script>
   <script src="app.js?v=2026-11-22T08:10:11Z"></script>
   <script src="statement-sample.js?v=2026-11-22T08:10:11Z"></script>
   <script src="statement-table.js?v=2026-11-22T08:10:11Z"></script>

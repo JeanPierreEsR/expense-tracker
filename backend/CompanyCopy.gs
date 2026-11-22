@@ -25,7 +25,7 @@ var COMPANY_COPY_PROPERTY_ = 'COMPANY_COPY';
 var SECTOR_ORDER_ = ['construction', 'other'];
 var SECTOR_PACKS_ = {
   construction: {
-    expense: [['Materials', '🧱'], ['Labour', '👷'], ['Design & permits', '📐'], ['Notary & registries', '📜'],
+    expense: [['Materials', '🧱'], ['Labor', '👷'], ['Design & permits', '📐'], ['Notary & registries', '📜'],
       ['Loan interest', '💸'], ['Bank fees', '🧾'], ['Other', '📦']],
     income: [['Reservation deposits', '🔖'], ['Down payments', '🏷️'], ['Sale balances', '🔑'], ['Other', '📦']]
   },

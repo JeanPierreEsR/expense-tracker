@@ -902,7 +902,7 @@ var CATEGORY_TRANSLATIONS_ = {
   loan: { en: 'Loan', es: 'Préstamo' },
   // A company copy's sector packs (CompanyCopy.gs). Contributions and loans are never categories.
   materials: { en: 'Materials', es: 'Materiales' },
-  labour: { en: 'Labour', es: 'Mano de obra' },
+  labor: { en: 'Labor', es: 'Mano de obra' },
   design_permits: { en: 'Design & permits', es: 'Diseño y licencias' },
   notary_registries: { en: 'Notary & registries', es: 'Notaría y registros' },
   loan_interest: { en: 'Loan interest', es: 'Intereses de préstamos' },

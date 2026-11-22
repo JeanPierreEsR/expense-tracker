@@ -21509,8 +21509,32 @@ let businessList_ = [];
 async function showBusinessScreen() {
   showMoreSub_("business");
   fillBusinessPeriodSelects_();
+  document.getElementById("business-invite").hidden = !perfIsOwnerCopy_();   // the owner's copy only
   await refreshBusinessList_();
 }
+
+// ---- Invite a company (owner's copy; Business 2, piece 1): the person's Google e-mail → a ready message with an install link that
+// carries its code (docs/company-invite.js). The install page builds a company copy only for that Google account. Nothing is stored.
+document.getElementById("business-invite-email").addEventListener("input", () => {
+  document.getElementById("business-invite-msg").textContent = "";
+  document.getElementById("business-invite-text").hidden = true;
+});
+document.getElementById("business-invite-copy").addEventListener("click", async () => {
+  const email = CompanyInvite.normEmail(document.getElementById("business-invite-email").value);
+  const msg = document.getElementById("business-invite-msg");
+  const box = document.getElementById("business-invite-text");
+  box.hidden = true;
+  if (!CompanyInvite.looksLikeEmail(email)) { msg.textContent = tr("coInv.badEmail"); return; }
+  let text;
+  try {
+    const code = await CompanyInvite.code(email);
+    text = tr("coInv.message", { link: `${siteUrl_("setup/")}#company=${code}`, email });
+  } catch (err) { msg.textContent = tr("coInv.failed"); return; }
+  box.value = text;
+  box.hidden = false;
+  try { await navigator.clipboard.writeText(text); msg.textContent = tr("coInv.copied"); }
+  catch (err) { msg.textContent = tr("coInv.copyByHand"); box.focus(); box.select(); }
+});
 
 async function refreshBusinessList_() {
   const errorEl = document.getElementById("business-error");

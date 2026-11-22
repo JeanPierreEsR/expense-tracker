@@ -73,7 +73,7 @@ test("the welcome's company step: the company with its sector, its projects and 
   assert.equal(out.projects.length, 2);
 
   const exp = visible(rt, "expense"), inc = visible(rt, "income");
-  for (const n of ["Materials", "Labour", "Design & permits", "Notary & registries", "Loan interest", "Bank fees", "Other"]) assert.ok(exp.includes(n), n);
+  for (const n of ["Materials", "Labor", "Design & permits", "Notary & registries", "Loan interest", "Bank fees", "Other"]) assert.ok(exp.includes(n), n);
   for (const n of ["Reservation deposits", "Down payments", "Sale balances", "Other"]) assert.ok(inc.includes(n), n);
   for (const n of ["Groceries", "Restaurants", "Home", "Transport", "Travel"]) assert.ok(!exp.includes(n), `${n} is hidden`);
   for (const n of ["Salary", "Business", "Gifts"]) assert.ok(!inc.includes(n), `${n} is hidden`);
@@ -142,4 +142,56 @@ test("every sector pack name has a Spanish name, and every sector has its texts 
   }
   const strings = fs.readFileSync(path.join(__dirname, "../../docs/strings.js"), "utf8");
   for (const s of order) assert.match(strings, new RegExp(`"sector\\.${s}": \\{ en: "[^"]+", es: "[^"]+"`), s);
+});
+
+// ---- The company invitation (docs/company-invite.js): a code from the person's Google e-mail, checked by the install page ----
+const INVITE = fs.readFileSync(path.join(__dirname, "../../docs/company-invite.js"), "utf8");
+function inviteLib() {
+  const sandbox = { crypto: require("node:crypto").webcrypto, TextEncoder, Uint8Array };
+  sandbox.globalThis = sandbox;
+  require("node:vm").runInNewContext(INVITE, sandbox);
+  return sandbox.CompanyInvite;
+}
+
+test("the invitation code: one per e-mail, the same every time, case and spaces ignored, easy to read", async () => {
+  const ci = inviteLib();
+  const a = await ci.code("persona.ejemplo@example.com");
+  assert.match(a, /^EM-[2-9A-HJKMNP-Z]{4}-[2-9A-HJKMNP-Z]{4}$/);
+  assert.equal(await ci.code("  Persona.Ejemplo@Example.com "), a);
+  assert.notEqual(await ci.code("otra.persona@example.com"), a);
+  assert.equal(await ci.matches(a.toLowerCase().replace(/-/g, " "), "persona.ejemplo@example.com"), true);
+  assert.equal(await ci.matches(a, "otra.persona@example.com"), false, "a code only works with its own Google account");
+  assert.equal(await ci.matches(a, ""), false, "no account known: never a company copy");
+  assert.equal(ci.fromAddress({ hash: "#company=" + a, search: "" }), a);
+  assert.equal(ci.fromAddress({ hash: "", search: "" }), "");
+});
+
+test("the installer marks the copy only when the install page says the code matched; an update never unmarks it", () => {
+  const INSTALL = fs.readFileSync(path.join(__dirname, "../../docs/setup/Install.gs"), "utf8");
+  const load = (rt, company, release) => rt.run(INSTALL.replace("__COMPANY__", company).replace("__RELEASE__", release)
+    .replace("__CODE__", "made-up-code-0123456789abcdef").replace("__MAINURL__", "").replace("__FEATURES__", "base"));
+  const rt = freshApp({ small: true }).rt;
+  load(rt, "", "r1");
+  rt.run("installApplyCode_()");
+  assert.equal(rt.svc.props.get("COMPANY_COPY") || null, null, "a plain install is not a company copy");
+  const co = freshApp({ small: true }).rt;
+  load(co, "yes", "r1");
+  co.run("installApplyCode_()");
+  assert.equal(co.svc.props.get("COMPANY_COPY"), "yes");
+  assert.equal(co.run("isCompanyCopy_()"), true);
+  load(co, "", "r2");   // "Update my app": no invitation in the link
+  co.run("installApplyCode_()");
+  assert.equal(co.svc.props.get("COMPANY_COPY"), "yes");
+});
+
+test("the install page fills the mark from the invitation and loads the shared recipe; the app's card is the owner's only", () => {
+  const setup = fs.readFileSync(path.join(__dirname, "../../docs/setup/index.html"), "utf8");
+  assert.match(setup, /<script src="\.\.\/company-invite\.js"><\/script>/);
+  assert.match(setup, /\.replace\('__COMPANY__', company\)/);
+  assert.match(setup, /CompanyInvite\.matches\(WANT_COMPANY, state\.account\)/);
+  const html = fs.readFileSync(path.join(__dirname, "../../docs/index.html"), "utf8");
+  assert.match(html, /<div id="business-invite" class="business-invite" hidden>/);
+  assert.match(html, /<script src="company-invite\.js\?v=[^"]+"><\/script>\s*<script src="app\.js/);
+  const app = fs.readFileSync(path.join(__dirname, "../../docs/app.js"), "utf8");
+  assert.match(app, /getElementById\("business-invite"\)\.hidden = !perfIsOwnerCopy_\(\)/);
 });
