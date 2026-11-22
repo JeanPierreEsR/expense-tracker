@@ -16388,6 +16388,7 @@ function drawApplePayQuick_() {
   document.getElementById("apple-pay-q1").textContent = tr("ap.q1");
   document.getElementById("apple-pay-qlink").textContent = tr("ap.qLink");
   document.getElementById("apple-pay-q3").textContent = tr("ap.q3", { name: APPLE_PAY_SHORTCUT_NAME_ });
+  document.getElementById("apple-pay-q4").textContent = tr("ap.q4", { name: APPLE_PAY_SHORTCUT_NAME_ });
 }
 function applePayLink_() {
   const url = getApiUrl() || OWNER_API_URL;
