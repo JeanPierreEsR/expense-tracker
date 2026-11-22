@@ -218,6 +218,10 @@ var BACKEND_STRINGS_ = {
   "trip.cashBorrowed": { en: "Cash borrowed from the group — {trip}", es: "Efectivo prestado por el grupo — {trip}" },
   "trip.cashLent": { en: "Cash lent to the group — {trip}", es: "Efectivo prestado al grupo — {trip}" },
   "business.notOffered": { en: "Business features are not available yet.", es: "Las funciones de negocio aún no están disponibles." },
+  // ---- Company copy (CompanyCopy.gs) ----
+  "company.notCompanyCopy": { en: "This option is only for a company's copy of the app.", es: "Esta opción es solo para la copia de la app de una empresa." },
+  "company.errSector": { en: "Choose what your company does.", es: "Elige a qué se dedica tu empresa." },
+  "company.errName": { en: "Type your company's name.", es: "Escribe el nombre de tu empresa." },
   "business.off": { en: "Business features are turned off. Turn them on in More → Business features.", es: "Las funciones de negocio están desactivadas. Actívalas en Más → Funciones de negocio." },
   "business.companyNotFound": { en: "Company not found", es: "No se encontró la empresa" },
   "business.projectNotFound": { en: "Project not found", es: "No se encontró el proyecto" },
@@ -897,7 +901,21 @@ var CATEGORY_TRANSLATIONS_ = {
   // Kept only so the one-off cleanup can recognise them (they are removed from
   // the starter list and retired from the owner's sheet).
   savings: { en: 'Savings', es: 'Ahorros' },
-  loan: { en: 'Loan', es: 'Préstamo' }
+  loan: { en: 'Loan', es: 'Préstamo' },
+  // A company copy's sector packs (CompanyCopy.gs). Contributions and loans are never categories.
+  materials: { en: 'Materials', es: 'Materiales' },
+  labor: { en: 'Labor', es: 'Mano de obra' },
+  design_permits: { en: 'Design & permits', es: 'Diseño y licencias' },
+  notary_registries: { en: 'Notary & registries', es: 'Notaría y registros' },
+  loan_interest: { en: 'Loan interest', es: 'Intereses de préstamos' },
+  reservation_deposits: { en: 'Reservation deposits', es: 'Separaciones' },
+  down_payments: { en: 'Down payments', es: 'Cuotas iniciales' },
+  sale_balances: { en: 'Sale balances', es: 'Saldos de venta' },
+  supplies: { en: 'Supplies', es: 'Compras e insumos' },
+  salaries_fees: { en: 'Salaries & fees', es: 'Sueldos y honorarios' },
+  rent: { en: 'Rent', es: 'Alquiler' },
+  services_utilities: { en: 'Services & utilities', es: 'Servicios (luz, agua, internet)' },
+  services_provided: { en: 'Services provided', es: 'Cobros por servicios' }
 };
 
 function normalizeLang_(value) {

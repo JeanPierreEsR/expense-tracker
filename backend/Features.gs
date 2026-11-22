@@ -193,6 +193,8 @@ function getCapabilities_() {
     business: businessOn_(),
     // Whether this copy may see the pack at all (the welcome question and the More row). False on a new person's copy until the owner opens it.
     businessOffered: businessOffered_(),
+    // A company copy (CompanyCopy.gs): its welcome asks the sector, the company and its projects instead of "What fits you?".
+    companyCopy: isCompanyCopy_(),
     // The app shows its welcome questions once, on a copy the installer made, until they are answered (Onboarding.gs).
     onboarding: isFriendCopy_() && String(getSettingsMap().onboarded || '') !== 'yes'
   };

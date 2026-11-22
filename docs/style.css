@@ -2960,6 +2960,8 @@ html:has(#welcome-overlay:not([hidden])) :is(body > header, #app, #bottom-nav, #
 .wp-add input { flex: 1; min-width: 0; }
 .wp-add .primary { width: auto; margin: 0; padding: 0 18px; min-height: 44px; border-radius: var(--r-md); }
 .wp-add input { margin: 0; }
+/* Welcome on a company copy: the projects added so far sit above their box */
+#wc-projects { margin-bottom: 12px; }
 
 
 /* Welcome tour as a swipeable row of cards (no Next button). Each card scrolls up and down on its own; the bottom bar is fixed. */
@@ -3412,6 +3414,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 
 /* ---- Business pack (specs/business.md) ---- */
 .business-period-select, .igv-year-select { width: 100%; margin: 6px 0 10px; }
+/* Invite a company (owner's copy): set apart from the list above it */
+.business-invite { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--border); }
+.business-invite textarea { width: 100%; box-sizing: border-box; font: inherit; }
 .business-cur-igv { font-size: 0.8125rem; color: var(--muted); padding-top: 2px; }
 .igv-month-head { font-weight: 700; margin: 10px 0 2px; }
 .igv-line { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 0.875rem; }

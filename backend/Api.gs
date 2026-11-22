@@ -481,6 +481,7 @@ function routeActionSwitch_(action, payload) {
     case 'saveOwnerNames': return saveOwnerNames(payload);
     case 'answerOwnName': return answerOwnName(payload);
     case 'applyProfile': return applyProfile(payload);
+    case 'saveCompanySetup': return saveCompanySetup(payload);   // a company copy's welcome (CompanyCopy.gs)
     case 'getProfileState': return getProfileState();
     case 'getAnnualHints': return getAnnualHints();
     case 'listStatementGaps': return listStatementGaps();

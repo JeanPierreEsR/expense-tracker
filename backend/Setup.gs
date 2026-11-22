@@ -454,5 +454,6 @@ function seedSettings() {
   ];
   // A new person's copy gets the defaults that are not the owner's habits (PersonDefaults.gs, owner 2026-11-16).
   if (isFriendCopy_()) rows.push({ key: NEW_PERSON_DEFAULTS_SETTING_, value: 'yes' });
+  rows = rows.concat(companyCopySeedRows_());   // a company copy built with the COMPANY_COPY property (CompanyCopy.gs)
   seedIfEmpty('Settings', rows);
 }

@@ -1122,6 +1122,15 @@
         <p class="hint" id="business-empty-note" hidden data-i18n="business.empty">No company yet. A company can be your own practice or any business you earn from.</p>
         <button type="button" class="primary" id="business-first-btn" hidden data-i18n="business.setupFirst">Set up my first company</button>
         <p class="hint error-text" id="business-error"></p>
+        <!-- The owner's copy only (docs/company-invite.js): an install link that makes the new copy a company copy. -->
+        <div id="business-invite" class="business-invite" hidden>
+          <h3 id="business-invite-title" data-i18n="coInv.title">Invite a company</h3>
+          <p class="hint" data-i18n="coInv.hint">Makes an install link for one person. Their copy opens with your company welcome.</p>
+          <input type="email" id="business-invite-email" autocomplete="off" autocapitalize="none" spellcheck="false" aria-labelledby="business-invite-title" data-i18n-placeholder="coInv.emailPh" placeholder="Their Google account email">
+          <button type="button" class="primary" id="business-invite-copy" data-i18n="coInv.copy">Copy the invitation</button>
+          <p class="hint" id="business-invite-msg" role="status"></p>
+          <textarea id="business-invite-text" readonly rows="6" hidden></textarea>
+        </div>
         <div class="friends-editbar" id="business-editbar" hidden>
           <button type="button" class="add-inline" id="business-selectall-btn" data-i18n="friends.selectAll">Select all</button>
           <button type="button" class="add-inline" id="business-done-btn" data-i18n="friends.done">Done</button>
@@ -2903,6 +2912,30 @@
         <button type="button" class="primary" id="welcome-continue-btn" data-i18n="welcome.next">Next</button>
       </div>
 
+      <!-- A company copy (backend/CompanyCopy.gs) asks these instead of "What fits you?": sector, company name, projects. -->
+      <div id="welcome-company" hidden>
+        <p class="hint" id="wc-step"></p>
+        <h2 data-i18n="co.title">Your company</h2>
+        <p class="hint" data-i18n="co.intro">With these answers the app sets up your company's categories and projects.</p>
+        <h3 data-i18n="co.sectorQ">What does your company do?</h3>
+        <div class="welcome-choices" id="wc-sectors"></div>
+        <p class="hint" data-i18n="co.sectorHint">Each sector comes with its own expense and income categories.</p>
+        <h3 id="wc-name-title" data-i18n="co.nameLabel">Company name</h3>
+        <input type="text" id="wc-name" maxlength="60" autocomplete="off" aria-labelledby="wc-name-title" data-i18n-placeholder="co.namePh" placeholder="For example: Andina Builders">
+        <h3 id="wc-projects-title" data-i18n="co.projectsLabel">Projects (optional)</h3>
+        <p class="hint" data-i18n="co.projectsHint">A project is a building job or any work you want to follow on its own.</p>
+        <div class="welcome-currencies" id="wc-projects"></div>
+        <div class="wp-add">
+          <input type="text" id="wc-project-input" maxlength="60" autocomplete="off" aria-labelledby="wc-projects-title" data-i18n-placeholder="co.projectPh" placeholder="Project name">
+          <button type="button" class="primary" id="wc-project-add" data-i18n="common.add">+ Add</button>
+        </div>
+        <p class="hint error-text" id="wc-error"></p>
+        <div class="welcome-tour-buttons">
+          <button type="button" id="wc-back-btn" data-i18n="tour.back">Back</button>
+          <button type="button" class="primary" id="wc-next-btn" data-i18n="welcome.next">Next</button>
+        </div>
+      </div>
+
       <div id="welcome-fits" hidden>
         <p class="hint" id="wf-step"></p>
         <h2 data-i18n="wf.title">What fits you?</h2>
@@ -4327,6 +4360,7 @@
   <script src="in-process.js?v=2026-11-22T17:22:22Z"></script>
   <script src="bill-split.js?v=2026-11-22T17:22:22Z"></script>
   <script src="loan-reminder.js?v=2026-11-22T17:22:22Z"></script>
+  <script src="company-invite.js?v=2026-11-22T17:22:22Z"></script>
   <script src="app.js?v=2026-11-22T17:22:22Z"></script>
   <script src="statement-sample.js?v=2026-11-22T17:22:22Z"></script>
   <script src="statement-table.js?v=2026-11-22T17:22:22Z"></script>

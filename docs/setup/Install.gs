@@ -26,6 +26,7 @@ var INSTALL_RELEASE = '__RELEASE__';    // replaced by the installer page on eve
 var INSTALL_CODE = '__CODE__';          // the access code the installer made
 var INSTALL_MAIN_URL = '__MAINURL__';   // this copy's own web address (for the keep-awake ping)
 var INSTALL_FEATURES = '__FEATURES__';  // abilities approved so far, e.g. "base,keepawake,gmail"
+var INSTALL_COMPANY = '__COMPANY__';    // 'yes' when installed from a company invitation whose code matched the Google account (docs/company-invite.js)
 var INSTALL_BACKEND_REF = '__BACKENDREF__';  // the last backend/ commit this copy was built from (the app offers an update when a newer one exists)
 
 var INSTALL_RETURN_PREFIXES_ = [
@@ -168,6 +169,8 @@ function installApplyCode_() {
   props.setProperty('ACCESS_CODE', INSTALL_CODE);
   if (INSTALL_FEATURES && INSTALL_FEATURES.indexOf('__') !== 0) props.setProperty('FEATURES', installWithoutOptedOut_(INSTALL_FEATURES));
   if (INSTALL_MAIN_URL && INSTALL_MAIN_URL.indexOf('__') !== 0) props.setProperty('WEB_APP_URL', INSTALL_MAIN_URL);
+  // A company copy (backend/CompanyCopy.gs). Only ever set, never cleared: an update carries no invitation.
+  if (INSTALL_COMPANY === 'yes') props.setProperty('COMPANY_COPY', 'yes');
   props.setProperty('INSTALL_CODE_SET_FOR', INSTALL_RELEASE);
 }
 
