@@ -54,7 +54,8 @@ function sipCtsAmount_(value, body) {
 
 function extractLast4_(text) {
   if (!text) return null;
-  var m = text.match(/[*Xx•]{2,}\s*(\d{4})\b/); // Apple prints bullets: "Visa •••• 3052"
+  // Apple prints bullets: "Visa •••• 3052"; Banco Falabella spaces them: "• • • • 1234" (2026-11-22).
+  var m = text.match(/(?:[*Xx•]{2,}|(?:•\s*){2,})\s*(\d{4})\b/);
   return m ? m[1] : null;
 }
 
