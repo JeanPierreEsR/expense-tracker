@@ -301,6 +301,7 @@ function routeActionSwitch_(action, payload) {
     case 'listRecurringPayments': return listRecurringPayments(payload);
     case 'linkEntriesToRecurring': return linkEntriesToRecurring(payload);
     case 'addTag': return addTag(payload);
+    case 'addTagsBulk': return addTagsBulk(payload);   // Add units (CompanyBot.gs)
     case 'getManualGaps': return getManualGaps(payload);
     case 'saveGapReason': return saveGapReason(payload);
     case 'listTrips': return listTrips();

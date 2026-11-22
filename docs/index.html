@@ -1040,6 +1040,7 @@
           <p class="hint" data-i18n="tagsScreen.hint">A tag is an extra label that works across categories. Tap one to rename or delete it.</p>
           <div id="tags-manage-list"></div>
           <button type="button" class="add-inline" id="tags-add-btn" data-i18n="common.addTag">+ Add tag…</button>
+          <button type="button" class="add-inline" id="units-add-btn" hidden data-i18n="units.addButton">Add units</button>
         </div>
         <div class="friends-editbar" id="categories-editbar" hidden>
           <button type="button" class="add-inline" id="categories-selectall-btn" data-i18n="friends.selectAll">Select all</button>
@@ -4233,6 +4234,47 @@
   </div>
 
   <!-- One tag: rename or delete (More → Categories & tags). -->
+  <!-- Business 2, piece 5: "Add units" (company copies): many unit tags at once, with the numbering the person picks. -->
+  <div id="units-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="units.title">Add units</span>
+        <button type="button" id="units-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="units.intro">Each unit (an apartment, a shop, a parking space) is a tag. Choose how they are numbered; you can add more later with another pattern.</p>
+        <strong data-i18n="units.how">Numbering</strong>
+        <label class="settle-choose-row"><input type="radio" name="units-mode" value="floors" checked><span data-i18n="units.modeFloors">Floor + two-digit number (101, 102… 805)</span></label>
+        <label class="settle-choose-row"><input type="radio" name="units-mode" value="seq"><span data-i18n="units.modeSeq">In order: 1, 2, 3…</span></label>
+        <label class="settle-choose-row"><input type="radio" name="units-mode" value="list"><span data-i18n="units.modeList">A list I type</span></label>
+        <div id="units-floors-box">
+          <label for="units-floor-from" data-i18n="units.floorFrom">From floor</label>
+          <input type="text" inputmode="numeric" id="units-floor-from" value="1">
+          <label for="units-floor-to" data-i18n="units.floorTo">To floor</label>
+          <input type="text" inputmode="numeric" id="units-floor-to" placeholder="8">
+          <label for="units-per-floor" data-i18n="units.perFloor">Units per floor</label>
+          <input type="text" inputmode="numeric" id="units-per-floor" placeholder="5">
+        </div>
+        <div id="units-seq-box" hidden>
+          <label for="units-seq-count" data-i18n="units.seqCount">How many</label>
+          <input type="text" inputmode="numeric" id="units-seq-count" placeholder="20">
+        </div>
+        <div id="units-list-box" hidden>
+          <label for="units-list" data-i18n="units.listLabel">One per line (or separated by commas)</label>
+          <textarea id="units-list" rows="4" data-i18n-placeholder="units.listPh" placeholder="Shop 1, PH-1, Parking 12"></textarea>
+        </div>
+        <label for="units-prefix" data-i18n="units.prefix">Before the number</label>
+        <select id="units-prefix">
+          <option value="Depa">Depa</option>
+          <option value="Dpto">Dpto</option>
+          <option value="" data-i18n="units.prefixNone">Nothing</option>
+        </select>
+        <p class="hint" id="units-preview"></p>
+        <p class="hint error-text" id="units-error"></p>
+        <button type="button" class="primary" id="units-save" data-i18n="units.save">Create the units</button>
+      </div>
+    </div>
+  </div>
   <div id="tag-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
