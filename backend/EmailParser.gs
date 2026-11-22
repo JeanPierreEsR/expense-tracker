@@ -321,6 +321,15 @@ var EMAIL_RULES = [
     match: function (subject, body) { return /confirmaci[oó]n de operaci[oó]n/i.test(subject) && /Enviaste:/i.test(body) && /Recibir[aá]s:/i.test(body); },
     extract: function () { return null; }   // two legs, not one entry: processExchangeEmail_ reads it
   },
+  // "Your recent download with your Apple Account" (2026-11-22, found in the owner's "couldn't read" list): a security notice that an
+  // app was downloaded on a new device. No money moves, so it is ignored on purpose (never an entry, never listed as unreadable).
+  // Apple's English wording only: the one sample seen.
+  {
+    sender: 'no_reply@email.apple.com',
+    label: 'Recent download notice — IGNORED, not a payment',
+    match: function (subject) { return /your recent download with your apple account/i.test(subject); },
+    skip: true
+  },
   // ---- Apple (subscription / App Store receipts) ----
   // The receipt itself names the card ("Visa •••• 3052"), so unlike most
   // rules the Payment Method is resolved by last4, not guessed. The order id
