@@ -64,6 +64,7 @@
     "search.f.atMost": { en: "Up to {amount}", es: "Hasta {amount}" },
     "search.f.friendTitle": { en: "Friend", es: "Amigo" },
     "search.f.tagTitle": { en: "Tags", es: "Etiquetas" },
+    "search.f.noTag": { en: "No tag", es: "Sin etiqueta" },
     "search.f.filterBy": { en: "Filter by {name}", es: "Filtrar por {name}" },
     "search.f.find": { en: "Search…", es: "Buscar…" },
     "search.f.findNone": { en: "Nothing matches.", es: "Nada coincide." },
