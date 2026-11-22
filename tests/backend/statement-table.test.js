@@ -34,6 +34,12 @@ test("numbers: thousands and decimals either way round, parentheses, trailing mi
   assert.equal(ST.parseAmount("-S/.12.30", "."), -12.3);
   assert.equal(ST.parseAmount("s/. 7.00", "."), 7);
   assert.equal(ST.parseAmount("S/.1.234,50", ","), 1234.5);
+  // a sign or bracket between "S/." and the number (Mark, testers 2026-11-21: these lines were left out of an import)
+  assert.equal(ST.parseAmount("S/. -1,234.50", "."), -1234.5);
+  assert.equal(ST.parseAmount("S/.-12.30", "."), -12.3);
+  assert.equal(ST.parseAmount("S/. (1,234.50)", "."), -1234.5);
+  assert.equal(ST.parseAmount("S/ (12.50)", "."), -12.5);
+  assert.equal(ST.parseAmount("S/ -1,234.50", "."), -1234.5);
   assert.ok(Number.isNaN(ST.parseAmount("", ".")));
   assert.ok(Number.isNaN(ST.parseAmount("n/a", ".")));
   assert.equal(ST.detectDecimal(["1.234,50", "20,00"]), ",");

@@ -220,7 +220,9 @@
     const next = $("stmt-next-2");
     next.hidden = !usable.length;
     next.disabled = busy;
-    next.textContent = tr("stmt.s2.next", { n: ready });
+    next.textContent = tr(screenMode === "import" ? "stmt.s2.nextFile" : "stmt.s2.next", { n: ready });   // another app's export is a file, not a statement (Tomás, 2026-11-21)
+    $("stmt-add-more").textContent = tr(screenMode === "import" ? "stmt.s2.addMoreFiles" : "stmt.s2.addMore");
+    $("stmt-another").textContent = tr(screenMode === "import" ? "stmt.s4.anotherFile" : "stmt.s4.another");
     const s1wait = $("stmt-s1-waiting");
     s1wait.hidden = !busy;
     if (busy) s1wait.textContent = $("stmt-s2-count").textContent;
@@ -1087,6 +1089,9 @@
   const TABLE_BIG_FILE = 1500;   // lines: past this the screen warns that reading and saving take a while
   const NO_ACCOUNT_KEY = "NOACCOUNT";   // an import saved with no account (backend: STMT_NO_ACCOUNT_KEY_)
   const normName = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+  // Words that may follow a person's first name in a line's description without being a surname (Import's loans by person).
+  const NAME_FOLLOW_WORDS_ = ["del", "por", "para", "pago", "pagos", "prestamo", "prestamos", "transf", "transferencia", "yape", "plin", "cuota",
+    "cuotas", "devolucion", "devuelve", "devolvio", "abono", "deposito", "the", "for", "loan", "paid", "repaid", "from", "back", "and", "via", "con", "les"];
 
   function tableErrorText(err) {
     const code = err && err.message;
@@ -1476,14 +1481,30 @@
     // ---- a loan line's person: the one the person picked for it, else the friend its description names (one only) ----
     const loanLineKey = (l) => [l.date, Number(l.amount).toFixed(2), l.currency, String(l.description || "").trim()].join("|");
     const friendName = (id) => ((destFriends().find((f) => f.id === id) || {}).name || "");
+    // Whether a description names this friend: "full" (the whole saved name), "first" (the first name alone, with no OTHER surname
+    // after it: "Prestamo a Carlos Ruiz" is not the friend "Carlos Vega"; Mark, testers 2026-11-21), or "" (not named). A following
+    // number, connector or bank word ("Carlos transf", "Carlos 15/11") still counts; a friend saved with only a first name keeps
+    // the plain first-name match. text = normName(description).
+    function friendNamedIn(f, text) {
+      const full = normName(f.name), first = full.split(" ")[0];
+      if (!first || first.length < 2) return "";
+      const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp("(^|[^a-z0-9])" + esc(full) + "([^a-z0-9]|$)").test(text)) return "full";
+      const reFirst = new RegExp("(^|[^a-z0-9])" + esc(first) + "(?![a-z0-9])(?:[^a-z0-9]+([a-z]+)(?![a-z]))?", "g");
+      const rest = full.split(" ").slice(1);
+      let m;
+      while ((m = reFirst.exec(text))) {
+        const next = m[2] || "";
+        if (!next || !rest.length || rest.indexOf(next) >= 0 || NAME_FOLLOW_WORDS_.indexOf(next) >= 0 || next.length < 3) return "first";
+      }
+      return "";
+    }
     function friendForLine(l) {
       const text = normName(l.description);
-      const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const has = (t) => t && t.length >= 2 && new RegExp("(^|[^a-z0-9])" + esc(t) + "([^a-z0-9]|$)").test(text);
-      const full = destFriends().filter((f) => has(normName(f.name)));
+      const full = destFriends().filter((f) => friendNamedIn(f, text) === "full");
       if (full.length === 1) return full[0].id;
       if (full.length > 1) return "";
-      const first = destFriends().filter((f) => has(normName(f.name).split(" ")[0]));
+      const first = destFriends().filter((f) => friendNamedIn(f, text) === "first");
       return first.length === 1 ? first[0].id : "";
     }
     function loanLineFriend(d, l) {
@@ -1496,19 +1517,45 @@
       const lines = StatementTable.applyMapping(rows, currentMapping()).lines.filter((l) => l.category && (l.amount > 0 ? "income" : "expense") + ":" + StatementTable.catNorm(l.category) === it.key);
       let best = "", bestN = 0, tie = false;
       destFriends().forEach((f) => {
-        const full = normName(f.name), first = full.split(" ")[0];
-        if (!first || first.length < 2) return;
-        const re = new RegExp("(^|[^a-z0-9])(" + full.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "|" + first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")([^a-z0-9]|$)");
-        const n = lines.filter((l) => re.test(normName(l.description))).length;
+        const n = lines.filter((l) => friendNamedIn(f, normName(l.description))).length;
         if (n > bestN) { best = f.id; bestN = n; tie = false; } else if (n && n === bestN) tie = true;
       });
       return bestN && !tie ? best : "";
+    }
+    // Money RECEIVED in a loans category ("Préstamos") starts on "They repaid me" when everyone its lines name owes the person
+    // something in that currency — before the file (Loans' balances) or through this file's own money lent to them; otherwise on
+    // "They lent me money" (owner's choice, 2026-11-21, after Elena's test: her friends' repayments started as loans). Money sent
+    // keeps "I lent money". The balances are asked once, in the background; the choice follows them until the person picks one.
+    let loanBalAsked = false;
+    function defaultLoanKind(it) {
+      if (it.type === "expense") return "loan";
+      if (typeof loansLastBalances_ === "undefined") return "loan";
+      if (!loansLastBalances_ && !loanBalAsked && destCaps()) {
+        loanBalAsked = true;
+        callApi("listLoanBalances", {}).then((b) => {
+          if (!loansLastBalances_) loansLastBalances_ = (b && b.balances) || b;
+          let changed = false;
+          state.catItems.forEach((x) => {
+            const d = state.catDest[x.key];
+            if (d && d.kind === "loan" && d.kindAuto && x.type !== "expense") { const k = defaultLoanKind(x); if (k !== d.loanKind) { d.loanKind = k; changed = true; } }
+          });
+          if (changed) { renderCategories(); renderPreview(); }
+        }).catch(() => {});
+      }
+      const owed = new Map();   // friend id|currency -> what they owe the person
+      (loansLastBalances_ || []).forEach((b) => (b.balances || []).forEach((l) => owed.set(b.friend_id + "|" + String(l.currency).toUpperCase(), Number(l.net) || 0)));
+      state.catItems.filter((x) => x.type === "expense" && (x.family === "loan" || x.family === "repay")).forEach((x) => itemLines(x).forEach((l) => {
+        const who = friendForLine(l);
+        if (who && x.family === "loan") { const k = who + "|" + String(l.currency).toUpperCase(); owed.set(k, (owed.get(k) || 0) + Math.abs(Number(l.amount) || 0)); }
+      }));
+      const named = itemLines(it).map((l) => ({ who: friendForLine(l), cur: String(l.currency).toUpperCase() })).filter((x) => x.who);
+      return named.length && named.every((x) => (owed.get(x.who + "|" + x.cur) || 0) > 0.004) ? "repayment" : "loan";
     }
     function familyDest(it) {
       const fam = it.family;
       if (fam === "invest") return { kind: "invest", platformId: "" };
       if (!destCaps()) return fam === "loan" || fam === "repay" || fam === "saving" || fam === "cash" ? { kind: "review" } : null;
-      if (fam === "loan" || fam === "repay") return { kind: "loan", friendId: guessFriendFor(it), loanKind: fam === "repay" ? "repayment" : "loan" };
+      if (fam === "loan" || fam === "repay") return { kind: "loan", friendId: guessFriendFor(it), loanKind: fam === "repay" ? "repayment" : defaultLoanKind(it), kindAuto: fam !== "repay" };
       const others = accounts.filter((a) => a.id !== state.accountId);
       if (fam === "saving") { const a = others.find((x) => /ahorro|saving/.test(normName(x.nickname))); return { kind: "move", pmId: a ? a.id : "" }; }
       if (fam === "cash") { const a = others.find((x) => x.type === "cash"); return { kind: "move", pmId: a ? a.id : "" }; }
@@ -1544,8 +1591,13 @@
           + newMoveTargets().map((t) => `<option value="${escapeHtml(t.id)}"${t.id === d.herePmId ? " selected" : ""}>${escapeHtml(tr("imp.newAcctHeader", { name: t.name }))}</option>`).join("");
         const hereHtml = (known.length ? `<p class="tm-move-here"><span class="hint">${escapeHtml(tr(out ? "table.destFromLabel" : "table.destIntoLabel"))}</span> ${escapeHtml(known.map(([k, n]) => tr("table.destHereItem", { name: k, n })).join(", "))}</p>` : "")
           + (unknown ? `<label>${escapeHtml(tr(out ? "table.destFromAsk" : "table.destIntoAsk", { n: unknown }))}</label><select class="tm-dhere">${hereOpts}</select>` : "");
-        const news = newMoveTargets().filter((t) => t.id !== state.accountId).map((t) => `<option value="${escapeHtml(t.id)}"${t.id === d.pmId ? " selected" : ""}>${escapeHtml(tr("imp.newAcctHeader", { name: t.name }))}</option>`).join("");
-        return `${hereHtml}<label>${escapeHtml(tr(it.type === "expense" ? "table.destMoveTo" : "table.destMoveFrom"))}</label><select class="tm-dpm"><option value="">${escapeHtml(tr("table.destPickAccount"))}</option>${accounts.filter((a) => a.id !== state.accountId).map((a) => `<option value="${escapeHtml(a.id)}"${a.id === d.pmId ? " selected" : ""}>${escapeHtml(a.nickname)}</option>`).join("")}${news}</select>`;
+        // The account the lines are already on is never offered as the other side (Mark, testers 2026-11-21: it was refused only
+        // after the final confirm).
+        const ownIds = new Set(itemLines(it).map((l) => (multi() ? state.map[l.account] : state.accountId)).filter(Boolean));
+        ownIds.add(state.accountId);
+        if (d.pmId && ownIds.has(d.pmId)) d.pmId = "";
+        const news = newMoveTargets().filter((t) => !ownIds.has(t.id)).map((t) => `<option value="${escapeHtml(t.id)}"${t.id === d.pmId ? " selected" : ""}>${escapeHtml(tr("imp.newAcctHeader", { name: t.name }))}</option>`).join("");
+        return `${hereHtml}<label>${escapeHtml(tr(it.type === "expense" ? "table.destMoveTo" : "table.destMoveFrom"))}</label><select class="tm-dpm"><option value="">${escapeHtml(tr("table.destPickAccount"))}</option>${accounts.filter((a) => !ownIds.has(a.id)).map((a) => `<option value="${escapeHtml(a.id)}"${a.id === d.pmId ? " selected" : ""}>${escapeHtml(a.nickname)}</option>`).join("")}${news}</select>`;
       }
       if (c === "@invest") {
         const plats = destPlatforms();
@@ -1953,7 +2005,7 @@
       else if (cls === "dfriend" || cls === "dkind" || cls === "dpm" || cls === "dplat" || cls === "dhere") {
         const row = e.target.closest(".tm-cat-row"), key = row.dataset.key;
         const d = state.catDest[key] || (state.catDest[key] = {});
-        if (cls === "dfriend") d.friendId = v; else if (cls === "dkind") d.loanKind = v; else if (cls === "dpm") d.pmId = v; else if (cls === "dhere") d.herePmId = v; else d.platformId = v;
+        if (cls === "dfriend") d.friendId = v; else if (cls === "dkind") { d.loanKind = v; d.kindAuto = false; } else if (cls === "dpm") d.pmId = v; else if (cls === "dhere") d.herePmId = v; else d.platformId = v;
         refreshCategoryRow(row);
         renderPreview();
         return;
@@ -3013,8 +3065,8 @@
   function incompleteHtml() {
     const list = addedAccounts.filter((a) => a.incomplete);
     if (!list.length) return "";
-    return `<p class="stmt-note warn" style="margin:10px 0 4px">${escapeHtml(tr("acct.incomplete", { n: list.length }))}</p>
-      ${list.map((a) => `<div class="stmt-kv"><span>${escapeHtml(a.nickname)}</span><button type="button" class="add-inline stmt-complete-acct" data-id="${escapeHtml(a.id)}">${escapeHtml(tr("acct.complete"))}</button></div>`).join("")}`;
+    return `<p class="stmt-note warn" style="margin:10px 0 4px">${escapeHtml(tr(list.some((a) => a.noBank != null) ? "acct.incompleteEach" : "acct.incomplete", { n: list.length }))}</p>
+      ${list.map((a) => `<div class="stmt-kv"><span>${escapeHtml(a.nickname)}${a.noBank != null ? `<br><span class="hint">${escapeHtml(tr(a.noBank && a.noDigits ? "acct.missBoth" : a.noBank ? "acct.missBank" : "acct.missDigits"))}</span>` : ""}</span><button type="button" class="add-inline stmt-complete-acct" data-id="${escapeHtml(a.id)}">${escapeHtml(tr("acct.complete"))}</button></div>`).join("")}`;
   }
   async function completeAccount(id) {
     let pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === id);
@@ -3129,7 +3181,9 @@
     const pre = newAccountsHtml(proposals) + addedAccountsHtml();
     const readyHtml = noAccountHtml() + chargesHtml("ready") + rechargesHtml("ready") + discountsHtml("ready");
     const decideHtml = discountsHtml("decide") + chargesHtml("decide") + rechargesHtml("decide") + peopleHtml() + incomeHtml()
-      + (StatementTable.canLinkExchange(summary.candidates) ? exchangeHtml() : "") + asideHtml();
+      + (StatementTable.canLinkExchange(summary.candidates) && (screenMode !== "import" || (summary.exchangeSuggestions || []).length || historyPlan.exchanges.length) ? exchangeHtml() : "") + asideHtml();
+    // (another app's file: the exchange fold only when the app found a pair; a closed fold with nothing in it read as an empty
+    // heading, Elena 2026-11-21. A bank statement keeps it for linking two lines by hand.)
     const noteHtml = notes.map((t) => `<p class="stmt-note info">${escapeHtml(t)}</p>`).join("")
       + (readyHtml ? `<h3 class="stmt-section-title">${escapeHtml(tr("hist.sec.ready"))}</h3>${readyHtml}` : "")
       + (decideHtml ? `<h3 class="stmt-section-title">${escapeHtml(tr("hist.sec.decide"))}</h3>${decideHtml}` : "")
@@ -3178,7 +3232,12 @@
     // Both when a statement adds AND corrects purchases already in the app (Carlos, 2026-11-10: only the added ones were named).
     // Another app's export brings its categories, and after saving the app names any left without one (hist.savedCategoriesMissed),
     // so its question does not promise a Tidy step that may not exist (Mark, 2026-11-18).
-    const askText = adding ? tr(screenMode === "import" ? "hist.confirmImport" : "hist.confirm", { n: adding }) + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
+    // Lines that go to Needs review are not "confirmed": they are counted apart (Mark, testers 2026-11-21: "129 entries… confirmed"
+    // when 13 of them waited in Needs review).
+    const waiting = (hc.pending || 0) + (hc.pendingInvestments || 0), confirming = adding - waiting;
+    const addText = (confirming > 0 ? tr(screenMode === "import" ? "hist.confirmImport" : "hist.confirm", { n: confirming }) : "")
+      + (waiting > 0 ? (confirming > 0 ? " " : "") + tr("hist.confirmWaiting", { n: waiting }) : "");
+    const askText = adding ? addText + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
       : updating ? tr("hist.confirmUpdate", { n: updating }) : tr("hist.confirmKeep");
     // A starting balance this save corrects (owner's plan, step 3): said too, since it moves every balance after it.
     const coveredNow = coveredLines(historyActions(false));
@@ -3236,7 +3295,7 @@
         addedAccounts = addedAccounts.concat(res.accountsCreated);
         if (typeof loadMeta === "function") loadMeta().catch(() => {});
       }
-      status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? tr("hist.saved", { n: made }) : tr("stmt.saved"))}</p>
+      status.innerHTML = `<div class="stmt-result"><p class="stmt-verdict good">${escapeHtml(made ? (made - (res.created.pending || 0) > 0 ? tr("hist.saved", { n: made - (res.created.pending || 0) }) + (res.created.pending ? " " + tr("hist.savedWaiting", { n: res.created.pending }) : "") : tr("hist.savedAllWaiting", { n: made })) : tr("stmt.saved"))}</p>
         ${addedAccountsHtml()}${outcome}${rateNeedsHtml(res.rateNeeds)}
         <div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-added-btn" data-batch="${escapeHtml(res.batchId)}">${escapeHtml(tr("added.button"))}</button>${uncategorized > 0 ? `<button type="button" class="stmt-choice stmt-tidy-btn" data-n="${res.uncategorized != null ? uncategorized : ""}">${escapeHtml(tr("tidy.fromStatements"))}</button>` : ""}</div>
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;

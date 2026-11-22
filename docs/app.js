@@ -3504,6 +3504,9 @@ const knownRateMonths_ = new Set();
 
 // Speed (2026-11-21): the month's rate is asked as soon as the entry's currency or date is picked (or an entry in another currency
 // is opened), so Save does not wait for it. A missing rate is asked again at Save (it may have been added meanwhile).
+// "USD|2026-11" -> when the early check found NO rate: Save then opens the rate window at once instead of asking the server again
+// (Nico, testers 2026-11-21: a USD Save waited ~2.5 s with no "Saving…" for that second answer). Trusted for 2 minutes.
+const rateMissingAt_ = new Map();
 const rateMonthPrefetch_ = new Map();   // "USD|2026-11" -> promise of getExchangeRate (null on failure)
 function prefetchEntryRate_(currency, dateStr) {
   currency = String(currency || "").toUpperCase();
@@ -3512,7 +3515,7 @@ function prefetchEntryRate_(currency, dateStr) {
   const key = currency + "|" + dateStr.slice(0, 7);
   if (knownRateMonths_.has(key) || rateMonthPrefetch_.has(key)) return;
   const p = callApi("getExchangeRate", { currency, month: dateStr.slice(0, 7) })
-    .then((r) => { if (r) knownRateMonths_.add(key); else rateMonthPrefetch_.delete(key); return r; })
+    .then((r) => { if (r) knownRateMonths_.add(key); else { rateMonthPrefetch_.delete(key); rateMissingAt_.set(key, Date.now()); } return r; })
     .catch(() => { rateMonthPrefetch_.delete(key); return null; });
   rateMonthPrefetch_.set(key, p);
 }
@@ -3530,7 +3533,9 @@ async function ensureExchangeRate(currency, dateStr) {
   const key = currency + "|" + month;
   if (knownRateMonths_.has(key)) return;
   const pre = rateMonthPrefetch_.get(key);
-  const existing = (pre && await pre) || await callApi("getExchangeRate", { currency, month });
+  const missing = !pre && Date.now() - (rateMissingAt_.get(key) || 0) < 120000;
+  const existing = (pre && await pre) || (missing ? null : await callApi("getExchangeRate", { currency, month }));
+  rateMissingAt_.delete(key);
   if (existing) { knownRateMonths_.add(key); return; }
 
   const rate = await openRateModal(currency, month, /* required */ true);
@@ -3781,6 +3786,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
   showToast_(tr("common.savingToast"));
   try {
     const saved = await callApi("setExchangeRate", usd ? { currency, month, per_usd: rate } : { currency, month, rate });
+    rateMissingAt_.clear();   // a month that had no rate may have one now
     resolve(usd ? saved.rate : rate);   // the opener always gets "1 <currency> = rate <main>"
     refreshHomeGlance_(true);   // foreign amounts are worth something else in the main currency now
     refreshEntryList().catch(() => {});
@@ -7233,12 +7239,30 @@ function queueReviewAction_(id, action, fields, extra) {
   const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
   actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null, repeat: extra && extra.repeat ? extra.repeat : null });
   setQueuedReviewActions_(actions);
+  syncReviewTwins_(id, action === "discard" ? null : "confirmed");
   // The item has left Needs review for the person: Overview / Budgets / Projections' "N wait" line drops it at once, not only after
   // Home's list is fetched again (journeys run, 2026-11-17: the old count stayed for 6 people). A failed save refetches the list.
   reviewEntries_ = reviewEntries_.filter((e) => e.id !== id);
   updatePeriodPendingLine_();
   syncReviewReadyBtn_();
   if (homeGlance_) renderHomeGlance_();   // and Home's month card says one fewer waits
+}
+
+// A waiting item that leaves Needs review also leaves its copies' "Possible duplicate" warning (Valeria, testers 2026-11-21: after
+// "Discard this copy" the last copy still called itself a copy of a discarded one). Discarded: it is dropped from their list, and a
+// copy left with none loses its warning; confirmed: it stays listed, now as confirmed (it really is a copy of a confirmed entry).
+function syncReviewTwins_(id, newStatus) {
+  const list = document.getElementById("review-list");
+  reviewEntries_.forEach((e) => {
+    if (!(e.twins || []).some((t) => t.id === id)) return;
+    e.twins = newStatus ? e.twins.map((t) => (t.id === id ? { ...t, status: newStatus } : t)) : e.twins.filter((t) => t.id !== id);
+    const warn = list && list.querySelector(`.review-item[data-entry-id="${CSS.escape(String(e.id))}"] .review-dup-warning`);
+    if (!warn) return;
+    if (!e.twins.length) { warn.remove(); return; }
+    const btn = warn.querySelector(".review-dup-discard");
+    warn.innerHTML = tr("review.dupWarning", { list: e.twins.map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") });
+    if (btn) warn.appendChild(btn);
+  });
 }
 
 function unqueueReviewAction_(id) {
@@ -7564,6 +7588,9 @@ async function flushEntryEdit_(id) {
   const mySend = Date.now() + Math.random();
   entryEditFlushing_.add(id);
   entryEditFlushStarted_.set(id, mySend);
+  // With no connection at all the phone says so at once, not only once the call has given up (Nico, testers 2026-11-21: "Saving…"
+  // was not even shown for the seconds before that).
+  if (navigator.onLine === false && !Spotlight.isRunning()) noteSaveWaiting_();
   try {
     // Loops so that if this entry's queued edit gets REPLACED by a newer
     // one while this attempt is still sending — the one case where that
@@ -18602,7 +18629,7 @@ function renderRatesUsdOffer_(rates) {
     callApi("convertRatesToUsd", {}).then(() => {
       meta.settings.rate_base = "USD";
       meta.settings.rate_form = "per_base";
-      knownRateMonths_.clear(); rateMonthPrefetch_.clear();
+      knownRateMonths_.clear(); rateMonthPrefetch_.clear(); rateMissingAt_.clear();
       refreshExchangeRates();
     }).catch(() => { ratesUsdQuiet_ = false; });   // tried again the next time Currencies opens
     return;
@@ -18660,7 +18687,7 @@ document.getElementById("rates-usd-apply").addEventListener("click", () => {
     await callApi("convertRatesToUsd", {});
     meta.settings.rate_base = "USD";
     meta.settings.rate_form = "per_base";
-    knownRateMonths_.clear(); rateMonthPrefetch_.clear();
+    knownRateMonths_.clear(); rateMonthPrefetch_.clear(); rateMissingAt_.clear();
   }, async () => {
     refreshExchangeRates();
     refreshHomeGlance_(true);   // amounts in a third currency now go through the dollar

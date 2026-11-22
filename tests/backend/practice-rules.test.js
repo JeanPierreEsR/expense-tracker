@@ -117,7 +117,7 @@ test("the preview offers Currency exchange only when two lines can really be lin
   assert.equal(StatementTable.canLinkExchange([out("PEN"), inn("USD")]), true);
   assert.equal(StatementTable.canLinkExchange([inn("PEN"), out("USD")]), true);
   const stm = fs.readFileSync(path.join(DOCS, "statements.js"), "utf8");
-  assert.match(stm, /StatementTable\.canLinkExchange\(summary\.candidates\) \? exchangeHtml\(\)/);
+  assert.match(stm, /StatementTable\.canLinkExchange\(summary\.candidates\) && \(screenMode !== "import" \|\| [^?]+\? exchangeHtml\(\)/);   // (Import: only with a pair found, 2026-11-21)
 });
 
 test("Bank statements practice: 11 steps, the Inbox closed so the card's heading shows, and the preview step leaves out the save button", () => {

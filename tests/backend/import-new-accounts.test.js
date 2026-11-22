@@ -35,7 +35,7 @@ test("the plan and the dry run create nothing; the save creates the account and 
   assert.equal(all.length, n0 + 1);
   const acct = all.find((a) => a.nickname === "Mi Billetera Azul");
   assert.equal(acct.type, "wallet");
-  assert.deepEqual(res.accountsCreated, [{ id: acct.id, nickname: "Mi Billetera Azul", incomplete: false }]);
+  assert.deepEqual(res.accountsCreated, [{ id: acct.id, nickname: "Mi Billetera Azul", incomplete: false, noBank: false, noDigits: false }]);
   const rows = made(rt);
   assert.equal(rows.length, 2);
   assert.ok(rows.every((e) => e.payment_method_id === acct.id));

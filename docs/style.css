@@ -2523,7 +2523,8 @@ body.income-revealed .sens-mask { display: none; }
   padding: 12px;
   margin-top: 12px;
 }
-.stmt-result-remove { display: block; margin: 10px 0 0 auto; padding: 8px 4px; background: none; border: 0; color: var(--muted); font-size: 0.875rem; text-decoration: underline; }
+/* A quiet link, but a full 44 px to tap (Tomás, 2026-11-21: it was 32 px). */
+.stmt-result-remove { display: block; min-height: 44px; margin: 4px 0 0 auto; padding: 8px 4px; background: none; border: 0; color: var(--muted); font-size: 0.875rem; text-decoration: underline; }
 .stmt-result-name { font-weight: 600; font-size: 0.875rem; overflow-wrap: anywhere; margin-bottom: 6px; }
 .stmt-verdict { margin: 4px 0 8px; font-weight: 600; font-size: 0.875rem; }
 .stmt-verdict.good { color: var(--income-dark); }
@@ -2559,7 +2560,8 @@ body.income-revealed .sens-mask { display: none; }
   border-bottom: 1px solid var(--border);
 }
 .stmt-line-date { color: var(--muted); white-space: nowrap; }
-.stmt-line-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Up to two lines before "…" (Tomás, 2026-11-21: "Prestamo …" hid who the loan was for). */
+.stmt-line-desc { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
 .stmt-line-amt.in { color: var(--income); }
 
 .stmt-group { border-top: 1px solid var(--border); padding: 8px 0; }
@@ -3901,6 +3903,9 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 
 /* Two messages at once: the plain one sits above the one with Undo, never on top of it. */
 body.fab-room .app-toast { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
+/* A message never covers a question: it steps aside while the app's question window is open, and shows again after if still due
+   (Tomás, testers 2026-11-21: "Quedaron como estaban…" sat over the discard question). */
+body:has(#app-confirm-backdrop:not([hidden])) #app-toast { visibility: hidden; }
 body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: calc(146px + env(safe-area-inset-bottom, 0px)); }
 body.fab-room:has(#app-undo-toast:not([hidden])) #app-toast { bottom: calc(216px + env(safe-area-inset-bottom, 0px)); }
 /* WhatsApp number: country on the left, number on the right, one row. */
