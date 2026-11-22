@@ -18248,6 +18248,7 @@ function setBeView_(view) {
   beEl_("be-view-bank").hidden = view !== "bank";
   beEl_("be-view-tx").hidden = view !== "tx";
   beEl_("be-view-ap").hidden = view !== "ap";
+  beEl_("be-body").dataset.view = view;   // the bank-email fold at the bottom is not about Apple Pay (owner, 2026-11-22)
   if (view === "ap") loadApplePay_();
   [["bank", "be-tab-bank"], ["tx", "be-tab-tx"], ["ap", "be-tab-ap"]].forEach(([v, id]) => {
     beEl_(id).classList.toggle("active", v === view);
