@@ -16373,8 +16373,8 @@ function startWaReal_() {
 let applePaySetup_ = null;
 // The ready-made shortcut friends add from iCloud (owner, 2026-11-21): it asks for the person's own link when it is added, so the
 // link shared here holds no key. Empty = not made yet: the tab shows only the steps to build it by hand.
-const APPLE_PAY_SHORTCUT_URL_ = "";
-const APPLE_PAY_SHORTCUT_NAME_ = "Expense Tracker – Apple Pay";
+const APPLE_PAY_SHORTCUT_URL_ = "https://www.icloud.com/shortcuts/8f3032f2edb94291b1f084f675dfd682";
+const APPLE_PAY_SHORTCUT_NAME_ = "Expense Tracker - Apple Pay";
 function applePayShortcutUrl_() { return /^https:\/\/www\.icloud\.com\/shortcuts\/[0-9a-f]{32}$/.test(APPLE_PAY_SHORTCUT_URL_) ? APPLE_PAY_SHORTCUT_URL_ : ""; }
 // With the shared shortcut, the hand-made steps fold away under "Build it by hand instead"; without it they stay open as before.
 function drawApplePayQuick_() {
