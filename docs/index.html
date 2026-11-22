@@ -1372,16 +1372,17 @@
           <button type="button" class="add-inline" id="apple-pay-copy-btn" hidden data-i18n="ap.copy">Copy my link</button>
           <p class="hint" id="apple-pay-msg" role="status"></p>
           <div id="apple-pay-quick" hidden>
-            <h3 data-i18n="ap.quickHead">2. Set it up on your iPhone (once, about 1 minute)</h3>
-            <ol class="bm-steps">
-              <li id="apple-pay-q1"></li>
-              <li id="apple-pay-qlink"></li>
-              <li data-i18n="ap.q2">In the Shortcuts app, tap Automation at the bottom, then +. Choose Wallet (older iPhones call it Transaction), pick the cards you pay with (all of them is fine), tap Run Immediately, then Next.</li>
-              <li id="apple-pay-q3"></li>
-              <li id="apple-pay-q4"></li>
-            </ol>
-            <button type="button" class="add-inline" id="apple-pay-add-btn" data-i18n="ap.add">Add the shortcut</button>
+            <h3 data-i18n="ap.quickHead">2. Set it up on your iPhone (once, about 2 minutes)</h3>
+            <button type="button" class="primary" id="apple-pay-add-btn" data-i18n="ap.add">Add the shortcut</button>
             <p class="hint" id="apple-pay-add-msg" role="status"></p>
+            <ol class="bm-steps">
+              <li data-i18n="ap.q1">Tap Add the shortcut, above: it copies your link and opens the Shortcuts app. (If Shortcuts opens without showing the shortcut, come back here and tap the button again.)</li>
+              <li data-i18n="ap.qLink">If you see Set Up Shortcut, tap it. When it asks for your link, paste it and tap Add Shortcut. If nothing happens, tap Skip Setup: your link is kept.</li>
+              <li id="apple-pay-q2"></li>
+              <li data-i18n="ap.q3">At the top it says "Automation is turned off": tap it and switch Automation on. (Older iPhones: in the Automation tab, tap +, choose Wallet or Transaction, tap Run Immediately, then Next, and pick the shortcut.)</li>
+              <li data-i18n="ap.q4">To check it, tap the play button at the bottom right, and Allow notifications if asked: you will see "Test received: your link works." Nothing is added.</li>
+            </ol>
+            <p class="hint" id="apple-pay-icloud-line"><button type="button" class="add-inline" id="apple-pay-icloud-btn" data-i18n="ap.icloud">Open it from iCloud instead</button></p>
           </div>
           <details id="apple-pay-manual-fold" class="bm-more" hidden>
             <summary data-i18n="ap.manualFold">Build it by hand instead</summary>
