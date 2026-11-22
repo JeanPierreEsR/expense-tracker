@@ -306,6 +306,10 @@ var BACKEND_STRINGS_ = {
   "bank.moreThanOwed": { en: "That is more principal than the loan still owes ({cur} {amount}).", es: "Es más capital del que aún debe el préstamo ({cur} {amount})." },
   "bank.installmentDesc": { en: "Installment {n}/{count}: {what}", es: "Cuota {n}/{count}: {what}" },
   "bank.extraDesc": { en: "Interest and fees, installment {n}/{count}: {what}", es: "Intereses y comisiones, cuota {n}/{count}: {what}" },
+  // Business 2, piece 3: the part of a lender's interest the company keeps for the tax office (a debt with it; BankLoans.gs).
+  "bank.withholdingPerson": { en: "SUNAT", es: "SUNAT" },
+  "bank.withholdingDesc": { en: "Withholding to pay SUNAT, installment {n}/{count}: {what}", es: "Retención por pagar a SUNAT, cuota {n}/{count}: {what}" },
+  "bank.withholdingTooBig": { en: "The withholding cannot be more than the interest.", es: "La retención no puede ser mayor que el interés." },
   "repay.editExtraInHistory": { en: "This is the extra part of a repayment (the part that is not on a loan). To change its amount, open the person's Repayment history and tap the repayment.", es: "Esta es la parte extra de un repago (la que no está en un préstamo). Para cambiar su monto, abre el Historial de repagos de la persona y toca el repago." },
   "repay.editCurrencyRerecord": { en: "This is part of a repayment. To change its currency, open it in the app from Home and save it with the new currency: the repayment is recorded again in that currency.", es: "Esto es parte de un repago. Para cambiar su moneda, ábrelo en la app desde Inicio y guárdalo con la nueva moneda: el repago se vuelve a registrar en esa moneda." },
   "repay.editAmountInHistory": { en: "This is the money movement of a repayment. To change its amount, open the person's Repayment history and tap the repayment.", es: "Este es el movimiento de dinero de un repago. Para cambiar su monto, abre el Historial de repagos de la persona y toca el repago." },

@@ -1149,7 +1149,7 @@
           </span>
         </div>
         <h2 class="screen-title" style="margin-top:0;" data-i18n="people.title">People</h2>
-        <p class="hint" data-i18n="people.hint">Clients, suppliers and partners. What each one owes you (or you owe them) is kept per project and per currency.</p>
+        <p class="hint" id="people-hint" data-i18n="people.hint">Clients, suppliers and partners. What each one owes you (or you owe them) is kept per project and per currency.</p>
         <div id="people-list"></div>
         <p class="hint" id="people-empty-note" hidden data-i18n="people.empty">No one yet. Add a client, a supplier or a partner.</p>
         <p class="hint error-text" id="people-error"></p>
@@ -2270,7 +2270,7 @@
       </div>
       <div class="budget-modal-body">
         <div id="bank-loan-fields">
-          <label for="bank-lender" data-i18n="bank.lender">Bank (who lent it)</label>
+          <label for="bank-lender" id="bank-lender-label" data-i18n="bank.lender">Bank (who lent it)</label>
           <input type="text" id="bank-lender" list="bank-lender-list" data-i18n-placeholder="bank.lenderPlaceholder" placeholder="The bank's name">
           <datalist id="bank-lender-list"></datalist>
           <label for="bank-description" data-i18n="field.description">Description</label>
@@ -2295,6 +2295,10 @@
           <div id="bank-next-number-field" hidden>
             <label for="bank-next-number" data-i18n="bank.openingNextNumber">Number of the next installment (as on the bank's schedule)</label>
             <input type="text" inputmode="numeric" id="bank-next-number" placeholder="1">
+          </div>
+          <div id="bank-business-field" hidden>
+            <label for="bank-business" data-i18n="field.business">Company / project</label>
+            <select id="bank-business"></select>
           </div>
           <div id="bank-account-field">
             <label for="bank-account" data-i18n="bank.account">Account it arrived in</label>
@@ -2433,6 +2437,11 @@
         <input type="text" inputmode="decimal" id="bank-record-fees" placeholder="0.00">
         <label for="bank-record-category" data-i18n="bank.recordCategory">Category of the interest and fees</label>
         <select id="bank-record-category"></select>
+        <div id="bank-record-withholding-field" hidden>
+          <label for="bank-record-withholding" data-i18n="bank.withholding">Withholding (kept to pay SUNAT)</label>
+          <input type="text" inputmode="decimal" id="bank-record-withholding" placeholder="0.00">
+          <p class="hint" id="bank-record-net"></p>
+        </div>
         <p class="hint" id="bank-record-total"></p>
         <p class="hint error-text" id="bank-record-error"></p>
         <button type="button" class="primary" id="bank-record-save" data-i18n="bank.recordSave">Record installment</button>

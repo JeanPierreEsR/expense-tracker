@@ -187,13 +187,13 @@ function loanFlowsForPeriod_(startDate, endDate, scope) {
     var parts = scope.split(':');
     var id = parts.slice(1).join(':');
     if (scope === 'personal') {
-      projectOk = function (loan) { return !loan.project_id; };
+      projectOk = function (loan) { return !loan.project_id && !loan.company_id; };
     } else if (parts[0] === 'project') {
       projectOk = function (loan) { return String(loan.project_id || '') === id; };
     } else if (parts[0] === 'company') {
       var ids = {};
       getProjectRows_().forEach(function (p) { if (String(p.company_id || '') === id) ids[p.id] = true; });
-      projectOk = function (loan) { return !!ids[String(loan.project_id || '')]; };
+      projectOk = function (loan) { return !!ids[String(loan.project_id || '')] || String(loan.company_id || '') === id; };
     }
   }
   var loans = getAllRows('Loans').filter(projectOk);
