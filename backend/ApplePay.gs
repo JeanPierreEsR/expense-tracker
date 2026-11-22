@@ -247,6 +247,10 @@ function captureApplePay_(payload) {
   var raw = String(payload.amount === undefined || payload.amount === null ? '' : payload.amount).trim().slice(0, 60);
   var merchant = String(payload.merchant || '').trim().slice(0, 120);
   var card = String(payload.card || '').trim().slice(0, 80);
+  // Pressing play on the shortcut by hand sends no payment: no amount and no shop. Nothing is saved; the reply says the link works
+  // (owner, 2026-11-22: a manual test left a 0 soles entry in Needs review).
+  var testNumber = applePayNumber_(raw);
+  if (!merchant && !(Math.abs(isNaN(testNumber) ? 0 : testNumber) > 0)) return { saved: false, test: true, message: tr_('applepay.test') };
   var whenMs = applePayTime_(payload.time);
   var now = Date.now();
   if (whenMs === null || Math.abs(whenMs - now) > 2 * 86400000) whenMs = now;   // a time we cannot read, or far off: now
