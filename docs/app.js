@@ -8485,6 +8485,11 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   }
   card.hidden = false;
   if (homeTipsReady_ && !document.getElementById("screen-entries").hidden) offerReviewTip_();   // the first entry to wait may arrive long after opening
+  // Never redraw under the person's fingers (owner, 2026-11-21: a tag saved behind the screen came back, redrew the list and wiped the
+  // description and amount being typed). While a box of the list is in use the redraw waits until the person leaves the list's boxes;
+  // and what was changed on a card (not yet confirmed) is carried into the new one. Not during a walkthrough, which waits for the redraw.
+  if (!Spotlight.isRunning() && reviewBoxInUse_(list)) { reviewRedrawLater_(list, source, skipFlush); return; }
+  const rowEdits = reviewRowEdits_(list);
   list.innerHTML = "";
 
   // A waiting currency exchange is ONE item for both sides (owner, 2026-11-20); Edit mode keeps one tick row per side.
@@ -8860,8 +8865,57 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         openExchangeModal_({ entry: e, leg: e.type === "income" || (e.type === "transfer" && e.to_payment_method_id && !e.payment_method_id) ? "in" : "out" })));
     }
 
+    reviewPutBackRowEdits_(item, rowEdits.get(entry.id));
     list.appendChild(item);
   });
+}
+
+// What the person changed on a Needs review card and has not confirmed yet survives a redraw of the list (see refreshReviewQueue).
+const REVIEW_ROW_BOXES_ = [".review-category", ".review-description", ".review-amount", ".review-account", ".review-trip", ".review-from", ".review-to", ".review-platform", ".review-land"];
+function reviewBoxInUse_(list) {
+  const a = document.activeElement;
+  return !!(a && list.contains(a) && a.matches("input[type=text], input:not([type]), select, textarea") && a.closest(".review-item"));
+}
+let reviewRedrawWaiting_ = null;
+function reviewRedrawLater_(list, source, skipFlush) {
+  reviewRedrawWaiting_ = { source, skipFlush };   // only the latest list is drawn
+  if (reviewRedrawLater_.armed) return;
+  reviewRedrawLater_.armed = true;
+  const check = () => setTimeout(() => {
+    if (reviewBoxInUse_(list)) return;   // moved to another box of the list: wait for that one too
+    list.removeEventListener("focusout", check);
+    reviewRedrawLater_.armed = false;
+    const w = reviewRedrawWaiting_;
+    reviewRedrawWaiting_ = null;
+    if (w) refreshReviewQueue(w.source, true).catch(() => {});
+  }, 0);
+  list.addEventListener("focusout", check);
+}
+function reviewRowEdits_(list) {
+  const edits = new Map();
+  list.querySelectorAll(".review-item[data-entry-id]").forEach((item) => {
+    const changed = {};
+    REVIEW_ROW_BOXES_.forEach((sel) => {
+      const box = item.querySelector(sel);
+      if (box && box.dataset.touched) changed[sel] = box.value;
+    });
+    if (Object.keys(changed).length) edits.set(item.dataset.entryId, changed);
+  });
+  return edits;
+}
+function reviewPutBackRowEdits_(item, changed) {
+  REVIEW_ROW_BOXES_.forEach((sel) => {
+    const box = item.querySelector(sel);
+    if (!box) return;
+    const mark = () => { box.dataset.touched = "1"; };
+    box.addEventListener("input", mark);
+    box.addEventListener("change", mark);
+    if (!changed || !(sel in changed)) return;
+    if (box.tagName === "SELECT" && ![...box.options].some((o) => o.value === changed[sel])) return;   // that choice is gone (an account deleted)
+    box.value = changed[sel];
+    mark();
+  });
+  if (changed && item.classList.contains("review-collapsed")) { item.classList.remove("review-collapsed"); reviewExpanded_.add(item.dataset.entryId); }
 }
 
 // ---- Currency exchange pop-up (backend/CurrencyExchange.gs) ----
