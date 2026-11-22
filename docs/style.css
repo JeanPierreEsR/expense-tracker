@@ -3233,6 +3233,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .bm-status.wait { color: var(--warn-text); font-weight: 600; }
 .bm-bank .hint { margin: 6px 0 0; }
 .bm-more { margin: 10px 0; }
+#be-body[data-view="ap"] .be-mail-foot { display: none; }
 .bm-more > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
 
 /* ---- More → Bank emails screen (two views: By bank / By transaction) ---- */

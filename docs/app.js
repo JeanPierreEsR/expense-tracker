@@ -16385,10 +16385,7 @@ function drawApplePayQuick_() {
   if (url && manual.parentElement !== fold) fold.appendChild(manual);
   if (!url && manual.parentElement === fold) fold.after(manual);
   if (!url) return;
-  document.getElementById("apple-pay-q1").textContent = tr("ap.q1");
-  document.getElementById("apple-pay-qlink").textContent = tr("ap.qLink");
-  document.getElementById("apple-pay-q3").textContent = tr("ap.q3", { name: APPLE_PAY_SHORTCUT_NAME_ });
-  document.getElementById("apple-pay-q4").textContent = tr("ap.q4", { name: APPLE_PAY_SHORTCUT_NAME_ });
+  document.getElementById("apple-pay-q2").textContent = tr("ap.q2", { name: APPLE_PAY_SHORTCUT_NAME_ });
 }
 function applePayLink_() {
   const url = getApiUrl() || OWNER_API_URL;
@@ -16440,12 +16437,14 @@ document.getElementById("apple-pay-copy-btn").addEventListener("click", async ()
   const msg = document.getElementById("apple-pay-msg");
   const link = applePayLink_();
   if (!link) { msg.textContent = tr("ap.noAddress"); return; }
-  try { await navigator.clipboard.writeText(link); msg.textContent = tr("ap.copied"); }
+  try { await navigator.clipboard.writeText(link); msg.textContent = tr(applePayShortcutUrl_() ? "ap.addCopied" : "ap.copied"); }
   catch (e) { msg.textContent = tr("ap.copyFailed"); }
 });
-// "Add the shortcut" copies the person's own link (for the question the shortcut asks when it is added) and opens the iCloud page, which
-// hands over to the Shortcuts app. Both start inside the tap itself: iOS refuses a copy or a new window that comes later.
-document.getElementById("apple-pay-add-btn").addEventListener("click", () => {
+// "Add the shortcut" copies the person's own link (for the question the shortcut asks when it is added) and hands the shortcut straight
+// to the Shortcuts app by its own address (shortcuts://import-shortcut), so no web window opens over the app (owner, 2026-11-22: the
+// iCloud page inside the app looked odd when coming back). "Open it from iCloud instead" is the old way, kept in case that address
+// stops working. The copy and the opening both start inside the tap: iOS refuses either one later.
+function applePayAddTap_(viaIcloud) {
   const msg = document.getElementById("apple-pay-add-msg");
   const link = applePayLink_(), url = applePayShortcutUrl_();
   if (!url) return;
@@ -16453,8 +16452,11 @@ document.getElementById("apple-pay-add-btn").addEventListener("click", () => {
   msg.textContent = tr("ap.addCopied");
   try { navigator.clipboard.writeText(link).catch(() => { msg.textContent = tr("ap.addNoCopy"); }); }
   catch (err) { msg.textContent = tr("ap.addNoCopy"); }
-  window.open(url, "_blank", "noopener");
-});
+  if (viaIcloud) window.open(url, "_blank", "noopener");
+  else location.href = "shortcuts://import-shortcut?url=" + encodeURIComponent(url) + "&name=" + encodeURIComponent(APPLE_PAY_SHORTCUT_NAME_);
+}
+document.getElementById("apple-pay-add-btn").addEventListener("click", () => applePayAddTap_(false));
+document.getElementById("apple-pay-icloud-btn").addEventListener("click", () => applePayAddTap_(true));
 document.getElementById("my-profile-back-btn").addEventListener("click", () => showScreen("more"));
 // How I type dates: the highlighted choice is the order the app really uses now (the language's own until one is chosen).
 function drawProfileDates_() {
@@ -18248,6 +18250,7 @@ function setBeView_(view) {
   beEl_("be-view-bank").hidden = view !== "bank";
   beEl_("be-view-tx").hidden = view !== "tx";
   beEl_("be-view-ap").hidden = view !== "ap";
+  beEl_("be-body").dataset.view = view;   // the bank-email fold at the bottom is not about Apple Pay (owner, 2026-11-22)
   if (view === "ap") loadApplePay_();
   [["bank", "be-tab-bank"], ["tx", "be-tab-tx"], ["ap", "be-tab-ap"]].forEach(([v, id]) => {
     beEl_(id).classList.toggle("active", v === view);
@@ -26939,7 +26942,7 @@ const LINK_ICON_RULES_ = [
   [/^(delete|eliminar|clear|borrar|forget|olvidar)\b/i, "trash"],
   [/^(remove|quitar|don't repeat|no repetir|dismiss|descartar|stop it|detenerlo)\b/i, "cross"],
   [/^(hide|ocultar)\b/i, "eyeOff"],
-  [/^(open my google|abrir las apps)/i, "external"],
+  [/^(open my google|abrir las apps|open it from icloud|abrirlo desde icloud)/i, "external"],
   [/^(read|leer|volver a leer)\b.*(photo|foto|receipt|comprobante)/i, "camera"],
   [/^(download|descargar)\b/i, "download"],   // a project statement's "Download (CSV)"
   [/^(read|leer)\b/i, "file"],
