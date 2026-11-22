@@ -137,6 +137,13 @@ button.update-banner {
   background: var(--expense);
 }
 
+/* Back from the update page (Safari): the app still holds what it read before, until the person pulls down. */
+button.pull-update-hint {
+  background: var(--card);
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+}
+
 .pull-refresh-indicator {
   position: fixed;
   top: 0;
@@ -2516,7 +2523,8 @@ body.income-revealed .sens-mask { display: none; }
   padding: 12px;
   margin-top: 12px;
 }
-.stmt-result-remove { display: block; margin: 10px 0 0 auto; padding: 8px 4px; background: none; border: 0; color: var(--muted); font-size: 0.875rem; text-decoration: underline; }
+/* A quiet link, but a full 44 px to tap (Tomás, 2026-11-21: it was 32 px). */
+.stmt-result-remove { display: block; min-height: 44px; margin: 4px 0 0 auto; padding: 8px 4px; background: none; border: 0; color: var(--muted); font-size: 0.875rem; text-decoration: underline; }
 .stmt-result-name { font-weight: 600; font-size: 0.875rem; overflow-wrap: anywhere; margin-bottom: 6px; }
 .stmt-verdict { margin: 4px 0 8px; font-weight: 600; font-size: 0.875rem; }
 .stmt-verdict.good { color: var(--income-dark); }
@@ -2525,6 +2533,17 @@ body.income-revealed .sens-mask { display: none; }
 .stmt-note { margin: 4px 0; font-size: 0.8125rem; }
 .stmt-note.warn { color: var(--warn-text); }
 .stmt-note.ok { color: var(--income-dark); }
+/* Import's mapping card (owner, 2026-11-21): three sections (columns, accounts, categories), each file category and each account name a
+   shaded block of its own so its text, choices and notes read as one group. */
+.tm-sec { margin: 0 0 16px; }
+.tm-cat-row, .tm-value { background: var(--surface); border-radius: var(--r-md); padding: 10px 12px; margin: 0 0 12px; }
+.tm-newacct { margin: 8px 0 0; padding-left: 10px; border-left: 2px solid var(--border-strong); }
+.tm-cat-lines { margin-top: 6px; }
+.tm-cat-lines summary { color: var(--accent); cursor: pointer; font-size: 0.875rem; }
+.tm-loan-group { background: var(--card); border-radius: var(--r-md); padding: 8px 10px; margin: 6px 0; }
+.tm-loan-line { padding: 6px 0; border-top: 1px solid var(--border); }
+.tm-loan-line:first-of-type { border-top: 0; }
+.tm-loan-line select { margin-top: 4px; }
 .stmt-note.info { color: var(--muted); }
 .stmt-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 0.875rem; padding: 3px 0; }
 .stmt-kv span:first-child { color: var(--muted); }
@@ -2541,7 +2560,8 @@ body.income-revealed .sens-mask { display: none; }
   border-bottom: 1px solid var(--border);
 }
 .stmt-line-date { color: var(--muted); white-space: nowrap; }
-.stmt-line-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Up to two lines before "…" (Tomás, 2026-11-21: "Prestamo …" hid who the loan was for). */
+.stmt-line-desc { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
 .stmt-line-amt.in { color: var(--income); }
 
 .stmt-group { border-top: 1px solid var(--border); padding: 8px 0; }
@@ -3883,6 +3903,9 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 
 /* Two messages at once: the plain one sits above the one with Undo, never on top of it. */
 body.fab-room .app-toast { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
+/* A message never covers a question: it steps aside while the app's question window is open, and shows again after if still due
+   (Tomás, testers 2026-11-21: "Quedaron como estaban…" sat over the discard question). */
+body:has(#app-confirm-backdrop:not([hidden])) #app-toast { visibility: hidden; }
 body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: calc(146px + env(safe-area-inset-bottom, 0px)); }
 body.fab-room:has(#app-undo-toast:not([hidden])) #app-toast { bottom: calc(216px + env(safe-area-inset-bottom, 0px)); }
 /* WhatsApp number: country on the left, number on the right, one row. */
@@ -4192,6 +4215,13 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 #wa-code { white-space: pre-wrap; word-break: break-all; }
 /* Needs review: "This is my Salary for August" (2026-11-17), ticked when the match is clear; Confirm answers it. */
 .review-plan-match { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; font-size: 0.875rem; }
+/* Its tick box is a real tick box (owner, 2026-11-21: the global box style drew it as a wide empty text box). */
+.review-plan-match input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 22px; height: 22px; min-height: 0; padding: 0; margin: 0; flex: none; }
+/* Discard from the short row and from the duplicate warning (owner, 2026-11-21). */
+.review-quick-discard { flex: none; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--card); color: var(--muted); cursor: pointer; }
+.review-quick-discard svg { width: 20px; height: 20px; }
+.review-quick-cat { margin-right: auto; }
+.review-dup-discard { display: block; min-height: 44px; margin-top: 6px; padding: 0 16px; border: 1px solid currentColor; border-radius: var(--r-pill); background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
 
 /* Needs review's "Confirm the N that are ready": starts on the same left edge as the line above it and reads as an action
    (Tomás, 2026-11-18: 8px further in, and as plain as a link). */

@@ -637,6 +637,311 @@ document.getElementById("currency-search").addEventListener("input", (e) => {
 });
 document.getElementById("currency-screen-done").addEventListener("click", closeCurrencyModal);
 
+// ---- One friends screen (owner, 2026-11-19): the same idea as currencies. A place shows a few quick buttons (the friends used most
+// recently) and "More…", which opens a full-height screen with everyone by name and a search; a box with no quick buttons beside it
+// opens the screen directly, "Most used" first. opts: { title, items: [{ id, label }], current, onPick(id) } chooses one (a tap
+// closes it); { many: true, selected, onDone(ids) } chooses several (Done or ✕ brings them back). top: ids for the first section
+// (topTitle names it); onAdd(): a "+ Add a friend…" row at the bottom (the screen closes first).
+const FRIEND_QUICK_ = 5;
+const friendSearchText_ = currencySearchText_;   // (accents and capitals do not count)
+// By the name itself: a 👥 group or 🏢 business mark in front does not count.
+const nameKey_ = (label) => String(label || "").replace(/^[^\p{L}\p{N}]+/u, "");
+function byName_(a, b) { return nameKey_(a.label).localeCompare(nameKey_(b.label), I18n.getLang() === "es" ? "es" : "en", { sensitivity: "base" }); }
+// The date a friend was last used: their latest shared expense or loan.
+function personLastUsed_(id) {
+  const f = (meta.friends || []).find((x) => x.id === id);
+  return f ? String(f.last_used || "") : "";
+}
+// The quick ones: the most recently used first, then by name, so someone who used nobody yet still gets five.
+function friendQuickIds_(items, n, lastUsed) {
+  const when = lastUsed || personLastUsed_;
+  return items.slice().sort((a, b) => when(b.id).localeCompare(when(a.id)) || byName_(a, b)).slice(0, n || FRIEND_QUICK_).map((x) => x.id);
+}
+let friendScreen_ = null;
+function openFriendScreen_(opts) {
+  friendScreen_ = Object.assign({}, opts, opts.many ? { selected: [...(opts.selected || [])] } : {});
+  const backdrop = document.getElementById("friend-screen-backdrop");
+  document.querySelectorAll(".currency-modal-backdrop:not([hidden])").forEach((b) => { topModalZIndex = Math.max(topModalZIndex, Number(getComputedStyle(b).zIndex) || 0); });
+  bringModalToFront_(backdrop);
+  if (typeof Spotlight !== "undefined" && Spotlight.isRunning()) backdrop.style.zIndex = 100001;   // above a tutorial's dimmed screen (a "More…" inside its lit-up part)
+  backdrop.hidden = false;
+  document.getElementById("friend-screen-title").textContent = opts.title || tr(opts.many ? "friendPick.chooseMany" : "friendPick.choose");
+  const done = document.getElementById("friend-screen-done");
+  done.hidden = !opts.many;
+  done.textContent = opts.doneLabel || tr("currency.done");
+  // A search only when there is something to search: more than five (owner, 2026-11-20).
+  const count = opts.groups ? opts.groups.reduce((n, g) => n + g.items.length, 0) : (opts.items || []).length;
+  document.getElementById("friend-search").hidden = count <= FRIEND_QUICK_;
+  // Picked first (owner, 2026-11-20, the Home filters): fixed when the screen opens, so a row never jumps away while ticked.
+  friendScreen_.pickedAtOpen = new Set(opts.pickedFirst && opts.many ? friendScreen_.selected : []);
+  const add = document.getElementById("friend-screen-add");
+  add.hidden = !opts.onAdd;
+  add.textContent = opts.addLabel || tr("common.addFriend");
+  document.getElementById("friend-search").value = "";
+  renderFriendOptionList_("");
+  document.getElementById("friend-option-list").scrollTop = 0;
+}
+function closeFriendScreen_() {
+  document.getElementById("friend-screen-backdrop").hidden = true;
+  const screen = friendScreen_;
+  friendScreen_ = null;
+  if (screen && screen.many && screen.onDone) screen.onDone(screen.selected);
+  return screen;
+}
+function friendRow_(item) {
+  const screen = friendScreen_;
+  const row = document.createElement(screen.many ? "label" : "div");
+  row.className = "currency-option friend-option" + (screen.many ? " checkbox-row" : "");
+  const on = screen.many ? screen.selected.includes(item.id) : item.id === screen.current;
+  row.innerHTML = `<span class="currency-option-text"><span class="currency-option-country">${escapeHtml(item.label)}</span></span>`
+    + (!screen.many && on ? `<span class="currency-option-check">✓</span>` : "");
+  if (!screen.many) {
+    row.addEventListener("click", () => { closeFriendScreen_(); screen.onPick(item.id); });
+    return row;
+  }
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.value = item.id;
+  input.checked = on;
+  input.addEventListener("change", () => {
+    screen.selected = input.checked ? [...screen.selected.filter((x) => x !== item.id), item.id] : screen.selected.filter((x) => x !== item.id);
+    if (screen.onToggle) screen.onToggle(screen.selected);
+    // The same person in the two sections: both boxes follow.
+    document.querySelectorAll(`#friend-option-list input[type=checkbox]`).forEach((b) => { if (b.value === item.id) b.checked = input.checked; });
+  });
+  row.insertBefore(input, row.firstChild);
+  return row;
+}
+// Everyone by name, nothing else (owner, 2026-11-19: the quick five already sit where the screen was opened from). The add button
+// is pinned under the list, so it shows however far the list is scrolled.
+function renderFriendOptionList_(filterText) {
+  const screen = friendScreen_;
+  if (!screen) return;
+  const list = document.getElementById("friend-option-list");
+  list.innerHTML = "";
+  const q = friendSearchText_(String(filterText || "").trim());
+  // groups: [{ heading, items }] (a Home filter's categories under Expenses / Income); ordered: keep the order given (trips by date,
+  // "Other" last) instead of by name.
+  const groups = screen.groups || [{ heading: "", items: screen.items || [] }];
+  const items = groups.flatMap((g) => g.items);
+  let shown = 0;
+  groups.forEach((g) => {
+    const found = g.items.filter((x) => !q || friendSearchText_(x.label).includes(q));
+    if (!screen.ordered) found.sort(byName_);
+    const picked = screen.pickedAtOpen || new Set();
+    const rows = found.filter((x) => picked.has(x.id)).concat(found.filter((x) => !picked.has(x.id)));
+    if (!rows.length) return;
+    if (g.heading) { const h = document.createElement("h4"); h.className = "friend-option-heading"; h.textContent = g.heading; list.appendChild(h); }
+    rows.forEach((x) => list.appendChild(friendRow_(x)));
+    shown += rows.length;
+  });
+  if (!shown) {
+    const none = document.createElement("p");
+    none.className = "hint";
+    none.textContent = tr(items.length ? (screen.noneKey || "friendPick.none") : "friendPick.empty");
+    list.appendChild(none);
+  }
+}
+document.getElementById("friend-screen-add").addEventListener("click", () => { const s = closeFriendScreen_(); if (s && s.onAdd) s.onAdd(); });
+document.getElementById("friend-screen-close").addEventListener("click", () => closeFriendScreen_());
+document.getElementById("friend-screen-done").addEventListener("click", () => closeFriendScreen_());
+document.getElementById("friend-search").addEventListener("input", (e) => renderFriendOptionList_(e.target.value));
+
+// Quick buttons for choosing SEVERAL people (Shared with, a Programmed item's split, Split a bill): the five used most recently,
+// anyone already picked (so a pick never hides behind More), then "More…". opts: { box, items, selected (Set), first (ids that always
+// lead, e.g. a trip's group), lastUsed, onToggle(id), onMore(), chip(item, el) (extra set-up of each chip) }. Returns the chips.
+function renderFriendQuickChips_(opts) {
+  const box = opts.box;
+  box.innerHTML = "";
+  const items = opts.items;
+  const first = (opts.first || []).filter((id) => items.some((x) => x.id === id));
+  const rest = items.filter((x) => !first.includes(x.id));
+  const quick = new Set(first.concat(friendQuickIds_(rest, FRIEND_QUICK_, opts.lastUsed)));
+  items.forEach((x) => { if (opts.selected.has(x.id)) quick.add(x.id); });
+  const order = first.concat(friendQuickIds_(rest, rest.length, opts.lastUsed)).filter((id) => quick.has(id));
+  const chips = order.map((id) => {
+    const item = items.find((x) => x.id === id);
+    const chip = document.createElement("div");
+    chip.className = "tag-chip" + (opts.selected.has(id) ? " selected" : "");
+    chip.textContent = item.label;
+    chip.dataset.id = id;
+    chip.addEventListener("click", () => opts.onToggle(id));
+    if (opts.chip) opts.chip(item, chip);
+    box.appendChild(chip);
+    return { item, chip };
+  });
+  if (items.length > chips.length) {
+    const more = document.createElement("div");
+    more.className = "tag-chip more-chip";
+    more.textContent = tr("common.more");
+    more.addEventListener("click", () => opts.onMore());
+    box.appendChild(more);
+  }
+  return chips;
+}
+
+// One rule for every dropdown that picks ONE person (owner, 2026-11-19): the five used most recently (or the list's own top five),
+// anyone already chosen, then "More…" as the last line, which opens the friends screen with everyone by name. The box stays the
+// phone's own list, so the code keeps reading and setting it as before; with five people or fewer it simply lists them all.
+// Call it at the END of the function that fills the box. opts: { fixed: values that stay first ("me"), top(people) → ids,
+// always(id) → stays listed (a trip's group), lastUsed(id), title(), addLabel() }. An empty value or a greyed line also stays first.
+const PERSON_MORE_ = "__more__";
+const selectValue_ = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+function personShortList_(sel, opts) {
+  if (!sel) return;
+  const o = sel._personShort = Object.assign(sel._personShort || {}, opts || {});
+  installPersonShort_(sel);
+  [...sel.options].filter((x) => x.value === PERSON_MORE_).forEach((x) => x.remove());
+  const all = [...sel.options];
+  // A line that is not a choice ("Choose…", "None", "+ Add…") stays where it was: above the list if it stood before the first
+  // choice, below it otherwise (an exchange's "Outside my accounts", a loan's "No account").
+  const special = (x) => !x.value || x.disabled || x.value.startsWith("__") || (o.fixed || []).includes(x.value);
+  const firstChoice = all.findIndex((x) => !special(x));
+  const isFixed = (x) => special(x) && (x.disabled || (o.fixed || []).includes(x.value) || firstChoice < 0 || all.indexOf(x) < firstChoice);
+  const isTail = (x) => special(x) && !isFixed(x);
+  const always = (x) => !!(o.always && o.always(x.value));
+  o.people = all.filter((x) => !special(x)).map((x) => ({ id: x.value, label: x.textContent }));
+  o.optionFor = {};
+  all.forEach((x) => { if (!special(x)) o.optionFor[x.value] = x; });
+  const current = selectValue_.get.call(sel);
+  const pickable = o.people.filter((p) => !always(o.optionFor[p.id]));
+  // A short list shows everyone, the list's own top first, then the most recently used (owner, 2026-11-19); a long one the top five.
+  const short = pickable.length <= FRIEND_QUICK_;
+  const ranked = (list) => friendQuickIds_(list, list.length, o.lastUsed);
+  let top;
+  if (short) {
+    const lead = o.top ? o.top(pickable).filter((id) => o.optionFor[id]) : [];
+    top = lead.concat(ranked(pickable.filter((p) => !lead.includes(p.id))));
+  } else {
+    top = (o.top ? o.top(pickable) : friendQuickIds_(pickable, FRIEND_QUICK_, o.lastUsed)).filter((id) => o.optionFor[id]);
+    if (current && o.optionFor[current] && !top.includes(current)) top.push(current);
+  }
+  const more = document.createElement("option");
+  more.value = PERSON_MORE_;
+  more.textContent = tr("common.more");
+  const order = all.filter(isFixed)
+    .concat(top.map((id) => o.optionFor[id]).filter((x) => !always(x)))
+    .concat(all.filter((x) => !special(x) && always(x)))
+    .concat(short ? [] : [more], all.filter(isTail));
+  if (order.length !== all.length || order.some((x, i) => x !== all[i])) {   // (unchanged: the box is left alone)
+    sel.innerHTML = "";
+    order.forEach((x) => sel.appendChild(x));
+    selectValue_.set.call(sel, current);
+  }
+  sel._shortSig = order.map((x) => x.value).join("\n");
+  o.last = current;
+}
+
+// Accounts follow the same rule (owner, 2026-11-19): the five used most recently, then "More…" with every account by name.
+// "Used" = the newest entry on the account, either side of a transfer, from the phone's own copy of the entries; by name until it loads.
+let accountLastUsedCache_ = { src: null, n: -1, map: {} };
+function accountLastUsed_() {
+  const rows = searchIndex || [];
+  const c = accountLastUsedCache_;
+  if (c.src === searchIndex && c.n === rows.length) return c.map;
+  const map = {};
+  rows.forEach((e) => {
+    const when = String(e.date || "") + "|" + String(e.created_at || "");
+    [e.payment_method_id, e.to_payment_method_id].forEach((id) => { if (id && (!map[id] || when > map[id])) map[id] = when; });
+  });
+  accountLastUsedCache_ = { src: searchIndex, n: rows.length, map };
+  return map;
+}
+function accountShortList_(sel) {
+  personShortList_(sel, { lastUsed: (id) => accountLastUsed_()[id] || "", title: () => tr("friendPick.account"), noneKey: "friendPick.noneThing" });
+}
+// Account boxes written as text (Needs review cards, Tidy, an exchange, a trip group) mark their lines data-acct; this shortens them
+// once they are on screen. A box already shortened (it has "More…", or the same lines as last time) is left alone.
+const ACCT_OPT_ = ' data-acct="1"';
+new MutationObserver((muts) => {
+  const boxes = new Set();
+  muts.forEach((m) => {
+    if (m.target.tagName === "SELECT") boxes.add(m.target);
+    m.addedNodes.forEach((n) => {
+      if (n.nodeType !== 1) return;
+      if (n.tagName === "SELECT") boxes.add(n);
+      else if (n.firstElementChild) n.querySelectorAll("select").forEach((b) => boxes.add(b));
+    });
+  });
+  boxes.forEach((b) => {
+    if (!b.isConnected || !b.querySelector("option[data-acct]")) return;
+    const values = [...b.options].map((x) => x.value);
+    if (values.includes(PERSON_MORE_) || b._shortSig === values.join("\n")) return;
+    accountShortList_(b);
+  });
+}).observe(document.body, { childList: true, subtree: true });
+// Code that sets the box to someone not among the five (an entry opened for editing, a draft, a new friend) puts them back in it.
+function installPersonShort_(sel) {
+  if (sel._personShortOn) return;
+  sel._personShortOn = true;
+  Object.defineProperty(sel, "value", { configurable: true, get() { return selectValue_.get.call(this); }, set(v) {
+    const o = this._personShort;
+    if (v && o.optionFor && o.optionFor[v] && ![...this.options].some((x) => x.value === v)) {
+      const before = [...this.options].find((x) => x.value === PERSON_MORE_);
+      this.insertBefore(o.optionFor[v], before || null);
+    }
+    selectValue_.set.call(this, v);
+    if (!String(v || "").startsWith("__")) o.last = selectValue_.get.call(this);
+  } });
+}
+// Is this person in the box, shown or behind More…?
+function hasPersonPick_(sel, id) {
+  return !!id && ([...sel.options].some((x) => x.value === id) || !!(sel._personShort && sel._personShort.optionFor && sel._personShort.optionFor[id]));
+}
+// A person added from a short dropdown: listed in it (and behind More…) and chosen.
+function addPersonToShortList_(sel, friend, plainName) {
+  const o = sel._personShort || {};
+  const opt = document.createElement("option");
+  opt.value = friend.id;
+  opt.textContent = plainName ? friend.name : friendLabel_(friend);
+  if (o.optionFor) { o.optionFor[friend.id] = opt; o.people = (o.people || []).concat([{ id: friend.id, label: opt.textContent }]); }
+  const before = [...sel.options].find((x) => x.value.startsWith("__"));
+  sel.insertBefore(opt, before || null);
+  sel.value = friend.id;
+}
+// The expected payment's and a project's client lists end with "+ New client…", as "Client will repay" does (owner, 2026-11-19):
+// a name, saved as a client, then chosen; the form stays open. No name = the list goes back to what it held.
+function addNewClientOption_(sel, plainName) {
+  const add = document.createElement("option");
+  add.value = "__new__";
+  add.textContent = tr("business.newClient");
+  sel.appendChild(add);
+  if (sel._newClientOn) return;
+  sel._newClientOn = true;
+  sel.addEventListener("change", async () => {
+    if (sel.value !== "__new__") return;
+    const back = (sel._personShort && sel._personShort.last) || "";
+    const name = await askName_(tr("business.newClientPrompt"));
+    if (!name || !name.trim()) { sel.value = back; return; }
+    try {
+      const friend = await callApi("addFriend", { name: name.trim(), role: "client" });
+      rememberPerson_(friend);
+      addPersonToShortList_(sel, friend, plainName);   // (a project's client list shows plain names)
+    } catch (err) {
+      sel.value = back;
+      const where = document.getElementById(sel.id === "project-client" ? "project-form-error" : "expected-form-error");
+      if (where) where.textContent = err.message;   // the form's own error line
+    }
+  });
+}
+// "More…" chosen: the box goes back to what it held, and the friends screen opens. The box's own listeners never see "More…".
+document.addEventListener("change", (e) => {
+  const sel = e.target, o = sel && sel._personShort;
+  if (!o) return;
+  const v = selectValue_.get.call(sel);
+  if (v !== PERSON_MORE_) { if (!v.startsWith("__")) o.last = v; return; }
+  e.stopImmediatePropagation();
+  selectValue_.set.call(sel, o.last || "");
+  const add = [...sel.options].find((x) => x.value.startsWith("__add") || x.value === "__new__");
+  openFriendScreen_({
+    title: o.title ? o.title() : "", noneKey: o.noneKey,
+    items: o.people || [], current: o.last,
+    onPick: (id) => { sel.value = id; sel.dispatchEvent(new Event("change", { bubbles: true })); },
+    onAdd: add ? () => { selectValue_.set.call(sel, add.value); sel.dispatchEvent(new Event("change", { bubbles: true })); } : null,
+    addLabel: add ? add.textContent : "",
+  });
+}, true);
+
 function getAccessCode() {
   return localStorage.getItem("accessCode") || "";
 }
@@ -1420,7 +1725,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   populatePaymentMethodOptions();
   ["paid_by", "payment_method"].forEach((id, k) => {
     const sel = document.getElementById(id);
-    if (keptPicks[k] && Array.from(sel.options).some((o) => o.value === keptPicks[k])) sel.value = keptPicks[k];
+    if (keptPicks[k] && (Array.from(sel.options).some((o) => o.value === keptPicks[k]) || hasPersonPick_(sel, keptPicks[k]))) sel.value = keptPicks[k];
   });
   togglePaymentMethodVisibility();   // paid by may have been restored: show/hide the payment method to match
   populateToPaymentMethodOptions();
@@ -1675,7 +1980,7 @@ function populatePaidByOptions() {
 
     // By name (Lucho, 2026-11-18: in the order they were added, a long list was hard to search).
     const locale = I18n.getLang() === "es" ? "es" : "en";
-    plainFriends_().slice().sort((a, b) => friendLabel_(a).localeCompare(friendLabel_(b), locale, { sensitivity: "base" })).forEach((f) => {
+    plainFriends_().slice().sort((a, b) => a.name.localeCompare(b.name, locale, { sensitivity: "base" })).forEach((f) => {   // (the name itself: a 🏢 in front does not count)
       const opt = document.createElement("option");
       opt.value = f.id;
       opt.textContent = friendLabel_(f);
@@ -1687,6 +1992,16 @@ function populatePaidByOptions() {
     addOpt.textContent = tr("common.addFriend");
     select.appendChild(addOpt);
   }
+  // Me (or nobody yet) first, then the five used most recently and More… (owner, 2026-11-19); for an income, who paid you last.
+  personShortList_(select, {
+    fixed: ["me"],
+    title: () => tr(selectedType === "income" ? "friendPick.payer" : "friendPick.choose"),
+    lastUsed: (id) => {
+      if (selectedType !== "income") return personLastUsed_(id);
+      const p = (meta.payors || []).find((x) => x.id === id);
+      return p ? String(p.last_income || "") : "";
+    },
+  });
 
   togglePaymentMethodVisibility();
 }
@@ -1697,7 +2012,7 @@ function pmHidden_(pm) { return String(pm.hidden || "") === "yes"; }
 function keepHiddenAccountOption_(selectId, pmId) {
   const pm = pmId && meta.paymentMethods.find((p) => p.id === pmId);
   const select = document.getElementById(selectId);
-  if (!pm || !pmHidden_(pm) || Array.from(select.options).some((o) => o.value === pmId)) return;
+  if (!pm || !pmHidden_(pm) || hasPersonPick_(select, pmId)) return;
   const opt = document.createElement("option");
   opt.value = pm.id;
   opt.textContent = pmPickLabel_(pm);
@@ -1728,6 +2043,7 @@ function populatePaymentMethodOptions() {
   addOpt.value = "__add__";
   addOpt.textContent = tr("common.addPaymentMethod");
   select.appendChild(addOpt);
+  accountShortList_(select);
 }
 
 // Transfers only: "To" is the account the money lands in (see
@@ -1760,6 +2076,7 @@ function populateToPaymentMethodOptions() {
   }
   select.value = previous;
   if (select.value !== previous) select.value = "";
+  accountShortList_(select);
 }
 document.getElementById("to_payment_method").addEventListener("change", (e) => {
   if (e.target.value !== "__add__") return;
@@ -1997,8 +2314,9 @@ let repaymentDirectionChoice = "i_owe_them"; // "I paid them"; or "they_owe_me" 
 // call (convertEntryToRepayment / convertEntryToLoan), which refuses safely
 // when the entry is already part of a loan/repayment and puts everything
 // back if anything fails.
+// A Needs review item opened with "Edit in full form" offers them too (owner, 2026-11-19): the same conversions its card's buttons make.
 function repaymentAvailable_() {
-  return selectedType === "transfer" && !confirmingPendingId &&
+  return selectedType === "transfer" &&
     (!editingEntryId || editingEntryOriginalType === "expense" || editingEntryOriginalType === "income" || editingEntryOriginalType === "transfer" || editingEntryOriginalType === "investment");
 }
 
@@ -2041,7 +2359,7 @@ function presetDebtKind_(entry) {
   if (!kind || !friendId) return;
   populateRepaymentFriendOptions_();
   const select = document.getElementById("repayment-friend");
-  if (!Array.from(select.options).some((o) => o.value === friendId)) return;   // a hidden person: stays "Between my accounts", as before
+  if (!hasPersonPick_(select, friendId)) return;   // a hidden person: stays "Between my accounts", as before
   select.value = friendId;
   document.getElementById("transfer-kind").value = kind;
   editingDebtOriginal_ = { kind, friendId, direction: kind === "repayment" ? editingRepayment_.direction : editingLoanMovement_,
@@ -2064,7 +2382,9 @@ function populateRepaymentFriendOptions_() {
   // People with something owed either way come first (design review 2026-11-12); the rest keep their order. Names only:
   // the phone's own picker cuts long lines, so the balance shows in one line under it once a person is picked.
   const hasBalance = (f) => !!loansLastBalances_ && loansLastBalances_.some((b) => b.friend_id === f.id && (b.balances || []).some((x) => Math.abs(Number(x.net) || 0) > 0.004));
-  const plain = plainFriends_();
+  // Each part by name (owner, 2026-11-19: one sorting logic; the rest used to be in the order they were added).
+  const locale = I18n.getLang() === "es" ? "es" : "en";
+  const plain = plainFriends_().slice().sort((a, b) => a.name.localeCompare(b.name, locale, { sensitivity: "base" }));
   plain.filter(hasBalance).concat(plain.filter((f) => !hasBalance(f))).concat(groupFriendsNewestFirst_()).forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
@@ -2076,6 +2396,11 @@ function populateRepaymentFriendOptions_() {
   addOpt.textContent = tr("common.addFriend");
   select.appendChild(addOpt);
   if (previous && previous !== "__add__" && meta.friends.some((f) => f.id === previous)) select.value = previous;
+  // The people with something owed come first instead of the five used most recently (owner, 2026-11-19); trip groups stay listed.
+  personShortList_(select, {
+    top: (people) => { const owing = people.filter((p) => hasBalance({ id: p.id })).map((p) => p.id); return owing.length ? owing : friendQuickIds_(people); },
+    always: (id) => { const f = (meta.friends || []).find((x) => x.id === id); return !!f && isGroupFriend_(f); },
+  });
 }
 
 // On the dates of a trip, a new Repayment / New loan starts with that trip's group as the friend (only when
@@ -2341,7 +2666,6 @@ function resetSplitState() {
   customSplitAmounts = {};
   splitPercents = {};
   customOwnAmount = "";
-  splitFriendsExpanded = false;
   document.getElementById("split-toggle").checked = false;
   paidByAutoSplit_ = null;
   document.getElementById("split-detail").hidden = true;
@@ -2408,8 +2732,6 @@ document.getElementById("date").addEventListener("change", paintSplitDueChips_);
 // the third row and expands to everyone (then "Less"). Rows are measured
 // from the real layout, since chip widths vary with the names. A selected
 // friend is never left hidden — that forces the list open instead.
-let splitFriendsExpanded = false;
-const SPLIT_FRIEND_MAX_ROWS = 3;
 
 // A trip's hidden "group" friend (Splitwise-style trips): one per trip, never in ordinary friend lists.
 function isGroupFriend_(f) { return !!f.trip_id; }
@@ -2514,78 +2836,53 @@ function syncSplitGroupSize_() {
 document.getElementById("split-group-count").addEventListener("input", () => renderSplitSummary());
 document.getElementById("split-group-count").addEventListener("change", () => { setSplitGroupCount_(splitGroupCount_()); renderSplitSummary(); });
 
+function toggleSplitFriend_(id, on) {
+  const f = (meta.friends || []).find((x) => x.id === id);
+  if (on === undefined) on = !splitFriendIds.has(id);
+  if (!on) {
+    splitFriendIds.delete(id);
+    delete customSplitAmounts[id];
+  } else if (!splitFriendIds.has(id)) {
+    splitFriendIds.add(id);
+    if (f && isGroupFriend_(f)) setSplitGroupCount_(tripGroupSizeSaved_(f.trip_id) || 2);
+  }
+  // The friends screen sits outside the form, so its picks never reached the draft (testers, 2026-11-20: a reopened draft
+  // came back without them and was saved as a smaller split). Every change of who shares it is saved with the draft.
+  scheduleEntryDraftSave_();
+}
+// Shared with: the trip's group (Splitwise) first, then the five friends used most recently and anyone already picked, then "More…",
+// which opens the friends screen with everyone by name (owner, 2026-11-19; it was three rows of buttons with a fold).
 function renderSplitFriendChips() {
   const container = document.getElementById("split-friend-chips");
-  container.innerHTML = "";
   const eligible = splitFriendsList_();
   document.getElementById("split-group-hint").hidden = !eligible.some(isGroupFriend_);
-  const sorted = eligible
-    .map((f, i) => ({ f, i }))
-    .sort((a, b) => (isGroupFriend_(b.f) - isGroupFriend_(a.f)) || (b.f.last_used || "").localeCompare(a.f.last_used || "") || a.i - b.i)
-    .map((x) => x.f);
-
-  const chips = sorted.map((f) => {
-    const chip = document.createElement("div");
-    chip.className = "tag-chip" + (splitFriendIds.has(f.id) ? " selected" : "");
-    chip.textContent = friendLabel_(f);
-    chip.addEventListener("click", () => {
-      if (splitFriendIds.has(f.id)) {
-        splitFriendIds.delete(f.id);
-        delete customSplitAmounts[f.id];
-      } else {
-        splitFriendIds.add(f.id);
-        if (isGroupFriend_(f)) setSplitGroupCount_(tripGroupSizeSaved_(f.trip_id) || 2);
-      }
-      renderSplitFriendChips();
-      renderSplitRows();
-      renderSplitSummary();
-    });
-    container.appendChild(chip);
-    return { f, chip };
+  const items = eligible.map((f) => ({ id: f.id, label: friendLabel_(f) }));
+  const redraw = () => { renderSplitFriendChips(); renderSplitRows(); renderSplitSummary(); };
+  const chips = renderFriendQuickChips_({
+    box: container, items, selected: splitFriendIds,
+    first: eligible.filter(isGroupFriend_).map((f) => f.id),
+    onToggle: (id) => { toggleSplitFriend_(id); redraw(); saveEntryDraftNow_(); },   // at once: the app can be closed right after a tap
+    onMore: () => openFriendScreen_({
+      many: true, items: items.filter((x) => !isGroupFriend_(eligible.find((f) => f.id === x.id))),
+      selected: [...splitFriendIds],
+      top: friendQuickIds_(items.filter((x) => !isGroupFriend_(eligible.find((f) => f.id === x.id)))),
+      onDone: (ids) => {
+        eligible.filter((f) => !isGroupFriend_(f)).forEach((f) => toggleSplitFriend_(f.id, ids.includes(f.id)));
+        redraw();
+        saveEntryDraftNow_();
+      },
+      onAdd: () => document.getElementById("split-add-friend-btn").click(),
+    }),
   });
 
   // The trip's group picked: everyone else folds away (its other people are counted in the group), so only the group chip
   // stays; tapping it again brings the whole list back (owner, 2026-11-15).
-  const groupPicked = sorted.some((f) => isGroupFriend_(f) && splitFriendIds.has(f.id));
+  const groupPicked = eligible.some((f) => isGroupFriend_(f) && splitFriendIds.has(f.id));
   document.getElementById("split-add-friend-btn").hidden = groupPicked;
   if (groupPicked) {
-    chips.forEach(({ f, chip }) => { chip.hidden = !splitFriendIds.has(f.id); });
-    return;
-  }
-
-  const toggle = document.createElement("div");
-  toggle.className = "tag-chip more-chip";
-  toggle.addEventListener("click", () => {
-    splitFriendsExpanded = !splitFriendsExpanded;
-    renderSplitFriendChips();
-  });
-
-  if (splitFriendsExpanded) {
-    toggle.textContent = tr("common.less");
-    container.appendChild(toggle);
-    return;
-  }
-
-  // Collapsed: needs a laid-out (visible) container to measure rows.
-  if (!container.offsetWidth) return;
-  const rowCount = () => {
-    const tops = new Set();
-    Array.from(container.children).forEach((el) => { if (!el.hidden) tops.add(el.offsetTop); });
-    return tops.size;
-  };
-  if (rowCount() <= SPLIT_FRIEND_MAX_ROWS) return; // everyone fits, no "More" needed
-
-  toggle.textContent = tr("common.more");
-  container.appendChild(toggle);
-  // Hide chips from the end until the "More…" chip lands within row 3.
-  let visible = chips.length;
-  while (visible > 0 && rowCount() > SPLIT_FRIEND_MAX_ROWS) {
-    visible--;
-    chips[visible].chip.hidden = true;
-  }
-  if (chips.slice(visible).some((c) => splitFriendIds.has(c.f.id))) {
-    splitFriendsExpanded = true;
-    renderSplitFriendChips();
+    chips.forEach(({ item, chip }) => { chip.hidden = !splitFriendIds.has(item.id); });
+    const more = container.querySelector(".more-chip");
+    if (more) more.hidden = true;
   }
 }
 
@@ -2904,6 +3201,7 @@ document.getElementById("split-add-friend-btn").addEventListener("click", async 
   renderSplitFriendChips();
   renderSplitRows();
   renderSplitSummary();
+  saveEntryDraftNow_();   // the friend arrives after the tap's own draft save: keep them in the draft now
 });
 
 document.getElementById("amount").addEventListener("input", () => {
@@ -3659,6 +3957,10 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     // shared Airbnb balance due next week stayed in "Recent entries");
     // only an older backend (no programSplits) keeps it a normal entry.
     const isFutureDate = !editingEntryId && !confirmingPendingId && date > todayLocalISO();
+    // The same for a Needs review item in the full form (owner, 2026-11-19), after a question (below, before its confirm).
+    const pendingFuture = !!confirmingPendingId && date > todayLocalISO() && !!(meta.capabilities || {}).programPending &&
+      selectedType !== "transfer" && !isWithdrawal && selectedType !== "investment" && (selectedType === "income" || paidBy === "me") &&
+      (!splits || !!(meta.capabilities || {}).programSplits) && !waitingOn;
     const canProgram = isFutureDate && selectedType !== "transfer" && !isWithdrawal &&
       (selectedType === "income" || paidBy === "me") && (!splits || !!(meta.capabilities || {}).programSplits) &&
       !payingRecurringId_ && !waitingOn;
@@ -3702,6 +4004,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         // Swapping an existing expense/transfer for the repayment / loan: one
         // server call that checks everything first and undoes itself if
         // anything fails (see convertEntryInto_ in Loans.gs).
+        // A Needs review item too (opened with "Edit in full form"): the same call its card's buttons make, which also takes it out of Needs review.
+        const wasPending = !!confirmingPendingId;
         // A shared expense whose debts friends already (partly) repaid: the person decides what happens to those
         // repayments first, as when deleting the expense (keep = a "paid earlier, no loan" credit; cancel = they go).
         let repaymentsChoice;
@@ -3778,13 +4082,16 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           ...fields,
           repayments: repaymentsChoice,
           entry_id: editingEntryId,
-          ...(isLoanKind ? {} : { overpay_category_id: overpayCategoryId, overpay_pending_ok: !overpayCategoryId })
+          ...(isLoanKind ? {} : { overpay_category_id: overpayCategoryId, overpay_pending_ok: !overpayCategoryId }),
+          // Money that arrived from a bank is a repayment only of a debt on record (as the card's "Mark as repayment" asks).
+          ...(wasPending && !isLoanKind && direction === "they_owe_me" ? { require_owed: true } : {})
         };
         try {
           result = popupHiddenEarly ? await callApi(conversionAction, conversionPayload) : await callConversion_(conversionAction, conversionPayload);
         } finally {
           hideToast_(tr("common.savingToast"));
         }
+        if (wasPending) { dropReviewCard_(editingEntryId); refreshReviewQueue().catch(() => {}); refreshHomeGlance_(true); }
         exitEditMode();
       } else if (isLoanKind) {
         result = await callApi("addLoan", fields);
@@ -3832,6 +4139,39 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         : isLoanKind
         ? tr(direction === "they_owe_me" ? "repay.loanTo" : "repay.loanFrom", { name: friendName })
         : tr(direction === "they_owe_me" ? "repay.repaymentFrom" : "repay.repaymentTo", { name: friendName }) + (nothingOwedChoice === "before" ? tr("owed.openingNote") : "") + extraNote);
+    } else if (confirmingPendingId && pendingFuture) {
+      // A Needs review item given a future date in the full form (owner, 2026-11-19): asked first, then it becomes a Programmed item
+      // for that day, and leaves Needs review, in one server call (addRecurringExpense with pending_entry_id). From a bank or Apple Pay
+      // the money has usually already moved, so the question says so; "Fix the date" goes back to the form.
+      const w = lastConfirmPendingEntry_ && lastConfirmPendingEntry_.id === confirmingPendingId ? lastConfirmPendingEntry_ : {};
+      const fromBank = ["email", "shortcut", "statement", "house"].includes(w.source);
+      if (!categoryId) throw new Error(tr("error.pickCategory"));   // a Programmed item needs its category
+      if (!await askConfirmApp_(tr(fromBank ? "review.futureAskBank" : "review.futureAsk"), tr("confirmBtn.makeProgrammed"), { plain: true, cancel: tr("confirmBtn.fixDate") })) {
+        document.getElementById("date").focus();
+        throw new Error(tr("review.futureFixDate"));
+      }
+      const pendingId = confirmingPendingId;
+      const programmedExtras = {};
+      if (splits && splits.length) programmedExtras.splits = splits.map((s) => ({ friend_id: s.friend_id, amount: s.amount }));
+      if (programmedTagsOn_() && tagIds.length) programmedExtras.tag_ids = tagIds;
+      const item = repeat ? {
+        category_id: categoryId, description, amount, currency, active: true,
+        frequency: repeat.frequency, interval: repeat.interval, interval_unit: repeat.interval_unit,
+        start_date: date, day: Number(date.slice(8, 10)), month: Number(date.slice(5, 7)), ...programmedExtras
+      } : { category_id: categoryId, description, amount, currency, frequency: "once", date, active: true, trip_id: tripId, ...programmedExtras };
+      writesDone = true;   // the form closes now; a refusal comes back as a message and the item stays waiting
+      closeConfirmPendingPopup();
+      resetEntryFormFields_();
+      dropReviewCard_(pendingId);
+      saveBehindScreen_(async () => {
+        await callApi("addRecurringExpense", { ...item, pending_entry_id: pendingId });
+        showToast_(tr("entry.programmedNotice", { date: listDate_(date) }), false, 6000);
+      }, async () => {
+        refreshReviewQueue().catch(() => {});
+        refreshExpectedRecurring();
+        refreshHomeGlance_(true);
+      });
+      return;
     } else if (confirmingPendingId) {
       // Confirming a pending (review-queue) entry through the full form
       // — Phase 5.7's "Split" action. Same field set as a normal update,
@@ -3859,7 +4199,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         ...waitingFields
       }, confirmingPendingId), {
         splits: selectedType === "expense" && (paidBy !== "me" || (splits && splits.length)) ? (charge.splits || []) : null,
-        tagIds
+        tagIds,
+        planId: (reviewPlanFor_(confirmingPendingId) || {}).recurring_id || null,   // the card's "This is my Salary for August", left ticked
+        repeat   // "Repeat…": the confirmed entry becomes the first payment of a new Programmed item (saveEntryAll)
       });
       backgroundSaved = { kind: "confirm", id: confirmingPendingId };
     } else if (editingEntryId && editingRepayment_ && selectedType !== "transfer") {
@@ -4389,6 +4731,17 @@ function findCategory(id) {
   return meta.categories.find((cat) => cat.id === id);
 }
 
+// The second part of a row's grey line (owner, 2026-11-20; it replaced "Me"): the account that paid or received, "BCP → Cash" for a move
+// between two accounts, and only the friend's name when a friend paid an expense. Nothing when no account is on record (income with no
+// account still names its payer). Shown only, never a button: a tap on it opens the entry like the rest of the row.
+function entryAccountMeta_(entry) {
+  const pmName = (id) => { const pm = id && meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname : ""; };
+  if (entry.type === "expense" && entry.paid_by && entry.paid_by !== "me") return escapeHtml(paidByLabel(entry));
+  const from = pmName(entry.payment_method_id), to = entry.type === "transfer" ? pmName(entry.to_payment_method_id) : "";
+  const text = from && to ? `${from} → ${to}` : (from || to || (entry.type === "income" ? paidByLabel(entry) : ""));
+  return text ? `<span class="entry-acct">${escapeHtml(text)}</span>` : "";
+}
+
 // What an entry's row leads with. An investment has no category in the app:
 // it shows the PLATFORM it went to — or, for a withdrawal, came back from —
 // instead (a historical investment with no platform falls back to its
@@ -4404,17 +4757,17 @@ function entryHeadline_(entry) {
     const text = l.kind === "repayment"
       ? tr(paidThem ? "entry.repaymentTo" : "entry.repaymentFrom", { friend: l.friend })
       : tr(paidThem ? "entry.loanFrom" : "entry.loanTo", { friend: l.friend });
-    return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(text)}`, meta: paidByLabel(entry) };
+    return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(text)}`, meta: entryAccountMeta_(entry) };
   }
   if (exchangeLegSide_(entry)) {   // grey transfer dot, named for what it is instead of "Between Accounts"
-    return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(tr("transfer.kind.exchange"))}`, meta: paidByLabel(entry) };
+    return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(tr("transfer.kind.exchange"))}`, meta: entryAccountMeta_(entry) };
   }
   if (entry.type !== "investment") {
     const cat = findCategory(entry.category_id);
     const marker = cat && cat.icon
       ? `<span class="entry-cat-icon" style="background:${safeColor_(cat.color)}">${escapeHtml(cat.icon)}</span>`
       : `<span class="type-dot" data-type="${entry.type}"></span>`;
-    return { title: `${marker}${escapeHtml(categoryName(entry.category_id))}`, meta: paidByLabel(entry) };
+    return { title: `${marker}${escapeHtml(categoryName(entry.category_id))}`, meta: entryAccountMeta_(entry) };
   }
   const withdrawal = Number(entry.amount) < 0;
   const pmName = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname : ""; };
@@ -4467,7 +4820,7 @@ function paidByLabel(entryOrPaidBy) {
   return f ? f.name : paidBy;
 }
 
-// The small grey line under an entry's description: date, who paid, then the
+// The small grey line under an entry's description: date, the account (entryAccountMeta_), then the
 // entry's labels (Tags) as little pills. Labels the app doesn't know (a tag
 // deleted since) are skipped.
 function entryMetaHtml_(entry, headline) {
@@ -4697,7 +5050,7 @@ function buildExchangePairRow_(p) {
   left.innerHTML = `
     <div class="entry-category">💱 ${escapeHtml(tr("transfer.kind.exchange"))}</div>
     ${house ? `<div class="entry-desc">${escapeHtml(house)}</div>` : ""}
-    <div class="entry-meta">${escapeHtml([p.date, accounts].filter(Boolean).join(" · "))}</div>
+    <div class="entry-meta">${escapeHtml(listDate_(p.date))}${accounts ? ` · <span class="entry-acct">${escapeHtml(accounts)}</span>` : ""}</div>
     ${deleting ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>` : ""}
   `;
   const amount = document.createElement("div");
@@ -5288,10 +5641,14 @@ function entriesSetTrip_(sendIds, tripId) {
     }, { busy: "entriesBulk.linking" });
 }
 
-function openEntriesTagSheet_() {
+// Also Needs review's Edit mode "Tag (n)" (owner, 2026-11-19): opts = { checked, stopEditing, send(action, payload), after }.
+function openEntriesTagSheet_(opts) {
+  opts = opts || {};
   const tags = (meta.tags || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
   if (!tags.length) { showAppMessage_(tr("entriesBulk.tagNone")); return; }
-  const checked = entriesChecked_();
+  const checked = opts.checked || entriesChecked_();
+  const send = opts.send || ((action, payload) => callApi(action, entriesListThen_(payload)));
+  const after = opts.after || entriesAfterChange_;
   const body = document.getElementById("entries-bulk-body");
   document.getElementById("entries-bulk-title").textContent = tr("entriesBulk.tagTitle");
   body.innerHTML = `
@@ -5309,25 +5666,88 @@ function openEntriesTagSheet_() {
     closeEntriesBulkSheet_();
     const sendIds = checked.map((e) => e.id);
     const tagName = (tags.find((t) => t.id === tagId) || {}).name || "";
-    setEntriesEditing_(false);
+    (opts.stopEditing || (() => setEntriesEditing_(false)))();
     let result = null;
     saveBehindScreen_(async () => {
-      result = await callApi("setEntriesTag", entriesListThen_({ ids: sendIds, tag_id: tagId, mode }));
+      result = await send("setEntriesTag", { ids: sendIds, tag_id: tagId, mode });
     }, async () => {
-      await entriesAfterChange_();
+      await after();
       if (!result) return;
       if (!result.changed.length) { showAppMessage_(tr("entriesBulk.tagNoChange")); return; }
       showUndoToast_(tr(mode === "add" ? "entriesBulk.tagDoneAdd" : "entriesBulk.tagDoneRemove", { n: result.changed.length, tag: tagName }), async () => {
-        await callApi("undoSetEntriesTag", entriesListThen_({ ids: result.changed, tag_id: tagId, mode }));
+        await send("undoSetEntriesTag", { ids: result.changed, tag_id: tagId, mode });
         showToast_(tr("entriesBulk.catUndone"));
-        await entriesAfterChange_();
+        await after();
       });
     }, { busy: "entriesBulk.linking" });
   };
   document.getElementById("entries-bulk-tag-add").addEventListener("click", () => run("add"));
   document.getElementById("entries-bulk-tag-remove").addEventListener("click", () => run("remove"));
-  bringModalToFront_(document.getElementById("entries-bulk-backdrop"));
+  const backdrop = document.getElementById("entries-bulk-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
 }
+
+// ---- Tags on a Needs review item (owner, 2026-11-19) ----
+// The card stays small: its tags are a button under "More actions" (one item) and "Tag (n)" in Edit mode (several). Both save the tags
+// on the waiting entry at once; confirming keeps them, and the full form opens with them. Only where the backend says reviewTags.
+function reviewTagsOn_() { return !!(meta && meta.capabilities && meta.capabilities.reviewTags); }
+function reviewTagsLabel_(entry) {
+  const n = (entry.tagIds || []).length;
+  return n ? tr("review.tagsN", { n }) : tr("review.tags");
+}
+function openReviewTagsSheet_(entry) {
+  const picked = new Set(entry.tagIds || []);
+  const backdrop = document.getElementById("entries-bulk-backdrop");
+  const body = document.getElementById("entries-bulk-body");
+  document.getElementById("entries-bulk-title").textContent = tr("review.tagsTitle");
+  const draw = () => {
+    const tags = (meta.tags || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    body.innerHTML = `
+      <p class="hint">${escapeHtml(describeForConfirm_(entry.description || tr("review.noDescription"), formatAmount(entry.amount, entry.currency), entry.date))}</p>
+      ${tags.length ? "" : `<p class="hint">${escapeHtml(tr("review.tagsNone"))}</p>`}
+      <div class="tags-list review-tags-list">${tags.map((t) => `<div class="tag-chip${picked.has(t.id) ? " selected" : ""}" role="button" tabindex="0" aria-pressed="${picked.has(t.id)}" data-tag="${escapeHtml(t.id)}">${escapeHtml(t.name)}</div>`).join("")}</div>
+      <div class="add-inline" id="review-tags-add" role="button" tabindex="0">${escapeHtml(tr("common.addTag"))}</div>
+      <button type="button" class="primary" id="review-tags-save">${escapeHtml(tr("common.save"))}</button>`;
+    body.querySelectorAll(".tag-chip").forEach((chip) => chip.addEventListener("click", () => {
+      const id = chip.dataset.tag;
+      if (picked.has(id)) picked.delete(id); else picked.add(id);
+      draw();
+    }));
+    document.getElementById("review-tags-add").addEventListener("click", async () => {
+      const name = await askName_(tr("prompt.tagName"));
+      if (!name || !name.trim()) return;
+      try {
+        const tag = await callApi("addTag", { name: name.trim() });
+        if (!meta.tags.some((t) => t.id === tag.id)) meta.tags.push(tag);   // a tag of that name already there is reused
+        picked.add(tag.id);
+        populateTags();
+        draw();
+      } catch (err) { showAppMessage_(err.message); }
+    });
+    document.getElementById("review-tags-save").addEventListener("click", () => {
+      const tagIds = [...picked];
+      closeEntriesBulkSheet_();
+      entry.tagIds = tagIds;   // the card's button shows the new count at once
+      const btn = document.querySelector(`.review-item[data-entry-id="${CSS.escape(entry.id)}"] .review-tags-btn`);
+      if (btn) btn.textContent = reviewTagsLabel_(entry);
+      saveBehindScreen_(() => callApi("saveEntryTags", { entryId: entry.id, tagIds }), () => refreshReviewQueue().catch(() => {}));
+    });
+  };
+  draw();
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+document.getElementById("review-tag-selected-btn").addEventListener("click", () => {
+  const checked = reviewEntries_.filter((e) => reviewSelected_.has(e.id));
+  if (!checked.length) return;
+  openEntriesTagSheet_({
+    checked,
+    stopEditing: () => setReviewEditing_(false),
+    send: (action, payload) => callApi(action, payload),
+    after: () => refreshReviewQueue().catch(() => {})
+  });
+});
 document.getElementById("entries-bulk-close").addEventListener("click", closeEntriesBulkSheet_);
 
 // Sentence for entries that stay: one line per reason, naming them (up to a few).
@@ -5575,10 +5995,12 @@ function clearSearchFilterKind_(key) {
 const SEARCH_CHEVRON_ = `<svg class="search-fbtn-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>`;
 function renderSearchFilterBar_() {
   const bar = document.getElementById("search-filter-bar");
+  // The filters in use come first, on the left (owner, 2026-11-20), so they show without scrolling the row; the rest keep their order.
+  const before = [...bar.querySelectorAll(".search-fbtn.on .search-fbtn-text")].map((x) => x.dataset.filter).join();
   bar.innerHTML = "";
-  SEARCH_FILTER_KINDS_.forEach((k) => {
-    if (k.ui === "list" && !searchFilterGroups_(k.key).length) return;
-    const summary = searchFilterSummary_(k.key);
+  const kinds = SEARCH_FILTER_KINDS_.filter((k) => !(k.ui === "list" && !searchFilterGroups_(k.key).length))
+    .map((k) => ({ k, summary: searchFilterSummary_(k.key) }));
+  kinds.filter((x) => x.summary).concat(kinds.filter((x) => !x.summary)).forEach(({ k, summary }) => {
     const wrap = document.createElement("span");
     wrap.className = "search-fbtn" + (summary ? " on" : "");
     const b = document.createElement("button");
@@ -5601,6 +6023,7 @@ function renderSearchFilterBar_() {
     }
     bar.appendChild(wrap);
   });
+  if ([...bar.querySelectorAll(".search-fbtn.on .search-fbtn-text")].map((x) => x.dataset.filter).join() !== before) bar.scrollLeft = 0;
   syncSearchFilterBarShown_();
 }
 function syncSearchFilterBarShown_() {
@@ -5610,7 +6033,7 @@ function syncSearchFilterBarShown_() {
 // A tap anywhere away from the search (and from its filter windows) puts the row away again, unless it is in use.
 document.addEventListener("pointerdown", (e) => {
   if (!searchBarWanted_) return;
-  if (e.target.closest && e.target.closest(".entry-search-card, #search-filters-backdrop, #search-pick-backdrop")) return;
+  if (e.target.closest && e.target.closest(".entry-search-card, #search-filters-backdrop, #friend-screen-backdrop")) return;
   searchBarWanted_ = false;
   syncSearchFilterBarShown_();
 }, true);
@@ -5619,16 +6042,19 @@ document.addEventListener("pointerdown", (e) => {
 function searchFiltersChanged_() {
   renderSearchFilterBar_();
   document.getElementById("entry-search").dispatchEvent(new Event("input"));
-  const m = searchMatches_();
-  const label = m ? tr("search.f.show", { n: m.length }) : tr("search.f.showAll");
+  const label = searchShowLabel_();
   if (!document.getElementById("search-filters-backdrop").hidden) document.getElementById("search-filters-done").textContent = label;
-  if (!document.getElementById("search-pick-backdrop").hidden) document.getElementById("search-pick-done").textContent = label;
+  if (friendScreen_ && friendScreen_.filterKey) document.getElementById("friend-screen-done").textContent = label;
+}
+function searchShowLabel_() {
+  const m = searchMatches_();
+  return m ? tr("search.f.show", { n: m.length }) : tr("search.f.showAll");
 }
 
 function openSearchFilter_(key) {
   const k = SEARCH_FILTER_KINDS_.find((x) => x.key === key);
   if (!searchIndex && !searchIndexPromise) syncSearchIndex_().then(searchFiltersChanged_).catch(() => {});
-  if (k.ui === "list") { openSearchPick_(key, tr(k.title)); return; }
+  if (k.ui === "list") { openSearchPick_(key, tr(k.title)); searchFiltersChanged_(); return; }
   document.getElementById("search-filters-title").textContent = tr(k.title);
   renderSearchFilterBody_(k);
   document.getElementById("search-filters-backdrop").hidden = false;
@@ -5719,59 +6145,27 @@ function searchFilterUses_() {
   return u;
 }
 
-// A list filter (category, account, friend, tag, trip): a search box and checkmarks, most used first; checks apply at once.
-let searchPick_ = null;   // { key, groups }
+// A list filter (category, account, friend, tag, trip): the same full screen as "More…" (owner, 2026-11-20), checkmarks that apply
+// at once, what is already picked on top. By name (categories with "Other" last, under Expenses / Income); trips by date: current
+// and upcoming first, soonest first, then past ones, newest first.
 function openSearchPick_(key, title) {
-  const uses = searchFilterUses_()[key];
-  const n = (x) => uses.get(key === "friends" ? x.name : x.id) || 0;
-  const label = (x) => searchFilterItemLabel_(key, x);
-  const groups = searchFilterGroups_(key).map((g) => ({ heading: g.heading, items: g.items.slice().sort((a, b) => n(b) - n(a) || String(label(a)).localeCompare(String(label(b)))) }));
-  searchPick_ = { key, groups };
-  document.getElementById("search-pick-title").textContent = title;
-  document.getElementById("search-pick-find").value = "";
-  renderSearchPick_();
-  document.getElementById("search-pick-backdrop").hidden = false;
-  searchFiltersChanged_();
-}
-function renderSearchPick_() {
-  if (!searchPick_) return;
-  const { key, groups } = searchPick_;
-  const q = normalizeSearchText_(document.getElementById("search-pick-find").value.trim());
-  const list = document.getElementById("search-pick-list");
-  list.innerHTML = "";
-  let any = false;
-  groups.forEach((g) => {
-    const shown = g.items.filter((x) => !q || normalizeSearchText_(searchFilterItemLabel_(key, x)).includes(q));
-    if (!shown.length) return;
-    any = true;
-    if (g.heading) { const h = document.createElement("h4"); h.textContent = g.heading; list.appendChild(h); }
-    shown.forEach((x) => {
-      const row = document.createElement("button");
-      row.type = "button";
-      const on = () => searchFilters_[key].includes(x.id);
-      row.className = "search-pick-row" + (on() ? " on" : "");
-      row.setAttribute("aria-pressed", on() ? "true" : "false");
-      row.innerHTML = `<span class="search-pick-name"></span><span class="search-pick-check" aria-hidden="true">✓</span>`;
-      row.querySelector(".search-pick-name").textContent = searchFilterItemLabel_(key, x);
-      row.addEventListener("click", () => {
-        searchFilters_[key] = on() ? searchFilters_[key].filter((id) => id !== x.id) : searchFilters_[key].concat(x.id);
-        row.classList.toggle("on", on());
-        row.setAttribute("aria-pressed", on() ? "true" : "false");
-        searchFiltersChanged_();
-      });
-      list.appendChild(row);
-    });
+  const today = todayLocalISO();
+  const tripOrder = (a, b) => {
+    const aPast = a.end_date < today, bPast = b.end_date < today;
+    if (aPast !== bPast) return aPast ? 1 : -1;
+    return aPast ? String(b.start_date).localeCompare(String(a.start_date)) : String(a.start_date).localeCompare(String(b.start_date));
+  };
+  const groups = searchFilterGroups_(key).map((g) => {
+    const items = key === "cats" ? sortedCategories_(g.items) : key === "trips" ? g.items.slice().sort(tripOrder)
+      : g.items.slice().sort((x, y) => byName_({ label: searchFilterItemLabel_(key, x) }, { label: searchFilterItemLabel_(key, y) }));
+    return { heading: g.heading, items: items.map((x) => ({ id: x.id, label: searchFilterItemLabel_(key, x) })) };
   });
-  if (!any) list.innerHTML = `<p class="hint">${escapeHtml(tr("search.f.findNone"))}</p>`;
+  openFriendScreen_({
+    title, groups, ordered: true, many: true, pickedFirst: true, filterKey: key,
+    selected: searchFilters_[key], noneKey: "search.f.findNone", doneLabel: searchShowLabel_(),
+    onToggle: (ids) => { searchFilters_[key] = ids.slice(); searchFiltersChanged_(); }
+  });
 }
-function closeSearchPick_() {
-  document.getElementById("search-pick-backdrop").hidden = true;
-  searchPick_ = null;
-}
-document.getElementById("search-pick-find").addEventListener("input", renderSearchPick_);
-document.getElementById("search-pick-find").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); } });
-document.getElementById("search-pick-close").addEventListener("click", closeSearchPick_);
-document.getElementById("search-pick-done").addEventListener("click", closeSearchPick_);
 document.getElementById("search-filters-close").addEventListener("click", closeSearchFilters_);
 document.getElementById("search-filters-done").addEventListener("click", closeSearchFilters_);
 
@@ -5894,8 +6288,8 @@ function setupEntrySearch_() {
 // A half-typed NEW entry is kept on the phone as it is typed and restored the
 // next time the app opens (after the update banner's reload, an app switch the
 // phone kills, a call), then cleared the moment it is saved. Nothing is sent
-// anywhere; it never exists for an entry being edited or confirmed. Splits and
-// repayments are not part of it. Older than a day = dropped.
+// anywhere; it never exists for an entry being edited or confirmed. It keeps the
+// split (entryDraftSplit_); repayments are not part of it. Older than a day = dropped.
 const ENTRY_DRAFT_KEY = "entryDraft_v1";
 const ENTRY_DRAFT_MAX_AGE_MS = 24 * 3600 * 1000;
 let entryDraftTimer_ = null;
@@ -5967,8 +6361,11 @@ function entryDraftSplit_() {
   const due = document.getElementById("split-due");
   const names = {};
   [...splitFriendIds].forEach((id) => { const f = (meta.friends || []).find((x) => x.id === id); if (f) names[id] = f.name; });
+  // Friends a restored draft is still waiting for (not in the friends list yet) stay in it: a save meanwhile must not drop them.
+  const waiting = draftSplitWaiting_ ? draftSplitWaiting_.missing.filter((id) => !splitFriendIds.has(id)) : [];
+  waiting.forEach((id) => { const n = draftSplitWaiting_.sp.names && draftSplitWaiting_.sp.names[id]; if (n) names[id] = n; });
   return {
-    friends: [...splitFriendIds], names, mode: splitMode, custom: { ...customSplitAmounts }, percents: { ...splitPercents },
+    friends: [...splitFriendIds, ...waiting], names, mode: splitMode, custom: { ...customSplitAmounts }, percents: { ...splitPercents },
     own: customOwnAmount, groupCount: splitGroupCount_(), due: document.getElementById("split-due-block").hidden ? "" : due.value
   };
 }
@@ -6010,7 +6407,7 @@ let draftPaidByWaiting_ = "";
 // A new friends list arrived (loadMeta): a restored draft takes back the friends (and the "Paid by") it was waiting for.
 function resumeDraftSplit_() {
   const form = document.getElementById("paid_by");
-  if (draftPaidByWaiting_ && Array.from(form.options).some((o) => o.value === draftPaidByWaiting_)) {
+  if (draftPaidByWaiting_ && hasPersonPick_(form, draftPaidByWaiting_)) {
     form.value = draftPaidByWaiting_;
     draftPaidByWaiting_ = "";
     togglePaymentMethodVisibility();
@@ -6201,11 +6598,16 @@ function updateRepeatField_() {
   const field = document.getElementById("repeat-field");
   const can = !!(meta && meta.capabilities && meta.capabilities.entryRepeat);
   const typeOk = selectedType === "expense" || selectedType === "income";
-  const show = can && typeOk && !payingRecurringId_ && !confirmingPendingId;
+  const show = can && typeOk && !payingRecurringId_;
   field.hidden = !show;
   if (!show) { if (repeatFreq_) resetRepeat_(); return; }
-  const linked = !!(editingEntryId && editingEntryRecurringId_);
-  document.getElementById("repeat-linked").hidden = !linked;
+  // A Needs review item opened in the full form offers Repeat too (owner, 2026-11-19), except one the app matched to a Programmed
+  // item ("This is my Salary for August", left ticked): it already belongs to one, and Repeat would make a second.
+  const plan = confirmingPendingId ? reviewPlanFor_(confirmingPendingId) : null;
+  const linked = !!(editingEntryId && editingEntryRecurringId_) || !!plan;
+  const linkedEl = document.getElementById("repeat-linked");
+  linkedEl.hidden = !linked;
+  if (linked) linkedEl.textContent = plan ? tr("repeat.planned", { name: plan.description || tr("plan.thePlanned"), month: paceMonthName_(plan.month, true) }) : tr("repeat.linked");
   document.getElementById("repeat-open-btn").hidden = linked || !!repeatFreq_;
   document.getElementById("repeat-detail").hidden = linked || !repeatFreq_;
 }
@@ -6656,6 +7058,11 @@ function closeEditPopup() {
 // of a plain updateEntry) — everything about the form itself is
 // identical to a normal edit.
 let lastConfirmPendingEntry_ = null;   // the review-queue entry the full form was opened for, so a refusal can bring it back
+// The Programmed item a waiting entry will be linked to when confirmed (its card's "This is my Salary for August", left ticked), or null.
+function reviewPlanFor_(id) {
+  const e = lastConfirmPendingEntry_ && lastConfirmPendingEntry_.id === id ? lastConfirmPendingEntry_ : (reviewEntries_ || []).find((x) => x.id === id);
+  return e && e.plan_match && !reviewPlanOff_.has(id) ? e.plan_match : null;
+}
 async function openConfirmPendingPopup(entry) {
   lastConfirmPendingEntry_ = entry;
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
@@ -6677,6 +7084,7 @@ async function openConfirmPendingPopup(entry) {
   // Discarding is the review queue row's own separate action — hidden
   // here rather than duplicated, so there's only one place to do it.
   document.getElementById("delete-entry-btn").hidden = true;
+  updateRepeatField_();   // Repeat… is offered here too (owner, 2026-11-19), unless it is matched to a Programmed item
 }
 
 function closeConfirmPendingPopup() {
@@ -6781,7 +7189,7 @@ function setQueuedReviewActions_(actions) {
 // extra: { splits, tagIds } for a confirmation made through the full form (null/absent = nothing to send for them).
 function queueReviewAction_(id, action, fields, extra) {
   const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
-  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null });
+  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null, repeat: extra && extra.repeat ? extra.repeat : null });
   setQueuedReviewActions_(actions);
   // The item has left Needs review for the person: Overview / Budgets / Projections' "N wait" line drops it at once, not only after
   // Home's list is fetched again (journeys run, 2026-11-17: the old count stayed for 6 people). A failed save refetches the list.
@@ -6798,7 +7206,7 @@ function unqueueReviewAction_(id) {
 async function applyReviewAction_(a) {
   if (a.action === "confirm" && entrySaveOne_()) {
     // One trip: the row's changes, the confirm, its split and tags (backend saveEntryAll, kind "confirm").
-    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined, link_recurring_id: a.planId || undefined },
+    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined, link_recurring_id: a.planId || undefined, repeat: a.repeat || undefined },
       [["listEntries", { limit: entriesShown + 1 }]]));
     unqueueReviewAction_(a.id);
     if (res && res.tag_ask) askProgrammedTags_([res.tag_ask]);
@@ -7552,7 +7960,7 @@ document.getElementById("save-failed-banner").addEventListener("click", async ()
 // already set through Telegram.
 function investmentPlatformOptions_(selectedId) {
   const opts = meta.paymentMethods.filter((pm) => pm.type === "investment" && (!pmHidden_(pm) || pm.id === selectedId)).map((pm) =>
-    `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname)}</option>`
+    `<option value="${pm.id}"${ACCT_OPT_} ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname)}</option>`
   );
   return `<option value="">${escapeHtml(tr("review.pickPlatform"))}</option>` + opts.join("");
 }
@@ -7580,7 +7988,7 @@ function reviewTransferSideOptions_(selectedId) {
 }
 function transferAccountOptions_(selectedId, blankLabel) {
   const opts = meta.paymentMethods.filter((pm) => !pmHidden_(pm) || pm.id === selectedId).map((pm) =>
-    `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`
+    `<option value="${pm.id}"${ACCT_OPT_} ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`
   );
   return `<option value="">${blankLabel}</option>` + opts.join("");
 }
@@ -7735,6 +8143,10 @@ function syncReviewEditBar_() {
   conf.disabled = disc.disabled = n === 0;
   conf.textContent = n ? tr("reviewBulk.confirmN", { n }) : tr("review.confirm");
   disc.textContent = n ? tr("reviewBulk.discardN", { n }) : tr("review.discard");
+  const tagBtn = document.getElementById("review-tag-selected-btn");   // tags on several waiting items at once (owner, 2026-11-19)
+  tagBtn.hidden = !reviewTagsOn_();
+  tagBtn.disabled = n === 0;
+  tagBtn.textContent = n ? tr("reviewBulk.tagN", { n }) : tr("reviewBulk.tag");
   const selectable = reviewEntries_.filter((e) => !isPracticeReviewEntry_(e)).length;
   document.getElementById("review-selectall-btn").textContent = tr(n && n === selectable ? "friends.selectNone" : "friends.selectAll");
 }
@@ -7925,6 +8337,86 @@ document.getElementById("review-discard-selected-btn").addEventListener("click",
   });
 });
 
+// ---- A waiting currency exchange as ONE Needs review item (owner, 2026-11-20) ----
+// Both sides are stored as two one-sided transfers sharing exchange_pair (backend CurrencyExchange.gs). Which side a leg is: the side
+// whose account is set, else what the exchange house's id says.
+function reviewXSide_(e) {
+  if (e.payment_method_id && !e.to_payment_method_id) return "out";
+  if (e.to_payment_method_id && !e.payment_method_id) return "in";
+  const ext = String(e.external_id || "");
+  return /^cm-in-/.test(ext) ? "in" : (/^cm-out-/.test(ext) ? "out" : "");
+}
+function reviewExchangePairs_(entries) {
+  const byOut = new Map(), skip = new Set();
+  entries.forEach((e) => {
+    const pair = String(e.exchange_pair || "");
+    if (!pair || e.type !== "transfer" || skip.has(e.id) || byOut.has(e.id)) return;
+    const p = entries.find((x) => x.id !== e.id && x.type === "transfer" && String(x.exchange_pair || "") === pair && x.currency !== e.currency);
+    if (!p) return;
+    const a = reviewXSide_(e), b = reviewXSide_(p);
+    let out = null, inn = null;
+    if (a !== "in" && b !== "out" && (a === "out" || b === "in")) { out = e; inn = p; }
+    else if (b !== "in" && a !== "out" && (b === "out" || a === "in")) { out = p; inn = e; }
+    if (!out) return;
+    byOut.set(out.id, { out, in: inn });
+    skip.add(inn.id);
+  });
+  return { byOut, skip };
+}
+function exchangeReviewItem_(x, list) {
+  const item = document.createElement("div");
+  item.className = "review-item review-exchange";
+  item.dataset.entryId = x.out.id;
+  item.innerHTML = `
+    <div class="review-item-top">
+      <div>
+        <div class="review-item-desc">${escapeHtml(x.out.description || x.in.description || tr("transfer.kind.exchange"))}</div>
+        <div class="review-item-meta">${listDate_(x.out.date)} · ${escapeHtml(tr("transfer.kind.exchange").toLowerCase())}</div>
+      </div>
+    </div>
+    <div class="review-item-amount review-x-amounts">${formatAmount(x.out.amount, x.out.currency)} → ${formatAmount(x.in.amount, x.in.currency)}</div>
+    <div class="review-item-fields">
+      <label class="review-transfer-label">${escapeHtml(tr("xleg.leftFrom"))}</label>
+      <select class="review-x-out">${reviewTransferSideOptions_(x.out.payment_method_id || "")}</select>
+      <label class="review-transfer-label">${escapeHtml(tr("xleg.arrivedIn"))}</label>
+      <select class="review-x-in">${reviewTransferSideOptions_(x.in.to_payment_method_id || "")}</select>
+    </div>
+    <div class="review-item-actions">
+      <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
+      <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
+    </div>`;
+  const outside = (v) => (v === REVIEW_OUTSIDE_ ? "" : v);
+  const done = () => {
+    holdTaps_();
+    item.remove();
+    document.getElementById("review-count").textContent = list.children.length;
+    if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
+  };
+  item.querySelector(".review-confirm-btn").addEventListener("click", async () => {
+    const outPm = outside(item.querySelector(".review-x-out").value), inPm = outside(item.querySelector(".review-x-in").value);
+    if (!outPm && !inPm) { showAppMessage_(tr("error.pickAccount")); return; }
+    const legFields = (e, from, to) => ({ category_id: e.category_id, description: e.description || "", amount: Math.abs(Number(e.amount)), payment_method_id: from, to_payment_method_id: to });
+    const acts = [{ id: x.out.id, action: "confirm", fields: legFields(x.out, outPm, "") }, { id: x.in.id, action: "confirm", fields: legFields(x.in, "", inPm) }];
+    acts.forEach((a) => queueReviewAction_(a.id, a.action, a.fields));
+    done();
+    try {
+      for (const a of acts) await applyReviewAction_(a);
+      refreshEntryList();
+      refreshHomeGlance_(true);
+      showToast_(tr("review.exchangeConfirmed"));
+    } catch (err) { /* stays queued: the next refresh retries it */ }
+  });
+  item.querySelector(".review-discard-btn").addEventListener("click", async () => {
+    const what = `${formatAmount(x.out.amount, x.out.currency)} → ${formatAmount(x.in.amount, x.in.currency)}`;
+    if (!await askConfirmApp_(tr("review.exchangeDiscardAsk", { what }), tr("confirmBtn.discard"))) return;
+    const acts = [{ id: x.out.id, action: "discard", fields: null }, { id: x.in.id, action: "discard", fields: null }];
+    acts.forEach((a) => queueReviewAction_(a.id, a.action, null));
+    done();
+    for (const a of acts) await applyReviewAction_(a).catch(() => {});
+  });
+  return item;
+}
+
 let reviewExpanded_ = new Set(), reviewMoreOpen_ = new Set();   // Needs review items the person opened / whose extra actions are showing
 async function refreshReviewQueue(prefetchedPending, skipFlush) {
   if (!skipFlush) await flushQueuedReviewActions_();
@@ -7953,8 +8445,13 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   if (homeTipsReady_ && !document.getElementById("screen-entries").hidden) offerReviewTip_();   // the first entry to wait may arrive long after opening
   list.innerHTML = "";
 
+  // A waiting currency exchange is ONE item for both sides (owner, 2026-11-20); Edit mode keeps one tick row per side.
+  const xPairs = reviewEditing_ ? { byOut: new Map(), skip: new Set() } : reviewExchangePairs_(entries);
+  document.getElementById("review-count").textContent = entries.length - xPairs.skip.size;   // an exchange counts once
   entries.forEach((entry) => {
     if (reviewEditing_) { list.appendChild(compactReviewRow_(entry)); return; }   // Edit mode: a tick row instead of the whole card
+    if (xPairs.skip.has(entry.id)) return;
+    if (xPairs.byOut.has(entry.id)) { list.appendChild(exchangeReviewItem_(xPairs.byOut.get(entry.id), list)); return; }
     const item = document.createElement("div");
     // Short rows (owner, 2026-11-12): an item starts closed (its top, warnings, category and a ✓ that confirms it as it is);
     // a tap opens the full form; the extra actions sit behind "More actions" (open by themselves when the app suspects one).
@@ -8025,8 +8522,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" || entry.type === "investment" ? `
       <button type="button" class="add-inline review-more-actions" aria-expanded="${moreOpen}">${tr("review.moreActions")}</button>
       <div class="review-item-secondary-actions">
-        <button type="button" class="add-inline review-type-btn">${tr("review.changeType")}</button>
-        ${entry.type === "expense" ? `<button type="button" class="add-inline review-split-btn">${tr("review.split")}</button>` : ""}
+        <button type="button" class="add-inline review-full-btn">${tr("review.editFull")}</button>
+        ${reviewTagsOn_() ? `<button type="button" class="add-inline review-tags-btn">${escapeHtml(reviewTagsLabel_(entry))}</button>` : ""}
         ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn${entry.loan_hint && entry.loan_hint.kind === "repayment" ? " review-hint-btn" : ""}">${tr("review.markRepayment")}</button>
         <button type="button" class="add-inline review-loan-btn${entry.loan_hint && entry.loan_hint.kind === "loan" ? " review-hint-btn" : ""}">${tr("review.convertLoan")}</button>` : ""}
         ${entry.type === "expense" || entry.type === "income" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
@@ -8034,6 +8531,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       </div>` : ""}
     `;
 
+    // Going into the description box selects its whole text, so typing replaces the bank's wording at once (owner, 2026-11-19).
+    // Only on arriving: a second tap inside the box places the cursor as usual.
+    const descInput = item.querySelector(".review-description");
+    descInput.addEventListener("focus", () => setTimeout(() => { if (document.activeElement === descInput) descInput.setSelectionRange(0, descInput.value.length); }, 0));
     const amountInput = item.querySelector(".review-amount");
     amountInput.addEventListener("input", (e) => {
       const sanitized = sanitizeAmountInputValue(e.target.value);
@@ -8134,8 +8635,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const fromVal = item.querySelector(".review-from").value, toVal = item.querySelector(".review-to").value;
         // Each side is an account or, said on purpose, "Outside my accounts": a box left on "Pick the account…" used to be saved
         // quietly as someone else's account (1.76.1).
-        if (!fromVal || !toVal) { showAppMessage_(tr("review.pickBothSides")); return; }
-        const fromId = fromVal === REVIEW_OUTSIDE_ ? "" : fromVal, toId = toVal === REVIEW_OUTSIDE_ ? "" : toVal;
+        // One side of a currency exchange (its partner never arrived): its blank side is the exchange house, never asked (owner, 2026-11-20).
+        const xLeg = !!exchangeSideOf_(entry);
+        if ((!fromVal || !toVal) && !xLeg) { showAppMessage_(tr("review.pickBothSides")); return; }
+        const fromId = !fromVal || fromVal === REVIEW_OUTSIDE_ ? "" : fromVal, toId = !toVal || toVal === REVIEW_OUTSIDE_ ? "" : toVal;
         if (!fromId && !toId) { showAppMessage_(tr("error.pickAccount")); return; }
         if (fromId && toId && fromId === toId) {
           showAppMessage_(tr("error.sameAccount"));
@@ -8256,23 +8759,29 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const rowDescription = item.querySelector(".review-description").value.trim();
         const amountEdited = !isNaN(amt) && amt > 0 && amt !== Math.abs(Number(entry.amount));
         const rowTripEl = item.querySelector(".review-trip");
+        // The account picked on the card (its box shows only when the item came with none) must reach the full form too (owner, 2026-11-20).
+        const rowAccountEl = item.querySelector(".review-account");
+        const rowAccount = rowAccountEl && !String(rowAccountEl.value || "").startsWith("__") ? rowAccountEl.value : "";
         return Object.assign({}, fresh, {
+          payment_method_id: rowAccount && rowAccount !== (entry.payment_method_id || "") ? rowAccount : (fresh.payment_method_id || ""),
           trip_id: rowTripEl ? rowTripEl.value : (fresh.trip_id || ""),
           category_id: rowCategory && rowCategory !== (entry.category_id || "") ? rowCategory : (fresh.category_id || rowCategory),
           description: rowDescription !== (entry.description || "") ? rowDescription : (fresh.description || ""),
           amount: amountEdited ? amt : fresh.amount,
-          loan_hint: entry.loan_hint   // the "looks like a loan again" friend, for the loan / repayment pop-up
+          loan_hint: entry.loan_hint,   // the "looks like a loan again" friend, for the loan / repayment pop-up
+          plan_match: entry.plan_match,   // "This is my Salary for August": the full form keeps that link (and offers no Repeat)
+          source: entry.source || fresh.source
         });
       };
       const withRowEdits = (open) => async () => {
         const merged = await entryWithRowEdits();
         if (merged) open(merged);
       };
-      // Any waiting entry can be opened in the full form to pick another type (Expense / Income / Investment / Transfer);
-      // saving there confirms it as that type. The Split button above does the same for an expense.
-      item.querySelector(".review-type-btn").addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
-      const splitBtn = item.querySelector(".review-split-btn"); // expenses only
-      if (splitBtn) splitBtn.addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
+      // "Edit in full form" (owner, 2026-11-19; it replaces "Change type" and "Split", which opened the same form): every field of the
+      // "+" form, Repeat and the transfer kinds included; saving there confirms it.
+      item.querySelector(".review-full-btn").addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
+      const tagsBtn = item.querySelector(".review-tags-btn");
+      if (tagsBtn) tagsBtn.addEventListener("click", () => openReviewTagsSheet_(entry));
       const repayBtn = item.querySelector(".review-repay-btn"); // not on a pending transfer
       if (repayBtn) repayBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "repay")));
       // Not an expense/income at all: the owner's own money moving between accounts. The card comes back as a
@@ -8315,7 +8824,7 @@ var exchangeContext_;
 function exchangeAccountOptions_(selectedId) {
   const own = meta.paymentMethods.filter((pm) => pm.type !== "investment" && (!pmHidden_(pm) || pm.id === selectedId));
   return `<option value="__pick__">${escapeHtml(tr("xch.pickAccount"))}</option>` +
-    own.map((pm) => `<option value="${pm.id}" ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("") +
+    own.map((pm) => `<option value="${pm.id}"${ACCT_OPT_} ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("") +
     `<option value="">${escapeHtml(tr("xch.outside"))}</option>`;
 }
 
@@ -8459,7 +8968,7 @@ function applyExchangeLegLayout_(kind) {
 function syncExchangeKindOption_(kindSelect) {
   if (!exchangeKindOption_) exchangeKindOption_ = kindSelect.querySelector('option[value="exchange"]');
   const has = !!kindSelect.querySelector('option[value="exchange"]');
-  const allowed = !editingEntryId;
+  const allowed = !editingEntryId || !!confirmingPendingId;   // a waiting item becomes one side of the exchange (as its card's button does)
   if (!allowed && has) {
     if (kindSelect.value === "exchange") kindSelect.value = "between";
     exchangeKindOption_.remove();
@@ -8482,7 +8991,9 @@ function syncExchangeInline_() {
   if (inline && !exchangeFormIsInline_()) {
     exchangeContext_ = null;
     slot.appendChild(form);
-    fillExchangeForm_({});
+    // A Needs review item: it becomes the side that left or arrived, keeping its bank reference (as its card's button does).
+    const w = confirmingPendingId && lastConfirmPendingEntry_ && lastConfirmPendingEntry_.id === confirmingPendingId ? lastConfirmPendingEntry_ : null;
+    fillExchangeForm_(w ? { entry: w, leg: w.type === "income" || (w.type === "transfer" && w.to_payment_method_id && !w.payment_method_id) ? "in" : "out" } : {});
   } else if (!inline && exchangeFormIsInline_()) {
     document.getElementById("exchange-modal-body").appendChild(form);
   }
@@ -8596,6 +9107,7 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
     document.getElementById("transfer-kind").value = "between";   // the form goes back to its pop-up, the sheet closes
     updateRepaymentUi_();
     if (newEntrySheetOpen_) closeNewEntrySheet_();
+    else if (confirmingPendingId) { closeConfirmPendingPopup(); if (ctx) dropReviewCard_(ctx.entry.id); }   // a Needs review item in the full form
   } else {
     closeExchangeModal_();
   }
@@ -15362,7 +15874,9 @@ async function showMyProfileScreen() {
   document.getElementById("my-profile-fits-card").hidden = !caps.profile;      // an older backend cannot do it
   document.getElementById("my-profile-dates-card").hidden = !caps.dateOrder;   // nor this
   document.getElementById("my-profile-tabs-card").hidden = !caps.navTabs;      // nor this
-  document.getElementById("my-profile-wa-card").hidden = !caps.whatsappBot;   // only where the owner offers it (WhatsApp.gs)
+  // Where the owner offers it, or (owner, 2026-11-19) on any copy whose backend takes invitation codes: the row then holds the
+  // code entry ("By invitation from JP") until a right code turns it into the usual card.
+  document.getElementById("my-profile-wa-card").hidden = !(caps.whatsappBot || caps.whatsappInvite);
   waOpenRow_(false);
   tabsOpenRow_(false);
   drawTabsCard_();
@@ -15372,7 +15886,7 @@ async function showMyProfileScreen() {
       callApi("getOwnerNames", {}),
       caps.profileState && caps.profile ? callApi("getProfileState", {}) : Promise.resolve(null),
       loadDevices_().catch(() => null),   // a failure here only leaves the row without its count; opening it tries again
-      caps.whatsappBot ? callApi("getWhatsAppBot", {}) : Promise.resolve(null)
+      caps.whatsappBot || caps.whatsappInvite ? callApi("getWhatsAppBot", {}) : Promise.resolve(null)
     ]);
     drawWhatsAppBot_(wa);
     renderOwnerNames_(names);
@@ -15402,19 +15916,44 @@ function waOpenRow_(open) {
   document.getElementById("wa-toggle").setAttribute("aria-expanded", open ? "true" : "false");
   document.getElementById("wa-chevron").textContent = open ? "⌄" : "›";
 }
-document.getElementById("wa-toggle").addEventListener("click", () => waOpenRow_(document.getElementById("wa-body").hidden));
+document.getElementById("wa-toggle").addEventListener("click", () => {
+  const opening = document.getElementById("wa-body").hidden;
+  waOpenRow_(opening);
+  // The setup tutorial starts when the person opens the row, never when the screen loads (it waits for the row to be drawn).
+  if (opening) setTimeout(() => { if (waRealWanted_()) startWaReal_(); }, 300);
+});
 function refreshPrivacyWa_() {
-  const el = document.getElementById("privacy-wa");
-  if (el) el.hidden = !(meta && meta.capabilities && meta.capabilities.whatsappBotOn);
-  // Telegram (and its Cloudflare relay) only for someone whose bot is linked (owner, 2026-11-18).
   const caps = (meta && meta.capabilities) || {};
+  // The bot is mentioned only to people who used it (owner, 2026-11-21: a mention implies more notices), and still after they turn
+  // it off, since JP's relay keeps their number until JP removes it. An older backend only says whether it is on now.
+  const waUsed = caps.whatsappBotUsed !== undefined ? !!caps.whatsappBotUsed : !!caps.whatsappBotOn;
+  const el = document.getElementById("privacy-wa");
+  if (el) el.hidden = !waUsed;
+  [["privacy-send", "privacy.send", "privacy.sendWa"], ["erase-kept-by-jp", "erase.keptByJp", "erase.keptByJpWa"]].forEach(([id, plain, wa]) => {
+    const p = document.getElementById(id);
+    if (!p) return;
+    p.setAttribute("data-i18n", waUsed ? wa : plain);   // a language switch redraws it with the same choice
+    p.textContent = tr(waUsed ? wa : plain);
+  });
+  // Telegram (and its Cloudflare relay) only for someone whose bot is linked (owner, 2026-11-18).
   const tg = document.getElementById("privacy-tg");
   if (tg) tg.hidden = !caps.telegramLinked;
   const relay = document.getElementById("privacy-tg-relay");
   if (relay) relay.hidden = !caps.telegramRelay;
 }
+let waBot_ = null;   // the server's last answer (getWhatsAppBot): the setup tutorial and "Open the bot" read it
 function drawWhatsAppBot_(s) {
+  waBot_ = s || null;
   const on = !!(s && s.on);
+  // Not offered yet: only the invitation code entry (owner's plan "WhatsApp invitation code", 2026-11-19).
+  const invited = !(s && s.offered === false);
+  document.getElementById("wa-redeem").hidden = invited;
+  document.getElementById("wa-redeem-error").textContent = "";
+  if (!invited) {
+    document.getElementById("wa-count").textContent = tr("prof.waByInvite");
+    ["wa-off", "wa-on", "wa-invite"].forEach((id) => { document.getElementById(id).hidden = true; });
+    return;
+  }
   document.getElementById("wa-count").textContent = s ? tr(on ? "prof.waIsOn" : "prof.waIsOff") : "";
   document.getElementById("wa-off").hidden = on;
   document.getElementById("wa-on").hidden = !on;
@@ -15425,7 +15964,10 @@ function drawWhatsAppBot_(s) {
     document.getElementById("wa-code").value = s.code || "";
   }
   document.getElementById("wa-nocode").hidden = !on || !!(s && s.code);   // never an empty box without a word
+  if (!on && s && s.number && !document.getElementById("wa-number").value) document.getElementById("wa-number").value = s.number;   // invited: filled in
+  document.getElementById("wa-invite").hidden = !(meta && meta.capabilities && meta.capabilities.whatsappInviteMake);
   document.getElementById("wa-copy-btn").hidden = on && !(s && s.code);
+  document.getElementById("wa-open-bot-btn").hidden = !(on && s && s.botNumber);
   if (s && meta && meta.capabilities) meta.capabilities.whatsappBotOn = on;
   refreshPrivacyWa_();
 }
@@ -15449,11 +15991,108 @@ document.getElementById("wa-off-btn").addEventListener("click", async () => {
   catch (e) { document.getElementById("wa-copied").textContent = e.message; }
   finally { btn.disabled = false; }
 });
+// The friend's side: the code JP sent + her own number. A right code marks the copy (backend/WhatsApp.gs) and the same row
+// becomes the usual card with the number filled in. It waits for the answer on purpose: what shows next depends on it.
+document.getElementById("wa-redeem-btn").addEventListener("click", async () => {
+  const err = document.getElementById("wa-redeem-error");
+  const typed = document.getElementById("wa-redeem-code").value.trim();
+  // The whole invitation pasted in the box works too (owner's plan "Bot tutorial", 2026-11-20): its code, and the bot's number
+  // from its link, so this copy can open the bot.
+  const found = typed.match(/WA-?[0-9A-Z]{4}-?[0-9A-Z]{4}/i);
+  const code = found ? found[0] : typed;
+  const link = typed.match(/wa\.me\/(\d{8,15})/);
+  const number = document.getElementById("wa-redeem-number").value.replace(/\D/g, "");
+  if (!code) { err.textContent = tr("prof.waRedeemNoCode"); return; }
+  if (number.length < 8 || number.length > 15) { err.textContent = tr("prof.waBadNumber"); return; }
+  const btn = document.getElementById("wa-redeem-btn");
+  btn.disabled = true;
+  err.textContent = "";
+  try {
+    const r = await callApi("useWhatsAppInvite", { code, number, botNumber: link ? link[1] : "" });
+    if (meta && meta.capabilities) meta.capabilities.whatsappBot = true;
+    document.getElementById("wa-redeem-code").value = "";
+    drawWhatsAppBot_(r.bot);
+    const box = document.getElementById("wa-number");
+    if (!box.value) box.value = number;
+  } catch (e) { err.textContent = e.message; }
+  finally { btn.disabled = false; }
+});
+
+// Invite a friend (the owner's copy only, capability whatsappInviteMake): the code is made from the friend's number on the server.
+let waInvite_ = null;
+document.getElementById("wa-invite-btn").addEventListener("click", async () => {
+  const err = document.getElementById("wa-invite-error");
+  const number = document.getElementById("wa-invite-number").value.replace(/\D/g, "");
+  document.getElementById("wa-invite-copied").textContent = "";
+  if (number.length < 8 || number.length > 15) { err.textContent = tr("prof.waBadNumber"); document.getElementById("wa-invite-result").hidden = true; return; }
+  const btn = document.getElementById("wa-invite-btn");
+  btn.disabled = true;
+  err.textContent = "";
+  try {
+    waInvite_ = await callApi("makeWhatsAppInvite", { number });
+    document.getElementById("wa-invite-for").textContent = tr("prof.waInviteFor", { number: "+" + waInvite_.number });
+    document.getElementById("wa-invite-code").textContent = waInvite_.code;
+    document.getElementById("wa-invite-result").hidden = false;
+  } catch (e) { err.textContent = e.message; }
+  finally { btn.disabled = false; }
+});
+document.getElementById("wa-invite-copy-btn").addEventListener("click", async () => {
+  const msg = document.getElementById("wa-invite-copied");
+  if (!waInvite_) return;
+  const text = waInvite_.botNumber
+    ? tr("prof.waInviteMessageLink", { code: waInvite_.code, number: waInvite_.number, link: `https://wa.me/${waInvite_.botNumber}?text=hola` })
+    : tr("prof.waInviteMessage", { code: waInvite_.code, number: waInvite_.number });
+  try { await navigator.clipboard.writeText(text); msg.textContent = tr("prof.waInviteCopied"); }
+  catch (e) { msg.textContent = tr("prof.waCopyByHand"); }
+});
 document.getElementById("wa-copy-btn").addEventListener("click", async () => {
   const box = document.getElementById("wa-code"), msg = document.getElementById("wa-copied");
   try { await navigator.clipboard.writeText(box.value); msg.textContent = tr("prof.waCopied"); }
   catch (e) { box.focus(); box.select(); msg.textContent = tr("prof.waCopyByHand"); }
 });
+// Opens the chat with the app's bot, "hola" already typed: the bot's tour starts with a new person's first message (BotTour.gs).
+document.getElementById("wa-open-bot-btn").addEventListener("click", () => {
+  if (!waBot_ || !waBot_.botNumber) return;
+  const homeScreen = isHomeScreenApp_();
+  const url = LoanReminder.whatsappUrl(waBot_.botNumber, "hola", homeScreen);
+  if (!homeScreen) { window.open(url, "_blank", "noopener"); return; }
+  location.href = url;
+});
+
+// ---- Real tutorial: turning the WhatsApp bot on (owner's plan "Bot tutorial - WhatsApp and Telegram", 2026-11-20) ----
+// Starts when the person opens the "WhatsApp bot" row of My profile while the bot is off (a closed row has no size: never from the
+// screen's load). Two ways in: the invitation (code + number → Use the code), then Turn on, the app's question, Copy the code, and
+// "send it to JP; then write hola to the bot", which starts the bot's own tour in the chat. Nothing to clean: it is all real.
+function waRealWanted_() {
+  return !!waBot_ && !waBot_.on && !isTaught_("wabot") && realChanceLeft_("wabot", true) && realScreenFree_() &&
+    !document.getElementById("wa-body").hidden && !document.getElementById("screen-my-profile").hidden;
+}
+function startWaReal_() {
+  let started = false;
+  const shown = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && !!el.getClientRects().length; };
+  const digitsOk = (id) => { const n = document.getElementById(id).value.replace(/\D/g, ""); return n.length >= 8 && n.length <= 15; };
+  const redeemErr = () => document.getElementById("wa-redeem-error").textContent.trim();
+  const steps = [
+    { key: "intro", text: () => tr("rt.wa.intro"), button: () => tr("spot.g.start"), after: () => { started = true; markTaught_("wabot", "real"); } },
+    { key: "code", target: "#wa-redeem-code", blurTap: true, text: () => tr("rt.wa.code"), visit: "#wa-redeem-code",
+      ok: () => !!document.getElementById("wa-redeem-code").value.trim(), holdsUntil: "use", before: async () => shown("wa-redeem") },
+    { key: "number", target: "#wa-redeem-number", blurTap: true, text: (fix) => tr(fix ? "rt.wa.numberFix" : "rt.wa.number"), visit: "#wa-redeem-number",
+      ok: () => digitsOk("wa-redeem-number"), holdsUntil: "use", before: async () => shown("wa-redeem") },
+    // A refused code: the whole box lights up, so the code can be fixed right there (the card's own error says why).
+    { key: "use", target: () => (redeemErr() ? document.getElementById("wa-redeem") : document.getElementById("wa-redeem-btn")),
+      text: () => tr(redeemErr() ? "rt.wa.useFix" : "rt.wa.use"), until: () => shown("wa-off"), before: async () => shown("wa-redeem") },
+    { key: "number2", target: "#wa-number", blurTap: true, text: (fix) => tr(fix ? "rt.wa.numberFix" : "rt.wa.number2"), visit: "#wa-number",
+      ok: () => digitsOk("wa-number"), holdsUntil: "on", before: async () => shown("wa-off") },
+    { key: "on", target: "#wa-on-btn", text: () => tr("rt.wa.on"), until: () => shown("wa-on"), wait: 15000 },
+    { key: "copy", target: "#wa-copy-btn", text: () => tr("rt.wa.copy"), until: () => !!document.getElementById("wa-copied").textContent.trim(),
+      before: async () => !!(waBot_ && waBot_.code) },
+    { keep: true, text: () => tr("rt.wa.noCode"), button: () => tr("spot.g.done"), before: async () => !(waBot_ && waBot_.code) },
+    { keep: true, look: true, target: () => (waBot_ && waBot_.botNumber ? document.getElementById("wa-open-bot-btn") : document.getElementById("wa-code")),
+      text: () => tr(waBot_ && waBot_.botNumber ? "rt.wa.sendOpen" : "rt.wa.send"), button: () => tr("spot.g.done"), before: async () => !!(waBot_ && waBot_.code) }
+  ];
+  Spotlight.run(realSteps_(steps), { labels: realLabels_(), busy: () => perfInflight_ > 0,
+    onFinish: async (how) => { if (!started) spendRealChance_("wabot"); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); } });
+}
 
 // ---- Apple Pay capture: the "Apple Pay" tab of More → Bank emails (owner's plan, 2026-11-15; backend/ApplePay.gs) ----
 // The iPhone's Shortcuts app sends each Apple Pay payment to this copy's address with the person's own key in the link (?k=…); the
@@ -16676,7 +17315,7 @@ function noAcctOptions_(selectedId, investment) {
   const pms = meta.paymentMethods.filter((pm) => (investment || pm.type !== "investment") && (!pmHidden_(pm) || pm.id === selectedId))
     .sort((a, b) => a.nickname.localeCompare(b.nickname));
   return `<option value="">${escapeHtml(tr("noacct.pick"))}</option>` +
-    pms.map((pm) => `<option value="${escapeHtml(pm.id)}"${pm.id === selectedId ? " selected" : ""}>${escapeHtml(pm.nickname)}</option>`).join("");
+    pms.map((pm) => `<option value="${escapeHtml(pm.id)}"${ACCT_OPT_}${pm.id === selectedId ? " selected" : ""}>${escapeHtml(pm.nickname)}</option>`).join("");
 }
 
 function renderNoAccount_() {
@@ -16740,7 +17379,7 @@ document.getElementById("noacct-list").addEventListener("change", (ev) => {
     // change his mind); each can still be changed one by one afterwards.
     all.closest(".noacct-month").querySelectorAll(".noacct-row").forEach((row) => {
       const sel = row.querySelector(".noacct-select");
-      if (!Array.from(sel.options).some((o) => o.value === all.value)) return;
+      if (!hasPersonPick_(sel, all.value)) return;
       sel.value = all.value;
       noAcctPicked_.set(row.dataset.id, all.value);
     });
@@ -18409,7 +19048,7 @@ function whenPickersClosed_(ids, fn) {
 // "nothing chosen" state an iPhone shows as a blank ticked row.
 function setAccountPick_(selectId, id) {
   const sel = document.getElementById(selectId);
-  const has = () => Array.from(sel.options).some((o) => o.value === id);
+  const has = () => hasPersonPick_(sel, id);
   if (id && !has()) { rebuildAccountPickers_(); keepHiddenAccountOption_(selectId, id); }
   sel.value = id;
   if (sel.selectedIndex === -1) { if (selectId === "payment_method") pickDefaultAccount_(); else sel.value = ""; }
@@ -18423,7 +19062,7 @@ function rebuildAccountPickers_() {
   populateToPaymentMethodOptions();
   ["payment_method", "to_payment_method"].forEach((id, k) => {
     const sel = document.getElementById(id);
-    if (keep[k] && Array.from(sel.options).some((o) => o.value === keep[k])) sel.value = keep[k];
+    if (keep[k] && hasPersonPick_(sel, keep[k])) sel.value = keep[k];
   });
 }
 
@@ -19698,7 +20337,7 @@ function renderTripGroupForm_(form, d) {
     <label>${escapeHtml(tr("trips.groupDate"))}</label>
     <input type="date" id="trip-group-date" value="${escapeHtml(todayLocalISO())}">
     <label>${escapeHtml(tr("trips.groupAccount"))}</label>
-    <select id="trip-group-account">${methods.map((pm) => `<option value="${escapeHtml(pm.id)}">${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("")}</select>
+    <select id="trip-group-account">${methods.map((pm) => `<option value="${escapeHtml(pm.id)}"${ACCT_OPT_}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("")}</select>
     <div id="trip-group-cat-block">
       <label>${escapeHtml(tr("trips.groupCategory"))}</label>
       <select id="trip-group-category"></select>
@@ -20923,6 +21562,8 @@ function openExpectedModal_(projectId, payment) {
       o.textContent = friendLabel_(f);
       sel.appendChild(o);
     });
+  addNewClientOption_(sel);
+  personShortList_(sel, { title: () => tr("friendPick.client") });   // the five used most recently, then More… (owner, 2026-11-19)
   sel.value = payment ? payment.client_id : (project && project.client_id) || "";
   document.getElementById("expected-amount").value = payment ? String(payment.amount) : "";
   document.getElementById("expected-currency").value = payment ? payment.currency : homeCur();
@@ -21286,6 +21927,7 @@ function openProjectModal_(project, companyId, budgets) {
     sel.appendChild(o);
   });
   sel.value = companyId || meta.companies[0].id;
+  businessShortList_(sel, "c:", "friendPick.company");
   document.getElementById("project-name").value = project ? project.name : "";
   document.getElementById("project-emoji").value = project ? (project.emoji || "") : "";
   const clientSel = document.getElementById("project-client");
@@ -21300,6 +21942,8 @@ function openProjectModal_(project, companyId, budgets) {
     o.textContent = f.name;
     clientSel.appendChild(o);
   });
+  addNewClientOption_(clientSel, true);
+  personShortList_(clientSel, { title: () => tr("friendPick.client") });   // the five used most recently, then More… (owner, 2026-11-19)
   clientSel.value = project && project.client_id ? project.client_id : "";
   document.getElementById("project-budgets").innerHTML = "";
   (budgets || []).forEach((b) => addProjectBudgetRow_(b.currency, b.amount));
@@ -21886,11 +22530,13 @@ function populateOverviewScope_(onOverview) {
   };
   add(sel, "all", tr("overview.scopeAll"));
   add(sel, "personal", tr("overview.scopePersonal"));
-  (meta.companies || []).forEach((c) => {
+  // By name (owner, 2026-11-20), each company's projects under it.
+  const byNm = (x, y) => byName_({ label: x.name }, { label: y.name });
+  (meta.companies || []).slice().sort(byNm).forEach((c) => {
     const group = document.createElement("optgroup");
     group.label = companyLabel_(c);
     add(group, "company:" + c.id, companyLabel_(c));
-    (meta.projects || []).filter((p) => p.company_id === c.id).forEach((p) => add(group, "project:" + p.id, `${c.name} › ${p.name}`));
+    (meta.projects || []).filter((p) => p.company_id === c.id).sort(byNm).forEach((p) => add(group, "project:" + p.id, `${c.name} › ${p.name}`));
     sel.appendChild(group);
   });
   if (!Array.from(sel.options).some((o) => o.value === overviewScope_)) overviewScope_ = "all";
@@ -22006,7 +22652,7 @@ async function syncExpectedField_() {
   none.value = "";
   none.textContent = tr("xp.pickNone");
   sel.appendChild(none);
-  usable.forEach((x) => {
+  usable.slice().sort((a, b) => String(a.due_date || "").localeCompare(String(b.due_date || ""))).forEach((x) => {   // by due date, oldest first
     const o = document.createElement("option");
     o.value = x.id;
     o.textContent = tr("xp.pickRow", { label: expectedRowLabel_(x), cur: x.currency, amount: moneyFmt(x.state === "open" ? x.remaining : x.amount), date: I18n.fmtDateMedium(new Date(x.due_date + "T00:00:00")) });
@@ -22167,6 +22813,7 @@ document.getElementById("split-client-btn").addEventListener("click", () => {
   add.value = "__new__";
   add.textContent = tr("business.newClient");
   sel.appendChild(add);
+  personShortList_(sel, { title: () => tr("friendPick.client") });   // the five used most recently, then More… (owner, 2026-11-19)
   sel.value = "";
   sel.hidden = false;
 });
@@ -22542,25 +23189,23 @@ function resetRecurringSplitState() {
   document.getElementById("recurring-split-error").textContent = "";
 }
 
+// The same quick buttons as the "+" form's Shared with (owner, 2026-11-19): five used most recently, anyone picked, "More…".
 function renderRecurringSplitFriendChips() {
-  const container = document.getElementById("recurring-split-friend-chips");
-  container.innerHTML = "";
-  plainFriends_().forEach((f) => {
-    const chip = document.createElement("div");
-    chip.className = "tag-chip" + (recurringSplitFriendIds.has(f.id) ? " selected" : "");
-    chip.textContent = friendLabel_(f);
-    chip.addEventListener("click", () => {
-      if (recurringSplitFriendIds.has(f.id)) {
-        recurringSplitFriendIds.delete(f.id);
-        delete recurringCustomSplitAmounts[f.id];
-      } else {
-        recurringSplitFriendIds.add(f.id);
-      }
-      renderRecurringSplitFriendChips();
-      renderRecurringSplitRows();
-      renderRecurringSplitSummary();
-    });
-    container.appendChild(chip);
+  const items = plainFriends_().map((f) => ({ id: f.id, label: friendLabel_(f) }));
+  const toggle = (id, on) => {
+    if (on === undefined) on = !recurringSplitFriendIds.has(id);
+    if (on) recurringSplitFriendIds.add(id);
+    else { recurringSplitFriendIds.delete(id); delete recurringCustomSplitAmounts[id]; }
+  };
+  const redraw = () => { renderRecurringSplitFriendChips(); renderRecurringSplitRows(); renderRecurringSplitSummary(); };
+  renderFriendQuickChips_({
+    box: document.getElementById("recurring-split-friend-chips"), items, selected: recurringSplitFriendIds,
+    onToggle: (id) => { toggle(id); redraw(); },
+    onMore: () => openFriendScreen_({
+      many: true, items, selected: [...recurringSplitFriendIds], top: friendQuickIds_(items),
+      onDone: (ids) => { items.forEach((x) => toggle(x.id, ids.includes(x.id))); redraw(); },
+      onAdd: () => document.getElementById("recurring-split-add-friend-btn").click(),
+    }),
   });
 }
 
@@ -25302,10 +25947,11 @@ function populateLoansScope_() {
   };
   add("", tr("overview.scopeAll"));
   add("personal", tr("overview.scopePersonal"));
-  (meta.projects || []).forEach((p) => {
+  // By name (owner, 2026-11-20): "Company › Project", so each company's projects sit together.
+  (meta.projects || []).map((p) => {
     const company = (meta.companies || []).find((c) => c.id === p.company_id);
-    add(p.id, company ? `${company.name} › ${p.name}` : p.name);
-  });
+    return { id: p.id, label: company ? `${company.name} › ${p.name}` : p.name };
+  }).sort(byName_).forEach((x) => add(x.id, x.label));
   if (!Array.from(sel.options).some((o) => o.value === loansScope_)) loansScope_ = "";
   sel.value = loansScope_;
 }
@@ -25482,6 +26128,7 @@ const LINE_ICONS_ = {
   card: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
   mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22 6 12 13 2 6"/>',
   tag: '<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
+  exchange: '<path d="M20 11a8 8 0 0 0-14.3-4.9"/><polyline points="4.6 2.6 5.7 6.1 9.2 5.2"/><path d="M4 13a8 8 0 0 0 14.3 4.9"/><polyline points="19.4 21.4 18.3 17.9 14.8 18.8"/><path d="M14.2 9.6a2.4 2.4 0 0 0-2.2-1.1c-1.3 0-2.2.7-2.2 1.5s1 1.3 2.2 1.5 2.2.7 2.2 1.5-.9 1.5-2.2 1.5a2.4 2.4 0 0 1-2.2-1.1"/><line x1="12" y1="7" x2="12" y2="17"/>',
   coin: '<circle cx="12" cy="12" r="9"/><path d="M15 9.5a3 3 0 0 0-3-1.5c-1.7 0-3 .9-3 2s1.3 1.7 3 2 3 .9 3 2-1.3 2-3 2a3 3 0 0 1-3-1.5"/><line x1="12" y1="6" x2="12" y2="18"/>',
   users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.9"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/>',
   database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.7-4 3-9 3s-9-1.3-9-3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/>',
@@ -25601,7 +26248,9 @@ const LINK_ICON_RULES_ = [
   [/^(read|leer|volver a leer)\b.*(photo|foto|receipt|comprobante)/i, "camera"],
   [/^(read|leer)\b/i, "file"],
   [/^(find|buscar|look|check now|revisar ahora|also look)/i, "search"],
-  [/^(switch direction|cambiar el sentido|repeat|repetir|convert|convertir|make it a transfer|pasar a transferencia|currency exchange|cambio de moneda)/i, "swap"],
+  [/^(currency exchange|cambio de moneda)/i, "exchange"],   // money changing currency (owner, 2026-11-19: the swap arrows read as a transfer)
+  [/^(tags|etiquetas)\b/i, "tag"],   // a Needs review item's "Tags (2)"
+  [/^(switch direction|cambiar el sentido|repeat|repetir|convert|convertir|make it a transfer|pasar a transferencia)/i, "swap"],
   [/^(more actions|más acciones|more…|más…)$|^(more actions|más acciones)/i, "dots"],
   [/^(load more|cargar más)/i, "down"],
   [/^(edit|editar|change|cambiar|method|método)\b/i, "pencil"],
@@ -27050,7 +27699,9 @@ document.getElementById("tour-choice-tips").addEventListener("click", () => {
   try { localStorage.setItem(GUIDED_AGAIN_KEY_, "1"); } catch (e) { /* ignore */ }   // the guided "+" practice runs again, even with entries
   realTutorialsReset_();
   document.getElementById("tour-choice-backdrop").hidden = true;
-  showToast_(tr("spot.tipsReset"), false, 6000);
+  // The bot's own tour lives in the chat: the app cannot start it there (WhatsApp's 24-hour window), so it says how.
+  const botOn = !!(meta && meta.capabilities && (meta.capabilities.whatsappBotOn || meta.capabilities.telegramLinked));
+  showToast_(tr("spot.tipsReset") + (botOn ? " " + tr("spot.tipsResetBot") : ""), false, botOn ? 9000 : 6000);
 });
 
 // ---- Guided practice: the first new entry (owner's design, 2026-11-04; plan "Onboarding test fixes and guided practices") ----
@@ -27266,7 +27917,7 @@ function offerReviewTip_() {   // called whenever Needs review may have somethin
   if (!reviewEntries_.length) return;   // nothing waiting yet
   if (!reviewOpen_) return;   // the row starts closed: its tutorial starts when the person opens it (owner, 2026-11-09), never when Home loads
   if (reviewRealTimer_) return;
-  reviewRealTimer_ = setTimeout(() => { reviewRealTimer_ = null; startReviewReal_(); watchReviewHint_(); watchReviewManyTip_(); }, 400);
+  reviewRealTimer_ = setTimeout(() => { reviewRealTimer_ = null; startReviewReal_(); watchReviewHint_(); watchReviewManyTip_(); watchReviewBotTip_(); }, 400);
 }
 function reviewTypeSteps_(id, type, opts) {
   const row = () => practiceNRow_(id);
@@ -27584,7 +28235,7 @@ function startConvExchange_() {
     ...realWhereSteps_(() => document.querySelector("#entry-list .entry-exchange"), () => tr("rt.exchange.done"), { before: realOnHome_, poke: () => { refreshEntryList().catch(() => {}); } })
   ]);
 }
-// Change type opens the full form: one bubble on the type buttons is enough, the form explains itself from there.
+// "Edit in full form" opens the full form: one bubble on the type buttons is enough, the form explains itself from there.
 function offerConvType_() {
   if (!convOffersOn_() || popGet_(POP_SEEN_KEY_, []).includes("conv-type")) return;
   clearInterval(convOfferTimer_);
@@ -27607,14 +28258,12 @@ document.addEventListener("click", (e) => {
   if (confirmed) { const r = confirmed.closest(".review-item"); reviewConfirmedId_ = r ? r.dataset.entryId : ""; }
   const toTransfer = e.target.closest(".review-transfer-btn");
   if (toTransfer) { const r = toTransfer.closest(".review-item"); reviewTransferJust_ = r ? r.dataset.entryId : ""; }
-  const splitBtn = e.target.closest(".review-split-btn");
-  if (splitBtn) offerConvGuide_("split", "rt.conv.offerSplit", () => !!confirmingPendingId && selectedType === "expense", splitTarget_, startSplitReal_);
-  const b = e.target.closest(".review-repay-btn, .review-loan-btn, .review-exchange-btn, .review-type-btn, #review-transfer-save-btn, #exchange-save-btn");
+  const b = e.target.closest(".review-repay-btn, .review-loan-btn, .review-exchange-btn, .review-full-btn, #review-transfer-save-btn, #exchange-save-btn");
   if (!b || (Spotlight.isRunning() && !b.closest(".review-item-secondary-actions"))) return;
   if (b.classList.contains("review-repay-btn")) offerConvGuide_("conv-repay", "rt.conv.offerRepay", () => open("review-transfer-modal-backdrop")() && reviewTransferMode === "repay", () => el("review-transfer-context"), () => startConvDebt_("repay"));
   else if (b.classList.contains("review-loan-btn")) offerConvGuide_("conv-loan", "rt.conv.offerLoan", () => open("review-transfer-modal-backdrop")() && reviewTransferMode === "loan", () => el("review-transfer-context"), () => startConvDebt_("loan"));
   else if (b.classList.contains("review-exchange-btn")) offerConvGuide_("conv-exchange", "rt.conv.offerExchange", open("exchange-modal-backdrop"), () => el("exchange-context"), startConvExchange_);
-  else if (b.classList.contains("review-type-btn")) offerConvType_();
+  else if (b.classList.contains("review-full-btn")) offerConvType_();
   else {   // saved without the guide: the offer ends
     const isDebt = b.id === "review-transfer-save-btn";
     const feature = isDebt ? (reviewTransferMode === "repay" ? "conv-repay" : "conv-loan") : (exchangeContext_ && exchangeContext_.entry ? "conv-exchange" : "");
@@ -27652,7 +28301,8 @@ function startConvType_(type) {
   }
   if (type === "income") steps.push({ target: tabSel, text: () => tr("rt.conv.incomeWhat"), button: next });
   if (type === "investment") steps.push({ target: tabSel, text: () => tr("rt.conv.investWhat"), button: next });
-  if (type === "transfer") steps.push({ target: tabSel, text: () => tr("rt.transfer.kind"), button: next });
+  // (with the kind of transfer, which a Needs review item offers too since 2026-11-19; "Between my accounts" is what this guide teaches)
+  if (type === "transfer") steps.push({ target: () => [document.querySelector(tabSel), el("repayment-field")].filter((x) => x && !x.hidden), text: () => tr("rt.transfer.kind"), button: next });
   if (type === "income") {
     steps.push({ field: "category", target: "#category-picker", text: () => tr("spot.g.catIncome"), until: () => !el("entry-form").hidden, before: async () => shownNow("category-picker") });
     if (isNew("payer")) steps.push(whenShown("paid_by", { field: "payer", target: "#paid_by", text: () => tr("spot.g.payer"), visit: "#paid_by", button: next }));
@@ -27677,7 +28327,7 @@ function startConvType_(type) {
     busy: () => perfInflight_ > 0
   });
 }
-// Split: checking "Split this expense" may be only a look, so it asks; Needs review's Split button offers the same guide inside the form it opens.
+// Split: checking "Split this expense" may be only a look, so it asks (in the "+" form and in a Needs review item opened in the full form).
 function splitTarget_() {
   const row = document.querySelector("#split-field .checkbox-row");
   if (row && !popInView_(row)) row.scrollIntoView({ block: "center" });
@@ -27685,7 +28335,9 @@ function splitTarget_() {
 }
 function splitTaught_() { return isTaught_("split") || isTaught_("loans"); }
 document.getElementById("split-toggle").addEventListener("change", (e) => {
-  if (!e.target.checked || !newEntrySheetOpen_ || editingEntryId || editingViaPopup || confirmingPendingId) return;
+  // A new entry, or a Needs review item opened with "Edit in full form" (it replaced the card's own "Split" button, 2026-11-19).
+  const fromNew = newEntrySheetOpen_ && !editingEntryId && !editingViaPopup && !confirmingPendingId;
+  if (!e.target.checked || !(fromNew || confirmingPendingId)) return;
   if (!meta || perfIsOwnerCopy_() || Spotlight.isRunning() || splitTaught_()) return;
   if (!realAgain_() && !popGet_(TAUGHT_KEY_, {})["split-checked"]) {
     markTaught_("split-checked", "yes");
@@ -27759,6 +28411,19 @@ function watchReviewManyTip_() {
     text: readyBtn() ? tr("pop.reviewManyReady") : tr("pop.reviewManyEdit"),
     target: () => readyBtn() || editBtn(),
     stillWanted: () => reviewOpen_ && !document.getElementById("screen-entries").hidden && waiting() >= 10,
+    ready: realScreenFree_ });
+}
+
+// The WhatsApp bot is on and several items wait: once, a bubble at the list's row says they can be confirmed from WhatsApp too
+// (owner's plan "Bot tutorial - WhatsApp and Telegram", 2026-11-20; a kind-B bubble, inside the daily teaching budget).
+function watchReviewBotTip_() {
+  if (popWatch_ || popOpen_ || Spotlight.isRunning() || !reviewOpen_ || document.getElementById("screen-entries").hidden) return;
+  if (!(meta && meta.capabilities && meta.capabilities.whatsappBotOn) || popGet_(POP_SEEN_KEY_, []).includes("reviewBot")) return;
+  const waiting = () => (reviewEntries_ || []).filter((e) => !isPracticeReviewEntry_(e)).length;
+  if (waiting() < 3) return;
+  popTipWatch_({ key: "reviewBot", place: "home", level: "medium", text: tr("pop.reviewBot"),
+    target: () => { const b = document.getElementById("review-toggle"); return b && b.getClientRects().length ? b : null; },
+    stillWanted: () => reviewOpen_ && !document.getElementById("screen-entries").hidden && waiting() >= 3,
     ready: realScreenFree_ });
 }
 
@@ -28916,7 +29581,7 @@ function practiceASteps_() {
       before: async () => {   // the practice account is chosen for the person and, as a card, its row is checked "Negative — I owe this"
         const pm = practiceAPm_();
         const picker = document.getElementById("balance-account-picker");
-        if (pm && picker && picker.value !== pm.id && Array.from(picker.options).some((o) => o.value === pm.id)) { picker.value = pm.id; picker.dispatchEvent(new Event("change", { bubbles: true })); }
+        if (pm && picker && picker.value !== pm.id && hasPersonPick_(picker, pm.id)) { picker.value = pm.id; picker.dispatchEvent(new Event("change", { bubbles: true })); }
         await new Promise((r) => setTimeout(r, 150));
         const b = document.querySelector("#balance-rows .balance-row-negative");
         if (b && !b.checked) { b.checked = true; b.dispatchEvent(new Event("change", { bubbles: true })); }
@@ -30254,7 +30919,7 @@ function askOpeningDebtForRepay_({ friendId, direction, currency, amount, date }
   return new Promise((resolve) => {
     openLoanModal(null, null, { opening: true, friendId, direction, forRepay: true });
     const friendSel = document.getElementById("loan-friend");
-    if (!Array.from(friendSel.options).some((o) => o.value === friendId)) {   // a trip's group is not in the loan form's list
+    if (!hasPersonPick_(friendSel, friendId)) {   // a trip's group is not in the loan form's list
       const f = (meta.friends || []).find((x) => x.id === friendId);
       const opt = document.createElement("option");
       opt.value = friendId;
@@ -31050,6 +31715,7 @@ function bankPopulateAccounts_(selectId, keep) {
   none.textContent = tr(accounts.length ? "loanModal.noAccount" : "form.noneAccount");
   sel.appendChild(none);
   sel.value = keep !== undefined && keep !== null && keep !== "" ? keep : (accounts.length ? accounts[0].id : "");
+  accountShortList_(sel);
 }
 
 // ---- A bank loan from before the app (owner, 2026-11-08) ----
@@ -31814,6 +32480,7 @@ function populateLoanFriendOptions() {
   addOpt.value = "__add__";
   addOpt.textContent = tr("common.addFriend");
   select.appendChild(addOpt);
+  personShortList_(select);   // the five used most recently, then More… (owner, 2026-11-19; it opened the friends screen)
 }
 
 document.getElementById("loan-friend").addEventListener("change", async (e) => {
@@ -31849,6 +32516,7 @@ function populateLoanPaymentMethodOptions() {
   noneOpt.value = "";
   noneOpt.textContent = tr(accounts.length ? "loanModal.noAccount" : "form.noneAccount");
   select.appendChild(noneOpt);
+  accountShortList_(select);
 }
 
 // The "from before the app" choice: no account (nothing moved now), no automatic due date, and the date is a rough "since when".
@@ -32187,6 +32855,13 @@ function populateLoanProjectOptions_(keep) {
     sel.appendChild(o);
   });
   sel.value = keep || "";
+  businessShortList_(sel, "p:", "friendPick.project");
+}
+
+// Companies and projects follow the people's rule too (owner, 2026-11-19): the five used most recently, then "More…" by name.
+// (The "+" form's Company / project box keeps its own grouped list, already newest first.)
+function businessShortList_(sel, prefix, titleKey) {
+  personShortList_(sel, { lastUsed: (id) => businessLastUsed_()[prefix + id] || "", title: () => tr(titleKey), noneKey: "friendPick.noneThing" });
 }
 
 function closeLoanModal() {
@@ -32394,6 +33069,7 @@ function populateSettlementPaymentMethodOptions() {
     opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
+  accountShortList_(select);
 }
 
 // `type` is "income" (they overpaid you) or "expense" (you overpaid
@@ -33228,6 +33904,7 @@ function populateReviewTransferFriendOptions() {
   addOpt.value = "__add__";
   addOpt.textContent = tr("common.addFriend");
   select.appendChild(addOpt);
+  personShortList_(select);   // the five used most recently, then More… (owner, 2026-11-19)
 }
 
 document.getElementById("review-transfer-friend").addEventListener("change", async (e) => {
@@ -33260,6 +33937,7 @@ function populateReviewTransferPaymentMethodOptions() {
     opt.textContent = pmPickLabel_(pm);
     select.appendChild(opt);
   });
+  accountShortList_(select);
 }
 
 // Did the money of this waiting entry ARRIVE (an income, an investment withdrawal)? Otherwise it left.
@@ -33604,6 +34282,7 @@ async function openBalanceModal(pmId) {
       opt.textContent = pmPickLabel_(pm) + (tracked ? " ✓" : "");
       picker.appendChild(opt);
     });
+    accountShortList_(picker);
     if (!meta.paymentMethods.length) {
       showAppMessage_(tr("balance.noAccounts"));
       return;
@@ -33677,7 +34356,7 @@ document.getElementById("balance-from-stmt-btn").addEventListener("click", () =>
 function openStmtCardBalance_(pmId) {
   openBalanceModal(null);
   const picker = document.getElementById("balance-account-picker");
-  if (![...picker.options].some((o) => o.value === pmId)) return;
+  if (!hasPersonPick_(picker, pmId)) return;
   picker.value = pmId;
   picker.onchange();
 }
@@ -34110,7 +34789,6 @@ let receiptFormFile_ = null;
 let billItemsEdited = false;    // items typed/changed/inserted by hand since the last photo read
 let billApplied = false;        // "Use this split" was pressed in this form session
 let billNextId = 1;
-let billShowAllFriends = false;
 
 function newBillState_() {
   return {
@@ -34259,37 +34937,24 @@ function syncBillTabs_() {
   box.value = isPercent ? billState.tip.percent : billState.tip.amount;
 }
 
+// The people at the table: the same quick buttons as Shared with (owner, 2026-11-19; it showed ten, then "More").
 function renderBillPeople_() {
-  const box = document.getElementById("bill-people-chips");
-  box.innerHTML = "";
-  const sorted = plainFriends_().sort((a, b) =>
-    (billState.people.has(b.id) - billState.people.has(a.id)) || (b.last_used || "").localeCompare(a.last_used || ""));
-  const LIMIT = 10;
-  const shown = billShowAllFriends ? sorted : sorted.slice(0, Math.max(LIMIT, billState.people.size));
-  shown.forEach((f) => {
-    const chip = document.createElement("div");
-    chip.className = "tag-chip" + (billState.people.has(f.id) ? " selected" : "");
-    chip.textContent = f.name;
-    chip.addEventListener("click", () => {
-      if (billState.people.has(f.id)) {
-        billState.people.delete(f.id);
-        billState.items.forEach((it) => it.people.delete(f.id));
-      } else {
-        billState.people.add(f.id);
-      }
-      renderBillPeople_();
-      renderBillItems_();
-      recomputeBill_();
-    });
-    box.appendChild(chip);
+  const items = plainFriends_().map((f) => ({ id: f.id, label: f.name }));
+  const toggle = (id, on) => {
+    if (on === undefined) on = !billState.people.has(id);
+    if (on) billState.people.add(id);
+    else { billState.people.delete(id); billState.items.forEach((it) => it.people.delete(id)); }
+  };
+  const redraw = () => { renderBillPeople_(); renderBillItems_(); recomputeBill_(); };
+  renderFriendQuickChips_({
+    box: document.getElementById("bill-people-chips"), items, selected: billState.people,
+    onToggle: (id) => { toggle(id); redraw(); },
+    onMore: () => openFriendScreen_({
+      many: true, items, selected: [...billState.people], top: friendQuickIds_(items),
+      onDone: (ids) => { items.forEach((x) => toggle(x.id, ids.includes(x.id))); redraw(); },
+      onAdd: () => document.getElementById("bill-add-friend").click(),
+    }),
   });
-  if (sorted.length > shown.length || billShowAllFriends) {
-    const more = document.createElement("div");
-    more.className = "tag-chip more-chip";
-    more.textContent = billShowAllFriends ? tr("common.less") : tr("common.more");
-    more.addEventListener("click", () => { billShowAllFriends = !billShowAllFriends; renderBillPeople_(); });
-    box.appendChild(more);
-  }
 }
 
 function renderBillItems_() {
@@ -34561,7 +35226,6 @@ function applyBillToForm_() {
   friendIds.forEach((id) => { customSplitAmounts[id] = (res.perPerson[id].total / 100).toFixed(2); });
   customOwnAmount = (res.perPerson.me.total / 100).toFixed(2);
   splitMode = "custom";
-  splitFriendsExpanded = false;
   const on = friendIds.length > 0;
   document.getElementById("split-toggle").checked = on;
   document.getElementById("split-detail").hidden = !on;

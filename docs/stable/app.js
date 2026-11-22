@@ -194,6 +194,7 @@ let editingInvestmentLeft_ = null;   // the investment being edited: true = a de
 let editingForgiveness_ = null;   // the entry being edited is what a forgiveness booked: {amount, currency}, else null (its amount is locked)
 let editingExchangeLeg_ = "";   // the entry being edited is one side of a currency exchange: "out" (money left) / "in" (money arrived), else ""
 let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
+let entryLinksPrefetch_ = null;   // { id, at, p }: the open entry's getEntryRepaymentLinks, asked when its form opened (startEditEntry)
 let editingRepayment_ = null;    // the entry being edited is a repayment's money entry: {direction (of the debts it paid), friend, total, currency}, else null
 // Set only while confirming a pending (review-queue) entry through the
 // full entry-card popup — see openConfirmPendingPopup, Phase 5.7's
@@ -440,6 +441,7 @@ function selectCurrency(code, target, byPerson) {
   if (resolvedTarget === "budget") {
     refreshBudgetRateWarning_(null);
   } else if (resolvedTarget === "entry") {
+    prefetchEntryFormRate_();
     renderSplitSummary();
     if (typeof syncNothingOwedLine_ === "function") syncNothingOwedLine_();   // "Ana owes you nothing in USD" follows the currency
     if (typeof syncEntryRepayChoose_ === "function") syncEntryRepayChoose_();   // and so do the loans offered in "Choose which loans this pays"
@@ -1686,9 +1688,11 @@ function refreshTelegramFields_() {
   ["budget-alert-fields", "trip-alert-fields"].forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = false; });
 }
 
+let metaReadAt_ = 0;   // when loadMeta last read the server itself (not the saved startup copy); see renderPullUpdateHint_
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", { tz: phoneTz_() });
   syncPairWithBackend_();
+  if (!meta.fromCache_) { metaReadAt_ = Date.now(); renderPullUpdateHint_(); }   // the server was really read: a "pull down after updating" bar is done
   (meta.categories || []).forEach(cleanCategoryLook_);
   refreshTelegramFields_();
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
@@ -1740,12 +1744,16 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
 // follows the language), with "Other" last. A built-in carries key "other";
 // before the categories cleanup has run, the name is the test.
 function isOtherCategory_(c) { return c.key === "other" || (!c.key && c.name === "Other"); }
+// One sorter per language (speed, 2026-11-21: localeCompare with options built a new one for every comparison; Needs review sorts
+// the categories once per waiting entry). Same order as localeCompare(…, locale, { sensitivity: "base" }).
+const CATEGORY_COLLATORS_ = {};
 function sortedCategories_(list) {
   const locale = I18n.getLang() === "es" ? "es" : "en";
+  const coll = CATEGORY_COLLATORS_[locale] || (CATEGORY_COLLATORS_[locale] = new Intl.Collator(locale, { sensitivity: "base" }));
   return list.slice().sort((a, b) => {
     const aLast = isOtherCategory_(a), bLast = isOtherCategory_(b);
     if (aLast !== bLast) return aLast ? 1 : -1;
-    return String(a.name).localeCompare(String(b.name), locale, { sensitivity: "base" });
+    return coll.compare(String(a.name), String(b.name));
   });
 }
 
@@ -3494,6 +3502,28 @@ document.getElementById("amount").addEventListener("input", (e) => {
 
 const knownRateMonths_ = new Set();
 
+// Speed (2026-11-21): the month's rate is asked as soon as the entry's currency or date is picked (or an entry in another currency
+// is opened), so Save does not wait for it. A missing rate is asked again at Save (it may have been added meanwhile).
+// "USD|2026-11" -> when the early check found NO rate: Save then opens the rate window at once instead of asking the server again
+// (Nico, testers 2026-11-21: a USD Save waited ~2.5 s with no "Saving…" for that second answer). Trusted for 2 minutes.
+const rateMissingAt_ = new Map();
+const rateMonthPrefetch_ = new Map();   // "USD|2026-11" -> promise of getExchangeRate (null on failure)
+function prefetchEntryRate_(currency, dateStr) {
+  currency = String(currency || "").toUpperCase();
+  dateStr = String(dateStr || "");
+  if (!currency || currency === homeCur() || !/^\d{4}-\d{2}/.test(dateStr)) return;
+  const key = currency + "|" + dateStr.slice(0, 7);
+  if (knownRateMonths_.has(key) || rateMonthPrefetch_.has(key)) return;
+  const p = callApi("getExchangeRate", { currency, month: dateStr.slice(0, 7) })
+    .then((r) => { if (r) knownRateMonths_.add(key); else { rateMonthPrefetch_.delete(key); rateMissingAt_.set(key, Date.now()); } return r; })
+    .catch(() => { rateMonthPrefetch_.delete(key); return null; });
+  rateMonthPrefetch_.set(key, p);
+}
+function prefetchEntryFormRate_() {
+  prefetchEntryRate_(document.getElementById("currency").value, document.getElementById("date").value);
+}
+document.getElementById("date").addEventListener("change", prefetchEntryFormRate_);
+
 async function ensureExchangeRate(currency, dateStr) {
   if (currency === homeCur()) return;
   const month = dateStr.slice(0, 7);
@@ -3502,7 +3532,10 @@ async function ensureExchangeRate(currency, dateStr) {
   // foreign-currency edit used to wait on this round trip every time.
   const key = currency + "|" + month;
   if (knownRateMonths_.has(key)) return;
-  const existing = await callApi("getExchangeRate", { currency, month });
+  const pre = rateMonthPrefetch_.get(key);
+  const missing = !pre && Date.now() - (rateMissingAt_.get(key) || 0) < 120000;
+  const existing = (pre && await pre) || (missing ? null : await callApi("getExchangeRate", { currency, month }));
+  rateMissingAt_.delete(key);
   if (existing) { knownRateMonths_.add(key); return; }
 
   const rate = await openRateModal(currency, month, /* required */ true);
@@ -3753,6 +3786,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
   showToast_(tr("common.savingToast"));
   try {
     const saved = await callApi("setExchangeRate", usd ? { currency, month, per_usd: rate } : { currency, month, rate });
+    rateMissingAt_.clear();   // a month that had no rate may have one now
     resolve(usd ? saved.rate : rate);   // the opener always gets "1 <currency> = rate <main>"
     refreshHomeGlance_(true);   // foreign amounts are worth something else in the main currency now
     refreshEntryList().catch(() => {});
@@ -6281,7 +6315,13 @@ function setupEntrySearch_() {
       renderSearchResults_();
     }
   });
-  setTimeout(() => { syncSearchIndex_().then(renderSearchResults_).catch(() => {}); }, 2500);
+  // Not while the app is still opening (speed sweep 2026-11-21: the first full copy, ~7,000 rows, shared the server with the start-up
+  // bundle): it waits until nothing else is on its way, at most 20 s more. Typing in the search box asks at once, as before.
+  setTimeout(async () => {
+    const until = Date.now() + 20000;
+    while (perfInflight_ > 0 && !searchIndexPromise && Date.now() < until) await sleep(300);
+    syncSearchIndex_().then(renderSearchResults_).catch(() => {});
+  }, 2500);
 }
 
 // ---- Unsaved new-entry draft ----
@@ -6682,10 +6722,17 @@ async function startEditEntry(entry) {
   if (editingRepayment_) repaymentDirectionChoice = editingRepayment_.direction === "they_owe_me" ? "they_owe_me" : "i_owe_them";
   // Its extra (income / expense) entry, if it has one, comes from the server in the background: the amount shown when the
   // repayment is converted is the whole thing. Saving waits for it (see the top of the save handler).
+  // The month's exchange rate of a foreign-currency entry is asked now, so Save does not wait for it (prefetchEntryRate_).
+  prefetchEntryRate_(entry.currency, entry.date);
+  if (entry.paid_currency) prefetchEntryRate_(entry.paid_currency, entry.date);   // charged in another currency
+  // What Delete must ask about (a repayment, a repaid split, a forgiving, an exchange's other side) is fetched now, in the
+  // background, so tapping Delete asks at once instead of "Checking…" for a trip to the server (speed, 2026-11-21).
+  entryLinksPrefetch_ = ["transfer", "expense", "income"].includes(entry.type) && entry.id
+    ? { id: entry.id, at: Date.now(), p: callApi("getEntryRepaymentLinks", { id: entry.id }).catch(() => null) } : null;
   if (editingRepayment_) {
     const rp = editingRepayment_;
-    rp.extraPromise = callApi("getEntryRepaymentLinks", { id: entry.id })
-      .then((l) => { if (editingRepayment_ === rp) { rp.extra = (l.repayment && l.repayment.extra) || null; syncConversionAmount_(); } })
+    rp.extraPromise = entryLinksPrefetch_.p
+      .then((l) => { if (l && editingRepayment_ === rp) { rp.extra = (l.repayment && l.repayment.extra) || null; syncConversionAmount_(); } })
       .catch(() => {});
     // The people's debts per currency, for the "owes you nothing in USD" line of a currency change (noDebtsInCurrencyText_), when
     // the Loans tab was not opened yet. In the background; the question never waits for it.
@@ -6930,7 +6977,8 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed, s
   let repaymentsChoice;   // set when the expense's loans were repaid: the choice sheet then replaces the OK / Cancel box
   let exchangePartner = null;   // the other side of a currency exchange, when this entry is one side
   if (["transfer", "expense", "income"].includes(originalType)) {
-    const links = await callApi("getEntryRepaymentLinks", { id });
+    const pre = entryLinksPrefetch_;
+    const links = (pre && pre.id === id && Date.now() - pre.at < 120000 && await pre.p) || await callApi("getEntryRepaymentLinks", { id });
     if (stillHere && !stillHere()) return false;   // the person left this entry while the server answered: no question out of nowhere
     exchangePartner = links.exchangePartner || null;
     if (links.forgiveness) {
@@ -7191,12 +7239,30 @@ function queueReviewAction_(id, action, fields, extra) {
   const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
   actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null, repeat: extra && extra.repeat ? extra.repeat : null });
   setQueuedReviewActions_(actions);
+  syncReviewTwins_(id, action === "discard" ? null : "confirmed");
   // The item has left Needs review for the person: Overview / Budgets / Projections' "N wait" line drops it at once, not only after
   // Home's list is fetched again (journeys run, 2026-11-17: the old count stayed for 6 people). A failed save refetches the list.
   reviewEntries_ = reviewEntries_.filter((e) => e.id !== id);
   updatePeriodPendingLine_();
   syncReviewReadyBtn_();
   if (homeGlance_) renderHomeGlance_();   // and Home's month card says one fewer waits
+}
+
+// A waiting item that leaves Needs review also leaves its copies' "Possible duplicate" warning (Valeria, testers 2026-11-21: after
+// "Discard this copy" the last copy still called itself a copy of a discarded one). Discarded: it is dropped from their list, and a
+// copy left with none loses its warning; confirmed: it stays listed, now as confirmed (it really is a copy of a confirmed entry).
+function syncReviewTwins_(id, newStatus) {
+  const list = document.getElementById("review-list");
+  reviewEntries_.forEach((e) => {
+    if (!(e.twins || []).some((t) => t.id === id)) return;
+    e.twins = newStatus ? e.twins.map((t) => (t.id === id ? { ...t, status: newStatus } : t)) : e.twins.filter((t) => t.id !== id);
+    const warn = list && list.querySelector(`.review-item[data-entry-id="${CSS.escape(String(e.id))}"] .review-dup-warning`);
+    if (!warn) return;
+    if (!e.twins.length) { warn.remove(); return; }
+    const btn = warn.querySelector(".review-dup-discard");
+    warn.innerHTML = tr("review.dupWarning", { list: e.twins.map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") });
+    if (btn) warn.appendChild(btn);
+  });
 }
 
 function unqueueReviewAction_(id) {
@@ -7522,6 +7588,9 @@ async function flushEntryEdit_(id) {
   const mySend = Date.now() + Math.random();
   entryEditFlushing_.add(id);
   entryEditFlushStarted_.set(id, mySend);
+  // With no connection at all the phone says so at once, not only once the call has given up (Nico, testers 2026-11-21: "Saving…"
+  // was not even shown for the seconds before that).
+  if (navigator.onLine === false && !Spotlight.isRunning()) noteSaveWaiting_();
   try {
     // Loops so that if this entry's queued edit gets REPLACED by a newer
     // one while this attempt is still sending — the one case where that
@@ -7602,6 +7671,7 @@ async function flushEntryEdit_(id) {
         const sharedExpense = edit.fields && (edit.fields.type === "expense" || edit.fields.type === undefined)
           && ((edit.kind === "create" ? (edit.splits && edit.splits.length) : edit.splits !== null) || (edit.fields.paid_by && edit.fields.paid_by !== "me"));
         if (edit.loan || (sharedExpense && !document.getElementById("screen-loans").hidden)) refreshLoans().catch(() => {});
+        refreshTabsAhead_();   // an edit changes Overview's and Budgets' figures too
         if (edit.kind === "create") {
           // The real row (PEN value, guessed category…) replaces the typed one a moment later.
           refreshEntryList().catch(() => {});
@@ -8478,9 +8548,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       ${entry.charge_match ? reviewChargeMatchHtml_(entry) : ""}
       ${entry.waiting_match ? `<div class="review-charge-match"><div>${escapeHtml(tr("income.matchAsk", { name: entry.waiting_match.friend_name, amount: formatAmount(entry.waiting_match.remaining, entry.waiting_match.currency) }))}</div><button type="button" class="stmt-choice review-waiting-btn">${escapeHtml(tr("income.matchYes"))}</button></div>` : ""}
       ${/^(Overpayment (from|to) |Pago de más (de|a) )/.test(entry.description || "") ? `<p class="hint review-overpay-note">${escapeHtml(tr("review.overpayNote"))}</p>` : ""}
-      ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
+      ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}<button type="button" class="review-dup-discard">${escapeHtml(tr("review.discardCopy"))}</button></div>` : ""}
       <div class="review-quick">
         <button type="button" class="review-quick-cat${entry.type !== "investment" && !entry.category_id ? " review-quick-cat-missing" : ""}">${escapeHtml(entry.type === "investment" ? (TYPE_LABELS.investment || "") : (entry.category_id ? categoryName(entry.category_id) : tr("review.pickCategory")))}</button>
+        <button type="button" class="review-quick-discard" aria-label="${escapeHtml(tr("review.discard"))}" title="${escapeHtml(tr("review.discard"))}">${lineIcon_("trash")}</button>
         <button type="button" class="review-quick-confirm">${tr("review.confirm")}</button>
       </div>
       <div class="review-item-fields">
@@ -8587,6 +8658,11 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       reviewExpanded_.add(entry.id);
       confirmBtn.click();
     });
+    // Discard without opening the card (owner, 2026-11-21): the short row's trash button, and the duplicate warning's own
+    // "Discard this copy". Both press the card's Discard, so its question and its repayment guard still apply.
+    item.querySelector(".review-quick-discard").addEventListener("click", () => discardBtn.click());
+    const dupDiscard = item.querySelector(".review-dup-discard");
+    if (dupDiscard) dupDiscard.addEventListener("click", () => discardBtn.click());
     const moreBtn = item.querySelector(".review-more-actions");
     if (moreBtn) moreBtn.addEventListener("click", () => {
       const nowOpen = item.classList.toggle("review-more-closed") === false;
@@ -9376,6 +9452,24 @@ function afterNewEntrySaved_() {
   refreshHomeGlance_(true);
   // A trip's screen open behind (its Edit mode, or an entry edited from it) shows the change.
   if (!document.getElementById("screen-trip-detail").hidden && tripDetailId_) refreshTripDetail_().catch(() => {});
+  refreshTabsAhead_();
+}
+
+// Overview and Budgets, when seen before and not on screen, are refreshed quietly once a save has landed, so their figures are
+// already right when their tab is tapped (Andrés, testers 2026-11-21: Overview showed the old total for ~4.5 s after the tap;
+// owner approved 2026-11-21). One call each, 1.5 s after the last save of a burst; a tab on screen refreshes by itself.
+let tabsAheadTimer_ = null;
+function refreshTabsAhead_() {
+  clearTimeout(tabsAheadTimer_);
+  tabsAheadTimer_ = setTimeout(() => {
+    tabsAheadTimer_ = null;
+    if (Spotlight.isRunning()) return;
+    if (document.getElementById("screen-overview").hidden && overviewShownKey_) refreshOverview().catch(() => {});
+    if (document.getElementById("screen-budgets").hidden && budgetsLoadedKey_) {
+      Object.keys(budgetsCache_).forEach((k) => delete budgetsCache_[k]);   // no remembered period may come back with old figures
+      refreshBudgets().catch(() => {});
+    }
+  }, 1500);
 }
 
 // The "+" shows only on Home ("entries") and Overview, and only while the bottom bar does.
@@ -9924,6 +10018,7 @@ function showScreen(name) {
   });
   if (name === "entries") {
     refreshHomeGlance_(false);   // skipped when fetched less than a minute ago
+    if (meta && (meta.payorMergeAsk || []).length && !payorMergeOpen_) setTimeout(maybeAskPayorMerge_, 1500);   // it waits for Home
     if (homeTipsReady_) { offerReviewTip_(); watchHomeTips_(); }
 
   }
@@ -9953,7 +10048,7 @@ function showScreen(name) {
     loansLoad_ = refreshLoans();
   }
   if (name === "more") {
-    applyBusinessVisibility_();
+    applyBusinessVisibility_({ noCard: true });   // the "clients owe you" card is on Home: a More tap need not reload it (speed sweep 2026-11-21)
     popTipVisit_("more"); watchBringBackTip_();
   }
 }
@@ -11073,6 +11168,9 @@ async function refreshOverviewInner_() {
     screen.classList.add("overview-stale");
   }
 
+  // The period's entry list is asked at the same time as its figures (speed sweep 2026-11-21: it waited for them); drawn after them.
+  const entriesCall = overviewEntriesCall_(bounds);
+  entriesCall.catch(() => {});   // (a failure is shown by loadOverviewEntries_; unused if the figures fail or the period changes)
   let data;
   try {
     // A neighbour still being fetched in the background (preloadOverviewNeighbour_) is waited for, never asked twice.
@@ -11093,7 +11191,7 @@ async function refreshOverviewInner_() {
   setLoadFailed_("overview", null);
   overviewShownKey_ = key;
   paintOverviewSummary_(data);
-  loadOverviewEntries_(bounds).then(() => { if (token === overviewReqToken_) preloadOverviewNeighbour_(); });
+  loadOverviewEntries_(bounds, entriesCall).then(() => { if (token === overviewReqToken_) preloadOverviewNeighbour_(); });
 }
 
 // Overview's summary is ready before the tab is tapped (owner, 2026-11-11): (1) the last figures shown for each period are kept on this
@@ -11154,13 +11252,15 @@ function preloadOverviewNeighbour_() {
 // types), newest first, shown 50 at a time.
 const OVERVIEW_ENTRIES_PAGE = 20;   // was 50: a shorter Overview (owner, 2026-11-07); "Load more" adds 20 at a time
 let overviewEntriesToken_ = 0;
-function loadOverviewEntries_(bounds) { return trackOverviewLoad_(loadOverviewEntriesInner_(bounds)); }
-async function loadOverviewEntriesInner_(bounds) {
+function overviewEntriesCall_(bounds) { return callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() }); }
+// `early`: the same listEntries, already asked (refreshOverviewInner_ asks it with the figures; it waited for them before).
+function loadOverviewEntries_(bounds, early) { return trackOverviewLoad_(loadOverviewEntriesInner_(bounds, early)); }
+async function loadOverviewEntriesInner_(bounds, early) {
   const list = document.getElementById("overview-entries-list");
   const token = ++overviewEntriesToken_;
   list.innerHTML = loadingHtml_();
   try {
-    const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
+    const entries = await (early || overviewEntriesCall_(bounds));
     if (token !== overviewEntriesToken_) return;
     let shown = 0;
     const draw = () => {
@@ -13491,7 +13591,9 @@ async function init() {
       // section re-renders.
       setBundleCheckStatuses_("checking");
     }
-    const pendingPromise = timedStep("init:pendingCheck", () => callApi("listPendingEntries", {}))
+    // Only a screen drawn from the saved copy needs this quick check: with nothing saved the bundle below carries the same list
+    // (speed sweep 2026-11-21: a first open asked twice and waited for both).
+    const pendingPromise = !paintedFromCache ? Promise.resolve() : timedStep("init:pendingCheck", () => callApi("listPendingEntries", {}))
       .then((fresh) => {
         latestPending = fresh;
         pendingCheckSucceeded = true;
@@ -13635,6 +13737,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && bu
 window.addEventListener("online", () => { if (bundleCheckFailed_()) scheduleBundleRetry_(1000); });
 
 // ---- Pull to refresh ----
+let pullRefreshNow_ = async () => {};   // the same refresh without a pull (set below): the "back from updating" bar and sheet use it
 // PWAs in standalone mode lose Safari's native pull-to-refresh, so this
 // gives it back: drag down from the very top of the page to re-fetch data.
 (function setupPullToRefresh() {
@@ -13673,11 +13776,16 @@ window.addEventListener("online", () => { if (bundleCheckFailed_()) scheduleBund
     pulling = false;
 
     if (!wasReady) { reset(); return; }
+    await refreshNow();
+  }
 
+  async function refreshNow() {
+    if (refreshing) return;
     refreshing = true;
     indicator.classList.add("refreshing");
     indicator.style.transform = "translateY(0)";
     try {
+      updateChecked_ = false;   // the update check runs again on what the server says now (it was skipped once done, so "Update available" stayed after updating)
       await loadMeta();
       await refreshEntryList();
       await refreshReviewQueue();
@@ -13703,6 +13811,7 @@ window.addEventListener("online", () => { if (bundleCheckFailed_()) scheduleBund
     refreshing = false;
   }
 
+  pullRefreshNow_ = refreshNow;
   reset();
   document.addEventListener("touchstart", onTouchStart, { passive: true });
   document.addEventListener("touchmove", onTouchMove, { passive: true });
@@ -14006,7 +14115,7 @@ function updateBarClosed_() {
 // Stacks the fixed bars at the top (all are position:fixed): the new-screens bar, the server-update bar, the failed-save bar.
 function stackTopBanners_() {
   let top = 0;
-  ["update-banner", "backend-update-banner", "save-failed-banner"].forEach((id) => {
+  ["update-banner", "backend-update-banner", "save-failed-banner", "pull-update-hint"].forEach((id) => {
     const el = document.getElementById(id);
     if (!el || el.hidden) return;
     el.style.top = top + "px";
@@ -14031,6 +14140,7 @@ function setUpdateAvailable_(on) {
   if (moreTab) { if (on) moreTab.setAttribute("aria-label", tr("nav.moreUpdate")); else moreTab.removeAttribute("aria-label"); }
   backendBehind_ = !!on;
   renderBackendUpdateBanner_();
+  renderPullUpdateHint_();
 }
 document.getElementById("backend-update-open").addEventListener("click", () => openUpdateModal_());
 document.getElementById("backend-update-close").addEventListener("click", () => {
@@ -14104,7 +14214,8 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) { up
 // ---- Rule pack: new banks without an update (specs/review-telegram-email.md § Rule pack) ----
 // Simple bank e-mail rules live in a public data file. The PHONE reads it (like pin.json: friends get the copy `./ship.sh --promote` put in setup/,
 // the owner's own copy the live one) and hands it to the person's own backend, which checks it and keeps it. No outside-connection permission is
-// needed. Only sent when the file's version differs from the one the backend holds; a file the backend refused is not re-sent for 6 hours.
+// needed. Only sent when the file's version differs from the one the backend holds; a file the backend refused is not re-sent to that same
+// backend for 6 hours (an updated backend gets it at once).
 // Nothing here ever bothers the person: the rules written in the backend keep working whatever happens.
 const RULE_PACK_TRIED_KEY = "etRulePackTried";
 let rulePackSyncing_ = false, rulePackSyncedAt_ = 0;
@@ -14125,12 +14236,15 @@ async function syncRulePack_() {
     if (have && have.version === version) return;
     let tried = null;
     try { tried = JSON.parse(localStorage.getItem(RULE_PACK_TRIED_KEY)); } catch (e) { /* no memory of an earlier try */ }
-    if (tried && tried.version === version && Date.now() - tried.at < 6 * 3600 * 1000) return;
+    // A refusal is remembered for THIS backend only: after "Update my app" the new backend is offered the list at once (2026-11-21: Lucia's
+    // old backend refused it, she updated, and the phone still waited 6 hours while a purchase went unread).
+    const ref = String(caps.backendRef || "");
+    if (tried && tried.version === version && String(tried.ref || "") === ref && Date.now() - tried.at < 6 * 3600 * 1000) return;
     try {
       const done = await callApi("setRulePack", { text });
       meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { rulePack: { version: done.version, count: done.count, at: new Date().toISOString(), error: "" } });
     } catch (err) {
-      try { localStorage.setItem(RULE_PACK_TRIED_KEY, JSON.stringify({ version, at: Date.now() })); } catch (e) { /* ignore */ }
+      try { localStorage.setItem(RULE_PACK_TRIED_KEY, JSON.stringify({ version, ref, at: Date.now() })); } catch (e) { /* ignore */ }
     }
   } catch (e) { /* offline or a hiccup: tried again at the next open */ } finally { rulePackSyncing_ = false; }
 }
@@ -14163,13 +14277,70 @@ function openUpdateModal_() {
   const backdrop = document.getElementById("update-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+  renderPullUpdateHint_();
 }
+// Back from updating (owner, 2026-11-21): the update happens in Safari, and the app kept in the background comes back still holding what it
+// read from the server before (the "Update available" row included), so it looks as if the update did nothing. Opening or copying the update
+// link is remembered on the phone; when the app comes back to the front, a bar at the top says to pull down, until the app reads the server
+// again (a pull, or a fresh start) after that tap. Forgotten after a day.
+const UPDATE_OPENED_KEY = "etUpdateOpened";
+// { at: the tap, away: the last time the app went to the background after it }. Only a trip away counts (Safari that did not open leaves
+// the person in the app: nothing to say). Each trip within an hour of the tap counts again while the server still looks behind (someone who
+// came back halfway, pulled, and went back to finish). Done once a server read after the trip says the server is up to date; a day at most.
+function readUpdateOpened_() {
+  try { const r = JSON.parse(localStorage.getItem(UPDATE_OPENED_KEY) || "null"); return r && r.at && Date.now() - r.at < 24 * 3600 * 1000 ? r : null; }
+  catch (e) { return null; }
+}
+function writeUpdateOpened_(r) {
+  try { if (r) localStorage.setItem(UPDATE_OPENED_KEY, JSON.stringify(r)); else localStorage.removeItem(UPDATE_OPENED_KEY); } catch (e) { /* no storage: no bar */ }
+}
+function noteUpdateOpened_() { writeUpdateOpened_({ at: Date.now() }); }
+function noteUpdateTripAway_() {
+  const r = readUpdateOpened_();
+  if (!r || Date.now() - r.at > 3600 * 1000 || (r.away && !backendBehind_)) return;
+  r.away = Date.now();
+  writeUpdateOpened_(r);
+}
+function pullUpdateDue_() {
+  const r = readUpdateOpened_();
+  if (!r) { writeUpdateOpened_(null); return false; }
+  if (!r.away) return false;
+  if (metaReadAt_ > r.away) {   // read since: the bar is done; the record too once that read says the server is up to date
+    if (!backendBehind_) writeUpdateOpened_(null);
+    return false;
+  }
+  return !!metaReadAt_;   // (nothing read yet this open: a fresh start is reading the server right now)
+}
+function renderPullUpdateHint_() {
+  const el = document.getElementById("pull-update-hint");
+  if (!el) return;
+  const due = pullUpdateDue_();
+  const sheetOpen = !document.getElementById("update-modal-backdrop").hidden;
+  const show = due && !sheetOpen && !document.hidden;
+  if (show && el.hidden) el.textContent = tr("banner.pullAfterUpdate");   // re-set so a screen reader announces it
+  el.hidden = !show;
+  document.getElementById("update-back-box").hidden = !due;   // the update sheet, still open when the person comes back, says it too
+  stackTopBanners_();
+}
+async function loadAfterUpdate_() {
+  document.getElementById("update-modal-backdrop").hidden = true;
+  document.getElementById("pull-update-hint").hidden = true;
+  stackTopBanners_();
+  window.scrollTo(0, 0);
+  await pullRefreshNow_();
+  renderPullUpdateHint_();   // a refresh that failed (no connection) brings the bar back
+}
+document.addEventListener("visibilitychange", () => { if (document.hidden) noteUpdateTripAway_(); else renderPullUpdateHint_(); });
+document.getElementById("pull-update-hint").addEventListener("click", loadAfterUpdate_);
+document.getElementById("update-back-btn").addEventListener("click", loadAfterUpdate_);
 document.getElementById("more-update-btn").addEventListener("click", openUpdateModal_);
-document.getElementById("update-close-btn").addEventListener("click", () => { document.getElementById("update-modal-backdrop").hidden = true; offerReviewTip_(); });   // (a tutorial waits while this window is open)
+document.getElementById("update-close-btn").addEventListener("click", () => { document.getElementById("update-modal-backdrop").hidden = true; renderPullUpdateHint_(); offerReviewTip_(); });   // (a tutorial waits while this window is open)
 document.getElementById("update-open-btn").addEventListener("click", () => {
+  noteUpdateOpened_();
   openInSafari_(updatePageUrl_(), () => { document.getElementById("update-stuck").hidden = false; });
 });
 document.getElementById("update-copy-btn").addEventListener("click", async () => {
+  noteUpdateOpened_();
   try { await navigator.clipboard.writeText(updatePageUrl_()); document.getElementById("update-copied").hidden = false; }
   catch (e) { window.prompt(tr("update.copyManual"), updatePageUrl_()); }
 });
@@ -16391,12 +16562,12 @@ ownerNamesEl_("owner-names-list").addEventListener("click", (e) => {
 (function setupLanguagePicker() {
   const select = document.getElementById("language-select");
   select.value = I18n.getLang();
-  select.addEventListener("change", async () => {
+  select.addEventListener("change", () => {
     const lang = I18n.saveLang(select.value);
-    // Also saved in the Sheet so the bot, alerts and e-mails speak the same
-    // language; don't make the person wait long if the server is slow to wake.
-    try { await Promise.race([callApi("setLanguage", { lang }), sleep(3000)]); } catch (err) { /* saved on the next app open */ }
-    window.location.reload();
+    // Also saved in the Sheet so the bot, alerts and e-mails speak the same language. Not waited for (speed sweep 2026-11-21: up to
+    // 3 s): if it does not get through before the reload, the app sends it again as it opens (syncLanguageSetting_).
+    callApi("setLanguage", { lang }).catch(() => {});
+    setTimeout(() => window.location.reload(), 150);
   });
 })();
 
@@ -18478,7 +18649,7 @@ function renderRatesUsdOffer_(rates) {
     callApi("convertRatesToUsd", {}).then(() => {
       meta.settings.rate_base = "USD";
       meta.settings.rate_form = "per_base";
-      knownRateMonths_.clear();
+      knownRateMonths_.clear(); rateMonthPrefetch_.clear(); rateMissingAt_.clear();
       refreshExchangeRates();
     }).catch(() => { ratesUsdQuiet_ = false; });   // tried again the next time Currencies opens
     return;
@@ -18536,7 +18707,7 @@ document.getElementById("rates-usd-apply").addEventListener("click", () => {
     await callApi("convertRatesToUsd", {});
     meta.settings.rate_base = "USD";
     meta.settings.rate_form = "per_base";
-    knownRateMonths_.clear();
+    knownRateMonths_.clear(); rateMonthPrefetch_.clear(); rateMissingAt_.clear();
   }, async () => {
     refreshExchangeRates();
     refreshHomeGlance_(true);   // amounts in a third currency now go through the dollar
@@ -19072,13 +19243,16 @@ document.getElementById("pm-hide-btn").addEventListener("click", async () => {
   errorEl.textContent = "";
   const pm = meta.paymentMethods.find((p) => p.id === pmModalState.id);
   if (!pm) return;
-  try {
-    const res = await callApi("setPaymentMethodHidden", { id: pm.id, hidden: !pmHidden_(pm) });
-    pm.hidden = res.hidden;
-    refreshAccountPickers_();
-    closePmModal_();
-    renderAccountsList_();
-  } catch (err) { errorEl.textContent = err.message; }
+  // Behind the screen (saving standard; speed sweep 2026-11-21): the list changes at once and goes back if the server refuses.
+  const was = pm.hidden, hide = !pmHidden_(pm);
+  pm.hidden = hide ? "yes" : "";
+  refreshAccountPickers_();
+  closePmModal_();
+  renderAccountsList_();
+  saveBehindScreen_(async () => {
+    try { pm.hidden = (await callApi("setPaymentMethodHidden", { id: pm.id, hidden: hide })).hidden; }
+    catch (err) { pm.hidden = was; throw err; }
+  }, () => { refreshAccountPickers_(); renderAccountsList_(); });
 });
 
 document.getElementById("pm-delete-btn").addEventListener("click", async () => {
@@ -19753,11 +19927,15 @@ document.getElementById("cat-hide-btn").addEventListener("click", async () => {
   errorEl.textContent = "";
   const cat = meta.categories.find((c) => c.id === catModalState.id);
   if (!cat) return;
-  try {
-    await callApi("setCategoryHidden", { id: cat.id, hidden: !catHidden_(cat) });
-    closeCatModal_();
-    await refreshCategoriesAfterChange_();
-  } catch (err) { errorEl.textContent = err.message; }
+  // Behind the screen (saving standard; speed sweep 2026-11-21): the list changes at once, a refusal puts it back with a message.
+  const was = cat.hidden, hidden = !catHidden_(cat);
+  cat.hidden = hidden ? "yes" : "";
+  closeCatModal_();
+  renderCategoriesList_();
+  saveBehindScreen_(async () => {
+    try { await callApi("setCategoryHidden", { id: cat.id, hidden }); }
+    catch (err) { cat.hidden = was; throw err; }
+  }, refreshCategoriesAfterChange_);
 });
 
 // Where a deleted category's records can move: any other category of the same type.
@@ -20444,15 +20622,11 @@ function renderTripUnlinked_(d) {
         <div class="recurring-row-sub">${escapeHtml(listDate_(u.entry.date))} · ${escapeHtml(formatAmount(u.entry.amount, u.entry.currency))}</div>
       </div>
       <button type="button" class="add-inline">${escapeHtml(tr("trips.addToTrip"))}</button>`;
-    row.querySelector("button").addEventListener("click", async (ev) => {
+    row.querySelector("button").addEventListener("click", (ev) => {
+      // Behind the screen (speed sweep 2026-11-21): the row goes at once; the trip's redraw brings it back if the server refused.
       ev.target.disabled = true;
-      try {
-        await callApi("updateEntry", { id: u.entry.id, fields: { trip_id: d.trip.id } });
-        await refreshTripDetail_();
-      } catch (err) {
-        document.getElementById("trip-detail-error").textContent = tr("trips.loadFailed", { error: err.message });
-        ev.target.disabled = false;
-      }
+      row.hidden = true;
+      saveBehindScreen_(() => callApi("updateEntry", { id: u.entry.id, fields: { trip_id: d.trip.id } }), refreshTripDetail_);
     });
     box.appendChild(row);
   });
@@ -20477,13 +20651,8 @@ function renderTripEstimates_(d) {
       ev.stopPropagation();
       if (!await askConfirmApp_(tr("trips.confirmCovered", { what: describeForConfirm_(e.description || e.category_name, formatAmount(e.amount, e.currency)) }), tr("confirmBtn.yes"), { plain: true })) return;
       ev.target.disabled = true;
-      try {
-        await callApi("deleteRecurringExpense", { id: e.id });
-        await refreshTripDetail_();
-      } catch (err) {
-        document.getElementById("trip-detail-error").textContent = tr("trips.loadFailed", { error: err.message });
-        ev.target.disabled = false;
-      }
+      row.hidden = true;   // behind the screen (speed sweep 2026-11-21); the trip's redraw brings it back if the server refused
+      saveBehindScreen_(() => callApi("deleteRecurringExpense", { id: e.id }), refreshTripDetail_, { busy: "common.deletingToast" });
     });
     row.addEventListener("click", async () => {
       try {
@@ -20772,19 +20941,17 @@ async function loadTripFinder_(lookBack, preFound) {
     };
     rows.forEach((r) => r.input.addEventListener("change", refreshLabel));
     refreshLabel();
-    addBtn.addEventListener("click", async () => {
+    addBtn.addEventListener("click", () => {
+      // Behind the screen (saving standard; speed sweep 2026-11-21): the list closes at once, the trip's totals follow.
       addBtn.disabled = true;
-      try {
-        const ticked = rows.filter((r) => r.input.checked).map((r) => r.e.id);
-        await callApi("linkEntriesToTrip", { id, entryIds: ticked });
-        box.hidden = true;
+      const ticked = rows.filter((r) => r.input.checked).map((r) => r.e.id);
+      box.hidden = true;
+      let linked = false;
+      saveBehindScreen_(async () => { await callApi("linkEntriesToTrip", { id, entryIds: ticked }); linked = true; }, async () => {
         await refreshTripDetail_();
         // Only now: the practice's closing step lights up these totals, and must not show the old ones while they reload.
-        if (practiceT_ && (practiceT_.pastIds || []).some((pid) => ticked.includes(pid))) { practiceT_.linked = true; practiceTSave_(); }
-      } catch (err) {
-        document.getElementById("trip-detail-error").textContent = tr("trips.loadFailed", { error: err.message });
-        addBtn.disabled = false;
-      }
+        if (linked && practiceT_ && (practiceT_.pastIds || []).some((pid) => ticked.includes(pid))) { practiceT_.linked = true; practiceTSave_(); }
+      });
     });
     box.appendChild(addBtn);
   } catch (err) {
@@ -20925,7 +21092,7 @@ function businessOffered() {
   return c.businessOffered !== undefined ? !!c.businessOffered : !!(c.business || c.perfLog);
 }
 
-function applyBusinessVisibility_() {
+function applyBusinessVisibility_(opts) {
   // More → Friends: only when this backend can edit friends (an older one lacks it). Checked here so it also follows every fresh load of the settings.
   document.getElementById("more-friends-btn").hidden = !((meta && meta.capabilities) || {}).friendsEdit;
   document.getElementById("more-deleted-btn").hidden = !((meta && meta.capabilities) || {}).entriesRestore;
@@ -20942,7 +21109,7 @@ function applyBusinessVisibility_() {
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;
   document.getElementById("more-business-features-state").textContent = tr(on ? "business.state.on" : "business.state.off");
-  refreshBusinessHomeCard_();
+  if (!(opts && opts.noCard)) refreshBusinessHomeCard_();
 }
 
 // Shows one of the screens reached from the More list and keeps "More" highlighted in the bar.
@@ -21640,13 +21807,15 @@ document.getElementById("expected-delete-btn").addEventListener("click", async (
 
 // Home: a card of its own under "Programmed this month" — what clients still owe, due this month or overdue. Never mixed into
 // the personal figures, and only there while the pack is on and something is expected.
+let businessCardCall_ = null;   // one listExpectedPayments at a time: a second refresh while one is on its way shares it (speed sweep 2026-11-21)
 async function refreshBusinessHomeCard_() {
   const card = document.getElementById("business-expected-card");
   if (!card) return;
   if (!businessOn()) { card.hidden = true; return; }
   let r;
   try {
-    r = await callApi("listExpectedPayments", { scope: "home", today: todayLocalISO() });
+    const call = businessCardCall_ || (businessCardCall_ = callApi("listExpectedPayments", { scope: "home", today: todayLocalISO() }).finally(() => { businessCardCall_ = null; }));
+    r = await call;
   } catch (err) {
     return;   // keep what is there; the next refresh tries again
   }
@@ -23682,19 +23851,18 @@ function renderRecurringSkips_(re) {
     const row = document.createElement("div");
     row.className = "skipped-month-row";
     row.innerHTML = `<span>${MONTH_NAMES_SHORT[mm - 1]} ${y}</span><button type="button" class="add-inline">${tr("recModal.undoSkip")}</button>`;
-    row.querySelector("button").addEventListener("click", async () => {
-      try {
-        await callApi("unskipRecurringOccurrence", { id: re.id, month: m });
-        re.skipped_months = re.skipped_months.filter((x) => x !== m);
-        renderRecurringSkips_(re);
-        refreshRecurringExpenses();
-        refreshExpectedRecurring();
-      } catch (err) {
-        // Shown as an alert too — the line under the form is below the fold in
-        // this tall modal, so a failed undo looked like "it just didn't save".
-        document.getElementById("recurring-form-error").textContent = err.message;
-        showAppMessage_(tr("recModal.undoSkipFailed", { error: err.message }));
-      }
+    row.querySelector("button").addEventListener("click", () => {
+      // The month leaves the list at once; it comes back if the server refuses (speed sweep 2026-11-21).
+      re.skipped_months = re.skipped_months.filter((x) => x !== m);
+      renderRecurringSkips_(re);
+      saveBehindScreen_(async () => {
+        try { await callApi("unskipRecurringOccurrence", { id: re.id, month: m }); }
+        catch (err) {
+          if (!re.skipped_months.includes(m)) re.skipped_months = re.skipped_months.concat([m]).sort();
+          renderRecurringSkips_(re);
+          throw err;
+        }
+      }, () => { refreshRecurringExpenses(); refreshExpectedRecurring(); });
     });
     list.appendChild(row);
   });
@@ -24299,7 +24467,8 @@ let pausedAskRetries_ = 0;
 // Payors and friends become one list (once per copy; friends' copies too since 1.76.1): payers who share a name with a friend are shown with
 // what each side holds (incomes, debts) and a two-way choice whose result is spelled out under it before Done. Shown only once Home has
 // finished loading, so it never lands on top of something half-drawn or in the middle of a tap.
-let payorMergeOpen_ = false, payorMergeRetries_ = 0;
+let payorMergeOpen_ = false, payorMergeRetries_ = 0, payorMergeTouchAt_ = 0;
+document.addEventListener("pointerdown", () => { payorMergeTouchAt_ = Date.now(); }, { capture: true, passive: true });
 function payorMergeHomeBusy_() {
   return [...document.querySelectorAll("#screen-entries .stmt-loading")].some((el) => el.offsetParent);
 }
@@ -24314,8 +24483,11 @@ function payorMergeFriendLine_(owed) {
 function maybeAskPayorMerge_() {
   const pairs = (meta && meta.payorMergeAsk) || [];
   if (!pairs.length || payorMergeOpen_ || meta.fromCache_) return;
-  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning() || payorMergeHomeBusy_()) {
-    if (payorMergeRetries_++ < 40) setTimeout(maybeAskPayorMerge_, payorMergeHomeBusy_() ? 1000 : 4000);
+  // Only on Home, and not within 2 s of a touch (Andrés, testers 2026-11-21: it covered whatever screen he was on ~15 s after
+  // opening). Away from Home it waits; coming back to Home asks again (showScreen).
+  const away = document.getElementById("screen-entries").hidden, touched = Date.now() - payorMergeTouchAt_ < 2000;
+  if (away || touched || !document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning() || payorMergeHomeBusy_()) {
+    if (!away && payorMergeRetries_++ < 40) setTimeout(maybeAskPayorMerge_, payorMergeHomeBusy_() || touched ? 1000 : 4000);
     return;
   }
   payorMergeOpen_ = true;
@@ -24658,13 +24830,12 @@ async function openRecurringById_(id, box) {
 async function skipRecurringThisMonth_(item) {
   const label = item.description || item.category_name;
   if (!await askConfirmApp_(tr("expected.confirmSkip", { label }), tr("confirmBtn.yes"), { plain: true })) return;
-  try {
-    await callApi("skipRecurringOccurrence", { id: item.id, month: todayLocalISO().slice(0, 7) });
+  // Behind the screen (saving standard; speed sweep 2026-11-21): "Saving…" at once, the list follows when the server is done.
+  const month = todayLocalISO().slice(0, 7);
+  saveBehindScreen_(() => callApi("skipRecurringOccurrence", { id: item.id, month }), async () => {
     await refreshExpectedRecurring();
     refreshRecurringExpenses();
-  } catch (err) {
-    showAppMessage_(tr("expected.skipFailed", { error: err.message }));
-  }
+  });
 }
 
 // "Record the payment…": opens the new-entry sheet filled in from the programmed item — its category, whole bill,
@@ -25880,8 +26051,8 @@ document.getElementById("projection-override-reset-btn").addEventListener("click
   if (!projectionOverrideState) return;
   const { categoryId, periodKey } = projectionOverrideState;
   closeProjectionOverrideModal_();
-  await callApi("deleteProjectionOverride", { categoryId, periodKey });
-  refreshProjectionAfterOverrideChange_();
+  // Saving standard (speed sweep 2026-11-21): it closed first but said nothing, and a refusal was lost without a word.
+  saveBehindScreen_(() => callApi("deleteProjectionOverride", { categoryId, periodKey }), async () => { refreshProjectionAfterOverrideChange_(); });
 });
 
 (function setupUpdateCheck() {
@@ -26235,6 +26406,7 @@ const LINK_ICON_RULES_ = [
   [/^(add up|sumar|fill the rows|llenar las filas)/i, "calc"],
   [/^(add screenshots|agregar capturas)/i, "camera"],
   [/^\d+ (emails?|correos?)\b/i, "mail"],
+  [/^(starting balance|saldo inicial)/i, "plus"],   // the import's Done screen: gives a new account its starting balance
   [/^(add|agregar|añadir)\b|^\+ /i, "plus"],
   [/^(copy|copiar)\b/i, "copy"],
   [/^(make my link|crear mi enlace)/i, "plus"],
@@ -26253,7 +26425,7 @@ const LINK_ICON_RULES_ = [
   [/^(switch direction|cambiar el sentido|repeat|repetir|convert|convertir|make it a transfer|pasar a transferencia)/i, "swap"],
   [/^(more actions|más acciones|more…|más…)$|^(more actions|más acciones)/i, "dots"],
   [/^(load more|cargar más)/i, "down"],
-  [/^(edit|editar|change|cambiar|method|método)\b/i, "pencil"],
+  [/^(edit|editar|change|cambiar|method|método|complete|completar)\b/i, "pencil"],
   [/^(reset|restablecer|start|empezar|volver|go back|reload|recargar|reactivate|reactivar|work out|recalcular)/i, "refresh"],
   [/^(skip|omitir)\b/i, "skip"],
   [/^(use|usar|apply|aplicar|match|emparejar|choose|elegir|record|registrar|mark|marcar|keep|dejar)\b/i, "check"],
@@ -26275,6 +26447,16 @@ function linkIconFor_(text) {
   const rule = LINK_ICON_RULES_.find(([re]) => re.test(t));
   return rule ? rule[1] : null;
 }
+// The button's words without its hidden parts. Speed (2026-11-21): innerText made the phone lay out the whole page for each of the
+// ~1,500 link buttons at start-up (about 6 s of a slow phone, twice); this reads the same words without any layout.
+function linkVisibleText_(el) {
+  let out = "";
+  el.childNodes.forEach((n) => {
+    if (n.nodeType === 3) out += n.nodeValue;
+    else if (n.nodeType === 1 && !n.hidden && !n.classList.contains("hidden") && !n.classList.contains("link-ico")) out += n.tagName === "BR" ? " " : linkVisibleText_(n);
+  });
+  return out;
+}
 function linkIconize_(btn) {
   if (!btn || btn.dataset.noIcon != null || btn.closest(".friends-editbar, .ts-stage")) return;
   const old = btn.querySelector(":scope > .link-ico");
@@ -26283,7 +26465,7 @@ function linkIconize_(btn) {
   const first = [...btn.childNodes].find((n) => n !== old && (n.nodeType !== 3 || n.nodeValue.trim()));
   const plus = !!(first && first.nodeType === 3 && /^\s*\+\s/.test(first.nodeValue));
   if (plus) first.nodeValue = first.nodeValue.replace(/^\s*\+\s+/, "");
-  const name = plus ? "plus" : linkIconFor_(btn.innerText || btn.textContent);
+  const name = plus ? "plus" : linkIconFor_(linkVisibleText_(btn));
   if (old && old.dataset.name === name) return;
   if (old) old.remove();
   if (!name) return;
@@ -30306,6 +30488,8 @@ async function refreshLoans() {
   if (firstLoad) { screen.classList.add("first-loading"); firstLoading.hidden = false; }
   const endFirstLoad = () => { screen.classList.remove("first-loading"); firstLoading.hidden = true; };
   let balances;
+  // The settled people are asked at the same time (speed sweep 2026-11-21: they waited for the balances), drawn after them.
+  const settledCall = callApi("listSettledLoanFriends", loansScopePayload_()).catch(() => []);
   try {
     balances = await callApi("listLoanBalances", { ...loansScopePayload_(), withUnreadable: true });
   } catch (err) {
@@ -30346,8 +30530,8 @@ async function refreshLoans() {
   const warn = document.getElementById("loans-unreadable");
   warn.hidden = !unreadable.length;
   warn.textContent = unreadable.length ? tr("loans.unreadable", { list: unreadable.map((u) => `${u.friend_name} ("${u.amount} ${u.currency}")`.replace(" \")", "\")")).join(", ") }) : "";
-  if (firstLoad) { await renderSettledPeople_().catch(() => {}); endFirstLoad(); }
-  else renderSettledPeople_();
+  if (firstLoad) { await renderSettledPeople_(settledCall).catch(() => {}); endFirstLoad(); }
+  else renderSettledPeople_(settledCall);
   offerLoansTip_();   // only now that everything has arrived (loading standard)
 }
 
@@ -31391,13 +31575,13 @@ document.getElementById("history-modal-backdrop").addEventListener("click", (e) 
 });
 
 // People with loan history but nothing owing: a collapsed list at the bottom of the Loans tab, so their history can still be opened.
-async function renderSettledPeople_() {
+async function renderSettledPeople_(call) {
   const card = document.getElementById("loans-settled-card");
   const toggle = document.getElementById("loans-settled-toggle");
   const list = document.getElementById("loans-settled-list");
   let people = [];
   try {
-    people = await callApi("listSettledLoanFriends", loansScopePayload_());
+    people = (await (call || callApi("listSettledLoanFriends", loansScopePayload_()))) || [];
   } catch (err) {
     people = [];
   }
@@ -33619,10 +33803,14 @@ document.getElementById("settlement-delete-btn").addEventListener("click", async
   // Closes first, finishes in the background (same as the save button).
   const settlementId = editingSettlementId;
   closeSettlementModal();
+  const busy = tr("common.deletingToast");
+  showToast_(busy, true);   // (speed sweep 2026-11-21: nothing said it was still working)
   try {
     await callApi("deleteSettlement", { id: settlementId });   // the whole repayment goes; a failure is undone and announced just below
     await refreshAfterSettlementChange_();
+    hideToast_(busy);
   } catch (err) {
+    hideToast_(busy);
     showAppMessage_(tr("settle.saveFailed", { error: err.message }));
     refreshAfterSettlementChange_().catch(() => {});
   }
@@ -34161,6 +34349,10 @@ async function refreshBalancesInner_() {
   balancesCache = rows;
   list.innerHTML = "";
   emptyNote.hidden = rows.length > 0;
+  // A person who already has accounts (an import made some, say) is told THEY need a starting balance, not to add an account
+  // (Elena, testers 2026-11-21: "No balances yet" right after an import made three).
+  const hasAccounts = ((meta && meta.paymentMethods) || []).some((pm) => pm.type !== "cash" && pm.type !== "investment" && !pmHidden_(pm));
+  emptyNote.textContent = tr(hasAccounts ? "balances.emptyHasAccounts" : "balances.empty");
   // An account moving in a currency with no starting balance of its own (owner, 2026-11-11): said above the list, which starts closed.
   const missingN = rows.filter((r) => !r.statement_closed && balanceMissingCurrencies_(r).length).length;
   const missingNote = document.getElementById("balances-missing");
@@ -34258,6 +34450,23 @@ function formatSignedBalance_(amount, currency) {
 // `pmId` set → that account's detail; null → "+ Add balance" (pick any
 // account that isn't tracked yet).
 let balanceOpenSeq_ = 0;   // which opening of the balance sheet is on screen (a late check from an older one is dropped: Nico, Tomás 2026-11-11)
+// A starting balance for one account, whether or not it has a balance yet (the import's Done screen, testers 2026-11-21): an account
+// with no balance row opens the "add" window with that account already picked.
+async function openStartBalanceFor_(pmId) {
+  if (!balancesCache) { try { balancesCache = await callApi("listPaymentMethodBalances", {}); } catch (e) { balancesCache = []; } }
+  if (balancesCache.some((b) => b.id === pmId)) return openBalanceModal(pmId);
+  await openBalanceModal();
+  const picker = document.getElementById("balance-account-picker");
+  if (![...picker.options].some((o) => o.value === pmId)) {   // beyond the short list's five: put it in, chosen
+    const pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === pmId);
+    if (!pm) return;
+    const opt = document.createElement("option");
+    opt.value = pm.id; opt.textContent = pmPickLabel_(pm);
+    picker.insertBefore(opt, picker.firstChild);
+  }
+  picker.value = pmId;
+  if (picker.onchange) picker.onchange();
+}
 async function openBalanceModal(pmId) {
   balanceOpenSeq_++;
   balanceModalPmId = pmId;

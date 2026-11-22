@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.33.1"><!-- ship.sh writes the release number here -->
-  <meta name="app-channel" content="stable"><meta name="app-pin" content="c310eac14476968f6fd4db3fb7cffeb44b308bba"><meta name="app-archived" content="20261119T144332381Z"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
+  <meta name="app-release" content="2.41.2"><!-- ship.sh writes the release number here -->
+  <meta name="app-channel" content="stable"><meta name="app-pin" content="5a86414113abf145a1869b1438a8adb32741800b"><meta name="app-archived" content="20261122T011606536Z"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
   // in stable/ that only `ship.sh --promote` changes. This runs first, before anything else loads.
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-19T01:54:36Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-21T15:05:26Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -485,6 +485,7 @@
         <div class="friends-editbar" id="review-editbar" hidden>
           <button type="button" class="add-inline" id="review-selectall-btn" data-i18n="friends.selectAll">Select all</button>
           <button type="button" class="add-inline" id="review-done-btn" data-i18n="friends.done">Done</button>
+          <button type="button" class="add-inline" id="review-tag-selected-btn" hidden disabled></button>
           <button type="button" class="primary danger" id="review-discard-selected-btn" disabled></button>
           <button type="button" class="primary" id="review-confirm-selected-btn" disabled></button>
         </div>
@@ -1333,11 +1334,11 @@
           </div>
 
           <div id="be-view-bank">
-            <h3 data-i18n="bankMail.alertsTitle">Turn on every alert in your bank's app</h3>
+            <h3 data-i18n="bankMail.alertsTitle">Turn on every email alert in your bank's app</h3>
             <p class="hint" data-i18n="bankMail.alertsLead">The app can only see the payments your bank tells you about by email. In each bank's app, turn on email alerts for every kind of operation and set the minimum amount as low as it allows (0 if you can). Anything under the minimum never reaches the app.</p>
             <button type="button" class="add-inline" id="be-unread-link" hidden></button>
             <div id="be-banks" class="bm-alerts"></div>
-            <p class="hint" id="be-foot" hidden data-i18n="be.foot">A line appears only when the app can read that kind of email, or when it is confirmed that no email exists. Whether your bank really sends it depends on the alerts you turned on.</p>
+            <p class="hint" id="be-foot" hidden data-i18n="be.foot">A line appears only when the app can read that kind of email, or when it is confirmed that no email exists. Whether your bank really sends it depends on the email alerts you turned on in your bank's app.</p>
             <div id="be-teach" hidden>
               <h3 data-i18n="bankMail.teachTitle">Is your bank missing?</h3>
               <p class="hint" data-i18n="bankMail.teachLead">Send me one of its emails and I will teach the app to read them. After that, your payments from that bank show up in the app by themselves.</p>
@@ -1575,6 +1576,15 @@
               <span class="more-list-chevron" id="wa-chevron">›</span>
             </button>
             <div id="wa-body" hidden>
+              <div id="wa-redeem" hidden>
+                <p class="hint" data-i18n="prof.waRedeemHint">Add and confirm your transactions by writing to the app's WhatsApp bot. It works by invitation: type the code JP sent you and your WhatsApp number.</p>
+                <label for="wa-redeem-code" data-i18n="prof.waRedeemCodeLabel">Invitation code</label>
+                <input type="text" id="wa-redeem-code" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="WA-XXXX-XXXX">
+                <label for="wa-redeem-number" data-i18n="prof.waNumberLabel">Your WhatsApp number, with its country code</label>
+                <input type="tel" id="wa-redeem-number" inputmode="numeric" autocomplete="tel" data-i18n-placeholder="prof.waNumberPh" placeholder="51987654321">
+                <p class="hint error-text" id="wa-redeem-error" role="alert"></p>
+                <button type="button" class="primary" id="wa-redeem-btn" data-i18n="prof.waRedeemUse">Use the code</button>
+              </div>
               <div id="wa-off">
                 <p class="hint" data-i18n="prof.waHint">Add and confirm your transactions by writing to the app's WhatsApp bot. What you write goes only to your own app.</p>
                 <label for="wa-number" data-i18n="prof.waNumberLabel">Your WhatsApp number, with its country code</label>
@@ -1584,12 +1594,27 @@
               </div>
               <div id="wa-on" hidden>
                 <p class="hint" id="wa-status"></p>
-                <p class="hint" data-i18n="prof.waCodeHint">Send this code to JP on WhatsApp. Once he has added it, write "ayuda" to the bot.</p>
+                <p class="hint" data-i18n="prof.waCodeHint">Send this code to JP on WhatsApp. Once he has added it, write "hola" to the bot: it will show you how it works.</p>
                 <textarea id="wa-code" class="bill-photo-text" rows="4" readonly spellcheck="false"></textarea>
                 <p class="hint error-text" id="wa-nocode" data-i18n="prof.waNoCode" hidden>The code is not ready yet. Close this screen and open it again in a minute.</p>
                 <button type="button" class="primary" id="wa-copy-btn" data-i18n="prof.waCopy">Copy the code</button>
                 <p class="hint" id="wa-copied" role="status"></p>
+                <button type="button" class="add-inline" id="wa-open-bot-btn" data-i18n="prof.waOpenBot" hidden>Open the bot</button>
                 <button type="button" class="secondary-btn" id="wa-off-btn" data-i18n="prof.waOff">Turn off</button>
+              </div>
+              <div id="wa-invite" hidden>
+                <p class="md-title" data-i18n="prof.waInviteHead">Invite a friend</p>
+                <p class="hint" data-i18n="prof.waInviteHint">Type your friend's WhatsApp number to get their invitation code. They type it in their app, in More → My profile → WhatsApp bot.</p>
+                <label for="wa-invite-number" data-i18n="prof.waInviteNumberLabel">Your friend's WhatsApp number, with its country code</label>
+                <input type="tel" id="wa-invite-number" inputmode="numeric" autocomplete="off" data-i18n-placeholder="prof.waNumberPh" placeholder="51987654321">
+                <p class="hint error-text" id="wa-invite-error" role="alert"></p>
+                <button type="button" class="primary" id="wa-invite-btn" data-i18n="prof.waInviteMake">Make the code</button>
+                <div id="wa-invite-result" hidden>
+                  <p class="hint" id="wa-invite-for"></p>
+                  <p class="wa-invite-code" id="wa-invite-code"></p>
+                  <button type="button" class="add-inline" id="wa-invite-copy-btn" data-i18n="prof.waInviteCopy">Copy the invitation</button>
+                  <p class="hint" id="wa-invite-copied" role="status"></p>
+                </div>
               </div>
             </div>
           </div>
@@ -1649,7 +1674,7 @@
         <p class="hint" data-i18n="privacy.agree">If you check “Help me improve the app”, your phone sends JP only small counts: how fast each action ran; which action failed, with a short code; whether each bank email was confirmed as it came, changed or discarded, and which field you changed (never what is in it); and how many times you open each screen. During setup, the installer page can also tell JP which step you reached, if you leave its box checked.</p>
 
         <p class="hint"><strong data-i18n="privacy.sendTitle">What reaches JP only when you send it</strong></p>
-        <p class="hint" data-i18n="privacy.send">A sample of a bank email or statement that the app cannot read yet (you see the exact text first, and digits, names and email addresses are hidden before it leaves your phone), and the notes you write in “Send feedback to JP” (you see them first). Nothing else.</p>
+        <p class="hint" id="privacy-send" data-i18n="privacy.send">A sample of a bank email or statement that the app cannot read yet (you see the exact text first, and digits, names and email addresses are hidden before it leaves your phone), and the notes you write in “Send feedback to JP” (you see them first). Nothing else.</p>
 
         <p class="hint"><strong data-i18n="privacy.neverTitle">Never sent to JP</strong></p>
         <p class="hint" data-i18n="privacy.never">Your expenses, amounts, descriptions, categories you created, names of friends or payees, account names or numbers, your emails, your photos and PDFs, and your sign-in.</p>
@@ -1903,6 +1928,20 @@
     </div>
   </div>
 
+  <!-- The one friends screen (owner, 2026-11-19): everyone by name with a search, like the currency screen; "More…" and the friend boxes open it. -->
+  <div id="friend-screen-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal currency-screen friend-screen">
+      <div class="currency-modal-header">
+        <span id="friend-screen-title" data-i18n="friendPick.choose">Choose a friend</span>
+        <button type="button" id="friend-screen-close" class="currency-modal-close">✕</button>
+      </div>
+      <input type="text" id="friend-search" data-i18n-placeholder="friendPick.search" placeholder="Search by name…" autocomplete="off">
+      <div class="currency-option-list" id="friend-option-list"></div>
+      <button type="button" class="add-inline" id="friend-screen-add" hidden data-i18n="common.addFriend">+ Add friend…</button>
+      <button type="button" class="primary" id="friend-screen-done" hidden data-i18n="currency.done">Done</button>
+    </div>
+  </div>
+
   <!-- Add an exchange rate (More → Currencies, +): currency and month first, then the usual rate window. -->
   <!-- One Home search filter (Type, Dates or Amount; owner, 2026-11-15): every choice applies at once to the results behind; the button only closes. -->
   <div id="search-filters-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
@@ -1913,19 +1952,6 @@
       </div>
       <div id="search-filters-body"></div>
       <button type="button" class="primary" id="search-filters-done">Show</button>
-    </div>
-  </div>
-
-  <!-- A list filter of the Home search (category, account, friend, tag, trip): a search box and checkmarks, most used first. -->
-  <div id="search-pick-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
-    <div class="currency-modal">
-      <div class="currency-modal-header">
-        <span id="search-pick-title">Category</span>
-        <button type="button" id="search-pick-close" class="currency-modal-close">✕</button>
-      </div>
-      <input type="search" id="search-pick-find" autocomplete="off" autocapitalize="off" enterkeyhint="search" data-i18n-placeholder="search.f.find" placeholder="Search…">
-      <div id="search-pick-list" class="search-pick-list"></div>
-      <button type="button" class="primary" id="search-pick-done" data-i18n="search.f.showAll">Done</button>
     </div>
   </div>
 
@@ -3046,7 +3072,7 @@
             <li data-i18n="erase.item3">The permissions your app and the setup page have in your Google account.</li>
             <li data-i18n="erase.item4">Your sign-in on every device.</li>
           </ul>
-          <p class="hint" data-i18n="erase.keptByJp">What you already sent JP (counts, notes, bank email samples) is not on your Sheet, so this does not erase it. Ask him and he deletes it.</p>
+          <p class="hint" id="erase-kept-by-jp" data-i18n="erase.keptByJp">What you already sent JP (counts, notes, bank email samples) is not on your Sheet, so this does not erase it. Ask him and he deletes it.</p>
           <p class="hint"><strong data-i18n="erase.noUndo">This cannot be undone. If you want to keep a copy of your data, close this and use More → My data → Export my data first.</strong></p>
           <label class="hint" for="erase-confirm-input" data-i18n="erase.typePrompt">To confirm, type DELETE here:</label>
           <input type="text" id="erase-confirm-input" autocomplete="off" autocapitalize="characters" spellcheck="false">
@@ -3224,7 +3250,7 @@
             <button type="button" class="add-inline" id="bm-check-btn" data-i18n="mailHealth.checkNow">Check now</button>
           </div>
         <div class="ts-stage bm-stage" id="bm-scene" role="img" data-i18n-aria-label="bankMail.animLabel" aria-label="A bank email arrives and shows up in Needs review" hidden></div>
-        <h3 data-i18n="bankMail.alertsTitle">Turn on every alert in your bank's app</h3>
+        <h3 data-i18n="bankMail.alertsTitle">Turn on every email alert in your bank's app</h3>
         <p class="hint" data-i18n="bankMail.alertsLead">The app can only see the payments your bank tells you about by email. In each bank's app, turn on email alerts for every kind of operation and set the minimum amount as low as it allows (0 if you can). Anything under the minimum never reaches the app.</p>
         <div id="bm-alerts" class="bm-alerts"></div>
         <p class="hint" data-i18n="bankMail.try">Try it: pay something small with your card, or send a Yape of S/ 10 or more. It should show up in “Needs review” within about 15 minutes.</p>
@@ -3263,7 +3289,7 @@
           <ul class="bm-steps">
             <li data-i18n="bankMail.nc1">Money you receive (a Yape, a transfer): banks send no email for it. Add it by hand with the + button.</li>
             <li data-i18n="bankMail.nc2">Cash: add it by hand with the + button.</li>
-            <li data-i18n="bankMail.nc3">Anything under the minimum amount of your bank's alerts.</li>
+            <li data-i18n="bankMail.nc3">Anything under the minimum amount of your bank's email alerts.</li>
           </ul>
           <p class="hint" data-i18n="bankMail.nc4">Once a month, load your statement in More, Statements: the app finds whatever is missing.</p>
         </details>
@@ -4138,6 +4164,21 @@
     </div>
   </div>
 
+  <!-- "See the statement" (owner, 2026-11-20): a bank's PDF pages, with the account and period on top, to tell which document it is. -->
+  <div id="stmt-viewer-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal currency-screen pace-screen stmt-viewer">
+      <div class="currency-modal-header">
+        <button type="button" class="icon-btn back-btn" id="stmt-viewer-back" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <span data-i18n="stmt.view.title">The statement</span>
+      </div>
+      <div class="pace-screen-body" id="stmt-viewer-scroll">
+        <div id="stmt-viewer-loading"></div>
+        <div id="stmt-viewer-head" class="stmt-viewer-head" hidden></div>
+        <div id="stmt-viewer-pages" class="stmt-viewer-pages" hidden></div>
+      </div>
+    </div>
+  </div>
+
   <div id="statement-password-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -4153,24 +4194,24 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="i18n.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="tour-scenes.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="signin-link.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="country-guess.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="rate-quotes.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="bank-sample.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="perf-share.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="spotlight.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="receipt-parse.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="receipt-fields.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="in-process.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="bill-split.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="loan-reminder.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="app.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="statement-sample.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="statement-table.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="statement-parsers.js?v=2026-11-19T01:54:36Z"></script>
-  <script src="statements.js?v=2026-11-19T01:54:36Z"></script>
+  <script src="strings.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="i18n.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="tour-scenes.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="signin-link.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="country-guess.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="rate-quotes.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="bank-sample.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="perf-share.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="spotlight.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="receipt-parse.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="receipt-fields.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="in-process.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="bill-split.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="loan-reminder.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="app.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="statement-sample.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="statement-table.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="statement-parsers.js?v=2026-11-21T15:05:26Z"></script>
+  <script src="statements.js?v=2026-11-21T15:05:26Z"></script>
 </body>
 </html>

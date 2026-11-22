@@ -81,6 +81,7 @@
       };
     }
     return task.promise.then(function (doc) {
+      if (opts && opts.onDoc) opts.onDoc(doc);   // the opened document, for drawing its pages ("See the statement")
       var out = [];
       var chain = Promise.resolve();
       for (var p = 1; p <= doc.numPages; p++) {
@@ -149,6 +150,7 @@
     if (/DETALLE DE MOVIMIENTOS HIST[ÓO]RICOS/i.test(all) && /SALDO ANTERIOR CONTABLE/i.test(all) && /Falabella/i.test(all)) return 'falabella';
     if (/PERIODO FACTURADO DEL/i.test(all)) return 'diners';
     if (/Estado de Cuenta de Ahorros/i.test(all) && /FECHA PROC/i.test(all)) return 'bcp';
+    if (isSipCts(all)) return 'sipcts';
     if (/Ahorros disponible/i.test(all) && /Estado de cuenta del/i.test(all)) return 'ahorramas';
     if (/TARJETA DE CR[ÉE]DITO SIP/i.test(all) && /DETALLE DE TU ESTADO DE CUENTA/i.test(all)) return 'sip';
     // Some SIP PDFs are a scan: the headings above are part of the picture and
@@ -544,6 +546,126 @@
       period: { start: start, end: end }, balances: balances, lines: lines,
       availableNow: avail ? num(avail[1]) : null, skippedOutOfPeriod: skipped
     };
+  }
+
+  // ---- SIP CTS account ("Estado de Cuenta CTS", 2026-11-20; SIP's layout only, no other bank's CTS) ----
+  // One PDF per CTS account, listing EVERY movement since the account was opened: "Nro. Fecha Descripción Moneda Monto Saldo".
+  // A movement's description wraps over two lines and the PDF may put its second half on the line after the amounts (or, at a
+  // page break, its first half at the bottom of the page before), so movements are cut at "<n> <dd/mm/yyyy>" and each one's
+  // kind is told by its words, never by its line layout. Only three kinds exist; their description is written out cleanly:
+  // the employer's deposit ("Abono de capital") -> income, category "Salary" (owner, 2026-11-20); a withdrawal ("Retiro") ->
+  // a transfer out (`transfer: true`), matched against the "Retiro CTS" e-mail entry; interest ("Capitalización de intereses")
+  // -> income (the backend files interest in "Savings return"). Checked: movements numbered 1..N with none missing, every running
+  // balance = the previous one + the amount, and the last one = "Saldo Total". The phone then leaves out movements from before
+  // the person's history starts (statements.js, `trimSipCtsToHistory`).
+  var SIP_CTS_DESC_ = { deposit: 'Abono de capital (Semestral)', withdrawal: 'Retiro por libre disponibilidad', interest: 'Capitalización de intereses' };
+
+  function isSipCts(all) {
+    return /Estado de Cuenta CTS/i.test(all) && /DATOS DE LA CUENTA CTS/i.test(all) && /Saldo Intangible/i.test(all) && /MOVIMIENTOS/.test(all);
+  }
+
+  function sipCtsKindOf(text) {
+    if (/inter[eé]s/i.test(text)) return 'interest';
+    if (/\babono\b/i.test(text)) return 'deposit';
+    if (/\bretiro\b/i.test(text)) return 'withdrawal';
+    return '';
+  }
+
+  // The kind named LAST in a text: the tail a movement carries after its amounts ends with the next movement's first words
+  // ("intereses Abono de capital" = the end of an interest line, then a deposit cut by a page break).
+  function sipCtsLastKindOf(text) {
+    var best = '', at = -1;
+    [['interest', /inter[eé]s/gi], ['deposit', /\babono\b/gi], ['withdrawal', /\bretiro\b/gi]].forEach(function (k) {
+      var m, re = k[1];
+      while ((m = re.exec(text)) !== null) if (m.index > at) { at = m.index; best = k[0]; }
+    });
+    return best;
+  }
+
+  function parseSipCts(rows) {
+    var errors = [];
+    var texts = rows.map(function (r) { return String(r.text || ''); });
+    var all = texts.join('\n');
+    var acct = all.match(/N[úu]mero de cuenta:\s*(\d{4,})/i);
+    var curM = all.match(/Moneda:\s*(Sol|Soles|D[óo]lar|D[óo]lares)\b/i);
+    if (!acct || !curM) return fail('sipcts', [msg('sp.noPeriodCurrencyAccount')]);
+    var currency = /^d/i.test(curM[1]) ? 'USD' : 'PEN';
+    var headDate = all.match(/Estado de Cuenta CTS\s*\n?\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+    // "Saldo Total (S/) Saldo Intangible (S/) Saldo Disponible (S/)" and, on the next line, the three amounts.
+    var total = null;
+    for (var i = 0; i < texts.length; i++) {
+      if (!/Saldo Total/i.test(texts[i])) continue;
+      for (var k = i; k <= i + 2 && k < texts.length; k++) {
+        var amts = texts[k].match(/-?[\d,]+\.\d{2}/g);
+        if (amts && amts.length >= 1) { total = num(amts[0]); break; }
+      }
+      break;
+    }
+    // The movements: everything after the "MOVIMIENTOS" heading, up to the e-mail footer if the PDF carries one.
+    var start = texts.findIndex(function (t) { return /^MOVIMIENTOS\b/.test(t.trim()); });
+    if (start === -1) return fail('sipcts', [msg('sp.ctsNoMoves')]);
+    var stream = texts.slice(start + 1).join(' ');
+    var cut = stream.search(/Este correo electr[óo]nico fue enviado|Privacy Policy/i);
+    if (cut !== -1) stream = stream.slice(0, cut);
+    stream = stream.replace(/Page \d+ of \d+/gi, ' ').replace(/\s+/g, ' ');
+    var startRe = /(?:^|\s)(\d{1,4})\s+(\d{2})\/(\d{2})\/(\d{4})\s/g, starts = [], m;
+    while ((m = startRe.exec(stream)) !== null) starts.push({ at: m.index, end: startRe.lastIndex, n: +m[1], d: +m[2], mo: +m[3], y: +m[4] });
+    var moneyRe = /\b(Sol|Soles|D[óo]lar|D[óo]lares)\s+(-?[\d,]+\.\d{2})\s+(-?[\d,]+\.\d{2})/i;
+    var moves = [];
+    starts.forEach(function (s, idx) {
+      var chunk = stream.slice(s.end, idx + 1 < starts.length ? starts[idx + 1].at : stream.length);
+      var mm = chunk.match(moneyRe);
+      if (!mm) return;   // a stray "<n> <date>" in the text with no amounts after it: not a movement
+      moves.push({ n: s.n, date: iso(s.y, s.mo, s.d), amount: num(mm[2]), balance: num(mm[3]),
+        before: chunk.slice(0, mm.index).trim(), after: chunk.slice(mm.index + mm[0].length).trim() });
+    });
+    if (!moves.length) return fail('sipcts', [msg('sp.ctsNoMoves')]);
+    var lines = [];
+    var opening = round2(moves[0].balance - moves[0].amount), running = opening;
+    moves.forEach(function (mv, idx) {
+      if (mv.n !== idx + 1) errors.push(msg('sp.ctsMissingMove', { n: idx + 1 }));
+      running = round2(running + mv.amount);
+      if (Math.abs(running - mv.balance) >= 0.005) { errors.push(msg('sp.ctsBalanceStep', { n: mv.n, a: running.toFixed(2), b: mv.balance.toFixed(2) })); running = mv.balance; }
+      // Its words: its own text, else (a page break split it) the tail the previous movement carried after its amounts.
+      var kind = sipCtsKindOf(mv.before + ' ' + mv.after);
+      if (!kind && idx > 0) kind = sipCtsLastKindOf(moves[idx - 1].after);
+      if (kind === 'withdrawal' && mv.amount >= 0) kind = '';
+      if ((kind === 'deposit' || kind === 'interest') && mv.amount <= 0) kind = '';
+      var line = { date: mv.date, description: kind ? SIP_CTS_DESC_[kind] : (mv.before + ' ' + mv.after).trim(), amount: round2(mv.amount),
+        currency: currency, section: 'movement' };
+      if (kind === 'deposit') line.category = 'Salary';
+      if (kind === 'withdrawal') line.transfer = true;
+      lines.push(line);
+    });
+    var closing = round2(moves[moves.length - 1].balance);
+    if (total !== null && Math.abs(total - closing) >= 0.005) errors.push(msg('sp.ctsTotal', { a: closing.toFixed(2), b: total.toFixed(2) }));
+    if (errors.length) return fail('sipcts', errors);
+    var balances = {};
+    balances[currency] = { opening: opening, closing: closing };
+    return {
+      ok: true, errors: [], verified: true, warnings: [],
+      kind: 'sipcts', bank: 'SIP',
+      account: { last4: acct[1].slice(-4), number: acct[1], label: 'CTS' },
+      period: { start: lines[0].date, end: headDate ? iso(headDate[3], +headDate[2], +headDate[1]) : lines[lines.length - 1].date },
+      balances: balances, lines: lines
+    };
+  }
+
+  // Leaves out the movements dated before `historyStart` (the person's first entry; owner, 2026-11-20: a CTS statement lists every
+  // movement since 2022). The opening balance moves to the balance before the first kept movement, so the reading still adds up.
+  function trimSipCtsToHistory(res, historyStart) {
+    if (!res || !res.ok || res.kind !== 'sipcts' || !historyStart) return res;
+    var cur = Object.keys(res.balances)[0], bal = res.balances[cur];
+    var kept = [], dropped = 0, opening = bal.opening;
+    res.lines.forEach(function (l) {
+      if (l.date < historyStart) { dropped++; opening = round2(opening + l.amount); }
+      else kept.push(l);
+    });
+    if (!dropped) return res;
+    var out = Object.assign({}, res, { lines: kept, skippedBeforeHistory: dropped, historyStart: historyStart });
+    out.balances = {}; out.balances[cur] = { opening: opening, closing: bal.closing };
+    out.period = { start: kept.length ? kept[0].date : historyStart, end: res.period.end };
+    return out;
   }
 
   // ---- SIP credit card (PEN only) ----
@@ -1023,9 +1145,10 @@
     else if (kind === 'falabella') res = parseFalabellaSavings(rows);
     else if (kind === 'ahorramas') res = parseAhorramas(rows);
     else if (kind === 'sip') res = parseSip(rows);
+    else if (kind === 'sipcts') res = parseSipCts(rows);
     else return fail(null, [msg('sp.notRecognized')]);
     if (res && res.ok) res.holder = holderOf(kind, rows);
-    if (res && res.ok && kind !== 'savings' && kind !== 'bcp' && kind !== 'ahorramas') { var due = dueDateOf(rows); if (due) res.due = due; }   // cards only
+    if (res && res.ok && kind !== 'savings' && kind !== 'bcp' && kind !== 'ahorramas' && kind !== 'sipcts') { var due = dueDateOf(rows); if (due) res.due = due; }   // cards only
     return res;
   }
 
@@ -1034,7 +1157,7 @@
   // fails otherwise.
   var STATEMENT_BANK_BY_KIND = {
     savings: 'Interbank', visa: 'Interbank', diners: 'Diners', bcp: 'BCP', bcpcard: 'BCP',
-    cmr: 'Banco Falabella', falabella: 'Banco Falabella', ripley: 'Banco Ripley', ahorramas: 'SIP', sip: 'SIP'
+    cmr: 'Banco Falabella', falabella: 'Banco Falabella', ripley: 'Banco Ripley', ahorramas: 'SIP', sip: 'SIP', sipcts: 'SIP'
   };
   function statementBanks() {
     var seen = {};
@@ -1043,5 +1166,5 @@
   }
 
   return { groupRows: groupRows, readPdfRows: readPdfRows, parseStatement: parseStatement, detectKind: detectKind, holderOf: holderOf, dueDateOf: dueDateOf,
-    STATEMENT_BANK_BY_KIND: STATEMENT_BANK_BY_KIND, statementBanks: statementBanks };
+    STATEMENT_BANK_BY_KIND: STATEMENT_BANK_BY_KIND, statementBanks: statementBanks, trimSipCtsToHistory: trimSipCtsToHistory };
 });
