@@ -209,6 +209,7 @@ function handleWhatsAppInbound_(p) {
   if (!reviewBotIsWhatsApp_()) {
     // Telegram is the review bot: a photo's card would go to Telegram, so WhatsApp only says where photos are read.
     if (p.type === 'image') return { saved: false, reply: tr_('whatsapp.photoNeedsBot') };
+    if (botUndoWord_(p.text)) return { saved: false, reply: tr_('botUndo.onReviewBot') };   // undo is on the review bot (BotUndo.gs)
     return whatsappCaptureOnly_(p);
   }   // Telegram is the review bot: capture only, the relay sends the reply
   if (whatsappSeen_(p.id)) return { handled: true, duplicate: true };

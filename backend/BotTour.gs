@@ -127,6 +127,8 @@ function botTourBefore_(text, p, firstEver, isReply) {
     BOT_TOUR_EV_.skip = true;
     return true;
   }
+  // "deshacer" during the tour: handled as usual (BotUndo.gs), and never counted as a wrong answer.
+  if (st && botUndoWord_(t)) { BOT_TOUR_EV_.skip = true; return false; }
   // "test" after step 1, "skip" at step 1, and "ok" / "gracias"…: the step again, not counted as a miss (re-check, 2026-11-21:
   // "gracias" twice lost the tour, and each got "Nothing changed" plus the step, two messages).
   if (st && (word || botFillerWord_(t))) {

@@ -778,6 +778,8 @@ var BACKEND_STRINGS_ = {
   "botUndo.debts": { en: "The debts with {friend} changed after that, so it can't be undone here. Fix it in the app: Loans → {friend}.", es: "Las deudas con {friend} cambiaron después; no se puede deshacer aquí. Arréglalo en la app: Préstamos → {friend}." },
   "botUndo.debtsNoName": { en: "The debts changed after that, so it can't be undone here. Fix it in the app, in Loans.", es: "Las deudas cambiaron después; no se puede deshacer aquí. Arréglalo en la app, en Préstamos." },
   "botUndo.and": { en: "and", es: "y" },
+  "botUndo.noPhoto": { en: "The receipt photo could not come back.", es: "La foto del comprobante no se pudo recuperar." },
+  "botUndo.onReviewBot": { en: "Undo works on your review bot (Telegram): reply “undo” to its answer there.", es: "Deshacer funciona en tu bot de revisión (Telegram): responde “deshacer” a su respuesta allí." },
   "botUndo.f.amount": { en: "amount", es: "el monto" },
   "botUndo.f.description": { en: "description", es: "la descripción" },
   "botUndo.f.category_id": { en: "category", es: "la categoría" },
