@@ -68,6 +68,7 @@ function whatsappGraphSend_(body) {
     var linked = payload.context ? whatsappCardEntry_(payload.context.message_id) : '';
     if (linked) appendRowObject('Telegram Messages', { message_id: String(id), entry_id: linked, created_at: new Date().toISOString() });
     waSetProp_('WA_LAST_OUT', id);
+    botNoteSentId_(id);   // an action's answers belong to it, for "deshacer" (BotUndo.gs)
     return { ok: true, result: { message_id: id } };
   }
   console.error('WhatsApp send failed: ' + JSON.stringify(j).slice(0, 300));
@@ -216,6 +217,7 @@ function handleWhatsAppInbound_(p) {
   // twice in one run would be released early by the inner one.
   // "The bot's last message" is the one the person saw before writing: not the cards the catch-up is about to send.
   p.lastTarget = whatsappLastTarget_();
+  p.lastOut = waProp_('WA_LAST_OUT');   // the bot's last message whatever it was about: "deshacer" without replying (BotUndo.gs)
   whatsappCatchUp_(false, wasClosed);
   var isText = p.type === 'text' || (p.type === undefined && !!p.text);
   if (!botTourBefore_(isText ? p.text : '', p, firstEver, !!p.context_id)) {
@@ -285,6 +287,8 @@ function botAwaitingText_(text, p) {
 }
 
 function whatsappTextIn_(text, p) {
+  // "deshacer" / "undo" on its own (BotUndo.gs), before an open "send the new …" question could take it as a description.
+  if (botUndoWord_(text)) { whatsappClearAwaiting_(); return botUndoMessage_(p.context_id || p.lastOut, p.id); }
   if (botAwaitingText_(text, p)) return;
   if (botFillerWord_(text)) return botText_(tr_('bot.fillerHint'), p.id);   // "ok", "gracias"…: never a transaction's new text (BotTour.gs)
   if (p.context_id && whatsappCardEntry_(p.context_id)) return whatsappEngineMessage_(p, text, p.context_id);
@@ -647,8 +651,10 @@ function whatsappConvert_(entryId, kind, friendId, p) {
   var friend = getAllRows('Friends').find(function (f) { return String(f.id) === String(friendId); });
   if (!getEntryById_(entryId)) return botText_(tr_('bot.entryGone'), p.id);
   if (!friend) return botText_(tr_('whatsapp.optionGone'), p.id);
-  var res = applyTerminalReviewAction_(entryId, kind === 'r' ? 'repayment' : 'loan', friend.name, friend);
-  botText_(res.message, whatsappCardFor_(entryId) || p.id);
+  botRecorded_(kind === 'r' ? 'repayment' : 'loan', entryId, [p.id, p.context_id], function () {   // for "deshacer" (BotUndo.gs)
+    var res = applyTerminalReviewAction_(entryId, kind === 'r' ? 'repayment' : 'loan', friend.name, friend);
+    botText_(res.message, whatsappCardFor_(entryId) || p.id);
+  });
 }
 
 // ---- Telegram: the same commands as WhatsApp (owner, 2026-11-16) ----
