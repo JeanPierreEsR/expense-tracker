@@ -490,7 +490,7 @@ function purgeOldBotActionsIfAny_() {
 
 function botUndoDoneText_(kind, info) {
   var what = info.what || tr_('bot.noDescription');
-  if (kind === 'discard') return tr_('botUndo.discard', { what: what });
+  if (kind === 'discard') return tr_(info.wasPending === false ? 'botUndo.discardBack' : 'botUndo.discard', { what: what });   // a "borrar" of a confirmed entry: back in the history, not waiting
   if (kind === 'delrep') return tr_('botUndo.delrep', { friend: info.friend || '' });
   if (kind === 'repayment' || kind === 'loan' || kind === 'waitpay') {
     return tr_(info.friend ? 'botUndo.' + kind : 'botUndo.' + kind + 'NoName', { what: what, friend: info.friend || '' });

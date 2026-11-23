@@ -28323,9 +28323,9 @@ function watchOverviewTotalsTip_() {
     key: "ovTotals", place: "overview", level: "basic",
     steps: [
       // (journeys run, 2026-11-17: each part only for someone it is about; light users waited 45-75 days for the first part at 5 entries)
-      // Pointed at the whole block of tiles, so the bubble sits under it and never covers the tiles it talks about (Sol, 2026-11-22).
-      { target: () => (popEntriesKnown_() >= 1 && screen.querySelector(".ov-sum-tile.expense") ? screen.querySelector(".ov-sum-grid") : null), text: tr("pop.ov.flows") },
-      { target: () => (screen.querySelector(".ov-sum-tile.loans") ? screen.querySelector(".ov-sum-grid") : null), text: tr("pop.ov.invLoans"), when: ovHasInvOrLoans_ },
+      // Pointed at the whole summary card (tiles and Result), so the bubble sits under it and covers none of what it talks about (Sol, 2026-11-22/23).
+      { target: () => (popEntriesKnown_() >= 1 && screen.querySelector(".ov-sum-tile.expense") ? screen.querySelector(".ov-sum-grid").closest(".card") : null), text: tr("pop.ov.flows") },
+      { target: () => (screen.querySelector(".ov-sum-tile.loans") ? screen.querySelector(".ov-sum-grid").closest(".card") : null), text: tr("pop.ov.invLoans"), when: ovHasInvOrLoans_ },
       { target: () => pending(), text: tr("pop.ov.pendingHere"), when: () => !!pending() }
     ],
     stillWanted: () => !screen.hidden,

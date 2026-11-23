@@ -372,6 +372,7 @@ test("'borrar' on a confirmed entry's card deletes it with a Recently deleted co
   a.text("deshacer", { context_id: a.lastId() });
   assert.deepEqual(world(a.rt), before);
   assert.equal(a.entry(e.id).status, "confirmed");
+  assert.ok(a.bodies().some((b) => /vuelve a estar en tu historial|in your history again/.test(b)), "it says it is back in the history, not waiting");
   assert.ok(!a.rt.run("listDeletedEntries()").batches.some((b) => b.entries.some((x) => x.entry_id === e.id)), "and left Recently deleted");
 });
 
@@ -412,6 +413,9 @@ test("a bot Confirm that crosses a budget alerts at once, and its 'deshacer' tak
   const already = open().length;
   a.tap("confirm:" + e.id, a.cardIdOf(e.id));
   assert.equal(open().length, already + 1, "the alert came with the action, not an hour later");
+  const sentBefore = a.sent.length;
   a.text("deshacer");
   assert.equal(open().length, already, "the notice went with the undo");
+  const again = a.sent.slice(sentBefore).map((m) => (m.text && m.text.body) || "").filter((t) => /🚨|⚠️/.test(t));
+  assert.deepEqual(again, [], "the undo sends no alert again");
 });

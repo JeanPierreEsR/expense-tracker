@@ -779,6 +779,7 @@ var BACKEND_STRINGS_ = {
   "botDelete.deleted": { en: "🗑️ Deleted: {what}. It waits in Recently deleted for 30 days; reply “undo” to bring it back.", es: "🗑️ Eliminado: {what}. Queda en Eliminados recientemente 30 días; responde “deshacer” para recuperarlo." },
   "botDelete.kept": { en: "{what} is part of a loan or a repayment, so it can't be deleted here. Delete it in the app: tap it in Home.", es: "{what} es parte de un préstamo o un repago, así que no se puede eliminar aquí. Elimínalo en la app: tócalo en Inicio." },
   "botDelete.which": { en: "Reply “delete” to the message of the transaction you want to remove.", es: "Responde “borrar” al mensaje del movimiento que quieres quitar." },
+  "botUndo.discardBack": { en: "↩️ Brought back: {what} is in your history again.", es: "↩️ Recuperado: {what} vuelve a estar en tu historial." },
   "botUndo.forgotten": { en: "{what} was deleted for good in Recently deleted, so it can't come back.", es: "{what} se eliminó definitivamente en Eliminados recientemente, así que ya no puede volver." },
   "botUndo.tooOld": { en: "That was more than 30 days ago, so it can't be undone.", es: "Eso fue hace más de 30 días, ya no se puede deshacer." },
   "botUndo.nothing": { en: "There's nothing to undo here. Reply “undo” to my answer about what you want to undo.", es: "Aquí no hay nada que deshacer. Responde “deshacer” a mi respuesta sobre lo que quieres deshacer." },
