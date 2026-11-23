@@ -300,3 +300,36 @@ test("'deshacer' on WhatsApp while Telegram is the review bot says where undo wo
   const out = JSON.parse(a.rt.run("doPost({ postData: { contents: __body } }).getContent()"));
   assert.match(JSON.stringify(out), /review bot \(Telegram\)/);
 });
+
+test("what a loan made by the bot taught (Payee Habits) is taken back with the undo", () => {
+  const a = waApp();
+  const e = readyExpense(a, "60 cena");
+  const habitsBefore = a.rt.run("payeeHabitRows_()").length;
+  a.tap(`waconv:${e.id}:l`);
+  a.tap(a.lastRows().find((r) => r.id.startsWith("wacv:")).id);
+  assert.ok(a.rt.run("payeeHabitRows_()").length > habitsBefore, "the conversion taught something");
+  a.text("deshacer");
+  assert.equal(a.rt.run("payeeHabitRows_()").length, habitsBefore);
+});
+
+test("a company copy: a bot edit that drops the entry's split between projects is undone with it", () => {
+  const a = waApp();
+  const e = readyExpense(a, "500 materiales");
+  a.rt.ctx.__ps = [{ id: "ps-1", entry_id: e.id, project_id: "proj-a", amount: 300 }, { id: "ps-2", entry_id: e.id, project_id: "proj-b", amount: 200 }];
+  a.rt.run("var ss = SpreadsheetApp.getActiveSpreadsheet(), sh = ss.insertSheet('Project Splits'); sh.getRange(1, 1, 1, 4).setValues([['id', 'entry_id', 'project_id', 'amount']]); __ps.forEach(function (r) { appendRowObject('Project Splits', r); });");
+  const before = world(a.rt), splits = a.rt.rows("Project Splits").map((r) => JSON.stringify(r)).sort();
+  a.tap(`wafield:${e.id}:amount`);
+  // While the edit runs, the split no longer fits the new amount and is dropped (ProjectSplits.gs does this when it applies).
+  const handler = a.rt.state.fetchHandler;
+  let once = false;
+  a.rt.state.fetchHandler = (url, opts) => {
+    if (!once && String(url).endsWith("/send")) { once = true; a.rt.ctx.__id = e.id; a.rt.run("deleteRowsWhere_('Project Splits', function (r) { return r.entry_id === __id; })"); }
+    return handler(url, opts);
+  };
+  a.text("600");
+  a.rt.state.fetchHandler = handler;
+  assert.equal(a.rt.rows("Project Splits").length, 0);
+  a.text("deshacer");
+  assert.deepEqual(world(a.rt), before);
+  assert.deepEqual(a.rt.rows("Project Splits").map((r) => JSON.stringify(r)).sort(), splits);
+});

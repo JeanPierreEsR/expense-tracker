@@ -885,7 +885,7 @@ function appendRowObject(sheetName, obj) {
   sheet.appendRow(row);
   if (ROWS_MEMO_) { delete ROWS_MEMO_[sheetName]; delete ROWS_MEMO_['@c:' + sheetName]; }
   noteRowAppended_(sheetName, obj);
-  if (sheetName === 'Entries' && BOT_ACTION_ && obj.id) BOT_ACTION_.made.push(String(obj.id));   // part of a bot action (BotUndo.gs)
+  if (BOT_ACTION_) botActionNoteRow_(sheetName, obj);   // part of a bot action (BotUndo.gs)
 }
 
 function findRowIndexById(sheet, headers, id) {

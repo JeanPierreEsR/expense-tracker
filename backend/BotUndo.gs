@@ -113,6 +113,8 @@ function botScopeIds_(seed, idx, loans, setts) {
 function botChildSheets_() {
   var names = ['Entry Splits', 'Entry Tags'];
   if (entryBillsSheetExists_()) names.push('Entry Bills');
+  // A company copy: an entry's split between projects (ProjectSplits.gs; owner's go, 2026-11-22).
+  if (SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Project Splits')) names.push('Project Splits');
   return names;
 }
 function botPerLoanSheets_() {
@@ -215,7 +217,7 @@ function botActionBegin_(kind, entryId, msgIds) {
     if (!lock.hasLock()) { lock.waitLock(20000); ownsLock = true; }
     var seed = [String(entryId || '')].filter(Boolean);
     var snap = botWorld_(seed);
-    BOT_ACTION_ = { kind: kind, entryId: String(entryId || ''), seed: seed, msgs: (msgIds || []).filter(Boolean).map(String), snap: snap, made: [], batch: '', ownsLock: ownsLock, lock: lock };
+    BOT_ACTION_ = { kind: kind, entryId: String(entryId || ''), seed: seed, msgs: (msgIds || []).filter(Boolean).map(String), snap: snap, made: [], habits: [], batch: '', ownsLock: ownsLock, lock: lock };
     BOT_MSG_CAPTURE_ = [];
   } catch (err) {
     BOT_ACTION_ = null;   // recording never stops the action itself
@@ -223,6 +225,14 @@ function botActionBegin_(kind, entryId, msgIds) {
     return false;
   }
   return true;
+}
+
+// A row this run writes while an action is recorded: a new entry (an overpayment owed to nobody links to nothing else), and what
+// a conversion teaches ("Payee Habits": the next payment from that place is offered as a loan / repayment), which Undo takes back
+// too (owner, 2026-11-22). Category guessing needs nothing: it learns from confirmed entries as they are now.
+function botActionNoteRow_(sheetName, obj) {
+  if (sheetName === 'Entries' && obj.id) BOT_ACTION_.made.push(String(obj.id));
+  if (sheetName === 'Payee Habits') BOT_ACTION_.habits.push({ key: String(obj.key || ''), kind: String(obj.kind || ''), created_at: String(obj.created_at || '') });
 }
 
 // Discard: the same 30-day safety copy as the app's bulk Discard, so the entry also shows in Recently deleted.
@@ -260,6 +270,7 @@ function botActionEnd_(kind) {
     Object.keys(diff.before.e).forEach(function (k) { entryIds[k] = true; });
     var info = botActionInfo_(act.entryId, diff);
     if (billsDropped) info.billsDropped = true;
+    if (act.habits.length) info.habits = act.habits;
     appendRowObject('Bot Actions', {
       id: Utilities.getUuid(), at: nowStamp_(), bot: botIsWa_() ? 'whatsapp' : 'telegram', kind: kind || act.kind,
       entry_ids: Object.keys(entryIds).join(','), msgs: act.msgs.concat(sent).join(','),
@@ -411,6 +422,11 @@ function undoBotAction_(row) {
     appendObjectsBatch_('Loans', loanKeys.map(function (k) { return before.l[k]; }).filter(Boolean));
   }
   Object.keys(before.p).forEach(function (name) { putBack(name, before.p[name], 'loan_id'); });
+  if (info.habits && info.habits.length && SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Payee Habits')) {
+    var learned = {};
+    info.habits.forEach(function (h) { learned[h.key + '|' + h.kind + '|' + h.created_at] = true; });
+    deleteRowsWhere_('Payee Habits', function (r) { return learned[String(r.key) + '|' + String(r.kind) + '|' + String(r.created_at)] === true; });
+  }
   var text = botUndoDoneText_(row.kind, info);
   if (info.billsDropped) {
     // The photo was too big for the bot's copy: a Discard has it in the app's safety copy; anything else says so.
