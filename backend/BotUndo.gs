@@ -388,6 +388,7 @@ function undoBotAction_(row) {
   Object.keys(before.l).forEach(function (k) { var l = before.l[k]; if (l && l.friend_id && !friends[String(l.friend_id)]) debts = true; });
   var what = info.what || tr_('bot.noDescription');
   if (reappeared && (row.kind === 'discard' || row.kind === 'delrep')) return { refuse: 'already', text: tr_('botUndo.already') };
+  if (row.deleted_batch && !reappeared && !botSafetyCopyLeft_(row.deleted_batch)) return { refuse: 'forgotten', text: tr_('botUndo.forgotten', { what: what }) };
   if (changed) return { refuse: 'changed', text: tr_('botUndo.changed', { what: what }) };
   if (debts) return { refuse: 'debts', text: tr_(info.friend ? 'botUndo.debts' : 'botUndo.debtsNoName', { friend: info.friend }) };
 
@@ -434,6 +435,25 @@ function undoBotAction_(row) {
   }
   if (row.deleted_batch) deleteRowsWhere_('Deleted Entries', function (r) { return String(r.batch_id) === String(row.deleted_batch); });
   return { ok: true, text: text };
+}
+
+// A Discard's Recently deleted copy is still there. "Delete for good" there removes it, and then the bot's own copy may not bring it back.
+function botSafetyCopyLeft_(batchId) {
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Deleted Entries')) return false;
+  return getAllRows('Deleted Entries').some(function (r) { return String(r.batch_id) === String(batchId); });
+}
+
+// "Delete for good" in Recently deleted: the bot's copy of a Discard whose safety copy is now gone is deleted too (same promise:
+// "It can't be restored after this").
+function forgetBotActionsOfBatches_(batchIds) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!batchIds.length || !ss.getSheetByName('Bot Actions')) return;
+  var left = {};
+  if (ss.getSheetByName('Deleted Entries')) getAllRows('Deleted Entries').forEach(function (r) { left[String(r.batch_id)] = true; });
+  var gone = {};
+  batchIds.forEach(function (b) { if (b && !left[String(b)]) gone[String(b)] = true; });
+  if (!Object.keys(gone).length) return;
+  deleteRowsWhere_('Bot Actions', function (r) { return gone[String(r.deleted_batch)] === true; });
 }
 
 // The receipt photos of a Discard's safety copy, put back where they are missing. True when every one came back.

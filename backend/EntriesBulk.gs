@@ -293,6 +293,11 @@ function forgetDeletedEntries(payload) {
   var key = {};
   rows.forEach(function (r) { key[String(r.batch_id) + '|' + String(r.entry_id)] = true; });
   deleteRowsWhere_('Deleted Entries', function (r) { return key[String(r.batch_id) + '|' + String(r.entry_id)] === true; });
+  if (typeof forgetBotActionsOfBatches_ === 'function') {
+    var batches = {};
+    rows.forEach(function (r) { batches[String(r.batch_id)] = true; });
+    forgetBotActionsOfBatches_(Object.keys(batches));
+  }
   return { forgotten: rows.length };
 }
 

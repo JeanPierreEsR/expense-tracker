@@ -773,6 +773,7 @@ var BACKEND_STRINGS_ = {
   "botUndo.waitpayNoName": { en: "↩️ Undone: the payment is removed and {what} is back as it was.", es: "↩️ Deshecho: se quitó el pago y {what} vuelve a estar como antes." },
   "botUndo.delrep": { en: "↩️ Undone: the repayment with {friend} is back, and what it paid is no longer owed.", es: "↩️ Deshecho: el repago con {friend} volvió y lo que pagó ya no se debe." },
   "botUndo.already": { en: "That was already undone.", es: "Eso ya se deshizo." },
+  "botUndo.forgotten": { en: "{what} was deleted for good in Recently deleted, so it can't come back.", es: "{what} se eliminó definitivamente en Eliminados recientemente, así que ya no puede volver." },
   "botUndo.tooOld": { en: "That was more than 30 days ago, so it can't be undone.", es: "Eso fue hace más de 30 días, ya no se puede deshacer." },
   "botUndo.nothing": { en: "There's nothing to undo here. Reply “undo” to my answer about what you want to undo.", es: "Aquí no hay nada que deshacer. Responde “deshacer” a mi respuesta sobre lo que quieres deshacer." },
   "botUndo.changed": { en: "{what} changed after that, so undoing it would erase the newer change. Undo the newer one first (reply “undo” to its message), or fix it in the app.", es: "{what} cambió después; deshacerlo borraría ese cambio. Deshaz primero el más reciente (responde “deshacer” a su mensaje) o arréglalo en la app." },

@@ -333,3 +333,27 @@ test("a company copy: a bot edit that drops the entry's split between projects i
   assert.deepEqual(world(a.rt), before);
   assert.deepEqual(a.rt.rows("Project Splits").map((r) => JSON.stringify(r)).sort(), splits);
 });
+
+test("'Delete for good' in Recently deleted after a bot Discard: 'deshacer' cannot bring it back, and the bot's copy is gone too", () => {
+  const a = waApp();
+  const e = readyExpense(a);
+  a.tap("discard:" + e.id, a.cardIdOf(e.id));
+  const answer = a.lastId();
+  assert.ok(a.rt.rows("Bot Actions").some((r) => r.kind === "discard"), "the bot kept its copy");
+  a.rt.ctx.__ids = [e.id];
+  a.rt.run("forgetDeletedEntries({ ids: __ids })");
+  assert.ok(!a.rt.rows("Bot Actions").some((r) => r.kind === "discard" && String(r.entry_ids).includes(e.id)), "deleted for good means the bot's copy too");
+  a.text("deshacer", { context_id: answer });
+  assert.equal(a.entry(e.id), undefined, "the entry stays deleted");
+});
+
+test("a Discard whose Recently deleted copy is gone (bot copy kept) is refused with 'deleted for good'", () => {
+  const a = waApp();
+  const e = readyExpense(a);
+  a.tap("discard:" + e.id, a.cardIdOf(e.id));
+  const answer = a.lastId();
+  a.rt.run("deleteRowsWhere_('Deleted Entries', function () { return true; })");
+  a.text("deshacer", { context_id: answer });
+  assert.equal(a.entry(e.id), undefined);
+  assert.match(a.lastBody(), /deleted for good|definitivamente/);
+});
