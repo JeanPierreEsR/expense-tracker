@@ -855,6 +855,29 @@ function accountLastUsed_() {
 function accountShortList_(sel) {
   personShortList_(sel, { lastUsed: (id) => accountLastUsed_()[id] || "", title: () => tr("friendPick.account"), noneKey: "friendPick.noneThing" });
 }
+// Loans and repayments never START on a credit card, even the most used account (owner, 2026-11-23): the money of a loan or a
+// repayment moves through a bank account, a wallet or cash. The most recently used account that is not a card is picked instead
+// (it may sit behind More…); with only cards, the box is left as it was. The person can still pick a card by hand.
+function pmIsCreditCard_(id) {
+  const pm = id && ((meta && meta.paymentMethods) || []).find((p) => String(p.id) === String(id));
+  return !!pm && pm.type === "credit";
+}
+function nonCardAccount_(sel) {
+  const ids = (sel._personShort && sel._personShort.people ? sel._personShort.people.map((p) => p.id) : [...sel.options].map((o) => o.value))
+    .filter((v) => v && !v.startsWith("__") && !pmIsCreditCard_(v));
+  const used = accountLastUsed_();
+  return ids.map((id, i) => ({ id, i, when: used[id] || "" }))
+    .sort((a, b) => (a.when > b.when ? -1 : a.when < b.when ? 1 : a.i - b.i))
+    .map((x) => x.id)[0] || "";
+}
+// Returns true when it moved the box off a card.
+function avoidCardDefault_(sel) {
+  if (!sel || !pmIsCreditCard_(sel.value)) return false;
+  const id = nonCardAccount_(sel);
+  if (!id) return false;
+  sel.value = id;
+  return true;
+}
 // Account boxes written as text (Needs review cards, Tidy, an exchange, a trip group) mark their lines data-acct; this shortens them
 // once they are on screen. A box already shortened (it has "More…", or the same lines as last time) is left alone.
 const ACCT_OPT_ = ' data-acct="1"';
@@ -2641,6 +2664,7 @@ document.getElementById("transfer-kind").addEventListener("change", () => {
   }
   togglePaymentMethodVisibility();
   syncConversionAmount_();
+  syncDebtAccountDefault_();
   updateAutoTransferDescription_();   // the automatic description follows the kind (loan / repayment) and the person
 });
 
@@ -3274,8 +3298,25 @@ document.querySelectorAll("#entry-type-tabs .type-tab").forEach((tab) => {
       document.getElementById("payment_method").value = editingExchangeAccount_;
       document.getElementById("to_payment_method").value = "";
     }
+    syncDebtAccountDefault_();
   });
 });
+
+// A NEW Repayment / New loan never starts on a credit card (owner, 2026-11-23; `avoidCardDefault_`): when the form turns into one
+// while the account box sits on a card, it moves to the most recent other account, and back to the card if the person goes back
+// to an expense without touching the box. A card the person picks by hand stays (the usual "is this a card?" warning applies).
+let entryCardSwap_ = null;   // { from, to } while a swap is in force
+function syncDebtAccountDefault_() {
+  const sel = document.getElementById("payment_method");
+  const debt = entryFormIsNewEntry_() && repaymentActive_();
+  if (debt && !entryCardSwap_) {
+    const from = sel.value;
+    if (avoidCardDefault_(sel)) entryCardSwap_ = { from, to: sel.value };
+  } else if (!debt && entryCardSwap_) {
+    if (sel.value === entryCardSwap_.to) sel.value = entryCardSwap_.from;
+    entryCardSwap_ = null;
+  }
+}
 
 // ---- Paid by / payment method / friend & payment method inline add ----
 
@@ -4153,6 +4194,11 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           // Money that arrived from a bank is a repayment only of a debt on record (as the card's "Mark as repayment" asks).
           ...(wasPending && !isLoanKind && direction === "they_owe_me" ? { require_owed: true } : {})
         };
+        // "Choose which loans this pays" (owner, 2026-11-23: from Home too when an entry becomes a repayment); none = oldest first.
+        if (conversionAction === "convertEntryToRepayment" || conversionAction === "convertRepaymentToRepayment") {
+          const chosen = entryRepayAllocations_();
+          if (chosen && chosen.length) conversionPayload.allocations = chosen;
+        }
         try {
           result = popupHiddenEarly ? await callApi(conversionAction, conversionPayload) : await callConversion_(conversionAction, conversionPayload);
         } finally {
@@ -6789,6 +6835,7 @@ async function startEditEntry(entry) {
   // form that was cancelled half-way (it would silently start a loan / repayment conversion).
   document.getElementById("transfer-kind").value = "between";
   repaymentFriendTouched_ = false;
+  resetEntryRepayChoose_();   // "Choose which loans this pays" (when it becomes a repayment): today's loans, nothing ticked
   editingEntryId = entry.id;
   editingEntryOriginalDate_ = entry.date || null;
   editingEntrySummary_ = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(entry.amount, entry.currency), entry.date);
@@ -7037,6 +7084,8 @@ function resetEntryFormFields_() {
   beforeAppReset_(document.getElementById("entry-opening"));
   // Back to the first real account, as on a fresh open. An entry with no account, opened and cancelled, must not make "No account" the next default.
   pickDefaultAccount_();
+  // The next repayment in a row starts off a card too. (The reset can run while the app is still starting: nothing to do then.)
+  try { entryCardSwap_ = null; syncDebtAccountDefault_(); } catch (e) { /* not set up yet */ }
   setInvestmentDirection("deposit");
 }
 
@@ -33268,6 +33317,7 @@ function bankPopulateAccounts_(selectId, keep) {
   sel.appendChild(none);
   sel.value = keep !== undefined && keep !== null && keep !== "" ? keep : (accounts.length ? accounts[0].id : "");
   accountShortList_(sel);
+  if (!keep) avoidCardDefault_(sel);   // never starts on a credit card (owner, 2026-11-23)
 }
 
 // ---- A bank loan from before the app (owner, 2026-11-08) ----
@@ -34414,6 +34464,7 @@ function openLoanModal(loan, returnFriend, opts) {
   dueHint.textContent = tr(dueHint.dataset.i18n);
   const loanPmSelect = document.getElementById("loan-payment-method");
   loanPmSelect.value = loan ? (loan.payment_method_id || "") : (loanPmSelect.options.length ? loanPmSelect.options[0].value : "");
+  if (!loan) avoidCardDefault_(loanPmSelect);   // a new loan never starts on a credit card (owner, 2026-11-23)
   document.getElementById("loan-description").value = loan ? (loan.description || "") : "";
   populateLoanProjectOptions_(loan ? (loan.project_id || "") : "");
   // "From before the app": a choice for a NEW loan; an existing one shows what it is and cannot be switched.
@@ -34706,7 +34757,8 @@ function defaultRepaymentAccount_() {
   const ids = Array.from(select.options).map((o) => o.value).filter(Boolean);
   let last = "";
   try { last = localStorage.getItem("lastRepaymentAccount") || ""; } catch (e) { /* no storage */ }
-  return ids.includes(last) ? last : (ids[0] || "");
+  const pick = ids.includes(last) ? last : (ids[0] || "");
+  return pmIsCreditCard_(pick) ? (nonCardAccount_(select) || pick) : pick;   // never starts on a credit card (owner, 2026-11-23)
 }
 
 // The whole balance is filled in on purpose (fewer taps, owner 2026-11-12), with two safeguards: Save names the amount it
@@ -34903,6 +34955,7 @@ const CHOOSE_ENTRY_ = {
     const f = document.getElementById("repayment-friend").value, cur = document.getElementById("currency").value.toUpperCase();
     return (entryRepayLoans_.get(f) || [])
       .filter((l) => l.direction === repaymentDirectionChoice && String(l.currency).toUpperCase() === cur && l.status !== "forgiven" && l.remaining > 0.004)
+      .filter((l) => !editingEntryId || l.entry_id !== editingEntryId)   // a shared expense being turned into this repayment: its own debts go with it
       .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   },
   amount: () => parseFloat(document.getElementById("amount").value) || 0,
@@ -34913,7 +34966,7 @@ function syncEntryRepayChoose_() {
   const wrap = document.getElementById("entry-repay-choose");
   if (!wrap) return;
   const friendId = document.getElementById("repayment-friend").value;
-  const on = repaymentActive_() && transferKind_() === "repayment" && entryFormIsNewEntry_() && !entryOpeningOn_() && friendId && friendId !== "__add__";
+  const on = repaymentActive_() && transferKind_() === "repayment" && (entryFormIsNewEntry_() || entryConvertCanChoose_(friendId)) && !entryOpeningOn_() && friendId && friendId !== "__add__";
   if (!on) { resetChoose_(CHOOSE_ENTRY_, false); entryRepayKey_ = ""; return; }
   const key = `${friendId}|${repaymentDirectionChoice}|${CHOOSE_ENTRY_.cur()}`;
   if (!entryRepayLoans_.has(friendId)) {
@@ -34925,6 +34978,14 @@ function syncEntryRepayChoose_() {
   if (key === entryRepayKey_) return;   // same person, direction and currency: keep what was ticked
   entryRepayKey_ = key;
   resetChoose_(CHOOSE_ENTRY_, CHOOSE_ENTRY_.loans().length >= 2);
+}
+// An entry being TURNED INTO a repayment from Home (an expense, an income, a transfer, a Needs review item opened in full) offers the
+// choice too (owner, 2026-11-23), where the backend takes it (`convertAllocations`). Not a loan's own entry (the loan itself would be in
+// the list and goes away), nor a repayment kept with the same person and direction (that one opens the repayment's own editor).
+function entryConvertCanChoose_(friendId) {
+  if (!editingEntryId || editingLoanMovement_ || !((meta && meta.capabilities) || {}).convertAllocations) return false;
+  const r = editingRepayment_;
+  return !r || friendId !== r.friend_id || repaymentDirectionChoice !== r.direction || CHOOSE_ENTRY_.cur() !== String(r.currency || "").toUpperCase();
 }
 // Each new entry starts with a fresh list (the loans change after a repayment) and nothing ticked. Called by the form's reset, which
 // can run while the app is still starting, before these lines have run: then there is nothing to reset yet.
@@ -35517,6 +35578,7 @@ document.getElementById("review-transfer-friend").addEventListener("change", asy
     refreshFriendChips_();
     populateReviewTransferFriendOptions();
     document.getElementById("review-transfer-friend").value = friend.id;
+    syncReviewRepayChoose_();
   }
 });
 
@@ -35559,6 +35621,45 @@ function syncRepayWay_() {
   if (!box.hidden) box.textContent = tr("review.repayWrongWay", { friend: f.name });
 }
 document.getElementById("review-transfer-friend").addEventListener("change", syncRepayWay_);
+
+// "Choose which loans this pays" when a Needs review item becomes a repayment (owner, 2026-11-23), the same code as Home's "+" and
+// the Loans tab (`chooseOpenOrClose_` with its own `ctx`). The person's loans come from getFriendLoanDetail when they are picked;
+// a change of person starts over. Shown only with two or more open loans in the way the money moved, and only where the backend
+// takes the choice on a conversion (`convertAllocations`); else the repayment pays the oldest first, as before.
+const reviewRepayLoans_ = new Map();   // friend id -> their loans (null while loading)
+let reviewRepayKey_ = "";
+const CHOOSE_REVIEW_ = {
+  id: "review-transfer",
+  loans: () => {
+    const f = document.getElementById("review-transfer-friend").value, cur = CHOOSE_REVIEW_.cur(), dir = CHOOSE_REVIEW_.dir();
+    return (reviewRepayLoans_.get(f) || [])
+      .filter((l) => l.direction === dir && String(l.currency).toUpperCase() === cur && l.status !== "forgiven" && l.remaining > 0.004)
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  },
+  amount: () => parseFloat(document.getElementById("review-transfer-amount").value) || 0,
+  cur: () => String((reviewTransferEntry && reviewTransferEntry.currency) || "").toUpperCase(),
+  dir: () => (reviewTransferEntry && reviewEntryArrived_(reviewTransferEntry) ? "they_owe_me" : "i_owe_them")
+};
+function syncReviewRepayChoose_() {
+  const friendId = document.getElementById("review-transfer-friend").value;
+  const on = reviewTransferMode === "repay" && !!reviewTransferEntry && friendId && friendId !== "__add__" &&
+    !!((meta && meta.capabilities) || {}).convertAllocations;
+  if (!on) { resetChoose_(CHOOSE_REVIEW_, false); reviewRepayKey_ = ""; return; }
+  if (!reviewRepayLoans_.has(friendId)) {
+    reviewRepayLoans_.set(friendId, null);
+    callApi("getFriendLoanDetail", { friendId }).then((loans) => { reviewRepayLoans_.set(friendId, loans || []); syncReviewRepayChoose_(); })
+      .catch(() => { reviewRepayLoans_.delete(friendId); });
+  }
+  if (reviewRepayLoans_.get(friendId) === null) { resetChoose_(CHOOSE_REVIEW_, false); return; }
+  if (friendId === reviewRepayKey_) return;   // same person: keep what was ticked
+  reviewRepayKey_ = friendId;
+  resetChoose_(CHOOSE_REVIEW_, CHOOSE_REVIEW_.loans().length >= 2);
+}
+document.getElementById("review-transfer-friend").addEventListener("change", syncReviewRepayChoose_);
+document.getElementById("review-transfer-choose-btn").addEventListener("click", () => chooseOpenOrClose_(CHOOSE_REVIEW_));
+document.getElementById("review-transfer-amount").addEventListener("input", () => {
+  if (!document.getElementById("review-transfer-choose-panel").hidden) renderChooseSummary_(CHOOSE_REVIEW_);
+});
 function openReviewTransferModal(entry, mode) {
   reviewTransferEntry = entry;
   reviewTransferMode = mode;
@@ -35590,6 +35691,8 @@ function openReviewTransferModal(entry, mode) {
   // Only a real hint picks someone: the place's past choice, or (a repayment) the friend with the debt it pays. Else "Pick a friend…".
   document.getElementById("review-transfer-friend").value = hintedFriend ? hintedFriend.id : owedFriend ? owedFriend.id : "";
   syncRepayWay_();
+  reviewRepayLoans_.clear(); reviewRepayKey_ = "";   // today's loans, nothing ticked
+  syncReviewRepayChoose_();
   document.getElementById("review-transfer-amount").value = Math.abs(Number(entry.amount));
   document.getElementById("review-transfer-date").value = entry.date;
   // The account the bank e-mail named stays (it used to be dropped, leaving the repayment / loan with no account).
@@ -35656,6 +35759,9 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
     reviewTransferEntry.description || "";
   const incoming = reviewEntryArrived_(reviewTransferEntry);
   const mode = reviewTransferMode;
+  // The loans the person ticked (none = oldest first); read before the window closes.
+  const chosen = mode === "repay" && !document.getElementById("review-transfer-choose").hidden &&
+    !document.getElementById("review-transfer-choose-panel").hidden ? chooseAssignments_(CHOOSE_REVIEW_) : [];
   closeReviewTransferModal();
   dropReviewCard_(entryId);   // gone at once; a refusal's refresh below brings it back
   convDebtOutcome_ = "";
@@ -35675,7 +35781,8 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         payment_method_id: paymentMethodId,
         description,
         require_owed: incoming,
-        overpay_pending_ok: true
+        overpay_pending_ok: true,
+        ...(chosen.length ? { allocations: chosen } : {})
       });
       if (result.overpaid > 0.004) {
         convDebtOutcome_ = "over";

@@ -286,3 +286,17 @@ test("without a loan_id, or with the same one, editing a repayment works as befo
   assert.equal(Number(after.amount), 80);
   assert.equal(statusOf(rt, l1.id), "partially_repaid");
 });
+
+// Home (owner, 2026-11-23): an entry TURNED INTO a repayment (a Needs review item, an income, a transfer) takes the same choice.
+test("an entry turned into a repayment pays the loans chosen, and the rest oldest first", () => {
+  const { rt, ana, l1, l2, l3 } = loansSetup();
+  assert.equal(rt.api("getMeta", {}).capabilities.convertAllocations, true);
+  const e = { id: "conv-alloc-1", type: "income", date: "2026-10-10", amount: 250, currency: "PEN", category_id: "cat-y", description: "Ana paid", paid_by: "", payment_method_id: "", status: "pending", source: "email" };
+  rt.run(`appendRowObject('Entries', ${JSON.stringify(e)});`);
+  rt.api("convertEntryToRepayment", { entry_id: e.id, friend_id: ana.id, direction: "they_owe_me", amount: 250, currency: "PEN", date: "2026-10-10",
+    description: "Ana paid", require_owed: true, overpay_pending_ok: true, allocations: [{ loan_id: l3.id, amount: 200 }] });
+  assert.equal(remainingOf(rt, l3.id), 100, "the chosen one got 200");
+  assert.equal(remainingOf(rt, l1.id), 50, "the other 50 went to the oldest loan");
+  assert.equal(remainingOf(rt, l2.id), 200);
+  assert.ok(!rt.rows("Entries").some((x) => x.id === e.id), "the waiting entry is gone");
+});

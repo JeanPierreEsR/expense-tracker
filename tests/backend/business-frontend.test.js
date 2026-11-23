@@ -125,10 +125,29 @@ test("step 3A: the repayment sends the chosen loans only when the panel was open
 test("Home's \"+\" → Repayment offers the same choice (owner, 2026-11-14): new entries only, two or more open loans, sent as allocations", () => {
   const html = read("docs", "index.html");
   assert.match(html, /<div id="entry-repay-choose" hidden>/);
-  assert.match(app, /const on = repaymentActive_\(\) && transferKind_\(\) === "repayment" && entryFormIsNewEntry_\(\) && !entryOpeningOn_\(\)/);
+  // New entries, and (owner, 2026-11-23) an entry being turned into a repayment where the backend takes the choice.
+  assert.match(app, /const on = repaymentActive_\(\) && transferKind_\(\) === "repayment" && \(entryFormIsNewEntry_\(\) \|\| entryConvertCanChoose_\(friendId\)\) && !entryOpeningOn_\(\)/);
+  assert.match(app, /if \(!editingEntryId \|\| editingLoanMovement_ \|\| !\(\(meta && meta\.capabilities\) \|\| \{\}\)\.convertAllocations\) return false;/);
+  assert.match(app, /if \(chosen && chosen\.length\) conversionPayload\.allocations = chosen;/);
   assert.match(app, /resetChoose_\(CHOOSE_ENTRY_, CHOOSE_ENTRY_\.loans\(\)\.length >= 2\);/);
   assert.match(app, /if \(chosen && chosen\.length\) repayPayload\.allocations = chosen;/);
   assert.match(app, /resetEntryRepayChoose_\(\);   \/\/ "Choose which loans this pays"/);
+});
+
+test("Needs review → Mark as repayment offers the same choice (owner, 2026-11-23), sent as allocations", () => {
+  const html = read("docs", "index.html");
+  assert.match(html, /<div id="review-transfer-choose" hidden>/);
+  assert.match(app, /const on = reviewTransferMode === "repay" && !!reviewTransferEntry/);
+  assert.match(app, /resetChoose_\(CHOOSE_REVIEW_, CHOOSE_REVIEW_\.loans\(\)\.length >= 2\);/);
+  assert.match(app, /\.\.\.\(chosen\.length \? \{ allocations: chosen \} : \{\}\)/);
+});
+
+test("loans and repayments never start on a credit card (owner, 2026-11-23)", () => {
+  assert.match(app, /function avoidCardDefault_\(sel\)/);
+  assert.match(app, /if \(!loan\) avoidCardDefault_\(loanPmSelect\);/);
+  assert.match(app, /return pmIsCreditCard_\(pick\) \? \(nonCardAccount_\(select\) \|\| pick\) : pick;/);
+  assert.match(app, /if \(!keep\) avoidCardDefault_\(sel\);/);
+  assert.match(app, /const debt = entryFormIsNewEntry_\(\) && repaymentActive_\(\);/);
 });
 
 test("step 3A: the loan picker shows only while fixing a recorded repayment, and its choice is sent as loan_id", () => {

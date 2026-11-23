@@ -1769,7 +1769,8 @@ function convertRepaymentToRepaymentInto_(payload) {
       payment_method_id: payload.payment_method_id,
       description: withoutAutoRepaymentDescription_(oldLoan, payload.description),   // the old repayment's default text is not the new one's own
       overpay_category_id: payload.overpay_category_id,
-      overpay_pending_ok: payload.overpay_pending_ok
+      overpay_pending_ok: payload.overpay_pending_ok,
+      allocations: payload.allocations   // the loans the person chose (Home, owner 2026-11-23); none = oldest first
     });
     return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };
   } catch (err) {
@@ -1965,7 +1966,8 @@ function convertEntryInto_(payload, kind) {
       payment_method_id: payload.payment_method_id,
       description: payload.description,
       overpay_category_id: payload.overpay_category_id,   // recordRepayment books the extra itself
-      require_owed: payload.require_owed                  // Telegram: income with nothing owed stays income
+      require_owed: payload.require_owed,                 // Telegram: income with nothing owed stays income
+      allocations: payload.allocations                    // the loans the person chose (Home, owner 2026-11-23); none = oldest first
     });
     rememberPayeeHabit_(entry, 'repayment', payload);
     return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };
