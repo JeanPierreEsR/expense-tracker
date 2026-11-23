@@ -141,6 +141,8 @@ test("a repayment by words is undone: the debt is owed again", () => {
   assert.equal(a.entry(e.id), undefined, "the expense became a repayment");
   a.text("undo");
   assert.deepEqual(world(a.rt), before);
+  const answer = a.bodies().filter((b) => b.startsWith("↩️")).pop();
+  assert.ok(answer.includes(friend.name), "the answer names the friend: " + answer);
 });
 
 test("refused when the transaction changed in the app after the bot action", () => {

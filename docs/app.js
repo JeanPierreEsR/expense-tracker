@@ -16966,6 +16966,7 @@ function openBankMailModal_(opts) {
   I18n.applyStatic(backdrop);
   bmEl_("bm-address").textContent = info.address || tr("bankMail.noAddress");
   bmEl_("bm-address2").textContent = info.address || tr("bankMail.noAddress");   // again inside "another address?", next to its Copy button
+  bmEl_("bm-w3").hidden = !!(meta && meta.capabilities && meta.capabilities.forwardedEmails);   // forwards by hand ARE read there (ForwardedEmail.gs)
   bmEl_("bm-copy-btn").hidden = !info.address;
   bmEl_("bm-msg").textContent = "";
   const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails);

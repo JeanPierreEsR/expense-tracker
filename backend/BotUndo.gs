@@ -268,7 +268,7 @@ function botActionEnd_(kind) {
     var entryIds = {};
     if (act.entryId) entryIds[act.entryId] = true;
     Object.keys(diff.before.e).forEach(function (k) { entryIds[k] = true; });
-    var info = botActionInfo_(act.entryId, diff);
+    var info = botActionInfo_(act.entryId, diff, act.friends);
     if (billsDropped) info.billsDropped = true;
     if (act.habits.length) info.habits = act.habits;
     appendRowObject('Bot Actions', {
@@ -285,14 +285,23 @@ function botActionEnd_(kind) {
 }
 
 // What the undo answer names: the entry as it was, and the friend whose debts moved.
-function botActionInfo_(entryId, diff) {
+function botActionInfo_(entryId, diff, alsoFriends) {
   var e = diff.before.e[entryId] || null;
   var friendIds = {};
+  (alsoFriends || []).forEach(function (id) { friendIds[id] = true; });   // an overpayment owed to nobody touches no loan
   Object.keys(diff.before.l).forEach(function (id) {
     var row = diff.before.l[id];
     if (row && row.friend_id) friendIds[row.friend_id] = true;
   });
-  getAllRows('Loans').forEach(function (l) { if (diff.after.l[String(l.id)] !== undefined && l.friend_id) friendIds[l.friend_id] = true; });
+  // A repayment often changes only the Settlements of a loan (grouped by loan_id), not the loan row: those loans count too, so the
+  // answer names the friend (testers, 2026-11-22: "the repayment is removed" without the name).
+  var touchedLoans = {};
+  [diff.before.p || {}, diff.after.p || {}].forEach(function (p) {
+    Object.keys(p).forEach(function (name) { Object.keys(p[name] || {}).forEach(function (k) { touchedLoans[k] = true; }); });
+  });
+  getAllRows('Loans').forEach(function (l) {
+    if ((diff.after.l[String(l.id)] !== undefined || touchedLoans[String(l.id)]) && l.friend_id) friendIds[l.friend_id] = true;
+  });
   var names = getAllRows('Friends').filter(function (f) { return friendIds[f.id]; }).map(function (f) { return f.name; });
   var fields = [];
   var now = getEntryById_(entryId);

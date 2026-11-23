@@ -790,7 +790,7 @@ var BACKEND_STRINGS_ = {
   "botUndo.f.to_payment_method_id": { en: "destination account", es: "la cuenta de destino" },
   "botUndo.f.date": { en: "date", es: "la fecha" },
   "botUndo.f.currency": { en: "currency", es: "la moneda" },
-  "botUndo.f.paid_by": { en: "who paid", es: "quién pagó" },
+  "botUndo.f.paid_by": { en: "payer", es: "el pagador" },
   "botUndo.f.type": { en: "type", es: "el tipo" },
   "botUndo.f.trip_id": { en: "trip", es: "el viaje" },
   "help.undo": { en: "Made a mistake? Reply \"undo\" to my answer about it (up to 30 days).", es: "¿Te equivocaste? Responde \"deshacer\" a mi respuesta sobre eso (hasta 30 días)." },

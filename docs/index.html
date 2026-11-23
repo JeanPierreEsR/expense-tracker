@@ -1739,6 +1739,7 @@
 
         <p class="hint"><strong data-i18n="privacy.readsTitle">What your app reads</strong></p>
         <p class="hint" data-i18n="privacy.readsMail">Your bank emails, only if you turned that on. Your app reads them (it can never send, change or delete an email) and turns each payment into an entry that waits for your OK. Those emails stay between your Gmail and your app.</p>
+        <p class="hint" data-i18n="privacy.botCopy">If you use the WhatsApp or Telegram bot, your Google Sheet keeps a copy of what each bot action changed for 30 days, so “undo” can put it back. Deleting an entry for good in Recently deleted, or Delete everything, removes it.</p>
         <p class="hint" data-i18n="privacy.readsFiles">Receipt photos and bank statement PDFs are read on your phone. The file is not uploaded and not kept.</p>
 
         <p class="hint"><strong data-i18n="privacy.agreeTitle">What can reach JP if you agree</strong></p>
@@ -3397,7 +3398,7 @@
             <li data-i18n="bankMail.w1">Best, if you can: change the email your bank uses for notifications to the address above. You do it in the bank's app or website, on your phone, bank by bank, and nothing else is needed.</li>
             <li data-i18n="bankMail.w2">To keep several addresses (recommended for that): Gmail forwarding. In each other Gmail, open Settings, See all settings, Forwarding and POP/IMAP, Add a forwarding address, and enter the address above. Google sends a confirmation code to this account. Then create a filter that forwards your bank's emails automatically. You do it once, on a computer, and it works for as many addresses as you have.</li>
           </ol>
-          <p class="hint" style="font-weight:600;" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
+          <p class="hint" style="font-weight:600;" id="bm-w3" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
           <h3 data-i18n="bankMail.otherMailTitle">Do your bank emails arrive at Outlook, iCloud or Yahoo?</h3>
           <p class="hint" data-i18n="bankMail.otherMailIntro">The app can only read a Gmail account. If you have none, create a free one and use it when you set up the app. Then send the bank emails from your other mailbox to the address above:</p>
           <ul class="bm-steps">
