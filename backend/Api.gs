@@ -180,7 +180,7 @@ var ONCE_ACTIONS_ = {
   // answer was lost, and each "try again" made it again). With the phone keeping one id per save across its retries, a repeat
   // gets the first one's answer instead of a second copy.
   addTrip: 1, addBudget: 1, addPaymentMethod: 1, savePaymentMethod: 1, addTag: 1, addBank: 1, addPayor: 1, saveCategory: 1,
-  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, closeMonth: 1, reopenMonth: 1,   // Business 2 piece 7 (Partners.gs)
+  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, closeMonth: 1, reopenMonth: 1, sendAccountantPackage: 1,   // Business 2 piece 7 (Partners.gs)
   saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1
 };
 
@@ -511,6 +511,8 @@ function routeActionSwitch_(action, payload) {
     case 'reopenMonth': return reopenMonth(payload);
     case 'getYearStatement': return getYearStatement(payload);   // Business 2 piece 9: the yearly constancia (Constancia.gs)
     case 'getYearStatements': return getYearStatements(payload);
+    case 'getAccountantPackage': return getAccountantPackage(payload);   // Business 2 piece 10 (AccountantPackage.gs)
+    case 'sendAccountantPackage': return sendAccountantPackage(payload);
     case 'getProfileState': return getProfileState();
     case 'getAnnualHints': return getAnnualHints();
     case 'listStatementGaps': return listStatementGaps();
@@ -722,6 +724,7 @@ function getHeaders(sheet) {
 var DATE_FIELD_FORMATS = {
   date: 'yyyy-MM-dd',
   due_date: 'yyyy-MM-dd',
+  receipt_date: 'yyyy-MM-dd',   // piece 10: a receipt's issue date (text column; a Date read back becomes text again)
   month: 'yyyy-MM',           // Exchange Rates / Recurring Skips: a Sheets Date back to text (numeric months are untouched)
   start_date: 'yyyy-MM-dd',   // Recurring Expenses (a Sheets Date is turned back into text on read)
   end_date: 'yyyy-MM-dd',
@@ -1169,6 +1172,7 @@ function createEntry(payload) {
   } else if (payload.company_id !== undefined || payload.project_id !== undefined) {
     entry.company_id = ''; entry.project_id = '';   // "Personal", chosen: never given a company copy's company (CompanyCopy.gs)
   }
+  Object.assign(entry, receiptFieldsFrom_(payload));   // a company copy's payment method and receipt (AccountantPackage.gs, piece 10)
   // Saved with no category (the person chose not to pick one): fill it from what they decided for the same merchant
   // or description before, else leave it blank for Tidy my history. See CategoryFollow.gs.
   var guessedCategory = '';
@@ -1847,6 +1851,7 @@ function listPendingEntries() {
 
 function updateEntryFields(entryId, fields) {
   fields = businessFieldsForUpdate_(entryId, fields);   // Business pack link cleaned (Business.gs); untouched when it is not involved
+  fields = receiptFieldsForUpdate_(fields);   // a company copy's payment method and receipt (AccountantPackage.gs); dropped elsewhere
   // A payment linked for another month (an early salary for August) whose date is moved 2 or more months away from that month: the month
   // is dropped quietly and it counts for its own month again (owner, 2026-11-18).
   if (fields && fields.date) {
