@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.63.0"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="2.65.0"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-23T22:07:58Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-23T23:15:12Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -606,6 +606,19 @@
         <div id="co-partners-pending"></div>
       </div>
       <!-- Business 2, piece 8: closing the month shown (only when the period is one whole month that has ended). -->
+      <!-- Business 2, piece 11: sales (units by status, price / collected / still to collect) and the next collections. -->
+      <div class="card ov-period" id="co-sales-card" hidden>
+        <h2 data-i18n="sales.cardTitle">Sales</h2>
+        <div id="co-sales-body"></div>
+      </div>
+      <div class="card ov-period" id="co-next-card" hidden>
+        <h2 data-i18n="sales.nextTitle">Next collections</h2>
+        <div id="co-next-body"></div>
+      </div>
+      <!-- Business 2, piece 12: a statement to share, with the sections chosen. -->
+      <div class="card ov-period" id="co-share-card" hidden>
+        <button type="button" class="add-inline" id="co-share-btn" data-i18n="share.open">Prepare a statement to share…</button>
+      </div>
       <div class="card ov-period" id="co-close-card" hidden>
         <h2 id="co-close-title"></h2>
         <div id="co-close-body"></div>
@@ -1263,6 +1276,15 @@
         <select id="business-detail-period" class="business-period-select"></select>
         <div id="business-detail-body"></div>
         <p class="hint error-text" id="business-detail-error"></p>
+      </div>
+      <!-- Business 2, piece 11 (company copies): the project's units, their buyer, price, status and stages. -->
+      <div class="card" id="business-units-card" hidden>
+        <div class="budgets-header">
+          <h3 style="margin:0;" data-i18n="sales.units">Units</h3>
+          <button type="button" class="icon-btn" id="business-units-add" data-i18n-aria-label="sales.addUnitsAria" aria-label="Add units"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+        </div>
+        <div id="business-units-list"></div>
+        <p class="hint" id="business-units-empty" hidden data-i18n="sales.unitsEmpty">No units yet. Tap + to add the units (tags) this project sells.</p>
       </div>
       <div class="card" id="business-detail-entries-card" hidden>
         <h3 style="margin-top:0;" data-i18n="business.entries">Entries</h3>
@@ -2411,6 +2433,86 @@
         <p class="hint" data-i18n="close.keeps">Closing keeps this month's figures. If anything in it changes later, the app will say so.</p>
         <p class="hint error-text" id="close-error"></p>
         <button type="button" class="primary" id="close-save" data-i18n="close.save">Close the month</button>
+      </div>
+    </div>
+  </div>
+  <!-- Business 2, piece 12: the statement to share (sections, then the document; PDF or text like the yearly statement). -->
+  <div id="share-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="share.title">Statement to share</span>
+        <button type="button" id="share-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="share-period"></p>
+        <div id="share-pick">
+          <p class="hint" data-i18n="share.pickHint">Choose what goes in. Next time it opens with the same choice.</p>
+          <div id="share-sections"></div>
+          <p class="hint error-text" id="share-error"></p>
+          <button type="button" class="primary" id="share-build" data-i18n="share.build">Prepare the statement</button>
+        </div>
+        <div id="share-doc" class="constancia-doc" hidden></div>
+        <div class="constancia-actions" id="share-actions" hidden>
+          <button type="button" class="primary" id="share-pdf" data-i18n="const.pdf">Save or send as PDF</button>
+          <button type="button" class="add-inline" id="share-text" data-i18n="const.shareText">Share as text</button>
+          <button type="button" class="add-inline" id="share-again" data-i18n="share.again">Change the sections</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Business 2, piece 11: add units to a project, and one unit's card. -->
+  <div id="units-add-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="sales.addUnits">Add units</span>
+        <button type="button" id="units-add-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="sales.addUnitsHint">Choose the tags that are units of this project. To create units, use More → Categories &amp; tags → Add units.</p>
+        <button type="button" class="add-inline" id="units-add-all" data-i18n="friends.selectAll">Select all</button>
+        <div id="units-add-list" class="units-add-list"></div>
+        <p class="hint" id="units-add-none" hidden data-i18n="sales.noFreeTags">There is no tag left to add. Create units in More → Categories &amp; tags → Add units.</p>
+        <button type="button" class="primary" id="units-add-save" data-i18n="sales.addUnitsSave">Add to the project</button>
+      </div>
+    </div>
+  </div>
+  <div id="unit-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="unit-title"></span>
+        <button type="button" id="unit-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="unit-sum" id="unit-sum"></p>
+        <label for="unit-buyer" data-i18n="sales.buyer">Buyer</label>
+        <select id="unit-buyer"></select>
+        <input type="text" id="unit-buyer-new" hidden data-i18n-placeholder="sales.buyerNamePh" placeholder="Buyer's name">
+        <label for="unit-price" data-i18n="sales.price">Price</label>
+        <input type="text" inputmode="decimal" id="unit-price" placeholder="0.00">
+        <label for="unit-currency" data-i18n="field.currency">Currency</label>
+        <select id="unit-currency"></select>
+        <label for="unit-status" data-i18n="sales.status">Status</label>
+        <input type="text" id="unit-status" list="unit-status-list" autocomplete="off">
+        <datalist id="unit-status-list"></datalist>
+        <label for="unit-note" data-i18n="sales.note">Note</label>
+        <input type="text" id="unit-note" data-i18n-placeholder="common.optional" placeholder="Optional">
+        <p class="hint error-text" id="unit-error"></p>
+        <button type="button" class="primary" id="unit-save" data-i18n="common.save">Save</button>
+        <h3 data-i18n="sales.stagesTitle">Expected collections by stage</h3>
+        <div id="unit-stages"></div>
+        <div class="unit-stage-new">
+          <select id="unit-stage-kind"></select>
+          <input type="text" inputmode="decimal" id="unit-stage-amount" placeholder="0.00" data-i18n-aria-label="field.amount" aria-label="Amount">
+          <input type="date" id="unit-stage-date" data-i18n-aria-label="sales.dueDate" aria-label="Due date">
+          <button type="button" class="add-inline" id="unit-stage-add" data-i18n="sales.addStage">+ Add expected collection</button>
+        </div>
+        <h3 data-i18n="sales.paymentsTitle">Payments received</h3>
+        <div id="unit-payments"></div>
+        <div class="unit-share" id="unit-share" hidden>
+          <button type="button" class="add-inline" id="unit-share-text" data-i18n="sales.shareText">Share the payments as text</button>
+          <button type="button" class="add-inline" id="unit-share-csv" data-i18n="sales.shareCsv">Share the payments as CSV (Excel)</button>
+        </div>
+        <button type="button" class="add-inline unit-remove" id="unit-remove" data-i18n="sales.remove">Remove from this project</button>
       </div>
     </div>
   </div>
@@ -4687,25 +4789,25 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="i18n.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="tour-scenes.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="signin-link.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="country-guess.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="rate-quotes.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="bank-sample.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="perf-share.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="spotlight.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="receipt-parse.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="receipt-fields.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="in-process.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="bill-split.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="loan-reminder.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="company-invite.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="app.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="statement-sample.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="statement-table.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="statement-parsers.js?v=2026-11-23T22:07:58Z"></script>
-  <script src="statements.js?v=2026-11-23T22:07:58Z"></script>
+  <script src="strings.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="i18n.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="tour-scenes.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="signin-link.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="country-guess.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="rate-quotes.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="bank-sample.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="perf-share.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="spotlight.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="receipt-parse.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="receipt-fields.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="in-process.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="bill-split.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="loan-reminder.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="company-invite.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="app.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="statement-sample.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="statement-table.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="statement-parsers.js?v=2026-11-23T23:15:12Z"></script>
+  <script src="statements.js?v=2026-11-23T23:15:12Z"></script>
 </body>
 </html>

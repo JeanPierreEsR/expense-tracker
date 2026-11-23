@@ -4816,7 +4816,7 @@ function exchangeLegSide_(entry) {
 // own accounts (no sign). A transfer with a friend is a flow: a loan I give or a repayment I make is out; a loan
 // I receive or a repayment I get back is in.
 function entryFlowDirection_(entry) {
-  if (entry.type === "income") return "in";
+  if (entry.type === "income") return Number(entry.amount) < 0 ? "out" : "in";   // a returned deposit (piece 11) is a negative income
   if (entry.type === "expense") return "out";
   if (entry.type === "investment") return Number(entry.amount) < 0 ? "in" : "out";   // a withdrawal is stored negative
   if (entry.type === "transfer" && entry.link && entry.link.friend) {
@@ -4836,7 +4836,7 @@ function renderEntryAmountHtml(entry) {
 function renderEntryAmountPlainHtml_(entry) {
   const dir = entryFlowDirection_(entry);
   // A withdrawal is stored negative: show its size, the sign comes from the direction.
-  const shown = entry.type === "investment" && Number(entry.amount) < 0
+  const shown = (entry.type === "investment" || entry.type === "income") && Number(entry.amount) < 0
     ? (() => {
         const abs = (v) => (v == null ? v : Math.abs(Number(v)));
         return Object.assign({}, entry, {
@@ -11733,7 +11733,7 @@ function applyCompanyOverview_() {
   if (!balancesHome_) { balancesHome_ = document.createComment("balances-card home"); balances.parentNode.insertBefore(balancesHome_, balances); }
   if (on) document.getElementById("co-close-card").after(balances);
   else balancesHome_.after(balances);
-  if (!on) ["co-owed-card", "co-funding-card", "co-partners-card", "co-close-card"].forEach((id) => { document.getElementById(id).hidden = true; });
+  if (!on) ["co-owed-card", "co-funding-card", "co-partners-card", "co-sales-card", "co-next-card", "co-share-card", "co-close-card"].forEach((id) => { document.getElementById(id).hidden = true; });
 }
 let balancesHome_ = null;   // where the Balances card sits on every other copy
 
@@ -11762,7 +11762,10 @@ function renderCompanyOverview_(company) {
   });
   document.getElementById("co-funding-empty").hidden = company.funding.length > 0;
   renderCompanyPartners_(company);
+  renderCompanySales_(company.sales);
   renderCompanyClose_(company.close);
+  document.getElementById("co-share-card").hidden = false;   // piece 12
+  shareSectionsNow_ = company.share_sections || shareSectionsNow_;
 }
 
 // ---- Change log and month close (Business 2, piece 8) ----
@@ -22985,6 +22988,343 @@ document.getElementById("business-back-btn").addEventListener("click", () => sho
 document.getElementById("business-add-company-btn").addEventListener("click", () => openCompanyModal_(null));
 document.getElementById("business-first-btn").addEventListener("click", () => openCompanyModal_(null));
 
+// ---- Sales by stage (Business 2, piece 11; company copies) ----
+// A project's units are tags it takes (piece 5 makes them). Each unit: buyer, price, currency, a free status (the app only suggests
+// four), its expected collections by stage (ordinary expected payments with a unit and a stage) and the payments received (incomes
+// with the unit's tag), which pay the stages in due-date order. "Return" on a payment records a returned deposit: a negative income on
+// the day the money goes back (owner's option A). The payments list can be shared for the notary as text or CSV.
+let unitsData_ = null;     // { project_id, units, unassigned_tags }
+let unitOpenId_ = null;    // the unit whose card is open
+const UNIT_STATUS_KEYS_ = ["sales.st.available", "sales.st.reserved", "sales.st.sold", "sales.st.delivered"];
+const UNIT_STAGE_KEYS_ = ["reservation", "down_payment", "balance", "bank_loan", "other"];
+function renderProjectUnits_(projectId, data) {
+  const card = document.getElementById("business-units-card");
+  unitsData_ = data ? Object.assign({ project_id: projectId }, data) : null;
+  card.hidden = !data;
+  if (!data) return;
+  const list = document.getElementById("business-units-list");
+  list.innerHTML = "";
+  data.units.forEach((u) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "loans-ov-owed-row unit-row";
+    const sub = [u.status, u.buyer].filter(Boolean).join(" · ");
+    row.innerHTML = `<span><span class="unit-name">${escapeHtml(u.name)}</span>${sub ? `<small>${escapeHtml(sub)}</small>` : ""}</span>
+      <b>${u.price ? `${escapeHtml(formatAmount(u.collected, u.currency))}<small>${escapeHtml(tr("sales.ofPrice", { price: formatAmount(u.price, u.currency) }))}</small>` : `<small>${escapeHtml(tr("sales.noPrice"))}</small>`}</b>`;
+    row.addEventListener("click", () => openUnit_(u.id));
+    list.appendChild(row);
+  });
+  document.getElementById("business-units-empty").hidden = data.units.length > 0;
+  if (unitOpenId_ && !document.getElementById("unit-modal-backdrop").hidden) {
+    if (data.units.some((u) => u.id === unitOpenId_)) renderUnitDetail_(); else document.getElementById("unit-modal-backdrop").hidden = true;
+  }
+}
+const refreshUnits_ = () => refreshBusinessDetail_().catch(() => {});
+document.getElementById("business-units-add").addEventListener("click", () => {
+  if (!unitsData_) return;
+  const box = document.getElementById("units-add-list");
+  box.innerHTML = unitsData_.unassigned_tags.map((t) => `<label class="checkbox-row"><input type="checkbox" value="${escapeHtml(t.id)}"> <span>${escapeHtml(t.name)}</span></label>`).join("");
+  document.getElementById("units-add-none").hidden = unitsData_.unassigned_tags.length > 0;
+  document.getElementById("units-add-all").hidden = unitsData_.unassigned_tags.length < 2;
+  document.getElementById("units-add-save").hidden = !unitsData_.unassigned_tags.length;
+  const backdrop = document.getElementById("units-add-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+});
+document.getElementById("units-add-close").addEventListener("click", () => { document.getElementById("units-add-modal-backdrop").hidden = true; });
+document.getElementById("units-add-all").addEventListener("click", () => { document.querySelectorAll("#units-add-list input").forEach((c) => { c.checked = true; }); });
+document.getElementById("units-add-save").addEventListener("click", () => {
+  const ids = [...document.querySelectorAll("#units-add-list input:checked")].map((c) => c.value);
+  if (!ids.length) return;
+  document.getElementById("units-add-modal-backdrop").hidden = true;
+  const projectId = unitsData_.project_id;
+  saveBehindScreen_(() => callApi("addProjectUnits", { project_id: projectId, tag_ids: ids }), refreshUnits_);
+});
+
+function openUnit_(id) {
+  unitOpenId_ = id;
+  const u = unitsData_.units.find((x) => x.id === id);
+  if (!u) return;
+  const buyer = document.getElementById("unit-buyer");
+  const people = (meta.friends || []).filter((f) => f.role === "client" && !isHiddenFriend_(f)).sort((a, b) => a.name.localeCompare(b.name));
+  buyer.innerHTML = `<option value="">—</option>` + people.map((f) => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`).join("") +
+    (u.buyer_id && !people.some((f) => f.id === u.buyer_id) ? `<option value="${escapeHtml(u.buyer_id)}">${escapeHtml(u.buyer)}</option>` : "") +
+    `<option value="__new__">${escapeHtml(tr("sales.newBuyer"))}</option>`;
+  buyer.value = u.buyer_id || "";
+  document.getElementById("unit-buyer-new").hidden = true;
+  document.getElementById("unit-buyer-new").value = "";
+  document.getElementById("unit-price").value = u.price ? String(u.price) : "";
+  const cur = document.getElementById("unit-currency");
+  cur.innerHTML = [...new Set([u.currency || homeCur(), homeCur(), ...getRecentCurrencies()])].slice(0, 5).map((c) => `<option value="${c}">${findCurrency(c).flag} ${c}</option>`).join("");
+  cur.value = u.currency || homeCur();
+  document.getElementById("unit-status").value = u.status || "";
+  document.getElementById("unit-status-list").innerHTML = UNIT_STATUS_KEYS_.map((k) => `<option value="${escapeHtml(tr(k))}">`).join("");
+  document.getElementById("unit-note").value = u.note || "";
+  document.getElementById("unit-error").textContent = "";
+  document.getElementById("unit-stage-kind").innerHTML = UNIT_STAGE_KEYS_.map((k) => `<option value="${k}">${escapeHtml(tr("sales.stage." + k))}</option>`).join("");
+  document.getElementById("unit-stage-amount").value = "";
+  document.getElementById("unit-stage-date").value = todayLocalISO();
+  renderUnitDetail_();
+  const backdrop = document.getElementById("unit-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function renderUnitDetail_() {
+  const u = unitsData_ && unitsData_.units.find((x) => x.id === unitOpenId_);
+  if (!u) return;
+  document.getElementById("unit-title").textContent = u.name;
+  document.getElementById("unit-sum").textContent = u.price
+    ? tr("sales.sum", { collected: formatAmount(u.collected, u.currency), price: formatAmount(u.price, u.currency), remaining: formatAmount(u.remaining, u.currency) })
+    : tr("sales.sumNoPrice", { collected: formatAmount(u.collected, u.currency) });
+  const stageLabel = (x) => tr("sales.stage." + (x.stage || "other"));
+  document.getElementById("unit-stages").innerHTML = u.stages.length ? u.stages.map((x) => `<div class="loans-ov-owed-row"><span>${escapeHtml(stageLabel(x))}<small>${escapeHtml(listDate_(x.due_date))}${x.overdue ? " · " + escapeHtml(tr("sales.overdue")) : ""}</small></span>
+      <b>${escapeHtml(formatAmount(x.amount, x.currency))}<small>${escapeHtml(x.state === "open" ? tr("sales.stillDue", { amount: formatAmount(x.remaining, x.currency) }) : tr("sales.paid"))}</small></b></div>`).join("")
+    : `<p class="hint">${escapeHtml(tr("sales.noStages"))}</p>`;
+  const pay = document.getElementById("unit-payments");
+  pay.innerHTML = "";
+  if (!u.payments.length) pay.innerHTML = `<p class="hint">${escapeHtml(tr("sales.noPayments"))}</p>`;
+  u.payments.slice().reverse().forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "unit-payment";
+    const back = p.amount < 0;
+    const left = p.amount + u.payments.filter((r) => r.refund_of === p.id).reduce((n, r) => n + r.amount, 0);   // what is still returnable
+    row.innerHTML = `<div class="loans-ov-owed-row"><span>${escapeHtml(listDate_(p.date))}<small>${escapeHtml([back ? tr("sales.returned") : "", p.account, p.operation].filter(Boolean).join(" · "))}</small></span>
+      <b>${escapeHtml(formatAmount(Math.abs(p.amount), p.currency, back ? "−" : ""))}</b></div>` +
+      (back || left <= 0.004 ? "" : `<button type="button" class="add-inline unit-return-btn">${escapeHtml(tr("sales.return"))}</button>
+      <div class="unit-return-form" hidden><input type="text" inputmode="decimal" class="unit-return-amount" value="${Math.round(left * 100) / 100}" aria-label="${escapeHtml(tr("field.amount"))}"><input type="date" class="unit-return-date" value="${todayLocalISO()}" aria-label="${escapeHtml(tr("field.date"))}">
+      <button type="button" class="primary unit-return-save">${escapeHtml(tr("sales.returnSave"))}</button></div>`);
+    const btn = row.querySelector(".unit-return-btn");
+    if (btn) {
+      btn.addEventListener("click", () => { row.querySelector(".unit-return-form").hidden = false; btn.hidden = true; });
+      row.querySelector(".unit-return-save").addEventListener("click", async () => {
+        const amount = parseFloat(row.querySelector(".unit-return-amount").value.replace(/,/g, ""));
+        const date = row.querySelector(".unit-return-date").value;
+        if (!(amount > 0) || amount > left + 0.004) { document.getElementById("unit-error").textContent = tr("sales.returnTooMuch", { max: formatAmount(left, p.currency) }); return; }
+        if (!(await closedMonthOk_([date]))) return;
+        if (!(await askConfirmApp_(tr("sales.askReturn", { amount: formatAmount(amount, p.currency), date: listDate_(date) }), tr("sales.returnSave"), { plain: true }))) return;
+        saveBehindScreen_(() => callApi("returnUnitDeposit", { entry_id: p.id, amount, date }), () => { refreshUnits_(); refreshEntriesInBackground_(); });
+      });
+    }
+    pay.appendChild(row);
+  });
+  document.getElementById("unit-share").hidden = !u.payments.length;
+}
+function unitPaymentsText_(u) {
+  const lines = [tr("sales.shareTitle", { unit: u.name }), u.buyer ? tr("sales.shareBuyer", { buyer: u.buyer }) : ""].filter(Boolean);
+  u.payments.forEach((p) => lines.push(`${listDate_(p.date)} · ${p.currency} ${moneyFmt(p.amount)}${p.account ? " · " + p.account : ""}${p.operation ? " · " + p.operation : ""}${p.amount < 0 ? " · " + tr("sales.returned") : ""}`));
+  lines.push(tr("sales.shareTotal", { amount: `${u.currency} ${moneyFmt(u.collected)}` }), "", tr("const.notice"));
+  return lines.join("\n");
+}
+function unitPaymentsCsv_(u) {
+  const q = (v) => { let t = String(v == null ? "" : v); if (/^[=+\-@]/.test(t) && isNaN(Number(t))) t = "'" + t; return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const rows = [[tr("sales.csvUnit"), tr("sales.buyer"), tr("field.date"), tr("field.amount"), tr("field.currency"), tr("sales.csvAccount"), tr("sales.csvOperation")]];
+  u.payments.forEach((p) => rows.push([u.name, u.buyer, p.date, Number(p.amount).toFixed(2), p.currency, p.account, p.operation]));
+  return "\ufeff" + rows.map((r) => r.map(q).join(",")).join("\r\n") + "\r\n";
+}
+document.getElementById("unit-share-text").addEventListener("click", async () => {
+  const u = unitsData_.units.find((x) => x.id === unitOpenId_);
+  if (!u) return;
+  const text = unitPaymentsText_(u);
+  try { if (navigator.share) { await navigator.share({ title: u.name, text }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(text); showToast_(tr("const.copied")); } catch (e) { showAppMessage_(text); }
+});
+document.getElementById("unit-share-csv").addEventListener("click", () => {
+  const u = unitsData_.units.find((x) => x.id === unitOpenId_);
+  if (!u) return;
+  saveExportFile_({ name: `${tr("sales.csvFile")}-${u.name.replace(/[^\p{L}\p{N}]+/gu, "-")}.csv`, mime: "text/csv", text: unitPaymentsCsv_(u) });
+});
+document.getElementById("unit-close").addEventListener("click", () => { document.getElementById("unit-modal-backdrop").hidden = true; unitOpenId_ = null; });
+document.getElementById("unit-buyer").addEventListener("change", (e) => { const box = document.getElementById("unit-buyer-new"); box.hidden = e.target.value !== "__new__"; if (!box.hidden) box.focus(); });
+document.getElementById("unit-save").addEventListener("click", () => {
+  const id = unitOpenId_;
+  const raw = document.getElementById("unit-price").value.trim();
+  const price = raw === "" ? "" : parseFloat(raw.replace(/,/g, ""));
+  if (price !== "" && !(price >= 0)) { document.getElementById("unit-error").textContent = tr("error.validAmount"); return; }
+  const pick = document.getElementById("unit-buyer").value;
+  const newName = document.getElementById("unit-buyer-new").value.trim();
+  if (pick === "__new__" && !newName) { document.getElementById("unit-error").textContent = tr("sales.buyerName"); return; }
+  const body = { id, price, currency: document.getElementById("unit-currency").value, status: document.getElementById("unit-status").value.trim(),
+    note: document.getElementById("unit-note").value.trim() };
+  if (pick === "__new__") body.buyer_name = newName; else body.buyer_id = pick;
+  document.getElementById("unit-modal-backdrop").hidden = true;
+  unitOpenId_ = null;
+  saveBehindScreen_(() => callApi("saveUnit", body), () => { refreshUnits_(); if (body.buyer_name) loadMeta().catch(() => {}); });
+});
+document.getElementById("unit-stage-add").addEventListener("click", () => {
+  const id = unitOpenId_;
+  const amount = parseFloat(document.getElementById("unit-stage-amount").value.replace(/,/g, ""));
+  const due = document.getElementById("unit-stage-date").value;
+  if (!(amount > 0)) { document.getElementById("unit-error").textContent = tr("error.validAmount"); return; }
+  if (!due) { document.getElementById("unit-error").textContent = tr("error.dateRequired"); return; }
+  document.getElementById("unit-error").textContent = "";
+  document.getElementById("unit-stage-amount").value = "";
+  saveBehindScreen_(() => callApi("saveUnitStage", { unit_id: id, stage: document.getElementById("unit-stage-kind").value, amount, due_date: due }), refreshUnits_);
+});
+document.getElementById("unit-remove").addEventListener("click", async () => {
+  const u = unitsData_.units.find((x) => x.id === unitOpenId_);
+  if (!u) return;
+  if (!(await askConfirmApp_(tr("sales.askRemove", { unit: u.name }), tr("sales.remove")))) return;
+  document.getElementById("unit-modal-backdrop").hidden = true;
+  unitOpenId_ = null;
+  saveBehindScreen_(() => callApi("removeProjectUnit", { id: u.id }), refreshUnits_);
+});
+
+// ---- A statement to share (Business 2, piece 12; company copies) ----
+// The Overview's period, the sections the person ticks (the lenders are off unless ticked; the choice is remembered), then a clean
+// document with the same figures as the app's screens, the fixed notice and whether the period is closed. Shared as PDF (printing it
+// alone, like the yearly statement) or text.
+const SHARE_ALL_ = ["cash", "categories", "projects", "sales", "owed", "partners"];
+let shareSectionsNow_ = ["cash", "categories", "projects", "sales", "partners"];
+let shareDoc_ = null;
+function openShareModal_() {
+  const b = getPeriodBounds();
+  shareDoc_ = { start: b.startDate || "", end: b.endDate || "" };
+  document.getElementById("share-period").textContent = shareDoc_.start || shareDoc_.end
+    ? tr("share.period", { start: shareDoc_.start ? listDate_(shareDoc_.start) : "…", end: shareDoc_.end ? listDate_(shareDoc_.end) : "…" }) : tr("share.allTime");
+  document.getElementById("share-sections").innerHTML = SHARE_ALL_.map((k) => `<label class="checkbox-row"><input type="checkbox" value="${k}"${shareSectionsNow_.includes(k) ? " checked" : ""}> <span>${escapeHtml(tr("share.s." + k))}${k === "owed" ? `<small class="hint">${escapeHtml(tr("share.owedHint"))}</small>` : ""}</span></label>`).join("");
+  document.getElementById("share-error").textContent = "";
+  document.getElementById("share-pick").hidden = false;
+  document.getElementById("share-doc").hidden = true;
+  document.getElementById("share-actions").hidden = true;
+  const backdrop = document.getElementById("share-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function shareDocHtml_(s) {
+  const amt = (n, cur) => `${cur} ${moneyFmt(Number(n) || 0)}`;
+  const row = (k, v) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`;
+  const head = (k) => `<tr class="constancia-head"><th colspan="2">${escapeHtml(k)}</th></tr>`;
+  const per = s.start || s.end ? tr("share.period", { start: s.start ? listDate_(s.start) : "…", end: s.end ? listDate_(s.end) : "…" }) : tr("share.allTime");
+  let html = `<h2 class="constancia-title">${escapeHtml(tr("share.docTitle"))}</h2>` +
+    (s.company ? `<p class="constancia-company">${escapeHtml(s.company.name)}${s.company.tax_id ? ` · ${escapeHtml(tr("const.ruc", { ruc: s.company.tax_id }))}` : ""}</p>` : "") +
+    `<p>${escapeHtml(per)}</p>`;
+  const c = s.close || {};
+  if (c.month) html += `<p class="${c.closed && !c.changed ? "" : "constancia-warn"}">${escapeHtml(tr(c.closed ? (c.changed ? "share.closedChanged" : "share.closed") : (c.ended ? "share.notClosed" : "share.inProgress")))}</p>`;
+  else if ((c.open_months || []).length) html += `<p class="constancia-warn">${escapeHtml(tr("share.openMonths", { months: c.open_months.map((m) => paceMonthName_(m, true)).join(", ") }))}</p>`;
+  const d = s.data || {};
+  if (d.cash) {
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("share.s.cash"))}</h3><table class="constancia-table">`;
+    d.cash.forEach((a) => a.balances.forEach((b) => { html += row(a.name, amt(b.amount, b.currency)); }));
+    html += `</table><p class="hint">${escapeHtml(tr("share.cashToday"))}</p>`;
+  }
+  if (d.categories) {
+    const k = d.categories;
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("share.s.categories"))}</h3><table class="constancia-table">` +
+      head(tr("summary.income")) + k.incomeBy.map((x) => row(x.name, amt(x.amount, k.currency))).join("") + row(tr("share.totalIncome"), amt(k.income, k.currency)) +
+      head(tr("share.expenses")) + k.expenseBy.map((x) => row(x.name, amt(x.amount, k.currency))).join("") + row(tr("share.totalExpense"), amt(k.expense, k.currency)) +
+      `<tr class="constancia-total"><td>${escapeHtml(tr("share.result"))}</td><td>${escapeHtml(amt(k.result, k.currency))}</td></tr></table>`;
+  }
+  if (d.projects) {
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("share.s.projects"))}</h3><table class="constancia-table">`;
+    d.projects.forEach((p) => {
+      html += head(p.name);
+      if (!p.lines.length) html += row(tr("share.nothing"), "");
+      p.lines.forEach((l) => { html += row(tr("share.incomeCur", { cur: l.currency }), amt(l.income, l.currency)) + row(tr("share.costsCur", { cur: l.currency }), amt(l.costs, l.currency)) + row(tr("share.resultCur", { cur: l.currency }), amt(l.result, l.currency)); });
+    });
+    html += `</table>`;
+  }
+  if (d.sales && d.sales.units) {
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("share.s.sales"))}</h3><p>${escapeHtml(d.sales.statuses.map((x) => `${x.status || tr("sales.noStatus")}: ${x.count}`).join(" · "))}</p><table class="constancia-table">`;
+    d.sales.money.forEach((m) => { html += head(tr("const.inCurrency", { currency: m.currency })) + row(tr("sales.totalPrice"), amt(m.price, m.currency)) + row(tr("sales.collected"), amt(m.collected, m.currency)) + row(tr("sales.toCollect"), amt(m.remaining, m.currency)); });
+    html += `</table>`;
+  }
+  if (d.owed) {
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("share.s.owed"))}</h3><table class="constancia-table">`;
+    if (!d.owed.people.length) html += row(tr("coOv.owedEmpty"), "");
+    d.owed.people.forEach((p) => p.lines.forEach((l) => { html += row(p.name, amt(l.amount, l.currency)); }));
+    if (d.owed.people.length > 1) d.owed.totals.forEach((t) => { html += row(tr("coOv.owedTotal"), amt(t.amount, t.currency)); });
+    html += `</table>`;
+  }
+  if (d.partners) {
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("share.s.partners"))}</h3><table class="constancia-table">`;
+    if (!d.partners.length) html += row(tr("share.nothing"), "");
+    d.partners.forEach((p) => {
+      html += head(p.name);
+      if (!p.lines.length) html += row(tr("coOv.pNothing"), "");
+      p.lines.forEach((l) => {
+        if (l.contributed) html += row(tr("coOv.pContributed"), amt(l.contributed, l.currency));
+        if (l.pending) html += row(tr("coOv.pPending"), amt(l.pending, l.currency));
+        if (l.owed) html += row(tr("coOv.pOwed"), amt(l.owed, l.currency));
+        if (l.distributed) html += row(tr("coOv.pDistributed"), amt(l.distributed, l.currency));
+      });
+    });
+    html += `</table>`;
+  }
+  html += `<p class="constancia-notice">${escapeHtml(tr("share.notice"))}</p><p class="hint">${escapeHtml(tr("share.generated", { date: listDate_(s.generated) }))}</p>`;
+  return html;
+}
+function shareDocText_() {
+  const box = document.createElement("div");
+  box.innerHTML = shareDocHtml_(shareDoc_.data);
+  const out = [];
+  box.querySelectorAll("h2, h3, p, tr").forEach((el) => {
+    if (el.tagName === "TR") { const cells = [...el.children].map((c) => c.textContent.trim()).filter(Boolean); out.push(cells.length === 2 ? `${cells[0]}: ${cells[1]}` : `— ${cells.join(" ")}`); }
+    else out.push((el.tagName === "H3" ? "\n" : "") + el.textContent.trim());
+  });
+  return out.join("\n");
+}
+document.getElementById("co-share-btn").addEventListener("click", openShareModal_);
+document.getElementById("share-close").addEventListener("click", () => { document.getElementById("share-modal-backdrop").hidden = true; });
+document.getElementById("share-again").addEventListener("click", () => {
+  document.getElementById("share-pick").hidden = false;
+  document.getElementById("share-doc").hidden = true;
+  document.getElementById("share-actions").hidden = true;
+});
+document.getElementById("share-build").addEventListener("click", async () => {
+  const sections = [...document.querySelectorAll("#share-sections input:checked")].map((c) => c.value);
+  if (!sections.length) { document.getElementById("share-error").textContent = tr("share.pickOne"); return; }
+  shareSectionsNow_ = sections;
+  const doc = document.getElementById("share-doc");
+  document.getElementById("share-pick").hidden = true;
+  doc.hidden = false;
+  doc.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  const ask = shareDoc_;
+  try {
+    const res = await callApi("buildShareStatement", { startDate: ask.start, endDate: ask.end, sections });
+    if (shareDoc_ !== ask) return;
+    ask.data = res;
+    doc.innerHTML = shareDocHtml_(res);
+    document.getElementById("share-actions").hidden = false;
+  } catch (e) { doc.innerHTML = `<p class="hint error-text">${escapeHtml(tr("business.loadFailed", { error: e.message }))}</p>`; document.getElementById("share-pick").hidden = false; }
+});
+document.getElementById("share-pdf").addEventListener("click", () => {
+  if (!shareDoc_ || !shareDoc_.data) return;
+  const holder = document.getElementById("constancia-print");
+  holder.innerHTML = `<div class="constancia-doc">${shareDocHtml_(shareDoc_.data)}</div>`;
+  const before = document.title;
+  document.title = `${tr("share.fileName")}-${shareDoc_.start || ""}-${shareDoc_.end || ""}`.replace(/-+$/, "");
+  document.body.classList.add("printing-constancia");
+  const done = () => { document.body.classList.remove("printing-constancia"); document.title = before; window.removeEventListener("afterprint", done); };
+  window.addEventListener("afterprint", done);
+  try { window.print(); } catch (e) { done(); showAppMessage_(tr("const.pdfFailed")); }
+});
+document.getElementById("share-text").addEventListener("click", async () => {
+  if (!shareDoc_ || !shareDoc_.data) return;
+  const text = shareDocText_();
+  try { if (navigator.share) { await navigator.share({ title: tr("share.docTitle"), text }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(text); showToast_(tr("const.copied")); } catch (e) { showAppMessage_(text); }
+});
+
+// The company Overview's two sales cards.
+function renderCompanySales_(s) {
+  const show = !!s && (s.units > 0 || s.overdue.count > 0 || s.next30.count > 0);
+  document.getElementById("co-sales-card").hidden = !show || !s.units;
+  document.getElementById("co-next-card").hidden = !show || (!s.overdue.count && !s.next30.count);
+  if (!show) return;
+  const row = (k, v, cls) => `<div class="loans-ov-owed-row${cls ? " " + cls : ""}"><span>${k}</span><b>${v}</b></div>`;
+  document.getElementById("co-sales-body").innerHTML =
+    `<p class="hint">${escapeHtml(s.statuses.map((x) => `${x.status || tr("sales.noStatus")}: ${x.count}`).join(" · "))}</p>` +
+    s.money.map((m) => `<h3>${escapeHtml(tr("const.inCurrency", { currency: m.currency }))}</h3>` +
+      row(escapeHtml(tr("sales.totalPrice")), escapeHtml(formatAmount(m.price, m.currency))) +
+      row(escapeHtml(tr("sales.collected")), escapeHtml(formatAmount(m.collected, m.currency))) +
+      row(escapeHtml(tr("sales.toCollect")), escapeHtml(formatAmount(m.remaining, m.currency)))).join("");
+  const item = (x) => row(`${escapeHtml([x.unit || x.project_name, x.stage ? tr("sales.stage." + x.stage) : x.note].filter(Boolean).join(" · "))}<small>${escapeHtml([listDate_(x.due_date), x.client_name].filter(Boolean).join(" · "))}</small>`,
+    escapeHtml(formatAmount(x.remaining, x.currency)));
+  const block = (key, b, cls) => b.count ? `<h3 class="${cls}">${escapeHtml(tr(key, { n: b.count }))}</h3>` +
+    b.totals.map((t) => row(escapeHtml(tr("coOv.owedTotal")), escapeHtml(formatAmount(t.amount, t.currency)))).join("") + b.items.map(item).join("") : "";
+  document.getElementById("co-next-body").innerHTML = block("sales.overdueN", s.overdue, "co-next-overdue") + block("sales.next30N", s.next30, "");
+}
+
 // ---- A project's or a company's profit and loss ----
 
 let businessDetail_ = null;        // { kind: "project" | "company", id }
@@ -23002,6 +23342,7 @@ async function showBusinessDetail_(kind, id) {
   document.getElementById("business-detail-sub").textContent = "";
   document.getElementById("business-detail-body").innerHTML = loadingHtml_();
   document.getElementById("business-detail-entries-card").hidden = true;
+  document.getElementById("business-units-card").hidden = true;
   await refreshBusinessDetail_();
 }
 
@@ -23014,16 +23355,19 @@ async function refreshBusinessDetail_() {
     await waitForEntryEditsToSave_();
     const b = businessBounds_();
     const range = { startDate: b.startDate, endDate: b.endDate };
-    const [detail, entries, debts] = await Promise.all([
+    const unitsWanted = target.kind === "project" && companyCopyOn_();   // piece 11: a company copy's project has units
+    const [detail, entries, debts, units] = await Promise.all([
       callApi(target.kind === "project" ? "getProjectDetail" : "getCompanyDetail", Object.assign({ id: target.id }, range)),
       callApi("listEntries", Object.assign(target.kind === "project" ? { projectId: target.id } : { companyId: target.id }, range)),
-      target.kind === "project" ? callApi("getProjectDebts", { project_id: target.id }) : Promise.resolve([])
+      target.kind === "project" ? callApi("getProjectDebts", { project_id: target.id }) : Promise.resolve([]),
+      unitsWanted ? callApi("listProjectUnits", { project_id: target.id }) : Promise.resolve(null)
     ]);
     if (!businessDetail_ || businessDetail_.id !== target.id) return;   // moved on while loading
     detail.debts = debts || [];
     rememberExpected_(detail.expected || [], target.kind === "project" ? [target.id] : (meta.projects || []).filter((p) => p.company_id === target.id).map((p) => p.id));
     businessDetailData_ = detail;
     renderBusinessDetail_(detail);
+    renderProjectUnits_(target.id, units);
     const shown = applyQueuedEditOverlay_(entries);
     document.getElementById("business-detail-entries-card").hidden = false;
     renderEntriesInto_(document.getElementById("business-detail-entries"), shown, "business.noEntries");
@@ -28424,6 +28768,12 @@ const LINK_ICON_RULES_ = [
   [/^(this entry's changes|cambios de este movimiento|see the changes|ver los cambios)$/i, "clock"],
   [/^(yearly statement|constancia anual|all the yearly statements|todas las constancias)$/i, "file"],   // piece 9
   [/^(send the (corrected )?package|enviar el paquete)/i, "send"],   // piece 10
+  [/^(return the deposit|devolver separación)/i, "undo"],   // piece 11
+  [/^(prepare a statement to share|preparar un estado para compartir|prepare the statement|preparar el estado)/i, "file"],   // piece 12
+  [/^(change the sections|cambiar las secciones)/i, "pencil"],
+  [/^(record the return|registrar la devolución)/i, "check"],
+  [/^(share the payments|compartir los abonos)/i, "send"],
+  [/^(remove from this project|quitar del proyecto)/i, "trash"],
   [/^(save the files|guardar los archivos|save \d|guardar \d)/i, "download"],
   [/^(share as text|compartir como texto|share as csv|compartir como csv)/i, "send"],   // piece 8: the change log
   [/^(it's a partner's money|es plata de un socio)$/i, "users"],   // Business 2 piece 7: Needs review's partner buttons
