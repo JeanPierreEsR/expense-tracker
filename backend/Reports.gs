@@ -36,14 +36,16 @@ function getPeriodSummary(payload) {
     splitSumByEntry[s.entry_id] = (splitSumByEntry[s.entry_id] || 0) + Number(s.amount);
   });
 
-  var tagIdsByEntry = {};
-  getAllRows('Entry Tags').forEach(function (et) {
-    if (!tagIdsByEntry[et.entry_id]) tagIdsByEntry[et.entry_id] = [];
-    tagIdsByEntry[et.entry_id].push(et.tag_id);
-  });
-
   var categoryById = rowsById_(getAllRows('Categories'));
   var tagById = rowsById_(localizeTags_(getAllRows('Tags')));
+  // Only links to tags that still exist, each once (a hand edit of the Sheet can leave a link to a deleted tag, or the same link twice):
+  // the same as the phone's chips and Home search (testers, 2026-11-23).
+  var tagIdsByEntry = {};
+  getAllRows('Entry Tags').forEach(function (et) {
+    if (!tagById[et.tag_id]) return;
+    if (!tagIdsByEntry[et.entry_id]) tagIdsByEntry[et.entry_id] = [];
+    if (tagIdsByEntry[et.entry_id].indexOf(et.tag_id) === -1) tagIdsByEntry[et.entry_id].push(et.tag_id);
+  });
   var pmById = rowsById_(getAllRows('Payment Methods'));
   var sliceCtx = buildAccountSliceContext_();
   var sliceRefs = specialSliceRefs_();
