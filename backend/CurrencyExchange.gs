@@ -248,6 +248,82 @@ function linkExchangeSides(payload) {
   return { out: getEntryById_(out.id), 'in': getEntryById_(inn.id) };
 }
 
+// ---- "Exchanges to link" (owner, 2026-11-23): sides saved apart, suggested in pairs for the person to confirm ----
+// Before 2026-11-23 a statement saved an exchange's two sides with no link id, and exchanges before 2026-11-02 had none either. Home
+// pairs unlinked sides of the SAME day by itself; sides on different days showed as two rows. This finds those: a confirmed side with
+// no partner, the opposite side in another currency 1 to 3 days away (the window the missing-side report uses), and amounts that
+// fit the rate table within 15 % when a rate is known. One-to-one, closest days first. Never linked without the person: a guess can
+// be wrong. A pair the person said "Not these" to is remembered (Settings `exchange_link_refused`), and "Don't ask again" turns it off.
+var EXCHANGE_SUGGEST_DAYS_ = 3;
+function exchangeLinkSuggestions_() {
+  var settings = getSettingsMap();
+  if (String(settings.exchange_link_off || '') === 'yes') return [];
+  var refused = {};
+  try { (JSON.parse(String(settings.exchange_link_refused || '[]')) || []).forEach(function (k) { refused[k] = true; }); } catch (e) { /* unreadable: nothing refused */ }
+  var all = getAllRows('Entries');
+  var pairCount = {};
+  all.forEach(function (e) { var p = String(e.exchange_pair || ''); if (p) pairCount[p] = (pairCount[p] || 0) + 1; });
+  var lone = all.filter(function (e) {
+    return e.status === 'confirmed' && exchangeLegSide_(e) && !isPracticeExchange_(e) && !(e.exchange_pair && pairCount[String(e.exchange_pair)] > 1);
+  });
+  var used = {};
+  // Same-day sides are already shown as one exchange (Home's own pairing): taken out first, as Home does.
+  lone.forEach(function (a) {
+    if (used[a.id] || exchangeLegSide_(a) !== 'out') return;
+    var b = lone.find(function (x) { return !used[x.id] && exchangeLegSide_(x) === 'in' && x.currency !== a.currency && String(x.date) === String(a.date); });
+    if (b) { used[a.id] = true; used[b.id] = true; }
+  });
+  var toMain = function (e) {
+    var r = getLatestRateOnOrBefore_(e.currency, String(e.date).substring(0, 7));
+    return r === null || r === undefined ? null : Math.abs(Number(e.amount)) * r;
+  };
+  var options = [];
+  lone.forEach(function (o) {
+    if (used[o.id] || exchangeLegSide_(o) !== 'out') return;
+    lone.forEach(function (i) {
+      if (used[i.id] || exchangeLegSide_(i) !== 'in' || i.currency === o.currency) return;
+      var gap = exchangeDayDiff_(o.date, i.date);
+      if (gap < 1 || gap > EXCHANGE_SUGGEST_DAYS_ || refused[o.id + '|' + i.id]) return;
+      var a = toMain(o), b = toMain(i);
+      if (a !== null && b !== null && b > 0 && (a / b < 0.85 || a / b > 1.15)) return;
+      options.push({ out: o, 'in': i, gap: gap });
+    });
+  });
+  options.sort(function (x, y) { return (x.gap - y.gap) || String(y.out.date).localeCompare(String(x.out.date)); });
+  var result = [];
+  options.forEach(function (p) {
+    if (used[p.out.id] || used[p['in'].id]) return;
+    used[p.out.id] = true; used[p['in'].id] = true;
+    result.push(p);
+  });
+  var side = function (e) { return { id: e.id, date: String(e.date), amount: Number(e.amount), currency: e.currency, account: e.payment_method_id || e.to_payment_method_id || '' }; };
+  return result.sort(function (x, y) { return String(y.out.date).localeCompare(String(x.out.date)); })
+    .map(function (p) { return { out: side(p.out), 'in': side(p['in']) }; });
+}
+function listExchangeLinkSuggestions() { return exchangeLinkSuggestions_().slice(0, 50); }
+// Home's card: how many pairs there are (0 = no card).
+function exchangeLinkSuggestionCount_() {
+  try { return exchangeLinkSuggestions_().length; } catch (e) { return 0; }
+}
+// payload: { pairs: [{ id, partner_id }] } — several links in ONE call ("Link all"). Returns how many were linked.
+function linkExchangePairs(payload) {
+  var n = 0;
+  ((payload || {}).pairs || []).forEach(function (p) { linkExchangeSides(p); n++; });
+  return { linked: n };
+}
+// payload: { out_id, in_id } — "Not these": never suggested again.
+function refuseExchangeLinkSuggestion(payload) {
+  payload = payload || {};
+  var list = [];
+  try { list = JSON.parse(String(getSettingsMap().exchange_link_refused || '[]')) || []; } catch (e) { list = []; }
+  var key = String(payload.out_id || '') + '|' + String(payload.in_id || '');
+  if (list.indexOf(key) === -1) list.push(key);
+  setSetting_('exchange_link_refused', JSON.stringify(list.slice(-300)));
+  return { ok: true };
+}
+// "Don't ask again": the card and its list are gone for good on this copy.
+function stopExchangeLinkSuggestions() { setSetting_('exchange_link_off', 'yes'); return { ok: true }; }
+
 // ---- One e-mail that names BOTH sides of an exchange (Cambio Mundial-style "Confirmación de Operación") ----
 //
 // Banks e-mail the money that LEFT (and not always the money that ARRIVED), while the exchange house's own confirmation names both

@@ -3728,6 +3728,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .home-charges-title { font-weight: 600; }
 .home-charges-chevron { color: var(--muted); font-size: 1.25rem; }
 .home-charges .hint { margin: 2px 0 0; }
+.xsugg-actions { display: flex; align-items: center; gap: 16px; margin-top: 6px; }
+.xsugg-actions .add-inline + .add-inline { margin-top: 0; }
 .home-charges.late .hint { color: var(--warn-text); }
 .charge-line { padding: 12px 0; border-top: 1px solid var(--border); }
 .charge-line-top { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }

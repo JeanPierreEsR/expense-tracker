@@ -431,6 +431,7 @@
 
       <div class="card home-unreadable" id="home-unreadable" hidden></div>
       <button type="button" class="card home-charges" id="home-charges" hidden></button>
+      <button type="button" class="card home-charges" id="home-xlinks" hidden></button>
       <div class="home-glance" id="home-glance" hidden>
         <div class="home-glance-track" id="home-glance-track"></div>
         <div class="home-glance-dots" id="home-glance-dots" hidden></div>
@@ -2710,6 +2711,17 @@
         <div id="xpair-sides"></div>
         <button type="button" class="delete-entry-btn" id="xpair-delete-btn" data-i18n="xch.pairDelete">Delete this exchange</button>
       </div>
+    </div>
+  </div>
+
+  <!-- "Exchanges to link": sides saved apart, suggested in pairs (openExchangeSuggest_ in app.js). -->
+  <div id="xsugg-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="xsugg.titlePlain">Exchanges to link</span>
+        <button type="button" id="xsugg-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body" id="xsugg-body"></div>
     </div>
   </div>
 

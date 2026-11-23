@@ -10184,9 +10184,93 @@ function renderHomeCharges_() {
   box.hidden = false;
 }
 
+// "Exchanges to link (n)" (owner, 2026-11-23): old exchange sides saved apart on different days, for the person to link or refuse.
+// An older backend sends no count: no card.
+function renderHomeXLinks_() {
+  const box = document.getElementById("home-xlinks");
+  const n = Number((homeGlance_ && homeGlance_.exchangeLinks) || 0);
+  if (!n) { box.hidden = true; return; }
+  box.innerHTML = `<span><div class="home-charges-title">${escapeHtml(tr("xsugg.title", { n }))}</div><p class="hint">${escapeHtml(tr("xsugg.sub"))}</p></span><span class="home-charges-chevron">›</span>`;
+  box.hidden = false;
+}
+document.getElementById("home-xlinks").addEventListener("click", () => openExchangeSuggest_());
+document.getElementById("xsugg-close").addEventListener("click", () => { document.getElementById("xsugg-backdrop").hidden = true; });
+// One row's Link / Not these: the row goes at once and the request runs behind it. Not saveBehindScreen_: its 0.8 s tap guard is
+// for a window that just closed, and this list stays open (quick taps through it were silently dropped).
+const xsuggSend_ = (action, payload, after) => callApi(action, payload).then(after)
+  .catch((err) => { appMessage_(tr("common.notSaved", { error: err.message })); refreshHomeGlance_(true); });   // (the pair is offered again)
+const xsuggAfter_ = async () => {
+  await refreshEntryList().catch(() => {});
+  refreshHomeGlance_(true);
+  if (searchActive) refreshSearchAfterEdit_().catch(() => {});
+};
+async function openExchangeSuggest_() {
+  const backdrop = document.getElementById("xsugg-backdrop");
+  const body = document.getElementById("xsugg-body");
+  body.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  let pairs;
+  try { pairs = await callApi("listExchangeLinkSuggestions", {}); }
+  catch (err) { body.innerHTML = `<p class="hint error-text">${escapeHtml(err.message)}</p>`; return; }
+  if (backdrop.hidden) return;
+  const pmName = (pid) => { const pm = meta.paymentMethods.find((p) => p.id === pid); return pm ? pm.nickname : ""; };
+  const sideLine = (label, s) => `<div class="hint" style="margin:0 0 2px;font-weight:600;">${escapeHtml(tr(label))} · ${escapeHtml(listDate_(s.date))}</div>
+    <div><b>${formatAmount(s.amount, s.currency)}</b>${pmName(s.account) ? ` · ${escapeHtml(pmName(s.account))}` : ""}</div>`;
+  let left = pairs.slice();
+  const draw = () => {
+    body.innerHTML = `<p class="hint">${escapeHtml(tr("xsugg.hint"))}</p>`;
+    if (!left.length) { body.insertAdjacentHTML("beforeend", `<p class="hint">${escapeHtml(tr("xsugg.none"))}</p>`); return; }
+    if (left.length > 1) {
+      const all = document.createElement("button");
+      all.type = "button";
+      all.className = "primary";
+      all.textContent = tr("xsugg.linkAll", { n: left.length });
+      all.addEventListener("click", () => {
+        const these = left.map((p) => ({ id: p.out.id, partner_id: p.in.id }));
+        backdrop.hidden = true;
+        saveBehindScreen_(() => callApi("linkExchangePairs", { pairs: these }), xsuggAfter_);
+      });
+      body.appendChild(all);
+    }
+    left.forEach((p) => {
+      const row = document.createElement("div");
+      row.className = "link-candidate-row";
+      row.style.display = "block";
+      row.innerHTML = sideLine("xch.left", p.out) + `<div style="height:6px"></div>` + sideLine("xch.arrived", p.in)
+        + `<div class="xsugg-actions"><button type="button" class="add-inline" data-act="link">${escapeHtml(tr("xsugg.link"))}</button>`
+        + `<button type="button" class="add-inline" data-act="no">${escapeHtml(tr("xsugg.notThese"))}</button></div>`;
+      row.querySelector('[data-act="link"]').addEventListener("click", () => {
+        left = left.filter((x) => x !== p);
+        draw();
+        xsuggSend_("linkExchangePairs", { pairs: [{ id: p.out.id, partner_id: p.in.id }] }, xsuggAfter_);
+      });
+      row.querySelector('[data-act="no"]').addEventListener("click", () => {
+        left = left.filter((x) => x !== p);
+        draw();
+        xsuggSend_("refuseExchangeLinkSuggestion", { out_id: p.out.id, in_id: p.in.id }, () => refreshHomeGlance_(true));
+      });
+      body.appendChild(row);
+    });
+    const stop = document.createElement("button");
+    stop.type = "button";
+    stop.className = "add-inline";
+    stop.textContent = tr("xsugg.stop");
+    stop.addEventListener("click", async () => {
+      if (!await askConfirmApp_(tr("xsugg.stopAsk"), tr("confirmBtn.stopSuggesting"), { plain: true })) return;
+      backdrop.hidden = true;
+      document.getElementById("home-xlinks").hidden = true;
+      saveBehindScreen_(() => callApi("stopExchangeLinkSuggestions", {}), () => refreshHomeGlance_(true));
+    });
+    body.appendChild(stop);
+  };
+  draw();
+}
+
 function renderHomeGlance_() {
   renderHomeUnreadable_();
   renderHomeCharges_();
+  renderHomeXLinks_();
   const box = document.getElementById("home-glance");
   const track = document.getElementById("home-glance-track");
   const dots = document.getElementById("home-glance-dots");
@@ -27700,7 +27784,8 @@ const LINK_ICON_RULES_ = [
   [/^(read|leer)\b/i, "file"],
   [/^(find|buscar|look|check now|revisar ahora|also look)/i, "search"],
   [/^(currency exchange|cambio de moneda)/i, "exchange"],
-  [/^(link to the other side|unir con el otro lado)/i, "exchange"],   // one side of an exchange joined to its other side (2026-11-23)   // money changing currency (owner, 2026-11-19: the swap arrows read as a transfer)
+  [/^(link|unir)\b/i, "exchange"],   // sides of an exchange joined: "Link to the other side", "Link", "Link all" (2026-11-23)
+  [/^(not these|no son estos|don't ask again|no volver a preguntar)/i, "cross"],   // ...and the suggestions refused   // money changing currency (owner, 2026-11-19: the swap arrows read as a transfer)
   [/^(tags|etiquetas)\b/i, "tag"],   // a Needs review item's "Tags (2)"
   [/^(switch direction|cambiar el sentido|repeat|repetir|convert|convertir|make it a transfer|pasar a transferencia)/i, "swap"],
   [/^(more actions|más acciones|more…|más…)$|^(more actions|más acciones)/i, "dots"],
