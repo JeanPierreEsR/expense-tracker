@@ -4313,6 +4313,7 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .constancia-head th { text-align: left; padding: 10px 0 2px; font-size: 0.875rem; color: var(--muted); font-weight: 600; }
 .constancia-notice { margin-top: 16px; font-weight: 600; }
 .constancia-actions .add-inline { display: block; }
+#pkg-file-list .add-inline, #pkg-files { display: block; }
 #constancia-print { display: none; }
 @media print {
   body.printing-constancia > :not(#constancia-print) { display: none !important; }

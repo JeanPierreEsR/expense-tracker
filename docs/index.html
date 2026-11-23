@@ -414,6 +414,33 @@
             </div>
           </div>
 
+          <!-- Business 2, piece 10 (company copies): how it was paid and its receipt, for the accountant's package. -->
+          <div id="voucher-field" hidden>
+            <label for="voucher-pay" data-i18n="voucher.pay">How it was paid</label>
+            <select id="voucher-pay">
+              <option value="" data-i18n="voucher.pay.none">—</option>
+              <option value="transfer" data-i18n="voucher.pay.transfer">Transfer</option>
+              <option value="cash" data-i18n="voucher.pay.cash">Cash</option>
+              <option value="wallet" data-i18n="voucher.pay.wallet">Yape / Plin</option>
+              <option value="cheque" data-i18n="voucher.pay.cheque">Cheque</option>
+            </select>
+            <label for="voucher-type" data-i18n="voucher.type">Receipt</label>
+            <select id="voucher-type">
+              <option value="" data-i18n="voucher.pay.none">—</option>
+              <option value="factura" data-i18n="voucher.type.factura">Factura</option>
+              <option value="boleta" data-i18n="voucher.type.boleta">Boleta</option>
+              <option value="rh" data-i18n="voucher.type.rh">Recibo por honorarios</option>
+              <option value="none" data-i18n="voucher.type.none">None</option>
+            </select>
+            <div id="voucher-detail" hidden>
+              <label for="voucher-no" data-i18n="voucher.no">Series-number</label>
+              <input type="text" id="voucher-no" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="F001-123">
+              <label for="voucher-date" data-i18n="voucher.date">Issue date (if not the same day)</label>
+              <input type="date" id="voucher-date">
+            </div>
+            <p class="hint" data-i18n="voucher.hint">For the accountant's package. Left empty, the package guesses how it was paid when it can.</p>
+          </div>
+
           </div>
 
           <!-- Save is always in reach (design review 2026-11-12): this bar stays at the bottom of the sheet while it scrolls,
@@ -2384,6 +2411,26 @@
         <p class="hint" data-i18n="close.keeps">Closing keeps this month's figures. If anything in it changes later, the app will say so.</p>
         <p class="hint error-text" id="close-error"></p>
         <button type="button" class="primary" id="close-save" data-i18n="close.save">Close the month</button>
+      </div>
+    </div>
+  </div>
+  <!-- Business 2, piece 10: the accountant's monthly package (send by email, or save the files). -->
+  <div id="pkg-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="pkg-title"></span>
+        <button type="button" id="pkg-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="pkg.hint">Four files that open in Excel: movements, account balances, lenders and partners, and what is pending.</p>
+        <p class="hint" id="pkg-corrected" hidden data-i18n="pkg.correctedHint">The month changed after the last package was sent: this one goes as a corrected package that says what changed.</p>
+        <label for="pkg-email" data-i18n="pkg.email">Accountant's email</label>
+        <input type="email" id="pkg-email" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="contador@ejemplo.com">
+        <label class="checkbox-row"><input type="checkbox" id="pkg-cc" checked> <span data-i18n="pkg.ccMe">Send me a copy</span></label>
+        <p class="hint error-text" id="pkg-error"></p>
+        <button type="button" class="primary" id="pkg-send" data-i18n="pkg.send">Send the package</button>
+        <button type="button" class="add-inline" id="pkg-files" data-i18n="pkg.saveFiles">Save the files</button>
+        <div id="pkg-file-list"></div>
       </div>
     </div>
   </div>
