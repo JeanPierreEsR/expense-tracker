@@ -1510,8 +1510,11 @@ function listEntries(payload) {
     entries = entries.filter(function (e) { return entryIdsWithTag[e.id]; });
   }
   if (payload && payload.noTag) {
+    // Only links to tags that still exist count (a link left by a hand edit of the Sheet is "no tag", as on the phone; testers 2026-11-23).
+    var liveTags = {};
+    getAllRows('Tags').forEach(function (t) { liveTags[String(t.id)] = true; });
     var taggedEntryIds = {};
-    getAllRows('Entry Tags').forEach(function (et) { taggedEntryIds[et.entry_id] = true; });
+    getAllRows('Entry Tags').forEach(function (et) { if (liveTags[String(et.tag_id)]) taggedEntryIds[et.entry_id] = true; });
     entries = entries.filter(function (e) { return !taggedEntryIds[e.id]; });
   }
 
