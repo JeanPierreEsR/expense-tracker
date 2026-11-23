@@ -5935,13 +5935,14 @@ function searchFilterTest_() {
   const range = searchPeriodRange_();
   const min = f.min === "" ? null : Number(f.min);
   const max = f.max === "" ? null : Number(f.max);
+  const liveTags = new Set((meta.tags || []).map((t) => t.id));   // a link to a deleted tag counts as no tag
   return (e) => {
     if (f.types.length && !f.types.includes(e.type)) return false;
     if (range && ((range[0] && e.date < range[0]) || (range[1] && e.date > range[1]))) return false;
     if (cats.size && !cats.has(e.category_id)) return false;
     if (accts.size && !accts.has(e.payment_method_id) && !accts.has(e.to_payment_method_id)) return false;
     if (friendIds.size && !friendIds.has(e.paid_by) && !(e.link && friendNames.has(e.link.friend))) return false;
-    if (f.tags.length && !(e.tagIds || []).some((id) => f.tags.includes(id)) && !(f.tags.includes(SEARCH_NO_TAG_) && !(e.tagIds || []).length)) return false;
+    if (f.tags.length && !(e.tagIds || []).some((id) => f.tags.includes(id)) && !(f.tags.includes(SEARCH_NO_TAG_) && !(e.tagIds || []).some((id) => liveTags.has(id)))) return false;
     if (f.trips.length && !f.trips.includes(e.trip_id)) return false;
     if (min != null || max != null) {
       const v = searchRowMain_(e);
@@ -11857,30 +11858,36 @@ let catTagSplit_ = null;   // { key, filter, entries } while a category's list i
 function renderCatTagSplit_(entries, key) {
   const box = document.getElementById("drilldown-chips");
   const tagById = new Map((meta.tags || []).map((t) => [t.id, t]));
-  const known = (e) => (e.tagIds || []).filter((id) => tagById.has(id));
+  // Only tags that still exist, each once: a link to a deleted tag (a hand edit of the Sheet) counts as no tag, and the same link
+  // twice counts once (testers, 2026-11-22).
+  const known = (e) => [...new Set((e.tagIds || []).filter((id) => tagById.has(id)))];
   const sums = new Map();
-  let all = 0, none = 0;
+  let all = 0, none = 0, several = false;
   entries.forEach((e) => {
     const v = searchRowMain_(e);
     if (v == null) return;
     all += v;
-    if (!(e.tagIds || []).length) none += v;
-    known(e).forEach((id) => sums.set(id, (sums.get(id) || 0) + v));
+    const ids = known(e);
+    if (!ids.length) none += v;
+    if (ids.length > 1) several = true;
+    ids.forEach((id) => sums.set(id, (sums.get(id) || 0) + v));
   });
   if (!sums.size) { catTagSplit_ = null; box.hidden = true; renderDrilldownEntries(entries); return; }
   const prev = catTagSplit_ && catTagSplit_.key === key ? catTagSplit_.filter : "all";
-  const chips = [{ id: "all", label: tr("flows.all"), sum: all }]
+  const chips = [{ id: "all", label: tr("catTag.all"), sum: all }]
     .concat([...sums.keys()].sort((a, b) => sums.get(b) - sums.get(a)).map((id) => ({ id, label: tagById.get(id).name, sum: sums.get(id) })))
-    .concat(entries.some((e) => !(e.tagIds || []).length) ? [{ id: SEARCH_NO_TAG_, label: tr("search.f.noTag"), sum: none }] : []);
+    .concat(entries.some((e) => !known(e).length) ? [{ id: SEARCH_NO_TAG_, label: tr("search.f.noTag"), sum: none }] : []);
   const filter = chips.some((c) => c.id === prev) ? prev : "all";
   catTagSplit_ = { key, filter, entries };
   const sign = overviewType === "income" ? 1 : -1;
   box.innerHTML = chips.map((c) => `<button type="button" class="flow-chip flow-${overviewType === "income" ? "income" : "expense"}${c.id === filter ? " active" : ""}" data-tagsplit="${escapeHtml(c.id)}" aria-pressed="${c.id === filter}">` +
-    `<span class="flow-chip-label">${escapeHtml(c.label)}</span><span class="flow-chip-amt">${escapeHtml(formatPenSigned_(sign * c.sum))}</span></button>`).join("");
+    `<span class="flow-chip-label">${escapeHtml(c.label)}</span><span class="flow-chip-amt">${escapeHtml(formatPenSigned_(sign * c.sum))}</span></button>`).join("") +
+    // With two tags on one entry the chips add up to more than the total: say why (testers, 2026-11-22).
+    (several ? `<p class="hint cat-tag-note">${escapeHtml(tr("catTag.several"))}</p>` : "");
   box.hidden = false;
   renderDrilldownEntries(filter === "all" ? entries
-    : filter === SEARCH_NO_TAG_ ? entries.filter((e) => !(e.tagIds || []).length)
-    : entries.filter((e) => (e.tagIds || []).includes(filter)));
+    : filter === SEARCH_NO_TAG_ ? entries.filter((e) => !known(e).length)
+    : entries.filter((e) => known(e).includes(filter)));
 }
 document.getElementById("drilldown-chips").addEventListener("click", (e) => {
   const chip = e.target.closest("[data-tagsplit]");

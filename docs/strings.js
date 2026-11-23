@@ -4152,6 +4152,8 @@
     "bankMail.fwdRemoveAria": { en: "Remove {address}", es: "Quitar {address}" },
     "bankMail.fwdBad": { en: "That is not an email address.", es: "Eso no es una dirección de correo." },
     "review.forwardedBy": { en: "Forwarded by {address}", es: "Reenviado por {address}" },
+    "catTag.all": { en: "All tags", es: "Todas las etiquetas" },
+    "catTag.several": { en: "An entry with two tags counts in both, so the tags can add up to more than the total.", es: "Un movimiento con dos etiquetas cuenta en ambas, así que las etiquetas pueden sumar más que el total." },
     "review.forwardedByUnknown": { en: "Forwarded by an unknown sender", es: "Reenviado por un remitente desconocido" },
     "bankMail.w3": { en: "Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.", es: "Ojo: reenvía de forma automática, con un filtro. Los correos que reenvíes a mano, uno por uno, la app no los lee." },
     "bankMail.otherMailTitle": { en: "Do your bank emails arrive at Outlook, iCloud or Yahoo?", es: "¿Los correos de tu banco llegan a Outlook, iCloud o Yahoo?" },
