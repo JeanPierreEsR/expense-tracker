@@ -36,6 +36,8 @@ function botTourEnd_(done) {
   if (done) props.setProperty('BOT_TOUR_DONE', Utilities.formatDate(new Date(), SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), 'yyyy-MM-dd'));
 }
 function botTourDone_() { return !!PropertiesService.getScriptProperties().getProperty('BOT_TOUR_DONE'); }
+// The general help offers the tour only while it was never finished or exited, and is not running (owner, 2026-11-22).
+function botTourHelpLine_() { return botTourDone_() || botTourState_() ? '' : '\n' + tr_('botTour.helpOffer'); }
 
 // Called by the bots where something the tour waits for happens. kind: 'newEntry' | 'edited' | 'touched' | 'pending'.
 function botTourNote_(kind, entryId) {

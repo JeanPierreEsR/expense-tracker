@@ -94,7 +94,7 @@ test("Telegram Repayment / Loan: one page with every friend, 'Someone else' last
 test("Telegram commands: ayuda, pendientes, nuevo (not as a reply)", () => {
   const a = tgApp();
   a.say("ayuda");
-  assert.equal(a.sent().pop().text, a.rt.run("tr_('bot.helpGeneral')"));
+  assert.equal(a.sent().pop().text, a.rt.run("tr_('bot.helpGeneral') + botTourHelpLine_()"));
   a.say("nuevo");
   assert.equal(a.sent().pop().text, a.rt.run("tr_('whatsapp.newHow')"));
   const waiting = a.rt.rows("Entries").filter((e) => e.status === "pending").length;

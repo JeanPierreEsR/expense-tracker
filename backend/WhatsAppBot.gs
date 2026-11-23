@@ -295,7 +295,7 @@ function whatsappTextIn_(text, p) {
   if (p.context_id && whatsappCardEntry_(p.context_id)) return whatsappEngineMessage_(p, text, p.context_id);
   // General help (owner, 2026-11-16): "ayuda" / "help" / "menú" not replying to a transaction says what the bot can do. As a
   // reply to a transaction, "help" stays that transaction's reply words (the branch above).
-  if (/^\/?(?:help|ayuda|men[uú]|\?)$/i.test(text)) return botText_(tr_('whatsapp.help') + (isCompanyCopy_() ? '\n\n' + tr_('coBot.help') : ''), p.id);
+  if (/^\/?(?:help|ayuda|men[uú]|\?)$/i.test(text)) return botText_(tr_('whatsapp.help') + botTourHelpLine_() + (isCompanyCopy_() ? '\n\n' + tr_('coBot.help') : ''), p.id);
   if (/^\/?(?:pendientes|pendiente|pending|por revisar)$/i.test(text)) return whatsappSendPending_(0);
   if (/^\/?(?:nuevo|nueva|new)$/i.test(text)) return botText_(tr_('whatsapp.newHow'), p.id);
   if (whatsappIsCommand_(text)) {
@@ -664,7 +664,7 @@ function whatsappConvert_(entryId, kind, friendId, p) {
 function telegramSharedCommand_(msg, text) {
   var p = { id: msg.message_id };
   if (botAwaitingText_(text, p)) return true;
-  if (/^\/?(?:help|ayuda|men[uú]|\?)$/i.test(text)) { botText_(tr_('bot.helpGeneral') + (isCompanyCopy_() ? '\n\n' + tr_('coBot.help') : ''), msg.message_id); return true; }
+  if (/^\/?(?:help|ayuda|men[uú]|\?)$/i.test(text)) { botText_(tr_('bot.helpGeneral') + botTourHelpLine_() + (isCompanyCopy_() ? '\n\n' + tr_('coBot.help') : ''), msg.message_id); return true; }
   if (/^\/?(?:pendientes|pendiente|pending|por revisar)$/i.test(text)) { whatsappSendPending_(0); return true; }
   if (/^\/?(?:nuevo|nueva|new)$/i.test(text)) { botText_(tr_('whatsapp.newHow'), msg.message_id); return true; }
   return false;
