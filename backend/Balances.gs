@@ -204,7 +204,7 @@ function buildInboundTransferIds_() {
     var loan = loansById[s.loan_id];
     if (loan && loan.direction === 'they_owe_me') inbound[s.transfer_entry_id] = true;
   });
-  return inbound;
+  return partnerInboundIds_(inbound);   // a partner's contribution (or one to be decided) is money in (Partners.gs)
 }
 
 // Signed effect of one entry on one account (+ in, − out), or 0 when the

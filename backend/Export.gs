@@ -31,7 +31,7 @@ var EXPORT_BACKUP_TABS_ = [
   'Recurring Expenses', 'Recurring Skips', 'Recurring Expense Splits',
   'Projection Overrides', 'Period Templates', 'Import Batches',
   'Companies', 'Projects', 'Project Budgets', 'Expected Payments', 'IGV Payments',
-  'Business Openings', 'Accountant Figures'   // Business pack: always included when they exist, whatever the switch says
+  'Business Openings', 'Accountant Figures', 'Contributions', 'Distributions'   // Business pack: always included when they exist, whatever the switch says
 ];
 
 // A value with no translated text (typed by hand in the Sheet) is written as it is.

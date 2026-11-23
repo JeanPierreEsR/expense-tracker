@@ -4281,6 +4281,19 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .co-funding-row { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 10px 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 .co-funding-row:last-child { border-bottom: 0; }
 .co-funding-row small { font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+/* Business 2, piece 7: the Partners card and the partner window */
+.co-partner { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.co-partner:last-child { border-bottom: 0; }
+.co-partner-name { font-weight: 600; }
+.co-partner-sub { margin: 0 0 4px; font-size: 0.75rem; color: var(--muted); text-align: right; }
+#co-partners-pending h3 { margin-top: 12px; }
+.co-partner-pending { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.co-partner-pending-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.co-partner-pending-btns .add-inline + .add-inline { margin-top: 0; }
+.partner-kind { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; font-weight: 400; }
+.partner-kind input { margin-top: 4px; }
+.partner-kind span { display: flex; flex-direction: column; }
+.partner-kind small { font-size: 0.75rem; color: var(--muted); }
 
 /* Split between projects (Business 2, piece 6): one row per project, its amount and its share. */
 .psplit-row { display: grid; grid-template-columns: 1fr 7.5rem 3.5rem; gap: 8px; align-items: center; margin-bottom: 8px; }

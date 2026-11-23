@@ -570,6 +570,13 @@
         <div id="co-funding-list"></div>
         <p class="hint" id="co-funding-empty" hidden data-i18n="coOv.fundingEmpty">No open projects.</p>
       </div>
+      <!-- Business 2, piece 7: each partner's money (contributions, to be decided, loans, distributions in the period). -->
+      <div class="card ov-period" id="co-partners-card" hidden>
+        <h2 data-i18n="coOv.partnersTitle">Partners</h2>
+        <div id="co-partners-list"></div>
+        <p class="hint" id="co-partners-empty" hidden data-i18n="coOv.partnersEmpty">No partners yet. In Needs review, "It's a partner's money" adds one.</p>
+        <div id="co-partners-pending"></div>
+      </div>
 
       <div class="card ov-period">
         <div class="ov-sum-grid">
@@ -2297,6 +2304,38 @@
         <p class="hint" data-i18n="coOv.fundingClearHint">Leave the amount empty to remove it.</p>
         <p class="hint error-text" id="co-funding-error"></p>
         <button type="button" class="primary" id="co-funding-save" data-i18n="common.save">Save</button>
+      </div>
+    </div>
+  </div>
+  <!-- Business 2, piece 7: "It's a partner's money" / "Profit distribution" on a Needs review item (company copies). -->
+  <div id="partner-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="partner-title"></span>
+        <button type="button" id="partner-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="partner-context"></p>
+        <label for="partner-pick" data-i18n="partner.who">Partner</label>
+        <select id="partner-pick"></select>
+        <input type="text" id="partner-new-name" data-i18n-placeholder="partner.newNamePh" placeholder="Partner's name" hidden>
+        <div id="partner-kind-box">
+          <label data-i18n="partner.whatIsIt">What is it?</label>
+          <label class="partner-kind"><input type="radio" name="partner-kind" value="contribution"> <span><b data-i18n="partner.kind.contribution">Capital contribution</b><small data-i18n="partner.kind.contributionHint">It adds to the company's capital.</small></span></label>
+          <label class="partner-kind"><input type="radio" name="partner-kind" value="loan"> <span><b data-i18n="partner.kind.loan">Loan from the partner</b><small data-i18n="partner.kind.loanHint">The company owes it back to them.</small></span></label>
+          <label class="partner-kind"><input type="radio" name="partner-kind" value="pending"> <span><b data-i18n="partner.kind.pending">To be decided with the accountant</b><small data-i18n="partner.kind.pendingHint">It stays apart until you decide; you can change it later.</small></span></label>
+          <p class="hint" data-i18n="partner.neverIncome">None of the three is income.</p>
+        </div>
+        <div id="partner-out-box">
+          <label for="partner-withholding" data-i18n="partner.withholding">Withholding (what you typed for SUNAT)</label>
+          <input type="text" inputmode="decimal" id="partner-withholding" placeholder="0.00">
+          <p class="hint" id="partner-gross-line"></p>
+          <p class="hint" data-i18n="partner.notExpense">A profit distribution is not an expense. The app never works out profits.</p>
+        </div>
+        <label for="partner-business" data-i18n="field.business">Company / project</label>
+        <select id="partner-business"></select>
+        <p class="hint error-text" id="partner-error"></p>
+        <button type="button" class="primary" id="partner-save" data-i18n="common.save">Save</button>
       </div>
     </div>
   </div>

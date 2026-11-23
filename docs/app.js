@@ -1021,7 +1021,8 @@ const ONCE_ACTIONS = new Set([
   "applyAnnualCleanup", "finishAnnualCleanup",   // the owner's move out of the old "Annual budget" category (AnnualCleanup.gs)
   // Everything else that creates something (owner, 2026-11-14: a trip saved while the phone was locked was made three times)
   "addTrip", "addBudget", "addPaymentMethod", "savePaymentMethod", "addTag", "addBank", "addPayor", "saveCategory",
-  "saveBankLoan", "recordEarlyPayment", "recordInstallment", "recordRecurringPayment", "recordRepaymentEntry", "createStatementAccounts"
+  "saveBankLoan", "recordEarlyPayment", "recordInstallment", "recordRecurringPayment", "recordRepaymentEntry", "createStatementAccounts",
+  "convertEntryToPartnerMoney", "changePartnerMoney", "recordDistribution"   // Business 2 piece 7: a partner's money
 ]);
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
@@ -4768,6 +4769,7 @@ function entryFlowDirection_(entry) {
     const paidThem = entry.link.direction === "i_owe_them";
     return (entry.link.kind === "repayment" ? !paidThem : paidThem) ? "in" : "out";
   }
+  if (entry.type === "transfer" && entry.link && entry.link.partner_id) return entry.link.kind === "distribution" ? "out" : "in";   // a partner's money (piece 7)
   return "";
 }
 
@@ -4862,6 +4864,10 @@ function entryHeadline_(entry) {
       : tr(paidThem ? "entry.loanFrom" : "entry.loanTo", { friend: l.friend });
     return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(text)}`, meta: entryAccountMeta_(entry) };
   }
+  if (entry.type === "transfer" && entry.link && entry.link.partner_id) {   // a partner's money (Business 2, piece 7)
+    const text = tr(`partner.row.${entry.link.kind}`, { name: entry.link.partner });
+    return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(text)}`, meta: entryAccountMeta_(entry) };
+  }
   if (exchangeLegSide_(entry)) {   // grey transfer dot, named for what it is instead of "Between Accounts"
     return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(tr("transfer.kind.exchange"))}`, meta: entryAccountMeta_(entry) };
   }
@@ -4891,6 +4897,9 @@ function entryHeadline_(entry) {
 // Spanish "Repago a Rosa / Repayment to Rosa"). A description the person typed still shows.
 function entryDescShown_(entry) {
   const d = String(entry.description || "");
+  // A partner's money (piece 7): the text the server wrote (Partners.gs, both languages) repeats the title.
+  if (d && entry.type === "transfer" && entry.link && entry.link.partner_id &&
+      /^(Aporte de capital de |Capital contribution from |Plata de .+ \(por definir\)$|Money from .+ \(to be decided\)$|Distribución de utilidades a |Profit distribution to |Préstamo de |Loan from )/.test(d)) return "";
   if (!d || entry.type !== "transfer" || !entry.link || !entry.link.friend) return d;
   const S = window.STRINGS || {};
   const own = ["desc.repaymentFrom", "desc.repaymentTo", "desc.loanTo", "desc.loanFrom"].some((k) => S[k] && ["en", "es"].some((l) => S[k][l] && S[k][l].replace("{name}", entry.link.friend) === d));
@@ -8780,6 +8789,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <button type="button" class="add-inline review-loan-btn${entry.loan_hint && entry.loan_hint.kind === "loan" ? " review-hint-btn" : ""}">${tr("review.convertLoan")}</button>` : ""}
         ${entry.type === "expense" || entry.type === "income" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
         ${entry.type !== "investment" ? `<button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>` : ""}
+        ${companyCopyOn_() && entry.type === "income" ? `<button type="button" class="add-inline review-partner-btn">${escapeHtml(tr("partner.reviewIn"))}</button>` : ""}
+        ${companyCopyOn_() && entry.type === "expense" ? `<button type="button" class="add-inline review-distrib-btn">${escapeHtml(tr("partner.reviewOut"))}</button>` : ""}
       </div>` : ""}
     `;
 
@@ -9080,6 +9091,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       });
       const loanBtn = item.querySelector(".review-loan-btn");
       if (loanBtn) loanBtn.addEventListener("click", withRowEdits((e) => openReviewTransferModal(e, "loan")));
+      const partnerBtn = item.querySelector(".review-partner-btn");
+      if (partnerBtn) partnerBtn.addEventListener("click", withRowEdits((e) => openPartnerModal_(e, "in")));
+      const distribBtn = item.querySelector(".review-distrib-btn");
+      if (distribBtn) distribBtn.addEventListener("click", withRowEdits((e) => openPartnerModal_(e, "out")));
       // Money that arrived (an income, or a transfer with only a "To") is the "arrived" side; anything else left.
       const exchangeBtn = item.querySelector(".review-exchange-btn");
       if (exchangeBtn) exchangeBtn.addEventListener("click", withRowEdits((e) =>
@@ -11652,9 +11667,9 @@ function applyCompanyOverview_() {
   screen.classList.toggle("company-ov", on);
   const balances = document.getElementById("balances-card");
   if (!balancesHome_) { balancesHome_ = document.createComment("balances-card home"); balances.parentNode.insertBefore(balancesHome_, balances); }
-  if (on) document.getElementById("co-funding-card").after(balances);
+  if (on) document.getElementById("co-partners-card").after(balances);
   else balancesHome_.after(balances);
-  if (!on) ["co-owed-card", "co-funding-card"].forEach((id) => { document.getElementById(id).hidden = true; });
+  if (!on) ["co-owed-card", "co-funding-card", "co-partners-card"].forEach((id) => { document.getElementById(id).hidden = true; });
 }
 let balancesHome_ = null;   // where the Balances card sits on every other copy
 
@@ -11682,7 +11697,143 @@ function renderCompanyOverview_(company) {
     fundBox.appendChild(row);
   });
   document.getElementById("co-funding-empty").hidden = company.funding.length > 0;
+  renderCompanyPartners_(company);
 }
+
+// ---- Partners (Business 2, piece 7) ----
+// The Overview card: per partner and currency (never converted) what they put in as capital, what is still to be decided, what the
+// company owes them on loans, and what was distributed to them in the period (net, with gross and withholding). Then the money still
+// "to be decided", each with "It's a contribution" / "It's a loan".
+function renderCompanyPartners_(company) {
+  const card = document.getElementById("co-partners-card");
+  const people = company.partners || [];
+  const pending = company.partnersPending || [];
+  card.hidden = false;
+  const fmt = (n, c) => escapeHtml(formatAmount(n, c));
+  document.getElementById("co-partners-list").innerHTML = people.map((p) => {
+    const rows = [];
+    p.lines.forEach((l) => {
+      if (l.contributed) rows.push([tr("coOv.pContributed"), fmt(l.contributed, l.currency)]);
+      if (l.pending) rows.push([tr("coOv.pPending"), fmt(l.pending, l.currency)]);
+      if (l.owed) rows.push([tr("coOv.pOwed"), fmt(l.owed, l.currency)]);
+      if (l.distributed) rows.push([tr("coOv.pDistributed"), fmt(l.distributed, l.currency), tr("coOv.pGross", { gross: formatAmount(l.gross, l.currency), withholding: formatAmount(l.withholding, l.currency) })]);
+    });
+    if (!rows.length) rows.push([`<span class="hint">${escapeHtml(tr("coOv.pNothing"))}</span>`, ""]);
+    return `<div class="co-partner"><div class="co-partner-name">${escapeHtml(p.name)}</div>` +
+      rows.map(([k, v, sub]) => `<div class="loans-ov-owed-row"><span>${k.startsWith("<") ? k : escapeHtml(k)}</span><b>${v}</b></div>` +
+        (sub ? `<p class="co-partner-sub">${escapeHtml(sub)}</p>` : "")).join("") + `</div>`;
+  }).join("");
+  document.getElementById("co-partners-empty").hidden = people.length > 0;
+  const box = document.getElementById("co-partners-pending");
+  box.innerHTML = pending.length ? `<h3>${escapeHtml(tr("coOv.pPendingTitle"))}</h3>` : "";
+  pending.forEach((x) => {
+    const row = document.createElement("div");
+    row.className = "co-partner-pending";
+    row.innerHTML = `<div class="loans-ov-owed-row"><span>${escapeHtml(x.partner)} · ${escapeHtml(listDate_(x.date))}</span><b>${fmt(x.amount, x.currency)}</b></div>
+      <div class="co-partner-pending-btns"><button type="button" class="add-inline co-pend-contrib">${escapeHtml(tr("coOv.pIsContribution"))}</button><button type="button" class="add-inline co-pend-loan">${escapeHtml(tr("coOv.pIsLoan"))}</button></div>`;
+    const decide = async (kind) => {
+      const ok = await askConfirmApp_(tr(kind === "loan" ? "coOv.pAskLoan" : "coOv.pAskContribution", { name: x.partner, amount: formatAmount(x.amount, x.currency) }),
+        tr(kind === "loan" ? "coOv.pIsLoan" : "coOv.pIsContribution"), { plain: true });
+      if (!ok) return;
+      row.remove();
+      saveBehindScreen_(() => callApi("changePartnerMoney", { id: x.id, kind }), () => { refreshOverview().catch(() => {}); refreshEntryList(); if (kind === "loan") refreshLoans().catch(() => {}); });
+    };
+    row.querySelector(".co-pend-contrib").addEventListener("click", () => decide("contribution"));
+    row.querySelector(".co-pend-loan").addEventListener("click", () => decide("loan"));
+    box.appendChild(row);
+  });
+}
+
+// "It's a partner's money" (mode "in", an income) / "Profit distribution" (mode "out", an expense) on a Needs review item. Saves behind
+// the screen; the item leaves Needs review at once.
+let partnerCtx_ = null;
+function partnerPeople_() {
+  const locale = I18n.getLang() === "es" ? "es" : "en";
+  return (meta.friends || []).filter((f) => f.role === "partner" && !isGroupFriend_(f) && !isHiddenFriend_(f))
+    .sort((a, b) => a.name.localeCompare(b.name, locale, { sensitivity: "base" }));
+}
+function openPartnerModal_(entry, mode) {
+  partnerCtx_ = { entry, mode };
+  document.getElementById("partner-title").textContent = tr(mode === "in" ? "partner.reviewIn" : "partner.reviewOut");
+  const acct = (meta.paymentMethods || []).find((p) => p.id === entry.payment_method_id);
+  document.getElementById("partner-context").textContent = [formatAmount(Math.abs(Number(entry.amount)), entry.currency), listDate_(entry.date), acct ? acct.nickname : ""].filter(Boolean).join(" · ");
+  const sel = document.getElementById("partner-pick");
+  sel.innerHTML = "";
+  const people = partnerPeople_();
+  if (!people.length) { const o = document.createElement("option"); o.value = ""; o.textContent = "—"; sel.appendChild(o); }
+  people.forEach((f) => { const o = document.createElement("option"); o.value = f.id; o.textContent = f.name; sel.appendChild(o); });
+  const add = document.createElement("option");
+  add.value = "__new__";
+  add.textContent = tr("partner.newOption");
+  sel.appendChild(add);
+  sel.value = people.length ? people[0].id : "__new__";
+  const nameBox = document.getElementById("partner-new-name");
+  nameBox.value = "";
+  nameBox.hidden = sel.value !== "__new__";
+  document.getElementById("partner-kind-box").hidden = mode !== "in";
+  document.getElementById("partner-out-box").hidden = mode !== "out";
+  document.querySelectorAll('input[name="partner-kind"]').forEach((r) => { r.checked = false; });
+  document.getElementById("partner-withholding").value = "";
+  updatePartnerGross_();
+  fillBusinessOptions_(document.getElementById("partner-business"), businessPickValue_(entry) || companyDefaultPick_());
+  [...document.getElementById("partner-business").options].forEach((o) => { if (!o.value) o.remove(); });   // never "Personal": it is the company's money
+  document.getElementById("partner-error").textContent = "";
+  const backdrop = document.getElementById("partner-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function updatePartnerGross_() {
+  if (!partnerCtx_ || partnerCtx_.mode !== "out") return;
+  const e = partnerCtx_.entry;
+  const net = Math.abs(Number(e.amount));
+  const w = parseFloat(String(document.getElementById("partner-withholding").value).replace(/,/g, "")) || 0;
+  document.getElementById("partner-gross-line").textContent = tr("partner.grossLine", { gross: formatAmount(net + Math.max(0, w), e.currency), net: formatAmount(net, e.currency) });
+}
+document.getElementById("partner-withholding").addEventListener("input", (ev) => {
+  const clean = sanitizeAmountInputValue(ev.target.value);
+  if (clean !== ev.target.value) ev.target.value = clean;
+  updatePartnerGross_();
+});
+document.getElementById("partner-pick").addEventListener("change", (ev) => {
+  const box = document.getElementById("partner-new-name");
+  box.hidden = ev.target.value !== "__new__";
+  if (!box.hidden) box.focus();
+});
+document.getElementById("partner-close").addEventListener("click", () => { document.getElementById("partner-modal-backdrop").hidden = true; });
+document.getElementById("partner-save").addEventListener("click", () => {
+  const { entry, mode } = partnerCtx_ || {};
+  if (!entry) return;
+  const err = document.getElementById("partner-error");
+  const pick = document.getElementById("partner-pick").value;
+  const newName = document.getElementById("partner-new-name").value.trim();
+  if (!pick || (pick === "__new__" && !newName)) { err.textContent = tr("partner.pickPartner"); return; }
+  const who = pick === "__new__" ? { partner_name: newName } : { partner_id: pick };
+  const bizVal = document.getElementById("partner-business").value;
+  const biz = bizVal ? reviewBusinessFields_(bizVal) : {};
+  let action, body;
+  if (mode === "in") {
+    const kindEl = document.querySelector('input[name="partner-kind"]:checked');
+    if (!kindEl) { err.textContent = tr("partner.pickKind"); return; }
+    action = "convertEntryToPartnerMoney";
+    body = Object.assign({ entry_id: entry.id, kind: kindEl.value }, who, biz);
+  } else {
+    const raw = document.getElementById("partner-withholding").value.trim();
+    const w = raw === "" ? 0 : parseFloat(raw.replace(/,/g, ""));
+    if (!(w >= 0)) { err.textContent = tr("partner.badWithholding"); return; }
+    action = "recordDistribution";
+    body = Object.assign({ entry_id: entry.id, withholding: w }, who, biz);
+  }
+  document.getElementById("partner-modal-backdrop").hidden = true;
+  dropReviewCard_(entry.id);
+  saveBehindScreen_(() => callApi(action, body), () => {
+    refreshReviewQueue().catch(() => {});
+    refreshHomeGlance_(true);
+    refreshEntryList();
+    refreshOverview().catch(() => {});
+    if (body.partner_name) loadMeta().catch(() => {});   // a new partner joins the people list
+    if (body.kind === "loan") refreshLoans().catch(() => {});
+  });
+});
 
 // "Still to finance" for one project: amount, currency and the day it is true (today by default). Saves behind the screen.
 let companyFundingCtx_ = null;
@@ -27773,6 +27924,10 @@ const LINK_ICON_RULES_ = [
   [/^(close project|cerrar proyecto|closing project|cerrando proyecto)/i, "lock"],   // a project's Close (owner, 2026-11-21: the button had no icon)
   [/^(reopen|reabrir|reopening|reabriendo)/i, "refresh"],   // its Reopen, and every other "Reopen"
   [/^(starting balance|saldo inicial)/i, "plus"],   // the import's Done screen: gives a new account its starting balance
+  [/^(it's a partner's money|es plata de un socio)$/i, "users"],   // Business 2 piece 7: Needs review's partner buttons
+  [/^(profit distribution|distribución de utilidades)$/i, "coin"],
+  [/^(it's a contribution|es aporte)$/i, "check"],   // the Partners card: decide a "to be decided" one
+  [/^(it's a loan|es préstamo)$/i, "swap"],
   [/^(add|agregar|añadir)\b|^\+ /i, "plus"],
   [/^(copy|copiar)\b/i, "copy"],
   [/^(make my link|crear mi enlace)/i, "plus"],
