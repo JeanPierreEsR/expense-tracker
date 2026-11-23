@@ -5046,7 +5046,29 @@ function exchangeSideOf_(e) {
   if (!!e.payment_method_id === !!e.to_payment_method_id) return "";
   return e.payment_method_id ? "out" : "in";
 }
-const exchangeOnItsWay_ = (date) => getMoneyQueue_().some((i) => i.action === "recordCurrencyExchange" && i.status !== "failed" && i.payload && i.payload.date === date);
+const exchangeOnItsWay_ = (date) => getMoneyQueue_().some((i) => i.action === "recordCurrencyExchange" && i.status !== "failed" && i.payload && (i.payload.date === date || i.payload.in_date === date));
+// Sides linked by exchange_pair on DIFFERENT days (owner, 2026-11-23: the money can arrive later) are joined into one item at the day the
+// money left, the arrived side taken out of its own day. Same-day sides are left to the day's own pairing below.
+function joinExchangeAcrossDays_(entries) {
+  const byPair = new Map();
+  entries.forEach((e) => {
+    const pair = String((e && e.exchange_pair) || "");
+    if (!pair || !exchangeSideOf_(e)) return;
+    if (!byPair.has(pair)) byPair.set(pair, []);
+    byPair.get(pair).push(e);
+  });
+  const joined = new Map(), drop = new Set();
+  byPair.forEach((legs) => {
+    if (legs.length !== 2) return;
+    const [a, b] = legs;
+    if (a.date === b.date || a.currency === b.currency || exchangeSideOf_(a) === exchangeSideOf_(b)) return;
+    const legOut = exchangeSideOf_(a) === "out" ? a : b, legIn = legOut === a ? b : a;
+    joined.set(legOut.id, { _exchangePair: true, id: legOut.id, date: legOut.date, out: legOut, in: legIn });
+    drop.add(legIn.id);
+  });
+  if (!joined.size) return entries;
+  return entries.filter((e) => !drop.has(e.id)).map((e) => joined.get(e.id) || e);
+}
 function pairExchangeLegs_(dayEntries) {
   const used = new Set();
   const out = [];
@@ -5080,6 +5102,7 @@ function pairExchangeLegs_(dayEntries) {
 }
 // Any list (search results, Overview / drill-down / trip lists): the same pairing, day by day, keeping the list's order.
 function pairExchangeLegsByDay_(entries) {
+  entries = joinExchangeAcrossDays_(entries);
   const byDay = new Map();
   entries.forEach((e) => { if (!byDay.has(e.date)) byDay.set(e.date, []); byDay.get(e.date).push(e); });
   const items = [];
@@ -5118,6 +5141,7 @@ function buildExchangePairRow_(p) {
     <div class="entry-category">💱 ${escapeHtml(tr("transfer.kind.exchange"))}</div>
     ${house ? `<div class="entry-desc">${escapeHtml(house)}</div>` : ""}
     <div class="entry-meta">${escapeHtml(listDate_(p.date))}${accounts ? ` · <span class="entry-acct">${escapeHtml(accounts)}</span>` : ""}</div>
+    ${p.in.date && p.in.date !== p.out.date ? `<div class="entry-meta">${escapeHtml(tr("xch.arrivedDate", { date: listDate_(p.in.date) }))}</div>` : ""}
     ${deleting ? `<div class="entry-queue-status">${tr("entry.deleting")}</div>` : ""}
   `;
   const amount = document.createElement("div");
@@ -5142,7 +5166,8 @@ function openExchangePairSheet_(p) {
   exchangePairOpen_ = p;
   const pmName = (id) => { const pm = meta.paymentMethods.find((x) => x.id === id); return pm ? pm.nickname : tr("xch.outside"); };
   document.getElementById("xpair-title").textContent = tr("transfer.kind.exchange");
-  document.getElementById("xpair-summary").textContent = [exchangeHouseOf_(p), listDate_(p.date), exchangeRateText_(p)].filter(Boolean).join(" · ");
+  const arrivedLater = p.in.date && p.in.date !== p.out.date ? tr("xch.arrivedDate", { date: listDate_(p.in.date) }) : "";
+  document.getElementById("xpair-summary").textContent = [exchangeHouseOf_(p), listDate_(p.date), arrivedLater, exchangeRateText_(p)].filter(Boolean).join(" · ");
   const sides = document.getElementById("xpair-sides");
   sides.innerHTML = "";
   [["out", p.out, p.out.payment_method_id, "xch.left"], ["in", p.in, p.in.to_payment_method_id, "xch.arrived"]].forEach(([side, leg, pmId, label]) => {
@@ -5304,7 +5329,7 @@ function renderEntryListFromCache_() {
     pairExchangeLegs_(sameDay).forEach((e) => list.appendChild(e._exchangePair ? buildExchangePairRow_(e) : buildEntryRow_(e)));
     sameDay.length = 0;
   };
-  entries.forEach((entry) => {
+  joinExchangeAcrossDays_(entries).forEach((entry) => {
     if (sameDay.length && sameDay[0].date !== entry.date) flushDay();
     sameDay.push(entry);
   });
@@ -7990,6 +8015,7 @@ function reopenMoneyItem_(item) {
   } else if (item.action === "recordCurrencyExchange") {
     openExchangeModal_({});
     document.getElementById("exchange-date").value = p.date;
+    setExchangeInDate_(p.in_date || "");
     document.getElementById("exchange-out-account").value = p.out.payment_method_id || "";
     document.getElementById("exchange-in-account").value = p.in.payment_method_id || "";
     document.getElementById("exchange-out-currency").value = p.out.currency;
@@ -9265,6 +9291,7 @@ function fillExchangeForm_(opts) {
   const inCur = leg === "in" ? entryCur : otherCur(entryCur);
 
   document.getElementById("exchange-date").value = entry ? entry.date : todayLocalISO();
+  setExchangeInDate_("");
   document.getElementById("exchange-out-account").innerHTML = exchangeAccountOptions_(leg === "out" ? entryAccount : "");
   document.getElementById("exchange-in-account").innerHTML = exchangeAccountOptions_(leg === "in" ? entryAccount : "");
   document.getElementById("exchange-out-currency").innerHTML = exchangeCurrencyOptions_(outCur);
@@ -9283,6 +9310,21 @@ function fillExchangeForm_(opts) {
   updateExchangeRateLine_();
   updateExchangeChecks_();
 }
+
+// "The money arrived another day" (owner, 2026-11-23): a button, not a field; tapped, it shows the arrival date, which "Same day" folds
+// back. Only where the backend takes `in_date` (capability exchangeInDate).
+const exchangeInDateOn_ = () => !!((meta && meta.capabilities) || {}).exchangeInDate;
+function setExchangeInDate_(value) {
+  const open = !!value;
+  document.getElementById("exchange-in-date").value = value || "";
+  document.getElementById("exchange-in-date-field").hidden = !open;
+  document.getElementById("exchange-in-date-btn").hidden = open || !exchangeInDateOn_();
+}
+document.getElementById("exchange-in-date-btn").addEventListener("click", () => {
+  setExchangeInDate_(document.getElementById("exchange-date").value || todayLocalISO());
+  document.getElementById("exchange-in-date").focus();
+});
+document.getElementById("exchange-in-date-same").addEventListener("click", () => setExchangeInDate_(""));
 
 function closeExchangeModal_() {
   document.getElementById("exchange-modal-backdrop").hidden = true;
@@ -9314,6 +9356,9 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
   });
   const out = side("out"), inn = side("in");
   if (!date) { errorEl.textContent = tr("error.dateRequired"); return; }
+  const inDateRaw = document.getElementById("exchange-in-date-field").hidden ? "" : document.getElementById("exchange-in-date").value;
+  if (inDateRaw && inDateRaw < date) { errorEl.textContent = tr("xch.arrivedBeforeLeft"); return; }
+  const inDate = inDateRaw && inDateRaw !== date ? inDateRaw : undefined;
   if (out.payment_method_id === "__pick__" || inn.payment_method_id === "__pick__") { errorEl.textContent = tr("xch.needAccount"); return; }
   if (!(out.amount > 0) || !(inn.amount > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
   if (out.currency === inn.currency) { errorEl.textContent = tr("xch.sameCurrency"); return; }
@@ -9335,14 +9380,14 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
       closeExchangeModal_();
     }
     queueMoneyAction_("recordCurrencyExchange", {
-      date, out, in: inn, house: document.getElementById("exchange-house").value.trim()
+      date, in_date: inDate, out, in: inn, house: document.getElementById("exchange-house").value.trim()
     }, `${tr("money.labelExchange")} · ${out.currency} ${moneyFmt(out.amount)} → ${inn.currency} ${moneyFmt(inn.amount)}`, {}, replaces);
     return;
   }
   // Turning a waiting (pending) entry into one leg, or an older backend: no queue (it changes an existing row), but it still
   // closes at once and saves behind the screen; a refusal comes back as an alert and the waiting entry stays as it was.
   const body = {
-    date, out, in: inn, house: document.getElementById("exchange-house").value.trim(),
+    date, in_date: inDate, out, in: inn, house: document.getElementById("exchange-house").value.trim(),
     pending_entry_id: ctx ? ctx.entry.id : undefined, pending_leg: ctx ? ctx.leg : undefined
   };
   if (wasInline) {
@@ -27466,6 +27511,8 @@ const LINK_ICON_RULES_ = [
   [/^(teach|enseñar|my bank isn't|mi banco no)/i, "mail"],
   [/^(listed price|¿precio de lista|early payment|pago anticipado|see debts|ver deudas)/i, "coin"],
   [/^(installments|cuotas)\b/i, "calendar"],
+  [/^(the money arrived another day|el dinero llegó otro día)/i, "calendar"],   // an exchange's arrival on another day (2026-11-23)
+  [/^(same day|el mismo día)$/i, "cross"],   // ...folded back: the arrival date goes away
   [/^(which would|¿cuál habría)/i, "chart"],
   [/^(what fits me|lo que va conmigo)/i, "user"],
   [/^(past uploads|past imports|cargas anteriores|importaciones anteriores|already read|ya leídos)/i, "clock"],
