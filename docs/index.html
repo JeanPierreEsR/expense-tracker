@@ -3580,6 +3580,15 @@
 
         <label for="review-transfer-amount" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="review-transfer-amount" placeholder="0.00">
+        <!-- "Choose which loans this pays" when a Needs review item becomes a repayment (owner, 2026-11-23), like Home's "+". -->
+        <div id="review-transfer-choose" hidden>
+          <button type="button" class="add-inline" id="review-transfer-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
+          <div id="review-transfer-choose-panel" hidden>
+            <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
+            <div id="review-transfer-choose-list"></div>
+            <p class="hint" id="review-transfer-choose-summary"></p>
+          </div>
+        </div>
 
         <label for="review-transfer-date" data-i18n="field.date">Date</label>
         <input type="date" id="review-transfer-date">
