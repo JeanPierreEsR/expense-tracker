@@ -20407,7 +20407,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       rebuildAccountPickers_();
       if (state.selectIn) { const sel = document.getElementById(state.selectIn); sel.value = saved.id; sel.dispatchEvent(new Event("change")); }
     });
-  }, { nickname, type }), nickname), () => { renderAccountsList_(); if (dueNow) balanceSavedAfter_(state.id)(); });
+  }, { nickname, type }), nickname), () => { renderAccountsList_(); if (typeof stmtDigitsNudgeRefresh_ === "function") stmtDigitsNudgeRefresh_(); if (dueNow) balanceSavedAfter_(state.id)(); });
 });
 
 // After a hide / show / delete the pickers are rebuilt the same way a save does it.

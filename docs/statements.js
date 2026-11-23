@@ -184,6 +184,8 @@
     usable = [];
     historyPlan = null;
     addedAccounts = [];
+    linkedAccounts = [];
+    Object.keys(acctAnswer).forEach((k) => delete acctAnswer[k]);
     savedThisRun = false;
   }
 
@@ -207,6 +209,7 @@
       return `<button type="button" class="stmt-pill ${cls}" data-step="${n}" ${can ? "" : "disabled"} aria-current="${n === stepNow ? "step" : "false"}">${n < stepNow ? "✓ " : `${n} `}${escapeHtml(tr(key))}</button>`;
     }).join("");
     [1, 2, 3, 4].forEach((n) => { $("stmt-step-" + n).hidden = pastOpen || n !== stepNow; });
+    renderDigitsNudge();
     $("statement-past").hidden = !pastOpen;
     updateStepUi();
   }
@@ -233,6 +236,24 @@
     // pills that became (un)reachable
     document.querySelectorAll("#stmt-stepper .stmt-pill").forEach((b) => { const n = Number(b.dataset.step); b.disabled = !(n === stepNow || canGoTo(n)); });
   }
+
+  // Cards and bank accounts with no last 4 digits (owner, 2026-11-23, after a tester's report): a statement is matched to its account by those
+  // digits, so without them the statement looks like a NEW account. Step 1 names them, each with a button to its own window.
+  function digitlessAccounts() {
+    return ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).filter((pm) => (pm.type === "debit" || pm.type === "credit")
+      && !/^\d{4}$/.test(String(pm.last_4 || "").trim()) && !pmHidden_(pm) && !/^(Practice account|Cuenta de práctica)$/i.test(String(pm.nickname || "").trim()));
+  }
+  function renderDigitsNudge() {
+    const card = $("stmt-digits-card");
+    if (!card) return;
+    const list = digitlessAccounts();
+    card.hidden = !list.length || stepNow !== 1 || pastOpen;
+    if (card.hidden) { card.innerHTML = ""; return; }
+    card.innerHTML = `<p class="stmt-note warn" style="margin-top:0">${escapeHtml(tr("stmt.digits.title", { n: list.length }))}</p>
+      <p class="hint" style="margin:0 0 6px">${escapeHtml(tr("stmt.digits.hint", { n: list.length }))}</p>
+      ${list.map((pm) => `<div class="stmt-kv" style="align-items:center"><span>${escapeHtml(pm.nickname)}</span><button type="button" class="add-inline stmt-digits-add" data-id="${escapeHtml(pm.id)}">${escapeHtml(tr("stmt.digits.add"))}</button></div>`).join("")}`;
+  }
+  window.stmtDigitsNudgeRefresh_ = renderDigitsNudge;   // app.js calls it once an account's save has landed
 
   // Step 4: the accounts that still need a statement (the coverage list, shortened to what is left to do).
   function renderWaiting() {
@@ -3046,19 +3067,53 @@
   // The plan proposes them with defaults; one tap adds them and reads the statements again. They can be changed afterwards in
   // More → Accounts, cards & platforms, which is where the "added" note points.
   let addedAccounts = [];   // accounts added from the statements on this screen: [{ id, nickname }]
+  let linkedAccounts = [];  // the person's own accounts that got a statement's digits here: [{ id, nickname, last_4 }]
+  // "Is this your …?" (owner, 2026-11-23): a statement for unknown digits whose bank has an account of the same type with NO digits asks
+  // first (backend matches). Answer per statement key: an account id, or "new". Nothing is saved until the button below.
+  const acctAnswer = {};
 
   function newAccountsHtml(proposals) {
     if (!proposals.length) return "";
-    const items = proposals.map((a) => `<li><strong>${escapeHtml(a.nickname)}</strong> · ${escapeHtml(tr(a.type === "credit" ? "acct.typeCredit" : "acct.typeDebit"))} · ${escapeHtml(a.bank)} · …${escapeHtml(a.last4)}</li>`).join("");
-    return `<div class="stmt-new-accounts" style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px">
-      <p class="stmt-verdict warn" style="margin-top:0">${escapeHtml(tr("acct.newTitle", { n: proposals.length }))}</p>
+    const asks = proposals.filter((a) => (a.matches || []).length), plain = proposals.filter((a) => !(a.matches || []).length);
+    let html = "";
+    if (asks.length) {
+      html += `<p class="stmt-verdict warn" style="margin-top:0">${escapeHtml(tr("acct.ask.title", { n: asks.length }))}</p>
+        <p class="hint" style="margin:0 0 6px">${escapeHtml(tr("acct.ask.why", { n: asks.length }))}</p>`;
+      html += asks.map((a) => {
+        const ans = acctAnswer[a.key];
+        // An account already chosen for another statement is not offered again.
+        const usedElsewhere = new Set(Object.keys(acctAnswer).filter((k) => k !== a.key && acctAnswer[k] !== "new").map((k) => acctAnswer[k]));
+        const matches = a.matches.filter((m) => !usedElsewhere.has(m.id));
+        const one = matches.length === 1;
+        const q = tr(a.type === "credit" ? "acct.ask.card" : "acct.ask.account", { bank: a.bank, last4: a.last4 }) + " "
+          + (one ? tr("acct.ask.one", { name: matches[0].nickname }) : matches.length ? tr("acct.ask.many") : "");
+        const btns = matches.map((m) => modeButton(`data-acctask="${escapeHtml(a.key)}" data-acctid="${escapeHtml(m.id)}"`, ans === m.id, one ? tr("acct.ask.yes") : m.nickname)).join("")
+          + modeButton(`data-acctask="${escapeHtml(a.key)}" data-acctid="new"`, ans === "new" || !matches.length, tr("acct.ask.no"));
+        const chosen = matches.find((m) => m.id === ans);
+        const after = chosen ? tr("acct.ask.yesNote", { last4: a.last4, name: chosen.nickname })
+          : ans === "new" || !matches.length ? tr("acct.ask.newName", { name: a.nickname }) : "";
+        return `<div class="stmt-line2"><p style="margin:6px 0">${escapeHtml(q)}</p><div class="stmt-choices" style="padding-left:0">${btns}</div>${after ? `<p class="hint" style="margin:4px 0 0">${escapeHtml(after)}</p>` : ""}</div>`;
+      }).join("");
+    }
+    if (plain.length) {
+      const items = plain.map((a) => `<li><strong>${escapeHtml(a.nickname)}</strong> · ${escapeHtml(tr(a.type === "credit" ? "acct.typeCredit" : "acct.typeDebit"))} · ${escapeHtml(a.bank)} · …${escapeHtml(a.last4)}</li>`).join("");
+      html += `<p class="stmt-verdict warn" style="margin-top:${asks.length ? "12px" : "0"}">${escapeHtml(tr("acct.newTitle", { n: plain.length }))}</p>
       <ul style="list-style:disc;margin:6px 0;padding-left:20px">${items}</ul>
-      <p class="hint">${escapeHtml(tr("acct.newHint", { n: proposals.length }))}</p>
-      <button type="button" class="primary" id="statement-add-accounts">${escapeHtml(tr("acct.addBtn", { n: proposals.length }))}</button></div>`;
+      <p class="hint">${escapeHtml(tr("acct.newHint", { n: plain.length }))}</p>`;
+    }
+    const open = asks.filter((a) => acctAnswer[a.key] === undefined && a.matches.some((m) => !Object.keys(acctAnswer).some((k) => k !== a.key && acctAnswer[k] === m.id)));
+    const nNew = plain.length + asks.filter((a) => !open.includes(a) && !a.matches.some((m) => m.id === acctAnswer[a.key])).length;
+    const label = open.length ? tr("acct.ask.answerFirst", { n: open.length }) : nNew ? tr("acct.addBtn", { n: nNew }) : tr("acct.ask.saveBtn");
+    return `<div class="stmt-new-accounts" style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px">${html}
+      <button type="button" class="primary" id="statement-add-accounts"${open.length ? " disabled" : ""}>${escapeHtml(label)}</button></div>`;
   }
 
   function addedAccountsHtml() {
-    if (!addedAccounts.length) return "";
+    const linkedNote = linkedAccounts.length ? `<p class="stmt-note ok" style="margin:0 0 12px">${escapeHtml(tr("acct.ask.linked", { n: linkedAccounts.length, names: linkedAccounts.map((a) => a.nickname).join(", ") }))}</p>` : "";
+    if (!addedAccounts.length) return linkedNote;
+    return linkedNote + addedAccountsInner();
+  }
+  function addedAccountsInner() {
     return `<div class="stmt-note ok" style="margin-bottom:12px"><p style="margin:0 0 6px">${escapeHtml(tr("acct.added", { n: addedAccounts.length, names: addedAccounts.map((a) => a.nickname).join(", ") }))}</p>
       <p class="hint" style="margin:0 0 6px">${escapeHtml(tr("acct.addedHint", { n: addedAccounts.length }))}</p>
       <button type="button" class="add-inline" id="statement-open-accounts">${escapeHtml(tr("acct.review", { n: addedAccounts.length }))}</button>${incompleteHtml()}</div>`;
@@ -3089,16 +3144,22 @@
     const btn = $("statement-add-accounts");
     if (!btn || !historyPlan) return;
     const proposals = (historyPlan.summary && historyPlan.summary.newAccounts) || [];
+    const before = btn.textContent;
     btn.disabled = true;
     btn.textContent = tr("acct.adding");
     try {
-      const res = await callApi("createStatementAccounts", { accounts: proposals.map((a) => ({ last4: a.last4, bank: a.bank, kind: a.kind })) });
+      const res = await callApi("createStatementAccounts", { accounts: proposals.map((a) => {
+        const id = acctAnswer[a.key];
+        return { last4: a.last4, bank: a.bank, kind: a.kind, ...(id && id !== "new" && (a.matches || []).some((m) => m.id === id) ? { id } : {}) };
+      }) });
+      Object.keys(acctAnswer).forEach((k) => delete acctAnswer[k]);
       addedAccounts = addedAccounts.concat(res.created || []);
+      linkedAccounts = linkedAccounts.concat(res.linked || []);
       if (typeof loadMeta === "function") await loadMeta();   // the new accounts are known to the rest of the app from now on
       await runHistoryPlan();                                   // the statements are read again, now with their account
     } catch (err) {
       btn.disabled = false;
-      btn.textContent = tr("acct.addBtn", { n: proposals.length });
+      btn.textContent = before;
       showAppMessage_(err.message || String(err));
     }
   }
@@ -3312,6 +3373,7 @@
         <button type="button" class="cancel-edit-btn" id="stmt-undo-btn">${escapeHtml(tr("stmt.undoUpload"))}</button></div>`;
       historyPlan = null;
       addedAccounts = [];
+      linkedAccounts = [];
       $("statement-history").innerHTML = "";
       // The files just saved leave the Upload step: a next upload counts only its own files (journeys run, 2026-11-17: Lucía read
       // "2 of 2 ready" with one file left, Julia "4 of 4" with an already-added file still listed).
@@ -3539,6 +3601,7 @@
   });
   $("stmt-status-toggle").addEventListener("click", () => setStatusOpen($("statement-coverage-list").hidden));
   $("stmt-step1-continue").addEventListener("click", () => showStep(2));
+  $("stmt-digits-card").addEventListener("click", (e) => { const b = e.target.closest(".stmt-digits-add"); if (b) completeAccount(b.dataset.id); });
   $("stmt-next-2").addEventListener("click", () => { if (!readingBusy()) showStep(3); });
   $("stmt-add-more").addEventListener("click", () => showStep(1));
   $("stmt-back-3").addEventListener("click", () => showStep(2));
@@ -3551,6 +3614,8 @@
   $("statement-history").addEventListener("click", (e) => {
     if (e.target.closest("#statement-history-save")) { saveHistory(); return; }
     if (e.target.closest("#statement-add-accounts")) { addProposedAccounts(); return; }
+    const ask = e.target.closest("[data-acctask]");
+    if (ask) { acctAnswer[ask.dataset.acctask] = ask.dataset.acctid; renderHistoryPlan(); return; }
     if (e.target.closest("#statement-open-accounts")) { $("more-accounts-btn").click(); return; }
     if (!historyPlan) return;
     const one = e.target.closest("[data-aside]"), grp = e.target.closest("[data-agroup]");

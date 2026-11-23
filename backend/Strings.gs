@@ -207,6 +207,7 @@ var BACKEND_STRINGS_ = {
   "err.rateGreater": { en: "The exchange rate must be a number greater than 0.", es: "El tipo de cambio debe ser un número mayor que 0." },
   "err.enterName": { en: "Enter a name.", es: "Ingresa un nombre." },
   "err.pmType": { en: "Pick a valid type.", es: "Elige un tipo válido." },
+  "err.pmHasOtherDigits": { en: "{name} already has other last 4 digits ({digits}). Choose \"No, it's a new account\" or change them in More → Accounts, cards & platforms.", es: "{name} ya tiene otros últimos 4 dígitos ({digits}). Elige \"No, es una cuenta nueva\" o cámbialos en Más → Cuentas, tarjetas y plataformas." },
   "err.pmLast4": { en: "Last 4 digits must be exactly 4 numbers (or leave it blank).", es: "Los últimos 4 dígitos deben ser exactamente 4 números (o déjalo en blanco)." },
   "err.pmBank": { en: "That bank doesn't exist.", es: "Ese banco no existe." },
   "err.pmNameTaken": { en: "Another account already has that name.", es: "Ya hay otra cuenta con ese nombre." },
