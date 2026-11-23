@@ -488,7 +488,7 @@ button.type-tab { font: inherit; font-size: 0.75rem; color: var(--text); width: 
 .flow-chip-label { font-size: 0.75rem; color: var(--muted); }
 .flow-chip-amt { font-size: 0.8125rem; font-weight: 600; white-space: nowrap; }
 .flow-chip.active { border: 2px solid var(--accent); padding: 4px 9px; background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
-.flow-chip.active .flow-chip-label { color: var(--accent); font-weight: 600; }
+.flow-chip.active .flow-chip-label { color: var(--accent-dark); font-weight: 600; }   /* darker blue: 4.5:1 on the tint (Paola) */
 .flow-chip.flow-income .flow-chip-amt { color: var(--income); }
 .flow-chip.flow-expense .flow-chip-amt { color: var(--expense); }
 .flow-chip.flow-investment .flow-chip-amt { color: var(--investment); }
@@ -3242,7 +3242,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 
 /* ---- More → Bank emails screen (two views: By bank / By transaction) ---- */
 .be-tabs { display: flex; gap: 0; margin: 14px 0 10px; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
-.be-tab { flex: 1; min-height: 44px; border: 0; background: var(--card); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.be-tab { flex: 1 1 auto; min-height: 44px; padding: 0 8px; border: 0; background: var(--card); color: var(--text); font: inherit; font-size: 0.875rem; font-weight: 600; white-space: nowrap; cursor: pointer; }
 .be-tab + .be-tab { border-left: 1px solid var(--border); }
 .be-tab.active { background: var(--accent); color: var(--white); }
 .be-kinds { list-style: none; margin: 8px 0 0; padding: 0; }
@@ -3639,6 +3639,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #screen-categories.categories-editing .card { padding-bottom: 90px; }
 .cat-bulk-alert { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: var(--r-md); padding: 10px 12px; margin: 8px 0; font-size: 0.875rem; }
 .cat-bulk-block { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.budget-modal-body > .cat-bulk-block:first-child { border-top: 0; padding-top: 0; margin-top: 0; }   /* first block: no line and gap under the title (Mark) */
 .cat-bulk-block select { width: 100%; margin-top: 6px; }
 #screen-business.business-editing .card, #screen-business-people.people-editing .card { padding-bottom: 90px; }
 .business-company-head.friends-check-row { justify-content: flex-start; gap: 12px; }
@@ -3661,7 +3662,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .review-compact-chip { display: inline-block; font-size: 0.75rem; border-radius: var(--r-md); padding: 1px 8px; margin-top: 3px; background: var(--warn-bg); color: var(--warn-text); }
 .review-compact-chip.ok { background: var(--income-bg-soft); color: var(--income); }
 /* Home / search → Edit: a checkbox before each entry, room under the list for the fixed bar */
-.search-results-head { display: flex; justify-content: flex-end; }
+.search-results-head { display: flex; justify-content: space-between; align-items: center; }   /* a title beside the pencil, not an empty band (testers, 2026-11-22) */
+.search-results-head h2 { margin: 0; }
 .search-results-head .icon-btn { margin: 4px 0; }
 #screen-entries.entries-editing .entry-list, #screen-entries.entries-editing .search-results-card { padding-bottom: 90px; }
 #screen-trip-detail.entries-editing #trip-detail-entries-card { padding-bottom: 90px; }
@@ -3689,7 +3691,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
    the add row = the box and its button side by side, lined up (no stacked-button margin inside the row). */
 .be-fwd-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .be-fwd-row .bm-status-addr { min-width: 0; }
-.be-fwd-add { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.be-fwd-add { display: flex; align-items: stretch; gap: 8px; margin-top: 8px; }   /* box and button keep one height at any text size */
 .be-fwd-add input { flex: 1; min-width: 0; }
 .be-fwd-row .add-inline, .be-fwd-add .add-inline, .be-fwd-add .add-inline + .add-inline { margin: 0; flex: none; }
 
@@ -4082,6 +4084,7 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .review-item-top { cursor: pointer; }
 .review-quick-cat { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0; border: none; background: none; font: inherit; font-size: 0.875rem; color: var(--muted); text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-quick-cat-missing { color: var(--accent); font-weight: 600; }
+.review-quick-cat-missing { white-space: normal; overflow: visible; line-height: 1.2; }   /* "Choose a category…" wraps instead of being cut (Wilmer 375 px, Paola large text) */
 .review-quick-confirm { flex: none; min-height: 44px; padding: 0 16px; border: none; border-radius: var(--r-pill); background: var(--accent); color: var(--white); font: inherit; font-weight: 600; cursor: pointer; }
 .review-more-closed .review-item-secondary-actions { display: none; }
 .review-item .review-more-actions { display: block; margin-top: 8px; }
@@ -4281,3 +4284,10 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .psplit-row { display: grid; grid-template-columns: 1fr 7.5rem 3.5rem; gap: 8px; align-items: center; margin-bottom: 8px; }
 .psplit-row label { margin: 0; }
 .psplit-row .psplit-pct { text-align: right; }
+
+/* Bank emails: the numbered and bulleted instructions read at the size of the hints around them (testers, 2026-11-22: 16 px next to 12 px). */
+.bm-steps { font-size: 0.75rem; color: var(--muted); padding-left: 18px; margin: 8px 0; }
+.bm-steps li + li { margin-top: 4px; }
+
+/* A forwarder's address can be long with nothing to break it at: it wraps inside the card instead of running off (Wilmer, 375 px). */
+.review-forwarded { overflow-wrap: anywhere; }

@@ -10744,7 +10744,8 @@ function renderMonthsBars_() {
   const shown = periodType === "month" ? `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` : null;
   box.innerHTML = months.map((x) => {
     const [y, mo] = x.month.split("-").map(Number);
-    return `<button type="button" class="home-bar-col${x.month === shown ? " on" : ""}" data-month="${x.month}">
+    // A spoken name with the figures, like Home's bars (Paola, 2026-11-22: VoiceOver read only "Dic 23").
+    return `<button type="button" class="home-bar-col${x.month === shown ? " on" : ""}" data-month="${x.month}" aria-label="${escapeHtml(tr("home.barAria", { month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), true), income: homeWhole_(x.income), expenses: homeWhole_(x.expense) }))}">
       <span class="home-bar-pair"><span class="home-bar income" style="height:${h(x.income)}px"></span><span class="home-bar expense" style="height:${h(x.expense)}px"></span></span>
       <span>${escapeHtml(I18n.monthShort(mo - 1, true))} ${String(y).slice(2)}</span></button>`;
   }).join("");
