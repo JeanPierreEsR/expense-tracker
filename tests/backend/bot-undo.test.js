@@ -359,3 +359,59 @@ test("a Discard whose Recently deleted copy is gone (bot copy kept) is refused w
   assert.equal(a.entry(e.id), undefined);
   assert.match(a.lastBody(), /deleted for good|definitivamente/);
 });
+
+test("'borrar' on a confirmed entry's card deletes it with a Recently deleted copy; 'deshacer' brings it back", () => {
+  const a = waApp();
+  const e = readyExpense(a, "500 taxi");
+  a.tap("confirm:" + e.id, a.cardIdOf(e.id));
+  assert.equal(a.entry(e.id).status, "confirmed");
+  const before = world(a.rt);
+  a.text("borrar", { context_id: a.cardIdOf(e.id) });
+  assert.equal(a.entry(e.id), undefined, "deleted");
+  assert.ok(a.rt.run("listDeletedEntries()").batches.some((b) => b.entries.some((x) => x.entry_id === e.id)), "in Recently deleted");
+  a.text("deshacer", { context_id: a.lastId() });
+  assert.deepEqual(world(a.rt), before);
+  assert.equal(a.entry(e.id).status, "confirmed");
+  assert.ok(!a.rt.run("listDeletedEntries()").batches.some((b) => b.entries.some((x) => x.entry_id === e.id)), "and left Recently deleted");
+});
+
+test("'delete' on a waiting card discards it; 'borrar' with no card asks which", () => {
+  const a = waApp();
+  a.text("borrar");
+  assert.match(a.lastBody(), /tarjeta del movimiento|card of the transaction/);
+  const e = readyExpense(a, "12 snack");
+  a.text("delete", { context_id: a.cardIdOf(e.id) });
+  assert.equal(a.entry(e.id), undefined);
+});
+
+test("an undo that leaves the entry confirmed says it is still there and sends its card again", () => {
+  const a = waApp();
+  const e = readyExpense(a, "500 taxi");
+  a.tap("confirm:" + e.id, a.cardIdOf(e.id));
+  const pm = a.rt.rows("Payment Methods")[0];
+  a.text("cuenta " + pm.nickname, { context_id: a.cardIdOf(e.id) });
+  const n = a.bodies().length;
+  a.text("deshacer");
+  const after = a.bodies().slice(n);
+  assert.ok(after.some((b) => /sigue en tu historial|still in your history/.test(b)), after.join(" | "));
+  assert.ok(after.some((b) => b.includes("500")), "the card again");
+  assert.ok(a.cardIdOf(e.id), "a plain message now refers to it");
+});
+
+test("a bot Confirm that crosses a budget alerts at once, and its 'deshacer' takes the notice away", () => {
+  const a = waApp();
+  const e = readyExpense(a, "90 zapatillas");
+  a.rt.run("appendRowObject('Categories', { id: 'cat-shoes', name: 'Shoes test', type: 'expense', icon: '', color: '#ccc', parent_id: '' });");
+  a.rt.ctx.__id = e.id;
+  a.rt.run("setEntryField_(__id, 'category_id', 'cat-shoes')");
+  const cat = "cat-shoes";
+  a.rt.api("addBudget", { category_id: cat, amount: 100, currency: "PEN", period_type: "monthly", thresholds: "75" });
+  a.rt.run("checkBudgets()");   // the first check only records a baseline (Budgets.gs): it never alerts on what was already spent
+  a.rt.svc.props.delete("ALERT_CHECK_LAST_AT");
+  const open = () => a.rt.api("listNotices").notices.filter((n) => n.kind === "budget");
+  const already = open().length;
+  a.tap("confirm:" + e.id, a.cardIdOf(e.id));
+  assert.equal(open().length, already + 1, "the alert came with the action, not an hour later");
+  a.text("deshacer");
+  assert.equal(open().length, already, "the notice went with the undo");
+});

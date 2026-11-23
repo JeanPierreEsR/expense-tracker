@@ -282,6 +282,7 @@ function botActionEnd_(kind) {
   } finally {
     if (act.ownsLock) { try { act.lock.releaseLock(); } catch (e) { /* already released */ } }
   }
+  if (diff) BOT_ALERTS_DUE_ = BOT_ALERTS_DUE_ || 'change';
 }
 
 // What the undo answer names: the entry as it was, and the friend whose debts moved.
@@ -519,15 +520,76 @@ function botUndoMessage_(targetId, replyTo) {
     // Quoting the transaction's message links the answer to it, so a second "deshacer" right after is about this undo.
     var mainId = String(found.row.entry_ids || '').split(',')[0];
     var quoted = targetId && getAllRows('Telegram Messages').some(function (m) { return String(m.message_id) === String(targetId); }) ? targetId : (whatsappCardFor_(mainId) || replyTo);
-    botText_(res.text, quoted);
     var entry = getEntryById_(mainId);
-    if (entry && entry.status === 'pending') sendTelegramEntryNotification_(entry);
+    var still = entry && entry.status === 'confirmed' && found.row.kind !== 'discard' && found.row.kind !== 'delrep';
+    botText_(still ? res.text + '\n' + tr_('botUndo.stillThere', { what: botUndoWhat_(entry) }) : res.text, quoted);
+    // The transaction's card again, as it is now (owner, 2026-11-23): waiting, with its buttons; confirmed, without them. A plain
+    // message after the undo then refers to it, as after any card.
+    if (entry) sendTelegramEntryNotification_(entry);
   } finally {
     var sent = BOT_MSG_CAPTURE_ || [];
     BOT_MSG_CAPTURE_ = null;
     var ids = [String(targetId || ''), String(replyTo || '')].concat(sent).filter(Boolean);
     botMarkUndone_(found.row.id, ids);
   }
+  BOT_ALERTS_DUE_ = 'force';
+}
+
+// ---- "borrar" / "delete" on either bot (owner, 2026-11-23: testers found no way to remove a wrong entry from the chat) ----
+// As a reply to a transaction's card, or plain (the transaction of the bot's last message). A waiting one is discarded (as the
+// Discard button); a confirmed one is deleted with the app's own safety copy (Recently deleted, 30 days). Both are recorded, so
+// "deshacer" brings it back. A part of a loan or repayment is never deleted here: the app knows its debts.
+function botDeleteWord_(text) {
+  return /^\s*(?:borrar|b[oó]rralo|eliminar|elim[ií]nalo|delete|delete it|remove)\s*[.!]?\s*$/i.test(String(text || ''));
+}
+
+function botDeleteMessage_(targetId, replyTo) {
+  var entryId = targetId ? whatsappCardEntry_(targetId) : '';
+  var entry = entryId ? getEntryById_(entryId) : null;
+  if (!entryId) return botText_(tr_('botDelete.which'), replyTo);
+  if (!entry) return botText_(tr_('bot.entryGone'), replyTo);
+  if (repaymentPartInfo_(entryId) || (entry.status !== 'pending' && entryBulkVerdict_(entry))) return botText_(tr_('botDelete.kept', { what: botUndoWhat_(entry) }), replyTo);
+  var what = botUndoWhat_(entry);
+  var recording = botActionBegin_('discard', entryId, [targetId, replyTo]);
+  var reply;
+  try {
+    if (entry.status === 'pending') {
+      var pair = pendingExchangePair_(entry);
+      if (recording) botActionSafetyCopy_(pair ? [pair.out.id, pair['in'].id] : [entryId]);
+      discardEntryWithRepayments_(entryId);
+      if (pair) discardEntryWithRepayments_(pair.out.id === entryId ? pair['in'].id : pair.out.id);
+    } else {
+      var res = deleteEntries({ ids: [entryId] });
+      if (!res.deleted.length) { reply = tr_('botDelete.kept', { what: what }); }
+      else if (BOT_ACTION_) BOT_ACTION_.batch = res.batch_id || '';
+    }
+    if (!reply) reply = tr_('botDelete.deleted', { what: what });
+    botText_(reply, replyTo);
+  } catch (err) {
+    botText_(tr_('bot.notDiscarded', { error: err.message }), replyTo);
+  } finally {
+    if (recording) botActionEnd_('discard');
+  }
+}
+
+// After a bot action or its undo, the alerts are looked at again (as the app does a few seconds after a save): a budget that went
+// over gets its alert now, and one back under loses its notice (testers, 2026-11-22: the red notice stayed after "deshacer").
+// Never inside the action's lock: each check takes and releases the script lock itself.
+// Set by a recorded bot action ('change') or an undo ('force'); run by doPost once the bot's answer is sent and no lock is held.
+var BOT_ALERTS_DUE_ = '';
+function botAlertsIfDue_() {
+  var due = BOT_ALERTS_DUE_;
+  BOT_ALERTS_DUE_ = '';
+  if (due) botAlertsAfter_(due === 'force');
+}
+
+// force (an undo, rare): even when a check ran a moment ago, since that check saw the world before the undo.
+function botAlertsAfter_(force) {
+  try {
+    if (typeof checkAlertsGuarded_ !== 'function') return;
+    if (force) PropertiesService.getScriptProperties().deleteProperty(ALERT_CHECK_LAST_KEY_);
+    checkAlertsGuarded_('change');
+  } catch (err) { console.error('bot alerts: ' + err); }
 }
 
 function botMarkUndone_(id, msgIds) {

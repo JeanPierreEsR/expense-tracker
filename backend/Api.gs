@@ -68,6 +68,7 @@ function doPost(e) {
       } catch (err) {
         response = { ok: false, error: err.message, reply: tr_('whatsapp.failed') };
       }
+      botAlertsIfDue_();   // BotUndo.gs: alerts after a bot action, outside its lock
       return ContentService.createTextOutput(JSON.stringify(response))
         .setMimeType(ContentService.MimeType.JSON);
     }
@@ -90,6 +91,7 @@ function doPost(e) {
       if (!isDuplicateTelegramUpdate_(body.update_id)) {
         try {
           handleTelegramUpdate_(body);
+          botAlertsIfDue_();   // BotUndo.gs: alerts after a bot action, outside its lock
         } catch (err) {
           // Never let one bad update fail the webhook delivery — repeated
           // failures make Telegram back off and eventually stop retrying.

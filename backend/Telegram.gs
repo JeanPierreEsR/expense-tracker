@@ -860,6 +860,11 @@ function handleTelegramMessage_(msg) {
     botUndoMessage_(msg.reply_to_message ? msg.reply_to_message.message_id : String(PropertiesService.getScriptProperties().getProperty('TG_LAST_OUT') || ''), msg.message_id);
     return;
   }
+  if (String(msg.chat.id) !== WA_CHAT_ID_ && botDeleteWord_(text)) {
+    whatsappClearAwaiting_();
+    botDeleteMessage_(msg.reply_to_message ? msg.reply_to_message.message_id : String(PropertiesService.getScriptProperties().getProperty('TG_LAST_OUT') || ''), msg.message_id);
+    return;
+  }
 
   // The same commands as WhatsApp (ayuda / pendientes / nuevo) and the answer to an open "send the new …" question
   // (WhatsAppBot.gs). Only for a real Telegram message, not a reply (WhatsApp's own messages come here as replies or commands).
