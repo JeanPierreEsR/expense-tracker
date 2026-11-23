@@ -166,6 +166,47 @@ function recordCurrencyExchange(payload) {
   return result;
 }
 
+/**
+ * Edits a whole exchange at once (owner, 2026-11-23: editing it side by side was the only way): both sides change together.
+ * payload: { out_id, in_id, date, in_date?, out: {payment_method_id, amount, currency}, in: {...}, house? }. Both sides keep an
+ * account of the person's (they both exist; to drop one, the exchange is deleted and saved again). `house` is sent only when it
+ * changed: the two descriptions are then written again from it; otherwise they stay as they were (a bank's own wording included).
+ * Returns { out, in }.
+ */
+function updateCurrencyExchange(payload) {
+  payload = payload || {};
+  var legOut = getEntryById_(String(payload.out_id || '')), legIn = getEntryById_(String(payload.in_id || ''));
+  if (!legOut || !legIn || exchangeLegSide_(legOut) !== 'out' || exchangeLegSide_(legIn) !== 'in') throw new Error(tr_('xch.editGone'));
+  var date = String(payload.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(tr_('xch.badDate'));
+  var inDate = String(payload.in_date || '') || date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(inDate)) throw new Error(tr_('xch.badDate'));
+  var out = exchangeLeg_(payload.out, tr_('xch.sideOut'));
+  var inn = exchangeLeg_(payload.in, tr_('xch.sideIn'));
+  if (out.currency === inn.currency) throw new Error(tr_('xch.sameCurrency'));
+  if (!out.pmId || !inn.pmId) throw new Error(tr_('xch.editBothAccounts'));
+  ensureEntriesToPaymentMethodColumn_();
+  ensureEntriesExchangeColumn_();
+  ensureColumn_('Entries', 'exchange_pair');
+  // An older exchange paired by its day gets a pair id now, so the two sides stay one exchange whatever the dates become.
+  var pairId = String(legOut.exchange_pair || legIn.exchange_pair || '') || Utilities.getUuid();
+  var houseGiven = payload.house !== undefined && payload.house !== null;
+  var house = houseGiven ? String(payload.house).replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+  var result = {};
+  [['out', legOut, out], ['in', legIn, inn]].forEach(function (x) {
+    var side = x[0], entry = x[1], leg = x[2];
+    var fields = {
+      date: side === 'in' ? inDate : date, amount: leg.amount, currency: leg.currency,
+      payment_method_id: side === 'out' ? leg.pmId : '', to_payment_method_id: side === 'in' ? leg.pmId : '',
+      exchange: '1', exchange_pair: pairId
+    };
+    if (houseGiven) fields.description = house ? tr_('desc.exchangeHouse', { name: house }) : tr_(side === 'out' ? 'desc.exchangeOut' : 'desc.exchangeIn', { cur: leg.currency });
+    result[side] = updateEntryFields(entry.id, fields);
+  });
+  EXCHANGE_HOUSES_MEMO_ = null;   // the edit may have named a new house
+  return result;
+}
+
 // ---- One e-mail that names BOTH sides of an exchange (Cambio Mundial-style "Confirmación de Operación") ----
 //
 // Banks e-mail the money that LEFT (and not always the money that ARRIVED), while the exchange house's own confirmation names both
