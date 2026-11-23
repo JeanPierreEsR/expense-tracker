@@ -509,6 +509,8 @@ function routeActionSwitch_(action, payload) {
     case 'getMonthClose': return getMonthClose(payload);
     case 'closeMonth': return closeMonth(payload);
     case 'reopenMonth': return reopenMonth(payload);
+    case 'getYearStatement': return getYearStatement(payload);   // Business 2 piece 9: the yearly constancia (Constancia.gs)
+    case 'getYearStatements': return getYearStatements(payload);
     case 'getProfileState': return getProfileState();
     case 'getAnnualHints': return getAnnualHints();
     case 'listStatementGaps': return listStatementGaps();
