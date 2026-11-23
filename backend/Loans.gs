@@ -64,6 +64,8 @@ function saveEntrySplits(entryId, splits) {
   var debtAmount = function (amount) { return paidTotal ? Math.round(Number(amount) * paidTotal / Number(entry.amount) * 100) / 100 : Number(amount); };
   var debtCurrency = paidTotal ? String(entry.paid_currency) : entry.currency;
   var projectId = businessOn_() ? String(entry.project_id || '') : '';   // Business pack: the debt belongs to the entry's project
+  // Business 2 piece 7 (company copies only): the debt also carries the entry's company, even with no project ("paid by the partner").
+  var companyId = isCompanyCopy_() ? companyIdForLoan_(entry.company_id, entry.project_id) : '';
 
   if (entry.paid_by === 'me') {
     // Owner paid — every friend in the split owes the owner their share.
@@ -75,6 +77,7 @@ function saveEntrySplits(entryId, splits) {
         direction: 'they_owe_me',
         origin: 'entry',
         project_id: projectId,
+        company_id: companyId,
         entry_id: entryId,
         amount: debtAmount(s.amount),
         currency: debtCurrency,
@@ -98,6 +101,7 @@ function saveEntrySplits(entryId, splits) {
       direction: 'i_owe_them',
       origin: 'entry',
       project_id: projectId,
+      company_id: companyId,
       entry_id: entryId,
       amount: ownShare,
       currency: entry.currency,
@@ -161,6 +165,7 @@ function upsertEntryLoan_(reusable, fields) {
   };
   if (fields.due_date !== undefined) update.due_date = fields.due_date;
   if (businessOn_()) { ensureBusinessSheets_(); update.project_id = fields.project_id || ''; }
+  if (fields.company_id || match.company_id) update.company_id = fields.company_id || '';   // company copies (piece 7)
   updateRowFields_('Loans', match.id, update);
 }
 
@@ -634,6 +639,8 @@ function createLoan_(fields) {
     ensureLoansOpeningColumn_();
     loan.opening = '1';
     loan.payment_method_id = '';
+  } else if (fields.origin === 'cash' && fields.transfer_entry_id) {
+    loan.transfer_entry_id = fields.transfer_entry_id;   // the money movement already exists (a partner's contribution turned into a loan)
   } else if (fields.origin === 'cash') {
     var friend = getAllRows('Friends').find(function (f) { return f.id === fields.friend_id; });
     var transferEntry = createLoanTransferEntry_(loan, friend ? friend.name : tr_('label.unknownFriend'));
@@ -1951,7 +1958,9 @@ function convertEntryInto_(payload, kind) {
         date: payload.date,
         due_date: payload.due_date,
         payment_method_id: payload.payment_method_id,
-        description: payload.description
+        description: payload.description,
+        project_id: payload.project_id,   // only sent for a partner's loan on a company copy (Partners.gs); blank otherwise
+        company_id: payload.company_id
       });
       rememberPayeeHabit_(entry, 'loan', payload);   // PayeeGuess.gs: the next one from this place gets a suggestion
       return { loan: loan };
@@ -2101,6 +2110,9 @@ function buildTransferLinkMap_() {
       if (!map[id]) map[id] = { kind: 'forgiveness', friend: friends[l.friend_id] || '', friend_id: l.friend_id, direction: l.direction };
     });
   });
+  // A partner's contribution / distribution (Partners.gs): no `friend`, so nothing treats it as a loan; the phone reads `partner`.
+  var partnerLinks = partnerLinkMap_();
+  Object.keys(partnerLinks).forEach(function (id) { if (!map[id]) map[id] = partnerLinks[id]; });
   return map;
 }
 

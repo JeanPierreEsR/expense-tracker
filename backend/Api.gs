@@ -167,6 +167,7 @@ var ONCE_ACTIONS_ = {
   // answer was lost, and each "try again" made it again). With the phone keeping one id per save across its retries, a repeat
   // gets the first one's answer instead of a second copy.
   addTrip: 1, addBudget: 1, addPaymentMethod: 1, savePaymentMethod: 1, addTag: 1, addBank: 1, addPayor: 1, saveCategory: 1,
+  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1,   // Business 2 piece 7 (Partners.gs)
   saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1
 };
 
@@ -487,6 +488,10 @@ function routeActionSwitch_(action, payload) {
     case 'saveCompanySetup': return saveCompanySetup(payload);
     case 'setProjectFunding': return setProjectFunding(payload);
     case 'saveProjectSplit': return saveProjectSplit(payload);   // a company copy's welcome (CompanyCopy.gs)
+    case 'convertEntryToPartnerMoney': return convertEntryToPartnerMoney(payload);   // Business 2 piece 7: partners (Partners.gs)
+    case 'changePartnerMoney': return changePartnerMoney(payload);
+    case 'recordDistribution': return recordDistribution(payload);
+    case 'listPendingContributions': return listPendingContributions();
     case 'getProfileState': return getProfileState();
     case 'getAnnualHints': return getAnnualHints();
     case 'listStatementGaps': return listStatementGaps();
@@ -1659,7 +1664,7 @@ function entrySearchText_(e, lk) {
     e.trip_id && lk.tripsById && lk.tripsById[e.trip_id] && lk.tripsById[e.trip_id].name,
     e.company_id && lk.companiesById && lk.companiesById[e.company_id] && lk.companiesById[e.company_id].name,
     e.project_id && lk.projectsById && lk.projectsById[e.project_id] && lk.projectsById[e.project_id].name,
-    lk.transferLinks && lk.transferLinks[e.id] && (lk.transferLinks[e.id].kind + ' ' + lk.transferLinks[e.id].friend)
+    lk.transferLinks && lk.transferLinks[e.id] && (lk.transferLinks[e.id].kind + ' ' + (lk.transferLinks[e.id].friend || lk.transferLinks[e.id].partner || ''))
   ];
   return searchNormalize_(parts.filter(function (x) { return x != null && x !== ''; }).join(' | '));
 }
