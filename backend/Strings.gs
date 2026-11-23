@@ -345,6 +345,17 @@ var BACKEND_STRINGS_ = {
   "partner.gone": { en: "That partner's money no longer exists.", es: "Esa plata del socio ya no existe." },
   "partner.descContribution": { en: "Capital contribution from {name}", es: "Aporte de capital de {name}" },
   "partner.descPending": { en: "Money from {name} (to be decided)", es: "Plata de {name} (por definir)" },
+  // Business 2 piece 11: sales by stage (Sales.gs)
+  "sales.unitGone": { en: "That unit no longer exists.", es: "Esa unidad ya no existe." },
+  "sales.pickStage": { en: "Choose the stage.", es: "Elige la etapa." },
+  "sales.notAnIncome": { en: "Only an income received can be returned.", es: "Solo se puede devolver un ingreso recibido." },
+  "sales.tooMuch": { en: "At most {max} can be returned from this payment.", es: "De este pago se puede devolver como máximo {max}." },
+  "sales.returnDesc": { en: "Deposit returned: {unit}", es: "Separación devuelta: {unit}" },
+  "sales.stage.reservation": { en: "Reservation deposit", es: "Separación" },
+  "sales.stage.down_payment": { en: "Down payment", es: "Cuota inicial" },
+  "sales.stage.balance": { en: "Balance", es: "Saldo" },
+  "sales.stage.bank_loan": { en: "Bank disbursement", es: "Desembolso del banco" },
+  "sales.stage.other": { en: "Other", es: "Otro" },
   // Business 2 piece 10: the accountant's monthly package (AccountantPackage.gs)
   "pkg.badPayMethod": { en: "Choose how it was paid.", es: "Elige cómo se pagó." },
   "pkg.badReceiptType": { en: "Choose the type of receipt.", es: "Elige el tipo de comprobante." },

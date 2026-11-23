@@ -208,7 +208,7 @@ function companyOverview_(startDate, endDate) {
     return { project_id: String(p.id), company_id: String(p.company_id || ''), name: String(p.name || ''), emoji: String(p.emoji || ''),
       amount: has ? Number(p.funding_gap) : null, currency: String(p.funding_currency || home), as_of: has ? String(p.funding_as_of || '') : '' };
   }).sort(function (a, b) { return a.name.localeCompare(b.name); });
-  return { owed: owed, owedTotals: owedTotals, funding: funding, partners: companyPartners_(startDate, endDate), partnersPending: pendingContributions_(),
+  return { owed: owed, owedTotals: owedTotals, funding: funding, partners: companyPartners_(startDate, endDate), partnersPending: pendingContributions_(), sales: companySales_(),   // piece 11 (Sales.gs)
     close: wholeMonthOf_(startDate, endDate) ? monthCloseState_(wholeMonthOf_(startDate, endDate)) : null };   // piece 8 (MonthClose.gs)   // piece 7 (Partners.gs)
 }
 

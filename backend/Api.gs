@@ -180,7 +180,7 @@ var ONCE_ACTIONS_ = {
   // answer was lost, and each "try again" made it again). With the phone keeping one id per save across its retries, a repeat
   // gets the first one's answer instead of a second copy.
   addTrip: 1, addBudget: 1, addPaymentMethod: 1, savePaymentMethod: 1, addTag: 1, addBank: 1, addPayor: 1, saveCategory: 1,
-  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, closeMonth: 1, reopenMonth: 1, sendAccountantPackage: 1,   // Business 2 piece 7 (Partners.gs)
+  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, closeMonth: 1, reopenMonth: 1, sendAccountantPackage: 1, addProjectUnits: 1, saveUnitStage: 1, returnUnitDeposit: 1,   // Business 2 piece 7 (Partners.gs)
   saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1
 };
 
@@ -511,7 +511,13 @@ function routeActionSwitch_(action, payload) {
     case 'reopenMonth': return reopenMonth(payload);
     case 'getYearStatement': return getYearStatement(payload);   // Business 2 piece 9: the yearly constancia (Constancia.gs)
     case 'getYearStatements': return getYearStatements(payload);
-    case 'getAccountantPackage': return getAccountantPackage(payload);   // Business 2 piece 10 (AccountantPackage.gs)
+    case 'getAccountantPackage': return getAccountantPackage(payload);
+    case 'listProjectUnits': return listProjectUnits(payload);   // Business 2 piece 11: sales by stage (Sales.gs)
+    case 'addProjectUnits': return addProjectUnits(payload);
+    case 'saveUnit': return saveUnit(payload);
+    case 'removeProjectUnit': return removeProjectUnit(payload);
+    case 'saveUnitStage': return saveUnitStage(payload);
+    case 'returnUnitDeposit': return returnUnitDeposit(payload);   // Business 2 piece 10 (AccountantPackage.gs)
     case 'sendAccountantPackage': return sendAccountantPackage(payload);
     case 'getProfileState': return getProfileState();
     case 'getAnnualHints': return getAnnualHints();
