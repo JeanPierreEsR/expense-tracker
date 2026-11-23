@@ -632,7 +632,7 @@ var BACKEND_STRINGS_ = {
 
   // ---- report ----
   "report.uncategorized": { en: "Uncategorized", es: "Sin categoría" },
-  "report.untagged": { en: "Untagged", es: "Sin etiqueta" },
+  "report.untagged": { en: "No tag", es: "Sin etiqueta" },
   "report.noAccount": { en: "No account", es: "Sin cuenta" },
   "report.notRepaidYet": { en: "Not repaid yet", es: "Aún sin repagar" },
   "report.friendCovered": { en: "A friend covered it", es: "Lo cubrió un amigo" },

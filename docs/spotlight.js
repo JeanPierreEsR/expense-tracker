@@ -297,8 +297,14 @@
     function shown(s) { return !s.available || s.available(); }
     // The counter counts the steps the person really sees (1.76.1): a step left out on the way (already explained, already answered) never
     // makes it jump ("2 of 15" then "5 of 15", Rosa); the total is what was seen plus what can still come after the furthest step seen.
-    var seen = [];
-    function noteSeen(i) { if (seen.indexOf(i) < 0) seen.push(i); }
+    var seen = [], seenAt = {};
+    function noteSeen(i) { if (seen.indexOf(i) < 0) { seen.push(i); seenAt[i] = Date.now(); } }
+    // A step that was done before the person could read it (its condition already held: under half a second) did not count for
+    // them: the next step keeps the number (Rosa saw "Paso 3" then "Paso 5", 2026-11-22).
+    function unseeIfFlashed(i) {
+      var k = seen.indexOf(i);
+      if (k >= 0 && Date.now() - (seenAt[i] || 0) < 500) seen.splice(k, 1);
+    }
     function stepsShownCount() {
       var last = seen.length ? Math.max.apply(null, seen) : -1, more = 0;
       for (var j = last + 1; j < steps.length; j++) if (shown(steps[j])) more++;
@@ -494,7 +500,7 @@
           if (missing >= 2 || lastByPerson) { finish("lost"); return; }
         } else missing = 0;
         lastByPerson = r === "skipByPerson";
-        if (r === "done") completed[i] = true;
+        if (r === "done") { completed[i] = true; unseeIfFlashed(i); }
         fixing = false;
         i++;
       }
