@@ -419,7 +419,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason, opts) {
 
   // A bank e-mail someone forwarded (ForwardedEmail.gs): who sent it, unless it is this Gmail or one of the person's other addresses.
   var forwardedBy = entry.status === 'pending' ? forwardShownBy_(entry) : '';
-  if (forwardedBy) lines.push(tr_('bot.forwardedBy', { address: forwardedBy }));
+  if (forwardedBy) lines.push(forwardedBy === FORWARD_UNKNOWN_ ? tr_('bot.forwardedByUnknown') : tr_('bot.forwardedBy', { address: forwardedBy }));
 
   var waitingMatch = waitingMatchForPending_(entry, entry.type === 'income' && entry.status === 'pending' ? listWaitingIncome_() : []);
   if (waitingMatch) {

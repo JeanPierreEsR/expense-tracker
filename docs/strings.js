@@ -4151,6 +4151,7 @@
     "bankMail.fwdRemoveAria": { en: "Remove {address}", es: "Quitar {address}" },
     "bankMail.fwdBad": { en: "That is not an email address.", es: "Eso no es una dirección de correo." },
     "review.forwardedBy": { en: "Forwarded by {address}", es: "Reenviado por {address}" },
+    "review.forwardedByUnknown": { en: "Forwarded by an unknown sender", es: "Reenviado por un remitente desconocido" },
     "bankMail.w3": { en: "Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.", es: "Ojo: reenvía de forma automática, con un filtro. Los correos que reenvíes a mano, uno por uno, la app no los lee." },
     "bankMail.otherMailTitle": { en: "Do your bank emails arrive at Outlook, iCloud or Yahoo?", es: "¿Los correos de tu banco llegan a Outlook, iCloud o Yahoo?" },
     "bankMail.otherMailIntro": { en: "The app can only read a Gmail account. If you have none, create a free one and use it when you set up the app. Then send the bank emails from your other mailbox to the address above:", es: "La app solo puede leer una cuenta de Gmail. Si no tienes, crea una gratis y úsala al configurar la app. Luego envía los correos del banco desde tu otro buzón a la dirección de arriba:" },

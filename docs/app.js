@@ -8069,6 +8069,7 @@ function reviewForwardedBy_(entry) {
   const by = String((entry && entry.forwarded_by) || "").toLowerCase();
   if (!by) return "";
   const info = (meta && meta.emailInfo) || {};
+  if (by === "?") return tr("review.forwardedByUnknown");
   if (by === String(info.address || "").toLowerCase() || (info.forwardFrom || []).includes(by)) return "";
   return tr("review.forwardedBy", { address: by });
 }
