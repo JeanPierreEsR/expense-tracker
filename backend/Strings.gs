@@ -111,6 +111,7 @@ var BACKEND_STRINGS_ = {
   "whatsapp.nothingWaiting": { en: "Nothing is waiting for review.", es: "No hay nada por revisar." },
   "whatsapp.moreWaiting": { en: { one: "1 more is waiting.", other: "{n} more are waiting." }, es: { one: "Queda 1 m\u00e1s por revisar.", other: "Quedan {n} m\u00e1s por revisar." } },
   "whatsapp.showMore": { en: "Show more", es: "Ver m\u00e1s" },
+  "bot.forwardedBy": { en: "\u21aa\ufe0f Forwarded by {address}", es: "\u21aa\ufe0f Reenviado por {address}" },
   "forward.badAddress": { en: "\"{address}\" is not an email address.", es: "\"{address}\" no es una direcci\u00f3n de correo." },
   "forward.tooMany": { en: { one: "At most 1 address.", other: "At most {n} addresses." }, es: { one: "Como m\u00e1ximo 1 direcci\u00f3n.", other: "Como m\u00e1ximo {n} direcciones." } },
   "whatsapp.catchUp": { en: { one: "1 transaction came in while I couldn't write to you:", other: "{n} transactions came in while I couldn't write to you:" }, es: { one: "Lleg\u00f3 1 movimiento mientras no pod\u00eda escribirte:", other: "Llegaron {n} movimientos mientras no pod\u00eda escribirte:" } },
