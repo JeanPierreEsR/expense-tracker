@@ -4290,6 +4290,16 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .co-partner-pending { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .co-partner-pending-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .co-partner-pending-btns .add-inline + .add-inline { margin-top: 0; }
+/* Business 2, piece 8: the change log and closing a month */
+.changelog-month { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
+.changelog-month span { font-weight: 600; }
+.changelog-day { margin: 16px 0 4px; }
+.changelog-line { padding: 8px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.changelog-what { font-weight: 600; }
+.close-account { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.close-diff-off { color: var(--warn-text); }
+.close-changed { color: var(--warn-text); font-weight: 600; }
+#co-close-body .add-inline { display: block; }
 .partner-kind { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; font-weight: 400; }
 .partner-kind input { margin-top: 4px; }
 .partner-kind span { display: flex; flex-direction: column; }

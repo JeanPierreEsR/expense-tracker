@@ -424,6 +424,7 @@
           </div>
           <button type="button" class="cancel-edit-btn" id="cancel-new-entry-btn" hidden data-i18n="entry.cancelNew">Cancel entry</button>
           <button type="button" class="cancel-edit-btn" id="cancel-edit-btn-2" hidden data-i18n="entry.cancelEdit">Cancel edit</button>
+          <button type="button" class="add-inline" id="entry-history-btn" hidden data-i18n="changelog.entryBtn">This entry's changes</button>
           <button type="button" class="delete-entry-btn" id="delete-entry-btn" hidden data-i18n="entry.delete">Delete this entry</button>
         </form>
       </div>
@@ -576,6 +577,11 @@
         <div id="co-partners-list"></div>
         <p class="hint" id="co-partners-empty" hidden data-i18n="coOv.partnersEmpty">No partners yet. In Needs review, "It's a partner's money" adds one.</p>
         <div id="co-partners-pending"></div>
+      </div>
+      <!-- Business 2, piece 8: closing the month shown (only when the period is one whole month that has ended). -->
+      <div class="card ov-period" id="co-close-card" hidden>
+        <h2 id="co-close-title"></h2>
+        <div id="co-close-body"></div>
       </div>
 
       <div class="card ov-period">
@@ -850,6 +856,10 @@
           </button>
           <button type="button" class="more-list-item" id="more-business-btn" hidden>
             <span class="row-icon" data-icon="briefcase" aria-hidden="true"></span><span data-i18n="more.business">Companies &amp; projects</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-changelog-btn" hidden>
+            <span class="row-icon" data-icon="clock" aria-hidden="true"></span><span data-i18n="changelog.title">Change log</span>
             <span class="more-list-chevron">›</span>
           </button>
       </div>
@@ -1307,6 +1317,25 @@
         <h2 style="margin-top:0;" data-i18n="perf.tipsTitle">Tips: did they help?</h2>
         <p class="hint" data-i18n="perf.tipsHint">Each tip this phone showed, the day it showed, and whether its feature was used afterwards.</p>
         <div id="perf-tips"></div>
+      </div>
+    </div>
+
+    <!-- Business 2, piece 8: the change log (company copies). -->
+    <div id="screen-change-log" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="icon-btn back-btn" id="changelog-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+        </div>
+        <h2 class="screen-title" style="margin-top:0;" id="changelog-heading" data-i18n="changelog.title">Change log</h2>
+        <p class="hint" data-i18n="changelog.hint">What was created, changed or deleted, when and from where. Only the app writes it; whoever has access to the Google Sheet can still edit it by hand, and closing a month notices that.</p>
+        <div class="changelog-month" id="changelog-month-nav">
+          <button type="button" class="icon-btn" id="changelog-prev" data-i18n-aria-label="changelog.prev" aria-label="Previous month"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <span id="changelog-month-label"></span>
+          <button type="button" class="icon-btn" id="changelog-next" data-i18n-aria-label="changelog.next" aria-label="Next month"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+        </div>
+        <div id="changelog-list"></div>
+        <p class="hint" id="changelog-empty" hidden data-i18n="changelog.empty">Nothing was changed in this month.</p>
+        <p class="hint error-text" id="changelog-error"></p>
       </div>
     </div>
 
@@ -2305,6 +2334,37 @@
         <p class="hint error-text" id="co-funding-error"></p>
         <button type="button" class="primary" id="co-funding-save" data-i18n="common.save">Save</button>
       </div>
+    </div>
+  </div>
+  <!-- Business 2, piece 8: closing a month (the app-vs-bank check first). -->
+  <div id="close-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="close-title"></span>
+        <button type="button" id="close-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <h3 data-i18n="close.bankTitle">App against the bank</h3>
+        <p class="hint" id="close-bank-hint"></p>
+        <div id="close-accounts"></div>
+        <p class="hint" id="close-no-accounts" hidden data-i18n="close.noAccounts">No account has a starting balance, so there is nothing to compare with the bank.</p>
+        <p class="hint close-pending" id="close-pending" hidden></p>
+        <label for="close-note" data-i18n="close.note">Note (optional)</label>
+        <input type="text" id="close-note" data-i18n-placeholder="close.notePh" placeholder="e.g. the difference is a fee still to record">
+        <p class="hint" data-i18n="close.keeps">Closing keeps this month's figures. If anything in it changes later, the app will say so.</p>
+        <p class="hint error-text" id="close-error"></p>
+        <button type="button" class="primary" id="close-save" data-i18n="close.save">Close the month</button>
+      </div>
+    </div>
+  </div>
+  <!-- One entry's history (Business 2, piece 8), from the entry form. -->
+  <div id="history-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="changelog.entryTitle">This entry's changes</span>
+        <button type="button" id="history-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body"><div id="history-list"></div></div>
     </div>
   </div>
   <!-- Business 2, piece 7: "It's a partner's money" / "Profit distribution" on a Needs review item (company copies). -->

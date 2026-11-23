@@ -208,7 +208,8 @@ function companyOverview_(startDate, endDate) {
     return { project_id: String(p.id), company_id: String(p.company_id || ''), name: String(p.name || ''), emoji: String(p.emoji || ''),
       amount: has ? Number(p.funding_gap) : null, currency: String(p.funding_currency || home), as_of: has ? String(p.funding_as_of || '') : '' };
   }).sort(function (a, b) { return a.name.localeCompare(b.name); });
-  return { owed: owed, owedTotals: owedTotals, funding: funding, partners: companyPartners_(startDate, endDate), partnersPending: pendingContributions_() };   // piece 7 (Partners.gs)
+  return { owed: owed, owedTotals: owedTotals, funding: funding, partners: companyPartners_(startDate, endDate), partnersPending: pendingContributions_(),
+    close: wholeMonthOf_(startDate, endDate) ? monthCloseState_(wholeMonthOf_(startDate, endDate)) : null };   // piece 8 (MonthClose.gs)   // piece 7 (Partners.gs)
 }
 
 // "Still to finance" for one project: a figure the person types and updates when they like, with the day it is true. Blank amount clears it.

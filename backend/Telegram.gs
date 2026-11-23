@@ -1914,6 +1914,7 @@ function getEntryById_(entryId) {
 function setCellByRow_(sheet, headers, rowIndex, fieldName, value) {
   var col = headers.indexOf(fieldName);
   if (col === -1) return;
+  changeNoteCell_(sheet, headers, rowIndex, fieldName, value);   // the change log (ChangeLog.gs, company copies)
   sheet.getRange(rowIndex, col + 1).setValue(safeCellValue_(sheet.getName(), fieldName, value));
   noteCellWrite_(sheet, rowIndex, fieldName);
 }
@@ -1931,6 +1932,11 @@ function deleteEntry_(entryId) {
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, entryId);
   if (rowIndex === -1) return;
+  if (changeLogOn_('Entries')) {   // the change log keeps what was deleted (ChangeLog.gs, company copies)
+    var gone = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0], obj = {};
+    headers.forEach(function (h, i) { obj[h] = gone[i]; });
+    changeNoteDelete_('Entries', obj);
+  }
   deleteSheetRows_(sheet, rowIndex, 1);
   recordEntryDeletions_([entryId]);
   // A no-op for an entry that was never split (the common case, and every

@@ -19,7 +19,7 @@ const WIDTH = Number(process.env.WIDTH || 375);
 const HEIGHT = 667;
 // The More sub-screens, opened through their real rows (a row that is hidden on this copy is skipped).
 const MORE_ROWS = ["more-recurring-btn", "more-trips-btn", "more-accounts-btn", "more-bank-mail-btn", "more-categories-btn",
-  "more-exchange-rates-btn", "more-friends-btn", "more-my-data-btn", "more-my-profile-btn", "more-perf-btn", "more-feedback-privacy-btn"];
+  "more-exchange-rates-btn", "more-friends-btn", "more-my-data-btn", "more-my-profile-btn", "more-perf-btn", "more-feedback-privacy-btn", "more-changelog-btn"];
 const MY_DATA_ROWS = ["data-statements-btn", "data-import-btn", "data-tidy-btn", "more-deleted-btn", "data-export-btn"];
 const TABS = ["entries", "overview", "budgets", "projections", "loans", "more"];
 
