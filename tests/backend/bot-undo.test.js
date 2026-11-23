@@ -238,3 +238,65 @@ test("every undo text exists in both languages", () => {
   assert.ok(keys.length > 20);
   keys.forEach((k) => { rt.ctx.__k = k; const s = rt.run("BACKEND_STRINGS_[__k]"); assert.ok(s.en && s.es, k); });
 });
+
+test("an entry another save writes during the bot action is never part of it (a bank e-mail landing at that moment)", () => {
+  const a = waApp();
+  const e = readyExpense(a);
+  // Another run writes straight to the Sheet while the bot is answering the Confirm (not through this run's helpers).
+  const handler = a.rt.state.fetchHandler;
+  let once = false;
+  a.rt.state.fetchHandler = (url, opts) => {
+    if (!once && String(url).endsWith("/send")) {
+      once = true;
+      a.rt.run("var s = getSheet('Entries'), h = getHeaders(s); s.appendRow(h.map(function (k) { return { id: 'other-run-1', type: 'expense', amount: 9, currency: 'PEN', date: '2026-11-22', description: 'bank email', status: 'pending', paid_by: 'me', source: 'email' }[k] || ''; }));");
+    }
+    return handler(url, opts);
+  };
+  a.tap("confirm:" + e.id, a.cardIdOf(e.id));
+  a.rt.state.fetchHandler = handler;
+  a.text("deshacer");
+  assert.equal(a.entry(e.id).status, "pending");
+  assert.ok(a.entry("other-run-1"), "the other save is still there");
+});
+
+test("a touch that changes no real value does not block the undo", () => {
+  const a = waApp();
+  const e = readyExpense(a);
+  a.tap("confirm:" + e.id, a.cardIdOf(e.id));
+  const answer = a.lastId();
+  a.rt.ctx.__id = e.id;
+  a.rt.run("touchEntriesById_([__id])");
+  a.text("deshacer", { context_id: answer });
+  assert.equal(a.entry(e.id).status, "pending");
+});
+
+test("Discard of an entry with a receipt photo too big for any copy: the entry comes back and the answer says the photo did not", () => {
+  const a = waApp();
+  const e = readyExpense(a);
+  a.rt.ctx.__bill = { entry_id: e.id, bill_json: JSON.stringify({ img: "x".repeat(46000) }), updated_at: "2026-11-22T10:00:00Z" };
+  a.rt.run("ensureEntryBillsSheet_(); appendRowObject('Entry Bills', __bill)");
+  a.tap("discard:" + e.id, a.cardIdOf(e.id));
+  assert.ok(!a.rt.rows("Entry Bills").some((b) => b.entry_id === e.id));
+  a.text("deshacer");
+  assert.equal(a.entry(e.id).status, "pending");
+  // Too big for both copies (a cell holds 50,000 characters): the entry is back and the answer says the photo is not.
+  assert.match(a.bodies().join("\n"), /receipt photo could not come back/);
+});
+
+test("old copies are deleted by the hourly job even when the bot is quiet", () => {
+  const a = waApp();
+  const e = readyExpense(a);
+  a.tap("confirm:" + e.id, a.cardIdOf(e.id));
+  assert.ok(a.rt.rows("Bot Actions").length >= 1);
+  a.rt.ctx.__old = new Date(Date.now() - 31 * 86400000).toISOString();
+  a.rt.run("var s = getSheet('Bot Actions'), h = getHeaders(s); s.getRange(2, h.indexOf('at') + 1, s.getLastRow() - 1, 1).setValue(__old); purgeOldBotActionsIfAny_();");
+  assert.equal(a.rt.rows("Bot Actions").length, 0);
+});
+
+test("'deshacer' on WhatsApp while Telegram is the review bot says where undo works", () => {
+  const a = waApp();
+  a.rt.svc.props.set("REVIEW_BOT", "");
+  a.rt.ctx.__body = JSON.stringify({ whatsapp: { id: "wamid.x1", from: OWNER, type: "text", text: "deshacer" }, relay_secret: SECRET });
+  const out = JSON.parse(a.rt.run("doPost({ postData: { contents: __body } }).getContent()"));
+  assert.match(JSON.stringify(out), /review bot \(Telegram\)/);
+});

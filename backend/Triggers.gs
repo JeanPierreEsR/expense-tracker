@@ -30,6 +30,7 @@ function runAutomation() {
     runAutomationStep_('loan reminders', failures, checkOverdueLoans);
     runAutomationStep_('pending charges', failures, notifyOldPendingCharges_);
     runAutomationStep_('investment categories', failures, backfillInvestmentCategories_);
+    runAutomationStep_('bot undo copies', failures, purgeOldBotActionsIfAny_);   // kept 30 days even when the bot goes quiet (BotUndo.gs)
   }
   if (featureOn_('gmail')) runAutomationStep_('statement inbox', failures, function () { scanStatementInbox_(); retryStatementInboxNudges_(); });
   else runAutomationStep_('statement inbox', failures, retryStatementInboxNudges_);
