@@ -3345,14 +3345,35 @@ document.getElementById("payment_method").addEventListener("change", async (e) =
   }
 });
 
+// The new tag shows at once, ticked, while the server makes it (testers, 2026-11-22: it appeared 1-2.5 s later with no sign, so a
+// skimmer tapped it off again). The entry's Save waits for it (pendingTagAdd_), so a stand-in id is never saved.
+let pendingTagAdd_ = null;
 document.getElementById("add-tag-btn").addEventListener("click", async () => {
   const name = await askName_(tr("prompt.tagName"));
-  if (name && name.trim()) {
-    const tag = await callApi("addTag", { name: name.trim() });
-    if (!meta.tags.some((t) => t.id === tag.id)) meta.tags.push(tag);   // a tag of that name already there is reused
-    selectedTagIds.add(tag.id);
-    populateTags();
-  }
+  if (!(name && name.trim())) return;
+  const clean = name.trim();
+  const same = (meta.tags || []).find((t) => String(t.name).trim().toLowerCase() === clean.toLowerCase());
+  if (same) { selectedTagIds.add(same.id); populateTags(); return; }   // already there (or being made): just tick it
+  const temp = { id: "tmp-tag-" + Date.now(), name: clean };
+  meta.tags.push(temp);
+  selectedTagIds.add(temp.id);
+  populateTags();
+  const work = (async () => {
+    try {
+      const tag = await callApi("addTag", { name: clean });
+      meta.tags = meta.tags.filter((t) => t.id !== temp.id);
+      if (!meta.tags.some((t) => t.id === tag.id)) meta.tags.push(tag);
+      const wasTicked = selectedTagIds.delete(temp.id);
+      if (wasTicked) selectedTagIds.add(tag.id);
+    } catch (err) {
+      meta.tags = meta.tags.filter((t) => t.id !== temp.id);
+      selectedTagIds.delete(temp.id);
+      showToast_(tr("common.notSaved", { error: err.message }));
+    } finally {
+      populateTags();
+    }
+  })();
+  pendingTagAdd_ = (pendingTagAdd_ || Promise.resolve()).then(() => work);
 });
 
 // ---- Amount input: always use a decimal point ----
@@ -3953,7 +3974,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const splits = validateSplitIfEnabled();
     const groupSize = splitGroupSizeToSave_(splits);
     const charge = chargeForSave_(amount, currency, splits, selectedType, paidByForCharge_());
-    const tagIds = Array.from(selectedTagIds);
+    if (pendingTagAdd_) await pendingTagAdd_;   // a tag still being made gets its real id first
+    const tagIds = Array.from(selectedTagIds).filter((id) => !String(id).startsWith("tmp-tag-"));
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
     if (tripNudgeHolds_(tripId, currency)) throw new Error("");   // held once: the trip field and its bubble are on screen now
     // Shared with friends inside a trip that has a group (owner, 2026-11-07): when the friends' shares are kept in another app, the group is
@@ -5935,13 +5957,14 @@ function searchFilterTest_() {
   const range = searchPeriodRange_();
   const min = f.min === "" ? null : Number(f.min);
   const max = f.max === "" ? null : Number(f.max);
+  const liveTags = new Set((meta.tags || []).map((t) => t.id));   // a link to a deleted tag counts as no tag
   return (e) => {
     if (f.types.length && !f.types.includes(e.type)) return false;
     if (range && ((range[0] && e.date < range[0]) || (range[1] && e.date > range[1]))) return false;
     if (cats.size && !cats.has(e.category_id)) return false;
     if (accts.size && !accts.has(e.payment_method_id) && !accts.has(e.to_payment_method_id)) return false;
     if (friendIds.size && !friendIds.has(e.paid_by) && !(e.link && friendNames.has(e.link.friend))) return false;
-    if (f.tags.length && !(e.tagIds || []).some((id) => f.tags.includes(id)) && !(f.tags.includes(SEARCH_NO_TAG_) && !(e.tagIds || []).length)) return false;
+    if (f.tags.length && !(e.tagIds || []).some((id) => f.tags.includes(id)) && !(f.tags.includes(SEARCH_NO_TAG_) && !(e.tagIds || []).some((id) => liveTags.has(id)))) return false;
     if (f.trips.length && !f.trips.includes(e.trip_id)) return false;
     if (min != null || max != null) {
       const v = searchRowMain_(e);
@@ -7731,10 +7754,14 @@ function retryWaitingSaves_() {
   if (!(meta && meta.categories)) return;
   const edits = getQueuedEdits_().filter((e) => e.waitingNet);
   const money = getMoneyQueue_().some((q) => q.status === "saving");
-  if (!edits.length && !money) { saveWaitingSaid_ = false; return; }
+  // A Needs review Confirm / Discard that could not be sent goes too (Diego, 2026-11-23: after a long time offline it waited for the
+  // next app open, though the message says it saves by itself when the connection is back).
+  const review = getQueuedReviewActions_().length > 0;
+  if (!edits.length && !money && !review) { saveWaitingSaid_ = false; return; }
   if (navigator.onLine === false) { noteSaveWaiting_(); return; }
   edits.forEach((e) => flushEntryEdit_(e.id));
   flushMoneyQueue_();
+  if (review) refreshReviewQueue().then(() => { refreshEntryList(); refreshHomeGlance_(true); }).catch(() => { if (!saveRetryTimer_) saveRetryTimer_ = setTimeout(() => { saveRetryTimer_ = null; retryWaitingSaves_(); }, 30000); });
 }
 window.addEventListener("online", retryWaitingSaves_);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) retryWaitingSaves_(); });
@@ -8069,6 +8096,7 @@ function reviewForwardedBy_(entry) {
   const by = String((entry && entry.forwarded_by) || "").toLowerCase();
   if (!by) return "";
   const info = (meta && meta.emailInfo) || {};
+  if (by === "?") return tr("review.forwardedByUnknown");
   if (by === String(info.address || "").toLowerCase() || (info.forwardFrom || []).includes(by)) return "";
   return tr("review.forwardedBy", { address: by });
 }
@@ -8808,6 +8836,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       const split = splitCheck && splitCheck.checked && entry.split_match && (!bizBox || bizBox.value.startsWith("c:")) ? entry.split_match.parts : null;
       const extra = Object.assign({}, planCheck && planCheck.checked && entry.plan_match ? { planId: entry.plan_match.recurring_id } : {}, split ? { split } : {});
       queueReviewAction_(entry.id, "confirm", fields, Object.keys(extra).length ? extra : null);
+      if (navigator.onLine === false) noteSaveWaiting_();   // said at once, and retried by itself when the connection is back
       holdTaps_();
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
@@ -8825,6 +8854,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       } catch (err) {
         // Stays queued — the next refreshReviewQueue (including on the
         // next app open) retries it automatically, no action needed here.
+        // With no connection the person is told so (testers, 2026-11-22: the card just vanished).
+        if (navigator.onLine === false || /fetch|network|load failed|timed? ?out/i.test(String((err && err.message) || ""))) noteSaveWaiting_();
         practiceNActionFailed_(entry.id, err);   // (a practice entry that could not be confirmed stops the practice)
       }
     });
@@ -10718,7 +10749,8 @@ function renderMonthsBars_() {
   const shown = periodType === "month" ? `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` : null;
   box.innerHTML = months.map((x) => {
     const [y, mo] = x.month.split("-").map(Number);
-    return `<button type="button" class="home-bar-col${x.month === shown ? " on" : ""}" data-month="${x.month}">
+    // A spoken name with the figures, like Home's bars (Paola, 2026-11-22: VoiceOver read only "Dic 23").
+    return `<button type="button" class="home-bar-col${x.month === shown ? " on" : ""}" data-month="${x.month}" aria-label="${escapeHtml(tr("home.barAria", { month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), true), income: homeWhole_(x.income), expenses: homeWhole_(x.expense) }))}">
       <span class="home-bar-pair"><span class="home-bar income" style="height:${h(x.income)}px"></span><span class="home-bar expense" style="height:${h(x.expense)}px"></span></span>
       <span>${escapeHtml(I18n.monthShort(mo - 1, true))} ${String(y).slice(2)}</span></button>`;
   }).join("");
@@ -10853,6 +10885,9 @@ function renderPaceBig_() {
     const r = hist && paceResolve_(hist, view);
     const nowTotal = r && r.cur && r.cur.cum.length ? r.cur.cum[r.cur.cum.length - 1] : 0;
     card.hidden = !r || !r.cur || (!nowTotal && !(r.ref && r.ref.expense > 0));
+    // Nothing earlier to compare with (a new copy's first month): no "Against earlier months / last year" choice over an empty
+    // comparison (testers, 2026-11-22). In year mode the switch stays, so the person can go back to earlier months.
+    if (!view && !yearMode) document.getElementById("pace-ref-switch").hidden = !(r && r.ref && r.ref.expense > 0);
     if (!card.hidden) drawPace_({ label: document.getElementById("pace-ref-label"), svg: document.getElementById("pace-svg"), lines: document.getElementById("pace-lines") }, r, view);
   };
   if (!paceCatIds_(view)) { draw(monthsHist_); return; }
@@ -11856,30 +11891,36 @@ let catTagSplit_ = null;   // { key, filter, entries } while a category's list i
 function renderCatTagSplit_(entries, key) {
   const box = document.getElementById("drilldown-chips");
   const tagById = new Map((meta.tags || []).map((t) => [t.id, t]));
-  const known = (e) => (e.tagIds || []).filter((id) => tagById.has(id));
+  // Only tags that still exist, each once: a link to a deleted tag (a hand edit of the Sheet) counts as no tag, and the same link
+  // twice counts once (testers, 2026-11-22).
+  const known = (e) => [...new Set((e.tagIds || []).filter((id) => tagById.has(id)))];
   const sums = new Map();
-  let all = 0, none = 0;
+  let all = 0, none = 0, several = false;
   entries.forEach((e) => {
     const v = searchRowMain_(e);
     if (v == null) return;
     all += v;
-    if (!(e.tagIds || []).length) none += v;
-    known(e).forEach((id) => sums.set(id, (sums.get(id) || 0) + v));
+    const ids = known(e);
+    if (!ids.length) none += v;
+    if (ids.length > 1) several = true;
+    ids.forEach((id) => sums.set(id, (sums.get(id) || 0) + v));
   });
   if (!sums.size) { catTagSplit_ = null; box.hidden = true; renderDrilldownEntries(entries); return; }
   const prev = catTagSplit_ && catTagSplit_.key === key ? catTagSplit_.filter : "all";
-  const chips = [{ id: "all", label: tr("flows.all"), sum: all }]
+  const chips = [{ id: "all", label: tr("catTag.all"), sum: all }]
     .concat([...sums.keys()].sort((a, b) => sums.get(b) - sums.get(a)).map((id) => ({ id, label: tagById.get(id).name, sum: sums.get(id) })))
-    .concat(entries.some((e) => !(e.tagIds || []).length) ? [{ id: SEARCH_NO_TAG_, label: tr("search.f.noTag"), sum: none }] : []);
+    .concat(entries.some((e) => !known(e).length) ? [{ id: SEARCH_NO_TAG_, label: tr("search.f.noTag"), sum: none }] : []);
   const filter = chips.some((c) => c.id === prev) ? prev : "all";
   catTagSplit_ = { key, filter, entries };
   const sign = overviewType === "income" ? 1 : -1;
   box.innerHTML = chips.map((c) => `<button type="button" class="flow-chip flow-${overviewType === "income" ? "income" : "expense"}${c.id === filter ? " active" : ""}" data-tagsplit="${escapeHtml(c.id)}" aria-pressed="${c.id === filter}">` +
-    `<span class="flow-chip-label">${escapeHtml(c.label)}</span><span class="flow-chip-amt">${escapeHtml(formatPenSigned_(sign * c.sum))}</span></button>`).join("");
+    `<span class="flow-chip-label">${escapeHtml(c.label)}</span><span class="flow-chip-amt">${escapeHtml(formatPenSigned_(sign * c.sum))}</span></button>`).join("") +
+    // With two tags on one entry the chips add up to more than the total: say why (testers, 2026-11-22).
+    (several ? `<p class="hint cat-tag-note">${escapeHtml(tr("catTag.several"))}</p>` : "");
   box.hidden = false;
   renderDrilldownEntries(filter === "all" ? entries
-    : filter === SEARCH_NO_TAG_ ? entries.filter((e) => !(e.tagIds || []).length)
-    : entries.filter((e) => (e.tagIds || []).includes(filter)));
+    : filter === SEARCH_NO_TAG_ ? entries.filter((e) => !known(e).length)
+    : entries.filter((e) => known(e).includes(filter)));
 }
 document.getElementById("drilldown-chips").addEventListener("click", (e) => {
   const chip = e.target.closest("[data-tagsplit]");
@@ -16965,6 +17006,7 @@ function openBankMailModal_(opts) {
   I18n.applyStatic(backdrop);
   bmEl_("bm-address").textContent = info.address || tr("bankMail.noAddress");
   bmEl_("bm-address2").textContent = info.address || tr("bankMail.noAddress");   // again inside "another address?", next to its Copy button
+  bmEl_("bm-w3").hidden = !!(meta && meta.capabilities && meta.capabilities.forwardedEmails);   // forwards by hand ARE read there (ForwardedEmail.gs)
   bmEl_("bm-copy-btn").hidden = !info.address;
   bmEl_("bm-msg").textContent = "";
   const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails);
@@ -18468,12 +18510,17 @@ beEl_("be-fwd-add-btn").addEventListener("click", () => {
   const addr = String(input.value || "").trim().toLowerCase();
   const msg = beEl_("be-fwd-msg");
   msg.textContent = "";
-  if (!/^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[a-z]{2,}$/i.test(addr)) { msg.textContent = tr("bankMail.fwdBad"); input.focus(); return; }
+  msg.classList.remove("error-text");
+  // A refusal looks like one: red with the failed icon (design system), not a grey hint (testers, 2026-11-22).
+  if (!/^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[a-z]{2,}$/i.test(addr)) { msg.textContent = "❌ " + tr("bankMail.fwdBad"); msg.classList.add("error-text"); input.focus(); return; }
   const list = ((meta && meta.emailInfo) || {}).forwardFrom || [];
   input.value = "";
   if (list.includes(addr)) return;
   saveBeForward_(list.concat([addr]));
 });
+
+// Enter in the address box presses Add (testers, 2026-11-22).
+beEl_("be-fwd-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); beEl_("be-fwd-add-btn").click(); } });
 
 function setBeView_(view) {
   be_.view = view;
@@ -28281,8 +28328,9 @@ function watchOverviewTotalsTip_() {
     key: "ovTotals", place: "overview", level: "basic",
     steps: [
       // (journeys run, 2026-11-17: each part only for someone it is about; light users waited 45-75 days for the first part at 5 entries)
-      { target: () => (popEntriesKnown_() >= 1 ? screen.querySelector(".ov-sum-tile.expense") : null), text: tr("pop.ov.flows") },
-      { target: () => screen.querySelector(".ov-sum-tile.loans"), text: tr("pop.ov.invLoans"), when: ovHasInvOrLoans_ },
+      // Pointed at the whole summary card (tiles and Result), so the bubble sits under it and covers none of what it talks about (Sol, 2026-11-22/23).
+      { target: () => (popEntriesKnown_() >= 1 && screen.querySelector(".ov-sum-tile.expense") ? screen.querySelector(".ov-sum-grid").closest(".card") : null), text: tr("pop.ov.flows") },
+      { target: () => (screen.querySelector(".ov-sum-tile.loans") ? screen.querySelector(".ov-sum-grid").closest(".card") : null), text: tr("pop.ov.invLoans"), when: ovHasInvOrLoans_ },
       { target: () => pending(), text: tr("pop.ov.pendingHere"), when: () => !!pending() }
     ],
     stillWanted: () => !screen.hidden,

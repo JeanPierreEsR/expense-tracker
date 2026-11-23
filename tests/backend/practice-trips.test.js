@@ -101,7 +101,7 @@ test("the practice trip is never suggested for a real entry, and does not make a
   assert.doesNotMatch(card(), /Will be linked/, "alone: nothing to suggest");
   assert.equal(rt.run(`suggestedTripIdForDate_(${JSON.stringify(pending.date)})`), "");
   const real = rt.api("addTrip", { name: "Cusco trip", kind: "trip", start_date: pending.date, end_date: pending.date });
-  assert.match(card(), /Will be linked to: ✈️ Cusco trip/, "a real trip on the same day is still the one suggestion");
+  assert.match(card(), /Part of ✈️ Cusco trip\?/, "a real trip on the same day is still the one suggestion");
   assert.equal(rt.run(`suggestedTripIdForDate_(${JSON.stringify(pending.date)})`), real.id);
   assert.ok(mine.id && mkTrip);
   const listed = rt.api("listPendingEntries", {}).find((e) => e.id === pending.id);

@@ -83,7 +83,24 @@ function deliverNotice_(kind, key, text) {
   var stored = false;
   try { stored = addNotice_(kind, key, text); } catch (err) { console.error('notice: ' + err); }
   if (!telegramLinked_()) return stored;
-  return sendTelegramText_(text);
+  // The first ones go at once (a refused send is not logged and is tried again next time, as before); from the third on they are
+  // held for one summary message (shown in the app either way).
+  if (NOTICE_BATCH_ && NOTICE_BATCH_.sent >= NOTICE_BATCH_MAX_SINGLE_) { NOTICE_BATCH_.held.push(text); return true; }
+  var ok = sendTelegramText_(text);
+  if (NOTICE_BATCH_ && ok) NOTICE_BATCH_.sent++;
+  return ok;
+}
+
+// While the alert checks run together (checkAlertsGuarded_): 2 bot messages one by one, the rest as ONE more message at the end
+// (testers, 2026-11-22: a first check sent 7 sirens in a row to an anxious person).
+var NOTICE_BATCH_ = null;
+var NOTICE_BATCH_MAX_SINGLE_ = 2;
+function flushNoticeBatch_() {
+  var texts = NOTICE_BATCH_ ? NOTICE_BATCH_.held : [];
+  NOTICE_BATCH_ = null;
+  if (!texts.length) return;
+  if (texts.length === 1) { sendTelegramText_(texts[0]); return; }
+  sendTelegramText_(tr_('notice.several', { n: texts.length }) + '\n\n' + texts.join('\n'));
 }
 
 // ---- An open alert follows what is true now (owner, 2026-11-06) ----
@@ -126,9 +143,14 @@ function checkAlertsGuarded_(source) {
   if (last && now >= last && now - last < gap) return { ran: false, reason: 'recent' };
   props.setProperty(ALERT_CHECK_LAST_KEY_, String(now));
   var failed = 0;
-  [checkBudgets, checkTripBudgets, checkOverdueLoans].forEach(function (check) {
-    try { check(); } catch (err) { failed++; console.error('alert check: ' + err); }   // one failing check must not stop the others
-  });
+  NOTICE_BATCH_ = { sent: 0, held: [] };
+  try {
+    [checkBudgets, checkTripBudgets, checkOverdueLoans].forEach(function (check) {
+      try { check(); } catch (err) { failed++; console.error('alert check: ' + err); }   // one failing check must not stop the others
+    });
+  } finally {
+    try { flushNoticeBatch_(); } catch (err) { console.error('alert send: ' + err); }
+  }
   return { ran: true, failed: failed };
 }
 

@@ -268,7 +268,7 @@ function botActionEnd_(kind) {
     var entryIds = {};
     if (act.entryId) entryIds[act.entryId] = true;
     Object.keys(diff.before.e).forEach(function (k) { entryIds[k] = true; });
-    var info = botActionInfo_(act.entryId, diff);
+    var info = botActionInfo_(act.entryId, diff, act.friends);
     if (billsDropped) info.billsDropped = true;
     if (act.habits.length) info.habits = act.habits;
     appendRowObject('Bot Actions', {
@@ -282,17 +282,27 @@ function botActionEnd_(kind) {
   } finally {
     if (act.ownsLock) { try { act.lock.releaseLock(); } catch (e) { /* already released */ } }
   }
+  if (diff) BOT_ALERTS_DUE_ = BOT_ALERTS_DUE_ || 'change';
 }
 
 // What the undo answer names: the entry as it was, and the friend whose debts moved.
-function botActionInfo_(entryId, diff) {
+function botActionInfo_(entryId, diff, alsoFriends) {
   var e = diff.before.e[entryId] || null;
   var friendIds = {};
+  (alsoFriends || []).forEach(function (id) { friendIds[id] = true; });   // an overpayment owed to nobody touches no loan
   Object.keys(diff.before.l).forEach(function (id) {
     var row = diff.before.l[id];
     if (row && row.friend_id) friendIds[row.friend_id] = true;
   });
-  getAllRows('Loans').forEach(function (l) { if (diff.after.l[String(l.id)] !== undefined && l.friend_id) friendIds[l.friend_id] = true; });
+  // A repayment often changes only the Settlements of a loan (grouped by loan_id), not the loan row: those loans count too, so the
+  // answer names the friend (testers, 2026-11-22: "the repayment is removed" without the name).
+  var touchedLoans = {};
+  [diff.before.p || {}, diff.after.p || {}].forEach(function (p) {
+    Object.keys(p).forEach(function (name) { Object.keys(p[name] || {}).forEach(function (k) { touchedLoans[k] = true; }); });
+  });
+  getAllRows('Loans').forEach(function (l) {
+    if ((diff.after.l[String(l.id)] !== undefined || touchedLoans[String(l.id)]) && l.friend_id) friendIds[l.friend_id] = true;
+  });
   var names = getAllRows('Friends').filter(function (f) { return friendIds[f.id]; }).map(function (f) { return f.name; });
   var fields = [];
   var now = getEntryById_(entryId);
@@ -388,6 +398,7 @@ function undoBotAction_(row) {
   Object.keys(before.l).forEach(function (k) { var l = before.l[k]; if (l && l.friend_id && !friends[String(l.friend_id)]) debts = true; });
   var what = info.what || tr_('bot.noDescription');
   if (reappeared && (row.kind === 'discard' || row.kind === 'delrep')) return { refuse: 'already', text: tr_('botUndo.already') };
+  if (row.deleted_batch && !reappeared && !botSafetyCopyLeft_(row.deleted_batch)) return { refuse: 'forgotten', text: tr_('botUndo.forgotten', { what: what }) };
   if (changed) return { refuse: 'changed', text: tr_('botUndo.changed', { what: what }) };
   if (debts) return { refuse: 'debts', text: tr_(info.friend ? 'botUndo.debts' : 'botUndo.debtsNoName', { friend: info.friend }) };
 
@@ -436,6 +447,25 @@ function undoBotAction_(row) {
   return { ok: true, text: text };
 }
 
+// A Discard's Recently deleted copy is still there. "Delete for good" there removes it, and then the bot's own copy may not bring it back.
+function botSafetyCopyLeft_(batchId) {
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Deleted Entries')) return false;
+  return getAllRows('Deleted Entries').some(function (r) { return String(r.batch_id) === String(batchId); });
+}
+
+// "Delete for good" in Recently deleted: the bot's copy of a Discard whose safety copy is now gone is deleted too (same promise:
+// "It can't be restored after this").
+function forgetBotActionsOfBatches_(batchIds) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!batchIds.length || !ss.getSheetByName('Bot Actions')) return;
+  var left = {};
+  if (ss.getSheetByName('Deleted Entries')) getAllRows('Deleted Entries').forEach(function (r) { left[String(r.batch_id)] = true; });
+  var gone = {};
+  batchIds.forEach(function (b) { if (b && !left[String(b)]) gone[String(b)] = true; });
+  if (!Object.keys(gone).length) return;
+  deleteRowsWhere_('Bot Actions', function (r) { return gone[String(r.deleted_batch)] === true; });
+}
+
 // The receipt photos of a Discard's safety copy, put back where they are missing. True when every one came back.
 function botBillsFromSafetyCopy_(batchId) {
   if (!entryBillsSheetExists_()) return false;
@@ -460,7 +490,7 @@ function purgeOldBotActionsIfAny_() {
 
 function botUndoDoneText_(kind, info) {
   var what = info.what || tr_('bot.noDescription');
-  if (kind === 'discard') return tr_('botUndo.discard', { what: what });
+  if (kind === 'discard') return tr_(info.wasPending === false ? 'botUndo.discardBack' : 'botUndo.discard', { what: what });   // a "borrar" of a confirmed entry: back in the history, not waiting
   if (kind === 'delrep') return tr_('botUndo.delrep', { friend: info.friend || '' });
   if (kind === 'repayment' || kind === 'loan' || kind === 'waitpay') {
     return tr_(info.friend ? 'botUndo.' + kind : 'botUndo.' + kind + 'NoName', { what: what, friend: info.friend || '' });
@@ -490,15 +520,76 @@ function botUndoMessage_(targetId, replyTo) {
     // Quoting the transaction's message links the answer to it, so a second "deshacer" right after is about this undo.
     var mainId = String(found.row.entry_ids || '').split(',')[0];
     var quoted = targetId && getAllRows('Telegram Messages').some(function (m) { return String(m.message_id) === String(targetId); }) ? targetId : (whatsappCardFor_(mainId) || replyTo);
-    botText_(res.text, quoted);
     var entry = getEntryById_(mainId);
-    if (entry && entry.status === 'pending') sendTelegramEntryNotification_(entry);
+    var still = entry && entry.status === 'confirmed' && found.row.kind !== 'discard' && found.row.kind !== 'delrep';
+    botText_(still ? res.text + '\n' + tr_('botUndo.stillThere', { what: botUndoWhat_(entry) }) : res.text, quoted);
+    // The transaction's card again, as it is now (owner, 2026-11-23): waiting, with its buttons; confirmed, without them. A plain
+    // message after the undo then refers to it, as after any card.
+    if (entry) sendTelegramEntryNotification_(entry);
   } finally {
     var sent = BOT_MSG_CAPTURE_ || [];
     BOT_MSG_CAPTURE_ = null;
     var ids = [String(targetId || ''), String(replyTo || '')].concat(sent).filter(Boolean);
     botMarkUndone_(found.row.id, ids);
   }
+  BOT_ALERTS_DUE_ = 'force';
+}
+
+// ---- "borrar" / "delete" on either bot (owner, 2026-11-23: testers found no way to remove a wrong entry from the chat) ----
+// As a reply to a transaction's card, or plain (the transaction of the bot's last message). A waiting one is discarded (as the
+// Discard button); a confirmed one is deleted with the app's own safety copy (Recently deleted, 30 days). Both are recorded, so
+// "deshacer" brings it back. A part of a loan or repayment is never deleted here: the app knows its debts.
+function botDeleteWord_(text) {
+  return /^\s*(?:borrar|b[oó]rralo|eliminar|elim[ií]nalo|delete|delete it|remove)\s*[.!]?\s*$/i.test(String(text || ''));
+}
+
+function botDeleteMessage_(targetId, replyTo) {
+  var entryId = targetId ? whatsappCardEntry_(targetId) : '';
+  var entry = entryId ? getEntryById_(entryId) : null;
+  if (!entryId) return botText_(tr_('botDelete.which'), replyTo);
+  if (!entry) return botText_(tr_('bot.entryGone'), replyTo);
+  if (repaymentPartInfo_(entryId) || (entry.status !== 'pending' && entryBulkVerdict_(entry))) return botText_(tr_('botDelete.kept', { what: botUndoWhat_(entry) }), replyTo);
+  var what = botUndoWhat_(entry);
+  var recording = botActionBegin_('discard', entryId, [targetId, replyTo]);
+  var reply;
+  try {
+    if (entry.status === 'pending') {
+      var pair = pendingExchangePair_(entry);
+      if (recording) botActionSafetyCopy_(pair ? [pair.out.id, pair['in'].id] : [entryId]);
+      discardEntryWithRepayments_(entryId);
+      if (pair) discardEntryWithRepayments_(pair.out.id === entryId ? pair['in'].id : pair.out.id);
+    } else {
+      var res = deleteEntries({ ids: [entryId] });
+      if (!res.deleted.length) { reply = tr_('botDelete.kept', { what: what }); }
+      else if (BOT_ACTION_) BOT_ACTION_.batch = res.batch_id || '';
+    }
+    if (!reply) reply = tr_('botDelete.deleted', { what: what });
+    botText_(reply, replyTo);
+  } catch (err) {
+    botText_(tr_('bot.notDiscarded', { error: err.message }), replyTo);
+  } finally {
+    if (recording) botActionEnd_('discard');
+  }
+}
+
+// After a bot action or its undo, the alerts are looked at again (as the app does a few seconds after a save): a budget that went
+// over gets its alert now, and one back under loses its notice (testers, 2026-11-22: the red notice stayed after "deshacer").
+// Never inside the action's lock: each check takes and releases the script lock itself.
+// Set by a recorded bot action ('change') or an undo ('force'); run by doPost once the bot's answer is sent and no lock is held.
+var BOT_ALERTS_DUE_ = '';
+function botAlertsIfDue_() {
+  var due = BOT_ALERTS_DUE_;
+  BOT_ALERTS_DUE_ = '';
+  if (due) botAlertsAfter_(due === 'force');
+}
+
+// force (an undo, rare): even when a check ran a moment ago, since that check saw the world before the undo.
+function botAlertsAfter_(force) {
+  try {
+    if (typeof checkAlertsGuarded_ !== 'function') return;
+    if (force) PropertiesService.getScriptProperties().deleteProperty(ALERT_CHECK_LAST_KEY_);
+    checkAlertsGuarded_('change');
+  } catch (err) { console.error('bot alerts: ' + err); }
 }
 
 function botMarkUndone_(id, msgIds) {
