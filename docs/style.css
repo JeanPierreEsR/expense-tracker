@@ -65,6 +65,9 @@
 
 * { box-sizing: border-box; }
 
+/* Every screen scrolls up and down only (owner, 2026-11-23). "clip", not "hidden": it keeps sticky headers and bars working. */
+html, body { overflow-x: clip; }
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -655,6 +658,10 @@ input[type="date"] {
      border/shadow offset from our own box. */
   -webkit-appearance: none;
   appearance: none;
+  /* iOS sizes a date box by its own text and can draw it wider than the form (owner, 2026-11-23: the new-loan window
+     slid sideways); held to the form's width everywhere, not one form at a time. */
+  display: block;
+  max-width: 100%;
 }
 
 .row {
@@ -1242,6 +1249,9 @@ button.primary.danger {
   /* A sheet whose content is taller than it (the Categories form, with its emoji and colour pickers) scrolls as a
      whole; before this its lower part (Save, Hide, Delete) was cut off and unreachable without a header drag. */
   overflow-y: auto;
+  /* Up and down only (owner, 2026-11-23): a sheet never slides sideways, even when something inside is a few px too wide.
+     A row meant to swipe sideways scrolls inside itself, so it is not affected. */
+  overflow-x: hidden;
   overscroll-behavior: contain;
 }
 
@@ -4316,3 +4326,10 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 
 /* A forwarder's address can be long with nothing to break it at: it wraps inside the card instead of running off (Wilmer, 375 px). */
 .review-forwarded { overflow-wrap: anywhere; }
+
+/* Up and down only (owner, 2026-11-23). A box that scrolls up and down also scrolls sideways unless told not to, so a form a few px
+   too wide (the new-loan window) slid left and right under the finger. Every up-and-down box is locked sideways here; the rows built
+   to swipe sideways (filters, Home cards, months, period chips, tour cards), the statement viewer and the typing boxes are not in
+   this list. tests/screen-fit/check.js stops a ship on a new box that scrolls both ways: add it here, or to its SIDEWAYS list. */
+:is(.budget-modal-body, .edit-entry-modal-body, .drilldown-scroll-area, .currency-option-list, .bill-scroll, .cat-emoji-groups,
+  .app-confirm-text, .welcome-overlay, .tour-slide, .pace-screen-body:not(#stmt-viewer-scroll)) { overflow-x: hidden; }

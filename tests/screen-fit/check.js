@@ -42,6 +42,8 @@ function audit() {
     // An ancestor that scrolls or clips sideways makes this element's position its own business (a swipeable row).
     let held = false;
     for (let p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) {
+      // The page and every sheet clip sideways only as a safety net (up-and-down only, 2026-11-23): what they would cut still counts.
+      if (p === document.body || p.classList.contains("currency-modal")) continue;
       const ox = getComputedStyle(p).overflowX;
       if (ox !== "visible") { held = true; break; }
     }
@@ -116,6 +118,15 @@ function audit() {
         setNavTabs_(NAV_DEFAULT_);
         return [...new Set(out)];
       })) findings.push(`[${lang}] ${f}`);
+      // Up and down only (owner, 2026-11-23): a box that scrolls up and down must not also scroll sideways (in docs/style.css, the
+      // "Up and down only" list). Only the rows built to swipe sideways may scroll both ways. Checked on every box of the page, the
+      // closed sheets included (their settings are readable while hidden). Typing boxes keep the phone's own behaviour.
+      const SIDEWAYS = ["search-filter-bar", "home-glance-track", "period-type-chips", "months-scroll", "stmt-viewer-scroll"];
+      for (const f of await page.evaluate((ok) => [...new Set([...document.querySelectorAll("body *")].filter((e) => {
+        const c = getComputedStyle(e);
+        return e.tagName !== "TEXTAREA" && /auto|scroll/.test(c.overflowX) && /auto|scroll/.test(c.overflowY) && !ok.includes(e.id) && !ok.some((k) => e.classList.contains(k));
+      }).map((e) => (e.id ? "#" + e.id : "." + [...e.classList].join("."))))], SIDEWAYS))
+        findings.push(`[${lang}] scrolls sideways as well as up and down: ${f} (add it to "Up and down only" in style.css, or to SIDEWAYS here if it is meant to swipe)`);
       // The new-entry sheet.
       await page.evaluate(() => document.querySelector('.nav-btn[data-screen="entries"]').click());
       await settle();

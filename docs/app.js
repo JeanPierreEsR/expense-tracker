@@ -13356,18 +13356,27 @@ let tapShieldUntil_ = 0;
   new MutationObserver(syncSheetScrollLock_).observe(document.body, {
     subtree: true, childList: true, attributes: true, attributeFilter: ["hidden"]
   });
-  let lastY = 0;
-  document.addEventListener("touchstart", (e) => { lastY = e.touches[0].clientY; }, { passive: true });
+  let lastX = 0, lastY = 0;
+  document.addEventListener("touchstart", (e) => { lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; }, { passive: true });
   document.addEventListener("touchmove", (e) => {
     if (!document.body.classList.contains("sheet-open")) return;
-    const dy = e.touches[0].clientY - lastY;
+    const dx = e.touches[0].clientX - lastX, dy = e.touches[0].clientY - lastY;
+    lastX = e.touches[0].clientX;
     lastY = e.touches[0].clientY;
     for (let el = e.target; el && el !== document.body; el = el.parentElement) {
       if (el.closest && !el.closest(".currency-modal")) break;
-      if (el.scrollHeight > el.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowY)) {
+      const st = getComputedStyle(el);
+      if (el.scrollHeight > el.clientHeight + 1 && /(auto|scroll)/.test(st.overflowY)) {
         const atTop = el.scrollTop <= 0;
         const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
         if ((dy > 0 && !atTop) || (dy < 0 && !atBottom)) return;
+      }
+      // Something built to swipe sideways inside a sheet (a zoomed statement) keeps its sideways swipe (owner, 2026-11-23);
+      // the up-and-down boxes are locked sideways in style.css, so they never pass here.
+      if (el.scrollWidth > el.clientWidth + 1 && /(auto|scroll)/.test(st.overflowX)) {
+        const atLeft = el.scrollLeft <= 0;
+        const atRight = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+        if ((dx > 0 && !atLeft) || (dx < 0 && !atRight)) return;
       }
     }
     if (e.cancelable) e.preventDefault();
