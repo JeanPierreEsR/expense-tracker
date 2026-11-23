@@ -91,7 +91,7 @@ test("bad input is refused: no digits, no bank, an unknown kind", () => {
   assert.equal(pmRows(rt).some((r) => String(r.last_4) === "1234"), false);
 });
 
-// "Is this your …?" (2026-11-23, after Mia's test): an account of the same type with no last 4 digits is offered instead of a new one.
+// "Is this your …?" (2026-11-23, after a tester's report): an account of the same type with no last 4 digits is offered instead of a new one.
 function addCard(rt, over = {}) {
   const bank = rt.api("addBank", { name: over.bank || "Interbank" });
   return rt.api("savePaymentMethod", { nickname: over.nickname || "My made-up card", type: over.type || "credit", bank_id: over.noBank ? "" : bank.id, last_4: over.last_4 || "" });

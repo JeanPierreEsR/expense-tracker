@@ -29,7 +29,7 @@ function stmtNewAccountCurrency_(st) {
   return cur === 'USD' ? 'USD' : 'PEN';
 }
 
-// The person's own accounts a statement for an unknown account may really be (owner, 2026-11-23, after Mia's test: her Interbank card had
+// The person's own accounts a statement for an unknown account may really be (owner, 2026-11-23, after a tester's report: her Interbank card had
 // no last 4 digits, so its statement was offered as a NEW account): same type (card statement = credit, account statement = debit), no
 // last 4 digits yet, not hidden, not the practice account; those of the statement's bank first, then those with no bank at all. The
 // phone asks "Is this your …?" and a Yes gives that account the digits (createStatementAccounts with `id`). [{ id, nickname }]

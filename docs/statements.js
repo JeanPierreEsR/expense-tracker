@@ -237,7 +237,7 @@
     document.querySelectorAll("#stmt-stepper .stmt-pill").forEach((b) => { const n = Number(b.dataset.step); b.disabled = !(n === stepNow || canGoTo(n)); });
   }
 
-  // Cards and bank accounts with no last 4 digits (owner, 2026-11-23, after Mia's test): a statement is matched to its account by those
+  // Cards and bank accounts with no last 4 digits (owner, 2026-11-23, after a tester's report): a statement is matched to its account by those
   // digits, so without them the statement looks like a NEW account. Step 1 names them, each with a button to its own window.
   function digitlessAccounts() {
     return ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).filter((pm) => (pm.type === "debit" || pm.type === "credit")
