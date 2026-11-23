@@ -5190,8 +5190,14 @@ function buildExchangePairRow_(p) {
   }
   row.appendChild(left);
   row.appendChild(amount);
-  row.addEventListener("click", () => openExchangePairSheet_(p));
+  row.addEventListener("click", () => openExchangePair_(p));
   return row;
+}
+// Tapping an exchange opens the form with both sides at once (owner, 2026-11-23); an older backend keeps the sheet with one edit per side.
+function openExchangePair_(p) {
+  if (!((meta && meta.capabilities) || {}).exchangeEdit) { openExchangePairSheet_(p); return; }
+  if (blockedWhileSavingEdit_(p.out.id) || blockedWhileSavingEdit_(p.in.id)) return;
+  openExchangeModal_({ pair: p });
 }
 let exchangePairOpen_ = null;
 function openExchangePairSheet_(p) {
@@ -5221,29 +5227,21 @@ function openExchangePairSheet_(p) {
     box.appendChild(edit);
     sides.appendChild(box);
   });
-  // First choice: both sides in one form (owner, 2026-11-23); the side-by-side edits stay under it (e.g. "Not an exchange").
-  document.getElementById("xpair-edit-btn").hidden = !((meta && meta.capabilities) || {}).exchangeEdit;
   const backdrop = document.getElementById("xpair-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
 }
 function closeExchangePairSheet_() { document.getElementById("xpair-backdrop").hidden = true; }
-document.getElementById("xpair-edit-btn").addEventListener("click", () => {
-  const p = exchangePairOpen_;
-  if (!p) return;
-  closeExchangePairSheet_();
-  if (blockedWhileSavingEdit_(p.out.id) || blockedWhileSavingEdit_(p.in.id)) return;
-  openExchangeModal_({ pair: p });
-});
 document.getElementById("xpair-close").addEventListener("click", closeExchangePairSheet_);
 document.getElementById("xpair-backdrop").addEventListener("click", (e) => { if (e.target.id === "xpair-backdrop") closeExchangePairSheet_(); });
-document.getElementById("xpair-delete-btn").addEventListener("click", async () => {
-  const p = exchangePairOpen_;
+document.getElementById("xpair-delete-btn").addEventListener("click", () => deleteExchangePair_(exchangePairOpen_, closeExchangePairSheet_));
+// Deletes both sides of an exchange, from its sheet or its edit form (`close` shuts whichever it was).
+async function deleteExchangePair_(p, close) {
   if (!p) return;
   const what = `${formatAmount(p.out.amount, p.out.currency)} → ${formatAmount(p.in.amount, p.in.currency)}`;
   if (!await askConfirmApp_(tr("xch.pairConfirm", { what }), tr("confirmBtn.yes"), { plain: true })) return;
-  // Saving standard: the sheet closes at once and the row says "Deleting…" until both sides are gone.
-  closeExchangePairSheet_();
+  // Saving standard: the window closes at once and the row says "Deleting…" until both sides are gone.
+  close();
   [p.out.id, p.in.id].forEach((id) => deletingEntryIds_.add(id));
   renderEntryListFromCache_();
   if (searchActive) renderSearchResults_();
@@ -5260,7 +5258,7 @@ document.getElementById("xpair-delete-btn").addEventListener("click", async () =
   refreshBalances().catch(() => {});
   if (searchActive) refreshSearchAfterEdit_().catch(() => {});
   if (currentDrilldown && currentDrilldown.refetch) { try { await currentDrilldown.refetch(); } catch (e) { /* the list shows its own error */ } }
-});
+}
 
 // Adds (or replaces) the Load more button at the end of the list.
 function setLoadMoreButton_(list, hasMore) {
@@ -9383,7 +9381,7 @@ function fillExchangeForm_(opts) {
 // Both sides keep an account of the person's ("Outside my accounts" is not offered: that would drop a side).
 function fillExchangeEditForm_(p) {
   const house = exchangeHouseOf_(p);
-  exchangeEditing_ = { out: p.out, in: p.in, house };
+  exchangeEditing_ = { pair: p, out: p.out, in: p.in, house };
   exchangeContext_ = null;
   setExchangeEditLook_(true);
   document.getElementById("exchange-date").value = p.out.date;
@@ -9401,10 +9399,22 @@ function fillExchangeEditForm_(p) {
   updateExchangeRateLine_();
   updateExchangeChecks_();
 }
+document.getElementById("exchange-delete-btn").addEventListener("click", () => {
+  const p = exchangeEditing_ && exchangeEditing_.pair;
+  deleteExchangePair_(p, closeExchangeModal_);
+});
+// "Edit each side on its own": the sheet with one edit per side (to change what a side is, or undo a wrong link).
+document.getElementById("exchange-sides-btn").addEventListener("click", () => {
+  const p = exchangeEditing_ && exchangeEditing_.pair;
+  if (!p) return;
+  closeExchangeModal_();
+  openExchangePairSheet_(p);
+});
 function setExchangeEditLook_(on) {
   const ctx = document.getElementById("exchange-context");
   if (on) { ctx.hidden = false; ctx.textContent = tr("xch.editIntro"); }
   document.querySelector('#exchange-form [data-i18n="xch.intro"]').hidden = on;
+  document.getElementById("exchange-edit-extras").hidden = !on;
   const btn = document.getElementById("exchange-save-btn");
   btn.setAttribute("data-i18n", on ? "xch.saveEdit" : "xch.save");
   btn.textContent = tr(on ? "xch.saveEdit" : "xch.save");
