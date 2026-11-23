@@ -378,7 +378,7 @@ test("'borrar' on a confirmed entry's card deletes it with a Recently deleted co
 test("'delete' on a waiting card discards it; 'borrar' with no card asks which", () => {
   const a = waApp();
   a.text("borrar");
-  assert.match(a.lastBody(), /tarjeta del movimiento|card of the transaction/);
+  assert.match(a.lastBody(), /mensaje del movimiento|message of the transaction/);
   const e = readyExpense(a, "12 snack");
   a.text("delete", { context_id: a.cardIdOf(e.id) });
   assert.equal(a.entry(e.id), undefined);

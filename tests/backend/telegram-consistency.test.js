@@ -22,7 +22,7 @@ function commandExamples() {
     const key = m[1];
     if (!/^(help\.|bot\.(notSet|blocker|need|tripWillLink|transferNoEnds|internalTransfer))/.test(key) || key === "help.bothLanguages") continue;
     for (const [lang, raw] of [["en", m[2]], ["es", m[3]]]) {
-      for (const q of fill(raw).matchAll(/\\"(.+?)\\"/g)) out.push({ key, lang, example: q[1] });
+      for (const q of fill(raw).matchAll(/\\"(.+?)\\"|“(.+?)”/g)) out.push({ key, lang, example: q[1] || q[2] });
     }
   }
   return out;
