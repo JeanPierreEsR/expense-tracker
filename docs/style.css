@@ -4303,3 +4303,10 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 
 /* A forwarder's address can be long with nothing to break it at: it wraps inside the card instead of running off (Wilmer, 375 px). */
 .review-forwarded { overflow-wrap: anywhere; }
+
+/* Up and down only (owner, 2026-11-23). A box that scrolls up and down also scrolls sideways unless told not to, so a form a few px
+   too wide (the new-loan window) slid left and right under the finger. Every up-and-down box is locked sideways here; the rows built
+   to swipe sideways (filters, Home cards, months, period chips, tour cards), the statement viewer and the typing boxes are not in
+   this list. tests/screen-fit/check.js stops a ship on a new box that scrolls both ways: add it here, or to its SIDEWAYS list. */
+:is(.budget-modal-body, .edit-entry-modal-body, .drilldown-scroll-area, .currency-option-list, .bill-scroll, .cat-emoji-groups,
+  .app-confirm-text, .welcome-overlay, .tour-slide, .pace-screen-body:not(#stmt-viewer-scroll)) { overflow-x: hidden; }
