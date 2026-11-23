@@ -5190,8 +5190,14 @@ function buildExchangePairRow_(p) {
   }
   row.appendChild(left);
   row.appendChild(amount);
-  row.addEventListener("click", () => openExchangePairSheet_(p));
+  row.addEventListener("click", () => openExchangePair_(p));
   return row;
+}
+// Tapping an exchange opens the form with both sides at once (owner, 2026-11-23); an older backend keeps the sheet with one edit per side.
+function openExchangePair_(p) {
+  if (!((meta && meta.capabilities) || {}).exchangeEdit) { openExchangePairSheet_(p); return; }
+  if (blockedWhileSavingEdit_(p.out.id) || blockedWhileSavingEdit_(p.in.id)) return;
+  openExchangeModal_({ pair: p });
 }
 let exchangePairOpen_ = null;
 function openExchangePairSheet_(p) {
@@ -5228,13 +5234,14 @@ function openExchangePairSheet_(p) {
 function closeExchangePairSheet_() { document.getElementById("xpair-backdrop").hidden = true; }
 document.getElementById("xpair-close").addEventListener("click", closeExchangePairSheet_);
 document.getElementById("xpair-backdrop").addEventListener("click", (e) => { if (e.target.id === "xpair-backdrop") closeExchangePairSheet_(); });
-document.getElementById("xpair-delete-btn").addEventListener("click", async () => {
-  const p = exchangePairOpen_;
+document.getElementById("xpair-delete-btn").addEventListener("click", () => deleteExchangePair_(exchangePairOpen_, closeExchangePairSheet_));
+// Deletes both sides of an exchange, from its sheet or its edit form (`close` shuts whichever it was).
+async function deleteExchangePair_(p, close) {
   if (!p) return;
   const what = `${formatAmount(p.out.amount, p.out.currency)} → ${formatAmount(p.in.amount, p.in.currency)}`;
   if (!await askConfirmApp_(tr("xch.pairConfirm", { what }), tr("confirmBtn.yes"), { plain: true })) return;
-  // Saving standard: the sheet closes at once and the row says "Deleting…" until both sides are gone.
-  closeExchangePairSheet_();
+  // Saving standard: the window closes at once and the row says "Deleting…" until both sides are gone.
+  close();
   [p.out.id, p.in.id].forEach((id) => deletingEntryIds_.add(id));
   renderEntryListFromCache_();
   if (searchActive) renderSearchResults_();
@@ -5251,7 +5258,7 @@ document.getElementById("xpair-delete-btn").addEventListener("click", async () =
   refreshBalances().catch(() => {});
   if (searchActive) refreshSearchAfterEdit_().catch(() => {});
   if (currentDrilldown && currentDrilldown.refetch) { try { await currentDrilldown.refetch(); } catch (e) { /* the list shows its own error */ } }
-});
+}
 
 // Adds (or replaces) the Load more button at the end of the list.
 function setLoadMoreButton_(list, hasMore) {
@@ -9132,12 +9139,14 @@ function reviewPutBackRowEdits_(item, changed) {
 // Two one-sided transfers saved together, in either direction. Opened from the Transfer tab, or from a review card
 // (`entry`, `leg`: that pending entry becomes the leg that left ("out") or arrived ("in") and keeps its e-mail reference).
 var exchangeContext_;
+// The exchange being edited as a whole (both sides in this one form, owner 2026-11-23): { out, in, house }, else null.
+var exchangeEditing_ = null;
 
-function exchangeAccountOptions_(selectedId) {
+function exchangeAccountOptions_(selectedId, noOutside) {
   const own = meta.paymentMethods.filter((pm) => pm.type !== "investment" && (!pmHidden_(pm) || pm.id === selectedId));
   return `<option value="__pick__">${escapeHtml(tr("xch.pickAccount"))}</option>` +
     own.map((pm) => `<option value="${pm.id}"${ACCT_OPT_} ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("") +
-    `<option value="">${escapeHtml(tr("xch.outside"))}</option>`;
+    (noOutside ? "" : `<option value="">${escapeHtml(tr("xch.outside"))}</option>`);
 }
 
 function exchangeCurrencyOptions_(selected) {
@@ -9259,11 +9268,57 @@ function syncExchangeLegKindOptions_(kindSelect) {
     kindSelect.value = "xleg";
   }
 }
+// Linking a side to its other side by hand (owner, 2026-11-23): the sheet opens at once with "Loading…", lists the candidates the server
+// finds, and a tap links the two behind the screen (the edit window closes: the link is the change the person asked for).
+document.getElementById("exchange-link-btn").addEventListener("click", () => openExchangeLink_(editingEntryId, editingExchangeLeg_));
+document.getElementById("xlink-close").addEventListener("click", () => { document.getElementById("xlink-backdrop").hidden = true; });
+async function openExchangeLink_(id, side) {
+  if (!id) return;
+  const backdrop = document.getElementById("xlink-backdrop");
+  const body = document.getElementById("xlink-body");
+  body.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  let list;
+  try { list = await callApi("listExchangeLinkCandidates", { id }); }
+  catch (err) { body.innerHTML = `<p class="hint error-text">${escapeHtml(err.message)}</p>`; return; }
+  if (backdrop.hidden) return;
+  const pmName = (pid) => { const pm = meta.paymentMethods.find((p) => p.id === pid); return pm ? pm.nickname : ""; };
+  body.innerHTML = `<p class="hint">${escapeHtml(tr(side === "in" ? "xlink.hintIn" : "xlink.hintOut"))}</p>`;
+  if (!list.length) { body.insertAdjacentHTML("beforeend", `<p class="hint">${escapeHtml(tr("xlink.none"))}</p>`); return; }
+  list.forEach((c) => {
+    const row = document.createElement("div");
+    row.className = "link-candidate-row";
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    row.style.display = "block";
+    row.style.cursor = "pointer";
+    row.innerHTML = `<div class="hint" style="margin:0 0 4px;font-weight:600;">${escapeHtml(tr(c.side === "in" ? "xch.arrived" : "xch.left"))} · ${escapeHtml(listDate_(c.date))}</div>
+      <div><b>${formatAmount(c.amount, c.currency)}</b>${pmName(c.account) ? ` · ${escapeHtml(pmName(c.account))}` : ""}</div>
+      ${c.taken ? `<div class="hint" style="margin:4px 0 0;">${escapeHtml(tr("xlink.taken"))}</div>` : ""}`;
+    row.addEventListener("click", () => {
+      backdrop.hidden = true;
+      if (!document.getElementById("edit-entry-modal-backdrop").hidden && editingEntryId === id) closeEditPopup();
+      saveBehindScreen_(async () => {
+        await callApi("linkExchangeSides", { id, partner_id: c.id });
+      }, async () => {
+        await refreshEntryList().catch(() => {});
+        if (searchActive) refreshSearchAfterEdit_().catch(() => {});
+        if (currentDrilldown && currentDrilldown.refetch) { try { await currentDrilldown.refetch(); } catch (e) { /* the list shows its own error */ } }
+      });
+    });
+    body.appendChild(row);
+  });
+}
+
 // Only the side's own account while it stays an exchange; both accounts once it is "my own transfer".
 function applyExchangeLegLayout_(kind) {
   const hint = document.getElementById("exchange-leg-hint");
   const on = !!editingExchangeLeg_ && selectedType === "transfer" && (kind === "xleg" || kind === "unexchange");
   hint.hidden = !on;
+  // "Link to the other side": a saved side (not a Needs review item, not a side holding both accounts) while it stays an exchange.
+  document.getElementById("exchange-link-btn").hidden = !(on && kind === "xleg" && editingEntryId && !confirmingPendingId && !editingXLegBroken_
+    && ((meta && meta.capabilities) || {}).exchangeLink);
   if (!on) return;
   const arrived = editingExchangeLeg_ === "in";
   document.getElementById("to-payment-method-hint").hidden = true;   // "Optional…" is about a plain transfer's To: not this side's account, nor a required one
@@ -9334,6 +9389,9 @@ function openExchangeModal_(opts) {
 
 function fillExchangeForm_(opts) {
   opts = opts || {};
+  exchangeEditing_ = null;
+  setExchangeEditLook_(false);
+  if (opts.pair) { fillExchangeEditForm_(opts.pair); return; }
   const entry = opts.entry || null;
   const leg = opts.leg === "in" ? "in" : "out";
   exchangeContext_ = entry ? { entry, leg } : null;
@@ -9365,6 +9423,49 @@ function fillExchangeForm_(opts) {
   updateExchangeChecks_();
 }
 
+// Editing a whole exchange (owner, 2026-11-23): the same form, filled with both sides; Save changes both at once (updateCurrencyExchange).
+// Both sides keep an account of the person's ("Outside my accounts" is not offered: that would drop a side).
+function fillExchangeEditForm_(p) {
+  const house = exchangeHouseOf_(p);
+  exchangeEditing_ = { pair: p, out: p.out, in: p.in, house };
+  exchangeContext_ = null;
+  setExchangeEditLook_(true);
+  document.getElementById("exchange-date").value = p.out.date;
+  setExchangeInDate_(p.in.date && p.in.date !== p.out.date ? p.in.date : "");
+  document.getElementById("exchange-out-account").innerHTML = exchangeAccountOptions_(p.out.payment_method_id, true);
+  document.getElementById("exchange-in-account").innerHTML = exchangeAccountOptions_(p.in.to_payment_method_id, true);
+  document.getElementById("exchange-out-currency").innerHTML = exchangeCurrencyOptions_(p.out.currency);
+  document.getElementById("exchange-in-currency").innerHTML = exchangeCurrencyOptions_(p.in.currency);
+  document.getElementById("exchange-out-amount").value = Math.abs(Number(p.out.amount));
+  document.getElementById("exchange-in-amount").value = Math.abs(Number(p.in.amount));
+  document.getElementById("exchange-house").value = house;
+  document.getElementById("exchange-form-error").textContent = "";
+  exchangeCurTouched_ = { out: true, in: true };   // (an account picked now never changes a saved currency by itself)
+  exchangeRememberCur_();
+  updateExchangeRateLine_();
+  updateExchangeChecks_();
+}
+document.getElementById("exchange-delete-btn").addEventListener("click", () => {
+  const p = exchangeEditing_ && exchangeEditing_.pair;
+  deleteExchangePair_(p, closeExchangeModal_);
+});
+// "Edit each side on its own": the sheet with one edit per side (to change what a side is, or undo a wrong link).
+document.getElementById("exchange-sides-btn").addEventListener("click", () => {
+  const p = exchangeEditing_ && exchangeEditing_.pair;
+  if (!p) return;
+  closeExchangeModal_();
+  openExchangePairSheet_(p);
+});
+function setExchangeEditLook_(on) {
+  const ctx = document.getElementById("exchange-context");
+  if (on) { ctx.hidden = false; ctx.textContent = tr("xch.editIntro"); }
+  document.querySelector('#exchange-form [data-i18n="xch.intro"]').hidden = on;
+  document.getElementById("exchange-edit-extras").hidden = !on;
+  const btn = document.getElementById("exchange-save-btn");
+  btn.setAttribute("data-i18n", on ? "xch.saveEdit" : "xch.save");
+  btn.textContent = tr(on ? "xch.saveEdit" : "xch.save");
+}
+
 // "The money arrived another day" (owner, 2026-11-23): a button, not a field; tapped, it shows the arrival date, which "Same day" folds
 // back. Only where the backend takes `in_date` (capability exchangeInDate).
 const exchangeInDateOn_ = () => !!((meta && meta.capabilities) || {}).exchangeInDate;
@@ -9383,6 +9484,7 @@ document.getElementById("exchange-in-date-same").addEventListener("click", () =>
 function closeExchangeModal_() {
   document.getElementById("exchange-modal-backdrop").hidden = true;
   exchangeContext_ = null;
+  exchangeEditing_ = null;
   moneyReopen_ = null;
 }
 
@@ -9419,6 +9521,25 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
   if (!out.payment_method_id && !inn.payment_method_id) { errorEl.textContent = tr("xch.needAccount"); return; }
   const ctx = exchangeContext_;
   if (ctx && !(ctx.leg === "out" ? out : inn).payment_method_id) { errorEl.textContent = tr("xch.needOwnSide"); return; }
+  const editing = exchangeEditing_;
+  if (editing) {   // the whole exchange edited at once: both sides change together, saved behind the screen
+    if (!out.payment_method_id || !inn.payment_method_id) { errorEl.textContent = tr("xch.editBothAccounts"); return; }
+    const house = document.getElementById("exchange-house").value.trim();
+    const body = {
+      out_id: editing.out.id, in_id: editing.in.id, date, in_date: inDate, out, in: inn,
+      house: house !== editing.house ? house : undefined   // unchanged: each side keeps its own wording
+    };
+    closeExchangeModal_();
+    saveBehindScreen_(async () => {
+      await callApi("updateCurrencyExchange", body);
+    }, async () => {
+      await refreshEntryList().catch(() => {});
+      refreshBalances().catch(() => {});
+      if (searchActive) refreshSearchAfterEdit_().catch(() => {});
+      if (currentDrilldown && currentDrilldown.refetch) { try { await currentDrilldown.refetch(); } catch (e) { /* the list shows its own error */ } }
+    });
+    return;
+  }
 
   const wasInline = exchangeFormIsInline_();
   // A plain new exchange saves behind the screen; turning a waiting (pending) entry into one leg stays foreground — it
@@ -10063,9 +10184,93 @@ function renderHomeCharges_() {
   box.hidden = false;
 }
 
+// "Exchanges to link (n)" (owner, 2026-11-23): old exchange sides saved apart on different days, for the person to link or refuse.
+// An older backend sends no count: no card.
+function renderHomeXLinks_() {
+  const box = document.getElementById("home-xlinks");
+  const n = Number((homeGlance_ && homeGlance_.exchangeLinks) || 0);
+  if (!n) { box.hidden = true; return; }
+  box.innerHTML = `<span><div class="home-charges-title">${escapeHtml(tr("xsugg.title", { n }))}</div><p class="hint">${escapeHtml(tr("xsugg.sub"))}</p></span><span class="home-charges-chevron">›</span>`;
+  box.hidden = false;
+}
+document.getElementById("home-xlinks").addEventListener("click", () => openExchangeSuggest_());
+document.getElementById("xsugg-close").addEventListener("click", () => { document.getElementById("xsugg-backdrop").hidden = true; });
+// One row's Link / Not these: the row goes at once and the request runs behind it. Not saveBehindScreen_: its 0.8 s tap guard is
+// for a window that just closed, and this list stays open (quick taps through it were silently dropped).
+const xsuggSend_ = (action, payload, after) => callApi(action, payload).then(after)
+  .catch((err) => { appMessage_(tr("common.notSaved", { error: err.message })); refreshHomeGlance_(true); });   // (the pair is offered again)
+const xsuggAfter_ = async () => {
+  await refreshEntryList().catch(() => {});
+  refreshHomeGlance_(true);
+  if (searchActive) refreshSearchAfterEdit_().catch(() => {});
+};
+async function openExchangeSuggest_() {
+  const backdrop = document.getElementById("xsugg-backdrop");
+  const body = document.getElementById("xsugg-body");
+  body.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  let pairs;
+  try { pairs = await callApi("listExchangeLinkSuggestions", {}); }
+  catch (err) { body.innerHTML = `<p class="hint error-text">${escapeHtml(err.message)}</p>`; return; }
+  if (backdrop.hidden) return;
+  const pmName = (pid) => { const pm = meta.paymentMethods.find((p) => p.id === pid); return pm ? pm.nickname : ""; };
+  const sideLine = (label, s) => `<div class="hint" style="margin:0 0 2px;font-weight:600;">${escapeHtml(tr(label))} · ${escapeHtml(listDate_(s.date))}</div>
+    <div><b>${formatAmount(s.amount, s.currency)}</b>${pmName(s.account) ? ` · ${escapeHtml(pmName(s.account))}` : ""}</div>`;
+  let left = pairs.slice();
+  const draw = () => {
+    body.innerHTML = `<p class="hint">${escapeHtml(tr("xsugg.hint"))}</p>`;
+    if (!left.length) { body.insertAdjacentHTML("beforeend", `<p class="hint">${escapeHtml(tr("xsugg.none"))}</p>`); return; }
+    if (left.length > 1) {
+      const all = document.createElement("button");
+      all.type = "button";
+      all.className = "primary";
+      all.textContent = tr("xsugg.linkAll", { n: left.length });
+      all.addEventListener("click", () => {
+        const these = left.map((p) => ({ id: p.out.id, partner_id: p.in.id }));
+        backdrop.hidden = true;
+        saveBehindScreen_(() => callApi("linkExchangePairs", { pairs: these }), xsuggAfter_);
+      });
+      body.appendChild(all);
+    }
+    left.forEach((p) => {
+      const row = document.createElement("div");
+      row.className = "link-candidate-row";
+      row.style.display = "block";
+      row.innerHTML = sideLine("xch.left", p.out) + `<div style="height:6px"></div>` + sideLine("xch.arrived", p.in)
+        + `<div class="xsugg-actions"><button type="button" class="add-inline" data-act="link">${escapeHtml(tr("xsugg.link"))}</button>`
+        + `<button type="button" class="add-inline" data-act="no">${escapeHtml(tr("xsugg.notThese"))}</button></div>`;
+      row.querySelector('[data-act="link"]').addEventListener("click", () => {
+        left = left.filter((x) => x !== p);
+        draw();
+        xsuggSend_("linkExchangePairs", { pairs: [{ id: p.out.id, partner_id: p.in.id }] }, xsuggAfter_);
+      });
+      row.querySelector('[data-act="no"]').addEventListener("click", () => {
+        left = left.filter((x) => x !== p);
+        draw();
+        xsuggSend_("refuseExchangeLinkSuggestion", { out_id: p.out.id, in_id: p.in.id }, () => refreshHomeGlance_(true));
+      });
+      body.appendChild(row);
+    });
+    const stop = document.createElement("button");
+    stop.type = "button";
+    stop.className = "add-inline";
+    stop.textContent = tr("xsugg.stop");
+    stop.addEventListener("click", async () => {
+      if (!await askConfirmApp_(tr("xsugg.stopAsk"), tr("confirmBtn.stopSuggesting"), { plain: true })) return;
+      backdrop.hidden = true;
+      document.getElementById("home-xlinks").hidden = true;
+      saveBehindScreen_(() => callApi("stopExchangeLinkSuggestions", {}), () => refreshHomeGlance_(true));
+    });
+    body.appendChild(stop);
+  };
+  draw();
+}
+
 function renderHomeGlance_() {
   renderHomeUnreadable_();
   renderHomeCharges_();
+  renderHomeXLinks_();
   const box = document.getElementById("home-glance");
   const track = document.getElementById("home-glance-track");
   const dots = document.getElementById("home-glance-dots");
@@ -27578,7 +27783,9 @@ const LINK_ICON_RULES_ = [
   [/^(download|descargar)\b/i, "download"],   // a project statement's "Download (CSV)"
   [/^(read|leer)\b/i, "file"],
   [/^(find|buscar|look|check now|revisar ahora|also look)/i, "search"],
-  [/^(currency exchange|cambio de moneda)/i, "exchange"],   // money changing currency (owner, 2026-11-19: the swap arrows read as a transfer)
+  [/^(currency exchange|cambio de moneda)/i, "exchange"],
+  [/^(link|unir)\b/i, "exchange"],   // sides of an exchange joined: "Link to the other side", "Link", "Link all" (2026-11-23)
+  [/^(not these|no son estos|don't ask again|no volver a preguntar)/i, "cross"],   // ...and the suggestions refused   // money changing currency (owner, 2026-11-19: the swap arrows read as a transfer)
   [/^(tags|etiquetas)\b/i, "tag"],   // a Needs review item's "Tags (2)"
   [/^(switch direction|cambiar el sentido|repeat|repetir|convert|convertir|make it a transfer|pasar a transferencia)/i, "swap"],
   [/^(more actions|más acciones|more…|más…)$|^(more actions|más acciones)/i, "dots"],

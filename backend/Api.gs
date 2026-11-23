@@ -617,6 +617,13 @@ function routeActionSwitch_(action, payload) {
     case 'undoEntryAccounts': return undoEntryAccounts(payload);
     case 'getEntry': return getEntryById_(payload.id);
     case 'recordCurrencyExchange': return recordCurrencyExchange(payload);
+    case 'updateCurrencyExchange': return updateCurrencyExchange(payload);
+    case 'listExchangeLinkCandidates': return listExchangeLinkCandidates(payload);
+    case 'linkExchangeSides': return linkExchangeSides(payload);
+    case 'listExchangeLinkSuggestions': return listExchangeLinkSuggestions(payload);
+    case 'linkExchangePairs': return linkExchangePairs(payload);
+    case 'refuseExchangeLinkSuggestion': return refuseExchangeLinkSuggestion(payload);
+    case 'stopExchangeLinkSuggestions': return stopExchangeLinkSuggestions(payload);
     case 'getEntrySplits': return getEntrySplits(payload.entryId);
     case 'saveEntrySplits': return saveEntrySplits(payload.entryId, payload.splits);
     case 'getEntryBill': return getEntryBill(payload);

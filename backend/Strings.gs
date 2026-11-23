@@ -629,6 +629,10 @@ var BACKEND_STRINGS_ = {
   "xch.needAccount": { en: "Pick at least one of your own accounts", es: "Elige al menos una de tus cuentas" },
   "xch.notPending": { en: "That entry is no longer waiting for review", es: "Ese movimiento ya no está en revisión" },
   "xch.pendingSide": { en: "The entry you are converting needs an account of yours on its side of the exchange", es: "El movimiento que conviertes necesita una cuenta tuya en su lado del cambio" },
+  "xlink.notSide": { en: "This is not one side of a currency exchange", es: "Esto no es un lado de un cambio de moneda" },
+  "xlink.notPair": { en: "These two cannot be one exchange: one must be money that left and the other money that arrived, in different currencies", es: "Estos dos no pueden ser un solo cambio: uno debe ser dinero que salió y el otro dinero que llegó, en monedas distintas" },
+  "xch.editGone": { en: "This exchange has changed since it was opened. Open it again.", es: "Este cambio de moneda se modificó desde que lo abriste. Ábrelo otra vez." },
+  "xch.editBothAccounts": { en: "Both sides need one of your accounts. To keep only one side, delete this exchange and save it again.", es: "Los dos lados necesitan una de tus cuentas. Para dejar un solo lado, elimina este cambio y guárdalo otra vez." },
   "desc.reversal": { en: "Refund: {text}", es: "Reembolso: {text}" },
 
   // ---- report ----

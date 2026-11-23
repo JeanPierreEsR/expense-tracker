@@ -383,6 +383,12 @@ function applyStatementDecisionsCore_(payload) {
         description: tr_('desc.exchangeIn', { cur: xi.l.currency }), payment_method_id: '', to_payment_method_id: requirePm(xi).id,
         status: 'confirmed', external_id: 'stmt-' + xi.key });
       var inId = madeIn ? creations[creations.length - 1].id : '';
+      // One link id on both sides, as the exchange form gives (owner, 2026-11-23): the two lines may be a day apart, and unlinked
+      // they showed as two separate rows on Home (same-day pairing only).
+      if (madeOut && madeIn) {
+        var xPair = Utilities.getUuid();
+        creations.forEach(function (e) { if (e.id === outId || e.id === inId) { e.exchange = '1'; e.exchange_pair = xPair; } });
+      }
       report.created.exchanges = (report.created.exchanges || 0) + 1;
       if (madeOut) report.created.transfers++;
       if (madeIn) report.created.transfers++;
@@ -747,6 +753,7 @@ function applyStatementDecisionsCore_(payload) {
   });
   report.categoriesRenamed = report.categoriesRenamed.filter(function (r) { return changes.some(function (c) { return c.sheet === 'Categories' && c.field === 'name' && c.new_value === r.to; }); });
   report.categoriesCreatedNames = Object.keys(createdCategoryIds).filter(function (ph) { return changes.some(function (c) { return c.sheet === 'Categories' && c.row_id === createdCategoryIds[ph]; }); }).map(function (ph) { return newCategories[ph].name; });
+  if (creations.some(function (e) { return e.exchange_pair; })) { ensureEntriesToPaymentMethodColumn_(); ensureEntriesExchangeColumn_(); ensureColumn_('Entries', 'exchange_pair'); }
   appendRowsBulk_('Entries', creations);
   if (loanOps.length) stmtWriteLoanOps_(loanOps, batchId, now, changes, remember, report);
   if (payload.inboxIds && payload.inboxIds.length) {

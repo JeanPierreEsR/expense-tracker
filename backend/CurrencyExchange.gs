@@ -166,6 +166,164 @@ function recordCurrencyExchange(payload) {
   return result;
 }
 
+/**
+ * Edits a whole exchange at once (owner, 2026-11-23: editing it side by side was the only way): both sides change together.
+ * payload: { out_id, in_id, date, in_date?, out: {payment_method_id, amount, currency}, in: {...}, house? }. Both sides keep an
+ * account of the person's (they both exist; to drop one, the exchange is deleted and saved again). `house` is sent only when it
+ * changed: the two descriptions are then written again from it; otherwise they stay as they were (a bank's own wording included).
+ * Returns { out, in }.
+ */
+function updateCurrencyExchange(payload) {
+  payload = payload || {};
+  var legOut = getEntryById_(String(payload.out_id || '')), legIn = getEntryById_(String(payload.in_id || ''));
+  if (!legOut || !legIn || exchangeLegSide_(legOut) !== 'out' || exchangeLegSide_(legIn) !== 'in') throw new Error(tr_('xch.editGone'));
+  var date = String(payload.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(tr_('xch.badDate'));
+  var inDate = String(payload.in_date || '') || date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(inDate)) throw new Error(tr_('xch.badDate'));
+  var out = exchangeLeg_(payload.out, tr_('xch.sideOut'));
+  var inn = exchangeLeg_(payload.in, tr_('xch.sideIn'));
+  if (out.currency === inn.currency) throw new Error(tr_('xch.sameCurrency'));
+  if (!out.pmId || !inn.pmId) throw new Error(tr_('xch.editBothAccounts'));
+  ensureEntriesToPaymentMethodColumn_();
+  ensureEntriesExchangeColumn_();
+  ensureColumn_('Entries', 'exchange_pair');
+  // An older exchange paired by its day gets a pair id now, so the two sides stay one exchange whatever the dates become.
+  var pairId = String(legOut.exchange_pair || legIn.exchange_pair || '') || Utilities.getUuid();
+  var houseGiven = payload.house !== undefined && payload.house !== null;
+  var house = houseGiven ? String(payload.house).replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+  var result = {};
+  [['out', legOut, out], ['in', legIn, inn]].forEach(function (x) {
+    var side = x[0], entry = x[1], leg = x[2];
+    var fields = {
+      date: side === 'in' ? inDate : date, amount: leg.amount, currency: leg.currency,
+      payment_method_id: side === 'out' ? leg.pmId : '', to_payment_method_id: side === 'in' ? leg.pmId : '',
+      exchange: '1', exchange_pair: pairId
+    };
+    if (houseGiven) fields.description = house ? tr_('desc.exchangeHouse', { name: house }) : tr_(side === 'out' ? 'desc.exchangeOut' : 'desc.exchangeIn', { cur: leg.currency });
+    result[side] = updateEntryFields(entry.id, fields);
+  });
+  EXCHANGE_HOUSES_MEMO_ = null;   // the edit may have named a new house
+  return result;
+}
+
+// ---- Linking two sides by hand (owner, 2026-11-23) ----
+// A side on its own (or linked to the wrong partner) is joined to the other side the person picks. Candidates: exchange sides in the
+// opposite direction, in another currency, in the same state, within EXCHANGE_LINK_DAYS_ days; one already in another exchange is
+// listed too (`taken`), since picking it is how a wrong link is fixed (its old partner is left on its own).
+var EXCHANGE_LINK_DAYS_ = 10;
+function listExchangeLinkCandidates(payload) {
+  var entry = getEntryById_(String((payload || {}).id || ''));
+  var side = exchangeLegSide_(entry);
+  if (!side) throw new Error(tr_('xlink.notSide'));
+  var all = getAllRows('Entries');
+  var pairCount = {};
+  all.forEach(function (e) { var p = String(e.exchange_pair || ''); if (p) pairCount[p] = (pairCount[p] || 0) + 1; });
+  var mine = String(entry.exchange_pair || '');
+  return all.filter(function (x) {
+    return x.id !== entry.id && x.status === entry.status && x.currency !== entry.currency && !isPracticeExchange_(x)
+      && exchangeLegSide_(x) && exchangeLegSide_(x) !== side && exchangeDayDiff_(x.date, entry.date) <= EXCHANGE_LINK_DAYS_
+      && !(mine && String(x.exchange_pair || '') === mine);
+  }).sort(function (a, b) {
+    return (exchangeDayDiff_(a.date, entry.date) - exchangeDayDiff_(b.date, entry.date)) || String(b.date).localeCompare(String(a.date));
+  }).slice(0, 20).map(function (x) {
+    var p = String(x.exchange_pair || '');
+    return { id: x.id, date: String(x.date), amount: Number(x.amount), currency: x.currency, side: exchangeLegSide_(x),
+      account: x.payment_method_id || x.to_payment_method_id || '', taken: !!(p && pairCount[p] > 1) };
+  });
+}
+
+// payload: { id, partner_id }. Both get one new link id (and the exchange marker). Returns { out, in }.
+function linkExchangeSides(payload) {
+  payload = payload || {};
+  var a = getEntryById_(String(payload.id || '')), b = getEntryById_(String(payload.partner_id || ''));
+  var sa = exchangeLegSide_(a), sb = exchangeLegSide_(b);
+  if (!sa || !sb) throw new Error(tr_('xlink.notSide'));
+  if (sa === sb || a.currency === b.currency || a.status !== b.status) throw new Error(tr_('xlink.notPair'));
+  ensureEntriesExchangeColumn_();
+  ensureColumn_('Entries', 'exchange_pair');
+  var pairId = Utilities.getUuid();
+  [a, b].forEach(function (e) { updateRowFields_('Entries', e.id, { exchange: '1', exchange_pair: pairId }); });
+  var out = sa === 'out' ? a : b, inn = sa === 'out' ? b : a;
+  return { out: getEntryById_(out.id), 'in': getEntryById_(inn.id) };
+}
+
+// ---- "Exchanges to link" (owner, 2026-11-23): sides saved apart, suggested in pairs for the person to confirm ----
+// Before 2026-11-23 a statement saved an exchange's two sides with no link id, and exchanges before 2026-11-02 had none either. Home
+// pairs unlinked sides of the SAME day by itself; sides on different days showed as two rows. This finds those: a confirmed side with
+// no partner, the opposite side in another currency 1 to 3 days away (the window the missing-side report uses), and amounts that
+// fit the rate table within 15 % when a rate is known. One-to-one, closest days first. Never linked without the person: a guess can
+// be wrong. A pair the person said "Not these" to is remembered (Settings `exchange_link_refused`), and "Don't ask again" turns it off.
+var EXCHANGE_SUGGEST_DAYS_ = 3;
+function exchangeLinkSuggestions_() {
+  var settings = getSettingsMap();
+  if (String(settings.exchange_link_off || '') === 'yes') return [];
+  var refused = {};
+  try { (JSON.parse(String(settings.exchange_link_refused || '[]')) || []).forEach(function (k) { refused[k] = true; }); } catch (e) { /* unreadable: nothing refused */ }
+  var all = getAllRows('Entries');
+  var pairCount = {};
+  all.forEach(function (e) { var p = String(e.exchange_pair || ''); if (p) pairCount[p] = (pairCount[p] || 0) + 1; });
+  var lone = all.filter(function (e) {
+    return e.status === 'confirmed' && exchangeLegSide_(e) && !isPracticeExchange_(e) && !(e.exchange_pair && pairCount[String(e.exchange_pair)] > 1);
+  });
+  var used = {};
+  // Same-day sides are already shown as one exchange (Home's own pairing): taken out first, as Home does.
+  lone.forEach(function (a) {
+    if (used[a.id] || exchangeLegSide_(a) !== 'out') return;
+    var b = lone.find(function (x) { return !used[x.id] && exchangeLegSide_(x) === 'in' && x.currency !== a.currency && String(x.date) === String(a.date); });
+    if (b) { used[a.id] = true; used[b.id] = true; }
+  });
+  var toMain = function (e) {
+    var r = getLatestRateOnOrBefore_(e.currency, String(e.date).substring(0, 7));
+    return r === null || r === undefined ? null : Math.abs(Number(e.amount)) * r;
+  };
+  var options = [];
+  lone.forEach(function (o) {
+    if (used[o.id] || exchangeLegSide_(o) !== 'out') return;
+    lone.forEach(function (i) {
+      if (used[i.id] || exchangeLegSide_(i) !== 'in' || i.currency === o.currency) return;
+      var gap = exchangeDayDiff_(o.date, i.date);
+      if (gap < 1 || gap > EXCHANGE_SUGGEST_DAYS_ || refused[o.id + '|' + i.id]) return;
+      var a = toMain(o), b = toMain(i);
+      if (a !== null && b !== null && b > 0 && (a / b < 0.85 || a / b > 1.15)) return;
+      options.push({ out: o, 'in': i, gap: gap });
+    });
+  });
+  options.sort(function (x, y) { return (x.gap - y.gap) || String(y.out.date).localeCompare(String(x.out.date)); });
+  var result = [];
+  options.forEach(function (p) {
+    if (used[p.out.id] || used[p['in'].id]) return;
+    used[p.out.id] = true; used[p['in'].id] = true;
+    result.push(p);
+  });
+  var side = function (e) { return { id: e.id, date: String(e.date), amount: Number(e.amount), currency: e.currency, account: e.payment_method_id || e.to_payment_method_id || '' }; };
+  return result.sort(function (x, y) { return String(y.out.date).localeCompare(String(x.out.date)); })
+    .map(function (p) { return { out: side(p.out), 'in': side(p['in']) }; });
+}
+function listExchangeLinkSuggestions() { return exchangeLinkSuggestions_().slice(0, 50); }
+// Home's card: how many pairs there are (0 = no card).
+function exchangeLinkSuggestionCount_() {
+  try { return exchangeLinkSuggestions_().length; } catch (e) { return 0; }
+}
+// payload: { pairs: [{ id, partner_id }] } — several links in ONE call ("Link all"). Returns how many were linked.
+function linkExchangePairs(payload) {
+  var n = 0;
+  ((payload || {}).pairs || []).forEach(function (p) { linkExchangeSides(p); n++; });
+  return { linked: n };
+}
+// payload: { out_id, in_id } — "Not these": never suggested again.
+function refuseExchangeLinkSuggestion(payload) {
+  payload = payload || {};
+  var list = [];
+  try { list = JSON.parse(String(getSettingsMap().exchange_link_refused || '[]')) || []; } catch (e) { list = []; }
+  var key = String(payload.out_id || '') + '|' + String(payload.in_id || '');
+  if (list.indexOf(key) === -1) list.push(key);
+  setSetting_('exchange_link_refused', JSON.stringify(list.slice(-300)));
+  return { ok: true };
+}
+// "Don't ask again": the card and its list are gone for good on this copy.
+function stopExchangeLinkSuggestions() { setSetting_('exchange_link_off', 'yes'); return { ok: true }; }
+
 // ---- One e-mail that names BOTH sides of an exchange (Cambio Mundial-style "Confirmación de Operación") ----
 //
 // Banks e-mail the money that LEFT (and not always the money that ARRIVED), while the exchange house's own confirmation names both
