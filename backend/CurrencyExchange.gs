@@ -272,6 +272,12 @@ function exchangePairSide_(e) {
   return /^cm-in-/.test(ext) ? 'in' : (/^cm-out-/.test(ext) ? 'out' : '');
 }
 
+// A transfer saved as one side of a currency exchange (its marker). Such a side holds ONE account: where the money left, or where it
+// arrived (owner, 2026-11-23: a side with both read as dollars leaving the soles account).
+function isExchangeLegMarked_(e) {
+  return !!e && e.type === 'transfer' && String(e.exchange || '') === '1';
+}
+
 // The other side of an exchange (same exchange_pair), or null.
 function exchangePartner_(entry, entries) {
   var pair = String((entry && entry.exchange_pair) || '');

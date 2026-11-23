@@ -193,6 +193,7 @@ let editingExchangeAccount_ = "";   // the account a money-in transfer arrived i
 let editingInvestmentLeft_ = null;   // the investment being edited: true = a deposit (money left), false = a withdrawal, null = not an investment
 let editingForgiveness_ = null;   // the entry being edited is what a forgiveness booked: {amount, currency}, else null (its amount is locked)
 let editingExchangeLeg_ = "";   // the entry being edited is one side of a currency exchange: "out" (money left) / "in" (money arrived), else ""
+let editingXLegBroken_ = null;   // that side names TWO accounts (it should name one): the entry as it was opened, else null
 let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
 let entryLinksPrefetch_ = null;   // { id, at, p }: the open entry's getEntryRepaymentLinks, asked when its form opened (startEditEntry)
 let editingRepayment_ = null;    // the entry being edited is a repayment's money entry: {direction (of the debts it paid), friend, total, currency}, else null
@@ -4685,6 +4686,33 @@ function formatAmount(amount, currency, prefix) {
 // pattern generalized from what a plain USD split looks like.
 // One leg of a currency exchange: a one-sided transfer whose description says so (see backend CurrencyExchange.gs).
 // "in" = money arrived (has a To account, no From), "out" = money left.
+// One side of an exchange that names BOTH accounts (owner, 2026-11-23: a dollars side saved "from the soles account to the dollars
+// account", read as dollars leaving the soles account). Which side it really is: the account that holds the entry's currency (the
+// dollars account for a USD side) by its settings, else by what moves in it in the phone's copy of the entries (most of an account's
+// entries in that currency), else what the exchange house's id says. "" when it is not such an entry or nothing tells.
+function brokenExchangeLegSide_(entry) {
+  if (!exchangeLegSide_(entry) || !entry.payment_method_id || !entry.to_payment_method_id) return "";
+  const holds = (id) => accountCurrencyList_(meta.paymentMethods.find((p) => p.id === id)).includes(entry.currency);
+  let inFits = holds(entry.to_payment_method_id), outFits = holds(entry.payment_method_id);
+  if (inFits === outFits) {
+    const share = (id) => {
+      let mine = 0, all = 0;
+      (searchIndex || []).forEach((e) => {
+        if (e.id === entry.id || (e.payment_method_id !== id && e.to_payment_method_id !== id)) return;
+        all++;
+        if (e.currency === entry.currency) mine++;
+      });
+      return all ? mine / all : 0;
+    };
+    const a = share(entry.to_payment_method_id), b = share(entry.payment_method_id);
+    inFits = a > 0.5 && b < 0.5;
+    outFits = b > 0.5 && a < 0.5;
+  }
+  if (inFits && !outFits) return "in";
+  if (outFits && !inFits) return "out";
+  const ext = String(entry.external_id || "");
+  return /^cm-in-/.test(ext) ? "in" : (/^cm-out-/.test(ext) ? "out" : "");
+}
 function exchangeLegSide_(entry) {
   if (!entry || entry.type !== "transfer" || (entry.link && entry.link.friend)) return "";
   // The marker is set when a leg is saved as a "Currency exchange"; statement-made legs have none, so their description counts too.
@@ -6706,7 +6734,9 @@ async function startEditEntry(entry) {
   // A cash loan's own money movement: switching it to Expense / Income converts the loan (convertLoanToEntry).
   editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
   editingLoanFriendId_ = editingLoanMovement_ ? (entry.link.friend_id || "") : "";
-  editingExchangeLeg_ = exchangeLegSide_(entry);
+  editingExchangeLeg_ = brokenExchangeLegSide_(entry) || exchangeLegSide_(entry);
+  // Said even when nothing tells the side: the hint names the account that will be kept, so a wrong guess is seen before saving.
+  editingXLegBroken_ = editingExchangeLeg_ && entry.payment_method_id && entry.to_payment_method_id ? entry : null;
   editingForgiveness_ = entry.link && entry.link.kind === "forgiveness" ? { amount: Number(entry.amount), currency: entry.currency } : null;
   editingInvestmentLeft_ = entry.type === "investment" ? Number(entry.amount) > 0 : null;
   // A transfer with only a "To" (money that arrived, an exchange side or a waiting bank e-mail) keeps that account when it
@@ -6890,6 +6920,7 @@ function exitEditMode() {
   editingLoanMovement_ = "";
   editingLoanFriendId_ = "";
   editingExchangeLeg_ = "";
+  editingXLegBroken_ = null;
   editingForgiveness_ = null;
   editingInvestmentLeft_ = null;
   editingRepayment_ = null;
@@ -8453,6 +8484,14 @@ function reviewXSide_(e) {
   const ext = String(e.external_id || "");
   return /^cm-in-/.test(ext) ? "in" : (/^cm-out-/.test(ext) ? "out" : "");
 }
+// One side of a waiting exchange whose partner is not here (owner, 2026-11-23): its side, or "" when it is not an exchange side or no
+// sign tells which side it is. Such a card shows ONLY its own account box: a From AND a To box on a dollars side read as "the whole
+// exchange" and saved one USD entry leaving the soles account into the dollars account (owner's Cambio Mundial exchange).
+const reviewIsXLeg_ = (e) => !!e && e.type === "transfer" && !(e.link && e.link.friend)
+  && (String(e.exchange || "") === "1" || /^(Currency exchange|Cambio de moneda)/i.test(String(e.description || "")));
+function reviewLoneXSide_(e) {
+  return reviewIsXLeg_(e) ? reviewXSide_(e) : "";
+}
 function reviewExchangePairs_(entries) {
   const byOut = new Map(), skip = new Set();
   entries.forEach((e) => {
@@ -8575,6 +8614,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     const categoryOptions = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === entry.type), entry.category_id))
       .map((c) => `<option value="${c.id}" ${c.id === entry.category_id ? "selected" : ""}>${escapeHtml(catOptionText_(c))}</option>`)
       .join("");
+    const loneX = reviewLoneXSide_(entry);
 
     item.innerHTML = `
       <div class="review-item-top">
@@ -8619,7 +8659,13 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         ${reviewBusinessFits_(entry) ? `
         <label class="review-transfer-label">${escapeHtml(tr("field.business"))}</label>
         <select class="review-business"></select>` : ""}
-        ${entry.type === "transfer" ? `
+        ${entry.type === "transfer" && loneX === "out" ? `
+        <label class="review-transfer-label">${escapeHtml(tr("xleg.leftFrom"))}</label>
+        <select class="review-from">${reviewTransferSideOptions_(entry.payment_method_id)}</select>` : ""}
+        ${entry.type === "transfer" && loneX === "in" ? `
+        <label class="review-transfer-label">${escapeHtml(tr("xleg.arrivedIn"))}</label>
+        <select class="review-to">${reviewTransferSideOptions_(entry.to_payment_method_id)}</select>` : ""}
+        ${entry.type === "transfer" && !loneX ? `
         <label class="review-transfer-label">${tr("review.fromLabel")}</label>
         <select class="review-from">${reviewTransferSideOptions_(entry.payment_method_id)}</select>
         <label class="review-transfer-label">${tr("review.toLabel")}</label>
@@ -8756,14 +8802,16 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       const fields = { description, amount: entry.type === "investment" && Number(entry.amount) < 0 ? -amount : amount };
       if (entry.type !== "investment") fields.category_id = categoryId;
       if (entry.type === "transfer") {
-        const fromVal = item.querySelector(".review-from").value, toVal = item.querySelector(".review-to").value;
+        const fromEl = item.querySelector(".review-from"), toEl = item.querySelector(".review-to");
+        const fromVal = fromEl ? fromEl.value : "", toVal = toEl ? toEl.value : "";
         // Each side is an account or, said on purpose, "Outside my accounts": a box left on "Pick the account…" used to be saved
         // quietly as someone else's account (1.76.1).
         // One side of a currency exchange (its partner never arrived): its blank side is the exchange house, never asked (owner, 2026-11-20).
-        const xLeg = !!exchangeSideOf_(entry);
+        const xLeg = reviewIsXLeg_(entry);
         if ((!fromVal || !toVal) && !xLeg) { showAppMessage_(tr("review.pickBothSides")); return; }
         const fromId = !fromVal || fromVal === REVIEW_OUTSIDE_ ? "" : fromVal, toId = !toVal || toVal === REVIEW_OUTSIDE_ ? "" : toVal;
         if (!fromId && !toId) { showAppMessage_(tr("error.pickAccount")); return; }
+        if (xLeg && fromId && toId) { showAppMessage_(tr("xleg.oneAccountOnly")); return; }
         if (fromId && toId && fromId === toId) {
           showAppMessage_(tr("error.sameAccount"));
           return;
@@ -9141,6 +9189,16 @@ function applyExchangeLegLayout_(kind) {
   document.getElementById("to-payment-method-hint").hidden = true;   // "Optional…" is about a plain transfer's To: not this side's account, nor a required one
   if (kind === "xleg") {
     hint.textContent = tr(arrived ? "xleg.hintIn" : "xleg.hintOut");
+    if (editingXLegBroken_) {
+      const name = (id) => { const pm = meta.paymentMethods.find((p) => p.id === id); return pm ? pm.nickname : ""; };
+      const b = editingXLegBroken_;
+      hint.textContent = tr("xleg.brokenFix", {
+        both: `${name(b.payment_method_id)} → ${name(b.to_payment_method_id)}`,
+        keep: name(arrived ? b.to_payment_method_id : b.payment_method_id),
+        other: name(arrived ? b.payment_method_id : b.to_payment_method_id),
+        side: tr(arrived ? "xleg.sideIn" : "xleg.sideOut", { currency: b.currency }),
+      });
+    }
     document.getElementById(arrived ? "payment-method-field" : "to-payment-method-field").hidden = true;
     if (arrived) document.getElementById("to-payment-method-label").textContent = tr("xleg.arrivedIn");
     else document.getElementById("payment-method-label").textContent = tr("xleg.leftFrom");

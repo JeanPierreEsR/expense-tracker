@@ -1522,6 +1522,15 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     if (xEdit) {
       if (field === 'from') setEntryField_(xEdit.out.id, 'payment_method_id', endPm.id);
       else { ensureEntriesToPaymentMethodColumn_(); setEntryField_(xEdit['in'].id, 'to_payment_method_id', endPm.id); }
+    } else if (isExchangeLegMarked_(entry)) {
+      // One side of an exchange whose other side is not here (owner, 2026-11-23): it holds ONE account. "from" fits only the side the
+      // money left, "to" only the side it arrived in; the other end stays empty (the exchange house). Before, "from <soles account>" on
+      // the dollars side made one USD entry leaving the soles account.
+      var xSide = exchangePairSide_(entry), wantSide = field === 'from' ? 'out' : 'in';
+      if (xSide && xSide !== wantSide) return null;
+      ensureEntriesToPaymentMethodColumn_();
+      setEntryField_(entryId, 'payment_method_id', wantSide === 'out' ? endPm.id : '');
+      setEntryField_(entryId, 'to_payment_method_id', wantSide === 'in' ? endPm.id : '');
     } else if (field === 'from') {
       setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', endPm.id);
     } else {
