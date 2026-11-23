@@ -18477,12 +18477,17 @@ beEl_("be-fwd-add-btn").addEventListener("click", () => {
   const addr = String(input.value || "").trim().toLowerCase();
   const msg = beEl_("be-fwd-msg");
   msg.textContent = "";
-  if (!/^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[a-z]{2,}$/i.test(addr)) { msg.textContent = tr("bankMail.fwdBad"); input.focus(); return; }
+  msg.classList.remove("error-text");
+  // A refusal looks like one: red with the failed icon (design system), not a grey hint (testers, 2026-11-22).
+  if (!/^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[a-z]{2,}$/i.test(addr)) { msg.textContent = "❌ " + tr("bankMail.fwdBad"); msg.classList.add("error-text"); input.focus(); return; }
   const list = ((meta && meta.emailInfo) || {}).forwardFrom || [];
   input.value = "";
   if (list.includes(addr)) return;
   saveBeForward_(list.concat([addr]));
 });
+
+// Enter in the address box presses Add (testers, 2026-11-22).
+beEl_("be-fwd-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); beEl_("be-fwd-add-btn").click(); } });
 
 function setBeView_(view) {
   be_.view = view;
