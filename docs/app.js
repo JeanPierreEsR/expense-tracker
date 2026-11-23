@@ -11733,7 +11733,7 @@ function applyCompanyOverview_() {
   if (!balancesHome_) { balancesHome_ = document.createComment("balances-card home"); balances.parentNode.insertBefore(balancesHome_, balances); }
   if (on) document.getElementById("co-close-card").after(balances);
   else balancesHome_.after(balances);
-  if (!on) ["co-owed-card", "co-funding-card", "co-partners-card", "co-sales-card", "co-next-card", "co-close-card"].forEach((id) => { document.getElementById(id).hidden = true; });
+  if (!on) ["co-owed-card", "co-funding-card", "co-partners-card", "co-sales-card", "co-next-card", "co-share-card", "co-close-card"].forEach((id) => { document.getElementById(id).hidden = true; });
 }
 let balancesHome_ = null;   // where the Balances card sits on every other copy
 
@@ -11764,6 +11764,8 @@ function renderCompanyOverview_(company) {
   renderCompanyPartners_(company);
   renderCompanySales_(company.sales);
   renderCompanyClose_(company.close);
+  document.getElementById("co-share-card").hidden = false;   // piece 12
+  shareSectionsNow_ = company.share_sections || shareSectionsNow_;
 }
 
 // ---- Change log and month close (Business 2, piece 8) ----
@@ -23018,6 +23020,142 @@ document.getElementById("unit-remove").addEventListener("click", async () => {
   saveBehindScreen_(() => callApi("removeProjectUnit", { id: u.id }), refreshUnits_);
 });
 
+// ---- A statement to share (Business 2, piece 12; company copies) ----
+// The Overview's period, the sections the person ticks (the lenders are off unless ticked; the choice is remembered), then a clean
+// document with the same figures as the app's screens, the fixed notice and whether the period is closed. Shared as PDF (printing it
+// alone, like the yearly statement) or text.
+const SHARE_ALL_ = ["cash", "categories", "projects", "sales", "owed", "partners"];
+let shareSectionsNow_ = ["cash", "categories", "projects", "sales", "partners"];
+let shareDoc_ = null;
+function openShareModal_() {
+  const b = getPeriodBounds();
+  shareDoc_ = { start: b.startDate || "", end: b.endDate || "" };
+  document.getElementById("share-period").textContent = shareDoc_.start || shareDoc_.end
+    ? tr("share.period", { start: shareDoc_.start ? listDate_(shareDoc_.start) : "…", end: shareDoc_.end ? listDate_(shareDoc_.end) : "…" }) : tr("share.allTime");
+  document.getElementById("share-sections").innerHTML = SHARE_ALL_.map((k) => `<label class="checkbox-row"><input type="checkbox" value="${k}"${shareSectionsNow_.includes(k) ? " checked" : ""}> <span>${escapeHtml(tr("share.s." + k))}${k === "owed" ? `<small class="hint">${escapeHtml(tr("share.owedHint"))}</small>` : ""}</span></label>`).join("");
+  document.getElementById("share-error").textContent = "";
+  document.getElementById("share-pick").hidden = false;
+  document.getElementById("share-doc").hidden = true;
+  document.getElementById("share-actions").hidden = true;
+  const backdrop = document.getElementById("share-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function shareDocHtml_(s) {
+  const amt = (n, cur) => `${cur} ${moneyFmt(Number(n) || 0)}`;
+  const row = (k, v) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`;
+  const head = (k) => `<tr class="constancia-head"><th colspan="2">${escapeHtml(k)}</th></tr>`;
+  const per = s.start || s.end ? tr("share.period", { start: s.start ? listDate_(s.start) : "…", end: s.end ? listDate_(s.end) : "…" }) : tr("share.allTime");
+  let html = `<h2 class="constancia-title">${escapeHtml(tr("share.docTitle"))}</h2>` +
+    (s.company ? `<p class="constancia-company">${escapeHtml(s.company.name)}${s.company.tax_id ? ` · ${escapeHtml(tr("const.ruc", { ruc: s.company.tax_id }))}` : ""}</p>` : "") +
+    `<p>${escapeHtml(per)}</p>`;
+  const c = s.close || {};
+  if (c.month) html += `<p class="${c.closed && !c.changed ? "" : "constancia-warn"}">${escapeHtml(tr(c.closed ? (c.changed ? "share.closedChanged" : "share.closed") : (c.ended ? "share.notClosed" : "share.inProgress")))}</p>`;
+  else if ((c.open_months || []).length) html += `<p class="constancia-warn">${escapeHtml(tr("share.openMonths", { months: c.open_months.map((m) => paceMonthName_(m, true)).join(", ") }))}</p>`;
+  const d = s.data || {};
+  if (d.cash) {
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("share.s.cash"))}</h3><table class="constancia-table">`;
+    d.cash.forEach((a) => a.balances.forEach((b) => { html += row(a.name, amt(b.amount, b.currency)); }));
+    html += `</table><p class="hint">${escapeHtml(tr("share.cashToday"))}</p>`;
+  }
+  if (d.categories) {
+    const k = d.categories;
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("share.s.categories"))}</h3><table class="constancia-table">` +
+      head(tr("summary.income")) + k.incomeBy.map((x) => row(x.name, amt(x.amount, k.currency))).join("") + row(tr("share.totalIncome"), amt(k.income, k.currency)) +
+      head(tr("share.expenses")) + k.expenseBy.map((x) => row(x.name, amt(x.amount, k.currency))).join("") + row(tr("share.totalExpense"), amt(k.expense, k.currency)) +
+      `<tr class="constancia-total"><td>${escapeHtml(tr("share.result"))}</td><td>${escapeHtml(amt(k.result, k.currency))}</td></tr></table>`;
+  }
+  if (d.projects) {
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("share.s.projects"))}</h3><table class="constancia-table">`;
+    d.projects.forEach((p) => {
+      html += head(p.name);
+      if (!p.lines.length) html += row(tr("share.nothing"), "");
+      p.lines.forEach((l) => { html += row(tr("share.incomeCur", { cur: l.currency }), amt(l.income, l.currency)) + row(tr("share.costsCur", { cur: l.currency }), amt(l.costs, l.currency)) + row(tr("share.resultCur", { cur: l.currency }), amt(l.result, l.currency)); });
+    });
+    html += `</table>`;
+  }
+  if (d.sales && d.sales.units) {
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("share.s.sales"))}</h3><p>${escapeHtml(d.sales.statuses.map((x) => `${x.status || tr("sales.noStatus")}: ${x.count}`).join(" · "))}</p><table class="constancia-table">`;
+    d.sales.money.forEach((m) => { html += head(tr("const.inCurrency", { currency: m.currency })) + row(tr("sales.totalPrice"), amt(m.price, m.currency)) + row(tr("sales.collected"), amt(m.collected, m.currency)) + row(tr("sales.toCollect"), amt(m.remaining, m.currency)); });
+    html += `</table>`;
+  }
+  if (d.owed) {
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("share.s.owed"))}</h3><table class="constancia-table">`;
+    if (!d.owed.people.length) html += row(tr("coOv.owedEmpty"), "");
+    d.owed.people.forEach((p) => p.lines.forEach((l) => { html += row(p.name, amt(l.amount, l.currency)); }));
+    if (d.owed.people.length > 1) d.owed.totals.forEach((t) => { html += row(tr("coOv.owedTotal"), amt(t.amount, t.currency)); });
+    html += `</table>`;
+  }
+  if (d.partners) {
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("share.s.partners"))}</h3><table class="constancia-table">`;
+    if (!d.partners.length) html += row(tr("share.nothing"), "");
+    d.partners.forEach((p) => {
+      html += head(p.name);
+      if (!p.lines.length) html += row(tr("coOv.pNothing"), "");
+      p.lines.forEach((l) => {
+        if (l.contributed) html += row(tr("coOv.pContributed"), amt(l.contributed, l.currency));
+        if (l.pending) html += row(tr("coOv.pPending"), amt(l.pending, l.currency));
+        if (l.owed) html += row(tr("coOv.pOwed"), amt(l.owed, l.currency));
+        if (l.distributed) html += row(tr("coOv.pDistributed"), amt(l.distributed, l.currency));
+      });
+    });
+    html += `</table>`;
+  }
+  html += `<p class="constancia-notice">${escapeHtml(tr("share.notice"))}</p><p class="hint">${escapeHtml(tr("share.generated", { date: listDate_(s.generated) }))}</p>`;
+  return html;
+}
+function shareDocText_() {
+  const box = document.createElement("div");
+  box.innerHTML = shareDocHtml_(shareDoc_.data);
+  const out = [];
+  box.querySelectorAll("h2, h3, p, tr").forEach((el) => {
+    if (el.tagName === "TR") { const cells = [...el.children].map((c) => c.textContent.trim()).filter(Boolean); out.push(cells.length === 2 ? `${cells[0]}: ${cells[1]}` : `— ${cells.join(" ")}`); }
+    else out.push((el.tagName === "H3" ? "\n" : "") + el.textContent.trim());
+  });
+  return out.join("\n");
+}
+document.getElementById("co-share-btn").addEventListener("click", openShareModal_);
+document.getElementById("share-close").addEventListener("click", () => { document.getElementById("share-modal-backdrop").hidden = true; });
+document.getElementById("share-again").addEventListener("click", () => {
+  document.getElementById("share-pick").hidden = false;
+  document.getElementById("share-doc").hidden = true;
+  document.getElementById("share-actions").hidden = true;
+});
+document.getElementById("share-build").addEventListener("click", async () => {
+  const sections = [...document.querySelectorAll("#share-sections input:checked")].map((c) => c.value);
+  if (!sections.length) { document.getElementById("share-error").textContent = tr("share.pickOne"); return; }
+  shareSectionsNow_ = sections;
+  const doc = document.getElementById("share-doc");
+  document.getElementById("share-pick").hidden = true;
+  doc.hidden = false;
+  doc.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  const ask = shareDoc_;
+  try {
+    const res = await callApi("buildShareStatement", { startDate: ask.start, endDate: ask.end, sections });
+    if (shareDoc_ !== ask) return;
+    ask.data = res;
+    doc.innerHTML = shareDocHtml_(res);
+    document.getElementById("share-actions").hidden = false;
+  } catch (e) { doc.innerHTML = `<p class="hint error-text">${escapeHtml(tr("business.loadFailed", { error: e.message }))}</p>`; document.getElementById("share-pick").hidden = false; }
+});
+document.getElementById("share-pdf").addEventListener("click", () => {
+  if (!shareDoc_ || !shareDoc_.data) return;
+  const holder = document.getElementById("constancia-print");
+  holder.innerHTML = `<div class="constancia-doc">${shareDocHtml_(shareDoc_.data)}</div>`;
+  const before = document.title;
+  document.title = `${tr("share.fileName")}-${shareDoc_.start || ""}-${shareDoc_.end || ""}`.replace(/-+$/, "");
+  document.body.classList.add("printing-constancia");
+  const done = () => { document.body.classList.remove("printing-constancia"); document.title = before; window.removeEventListener("afterprint", done); };
+  window.addEventListener("afterprint", done);
+  try { window.print(); } catch (e) { done(); showAppMessage_(tr("const.pdfFailed")); }
+});
+document.getElementById("share-text").addEventListener("click", async () => {
+  if (!shareDoc_ || !shareDoc_.data) return;
+  const text = shareDocText_();
+  try { if (navigator.share) { await navigator.share({ title: tr("share.docTitle"), text }); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(text); showToast_(tr("const.copied")); } catch (e) { showAppMessage_(text); }
+});
+
 // The company Overview's two sales cards.
 function renderCompanySales_(s) {
   const show = !!s && (s.units > 0 || s.overdue.count > 0 || s.next30.count > 0);
@@ -28482,6 +28620,8 @@ const LINK_ICON_RULES_ = [
   [/^(yearly statement|constancia anual|all the yearly statements|todas las constancias)$/i, "file"],   // piece 9
   [/^(send the (corrected )?package|enviar el paquete)/i, "send"],   // piece 10
   [/^(return the deposit|devolver separación)/i, "undo"],   // piece 11
+  [/^(prepare a statement to share|preparar un estado para compartir|prepare the statement|preparar el estado)/i, "file"],   // piece 12
+  [/^(change the sections|cambiar las secciones)/i, "pencil"],
   [/^(record the return|registrar la devolución)/i, "check"],
   [/^(share the payments|compartir los abonos)/i, "send"],
   [/^(remove from this project|quitar del proyecto)/i, "trash"],

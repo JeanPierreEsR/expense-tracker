@@ -517,7 +517,9 @@ function routeActionSwitch_(action, payload) {
     case 'saveUnit': return saveUnit(payload);
     case 'removeProjectUnit': return removeProjectUnit(payload);
     case 'saveUnitStage': return saveUnitStage(payload);
-    case 'returnUnitDeposit': return returnUnitDeposit(payload);   // Business 2 piece 10 (AccountantPackage.gs)
+    case 'returnUnitDeposit': return returnUnitDeposit(payload);
+    case 'buildShareStatement': return buildShareStatement(payload);   // Business 2 piece 12 (ShareStatement.gs)
+    case 'getShareSections': return getShareSections();   // Business 2 piece 10 (AccountantPackage.gs)
     case 'sendAccountantPackage': return sendAccountantPackage(payload);
     case 'getProfileState': return getProfileState();
     case 'getAnnualHints': return getAnnualHints();
