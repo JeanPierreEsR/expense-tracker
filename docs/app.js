@@ -22391,6 +22391,7 @@ function applyBusinessVisibility_(opts) {
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;
   document.getElementById("more-changelog-btn").hidden = !companyCopyOn_();   // piece 8: the change log
+  document.getElementById("business-constancias-btn").hidden = !companyCopyOn_();   // piece 9: every yearly statement
   document.getElementById("more-business-features-state").textContent = tr(on ? "business.state.on" : "business.state.off");
   if (!(opts && opts.noCard)) refreshBusinessHomeCard_();
 }
@@ -28190,7 +28191,9 @@ const LINK_ICON_RULES_ = [
   [/^(close project|cerrar proyecto|closing project|cerrando proyecto)/i, "lock"],   // a project's Close (owner, 2026-11-21: the button had no icon)
   [/^(reopen|reabrir|reopening|reabriendo)/i, "refresh"],   // its Reopen, and every other "Reopen"
   [/^(starting balance|saldo inicial)/i, "plus"],   // the import's Done screen: gives a new account its starting balance
-  [/^(this entry's changes|cambios de este movimiento|see the changes|ver los cambios)$/i, "clock"],   // piece 8: the change log
+  [/^(this entry's changes|cambios de este movimiento|see the changes|ver los cambios)$/i, "clock"],
+  [/^(yearly statement|constancia anual|all the yearly statements|todas las constancias)$/i, "file"],   // piece 9
+  [/^(share as text|compartir como texto|share as csv|compartir como csv)/i, "send"],   // piece 8: the change log
   [/^(it's a partner's money|es plata de un socio)$/i, "users"],   // Business 2 piece 7: Needs review's partner buttons
   [/^(profit distribution|distribución de utilidades)$/i, "coin"],
   [/^(it's a contribution|es aporte)$/i, "check"],   // the Partners card: decide a "to be decided" one
@@ -32389,6 +32392,182 @@ function renderLoanBalanceList_(listId, emptyNoteId, rows, kind) {
 // the Loans tab passes "" to mean "all of this person's debts".
 let loanDetailScope_ = { friendId: null, projectId: "" };
 
+// ---- The yearly "constancia informativa" (Business 2, piece 9; company copies) ----
+// One lender's or partner's year, per currency (never added up): the loan's balance on 1 January, received, returned, forgiven, the
+// balance on 31 December, interest (gross / withholding recorded / net), and for a partner contributions and profit distributions.
+// Shown as a clean document; "Save or send as PDF" prints it alone (the iPhone's print screen shares or saves the PDF); text and
+// CSV are the fallback. "All the yearly statements" (Companies & projects) builds everyone's at once, to review one by one.
+let constCtx_ = null;   // { mode: "one" | "all", friendId, list, index, year }
+function constYears_() {
+  const now = new Date().getFullYear();
+  return [now, now - 1, now - 2, now - 3].map(String);
+}
+function constDefaultYear_() {
+  const d = new Date();
+  return String(d.getMonth() < 3 ? d.getFullYear() - 1 : d.getFullYear());   // January to March: last year's are the ones being handed out
+}
+function openConstancia_(mode, friendId) {
+  constCtx_ = { mode, friendId, list: [], index: 0, year: constDefaultYear_() };
+  const sel = document.getElementById("constancia-year");
+  sel.innerHTML = constYears_().map((y) => `<option value="${y}">${y}</option>`).join("");
+  sel.value = constCtx_.year;
+  const backdrop = document.getElementById("constancia-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  loadConstancia_();
+}
+async function loadConstancia_() {
+  const ctx = constCtx_;
+  const doc = document.getElementById("constancia-doc");
+  document.getElementById("constancia-actions").hidden = true;
+  document.getElementById("constancia-nav").hidden = true;
+  doc.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  const year = ctx.year;
+  let list;
+  try {
+    list = ctx.mode === "all" ? await callApi("getYearStatements", { year }) : [await callApi("getYearStatement", { friend_id: ctx.friendId, year })];
+  } catch (e) { doc.innerHTML = `<p class="hint error-text">${escapeHtml(tr("business.loadFailed", { error: e.message }))}</p>`; return; }
+  if (constCtx_ !== ctx || ctx.year !== year) return;   // the person moved on meanwhile
+  ctx.list = list;
+  ctx.index = Math.min(ctx.index, Math.max(0, list.length - 1));
+  renderConstancia_();
+}
+function constRows_(l) {
+  const r = [];
+  const add = (key, v, always) => { if (always || Math.abs(Number(v) || 0) > 0.004) r.push([tr(key), v]); };
+  const hasLoan = l.contracted || l.opening || l.received || l.returned || l.closing;
+  if (hasLoan) {
+    r.push({ head: tr("const.h.loan") });
+    add("const.contracted", l.contracted, true);
+    add("const.opening", l.opening, true);
+    add("const.received", l.received, true);
+    add("const.returned", l.returned, true);
+    add("const.forgiven", l.forgiven);
+    add("const.closing", l.closing, true);
+  }
+  if (l.interest_gross) {
+    r.push({ head: tr("const.h.interest") });
+    add("const.gross", l.interest_gross, true);
+    add("const.withholding", l.interest_withholding, true);
+    add("const.net", l.interest_net, true);
+  }
+  if (l.contributed_year || l.contributed_total || l.pending_total) {
+    r.push({ head: tr("const.h.capital") });
+    add("const.contributedYear", l.contributed_year, true);
+    add("const.contributedTotal", l.contributed_total, true);
+    add("const.pending", l.pending_total);
+  }
+  if (l.distributed_net) {
+    r.push({ head: tr("const.h.distributions") });
+    add("const.gross", l.distributed_gross, true);
+    add("const.withholding", l.distributed_withholding, true);
+    add("const.net", l.distributed_net, true);
+  }
+  return r;
+}
+const constAmt_ = (n, cur) => `${cur} ${moneyFmt(Number(n) || 0)}`;   // a formal document: no flags
+function constOpenText_(s) {
+  return (s.open_months || []).length >= 12 ? tr("const.noneClosed", { year: s.year }) : tr("const.openMonths", { months: constMonthsText_(s) });
+}
+function constMonthsText_(s) {
+  return (s.open_months || []).map((m) => paceMonthName_(m, true).replace(/\s*(de\s+)?\d{4}$/, "")).join(", ");
+}
+function constDocHtml_(s) {
+  if (!s) return `<p class="hint">${escapeHtml(tr("const.none"))}</p>`;
+  const role = tr(s.role === "partner" ? "const.rolePartner" : "const.roleLender");
+  const co = s.company ? `<p class="constancia-company">${escapeHtml(s.company.name)}${s.company.tax_id ? ` · ${escapeHtml(tr("const.ruc", { ruc: s.company.tax_id }))}` : ""}</p>` : "";
+  let html = `<h2 class="constancia-title">${escapeHtml(tr("const.docTitle", { year: s.year }))}</h2>${co}
+    <p>${escapeHtml(tr("const.for", { name: s.name, role }))}</p>`;
+  if ((s.open_months || []).length) html += `<p class="constancia-warn">${escapeHtml(constOpenText_(s))}</p>`;
+  if (!s.lines.length) html += `<p class="hint">${escapeHtml(tr("const.nothing", { year: s.year }))}</p>`;
+  s.lines.forEach((l) => {
+    html += `<h3 class="constancia-cur">${escapeHtml(tr("const.inCurrency", { currency: l.currency }))}</h3><table class="constancia-table">`;
+    constRows_(l).forEach((row) => {
+      html += row.head ? `<tr class="constancia-head"><th colspan="2">${escapeHtml(row.head)}</th></tr>`
+        : `<tr><td>${escapeHtml(row[0])}</td><td>${escapeHtml(constAmt_(row[1], l.currency))}</td></tr>`;
+    });
+    html += `</table>`;
+  });
+  html += `<p class="constancia-notice">${escapeHtml(tr("const.notice"))}</p><p class="hint">${escapeHtml(tr("const.generated", { date: listDate_(s.generated) }))}</p>`;
+  return html;
+}
+function constText_(s) {
+  const out = [tr("const.docTitle", { year: s.year })];
+  if (s.company) out.push(s.company.name + (s.company.tax_id ? ` · ${tr("const.ruc", { ruc: s.company.tax_id })}` : ""));
+  out.push(tr("const.for", { name: s.name, role: tr(s.role === "partner" ? "const.rolePartner" : "const.roleLender") }));
+  if ((s.open_months || []).length) out.push(constOpenText_(s));
+  s.lines.forEach((l) => {
+    out.push("", tr("const.inCurrency", { currency: l.currency }));
+    constRows_(l).forEach((row) => out.push(row.head ? `— ${row.head}` : `${row[0]}: ${constAmt_(row[1], l.currency)}`));
+  });
+  out.push("", tr("const.notice"), tr("const.generated", { date: listDate_(s.generated) }));
+  return out.join("\n");
+}
+function constCsv_(s) {
+  const q = (v) => { let t = String(v == null ? "" : v); if (/^[=+\-@]/.test(t) && isNaN(Number(t))) t = "'" + t; return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const rows = [[tr("const.csvPerson"), tr("const.year"), tr("field.currency"), tr("const.csvSection"), tr("const.csvConcept"), tr("field.amount")]];
+  s.lines.forEach((l) => {
+    let section = "";
+    constRows_(l).forEach((row) => { if (row.head) { section = row.head; return; } rows.push([s.name, s.year, l.currency, section, row[0], Number(row[1]).toFixed(2)]); });
+  });
+  return "\ufeff" + rows.map((r) => r.map(q).join(",")).join("\r\n") + "\r\n";
+}
+function renderConstancia_() {
+  const ctx = constCtx_;
+  const s = ctx.list[ctx.index] || null;
+  document.getElementById("constancia-doc").innerHTML = ctx.mode === "all" && !ctx.list.length ? `<p class="hint">${escapeHtml(tr("const.noneAll", { year: ctx.year }))}</p>` : constDocHtml_(s);
+  const nav = document.getElementById("constancia-nav");
+  nav.hidden = ctx.mode !== "all" || ctx.list.length < 2;
+  document.getElementById("constancia-pos").textContent = tr("const.pos", { i: ctx.index + 1, n: ctx.list.length });
+  document.getElementById("constancia-prev").disabled = ctx.index === 0;
+  document.getElementById("constancia-next").disabled = ctx.index >= ctx.list.length - 1;
+  document.getElementById("constancia-actions").hidden = !s;
+}
+const constFileName_ = (s) => `${tr("const.fileName")}-${s.year}-${String(s.name).replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "")}`;
+document.getElementById("constancia-year").addEventListener("change", (e) => { if (!constCtx_) return; constCtx_.year = e.target.value; constCtx_.index = 0; loadConstancia_(); });
+document.getElementById("constancia-prev").addEventListener("click", () => { if (constCtx_.index > 0) { constCtx_.index--; renderConstancia_(); } });
+document.getElementById("constancia-next").addEventListener("click", () => { if (constCtx_.index < constCtx_.list.length - 1) { constCtx_.index++; renderConstancia_(); } });
+document.getElementById("constancia-close").addEventListener("click", () => { document.getElementById("constancia-modal-backdrop").hidden = true; });
+document.getElementById("constancia-pdf").addEventListener("click", () => {
+  const s = constCtx_ && constCtx_.list[constCtx_.index];
+  if (!s) return;
+  const holder = document.getElementById("constancia-print");
+  holder.innerHTML = `<div class="constancia-doc">${constDocHtml_(s)}</div>`;
+  const before = document.title;
+  document.title = constFileName_(s);   // the PDF's file name on most phones
+  document.body.classList.add("printing-constancia");
+  const done = () => { document.body.classList.remove("printing-constancia"); document.title = before; window.removeEventListener("afterprint", done); };
+  window.addEventListener("afterprint", done);
+  try { window.print(); } catch (e) { done(); showAppMessage_(tr("const.pdfFailed")); }
+  setTimeout(() => { if (document.body.classList.contains("printing-constancia") && document.hasFocus()) done(); }, 60000);
+});
+document.getElementById("constancia-text").addEventListener("click", async () => {
+  const s = constCtx_ && constCtx_.list[constCtx_.index];
+  if (!s) return;
+  const text = constText_(s);
+  try {
+    if (navigator.share) { await navigator.share({ title: tr("const.docTitle", { year: s.year }), text }); return; }
+  } catch (e) { if (e && e.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(text); showToast_(tr("const.copied")); } catch (e) { showAppMessage_(text); }
+});
+document.getElementById("constancia-csv").addEventListener("click", async () => {
+  const s = constCtx_ && constCtx_.list[constCtx_.index];
+  if (!s) return;
+  const name = constFileName_(s) + ".csv";
+  const blob = new Blob([constCsv_(s)], { type: "text/csv" });
+  try {
+    const file = new File([blob], name, { type: "text/csv" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: name }); return; }
+  } catch (e) { if (e && e.name === "AbortError") return; }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+});
+document.getElementById("business-constancias-btn").addEventListener("click", () => openConstancia_("all"));
+
 async function openLoanDetail(friendId, friendName, projectId) {
   if (projectId === undefined) projectId = loanDetailScope_.friendId === friendId ? loanDetailScope_.projectId : "";
   loanDetailScope_ = { friendId, projectId };
@@ -32425,6 +32604,11 @@ async function openLoanDetail(friendId, friendName, projectId) {
   }
   const scopeProject = projectId ? (meta.projects || []).find((p) => p.id === projectId) : null;
   if (projectId) loans = loans.filter((l) => String(l.project_id || "") === projectId);
+  // Piece 9: a company's lender or partner has a yearly statement.
+  const constBtn = document.getElementById("loan-constancia-btn");
+  const person = (meta.friends || []).find((f) => f.id === friendId);
+  constBtn.hidden = !(companyCopyOn_() && person && (person.role === "lender" || person.role === "partner"));
+  constBtn.onclick = () => openConstancia_("one", friendId);
   document.getElementById("loan-detail-title").textContent = scopeProject ? `${friendName} · ${scopeProject.name}` : friendName;
 
   const outstanding = loans.filter((l) => l.status !== "forgiven" && l.remaining > 0.004);
