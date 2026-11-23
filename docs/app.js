@@ -4582,6 +4582,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     selectedTagIds.clear();
     populateTags();
     document.getElementById("entry-trip").value = "";   // each expense picks its own trip, so a forgotten one never sticks
+    editingSplitEntry_ = null; editingProjectParts_ = [];
     resetBusinessPick_();                               // same for the company / project (a company copy's one company)
     repaymentFriendTouched_ = false;
     resetSplitState();
@@ -6856,6 +6857,9 @@ async function startEditEntry(entry) {
   entryTagIds.forEach((id) => selectedTagIds.add(id));
   populateTags();
   setTripPick_(entry.trip_id);
+  // A saved entry can be split between projects (Business 2, piece 6): what it has now, and what the split must add up to.
+  editingSplitEntry_ = entry && entry.id ? { id: entry.id, amount: Number(entry.amount), currency: entry.currency, company_id: entry.company_id || "" } : null;
+  editingProjectParts_ = (entry && entry.project_parts) || [];
   // Confirming a waiting item that has no company yet, on a company copy: the form shows the company Confirm would give it.
   if (confirmingPendingId && !businessPickValue_(entry)) resetBusinessPick_();
   else setBusinessPick_(businessPickValue_(entry));
@@ -6900,6 +6904,7 @@ function exitEditMode() {
   selectedTagIds.clear();
   populateTags();
   document.getElementById("entry-trip").value = "";
+  editingSplitEntry_ = null; editingProjectParts_ = [];   // a new entry is split only once saved (piece 6)
   resetBusinessPick_();
   resetSplitState();
 }
@@ -7248,7 +7253,8 @@ function setQueuedReviewActions_(actions) {
 // extra: { splits, tagIds } for a confirmation made through the full form (null/absent = nothing to send for them).
 function queueReviewAction_(id, action, fields, extra) {
   const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
-  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null, repeat: extra && extra.repeat ? extra.repeat : null });
+  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null, repeat: extra && extra.repeat ? extra.repeat : null,
+    split: extra && extra.split ? extra.split : null });   // split: a project split's percentages (Business 2, piece 6)
   setQueuedReviewActions_(actions);
   syncReviewTwins_(id, action === "discard" ? null : "confirmed");
   // The item has left Needs review for the person: Overview / Budgets / Projections' "N wait" line drops it at once, not only after
@@ -7283,9 +7289,11 @@ function unqueueReviewAction_(id) {
 async function applyReviewAction_(a) {
   if (a.action === "confirm" && entrySaveOne_()) {
     // One trip: the row's changes, the confirm, its split and tags (backend saveEntryAll, kind "confirm").
-    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined, link_recurring_id: a.planId || undefined, repeat: a.repeat || undefined },
+    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined, link_recurring_id: a.planId || undefined, repeat: a.repeat || undefined,
+      project_split: a.split || undefined },
       [["listEntries", { limit: entriesShown + 1 }]]));
     unqueueReviewAction_(a.id);
+    if (res && res.split_failed) appMessage_(tr("psplit.failedOnConfirm", { why: res.split_failed }));
     if (res && res.tag_ask) askProgrammedTags_([res.tag_ask]);
     return res && res.follow ? res.follow : null;
   }
@@ -8256,7 +8264,15 @@ function reviewAfterBulk_(handledIds) {
 }
 // Cards whose "This is my Salary for August" the person unticked: confirm-many leaves them unlinked too (owner's plan, 2026-11-18).
 const reviewPlanOff_ = new Set();
+// Cards whose "As last month: …" project split the person unticked (Business 2, piece 6).
+const reviewSplitOff_ = new Set();
 document.getElementById("review-list").addEventListener("change", (e) => {
+  const s = e.target.closest && e.target.closest(".review-split-check");
+  if (s) {
+    const it = s.closest(".review-item"), sid = it && it.dataset.entryId;
+    if (sid) { if (s.checked) reviewSplitOff_.delete(sid); else reviewSplitOff_.add(sid); }
+    return;
+  }
   const c = e.target.closest && e.target.closest(".review-plan-check");
   if (!c) return;
   const item = c.closest(".review-item"), id = item && item.dataset.entryId;
@@ -8615,6 +8631,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <label class="review-transfer-label">${tr("review.receivedAtLabel")}</label>
         <select class="review-land">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>` : ""}` : ""}
       </div>
+      ${entry.split_match && companyCopyOn_() ? `<label class="review-plan-match review-split-match"><input type="checkbox" class="review-split-check"${reviewSplitOff_.has(entry.id) ? "" : " checked"}> ${escapeHtml(tr("psplit.line", { parts: entry.split_match.parts.map((p) => `${p.name} ${moneyFmt(p.pct).replace(/[.,]00$/, "")} %`).join(", ") }))}</label>` : ""}
       ${entry.plan_match ? `<label class="review-plan-match"><input type="checkbox" class="review-plan-check"${reviewPlanOff_.has(entry.id) ? "" : " checked"}> ${escapeHtml(tr("plan.line", { name: entry.plan_match.description || tr("plan.thePlanned"), month: paceMonthName_(entry.plan_match.month, true) }))}</label>` : ""}
       <div class="review-item-actions">
         <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
@@ -8785,14 +8802,19 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (!isPracticeReviewEntry_(entry)) betaRecordEvents_(PerfShare.queueEvents(entry, fields, betaEntryPlace_(entry)));   // (the practice's entries are not counted)
       // "This is my Salary for August", left ticked: the confirm links it to that Programmed item (owner's plan, 2026-11-17).
       const planCheck = item.querySelector(".review-plan-check");
-      queueReviewAction_(entry.id, "confirm", fields, planCheck && planCheck.checked && entry.plan_match ? { planId: entry.plan_match.recurring_id } : null);
+      // "As last month: …" left ticked (and the card still on the company, no single project picked): the split comes with the confirm.
+      const splitCheck = item.querySelector(".review-split-check");
+      const bizBox = item.querySelector(".review-business");
+      const split = splitCheck && splitCheck.checked && entry.split_match && (!bizBox || bizBox.value.startsWith("c:")) ? entry.split_match.parts : null;
+      const extra = Object.assign({}, planCheck && planCheck.checked && entry.plan_match ? { planId: entry.plan_match.recurring_id } : {}, split ? { split } : {});
+      queueReviewAction_(entry.id, "confirm", fields, Object.keys(extra).length ? extra : null);
       holdTaps_();
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
       if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
 
       try {
-        const followed = await applyReviewAction_({ id: entry.id, action: "confirm", fields });
+        const followed = await applyReviewAction_(Object.assign({ id: entry.id, action: "confirm", fields }, split ? { split } : {}));   // (the split goes too: piece 6)
         refreshEntryList();
         refreshExpectedRecurring();
         refreshHomeGlance_(true);   // a confirmed entry now counts in the totals at the top of Home
@@ -23624,6 +23646,7 @@ function populateBusinessOptions_() {
     (selectedType === "expense" || selectedType === "income" || (selectedType === "transfer" && repaymentActive_()));
   fillBusinessOptions_(sel, canLink ? (sel.value || (businessAutoPick_ ? companyDefaultPick_() : "")) : "");
   document.getElementById("business-field").hidden = !canLink;
+  syncProjectSplitButton_();
   syncClientButton_();
   syncExpectedField_();
   syncIgvField_();
@@ -23866,6 +23889,84 @@ function resetBusinessPick_() {
 }
 document.getElementById("entry-business").addEventListener("change", () => { businessAutoPick_ = false; });
 
+// ---- Split between projects (Business 2, piece 6; company copies only) ----
+// A SAVED expense or income on the company (no single project) can be shared between the company's projects, an amount each; the
+// parts must add up to the amount. Saved at once (behind the screen), apart from the form's own Save.
+let editingProjectParts_ = [];   // the entry's parts, as listed by the server
+let editingSplitEntry_ = null;   // { id, amount, currency, company_id } of the entry being edited
+function syncProjectSplitButton_() {
+  const btn = document.getElementById("entry-psplit-btn"), sum = document.getElementById("entry-psplit-summary");
+  if (!btn) return;
+  const e = editingSplitEntry_;
+  const value = document.getElementById("entry-business").value;
+  const company = e && (value.startsWith("c:") ? value.slice(2) : "");
+  const projects = company ? (meta.projects || []).filter((p) => p.company_id === company && p.status !== "closed") : [];
+  const show = companyCopyOn_() && !!e && (selectedType === "expense" || selectedType === "income") && projects.length >= 2;
+  btn.hidden = !show;
+  const parts = show ? editingProjectParts_ : [];
+  sum.hidden = !parts.length;
+  sum.textContent = parts.length ? tr("psplit.summary", { list: parts.map((p) => `${((meta.projects || []).find((x) => x.id === p.project_id) || {}).name || "—"} ${formatAmount(p.amount, e.currency)}`).join(" · ") }) : "";
+  btn.textContent = tr(parts.length ? "psplit.change" : "psplit.button");
+}
+document.getElementById("entry-business").addEventListener("change", syncProjectSplitButton_);
+
+let psplitCtx_ = null;
+function openProjectSplit_() {
+  const e = editingSplitEntry_;
+  const company = document.getElementById("entry-business").value.slice(2);
+  const projects = (meta.projects || []).filter((p) => p.company_id === company && p.status !== "closed").sort((a, b) => a.name.localeCompare(b.name));
+  psplitCtx_ = { entry: e, company, projects };
+  document.getElementById("psplit-intro").textContent = tr("psplit.intro", { total: formatAmount(Number(e.amount), e.currency) });
+  const box = document.getElementById("psplit-rows");
+  box.innerHTML = "";
+  projects.forEach((p) => {
+    const have = editingProjectParts_.find((x) => x.project_id === p.id);
+    const row = document.createElement("div");
+    row.className = "psplit-row";
+    row.innerHTML = `<label for="psplit-${p.id}">${escapeHtml(projectLabel_(p))}</label><input type="text" inputmode="decimal" id="psplit-${p.id}" data-project-id="${p.id}" placeholder="0.00" value="${have ? have.amount : ""}"><span class="hint psplit-pct"></span>`;
+    box.appendChild(row);
+  });
+  box.querySelectorAll("input").forEach((i) => i.addEventListener("input", psplitSum_));
+  document.getElementById("psplit-remove").hidden = !editingProjectParts_.length;
+  document.getElementById("psplit-error").textContent = "";
+  psplitSum_();
+  const backdrop = document.getElementById("psplit-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function psplitParts_() {
+  return [...document.querySelectorAll("#psplit-rows input")].map((i) => ({ project_id: i.dataset.projectId, amount: Math.round((parseFloat(String(i.value).replace(/,/g, "")) || 0) * 100) / 100 })).filter((p) => p.amount > 0);
+}
+function psplitSum_() {
+  const e = psplitCtx_.entry, total = Number(e.amount);
+  const parts = psplitParts_();
+  const sum = Math.round(parts.reduce((n, p) => n + p.amount, 0) * 100) / 100;
+  document.querySelectorAll("#psplit-rows .psplit-row").forEach((row) => {
+    const v = parseFloat(String(row.querySelector("input").value).replace(/,/g, "")) || 0;
+    row.querySelector(".psplit-pct").textContent = v > 0 && total > 0 ? `${Math.round(v * 1000 / total) / 10} %` : "";
+  });
+  const left = Math.round((total - sum) * 100) / 100;
+  document.getElementById("psplit-sum").textContent = tr(Math.abs(left) < 0.005 ? "psplit.sumOk" : left > 0 ? "psplit.sumShort" : "psplit.sumOver", { sum: formatAmount(sum, e.currency), total: formatAmount(total, e.currency), left: formatAmount(Math.abs(left), e.currency) });
+  return { parts, left };
+}
+document.getElementById("entry-psplit-btn").addEventListener("click", openProjectSplit_);
+document.getElementById("psplit-close").addEventListener("click", () => { document.getElementById("psplit-modal-backdrop").hidden = true; });
+function psplitSave_(parts) {
+  const e = psplitCtx_.entry;
+  document.getElementById("psplit-modal-backdrop").hidden = true;
+  editingProjectParts_ = parts;
+  syncProjectSplitButton_();
+  saveBehindScreen_(() => callApi("saveProjectSplit", { entry_id: e.id, parts }), () => { refreshEntriesInBackground_(); refreshOverview().catch(() => {}); });
+}
+document.getElementById("psplit-save").addEventListener("click", () => {
+  const { parts, left } = psplitSum_();
+  const err = document.getElementById("psplit-error");
+  if (parts.length < 2) { err.textContent = tr("psplit.errTwo"); return; }
+  if (Math.abs(left) >= 0.005) { err.textContent = tr("psplit.errSum"); return; }
+  psplitSave_(parts);
+});
+document.getElementById("psplit-remove").addEventListener("click", () => psplitSave_([]));
+
 function setBusinessPick_(value) {
   businessAutoPick_ = false;
   const sel = document.getElementById("entry-business");
@@ -23883,6 +23984,7 @@ function setBusinessPick_(value) {
   expectedPick_ = ""; expectedPickTouched_ = false;   // callers that carry a link set it again with setExpectedPick_
   syncExpectedField_();
   setIgvState_(false);                                // ... and IGV with setIgvState_
+  syncProjectSplitButton_();                          // "Split between projects" follows the pick (Business 2, piece 6)
 }
 
 // What the form sends: nothing at all while the pack is off (so a hidden label is never touched), else all the keys.
@@ -23903,7 +24005,9 @@ function businessPillHtml_(entry) {
   const project = entry.project_id ? (meta.projects || []).find((p) => p.id === entry.project_id) : null;
   const company = (meta.companies || []).find((c) => c.id === (entry.company_id || (project && project.company_id)));
   if (!company && !project) return "";
-  const text = project ? [company ? companyLabel_(company) : "", project.name].filter(Boolean).join(" › ") : companyLabel_(company);
+  const parts = entry.project_parts || [];   // split between projects (Business 2, piece 6)
+  const text = project ? [company ? companyLabel_(company) : "", project.name].filter(Boolean).join(" › ")
+    : parts.length ? `${companyLabel_(company)} › ${tr("psplit.pill", { n: parts.length })}` : companyLabel_(company);
   // An income that settles an expected payment also carries its invoice number.
   const expected = entry.expected_payment_id ? (meta.expectedPayments || []).find((x) => x.id === entry.expected_payment_id) : null;
   const invoice = expected && expected.invoice_no ? `<span class="entry-tag entry-business">${escapeHtml(tr("xp.pill", { no: expected.invoice_no }))}</span>` : "";

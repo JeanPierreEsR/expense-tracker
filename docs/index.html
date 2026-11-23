@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.53.0"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="2.54.0"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-22T23:40:46Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-23T01:45:39Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -390,6 +390,9 @@
           <div id="business-field" hidden>
             <label for="entry-business" data-i18n="field.business">Company / project</label>
             <select id="entry-business"></select>
+            <!-- Business 2, piece 6 (company copies): one saved expense or income shared between the company's projects. -->
+            <p class="hint" id="entry-psplit-summary" hidden></p>
+            <button type="button" class="add-inline" id="entry-psplit-btn" hidden data-i18n="psplit.button">Split between projects</button>
           </div>
 
           </div>
@@ -4235,6 +4238,23 @@
 
   <!-- One tag: rename or delete (More → Categories & tags). -->
   <!-- Business 2, piece 5: "Add units" (company copies): many unit tags at once, with the numbering the person picks. -->
+  <div id="psplit-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="psplit.title">Split between projects</span>
+        <button type="button" id="psplit-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="psplit-intro"></p>
+        <div id="psplit-rows"></div>
+        <p class="hint" id="psplit-sum"></p>
+        <p class="hint" data-i18n="psplit.amountHint">If the amount of the entry changes, the split is removed: split it again.</p>
+        <p class="hint error-text" id="psplit-error"></p>
+        <button type="button" class="primary" id="psplit-save" data-i18n="psplit.save">Save the split</button>
+        <button type="button" class="delete-entry-btn" id="psplit-remove" hidden data-i18n="psplit.remove">Remove the split</button>
+      </div>
+    </div>
+  </div>
   <div id="units-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -4428,25 +4448,25 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="i18n.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="tour-scenes.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="signin-link.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="country-guess.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="rate-quotes.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="bank-sample.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="perf-share.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="spotlight.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="receipt-parse.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="receipt-fields.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="in-process.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="bill-split.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="loan-reminder.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="company-invite.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="app.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="statement-sample.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="statement-table.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="statement-parsers.js?v=2026-11-22T23:40:46Z"></script>
-  <script src="statements.js?v=2026-11-22T23:40:46Z"></script>
+  <script src="strings.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="i18n.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="tour-scenes.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="signin-link.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="country-guess.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="rate-quotes.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="bank-sample.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="perf-share.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="spotlight.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="receipt-parse.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="receipt-fields.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="in-process.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="bill-split.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="loan-reminder.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="company-invite.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="app.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="statement-sample.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="statement-table.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="statement-parsers.js?v=2026-11-23T01:45:39Z"></script>
+  <script src="statements.js?v=2026-11-23T01:45:39Z"></script>
 </body>
 </html>

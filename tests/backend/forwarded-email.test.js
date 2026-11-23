@@ -124,3 +124,17 @@ test("quoted dates as mail programs write them", () => {
   assert.equal(day("not a date"), null);
   assert.equal(day("Sat, Mar 21, 2099 at 12:44 PM"), null, "never a future date");
 });
+
+test("the bots' card (WhatsApp and Telegram share it) says who forwarded it, unless it is one of the person's addresses", () => {
+  const { friend: rt } = copies();
+  rt.svc.gmail.addEmail({ from: "Eva <" + OTHER + ">", subject: "Fwd: " + SUBJECT, body: gmailForward({ amount: "45.10", op: "990041", daysAgo: 3 }) });
+  scan(rt);
+  const id = byOp(rt, "990041")[0].id;
+  const card = () => rt.run(`formatEntryForTelegram_(getEntryById_(${JSON.stringify(id)}), null, null, {})`);
+  assert.match(card(), new RegExp("Forwarded by " + OTHER.replace(/\./g, "\\.")));
+  rt.api("setForwardAddresses", { addresses: [OTHER] });
+  assert.doesNotMatch(card(), /Forwarded by/);
+  rt.api("setForwardAddresses", { addresses: [] });
+  rt.run(`setEntryField_(${JSON.stringify(id)}, 'status', 'confirmed')`);
+  assert.doesNotMatch(card(), /Forwarded by/, "only while it waits");
+});
