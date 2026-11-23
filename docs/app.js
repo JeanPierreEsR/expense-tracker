@@ -10879,6 +10879,9 @@ function renderPaceBig_() {
     const r = hist && paceResolve_(hist, view);
     const nowTotal = r && r.cur && r.cur.cum.length ? r.cur.cum[r.cur.cum.length - 1] : 0;
     card.hidden = !r || !r.cur || (!nowTotal && !(r.ref && r.ref.expense > 0));
+    // Nothing earlier to compare with (a new copy's first month): no "Against earlier months / last year" choice over an empty
+    // comparison (testers, 2026-11-22). In year mode the switch stays, so the person can go back to earlier months.
+    if (!view && !yearMode) document.getElementById("pace-ref-switch").hidden = !(r && r.ref && r.ref.expense > 0);
     if (!card.hidden) drawPace_({ label: document.getElementById("pace-ref-label"), svg: document.getElementById("pace-svg"), lines: document.getElementById("pace-lines") }, r, view);
   };
   if (!paceCatIds_(view)) { draw(monthsHist_); return; }
