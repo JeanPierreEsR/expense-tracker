@@ -8849,6 +8849,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       } catch (err) {
         // Stays queued — the next refreshReviewQueue (including on the
         // next app open) retries it automatically, no action needed here.
+        // With no connection the person is told so (testers, 2026-11-22: the card just vanished).
+        if (navigator.onLine === false || /fetch|network|load failed|timed? ?out/i.test(String((err && err.message) || ""))) showToast_(tr("entry.savingOffline"));
         practiceNActionFailed_(entry.id, err);   // (a practice entry that could not be confirmed stops the practice)
       }
     });
