@@ -660,6 +660,7 @@ function deleteSheetRows_(sheet, row, count) {
   var total = sheet.getMaxRows();
   if (total - count <= sheet.getFrozenRows()) sheet.insertRowAfter(total);
   sheet.deleteRows(row, count);
+  CHANGE_ROWS_ = {};   // the change log's remembered rows are by row number (ChangeLog.gs): rows below have moved
 }
 
 // Generic "delete every row matching predicate" for a sheet with a header
@@ -697,6 +698,7 @@ function deleteRowsWhere_(sheetName, predicate) {
   if (ROWS_MEMO_) delete ROWS_MEMO_[sheetName];
   if (sheetName === 'Statement Lines') STMT_COVERAGE_MEMO_ = null;
   noteRowsDeleted_(sheetName, deleted);   // change tracking — see DataVersion.gs
+  deleted.forEach(function (o) { changeNoteDelete_(sheetName, o); });   // the change log (ChangeLog.gs, company copies)
 }
 
 // ---- Standalone cash loans (Phase 5.3) ----

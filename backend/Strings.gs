@@ -344,6 +344,8 @@ var BACKEND_STRINGS_ = {
   "partner.gone": { en: "That partner's money no longer exists.", es: "Esa plata del socio ya no existe." },
   "partner.descContribution": { en: "Capital contribution from {name}", es: "Aporte de capital de {name}" },
   "partner.descPending": { en: "Money from {name} (to be decided)", es: "Plata de {name} (por definir)" },
+  "close.badMonth": { en: "Choose a month.", es: "Elige un mes." },
+  "close.notEnded": { en: "A month can be closed once it has ended.", es: "Un mes se puede cerrar cuando ya terminó." },
   "partner.descDistribution": { en: "Profit distribution to {name}", es: "Distribución de utilidades a {name}" },
   "bank.withholdingDesc": { en: "Withholding to pay SUNAT, installment {n}/{count}: {what}", es: "Retención por pagar a SUNAT, cuota {n}/{count}: {what}" },
   "bank.withholdingTooBig": { en: "The withholding cannot be more than the interest.", es: "La retención no puede ser mayor que el interés." },

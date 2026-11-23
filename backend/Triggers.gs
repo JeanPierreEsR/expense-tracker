@@ -114,6 +114,9 @@ function scanEmailsGuarded_(source) {
   } finally {
     lock.releaseLock();
   }
+  var sourceBefore = CHANGE_SOURCE_, batchingBefore = CHANGE_BATCHING_;
+  CHANGE_SOURCE_ = 'email';   // the change log says these came from a bank e-mail (ChangeLog.gs)
+  CHANGE_BATCHING_ = true;
   try {
     var results = processEmails();
     // Once per copy, after a new pack rule arrived: its older e-mails, read now (MailCatchup.gs). Never breaks the scan.
@@ -126,6 +129,9 @@ function scanEmailsGuarded_(source) {
     throw err;
   } finally {
     props.deleteProperty(EMAIL_SCAN_RUNNING_KEY_);
+    flushChangeLog_();
+    CHANGE_SOURCE_ = sourceBefore;
+    CHANGE_BATCHING_ = batchingBefore;
   }
 }
 

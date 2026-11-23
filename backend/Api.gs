@@ -21,7 +21,18 @@ var PERF_INSTANCE_WARM_ = false;
 // A Sheet cell not set to text turns 0123 into 123: read as what was meant.
 function pmLast4_(v) { var s = String(v === undefined || v === null ? '' : v).trim(); return /^\d{1,3}$/.test(s) ? ('000' + s).slice(-4) : s; }
 
+// Every request: the change log (ChangeLog.gs, company copies) collects its lines while it runs and writes them once at the end.
 function doPost(e) {
+  changeLogReset_('app');
+  try {
+    return doPostInner_(e);
+  } finally {
+    flushChangeLog_();
+    CHANGE_BATCHING_ = false;
+  }
+}
+
+function doPostInner_(e) {
   var perfStart = Date.now();
   var perfCold = !PERF_INSTANCE_WARM_;
   PERF_INSTANCE_WARM_ = true;
@@ -34,7 +45,7 @@ function doPost(e) {
   var response;
   // Apple Pay capture (ApplePay.gs): the iPhone's shortcut posts to this address with the person's Apple Pay key in the link. That key
   // opens this one door only, so it is answered here, before anything else; a wrong key gets the same refusal as a wrong code.
-  if (e && e.parameter && e.parameter.k !== undefined) return applePayDoor_(e);
+  if (e && e.parameter && e.parameter.k !== undefined) { CHANGE_SOURCE_ = 'applepay'; return applePayDoor_(e); }
   try {
     var body = JSON.parse(e.postData.contents);
     // The app tells us which language the person is using; everything this
@@ -50,6 +61,7 @@ function doPost(e) {
     }
 
     if (body && body.whatsapp !== undefined) {
+      CHANGE_SOURCE_ = 'whatsapp';
       // A WhatsApp message, forwarded by the Cloudflare relay (cloudflare-worker/whatsapp-relay.js) only after it checked Meta's
       // signature and the sender's number. This address is public, so the relay's secret must be in the body (WhatsApp.gs).
       if (!isWhatsAppRelayAuthorized_(body)) {
@@ -74,6 +86,7 @@ function doPost(e) {
     }
 
     if (body && body.update_id !== undefined) {
+      CHANGE_SOURCE_ = 'telegram';
       // The URL of this web app is public, so anyone can POST something that
       // looks like a Telegram update. Once the owner has turned on webhook
       // protection (sheet menu 24), only updates carrying the shared secret —
@@ -167,7 +180,7 @@ var ONCE_ACTIONS_ = {
   // answer was lost, and each "try again" made it again). With the phone keeping one id per save across its retries, a repeat
   // gets the first one's answer instead of a second copy.
   addTrip: 1, addBudget: 1, addPaymentMethod: 1, savePaymentMethod: 1, addTag: 1, addBank: 1, addPayor: 1, saveCategory: 1,
-  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1,   // Business 2 piece 7 (Partners.gs)
+  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, closeMonth: 1, reopenMonth: 1,   // Business 2 piece 7 (Partners.gs)
   saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1
 };
 
@@ -492,6 +505,10 @@ function routeActionSwitch_(action, payload) {
     case 'changePartnerMoney': return changePartnerMoney(payload);
     case 'recordDistribution': return recordDistribution(payload);
     case 'listPendingContributions': return listPendingContributions();
+    case 'listChangeLog': return listChangeLog(payload);   // Business 2 piece 8: change log and month close (ChangeLog.gs, MonthClose.gs)
+    case 'getMonthClose': return getMonthClose(payload);
+    case 'closeMonth': return closeMonth(payload);
+    case 'reopenMonth': return reopenMonth(payload);
     case 'getProfileState': return getProfileState();
     case 'getAnnualHints': return getAnnualHints();
     case 'listStatementGaps': return listStatementGaps();
@@ -899,6 +916,7 @@ function appendRowObject(sheetName, obj) {
   sheet.appendRow(row);
   if (ROWS_MEMO_) { delete ROWS_MEMO_[sheetName]; delete ROWS_MEMO_['@c:' + sheetName]; }
   noteRowAppended_(sheetName, obj);
+  changeNoteCreate_(sheetName, obj);   // the change log (ChangeLog.gs, company copies)
   if (BOT_ACTION_) botActionNoteRow_(sheetName, obj);   // part of a bot action (BotUndo.gs)
 }
 
@@ -933,6 +951,7 @@ function getMeta() {
     companies: getCompanyRows_(),
     projects: getProjectRows_(),
     expectedPayments: getExpectedRows_(),   // empty (and nothing read) while the pack is off
+    closedMonths: closedMonths_(),   // company copies: months closed (MonthClose.gs); [] elsewhere
     friends: getFriendsWithLastUsed_(),
     payors: getPayorsWithLastIncome_(),
     payorMergeAsk: payorMergeAsk,

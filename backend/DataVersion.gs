@@ -30,7 +30,7 @@ var STRUCTURE_SHEETS_ = {
   'Tags': true, 'Exchange Rates': true, 'Banks': true, 'Trips': true,
   'Companies': true, 'Projects': true, 'Project Budgets': true, 'Expected Payments': true, 'IGV Payments': true,   // Business pack (Business.gs)
   'Business Openings': true, 'Accountant Figures': true,
-  'Contributions': true, 'Distributions': true   // Business 2 piece 7: a transfer's partner link (Partners.gs)
+  'Contributions': true, 'Distributions': true, 'Month Closes': true   // Business 2 pieces 7-8: a transfer's partner link (Partners.gs)
 };
 // Per-entry side tables — a change touches the entry they belong to.
 var ENTRY_CHILD_SHEETS_ = { 'Entry Splits': true, 'Entry Tags': true };

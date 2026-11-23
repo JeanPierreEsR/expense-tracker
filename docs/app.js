@@ -3945,6 +3945,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   if (document.getElementById("entry-card").classList.contains("entry-loading")) { e.preventDefault(); return; }
   e.preventDefault();
   if (entryRepayTooQuick_()) return;   // a repayment amount the form filled in, saved too quickly to have been read
+  if (!(await closedMonthOk_([editingEntryId ? editingEntryOriginalDate_ : "", document.getElementById("date").value]))) return;   // piece 8
   const submitBtn = document.getElementById("submit-btn");
   const errorEl = document.getElementById("form-error");
   errorEl.textContent = "";
@@ -6016,7 +6017,9 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
     ${kept.length ? `<p class="hint" style="white-space:pre-line;">${escapeHtml(tr("entriesBulk.keptNote", { n: kept.length }) + "\n" + keptText)}</p>` : ""}
     <button type="button" class="primary danger" id="entries-bulk-go">${escapeHtml(tr("friends.deleteN", { n: deletable.length }))}</button>
     <p class="hint">${escapeHtml(tr(meta && meta.capabilities && meta.capabilities.entriesRestore ? "entriesBulk.undoHint" : "entriesBulk.cantUndo"))}</p>`;
-  document.getElementById("entries-bulk-go").addEventListener("click", () => {
+  document.getElementById("entries-bulk-go").addEventListener("click", async () => {
+    const dateOf = (id) => ((lastRenderedEntries_ || []).find((x) => x.id === id) || (searchIndex || []).find((x) => x.id === id) || {}).date;
+    if (!(await closedMonthOk_(deletable.map((i) => i.date || dateOf(i.id))))) return;   // piece 8
     closeEntriesBulkSheet_();
     const sendIds = deletable.map((i) => i.id);
     setEntriesEditing_(false, false);
@@ -7032,6 +7035,7 @@ async function startEditEntry(entry) {
   document.getElementById("submit-btn").textContent = tr("entry.update");
   document.getElementById("cancel-edit-btn-2").hidden = false;
   document.getElementById("delete-entry-btn").hidden = false;
+  document.getElementById("entry-history-btn").hidden = !companyCopyOn_() || !!confirmingPendingId;   // piece 8: its change log
   // A save that failed in the background comes back with the reason (e.g. a loan refusing a lower amount).
   if (entry._queueStatus === "failed" && entry._queueError) document.getElementById("form-error").textContent = entry._queueError;
 
@@ -7064,6 +7068,7 @@ function exitEditMode() {
   document.getElementById("submit-btn").textContent = tr("entry.save");
   document.getElementById("cancel-edit-btn-2").hidden = true;
   document.getElementById("delete-entry-btn").hidden = true;
+  document.getElementById("entry-history-btn").hidden = true;
   selectedTagIds.clear();
   populateTags();
   document.getElementById("entry-trip").value = "";
@@ -7217,6 +7222,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed, s
 document.getElementById("delete-entry-btn").addEventListener("click", async () => {
   if (!editingEntryId) return;
   const id = editingEntryId;
+  if (!(await closedMonthOk_([editingEntryOriginalDate_]))) return;   // piece 8: a closed month asks first
   const wasPopup = editingViaPopup;
   let ok;
   const delBtn = document.getElementById("delete-entry-btn"), delLabel = delBtn.textContent;
@@ -8949,6 +8955,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         showAppMessage_(tr("error.validAmount"));
         return;
       }
+      if (!(await closedMonthOk_([entry.date]))) return;   // piece 8: confirming changes a closed month
 
       // Applies immediately and locally — see the note above the queue
       // helpers. The row is gone the instant you tap, whether or not the
@@ -10701,7 +10708,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["feedback-privacy", "recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-statement", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
+const MORE_SUBSCREENS = ["change-log", "feedback-privacy", "recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-statement", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
 // ---- The tab bar: the person chooses its tabs (owner, 2026-11-15; More → My profile → My tabs, specs/home-tab.md § My tabs) ----
 // Home is always there (its place can change); More is always there and always last; up to 6 tabs in all. A main screen taken out of the bar
 // is a row at the top of More; Trips, Programmed items and My data, put in the bar, leave More and their screens lose the Back to More.
@@ -11723,9 +11730,9 @@ function applyCompanyOverview_() {
   screen.classList.toggle("company-ov", on);
   const balances = document.getElementById("balances-card");
   if (!balancesHome_) { balancesHome_ = document.createComment("balances-card home"); balances.parentNode.insertBefore(balancesHome_, balances); }
-  if (on) document.getElementById("co-partners-card").after(balances);
+  if (on) document.getElementById("co-close-card").after(balances);
   else balancesHome_.after(balances);
-  if (!on) ["co-owed-card", "co-funding-card", "co-partners-card"].forEach((id) => { document.getElementById(id).hidden = true; });
+  if (!on) ["co-owed-card", "co-funding-card", "co-partners-card", "co-close-card"].forEach((id) => { document.getElementById(id).hidden = true; });
 }
 let balancesHome_ = null;   // where the Balances card sits on every other copy
 
@@ -11754,7 +11761,200 @@ function renderCompanyOverview_(company) {
   });
   document.getElementById("co-funding-empty").hidden = company.funding.length > 0;
   renderCompanyPartners_(company);
+  renderCompanyClose_(company.close);
 }
+
+// ---- Change log and month close (Business 2, piece 8) ----
+// A change in a closed month asks first ("November is closed. Change it anyway?"); the server never refuses (reopening is allowed).
+async function closedMonthOk_(dates) {
+  const closed = (meta && meta.closedMonths) || [];
+  if (!closed.length || !companyCopyOn_()) return true;
+  const months = [...new Set((dates || []).filter(Boolean).map((d) => String(d).slice(0, 7)))].filter((m) => closed.includes(m));
+  if (!months.length) return true;
+  return askConfirmApp_(tr("close.askEdit", { month: months.map((m) => paceMonthName_(m)).join(", ") }), tr("close.editAnyway"), { plain: true });
+}
+
+let closeState_ = null;
+function renderCompanyClose_(state) {
+  const card = document.getElementById("co-close-card");
+  closeState_ = state || null;
+  card.hidden = !state || !state.ended;
+  if (card.hidden) return;
+  const month = paceMonthName_(state.month);
+  document.getElementById("co-close-title").textContent = tr("close.cardTitle", { month: paceMonthName_(state.month, true) });
+  const body = document.getElementById("co-close-body");
+  const c = state.close;
+  const parts = [];
+  if (state.closed) {
+    parts.push(`<p>${escapeHtml(tr("close.closedOn", { date: listDate_(c.closed_at.slice(0, 10)) }))}</p>`);
+    const diffs = (c.bank_check || []).filter((b) => b.difference !== null && Math.abs(b.difference) > 0.004);
+    const checked = (c.bank_check || []).filter((b) => b.difference !== null);
+    if (checked.length) parts.push(`<p class="hint">${escapeHtml(diffs.length ? tr("close.bankDiffs", { list: diffs.map((b) => `${b.nickname} ${formatAmount(Math.abs(b.difference), b.currency, b.difference > 0 ? "+" : "−")}`).join(" · ") }) : tr("close.bankOk"))}</p>`);
+    if (c.note) parts.push(`<p class="hint">${escapeHtml(tr("close.noteShown", { note: c.note }))}</p>`);
+    if (state.changed) {
+      parts.push(`<p class="close-changed">${escapeHtml(tr("close.changed"))} ${escapeHtml(state.hand_edited ? tr("close.handEdited") : tr("close.changedN", { n: state.changes.length }))}</p>`);
+      if (!state.hand_edited) parts.push(`<button type="button" class="add-inline" id="co-close-see">${escapeHtml(tr("close.seeChanges"))}</button>`);
+    }
+    parts.push(`<button type="button" class="add-inline" id="co-close-reopen">${escapeHtml(tr("close.reopen"))}</button>`);
+  } else {
+    parts.push(`<p>${escapeHtml(tr("close.notClosed", { month }))}</p>`);
+    if (c && c.reopened_at) parts.push(`<p class="hint">${escapeHtml(tr("close.reopenedOn", { date: listDate_(c.reopened_at.slice(0, 10)) }))}</p>`);
+    if (state.pending_count) parts.push(`<p class="hint">${escapeHtml(tr("close.pendingN", { n: state.pending_count }))}</p>`);
+    parts.push(`<button type="button" class="primary" id="co-close-open">${escapeHtml(tr("close.openBtn"))}</button>`);
+  }
+  body.innerHTML = parts.join("");
+  const on = (id, fn) => { const b = document.getElementById(id); if (b) b.addEventListener("click", fn); };
+  on("co-close-open", () => openCloseModal_(state));
+  on("co-close-see", () => showChangeLog_(state.month));
+  on("co-close-reopen", async () => {
+    if (!(await askConfirmApp_(tr("close.askReopen", { month: paceMonthName_(state.month, true) }), tr("close.reopen"), { plain: true }))) return;
+    saveBehindScreen_(() => callApi("reopenMonth", { month: state.month }), () => { refreshOverview().catch(() => {}); loadMeta().catch(() => {}); });
+  });
+}
+
+function openCloseModal_(state) {
+  document.getElementById("close-title").textContent = tr("close.cardTitle", { month: paceMonthName_(state.month, true) });
+  document.getElementById("close-bank-hint").textContent = tr("close.bankHint", { date: listDate_(monthLastDay_(state.month)) });
+  const box = document.getElementById("close-accounts");
+  box.innerHTML = "";
+  (state.accounts || []).forEach((a, i) => {
+    const row = document.createElement("div");
+    row.className = "close-account";
+    row.innerHTML = `<div class="loans-ov-owed-row"><span>${escapeHtml(a.nickname)} · ${escapeHtml(a.currency)}</span><b>${escapeHtml(formatAmount(a.amount, a.currency))}</b></div>
+      <label for="close-bank-${i}">${escapeHtml(tr("close.bankSays"))}</label>
+      <input type="text" inputmode="decimal" id="close-bank-${i}" data-pm="${escapeHtml(a.payment_method_id)}" data-cur="${escapeHtml(a.currency)}" data-app="${a.amount}" placeholder="${escapeHtml(tr("close.notChecked"))}">
+      <p class="hint close-diff" id="close-diff-${i}"></p>`;
+    const input = row.querySelector("input");
+    input.addEventListener("input", () => {
+      const clean = sanitizeAmountInputValue(input.value.replace(/^-/, "")) ;
+      const neg = input.value.trim().startsWith("-");
+      if ((neg ? "-" : "") + clean !== input.value) input.value = (neg ? "-" : "") + clean;
+      const v = parseFloat(input.value.replace(/,/g, ""));
+      const diff = row.querySelector(".close-diff");
+      if (!Number.isFinite(v)) { diff.textContent = ""; return; }
+      const d = Math.round((v - a.amount) * 100) / 100;
+      diff.textContent = Math.abs(d) < 0.005 ? tr("close.matches") : tr("close.diffIs", { amount: formatAmount(Math.abs(d), a.currency, d > 0 ? "+" : "−") });
+      diff.classList.toggle("close-diff-off", Math.abs(d) >= 0.005);
+    });
+    box.appendChild(row);
+  });
+  document.getElementById("close-no-accounts").hidden = (state.accounts || []).length > 0;
+  const pend = document.getElementById("close-pending");
+  pend.hidden = !state.pending_count;
+  pend.textContent = state.pending_count ? tr("close.pendingWarn", { n: state.pending_count }) : "";
+  document.getElementById("close-note").value = "";
+  document.getElementById("close-error").textContent = "";
+  const backdrop = document.getElementById("close-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function monthLastDay_(month) {
+  const [y, m] = month.split("-").map(Number);
+  return `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
+}
+document.getElementById("close-close").addEventListener("click", () => { document.getElementById("close-modal-backdrop").hidden = true; });
+document.getElementById("close-save").addEventListener("click", () => {
+  const state = closeState_;
+  if (!state) return;
+  const bank = [...document.querySelectorAll("#close-accounts input")].map((el) => {
+    const raw = el.value.trim();
+    return { payment_method_id: el.dataset.pm, currency: el.dataset.cur, bank_amount: raw === "" ? "" : parseFloat(raw.replace(/,/g, "")) };
+  });
+  if (bank.some((b) => b.bank_amount !== "" && !Number.isFinite(b.bank_amount))) { document.getElementById("close-error").textContent = tr("error.validAmount"); return; }
+  document.getElementById("close-modal-backdrop").hidden = true;
+  saveBehindScreen_(() => callApi("closeMonth", { month: state.month, bank, note: document.getElementById("close-note").value.trim() }),
+    () => { refreshOverview().catch(() => {}); loadMeta().catch(() => {}); });
+});
+
+// The change log screen (More → Change log): one month at a time, newest first, grouped by day.
+let changeLogMonth_ = null;
+const trOr_ = (key, fallback) => ((window.STRINGS || {})[key] ? tr(key) : fallback);   // a text that may have no translation (a raw field name)
+function changeLogValue_(field, v) {
+  if (v === "" || v == null) return tr("changelog.empty_value");
+  if (field === "category_id") return categoryName(v);
+  if (field === "payment_method_id" || field === "to_payment_method_id") { const pm = (meta.paymentMethods || []).find((p) => p.id === v); return pm ? pm.nickname : v; }
+  if (field === "company_id") { const c = (meta.companies || []).find((x) => x.id === v); return c ? c.name : v; }
+  if (field === "project_id") { const p = (meta.projects || []).find((x) => x.id === v); return p ? p.name : v; }
+  if (field === "paid_by" || field === "friend_id" || field === "partner_id") { if (v === "me") return tr("common.me"); const f = (meta.friends || []).find((x) => x.id === v); return f ? f.name : v; }
+  if (field === "type") return TYPE_LABELS[v] || v;
+  if (field === "status") return trOr_(`changelog.status.${v}`, v);
+  return String(v);
+}
+// The log keeps UTC moments; the person reads their own clock.
+const changeLogLocal_ = (at) => { const d = new Date(at); return isNaN(d) ? { day: String(at).slice(0, 10), time: String(at).slice(11, 16) } : { day: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`, time: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` }; };
+function changeLogLineHtml_(l) {
+  const time = changeLogLocal_(l.at).time;
+  const src = trOr_(`changelog.src.${l.source}`, l.source);
+  const tableName = trOr_(`changelog.table.${String(l.table).replace(/ /g, "")}`, l.table);
+  let what;
+  if (l.table === "Month Closes") what = tr(l.action === "reopen" ? "changelog.reopened" : "changelog.closed", { month: paceMonthName_(l.month, true) });
+  else if (l.what && l.table === "Entries" && l.action === "update") what = `${l.what.description || categoryName("")} · ${formatAmount(l.what.amount, l.what.currency)}`;
+  else if (l.what && l.action === "update") what = `${tableName} · ${l.what.description || ""}`;
+  else {
+    let d = {};
+    try { d = JSON.parse(l.before || l.after || "{}"); } catch (e) { d = {}; }
+    what = l.table === "Entries" && d.amount ? [d.description || categoryName(""), d.currency ? formatAmount(Number(d.amount), d.currency) : ""].filter(Boolean).join(" · ")
+      : [tableName, d.description, d.amount && d.currency ? formatAmount(Number(d.amount), d.currency) : ""].filter(Boolean).join(" · ");
+  }
+  let change;
+  if (l.action === "update") {
+    const label = trOr_(`changelog.field.${l.field}`, l.field);
+    change = tr("changelog.changed", { field: label, before: changeLogValue_(l.field, l.before), after: changeLogValue_(l.field, l.after) });
+  } else if (l.action === "create") change = tr("changelog.created");
+  else if (l.action === "delete") change = tr("changelog.deleted");
+  else change = "";
+  return `<div class="changelog-line"><div class="changelog-what">${escapeHtml(what)}</div>${change ? `<div>${escapeHtml(change)}</div>` : ""}<div class="hint">${escapeHtml(time)} · ${escapeHtml(src)}</div></div>`;
+}
+function renderChangeLogLines_(lines) {
+  let html = "", day = "";
+  lines.forEach((l) => {
+    const d = changeLogLocal_(l.at).day;
+    if (d !== day) { day = d; html += `<h3 class="changelog-day">${escapeHtml(listDate_(d))}</h3>`; }
+    html += changeLogLineHtml_(l);
+  });
+  return html;
+}
+async function showChangeLog_(month) {
+  showMoreSub_("change-log");
+  changeLogMonth_ = month || todayLocalISO().slice(0, 7);
+  await refreshChangeLog_();
+}
+async function refreshChangeLog_() {
+  const month = changeLogMonth_;
+  document.getElementById("changelog-month-label").textContent = paceMonthName_(month);
+  document.getElementById("changelog-next").disabled = month >= todayLocalISO().slice(0, 7);
+  const list = document.getElementById("changelog-list");
+  const err = document.getElementById("changelog-error");
+  err.textContent = "";
+  document.getElementById("changelog-empty").hidden = true;
+  list.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  let res;
+  try { res = await callApi("listChangeLog", { month }); }
+  catch (e) { list.innerHTML = ""; err.textContent = tr("business.loadFailed", { error: e.message }); return; }
+  if (month !== changeLogMonth_) return;   // the person moved on meanwhile
+  list.innerHTML = renderChangeLogLines_(res.lines);
+  document.getElementById("changelog-empty").hidden = res.lines.length > 0;
+}
+const shiftMonth_ = (m, n) => { const [y, mo] = m.split("-").map(Number); const d = new Date(y, mo - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+document.getElementById("more-changelog-btn").addEventListener("click", () => showChangeLog_(changeLogMonth_ || null));
+document.getElementById("changelog-back-btn").addEventListener("click", () => showScreen("more"));
+document.getElementById("changelog-prev").addEventListener("click", () => { changeLogMonth_ = shiftMonth_(changeLogMonth_, -1); refreshChangeLog_(); });
+document.getElementById("changelog-next").addEventListener("click", () => { changeLogMonth_ = shiftMonth_(changeLogMonth_, 1); refreshChangeLog_(); });
+// One entry's history, from its form (opens at once with "Loading…", loading standard).
+document.getElementById("entry-history-btn").addEventListener("click", async () => {
+  const id = editingEntryId;
+  if (!id) return;
+  const list = document.getElementById("history-list");
+  list.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  const backdrop = document.getElementById("history-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  try {
+    const res = await callApi("listChangeLog", { entry_id: id });
+    list.innerHTML = res.lines.length ? renderChangeLogLines_(res.lines) : `<p class="hint">${escapeHtml(tr("changelog.entryEmpty"))}</p>`;
+  } catch (e) { list.innerHTML = `<p class="hint error-text">${escapeHtml(tr("business.loadFailed", { error: e.message }))}</p>`; }
+});
+document.getElementById("history-close").addEventListener("click", () => { document.getElementById("history-modal-backdrop").hidden = true; });
 
 // ---- Partners (Business 2, piece 7) ----
 // The Overview card: per partner and currency (never converted) what they put in as capital, what is still to be decided, what the
@@ -22190,6 +22390,7 @@ function applyBusinessVisibility_(opts) {
   const on = businessOn();
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;
+  document.getElementById("more-changelog-btn").hidden = !companyCopyOn_();   // piece 8: the change log
   document.getElementById("more-business-features-state").textContent = tr(on ? "business.state.on" : "business.state.off");
   if (!(opts && opts.noCard)) refreshBusinessHomeCard_();
 }
@@ -27989,6 +28190,7 @@ const LINK_ICON_RULES_ = [
   [/^(close project|cerrar proyecto|closing project|cerrando proyecto)/i, "lock"],   // a project's Close (owner, 2026-11-21: the button had no icon)
   [/^(reopen|reabrir|reopening|reabriendo)/i, "refresh"],   // its Reopen, and every other "Reopen"
   [/^(starting balance|saldo inicial)/i, "plus"],   // the import's Done screen: gives a new account its starting balance
+  [/^(this entry's changes|cambios de este movimiento|see the changes|ver los cambios)$/i, "clock"],   // piece 8: the change log
   [/^(it's a partner's money|es plata de un socio)$/i, "users"],   // Business 2 piece 7: Needs review's partner buttons
   [/^(profit distribution|distribución de utilidades)$/i, "coin"],
   [/^(it's a contribution|es aporte)$/i, "check"],   // the Partners card: decide a "to be decided" one
