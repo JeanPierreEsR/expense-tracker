@@ -16,7 +16,8 @@
  * bank_check (JSON), pending_count, note.
  */
 
-var MONTH_CLOSE_HEADERS_ = ['id', 'month', 'status', 'closed_at', 'reopened_at', 'fingerprint', 'figures', 'bank_check', 'pending_count', 'note'];
+var MONTH_CLOSE_HEADERS_ = ['id', 'month', 'status', 'closed_at', 'reopened_at', 'fingerprint', 'figures', 'bank_check', 'pending_count', 'note',
+  'package_sent_at', 'package_to', 'package_fingerprint'];   // piece 10: the accountant's package (AccountantPackage.gs)
 
 function ensureMonthClosesSheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -156,6 +157,7 @@ function monthCloseState_(month) {
     close: row ? { status: row.status, closed_at: row.closed_at, reopened_at: row.reopened_at, figures: parse(row.figures),
       bank_check: parse(row.bank_check) || [], pending_count: Number(row.pending_count) || 0, note: row.note } : null,
     pending_count: monthPendingCount_(month),
+    package: packageState_(month),   // piece 10 (AccountantPackage.gs)
     accounts: ended && !closed ? accountBalancesAt_(monthLastDay_(month)) : []
   };
 }

@@ -28,7 +28,12 @@ function validYear_(year) {
 
 // Everything the statements of `year` need, read once (for one person or for all).
 function constanciaContext_(year) {
-  var ctx = { year: year, start: year + '-01-01', end: year + '-12-31' };
+  return constanciaRangeContext_(year, year + '-01-01', year + '-12-31');
+}
+// The same for any period (the accountant's monthly package uses one month: AccountantPackage.gs). `label` is what `year` carries.
+function constanciaRangeContext_(label, start, end) {
+  var year = String(start).slice(0, 4);
+  var ctx = { year: label, start: start, end: end };
   ctx.loans = getAllRows('Loans').filter(function (l) { return l.direction === 'i_owe_them'; });
   ctx.settlements = {};
   getAllRows('Settlements').forEach(function (s) { (ctx.settlements[s.loan_id] = ctx.settlements[s.loan_id] || []).push(s); });
@@ -45,6 +50,7 @@ function constanciaContext_(year) {
   ctx.openMonths = [];
   for (var m = 1; m <= 12; m++) {
     var key = year + '-' + ('0' + m).slice(-2);
+    if (key < start.slice(0, 7) || key > end.slice(0, 7)) continue;
     if (monthLastDay_(key) < today && !closed[key]) ctx.openMonths.push(key);
   }
   var company = getCompanyRows_()[0];
@@ -52,6 +58,10 @@ function constanciaContext_(year) {
   return ctx;
 }
 
+function dayBeforeIso_(iso) {
+  var d = new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)) - 1));
+  return d.toISOString().slice(0, 10);
+}
 function d10_(v) { return changeText_(v).slice(0, 10); }
 
 // What one loan still owed at the end of day `day` (a date before the loan = 0): its amount minus repayments and forgiven parts dated
@@ -79,7 +89,7 @@ function yearStatement_(friendId, ctx) {
       contributed_year: 0, contributed_total: 0, pending_total: 0,
       distributed_gross: 0, distributed_withholding: 0, distributed_net: 0 };
   };
-  var dayBefore = (Number(ctx.year) - 1) + '-12-31';
+  var dayBefore = dayBeforeIso_(ctx.start);
   var loansShown = [];
   ctx.loans.filter(function (l) { return l.friend_id === friendId; }).forEach(function (l) {
     var cur = String(l.currency || homeCurrency_());

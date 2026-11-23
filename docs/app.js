@@ -7030,6 +7030,7 @@ async function startEditEntry(entry) {
   else setBusinessPick_(businessPickValue_(entry));
   if (entry.expected_payment_id) setExpectedPick_(entry.expected_payment_id);
   setIgvState_(Number(entry.igv_amount) > 0, entry.igv_amount, true);   // the stored figure is kept exactly until the person changes it
+  setVoucherState_(entry);   // piece 10: how it was paid and its receipt
 
   document.getElementById("edit-mode-banner").hidden = false;
   document.getElementById("submit-btn").textContent = tr("entry.update");
@@ -11802,8 +11803,14 @@ function renderCompanyClose_(state) {
     if (state.pending_count) parts.push(`<p class="hint">${escapeHtml(tr("close.pendingN", { n: state.pending_count }))}</p>`);
     parts.push(`<button type="button" class="primary" id="co-close-open">${escapeHtml(tr("close.openBtn"))}</button>`);
   }
+  // Piece 10: the accountant's package of this month.
+  const p = state.package || {};
+  if (p.sent_at) parts.push(`<p class="hint">${escapeHtml(tr("pkg.sentOn", { to: p.sent_to, date: listDate_(changeLogLocal_(p.sent_at).day) }))}</p>`);
+  if (p.sent_at && p.changed_since) parts.push(`<p class="close-changed">${escapeHtml(tr("pkg.changedSince"))}</p>`);
+  parts.push(`<button type="button" class="add-inline" id="co-pkg-open">${escapeHtml(tr(p.sent_at && p.changed_since ? "pkg.openCorrected" : "pkg.open"))}</button>`);
   body.innerHTML = parts.join("");
   const on = (id, fn) => { const b = document.getElementById(id); if (b) b.addEventListener("click", fn); };
+  on("co-pkg-open", () => openPackageModal_(state));
   on("co-close-open", () => openCloseModal_(state));
   on("co-close-see", () => showChangeLog_(state.month));
   on("co-close-reopen", async () => {
@@ -11811,6 +11818,53 @@ function renderCompanyClose_(state) {
     saveBehindScreen_(() => callApi("reopenMonth", { month: state.month }), () => { refreshOverview().catch(() => {}); loadMeta().catch(() => {}); });
   });
 }
+
+// The accountant's package (piece 10): e-mail it from the person's own account, or save the four files on the phone.
+let pkgCtx_ = null;
+function openPackageModal_(state) {
+  pkgCtx_ = state;
+  const p = state.package || {};
+  document.getElementById("pkg-title").textContent = tr("pkg.title", { month: paceMonthName_(state.month, true) });
+  document.getElementById("pkg-corrected").hidden = !(p.sent_at && p.changed_since);
+  document.getElementById("pkg-email").value = p.email || "";
+  document.getElementById("pkg-cc").checked = true;
+  document.getElementById("pkg-error").textContent = "";
+  document.getElementById("pkg-file-list").innerHTML = "";
+  document.getElementById("pkg-send").textContent = tr(p.sent_at && p.changed_since ? "pkg.sendCorrected" : "pkg.send");
+  const backdrop = document.getElementById("pkg-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+document.getElementById("pkg-close").addEventListener("click", () => { document.getElementById("pkg-modal-backdrop").hidden = true; });
+document.getElementById("pkg-email").addEventListener("input", () => { document.getElementById("pkg-error").textContent = ""; });
+document.getElementById("pkg-send").addEventListener("click", () => {
+  const state = pkgCtx_;
+  if (!state) return;
+  const to = document.getElementById("pkg-email").value.trim();
+  if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(to)) { document.getElementById("pkg-error").textContent = tr("pkg.badEmail"); return; }
+  document.getElementById("pkg-modal-backdrop").hidden = true;
+  let res = null;
+  saveBehindScreen_(async () => { res = await callApi("sendAccountantPackage", { month: state.month, to, cc_me: document.getElementById("pkg-cc").checked }); },
+    () => { refreshOverview().catch(() => {}); if (res) showToast_(tr(res.corrected ? "pkg.sentCorrected" : "pkg.sent", { to: res.to })); }, { busy: "pkg.sending" });
+});
+document.getElementById("pkg-files").addEventListener("click", async () => {
+  const state = pkgCtx_;
+  if (!state) return;
+  const box = document.getElementById("pkg-file-list");
+  box.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  let res;
+  try { res = await callApi("getAccountantPackage", { month: state.month }); }
+  catch (e) { box.innerHTML = `<p class="hint error-text">${escapeHtml(tr("business.loadFailed", { error: e.message }))}</p>`; return; }
+  box.innerHTML = "";
+  res.files.forEach((f) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "add-inline pkg-file-btn";
+    b.textContent = tr("pkg.saveOne", { name: f.name, n: f.rows });
+    b.addEventListener("click", () => saveExportFile_(f));
+    box.appendChild(b);
+  });
+});
 
 function openCloseModal_(state) {
   document.getElementById("close-title").textContent = tr("close.cardTitle", { month: paceMonthName_(state.month, true) });
@@ -11887,7 +11941,7 @@ function changeLogLineHtml_(l) {
   const src = trOr_(`changelog.src.${l.source}`, l.source);
   const tableName = trOr_(`changelog.table.${String(l.table).replace(/ /g, "")}`, l.table);
   let what;
-  if (l.table === "Month Closes") what = tr(l.action === "reopen" ? "changelog.reopened" : "changelog.closed", { month: paceMonthName_(l.month, true) });
+  if (l.table === "Month Closes") what = tr(l.action === "reopen" ? "changelog.reopened" : l.action === "package" ? "changelog.packageSent" : "changelog.closed", { month: paceMonthName_(l.month, true) });
   else if (l.what && l.table === "Entries" && l.action === "update") what = `${l.what.description || categoryName("")} · ${formatAmount(l.what.amount, l.what.currency)}`;
   else if (l.what && l.action === "update") what = `${tableName} · ${l.what.description || ""}`;
   else {
@@ -24554,8 +24608,34 @@ function populateBusinessOptions_() {
   syncClientButton_();
   syncExpectedField_();
   syncIgvField_();
+  syncVoucherField_();   // piece 10: how it was paid and its receipt
   syncReceiptField_();
 }
+
+// ---- How it was paid and the receipt (Business 2, piece 10; company copies, an expense or income) ----
+function syncVoucherField_() {
+  const field = document.getElementById("voucher-field");
+  if (!field || !meta) return;
+  field.hidden = !(companyCopyOn_() && (selectedType === "expense" || selectedType === "income"));
+  const t = document.getElementById("voucher-type").value;
+  document.getElementById("voucher-detail").hidden = field.hidden || !t || t === "none";
+}
+function setVoucherState_(entry) {
+  document.getElementById("voucher-pay").value = (entry && entry.pay_method) || "";
+  document.getElementById("voucher-type").value = (entry && entry.receipt_type) || "";
+  document.getElementById("voucher-no").value = (entry && entry.receipt_no) || "";
+  document.getElementById("voucher-date").value = (entry && String(entry.receipt_date || "").slice(0, 10)) || "";
+  syncVoucherField_();
+}
+// What the form sends: nothing unless the field is shown (so other copies never touch these columns).
+function voucherFieldsToSend_() {
+  if (document.getElementById("voucher-field").hidden) return {};
+  const type = document.getElementById("voucher-type").value;
+  const keep = type && type !== "none";
+  return { pay_method: document.getElementById("voucher-pay").value, receipt_type: type,
+    receipt_no: keep ? document.getElementById("voucher-no").value.trim() : "", receipt_date: keep ? document.getElementById("voucher-date").value : "" };
+}
+document.getElementById("voucher-type").addEventListener("change", syncVoucherField_);
 
 // ---- "Pays expected payment" (an income on a project) ----
 // FIFO by default: a NEW income on a project pre-selects the oldest-due open expected payment of that project in the same
@@ -24888,6 +24968,7 @@ function setBusinessPick_(value) {
   expectedPick_ = ""; expectedPickTouched_ = false;   // callers that carry a link set it again with setExpectedPick_
   syncExpectedField_();
   setIgvState_(false);                                // ... and IGV with setIgvState_
+  setVoucherState_(null);                             // ... and how it was paid / its receipt (piece 10)
   syncProjectSplitButton_();                          // "Split between projects" follows the pick (Business 2, piece 6)
 }
 
@@ -24897,10 +24978,10 @@ function businessLinkFields_() {
   const value = document.getElementById("entry-business").value;
   if (value.startsWith("p:")) {
     const project = (meta.projects || []).find((p) => p.id === value.slice(2));
-    return { project_id: value.slice(2), company_id: project ? project.company_id : "", expected_payment_id: selectedType === "income" ? expectedPick_ : "", igv_amount: igvValueToSend_() };
+    return { project_id: value.slice(2), company_id: project ? project.company_id : "", expected_payment_id: selectedType === "income" ? expectedPick_ : "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_() };
   }
-  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2), expected_payment_id: "", igv_amount: igvValueToSend_() };
-  return { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "" };
+  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2), expected_payment_id: "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_() };
+  return { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "", ...voucherFieldsToSend_() };
 }
 
 // The label on an entry row: "🏢 Studio Alfa › Casa Lima", or just the company. Skipped while the pack is off.
@@ -28283,6 +28364,8 @@ const LINK_ICON_RULES_ = [
   [/^(starting balance|saldo inicial)/i, "plus"],   // the import's Done screen: gives a new account its starting balance
   [/^(this entry's changes|cambios de este movimiento|see the changes|ver los cambios)$/i, "clock"],
   [/^(yearly statement|constancia anual|all the yearly statements|todas las constancias)$/i, "file"],   // piece 9
+  [/^(send the (corrected )?package|enviar el paquete)/i, "send"],   // piece 10
+  [/^(save the files|guardar los archivos|save \d|guardar \d)/i, "download"],
   [/^(share as text|compartir como texto|share as csv|compartir como csv)/i, "send"],   // piece 8: the change log
   [/^(it's a partner's money|es plata de un socio)$/i, "users"],   // Business 2 piece 7: Needs review's partner buttons
   [/^(profit distribution|distribución de utilidades)$/i, "coin"],
