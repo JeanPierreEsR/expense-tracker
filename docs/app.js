@@ -51,7 +51,8 @@ new MutationObserver((changes) => changes.forEach((c) => {
   if (b.hidden) {
     const from = modalOpeners_.get(b);
     modalOpeners_.delete(b);
-    if (from && from.isConnected && from.focus) from.focus({ preventScroll: true });
+    // Never back onto a dropdown (owner, 2026-11-23): an iPhone opens its list again when it gets the focus.
+    if (from && from.isConnected && from.focus && from.tagName !== "SELECT") from.focus({ preventScroll: true });
     return;
   }
   box.setAttribute("role", "dialog");
@@ -935,12 +936,15 @@ document.addEventListener("change", (e) => {
   const v = selectValue_.get.call(sel);
   if (v !== PERSON_MORE_) { if (!v.startsWith("__")) o.last = v; return; }
   e.stopImmediatePropagation();
+  // The box lets go of the focus first (owner, 2026-11-23): an iPhone shows a focused box's list again when its lines change, so
+  // the pick made on the screen came back as the phone's list, a second time, for nothing.
+  sel.blur();
   selectValue_.set.call(sel, o.last || "");
   const add = [...sel.options].find((x) => x.value.startsWith("__add") || x.value === "__new__");
   openFriendScreen_({
     title: o.title ? o.title() : "", noneKey: o.noneKey,
     items: o.people || [], current: o.last,
-    onPick: (id) => { sel.value = id; sel.dispatchEvent(new Event("change", { bubbles: true })); },
+    onPick: (id) => { sel.blur(); sel.value = id; sel.dispatchEvent(new Event("change", { bubbles: true })); },
     onAdd: add ? () => { selectValue_.set.call(sel, add.value); sel.dispatchEvent(new Event("change", { bubbles: true })); } : null,
     addLabel: add ? add.textContent : "",
   });
