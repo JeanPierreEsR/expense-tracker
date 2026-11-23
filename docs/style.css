@@ -4275,3 +4275,8 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .co-funding-row { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 10px 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 .co-funding-row:last-child { border-bottom: 0; }
 .co-funding-row small { font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+
+/* Split between projects (Business 2, piece 6): one row per project, its amount and its share. */
+.psplit-row { display: grid; grid-template-columns: 1fr 7.5rem 3.5rem; gap: 8px; align-items: center; margin-bottom: 8px; }
+.psplit-row label { margin: 0; }
+.psplit-row .psplit-pct { text-align: right; }

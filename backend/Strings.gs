@@ -49,6 +49,12 @@ var BACKEND_STRINGS_ = {
   "whatsapp.photoNeedsBot": { en: "Photos are read here only when WhatsApp is your review bot. Send it to Telegram instead, or write the transaction.", es: "Las fotos se leen aqu\u00ed solo cuando WhatsApp es tu bot de revisi\u00f3n. Env\u00edala a Telegram, o escribe el movimiento." },
   "whatsapp.photoDownloadFailed": { en: "Couldn't download that photo from WhatsApp (it may be too old). Please send it again.", es: "No pude descargar esa foto de WhatsApp (puede que sea muy antigua). Env\u00edala de nuevo." },
   "bot.listExpired": { en: "This list expired. Tap Edit on the transaction's message again.", es: "Esta lista venci\u00f3. Toca Editar otra vez en el mensaje del movimiento." },
+  // Business 2, piece 6 (ProjectSplits.gs): one entry shared between a company's projects.
+  "psplit.onlyMoney": { en: "Only an expense or an income can be split between projects.", es: "Solo un gasto o un ingreso se puede repartir entre proyectos." },
+  "psplit.noFriends": { en: "This one is shared with friends: it can't also be split between projects.", es: "Este movimiento est\u00e1 compartido con amigos: no se puede repartir tambi\u00e9n entre proyectos." },
+  "psplit.oneCompany": { en: "All the projects must belong to the same company.", es: "Todos los proyectos tienen que ser de la misma empresa." },
+  "psplit.twoProjects": { en: "Pick at least two projects with an amount.", es: "Elige al menos dos proyectos con un monto." },
+  "psplit.mustAdd": { en: "The parts add up to {sum}; they must add up to {total}.", es: "Las partes suman {sum}; tienen que sumar {total}." },
   // Business 2, piece 5 (CompanyBot.gs): a company copy's short format, read in any order.
   "coBot.understood": { en: "Understood: {what}.", es: "Entendí: {what}." },
   "coBot.income": { en: "income of {amount}", es: "ingreso de {amount}" },

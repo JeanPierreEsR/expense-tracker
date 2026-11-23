@@ -483,7 +483,8 @@ function routeActionSwitch_(action, payload) {
     case 'answerOwnName': return answerOwnName(payload);
     case 'applyProfile': return applyProfile(payload);
     case 'saveCompanySetup': return saveCompanySetup(payload);
-    case 'setProjectFunding': return setProjectFunding(payload);   // a company copy's welcome (CompanyCopy.gs)
+    case 'setProjectFunding': return setProjectFunding(payload);
+    case 'saveProjectSplit': return saveProjectSplit(payload);   // a company copy's welcome (CompanyCopy.gs)
     case 'getProfileState': return getProfileState();
     case 'getAnnualHints': return getAnnualHints();
     case 'listStatementGaps': return listStatementGaps();
@@ -1321,6 +1322,11 @@ function saveEntryAll(payload) {
     // "Personal" chosen on the card or in the form arrives as a blank company AND project: Confirm then gives no company.
     var chosePersonal = !!payload.personal || !!(payload.fields && payload.fields.company_id === '' && payload.fields.project_id === '');
     if (kind === 'confirm') out = confirmEntryFromApp_({ id: id, personal: chosePersonal });
+    // "As last month" left ticked on the card: the split, from the percentages, on the confirmed amount (ProjectSplits.gs, piece 6).
+    if (kind === 'confirm' && payload.project_split && payload.project_split.length) {
+      try { saveProjectSplit({ entry_id: id, percents: payload.project_split }); }
+      catch (splitErr) { out = Object.assign({}, out, { split_failed: String(splitErr && splitErr.message || splitErr) }); }
+    }
     // Needs review's "This is my Salary for August" line, left ticked: the confirm links it (owner's plan, 2026-11-17).
     if (kind === 'confirm' && payload.link_recurring_id) {
       try {
@@ -1476,7 +1482,13 @@ function listEntries(payload) {
   }
   // Business pack: one project's or one company's entries (a company includes its projects'). Ignored while off.
   if (payload && payload.projectId && businessOn_()) {
-    entries = entries.filter(function (e) { return String(e.project_id || '') === String(payload.projectId); });
+    // ...and the entries split between projects that give it a part (shown whole; ProjectSplits.gs)
+    var partOf = {};
+    var byEntrySplit = projectSplitsByEntry_(), projByIdSplit = projectsById_();
+    entries.forEach(function (e) {
+      projectPartsOfEntry_(e, byEntrySplit, projByIdSplit).forEach(function (p) { if (p.project_id === String(payload.projectId)) partOf[e.id] = true; });
+    });
+    entries = entries.filter(function (e) { return String(e.project_id || '') === String(payload.projectId) || partOf[e.id]; });
   }
   if (payload && payload.companyId && businessOn_()) {
     entries = entries.filter(function (e) { return String(e.company_id || '') === String(payload.companyId); });
@@ -1546,6 +1558,9 @@ function listEntries(payload) {
   // (see buildTransferLinkMap_) so the app can name the friend instead of
   // saying "Between Accounts".
   var transferLinks = entries.some(function (e) { return e.type === 'transfer' || e.type === 'income' || e.type === 'expense'; }) ? buildTransferLinkMap_() : {};
+  // A company's entry split between projects carries its parts (ProjectSplits.gs, Business 2 piece 6).
+  var projSplitsList = businessOn_() ? projectSplitsByEntry_() : {};
+  var projByIdList = Object.keys(projSplitsList).length ? projectsById_() : {};
   entries.forEach(function (entry) {
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
     if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];
@@ -1563,6 +1578,7 @@ function listEntries(payload) {
     entry.own_share_pen = computeAmountPen(ownShare, entry.currency, entry.date);
     var usdShare = usdLineAmount_(buildRatesByCurrency_(), ownShare, entry.currency, entry.date);
     if (usdShare != null) entry.own_share_usd = usdShare;   // third currency: the share in dollars, under the main amount (RatesUsd.gs)
+    if (projSplitsList[entry.id]) { var pp = projectPartsOfEntry_(entry, projSplitsList, projByIdList); if (pp.length) entry.project_parts = pp; }   // piece 6
   });
   return entries;
 }
@@ -1678,6 +1694,7 @@ function buildSearchIndexRows_(entries) {
     return rate != null ? amount * rate : null;
   };
   var business = businessOn_();
+  var projSplits = business ? projectSplitsByEntry_() : {}, projByIdRows = business && Object.keys(projSplits).length ? projectsById_() : {};
   return entries.map(function (e) {
     var ownShare = e.type === 'expense' ? Number(e.amount) - (splitSumByEntry[e.id] || 0) : Number(e.amount);
     var row = {
@@ -1700,6 +1717,7 @@ function buildSearchIndexRows_(entries) {
     // Only while the Business pack is on, so a personal-only copy's search data is exactly what it was.
     if (e.income_waiting) row.income_waiting = e.income_waiting;
     if (business) { row.company_id = e.company_id || ''; row.project_id = e.project_id || ''; row.expected_payment_id = e.expected_payment_id || ''; row.igv_amount = e.igv_amount || ''; }
+    if (business && projSplits[e.id]) { var pp = projectPartsOfEntry_(e, projSplits, projByIdRows); if (pp.length) row.project_parts = pp; }   // piece 6
     return row;
   });
 }
@@ -1779,6 +1797,11 @@ function listPendingEntries() {
     var planMatch = isPracticeReview_(entry) ? null : planMatchFor_(entry, all, planLists || (planLists = planMatchLists_()));
     if (planMatch) entry.plan_match = planMatch;
   });
+  // "As last month: Project A 60 %, Project B 40 %" (company copies; ProjectSplits.gs): a suggestion, applied by the Confirm.
+  if (entries.length && isCompanyCopy_()) {
+    var splitSugg = projectSplitSuggestions_(entries, all);
+    entries.forEach(function (entry) { if (splitSugg[entry.id]) entry.split_match = splitSugg[entry.id]; });
+  }
   entries.sort(compareEntriesRecency_);
   return entries;
 }
@@ -1827,6 +1850,7 @@ function updateEntryFields(entryId, fields) {
   });
   // Business pack: the debts this entry made follow its project.
   if (fields && fields.project_id !== undefined) syncEntryLoanProject_(entryId);
+  dropProjectSplitIfBroken_(entryId, fields);   // a split that no longer adds up goes (ProjectSplits.gs)
 
   return getEntryById_(entryId);
 }
