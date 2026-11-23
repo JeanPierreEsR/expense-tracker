@@ -8814,7 +8814,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
 
       try {
-        const followed = await applyReviewAction_(Object.assign({ id: entry.id, action: "confirm", fields }, split ? { split } : {}));   // (the split goes too: piece 6)
+        // The SAME action that was queued (owner, 2026-11-22: a copy without `planId` left "This is my Salary for August" unlinked since
+        // 2.28.0; the project split was lost the same way): its link to the Programmed item and its split go with it.
+        const followed = await applyReviewAction_(Object.assign({ id: entry.id, action: "confirm", fields }, extra));
         refreshEntryList();
         refreshExpectedRecurring();
         refreshHomeGlance_(true);   // a confirmed entry now counts in the totals at the top of Home
