@@ -2773,6 +2773,7 @@
     "settle.chooseExtraIncome": { en: "{extra} is more than is owed: it will be saved as extra income", es: "{extra} es más de lo que se debe: se guardará como ingreso extra" },
     "settle.chooseExtraExpense": { en: "{extra} is more than you owe: it will be saved as an extra expense", es: "{extra} es más de lo que debes: se guardará como gasto extra" },
     "settle.chooseOff": { en: "Back to oldest first", es: "Volver a más antiguos primero" },
+    "settle.chooseKeep": { en: "Keep the loans it pays now", es: "Dejar los préstamos que paga ahora" },
     "settle.chooseTooMuch": { en: "You assigned more than the payment.", es: "Asignaste más que el pago." },
     "settle.loanLabel": { en: "Which loan this pays", es: "Qué préstamo paga" },
     "settle.loanHint": { en: "Pick another loan to move this repayment to it. The amount and the account stay the same.", es: "Elige otro préstamo para mover este repago allí. El monto y la cuenta no cambian." },

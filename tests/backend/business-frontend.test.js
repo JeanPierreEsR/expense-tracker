@@ -142,6 +142,13 @@ test("Needs review → Mark as repayment offers the same choice (owner, 2026-11-
   assert.match(app, /\.\.\.\(chosen\.length \? \{ allocations: chosen \} : \{\}\)/);
 });
 
+test("a recorded repayment opened from Home offers the choice too, ticked as it is, saved with reassignRepayment (owner, 2026-11-23)", () => {
+  assert.match(app, /return !!editingRepayment_ && !!editingEntryId && repaymentActive_\(\) && transferKind_\(\) === "repayment" && keptDebtEdit_\(\);/);
+  assert.match(app, /return line && !line\.limited && !line\.gap && !\(line\.unapplied > 0\.004\) && line\.parts\.length \? line : null;/);
+  assert.match(app, /callApi\("reassignRepayment", \{ \.\.\.reassign, date, payment_method_id: paymentMethodId \}\)/);
+  assert.match(read("docs", "strings.js"), /"settle\.chooseKeep": \{ en: "[^"]+", es: "[^"]+"/);
+});
+
 test("loans and repayments never start on a credit card (owner, 2026-11-23)", () => {
   assert.match(app, /function avoidCardDefault_\(sel\)/);
   assert.match(app, /if \(!loan\) avoidCardDefault_\(loanPmSelect\);/);

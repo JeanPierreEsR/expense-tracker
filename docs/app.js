@@ -4418,6 +4418,13 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       // (below, under confirmingPendingId) — both stay blocking, being
       // less frequent and already more involved than a plain edit.
       await ensureExchangeRate(charge.currency, date);
+      // A recorded repayment kept as it is, with other loans ticked (owner, 2026-11-23): moved like the repayment's own editor does,
+      // behind the screen; the entry's own edit (date, account, description) goes on as usual. Date and account go along so both agree.
+      const reassign = entryRepayReassign_();
+      if (reassign) {
+        saveBehindScreen_(() => callApi("reassignRepayment", { ...reassign, date, payment_method_id: paymentMethodId }),
+          () => { refreshLoans().catch(() => {}); refreshEntriesInBackground_(); });
+      }
       // Switching the type of an entry other records hang on (a repayment's or loan's money movement, a forgiveness
       // entry, one side of a currency exchange) is refused: asked HERE so the reason shows before the form closes,
       // and again by the server on the queued save.
@@ -34931,8 +34938,11 @@ function chooseOpenOrClose_(ctx) {
     row.appendChild(assignedEl);
     list.appendChild(row);
   });
+  // A recorded repayment opens with the loans it pays now already ticked (`ctx.ticked`); closing then keeps them as they are.
+  const ticked = ctx.ticked ? ctx.ticked() : null;
+  if (ticked) list.querySelectorAll("input[data-loan]").forEach((input) => { input.checked = ticked.has(input.dataset.loan); });
   panel.hidden = false;
-  chooseEl_(ctx, "btn").textContent = tr("settle.chooseOff");
+  chooseEl_(ctx, "btn").textContent = tr(ticked ? "settle.chooseKeep" : "settle.chooseOff");
   renderChooseSummary_(ctx);
 }
 
@@ -34951,7 +34961,10 @@ const entryRepayLoans_ = new Map();   // friend id -> their loans (null while lo
 let entryRepayKey_ = "";
 const CHOOSE_ENTRY_ = {
   id: "entry-repay",
+  ticked: () => { const line = entryRepayEditLine_(); return line ? new Set(line.parts.map((pt) => pt.loan_id)) : null; },
   loans: () => {
+    const line = entryRepayEditLine_();
+    if (line) return entryRepayEditLoans_(line);
     const f = document.getElementById("repayment-friend").value, cur = document.getElementById("currency").value.toUpperCase();
     return (entryRepayLoans_.get(f) || [])
       .filter((l) => l.direction === repaymentDirectionChoice && String(l.currency).toUpperCase() === cur && l.status !== "forgiven" && l.remaining > 0.004)
@@ -34962,9 +34975,66 @@ const CHOOSE_ENTRY_ = {
   cur: () => document.getElementById("currency").value.toUpperCase(),
   dir: () => repaymentDirectionChoice
 };
+// A RECORDED repayment opened from Home and kept with the same person, direction and currency (owner, 2026-11-23): the same choice,
+// ticked with the loans it pays now, each loan's room counting this repayment's own share as free again (as the repayment's editor,
+// `openReassignRepayment_`). From getFriendRepaymentHistory. Not for one whose payment is held apart (only the chosen loans, an extra
+// income / expense, money no longer on a loan): those are changed in the repayment's own editor. A change is saved with reassignRepayment.
+const entryRepayHistory_ = new Map();   // friend id -> their repayment history (null while loading)
+function entryRepayEditOn_() {
+  return !!editingRepayment_ && !!editingEntryId && repaymentActive_() && transferKind_() === "repayment" && keptDebtEdit_();
+}
+function entryRepayEditLine_() {
+  if (!entryRepayEditOn_()) return null;
+  const h = entryRepayHistory_.get(editingRepayment_.friend_id);
+  const line = h && h.repayments.find((r) => r.transfer_entry_id === editingRepayment_.entry_id && !r.is_offset);
+  return line && !line.limited && !line.gap && !(line.unapplied > 0.004) && line.parts.length ? line : null;
+}
+function entryRepayEditLoans_(line) {
+  const h = entryRepayHistory_.get(editingRepayment_.friend_id);
+  const current = {};
+  line.parts.forEach((pt) => { current[pt.loan_id] = (current[pt.loan_id] || 0) + pt.amount; });
+  return h.loans
+    .filter((l) => l.direction === line.direction && l.currency === line.currency && l.status !== "forgiven" && l.remaining + (current[l.id] || 0) > 0.004)
+    .map((l) => ({ ...l, remaining: Math.round((l.remaining + (current[l.id] || 0)) * 100) / 100 }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+// What the save sends when the loans were changed: { id, loan_ids }, or null (panel closed, or the same loans and shares as now).
+function entryRepayReassign_() {
+  const line = entryRepayEditLine_();
+  if (!line || document.getElementById("entry-repay-choose").hidden || document.getElementById("entry-repay-choose-panel").hidden) return null;
+  const ticked = [...document.querySelectorAll("#entry-repay-choose-list input[data-loan]")].filter((x) => x.checked).map((x) => x.dataset.loan);
+  // What the ticked loans would take, then the rest oldest first: the plan the server makes. Unchanged = nothing to send.
+  const loans = entryRepayEditLoans_(line);
+  const plan = {};
+  let left = line.applied;
+  loans.filter((l) => ticked.includes(l.id)).concat(loans.filter((l) => !ticked.includes(l.id))).forEach((l) => {
+    if (left <= 0.004) return;
+    const take = Math.round(Math.min(l.remaining, left) * 100) / 100;
+    if (take > 0.004) { plan[l.id] = take; left = Math.round((left - take) * 100) / 100; }
+  });
+  const now = {};
+  line.parts.forEach((pt) => { now[pt.loan_id] = Math.round(((now[pt.loan_id] || 0) + pt.amount) * 100) / 100; });
+  const same = Object.keys(plan).length === Object.keys(now).length && Object.keys(plan).every((id) => Math.abs(plan[id] - (now[id] || 0)) < 0.005);
+  return same ? null : { id: line.id, loan_ids: ticked };
+}
 function syncEntryRepayChoose_() {
   const wrap = document.getElementById("entry-repay-choose");
   if (!wrap) return;
+  if (entryRepayEditOn_()) {
+    const fid = editingRepayment_.friend_id;
+    if (!entryRepayHistory_.has(fid)) {
+      entryRepayHistory_.set(fid, null);
+      callApi("getFriendRepaymentHistory", { friendId: fid }).then((h) => { entryRepayHistory_.set(fid, h || { loans: [], repayments: [] }); syncEntryRepayChoose_(); })
+        .catch(() => { entryRepayHistory_.delete(fid); });
+    }
+    const line = entryRepayEditLine_();
+    if (!line) { resetChoose_(CHOOSE_ENTRY_, false); entryRepayKey_ = ""; return; }
+    if (entryRepayKey_ === "edit|" + line.id) return;   // keep what was ticked
+    entryRepayKey_ = "edit|" + line.id;
+    resetChoose_(CHOOSE_ENTRY_, CHOOSE_ENTRY_.loans().length >= 2);
+    return;
+  }
+  if (entryRepayKey_.startsWith("edit|")) { resetChoose_(CHOOSE_ENTRY_, false); entryRepayKey_ = ""; }
   const friendId = document.getElementById("repayment-friend").value;
   const on = repaymentActive_() && transferKind_() === "repayment" && (entryFormIsNewEntry_() || entryConvertCanChoose_(friendId)) && !entryOpeningOn_() && friendId && friendId !== "__add__";
   if (!on) { resetChoose_(CHOOSE_ENTRY_, false); entryRepayKey_ = ""; return; }
@@ -34990,7 +35060,7 @@ function entryConvertCanChoose_(friendId) {
 // Each new entry starts with a fresh list (the loans change after a repayment) and nothing ticked. Called by the form's reset, which
 // can run while the app is still starting, before these lines have run: then there is nothing to reset yet.
 function resetEntryRepayChoose_() {
-  try { entryRepayLoans_.clear(); entryRepayKey_ = ""; resetChoose_(CHOOSE_ENTRY_, false); } catch (e) { /* not set up yet */ }
+  try { entryRepayLoans_.clear(); entryRepayHistory_.clear(); entryRepayKey_ = ""; resetChoose_(CHOOSE_ENTRY_, false); } catch (e) { /* not set up yet */ }
 }
 // What the save sends: the chosen loans, or none (oldest first). Null when the panel is closed.
 function entryRepayAllocations_() {
