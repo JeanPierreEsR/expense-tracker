@@ -179,6 +179,7 @@
               <option value="exchange" data-i18n="transfer.kind.exchange">Currency exchange</option>
             </select>
             <p class="hint" id="exchange-leg-hint" hidden></p>
+            <button type="button" class="add-inline" id="exchange-link-btn" data-i18n="xlink.btn" hidden>Link to the other side</button>
             <div id="repayment-detail" hidden>
               <div class="type-tabs budget-period-tabs" id="repayment-direction-tabs">
                 <button type="button" class="type-tab active" data-direction="i_owe_them" data-i18n="transfer.iPaid">I paid them</button>
@@ -2709,6 +2710,17 @@
         <div id="xpair-sides"></div>
         <button type="button" class="delete-entry-btn" id="xpair-delete-btn" data-i18n="xch.pairDelete">Delete this exchange</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Linking one side of an exchange to its other side by hand (openExchangeLink_ in app.js). -->
+  <div id="xlink-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="xlink.title">Link to the other side</span>
+        <button type="button" id="xlink-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body" id="xlink-body"></div>
     </div>
   </div>
 

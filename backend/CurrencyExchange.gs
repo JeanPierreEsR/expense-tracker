@@ -207,6 +207,47 @@ function updateCurrencyExchange(payload) {
   return result;
 }
 
+// ---- Linking two sides by hand (owner, 2026-11-23) ----
+// A side on its own (or linked to the wrong partner) is joined to the other side the person picks. Candidates: exchange sides in the
+// opposite direction, in another currency, in the same state, within EXCHANGE_LINK_DAYS_ days; one already in another exchange is
+// listed too (`taken`), since picking it is how a wrong link is fixed (its old partner is left on its own).
+var EXCHANGE_LINK_DAYS_ = 10;
+function listExchangeLinkCandidates(payload) {
+  var entry = getEntryById_(String((payload || {}).id || ''));
+  var side = exchangeLegSide_(entry);
+  if (!side) throw new Error(tr_('xlink.notSide'));
+  var all = getAllRows('Entries');
+  var pairCount = {};
+  all.forEach(function (e) { var p = String(e.exchange_pair || ''); if (p) pairCount[p] = (pairCount[p] || 0) + 1; });
+  var mine = String(entry.exchange_pair || '');
+  return all.filter(function (x) {
+    return x.id !== entry.id && x.status === entry.status && x.currency !== entry.currency && !isPracticeExchange_(x)
+      && exchangeLegSide_(x) && exchangeLegSide_(x) !== side && exchangeDayDiff_(x.date, entry.date) <= EXCHANGE_LINK_DAYS_
+      && !(mine && String(x.exchange_pair || '') === mine);
+  }).sort(function (a, b) {
+    return (exchangeDayDiff_(a.date, entry.date) - exchangeDayDiff_(b.date, entry.date)) || String(b.date).localeCompare(String(a.date));
+  }).slice(0, 20).map(function (x) {
+    var p = String(x.exchange_pair || '');
+    return { id: x.id, date: String(x.date), amount: Number(x.amount), currency: x.currency, side: exchangeLegSide_(x),
+      account: x.payment_method_id || x.to_payment_method_id || '', taken: !!(p && pairCount[p] > 1) };
+  });
+}
+
+// payload: { id, partner_id }. Both get one new link id (and the exchange marker). Returns { out, in }.
+function linkExchangeSides(payload) {
+  payload = payload || {};
+  var a = getEntryById_(String(payload.id || '')), b = getEntryById_(String(payload.partner_id || ''));
+  var sa = exchangeLegSide_(a), sb = exchangeLegSide_(b);
+  if (!sa || !sb) throw new Error(tr_('xlink.notSide'));
+  if (sa === sb || a.currency === b.currency || a.status !== b.status) throw new Error(tr_('xlink.notPair'));
+  ensureEntriesExchangeColumn_();
+  ensureColumn_('Entries', 'exchange_pair');
+  var pairId = Utilities.getUuid();
+  [a, b].forEach(function (e) { updateRowFields_('Entries', e.id, { exchange: '1', exchange_pair: pairId }); });
+  var out = sa === 'out' ? a : b, inn = sa === 'out' ? b : a;
+  return { out: getEntryById_(out.id), 'in': getEntryById_(inn.id) };
+}
+
 // ---- One e-mail that names BOTH sides of an exchange (Cambio Mundial-style "Confirmación de Operación") ----
 //
 // Banks e-mail the money that LEFT (and not always the money that ARRIVED), while the exchange house's own confirmation names both

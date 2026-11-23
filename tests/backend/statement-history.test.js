@@ -300,6 +300,10 @@ test("linking an exchange records two one-sided transfers that are neither spend
   assert.equal(inn.to_payment_method_id, second.id);
   assert.equal(Number(inn.amount), 2119.47);
   assert.equal(out.status, "confirmed");
+  // Linked as ONE exchange (its lines may be a day apart): the same link id on both, and the exchange marker.
+  assert.ok(out.exchange_pair && out.exchange_pair === inn.exchange_pair, "both sides share one link id");
+  assert.equal(String(out.exchange), "1");
+  assert.equal(String(inn.exchange), "1");
   const sum = run(rt, `getPeriodSummary({ startDate: '2019-03-01', endDate: '2019-03-31' })`);
   assert.equal(sum.totals.expense, 0);
   assert.equal(sum.totals.income, 0);

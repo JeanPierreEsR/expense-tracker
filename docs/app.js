@@ -9268,11 +9268,57 @@ function syncExchangeLegKindOptions_(kindSelect) {
     kindSelect.value = "xleg";
   }
 }
+// Linking a side to its other side by hand (owner, 2026-11-23): the sheet opens at once with "Loading…", lists the candidates the server
+// finds, and a tap links the two behind the screen (the edit window closes: the link is the change the person asked for).
+document.getElementById("exchange-link-btn").addEventListener("click", () => openExchangeLink_(editingEntryId, editingExchangeLeg_));
+document.getElementById("xlink-close").addEventListener("click", () => { document.getElementById("xlink-backdrop").hidden = true; });
+async function openExchangeLink_(id, side) {
+  if (!id) return;
+  const backdrop = document.getElementById("xlink-backdrop");
+  const body = document.getElementById("xlink-body");
+  body.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  let list;
+  try { list = await callApi("listExchangeLinkCandidates", { id }); }
+  catch (err) { body.innerHTML = `<p class="hint error-text">${escapeHtml(err.message)}</p>`; return; }
+  if (backdrop.hidden) return;
+  const pmName = (pid) => { const pm = meta.paymentMethods.find((p) => p.id === pid); return pm ? pm.nickname : ""; };
+  body.innerHTML = `<p class="hint">${escapeHtml(tr(side === "in" ? "xlink.hintIn" : "xlink.hintOut"))}</p>`;
+  if (!list.length) { body.insertAdjacentHTML("beforeend", `<p class="hint">${escapeHtml(tr("xlink.none"))}</p>`); return; }
+  list.forEach((c) => {
+    const row = document.createElement("div");
+    row.className = "link-candidate-row";
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    row.style.display = "block";
+    row.style.cursor = "pointer";
+    row.innerHTML = `<div class="hint" style="margin:0 0 4px;font-weight:600;">${escapeHtml(tr(c.side === "in" ? "xch.arrived" : "xch.left"))} · ${escapeHtml(listDate_(c.date))}</div>
+      <div><b>${formatAmount(c.amount, c.currency)}</b>${pmName(c.account) ? ` · ${escapeHtml(pmName(c.account))}` : ""}</div>
+      ${c.taken ? `<div class="hint" style="margin:4px 0 0;">${escapeHtml(tr("xlink.taken"))}</div>` : ""}`;
+    row.addEventListener("click", () => {
+      backdrop.hidden = true;
+      if (!document.getElementById("edit-entry-modal-backdrop").hidden && editingEntryId === id) closeEditPopup();
+      saveBehindScreen_(async () => {
+        await callApi("linkExchangeSides", { id, partner_id: c.id });
+      }, async () => {
+        await refreshEntryList().catch(() => {});
+        if (searchActive) refreshSearchAfterEdit_().catch(() => {});
+        if (currentDrilldown && currentDrilldown.refetch) { try { await currentDrilldown.refetch(); } catch (e) { /* the list shows its own error */ } }
+      });
+    });
+    body.appendChild(row);
+  });
+}
+
 // Only the side's own account while it stays an exchange; both accounts once it is "my own transfer".
 function applyExchangeLegLayout_(kind) {
   const hint = document.getElementById("exchange-leg-hint");
   const on = !!editingExchangeLeg_ && selectedType === "transfer" && (kind === "xleg" || kind === "unexchange");
   hint.hidden = !on;
+  // "Link to the other side": a saved side (not a Needs review item, not a side holding both accounts) while it stays an exchange.
+  document.getElementById("exchange-link-btn").hidden = !(on && kind === "xleg" && editingEntryId && !confirmingPendingId && !editingXLegBroken_
+    && ((meta && meta.capabilities) || {}).exchangeLink);
   if (!on) return;
   const arrived = editingExchangeLeg_ === "in";
   document.getElementById("to-payment-method-hint").hidden = true;   // "Optional…" is about a plain transfer's To: not this side's account, nor a required one
@@ -27653,7 +27699,8 @@ const LINK_ICON_RULES_ = [
   [/^(download|descargar)\b/i, "download"],   // a project statement's "Download (CSV)"
   [/^(read|leer)\b/i, "file"],
   [/^(find|buscar|look|check now|revisar ahora|also look)/i, "search"],
-  [/^(currency exchange|cambio de moneda)/i, "exchange"],   // money changing currency (owner, 2026-11-19: the swap arrows read as a transfer)
+  [/^(currency exchange|cambio de moneda)/i, "exchange"],
+  [/^(link to the other side|unir con el otro lado)/i, "exchange"],   // one side of an exchange joined to its other side (2026-11-23)   // money changing currency (owner, 2026-11-19: the swap arrows read as a transfer)
   [/^(tags|etiquetas)\b/i, "tag"],   // a Needs review item's "Tags (2)"
   [/^(switch direction|cambiar el sentido|repeat|repetir|convert|convertir|make it a transfer|pasar a transferencia)/i, "swap"],
   [/^(more actions|más acciones|more…|más…)$|^(more actions|más acciones)/i, "dots"],

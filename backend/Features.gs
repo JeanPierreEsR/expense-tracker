@@ -109,6 +109,7 @@ function getCapabilities_() {
     // addLoan, recordCurrencyExchange, forgiveLoan and the overpayment entries accept the phone's own id (client_id) and answer a repeat with what they already made, so the app can save them in the background; an older backend lacks it and the app then waits for the answer as before.
     clientMoneyId: true,
     exchangeInDate: true,   // recordCurrencyExchange takes `in_date`: the money that arrived on another day (2026-11-23); an older backend: no such button
+    exchangeLink: true,   // listExchangeLinkCandidates + linkExchangeSides: a side is linked by hand to its other side (2026-11-23)
     exchangeEdit: true,   // updateCurrencyExchange: one form edits both sides of an exchange (2026-11-23); an older backend: side by side only
     bulkUndo: true,   // unconfirmEntries: the Undo of a "confirm many at once" (2026-11-18)
     bulkPlanLink: true,   // confirmEntries links items to their Programmed item (link_recurring_id), re-checked; an older backend: the phone promises no link
