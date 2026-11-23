@@ -186,3 +186,14 @@ test("the forecast counts a typed salary twice before the link, and once after i
   rt.api("linkEntryToRecurring", { entryId: typed.id, recurringExpenseId: "rec-sal", month: typed.plan_ask.month });
   assert.equal(Math.round(income()), Math.round(doubled - 9800), "linked: counted once");
 });
+
+test("the phone: a single card's Confirm sends the action it queued, link included (lost from 2.28.0 to 2.54.0)", () => {
+  const src = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../docs/app.js"), "utf8");
+  // the card queues { planId } when "This is my Salary for August" is ticked...
+  assert.match(src, /planCheck && planCheck\.checked && entry\.plan_match \? \{ planId: entry\.plan_match\.recurring_id \}/);
+  // ...and sends that same extra, not a copy without it
+  assert.match(src, /applyReviewAction_\(Object\.assign\(\{ id: entry\.id, action: "confirm", fields \}, extra\)\)/);
+  assert.doesNotMatch(src, /applyReviewAction_\(\{ id: entry\.id, action: "confirm", fields \}\)/);
+  // ...and applyReviewAction_ turns it into the server's link
+  assert.match(src, /link_recurring_id: a\.planId \|\| undefined/);
+});

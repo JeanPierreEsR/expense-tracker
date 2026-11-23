@@ -108,7 +108,7 @@ test("the phone: the split button and sheet, the card's 'as last month' line; ap
   assert.match(src, /review-split-check/);
   assert.match(src, /project_split:/);
   // found on the test server: the card's Confirm sent its own copy of the action, without the split
-  assert.match(src, /applyReviewAction_\(Object\.assign\(\{ id: entry\.id, action: "confirm", fields \}, split \? \{ split \} : \{\}\)\)/);
+  assert.match(src, /applyReviewAction_\(Object\.assign\(\{ id: entry\.id, action: "confirm", fields \}, extra\)\)/);
   const html = fs.readFileSync(path.join(__dirname, "../../docs/index.html"), "utf8");
   assert.match(html, /id="psplit-modal-backdrop"/);
   assert.match(html, /id="entry-psplit-btn"/);
