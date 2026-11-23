@@ -26,7 +26,9 @@ var BUSINESS_TABLES_ = {
   // Step 4: figures typed "as of" a date, so nobody re-enters the past (BusinessOpenings.gs), and the accountant's own figures for a
   // date, kept to compare with the app's (BusinessStatement.gs). Same shape; project_id blank = the company's own level. `as_of` is text.
   'Business Openings': ['id', 'project_id', 'company_id', 'currency', 'as_of', 'income', 'igv_collected', 'costs', 'igv_credit', 'note'],
-  'Accountant Figures': ['id', 'project_id', 'company_id', 'currency', 'as_of', 'income', 'igv_collected', 'costs', 'igv_credit', 'note']
+  'Accountant Figures': ['id', 'project_id', 'company_id', 'currency', 'as_of', 'income', 'igv_collected', 'costs', 'igv_credit', 'note'],
+  // Business 2 piece 6: one entry shared between a company's projects, an amount each, in the entry's currency (ProjectSplits.gs).
+  'Project Splits': ['id', 'entry_id', 'project_id', 'amount']
 };
 
 var PROJECT_STATUSES_ = { active: true, closed: true };
@@ -237,7 +239,7 @@ function filterEntriesByScope_(entries, scope) {
   var parts = scope.split(':');
   var id = parts.slice(1).join(':');
   if (parts[0] === 'company') return entries.filter(function (e) { return String(e.company_id || '') === id; });
-  if (parts[0] === 'project') return entries.filter(function (e) { return String(e.project_id || '') === id; });
+  if (parts[0] === 'project') return expandProjectSplits_(entries).filter(function (e) { return String(e.project_id || '') === id; });   // its part of a split
   return entries;
 }
 
@@ -553,7 +555,8 @@ function businessRows_(match, startDate, endDate, keepOpened) {
     splitSum[s.entry_id] = (splitSum[s.entry_id] || 0) + Number(s.amount);
   });
   var rows = [];
-  getAllRows('Entries').forEach(function (e) {
+  // A split entry counts as one row per project part (ProjectSplits.gs); the company's totals still add the whole amount once.
+  expandProjectSplits_(getAllRows('Entries')).forEach(function (e) {
     if (e.status !== 'confirmed' || (e.type !== 'expense' && e.type !== 'income')) return;
     if (!e.company_id && !e.project_id) return;
     if (startDate && e.date < startDate) return;
