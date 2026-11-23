@@ -100,6 +100,9 @@ function recordCurrencyExchange(payload) {
   payload = payload || {};
   var date = String(payload.date || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(tr_('xch.badDate'));
+  // The money that arrived may carry its own day (owner, 2026-11-23: the second side can come later). Optional; the same day otherwise.
+  var inDate = String(payload.in_date || '') || date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(inDate)) throw new Error(tr_('xch.badDate'));
   var out = exchangeLeg_(payload.out, tr_('xch.sideOut'));
   var inn = exchangeLeg_(payload.in, tr_('xch.sideIn'));
   if (out.currency === inn.currency) throw new Error(tr_('xch.sameCurrency'));
@@ -139,7 +142,7 @@ function recordCurrencyExchange(payload) {
     var side = pair[0], leg = pair[1];
     if (!leg.pmId) return;   // untracked side: nothing to save
     var fields = {
-      type: 'transfer', date: date, amount: leg.amount, currency: leg.currency, category_id: transferCat.id,
+      type: 'transfer', date: side === 'in' ? inDate : date, amount: leg.amount, currency: leg.currency, category_id: transferCat.id,
       description: describe(leg, side), paid_by: 'me',
       payment_method_id: side === 'out' ? leg.pmId : '', to_payment_method_id: side === 'in' ? leg.pmId : ''
     };
@@ -272,6 +275,12 @@ function exchangePairSide_(e) {
   return /^cm-in-/.test(ext) ? 'in' : (/^cm-out-/.test(ext) ? 'out' : '');
 }
 
+// A transfer saved as one side of a currency exchange (its marker). Such a side holds ONE account: where the money left, or where it
+// arrived (owner, 2026-11-23: a side with both read as dollars leaving the soles account).
+function isExchangeLegMarked_(e) {
+  return !!e && e.type === 'transfer' && String(e.exchange || '') === '1';
+}
+
 // The other side of an exchange (same exchange_pair), or null.
 function exchangePartner_(entry, entries) {
   var pair = String((entry && entry.exchange_pair) || '');
@@ -356,12 +365,19 @@ function processExchangeEmail_(rule, message, sender, dateStr, createdAt, result
   return made;
 }
 
-// Exchange legs with no partner: a one-sided "left" leg and a one-sided "arrived" leg in DIFFERENT currencies, within 3 days, form a pair.
+// Exchange legs with no partner: two sides linked by their exchange_pair id are a pair whatever their days (owner, 2026-11-23: the money
+// can arrive days later); an unlinked "left" leg and "arrived" leg in DIFFERENT currencies, within 3 days, form a pair too.
 // What is left over and older than 2 days is returned (newest first, at most 30): the exchange is missing a side.
 function unpairedExchangeLegs_() {
   var legs = getAllRows('Entries').filter(function (e) {
     return e.type === 'transfer' && EXCHANGE_DESCRIPTION_RE_.test(String(e.description || '')) && !isPracticeExchange_(e) && (!!e.payment_method_id !== !!e.to_payment_method_id);
   }).map(function (e) { return { e: e, side: e.payment_method_id ? 'out' : 'in', used: false }; });
+  legs.forEach(function (a) {
+    var pair = String(a.e.exchange_pair || '');
+    if (a.used || a.side !== 'out' || !pair) return;
+    var b = legs.find(function (x) { return !x.used && x.side === 'in' && String(x.e.exchange_pair || '') === pair && x.e.currency !== a.e.currency; });
+    if (b) { a.used = true; b.used = true; }
+  });
   legs.forEach(function (a) {
     if (a.used || a.side !== 'out') return;
     var b = legs.find(function (x) { return !x.used && x.side === 'in' && x.e.currency !== a.e.currency && exchangeDayDiff_(x.e.date, a.e.date) <= 3; });

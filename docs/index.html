@@ -2659,6 +2659,12 @@
 
         <label for="exchange-date" data-i18n="field.date">Date</label>
         <input type="date" id="exchange-date">
+        <button type="button" class="add-inline" id="exchange-in-date-btn" data-i18n="xch.arrivedOtherDay" hidden>The money arrived another day</button>
+        <div id="exchange-in-date-field" hidden>
+          <label for="exchange-in-date" data-i18n="xch.arrivedOn">Arrived on</label>
+          <input type="date" id="exchange-in-date">
+          <button type="button" class="add-inline" id="exchange-in-date-same" data-i18n="xch.arrivedSameDay">Same day</button>
+        </div>
 
         <label data-i18n="xch.left">Money that left</label>
         <select id="exchange-out-account"></select>

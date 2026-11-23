@@ -49,7 +49,11 @@ for (const [kind, make] of Object.entries(KINDS)) {
       rt_ensureExchangeColumn(s.rt);
       const e = make(s);
       const arrival = /withdrawal|only a To|\(in\)|^income$/.test(kind);
-      rt_update(s, e, fieldsFor(target, s, arrival));
+      const fields = fieldsFor(target, s, arrival);
+      // An exchange side becomes a transfer between two accounts only as "Not an exchange: my own transfer", which clears its marker
+      // (a side still marked holds one account: owner, 2026-11-23).
+      if (target === "transfer" && /^exchange side/.test(kind)) fields.exchange = "";
+      rt_update(s, e, fields);
       const done = s.row(e.id);
       assert.equal(done.status, "confirmed");
       assert.equal(done.type, target);
