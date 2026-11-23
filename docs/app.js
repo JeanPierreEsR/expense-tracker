@@ -2137,8 +2137,12 @@ function updatePaidByFriendHint_() {
   const select = document.getElementById("paid_by");
   const friend = meta.friends.find((f) => f.id === select.value);
   hint.hidden = !(selectedType === "expense" && friend && !select.hidden);
-  if (!hint.hidden) hint.textContent = tr("paidBy.friendHint", { friend: friend.name });
+  // With the split off the whole amount is the person's and they owe the payer all of it (a 100%-mine split saves no rows, so it
+  // reopens this way); the old text said the split was on while the box below showed it off.
+  const on = document.getElementById("split-toggle").checked;
+  if (!hint.hidden) hint.textContent = tr(on ? "paidBy.friendHint" : "paidBy.friendHintOff", { friend: friend.name });
 }
+document.getElementById("split-toggle").addEventListener("change", updatePaidByFriendHint_);
 
 // A new plain transfer between the owner's own accounts gets "from X to Y" as
 // its description automatically (filled as the accounts are picked, still
