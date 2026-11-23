@@ -42,6 +42,8 @@ function audit() {
     // An ancestor that scrolls or clips sideways makes this element's position its own business (a swipeable row).
     let held = false;
     for (let p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) {
+      // The page and every sheet clip sideways only as a safety net (up-and-down only, 2026-11-23): what they would cut still counts.
+      if (p === document.body || p.classList.contains("currency-modal")) continue;
       const ox = getComputedStyle(p).overflowX;
       if (ox !== "visible") { held = true; break; }
     }
