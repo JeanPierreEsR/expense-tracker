@@ -154,6 +154,7 @@ var BACKEND_STRINGS_ = {
   "botTour.wordsOk": { en: "Changed.", es: "Cambiado." },
   "botTour.step5Wa": { en: "WhatsApp only lets me write to you within 24 hours of your last message, so say hi now and then.", es: "WhatsApp solo me deja escribirte dentro de las 24 horas de tu último mensaje, así que salúdame de vez en cuando." },
   "botTour.stopHint": { en: "Write \"exit\" to end the tour.", es: "Escribe \"salir\" para terminar el recorrido." },
+  "botTour.helpOffer": { en: "• New to the bot? Write \"tutorial\" for a short tour (5 steps).", es: "• ¿Primera vez con el bot? Escribe \"tutorial\" para un recorrido corto (5 pasos)." },
   "botTour.stopped": { en: "Tour stopped. Write \"tutorial\" any time to start it again.", es: "Recorrido terminado. Escribe \"tutorial\" cuando quieras para empezarlo otra vez." },
   "botTour.lost": { en: "I'll stop the tour here. Write \"tutorial\" any time to start it again.", es: "Dejo el recorrido aquí. Escribe \"tutorial\" cuando quieras para empezarlo otra vez." },
   "botTour.testName": { en: "Test", es: "Prueba" },

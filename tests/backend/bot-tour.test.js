@@ -353,3 +353,21 @@ test("during the tour, \"gracias\" / \"ok\" only repeat the step: one message, n
   assert.equal(a.sent.length, n + 3, "one message each: the step");
   assert.doesNotMatch(a.said(), /No cambié nada|Nothing changed/);
 });
+
+test("the general help offers the tour only while it was never finished or exited (both bots)", () => {
+  const a = waApp({ owner: true });
+  a.text("ayuda");
+  assert.match(a.last(), /tutorial/, "not done yet: offered");
+  a.rt.svc.props.set("BOT_TOUR_DONE", "2026-11-20");
+  a.text("ayuda");
+  assert.doesNotMatch(a.last(), /tutorial/, "done: not offered");
+
+  const { rt } = freshApp({ small: true });
+  const chat = linkTelegram(rt);
+  const sent = [];
+  rt.state.fetchHandler = (url, o) => { if (/sendMessage/.test(url)) sent.push(JSON.parse(o.payload)); return { ok: true, result: { message_id: 1 } }; };
+  const help = () => { rt.ctx.__u = { message: { chat: { id: chat }, message_id: 9, text: "help" } }; rt.run("handleTelegramUpdate_(__u)"); return sent[sent.length - 1].text; };
+  assert.match(help(), /tutorial/);
+  rt.svc.props.set("BOT_TOUR_DONE", "2026-11-20");
+  assert.doesNotMatch(help(), /tutorial/);
+});

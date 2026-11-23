@@ -187,7 +187,7 @@ test("general help: 'ayuda' / 'help' / 'menú' not replying says what the bot ca
   const a = waApp();
   for (const word of ["ayuda", "help", "Menú", "?"]) {
     a.text(word);
-    assert.equal(a.lastBody(), a.rt.run("tr_('whatsapp.help')"), word);
+    assert.equal(a.lastBody(), a.rt.run("tr_('whatsapp.help') + botTourHelpLine_()"), word);
   }
   assert.match(a.lastBody(), /pendientes|"pending"/);
   assert.equal(a.waEntries().length, 0, "help made no entry");
@@ -196,7 +196,7 @@ test("general help: 'ayuda' / 'help' / 'menú' not replying says what the bot ca
   a.text("help", { context_id: a.cardIdOf(e.id) });
   assert.match(a.lastBody(), /^Reply to edit:/, "a reply 'help' is the transaction's own help");
   a.text("ayuda");
-  assert.equal(a.lastBody(), a.rt.run("tr_('whatsapp.help')"), "with a transaction waiting, a plain 'ayuda' is still the general help");
+  assert.equal(a.lastBody(), a.rt.run("tr_('whatsapp.help') + botTourHelpLine_()"), "with a transaction waiting, a plain 'ayuda' is still the general help");
 });
 
 test("a message without replying is about the transaction of the bot's last message (Telegram's rule)", () => {
