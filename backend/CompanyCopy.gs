@@ -209,6 +209,7 @@ function companyOverview_(startDate, endDate) {
       amount: has ? Number(p.funding_gap) : null, currency: String(p.funding_currency || home), as_of: has ? String(p.funding_as_of || '') : '' };
   }).sort(function (a, b) { return a.name.localeCompare(b.name); });
   return { owed: owed, owedTotals: owedTotals, funding: funding, partners: companyPartners_(startDate, endDate), partnersPending: pendingContributions_(), sales: companySales_(),   // piece 11 (Sales.gs)
+    share_sections: shareSectionsSaved_(),   // piece 12 (ShareStatement.gs): the sections the share sheet opens with
     close: wholeMonthOf_(startDate, endDate) ? monthCloseState_(wholeMonthOf_(startDate, endDate)) : null };   // piece 8 (MonthClose.gs)   // piece 7 (Partners.gs)
 }
 

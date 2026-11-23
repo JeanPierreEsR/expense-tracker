@@ -345,6 +345,7 @@ var BACKEND_STRINGS_ = {
   "partner.gone": { en: "That partner's money no longer exists.", es: "Esa plata del socio ya no existe." },
   "partner.descContribution": { en: "Capital contribution from {name}", es: "Aporte de capital de {name}" },
   "partner.descPending": { en: "Money from {name} (to be decided)", es: "Plata de {name} (por definir)" },
+  "share.pickOne": { en: "Choose at least one section.", es: "Elige al menos una sección." },
   // Business 2 piece 11: sales by stage (Sales.gs)
   "sales.unitGone": { en: "That unit no longer exists.", es: "Esa unidad ya no existe." },
   "sales.pickStage": { en: "Choose the stage.", es: "Elige la etapa." },

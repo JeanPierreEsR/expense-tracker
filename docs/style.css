@@ -4329,6 +4329,7 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .constancia-table td:last-child { text-align: right; white-space: nowrap; padding-left: 8px; font-weight: 600; }
 .constancia-head th { text-align: left; padding: 10px 0 2px; font-size: 0.875rem; color: var(--muted); font-weight: 600; }
 .constancia-notice { margin-top: 16px; font-weight: 600; }
+.constancia-total td { border-top: 1px solid var(--border); padding-top: 8px; font-weight: 600; }
 .constancia-actions .add-inline { display: block; }
 #pkg-file-list .add-inline, #pkg-files { display: block; }
 #constancia-print { display: none; }

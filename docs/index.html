@@ -615,6 +615,10 @@
         <h2 data-i18n="sales.nextTitle">Next collections</h2>
         <div id="co-next-body"></div>
       </div>
+      <!-- Business 2, piece 12: a statement to share, with the sections chosen. -->
+      <div class="card ov-period" id="co-share-card" hidden>
+        <button type="button" class="add-inline" id="co-share-btn" data-i18n="share.open">Prepare a statement to share…</button>
+      </div>
       <div class="card ov-period" id="co-close-card" hidden>
         <h2 id="co-close-title"></h2>
         <div id="co-close-body"></div>
@@ -2429,6 +2433,30 @@
         <p class="hint" data-i18n="close.keeps">Closing keeps this month's figures. If anything in it changes later, the app will say so.</p>
         <p class="hint error-text" id="close-error"></p>
         <button type="button" class="primary" id="close-save" data-i18n="close.save">Close the month</button>
+      </div>
+    </div>
+  </div>
+  <!-- Business 2, piece 12: the statement to share (sections, then the document; PDF or text like the yearly statement). -->
+  <div id="share-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="share.title">Statement to share</span>
+        <button type="button" id="share-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="share-period"></p>
+        <div id="share-pick">
+          <p class="hint" data-i18n="share.pickHint">Choose what goes in. Next time it opens with the same choice.</p>
+          <div id="share-sections"></div>
+          <p class="hint error-text" id="share-error"></p>
+          <button type="button" class="primary" id="share-build" data-i18n="share.build">Prepare the statement</button>
+        </div>
+        <div id="share-doc" class="constancia-doc" hidden></div>
+        <div class="constancia-actions" id="share-actions" hidden>
+          <button type="button" class="primary" id="share-pdf" data-i18n="const.pdf">Save or send as PDF</button>
+          <button type="button" class="add-inline" id="share-text" data-i18n="const.shareText">Share as text</button>
+          <button type="button" class="add-inline" id="share-again" data-i18n="share.again">Change the sections</button>
+        </div>
       </div>
     </div>
   </div>
