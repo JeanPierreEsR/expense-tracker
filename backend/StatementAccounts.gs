@@ -29,11 +29,26 @@ function stmtNewAccountCurrency_(st) {
   return cur === 'USD' ? 'USD' : 'PEN';
 }
 
-// One proposal per unknown account found in the statements: { key, last4, bank, bankExists, kind, type, currency, nickname }.
+// The person's own accounts a statement for an unknown account may really be (owner, 2026-11-23, after Mia's test: her Interbank card had
+// no last 4 digits, so its statement was offered as a NEW account): same type (card statement = credit, account statement = debit), no
+// last 4 digits yet, not hidden, not the practice account; those of the statement's bank first, then those with no bank at all. The
+// phone asks "Is this your …?" and a Yes gives that account the digits (createStatementAccounts with `id`). [{ id, nickname }]
+function stmtDigitlessMatches_(pms, type, bank) {
+  var bankId = bank ? String(bank.id) : '';
+  var free = pms.filter(function (pm) {
+    return String(pm.type) === type && !cleanLast4_(pm.last_4) && String(pm.hidden || '') !== 'yes' && !isPracticeAccount_(pm);
+  });
+  var same = bankId ? free.filter(function (pm) { return String(pm.bank_id || '') === bankId; }) : [];
+  var none = free.filter(function (pm) { return !String(pm.bank_id || ''); });
+  return same.concat(none).map(function (pm) { return { id: String(pm.id), nickname: String(pm.nickname) }; });
+}
+
+// One proposal per unknown account found in the statements: { key, last4, bank, bankExists, kind, type, currency, nickname, matches }.
 function stmtNewAccountProposals_(sts) {
   var banks = getAllRows('Banks');
   var taken = {};
-  getAllRows('Payment Methods').forEach(function (pm) { taken[String(pm.nickname).trim().toLowerCase()] = true; });
+  var pms = getAllRows('Payment Methods');
+  pms.forEach(function (pm) { taken[String(pm.nickname).trim().toLowerCase()] = true; });
   var lang = currentLang_();
   var seen = {}, out = [];
   sts.forEach(function (st) {
@@ -48,19 +63,24 @@ function stmtNewAccountProposals_(sts) {
     var existingBank = banks.find(function (b) { return plainNickname_(b.name) === plainNickname_(bankName); });
     var shown = existingBank ? existingBank.name : bankName;
     var nickname = uniqueAccountName_(autoAccountAlias_(bankShortName_(shown), kind, last4, true, lang), last4, taken);
-    out.push({ key: String(st.key), last4: last4, bank: shown, bankExists: !!existingBank, kind: kind, type: accountKindType_(kind), currency: currency, nickname: nickname });
+    var type = accountKindType_(kind);
+    // An AhorraMás statement is found by the account's NAME, not its digits (stmtPmForKey_): digits on another account would not help.
+    var matches = String(st.key).indexOf('AHORRA-') === 0 ? [] : stmtDigitlessMatches_(pms, type, existingBank);
+    out.push({ key: String(st.key), last4: last4, bank: shown, bankExists: !!existingBank, kind: kind, type: type, currency: currency, nickname: nickname, matches: matches });
   });
   return out;
 }
 
 /**
- * Creates the proposed accounts. payload: { accounts: [{ last4, bank, kind }] } — kind is one of ACCOUNT_KINDS_. An account whose last four
- * digits already exist is NOT created again (a second tap or another phone): it comes back under `existing`. Reply:
- * { created: [{ id, nickname, type, bank, last_4 }], existing: [{ id, nickname, last_4 }] }.
+ * Creates the proposed accounts. payload: { accounts: [{ last4, bank, kind, id? }] } — kind is one of ACCOUNT_KINDS_. An account whose last four
+ * digits already exist is NOT created again (a second tap or another phone): it comes back under `existing`. With `id` (the person answered
+ * "Yes, it's this one", 2026-11-23) nothing is created: that account gets the four digits (and the statement's bank when it has none), through
+ * savePaymentMethod so an automatic name follows; an account that already has OTHER digits is refused. Reply:
+ * { created: [{ id, nickname, type, bank, last_4 }], existing: [{ id, nickname, last_4 }], linked: [{ id, nickname, last_4 }] }.
  */
 function createStatementAccounts(payload) {
   var list = (payload && Array.isArray(payload.accounts)) ? payload.accounts : [];
-  if (!list.length) return { created: [], existing: [] };
+  if (!list.length) return { created: [], existing: [], linked: [] };
   if (list.length > 20) throw new Error(tr_('err.tooManyAccounts'));
   ensurePaymentMethodAliasColumns_();
   var lang = currentLang_();
@@ -68,10 +88,11 @@ function createStatementAccounts(payload) {
   var taken = {};
   var pms = getAllRows('Payment Methods');
   pms.forEach(function (pm) { taken[String(pm.nickname).trim().toLowerCase()] = true; });
-  var created = [], existing = [];
+  var created = [], existing = [], linked = [];
   list.forEach(function (a) {
     var last4 = cleanLast4_(a.last4);
     if (!last4) throw new Error(tr_('err.pmLast4'));
+    if (a.id) { stmtLinkDigits_(a, last4, pms, existing, linked); pms = getAllRows('Payment Methods'); return; }
     var kind = String(a.kind || '');
     if (!isAccountKind_(kind)) throw new Error(tr_('err.pmType'));
     var bankName = String(a.bank || '').trim().slice(0, 60);
@@ -87,8 +108,28 @@ function createStatementAccounts(payload) {
     setPaymentMethodLast4_(sheet, headers, findRowIndexById(sheet, headers, pm.id), last4);
     created.push({ id: pm.id, nickname: nickname, type: pm.type, bank: bank.name, last_4: last4 });
   });
-  if (created.length) bumpStructureVersion_();
-  return { created: created, existing: existing };
+  if (created.length || linked.length) bumpStructureVersion_();
+  return { created: created, existing: existing, linked: linked };
+}
+
+// "Yes, it's this one": the four digits go on the person's own account instead of a new one.
+function stmtLinkDigits_(a, last4, pms, existing, linked) {
+  var id = String(a.id);
+  var pm = pms.find(function (p) { return String(p.id) === id; });
+  if (!pm) throw new Error(tr_('err.pmNotFound'));
+  var other = pms.find(function (p) { return String(p.id) !== id && covKey_(p.last_4) === covKey_(last4) && !isPracticeAccount_(p); });
+  if (other) { existing.push({ id: String(other.id), nickname: String(other.nickname), last_4: last4 }); return; }
+  var had = cleanLast4_(pm.last_4);
+  if (had === last4) { existing.push({ id: id, nickname: String(pm.nickname), last_4: last4 }); return; }
+  if (had) throw new Error(tr_('err.pmHasOtherDigits', { name: pm.nickname, digits: had }));
+  var bankId = String(pm.bank_id || '');
+  var bankName = String(a.bank || '').trim().slice(0, 60);
+  if (!bankId && bankName) {
+    var bank = getAllRows('Banks').find(function (b) { return plainNickname_(b.name) === plainNickname_(bankName); }) || addBank({ name: bankName });
+    bankId = String(bank.id);
+  }
+  var saved = savePaymentMethod({ id: id, nickname: String(pm.nickname), type: String(pm.type), bank_id: bankId, last_4: last4 });
+  linked.push({ id: id, nickname: saved.nickname, last_4: last4 });
 }
 
 /**

@@ -162,6 +162,7 @@ function getCapabilities_() {
     paceRanges: true,       // getSpendingPace({ranges}): the Spending pace card in the Week, Year and Custom views
     budgetsBulkDelete: true,   // deleteBudgets (several at once, Budgets → Edit); an older backend lacks it, so the app hides the Edit button
     bulkShowAgain: true,   // restoreFriends / restorePaymentMethods / showCategories + `deletedRows` in deleteFriends / removePaymentMethods (Undo after a bulk delete or hide, and a bulk "Show again" in Edit mode); an older backend lacks them, so the app shows no Undo and no Show again button
+    stmtAcctLink: true,   // newAccounts[].matches + createStatementAccounts({accounts:[{id,…}]}): a statement for unknown digits asks "Is this your …?" about the person's accounts with no digits; an older backend sends no matches, so the app only offers a new account
     pmBulkRemove: true,   // removePaymentMethods (several accounts at once, More → Accounts → Edit); an older backend lacks it, so the app hides the Edit button
     annualCleanup: true,   // listAnnualCleanup / applyAnnualCleanup / undoAnnualCleanup / finishAnnualCleanup: the owner's one-time move out of the old "Annual budget" category (AnnualCleanup.gs); the card shows only where this exists AND listAnnualCleanup says available
     annualHints: true,   // getAnnualHints: each category's usual month and this year's count of annual expenses, for the Annual expenses bubbles (2026-11-14); an older backend lacks it, so those two bubbles never show
