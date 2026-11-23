@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.60.0"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="2.61.0"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-23T21:00:17Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-23T21:21:04Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -1150,6 +1150,7 @@
           </span>
         </div>
         <button type="button" class="add-inline" id="business-people-btn" data-i18n="business.people">People</button>
+        <button type="button" class="add-inline" id="business-constancias-btn" hidden data-i18n="const.all">All the yearly statements</button>
         <h2 class="screen-title" style="margin-top:0;" data-i18n="business.title">Companies &amp; projects</h2>
         <p class="hint" data-i18n="business.hint">Group your business income and costs by company and project. Each currency is always kept apart.</p>
         <select id="business-period" class="business-period-select"></select>
@@ -2251,6 +2252,7 @@
         <span class="info-pair"><button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">Record repayment</button><button type="button" class="info-btn" data-info="repay" data-i18n-aria-label="info.repay.name" aria-label="About Record repayment" aria-expanded="false"></button></span>
         <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">Repayment history</button>
         <button type="button" class="add-inline" id="loan-remind-btn" hidden data-i18n="remind.button">Remind on WhatsApp</button>
+        <button type="button" class="add-inline" id="loan-constancia-btn" hidden data-i18n="const.button">Yearly statement</button>
       </div>
       <div class="loan-opening-offer" id="loan-detail-opening" hidden>
         <p class="hint" data-i18n="loanDetail.openingHint">Was there a debt with them from before you started using the app? Add it here, then record its repayment as usual.</p>
@@ -2338,6 +2340,32 @@
       </div>
     </div>
   </div>
+  <!-- Business 2, piece 9: the yearly "constancia informativa" of a lender or partner (one, or all of them one by one). -->
+  <div id="constancia-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="const.title">Information statement</span>
+        <button type="button" id="constancia-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="constancia-year" data-i18n="const.year">Year</label>
+        <select id="constancia-year"></select>
+        <div class="constancia-nav" id="constancia-nav" hidden>
+          <button type="button" class="icon-btn" id="constancia-prev" data-i18n-aria-label="const.prev" aria-label="Previous person"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <span id="constancia-pos"></span>
+          <button type="button" class="icon-btn" id="constancia-next" data-i18n-aria-label="const.next" aria-label="Next person"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+        </div>
+        <div id="constancia-doc" class="constancia-doc"></div>
+        <div class="constancia-actions" id="constancia-actions" hidden>
+          <button type="button" class="primary" id="constancia-pdf" data-i18n="const.pdf">Save or send as PDF</button>
+          <button type="button" class="add-inline" id="constancia-text" data-i18n="const.shareText">Share as text</button>
+          <button type="button" class="add-inline" id="constancia-csv" data-i18n="const.shareCsv">Share as CSV (Excel)</button>
+          <p class="hint" data-i18n="const.pdfHint">"Save or send as PDF" opens the iPhone's print screen: share from there, or pinch the preview open to get the PDF.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="constancia-print" aria-hidden="true"></div>
   <!-- Business 2, piece 8: closing a month (the app-vs-bank check first). -->
   <div id="close-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
@@ -4593,25 +4621,25 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="i18n.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="tour-scenes.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="signin-link.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="country-guess.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="rate-quotes.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="bank-sample.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="perf-share.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="spotlight.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="receipt-parse.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="receipt-fields.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="in-process.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="bill-split.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="loan-reminder.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="company-invite.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="app.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="statement-sample.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="statement-table.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="statement-parsers.js?v=2026-11-23T21:00:17Z"></script>
-  <script src="statements.js?v=2026-11-23T21:00:17Z"></script>
+  <script src="strings.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="i18n.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="tour-scenes.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="signin-link.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="country-guess.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="rate-quotes.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="bank-sample.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="perf-share.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="spotlight.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="receipt-parse.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="receipt-fields.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="in-process.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="bill-split.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="loan-reminder.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="company-invite.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="app.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="statement-sample.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="statement-table.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="statement-parsers.js?v=2026-11-23T21:21:04Z"></script>
+  <script src="statements.js?v=2026-11-23T21:21:04Z"></script>
 </body>
 </html>

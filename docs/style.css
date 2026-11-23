@@ -4300,6 +4300,26 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .co-partner-pending { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .co-partner-pending-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .co-partner-pending-btns .add-inline + .add-inline { margin-top: 0; }
+/* Business 2, piece 9: the yearly constancia, on screen and printed alone */
+.constancia-nav { display: flex; align-items: center; justify-content: space-between; margin: 8px 0; }
+.constancia-doc { border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px; margin: 12px 0; overflow-wrap: anywhere; }
+.constancia-title { margin: 0 0 4px; }
+.constancia-company { font-weight: 600; margin: 0 0 8px; }
+.constancia-warn { color: var(--warn-text); }
+.constancia-cur { margin: 16px 0 4px; }
+.constancia-table { width: 100%; border-collapse: collapse; }
+.constancia-table td { padding: 4px 0; vertical-align: top; }
+.constancia-table td:last-child { text-align: right; white-space: nowrap; padding-left: 8px; font-weight: 600; }
+.constancia-head th { text-align: left; padding: 10px 0 2px; font-size: 0.875rem; color: var(--muted); font-weight: 600; }
+.constancia-notice { margin-top: 16px; font-weight: 600; }
+.constancia-actions .add-inline { display: block; }
+#constancia-print { display: none; }
+@media print {
+  body.printing-constancia > :not(#constancia-print) { display: none !important; }
+  body.printing-constancia #constancia-print { display: block !important; }
+  body.printing-constancia { background: var(--white); color: var(--text); }
+  #constancia-print .constancia-doc { border: 0; }
+}
 /* Business 2, piece 8: the change log and closing a month */
 .changelog-month { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
 .changelog-month span { font-weight: 600; }
