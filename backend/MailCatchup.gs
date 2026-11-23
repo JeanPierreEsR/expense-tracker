@@ -19,7 +19,11 @@ var MAIL_CATCHUPS_ = [
   { id: 'bcp-credit-purchases', packId: 'bcp-consumo-credito', sender: 'notificaciones@notificacionesbcp.com.pe' },
   // 2026-11-22: Banco Falabella CMR card purchases, never read before the pack rule `falabella-cmr-consumo` (found on a friend's forward).
   { id: 'falabella-cmr-purchases', packId: 'falabella-cmr-consumo', sender: 'notificaciones@pe.notificaciones.bancofalabella.com' },
-  { id: 'falabella-cmr-payments', packId: 'falabella-pago-tarjeta', sender: 'notificaciones@pe.notificaciones.bancofalabella.com' }
+  { id: 'falabella-cmr-payments', packId: 'falabella-pago-tarjeta', sender: 'notificaciones@pe.notificaciones.bancofalabella.com' },
+  // 2026-11-23: BCP payments to the person's own card, BCP transfers between their accounts and Banco Falabella transfers (pack v9).
+  { id: 'bcp-own-card-payments', packId: 'bcp-pago-tarjeta-propia', sender: 'notificaciones@notificacionesbcp.com.pe' },
+  { id: 'bcp-own-transfers', packId: 'bcp-entre-mis-cuentas', sender: 'notificaciones@notificacionesbcp.com.pe' },
+  { id: 'falabella-transfers', packId: 'falabella-transferencia', sender: 'notificaciones@pe.notificaciones.bancofalabella.com' }
 ];
 
 // Days to look back: from the day the copy was first used (Loans.gs firstUseDate_), at least the usual 3, at most MAIL_CATCHUP_MAX_DAYS_.
