@@ -7754,10 +7754,14 @@ function retryWaitingSaves_() {
   if (!(meta && meta.categories)) return;
   const edits = getQueuedEdits_().filter((e) => e.waitingNet);
   const money = getMoneyQueue_().some((q) => q.status === "saving");
-  if (!edits.length && !money) { saveWaitingSaid_ = false; return; }
+  // A Needs review Confirm / Discard that could not be sent goes too (Diego, 2026-11-23: after a long time offline it waited for the
+  // next app open, though the message says it saves by itself when the connection is back).
+  const review = getQueuedReviewActions_().length > 0;
+  if (!edits.length && !money && !review) { saveWaitingSaid_ = false; return; }
   if (navigator.onLine === false) { noteSaveWaiting_(); return; }
   edits.forEach((e) => flushEntryEdit_(e.id));
   flushMoneyQueue_();
+  if (review) refreshReviewQueue().then(() => { refreshEntryList(); refreshHomeGlance_(true); }).catch(() => { if (!saveRetryTimer_) saveRetryTimer_ = setTimeout(() => { saveRetryTimer_ = null; retryWaitingSaves_(); }, 30000); });
 }
 window.addEventListener("online", retryWaitingSaves_);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) retryWaitingSaves_(); });
@@ -8832,6 +8836,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       const split = splitCheck && splitCheck.checked && entry.split_match && (!bizBox || bizBox.value.startsWith("c:")) ? entry.split_match.parts : null;
       const extra = Object.assign({}, planCheck && planCheck.checked && entry.plan_match ? { planId: entry.plan_match.recurring_id } : {}, split ? { split } : {});
       queueReviewAction_(entry.id, "confirm", fields, Object.keys(extra).length ? extra : null);
+      if (navigator.onLine === false) noteSaveWaiting_();   // said at once, and retried by itself when the connection is back
       holdTaps_();
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
@@ -8850,7 +8855,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         // Stays queued — the next refreshReviewQueue (including on the
         // next app open) retries it automatically, no action needed here.
         // With no connection the person is told so (testers, 2026-11-22: the card just vanished).
-        if (navigator.onLine === false || /fetch|network|load failed|timed? ?out/i.test(String((err && err.message) || ""))) showToast_(tr("entry.savingOffline"));
+        if (navigator.onLine === false || /fetch|network|load failed|timed? ?out/i.test(String((err && err.message) || ""))) noteSaveWaiting_();
         practiceNActionFailed_(entry.id, err);   // (a practice entry that could not be confirmed stops the practice)
       }
     });
