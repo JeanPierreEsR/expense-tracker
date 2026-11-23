@@ -180,6 +180,7 @@ function telegramApi_(method, payload) {
 function telegramNoteSent_(messageId, payload) {
   try {
     PropertiesService.getScriptProperties().setProperty('TG_LAST_OUT', String(messageId));
+    botNoteSentId_(messageId);   // an action's answers belong to it, for "deshacer" (BotUndo.gs)
     var entryId = payload && payload.reply_to_message_id ? whatsappCardEntry_(payload.reply_to_message_id) : '';
     if (entryId) appendRowObject('Telegram Messages', { message_id: String(messageId), entry_id: entryId, created_at: new Date().toISOString() });
   } catch (err) { /* remembering never fails a send */ }
@@ -446,7 +447,7 @@ function telegramEditHelpText_(entry) {
   var help = function (keys) {
     return keys.map(function (k) { return k === '' ? '' : tr_('help.' + k); }).join('\n');
   };
-  var tail = ['', 'bothLanguages'];
+  var tail = ['', 'undo', 'bothLanguages'];
   if (entry.type === 'transfer') {
     return help(['intro', 't.from', 't.to', 't.amount', 'descTaxi', 'currency', 'date', 't.category', 'label', 't.type', '', 't.combine', '', 'transfer.intro', 'transfer.repayment', 'transfer.loan'].concat(tail));
   }
@@ -623,7 +624,10 @@ function handleTelegramCallback_(cb) {
   var parts = String(cb.data).split(':');
   var action = parts[0];
   var entryId = parts[1];
-  botTourNote_('touched', entryId);   // Confirm / Discard on the tour's transaction: the tour checks what came of it
+  botTourNote_('touched', entryId);
+  // Every tap that changes something is recorded for "deshacer" (BotUndo.gs); a tap that changes nothing records nothing.
+  var undoKind = { confirm: 'confirm', discard: 'discard', waitpay: 'waitpay', ptags: 'edit', plink: 'edit', delrep: 'delrep' }[action] || '';
+  var recording = undoKind ? botActionBegin_(undoKind, entryId, [cb.message.message_id]) : false;   // Confirm / Discard on the tour's transaction: the tour checks what came of it
 
   // Once handled, take the buttons off the card so a second tap (easy when
   // the first reply is slow) can't confirm again — and answer a repeat tap
@@ -673,6 +677,7 @@ function handleTelegramCallback_(cb) {
     } else {
       try {
         var xDiscard = pendingExchangePair_(entry);   // a currency exchange's card is both sides: both go
+        if (recording) botActionSafetyCopy_(xDiscard ? [xDiscard.out.id, xDiscard['in'].id] : [entryId]);   // also in Recently deleted
         discardEntryWithRepayments_(entryId);
         if (xDiscard) discardEntryWithRepayments_(xDiscard.out.id === entryId ? xDiscard['in'].id : xDiscard.out.id);
         reply = tr_(xDiscard ? 'bot.exchangeDiscarded' : 'bot.discarded');
@@ -741,6 +746,7 @@ function handleTelegramCallback_(cb) {
   }
   if (telegramTagAskAfter_) { sendTelegramTagAsk_(cb.message.chat.id, telegramTagAskAfter_, cb.message.message_id); sendTelegramPlanAsk_(cb.message.chat.id, telegramTagAskAfter_, cb.message.message_id); }
   telegramTagAskAfter_ = '';
+  if (recording) botActionEnd_(undoKind);
 
   telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
 }
@@ -843,6 +849,14 @@ function handleTelegramMessage_(msg) {
     return;
   }
 
+  // "deshacer" / "undo" on its own (BotUndo.gs): about the message replied to, else the bot's last message. It closes an open
+  // "send the new …" question first. WhatsApp checks it in its own door.
+  if (String(msg.chat.id) !== WA_CHAT_ID_ && botUndoWord_(text)) {
+    whatsappClearAwaiting_();
+    botUndoMessage_(msg.reply_to_message ? msg.reply_to_message.message_id : String(PropertiesService.getScriptProperties().getProperty('TG_LAST_OUT') || ''), msg.message_id);
+    return;
+  }
+
   // The same commands as WhatsApp (ayuda / pendientes / nuevo) and the answer to an open "send the new …" question
   // (WhatsAppBot.gs). Only for a real Telegram message, not a reply (WhatsApp's own messages come here as replies or commands).
   if (!msg.reply_to_message && String(msg.chat.id) !== WA_CHAT_ID_ && text && telegramSharedCommand_(msg, text)) return;
@@ -922,6 +936,8 @@ function handleTelegramMessage_(msg) {
   // exactly one such trip (applyTerminalReviewAction_).
   var terminalMatch = text.match(/^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)(?:\s+(.+))?$/i) ||
     text.match(/^(?:(?:convert\s+to|convertir\s+en)\s+)?(?:loan|pr[eé]stamo)(?:\s+(.+))?$/i);
+  var undoKind = !terminalMatch ? 'edit' : /^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)/i.test(text) ? 'repayment' : 'loan';
+  var recording = botActionBegin_(undoKind, mapping.entry_id, [msg.message_id, targetMessageId]);   // for "deshacer" (BotUndo.gs)
   var result = terminalMatch
     ? applyTerminalReviewAction_(mapping.entry_id, text, terminalMatch[1] || '')
     : applyEditCommand_(mapping.entry_id, text);
@@ -952,6 +968,7 @@ function handleTelegramMessage_(msg) {
   if ((result.entry && !result.removed) || result.removed) {
     removeCardButtons_(msg.chat.id, targetMessageId);
   }
+  if (recording) botActionEnd_(undoKind);
 }
 
 // The same steps as WhatsApp's whatsappNewPurchase_: the shared block, then the card with its buttons, the engine's note, and the
