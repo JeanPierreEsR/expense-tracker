@@ -20544,7 +20544,8 @@ document.getElementById("move-to").addEventListener("change", async (e) => {
       + (lines.length ? `<ul style="list-style:disc;margin:4px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : "")
       + (c.balancesDropped ? `<p class="hint">${escapeHtml(tr("move.balancesKept", { n: c.balancesDropped, name: p.to.nickname }))}</p>` : "")
       + (c.selfTransfers ? `<p class="hint">${escapeHtml(tr("move.selfTransfers", { n: c.selfTransfers }))}</p>` : "")
-      + (digits ? `<p class="hint">${escapeHtml(tr("move.digits", { name: p.to.nickname, digits }))}</p>` : "")
+      + (digits ? (() => { const bank = ((meta && meta.banks) || []).find((b) => String(b.id) === String(from.bank_id || ""));
+        return `<p class="hint">${escapeHtml(tr(bank ? "move.digits" : "move.digitsNoBank", { name: p.to.nickname, digits, bank: bank ? bank.name : "" }))}</p>`; })() : "")
       + `<p class="hint">${escapeHtml(tr("move.deleted", { name: p.from.nickname }))}</p>`;
     btn.textContent = tr("move.go", { name: p.from.nickname });
     btn.hidden = false;

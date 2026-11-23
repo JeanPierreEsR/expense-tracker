@@ -167,7 +167,7 @@ function applePayAccountFor_(card, entries, paymentMethods) {
   if (best) return byId[best.payment_method_id];
   var digits = key.match(/\b\d{4}\b/g) || [];
   for (var i = digits.length - 1; i >= 0; i--) {
-    var hits = pmsWithLast4_(paymentMethods, digits[i]);
+    var hits = pmsWithLast4_(paymentMethods, digits[i], {});
     if (hits.length === 1) return hits[0];
   }
   return null;

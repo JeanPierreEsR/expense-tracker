@@ -301,7 +301,7 @@ function applyStatementDecisions(payload) {
   real.statements.forEach(function (s, i) {
     var rail = stmtIsNewAccount_(stmts[i]) ? stmtNewAccountSpec_(stmts[i]).rail : (stmts[i].rail === 'yape' || stmts[i].rail === 'plin' ? stmts[i].rail : '');
     if (!rail) return;
-    var pm = stmtIsNewAccount_(stmts[i]) ? made.byKey[stmts[i].key] : stmtPmForKey_(getAllRows('Payment Methods'), s.key);
+    var pm = stmtIsNewAccount_(stmts[i]) ? made.byKey[stmts[i].key] : stmtPmForKey_(getAllRows('Payment Methods'), s.key, { bankName: stmts[i].bank || '' });
     var cur = ((s.lines || [])[0] || {}).currency;
     stmtLinkRail_(rail, pm, cur, report).forEach(function (c) { rows.push({ id: Utilities.getUuid(), batch_id: report.batchId, sheet: 'Settings', row_id: c.key, field: 'value', old_value: c.from, new_value: c.to, created_at: now }); });
   });

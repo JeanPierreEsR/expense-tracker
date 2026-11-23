@@ -124,7 +124,9 @@ var STMT_ACCT_KEY_PREFIX_ = 'ACCT-';
 // set later from the entry. Resolves to a stand-in whose id is '' so the entries come out account-less.
 var STMT_NO_ACCOUNT_KEY_ = 'NOACCOUNT';
 
-function stmtPmForKey_(pms, key) {
+// src (a replaced card's old digits, AccountMove.gs): { bankName } of a statement being read — only that bank, only 6 months; a
+// record already saved passes none and is found whatever its age.
+function stmtPmForKey_(pms, key, src) {
   if (String(key) === STMT_NO_ACCOUNT_KEY_) return { id: '', nickname: tr_('stmt.noAccountName'), type: 'debit', last_4: '', noAccount: true };
   if (String(key).indexOf(STMT_ACCT_KEY_PREFIX_) === 0) {
     var id = String(key).substring(STMT_ACCT_KEY_PREFIX_.length);
@@ -134,7 +136,7 @@ function stmtPmForKey_(pms, key) {
     return pms.find(function (pm) { return String(pm.nickname).toLowerCase().replace(/[^a-z]/g, '').indexOf('ahorra') === 0; }) || null;
   }
   var k = covKey_(key);
-  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k && !isPracticeAccount_(pm); }) || pmOldKeyMap_(pms)[k] || null;   // a replaced card's old digits (AccountMove.gs)
+  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k && !isPracticeAccount_(pm); }) || pmOldKeyMap_(pms, src || { anyTime: true })[k] || null;
 }
 
 // Capital letter on each word. NOT `\b`: in JavaScript an accented letter is not a "word" letter, so `\b` found a word start inside "práctica" and made it
@@ -267,7 +269,7 @@ function applyStatementDecisionsCore_(payload) {
   var keys = [], accounts = [];
   stmts.forEach(function (s) {
     keys.push(stmtLineKeys_(s.key, s.lines));
-    accounts.push(stmtIsNewAccount_(s) ? stmtNewAccountStandIn_(s) : stmtPmForKey_(pms, s.key));   // an account the save will create (StatementAccounts.gs)
+    accounts.push(stmtIsNewAccount_(s) ? stmtNewAccountStandIn_(s) : stmtPmForKey_(pms, s.key, { bankName: s.bank || '' }));   // an account the save will create (StatementAccounts.gs)
   });
   var storedRows = null;
   function line(ref) {

@@ -136,24 +136,68 @@ function ensurePaymentMethodOldLast4Column_() {
   ensureColumn_('Payment Methods', 'old_last_4');
 }
 
-// The old digits an account also answers to (a card replaced by this one): ["1234", …].
+// The old digits an account also answers to (a card replaced by this one). Stored in `old_last_4` as "1234|<bank id>|<moved on>", comma
+// separated. Owner, 2026-11-23: they count ONLY for the old card's bank (an e-mail or statement of another bank never uses them) and
+// ONLY for 6 months after the move (late e-mails and a last statement arrive within that; for longer it was too open).
+var OLD_LAST4_MONTHS_ = 6;
+
+function pmOldLast4Items_(pm) {
+  return String((pm && pm.old_last_4) || '').split(',').map(function (part) {
+    var bits = part.trim().split('|');
+    return { digits: covKey_(bits[0]), bank: String(bits[1] || ''), date: String(bits[2] || '') };
+  }).filter(function (it) { return /^\d{4}$/.test(it.digits); });
+}
+function pmOldLast4Value_(items) {
+  return items.map(function (it) { return [it.digits, it.bank || '', it.date || ''].join('|'); }).join(',');
+}
+// Every old digit, whatever its bank or age: ["1234", …] (the coverage list never waits for a replaced card's statements).
 function pmOldLast4List_(pm) {
-  return String((pm && pm.old_last_4) || '').split(/[,\s]+/).map(covKey_).filter(function (k) { return /^\d{4}$/.test(k); });
+  return pmOldLast4Items_(pm).map(function (it) { return it.digits; });
 }
 
-// The accounts with these last 4 digits: the ones whose CURRENT digits match, else the ones that had them before (old_last_4).
-function pmsWithLast4_(pms, digits) {
+function oldLast4Cutoff_() {
+  var d = new Date();
+  d.setMonth(d.getMonth() - OLD_LAST4_MONTHS_);
+  return Utilities.formatDate(d, personTz_(), 'yyyy-MM-dd');
+}
+
+// Does one remembered old digit count for this source? src: { bankId?, bankName?, anyTime? } — a source that names a bank must be the old
+// card's bank; one with no bank (Apple Pay, an e-mail rule with no bank) is not "another bank". anyTime: a record already saved (its label).
+function oldLast4Counts_(it, src, cutoff) {
+  src = src || {};
+  if (!src.anyTime && it.date && it.date < cutoff) return false;
+  if (!it.bank || (!src.bankId && !src.bankName)) return true;
+  if (src.bankId) return String(src.bankId) === it.bank;
+  var bank = getAllRows('Banks').find(function (b) { return String(b.id) === it.bank; });
+  return !!bank && plainNickname_(bank.name) === plainNickname_(src.bankName);
+}
+
+// The accounts that HAD these digits (old_last_4) and may still be found by them from this source.
+function pmsWithOldLast4_(pms, digits, src) {
+  var k = covKey_(digits);
+  if (!/^\d{4}$/.test(k)) return [];
+  var cutoff = oldLast4Cutoff_();
+  return pms.filter(function (pm) {
+    return !isPracticeAccount_(pm) && pmOldLast4Items_(pm).some(function (it) { return it.digits === k && oldLast4Counts_(it, src, cutoff); });
+  });
+}
+
+// The accounts with these last 4 digits: the ones whose CURRENT digits match, else the ones that had them before (see above).
+function pmsWithLast4_(pms, digits, src) {
   var k = covKey_(digits);
   if (!/^\d{4}$/.test(k)) return [];
   var now = pms.filter(function (pm) { return covKey_(pm.last_4) === k; });
   if (now.length) return now;
-  return pms.filter(function (pm) { return pmOldLast4List_(pm).indexOf(k) !== -1; });
+  return pmsWithOldLast4_(pms, k, src);
 }
 
-// Every old key of every account: { "1234": pm } (a statement or the coverage list may name one).
-function pmOldKeyMap_(pms) {
-  var out = {};
-  pms.forEach(function (pm) { if (!isPracticeAccount_(pm)) pmOldLast4List_(pm).forEach(function (k) { if (!out[k]) out[k] = pm; }); });
+// Every old key of every account: { "1234": pm }. src as above; { all: true } = every one, whatever its bank or age.
+function pmOldKeyMap_(pms, src) {
+  var out = {}, cutoff = oldLast4Cutoff_();
+  pms.forEach(function (pm) {
+    if (isPracticeAccount_(pm)) return;
+    pmOldLast4Items_(pm).forEach(function (it) { if (!out[it.digits] && (src && src.all || oldLast4Counts_(it, src, cutoff))) out[it.digits] = pm; });
+  });
   return out;
 }
 
@@ -204,9 +248,15 @@ function moveAccountHistory(payload) {
       setSetting_(PLIN_MORE_KEY_, next.join(','));
     }
     // 5. The new account answers to the old digits too.
-    var old = [covKey_(p.from.last_4)].concat(pmOldLast4List_(p.from)).concat(pmOldLast4List_(p.to))
-      .filter(function (k, i, a) { return /^\d{4}$/.test(k) && a.indexOf(k) === i && k !== covKey_(p.to.last_4); });
-    if (old.join(',') !== pmOldLast4List_(p.to).join(',')) setPmOldLast4_(toId, old.join(','));
+    // (with the old card's bank and today's date: they count for that bank only, for 6 months; a newer copy of the same digits wins)
+    var today = Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd');
+    var items = [];
+    var keep = function (it) { if (/^\d{4}$/.test(it.digits) && it.digits !== covKey_(p.to.last_4)) { items = items.filter(function (x) { return x.digits !== it.digits; }); items.push(it); } };
+    pmOldLast4Items_(p.to).forEach(keep);
+    pmOldLast4Items_(p.from).forEach(keep);
+    keep({ digits: covKey_(p.from.last_4), bank: String(p.from.bank_id || ''), date: today });
+    var value = pmOldLast4Value_(items);
+    if (value !== String(p.to.old_last_4 || '')) setPmOldLast4_(toId, value);
     // 6. The old account goes (its leftover starting balances with it).
     deletePaymentMethod({ id: fromId });
     bumpStructureVersion_();
