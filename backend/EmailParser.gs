@@ -101,6 +101,24 @@ function cciAccountLast4_(body, label) {
   return m ? m[1].slice(14, 18) : null;
 }
 
+// Interbank's "Constancia de transferencia" between two of the person's Interbank accounts names the destination by product and
+// account number ("Cuenta destino / Cuenta Simple / Soles / 8980000001234"), never by the person's name (2026-11-23, owner's sueldo →
+// soles transfer read as an expense). The last four digits of that account number (10 to 19 digits: a 20-digit CCI is not one).
+// Only the label's own line and the 3 lines under it are looked at (product, currency, number), and only the FIRST long number there
+// counts, so the number of another block (the account it left) is never taken.
+// The scan turns the entry into a transfer only when one of the person's Interbank accounts has those digits (`toIfOwnLast4`).
+function interbankDestAccountLast4_(body, label) {
+  var text = String(body || '');
+  var i = text.search(new RegExp(label, 'i'));
+  if (i === -1) return null;
+  var lines = text.substring(i).split(/\r?\n/).filter(function (l) { return l.trim(); }).slice(0, 4);
+  for (var k = 0; k < lines.length; k++) {
+    var m = lines[k].replace(/(\d)[ -](?=\d)/g, '$1').match(/\d{8,}/);
+    if (m) return m[0].length >= 10 && m[0].length <= 19 ? m[0].slice(-4) : null;
+  }
+  return null;
+}
+
 // An e-mail that names the account the money left only by its product name (SIP: "Cuenta Ahorramás Soles"): the person's one account
 // whose name is in it as whole words ("AhorraMás"). Never a credit card or an investment platform; only accounts of that bank or with no bank.
 function emailAccountByName_(name, bank, paymentMethods) {
@@ -588,6 +606,9 @@ var EMAIL_RULES = [
       // To the person's own account at another bank, named by its CCI: To = the account with those digits.
       var toLast4 = own ? (cciAccountLast4_(body, 'Cuenta destino') || cciAccountLast4_(body, 'Destinatario')) : null;
       if (toLast4) { fields.toLast4 = toLast4; fields.toOwnAlways = true; }
+      // No name, only a product + account number: maybe one of the person's own Interbank accounts (resolved in processOneMessage_).
+      var ownMaybe = own ? null : interbankDestAccountLast4_(body, 'Cuenta destino');
+      if (ownMaybe) fields.toIfOwnLast4 = ownMaybe;
       return fields;
     }
   },
@@ -1098,6 +1119,12 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
 
   var paymentMethod = emailAccountFor_(rule, fields, banks, paymentMethods);
 
+  // Interbank names an own-account transfer by the destination's account number, not the person (`toIfOwnLast4`, 2026-11-23): when
+  // exactly one of the person's other non-card accounts at that bank has those digits, it is a transfer to it (no category).
+  // Anything else stays the expense waiting in Needs review.
+  var ownDest = emailOwnDestination_(rule, fields, banks, paymentMethods, paymentMethod);
+  if (ownDest) { fields.type = 'transfer'; fields.needsReview = false; }
+
   // The exchange house's own confirmation may already have made this "left" leg (it names both sides): then this e-mail only
   // tells which account paid, and a second leg would count the exchange twice.
   if (fields.exchangeLeg) {
@@ -1186,6 +1213,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
     else if (fields.toOwnAlways) { /* always one of the person's own accounts: stays a transfer, To left blank for review */ }
     else { entry.type = 'expense'; entry.description = 'Pago de tarjeta …' + fields.toLast4; }
   }
+  if (ownDest) { ensureEntriesToPaymentMethodColumn_(); entry.to_payment_method_id = ownDest.id; }
 
   // A card-bill-payment email comes from the CARD's bank and names the
   // card, but the money left some other account of the owner's — so the
@@ -1219,6 +1247,18 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   } catch (err) {
     console.error('Telegram notification failed: ' + err);
   }
+}
+
+// The person's own account an e-mail's `toIfOwnLast4` names (Interbank transfers, see interbankDestAccountLast4_), or null.
+function emailOwnDestination_(rule, fields, banks, paymentMethods, fromAccount) {
+  if (!fields.toIfOwnLast4 || fields.type !== 'expense') return null;
+  var bank = banks.find(function (b) { return b.name === rule.bank; });
+  if (!bank) return null;
+  var hits = paymentMethods.filter(function (pm) {
+    return pm.bank_id === bank.id && pm.type !== 'credit' && pm.type !== 'investment'
+      && pmLast4_(pm.last_4) === pmLast4_(fields.toIfOwnLast4) && (!fromAccount || pm.id !== fromAccount.id);
+  });
+  return hits.length === 1 ? hits[0] : null;
 }
 
 // Which of the person's accounts a read e-mail names (also used for a bank notice forwarded on WhatsApp, WhatsApp.gs); null when not known.

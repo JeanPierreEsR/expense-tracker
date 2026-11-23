@@ -66,13 +66,66 @@ test("the usual layout to someone else is unchanged: an expense, no To", () => {
   assert.ok(!e.to_payment_method_id);
 });
 
+// Between two of the person's Interbank accounts (2026-11-23): "Cuenta cargo" / "Cuenta destino", each by product, currency and
+// account number; no name anywhere.
+const ownIbk = ({ dest = "898 0000002222", op = "00500005" } = {}) => [
+  "Hola EVA, te enviamos tu", "Constancia de transferencia", "Código de operación", op, "Fecha y hora", "01 Feb 2026", "10:17 AM",
+  "Cuenta cargo", "Ahorro Sueldo", "Soles", "200 0000001111", "Cuenta destino", "Cuenta Simple", "Soles", dest,
+  "Moneda y monto", "S/ 51.99"
+].join("\n");
+
+function setupOwn() {
+  const { rt } = freshApp({ small: true });
+  rt.run(`setSetting_('owner_names', 'Eva Carla Ramos Torres')`);
+  const ibk = (rt.rows("Banks").find((b) => b.name === "Interbank") || {}).id;
+  const pid = (x) => x.id || (x.paymentMethod && x.paymentMethod.id);
+  const sueldo = pid(rt.api("addPaymentMethod", { nickname: "IBK sueldo prueba", type: "debit", bank_id: ibk, last_4: "1111" }));
+  const soles = pid(rt.api("addPaymentMethod", { nickname: "IBK soles prueba", type: "debit", bank_id: ibk, last_4: "2222" }));
+  return { rt, ibk, pid, sueldo, soles };
+}
+
+test("between two of the person's Interbank accounts (no name, only account numbers): a transfer From → To, no expense category", () => {
+  const { rt, sueldo, soles } = setupOwn();
+  rt.svc.gmail.addEmail({ from: IBK, subject: "Constancia de transferencia", body: ownIbk({}) });
+  run(rt);
+  const e = byOp(rt, "00500005");
+  assert.ok(e);
+  assert.equal(e.type, "transfer");
+  assert.equal(e.status, "pending");
+  assert.equal(Number(e.amount), 51.99);
+  assert.equal(e.payment_method_id, sueldo);
+  assert.equal(e.to_payment_method_id, soles);
+  const cat = rt.rows("Categories").find((c) => String(c.id) === String(e.category_id));
+  assert.ok(!cat || cat.type !== "expense", "no expense category on a transfer");
+});
+
+test("a destination number that is none of the person's Interbank accounts stays an expense for review", () => {
+  const { rt } = setupOwn();
+  rt.svc.gmail.addEmail({ from: IBK, subject: "Constancia de transferencia", body: ownIbk({ dest: "898 0000009999", op: "00600006" }) });
+  run(rt);
+  const e = byOp(rt, "00600006");
+  assert.equal(e.type, "expense");
+  assert.ok(!e.to_payment_method_id);
+});
+
+test("the digits matching an account at ANOTHER bank, or a credit card, do not make it a transfer", () => {
+  const { rt, ibk, pid } = setupOwn();
+  pid(rt.api("addPaymentMethod", { nickname: "Otro banco prueba", type: "debit", last_4: "7777" }));
+  pid(rt.api("addPaymentMethod", { nickname: "IBK tarjeta prueba", type: "credit", bank_id: ibk, last_4: "8888" }));
+  rt.svc.gmail.addEmail({ from: IBK, subject: "Constancia de transferencia", body: ownIbk({ dest: "898 0000007777", op: "00700007" }) });
+  rt.svc.gmail.addEmail({ from: IBK, subject: "Constancia de transferencia", body: ownIbk({ dest: "898 0000008888", op: "00800008" }) });
+  run(rt);
+  assert.equal(byOp(rt, "00700007").type, "expense");
+  assert.equal(byOp(rt, "00800008").type, "expense");
+});
+
 test("the pack twin reads every layout exactly like the code rule", () => {
   const { rt } = freshApp({ small: true });
   rt.run(`setSetting_('owner_names', 'Eva Carla Ramos Torres')`);
   const pack = JSON.parse(fs.readFileSync(path.join(__dirname, "../../docs/rules/email-rules.json"), "utf8"));
   assert.ok(plain(rt.run(`rulePackValidate_(${js(js(pack))}, { strict: true })`)).ok);
   const twin = pack.rules.find((r) => r.id === "interbank-transferencia");
-  for (const b of [usual({}), other({}), usual({ to: "Eva Carla Ramos Torres", dest: "00211112345678432155" })]) {
+  for (const b of [usual({}), other({}), usual({ to: "Eva Carla Ramos Torres", dest: "00211112345678432155" }), ownIbk({})]) {
     const code = plain(rt.run(`EMAIL_RULES.filter(function (r) { return r.sender === '${IBK}' && r.label === 'Transferencia'; })[0].extract('Constancia de transferencia', ${js(b)})`));
     const fromPack = plain(rt.run(`rulePackCompile_(${js(twin)}).extract('Constancia de transferencia', ${js(b)})`));
     assert.deepEqual(fromPack, code);
