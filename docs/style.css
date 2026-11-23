@@ -4300,6 +4300,23 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .co-partner-pending { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .co-partner-pending-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .co-partner-pending-btns .add-inline + .add-inline { margin-top: 0; }
+/* Business 2, piece 11: units and sales */
+.unit-row { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 10px 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.unit-row:last-child { border-bottom: 0; }
+.unit-row > span { display: flex; flex-direction: column; }
+.unit-row small, .unit-payment small, #unit-stages small, #co-next-body small { display: block; font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+.unit-name { font-weight: 600; }
+.unit-sum { font-weight: 600; }
+.unit-stage-new { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.unit-stage-new select, .unit-stage-new .add-inline { grid-column: 1 / -1; }
+.unit-stage-new input { min-width: 0; }
+.unit-payment { border-bottom: 1px solid var(--border); padding: 4px 0; }
+.unit-return-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.unit-return-form input { min-width: 0; }
+.unit-return-form .primary { grid-column: 1 / -1; }
+.unit-share .add-inline, .unit-remove { display: block; }
+.units-add-list { max-height: 50vh; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }   /* up and down only */
+.co-next-overdue { color: var(--warn-text); }
 /* Business 2, piece 9: the yearly constancia, on screen and printed alone */
 .constancia-nav { display: flex; align-items: center; justify-content: space-between; margin: 8px 0; }
 .constancia-doc { border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px; margin: 12px 0; overflow-wrap: anywhere; }

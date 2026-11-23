@@ -32,7 +32,9 @@ var BUSINESS_TABLES_ = {
   // Business 2 piece 7 (Partners.gs, company copies): a partner's money IN (kind 'contribution' or 'pending' = to be decided) and a profit
   // distribution OUT (gross, withholding typed as data). Amount, currency, date and account live on the entry (a transfer).
   'Contributions': ['id', 'entry_id', 'partner_id', 'company_id', 'project_id', 'kind', 'note'],
-  'Distributions': ['id', 'entry_id', 'partner_id', 'company_id', 'project_id', 'gross', 'withholding', 'note']
+  'Distributions': ['id', 'entry_id', 'partner_id', 'company_id', 'project_id', 'gross', 'withholding', 'note'],
+  // Business 2 piece 11 (Sales.gs, company copies): a tag a project takes as one of its units, with its buyer, price and free status.
+  'Units': ['id', 'tag_id', 'project_id', 'buyer_id', 'price', 'currency', 'status', 'note']
 };
 
 var PROJECT_STATUSES_ = { active: true, closed: true };
