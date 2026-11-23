@@ -140,6 +140,7 @@
     "entry.confirmButton": { en: "Confirm entry", es: "Confirmar movimiento" },
     "entry.confirmTitle": { en: "Confirm entry", es: "Confirmar movimiento" },
     "entry.confirmingBanner": { en: "✏️ Confirming entry", es: "✏️ Confirmando movimiento" },
+    "entry.waitSavingBehind": { en: "💾 Still saving your last change — try again in a moment.", es: "💾 Todavía se está guardando tu último cambio: inténtalo de nuevo en un momento." },
     "entry.stillSaving": { en: "Still saving your last change to this entry — try again in a moment.", es: "Todavía se está guardando tu último cambio en este movimiento: inténtalo de nuevo en un momento." },
     "entry.notInListFailed": { en: "“{what}” was NOT saved.\n\n{error}\n\nIt isn't in the list loaded now: if it's an older entry, scroll Recent entries to find it.", es: "“{what}” NO se guardó.\n\n{error}\n\nNo está en la lista cargada ahora: si es un movimiento antiguo, desplázate por Movimientos recientes para encontrarlo." },
 

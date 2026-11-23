@@ -3918,6 +3918,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   let splitSaveFailed = false;
   let billSaveFailed = false;
   let popupHiddenEarly = false;
+  const sheetSeq = entrySheetSeq_;   // the window's opening this save belongs to
   // Set when the save was handed to the background queue (the sheet closes at once): { kind: "create", id } for a new
   // entry, { kind: "confirm", id } for a Needs-review entry confirmed through the full form.
   let backgroundSaved = null;
@@ -4140,6 +4141,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         if (editingViaPopup) {
           document.getElementById("edit-entry-modal-backdrop").hidden = true;
           popupHiddenEarly = true;
+          entrySheetSavingBehind_ = true;
           showToast_(tr("common.savingToast"), true);
         }
         const conversionAction = fromRepayment ? "convertRepaymentToLoan" : loanToRepayment ? "convertLoanToRepayment" : loanToLoan ? "convertLoanToLoan" : rerecordRepayment ? "convertRepaymentToRepayment" : isLoanKind ? "convertEntryToLoan" : "convertEntryToRepayment";
@@ -4281,6 +4283,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       if (editingViaPopup) {
         document.getElementById("edit-entry-modal-backdrop").hidden = true;
         popupHiddenEarly = true;
+        entrySheetSavingBehind_ = true;
       }
       await callConversion_("convertRepaymentToEntry", {
         entry_id: editingEntryId,
@@ -4324,6 +4327,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       if (editingViaPopup) {
         document.getElementById("edit-entry-modal-backdrop").hidden = true;
         popupHiddenEarly = true;
+        entrySheetSavingBehind_ = true;
       }
       await callConversion_("convertLoanToEntry", {
         entry_id: editingEntryId,
@@ -4630,7 +4634,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     } else if (editingViaPopup) {
       // A conversion saved behind the screen: say it landed (the form's own notice went with the hidden pop-up).
       if (popupHiddenEarly && lastFormNotice_) showToast_(lastFormNotice_, false, 6000);
-      await refreshAfterPopupEdit();
+      entrySheetSavingBehind_ = false;
+      await refreshAfterPopupEdit(sheetSeq);
     } else if (programmedInstead) {
       // Stays on the (now-cleared) form instead of jumping back to the
       // category picker like a normal save does — that jump would hide
@@ -4680,6 +4685,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (errorEl.textContent && errorEl.scrollIntoView) errorEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
   } finally {
     submitBtn.disabled = false;
+    if (popupHiddenEarly) entrySheetSavingBehind_ = false;
   }
 });
 
@@ -7158,7 +7164,7 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
     // The delete failed after the form closed: the entry is still there.
     deletingEntryIds_.delete(id);
     renderEntryListFromCache_();
-    await refreshAfterPopupEdit();
+    if (wasPopup) await refreshUnderPopup_();   // the window closed when the person confirmed: it may now hold a new entry
     showAppMessage_(err.message);
     return;
   } finally {
@@ -7169,7 +7175,7 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
   deletingEntryIds_.delete(id);
   renderEntryListFromCache_();
   refreshExpectedRecurring();
-  if (wasPopup) await refreshAfterPopupEdit();
+  if (wasPopup) await refreshUnderPopup_();   // the same: never close the window again
 });
 
 // ---- Editing as a pop-up (from an Overview drill-down) ----
@@ -7179,6 +7185,8 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
 // event listeners, so everything above keeps working unchanged.
 
 function openEditPopup(entry) {
+  if (entrySheetBusyBehind_()) return;
+  entrySheetSeq_++;
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
   document.getElementById("edit-entry-modal-title").textContent = tr("entry.editTitle");
   const backdrop = document.getElementById("edit-entry-modal-backdrop");
@@ -7189,6 +7197,9 @@ function openEditPopup(entry) {
 }
 
 function closeEditPopup() {
+  // The "+" sheet uses the same window: a late close (a delete or save finishing behind the screen) must not shut a new entry
+  // the person opened meanwhile, or the app would think it is still open and "+" would stop working (owner, 2026-11-23).
+  if (newEntrySheetOpen_ && !editingViaPopup) return;
   entryLoadSeq_++;
   setEntryLoading_("");
   document.getElementById("edit-entry-modal-backdrop").hidden = true;
@@ -7211,6 +7222,8 @@ function reviewPlanFor_(id) {
   return e && e.plan_match && !reviewPlanOff_.has(id) ? e.plan_match : null;
 }
 async function openConfirmPendingPopup(entry) {
+  if (entrySheetBusyBehind_()) return;
+  entrySheetSeq_++;
   lastConfirmPendingEntry_ = entry;
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
   const backdrop = document.getElementById("edit-entry-modal-backdrop");
@@ -7242,8 +7255,14 @@ function closeConfirmPendingPopup() {
 // After a save/delete from the pop-up: close it and re-run the same
 // drill-down query so the sheet underneath reflects the change, without
 // closing the drill-down itself or leaving Overview.
-async function refreshAfterPopupEdit() {
-  closeEditPopup();
+// `seq` (entrySheetSeq_ when the save started): a save that finished behind the screen closes the window only if it still
+// holds what was saved, never an entry the person opened meanwhile.
+async function refreshAfterPopupEdit(seq) {
+  if (seq === undefined || seq === entrySheetSeq_) closeEditPopup();
+  await refreshUnderPopup_();
+}
+// What sits under the edit window (a drill-down, a repayment history, a trip or project screen) shows the change.
+async function refreshUnderPopup_() {
   if (currentDrilldown) {
     await currentDrilldown.refetch();
   }
@@ -9450,6 +9469,16 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
 // and the rest behave exactly as before. specs/home-tab.md.
 
 let newEntrySheetOpen_ = false;
+// The new-entry sheet, the edit window and the Needs review form are ONE window: each opening gets a number, so a save or a delete
+// finishing behind the screen only ever closes its own opening (owner, 2026-11-23: a delete closed a new exchange being typed).
+let entrySheetSeq_ = 0;
+// A save from the edit window that closed it early (a conversion) still uses the form: nothing else opens in it until it is done.
+let entrySheetSavingBehind_ = false;
+function entrySheetBusyBehind_() {
+  if (!entrySheetSavingBehind_) return false;
+  showToast_(tr("entry.waitSavingBehind"));
+  return true;
+}
 
 let entryFormLeftOpen_ = false;
 // ---- "More details": the optional fields folded on a new expense or income (owner, 2026-11-12) ----
@@ -9495,7 +9524,9 @@ document.getElementById("more-details-toggle").addEventListener("click", () => s
 })();
 
 function openNewEntrySheet_() {
+  if (entrySheetBusyBehind_()) return;
   if (newEntrySheetOpen_ || editingViaPopup || editingEntryId || confirmingPendingId) return;
+  entrySheetSeq_++;
   moreDetailsOpen_ = false;   // each new entry starts with its details folded
   const backdrop = document.getElementById("edit-entry-modal-backdrop");
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
