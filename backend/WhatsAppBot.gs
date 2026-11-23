@@ -290,6 +290,7 @@ function botAwaitingText_(text, p) {
 function whatsappTextIn_(text, p) {
   // "deshacer" / "undo" on its own (BotUndo.gs), before an open "send the new …" question could take it as a description.
   if (botUndoWord_(text)) { whatsappClearAwaiting_(); return botUndoMessage_(p.context_id || p.lastOut, p.id); }
+  if (botDeleteWord_(text)) { whatsappClearAwaiting_(); return botDeleteMessage_(p.context_id || p.lastOut, p.id); }
   if (botAwaitingText_(text, p)) return;
   if (botFillerWord_(text)) return botText_(tr_('bot.fillerHint'), p.id);   // "ok", "gracias"…: never a transaction's new text (BotTour.gs)
   if (p.context_id && whatsappCardEntry_(p.context_id)) return whatsappEngineMessage_(p, text, p.context_id);

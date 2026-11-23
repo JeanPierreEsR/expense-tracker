@@ -138,3 +138,21 @@ test("the bots' card (WhatsApp and Telegram share it) says who forwarded it, unl
   rt.run(`setEntryField_(${JSON.stringify(id)}, 'status', 'confirmed')`);
   assert.doesNotMatch(card(), /Forwarded by/, "only while it waits");
 });
+
+test("a sender name that hides the person's own address does not hide 'Forwarded by'; an unreadable sender says 'unknown'", () => {
+  const { friend: rt } = copies();
+  const own = String(rt.run("mailboxAddress_()") || "").toLowerCase();
+  assert.ok(own, "the copy has an address");
+  rt.svc.gmail.addEmail({ from: '"x<' + own + '>" <spoof@evil.example>', subject: "Fwd: " + SUBJECT, body: gmailForward({ amount: "14.50", op: "990051", daysAgo: 1 }) });
+  rt.svc.gmail.addEmail({ from: own + " (spoof2@evil.example) <spoof2@evil.example>", subject: "Fwd: " + SUBJECT, body: gmailForward({ amount: "14.60", op: "990052", daysAgo: 1 }) });
+  rt.svc.gmail.addEmail({ from: "Nobody <not-an-address>", subject: "Fwd: " + SUBJECT, body: gmailForward({ amount: "14.70", op: "990053", daysAgo: 1 }) });
+  scan(rt);
+  assert.equal(byOp(rt, "990051")[0].forwarded_by, "spoof@evil.example");
+  assert.equal(byOp(rt, "990052")[0].forwarded_by, "spoof2@evil.example");
+  const unknown = byOp(rt, "990053")[0];
+  assert.equal(unknown.forwarded_by, "?");
+  const card = rt.run(`formatEntryForTelegram_(getEntryById_(${JSON.stringify(unknown.id)}), null, null, {})`);
+  assert.match(card, /Forwarded by an unknown sender|Reenviado por un remitente desconocido/);
+  assert.equal(rt.run("forwardAddressOf_('Eva <eva@example.org>')"), "eva@example.org");
+  assert.equal(rt.run("forwardAddressOf_('eva@example.org')"), "eva@example.org");
+});

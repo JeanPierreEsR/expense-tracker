@@ -68,6 +68,7 @@ function doPost(e) {
       } catch (err) {
         response = { ok: false, error: err.message, reply: tr_('whatsapp.failed') };
       }
+      botAlertsIfDue_();   // BotUndo.gs: alerts after a bot action, outside its lock
       return ContentService.createTextOutput(JSON.stringify(response))
         .setMimeType(ContentService.MimeType.JSON);
     }
@@ -90,6 +91,7 @@ function doPost(e) {
       if (!isDuplicateTelegramUpdate_(body.update_id)) {
         try {
           handleTelegramUpdate_(body);
+          botAlertsIfDue_();   // BotUndo.gs: alerts after a bot action, outside its lock
         } catch (err) {
           // Never let one bad update fail the webhook delivery — repeated
           // failures make Telegram back off and eventually stop retrying.
@@ -1508,8 +1510,11 @@ function listEntries(payload) {
     entries = entries.filter(function (e) { return entryIdsWithTag[e.id]; });
   }
   if (payload && payload.noTag) {
+    // Only links to tags that still exist count (a link left by a hand edit of the Sheet is "no tag", as on the phone; testers 2026-11-23).
+    var liveTags = {};
+    getAllRows('Tags').forEach(function (t) { liveTags[String(t.id)] = true; });
     var taggedEntryIds = {};
-    getAllRows('Entry Tags').forEach(function (et) { taggedEntryIds[et.entry_id] = true; });
+    getAllRows('Entry Tags').forEach(function (et) { if (liveTags[String(et.tag_id)]) taggedEntryIds[et.entry_id] = true; });
     entries = entries.filter(function (e) { return !taggedEntryIds[e.id]; });
   }
 

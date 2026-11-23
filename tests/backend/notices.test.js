@@ -255,3 +255,17 @@ test("a first-use practice's own expense never pushes a real budget over an aler
   assert.equal(notices(rt).length, 1, "real spending still alerts (60% crosses 50%)");
   assert.match(notices(rt)[0].text, /6\d%/, "and the figure leaves the practice entries out");
 });
+
+test("several alerts in one check: the first two go one by one, the rest as one message; all are in the app", () => {
+  const { rt, data } = freshApp();
+  linkTelegram(rt);
+  rt.state.fetchHandler = () => ({ ok: true, result: { message_id: 9 } });
+  for (let i = 0; i < 5; i++) budgetOver(rt, data, { index: 40 + i, clear: i === 0 });
+  rt.svc.props.delete("ALERT_CHECK_LAST_AT");
+  const before = rt.svc.fetchLog.length;
+  rt.run("checkAlertsGuarded_('app')");
+  const sends = rt.svc.fetchLog.slice(before).map((f) => String(f.options.payload)).filter((p) => /Notice cat/.test(p));
+  assert.equal(sends.length, 3, "two single alerts and one summary");
+  assert.match(sends[2], /3 more alerts|3 avisos más/);
+  assert.equal(notices(rt).filter((n) => n.kind === "budget").length, 5, "every alert is in the app");
+});

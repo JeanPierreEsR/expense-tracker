@@ -1284,6 +1284,7 @@ function createOverpaymentEntry_(type, payload) {
 
   var friend = getAllRows('Friends').find(function (f) { return f.id === payload.friend_id; });
   if (!friend) throw new Error(tr_('err.friendNotFound'));
+  if (typeof BOT_ACTION_ !== 'undefined' && BOT_ACTION_) (BOT_ACTION_.friends = BOT_ACTION_.friends || []).push(String(friend.id));   // the bot's Undo names them
 
   var description = payload.description || (type === 'income'
     ? tr_('desc.overpaymentFrom', { name: friend.name })

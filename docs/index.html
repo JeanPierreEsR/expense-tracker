@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.54.1"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="2.55.0"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-23T02:21:32Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-23T14:16:02Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -124,7 +124,7 @@
       </div>
 
       <div class="card search-results-card" id="search-results-card" hidden>
-        <div class="search-results-head"><button type="button" class="icon-btn" id="search-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button></div>
+        <div class="search-results-head"><h2 data-i18n="search.resultsTitle">Results</h2><button type="button" class="icon-btn" id="search-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button></div>
         <div id="search-results"></div>
       </div>
 
@@ -1739,6 +1739,7 @@
 
         <p class="hint"><strong data-i18n="privacy.readsTitle">What your app reads</strong></p>
         <p class="hint" data-i18n="privacy.readsMail">Your bank emails, only if you turned that on. Your app reads them (it can never send, change or delete an email) and turns each payment into an entry that waits for your OK. Those emails stay between your Gmail and your app.</p>
+        <p class="hint" data-i18n="privacy.botCopy">If you use the WhatsApp or Telegram bot, your Google Sheet keeps a copy of what each bot action changed for 30 days, so “undo” can put it back. Deleting an entry for good in Recently deleted, or Delete everything, removes it.</p>
         <p class="hint" data-i18n="privacy.readsFiles">Receipt photos and bank statement PDFs are read on your phone. The file is not uploaded and not kept.</p>
 
         <p class="hint"><strong data-i18n="privacy.agreeTitle">What can reach JP if you agree</strong></p>
@@ -2006,7 +2007,7 @@
         <span id="friend-screen-title" data-i18n="friendPick.choose">Choose a friend</span>
         <button type="button" id="friend-screen-close" class="currency-modal-close">✕</button>
       </div>
-      <input type="text" id="friend-search" data-i18n-placeholder="friendPick.search" placeholder="Search by name…" autocomplete="off">
+      <input type="text" id="friend-search" data-i18n-placeholder="friendPick.search" placeholder="Search by name…" data-i18n-aria-label="friendPick.search" aria-label="Search by name…" autocomplete="off">
       <div class="currency-option-list" id="friend-option-list"></div>
       <button type="button" class="add-inline" id="friend-screen-add" hidden data-i18n="common.addFriend">+ Add friend…</button>
       <button type="button" class="primary" id="friend-screen-done" hidden data-i18n="currency.done">Done</button>
@@ -3403,7 +3404,7 @@
             <li data-i18n="bankMail.w1">Best, if you can: change the email your bank uses for notifications to the address above. You do it in the bank's app or website, on your phone, bank by bank, and nothing else is needed.</li>
             <li data-i18n="bankMail.w2">To keep several addresses (recommended for that): Gmail forwarding. In each other Gmail, open Settings, See all settings, Forwarding and POP/IMAP, Add a forwarding address, and enter the address above. Google sends a confirmation code to this account. Then create a filter that forwards your bank's emails automatically. You do it once, on a computer, and it works for as many addresses as you have.</li>
           </ol>
-          <p class="hint" style="font-weight:600;" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
+          <p class="hint" style="font-weight:600;" id="bm-w3" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
           <h3 data-i18n="bankMail.otherMailTitle">Do your bank emails arrive at Outlook, iCloud or Yahoo?</h3>
           <p class="hint" data-i18n="bankMail.otherMailIntro">The app can only read a Gmail account. If you have none, create a free one and use it when you set up the app. Then send the bank emails from your other mailbox to the address above:</p>
           <ul class="bm-steps">
@@ -4454,25 +4455,25 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="i18n.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="tour-scenes.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="signin-link.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="country-guess.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="rate-quotes.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="bank-sample.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="perf-share.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="spotlight.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="receipt-parse.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="receipt-fields.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="in-process.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="bill-split.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="loan-reminder.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="company-invite.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="app.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="statement-sample.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="statement-table.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="statement-parsers.js?v=2026-11-23T02:21:32Z"></script>
-  <script src="statements.js?v=2026-11-23T02:21:32Z"></script>
+  <script src="strings.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="i18n.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="tour-scenes.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="signin-link.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="country-guess.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="rate-quotes.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="bank-sample.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="perf-share.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="spotlight.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="receipt-parse.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="receipt-fields.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="in-process.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="bill-split.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="loan-reminder.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="company-invite.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="app.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="statement-sample.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="statement-table.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="statement-parsers.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="statements.js?v=2026-11-23T14:16:02Z"></script>
 </body>
 </html>
