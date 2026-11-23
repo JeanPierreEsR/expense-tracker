@@ -167,6 +167,7 @@ function appendRowsBulk_(sheetName, objs) {
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
   if (sheetName === 'Entries') objs.forEach(function (o) { companyDefaultForNewEntry_(o, headers); });   // CompanyCopy.gs
+  objs.forEach(function (o) { pmForwardObject_(sheetName, o); });   // AccountMove.gs
   var rows = objs.map(function (o) { return headers.map(function (h) { return o[h] !== undefined ? (sheetName === 'Entries' ? sheetSafeText_(o[h]) : o[h]) : ''; }); });
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
   objs.forEach(function (o) { changeNoteCreate_(sheetName, o); });   // the change log (ChangeLog.gs, company copies)
