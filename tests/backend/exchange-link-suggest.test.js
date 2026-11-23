@@ -49,3 +49,13 @@ test("'Not these' is remembered; 'Don't ask again' turns it off", () => {
   s.rt.api("stopExchangeLinkSuggestions", {});
   assert.equal(glance(s.rt), 0);
 });
+
+test("only on the owner's own copy: a friend's copy never gets the card or the list", () => {
+  const s = setup();
+  s.side({ date: "2026-03-02", amount: 3500, currency: "PEN", payment_method_id: s.pen.id });
+  s.side({ date: "2026-03-03", amount: 1000, currency: "USD", to_payment_method_id: s.usd.id });
+  assert.equal(glance(s.rt), 1);
+  s.rt.svc.props.set("FEATURES", "base");
+  assert.equal(glance(s.rt), 0);
+  assert.deepEqual(s.rt.api("listExchangeLinkSuggestions", {}), []);
+});

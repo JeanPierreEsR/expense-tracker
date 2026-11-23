@@ -253,9 +253,10 @@ function linkExchangeSides(payload) {
 // pairs unlinked sides of the SAME day by itself; sides on different days showed as two rows. This finds those: a confirmed side with
 // no partner, the opposite side in another currency 1 to 3 days away (the window the missing-side report uses), and amounts that
 // fit the rate table within 15 % when a rate is known. One-to-one, closest days first. Never linked without the person: a guess can
-// be wrong. A pair the person said "Not these" to is remembered (Settings `exchange_link_refused`), and "Don't ask again" turns it off.
+// be wrong. Owner's copy only. A pair the person said "Not these" to is remembered (Settings `exchange_link_refused`), and "Don't ask again" turns it off.
 var EXCHANGE_SUGGEST_DAYS_ = 3;
 function exchangeLinkSuggestions_() {
+  if (isFriendCopy_()) return [];   // the owner's own copy only (owner, 2026-11-23): his old exchanges are what it is for; nobody else sees it
   var settings = getSettingsMap();
   if (String(settings.exchange_link_off || '') === 'yes') return [];
   var refused = {};
