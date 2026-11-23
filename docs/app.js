@@ -3345,14 +3345,35 @@ document.getElementById("payment_method").addEventListener("change", async (e) =
   }
 });
 
+// The new tag shows at once, ticked, while the server makes it (testers, 2026-11-22: it appeared 1-2.5 s later with no sign, so a
+// skimmer tapped it off again). The entry's Save waits for it (pendingTagAdd_), so a stand-in id is never saved.
+let pendingTagAdd_ = null;
 document.getElementById("add-tag-btn").addEventListener("click", async () => {
   const name = await askName_(tr("prompt.tagName"));
-  if (name && name.trim()) {
-    const tag = await callApi("addTag", { name: name.trim() });
-    if (!meta.tags.some((t) => t.id === tag.id)) meta.tags.push(tag);   // a tag of that name already there is reused
-    selectedTagIds.add(tag.id);
-    populateTags();
-  }
+  if (!(name && name.trim())) return;
+  const clean = name.trim();
+  const same = (meta.tags || []).find((t) => String(t.name).trim().toLowerCase() === clean.toLowerCase());
+  if (same) { selectedTagIds.add(same.id); populateTags(); return; }   // already there (or being made): just tick it
+  const temp = { id: "tmp-tag-" + Date.now(), name: clean };
+  meta.tags.push(temp);
+  selectedTagIds.add(temp.id);
+  populateTags();
+  const work = (async () => {
+    try {
+      const tag = await callApi("addTag", { name: clean });
+      meta.tags = meta.tags.filter((t) => t.id !== temp.id);
+      if (!meta.tags.some((t) => t.id === tag.id)) meta.tags.push(tag);
+      const wasTicked = selectedTagIds.delete(temp.id);
+      if (wasTicked) selectedTagIds.add(tag.id);
+    } catch (err) {
+      meta.tags = meta.tags.filter((t) => t.id !== temp.id);
+      selectedTagIds.delete(temp.id);
+      showToast_(tr("common.notSaved", { error: err.message }));
+    } finally {
+      populateTags();
+    }
+  })();
+  pendingTagAdd_ = (pendingTagAdd_ || Promise.resolve()).then(() => work);
 });
 
 // ---- Amount input: always use a decimal point ----
@@ -3953,7 +3974,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const splits = validateSplitIfEnabled();
     const groupSize = splitGroupSizeToSave_(splits);
     const charge = chargeForSave_(amount, currency, splits, selectedType, paidByForCharge_());
-    const tagIds = Array.from(selectedTagIds);
+    if (pendingTagAdd_) await pendingTagAdd_;   // a tag still being made gets its real id first
+    const tagIds = Array.from(selectedTagIds).filter((id) => !String(id).startsWith("tmp-tag-"));
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
     if (tripNudgeHolds_(tripId, currency)) throw new Error("");   // held once: the trip field and its bubble are on screen now
     // Shared with friends inside a trip that has a group (owner, 2026-11-07): when the friends' shares are kept in another app, the group is
