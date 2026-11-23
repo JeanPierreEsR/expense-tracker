@@ -1208,7 +1208,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   // with those digits. None (another person's card, or a card not in the app) = it is not a transfer between own accounts: it stays an
   // expense, waiting in Needs review like everything automated.
   if (fields.toLast4) {
-    var dests = paymentMethods.filter(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.toLast4) && (!paymentMethod || pm.id !== paymentMethod.id); });
+    var dests = pmsWithLast4_(paymentMethods.filter(function (pm) { return !paymentMethod || pm.id !== paymentMethod.id; }), fields.toLast4);   // (old digits of a replaced card too, AccountMove.gs)
     if (dests.length === 1) { ensureEntriesToPaymentMethodColumn_(); entry.to_payment_method_id = dests[0].id; }
     else if (fields.toOwnAlways) { /* always one of the person's own accounts: stays a transfer, To left blank for review */ }
     else { entry.type = 'expense'; entry.description = 'Pago de tarjeta …' + fields.toLast4; }
@@ -1254,10 +1254,9 @@ function emailOwnDestination_(rule, fields, banks, paymentMethods, fromAccount) 
   if (!fields.toIfOwnLast4 || fields.type !== 'expense') return null;
   var bank = banks.find(function (b) { return b.name === rule.bank; });
   if (!bank) return null;
-  var hits = paymentMethods.filter(function (pm) {
-    return pm.bank_id === bank.id && pm.type !== 'credit' && pm.type !== 'investment'
-      && pmLast4_(pm.last_4) === pmLast4_(fields.toIfOwnLast4) && (!fromAccount || pm.id !== fromAccount.id);
-  });
+  var hits = pmsWithLast4_(paymentMethods.filter(function (pm) {
+    return pm.bank_id === bank.id && pm.type !== 'credit' && pm.type !== 'investment' && (!fromAccount || pm.id !== fromAccount.id);
+  }), fields.toIfOwnLast4);
   return hits.length === 1 ? hits[0] : null;
 }
 
@@ -1268,7 +1267,7 @@ function emailAccountFor_(rule, fields, banks, paymentMethods) {
   if (bank && !fields.cardUnknown) {
     var pms = paymentMethods.filter(function (pm) { return pm.bank_id === bank.id; });
     paymentMethod = fields.last4
-      ? pms.find(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); })
+      ? (pmsWithLast4_(pms, fields.last4)[0] || null)   // a replaced card's old digits find the account that took its history
       : ((!rule.accountByCurrency && pms.length === 1) ? pms[0] : null);
     // The e-mail names digits but none of the bank's accounts has them: when the person never filled in ANY digits for this bank (they are
     // optional in the welcome questions) the digits cannot disprove anything, so "the bank's only account" still applies, as it did before
@@ -1277,7 +1276,7 @@ function emailAccountFor_(rule, fields, banks, paymentMethods) {
   }
   // A rule with no bank (EBANX) still names the card by its last four digits: use them when exactly one account has them.
   if (!paymentMethod && !rule.bank && fields.last4) {
-    var byCard = paymentMethods.filter(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); });
+    var byCard = pmsWithLast4_(paymentMethods, fields.last4);
     if (byCard.length === 1) paymentMethod = byCard[0];
   }
   if (!paymentMethod && fields.accountName) paymentMethod = emailAccountByName_(fields.accountName, bank, paymentMethods);

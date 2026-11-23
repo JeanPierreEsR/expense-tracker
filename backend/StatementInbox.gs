@@ -291,7 +291,7 @@ function stmtInboxAccounts_(item, pms, banksById) {
 /** Newest processed_at over the statements already processed for these accounts. */
 function stmtLastProcessedFor_(accounts, uploads) {
   var keys = {};
-  accounts.forEach(function (pm) { keys[covKey_(pm.last_4)] = true; });
+  accounts.forEach(function (pm) { keys[covKey_(pm.last_4)] = true; pmOldLast4List_(pm).forEach(function (k) { keys[k] = true; }); });
   var last = '';
   uploads.forEach(function (u) { if (keys[covKey_(u.account_key)] && String(u.processed_at) > last) last = String(u.processed_at); });
   return last;

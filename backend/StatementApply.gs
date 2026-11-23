@@ -134,7 +134,7 @@ function stmtPmForKey_(pms, key) {
     return pms.find(function (pm) { return String(pm.nickname).toLowerCase().replace(/[^a-z]/g, '').indexOf('ahorra') === 0; }) || null;
   }
   var k = covKey_(key);
-  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k && !isPracticeAccount_(pm); }) || null;
+  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k && !isPracticeAccount_(pm); }) || pmOldKeyMap_(pms)[k] || null;   // a replaced card's old digits (AccountMove.gs)
 }
 
 // Capital letter on each word. NOT `\b`: in JavaScript an accented letter is not a "word" letter, so `\b` found a word start inside "práctica" and made it

@@ -189,9 +189,11 @@ function listStatementCoverage() {
     var bank = banksById[pm.bank_id] ? banksById[pm.bank_id].name : '';
     accounts[key] = { key: key, label: pm.nickname + ' …' + key, lag: covLagDays_(pm, bank) };
   });
+  var replaced = pmOldKeyMap_(getAllRows('Payment Methods'));   // a card replaced by another (AccountMove.gs) has no statements to wait for
   uploads.forEach(function (u) {
     if (!u.account_key || covKey_(u.account_key) === STMT_NO_ACCOUNT_KEY_) return;   // an import saved with no account is not an account to keep up to date
     var uk = covKey_(u.account_key);
+    if (replaced[uk] && !accounts[uk]) return;
     if (!accounts[uk]) accounts[uk] = { key: uk, label: u.account_label || uk, lag: 1 };
   });
 
@@ -347,6 +349,8 @@ function analyzeStatements(payload) {
     .find(function (c) { return c.type === 'income' && c.name === 'Savings return'; }) || null;
   var pmByKey = {};
   pms.forEach(function (pm) { var k = covKey_(pm.last_4); if (k && !isPracticeAccount_(pm)) pmByKey[k] = pm; });
+  var oldKeys = pmOldKeyMap_(pms);   // a replaced card's old digits find the account that took its history (AccountMove.gs)
+  Object.keys(oldKeys).forEach(function (k) { if (!pmByKey[k]) pmByKey[k] = oldKeys[k]; });
   var newByKey = {};   // statements for an account the save will create (a spreadsheet's new account name): a stand-in plays it
   stmts.forEach(function (s) { if (stmtIsNewAccount_(s)) newByKey[String(s.key)] = stmtNewAccountStandIn_(s); });
   function pmFor(key) {

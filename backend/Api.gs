@@ -181,7 +181,8 @@ var ONCE_ACTIONS_ = {
   // gets the first one's answer instead of a second copy.
   addTrip: 1, addBudget: 1, addPaymentMethod: 1, savePaymentMethod: 1, addTag: 1, addBank: 1, addPayor: 1, saveCategory: 1,
   convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, closeMonth: 1, reopenMonth: 1,   // Business 2 piece 7 (Partners.gs)
-  saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1
+  saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1,
+  moveAccountHistory: 1, undoAccountMove: 1   // Accounts: move an account's history (AccountMove.gs); a resend gets the first answer, never a second move
 };
 
 // Speed (2026-11-02): the app can ask a save to bring back the lists it reloads right after (payload._then =
@@ -380,6 +381,9 @@ function routeActionSwitch_(action, payload) {
     case 'applyAccountCurrencySuggestions': return applyAccountCurrencySuggestions(payload);
     case 'removePaymentMethod': return removePaymentMethod(payload);
     case 'removePaymentMethods': return removePaymentMethods(payload);
+    case 'previewAccountMove': return previewAccountMove(payload);
+    case 'moveAccountHistory': return moveAccountHistory(payload);
+    case 'undoAccountMove': return undoAccountMove(payload);
     case 'deletePaymentMethod': return deletePaymentMethod(payload);
     case 'setPaymentMethodHidden': return setPaymentMethodHidden(payload);
     case 'restorePaymentMethods': return restorePaymentMethods(payload);

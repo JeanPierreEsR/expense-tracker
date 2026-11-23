@@ -20247,6 +20247,7 @@ function openPmModal_(pm) {
     hideBtn.hidden = one && !pmHidden_(pm);
     hideBtn.textContent = tr(pmHidden_(pm) ? "accounts.show" : "accounts.hide");
     document.getElementById("pm-manage-hint").textContent = tr(one ? "accounts.deleteHint" : "accounts.hideHint");
+    document.getElementById("pm-move-box").hidden = !accountMoveOn_() || !moveTargets_(pm.id).length || pm.type === "investment";
   }
   const backdrop = document.getElementById("pm-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -20489,6 +20490,94 @@ document.getElementById("pm-delete-btn").addEventListener("click", async () => {
     unmarkDeleting_("pm:" + pm.id);
     showAppMessage_(err.message);   // in use: the message says so and points to Hide
   }
+});
+
+// ---- Move an account's history to another account (owner, 2026-11-23: a credit card upgrade) ----
+// From the account window: pick the account that takes everything, see what moves (previewAccountMove: the loading standard, nothing
+// shows half-drawn), one red button. The window closes at once and the move runs behind the screen; then an Undo toast. The new account
+// also recognizes the old digits (backend/AccountMove.gs).
+let moveFromId_ = null, moveReq_ = 0;
+function accountMoveOn_() { return !!(meta && meta.capabilities && meta.capabilities.accountMove); }
+function moveTargets_(fromId) {
+  return ((meta && meta.paymentMethods) || []).filter((pm) => pm.id !== fromId && pm.type !== "investment" && !pmHidden_(pm) && !isPracticeAccountName_(pm.nickname));
+}
+function openMoveModal_(fromId) {
+  const from = meta.paymentMethods.find((p) => p.id === fromId);
+  if (!from) return;
+  moveFromId_ = fromId;
+  document.getElementById("move-from-line").textContent = tr("move.from", { name: from.nickname });
+  const sel = document.getElementById("move-to");
+  sel.innerHTML = `<option value="">${escapeHtml(tr("move.pick"))}</option>` + moveTargets_(fromId).map((pm) => `<option value="${escapeHtml(pm.id)}">${escapeHtml(pmPickLabel_(pm))}</option>`).join("");
+  sel.value = "";
+  accountShortList_(sel);
+  document.getElementById("move-summary").innerHTML = "";
+  document.getElementById("move-form-error").textContent = "";
+  document.getElementById("move-save-btn").hidden = true;
+  const backdrop = document.getElementById("move-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function closeMoveModal_() { document.getElementById("move-modal-backdrop").hidden = true; moveFromId_ = null; moveReq_++; }
+document.getElementById("move-modal-close").addEventListener("click", closeMoveModal_);
+document.getElementById("pm-move-btn").addEventListener("click", () => {
+  if (!pmModalState || !pmModalState.id) return;
+  const id = pmModalState.id;
+  closePmModal_();
+  openMoveModal_(id);
+});
+document.getElementById("move-to").addEventListener("change", async (e) => {
+  const toId = e.target.value, box = document.getElementById("move-summary"), btn = document.getElementById("move-save-btn");
+  btn.hidden = true;
+  if (!toId || toId.indexOf("__") === 0 || !moveFromId_) { box.innerHTML = ""; return; }
+  const req = ++moveReq_;
+  box.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  try {
+    const p = await callApi("previewAccountMove", { from: moveFromId_, to: toId });
+    if (req !== moveReq_) return;
+    const c = p.counts, lines = [];
+    const add = (n, key) => { if (n) lines.push(tr(key, { n })); };
+    add(c.entries, "move.n.entries"); add(c.loans, "move.n.loans"); add(c.repayments, "move.n.repayments"); add(c.statements, "move.n.statements");
+    add(c.balances, "move.n.balances"); add(c.links, "move.n.links");
+    const from = meta.paymentMethods.find((x) => x.id === moveFromId_) || {};
+    const digits = /^\d{4}$/.test(String(from.last_4 || "").trim()) ? String(from.last_4).trim() : "";
+    box.innerHTML = `<p style="margin:10px 0 4px">${escapeHtml(tr(lines.length ? "move.willMove" : "move.nothing", { name: p.to.nickname }))}</p>`
+      + (lines.length ? `<ul style="list-style:disc;margin:4px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : "")
+      + (c.balancesDropped ? `<p class="hint">${escapeHtml(tr("move.balancesKept", { n: c.balancesDropped, name: p.to.nickname }))}</p>` : "")
+      + (c.selfTransfers ? `<p class="hint">${escapeHtml(tr("move.selfTransfers", { n: c.selfTransfers }))}</p>` : "")
+      + (digits ? `<p class="hint">${escapeHtml(tr("move.digits", { name: p.to.nickname, digits }))}</p>` : "")
+      + `<p class="hint">${escapeHtml(tr("move.deleted", { name: p.from.nickname }))}</p>`;
+    btn.textContent = tr("move.go", { name: p.from.nickname });
+    btn.hidden = false;
+  } catch (err) {
+    if (req !== moveReq_) return;
+    box.innerHTML = `<p class="hint error-text">${escapeHtml(err.message || String(err))}</p>`;
+  }
+});
+document.getElementById("move-save-btn").addEventListener("click", () => {
+  const fromId = moveFromId_, toId = document.getElementById("move-to").value;
+  if (!fromId || !toId) return;
+  const from = meta.paymentMethods.find((p) => p.id === fromId), to = meta.paymentMethods.find((p) => p.id === toId);
+  closeMoveModal_();
+  markDeleting_("pm:" + fromId);
+  const refresh = async () => {
+    try { await loadMeta(); } catch (e) { /* the lists below still refresh */ }
+    refreshAccountPickers_();
+    renderAccountsList_();
+    refreshEntryList().catch(() => {});
+    refreshHomeGlance_(true);
+    refreshTabsAhead_();
+  };
+  saveBehindScreen_(async () => {
+    let res;
+    try { res = await callApi("moveAccountHistory", { from: fromId, to: toId }); }
+    catch (err) { unmarkDeleting_("pm:" + fromId); throw err; }
+    unmarkDeleting_("pm:" + fromId);
+    showUndoToast_(tr("move.done", { from: from ? from.nickname : "", to: to ? to.nickname : "" }), async () => {
+      await callApi("undoAccountMove", { undo: res.undo });
+      showToast_(tr("move.undone"));
+      await refresh();
+    });
+  }, refresh);
 });
 
 // ---- Accounts: Edit mode (tick several accounts, delete them at once; owner's request, 2026-11-03) ----
