@@ -517,6 +517,8 @@
     "xch.aria.inAccount": { en: "Account the money arrived in", es: "Cuenta a la que llegó el dinero" },
     "xch.aria.inAmount": { en: "Amount that arrived", es: "Monto que llegó" },
     "xch.aria.inCurrency": { en: "Currency that arrived", es: "Moneda que llegó" },
+    "xch.otherPendingLabel": { en: "Is the other side also waiting in Needs review?", es: "¿El otro lado también espera en Por revisar?" },
+    "xch.otherPendingNone": { en: "No, I'll type it", es: "No, lo escribo yo" },
     "xch.addCurrency": { en: "Add {cur} to this account", es: "Agregar {cur} a esta cuenta" },
     "xch.mismatchSave": { en: "An account above doesn't hold that currency. Add the currency to it, or pick another account.", es: "Una cuenta de arriba no tiene esa moneda. Agrégale la moneda o elige otra cuenta." },
     "xch.accountMismatch": { en: "“{account}” is a {accountCur} account, but this amount is in {cur}. Check the account or the currency.", es: "“{account}” es una cuenta en {accountCur}, pero este monto está en {cur}. Revisa la cuenta o la moneda." },

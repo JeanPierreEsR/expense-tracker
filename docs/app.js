@@ -9621,10 +9621,47 @@ function fillExchangeForm_(opts) {
   ctx.hidden = !entry;
   if (entry) ctx.textContent = tr(leg === "out" ? "xch.context" : "xch.contextIn", { what: `${entry.description || tr("review.transactionFallback")} · ${entry.currency} ${moneyFmt(entry.amount)}` });
   document.getElementById("exchange-form-error").textContent = "";
+  fillExchangeOtherPending_(entry, leg);
   exchangeCurTouched_ = { out: leg === "out" && !!entry, in: leg === "in" && !!entry };   // (a waiting entry's own side keeps its currency)
   exchangeRememberCur_();
   updateExchangeRateLine_();
   updateExchangeChecks_();
+}
+
+// Made from a waiting item: the other side may be waiting too (the bank's e-mail of the money that arrived). Picking it fills that
+// side and, on Save, turns it in place instead of leaving it in Needs review as a possible duplicate (testers 2.68.2, Valeria).
+let exchangeOtherPendingId_ = "";
+async function fillExchangeOtherPending_(entry, leg) {
+  const box = document.getElementById("exchange-other-pending");
+  const sel = document.getElementById("exchange-other-pending-sel");
+  exchangeOtherPendingId_ = "";
+  box.hidden = true;
+  if (!entry || !((meta && meta.capabilities) || {}).exchangeOtherPending) return;
+  let list = [];
+  try { list = await callApi("listExchangeOtherPending", { id: entry.id }); } catch (e) { return; }
+  if (!exchangeContext_ || exchangeContext_.entry.id !== entry.id || !list.length) return;
+  sel.innerHTML = `<option value="">${escapeHtml(tr("xch.otherPendingNone"))}</option>` + list.map((x) =>
+    `<option value="${escapeHtml(x.id)}">${escapeHtml(`${listDate_(x.date)} · ${x.description || tr("review.transactionFallback")} · ${formatAmount(x.amount, x.currency)}`)}</option>`).join("");
+  box.hidden = false;
+  sel.onchange = () => {
+    const x = list.find((y) => y.id === sel.value);
+    exchangeOtherPendingId_ = x ? x.id : "";
+    if (!x) return;
+    const other = leg === "out" ? "in" : "out";
+    document.getElementById(`exchange-${other}-amount`).value = x.amount;
+    const cur = document.getElementById(`exchange-${other}-currency`);
+    if (![...cur.options].some((o) => o.value === x.currency)) cur.innerHTML = exchangeCurrencyOptions_(x.currency);
+    cur.value = x.currency;
+    exchangeCurTouched_[other] = true;
+    if (x.account) { const acc = document.getElementById(`exchange-${other}-account`); if ([...acc.options].some((o) => o.value === x.account)) acc.value = x.account; }
+    // The money left first: the "out" side's day is the exchange's date, the "in" side's day its arrival.
+    const outDay = other === "out" ? x.date : entry.date, inDay = other === "in" ? x.date : entry.date;
+    document.getElementById("exchange-date").value = outDay <= inDay ? outDay : inDay;
+    setExchangeInDate_(inDay > outDay ? inDay : "");
+    exchangeRememberCur_();
+    updateExchangeRateLine_();
+    updateExchangeChecks_();
+  };
 }
 
 // Editing a whole exchange (owner, 2026-11-23): the same form, filled with both sides; Save changes both at once (updateCurrencyExchange).
@@ -9768,8 +9805,10 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
   // closes at once and saves behind the screen; a refusal comes back as an alert and the waiting entry stays as it was.
   const body = {
     date, in_date: inDate, out, in: inn, house: document.getElementById("exchange-house").value.trim(),
-    pending_entry_id: ctx ? ctx.entry.id : undefined, pending_leg: ctx ? ctx.leg : undefined
+    pending_entry_id: ctx ? ctx.entry.id : undefined, pending_leg: ctx ? ctx.leg : undefined,
+    other_pending_id: ctx && exchangeOtherPendingId_ ? exchangeOtherPendingId_ : undefined
   };
+  const otherPendingId = body.other_pending_id;
   if (wasInline) {
     document.getElementById("transfer-kind").value = "between";   // the form goes back to its pop-up, the sheet closes
     updateRepaymentUi_();
@@ -9778,6 +9817,7 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
   } else {
     closeExchangeModal_();
   }
+  if (otherPendingId) dropReviewCard_(otherPendingId);
   saveBehindScreen_(async () => {
     await callApi("recordCurrencyExchange", body);
     showToast_(tr("xch.saved"));

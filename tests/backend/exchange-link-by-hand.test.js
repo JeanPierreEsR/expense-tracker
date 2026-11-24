@@ -62,3 +62,22 @@ test("linking sides months apart is refused on the server; a candidate says when
   assert.equal(c.to, "PEN");
   assert.equal(c.rate, 3.5);
 });
+
+// Testers 2.68.2 (Valeria): an exchange made from a waiting USD e-mail left the bank's "Abono" of the soles waiting as a duplicate.
+test("an exchange from a waiting item can take a second waiting item as its other side; both are turned in place", () => {
+  const { rt } = freshApp({ small: true });
+  const pen = rt.api("addPaymentMethod", { nickname: "Wait PEN", type: "debit" });
+  const usd = rt.api("addPaymentMethod", { nickname: "Wait USD", type: "debit" });
+  const cat = (t) => rt.rows("Categories").find((c) => c.type === t).id;
+  const outW = rt.api("createEntry", { type: "expense", date: "2026-03-02", amount: 100, currency: "USD", category_id: cat("expense"), description: "Casa de cambio", payment_method_id: usd.id, paid_by: "me", status: "pending", source: "email" });
+  const inW = rt.api("createEntry", { type: "income", date: "2026-03-03", amount: 375, currency: "PEN", category_id: cat("income"), description: "Abono por cambio", payment_method_id: pen.id, paid_by: "me", status: "pending", source: "email" });
+  rt.run(`updateRowFields_('Entries', '${outW.id}', { status: 'pending' }); updateRowFields_('Entries', '${inW.id}', { status: 'pending' });`);   // as a bank e-mail leaves them
+  const offered = rt.api("listExchangeOtherPending", { id: outW.id });
+  assert.deepEqual(offered.map((x) => x.id), [inW.id]);
+  const res = rt.api("recordCurrencyExchange", { date: "2026-03-02", in_date: "2026-03-03", out: { payment_method_id: usd.id, amount: 100, currency: "USD" },
+    in: { payment_method_id: pen.id, amount: 375, currency: "PEN" }, pending_entry_id: outW.id, pending_leg: "out", other_pending_id: inW.id });
+  assert.equal(res.out.id, outW.id);
+  assert.equal(res.in.id, inW.id, "the waiting Abono became the other side");
+  assert.equal(rt.rows("Entries").filter((e) => e.status === "pending" && (e.id === outW.id || e.id === inW.id)).length, 0, "nothing left waiting");
+  assert.equal(res.out.exchange_pair, res.in.exchange_pair);
+});

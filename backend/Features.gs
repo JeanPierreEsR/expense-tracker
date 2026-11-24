@@ -163,7 +163,8 @@ function getCapabilities_() {
     paceRanges: true,       // getSpendingPace({ranges}): the Spending pace card in the Week, Year and Custom views
     budgetsBulkDelete: true,   // deleteBudgets (several at once, Budgets → Edit); an older backend lacks it, so the app hides the Edit button
     bulkShowAgain: true,   // restoreFriends / restorePaymentMethods / showCategories + `deletedRows` in deleteFriends / removePaymentMethods (Undo after a bulk delete or hide, and a bulk "Show again" in Edit mode); an older backend lacks them, so the app shows no Undo and no Show again button
-    accountAddCurrency: true,   // addAccountCurrency: the exchange form's "Add USD to this account" (testers 2.68.2); older backends: no button
+    accountAddCurrency: true,
+    exchangeOtherPending: true,   // listExchangeOtherPending + recordCurrencyExchange other_pending_id: both sides from Needs review (testers 2.68.2)   // addAccountCurrency: the exchange form's "Add USD to this account" (testers 2.68.2); older backends: no button
     accountMove: true,   // previewAccountMove / moveAccountHistory / undoAccountMove + Payment Methods.old_last_4 (AccountMove.gs); an older backend lacks them, so the account window hides "Move its history…"
     stmtAcctLink: true,   // newAccounts[].matches + createStatementAccounts({accounts:[{id,…}]}): a statement for unknown digits asks "Is this your …?" about the person's accounts with no digits; an older backend sends no matches, so the app only offers a new account
     pmBulkRemove: true,   // removePaymentMethods (several accounts at once, More → Accounts → Edit); an older backend lacks it, so the app hides the Edit button

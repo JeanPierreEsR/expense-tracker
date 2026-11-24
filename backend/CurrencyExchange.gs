@@ -129,6 +129,15 @@ function recordCurrencyExchange(payload) {
     pending = getEntryById_(String(payload.pending_entry_id));
     if (!pending || pending.status !== 'pending') throw new Error(tr_('xch.notPending'));
   }
+  // The other side can be a second waiting item (testers 2.68.2: the bank's "Abono por cambio" stayed in Needs review as a possible
+  // duplicate): it is turned in place too, so its e-mail is not read again and nothing is left to discard by hand.
+  var otherPending = null, otherLeg = pendingLeg === 'out' ? 'in' : 'out';
+  if (pending && payload.other_pending_id) {
+    otherPending = getEntryById_(String(payload.other_pending_id));
+    var otherCur = otherLeg === 'out' ? out.currency : inn.currency;
+    if (!otherPending || otherPending.status !== 'pending' || otherPending.id === pending.id || otherPending.currency !== otherCur) throw new Error(tr_('xch.notPending'));
+    if (!(otherLeg === 'out' ? out.pmId : inn.pmId)) throw new Error(tr_('xch.pendingSide'));
+  }
   // Checked before anything is saved, so a refusal never leaves one leg behind.
   if (pending && !(pendingLeg === 'out' ? out.pmId : inn.pmId)) throw new Error(tr_('xch.pendingSide'));
   ensureEntriesToPaymentMethodColumn_();
@@ -146,15 +155,16 @@ function recordCurrencyExchange(payload) {
       description: describe(leg, side), paid_by: 'me',
       payment_method_id: side === 'out' ? leg.pmId : '', to_payment_method_id: side === 'in' ? leg.pmId : ''
     };
-    if (pending && side === pendingLeg) {
+    var inPlace = (pending && side === pendingLeg) ? pending : (otherPending && side === otherLeg) ? otherPending : null;
+    if (inPlace) {
       // Turned in place so its e-mail reference stays: a later back-check must not make it again.
       fields.status = 'confirmed';
       fields.exchange = '1';
       fields.exchange_pair = pairId;
       fields.merchant = '';
       fields.trip_id = '';
-      updateRowFields_('Entries', pending.id, fields);
-      result[side] = getEntryById_(pending.id);
+      updateRowFields_('Entries', inPlace.id, fields);
+      result[side] = getEntryById_(inPlace.id);
     } else {
       if (legIds) fields.client_id = legIds[side];
       result[side] = createEntry(fields);
@@ -164,6 +174,22 @@ function recordCurrencyExchange(payload) {
   });
   EXCHANGE_HOUSES_MEMO_ = null;   // this exchange may have named a new house
   return result;
+}
+
+// The waiting items that could be the OTHER side of an exchange made from waiting item `id`: money the other way, another currency,
+// at most 3 days apart, still waiting. payload: { id }. Closest days first, at most 10.
+function listExchangeOtherPending(payload) {
+  var entry = getEntryById_(String((payload || {}).id || ''));
+  if (!entry || entry.status !== 'pending') return [];
+  var outFirst = entry.type === 'expense' || (entry.type === 'transfer' && entry.payment_method_id && !entry.to_payment_method_id);
+  return getAllRows('Entries').filter(function (x) {
+    if (x.id === entry.id || x.status !== 'pending' || x.currency === entry.currency) return false;
+    var xOut = x.type === 'expense' || (x.type === 'transfer' && x.payment_method_id && !x.to_payment_method_id);
+    return xOut !== outFirst && exchangeDayDiff_(x.date, entry.date) <= EXCHANGE_SUGGEST_DAYS_;
+  }).sort(function (a, b) { return exchangeDayDiff_(a.date, entry.date) - exchangeDayDiff_(b.date, entry.date); }).slice(0, 10).map(function (x) {
+    return { id: x.id, date: String(x.date).slice(0, 10), amount: Math.abs(Number(x.amount)), currency: x.currency, description: String(x.description || ''),
+      account: x.payment_method_id || x.to_payment_method_id || '' };
+  });
 }
 
 /**
