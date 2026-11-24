@@ -436,6 +436,7 @@ var BACKEND_STRINGS_ = {
   "pkg.field.pay_method": { en: "How it was paid", es: "Cómo se pagó" },
   "pkg.changedOn": { en: "changed on {day}", es: "cambiado el {day}" },
   "pkg.changedAfterClose": { en: "Note: this month was changed after it was closed. The files show it as it is now.", es: "Nota: este mes se cambió después de cerrarlo. Los archivos lo muestran como está ahora." },
+  "pkg.h.receivedBills": { en: "Of which: bills they paid for the company", es: "De ello: cuentas que pagó por la empresa" },
   "pkg.h.receiptCode": { en: "Receipt code (SUNAT)", es: "Código de comprobante (SUNAT)" },
   "pkg.h.base": { en: "Base (without IGV)", es: "Base imponible (sin IGV)" },
   "pkg.h.total": { en: "Total", es: "Total" },

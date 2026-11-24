@@ -203,7 +203,8 @@ function buildAccountantPackage_(month) {
   var ctx = constanciaRangeContext_(month, r.start, r.end);
   var led = [[tr_('pkg.h.person'), tr_('pkg.h.role'), tr_('pkg.h.currency'), tr_('pkg.h.opening'), tr_('pkg.h.received'), tr_('pkg.h.interestGross'),
     tr_('pkg.h.interestWithholding'), tr_('pkg.h.interestNet'), tr_('pkg.h.returned'), tr_('pkg.h.closing'), tr_('pkg.h.contributed'),
-    tr_('pkg.h.pending'), tr_('pkg.h.distributedGross'), tr_('pkg.h.distributedWithholding'), tr_('pkg.h.distributedNet')]];
+    tr_('pkg.h.pending'), tr_('pkg.h.distributedGross'), tr_('pkg.h.distributedWithholding'), tr_('pkg.h.distributedNet'),
+    tr_('pkg.h.receivedBills')]];   // added last, so the columns before keep their place
   Object.keys(ctx.friends).forEach(function (id) {
     var f = ctx.friends[id], role = friendRoleOf_(f);
     if ((role !== 'lender' && role !== 'partner') || f.trip_id) return;
@@ -213,7 +214,7 @@ function buildAccountantPackage_(month) {
       var isSunat = String(id) === String(companySunatId_());
       led.push([s.name, tr_(isSunat ? 'pkg.role.sunat' : role === 'partner' ? 'pkg.role.partner' : 'pkg.role.lender'), l.currency, l.opening, l.received, l.interest_gross,
         l.interest_withholding, l.interest_net, l.returned, l.closing, l.contributed_year, l.pending_total, l.distributed_gross,
-        l.distributed_withholding, l.distributed_net]);
+        l.distributed_withholding, l.distributed_net, l.received_bills || 0]);
     });
   });
   files.push({ kind: 'ledger', name: tr_('pkg.file.ledger', { month: month }), rows: led.length - 1, text: pkgCsv_(led) });
