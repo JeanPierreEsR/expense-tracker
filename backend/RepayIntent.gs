@@ -80,15 +80,23 @@ function clearRepayIntent_(entry) {
 // Record a marked entry, paying the oldest loans first (the bot's Confirm, the app's bulk confirm). What recordRepayment does with
 // money coming in and nothing owed (refused) or more than owed (the extra waits in Needs review) applies. Answers
 // { friend, incoming, overpaid, settlement_id } — the repayment's first real row, for an Undo.
-function recordRepayIntent_(entry, loanId) {
+function recordRepayIntent_(entry, loanIds) {
   var it = repayIntentOf_(entry);
   if (!it) throw new Error(tr_('repayIntent.gone'));
-  // One loan picked in the chat (botRepayLoanTap_): it is paid first, what is left goes to the oldest others (recordRepayment).
+  // Loans picked in the chat (one tap on WhatsApp, the checked ones on Telegram): paid oldest first among them until the payment runs
+  // out, as the app's list does; what is left goes to the oldest others (recordRepayment). A loan no longer open: nothing is recorded.
   var allocations;
-  if (loanId) {
-    var pickedLoan = repayOpenLoans_(it.friend_id, it.direction, entry.currency, entry.id).find(function (l) { return l.id === loanId; });
-    if (!pickedLoan) throw new Error(tr_('bot.repayLoanGone'));
-    allocations = [{ loan_id: loanId, amount: Math.round(Math.min(pickedLoan.remaining, Number(entry.amount)) * 100) / 100 }];
+  var picked = [].concat(loanIds || []).filter(Boolean);
+  if (picked.length) {
+    var open = repayOpenLoans_(it.friend_id, it.direction, entry.currency, entry.id);
+    if (picked.some(function (id) { return !open.some(function (l) { return l.id === id; }); })) throw new Error(tr_('bot.repayLoanGone'));
+    var left = Number(entry.amount);
+    allocations = [];
+    open.filter(function (l) { return picked.indexOf(l.id) !== -1; }).forEach(function (l) {
+      if (left <= 0.004) return;
+      var take = Math.round(Math.min(l.remaining, left) * 100) / 100;
+      if (take > 0) { allocations.push({ loan_id: l.id, amount: take }); left = Math.round((left - take) * 100) / 100; }
+    });
   }
   var way = repayMoneyWay_(entry);
   if (way.error) throw new Error(way.error);
@@ -139,19 +147,46 @@ function undoRepayIntent_(item) {
 // Sent under the card of an entry the bot kept waiting: "Oldest first", one row per loan (oldest first, at most 8: a WhatsApp list
 // holds 10 rows), "Several → in the app". A loan whose remaining amount is exactly the payment says so.
 var REPAY_LIST_MAX_ = 8;
+// The rows of that list. Telegram (owner, 2026-11-24: "build Telegram"): a loan's button checks or unchecks it in place (☐ / ☑,
+// `wart`), and "Save the checked ones (n)" (`wars`) records them; its buttons can change, a WhatsApp message cannot.
+function repayListRows_(entry, it, loans, checked) {
+  var tg = !botIsWa_();
+  var rows = [{ id: 'warl:' + entry.id + ':oldest', title: tr_('bot.repayOldestRow'), description: tr_('bot.repayOldestDesc') }];
+  loans.slice(0, REPAY_LIST_MAX_).forEach(function (l) {
+    var exact = Math.abs(l.remaining - Number(entry.amount)) < 0.005;
+    var title = l.date + ' ' + (l.description || tr_('bot.repayLoanWord'));
+    rows.push({ id: (tg ? 'wart:' : 'warl:') + entry.id + ':' + l.id, title: tg ? (checked.indexOf(l.id) !== -1 ? '☑ ' : '☐ ') + title : title,
+      description: tr_(exact ? 'bot.repayLoanLeftExact' : 'bot.repayLoanLeft', { amount: formatAmountText_(l.remaining, entry.currency) }) });
+  });
+  if (tg && checked.length) rows.push({ id: 'wars:' + entry.id, title: tr_('bot.repaySaveChecked', { n: checked.length }) });
+  rows.push({ id: 'warl:' + entry.id + ':app', title: tr_('bot.repayInAppRow') });
+  return rows;
+}
+function repayCheckedKey_(entryId) { return 'repaychk-' + entryId; }
+function repayChecked_(entryId) {
+  try { return JSON.parse(CacheService.getScriptCache().get(repayCheckedKey_(entryId)) || '[]'); } catch (e) { return []; }
+}
 function botRepayLoanList_(entryId, replyTo) {
   var entry = getEntryById_(entryId), it = repayIntentOf_(entry);
   if (!it) return;
+  CacheService.getScriptCache().remove(repayCheckedKey_(entryId));   // a new list starts with nothing checked
   var friend = getAllRows('Friends').find(function (f) { return f.id === it.friend_id; }) || {};
   var loans = repayOpenLoans_(it.friend_id, it.direction, entry.currency, entry.id);
-  var rows = [{ id: 'warl:' + entryId + ':oldest', title: tr_('bot.repayOldestRow'), description: tr_('bot.repayOldestDesc') }];
-  loans.slice(0, REPAY_LIST_MAX_).forEach(function (l) {
-    var exact = Math.abs(l.remaining - Number(entry.amount)) < 0.005;
-    rows.push({ id: 'warl:' + entryId + ':' + l.id, title: l.date + ' ' + (l.description || tr_('bot.repayLoanWord')),
-      description: tr_(exact ? 'bot.repayLoanLeftExact' : 'bot.repayLoanLeft', { amount: formatAmountText_(l.remaining, entry.currency) }) });
-  });
-  rows.push({ id: 'warl:' + entryId + ':app', title: tr_('bot.repayInAppRow') });
-  botChoices_(tr_(loans.length > REPAY_LIST_MAX_ ? 'bot.repayPickLoanMany' : 'bot.repayPickLoan', { friend: friend.name || '?', n: REPAY_LIST_MAX_ }), rows, replyTo);
+  var key = loans.length > REPAY_LIST_MAX_ ? 'bot.repayPickLoanMany' : 'bot.repayPickLoan';
+  botChoices_(tr_(botIsWa_() ? key : key + 'Tg', { friend: friend.name || '?', n: REPAY_LIST_MAX_ }), repayListRows_(entry, it, loans, []), replyTo);
+}
+
+// Telegram: a loan's button checks or unchecks it; the list's buttons change in place (the message is the list, `p.id`).
+function botRepayToggle_(entryId, loanId, p) {
+  var entry = getEntryById_(entryId), it = repayIntentOf_(entry);
+  if (!entry) return botText_(tr_('bot.entryGone'), p.id);
+  if (!it) return botText_(tr_('repayIntent.gone'), p.id);
+  var loans = repayOpenLoans_(it.friend_id, it.direction, entry.currency, entry.id);
+  var checked = repayChecked_(entryId).filter(function (id) { return loans.some(function (l) { return l.id === id; }); });
+  var at = checked.indexOf(loanId);
+  if (at === -1) { if (loans.some(function (l) { return l.id === loanId; })) checked.push(loanId); } else checked.splice(at, 1);
+  CacheService.getScriptCache().put(repayCheckedKey_(entryId), JSON.stringify(checked), 21600);
+  telegramApi_('editMessageReplyMarkup', { chat_id: getOwnerTelegramChatId_(), message_id: p.id, reply_markup: botKeyboard_(repayListRows_(entry, it, loans, checked)) });
 }
 
 // A tap on that list. "app": nothing changes, it stays in Needs review.
@@ -160,10 +195,12 @@ function botRepayLoanTap_(entryId, choice, p) {
   if (!entry) return botText_(tr_('bot.entryGone'), p.id);
   if (!repayIntentOf_(entry)) return botText_(tr_('repayIntent.gone'), p.id);
   if (choice === 'app') return botText_(tr_('bot.repayInApp'), p.id);
+  var loanIds = choice === 'checked' ? repayChecked_(entryId) : choice === 'oldest' ? [] : [choice];
+  if (choice === 'checked' && !loanIds.length) return botText_(tr_('bot.repayNoneChecked'), p.id);
   botRecorded_('repayment', entryId, [p.id, p.context_id], function () {   // for "deshacer" (BotUndo.gs)
     var reply;
     try {
-      var rec = withScriptLockOnce_(function () { return recordRepayIntent_(getEntryById_(entryId), choice === 'oldest' ? '' : choice); });
+      var rec = withScriptLockOnce_(function () { return recordRepayIntent_(getEntryById_(entryId), loanIds); });
       reply = tr_(rec.incoming ? 'bot.markedRepaymentFrom' : 'bot.markedRepaymentTo', { friend: rec.friend }) +
         (rec.overpaid > 0.004 ? tr_(rec.incoming ? 'bot.overpaidIn' : 'bot.overpaidOut', { cur: entry.currency, amount: moneyFmt_(rec.overpaid) }) : '');
     } catch (err) {
