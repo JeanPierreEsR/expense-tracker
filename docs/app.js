@@ -12243,13 +12243,15 @@ function openPartnerModal_(entry, mode) {
   const sel = document.getElementById("partner-pick");
   sel.innerHTML = "";
   const people = partnerPeople_();
-  if (!people.length) { const o = document.createElement("option"); o.value = ""; o.textContent = "—"; sel.appendChild(o); }
+  // Two or more partners: nobody is chosen for the person (testers 2.68.2: the first partner was picked, so money could go to the
+  // wrong one). One partner: that one; none: a new one.
+  if (people.length !== 1) { const o = document.createElement("option"); o.value = ""; o.textContent = tr("partner.pickWho"); sel.appendChild(o); }
   people.forEach((f) => { const o = document.createElement("option"); o.value = f.id; o.textContent = f.name; sel.appendChild(o); });
   const add = document.createElement("option");
   add.value = "__new__";
   add.textContent = tr("partner.newOption");
   sel.appendChild(add);
-  sel.value = people.length ? people[0].id : "__new__";
+  sel.value = people.length === 1 ? people[0].id : people.length ? "" : "__new__";
   const nameBox = document.getElementById("partner-new-name");
   nameBox.value = "";
   nameBox.hidden = sel.value !== "__new__";

@@ -2971,6 +2971,7 @@
     "close.askReopen": { es: "¿Reabrir {month}? Quedará anotado en el registro de cambios.", en: "Reopen {month}? It will be written in the change log." },
     "close.askEdit": { es: "{month} está cerrado. ¿Cambiarlo igual? Quedará en el registro de cambios.", en: "{month} is closed. Change it anyway? It will show in the change log." },
     "close.editAnyway": { es: "Cambiar igual", en: "Change anyway" },
+    "partner.pickWho": { es: "Elige el socio", en: "Choose the partner" },
     "partner.reviewIn": { es: "Es dinero de un socio", en: "It's a partner's money" },
     "partner.reviewOut": { es: "Distribución de utilidades", en: "Profit distribution" },
     "partner.who": { es: "Socio", en: "Partner" },
