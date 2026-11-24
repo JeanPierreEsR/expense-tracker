@@ -191,13 +191,21 @@ function companyDefaultOnConfirm_(entry, personal) {
 // the person typed and the day it was true (the app never works it out: owner, plan "Fase 1 en detalle", answer 4: one per project).
 function companyOverview_(startDate, endDate) {
   var owed = [], totals = {};
+  // Lenders AND partners (owner, 2026-11-24: the card read as the company's whole debt and left out ~31,000 owed to partners); the
+  // tax office's withholding shows as what it is. A period that ended shows what was owed on its last day, so a statement shared
+  // for a past month never changes afterwards (testers 2.68.2, Elena).
+  var past = endDate && String(endDate).slice(0, 10) < businessToday_() ? String(endDate).slice(0, 10) : '';
+  var asOf = past ? owedAsOf_(past) : null;
+  var sunatId = companySunatId_();
   listLoanBalances({}).forEach(function (f) {
-    if (f.role !== 'lender') return;
-    var lines = f.balances.filter(function (b) { return b.net < -0.004; })
+    if (f.role !== 'lender' && f.role !== 'partner') return;
+    var nets = asOf ? (asOf[f.friend_id] || {}) : null;
+    var lines = (nets ? Object.keys(nets).map(function (c) { return { currency: c, net: nets[c] }; }) : f.balances)
+      .filter(function (b) { return b.net < -0.004; })
       .map(function (b) { return { currency: b.currency, amount: round2_(-b.net) }; });
     if (!lines.length) return;
     lines.forEach(function (l) { totals[l.currency] = round2_((totals[l.currency] || 0) + l.amount); });
-    owed.push({ friend_id: f.friend_id, name: f.friend_name, lines: lines });
+    owed.push({ friend_id: f.friend_id, name: f.friend_id === sunatId ? tr_('coOv.sunatOwed') : f.friend_name, role: f.role, lines: lines });
   });
   owed.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
   var home = homeCurrency_();
@@ -211,6 +219,37 @@ function companyOverview_(startDate, endDate) {
   return { owed: owed, owedTotals: owedTotals, funding: funding, partners: companyPartners_(startDate, endDate), partnersPending: pendingContributions_(), sales: companySales_(),   // piece 11 (Sales.gs)
     share_sections: shareSectionsSaved_(),   // piece 12 (ShareStatement.gs): the sections the share sheet opens with
     close: wholeMonthOf_(startDate, endDate) ? monthCloseState_(wholeMonthOf_(startDate, endDate)) : null };   // piece 8 (MonthClose.gs)   // piece 7 (Partners.gs)
+}
+
+// The tax office's withholding person (BankLoans.gs withholdingPersonId_), by name, without making it: '' when there is none.
+function companySunatId_() {
+  var name = String(tr_('bank.withholdingPerson')).trim().toLowerCase();
+  var f = getAllRows('Friends').find(function (x) { return String(x.name).trim().toLowerCase() === name; });
+  return f ? String(f.id) : '';
+}
+
+// What was owed with each person on `day`, per currency (they owe me = positive, I owe them = negative): loans dated up to that day,
+// less the repayments, offsets and forgiving dated up to that day. For the company's cards of a period that has ended.
+function owedAsOf_(day) {
+  var paid = {};
+  getAllRows('Settlements').forEach(function (s) {
+    if (String(s.date).slice(0, 10) > day) return;
+    paid[s.loan_id] = (paid[s.loan_id] || 0) + (Number(s.amount) || 0);
+  });
+  var entryDate = {};
+  getAllRows('Entries').forEach(function (e) { entryDate[e.id] = String(e.date).slice(0, 10); });
+  var out = {};
+  getAllRows('Loans').forEach(function (l) {
+    if (String(l.date).slice(0, 10) > day) return;
+    var left = (Number(l.amount) || 0) - (paid[l.id] || 0);
+    loanForgivenParts_(l).forEach(function (p) { if (String(p.date || '').slice(0, 10) <= day) left -= Number(p.amount) || 0; });
+    if (l.status === 'forgiven' && l.forgiveness_entry_id && (entryDate[l.forgiveness_entry_id] || '9999') <= day) left = 0;
+    if (Math.abs(left) < 0.005) return;
+    var cur = String(l.currency || homeCurrency_());
+    var byCur = out[l.friend_id] || (out[l.friend_id] = {});
+    byCur[cur] = round2_((byCur[cur] || 0) + (l.direction === 'i_owe_them' ? -left : left));
+  });
+  return out;
 }
 
 // "Still to finance" for one project: a figure the person types and updates when they like, with the day it is true. Blank amount clears it.

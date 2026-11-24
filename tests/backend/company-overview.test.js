@@ -31,11 +31,11 @@ test("What is owed: every lender with what is left per currency, by name, and to
   rt.api("recordInstallment", { id: a.installments[0].id, date: today(), payment_method_id: pm(rt), withholding: 2 });
   rt.api("addFriend", { name: "Amigo Personal" });   // a plain friend never shows here
   const co = summary(rt).company;
-  assert.deepEqual(co.owed.map((p) => p.name), ["Alfa Prestamista", "SUNAT", "Zeta Prestamista"]);
+  assert.deepEqual(co.owed.map((p) => p.name), ["Alfa Prestamista", "Withholding to pay (SUNAT)", "Zeta Prestamista"]);
   const alfa = Object.fromEntries(co.owed[0].lines.map((l) => [l.currency, l.amount]));
   assert.deepEqual(alfa, { PEN: 500, USD: 1000 }, "one line per currency, never converted");
   assert.equal(co.owed.find((p) => p.name === "Zeta Prestamista").lines[0].amount, 1500);
-  assert.equal(co.owed.find((p) => p.name === "SUNAT").lines[0].amount, 2);
+  assert.equal(co.owed.find((p) => /SUNAT/.test(p.name)).lines[0].amount, 2);
   const pen = co.owedTotals.find((t) => t.currency === "PEN"), usd = co.owedTotals.find((t) => t.currency === "USD");
   assert.equal(pen.amount, 500 + 1500 + 2);
   assert.equal(usd.amount, 1000);
@@ -83,4 +83,23 @@ test("the phone: the company Overview cards, their order and what is hidden; app
   for (const id of ["overview-scope-row", "pace-card", "investments-card", "months-card", "ov-annual-views", "loans-ov-card"]) {
     assert.match(css, new RegExp(`company-ov #${id}`), id);
   }
+});
+
+// Owner, 2026-11-24 (testers 2.68.2, Elena): partners' loans belong in What is owed; a past month shows what was owed on its last day.
+test("What is owed lists partners' loans too, and a period that ended shows the debt of its last day", () => {
+  const rt = companyCopy();
+  const a = lend(rt, "Prestamista Uno", 2000, "PEN", 2);
+  rt.ctx.__f = { name: "Socio Uno", role: "partner" };
+  const partner = rt.run("addFriend(__f)");
+  rt.run(`updateRowFields_('Friends', '${partner.id}', { role: 'partner' })`);
+  rt.api("addLoan", { friend_id: partner.id, direction: "i_owe_them", amount: 700, currency: "PEN", date: today(), payment_method_id: pm(rt) });
+  const now = summary(rt).company.owed;
+  assert.ok(now.some((p) => p.name === "Socio Uno" && p.lines[0].amount === 700), "the partner's loan is listed");
+  // Yesterday's period: the loans made today were not owed yet.
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  const yd = y.toISOString().slice(0, 10);
+  const past = rt.api("getPeriodSummary", { startDate: yd, endDate: yd }).company.owed;
+  assert.deepEqual(past, [], "nothing was owed yesterday");
+  rt.api("recordInstallment", { id: a.installments[0].id, date: today(), payment_method_id: pm(rt) });
+  assert.equal(summary(rt).company.owed.find((p) => p.name === "Prestamista Uno").lines[0].amount, 1000);
 });

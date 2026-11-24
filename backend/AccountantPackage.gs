@@ -181,7 +181,9 @@ function buildAccountantPackage_(month) {
     if ((role !== 'lender' && role !== 'partner') || f.trip_id) return;
     var s = yearStatement_(id, ctx);
     s.lines.forEach(function (l) {
-      led.push([s.name, tr_(role === 'partner' ? 'pkg.role.partner' : 'pkg.role.lender'), l.currency, l.opening, l.received, l.interest_gross,
+      // The tax office's withholding is a tax still to pay, not a lender (testers 2.68.2, Carlos).
+      var isSunat = String(id) === String(companySunatId_());
+      led.push([s.name, tr_(isSunat ? 'pkg.role.sunat' : role === 'partner' ? 'pkg.role.partner' : 'pkg.role.lender'), l.currency, l.opening, l.received, l.interest_gross,
         l.interest_withholding, l.interest_net, l.returned, l.closing, l.contributed_year, l.pending_total, l.distributed_gross,
         l.distributed_withholding, l.distributed_net]);
     });

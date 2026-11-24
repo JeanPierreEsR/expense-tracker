@@ -2693,7 +2693,7 @@
     "units.nothingNew": { es: "Todas esas unidades ya existen.", en: "All those units already exist." },
     "units.save": { es: "Crear las unidades", en: "Create the units" },
     // A company copy's Overview (Business 2, piece 4).
-    "coOv.owedTitle": { es: "Lo que se debe", en: "What is owed" },
+    "coOv.owedTitle": { es: "Lo que se debe (prestamistas y socios)", en: "What is owed (lenders and partners)" },
     "coOv.owedEmpty": { es: "No se le debe nada a ningún prestamista.", en: "Nothing is owed to any lender." },
     "coOv.owedTotal": { es: "Total", en: "Total" },
     "coOv.fundingTitle": { es: "Falta financiar", en: "Still to finance" },
