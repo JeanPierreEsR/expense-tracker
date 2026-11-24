@@ -1874,6 +1874,7 @@
     "history.status.partially_repaid": { en: "Partly repaid", es: "Repagado en parte" },
     "history.status.repaid": { en: "Fully repaid", es: "Repagado por completo" },
     "history.status.forgiven": { en: "Forgiven", es: "Perdonado" },
+    "loans.settledTitle": { en: "Settled people ({n})", es: "Personas al día ({n})" },
     "loans.settledPeople": { en: "✅ Settled people ({n})", es: "✅ Personas al día ({n})" },
     "loans.hideSettledPeople": { en: "Hide settled people", es: "Ocultar personas al día" },
     "apply.button": { en: "Apply to a loan", es: "Aplicar a un préstamo" },

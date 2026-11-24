@@ -2530,7 +2530,7 @@ function updateRepaymentUi_() {
   if (!document.getElementById("repayment-friend").options.length) populateRepaymentFriendOptions_();
   autoPickRepaymentGroup_();
 
-  document.getElementById("repayment-overpay-block").hidden = isLoan || keptDebtEdit_();   // only a re-recorded repayment can have a new extra
+  syncRepayOverpayBlock_();   // only a re-recorded repayment can have a new extra; only shown when the amount is more than owed
   document.getElementById("loan-due-block").hidden = !isLoan;
   if (!isLoan) {
     // "Decide later" comes first and is the default: an extra beyond the debt waits in Needs review unless a category was really picked.
@@ -2585,6 +2585,22 @@ autoBeforeApp_("date", "entry-opening", () => !document.getElementById("entry-op
 // so the person knows before Save (which then asks what the money is, askNothingOwed_). From the Loans tab's last list; fetched
 // once in the background when the Loans tab was not opened yet. New entries only, and only where the server can ask.
 let nothingOwedFetching_ = false;
+// "Category if you paid extra" shows only once the amount is more than what is owed that way (testers 2.68.2: two paragraphs
+// about an extra on every small repayment). Unknown balance: hidden; an extra then waits in Needs review ("decide later").
+function syncRepayOverpayBlock_() {
+  const block = document.getElementById("repayment-overpay-block");
+  if (transferKind_() !== "repayment" || keptDebtEdit_()) { block.hidden = true; return; }
+  const friendId = document.getElementById("repayment-friend").value;
+  const currency = document.getElementById("currency").value.toUpperCase();
+  const amount = parseFloat(sanitizeAmountInputValue(document.getElementById("amount").value)) || 0;
+  const b = loansLastBalances_ && loansLastBalances_.find((x) => x.friend_id === friendId);
+  const row = b && (b.balances || []).find((l) => String(l.currency).toUpperCase() === currency);
+  const dir = repaymentDirectionChoice;
+  const owed = row ? (row.open ? Number(row.open[dir] || 0) : Math.max(0, dir === "they_owe_me" ? row.net : -row.net)) : null;
+  block.hidden = owed === null || !(amount > owed + 0.004);
+}
+document.getElementById("amount").addEventListener("input", () => { if (repaymentActive_()) syncRepayOverpayBlock_(); });
+
 function syncNothingOwedLine_() {
   const line = document.getElementById("repayment-nothing-owed");
   const friendId = document.getElementById("repayment-friend").value;
@@ -2639,12 +2655,14 @@ function syncNothingOwedLine_() {
       line.appendChild(sw);
     }
     fillRepaymentAmount_(0);
+    syncRepayOverpayBlock_();
     return;
   }
   // What is owed that way, said under the person and filled in as the amount (the same as Loans → Record repayment).
   const amount = row.open ? Number(row.open[dir] || 0) : Math.abs(Number(row.net) || 0);
   line.textContent = tr(dir === "they_owe_me" ? "owed.lineOwesYou" : "owed.lineYouOwe", { amount: formatAmount(amount, currency) });
   fillRepaymentAmount_(amount);
+  syncRepayOverpayBlock_();
 }
 
 // The amount the form filled in itself (never over one the person typed), and when: a Save within 3 s of it, untouched,
@@ -34325,9 +34343,14 @@ async function renderSettledPeople_(call) {
   list.innerHTML = "";
   list.hidden = !wasOpen;
   toggle.textContent = tr(wasOpen ? "loans.hideSettledPeople" : "loans.settledPeople", { n: people.length });
+  // Open, the list carries its own heading (testers 2.68.2: only "Hide settled people" said what it was).
+  const title = document.getElementById("loans-settled-title");
+  title.textContent = tr("loans.settledTitle", { n: people.length });
+  title.hidden = !wasOpen;
   renderLoanMovesCard_(loansHasPeople_ || people.length > 0);
   toggle.onclick = () => {
     list.hidden = !list.hidden;
+    title.hidden = list.hidden;
     toggle.textContent = list.hidden ? tr("loans.settledPeople", { n: people.length }) : tr("loans.hideSettledPeople");
   };
   people.forEach((f) => {
