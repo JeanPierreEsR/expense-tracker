@@ -4130,6 +4130,12 @@
         <label for="person-role" id="person-role-label" data-i18n="people.role">Role</label>
         <select id="person-role"></select>
 
+        <div id="person-taxid-box" hidden>
+          <label for="person-taxid" data-i18n="people.taxId">RUC or DNI (optional)</label>
+          <input type="text" id="person-taxid" inputmode="numeric" maxlength="14" autocomplete="off">
+          <p class="hint" data-i18n="people.taxIdHint">Goes into the accountant's package next to their income.</p>
+        </div>
+
         <p class="hint error-text" id="person-form-error"></p>
         <button type="button" class="primary" id="person-save-btn" data-i18n="business.save">Save</button>
         <button type="button" class="add-inline" id="person-debts-btn" hidden data-i18n="people.debts">See debts</button>

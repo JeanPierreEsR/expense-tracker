@@ -25024,6 +25024,10 @@ function openPersonModal_(person, friendsMode) {
     sel.appendChild(o);
   });
   sel.value = person ? person.role : "client";
+  // A client's or supplier's RUC / DNI, on a company copy (owner, 2026-11-24: the accountant's package names who paid).
+  const taxBox = document.getElementById("person-taxid-box");
+  taxBox.hidden = personModalFriends_ || !companyCopyOn_();
+  document.getElementById("person-taxid").value = (person && person.tax_id) || "";
   document.getElementById("person-delete-btn").hidden = !person;
   document.getElementById("person-debts-btn").hidden = !(person && person.totals && person.totals.length);
   const backdrop = document.getElementById("person-modal-backdrop");
@@ -25103,13 +25107,16 @@ document.getElementById("person-save-btn").addEventListener("click", () => {
   const phone = withPhone ? readPhoneField_("person-phone") : undefined;
   if (phone && !LoanReminder.phoneOk(phone)) { errorEl.textContent = tr("remind.errPhone"); return; }
   // Closes at once and saves behind the screen; the list is refreshed once the person is on the server.
+  const taxBoxOn = !document.getElementById("person-taxid-box").hidden;
+  const taxId = taxBoxOn ? document.getElementById("person-taxid").value.replace(/[\s.-]/g, "") : undefined;
+  if (taxId && !/^\d{8}$|^\d{11}$/.test(taxId)) { errorEl.textContent = tr("people.badTaxId"); return; }
   const editing = editingPerson_;
   const fromFriends = personModalFriends_;
   closePersonModal_();
   saveBehindScreen_(async () => {
     const friend = editing
-      ? await callApi("updateFriend", fromFriends ? { id: editing.id, name, role: businessOn() ? "friend" : undefined, phone } : { id: editing.id, name, role })
-      : await callApi("addFriend", fromFriends ? { name, phone } : { name, role });
+      ? await callApi("updateFriend", fromFriends ? { id: editing.id, name, role: businessOn() ? "friend" : undefined, phone } : { id: editing.id, name, role, tax_id: taxId })
+      : await callApi("addFriend", fromFriends ? { name, phone } : { name, role, tax_id: taxId });
     rememberPerson_(friend);
     if (fromFriends) { refreshFriendChips_(); populatePaidByOptions(); }   // the pickers show the new name
   }, () => (fromFriends ? refreshFriendsList_() : refreshPeopleList_()));

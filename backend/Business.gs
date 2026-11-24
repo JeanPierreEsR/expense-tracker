@@ -843,7 +843,7 @@ function listBusinessPeople() {
       Object.keys(slot[key]).forEach(function (cur) { total[cur] = (total[cur] || 0) + slot[key][cur]; });
       return { project_id: key, balances: netMapToList_(slot[key]) };
     }).filter(function (p) { return p.balances.length; });
-    return { id: f.id, name: f.name, role: friendRoleOf_(f), notes: f.notes || '', projects: projects, totals: netMapToList_(total) };
+    return { id: f.id, name: f.name, role: friendRoleOf_(f), notes: f.notes || '', tax_id: String(f.tax_id || ''), projects: projects, totals: netMapToList_(total) };
   });
 }
 
@@ -900,16 +900,33 @@ function updateFriend(payload) {
   var existing = getAllRows('Friends').find(function (f) { return String(f.id) === String(payload.id); });
   if (existing && existing.trip_id) throw new Error(tr_('business.errPersonGroup'));
   var phone = payload.phone !== undefined ? normalizeFriendPhone_(payload.phone) : null;   // checked before anything is written
+  var taxCol = null;
+  if (biz && payload.tax_id !== undefined) {
+    var taxValue = personTaxId_(payload.tax_id);   // checked before anything is written
+    ensureBusinessColumn_('Friends', 'tax_id', true);
+    taxCol = { headers: getHeaders(getSheet('Friends')), value: taxValue };
+    sheet = getSheet('Friends');
+  }
   withWriteBatch_(function () {
     setCellByRow_(sheet, headers, rowIndex, 'name', name);
     if (biz) setCellByRow_(sheet, headers, rowIndex, 'role', role);   // a personal copy has no role column
     if (payload.notes !== undefined) setCellByRow_(sheet, headers, rowIndex, 'notes', String(payload.notes));
+    if (taxCol) setCellByRow_(sheet, taxCol.headers, rowIndex, 'tax_id', taxCol.value);
   });
   if (phone !== null) writeFriendPhone_(payload.id, phone);
   return {
     id: payload.id, name: name, role: role, notes: payload.notes !== undefined ? String(payload.notes) : (existing ? existing.notes : ''),
-    phone: phone !== null ? phone : friendPhoneText_(existing && existing.phone)
+    phone: phone !== null ? phone : friendPhoneText_(existing && existing.phone),
+    tax_id: payload.tax_id !== undefined ? personTaxId_(payload.tax_id) : String((existing && existing.tax_id) || '')
   };
+}
+
+// A RUC (11 digits) or DNI (8 digits) as typed, spaces and dashes taken out; anything else is refused (not a number: kept as text).
+function personTaxId_(value) {
+  var v = String(value || '').replace(/[\s.-]/g, '');
+  if (!v) return '';
+  if (!/^\d{8}$|^\d{11}$/.test(v)) throw new Error(tr_('people.badTaxId'));
+  return v;
 }
 
 // A person who has debts, shares or paid entries is kept (nothing is ever deleted behind the owner's back).

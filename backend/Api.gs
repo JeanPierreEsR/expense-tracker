@@ -2230,6 +2230,9 @@ function addFriend(payload) {
   // Business pack: a client / supplier / partner. Ignored while the pack is off, so a personal copy never gets the column.
   var role = businessRoleFromPayload_(payload.role);
   if (role !== 'friend') { ensureBusinessSheets_(); friend.role = role; }
+  // A client's or supplier's RUC / DNI, for the accountant's package (owner, 2026-11-24). Text, never a number.
+  var taxId = role !== 'friend' ? personTaxId_(payload.tax_id) : '';
+  if (taxId) { ensureBusinessColumn_('Friends', 'tax_id', true); friend.tax_id = taxId; }
   appendRowObject('Friends', friend);
   if (phone) { writeFriendPhone_(friend.id, phone); friend.phone = phone; }
   return friend;

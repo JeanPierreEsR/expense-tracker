@@ -147,7 +147,9 @@ function buildAccountantPackage_(month) {
     tr_('pkg.h.payMethod'), tr_('pkg.h.receiptType'), tr_('pkg.h.receiptNo'), tr_('pkg.h.support'), tr_('pkg.h.fx'),
     // For the purchase and sales books (owner, 2026-11-24, after the testers): SUNAT's receipt code, and the amount split into its base,
     // IGV and total. Added at the end, so the columns an accountant already uses stay where they were.
-    tr_('pkg.h.receiptCode'), tr_('pkg.h.base'), tr_('pkg.h.total')]];
+    tr_('pkg.h.receiptCode'), tr_('pkg.h.base'), tr_('pkg.h.total'), tr_('pkg.h.counterparty'), tr_('pkg.h.counterpartyId')]];
+  var peopleById = {};
+  getAllRows('Friends').forEach(function (f) { peopleById[f.id] = f; });
   var unsupported = [];
   entries.forEach(function (e) {
     var signed = e.type === 'transfer' ? (inbound[e.id] || (e.to_payment_method_id && !e.payment_method_id) ? 1 : -1) * Math.abs(Number(e.amount))
@@ -168,7 +170,10 @@ function buildAccountantPackage_(month) {
       e.type === 'expense' || e.type === 'income' ? pkgYesNo_(support) : '', fx,
       e.receipt_type ? (PKG_SUNAT_CODES_[e.receipt_type] || '') : '',
       e.type === 'expense' || e.type === 'income' ? round2_(Math.abs(Number(e.amount)) - (Number(e.igv_amount) || 0)) : '',
-      e.type === 'expense' || e.type === 'income' ? round2_(Math.abs(Number(e.amount))) : '']);
+      e.type === 'expense' || e.type === 'income' ? round2_(Math.abs(Number(e.amount))) : '',
+      // The client an income came from ("Received from"); an expense has no supplier on record yet, so it stays blank.
+      e.type === 'income' && peopleById[e.paid_by] ? String(peopleById[e.paid_by].name || '') : '',
+      e.type === 'income' && peopleById[e.paid_by] ? String(peopleById[e.paid_by].tax_id || '') : '']);
   });
   files.push({ kind: 'movements', name: tr_('pkg.file.movements', { month: month }), rows: mv.length - 1, text: pkgCsv_(mv) });
 
