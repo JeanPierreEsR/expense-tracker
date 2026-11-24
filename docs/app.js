@@ -4088,6 +4088,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       const friendName = (meta.friends.find((f) => f.id === friendId) || {}).name || "";
       const isLoanKind = transferKind_() === "loan";
       const direction = debtDirection_();
+      if (!isLoanKind && !(entryRepayAllocations_() || []).length && !(await askRepayLoansFirst_(CHOOSE_ENTRY_))) return;   // the form stays open
       // An investment becoming a loan / repayment follows how the money moved (the server checks it too).
       if (editingInvestmentLeft_ !== null && editingEntryId) {
         const wanted = isLoanKind ? (editingInvestmentLeft_ ? "they_owe_me" : "i_owe_them") : (editingInvestmentLeft_ ? "i_owe_them" : "they_owe_me");
@@ -35996,7 +35997,8 @@ const CHOOSE_SHEET_ = {
   loans: () => settlementChoosableLoans_(),
   amount: () => parseFloat(document.getElementById("settlement-amount").value) || 0,
   cur: () => repaymentCurrency,
-  dir: () => repaymentDirection
+  dir: () => repaymentDirection,
+  pool: () => repaymentLoans_
 };
 const chooseEl_ = (ctx, part) => document.getElementById(`${ctx.id}-choose${part ? "-" + part : ""}`);
 
@@ -36048,6 +36050,7 @@ function renderSettlementChooseSummary_() { renderChooseSummary_(CHOOSE_SHEET_);
 
 // Closed and empty: "oldest first" again. `show` = whether the button is offered at all.
 function resetChoose_(ctx, show) {
+  ctx.looked = false;
   chooseEl_(ctx, "panel").hidden = true;
   chooseEl_(ctx, "list").innerHTML = "";
   chooseEl_(ctx, "btn").textContent = tr("settle.chooseLoans");
@@ -36055,7 +36058,7 @@ function resetChoose_(ctx, show) {
 }
 function chooseOpenOrClose_(ctx) {
   const panel = chooseEl_(ctx, "panel");
-  if (!panel.hidden) { resetChoose_(ctx, true); return; }   // "Back to oldest first"
+  if (!panel.hidden) { resetChoose_(ctx, true); ctx.looked = true; return; }   // "Back to oldest first": chosen on purpose, Save asks nothing
   const list = chooseEl_(ctx, "list");
   list.innerHTML = "";
   ctx.loans().forEach((l) => {
@@ -36080,6 +36083,46 @@ function chooseOpenOrClose_(ctx) {
   panel.hidden = false;
   chooseEl_(ctx, "btn").textContent = tr(ticked ? "settle.chooseKeep" : "settle.chooseOff");
   renderChooseSummary_(ctx);
+}
+
+// Saving a repayment with no loans chosen, where the choice matters (owner, 2026-11-23): two or more open loans and a payment that
+// does not cover them all. The question names what "oldest first" would pay (and a loan that is exactly the payment, the case where
+// oldest first is most often wrong). Not asked when the panel was opened and closed again ("Back to oldest first" chosen on
+// purpose), nor while a walkthrough runs (its Save steps do not know this question yet: the tutorials get their own step later).
+// true = save oldest first; false = the panel is opened, nothing saved; null = ✕, nothing saved.
+async function askRepayLoansFirst_(ctx) {
+  if (chooseEl_(ctx).hidden || ctx.looked || Spotlight.isRunning()) return true;
+  if (!chooseEl_(ctx, "panel").hidden && chooseAssignments_(ctx).length) return true;
+  const loans = ctx.loans(), paid = ctx.amount(), cur = ctx.cur(), dir = ctx.dir();
+  if (loans.length < 2 || paid <= 0.004 || paid >= loans.reduce((n, l) => n + l.remaining, 0) - 0.004) return true;
+  const what = (l) => l.description || tr("transfer.kind.loan");
+  const when = (l) => I18n.fmtDateMedium(new Date(l.date + "T00:00:00"));
+  // Without a choice the server first cancels out what each owes the other; then the list below would not be what happens.
+  const pool = ctx.pool ? ctx.pool() : [];
+  const netted = pool.some((l) => l.direction && l.direction !== dir && String(l.currency).toUpperCase() === cur && l.status !== "forgiven" && l.remaining > 0.004);
+  let text;
+  if (netted) text = tr("repayAsk.netted");
+  else {
+    const parts = [];
+    let left = paid;
+    for (const l of loans) {
+      if (left <= 0.004) break;
+      const take = Math.round(Math.min(l.remaining, left) * 100) / 100;
+      parts.push(take < l.remaining - 0.004
+        ? tr("repayAsk.partOf", { what: what(l), date: when(l), cur, amount: moneyFmt(take), total: moneyFmt(l.remaining) })
+        : tr("repayAsk.whole", { what: what(l), date: when(l), cur, amount: moneyFmt(take) }));
+      left = Math.round((left - take) * 100) / 100;
+    }
+    text = tr("repayAsk.text", { list: parts.join(", ") });
+  }
+  const exact = loans.find((l, i) => i > 0 && Math.abs(l.remaining - paid) < 0.005);
+  if (exact) text += "\n\n" + tr("repayAsk.exact", { what: what(exact), date: when(exact), cur, amount: moneyFmt(paid) });
+  const answer = await askConfirmApp_(text, tr("repayAsk.oldest"), { plain: true, cancel: tr("repayAsk.choose"), closeValue: null });
+  if (answer === false) {
+    if (chooseEl_(ctx, "panel").hidden) chooseOpenOrClose_(ctx);
+    chooseEl_(ctx).scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+  return answer;
 }
 
 // Shown only when there is a real choice (two or more open loans in the direction and currency being paid) and not while fixing
@@ -36109,7 +36152,8 @@ const CHOOSE_ENTRY_ = {
   },
   amount: () => parseFloat(document.getElementById("amount").value) || 0,
   cur: () => document.getElementById("currency").value.toUpperCase(),
-  dir: () => repaymentDirectionChoice
+  dir: () => repaymentDirectionChoice,
+  pool: () => entryRepayLoans_.get(document.getElementById("repayment-friend").value) || []
 };
 // A RECORDED repayment opened from Home and kept with the same person, direction and currency (owner, 2026-11-23): the same choice,
 // ticked with the loans it pays now, each loan's room counting this repayment's own share as free again (as the repayment's editor,
@@ -36377,6 +36421,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   let allocations = !editingSettlementId && !document.getElementById("settlement-choose-panel").hidden ? settlementAssignments_() : [];
   if (repaymentTargetLoan_ && !editingSettlementId && !allocations.length && amount <= repaymentTargetLoan_.remaining + 0.004) allocations = [{ loan_id: repaymentTargetLoan_.loan_id, amount }];
   if (allocations.reduce((n, a) => n + a.amount, 0) > amount + 0.004) { errorEl.textContent = tr("settle.chooseTooMuch"); return; }
+  if (!editingSettlementId && !allocations.length && !(await askRepayLoansFirst_(CHOOSE_SHEET_))) return;   // the sheet stays open
   // Moving a recorded repayment to another loan: checked here too, so the message shows in the open sheet.
   const newLoanId = editingSettlementId && !document.getElementById("settlement-loan-field").hidden ? document.getElementById("settlement-loan").value : "";
   if (newLoanId && newLoanId !== editingSettlementLoanId_) {
@@ -36844,7 +36889,8 @@ const CHOOSE_REVIEW_ = {
   },
   amount: () => parseFloat(document.getElementById("review-transfer-amount").value) || 0,
   cur: () => String((reviewTransferEntry && reviewTransferEntry.currency) || "").toUpperCase(),
-  dir: () => (reviewTransferEntry && reviewEntryArrived_(reviewTransferEntry) ? "they_owe_me" : "i_owe_them")
+  dir: () => (reviewTransferEntry && reviewEntryArrived_(reviewTransferEntry) ? "they_owe_me" : "i_owe_them"),
+  pool: () => reviewRepayLoans_.get(document.getElementById("review-transfer-friend").value) || []
 };
 function syncReviewRepayChoose_() {
   const friendId = document.getElementById("review-transfer-friend").value;
@@ -36968,6 +37014,7 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
   // The loans the person ticked (none = oldest first); read before the window closes.
   const chosen = mode === "repay" && !document.getElementById("review-transfer-choose").hidden &&
     !document.getElementById("review-transfer-choose-panel").hidden ? chooseAssignments_(CHOOSE_REVIEW_) : [];
+  if (mode === "repay" && !chosen.length && !(await askRepayLoansFirst_(CHOOSE_REVIEW_))) return;   // the window stays open
   closeReviewTransferModal();
   dropReviewCard_(entryId);   // gone at once; a refusal's refresh below brings it back
   convDebtOutcome_ = "";
