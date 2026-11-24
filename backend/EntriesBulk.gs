@@ -239,6 +239,7 @@ function appendObjectsBatch_(sheetName, objs) {
     var stamp = nowStamp_();
     objs.forEach(function (o) { o.updated_at = stamp; });
   }
+  objs.forEach(function (o) { pmForwardObject_(sheetName, o); });   // a deleted account's id → the account that took its history (AccountMove.gs)
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
   var rows = objs.map(function (o) { return headers.map(function (h) { return o[h] !== undefined ? (sheetName === 'Entries' ? sheetSafeText_(o[h]) : o[h]) : ''; }); });

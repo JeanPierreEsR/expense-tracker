@@ -18359,13 +18359,18 @@ async function refreshDeletedScreen_() {
   const errorEl = document.getElementById("deleted-error");
   errorEl.textContent = "";
   const list = document.getElementById("deleted-list");
-  let res;
-  try { res = await callApi("listDeletedEntries", {}); }
+  let res, moves = [];
+  try {
+    // Loading standard: both lists arrive before anything shows. Account moves (AccountMove.gs) only where the backend keeps them.
+    [res, moves] = await Promise.all([callApi("listDeletedEntries", {}),
+      accountMoveOn_() ? callApi("listAccountMoves", {}).then((r) => r.moves || []) : Promise.resolve([])]);
+  }
   catch (err) { list.innerHTML = ""; errorEl.textContent = tr("business.loadFailed", { error: err.message }); return; }
   list.innerHTML = "";
-  document.getElementById("deleted-empty").hidden = res.batches.length > 0;
+  document.getElementById("deleted-empty").hidden = res.batches.length + moves.length > 0;
   document.getElementById("deleted-empty").textContent = tr("deleted.empty", { days: res.days });
   const when = (iso) => new Date(iso).toLocaleString(I18n.getLang() === "es" ? "es" : "en", { dateStyle: "medium", timeStyle: "short" });
+  moves.forEach((m) => list.appendChild(deletedMoveBox_(m, when)));
   res.batches.forEach((b) => {
     const box = document.createElement("div");
     box.className = "deleted-batch";
@@ -18415,6 +18420,34 @@ async function refreshDeletedScreen_() {
     box.appendChild(actions);
     list.appendChild(box);
   });
+}
+// One account move in Recently deleted (owner, 2026-11-23): what moved where, Restore, Delete for good.
+function deletedMoveBox_(m, when) {
+  const box = document.createElement("div");
+  box.className = "deleted-batch";
+  const n = Number((m.counts || {}).entries) || 0;
+  box.innerHTML = `<div class="deleted-batch-title">${escapeHtml(tr("move.recordTitle", { when: when(m.moved_at) }))}</div>
+    <div class="hint deleted-batch-sub">${escapeHtml(tr("move.recordSub", { from: m.from_name, to: m.to_name, n }))}</div>
+    <div class="deleted-batch-actions"><button type="button" class="primary deleted-all">${escapeHtml(tr("move.restore"))}</button><button type="button" class="add-inline deleted-forget">${escapeHtml(tr("deleted.forget"))}</button></div>`;
+  const after = async () => {
+    try { await loadMeta(); } catch (e) { /* the lists below still refresh */ }
+    refreshAccountPickers_();
+    renderAccountsList_();
+    refreshEntryList().catch(() => {});
+    refreshHomeGlance_(true);
+    refreshTabsAhead_();
+    refreshDeletedScreen_().catch(() => {});
+  };
+  box.querySelector(".deleted-all").addEventListener("click", () => {
+    box.remove();
+    saveBehindScreen_(() => callApi("restoreAccountMove", { move_id: m.id }), after, { busy: "deleted.restoring", done: () => tr("move.restored", { name: m.from_name }) });
+  });
+  box.querySelector(".deleted-forget").addEventListener("click", async () => {
+    if (!await askConfirmApp_(tr("move.confirmForget", { from: m.from_name, to: m.to_name }), tr("confirmBtn.delete"))) return;
+    box.remove();
+    saveBehindScreen_(() => callApi("forgetAccountMove", { move_id: m.id }), () => refreshDeletedScreen_().catch(() => {}), { busy: "common.deletingToast" });
+  });
+  return box;
 }
 document.getElementById("more-deleted-btn").addEventListener("click", showDeletedScreen_);
 document.getElementById("deleted-back-btn").addEventListener("click", () => showMyDataScreen());   // it lives in the My data hub, under "Then tidy"
@@ -20304,6 +20337,7 @@ function openPmModal_(pm) {
     hideBtn.hidden = one && !pmHidden_(pm);
     hideBtn.textContent = tr(pmHidden_(pm) ? "accounts.show" : "accounts.hide");
     document.getElementById("pm-manage-hint").textContent = tr(one ? "accounts.deleteHint" : "accounts.hideHint");
+    document.getElementById("pm-move-box").hidden = !accountMoveOn_() || !moveTargets_(pm.id).length || pm.type === "investment";
   }
   const backdrop = document.getElementById("pm-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -20546,6 +20580,121 @@ document.getElementById("pm-delete-btn").addEventListener("click", async () => {
     unmarkDeleting_("pm:" + pm.id);
     showAppMessage_(err.message);   // in use: the message says so and points to Hide
   }
+});
+
+// ---- Move an account's history to another account (owner, 2026-11-23: a credit card upgrade) ----
+// From the account window: pick the account that takes everything, see what moves (previewAccountMove: the loading standard, nothing
+// shows half-drawn), one red button. The window closes at once and the move runs behind the screen; then an Undo toast. The new account
+// also recognizes the old digits (backend/AccountMove.gs).
+let moveFromId_ = null, moveReq_ = 0;
+function accountMoveOn_() { return !!(meta && meta.capabilities && meta.capabilities.accountMove); }
+// Same kind only (owner, 2026-11-23): a card's history goes to a card, a bank account's to a bank account (backend accountMoveKind_).
+const moveKind_ = (pm) => pm.type === "credit" ? "card" : (pm.type === "debit" || pm.type === "transfer") ? "bank" : pm.type;
+function moveTargets_(fromId) {
+  const from = ((meta && meta.paymentMethods) || []).find((p) => p.id === fromId);
+  if (!from) return [];
+  return ((meta && meta.paymentMethods) || []).filter((pm) => pm.id !== fromId && pm.type !== "investment" && !pmHidden_(pm) && !isPracticeAccountName_(pm.nickname) && moveKind_(pm) === moveKind_(from));
+}
+function openMoveModal_(fromId) {
+  const from = meta.paymentMethods.find((p) => p.id === fromId);
+  if (!from) return;
+  moveFromId_ = fromId;
+  document.getElementById("move-from-line").textContent = tr("move.from", { name: from.nickname });
+  const sel = document.getElementById("move-to");
+  sel.innerHTML = `<option value="">${escapeHtml(tr("move.pick"))}</option>` + moveTargets_(fromId).map((pm) => `<option value="${escapeHtml(pm.id)}">${escapeHtml(pmPickLabel_(pm))}</option>`).join("");
+  sel.value = "";
+  accountShortList_(sel);
+  document.getElementById("move-summary").innerHTML = "";
+  document.getElementById("move-form-error").textContent = "";
+  document.getElementById("move-save-btn").hidden = true;
+  const backdrop = document.getElementById("move-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function closeMoveModal_() { document.getElementById("move-modal-backdrop").hidden = true; moveFromId_ = null; moveReq_++; }
+document.getElementById("move-modal-close").addEventListener("click", closeMoveModal_);
+document.getElementById("pm-move-btn").addEventListener("click", () => {
+  if (!pmModalState || !pmModalState.id) return;
+  const id = pmModalState.id;
+  closePmModal_();
+  openMoveModal_(id);
+});
+document.getElementById("move-to").addEventListener("change", async (e) => {
+  const toId = e.target.value, box = document.getElementById("move-summary"), btn = document.getElementById("move-save-btn");
+  btn.hidden = true;
+  if (!toId || toId.indexOf("__") === 0 || !moveFromId_) { box.innerHTML = ""; return; }
+  const req = ++moveReq_;
+  box.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  try {
+    const p = await callApi("previewAccountMove", { from: moveFromId_, to: toId });
+    if (req !== moveReq_) return;
+    const c = p.counts, lines = [];
+    const add = (n, key) => { if (n) lines.push(tr(key, { n })); };
+    add(c.entries, "move.n.entries"); add(c.loans, "move.n.loans"); add(c.repayments, "move.n.repayments"); add(c.statements, "move.n.statements");
+    add(c.balances, "move.n.balances"); add(c.links, "move.n.links");
+    const from = meta.paymentMethods.find((x) => x.id === moveFromId_) || {}, to = meta.paymentMethods.find((x) => x.id === toId) || {};
+    // Company copies: a move that would change a closed month is refused (reopen it first): said here, and no button.
+    if ((p.closedMonths || []).length) {
+      box.innerHTML = `<p class="stmt-note warn">${escapeHtml(tr("move.closed", { months: p.closedMonths.join(", ") }))}</p>`;
+      return;
+    }
+    const digits = /^\d{4}$/.test(String(from.last_4 || "").trim()) ? String(from.last_4).trim() : "";
+    const bank = ((meta && meta.banks) || []).find((b) => String(b.id) === String(from.bank_id || ""));
+    // A currency the old account holds that the new one does not: one warning line.
+    const toCur = accountCurrencyList_(to), extra = accountCurrencyList_(from).filter((cur) => toCur.length && !toCur.includes(cur));
+    // An old account with no bank: its bank is asked here; left empty, its digits are not remembered (owner, 2026-11-23).
+    const bankAsk = p.needsBank && digits ? `<label for="move-old-bank" style="margin-top:10px">${escapeHtml(tr("move.oldBank", { name: p.from.nickname }))}</label>
+      <select id="move-old-bank"><option value="">${escapeHtml(tr("move.oldBankNone"))}</option>${((meta && meta.banks) || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name))).map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join("")}</select>
+      <p class="hint" id="move-old-bank-hint">${escapeHtml(tr("move.oldBankHint", { digits }))}</p>` : "";
+    box.innerHTML = `<p style="margin:10px 0 4px">${escapeHtml(tr(lines.length ? "move.willMove" : "move.nothing", { name: p.to.nickname }))}</p>`
+      + (lines.length ? `<ul style="list-style:disc;margin:4px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : "")
+      + (c.balancesDropped ? `<p class="hint">${escapeHtml(tr("move.balancesKept", { n: c.balancesDropped, name: p.to.nickname }))}</p>` : "")
+      + (c.selfTransfers ? `<p class="hint">${escapeHtml(tr("move.selfTransfers", { n: c.selfTransfers }))}</p>` : "")
+      + ((p.droppedLinks || []).length ? `<p class="stmt-note warn">${escapeHtml(tr("move.linksDropped", { wallets: p.droppedLinks.join(", "), name: p.to.nickname }))}</p>` : "")
+      + (extra.length ? `<p class="stmt-note warn">${escapeHtml(tr("move.currencyWarn", { currencies: extra.join(", "), name: p.to.nickname }))}</p>` : "")
+      + (digits && bank ? `<p class="hint">${escapeHtml(tr("move.digits", { name: p.to.nickname, digits, bank: bank.name }))}</p>` : "")
+      + bankAsk
+      + `<p class="hint">${escapeHtml(tr("move.deleted", { name: p.from.nickname }))}</p>`;
+    btn.textContent = tr("move.go", { name: p.from.nickname });
+    btn.hidden = false;
+  } catch (err) {
+    if (req !== moveReq_) return;
+    box.innerHTML = `<p class="hint error-text">${escapeHtml(err.message || String(err))}</p>`;
+  }
+});
+document.getElementById("move-summary").addEventListener("change", (e) => {
+  if (e.target.id !== "move-old-bank") return;
+  const digits = String(((meta.paymentMethods.find((x) => x.id === moveFromId_) || {}).last_4) || "").trim();
+  const bank = (meta.banks || []).find((b) => String(b.id) === e.target.value);
+  document.getElementById("move-old-bank-hint").textContent = tr(bank ? "move.oldBankYes" : "move.oldBankHint", { digits, bank: bank ? bank.name : "" });
+});
+document.getElementById("move-save-btn").addEventListener("click", () => {
+  const fromId = moveFromId_, toId = document.getElementById("move-to").value;
+  if (!fromId || !toId) return;
+  const oldBankSel = document.getElementById("move-old-bank"), oldBankId = oldBankSel ? oldBankSel.value : "";
+  const from = meta.paymentMethods.find((p) => p.id === fromId), to = meta.paymentMethods.find((p) => p.id === toId);
+  closeMoveModal_();
+  markDeleting_("pm:" + fromId);
+  const refresh = async () => {
+    try { await loadMeta(); } catch (e) { /* the lists below still refresh */ }
+    refreshAccountPickers_();
+    renderAccountsList_();
+    refreshEntryList().catch(() => {});
+    refreshHomeGlance_(true);
+    refreshTabsAhead_();
+  };
+  saveBehindScreen_(async () => {
+    let res;
+    try { res = await callApi("moveAccountHistory", { from: fromId, to: toId, old_bank_id: oldBankId || undefined }); }
+    catch (err) { unmarkDeleting_("pm:" + fromId); throw err; }
+    unmarkDeleting_("pm:" + fromId);
+    // The same Restore as More → My data → Recently deleted, where the move waits 30 days.
+    showUndoToast_(tr("move.done", { from: from ? from.nickname : "", to: to ? to.nickname : "" }), async () => {
+      await callApi("undoAccountMove", { move_id: res.move_id });
+      showToast_(tr("move.undone"));
+      await refresh();
+    });
+  }, refresh);
 });
 
 // ---- Accounts: Edit mode (tick several accounts, delete them at once; owner's request, 2026-11-03) ----

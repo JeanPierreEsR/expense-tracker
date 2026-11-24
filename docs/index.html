@@ -4497,7 +4497,26 @@
         <p class="hint" id="pm-manage-hint" data-i18n="accounts.deleteHint">Delete removes an account nothing uses. One with past entries is hidden instead: its history stays, and it leaves every list you pick from.</p>
         <button type="button" class="cancel-edit-btn" id="pm-hide-btn" data-i18n="accounts.hide">Hide</button>
         <button type="button" class="delete-entry-btn" id="pm-delete-btn" data-i18n="accounts.delete">Delete</button>
+        <div id="pm-move-box" hidden>
+          <p class="hint" data-i18n="move.hint">Replaced this card with a new one? Move all its history to the new account, and this one is deleted.</p>
+          <button type="button" class="cancel-edit-btn" id="pm-move-btn" data-i18n="move.button">Move its history to another account…</button>
+        </div>
       </div>
+    </div>
+  </div>
+
+  <div id="move-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="move.title">Move history</span>
+        <button type="button" id="move-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <p id="move-from-line"></p>
+      <label for="move-to" data-i18n="move.to">Move it to</label>
+      <select id="move-to"></select>
+      <div id="move-summary"></div>
+      <p class="hint error-text" id="move-form-error"></p>
+      <button type="button" class="delete-entry-btn" id="move-save-btn" hidden></button>
     </div>
   </div>
 

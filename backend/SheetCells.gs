@@ -169,6 +169,7 @@ var SHEET_SAFE_COLUMNS_ = { Friends: ['name', 'notes'], Loans: ['description'], 
   Companies: ['name', 'emoji', 'tax_id'], Projects: ['name', 'emoji'], 'Expected Payments': ['invoice_no', 'note'], 'IGV Payments': ['note'],
   'Business Openings': ['note'], 'Accountant Figures': ['note'] };
 function safeCellValue_(sheetName, column, value) {
+  value = pmForwardCell_(sheetName, column, value);   // a deleted account's id → the account that took its history (AccountMove.gs)
   if (sheetName === 'Entries') return sheetSafeText_(value);
   return (SHEET_SAFE_COLUMNS_[sheetName] || []).indexOf(column) >= 0 ? sheetSafeText_(value) : value;
 }
