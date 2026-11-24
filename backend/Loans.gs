@@ -1854,7 +1854,7 @@ function deleteRepaymentInto_(payload) {
 function withScriptLockOnce_(fn) {
   var lock = LockService.getScriptLock();
   var ownsLock = !lock.hasLock();
-  if (ownsLock) lock.waitLock(20000);
+  if (ownsLock) waitLockOrBusy_(lock, 20000);   // a plain-words error, marked busy (Triggers.gs)
   try {
     return fn();
   } finally {

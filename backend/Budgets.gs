@@ -986,7 +986,7 @@ function checkBudgets() {
   // The 15-minute trigger and a manual run can overlap; without the lock both
   // read the alert log before either writes and send the same alert twice.
   var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  waitLockOrBusy_(lock, 30000);   // busy: the 15-minute run skips it quietly (Triggers.gs)
   try {
     return checkBudgetsLocked_();
   } finally {

@@ -138,7 +138,7 @@ test("one failing automation step does not stop the others, and the owner is ale
   rt.run("runAutomation()");
   assert.deepEqual(JSON.parse(rt.run("JSON.stringify(__ran)")), ["emails", "telegram", "budgets", "loans", "invest", "stmt"]);
   const sent = rt.svc.fetchLog.map((f) => f.options.payload).join(" ");
-  assert.match(sent, /Automatic scan problem/);
+  assert.match(sent, /automatic check \(every 15 minutes\) ran into a problem/);
   assert.match(sent, /boom/);
   assert.match(sent, /2 could not be read/);
 });
@@ -153,7 +153,7 @@ test("automation alerts are throttled (not every 15 minutes)", () => {
     backfillInvestmentCategories_ = function () {}; scanStatementInbox_ = function () {}; retryStatementInboxNudges_ = function () {};
   `);
   rt.run("runAutomation()"); rt.run("runAutomation()");
-  const alerts = rt.svc.fetchLog.filter((f) => /Automatic scan problem/.test(f.options.payload));
+  const alerts = rt.svc.fetchLog.filter((f) => /automatic check \(every 15 minutes\) ran into a problem/.test(f.options.payload));
   assert.equal(alerts.length, 1);
 });
 
@@ -210,4 +210,31 @@ test("an expense -> 'type transfer' still keeps its account as the From end", ()
   const after = row(rt, e.id);
   assert.equal(after.payment_method_id, data.pms[3].id);
   assert.equal(after.to_payment_method_id || "", "");
+});
+
+test("a background check that finds the app busy saving is skipped quietly, and reported in plain words only after about an hour", () => {
+  const { rt } = freshApp();
+  linkTelegram(rt);
+  rt.run(`
+    pingWebApp_ = function () {};
+    pollTelegramUpdates = function () {};
+    scanStatementInbox_ = function () {};
+    retryStatementInboxNudges_ = function () {};
+    var __emails = 0;
+    processEmails = function () { __emails++; return { created: 0, unparsed: 0, errors: 0, unparsedSubjects: [] }; };
+    LockService.getScriptLock = function () {
+      return { tryLock: function () { return false; }, waitLock: function () { throw new Error('Lock timeout'); }, releaseLock: function () {}, hasLock: function () { return false; } };
+    };
+  `);
+  const sentText = () => rt.svc.fetchLog.map((f) => f.options.payload).join(" ");
+  for (let i = 0; i < 3; i++) {
+    rt.svc.props.set("HEAVY_STEPS_LAST_AT", "0");
+    rt.run("runAutomation()");
+  }
+  assert.equal(rt.run("__emails"), 0, "the e-mail check stood down");
+  assert.doesNotMatch(sentText(), /problem|Lock timeout/, "nothing is said for a busy moment");
+  rt.svc.props.set("HEAVY_STEPS_LAST_AT", "0");
+  rt.run("runAutomation()");
+  assert.match(sentText(), /budgets: skipped for about an hour because the app stayed busy/);
+  assert.doesNotMatch(sentText(), /Lock timeout/);
 });

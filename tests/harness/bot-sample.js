@@ -62,7 +62,7 @@ function sample(lang) {
   rt.run(`sendTelegramLoanOverdueAlert_({ direction: 'they_owe_me', currency: 'PEN', remaining: 120, due_date: '2026-10-05', description: 'Concert tickets' }, ${JSON.stringify(friend.name)})`); say("Overdue loan: they owe you");
   rt.run(`sendTelegramLoanOverdueAlert_({ direction: 'i_owe_them', currency: 'PEN', remaining: 80, due_date: '2026-10-05', description: '' }, ${JSON.stringify(friend.name)})`); say("Overdue loan: you owe");
   rt.run("sendTelegramText_(tr_('notice.statement', { bank: 'Interbank Visa', date: '2026-10-12' }))"); say("New statement in the inbox");
-  rt.run("alertAutomationFailures_(['telegram: boom'])"); say("Automatic scan problem");
+  rt.run("alertAutomationFailures_(['telegram: boom'])"); say("Automatic check problem");
   const photo = (text) => rt.run(`photoReply_(${chat}, 1, ${JSON.stringify(text)})`);
   photo(rt.run("tr_('photo.queued')")); photo(rt.run("tr_('photo.notAReceipt')")); photo(rt.run("tr_('photo.noAmount', { kind: tr_('photo.kind.yape_sent') })")); photo(rt.run("tr_('photo.duplicate')")); photo(rt.run("tr_('photo.ownerName')")); say("Photo replies");
   return out;
