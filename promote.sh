@@ -201,6 +201,9 @@ if [ -z "$RESUME" ]; then
     else
       echo "⚠ Could not refresh the list of copies friends use automatically; using the file as it was (download the Sheet's 'Perf Reports' tab as CSV and run tools/friends-copies.py --- or fix the Mac helper's config.json)." >&2
     fi
+    # Who is on what, by name, in the private notes (tools/friends-versions.py; never stops a promote).
+    python3 "$HERE/tools/friends-versions.py" --root "$(dirname "$COMMON")/.." >/dev/null 2>&1 && say "Updated who is on what in 'Friends and their versions.md'." \
+      || echo "⚠ Could not update who is on what (tools/friends-versions.py); run it by hand later." >&2
   fi
   if [ -f "$COPIES_FILE" ]; then
     PAIRS_KEEP=2
