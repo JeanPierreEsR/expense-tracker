@@ -103,3 +103,27 @@ test("not a company copy: no log is written, nothing can be closed", () => {
   assert.throws(() => rt.api("closeMonth", { month: ym, bank: [] }));
   assert.deepEqual(rt.api("getMeta", {}).closedMonths, []);
 });
+
+// Testers 2.68.2 (Ingrid, Carlos): one ordinary change in the app after the close used to hide a hand edit of another row.
+test("a hand edit is still detected when the app also changed something after the close; the hand-edited row is named", () => {
+  const rt = companyCopy();
+  const a = spend(rt, 300, day(10), "Cemento");
+  const b = spend(rt, 50, day(11), "Clavos");
+  rt.api("closeMonth", { month: ym, bank: [] });
+  rt.api("updateEntry", { id: b.id, fields: { amount: 55 } });   // through the app: logged
+  const sheet = rt.sheet("Entries");
+  const h = sheet.rows[0];
+  sheet.rows.find((r) => r[h.indexOf("id")] === a.id)[h.indexOf("amount")] = 333;   // by hand: no log line
+  rt.run("ROWS_MEMO_ = null;");
+  const s = rt.api("getMonthClose", { month: ym });
+  assert.equal(s.changed, true);
+  assert.ok(s.changes.length >= 1, "the app's change is listed");
+  assert.equal(s.hand_edited, true);
+  assert.deepEqual(s.hand_rows.map((r) => [r.row_id, r.what]), [[a.id, "changed"]]);
+  // only the app's change: no hand edit
+  const rt2 = companyCopy();
+  const c = spend(rt2, 10);
+  rt2.api("closeMonth", { month: ym, bank: [] });
+  rt2.api("updateEntry", { id: c.id, fields: { amount: 12 } });
+  assert.equal(rt2.api("getMonthClose", { month: ym }).hand_edited, false);
+});

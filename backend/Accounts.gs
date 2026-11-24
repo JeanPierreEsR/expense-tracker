@@ -175,6 +175,26 @@ function accountCurrenciesValue_(list) {
   return codes.length ? codes.join(',') : 'none';
 }
 
+// "Add USD to this account" from the exchange form (testers 2.68.2): the account keeps its currencies and gains one. Any copy.
+// payload: { id, currency }. Answers { currencies: 'PEN,USD' }.
+function addAccountCurrency(payload) {
+  var cur = String((payload && payload.currency) || '').trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(cur) || KNOWN_CURRENCY_CODES_.indexOf(cur) === -1) throw new Error(tr_('err.validCurrency'));
+  ensurePaymentMethodCurrenciesColumn_();
+  var sheet = getSheet('Payment Methods');
+  var headers = getHeaders(sheet);
+  var pm = getAllRows('Payment Methods').find(function (p) { return String(p.id) === String(payload.id); });
+  if (!pm) throw new Error(tr_('err.pmNotFound'));
+  var have = String(pm.currencies || '');
+  var list = have && have !== 'none' ? have.split(',') : [];
+  if (list.indexOf(cur) === -1) list.push(cur);
+  var value = accountCurrenciesValue_(list);
+  setCellByRow_(sheet, headers, findRowIndexById(sheet, headers, pm.id), 'currencies', value);
+  if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
+  bumpStructureVersion_();
+  return { currencies: value };
+}
+
 // ---- Suggested currencies for older accounts (owner, 2026-11-06) ----
 // Accounts made before kinds existed have no known currency. The app proposes one from the name or the entries, the person sees it in More →
 // Accounts and nothing is written until they tap Apply (the owner asked to see it first, so this is not a heal). Only on the owner's copy.

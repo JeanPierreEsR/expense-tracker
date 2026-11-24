@@ -479,6 +479,8 @@ function accountMoveRecord_(id) {
   if (!parts.length) return null;
   var undo;
   try { undo = JSON.parse(parts.map(function (r) { return String(r.data); }).join('')); } catch (e) { return null; }
+  // A row typed or changed by hand that is not a whole move: treated as gone (testers 2.68.2: a raw error on Restore).
+  if (!undo || !undo.from || !undo.from.id || !undo.toId || !undo.entries) return null;
   return { id: String(id), undo: undo, from_name: String(parts[0].from_name), to_name: String(parts[0].to_name) };
 }
 

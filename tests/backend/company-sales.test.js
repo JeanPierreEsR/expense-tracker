@@ -102,3 +102,15 @@ test("not a company copy: refused", () => {
   const { rt } = freshApp({ small: true });
   assert.throws(() => rt.api("listProjectUnits", { project_id: "x" }));
 });
+
+// Testers 2.68.2 (Nico): the same stage saved twice made two identical rows and doubled the expected collections.
+test("the same stage saved twice (same unit, stage, date, amount) is one row", () => {
+  const rt = companyCopy();
+  const { u101 } = building(rt);
+  const before = rt.rows("Expected Payments").length;
+  const again = rt.api("saveUnitStage", { unit_id: u101.id, stage: "down_payment", amount: 50000, due_date: `${mon(0)}-20` });
+  assert.equal(again.repeat, true);
+  assert.equal(rt.rows("Expected Payments").length, before, "no second row");
+  rt.api("saveUnitStage", { unit_id: u101.id, stage: "down_payment", amount: 20000, due_date: `${mon(2)}-20` });
+  assert.equal(rt.rows("Expected Payments").length, before + 1, "a different stage payment is still added");
+});

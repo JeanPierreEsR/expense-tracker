@@ -134,9 +134,12 @@ test("a loan made from the Edit list is undone: loan gone, the expense back as i
 
 test("a repayment by words is undone: the debt is owed again", () => {
   const a = waApp();
+  const friend = a.rt.rows("Friends")[0];
+  // We owe this friend (a repayment the other way round is refused since 2.69: testers 2.68.2).
+  a.rt.ctx.__l = { friend_id: friend.id, direction: "i_owe_them", amount: 100, currency: "PEN", date: "2026-01-05" };
+  a.rt.run("addLoan(__l)");
   const e = readyExpense(a, "20 pago");
   const before = world(a.rt);
-  const friend = a.rt.rows("Friends")[0];
   a.text("repayment " + friend.name, { context_id: a.cardIdOf(e.id) });
   assert.equal(a.entry(e.id), undefined, "the expense became a repayment");
   a.text("undo");

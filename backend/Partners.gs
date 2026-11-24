@@ -81,9 +81,10 @@ function partnerMoneyEntry_(payload, wantIn) {
   if (!entry) throw new Error(tr_('convert.gone'));
   var ok = wantIn ? (entry.type === 'income' || entry.type === 'transfer') : (entry.type === 'expense' || entry.type === 'transfer');
   if (!ok) throw new Error(tr_(wantIn ? 'partner.onlyIn' : 'partner.onlyOut'));
-  if (entry.type === 'transfer' && buildTransferLinkMap_()[entry.id]) throw new Error(tr_('convert.alreadyMovement'));
+  // Already a partner's money: said as such (testers 2.68.2, Nico: it said "a loan's money movement: change it from Loans").
   if (entry.type === 'transfer' && (contributionRows_().some(function (r) { return r.entry_id === entry.id; }) ||
-      distributionRows_().some(function (r) { return r.entry_id === entry.id; }))) throw new Error(tr_('convert.alreadyMovement'));
+      distributionRows_().some(function (r) { return r.entry_id === entry.id; }))) throw new Error(tr_('partner.already'));
+  if (entry.type === 'transfer' && buildTransferLinkMap_()[entry.id]) throw new Error(tr_('convert.alreadyMovement'));
   if (entry.type === 'transfer' && entry.to_payment_method_id && entry.payment_method_id) throw new Error(tr_('partner.betweenAccounts'));
   if (repaymentPartInfo_(entry.id)) throw new Error(tr_('typeChange.isRepaymentExtra'));
   return entry;
@@ -185,6 +186,15 @@ function recordDistribution(payload) {
   });
 }
 
+// A distribution's gross = what was paid (the entry's amount, as it is NOW) + the withholding. Worked out on every read, never taken
+// from the row's stored `gross`: an amount edited afterwards on Home left the old gross in the cards, the constancia and the
+// accountant's package (testers 2.68.2). The stored value only stands in when the entry is gone.
+function distributionGross_(row, entry) {
+  var withholding = Number(row.withholding) || 0;
+  if (!entry) return round2_(Number(row.gross) || 0);
+  return round2_(Math.abs(Number(entry.amount) || 0) + withholding);
+}
+
 // Transfer entries that bring money IN for a partner (contributions and "to be decided"): the Balances reader counts them as money in.
 function partnerInboundIds_(inbound) {
   contributionRows_().forEach(function (r) { if (r.entry_id) inbound[r.entry_id] = true; });
@@ -199,7 +209,9 @@ function partnerLinkMap_() {
   getAllRows('Friends').forEach(function (f) { names[f.id] = f.name; });
   var map = {};
   c.forEach(function (r) { map[r.entry_id] = { kind: r.kind === 'pending' ? 'pending' : 'contribution', partner: names[r.partner_id] || '', partner_id: r.partner_id, id: r.id }; });
-  d.forEach(function (r) { map[r.entry_id] = { kind: 'distribution', partner: names[r.partner_id] || '', partner_id: r.partner_id, id: r.id, gross: Number(r.gross) || 0, withholding: Number(r.withholding) || 0 }; });
+  var byId = {};
+  if (d.length) getAllRows('Entries').forEach(function (e) { byId[e.id] = e; });
+  d.forEach(function (r) { map[r.entry_id] = { kind: 'distribution', partner: names[r.partner_id] || '', partner_id: r.partner_id, id: r.id, gross: distributionGross_(r, byId[r.entry_id]), withholding: Number(r.withholding) || 0 }; });
   return map;
 }
 
@@ -237,7 +249,7 @@ function companyPartners_(startDate, endDate) {
     if ((start && day < start) || (end && day > end)) return;
     var l = line(r.partner_id, String(e.currency));
     l.distributed = round2_(l.distributed + Number(e.amount));
-    l.gross = round2_(l.gross + (Number(r.gross) || Number(e.amount)));
+    l.gross = round2_(l.gross + distributionGross_(r, e));
     l.withholding = round2_(l.withholding + (Number(r.withholding) || 0));
   });
   listLoanBalances({}).forEach(function (f) {

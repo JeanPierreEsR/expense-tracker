@@ -66,6 +66,7 @@ function typedReadByRules_(text) {
 }
 
 var TYPED_INCOME_WORDS_ = /^(?:ingreso|income|cobr[eé]|cobro|recib[ií]|\+)\s*/i;
+var TYPED_PAID_ME_ = /(?:^|\s)(?:paid me|sent me|gave me back|paid me back|me pag[oó]|me yape[oó]|me pline[oó]|me devolvi[oó]|me transfiri[oó]|me deposit[oó]|me envi[oó])(?=\s|$|[,.])/i;
 var TYPED_CURRENCY_WORDS_ = { soles: 'PEN', sol: 'PEN', 'dólares': 'USD', dolares: 'USD', 'dólar': 'USD', dolar: 'USD', euros: 'EUR', euro: 'EUR' };
 
 // Pure: a typed line → { type, amount, currency, description } or null. home = the main currency.
@@ -76,6 +77,9 @@ function typedReadLine_(text, home) {
   var type = 'expense';
   var inc = TYPED_INCOME_WORDS_.exec(s);
   if (inc) { type = 'income'; s = s.slice(inc[0].length); }
+  // Someone paying YOU, said anywhere in the line ("Elmer paid me 37", "Ana me yapeó 20"): money received (testers 2.68.2: it
+  // was saved as an expense, and "repayment Elmer" then went the wrong way). The words stay in the description.
+  else if (TYPED_PAID_ME_.test(s)) type = 'income';
   var num = /\d[\d.,]*/.exec(s);
   if (!num) return null;
   // Description first ("almuerzo con Lucia, Mia 40", "taxi a Miraflores 2 personas 15", "menu 2x1 pizza S/ 35"; owner,

@@ -118,6 +118,7 @@ test("sending: to the accountant with a copy, the address kept; a change after s
   const mail2 = rt.svc.mailLog[rt.svc.mailLog.length - 1];
   assert.match(mail2.subject, /CORREGIDO|CORRECTED/);
   assert.match(mail2.body, /1200 → 1250/);
+  assert.match(mail2.body, new RegExp(`- ${day(5)} Cemento PEN [\\d.,]+: (Amount|Monto) 1200 → 1250 · (changed on|cambiado el) `), "the entry's date first, the field in words (testers 2.68.2)");
   assert.throws(() => rt.api("sendAccountantPackage", { month: ym, to: "not an address" }));
 });
 
@@ -134,4 +135,38 @@ test("the ledger: a lender's month as in the yearly statement", () => {
 test("not a company copy: refused", () => {
   const { rt } = freshApp({ small: true });
   assert.throws(() => rt.api("getAccountantPackage", { month: ym }));
+});
+
+// Testers 2.68.2 (Elena): a starting balance dated the 1st left the month's opening at 0.00, so opening + movements ≠ closing.
+test("a starting balance dated the 1st is that month's opening; opening + movements = closing", () => {
+  const rt = companyCopy();
+  month(rt);
+  const b1 = file(rt.api("getAccountantPackage", { month: ym }), "balances").slice(1);
+  assert.equal(Number(b1[0][2]), 10000);
+  assert.equal(Number(b1[0][2]) - 1200 - 300 + 5000, Number(b1[0][3]));
+});
+
+// Testers 2.68.2 (Carlos): a Spanish package showed the stored English names ("Materials", "Cash").
+test("a Spanish package names built-in categories and Cash in Spanish", () => {
+  const rt = companyCopy();
+  const mat = rt.rows("Categories").find((c) => c.key === "materials");
+  assert.ok(mat, "the construction sector has Materials");
+  const cash = rt.rows("Payment Methods").find((p) => /^(cash|efectivo)$/i.test(String(p.nickname)));
+  rt.api("createEntry", { type: "expense", date: day(6), amount: 80, currency: "PEN", category_id: mat.id, description: "Arena", payment_method_id: (cash || rt.rows("Payment Methods")[0]).id, paid_by: "me" });
+  const res = rt.rawPost(JSON.stringify({ accessCode: "test-access-code", action: "getAccountantPackage", payload: { month: ym }, lang: "es" }));
+  const mv = file(res.data, "movements");
+  const row = mv.find((r) => r.includes("Arena"));
+  assert.ok(row.includes("Materiales"), row.join(","));
+  if (cash) assert.ok(row.includes("Efectivo"), row.join(","));
+});
+
+test("the movements file ends with SUNAT's receipt code, the base without IGV and the total", () => {
+  const rt = companyCopy();
+  month(rt);
+  const mv = file(rt.api("getAccountantPackage", { month: ym }), "movements");
+  const h = mv[0];
+  const row = mv.find((r) => r.includes("F001-123"));
+  assert.equal(row[h.length - 3], "01", "factura");
+  assert.equal(Number(row[h.length - 1]), 1200);
+  assert.equal(Number(row[h.length - 2]), 1200 - (Number(row[h.indexOf("IGV")]) || 0));
 });

@@ -195,7 +195,7 @@
                 <div id="entry-repay-choose-panel" hidden>
                   <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
                   <div id="entry-repay-choose-list"></div>
-                  <p class="hint" id="entry-repay-choose-summary"></p>
+                  <p class="hint" id="entry-repay-choose-summary" aria-live="polite"></p>
                 </div>
               </div>
               <div id="repayment-overpay-block">
@@ -857,6 +857,7 @@
 
       <div class="card" id="loans-settled-card" hidden>
         <button type="button" class="add-inline loan-detail-paid-toggle" id="loans-settled-toggle"></button>
+        <h3 id="loans-settled-title" hidden></h3>
         <div id="loans-settled-list" hidden></div>
       </div>
 
@@ -1269,7 +1270,7 @@
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="business-detail-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
-          <button type="button" class="add-inline" id="business-detail-edit-btn" data-i18n="business.edit">Edit</button>
+          <button type="button" class="icon-btn" id="business-detail-edit-btn" data-i18n-aria-label="business.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
         </div>
         <h2 class="screen-title" style="margin-top:0;" id="business-detail-title"></h2>
         <p class="hint" id="business-detail-sub"></p>
@@ -1827,6 +1828,7 @@
 
         <p class="hint"><strong data-i18n="privacy.readsTitle">What your app reads</strong></p>
         <p class="hint" data-i18n="privacy.readsMail">Your bank emails, only if you turned that on. Your app reads them (it can never send, change or delete an email) and turns each payment into an entry that waits for your OK. Those emails stay between your Gmail and your app.</p>
+        <p class="hint" data-i18n="privacy.deletedCopy">Entries you delete several at a time, and an account's old name, digits and history after you move it to another account, stay in your Google Sheet for 30 days in Recently deleted, so you can bring them back. Deleting them for good there, or Delete everything, removes them.</p>
         <p class="hint" data-i18n="privacy.botCopy">If you use the WhatsApp or Telegram bot, your Google Sheet keeps a copy of what each bot action changed for 30 days, so “undo” can put it back. Deleting an entry for good in Recently deleted, or Delete everything, removes it.</p>
         <p class="hint" data-i18n="privacy.readsFiles">Receipt photos and bank statement PDFs are read on your phone. The file is not uploaded and not kept.</p>
 
@@ -2471,7 +2473,8 @@
         <p class="hint" data-i18n="sales.addUnitsHint">Choose the tags that are units of this project. To create units, use More → Categories &amp; tags → Add units.</p>
         <button type="button" class="add-inline" id="units-add-all" data-i18n="friends.selectAll">Select all</button>
         <div id="units-add-list" class="units-add-list"></div>
-        <p class="hint" id="units-add-none" hidden data-i18n="sales.noFreeTags">There is no tag left to add. Create units in More → Categories &amp; tags → Add units.</p>
+        <p class="hint" id="units-add-none" hidden data-i18n="sales.noFreeTags">There is no unit left to add: create them here.</p>
+        <button type="button" class="add-inline" id="units-add-create" data-i18n="sales.createUnits">Create units…</button>
         <button type="button" class="primary" id="units-add-save" data-i18n="sales.addUnitsSave">Add to the project</button>
       </div>
     </div>
@@ -2537,13 +2540,13 @@
     </div>
   </div>
   <!-- One entry's history (Business 2, piece 8), from the entry form. -->
-  <div id="history-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+  <div id="entry-log-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
         <span data-i18n="changelog.entryTitle">This entry's changes</span>
-        <button type="button" id="history-close" class="currency-modal-close">✕</button>
+        <button type="button" id="entry-log-close" class="currency-modal-close">✕</button>
       </div>
-      <div class="budget-modal-body"><div id="history-list"></div></div>
+      <div class="budget-modal-body"><div id="entry-log-list"></div></div>
     </div>
   </div>
   <!-- Business 2, piece 7: "It's a partner's money" / "Profit distribution" on a Needs review item (company copies). -->
@@ -2935,6 +2938,10 @@
       <div class="budget-modal-body" id="exchange-modal-body">
        <div id="exchange-form">
         <p class="hint" id="exchange-context" hidden></p>
+        <div id="exchange-other-pending" hidden>
+          <label for="exchange-other-pending-sel" data-i18n="xch.otherPendingLabel">The other side is also waiting in Needs review?</label>
+          <select id="exchange-other-pending-sel"></select>
+        </div>
         <p class="hint" data-i18n="xch.intro">Changed money from one currency to another, in either direction? It is saved as two transfers, one per currency. It is not spending or income.</p>
 
         <label for="exchange-date" data-i18n="field.date">Date</label>
@@ -2947,17 +2954,17 @@
         </div>
 
         <label data-i18n="xch.left">Money that left</label>
-        <select id="exchange-out-account"></select>
+        <select id="exchange-out-account" data-i18n-aria-label="xch.aria.outAccount" aria-label="Account the money left"></select>
         <div class="exchange-amount-row">
-          <input type="text" inputmode="decimal" id="exchange-out-amount" placeholder="0.00">
-          <select id="exchange-out-currency"></select>
+          <input type="text" inputmode="decimal" id="exchange-out-amount" placeholder="0.00" data-i18n-aria-label="xch.aria.outAmount" aria-label="Amount that left">
+          <select id="exchange-out-currency" data-i18n-aria-label="xch.aria.outCurrency" aria-label="Currency that left"></select>
         </div>
 
         <label data-i18n="xch.arrived">Money that arrived</label>
-        <select id="exchange-in-account"></select>
+        <select id="exchange-in-account" data-i18n-aria-label="xch.aria.inAccount" aria-label="Account the money arrived in"></select>
         <div class="exchange-amount-row">
-          <input type="text" inputmode="decimal" id="exchange-in-amount" placeholder="0.00">
-          <select id="exchange-in-currency"></select>
+          <input type="text" inputmode="decimal" id="exchange-in-amount" placeholder="0.00" data-i18n-aria-label="xch.aria.inAmount" aria-label="Amount that arrived">
+          <select id="exchange-in-currency" data-i18n-aria-label="xch.aria.inCurrency" aria-label="Currency that arrived"></select>
         </div>
         <p class="hint" id="exchange-rate-line" hidden></p>
 
@@ -2965,7 +2972,7 @@
         <input type="text" id="exchange-house" data-i18n-placeholder="common.optional" placeholder="Optional">
 
         <p class="stmt-note warn" id="exchange-account-note" hidden></p>
-        <p class="hint error-text" id="exchange-form-error"></p>
+        <p class="hint error-text" id="exchange-form-error" role="alert"></p>
         <button type="button" class="primary" id="exchange-save-btn" data-i18n="xch.save">Save exchange</button>
         <div id="exchange-edit-extras" hidden>
           <button type="button" class="add-inline" id="exchange-sides-btn" data-i18n="xch.editSides">Edit each side on its own</button>
@@ -3054,8 +3061,8 @@
         <p class="hint" id="loan-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
 
         <div id="loan-due-wrap">
-        <label for="loan-due-date" data-i18n="loanModal.dueDate">Due date</label>
-        <input type="date" id="loan-due-date">
+        <label for="loanm-due-date" data-i18n="loanModal.dueDate">Due date</label>
+        <input type="date" id="loanm-due-date">
         <p class="hint" id="loan-due-hint" data-i18n="loanModal.dueHint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
         </div>
 
@@ -3097,7 +3104,7 @@
   <!-- A budget change that could count from this period on or for all its periods (owner, 2026-11-08); an app window, not the
        iPhone's own dialog (that one speaks the phone's language: "Annuler"). -->
   <div id="app-confirm-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
-    <div class="currency-modal">
+    <div class="currency-modal" role="dialog" aria-modal="true" aria-describedby="app-confirm-text">
       <div class="currency-modal-header">
         <span></span>
         <button type="button" id="app-confirm-close" class="currency-modal-close">✕</button>
@@ -3187,7 +3194,7 @@
             <div id="settlement-choose-panel" hidden>
               <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
               <div id="settlement-choose-list"></div>
-              <p class="hint" id="settlement-choose-summary"></p>
+              <p class="hint" id="settlement-choose-summary" aria-live="polite"></p>
             </div>
           </div>
 
@@ -3198,7 +3205,7 @@
         </div>
 
         <div id="settlement-overpay-section" hidden>
-          <p class="hint" id="settlement-overpay-note"></p>
+          <p class="hint" id="settlement-overpay-section-note"></p>
           <label for="settlement-overpay-category" id="settlement-overpay-category-label" data-i18n="field.category">Category</label>
           <select id="settlement-overpay-category"></select>
           <p class="hint error-text" id="settlement-overpay-error"></p>
@@ -3337,7 +3344,7 @@
             <p class="hint" data-i18n="wa.nameHint">Optional. Type it as your bank prints it. It helps the app tell your own transfers apart from payments to other people. You can add or change it later in More → My names.</p>
             <input type="text" id="wa-name" autocomplete="name" autocapitalize="words" data-i18n-placeholder="wa.namePlaceholder" placeholder="First and last names">
           </div>
-          <p class="hint error-text" id="wa-error"></p>
+          <p class="hint error-text" id="wa-welcome-error"></p>
           <div class="welcome-tour-buttons">
             <button type="button" id="wa-back-btn" data-i18n="tour.back">Back</button>
             <button type="button" class="primary" id="wa-next-btn" data-i18n="welcome.next">Next</button>
@@ -3825,7 +3832,7 @@
           <div id="review-transfer-choose-panel" hidden>
             <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
             <div id="review-transfer-choose-list"></div>
-            <p class="hint" id="review-transfer-choose-summary"></p>
+            <p class="hint" id="review-transfer-choose-summary" aria-live="polite"></p>
           </div>
         </div>
 
@@ -4467,11 +4474,13 @@
       </div>
       <p class="hint" id="pm-wallet-warning" hidden style="font-weight:600;" data-i18n="accounts.walletWarning">Only for wallets that stand on their own, like Starbucks or other loyalty programs. If a wallet is tied to a bank account, don't add the wallet: add that bank account instead.</p>
 
+      <div id="pm-bank-digits">
       <label for="pm-bank" data-i18n="accounts.bank">Bank</label>
       <select id="pm-bank"></select>
 
       <label for="pm-last4" data-i18n="accounts.last4">Last 4 digits</label>
       <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" id="pm-last4" data-i18n-placeholder="common.optional" placeholder="Optional">
+      </div>
 
       <p class="hint" data-i18n="accounts.last4Hint">Only the last 4 digits of the card or account number — never the full number.</p>
 
@@ -4514,8 +4523,8 @@
       <p id="move-from-line"></p>
       <label for="move-to" data-i18n="move.to">Move it to</label>
       <select id="move-to"></select>
-      <div id="move-summary"></div>
-      <p class="hint error-text" id="move-form-error"></p>
+      <div id="move-summary" aria-live="polite"></div>
+      <p class="hint error-text" id="move-form-error" role="alert"></p>
       <button type="button" class="delete-entry-btn" id="move-save-btn" hidden></button>
     </div>
   </div>

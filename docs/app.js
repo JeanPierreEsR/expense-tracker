@@ -183,6 +183,7 @@ let editingViaPopup = false;
 let splitFriendIds = new Set();
 let repaymentAutoPickedId_ = "";
 let repaymentFriendTouched_ = false;   // the person picked the Repayment / New loan friend by hand (see autoPickRepaymentGroup_)
+let repaymentDirTouched_ = false;   // the person tapped "I paid" / "They paid me" by hand (testers 2.68.2: otherwise it follows who owes whom)
 let splitMode = "equal";
 let customSplitAmounts = {};
 let splitPercents = {};   // "%" mode: friend id -> typed percentage text
@@ -1044,6 +1045,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // copy may well have been applied. Each gets one `_requestId`, created on the
 // first attempt and carried unchanged through every resend; the server
 // (routeActionOnce_ in Api.gs) runs it once and answers repeats from memory.
+// "Same day, amount and merchant" only when that is what matched; a bank e-mail matched by amount within a day says so (testers 2.68.2).
+function dupWarningKey_(twins) { return twins.length && twins.every((t) => t.near) ? "review.dupWarningNear" : "review.dupWarning"; }
 const ONCE_ACTIONS = new Set([
   "fillEntryCharge", "createEntry", "saveEntryAll", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
@@ -1055,7 +1058,11 @@ const ONCE_ACTIONS = new Set([
   // Everything else that creates something (owner, 2026-11-14: a trip saved while the phone was locked was made three times)
   "addTrip", "addBudget", "addPaymentMethod", "savePaymentMethod", "addTag", "addBank", "addPayor", "saveCategory",
   "saveBankLoan", "recordEarlyPayment", "recordInstallment", "recordRecurringPayment", "recordRepaymentEntry", "createStatementAccounts",
-  "convertEntryToPartnerMoney", "changePartnerMoney", "recordDistribution"   // Business 2 piece 7: a partner's money
+  "convertEntryToPartnerMoney", "changePartnerMoney", "recordDistribution",   // Business 2 piece 7: a partner's money
+  // Testers 2.68.2: these were protected on the server only, so a "Try again" made a second sale stage. Kept equal to the server's
+  // ONCE_ACTIONS_ by tests/backend/once-actions.test.js.
+  "addIgvPayment", "assignEntryAccounts", "closeMonth", "reopenMonth", "sendAccountantPackage", "addProjectUnits", "saveUnitStage", "returnUnitDeposit",
+  "moveAccountHistory", "undoAccountMove", "restoreAccountMove"
 ]);
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
@@ -1923,6 +1930,7 @@ function showDetailForm(category) {
   setTimeout(updateChargeBox_, 0);
   tripPickLocked_ = false;   // a fresh form: suggest again
   repaymentFriendTouched_ = false;
+  repaymentDirTouched_ = false;
   autoPickTripForDate_();
   // Safety net: whichever way the form was reached, the labels and the
   // From/To/Paid-by fields always match the entry type being shown.
@@ -2003,7 +2011,8 @@ function populatePaidByOptions() {
   if (selectedType === "income") {
     label.textContent = tr("field.receivedFrom");
     // With no payers yet, start on an empty choice: "+ Add payer…" must never be the one selected (it was saved as the payer, 2026-11-04).
-    if (!incomePayers_().length) {
+    // A company copy starts empty too: its payers are buyers, and the last one is rarely who paid this time (testers 2.68.2, Lucía).
+    if (!incomePayers_().length || (typeof companyCopyOn_ === "function" && companyCopyOn_())) {
       const none = document.createElement("option");
       none.value = "";
       none.textContent = "—";
@@ -2465,7 +2474,8 @@ function autoPickRepaymentGroup_() {
   let group = covering.length === 1 ? meta.friends.find((f) => f.trip_id === covering[0].id) : null;
   // Only a group with something owed is suggested for a repayment (Lucho, 2026-11-18: it started on a trip group that owed nothing);
   // a new loan may still start with it.
-  const groupOwes = (id) => !loansLastBalances_ || loansLastBalances_.some((b) => b.friend_id === id && (b.balances || []).some((x) => Math.abs(Number(x.net) || 0) > 0.004));
+  // Balances not known yet: no group (testers 2.68.2: Marta's form opened on a group that owed nothing); asked again once they arrive.
+  const groupOwes = (id) => !!loansLastBalances_ && loansLastBalances_.some((b) => b.friend_id === id && (b.balances || []).some((x) => Math.abs(Number(x.net) || 0) > 0.004));
   if (group && transferKind_() === "repayment" && !groupOwes(group.id)) group = null;
   if (group && Array.from(sel.options).some((o) => o.value === group.id)) {
     sel.value = group.id;
@@ -2521,7 +2531,7 @@ function updateRepaymentUi_() {
   if (!document.getElementById("repayment-friend").options.length) populateRepaymentFriendOptions_();
   autoPickRepaymentGroup_();
 
-  document.getElementById("repayment-overpay-block").hidden = isLoan || keptDebtEdit_();   // only a re-recorded repayment can have a new extra
+  syncRepayOverpayBlock_();   // only a re-recorded repayment can have a new extra; only shown when the amount is more than owed
   document.getElementById("loan-due-block").hidden = !isLoan;
   if (!isLoan) {
     // "Decide later" comes first and is the default: an extra beyond the debt waits in Needs review unless a category was really picked.
@@ -2576,6 +2586,22 @@ autoBeforeApp_("date", "entry-opening", () => !document.getElementById("entry-op
 // so the person knows before Save (which then asks what the money is, askNothingOwed_). From the Loans tab's last list; fetched
 // once in the background when the Loans tab was not opened yet. New entries only, and only where the server can ask.
 let nothingOwedFetching_ = false;
+// "Category if you paid extra" shows only once the amount is more than what is owed that way (testers 2.68.2: two paragraphs
+// about an extra on every small repayment). Unknown balance: hidden; an extra then waits in Needs review ("decide later").
+function syncRepayOverpayBlock_() {
+  const block = document.getElementById("repayment-overpay-block");
+  if (transferKind_() !== "repayment" || keptDebtEdit_()) { block.hidden = true; return; }
+  const friendId = document.getElementById("repayment-friend").value;
+  const currency = document.getElementById("currency").value.toUpperCase();
+  const amount = parseFloat(sanitizeAmountInputValue(document.getElementById("amount").value)) || 0;
+  const b = loansLastBalances_ && loansLastBalances_.find((x) => x.friend_id === friendId);
+  const row = b && (b.balances || []).find((l) => String(l.currency).toUpperCase() === currency);
+  const dir = repaymentDirectionChoice;
+  const owed = row ? (row.open ? Number(row.open[dir] || 0) : Math.max(0, dir === "they_owe_me" ? row.net : -row.net)) : null;
+  block.hidden = owed === null || !(amount > owed + 0.004);
+}
+document.getElementById("amount").addEventListener("input", () => { if (repaymentActive_()) syncRepayOverpayBlock_(); });
+
 function syncNothingOwedLine_() {
   const line = document.getElementById("repayment-nothing-owed");
   const friendId = document.getElementById("repayment-friend").value;
@@ -2594,6 +2620,7 @@ function syncNothingOwedLine_() {
           populateRepaymentFriendOptions_();
           const sel = document.getElementById("repayment-friend");
           if (sel.options.length && sel.options[0].value !== "__add__") sel.value = sel.options[0].value;
+          autoPickRepaymentGroup_();   // a trip's group that does owe something can be suggested now
           updateAutoTransferDescription_();
         }
         syncNothingOwedLine_();
@@ -2615,6 +2642,10 @@ function syncNothingOwedLine_() {
     // Owed the OTHER way: say so, with a one-tap switch (Lucho, 2026-11-18: "I paid them" for a friend who owed him, and nothing hinted).
     const other = dir === "they_owe_me" ? "i_owe_them" : "they_owe_me";
     const otherAmt = row && row.open ? Number(row.open[other] || 0) : row ? Math.max(0, (other === "they_owe_me" ? row.net : -row.net)) : 0;
+    // A new repayment whose direction nobody chose: it follows who owes whom (testers 2.68.2: Diego saved "I paid" to a friend who
+    // owed him). Only a person's own tap on the tabs keeps the other way, and then the hint below offers the switch.
+    const tabOther = document.querySelector(`#repayment-direction-tabs .type-tab[data-direction="${other}"]`);
+    if (otherAmt > 0.004 && !repaymentDirTouched_ && transferKind_() === "repayment" && tabOther && !Spotlight.isRunning()) { tabOther.click(); return; }
     if (otherAmt > 0.004) {
       line.textContent = tr(other === "they_owe_me" ? "owed.otherTheyOwe" : "owed.otherIOwe", { friend: f ? f.name : "", amount: formatAmount(otherAmt, currency) }) + " ";
       const sw = document.createElement("button");
@@ -2625,12 +2656,14 @@ function syncNothingOwedLine_() {
       line.appendChild(sw);
     }
     fillRepaymentAmount_(0);
+    syncRepayOverpayBlock_();
     return;
   }
   // What is owed that way, said under the person and filled in as the amount (the same as Loans → Record repayment).
   const amount = row.open ? Number(row.open[dir] || 0) : Math.abs(Number(row.net) || 0);
   line.textContent = tr(dir === "they_owe_me" ? "owed.lineOwesYou" : "owed.lineYouOwe", { amount: formatAmount(amount, currency) });
   fillRepaymentAmount_(amount);
+  syncRepayOverpayBlock_();
 }
 
 // The amount the form filled in itself (never over one the person typed), and when: a Save within 3 s of it, untouched,
@@ -2653,16 +2686,10 @@ document.getElementById("amount").addEventListener("input", () => {
   entryRepayFill_ = null;
 });
 // True when this Save tap should only arm the second-tap safeguard.
-function entryRepayTooQuick_() {
-  const g = entryRepayFill_;
-  if (!g || g.armed || practiceRunning_ || !repaymentActive_() || transferKind_() !== "repayment") return false;
-  if (document.getElementById("amount").value !== g.value || Date.now() - g.at > REPAY_QUICK_MS_) return false;
-  g.armed = true;
-  document.getElementById("submit-btn").textContent = tr("settle.tapAgainAll", { amount: formatAmount(parseFloat(g.value), document.getElementById("currency").value.toUpperCase()) });
-  return true;
-}
+function entryRepayTooQuick_() { return false; }   // one tap since 2.69 (owner, 2026-11-24), as on a friend's screen
 
 document.getElementById("transfer-kind").addEventListener("change", () => {
+  document.getElementById("form-error").textContent = "";   // an error about the type just left no longer applies (testers 2.68.2)
   // Undo what a previous non-"between" state hid, then let the normal rules re-apply.
   document.getElementById("paid-by-label").hidden = selectedType === "transfer";
   document.getElementById("paid_by").hidden = selectedType === "transfer";
@@ -2684,7 +2711,8 @@ document.getElementById("transfer-kind").addEventListener("change", () => {
 });
 
 document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
+  tab.addEventListener("click", (ev) => {
+    if (ev.isTrusted) repaymentDirTouched_ = true;
     repaymentDirectionChoice = tab.dataset.direction;
     updateRepaymentUi_();
     syncConversionAmount_();   // a repayment kept as it is shows its own amount; re-recorded, the whole one
@@ -3373,7 +3401,10 @@ function applyPaidByDefaultSplit_() {
     if (splitFriendIds.size === 1 && splitFriendIds.has(paidByAutoSplit_)) splitFriendIds.delete(paidByAutoSplit_);
     paidByAutoSplit_ = null;
   }
-  const friend = selectedType === "expense" && paidBy !== "me" && meta.friends.some((f) => f.id === paidBy);
+  // A partner, lender, client or supplier paying a bill is the company's debt to them for the whole amount, never a split (testers
+  // 2.68.2, Lucho: an 800 bill paid by a partner booked 400 for the company and 400 owed). Only plain friends turn the split on.
+  const payer = (meta.friends || []).find((f) => f.id === paidBy);
+  const friend = selectedType === "expense" && paidBy !== "me" && !!payer && !isBusinessPerson_(payer);
   if (document.getElementById("split-field").hidden) return;
   const fire = () => toggle.dispatchEvent(new Event("change", { bubbles: true }));
   if (friend) {
@@ -4234,6 +4265,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         // "Choose which loans this pays" (owner, 2026-11-14): the loans ticked get the payment, oldest first; none = oldest first overall.
         const chosen = entryRepayAllocations_();
         if (chosen && chosen.length) repayPayload.allocations = chosen;
+        // This save waits for the server's answer (it may ask what the money is). With no connection the form used to sit still with a
+        // greyed Save and no word (testers 2.68.2): now it says it is waiting, and goes on by itself once the connection is back.
+        if (navigator.onLine === false) showToast_(tr("repay.waitingNet"), false, 20000);
         if (((meta && meta.capabilities) || {}).repayNothingOwed) {
           result = await callApi("recordRepayment", { ...repayPayload, ask_if_nothing_owed: true });
           if (result && result.nothing_owed) {
@@ -4251,6 +4285,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           result = await callApi("recordRepayment", repayPayload);
         }
       }
+      hideToast_(tr("repay.waitingNet"));
       if (nothingOwedChoice === "entry") {
         // Saved as an expense / income: said in those words (no "more than the debt", no "extra").
         const isIncome = direction === "they_owe_me";
@@ -4686,6 +4721,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     editingSplitEntry_ = null; editingProjectParts_ = [];
     resetBusinessPick_();                               // same for the company / project (a company copy's one company)
     repaymentFriendTouched_ = false;
+  repaymentDirTouched_ = false;
     resetSplitState();
     resetRepeat_();
     updateRepeatField_();
@@ -6869,6 +6905,7 @@ async function startEditEntry(entry) {
   // form that was cancelled half-way (it would silently start a loan / repayment conversion).
   document.getElementById("transfer-kind").value = "between";
   repaymentFriendTouched_ = false;
+  repaymentDirTouched_ = false;
   resetEntryRepayChoose_();   // "Choose which loans this pays" (when it becomes a repayment): today's loans, nothing ticked
   editingEntryId = entry.id;
   editingEntryOriginalDate_ = entry.date || null;
@@ -7473,7 +7510,7 @@ function syncReviewTwins_(id, newStatus) {
     if (!warn) return;
     if (!e.twins.length) { warn.remove(); return; }
     const btn = warn.querySelector(".review-dup-discard");
-    warn.innerHTML = tr("review.dupWarning", { list: e.twins.map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") });
+    warn.innerHTML = tr(dupWarningKey_(e.twins), { list: e.twins.map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") });
     if (btn) warn.appendChild(btn);
   });
 }
@@ -8111,12 +8148,16 @@ async function flushMoneyQueue_() {
       removeMoneyItem_(item.id);
       if (guided_ && guided_.moneyId === item.id) guided_.moneyLanded = { overpaid: (result && result.overpaid) || 0 };
       if (item.action === "recordRepayment") item.overpaid = (result && result.overpaid) || 0;   // the closing toast mentions the extra
-      if (item.action === "recordRepayment" && result && result.overpaid > 0.004) {
+      // "Saving…" stays until the refresh after the save is done too (CLAUDE.md § Saving standard; testers 2.68.2: "Saved" came
+      // ~4 s before the friend's screen caught up). A friend's screen that closes because all is settled says its own toast.
+      const settledBefore = loanDetailAutoClosed_;
+      try { await afterMoneySaved_(item); } catch (e) { /* the screen shows its own load error */ }
+      if (loanDetailAutoClosed_ !== settledBefore && loanDetailAutoClosed_) { /* its "All settled" toast stands */ }
+      else if (item.action === "recordRepayment" && result && result.overpaid > 0.004) {
         showToast_(tr("money.repaidExtra", { cur: result.currency, amount: moneyFmt(result.overpaid) }));
       } else {
         showToast_(tr("common.savedToast"));
       }
-      try { await afterMoneySaved_(item); } catch (e) { /* the screen shows its own load error */ }
     }
   } finally {
     moneyFlushing_ = false;
@@ -8542,7 +8583,9 @@ async function confirmReviewBulk_(chosen) {
   let repayGo = markedOk.filter((e) => !e.repay_intent.matters);
   const repayAsk = markedOk.filter((e) => e.repay_intent.matters);
   if (repayAsk.length) {
-    const list = repayAsk.map((e) => `${e.repay_intent.friend_name} ${formatAmount(e.amount, e.currency)}`).join(", ");
+    // In the order they are recorded: oldest first (testers 2.68.2: listed newest first).
+    const list = repayAsk.slice().sort((a, b) => String(a.date).localeCompare(String(b.date)))
+      .map((e) => `${e.repay_intent.friend_name} ${formatAmount(e.amount, e.currency)}`).join(", ");
     const answer = await askConfirmApp_(tr("reviewBulk.repayAsk", { n: repayAsk.length, list }), tr("repayAsk.oldest"), { plain: true, cancel: tr("reviewBulk.repayLeave"), closeValue: null });
     if (answer === null) return;
     if (answer) repayGo = repayGo.concat(repayAsk);
@@ -8839,7 +8882,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       ${entry.charge_match ? reviewChargeMatchHtml_(entry) : ""}
       ${entry.waiting_match ? `<div class="review-charge-match"><div>${escapeHtml(tr("income.matchAsk", { name: entry.waiting_match.friend_name, amount: formatAmount(entry.waiting_match.remaining, entry.waiting_match.currency) }))}</div><button type="button" class="stmt-choice review-waiting-btn">${escapeHtml(tr("income.matchYes"))}</button></div>` : ""}
       ${/^(Overpayment (from|to) |Pago de más (de|a) )/.test(entry.description || "") ? `<p class="hint review-overpay-note">${escapeHtml(tr("review.overpayNote"))}</p>` : ""}
-      ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}<button type="button" class="review-dup-discard">${escapeHtml(tr("review.discardCopy"))}</button></div>` : ""}
+      ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr(dupWarningKey_(entry.twins || []), { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}<button type="button" class="review-dup-discard">${escapeHtml(tr("review.discardCopy"))}</button></div>` : ""}
       <div class="review-quick">
         <button type="button" class="review-quick-cat${entry.type !== "investment" && !entry.category_id ? " review-quick-cat-missing" : ""}">${escapeHtml(entry.type === "investment" ? (TYPE_LABELS.investment || "") : (entry.category_id ? categoryName(entry.category_id) : tr("review.pickCategory")))}</button>
         <button type="button" class="review-quick-discard" aria-label="${escapeHtml(tr("review.discard"))}" title="${escapeHtml(tr("review.discard"))}">${lineIcon_("trash")}</button>
@@ -9318,14 +9361,38 @@ function updateExchangeChecks_() {
   const errorEl = document.getElementById("exchange-form-error");
   if (same) errorEl.textContent = tr("xch.sameCurrency");
   else if (errorEl.textContent === tr("xch.sameCurrency")) errorEl.textContent = "";
-  const notes = Spotlight.isRunning() ? [] : ["out", "in"].map((side) => {
-    const { pm, list } = exchangeAccountCurrency_(side);
-    const shown = document.getElementById(`exchange-${side}-currency`).value;
-    return list.length && !list.includes(shown) ? tr("xch.accountMismatch", { account: pm.nickname, accountCur: list.join(" / "), cur: shown }) : "";
-  }).filter(Boolean);
+  const misses = exchangeMismatches_();
   const note = document.getElementById("exchange-account-note");
-  note.textContent = notes.join(" ");
-  note.hidden = !notes.length;
+  note.innerHTML = "";
+  // Testers 2.68.2 (Rosa, Mark): the warning used to let a USD amount be saved on a soles-only account. Save now refuses it, and
+  // each warning carries the way out: add that currency to the account (it can hold several) and go on.
+  misses.forEach((m) => {
+    const p = document.createElement("p");
+    p.textContent = tr("xch.accountMismatch", { account: m.pm.nickname, accountCur: m.list.join(" / "), cur: m.cur });
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "add-inline";
+    add.textContent = tr("xch.addCurrency", { cur: m.cur });
+    add.addEventListener("click", () => {
+      m.pm.currencies = m.list.concat([m.cur]).join(",");   // the form reads it at once; the server keeps it
+      updateExchangeChecks_();
+      const err = document.getElementById("exchange-form-error");
+      if (err.textContent === tr("xch.mismatchSave")) err.textContent = "";
+      saveBehindScreen_(() => callApi("addAccountCurrency", { id: m.pm.id, currency: m.cur }), async () => { await loadMeta(); });
+    });
+    if (((meta && meta.capabilities) || {}).accountAddCurrency) { p.appendChild(document.createTextNode(" ")); p.appendChild(add); }
+    note.appendChild(p);
+  });
+  note.hidden = !misses.length;
+}
+// The sides whose account is known to hold other currencies than the one typed (none during a practice).
+function exchangeMismatches_() {
+  if (Spotlight.isRunning()) return [];
+  return ["out", "in"].map((side) => {
+    const { pm, list } = exchangeAccountCurrency_(side);
+    const cur = document.getElementById(`exchange-${side}-currency`).value;
+    return list.length && !list.includes(cur) ? { side, pm, list, cur } : null;
+  }).filter(Boolean);
 }
 // Picking on one side the currency the other side has swaps them, for any pair (owner, 2026-11-06): PEN → USD, first side set to USD, reads USD → PEN.
 let exchangeCurPrev_ = { out: "", in: "" };
@@ -9431,10 +9498,13 @@ async function openExchangeLink_(id, side) {
     row.tabIndex = 0;
     row.style.display = "block";
     row.style.cursor = "pointer";
+    row.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); row.click(); } });   // a keyboard or switch user (testers 2.68.2)
     row.innerHTML = `<div class="hint" style="margin:0 0 4px;font-weight:600;">${escapeHtml(tr(c.side === "in" ? "xch.arrived" : "xch.left"))} · ${escapeHtml(listDate_(c.date))}</div>
       <div><b>${formatAmount(c.amount, c.currency)}</b>${pmName(c.account) ? ` · ${escapeHtml(pmName(c.account))}` : ""}</div>
       ${c.taken ? `<div class="hint" style="margin:4px 0 0;">${escapeHtml(tr("xlink.taken"))}</div>` : ""}`;
-    row.addEventListener("click", () => {
+    row.addEventListener("click", async () => {
+      // A rate far from the table's asks first, as "Exchanges to link" would not even suggest it (testers 2.68.2).
+      if (c.far && c.rate && c.table_rate && !await askConfirmApp_(tr("xlink.farAsk", { from: c.from, to: c.to, rate: c.rate.toFixed(c.rate >= 100 ? 2 : 4), table: c.table_rate.toFixed(c.table_rate >= 100 ? 2 : 4) }), tr("xlink.farOk"), { plain: true })) return;
       backdrop.hidden = true;
       if (!document.getElementById("edit-entry-modal-backdrop").hidden && editingEntryId === id) closeEditPopup();
       saveBehindScreen_(async () => {
@@ -9555,10 +9625,47 @@ function fillExchangeForm_(opts) {
   ctx.hidden = !entry;
   if (entry) ctx.textContent = tr(leg === "out" ? "xch.context" : "xch.contextIn", { what: `${entry.description || tr("review.transactionFallback")} · ${entry.currency} ${moneyFmt(entry.amount)}` });
   document.getElementById("exchange-form-error").textContent = "";
+  fillExchangeOtherPending_(entry, leg);
   exchangeCurTouched_ = { out: leg === "out" && !!entry, in: leg === "in" && !!entry };   // (a waiting entry's own side keeps its currency)
   exchangeRememberCur_();
   updateExchangeRateLine_();
   updateExchangeChecks_();
+}
+
+// Made from a waiting item: the other side may be waiting too (the bank's e-mail of the money that arrived). Picking it fills that
+// side and, on Save, turns it in place instead of leaving it in Needs review as a possible duplicate (testers 2.68.2, Valeria).
+let exchangeOtherPendingId_ = "";
+async function fillExchangeOtherPending_(entry, leg) {
+  const box = document.getElementById("exchange-other-pending");
+  const sel = document.getElementById("exchange-other-pending-sel");
+  exchangeOtherPendingId_ = "";
+  box.hidden = true;
+  if (!entry || !((meta && meta.capabilities) || {}).exchangeOtherPending) return;
+  let list = [];
+  try { list = await callApi("listExchangeOtherPending", { id: entry.id }); } catch (e) { return; }
+  if (!exchangeContext_ || exchangeContext_.entry.id !== entry.id || !list.length) return;
+  sel.innerHTML = `<option value="">${escapeHtml(tr("xch.otherPendingNone"))}</option>` + list.map((x) =>
+    `<option value="${escapeHtml(x.id)}">${escapeHtml(`${listDate_(x.date)} · ${x.description || tr("review.transactionFallback")} · ${formatAmount(x.amount, x.currency)}`)}</option>`).join("");
+  box.hidden = false;
+  sel.onchange = () => {
+    const x = list.find((y) => y.id === sel.value);
+    exchangeOtherPendingId_ = x ? x.id : "";
+    if (!x) return;
+    const other = leg === "out" ? "in" : "out";
+    document.getElementById(`exchange-${other}-amount`).value = x.amount;
+    const cur = document.getElementById(`exchange-${other}-currency`);
+    if (![...cur.options].some((o) => o.value === x.currency)) cur.innerHTML = exchangeCurrencyOptions_(x.currency);
+    cur.value = x.currency;
+    exchangeCurTouched_[other] = true;
+    if (x.account) { const acc = document.getElementById(`exchange-${other}-account`); if ([...acc.options].some((o) => o.value === x.account)) acc.value = x.account; }
+    // The money left first: the "out" side's day is the exchange's date, the "in" side's day its arrival.
+    const outDay = other === "out" ? x.date : entry.date, inDay = other === "in" ? x.date : entry.date;
+    document.getElementById("exchange-date").value = outDay <= inDay ? outDay : inDay;
+    setExchangeInDate_(inDay > outDay ? inDay : "");
+    exchangeRememberCur_();
+    updateExchangeRateLine_();
+    updateExchangeChecks_();
+  };
 }
 
 // Editing a whole exchange (owner, 2026-11-23): the same form, filled with both sides; Save changes both at once (updateCurrencyExchange).
@@ -9657,6 +9764,7 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
   if (!(out.amount > 0) || !(inn.amount > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
   if (out.currency === inn.currency) { errorEl.textContent = tr("xch.sameCurrency"); return; }
   if (!out.payment_method_id && !inn.payment_method_id) { errorEl.textContent = tr("xch.needAccount"); return; }
+  if (exchangeMismatches_().length && ((meta && meta.capabilities) || {}).accountAddCurrency) { errorEl.textContent = tr("xch.mismatchSave"); return; }
   const ctx = exchangeContext_;
   if (ctx && !(ctx.leg === "out" ? out : inn).payment_method_id) { errorEl.textContent = tr("xch.needOwnSide"); return; }
   const editing = exchangeEditing_;
@@ -9701,8 +9809,10 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
   // closes at once and saves behind the screen; a refusal comes back as an alert and the waiting entry stays as it was.
   const body = {
     date, in_date: inDate, out, in: inn, house: document.getElementById("exchange-house").value.trim(),
-    pending_entry_id: ctx ? ctx.entry.id : undefined, pending_leg: ctx ? ctx.leg : undefined
+    pending_entry_id: ctx ? ctx.entry.id : undefined, pending_leg: ctx ? ctx.leg : undefined,
+    other_pending_id: ctx && exchangeOtherPendingId_ ? exchangeOtherPendingId_ : undefined
   };
+  const otherPendingId = body.other_pending_id;
   if (wasInline) {
     document.getElementById("transfer-kind").value = "between";   // the form goes back to its pop-up, the sheet closes
     updateRepaymentUi_();
@@ -9711,6 +9821,7 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
   } else {
     closeExchangeModal_();
   }
+  if (otherPendingId) dropReviewCard_(otherPendingId);
   saveBehindScreen_(async () => {
     await callApi("recordCurrencyExchange", body);
     showToast_(tr("xch.saved"));
@@ -10376,8 +10487,9 @@ async function openExchangeSuggest_() {
       row.className = "link-candidate-row";
       row.style.display = "block";
       row.innerHTML = sideLine("xch.left", p.out) + `<div style="height:6px"></div>` + sideLine("xch.arrived", p.in)
-        + `<div class="xsugg-actions"><button type="button" class="add-inline" data-act="link">${escapeHtml(tr("xsugg.link"))}</button>`
-        + `<button type="button" class="add-inline" data-act="no">${escapeHtml(tr("xsugg.notThese"))}</button></div>`;
+        // Each button names its pair for a screen reader (testers 2.68.2: "Link", "Not these" heard N times with nothing to tell them apart).
+        + `<div class="xsugg-actions"><button type="button" class="add-inline" data-act="link" aria-label="${escapeHtml(tr("xsugg.linkAria", { out: formatAmount(p.out.amount, p.out.currency), in: formatAmount(p.in.amount, p.in.currency) }))}">${escapeHtml(tr("xsugg.link"))}</button>`
+        + `<button type="button" class="add-inline" data-act="no" aria-label="${escapeHtml(tr("xsugg.notTheseAria", { out: formatAmount(p.out.amount, p.out.currency), in: formatAmount(p.in.amount, p.in.currency) }))}">${escapeHtml(tr("xsugg.notThese"))}</button></div>`;
       row.querySelector('[data-act="link"]').addEventListener("click", () => {
         left = left.filter((x) => x !== p);
         draw();
@@ -10620,6 +10732,7 @@ function holdScroll_(name, whereY) {
   TOUCHES.forEach((t) => window.addEventListener(t, endTabScrollHold_, { capture: true, passive: true }));
 }
 function showScreen(name) {
+  try { if (appUndoStack_.length && appUndoStack_[0].kind === "move") dropUndoKind_("move"); } catch (e) { /* before start-up has set the stack */ }   // an account move's Undo stays on its own screen (testers 2.68.2)
   teachVisit_++;   // the daily teaching budget allows one unasked thing per screen visit
   rememberTabScroll_(name);
   if (name !== "budgets" && budgetsEditing_) setBudgetsEditing_(false, false);
@@ -11730,7 +11843,10 @@ function paintOverviewSummary_(data) {
   const loansEl = document.getElementById("summary-loans");
   loansEl.textContent = formatPenSigned_(data.totals.loans || 0);
   loansEl.classList.toggle("pos-green", (data.totals.loans || 0) > 0.004);
-  document.getElementById("summary-net").textContent = formatPenSigned_(data.totals.net);
+  // A company copy's Result is income minus expenses: borrowed money is not a result (owner, 2026-11-24, after the testers: +2,000
+  // showed with no income at all). Loans keep their own line above.
+  const coResult = companyCopyOn_();
+  document.getElementById("summary-net").textContent = formatPenSigned_(coResult ? data.totals.income - data.totals.expense : data.totals.net);
   // The gray line under What's left spells the sum with the SIGNS the blocks actually show: "− Loans" when loans took money out,
   // "+ Investments" when more was taken out of investments than put in. Zero or more reads "+"; Expenses always read "−" (owner, 2026-11-11).
   const sgn = (shown) => (shown < -0.004 ? "−" : "+");
@@ -11741,7 +11857,7 @@ function paintOverviewSummary_(data) {
     [sgn(-data.totals.investment), tr("summary.investments")],
     [sgn(data.totals.loans || 0), tr("summary.loans")]
   ];
-  document.getElementById("summary-net-eq").textContent = eqParts.map(([s, label], i) => (i === 0 ? label : `${s} ${label}`)).join(" ");
+  document.getElementById("summary-net-eq").textContent = (coResult ? eqParts.slice(0, 2) : eqParts).map(([s, label], i) => (i === 0 ? label : `${s} ${label}`)).join(" ");
   markSummaryTappable_();
   if (flowsState_) renderFlowChips_();
   // Investments always read purple and What's left in the normal text colour (owner, 2026-10-27).
@@ -11851,8 +11967,10 @@ function renderCompanyClose_(state) {
     if (checked.length) parts.push(`<p class="hint">${escapeHtml(diffs.length ? tr("close.bankDiffs", { list: diffs.map((b) => `${b.nickname} ${formatAmount(Math.abs(b.difference), b.currency, b.difference > 0 ? "+" : "−")}`).join(" · ") }) : tr("close.bankOk"))}</p>`);
     if (c.note) parts.push(`<p class="hint">${escapeHtml(tr("close.noteShown", { note: c.note }))}</p>`);
     if (state.changed) {
-      parts.push(`<p class="close-changed">${escapeHtml(tr("close.changed"))} ${escapeHtml(state.hand_edited ? tr("close.handEdited") : tr("close.changedN", { n: state.changes.length }))}</p>`);
-      if (!state.hand_edited) parts.push(`<button type="button" class="add-inline" id="co-close-see">${escapeHtml(tr("close.seeChanges"))}</button>`);
+      // A hand edit is said even when the app also changed things (testers 2.68.2: one app edit used to hide it).
+      const said = [state.changes.length ? tr("close.changedN", { n: state.changes.length }) : "", state.hand_edited ? tr("close.handEdited") : ""].filter(Boolean).join(" ");
+      parts.push(`<p class="close-changed">${escapeHtml(tr("close.changed"))} ${escapeHtml(said)}</p>`);
+      if (state.changes.length) parts.push(`<button type="button" class="add-inline" id="co-close-see">${escapeHtml(tr("close.seeChanges"))}</button>`);
     }
     parts.push(`<button type="button" class="add-inline" id="co-close-reopen">${escapeHtml(tr("close.reopen"))}</button>`);
   } else {
@@ -11861,6 +11979,12 @@ function renderCompanyClose_(state) {
     if (state.pending_count) parts.push(`<p class="hint">${escapeHtml(tr("close.pendingN", { n: state.pending_count }))}</p>`);
     parts.push(`<button type="button" class="primary" id="co-close-open">${escapeHtml(tr("close.openBtn"))}</button>`);
   }
+  // December: the year's months still open, each one tap away (owner, 2026-11-24, after Andrés's year-end).
+  const yearOpen = (state.year_open || []).filter((m) => m !== state.month || !state.closed);
+  if (yearOpen.length) {
+    parts.push(`<p class="hint">${escapeHtml(tr("close.yearOpen", { year: state.month.slice(0, 4) }))}</p>`);
+    parts.push(`<div class="close-year-open">${yearOpen.map((m) => `<button type="button" class="add-inline" data-month="${escapeHtml(m)}">${escapeHtml(paceMonthName_(m, true))}</button>`).join("")}</div>`);
+  }
   // Piece 10: the accountant's package of this month.
   const p = state.package || {};
   if (p.sent_at) parts.push(`<p class="hint">${escapeHtml(tr("pkg.sentOn", { to: p.sent_to, date: listDate_(changeLogLocal_(p.sent_at).day) }))}</p>`);
@@ -11868,6 +11992,12 @@ function renderCompanyClose_(state) {
   parts.push(`<button type="button" class="add-inline" id="co-pkg-open">${escapeHtml(tr(p.sent_at && p.changed_since ? "pkg.openCorrected" : "pkg.open"))}</button>`);
   body.innerHTML = parts.join("");
   const on = (id, fn) => { const b = document.getElementById(id); if (b) b.addEventListener("click", fn); };
+  body.querySelectorAll(".close-year-open [data-month]").forEach((b) => b.addEventListener("click", () => {
+    const [y, mo] = b.dataset.month.split("-").map(Number);
+    periodType = "month";
+    periodAnchor = new Date(y, mo - 1, 1);
+    refreshCurrentPeriodScreen();
+  }));
   on("co-pkg-open", () => openPackageModal_(state));
   on("co-close-open", () => openCloseModal_(state));
   on("co-close-see", () => showChangeLog_(state.month));
@@ -12056,9 +12186,9 @@ document.getElementById("changelog-next").addEventListener("click", () => { chan
 document.getElementById("entry-history-btn").addEventListener("click", async () => {
   const id = editingEntryId;
   if (!id) return;
-  const list = document.getElementById("history-list");
+  const list = document.getElementById("entry-log-list");
   list.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
-  const backdrop = document.getElementById("history-modal-backdrop");
+  const backdrop = document.getElementById("entry-log-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
   try {
@@ -12066,7 +12196,7 @@ document.getElementById("entry-history-btn").addEventListener("click", async () 
     list.innerHTML = res.lines.length ? renderChangeLogLines_(res.lines) : `<p class="hint">${escapeHtml(tr("changelog.entryEmpty"))}</p>`;
   } catch (e) { list.innerHTML = `<p class="hint error-text">${escapeHtml(tr("business.loadFailed", { error: e.message }))}</p>`; }
 });
-document.getElementById("history-close").addEventListener("click", () => { document.getElementById("history-modal-backdrop").hidden = true; });
+document.getElementById("entry-log-close").addEventListener("click", () => { document.getElementById("entry-log-backdrop").hidden = true; });
 
 // ---- Partners (Business 2, piece 7) ----
 // The Overview card: per partner and currency (never converted) what they put in as capital, what is still to be decided, what the
@@ -12128,13 +12258,15 @@ function openPartnerModal_(entry, mode) {
   const sel = document.getElementById("partner-pick");
   sel.innerHTML = "";
   const people = partnerPeople_();
-  if (!people.length) { const o = document.createElement("option"); o.value = ""; o.textContent = "—"; sel.appendChild(o); }
+  // Two or more partners: nobody is chosen for the person (testers 2.68.2: the first partner was picked, so money could go to the
+  // wrong one). One partner: that one; none: a new one.
+  if (people.length !== 1) { const o = document.createElement("option"); o.value = ""; o.textContent = tr("partner.pickWho"); sel.appendChild(o); }
   people.forEach((f) => { const o = document.createElement("option"); o.value = f.id; o.textContent = f.name; sel.appendChild(o); });
   const add = document.createElement("option");
   add.value = "__new__";
   add.textContent = tr("partner.newOption");
   sel.appendChild(add);
-  sel.value = people.length ? people[0].id : "__new__";
+  sel.value = people.length === 1 ? people[0].id : people.length ? "" : "__new__";
   const nameBox = document.getElementById("partner-new-name");
   nameBox.value = "";
   nameBox.hidden = sel.value !== "__new__";
@@ -16429,7 +16561,7 @@ function renderWelcomeAccounts_() {
   fillBankNote_(waEl_("wa-note"), welcome_.accounts.map((a) => a.bank), true);
   renderWaWalletQuestion_();
   waEl_("wa-skip-btn").hidden = welcome_.accounts.length > 0;
-  waEl_("wa-error").textContent = "";
+  waEl_("wa-welcome-error").textContent = "";
 }
 
 // "Do you use Yape or Plin?" at the top of the accounts step (owner, 2026-11-04: Yape / Plin users could not find themselves in a
@@ -16676,13 +16808,22 @@ welcomeEl_("welcome-continue-btn").addEventListener("click", () => showWelcomeSt
 // The end of step 3 (accounts): check the Yape / Plin links, then on to step 4 (nothing is saved yet).
 async function waNext_() {
   const typed = waEl_("wa-name").value.trim().replace(/\s+/g, " ");
-  if (typed && !ownerNameLooksReal_(typed)) { waEl_("wa-error").textContent = tr("ownerNames.badName", { name: typed }); return; }
+  if (typed && !ownerNameLooksReal_(typed)) { waEl_("wa-welcome-error").textContent = tr("ownerNames.badName", { name: typed }); return; }
   welcome_.ownName = typed;
   // When an account could carry Yape or Plin but none has been ticked: ASK whether the person uses them (journeys run, 2026-11-17: 9
   // people who never used either were told they had not linked them); "I don't use them" goes on, the other answer goes back.
   const canLink = welcome_.accounts.some((a) => waSlots_(a.bank, a.kind).length);
   const linked = WA_RAILS.some((k) => welcome_.accounts.some((a) => a.cid === welcome_.links[k]));
   if (canLink && !linked && !await askConfirmApp_(tr("wallets.confirm"), tr("confirmBtn.dontUseWallets"), { plain: true, cancel: tr("confirmBtn.goBackCheck") })) return;
+  // A company copy has no investment platforms step (owner, 2026-11-24, after the testers): the welcome saves from here. The step's
+  // own box only shows a refusal, with Back / Next to try again.
+  if (companyWelcome_()) {
+    waEl_("welcome-platforms").dataset.company = "1";
+    showWelcomeStep_(4);
+    finishWelcome_();
+    return;
+  }
+  delete waEl_("welcome-platforms").dataset.company;
   showWelcomeStep_(4);
 }
 
@@ -16745,7 +16886,7 @@ waEl_("wp-back-btn").addEventListener("click", () => showWelcomeStep_(3));
 // The end of step 4: save the accounts, the platforms, the Business answer, the category picks, then the answers of step 1 (marked "answered" last, so an interrupted save asks again).
 // The welcome counts every screen it shows (design review 2026-11-12: "Step 1 of 4", then an uncounted 5th, the sharing
 // question): 5 while that question is still to come, else 4.
-function welcomeSteps_() { return perfShareState_().asked && !perfIsOwnerCopy_() ? 4 : 5; }
+function welcomeSteps_() { return (perfShareState_().asked && !perfIsOwnerCopy_() ? 4 : 5) - (companyWelcome_() ? 1 : 0); }   // a company copy skips platforms
 // The tour is offered, not started (owner, 2026-11-12): "Want a 1-minute tour?" Show me / Skip. Skipping ends the welcome the
 // way the tour's own end does (a reload when the answers changed the app).
 async function offerTour_(reloadAfter) {
@@ -16820,7 +16961,7 @@ async function finishWelcome_() {
   // Which inbox is read, and how other banks' e-mails get there, is a "Getting started" step on Home (renderFirstSteps_), not a sheet here.
   toTour();
 }
-waEl_("wa-name").addEventListener("input", () => { welcome_.ownName = waEl_("wa-name").value; waEl_("wa-error").textContent = ""; });   // survives a redraw of the screen
+waEl_("wa-name").addEventListener("input", () => { welcome_.ownName = waEl_("wa-name").value; waEl_("wa-welcome-error").textContent = ""; });   // survives a redraw of the screen
 waEl_("wa-next-btn").addEventListener("click", waNext_);
 waEl_("wa-skip-btn").addEventListener("click", waNext_);
 document.querySelectorAll("[data-welcome-business]").forEach((b) => b.addEventListener("click", () => {
@@ -20373,6 +20514,7 @@ function openPmModal_(pm) {
   const basicCash = isBasicCashPm_(pm);
   typeSel.disabled = basicCash;
   document.getElementById("pm-cash-hint").hidden = !basicCash;
+  document.getElementById("pm-bank-digits").hidden = basicCash;   // Cash has no bank and no digits (testers 2.68.2)
   // A wallet tied to a bank account must not be added as a wallet: the bank account behind it is the account (owner's rule, 2026-10-18).
   const walletWarn = () => { document.getElementById("pm-wallet-warning").hidden = typeSel.value !== "wallet"; };
   typeSel.onchange = () => { if (!pmModalState.id) pmModalState.currencies = null; walletWarn(); renderPmCurrency_(); renderPmWallets_(); };
@@ -20651,9 +20793,11 @@ function moveBalanceHtml_(p) {
   return (p.balanceChoices || []).map((ch) => {
     const amt = (n) => card ? formatAmount(Math.abs(n), ch.currency) : formatAmount(Math.abs(n), ch.currency, n < 0 ? "−" : "");
     const keep = moveKeep_.has(ch.currency);
-    const btn = (k, on, label) => `<button type="button" class="stmt-choice ${on ? "on" : ""}" data-movebal="${escapeHtml(ch.currency)}" data-keep="${k}" style="text-align:left;white-space:normal">${on ? "✓ " : ""}${escapeHtml(label)}</button>`;
-    return `<div class="move-bal" style="margin:12px 0 4px"><p style="margin:0 0 6px;font-weight:600">${escapeHtml(tr(card ? "move.bal.titleOwe" : "move.bal.titleHave", { name: p.to.nickname }))}</p>
-      <div class="stmt-choices" style="padding-left:0;flex-direction:column;align-items:stretch">
+    // A choice of two: a screen reader hears which one is picked (role radio + aria-checked); the ✓ is only for the eye (testers 2.68.2).
+    const btn = (k, on, label) => `<button type="button" role="radio" aria-checked="${on ? "true" : "false"}" class="stmt-choice ${on ? "on" : ""}" data-movebal="${escapeHtml(ch.currency)}" data-keep="${k}" style="text-align:left;white-space:normal">${on ? `<span aria-hidden="true">✓ </span>` : ""}${escapeHtml(label)}</button>`;
+    const titleId = "move-bal-title-" + escapeHtml(ch.currency);
+    return `<div class="move-bal" style="margin:12px 0 4px"><p id="${titleId}" style="margin:0 0 6px;font-weight:600">${escapeHtml(tr(card ? "move.bal.titleOwe" : "move.bal.titleHave", { name: p.to.nickname }))}</p>
+      <div class="stmt-choices" role="radiogroup" aria-labelledby="${titleId}" style="padding-left:0;flex-direction:column;align-items:stretch">
         ${btn(0, !keep, tr(card ? "move.bal.addCard" : "move.bal.addBank", { amount: amt(ch.add) }))}
         ${btn(1, keep, tr(card ? "move.bal.keepCard" : "move.bal.keepBank", { amount: amt(ch.keep), name: p.to.nickname, old: p.from.nickname }))}
       </div>
@@ -20728,7 +20872,7 @@ document.getElementById("move-to").addEventListener("change", async (e) => {
       + (lines.length ? `<ul style="list-style:disc;margin:4px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : "")
       + ((p.balanceChoices || []).length ? `<div id="move-bal-box">${moveBalanceHtml_(p)}</div>` : c.balancesDropped ? `<p class="hint">${escapeHtml(tr("move.balancesKept", { n: c.balancesDropped, name: p.to.nickname }))}</p>` : "")
       + (c.selfTransfers ? `<p class="hint">${escapeHtml(tr("move.selfTransfers", { n: c.selfTransfers }))}</p>` : "")
-      + ((p.droppedLinks || []).length ? `<p class="stmt-note warn">${escapeHtml(tr("move.linksDropped", { wallets: p.droppedLinks.join(", "), name: p.to.nickname }))}</p>` : "")
+      + ((p.droppedLinks || []).length ? `<p class="stmt-note warn">${escapeHtml(tr("move.linksDropped", { wallets: p.droppedLinks.join(" / "), name: p.to.nickname }))}</p>` : "")
       + (extra.length ? `<p class="stmt-note warn">${escapeHtml(tr("move.currencyWarn", { currencies: extra.join(", "), name: p.to.nickname }))}</p>` : "")
       + (digits && bank ? `<p class="hint">${escapeHtml(tr("move.digits", { name: p.to.nickname, digits, bank: bank.name }))}</p>` : "")
       + bankAsk
@@ -20768,18 +20912,22 @@ document.getElementById("move-save-btn").addEventListener("click", () => {
     refreshHomeGlance_(true);
     refreshTabsAhead_();
   };
+  let res = null;
   saveBehindScreen_(async () => {
-    let res;
     try { res = await callApi("moveAccountHistory", { from: fromId, to: toId, old_bank_id: oldBankId || undefined, keep_balances: keepBalances }); }
     catch (err) { unmarkDeleting_("pm:" + fromId); throw err; }
     unmarkDeleting_("pm:" + fromId);
-    // The same Restore as More → My data → Recently deleted, where the move waits 30 days.
+  }, async () => {
+    await refresh();
+    if (!res) return;
+    // The same Restore as More → My data → Recently deleted, where the move waits 30 days. Shown once the refresh is done (testers
+    // 2.68.2: it sat inside the "Saving…" toast), and gone when the person changes tab (kind "move", see showScreen).
     showUndoToast_(tr("move.done", { from: from ? from.nickname : "", to: to ? to.nickname : "" }), async () => {
       await callApi("undoAccountMove", { move_id: res.move_id });
       showToast_(tr("move.undone"));
       await refresh();
-    });
-  }, refresh);
+    }, "move");
+  });
 });
 
 // ---- Accounts: Edit mode (tick several accounts, delete them at once; owner's request, 2026-11-03) ----
@@ -21060,7 +21208,11 @@ function unitsRefresh_() {
     : tr("units.preview", { n: fresh.length, list: fresh.join(", ") }) + (fresh.length < names.length ? " " + tr("units.already", { n: names.length - fresh.length }) : "");
   return fresh;
 }
-function openUnits_() {
+// Opened from a project's "Add units" (testers 2.68.2, Lucía: units could only be made in More → Categories & tags): the units made
+// are added to that project at once.
+let unitsForProject_ = "";
+function openUnits_(e, projectId) {
+  unitsForProject_ = typeof projectId === "string" ? projectId : "";
   document.querySelector('input[name="units-mode"][value="floors"]').checked = true;
   ["units-floor-to", "units-per-floor", "units-seq-count", "units-list"].forEach((id) => { document.getElementById(id).value = ""; });
   document.getElementById("units-floor-from").value = "1";
@@ -21088,7 +21240,13 @@ document.getElementById("units-save").addEventListener("click", () => {
   if (names.length > 300) { err.textContent = tr("units.tooMany"); return; }
   if (!fresh.length) { err.textContent = tr(names.length ? "units.nothingNew" : "units.nothing"); return; }
   document.getElementById("units-modal-backdrop").hidden = true;
-  saveBehindScreen_(() => callApi("addTagsBulk", { names: fresh }), refreshTagsAfterChange_);
+  const projectId = unitsForProject_;
+  unitsForProject_ = "";
+  saveBehindScreen_(async () => {
+    const res = await callApi("addTagsBulk", { names: fresh });
+    const ids = ((res && res.tags) || []).map((t) => t.id);
+    if (projectId && ids.length) await callApi("addProjectUnits", { project_id: projectId, tag_ids: ids });
+  }, async () => { await refreshTagsAfterChange_(); if (projectId) await refreshUnits_(); });
 });
 
 function catCountText_(id) {
@@ -23117,6 +23275,11 @@ document.getElementById("business-units-add").addEventListener("click", () => {
   backdrop.hidden = false;
 });
 document.getElementById("units-add-close").addEventListener("click", () => { document.getElementById("units-add-modal-backdrop").hidden = true; });
+document.getElementById("units-add-create").addEventListener("click", () => {
+  const projectId = unitsData_ && unitsData_.project_id;
+  document.getElementById("units-add-modal-backdrop").hidden = true;
+  openUnits_(null, projectId || "");
+});
 document.getElementById("units-add-all").addEventListener("click", () => { document.querySelectorAll("#units-add-list input").forEach((c) => { c.checked = true; }); });
 document.getElementById("units-add-save").addEventListener("click", () => {
   const ids = [...document.querySelectorAll("#units-add-list input:checked")].map((c) => c.value);
@@ -23266,7 +23429,7 @@ function openShareModal_() {
   shareDoc_ = { start: b.startDate || "", end: b.endDate || "" };
   document.getElementById("share-period").textContent = shareDoc_.start || shareDoc_.end
     ? tr("share.period", { start: shareDoc_.start ? listDate_(shareDoc_.start) : "…", end: shareDoc_.end ? listDate_(shareDoc_.end) : "…" }) : tr("share.allTime");
-  document.getElementById("share-sections").innerHTML = SHARE_ALL_.map((k) => `<label class="checkbox-row"><input type="checkbox" value="${k}"${shareSectionsNow_.includes(k) ? " checked" : ""}> <span>${escapeHtml(tr("share.s." + k))}${k === "owed" ? `<small class="hint">${escapeHtml(tr("share.owedHint"))}</small>` : ""}</span></label>`).join("");
+  document.getElementById("share-sections").innerHTML = SHARE_ALL_.map((k) => `<label class="checkbox-row"><input type="checkbox" value="${k}"${shareSectionsNow_.includes(k) ? " checked" : ""}> <span>${escapeHtml(tr("share.s." + k))}${k === "owed" ? `<small class="hint" style="display:block;margin:2px 0 0">${escapeHtml(tr("share.owedHint"))}</small>` : ""}</span></label>`).join("");   // the hint on its own line (testers 2.68.2: "prestamistasNo va…")
   document.getElementById("share-error").textContent = "";
   document.getElementById("share-pick").hidden = false;
   document.getElementById("share-doc").hidden = true;
@@ -23578,8 +23741,13 @@ function expectedDueText_(x) {
   return x.overdue ? `${tr("xp.dueOn", { date })} · ⚠️ ${tr("xp.overdue")}` : tr("xp.dueOn", { date });
 }
 
+// A sale stage is named by its unit and stage; anything else by its invoice number or client (testers 2.68.2).
+function expectedTitle_(x) {
+  if (x.unit_name || x.stage_name) return [x.unit_name, x.stage_name].filter(Boolean).join(" · ");
+  return x.invoice_no || x.client_name || tr("xp.title");
+}
 function expectedRowHtml_(x, isProject) {
-  const sub = [x.invoice_no && x.client_name ? x.client_name : "", isProject ? "" : projectLabel_({ name: x.project_name, emoji: x.project_emoji }), expectedDueText_(x),
+  const sub = [(x.unit_name || x.stage_name || x.invoice_no) && x.client_name ? x.client_name : "", isProject ? "" : projectLabel_({ name: x.project_name, emoji: x.project_emoji }), expectedDueText_(x),
     x.state === "open" && x.paid > 0 ? tr("xp.partReceived", { cur: x.currency, amount: moneyFmt(x.paid) }) : "",
     x.state !== "open" ? tr("xp.state." + x.state) : ""].filter(Boolean).join(" · ");
   const actions = !isProject ? "" : x.state === "open"
@@ -23589,7 +23757,7 @@ function expectedRowHtml_(x, isProject) {
     <div class="xp-row${x.overdue ? " overdue" : ""}" data-id="${escapeHtml(x.id)}" data-project="${escapeHtml(x.project_id)}">
       <div class="recurring-row xp-main">
         <div>
-          <div class="recurring-row-name">${escapeHtml(x.invoice_no || x.client_name || tr("xp.title"))}</div>
+          <div class="recurring-row-name">${escapeHtml(expectedTitle_(x))}</div>
           <div class="recurring-row-sub">${escapeHtml(sub)}</div>
         </div>
         <div class="recurring-row-amount"><div class="primary-amt">${escapeHtml(x.currency)} ${moneyFmt(x.state === "open" ? x.remaining : x.amount)}</div></div>
@@ -23770,8 +23938,8 @@ async function refreshBusinessHomeCard_() {
     ${r.items.map((x) => `
       <div class="recurring-row business-expected-row${x.overdue ? " overdue" : ""}" data-project="${escapeHtml(x.project_id)}">
         <div>
-          <div class="recurring-row-name">${escapeHtml(x.invoice_no || x.client_name || tr("xp.title"))}</div>
-          <div class="recurring-row-sub">${escapeHtml([x.company_name, x.project_name].filter(Boolean).join(" › "))} · ${escapeHtml(expectedDueText_(x))}</div>
+          <div class="recurring-row-name">${escapeHtml(expectedTitle_(x))}</div>
+          <div class="recurring-row-sub">${escapeHtml([x.unit_name || x.stage_name ? x.client_name : "", [x.company_name, x.project_name].filter(Boolean).join(" › ")].filter(Boolean).join(" · "))} · ${escapeHtml(expectedDueText_(x))}</div>
         </div>
         <div class="recurring-row-amount"><div class="primary-amt">${escapeHtml(x.currency)} ${moneyFmt(x.remaining)}</div></div>
       </div>`).join("")}`;
@@ -28851,9 +29019,9 @@ const LINK_ICON_RULES_ = [
   [/^(reopen|reabrir|reopening|reabriendo)/i, "refresh"],   // its Reopen, and every other "Reopen"
   [/^(starting balance|saldo inicial)/i, "plus"],   // the import's Done screen: gives a new account its starting balance
   [/^(this entry's changes|cambios de este movimiento|see the changes|ver los cambios)$/i, "clock"],
-  [/^(yearly statement|constancia anual|all the yearly statements|todas las constancias)$/i, "file"],   // piece 9
+  [/^(yearly statement|information statement|constancia anual|all the yearly statements|all the information statements|todas las constancias)$/i, "file"],   // piece 9
   [/^(send the (corrected )?package|enviar el paquete)/i, "send"],   // piece 10
-  [/^(return the deposit|devolver separación)/i, "undo"],   // piece 11
+  [/^(return the deposit|devolver separación|return this payment|devolver este pago)/i, "undo"],   // piece 11
   [/^(prepare a statement to share|preparar un estado para compartir|prepare the statement|preparar el estado)/i, "file"],   // piece 12
   [/^(change the sections|cambiar las secciones)/i, "pencil"],
   [/^(record the return|registrar la devolución)/i, "check"],
@@ -28861,10 +29029,11 @@ const LINK_ICON_RULES_ = [
   [/^(remove from this project|quitar del proyecto)/i, "trash"],
   [/^(save the files|guardar los archivos|save \d|guardar \d)/i, "download"],
   [/^(share as text|compartir como texto|share as csv|compartir como csv)/i, "send"],   // piece 8: the change log
-  [/^(it's a partner's money|es plata de un socio)$/i, "users"],   // Business 2 piece 7: Needs review's partner buttons
+  [/^(it's a partner's money|es plata de un socio|es dinero de un socio)$/i, "users"],   // Business 2 piece 7: Needs review's partner buttons
   [/^(profit distribution|distribución de utilidades)$/i, "coin"],
   [/^(it's a contribution|es aporte)$/i, "check"],   // the Partners card: decide a "to be decided" one
   [/^(it's a loan|es préstamo)$/i, "swap"],
+  [/^(create units|crear unidades)/i, "plus"],   // a project's Add units sheet (testers 2.68.2)
   [/^(add|agregar|añadir)\b|^\+ /i, "plus"],
   [/^(copy|copiar)\b/i, "copy"],
   [/^(make my link|crear mi enlace)/i, "plus"],
@@ -28889,6 +29058,7 @@ const LINK_ICON_RULES_ = [
   [/^(edit|editar|change|cambiar|method|método|complete|completar)\b/i, "pencil"],
   [/^(reset|restablecer|start|empezar|volver|go back|reload|recargar|reactivate|reactivar|work out|recalcular)/i, "refresh"],
   [/^(skip|omitir)\b/i, "skip"],
+  [/^(choose which loans|elegir qué préstamos)/i, "down"],   // it opens the list of loans; a tick read as "done" (testers 2.68.2)
   [/^(use|usar|apply|aplicar|match|emparejar|choose|elegir|record|registrar|mark|marcar|keep|dejar)\b/i, "check"],
   [/^(split|repartir|people|personas|shared with a group|¿compartido con un grupo|group|liquidación)/i, "users"],
   [/^(client|el cliente)/i, "briefcase"],
@@ -30720,7 +30890,10 @@ function offerTransferGuide_(fromTab) {
     const box = document.getElementById("transfer-kind");
     if (!popInView_(box)) return;
     spendRealChance_(feature);
-    popTipShow_({ key: "offer-" + feature, text: tr("rt.offer." + kind), offer: () => startTransferReal_(kind) }, box);
+    // The exchange form's explanation sits right under the type: the bubble points below it instead of covering it (testers 2.68.2).
+    const intro = kind === "exchange" ? document.querySelector('#exchange-modal-backdrop [data-i18n="xch.intro"], [data-i18n="xch.intro"]') : null;
+    const at = intro && popInView_(intro) ? intro : box;
+    popTipShow_({ key: "offer-" + feature, text: tr("rt.offer." + kind), offer: () => startTransferReal_(kind) }, at);
   }, 350);
 }
 document.querySelector('#entry-type-tabs .type-tab[data-type="transfer"]').addEventListener("click", () => offerTransferGuide_(true));
@@ -33654,6 +33827,10 @@ function showAppMessage_(text) {
   return askConfirmApp_(String(text == null ? "" : text), tr("common.gotIt"), { plain: true, noCancel: true });
 }
 
+// Escape closes the question as its ✕ does (a keyboard user; testers 2.68.2).
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !document.getElementById("app-confirm-backdrop").hidden) document.getElementById("app-confirm-close").click();
+});
 function askConfirmApp_(text, okLabel, opts) {
   opts = opts || {};
   if (appConfirmOpen_.has(text)) return Promise.resolve(false);
@@ -34100,6 +34277,7 @@ function openReassignRepayment_(r) {
     text.textContent = tr("reassign.rowLeft", { date: I18n.fmtDateMedium(new Date(c.date + "T00:00:00")), what: c.description, cur: r.currency, amount: moneyFmt(c.room) });
     const assignedEl = document.createElement("span");
     assignedEl.className = "settle-choose-assigned";
+    assignedEl.setAttribute("aria-hidden", "true");   // the summary line says it (aria-live); here it repeated the row's own amount (testers 2.68.2)
     row.appendChild(input);
     row.appendChild(text);
     row.appendChild(assignedEl);
@@ -34150,6 +34328,7 @@ async function openApplyUnapplied_(l, friend) {
     text.textContent = tr("reassign.rowLeft", { date: I18n.fmtDateMedium(new Date(c.date + "T00:00:00")), what: c.description, cur: l.currency, amount: moneyFmt(c.room) });
     const assignedEl = document.createElement("span");
     assignedEl.className = "settle-choose-assigned";
+    assignedEl.setAttribute("aria-hidden", "true");   // the summary line says it (aria-live); here it repeated the row's own amount (testers 2.68.2)
     row.appendChild(input);
     row.appendChild(text);
     row.appendChild(assignedEl);
@@ -34258,9 +34437,14 @@ async function renderSettledPeople_(call) {
   list.innerHTML = "";
   list.hidden = !wasOpen;
   toggle.textContent = tr(wasOpen ? "loans.hideSettledPeople" : "loans.settledPeople", { n: people.length });
+  // Open, the list carries its own heading (testers 2.68.2: only "Hide settled people" said what it was).
+  const title = document.getElementById("loans-settled-title");
+  title.textContent = tr("loans.settledTitle", { n: people.length });
+  title.hidden = !wasOpen;
   renderLoanMovesCard_(loansHasPeople_ || people.length > 0);
   toggle.onclick = () => {
     list.hidden = !list.hidden;
+    title.hidden = list.hidden;
     toggle.textContent = list.hidden ? tr("loans.settledPeople", { n: people.length }) : tr("loans.hideSettledPeople");
   };
   people.forEach((f) => {
@@ -34289,10 +34473,14 @@ function revealSettledPerson_() {
   settledReveal_ = null;
   const list = document.getElementById("loans-settled-list");
   if (list.hidden) document.getElementById("loans-settled-toggle").click();
-  row.scrollIntoView({ block: "center", behavior: "smooth" });
+  const still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  row.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
   row.classList.remove("settled-flash");
   void row.offsetWidth;   // restart the highlight
   row.classList.add("settled-flash");
+  // A screen reader is taken to the person too (testers 2.68.2: the highlight was colour only).
+  if (!row.hasAttribute("tabindex")) row.setAttribute("tabindex", "-1");
+  try { row.focus({ preventScroll: true }); } catch (e) { /* older phone */ }
   setTimeout(() => row.classList.remove("settled-flash"), 2600);
 }
 
@@ -35381,17 +35569,20 @@ let loanModalApplyLoan_ = null;   // the loan being edited, kept for its "Apply 
 // Loans tab list underneath it.
 let loanModalReturnFriend = null;
 
-function populateLoanFriendOptions() {
+function populateLoanFriendOptions(keepId) {
   const select = document.getElementById("loan-friend");
   select.innerHTML = "";
-  if (!plainFriends_().length) {   // nothing to pick yet: the box says what to do (it looked empty; Diego, Rosa, Sol, Wilmer, 2026-11-09)
+  // A bank you have a bank loan with is not a friend to lend to (testers 2.68.2: "🏦 Banco Auto" came first and could be recorded
+  // as owing you); its loan has its own form. Kept when the loan being edited is already theirs.
+  const people = plainFriends_().filter((f) => !f.bank_lender || f.id === keepId);
+  if (!people.length) {   // nothing to pick yet: the box says what to do (it looked empty; Diego, Rosa, Sol, Wilmer, 2026-11-09)
     const hint = document.createElement("option");
     hint.value = "";
     hint.textContent = tr("loanModal.pickOrAddFriend");
     hint.disabled = true;
     select.appendChild(hint);
   }
-  plainFriends_().forEach((f) => {
+  people.forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
     opt.textContent = friendLabel_(f);
@@ -35450,7 +35641,7 @@ function updateLoanOpeningUi_(fresh) {
   if (fresh) {
     syncBeforeAppDate_(document.getElementById("loan-date"), on);
     const date = document.getElementById("loan-date").value;
-    document.getElementById("loan-due-date").value = on ? "" : defaultDueDate_(date);
+    document.getElementById("loanm-due-date").value = on ? "" : defaultDueDate_(date);
   }
 }
 document.getElementById("loan-opening").addEventListener("change", () => updateLoanOpeningUi_(true));
@@ -35741,7 +35932,7 @@ function openLoanModal(loan, returnFriend, opts) {
   document.getElementById("loan-forgive-btn").hidden = !(loan && returnFriend && loan.status !== "forgiven" && loan.remaining > 0.004 && !loan.schedule);
   document.getElementById("loan-form-error").textContent = "";
   document.getElementById("loan-friend-error").hidden = true;
-  populateLoanFriendOptions();
+  populateLoanFriendOptions(loan && loan.friend_id);
   populateLoanPaymentMethodOptions();
   document.getElementById("loan-friend").value = loan ? loan.friend_id : ((opts && opts.friendId) || (meta.friends.length ? meta.friends[0].id : ""));
   setLoanDirection_(loan ? loan.direction : ((opts && opts.direction) || "they_owe_me"));   // the "You owe" card's + starts on "I owe them"
@@ -35750,7 +35941,7 @@ function openLoanModal(loan, returnFriend, opts) {
   renderCurrencyChips("loan");
   const entryDate = loan ? loan.date : todayLocalISO();
   document.getElementById("loan-date").value = entryDate;
-  document.getElementById("loan-due-date").value = loan ? (loan.due_date || "") : defaultDueDate_(entryDate);
+  document.getElementById("loanm-due-date").value = loan ? (loan.due_date || "") : defaultDueDate_(entryDate);
   // The hint says what really happens: "pre-filled with 7 days" only where the date is pre-filled (PersonDefaults.gs `loan_due_week`).
   const dueHint = document.getElementById("loan-due-hint");
   dueHint.dataset.i18n = meta && meta.settings && meta.settings.loan_due_week === "no" ? "loanModal.dueHintBlank" : "loanModal.dueHint";
@@ -35857,7 +36048,7 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     const amount = parseFloat(document.getElementById("loan-amount").value);
     const currency = document.getElementById("loan-currency").value.toUpperCase();
     const date = document.getElementById("loan-date").value;
-    const dueDate = document.getElementById("loan-due-date").value;
+    const dueDate = document.getElementById("loanm-due-date").value;
     const paymentMethodId = document.getElementById("loan-payment-method").value;
     const description = document.getElementById("loan-description").value.trim();
 
@@ -36063,17 +36254,14 @@ function updateRepaySaveLabel_() {
   if (editingSettlementId) return;
   const btn = document.getElementById("settlement-save-btn");
   const v = parseFloat(document.getElementById("settlement-amount").value);
-  btn.textContent = v > 0 ? tr("settle.recordAmount", { amount: formatAmount(v, repaymentCurrency) }) : tr("settle.save");
+  // The whole debt: the button says so before the tap, and one tap records it (owner, 2026-11-24, after the testers: the old second
+  // "Tap again…" read as if the first tap had failed).
+  const owed = Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0);
+  const all = v > 0 && owed > 0.004 && Math.abs(v - owed) < 0.005;
+  btn.textContent = v > 0 ? tr(all ? "settle.recordSettleAll" : "settle.recordAmount", { amount: formatAmount(v, repaymentCurrency) }) : tr("settle.save");
 }
 // True when this tap should only arm the second-tap safeguard.
-function repayTooQuick_() {
-  const g = repayQuickGuard_;
-  if (editingSettlementId || !g || g.armed || practiceRunning_) return false;
-  if (document.getElementById("settlement-amount").value !== g.value || Date.now() - g.at > REPAY_QUICK_MS_) return false;
-  g.armed = true;
-  document.getElementById("settlement-save-btn").textContent = tr("settle.tapAgainAll", { amount: formatAmount(parseFloat(g.value), repaymentCurrency) });
-  return true;
-}
+function repayTooQuick_() { return false; }   // one tap since 2.69 (owner, 2026-11-24): the button already names the amount and "settle everything"
 
 // Back to "add a new repayment" — the default state the form opens in,
 // and where "Cancel edit" returns it to without closing the whole modal.
@@ -36179,6 +36367,16 @@ function renderChooseSummary_(ctx) {
   });
   // What is left of the payment continues oldest-first over the loans that were not selected: name them, so nothing surprises.
   let rest = Math.round(Math.max(0, paid - assigned) * 100) / 100;
+  // The payment covers everything owed: one short line, not every loan named (testers 2.68.2: 15 loans in one long line).
+  const loansNow = ctx.loans();
+  const owedAll = Math.round(loansNow.reduce((n, l) => n + Number(l.remaining || 0), 0) * 100) / 100;
+  if (loansNow.length > 1 && paid >= owedAll - 0.004) {
+    const extra = Math.round((paid - owedAll) * 100) / 100;
+    const line = [tr("settle.paysAllLoans", { n: loansNow.length })];
+    if (extra > 0.004) line.push(tr(ctx.dir() === "they_owe_me" ? "settle.chooseExtraIncome" : "settle.chooseExtraExpense", { extra: `${cur} ${moneyFmt(extra)}` }));
+    chooseEl_(ctx, "summary").textContent = line.join(" · ");
+    return;
+  }
   const parts = [tr("settle.chooseAssigned", { assigned: `${cur} ${moneyFmt(assigned)}` })];
   if (rest > 0.004) {
     const picked = new Set(assignments.map((a) => a.loan_id));
@@ -36221,6 +36419,7 @@ function chooseOpenOrClose_(ctx) {
     input.addEventListener("change", () => renderChooseSummary_(ctx));
     const assignedEl = document.createElement("span");
     assignedEl.className = "settle-choose-assigned";
+    assignedEl.setAttribute("aria-hidden", "true");   // the summary line says it (aria-live); here it repeated the row's own amount (testers 2.68.2)
     row.appendChild(input);
     row.appendChild(text);
     row.appendChild(assignedEl);
@@ -36262,7 +36461,9 @@ async function askRepayLoansFirst_(ctx) {
         : tr("repayAsk.whole", { what: what(l), date: when(l), cur, amount: moneyFmt(take) }));
       left = Math.round((left - take) * 100) / 100;
     }
-    text = tr("repayAsk.text", { list: parts.join(", ") });
+    // All on one day: "oldest" means nothing, so it says the order they were recorded in (testers 2.68.2, Rosa).
+    const oneDay = loans.every((l) => String(l.date) === String(loans[0].date));
+    text = tr(oneDay ? "repayAsk.textSameDay" : "repayAsk.text", { list: parts.join(", ") });
   }
   const exact = loans.find((l, i) => i > 0 && Math.abs(l.remaining - paid) < 0.005);
   if (exact) text += "\n\n" + tr("repayAsk.exact", { what: what(exact), date: when(exact), cur, amount: moneyFmt(paid) });
@@ -36651,7 +36852,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       // pick, so the modal comes back, showing just that step.
       const isIncome = direction === "they_owe_me";
       pendingOverpay = { amount: result.overpaid, currency: result.currency, date, paymentMethodId, entryType: isIncome ? "income" : "expense" };
-      document.getElementById("settlement-overpay-note").textContent = isIncome
+      document.getElementById("settlement-overpay-section-note").textContent = isIncome
         ? tr("settle.overpaidIncome", { name: friendName, cur: result.currency, amount: moneyFmt(result.overpaid) })
         : tr("settle.overpaidExpense", { name: friendName, cur: result.currency, amount: moneyFmt(result.overpaid) });
       populateOverpayCategoryOptions(pendingOverpay.entryType);

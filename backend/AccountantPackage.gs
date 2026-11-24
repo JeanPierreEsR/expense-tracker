@@ -47,7 +47,7 @@ function receiptFieldsFrom_(src) {
   if (src.receipt_no !== undefined) out.receipt_no = String(src.receipt_no || '').trim().slice(0, 40);
   if (src.receipt_date !== undefined) {
     out.receipt_date = String(src.receipt_date || '');
-    if (out.receipt_date && !/^\d{4}-\d{2}-\d{2}$/.test(out.receipt_date)) throw new Error(tr_('err.dateRequired'));
+    if (out.receipt_date && !validIsoDate_(out.receipt_date)) throw new Error(tr_('err.dateRequired'));   // a real day (2026-13-45 was taken; testers 2.68.2)
   }
   ensureReceiptColumns_();
   return out;
@@ -93,6 +93,23 @@ function pkgNature_(e, links, inbound, sunatId) {
   return tr_('pkg.n.transfer');
 }
 
+// A month that has started (a package for 2099 was sent; testers 2.68.2).
+function pkgMonthOk_(month) {
+  var m = validMonth_(month);
+  if (m > businessToday_().slice(0, 7)) throw new Error(tr_('pkg.futureMonth'));
+  return m;
+}
+
+// SUNAT's code for each receipt type (Tabla 10): factura 01, recibo por honorarios 02, boleta 03; none = 00.
+var PKG_SUNAT_CODES_ = { factura: '01', rh: '02', boleta: '03', none: '00' };
+
+// An account's name in the package's language: the built-in Cash follows it ("Cash" / "Efectivo"), as on the phone (testers 2.68.2).
+function pkgAccountName_(pm) {
+  var name = String((pm && pm.nickname) || '');
+  if (pm && (pm.builtin === 'cash' || pm.type === 'cash') && /^(cash|efectivo)$/i.test(name.trim())) return tr_('pm.cashName');
+  return name;
+}
+
 function pkgPayMethod_(e, pmById) {
   var stored = String(e.pay_method || '');
   if (stored) return stored;
@@ -127,7 +144,10 @@ function buildAccountantPackage_(month) {
   // 1. Movements
   var mv = [[tr_('pkg.h.payDate'), tr_('pkg.h.issueDate'), tr_('pkg.h.nature'), tr_('pkg.h.description'), tr_('pkg.h.category'),
     tr_('pkg.h.project'), tr_('pkg.h.units'), tr_('pkg.h.amount'), tr_('pkg.h.currency'), tr_('pkg.h.igv'), tr_('pkg.h.account'),
-    tr_('pkg.h.payMethod'), tr_('pkg.h.receiptType'), tr_('pkg.h.receiptNo'), tr_('pkg.h.support'), tr_('pkg.h.fx')]];
+    tr_('pkg.h.payMethod'), tr_('pkg.h.receiptType'), tr_('pkg.h.receiptNo'), tr_('pkg.h.support'), tr_('pkg.h.fx'),
+    // For the purchase and sales books (owner, 2026-11-24, after the testers): SUNAT's receipt code, and the amount split into its base,
+    // IGV and total. Added at the end, so the columns an accountant already uses stay where they were.
+    tr_('pkg.h.receiptCode'), tr_('pkg.h.base'), tr_('pkg.h.total')]];
   var unsupported = [];
   entries.forEach(function (e) {
     var signed = e.type === 'transfer' ? (inbound[e.id] || (e.to_payment_method_id && !e.payment_method_id) ? 1 : -1) * Math.abs(Number(e.amount))
@@ -142,10 +162,13 @@ function buildAccountantPackage_(month) {
     var pay = pkgPayMethod_(e, pms);
     var account = pms[e.payment_method_id] || pms[e.to_payment_method_id];
     mv.push([d10_(e.date), String(e.receipt_date || '') || d10_(e.date), pkgNature_(e, links, inbound, sunatId), String(e.description || ''),
-      cats[e.category_id] && e.type !== 'transfer' ? String(cats[e.category_id].name) : '', projects[e.project_id] ? String(projects[e.project_id].name) : '',
-      (tagsByEntry[e.id] || []).join(' / '), signed, String(e.currency || home), Number(e.igv_amount) || 0, account ? String(account.nickname || '') : '',
+      cats[e.category_id] && e.type !== 'transfer' ? categoryLabel_(cats[e.category_id]) : '', projects[e.project_id] ? String(projects[e.project_id].name) : '',
+      (tagsByEntry[e.id] || []).join(' / '), signed, String(e.currency || home), Number(e.igv_amount) || 0, account ? pkgAccountName_(account) : '',
       pay ? tr_('pkg.pm.' + pay) : '', e.receipt_type ? tr_('pkg.rt.' + e.receipt_type) : '', String(e.receipt_no || ''),
-      e.type === 'expense' || e.type === 'income' ? pkgYesNo_(support) : '', fx]);
+      e.type === 'expense' || e.type === 'income' ? pkgYesNo_(support) : '', fx,
+      e.receipt_type ? (PKG_SUNAT_CODES_[e.receipt_type] || '') : '',
+      e.type === 'expense' || e.type === 'income' ? round2_(Math.abs(Number(e.amount)) - (Number(e.igv_amount) || 0)) : '',
+      e.type === 'expense' || e.type === 'income' ? round2_(Math.abs(Number(e.amount))) : '']);
   });
   files.push({ kind: 'movements', name: tr_('pkg.file.movements', { month: month }), rows: mv.length - 1, text: pkgCsv_(mv) });
 
@@ -153,13 +176,21 @@ function buildAccountantPackage_(month) {
   var prevEnd = dayBeforeIso_(r.start);
   var opening = {};
   accountBalancesAt_(prevEnd).forEach(function (b) { opening[b.payment_method_id + '|' + b.currency] = b.amount; });
+  // A starting balance dated the 1st is that month's opening, before its movements (owner, 2026-11-24, after Elena's test: the file
+  // said opening 0.00 and closing 211,771.49, so opening + movements did not give the closing).
+  var openingsByPm = buildOpeningsByPm_(getAllRows('Payment Methods'));
+  Object.keys(openingsByPm).forEach(function (pmId) {
+    openingsByPm[pmId].forEach(function (o) {
+      if (String(o.date).slice(0, 10) === String(r.start).slice(0, 10)) opening[pmId + '|' + o.currency] = round2_(o.amount);
+    });
+  });
   var closeRow = monthCloseRows_().filter(function (c) { return c.month === month && c.status === 'closed'; })[0];
   var bank = {};
   if (closeRow) { try { JSON.parse(closeRow.bank_check || '[]').forEach(function (b) { bank[b.payment_method_id + '|' + b.currency] = b; }); } catch (err) { /* none */ } }
   var bal = [[tr_('pkg.h.account'), tr_('pkg.h.currency'), tr_('pkg.h.opening'), tr_('pkg.h.closing'), tr_('pkg.h.bank'), tr_('pkg.h.difference')]];
   accountBalancesAt_(r.end).forEach(function (b) {
     var k = b.payment_method_id + '|' + b.currency, chk = bank[k];
-    bal.push([b.nickname, b.currency, opening[k] || 0, b.amount, chk && chk.bank_amount !== null ? chk.bank_amount : '', chk && chk.difference !== null ? chk.difference : '']);
+    bal.push([pkgAccountName_(pms[b.payment_method_id] || { nickname: b.nickname }), b.currency, opening[k] || 0, b.amount, chk && chk.bank_amount !== null ? chk.bank_amount : '', chk && chk.difference !== null ? chk.difference : '']);
   });
   files.push({ kind: 'balances', name: tr_('pkg.file.balances', { month: month }), rows: bal.length - 1, text: pkgCsv_(bal) });
 
@@ -173,7 +204,9 @@ function buildAccountantPackage_(month) {
     if ((role !== 'lender' && role !== 'partner') || f.trip_id) return;
     var s = yearStatement_(id, ctx);
     s.lines.forEach(function (l) {
-      led.push([s.name, tr_(role === 'partner' ? 'pkg.role.partner' : 'pkg.role.lender'), l.currency, l.opening, l.received, l.interest_gross,
+      // The tax office's withholding is a tax still to pay, not a lender (testers 2.68.2, Carlos).
+      var isSunat = String(id) === String(companySunatId_());
+      led.push([s.name, tr_(isSunat ? 'pkg.role.sunat' : role === 'partner' ? 'pkg.role.partner' : 'pkg.role.lender'), l.currency, l.opening, l.received, l.interest_gross,
         l.interest_withholding, l.interest_net, l.returned, l.closing, l.contributed_year, l.pending_total, l.distributed_gross,
         l.distributed_withholding, l.distributed_net]);
     });
@@ -199,7 +232,7 @@ function requireCompanyPackage_() {
 // The files, for the phone to save (read-only). payload: { month }
 function getAccountantPackage(payload) {
   requireCompanyPackage_();
-  var built = buildAccountantPackage_(validMonth_(payload && payload.month));
+  var built = buildAccountantPackage_(pkgMonthOk_(payload && payload.month));
   return { month: built.month, files: built.files.map(function (f) { return { kind: f.kind, name: f.name + '.csv', rows: f.rows, mime: 'text/csv', text: f.text }; }) };
 }
 
@@ -222,7 +255,7 @@ function packageState_(month) {
  */
 function sendAccountantPackage(payload) {
   requireCompanyPackage_();
-  var month = validMonth_(payload && payload.month);
+  var month = pkgMonthOk_(payload && payload.month);
   var to = String(payload.to || '').trim();
   if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(to)) throw new Error(tr_('export.badEmail'));
   var built = buildAccountantPackage_(month);
@@ -231,16 +264,23 @@ function sendAccountantPackage(payload) {
   var changesText = '';
   if (corrected) {
     var lines = listChangeLog({ month: month, limit: 200 }).lines.filter(function (l) { return l.at > row.package_sent_at && l.table !== 'Month Closes'; });
+    // Each line starts with the ENTRY's date (the day of the change read as the transaction's date) and names the field in words
+    // (testers 2.68.2, Carlos: "receipt_no"); the change's own day goes at the end.
     changesText = lines.map(function (l) {
-      var what = l.what ? (l.what.description + ' ' + l.what.currency + ' ' + exportMoney_(l.what.amount)) : l.table;
-      return '- ' + l.at.slice(0, 10) + ' ' + what + (l.field ? ': ' + l.field + ' ' + l.before + ' → ' + l.after : ' (' + l.action + ')');
+      var what = l.what ? ((l.what.date ? String(l.what.date).slice(0, 10) + ' ' : '') + l.what.description + ' ' + l.what.currency + ' ' + exportMoney_(l.what.amount)) : l.table;
+      var fieldKey = 'pkg.field.' + l.field;
+      var fieldName = l.field ? (tr_(fieldKey) !== fieldKey ? tr_(fieldKey) : l.field) : '';
+      return '- ' + what + (l.field ? ': ' + fieldName + ' ' + l.before + ' → ' + l.after : ' (' + l.action + ')') + ' · ' + tr_('pkg.changedOn', { day: l.at.slice(0, 10) });
     }).join('\n') || tr_('pkg.handEdited');
   }
+  // A month changed after its close, sent for the first time: said too, so the accountant knows (testers 2.68.2).
+  var closeState = built.closed ? monthCloseState_(month) : null;
+  var changedNote = !corrected && closeState && closeState.changed ? '\n\n' + tr_('pkg.changedAfterClose') : '';
   var company = getCompanyRows_()[0];
   var subject = tr_(corrected ? 'pkg.subjectCorrected' : 'pkg.subject', { company: company ? String(company.name) : '', month: month });
   var body = tr_('pkg.body', { month: month, files: built.files.map(function (f) { return '- ' + f.name + ' (' + f.rows + ')'; }).join('\n') }) +
     (built.closed ? '' : '\n\n' + tr_('pkg.notClosed')) +
-    (corrected ? '\n\n' + tr_('pkg.correctedIntro') + '\n' + changesText : '') + '\n\n' + tr_('const.notice');
+    (corrected ? '\n\n' + tr_('pkg.correctedIntro') + '\n' + changesText : '') + changedNote + '\n\n' + tr_('const.notice');
   var attachments = built.files.map(function (f) { return Utilities.newBlob(f.text, 'text/csv', f.name + '.csv'); });
   var me = '';
   try { me = Session.getEffectiveUser().getEmail(); } catch (err) { me = ''; }

@@ -153,3 +153,25 @@ test("not a company copy: refused, and a friend-paid expense's debt carries no c
   assert.throws(() => rt.api("convertEntryToPartnerMoney", { entry_id: e.id, kind: "contribution", partner_name: "X" }));
   assert.equal(rt.api("getPeriodSummary", { startDate: today(), endDate: today() }).company, null);
 });
+
+// Testers 2.68.2 (Lucho): a distribution's amount edited on Home left the old gross in the Partners card (net 1,500 / gross 1,785.55).
+test("a distribution's amount edited afterwards: gross follows (new net + withholding) in the card, the link and the constancia", () => {
+  const rt = companyCopy();
+  const e = waiting(rt, "expense", 1700);
+  const out = rt.api("recordDistribution", { entry_id: e.id, partner_name: "Socio Prueba", withholding: 85.55 });
+  rt.api("updateEntry", { id: e.id, fields: { amount: 1500 } });
+  const line = partnersCard(rt)[0].lines[0];
+  assert.equal(line.distributed, 1500);
+  assert.equal(line.gross, 1585.55);
+  const listed = rt.api("listEntries", { startDate: today(), endDate: today() });
+  assert.equal((Array.isArray(listed) ? listed : listed.entries).find((x) => x.id === e.id).link.gross, 1585.55);
+  const year = rt.api("getYearStatement", { friend_id: out.distribution.partner_id, year: Number(today().slice(0, 4)) });
+  assert.equal(JSON.stringify(year).includes("1585.55"), true, "the constancia uses the new gross");
+});
+
+test("a second partner conversion of the same movement says it is already a partner's money (testers 2.68.2)", () => {
+  const rt = companyCopy();
+  const e = waiting(rt, "expense", 500);
+  rt.api("recordDistribution", { entry_id: e.id, partner_name: "Socio Prueba", withholding: 0 });
+  assert.throws(() => rt.api("recordDistribution", { entry_id: e.id, partner_name: "Socio Prueba", withholding: 0 }), /already a partner's money/);
+});

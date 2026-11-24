@@ -54,6 +54,8 @@ function buildShareStatement(payload) {   // not "get…": it also remembers the
   if (!isCompanyCopy_()) throw new Error(tr_('partner.onlyCompany'));
   payload = payload || {};
   var start = String(payload.startDate || ''), end = String(payload.endDate || '');
+  // Real days, the start not after the end (testers 2.68.2: anything was echoed back).
+  if ((start && !validIsoDate_(start)) || (end && !validIsoDate_(end)) || (start && end && start > end)) throw new Error(tr_('share.badPeriod'));
   var sections = Array.isArray(payload.sections)
     ? SHARE_SECTIONS_.filter(function (s) { return payload.sections.indexOf(s) !== -1; })
     : shareSectionsSaved_();

@@ -38,6 +38,8 @@ const NEVER_ONE_ = {
   "search.minChars": "a fixed minimum of 2 or more letters",
   "entriesBulk.limit": "a fixed limit (hundreds)",
   "bulk.tooMany": "a fixed limit (hundreds)",
+  "err.tooLong": "a fixed limit (2,000 characters)",
+  "xlink.tooFar": "a fixed limit (10 days)",
   "pmm.notEnough": "a fixed minimum of several months",
   "pmm.compareHint": "a fixed number of months",
   "table.bigFile": "only shown for big files (thousands of lines)",
