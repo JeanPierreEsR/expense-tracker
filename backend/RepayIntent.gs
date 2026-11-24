@@ -80,9 +80,16 @@ function clearRepayIntent_(entry) {
 // Record a marked entry, paying the oldest loans first (the bot's Confirm, the app's bulk confirm). What recordRepayment does with
 // money coming in and nothing owed (refused) or more than owed (the extra waits in Needs review) applies. Answers
 // { friend, incoming, overpaid, settlement_id } — the repayment's first real row, for an Undo.
-function recordRepayIntent_(entry) {
+function recordRepayIntent_(entry, loanId) {
   var it = repayIntentOf_(entry);
   if (!it) throw new Error(tr_('repayIntent.gone'));
+  // One loan picked in the chat (botRepayLoanTap_): it is paid first, what is left goes to the oldest others (recordRepayment).
+  var allocations;
+  if (loanId) {
+    var pickedLoan = repayOpenLoans_(it.friend_id, it.direction, entry.currency, entry.id).find(function (l) { return l.id === loanId; });
+    if (!pickedLoan) throw new Error(tr_('bot.repayLoanGone'));
+    allocations = [{ loan_id: loanId, amount: Math.round(Math.min(pickedLoan.remaining, Number(entry.amount)) * 100) / 100 }];
+  }
   var way = repayMoneyWay_(entry);
   if (way.error) throw new Error(way.error);
   var friend = getAllRows('Friends').find(function (f) { return f.id === it.friend_id; });
@@ -93,7 +100,7 @@ function recordRepayIntent_(entry) {
   var result = convertEntryInto_({
     entry_id: entry.id, friend_id: friend.id, direction: it.direction,
     amount: Number(entry.amount), currency: entry.currency, date: entry.date, payment_method_id: way.accountId,
-    overpay_pending_ok: true, require_owed: way.incoming
+    overpay_pending_ok: true, require_owed: way.incoming, allocations: allocations
   }, 'repayment');
   var made = getAllRows('Settlements').filter(function (s) { return !before[s.id] && !s.offset_loan_id; });
   return { friend: friend.name, incoming: way.incoming, overpaid: result.overpaid || 0, settlement_id: made.length ? made[0].id : '' };
@@ -126,4 +133,81 @@ function undoRepayIntent_(item) {
   var row = Object.assign({}, b.entry, { status: 'pending' });
   appendRowObject('Entries', row);
   (b.tags || []).forEach(function (t) { if (t && t.tag_id) appendRowObject('Entry Tags', { entry_id: item.id, tag_id: t.tag_id }); });
+}
+
+// ---- the loans in the chat (owner, 2026-11-23: "one tap", the same list on both bots) ----
+// Sent under the card of an entry the bot kept waiting: "Oldest first", one row per loan (oldest first, at most 8: a WhatsApp list
+// holds 10 rows), "Several → in the app". A loan whose remaining amount is exactly the payment says so.
+var REPAY_LIST_MAX_ = 8;
+function botRepayLoanList_(entryId, replyTo) {
+  var entry = getEntryById_(entryId), it = repayIntentOf_(entry);
+  if (!it) return;
+  var friend = getAllRows('Friends').find(function (f) { return f.id === it.friend_id; }) || {};
+  var loans = repayOpenLoans_(it.friend_id, it.direction, entry.currency, entry.id);
+  var rows = [{ id: 'warl:' + entryId + ':oldest', title: tr_('bot.repayOldestRow'), description: tr_('bot.repayOldestDesc') }];
+  loans.slice(0, REPAY_LIST_MAX_).forEach(function (l) {
+    var exact = Math.abs(l.remaining - Number(entry.amount)) < 0.005;
+    rows.push({ id: 'warl:' + entryId + ':' + l.id, title: l.date + ' ' + (l.description || tr_('bot.repayLoanWord')),
+      description: tr_(exact ? 'bot.repayLoanLeftExact' : 'bot.repayLoanLeft', { amount: formatAmountText_(l.remaining, entry.currency) }) });
+  });
+  rows.push({ id: 'warl:' + entryId + ':app', title: tr_('bot.repayInAppRow') });
+  botChoices_(tr_(loans.length > REPAY_LIST_MAX_ ? 'bot.repayPickLoanMany' : 'bot.repayPickLoan', { friend: friend.name || '?', n: REPAY_LIST_MAX_ }), rows, replyTo);
+}
+
+// A tap on that list. "app": nothing changes, it stays in Needs review.
+function botRepayLoanTap_(entryId, choice, p) {
+  var entry = getEntryById_(entryId);
+  if (!entry) return botText_(tr_('bot.entryGone'), p.id);
+  if (!repayIntentOf_(entry)) return botText_(tr_('repayIntent.gone'), p.id);
+  if (choice === 'app') return botText_(tr_('bot.repayInApp'), p.id);
+  botRecorded_('repayment', entryId, [p.id, p.context_id], function () {   // for "deshacer" (BotUndo.gs)
+    var reply;
+    try {
+      var rec = withScriptLockOnce_(function () { return recordRepayIntent_(getEntryById_(entryId), choice === 'oldest' ? '' : choice); });
+      reply = tr_(rec.incoming ? 'bot.markedRepaymentFrom' : 'bot.markedRepaymentTo', { friend: rec.friend }) +
+        (rec.overpaid > 0.004 ? tr_(rec.incoming ? 'bot.overpaidIn' : 'bot.overpaidOut', { cur: entry.currency, amount: moneyFmt_(rec.overpaid) }) : '');
+    } catch (err) {
+      reply = err.message;
+    }
+    botText_(reply, whatsappCardFor_(entryId) || p.id);
+  });
+}
+
+// ---- the words after "repayment" / "loan" (owner, 2026-11-23: a tester's "repayment, paid by JP" was read as an edit) ----
+// "repayment Ana", "repayment, paid by Ana", "repago de Ana", "repayment to Ana", "repayment Ana, amount 20": the friend may come
+// with "paid by / from / to / de / a / para", and every other part after a comma is an edit, applied first. { friend, friendText, edits }.
+var DEBT_FRIEND_WORDS_RE_ = /^(?:paid\s+by|pagado\s+por|from|to|de|desde|a|para|hacia)\s+(.+)$/i;
+function splitDebtWords_(rest) {
+  var segs = [];
+  String(rest || '').replace(/^[\s,]+/, '').split(/\s*,\s*/).forEach(function (piece) {
+    if (!piece) return;
+    if (segs.length && /^\d/.test(piece)) segs[segs.length - 1] += ',' + piece;   // "amount 1,234"
+    else segs.push(piece);
+  });
+  var out = { friend: null, friendText: '', edits: [] };
+  segs.forEach(function (seg) {
+    var m = DEBT_FRIEND_WORDS_RE_.exec(seg);
+    if (!out.friendText && (m || !startsWithEditKeyword_(seg))) {
+      out.friend = (m && fuzzyFindFriend_(m[1].trim())) || fuzzyFindFriend_(seg.trim()) || null;
+      out.friendText = m ? m[1].trim() : seg.trim();
+    } else {
+      out.edits.push(seg);
+    }
+  });
+  return out;
+}
+
+// The reply-words door for "repayment …" / "loan …": the edits first (all or nothing: one that cannot be applied stops it), then the
+// conversion, in one bot action (one "deshacer" takes both back).
+function applyDebtWords_(entryId, text, rest) {
+  var w = splitDebtWords_(rest);
+  var editNote = '';
+  if (w.edits.length) {
+    var er = applyEditCommand_(entryId, w.edits.join(', '));
+    if (er.failed) return { message: er.message + '\n\n' + tr_('bot.debtNotDone'), entry: er.entry, categoryName: er.categoryName };
+    editNote = er.message || '';
+  }
+  var res = applyTerminalReviewAction_(entryId, text, w.friendText, w.friend);
+  if (editNote) res.message = editNote + (res.message ? '\n' + res.message : '');
+  return res;
 }
