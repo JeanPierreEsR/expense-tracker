@@ -161,3 +161,35 @@ function listPerfAppVersions_() {
   });
   return { releases: releases };
 }
+
+// Read-only, for the Mac helper's key only (tools/friends-versions.py, owner 2026-11-24): each friend phone's history of app
+// releases, so the owner's private notes say who is on what and when they updated. One item per phone: a short code (the first 8
+// letters of its random install id, never the whole id), the name it shares under (the friend's own "label", may be "(no name)"),
+// its device kind, and every release it reported with the first and last day seen. The owner's phones (label "Owner") are left out.
+// Rows trimmed from the tab are gone, so "first" is the first day still on record; the Mac script keeps what it saw before.
+function listPerfPhones_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(PERF_REPORTS_SHEET_);
+  var n = sheet ? sheet.getLastRow() - 1 : 0;
+  if (n < 1) return { phones: [] };
+  var rows = sheet.getRange(2, 1, n, PERF_REPORT_HEADERS_.length).getValues();
+  var byPhone = {};
+  rows.forEach(function (r) {
+    var id = String(r[1]), day = String(r[0]).substring(0, 10), app = String(r[12]).trim(), label = String(r[2]).trim();
+    if (!id || !day) return;
+    var p = byPhone[id] || (byPhone[id] = { phone: id.substring(0, 8), label: label, device: '', last: '', releases: {} });
+    if (day >= p.last) { p.last = day; p.label = label; p.device = String(r[13]).trim(); }
+    if (!app) return;
+    var v = p.releases[app] || (p.releases[app] = { app: app, first: day, last: day });
+    if (day < v.first) v.first = day;
+    if (day > v.last) v.last = day;
+  });
+  var phones = [];
+  Object.keys(byPhone).forEach(function (id) {
+    var p = byPhone[id];
+    if (p.label.toLowerCase() === 'owner') return;
+    var releases = Object.keys(p.releases).map(function (k) { return p.releases[k]; });
+    releases.sort(function (a, b) { return a.first < b.first ? -1 : a.first > b.first ? 1 : 0; });
+    phones.push({ phone: p.phone, label: p.label, device: p.device, lastSeen: p.last, releases: releases });
+  });
+  return { phones: phones };
+}

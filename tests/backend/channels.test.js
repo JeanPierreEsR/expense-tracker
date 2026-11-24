@@ -385,6 +385,32 @@ test("tools/friends-copies.py turns the app-speed reports and the promote log in
   assert.match(printed, /Cy.*0\.99\.9.*not counted/);
 });
 
+test("tools/friends-versions.py keeps each friend phone's release history and writes who is on what into the private notes", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "versions-"));
+  const notes = path.join(dir, "Friends and their versions.md");
+  fs.writeFileSync(notes, "# Friends\n\n| Person |\n|---|\n\n## What friends are offered\n\nx\n");
+  fs.writeFileSync(path.join(dir, "FRIENDS_VERSIONS.md"), "| Date | Release | Backend pin | Note |\n|---|---|---|---|\n| 2026-11-21 | 2.44.2 | 5488808 | promoted |\n| 2026-11-23 | 2.55.0 | 9c1f663 | promoted |\n");
+  const answer = (phones) => { const f = path.join(dir, "a.json"); fs.writeFileSync(f, JSON.stringify({ phones })); return f; };
+  const run = (...args) => execFileSync("python3", [path.join(ROOT, "tools", "friends-versions.py"), "--root", dir, ...args], { encoding: "utf8", env: { ...process.env, FRIENDS_VERSIONS_TODAY: "2026-11-24" } });
+  run("--from-json", answer([
+    { phone: "aaaa1111", label: "(no name)", device: "iPhone", lastSeen: "2026-11-23", releases: [{ app: "2.44.2", first: "2026-11-21", last: "2026-11-23" }] },
+    { phone: "cccc3333", label: "(no name)", device: "iPhone", lastSeen: "2026-10-01", releases: [{ app: "2.44.2", first: "2026-10-01", last: "2026-10-01" }] }
+  ]));
+  run("--offline", "--name", "aaaa", "Ana", "Lo");
+  // Later the backend's oldest rows are trimmed: the kept history still knows the phone was on 2.44.2 before.
+  const printed = run("--from-json", answer([
+    { phone: "aaaa1111", label: "(no name)", device: "iPhone", lastSeen: "2026-11-24", releases: [{ app: "2.55.0", first: "2026-11-24", last: "2026-11-24" }] }
+  ]));
+  assert.match(printed, /\| Ana Lo \| `aaaa1111` \| 2\.55\.0 \(9c1f663\) \| 2026-11-24 \| 2\.44\.2 \| 2026-11-24 \| ✅ up to date \|/);
+  assert.match(printed, /cccc3333.*not seen in 30\+ days/);
+  const md = fs.readFileSync(notes, "utf8");
+  assert.equal(md.split("friends-versions:start").length, 2, "one automatic section, rewritten in place");
+  assert.ok(md.indexOf("Who is on what") < md.indexOf("What friends are offered"));
+  const kept = JSON.parse(fs.readFileSync(path.join(dir, "FRIEND_PHONES.json"), "utf8"));
+  assert.deepEqual(Object.keys(kept.phones.aaaa1111.releases).sort(), ["2.44.2", "2.55.0"]);
+  assert.equal(kept.names.aaaa1111, "Ana Lo");
+});
+
 test("a normal ship refuses a branch that changes a kept stable-<pin>/ copy", () => {
   const sh = fs.readFileSync(path.join(ROOT, "ship.sh"), "utf8");
   assert.match(sh, /\^docs\/stable\(-\[0-9a-f\]\+\)\?\//);
