@@ -4242,6 +4242,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         // "Choose which loans this pays" (owner, 2026-11-14): the loans ticked get the payment, oldest first; none = oldest first overall.
         const chosen = entryRepayAllocations_();
         if (chosen && chosen.length) repayPayload.allocations = chosen;
+        // This save waits for the server's answer (it may ask what the money is). With no connection the form used to sit still with a
+        // greyed Save and no word (testers 2.68.2): now it says it is waiting, and goes on by itself once the connection is back.
+        if (navigator.onLine === false) showToast_(tr("repay.waitingNet"), false, 20000);
         if (((meta && meta.capabilities) || {}).repayNothingOwed) {
           result = await callApi("recordRepayment", { ...repayPayload, ask_if_nothing_owed: true });
           if (result && result.nothing_owed) {
@@ -4259,6 +4262,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           result = await callApi("recordRepayment", repayPayload);
         }
       }
+      hideToast_(tr("repay.waitingNet"));
       if (nothingOwedChoice === "entry") {
         // Saved as an expense / income: said in those words (no "more than the debt", no "extra").
         const isIncome = direction === "they_owe_me";

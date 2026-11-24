@@ -118,6 +118,7 @@
     "entry.noAccount": { en: "no account set", es: "sin cuenta asignada" },
     "entry.unknownCategory": { en: "(unknown category)", es: "(categoría desconocida)" },
     "entry.uncategorized": { en: "Uncategorized", es: "Sin categoría" },
+    "repay.waitingNet": { en: "No connection. Waiting to send this repayment: keep this open and it goes as soon as you're back online.", es: "Sin conexión. Esperando para enviar este repago: déjalo abierto y se envía apenas vuelvas a tener conexión." },
     "entry.savingOffline": { en: "No connection. It's kept on this phone and will save by itself when you're back online.", es: "Sin conexión. Queda guardado en este celular y se guardará solo cuando vuelvas a tener conexión." },
     "entry.saving": { en: "💾 Saving…", es: "💾 Guardando…" },
     "review.retryToast": { en: "Couldn't save it yet — it will keep trying.", es: "Aún no se pudo guardar; seguirá intentando." },
