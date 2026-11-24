@@ -12056,9 +12056,9 @@ document.getElementById("changelog-next").addEventListener("click", () => { chan
 document.getElementById("entry-history-btn").addEventListener("click", async () => {
   const id = editingEntryId;
   if (!id) return;
-  const list = document.getElementById("history-list");
+  const list = document.getElementById("entry-log-list");
   list.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
-  const backdrop = document.getElementById("history-modal-backdrop");
+  const backdrop = document.getElementById("entry-log-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
   try {
@@ -12066,7 +12066,7 @@ document.getElementById("entry-history-btn").addEventListener("click", async () 
     list.innerHTML = res.lines.length ? renderChangeLogLines_(res.lines) : `<p class="hint">${escapeHtml(tr("changelog.entryEmpty"))}</p>`;
   } catch (e) { list.innerHTML = `<p class="hint error-text">${escapeHtml(tr("business.loadFailed", { error: e.message }))}</p>`; }
 });
-document.getElementById("history-close").addEventListener("click", () => { document.getElementById("history-modal-backdrop").hidden = true; });
+document.getElementById("entry-log-close").addEventListener("click", () => { document.getElementById("entry-log-backdrop").hidden = true; });
 
 // ---- Partners (Business 2, piece 7) ----
 // The Overview card: per partner and currency (never converted) what they put in as capital, what is still to be decided, what the
@@ -16429,7 +16429,7 @@ function renderWelcomeAccounts_() {
   fillBankNote_(waEl_("wa-note"), welcome_.accounts.map((a) => a.bank), true);
   renderWaWalletQuestion_();
   waEl_("wa-skip-btn").hidden = welcome_.accounts.length > 0;
-  waEl_("wa-error").textContent = "";
+  waEl_("wa-welcome-error").textContent = "";
 }
 
 // "Do you use Yape or Plin?" at the top of the accounts step (owner, 2026-11-04: Yape / Plin users could not find themselves in a
@@ -16676,7 +16676,7 @@ welcomeEl_("welcome-continue-btn").addEventListener("click", () => showWelcomeSt
 // The end of step 3 (accounts): check the Yape / Plin links, then on to step 4 (nothing is saved yet).
 async function waNext_() {
   const typed = waEl_("wa-name").value.trim().replace(/\s+/g, " ");
-  if (typed && !ownerNameLooksReal_(typed)) { waEl_("wa-error").textContent = tr("ownerNames.badName", { name: typed }); return; }
+  if (typed && !ownerNameLooksReal_(typed)) { waEl_("wa-welcome-error").textContent = tr("ownerNames.badName", { name: typed }); return; }
   welcome_.ownName = typed;
   // When an account could carry Yape or Plin but none has been ticked: ASK whether the person uses them (journeys run, 2026-11-17: 9
   // people who never used either were told they had not linked them); "I don't use them" goes on, the other answer goes back.
@@ -16820,7 +16820,7 @@ async function finishWelcome_() {
   // Which inbox is read, and how other banks' e-mails get there, is a "Getting started" step on Home (renderFirstSteps_), not a sheet here.
   toTour();
 }
-waEl_("wa-name").addEventListener("input", () => { welcome_.ownName = waEl_("wa-name").value; waEl_("wa-error").textContent = ""; });   // survives a redraw of the screen
+waEl_("wa-name").addEventListener("input", () => { welcome_.ownName = waEl_("wa-name").value; waEl_("wa-welcome-error").textContent = ""; });   // survives a redraw of the screen
 waEl_("wa-next-btn").addEventListener("click", waNext_);
 waEl_("wa-skip-btn").addEventListener("click", waNext_);
 document.querySelectorAll("[data-welcome-business]").forEach((b) => b.addEventListener("click", () => {
@@ -35450,7 +35450,7 @@ function updateLoanOpeningUi_(fresh) {
   if (fresh) {
     syncBeforeAppDate_(document.getElementById("loan-date"), on);
     const date = document.getElementById("loan-date").value;
-    document.getElementById("loan-due-date").value = on ? "" : defaultDueDate_(date);
+    document.getElementById("loanm-due-date").value = on ? "" : defaultDueDate_(date);
   }
 }
 document.getElementById("loan-opening").addEventListener("change", () => updateLoanOpeningUi_(true));
@@ -35750,7 +35750,7 @@ function openLoanModal(loan, returnFriend, opts) {
   renderCurrencyChips("loan");
   const entryDate = loan ? loan.date : todayLocalISO();
   document.getElementById("loan-date").value = entryDate;
-  document.getElementById("loan-due-date").value = loan ? (loan.due_date || "") : defaultDueDate_(entryDate);
+  document.getElementById("loanm-due-date").value = loan ? (loan.due_date || "") : defaultDueDate_(entryDate);
   // The hint says what really happens: "pre-filled with 7 days" only where the date is pre-filled (PersonDefaults.gs `loan_due_week`).
   const dueHint = document.getElementById("loan-due-hint");
   dueHint.dataset.i18n = meta && meta.settings && meta.settings.loan_due_week === "no" ? "loanModal.dueHintBlank" : "loanModal.dueHint";
@@ -35857,7 +35857,7 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
     const amount = parseFloat(document.getElementById("loan-amount").value);
     const currency = document.getElementById("loan-currency").value.toUpperCase();
     const date = document.getElementById("loan-date").value;
-    const dueDate = document.getElementById("loan-due-date").value;
+    const dueDate = document.getElementById("loanm-due-date").value;
     const paymentMethodId = document.getElementById("loan-payment-method").value;
     const description = document.getElementById("loan-description").value.trim();
 
@@ -36651,7 +36651,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       // pick, so the modal comes back, showing just that step.
       const isIncome = direction === "they_owe_me";
       pendingOverpay = { amount: result.overpaid, currency: result.currency, date, paymentMethodId, entryType: isIncome ? "income" : "expense" };
-      document.getElementById("settlement-overpay-note").textContent = isIncome
+      document.getElementById("settlement-overpay-section-note").textContent = isIncome
         ? tr("settle.overpaidIncome", { name: friendName, cur: result.currency, amount: moneyFmt(result.overpaid) })
         : tr("settle.overpaidExpense", { name: friendName, cur: result.currency, amount: moneyFmt(result.overpaid) });
       populateOverpayCategoryOptions(pendingOverpay.entryType);

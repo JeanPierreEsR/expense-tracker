@@ -2537,13 +2537,13 @@
     </div>
   </div>
   <!-- One entry's history (Business 2, piece 8), from the entry form. -->
-  <div id="history-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+  <div id="entry-log-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
         <span data-i18n="changelog.entryTitle">This entry's changes</span>
-        <button type="button" id="history-close" class="currency-modal-close">✕</button>
+        <button type="button" id="entry-log-close" class="currency-modal-close">✕</button>
       </div>
-      <div class="budget-modal-body"><div id="history-list"></div></div>
+      <div class="budget-modal-body"><div id="entry-log-list"></div></div>
     </div>
   </div>
   <!-- Business 2, piece 7: "It's a partner's money" / "Profit distribution" on a Needs review item (company copies). -->
@@ -3054,8 +3054,8 @@
         <p class="hint" id="loan-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
 
         <div id="loan-due-wrap">
-        <label for="loan-due-date" data-i18n="loanModal.dueDate">Due date</label>
-        <input type="date" id="loan-due-date">
+        <label for="loanm-due-date" data-i18n="loanModal.dueDate">Due date</label>
+        <input type="date" id="loanm-due-date">
         <p class="hint" id="loan-due-hint" data-i18n="loanModal.dueHint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
         </div>
 
@@ -3198,7 +3198,7 @@
         </div>
 
         <div id="settlement-overpay-section" hidden>
-          <p class="hint" id="settlement-overpay-note"></p>
+          <p class="hint" id="settlement-overpay-section-note"></p>
           <label for="settlement-overpay-category" id="settlement-overpay-category-label" data-i18n="field.category">Category</label>
           <select id="settlement-overpay-category"></select>
           <p class="hint error-text" id="settlement-overpay-error"></p>
@@ -3337,7 +3337,7 @@
             <p class="hint" data-i18n="wa.nameHint">Optional. Type it as your bank prints it. It helps the app tell your own transfers apart from payments to other people. You can add or change it later in More → My names.</p>
             <input type="text" id="wa-name" autocomplete="name" autocapitalize="words" data-i18n-placeholder="wa.namePlaceholder" placeholder="First and last names">
           </div>
-          <p class="hint error-text" id="wa-error"></p>
+          <p class="hint error-text" id="wa-welcome-error"></p>
           <div class="welcome-tour-buttons">
             <button type="button" id="wa-back-btn" data-i18n="tour.back">Back</button>
             <button type="button" class="primary" id="wa-next-btn" data-i18n="welcome.next">Next</button>
