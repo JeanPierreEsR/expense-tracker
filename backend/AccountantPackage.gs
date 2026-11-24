@@ -153,6 +153,14 @@ function buildAccountantPackage_(month) {
   var prevEnd = dayBeforeIso_(r.start);
   var opening = {};
   accountBalancesAt_(prevEnd).forEach(function (b) { opening[b.payment_method_id + '|' + b.currency] = b.amount; });
+  // A starting balance dated the 1st is that month's opening, before its movements (owner, 2026-11-24, after Elena's test: the file
+  // said opening 0.00 and closing 211,771.49, so opening + movements did not give the closing).
+  var openingsByPm = buildOpeningsByPm_(getAllRows('Payment Methods'));
+  Object.keys(openingsByPm).forEach(function (pmId) {
+    openingsByPm[pmId].forEach(function (o) {
+      if (String(o.date).slice(0, 10) === String(r.start).slice(0, 10)) opening[pmId + '|' + o.currency] = round2_(o.amount);
+    });
+  });
   var closeRow = monthCloseRows_().filter(function (c) { return c.month === month && c.status === 'closed'; })[0];
   var bank = {};
   if (closeRow) { try { JSON.parse(closeRow.bank_check || '[]').forEach(function (b) { bank[b.payment_method_id + '|' + b.currency] = b; }); } catch (err) { /* none */ } }

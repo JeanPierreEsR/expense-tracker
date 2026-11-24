@@ -135,3 +135,12 @@ test("not a company copy: refused", () => {
   const { rt } = freshApp({ small: true });
   assert.throws(() => rt.api("getAccountantPackage", { month: ym }));
 });
+
+// Testers 2.68.2 (Elena): a starting balance dated the 1st left the month's opening at 0.00, so opening + movements ≠ closing.
+test("a starting balance dated the 1st is that month's opening; opening + movements = closing", () => {
+  const rt = companyCopy();
+  month(rt);
+  const b1 = file(rt.api("getAccountantPackage", { month: ym }), "balances").slice(1);
+  assert.equal(Number(b1[0][2]), 10000);
+  assert.equal(Number(b1[0][2]) - 1200 - 300 + 5000, Number(b1[0][3]));
+});
