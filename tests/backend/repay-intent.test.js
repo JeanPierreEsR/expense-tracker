@@ -305,3 +305,22 @@ test("Telegram: checked loans pay in order until the payment runs out; the rest 
   assert.equal(a.settlementsOf(l1.id).reduce((n, s) => n + Number(s.amount), 0), 10, "what is left goes to the oldest other loan");
   assert.equal(a.settlementsOf(l3.id).reduce((n, s) => n + Number(s.amount), 0), 5);
 });
+
+// Testers 2.68.2 (Lucho, Valeria): "Elmer paid me 37" was saved as an expense, and "repayment Elmer" then booked it the wrong way.
+test("'X paid me N' is money received; a repayment the wrong way round is refused and changes nothing", () => {
+  const a = waApp();
+  const read = (t) => JSON.parse(JSON.stringify(a.rt.run(`typedReadLine_(${JSON.stringify(t)}, "PEN")`)));
+  assert.equal(read("Zoe paid me 37").type, "income");
+  assert.equal(read("Ana me yapeó 20").type, "income");
+  assert.equal(read("almuerzo 25").type, "expense");
+  assert.equal(read("Zoe paid me 37").description, "Zoe paid me");
+  // Zoe owes us; an expense marked "repayment Zoe" would be money WE paid her: refused.
+  a.rt.ctx.__l = { friend_id: a.friend.id, direction: "they_owe_me", amount: 150, currency: "PEN", date: "2026-01-05" };
+  const loan = a.rt.run("addLoan(__l)");
+  const e = readyExpense(a, "37 regalo");
+  a.text("repayment Zoe Test", { context_id: a.cardIdOf(e.id) });
+  assert.match(a.bodies().join("\n"), /Zoe Test owes you, and this is money you paid/);
+  assert.equal(a.entry(e.id).type, "expense", "the entry is unchanged");
+  assert.equal(a.settlementsOf(loan.id).length, 0, "nothing recorded on Zoe's loan");
+  assert.ok(!a.rt.rows("Entries").some((x) => /Overpayment/.test(x.description || "")), "no extra entry made");
+});

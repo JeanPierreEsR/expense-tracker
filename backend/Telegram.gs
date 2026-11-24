@@ -1073,6 +1073,13 @@ function applyTerminalReviewAction_(entryId, fullText, friendText, friendObj) {
 
   // A real choice of loans (two or more open, the payment does not cover them all): nothing is recorded yet. The entry waits in
   // Needs review, marked, so the person chooses the loans (owner, 2026-11-23; RepayIntent.gs). A confirmed one goes back to waiting.
+  // Money you paid, marked as a repayment to someone who owes YOU and whom you owe nothing: the wrong way round ("Elmer paid me 37"
+  // read as an expense, testers 2.68.2). Refused, saying how to turn it around; nothing changes.
+  if (isRepayment && !incoming && !repayChoiceInfo_(entry, friend.id, 'i_owe_them').owed &&
+      repayChoiceInfo_(entry, friend.id, 'they_owe_me').owed) {
+    return { message: tr_('bot.repayWrongWay', { friend: friend.name }) };
+  }
+
   if (isRepayment) {
     var repayDir = incoming ? 'they_owe_me' : 'i_owe_them';
     var choice = repayChoiceInfo_(entry, friend.id, repayDir);
