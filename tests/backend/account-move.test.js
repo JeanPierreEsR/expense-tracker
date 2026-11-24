@@ -248,3 +248,45 @@ test("company copy: a closed month stops the move; reopened, the move is logged 
   rt.api("closeMonth", { month: ym, bank: [] });
   assert.equal(rt.api("getMonthClose", { month: ym }).changed, false);
 });
+
+// Owner's test, 2026-11-23: both cards had their own starting balance; the old card's debt on the new card's start date vanished.
+function balanceCase() {
+  const { rt } = freshApp({ entries: 20 });
+  const bank = rt.api("addBank", { name: "Interbank" });
+  const a = rt.api("savePaymentMethod", { nickname: "Made-up Classic", type: "credit", bank_id: bank.id, last_4: "1111" });
+  const b = rt.api("savePaymentMethod", { nickname: "Made-up Platinum", type: "credit", bank_id: bank.id, last_4: "2222" });
+  const debit = rows(rt, "Payment Methods").find((p) => p.type === "debit");
+  const cat = rows(rt, "Categories").find((c) => c.type === "expense").id;
+  const d = (n) => { const t = new Date(); t.setDate(t.getDate() - n); return t.toISOString().slice(0, 10); };
+  const spend = (pm, n, amount) => rt.api("createEntry", { type: "expense", date: d(n), amount, currency: "PEN", category_id: cat, description: "Made-up", payment_method_id: pm, paid_by: "me", status: "confirmed" });
+  const move = (from, to, n, amount) => rt.api("createEntry", { type: "transfer", date: d(n), amount, currency: "PEN", payment_method_id: from, to_payment_method_id: to, description: "Made-up", paid_by: "me", status: "confirmed" });
+  rt.api("setPaymentMethodOpeningBalance", { id: a.id, balances: [{ currency: "PEN", amount: -350, date: d(90) }] });
+  rt.api("setPaymentMethodOpeningBalance", { id: b.id, balances: [{ currency: "PEN", amount: -80, date: d(20) }] });
+  spend(a.id, 60, 400); move(debit.id, a.id, 50, 300); spend(a.id, 10, 50);   // old card: −350 −400 +300 −50
+  spend(b.id, 5, 100); move(a.id, b.id, 15, 120);                              // new card: −80 −100 +120; old −120
+  const bal = (id) => (rt.api("listPaymentMethodBalances", {}).find((r) => r.id === id) || { balances: [] }).balances.find((x) => x.currency === "PEN").amount;
+  return { rt, a, b, bal };
+}
+
+test("both starting balances: the window offers both results; by default the two balances are added together", () => {
+  const { rt, a, b, bal } = balanceCase();
+  const before = bal(a.id) + bal(b.id);
+  assert.equal(Math.round(before * 100) / 100, -620 + -60);
+  const ch = rt.api("previewAccountMove", { from: a.id, to: b.id }).balanceChoices;
+  assert.equal(ch.length, 1);
+  assert.equal(ch[0].currency, "PEN");
+  assert.equal(ch[0].old_owed, -450, "what the old card held on the new card's start date (−350 −400 +300)");
+  assert.equal(ch[0].keep, -230, "−80 −100 −50 (the old card's later purchase); the transfer between them is removed");
+  assert.equal(ch[0].add, -680);
+  const res = rt.api("moveAccountHistory", { from: a.id, to: b.id });
+  assert.equal(bal(b.id), -680, "nothing disappears: the same as the two balances before");
+  rt.api("undoAccountMove", { move_id: res.move_id });
+  assert.equal(bal(a.id), -620);
+  assert.equal(bal(b.id), -60, "the new card's starting balance is back to what it was");
+});
+
+test("\"already included\": the new card keeps its starting balance as it is", () => {
+  const { rt, a, b, bal } = balanceCase();
+  rt.api("moveAccountHistory", { from: a.id, to: b.id, keep_balances: ["PEN"] });
+  assert.equal(bal(b.id), -230);
+});

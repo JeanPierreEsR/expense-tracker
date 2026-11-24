@@ -115,7 +115,39 @@ function accountMoveCounts_(p) {
   });
   var rails = accountMoveRailPlan_(fromId, p.to, getSettingsMap());
   c.links = rails.moved.length;
-  return { counts: c, self: self, rails: rails, closedMonths: accountMoveClosedHit_(touched) };
+  return { counts: c, self: self, rails: rails, closedMonths: accountMoveClosedHit_(touched), balanceChoices: accountMoveBalanceChoices_(p, selfIds) };
+}
+
+// Where the new account keeps its OWN starting balance in a currency, the old account's entries before that date stop counting
+// (owner's test, 2026-11-23: PEN 490.15 the old card owed vanished). The app cannot know whether that starting balance already held the
+// old card's debt, so the window asks with the two results (owner chose "choose the result"): per currency { currency, date, old_owed,
+// keep, add } — keep = the new account's balance with its starting balance as it is; add = the same plus what the old account held on
+// that date (preselected: the two balances added together, nothing disappears). Same rules as the Balances card (Balances.gs).
+function accountMoveBalanceChoices_(p, selfIds) {
+  var pms = getAllRows('Payment Methods');
+  var openingsByPm = buildOpeningsByPm_(pms);
+  var fromOpen = openingsByPm[p.fromId], toOpen = openingsByPm[p.toId];
+  if (!fromOpen || !toOpen) return [];
+  var inbound = buildInboundTransferIds_();
+  var entries = confirmedEntries_().filter(function (e) { return !selfIds[String(e.id)]; });
+  var round = function (n) { return Math.round(n * 100) / 100; };
+  var out = [];
+  toOpen.forEach(function (o) {
+    var cur = o.currency;
+    var fromOwn = fromOpen.find(function (x) { return x.currency === cur; });
+    var oldAt = fromOwn ? fromOwn.amount : 0, keep = o.amount;
+    entries.forEach(function (e) {
+      if ((e.currency || homeCurrency_()) !== cur) return;
+      var onFrom = signedEffectOnPaymentMethod_(e, p.fromId, inbound), onTo = signedEffectOnPaymentMethod_(e, p.toId, inbound);
+      if (!onFrom && !onTo) return;
+      var afterTo = entryCountsAfterOpening_(e, o);
+      if (afterTo) keep += onFrom + onTo;   // after the move both count on the new account from its own date on
+      else if (onFrom && entryCountsAfterOpening_(e, openingForCurrency_(fromOpen, cur))) oldAt += onFrom;   // the old account's, before that date
+    });
+    if (Math.abs(oldAt) < 0.005) return;
+    out.push({ currency: cur, date: String(o.date || ''), old_owed: round(oldAt), keep: round(keep), add: round(keep + oldAt) });
+  });
+  return out;
 }
 
 function accountMoveNeedsBank_(from) {
@@ -130,7 +162,8 @@ function previewAccountMove(payload) {
     selfTransfers: r.self.map(function (e) { return { id: String(e.id), date: String(e.date), amount: Number(e.amount), currency: String(e.currency), description: String(e.description || '') }; }),
     closedMonths: r.closedMonths,
     droppedLinks: r.rails.dropped.map(railLinkName_).filter(function (n, i, a) { return a.indexOf(n) === i; }),
-    needsBank: accountMoveNeedsBank_(p.from)
+    needsBank: accountMoveNeedsBank_(p.from),
+    balanceChoices: r.balanceChoices
   };
 }
 
@@ -349,6 +382,20 @@ function moveAccountHistory(payload) {
       else move[String(bal.id)] = true;
     });
     undo.balancesMoved = accountMoveColumn_('Account Opening Balances', 'payment_method_id', fromId, toId, move);
+    // 3b. The person's answer per currency ("both cards added together", the default, or "already included"): the new account's own
+    //     starting balance takes what the old account held on its date, so the result is the one shown in the window.
+    var keepCur = {};
+    (Array.isArray(payload.keep_balances) ? payload.keep_balances : []).forEach(function (cur) { keepCur[String(cur).toUpperCase()] = true; });
+    undo.openingAdjust = [];
+    r.balanceChoices.forEach(function (ch) {
+      if (keepCur[ch.currency]) return;
+      var row = getAllRows('Account Opening Balances').find(function (bal) { return String(bal.payment_method_id) === toId && String(bal.currency).toUpperCase() === ch.currency; });
+      if (!row) return;
+      var before = Number(row.amount) || 0, after = Math.round((before + ch.old_owed) * 100) / 100;
+      updateRowFields_('Account Opening Balances', row.id, { amount: after });
+      if (ROWS_MEMO_) delete ROWS_MEMO_['Account Opening Balances'];
+      undo.openingAdjust.push({ id: String(row.id), before: before, after: after });
+    });
     // 4. Yape / Plin: moved where the new account can carry the wallet, dropped otherwise.
     var settings = getSettingsMap();
     RAIL_LINK_KEYS_.concat([PLIN_MORE_KEY_]).forEach(function (k) { undo.settingsBefore[k] = String(settings[k] || ''); });
@@ -496,6 +543,10 @@ function restoreAccountMove(payload) {
     ACCOUNT_MOVE_SHEETS_.forEach(function (s) { var only = ids(u.sheets && u.sheets[s[0]]); if (Object.keys(only).length) accountMoveColumn_(s[0], s[1], toId, fromId, only); });
     var movedBal = ids(u.balancesMoved);
     if (Object.keys(movedBal).length) accountMoveColumn_('Account Opening Balances', 'payment_method_id', toId, fromId, movedBal);
+    (u.openingAdjust || []).forEach(function (adj) {   // the new account's starting balance, while it is still what the move made it
+      var row = getAllRows('Account Opening Balances').find(function (bal) { return String(bal.id) === adj.id; });
+      if (row && Math.abs((Number(row.amount) || 0) - adj.after) < 0.005) { updateRowFields_('Account Opening Balances', adj.id, { amount: adj.before }); if (ROWS_MEMO_) delete ROWS_MEMO_['Account Opening Balances']; }
+    });
     var have = ids(getAllRows('Account Opening Balances').map(function (bal) { return bal.id; }));
     var dropped = (u.balancesDropped || []).filter(function (bal) { return !have[String(bal.id)]; });
     if (dropped.length) appendObjectsBatch_('Account Opening Balances', dropped);

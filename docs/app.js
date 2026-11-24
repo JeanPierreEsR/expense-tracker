@@ -113,12 +113,22 @@ const plinManyOn_ = () => !!((meta && meta.capabilities) || {}).plinMany;
 const plinMoreIds_ = () => String(((meta && meta.settings) || {}).plin_pen_more || "").split(",").filter(Boolean);
 // An account as it reads in a list to pick from: its name, the last 4 digits, and the wallets that ride on it ("BCP soles · Yape"),
 // so a person who pays with Yape or Plin finds it without knowing that the app records the bank account behind it (2026-11-04).
-function pmPickLabel_(pm) {
+// The Balances card's grey line under an account: its bank and the wallets on it (owner, 2026-11-23).
+function balanceRowMeta_(r) {
+  const pm = ((meta && meta.paymentMethods) || []).find((p) => String(p.id) === String(r.id));
+  const text = [r.bank_name || "", ...(pm ? pmWallets_(pm) : [])].filter(Boolean).join(" · ");
+  return text ? `<div class="balance-row-meta">${escapeHtml(text)}</div>` : "";
+}
+// The wallets that ride on this account ("Yape", "Plin"), left out when the name already says it.
+function pmWallets_(pm) {
   const settings = (meta && meta.settings) || {};
   const wallets = [];
   if (String(settings.yape_pen || "") === String(pm.id) || String(settings.yape_usd || "") === String(pm.id)) wallets.push("Yape");
   if (String(settings.plin_pen || "") === String(pm.id) || String(settings.plin_usd || "") === String(pm.id) || plinMoreIds_().includes(String(pm.id))) wallets.push("Plin");
-  const shown = wallets.filter((w) => !String(pm.nickname || "").toLowerCase().includes(w.toLowerCase()));
+  return wallets.filter((w) => !String(pm.nickname || "").toLowerCase().includes(w.toLowerCase()));
+}
+function pmPickLabel_(pm) {
+  const shown = pmWallets_(pm);
   const bank = !String(pm.nickname || "").trim() && meta && (meta.banks || []).find((b) => String(b.id) === String(pm.bank_id));
   const name = String(pm.nickname || "").trim() || (bank ? bank.name : "") || tr("accounts.unnamed");   // never an empty row
   return name + (pm.last_4 ? ` (${pm.last_4})` : "") + (shown.length ? " · " + shown.join(" · ") : "");
@@ -20123,7 +20133,7 @@ function renderAccountsList_() {
     row.className = "recurring-row" + (pmHidden_(pm) ? " inactive" : "") + (accountsEditing_ ? " friends-check-row" : "");
     delKey_(row, "pm:" + pm.id);
     const typeName = pmTypeLabel_(pm.type);
-    const sub = [typeName === pm.nickname ? "" : typeName, bankName(pm.bank_id)].filter(Boolean).join(" · ");
+    const sub = [typeName === pm.nickname ? "" : typeName, bankName(pm.bank_id), ...pmWallets_(pm)].filter(Boolean).join(" · ");   // (Yape / Plin too, owner 2026-11-23)
     const lead = !accountsEditing_ ? ""
       : isCash ? `<span class="friends-check-spacer"></span>`
       : `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${accountsSelected_.has(pm.id) ? " checked" : ""}>`;
@@ -20588,6 +20598,24 @@ document.getElementById("pm-delete-btn").addEventListener("click", async () => {
 // shows half-drawn), one red button. The window closes at once and the move runs behind the screen; then an Undo toast. The new account
 // also recognizes the old digits (backend/AccountMove.gs).
 let moveFromId_ = null, moveReq_ = 0;
+let moveKeep_ = new Set();   // currencies where the person said "already included" (the default adds the two balances together)
+let movePreview_ = null;
+// "How much should <new> owe after the move?" (owner, 2026-11-23, option A): one choice per currency where both accounts have a
+// starting balance; the two results come from the server (accountMoveBalanceChoices_), "both added together" preselected.
+function moveBalanceHtml_(p) {
+  const card = (meta.paymentMethods.find((x) => x.id === p.to.id) || {}).type === "credit";
+  return (p.balanceChoices || []).map((ch) => {
+    const amt = (n) => card ? formatAmount(Math.abs(n), ch.currency) : formatAmount(Math.abs(n), ch.currency, n < 0 ? "−" : "");
+    const keep = moveKeep_.has(ch.currency);
+    const btn = (k, on, label) => `<button type="button" class="stmt-choice ${on ? "on" : ""}" data-movebal="${escapeHtml(ch.currency)}" data-keep="${k}" style="text-align:left;white-space:normal">${on ? "✓ " : ""}${escapeHtml(label)}</button>`;
+    return `<div class="move-bal" style="margin:12px 0 4px"><p style="margin:0 0 6px;font-weight:600">${escapeHtml(tr(card ? "move.bal.titleOwe" : "move.bal.titleHave", { name: p.to.nickname }))}</p>
+      <div class="stmt-choices" style="padding-left:0;flex-direction:column;align-items:stretch">
+        ${btn(0, !keep, tr(card ? "move.bal.addCard" : "move.bal.addBank", { amount: amt(ch.add) }))}
+        ${btn(1, keep, tr(card ? "move.bal.keepCard" : "move.bal.keepBank", { amount: amt(ch.keep), name: p.to.nickname, old: p.from.nickname }))}
+      </div>
+      <p class="hint" style="margin:4px 0 0">${escapeHtml(tr(card ? "move.bal.hintOwe" : "move.bal.hintHave", { name: p.to.nickname }))}</p></div>`;
+  }).join("");
+}
 function accountMoveOn_() { return !!(meta && meta.capabilities && meta.capabilities.accountMove); }
 // Same kind only (owner, 2026-11-23): a card's history goes to a card, a bank account's to a bank account (backend accountMoveKind_).
 const moveKind_ = (pm) => pm.type === "credit" ? "card" : (pm.type === "debit" || pm.type === "transfer") ? "bank" : pm.type;
@@ -20629,6 +20657,8 @@ document.getElementById("move-to").addEventListener("change", async (e) => {
   try {
     const p = await callApi("previewAccountMove", { from: moveFromId_, to: toId });
     if (req !== moveReq_) return;
+    movePreview_ = p;
+    moveKeep_ = new Set();
     const c = p.counts, lines = [];
     const add = (n, key) => { if (n) lines.push(tr(key, { n })); };
     add(c.entries, "move.n.entries"); add(c.loans, "move.n.loans"); add(c.repayments, "move.n.repayments"); add(c.statements, "move.n.statements");
@@ -20649,7 +20679,7 @@ document.getElementById("move-to").addEventListener("change", async (e) => {
       <p class="hint" id="move-old-bank-hint">${escapeHtml(tr("move.oldBankHint", { digits }))}</p>` : "";
     box.innerHTML = `<p style="margin:10px 0 4px">${escapeHtml(tr(lines.length ? "move.willMove" : "move.nothing", { name: p.to.nickname }))}</p>`
       + (lines.length ? `<ul style="list-style:disc;margin:4px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : "")
-      + (c.balancesDropped ? `<p class="hint">${escapeHtml(tr("move.balancesKept", { n: c.balancesDropped, name: p.to.nickname }))}</p>` : "")
+      + ((p.balanceChoices || []).length ? `<div id="move-bal-box">${moveBalanceHtml_(p)}</div>` : c.balancesDropped ? `<p class="hint">${escapeHtml(tr("move.balancesKept", { n: c.balancesDropped, name: p.to.nickname }))}</p>` : "")
       + (c.selfTransfers ? `<p class="hint">${escapeHtml(tr("move.selfTransfers", { n: c.selfTransfers }))}</p>` : "")
       + ((p.droppedLinks || []).length ? `<p class="stmt-note warn">${escapeHtml(tr("move.linksDropped", { wallets: p.droppedLinks.join(", "), name: p.to.nickname }))}</p>` : "")
       + (extra.length ? `<p class="stmt-note warn">${escapeHtml(tr("move.currencyWarn", { currencies: extra.join(", "), name: p.to.nickname }))}</p>` : "")
@@ -20663,6 +20693,12 @@ document.getElementById("move-to").addEventListener("change", async (e) => {
     box.innerHTML = `<p class="hint error-text">${escapeHtml(err.message || String(err))}</p>`;
   }
 });
+document.getElementById("move-summary").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-movebal]");
+  if (!b || !movePreview_) return;
+  if (b.dataset.keep === "1") moveKeep_.add(b.dataset.movebal); else moveKeep_.delete(b.dataset.movebal);
+  document.getElementById("move-bal-box").innerHTML = moveBalanceHtml_(movePreview_);
+});
 document.getElementById("move-summary").addEventListener("change", (e) => {
   if (e.target.id !== "move-old-bank") return;
   const digits = String(((meta.paymentMethods.find((x) => x.id === moveFromId_) || {}).last_4) || "").trim();
@@ -20673,6 +20709,7 @@ document.getElementById("move-save-btn").addEventListener("click", () => {
   const fromId = moveFromId_, toId = document.getElementById("move-to").value;
   if (!fromId || !toId) return;
   const oldBankSel = document.getElementById("move-old-bank"), oldBankId = oldBankSel ? oldBankSel.value : "";
+  const keepBalances = [...moveKeep_];
   const from = meta.paymentMethods.find((p) => p.id === fromId), to = meta.paymentMethods.find((p) => p.id === toId);
   closeMoveModal_();
   markDeleting_("pm:" + fromId);
@@ -20686,7 +20723,7 @@ document.getElementById("move-save-btn").addEventListener("click", () => {
   };
   saveBehindScreen_(async () => {
     let res;
-    try { res = await callApi("moveAccountHistory", { from: fromId, to: toId, old_bank_id: oldBankId || undefined }); }
+    try { res = await callApi("moveAccountHistory", { from: fromId, to: toId, old_bank_id: oldBankId || undefined, keep_balances: keepBalances }); }
     catch (err) { unmarkDeleting_("pm:" + fromId); throw err; }
     unmarkDeleting_("pm:" + fromId);
     // The same Restore as More → My data → Recently deleted, where the move waits 30 days.
@@ -37142,7 +37179,7 @@ async function refreshBalancesInner_() {
     const stmtLine = cs ? cardStmtLines_(cs) : "";
     row.dataset.pm = r.id;
     row.innerHTML = `
-      <div class="balance-row-name">${escapeHtml(r.nickname)}${r.statement_closed ? "" : `<span class="loan-detail-row-chevron">›</span>`}${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${stmtLine}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}${balanceSavingLine_(r.id)}</div>
+      <div class="balance-row-name">${escapeHtml(r.nickname)}${r.statement_closed ? "" : `<span class="loan-detail-row-chevron">›</span>`}${balanceRowMeta_(r)}${stmtLine}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}${balanceSavingLine_(r.id)}</div>
       <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>
     `;
     if (!r.statement_closed) row.addEventListener("click", () => openBalanceModal(r.id));   // (a statement figure has no movements to show)
@@ -37162,7 +37199,7 @@ async function refreshBalancesInner_() {
       const item = document.createElement("div");
       item.className = "balance-row balance-stmt-item";
       item.dataset.pm = r.id;
-      item.innerHTML = `<div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span>${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${cardStmtLines_(r)}${balanceSavingLine_(r.id)}</div>`;
+      item.innerHTML = `<div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span>${balanceRowMeta_(r)}${cardStmtLines_(r)}${balanceSavingLine_(r.id)}</div>`;
       item.addEventListener("click", () => openStmtCardBalance_(r.id));
       box.appendChild(item);
     });
