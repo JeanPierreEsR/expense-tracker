@@ -61,7 +61,7 @@ test("two open loans and a payment that does not cover them: kept in Needs revie
   assert.deepEqual(JSON.parse(now.repay_intent), { friend_id: a.friend.id, direction: "i_owe_them" });
   assert.equal(a.settlementsOf(l1.id).length + a.settlementsOf(l2.id).length, 0, "no repayment yet");
   assert.match(a.bodies().join("\n"), /Kept in Needs review: Zoe Test has 2 open loans/);
-  assert.match(a.bodies().join("\n"), /Repayment to Zoe Test: Confirm pays the oldest loans first/, "the fresh card says what Confirm does");
+  assert.match(a.bodies().join("\n"), /Repayment to Zoe Test: choose below the loans it pays, or Confirm to pay the oldest first/, "the fresh card says what Confirm does");
   const listed = a.rt.run("listPendingEntries()").find((x) => x.id === e.id);
   assert.deepEqual(JSON.parse(JSON.stringify(listed.repay_intent)), { friend_id: a.friend.id, friend_name: "Zoe Test", direction: "i_owe_them", matters: true, owed: true });
 });
@@ -172,8 +172,9 @@ test("after the mark, the chat lists the loans: Oldest first, each loan (exact o
   a.text("repayment Zoe Test", { context_id: a.cardIdOf(e.id) });
   const rows = a.lastRows();
   assert.deepEqual(rows.map((r) => r.id), [`warl:${e.id}:oldest`, `warl:${e.id}:${l1.id}`, `warl:${e.id}:${l2.id}`, `warl:${e.id}:` + rows[3].id.split(":").pop(), `warl:${e.id}:app`]);
-  assert.match(rows[2].description, /= this payment/, "the loan of exactly 20 is pointed out");
-  assert.ok(!/= this payment/.test(rows[1].description));
+  assert.match(rows[2].description, /same as this payment/, "the loan of exactly 20 is pointed out");
+  assert.ok(!/same as this payment/.test(rows[1].description));
+  assert.match(rows[1].title, /^\d{1,2} [A-Z][a-z]{2} \d{4} · /, "a date as the app writes it");
 });
 
 test("tapping a loan pays THAT loan first; 'deshacer' takes it back to waiting, marked", () => {
@@ -185,9 +186,12 @@ test("tapping a loan pays THAT loan first; 'deshacer' takes it back to waiting, 
   assert.equal(a.entry(e.id), undefined);
   assert.equal(a.settlementsOf(l2.id).reduce((n, s) => n + Number(s.amount), 0), 20, "the loan tapped");
   assert.equal(a.settlementsOf(l1.id).length, 0);
+  assert.match(a.bodies().join("\n"), /Marked as a repayment to Zoe Test\. Paid: .*\(5 Feb 2026\) PEN 20\.00\./, "says which loan it paid");
+  const before = a.bodies().length;
   a.text("deshacer");
   assert.equal(a.settlementsOf(l2.id).length, 0, "the repayment is gone");
   assert.ok(a.entry(e.id).repay_intent, "waiting again, still marked");
+  assert.ok(a.bodies().slice(before).some((b) => /Which of Zoe Test's loans/.test(b)), "the list of loans comes back");
 });
 
 test("'Oldest first' in the list pays the oldest; 'Several → in the app' changes nothing", () => {

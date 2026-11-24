@@ -526,6 +526,9 @@ function botUndoMessage_(targetId, replyTo) {
     // The transaction's card again, as it is now (owner, 2026-11-23): waiting, with its buttons; confirmed, without them. A plain
     // message after the undo then refers to it, as after any card.
     if (entry) sendTelegramEntryNotification_(entry);
+    // A repayment waiting for its loans again: its list of loans comes back under the card (testers 2.68.2).
+    var back = entry ? getEntryById_(entry.id) : null;
+    if (back && back.status === 'pending' && repayIntentOf_(back)) botRepayLoanList_(back.id, whatsappCardFor_(back.id) || quoted);
   } finally {
     var sent = BOT_MSG_CAPTURE_ || [];
     BOT_MSG_CAPTURE_ = null;
