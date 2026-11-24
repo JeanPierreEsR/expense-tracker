@@ -10658,6 +10658,7 @@ function holdScroll_(name, whereY) {
   TOUCHES.forEach((t) => window.addEventListener(t, endTabScrollHold_, { capture: true, passive: true }));
 }
 function showScreen(name) {
+  try { if (appUndoStack_.length && appUndoStack_[0].kind === "move") dropUndoKind_("move"); } catch (e) { /* before start-up has set the stack */ }   // an account move's Undo stays on its own screen (testers 2.68.2)
   teachVisit_++;   // the daily teaching budget allows one unasked thing per screen visit
   rememberTabScroll_(name);
   if (name !== "budgets" && budgetsEditing_) setBudgetsEditing_(false, false);
@@ -20768,7 +20769,7 @@ document.getElementById("move-to").addEventListener("change", async (e) => {
       + (lines.length ? `<ul style="list-style:disc;margin:4px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : "")
       + ((p.balanceChoices || []).length ? `<div id="move-bal-box">${moveBalanceHtml_(p)}</div>` : c.balancesDropped ? `<p class="hint">${escapeHtml(tr("move.balancesKept", { n: c.balancesDropped, name: p.to.nickname }))}</p>` : "")
       + (c.selfTransfers ? `<p class="hint">${escapeHtml(tr("move.selfTransfers", { n: c.selfTransfers }))}</p>` : "")
-      + ((p.droppedLinks || []).length ? `<p class="stmt-note warn">${escapeHtml(tr("move.linksDropped", { wallets: p.droppedLinks.join(", "), name: p.to.nickname }))}</p>` : "")
+      + ((p.droppedLinks || []).length ? `<p class="stmt-note warn">${escapeHtml(tr("move.linksDropped", { wallets: p.droppedLinks.join(" / "), name: p.to.nickname }))}</p>` : "")
       + (extra.length ? `<p class="stmt-note warn">${escapeHtml(tr("move.currencyWarn", { currencies: extra.join(", "), name: p.to.nickname }))}</p>` : "")
       + (digits && bank ? `<p class="hint">${escapeHtml(tr("move.digits", { name: p.to.nickname, digits, bank: bank.name }))}</p>` : "")
       + bankAsk
@@ -20808,18 +20809,22 @@ document.getElementById("move-save-btn").addEventListener("click", () => {
     refreshHomeGlance_(true);
     refreshTabsAhead_();
   };
+  let res = null;
   saveBehindScreen_(async () => {
-    let res;
     try { res = await callApi("moveAccountHistory", { from: fromId, to: toId, old_bank_id: oldBankId || undefined, keep_balances: keepBalances }); }
     catch (err) { unmarkDeleting_("pm:" + fromId); throw err; }
     unmarkDeleting_("pm:" + fromId);
-    // The same Restore as More → My data → Recently deleted, where the move waits 30 days.
+  }, async () => {
+    await refresh();
+    if (!res) return;
+    // The same Restore as More → My data → Recently deleted, where the move waits 30 days. Shown once the refresh is done (testers
+    // 2.68.2: it sat inside the "Saving…" toast), and gone when the person changes tab (kind "move", see showScreen).
     showUndoToast_(tr("move.done", { from: from ? from.nickname : "", to: to ? to.nickname : "" }), async () => {
       await callApi("undoAccountMove", { move_id: res.move_id });
       showToast_(tr("move.undone"));
       await refresh();
-    });
-  }, refresh);
+    }, "move");
+  });
 });
 
 // ---- Accounts: Edit mode (tick several accounts, delete them at once; owner's request, 2026-11-03) ----
