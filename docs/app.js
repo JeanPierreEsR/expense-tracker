@@ -11855,8 +11855,10 @@ function renderCompanyClose_(state) {
     if (checked.length) parts.push(`<p class="hint">${escapeHtml(diffs.length ? tr("close.bankDiffs", { list: diffs.map((b) => `${b.nickname} ${formatAmount(Math.abs(b.difference), b.currency, b.difference > 0 ? "+" : "−")}`).join(" · ") }) : tr("close.bankOk"))}</p>`);
     if (c.note) parts.push(`<p class="hint">${escapeHtml(tr("close.noteShown", { note: c.note }))}</p>`);
     if (state.changed) {
-      parts.push(`<p class="close-changed">${escapeHtml(tr("close.changed"))} ${escapeHtml(state.hand_edited ? tr("close.handEdited") : tr("close.changedN", { n: state.changes.length }))}</p>`);
-      if (!state.hand_edited) parts.push(`<button type="button" class="add-inline" id="co-close-see">${escapeHtml(tr("close.seeChanges"))}</button>`);
+      // A hand edit is said even when the app also changed things (testers 2.68.2: one app edit used to hide it).
+      const said = [state.changes.length ? tr("close.changedN", { n: state.changes.length }) : "", state.hand_edited ? tr("close.handEdited") : ""].filter(Boolean).join(" ");
+      parts.push(`<p class="close-changed">${escapeHtml(tr("close.changed"))} ${escapeHtml(said)}</p>`);
+      if (state.changes.length) parts.push(`<button type="button" class="add-inline" id="co-close-see">${escapeHtml(tr("close.seeChanges"))}</button>`);
     }
     parts.push(`<button type="button" class="add-inline" id="co-close-reopen">${escapeHtml(tr("close.reopen"))}</button>`);
   } else {

@@ -17,7 +17,8 @@
  */
 
 var MONTH_CLOSE_HEADERS_ = ['id', 'month', 'status', 'closed_at', 'reopened_at', 'fingerprint', 'figures', 'bank_check', 'pending_count', 'note',
-  'package_sent_at', 'package_to', 'package_fingerprint'];   // piece 10: the accountant's package (AccountantPackage.gs)
+  'package_sent_at', 'package_to', 'package_fingerprint',
+  'row_prints'];   // testers 2.68.2: one short code per row at the close (monthRowPrints_), to tell hand edits apart   // piece 10: the accountant's package (AccountantPackage.gs)
 
 function ensureMonthClosesSheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -63,28 +64,67 @@ function validMonth_(month) {
   return String(month);
 }
 
-// The month's entries (waiting ones included: confirming one changes the month) and what hangs on them, as one short code.
-function monthFingerprint_(month) {
+// The month's entries (waiting ones included: confirming one changes the month) and what hangs on them, one text per row, keyed by
+// the row it comes from ('Entries:<id>', 'Distributions:<id>'…): the same texts make the fingerprint and the per-row prints.
+function monthRowTexts_(month) {
   var entries = getAllRows('Entries').filter(function (e) {
     return String(e.date).slice(0, 7) === month && (e.status === 'confirmed' || e.status === 'pending');
   });
   var ids = {};
   entries.forEach(function (e) { ids[e.id] = true; });
-  var parts = entries.map(function (e) {
-    return ['id', 'type', 'date', 'amount', 'currency', 'category_id', 'description', 'payment_method_id', 'to_payment_method_id',
+  var out = {};
+  entries.forEach(function (e) {
+    out['Entries:' + e.id] = ['id', 'type', 'date', 'amount', 'currency', 'category_id', 'description', 'payment_method_id', 'to_payment_method_id',
       'paid_by', 'status', 'company_id', 'project_id', 'igv_amount'].map(function (k) { return changeText_(e[k]); }).join('|');
   });
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   ['Entry Splits', 'Project Splits', 'Contributions', 'Distributions'].forEach(function (t) {
     if (!ss.getSheetByName(t)) return;
-    getAllRows(t).forEach(function (r) {
+    getAllRows(t).forEach(function (r, i) {
       if (!ids[r.entry_id]) return;
-      parts.push(t + ':' + Object.keys(r).sort().map(function (k) { return k + '=' + changeText_(r[k]); }).join('|'));
+      var key = t + ':' + (r.id || (r.entry_id + '#' + i));
+      out[key] = t + ':' + Object.keys(r).sort().map(function (k) { return k + '=' + changeText_(r[k]); }).join('|');
     });
   });
+  return out;
+}
+
+function shortDigest_(text, len) {
+  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, text, Utilities.Charset ? Utilities.Charset.UTF_8 : undefined);
+  return digest.map(function (b) { var v = (b < 0 ? b + 256 : b).toString(16); return v.length === 1 ? '0' + v : v; }).join('').slice(0, len);
+}
+
+// The month as one short code (unchanged since piece 8, so fingerprints kept by earlier closes still match).
+function monthFingerprint_(month) {
+  var texts = monthRowTexts_(month);
+  var parts = Object.keys(texts).map(function (k) { return texts[k]; });
   parts.sort();
-  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, parts.join('\n'), Utilities.Charset ? Utilities.Charset.UTF_8 : undefined);
-  return digest.map(function (b) { var v = (b < 0 ? b + 256 : b).toString(16); return v.length === 1 ? '0' + v : v; }).join('').slice(0, 32);
+  return shortDigest_(parts.join('\n'), 32);
+}
+
+// One short code per row (testers 2.68.2): kept at the close, so a later check can tell WHICH rows changed, and a row changed
+// with no change-log line of its own is a hand edit even when the app also changed other rows.
+function monthRowPrints_(month) {
+  var texts = monthRowTexts_(month), out = {};
+  Object.keys(texts).forEach(function (k) { out[k] = shortDigest_(texts[k], 10); });
+  return out;
+}
+
+// Rows that changed, appeared or disappeared since the close and that no change-log line (after the close) explains.
+function monthHandEdits_(month, closedPrints, changes) {
+  var now = monthRowPrints_(month), explained = {};
+  (changes || []).forEach(function (l) { if (l.row_id) explained[String(l.row_id)] = true; });
+  var out = [];
+  var keys = {};
+  Object.keys(closedPrints).forEach(function (k) { keys[k] = true; });
+  Object.keys(now).forEach(function (k) { keys[k] = true; });
+  Object.keys(keys).sort().forEach(function (k) {
+    if (closedPrints[k] === now[k]) return;
+    var p = k.indexOf(':'), table = k.slice(0, p), rowId = k.slice(p + 1);
+    if (explained[rowId]) return;
+    out.push({ table: table, row_id: rowId, what: !closedPrints[k] ? 'added' : !now[k] ? 'removed' : 'changed' });
+  });
+  return out;
 }
 
 // Each account with a starting balance, its balance per currency at the end of `day` (same rule as the Balances card).
@@ -144,16 +184,22 @@ function monthCloseState_(month) {
   var ended = monthLastDay_(month) < today;
   var row = monthCloseRows_().filter(function (r) { return r.month === month; })[0] || null;
   var closed = !!row && row.status === 'closed';
-  var changed = false, changes = [];
+  var changed = false, changes = [], handRows = null;
   if (closed) {
     changed = monthFingerprint_(month) !== row.fingerprint;
     if (changed) {
-      changes = listChangeLog({ month: month, limit: 1000 }).lines.filter(function (l) { return l.at > row.closed_at && l.table !== 'Month Closes'; }).slice(0, 50);
+      var allChanges = listChangeLog({ month: month, limit: 1000 }).lines.filter(function (l) { return l.at > row.closed_at && l.table !== 'Month Closes'; });
+      changes = allChanges.slice(0, 50);
+      var prints = null;
+      try { prints = row.row_prints ? JSON.parse(row.row_prints) : null; } catch (e) { prints = null; }
+      // A close made with per-row prints: every row changed without a log line of its own is a hand edit, whatever else changed.
+      // An older close (no prints): as before, a hand edit only when nothing in the log explains the change.
+      if (prints) handRows = monthHandEdits_(month, prints, allChanges);
     }
   }
   var parse = function (s) { try { return s ? JSON.parse(s) : null; } catch (e) { return null; } };
   return {
-    month: month, ended: ended, closed: closed, changed: changed, hand_edited: changed && !changes.length, changes: changes,
+    month: month, ended: ended, closed: closed, changed: changed, hand_edited: handRows ? handRows.length > 0 : (changed && !changes.length), hand_rows: (handRows || []).slice(0, 20), changes: changes,
     close: row ? { status: row.status, closed_at: row.closed_at, reopened_at: row.reopened_at, figures: parse(row.figures),
       bank_check: parse(row.bank_check) || [], pending_count: Number(row.pending_count) || 0, note: row.note } : null,
     pending_count: monthPendingCount_(month),
@@ -194,7 +240,9 @@ function closeMonth(payload) {
         bank_amount: typed === null ? null : round2_(typed), difference: typed === null ? null : round2_(typed - app.amount) };
     }).filter(Boolean);
     var sheet = ensureMonthClosesSheet_();
+    ensureColumn_('Month Closes', 'row_prints');   // a sheet made before 2.69 has no such column
     var fields = { status: 'closed', closed_at: nowStamp_(), reopened_at: '', fingerprint: monthFingerprint_(month),
+      row_prints: JSON.stringify(monthRowPrints_(month)),
       figures: JSON.stringify(monthFigures_(month)), bank_check: JSON.stringify(bank), pending_count: String(state.pending_count),
       note: String(payload.note || '').slice(0, 500) };
     var existing = monthCloseRows_().filter(function (r) { return r.month === month; })[0];
