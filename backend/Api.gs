@@ -174,6 +174,7 @@ var ONCE_ACTIONS_ = {
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1, recordTripSettlement: 1,
   addCompany: 1, addProject: 1, addExpectedPayment: 1, addIgvPayment: 1,   // Business pack (Business.gs): a resend must not create a second one
   addLoan: 1, addFriend: 1, addRecurringExpense: 1,
+  assignUnknownFriend: 1,   // may create a friend (testers 2.68.2, C22)
   saveEntryAll: 1,   // may create an entry (the lock also keeps a resend from running next to the first)
   exportData: 1,   // a resend must not email the same files twice
   // The two long statement writes: the app waits at most 150 s for them, but a resend that does arrive must not run a second copy
@@ -343,6 +344,7 @@ function routeActionSwitch_(action, payload) {
     case 'previewMainCurrencyChange': return previewMainCurrencyChange(payload);
     case 'changeMainCurrency': return changeMainCurrency(payload);
     case 'addFriend': return addFriend(payload);
+    case 'assignUnknownFriend': return assignUnknownFriend(payload);
     case 'listPayors': return listPayors();
     case 'addPayor': return addPayor(payload);
     case 'applyPayorMerge': return applyPayorMerge(payload);

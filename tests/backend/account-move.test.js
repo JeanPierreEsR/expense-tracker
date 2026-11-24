@@ -309,3 +309,12 @@ test("a hand-typed move row that is not a whole move is treated as gone, with th
   rt.run("ROWS_MEMO_ = null;");
   assert.throws(() => rt.api("restoreAccountMove", { move_id: "hand-move" }), (e) => !/Cannot read properties/.test(e.message));
 });
+
+test("Restore counts an entry that pointed at the old account on both sides once", () => {
+  const { rt, oldCard, newCard } = setup();
+  rt.run(`appendRowObject('Entries', { id: 'both-old', type: 'transfer', date: '2026-01-12', amount: 20, currency: 'PEN', payment_method_id: ${JSON.stringify(oldCard.id)}, to_payment_method_id: ${JSON.stringify(oldCard.id)}, status: 'confirmed', source: 'manual', description: 'Made-up odd row' })`);
+  const res = rt.api("moveAccountHistory", { from: oldCard.id, to: newCard.id });
+  assert.equal(res.counts.entries, 7);
+  const back = rt.api("restoreAccountMove", { move_id: res.move_id });
+  assert.equal(back.entriesBack, 7, "the same number the move and Recently deleted show");
+});

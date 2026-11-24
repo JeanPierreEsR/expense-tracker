@@ -538,11 +538,13 @@ function restoreAccountMove(payload) {
       if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
     }
     // 3. What moved goes back: only those rows, and only while they still point at the new account.
-    var back = 0;
+    // Counted once per entry: one that pointed at the old account on both sides comes back through both fields (testers 2.68.2).
+    var backIds = {};
     ['payment_method_id', 'to_payment_method_id'].forEach(function (f) {
       var only = ids(u.entries && u.entries[f]);
-      if (Object.keys(only).length) back += accountMoveEntriesField_(f, toId, fromId, only).length;
+      if (Object.keys(only).length) accountMoveEntriesField_(f, toId, fromId, only).forEach(function (id) { backIds[String(id)] = true; });
     });
+    var back = Object.keys(backIds).length;
     ACCOUNT_MOVE_SHEETS_.forEach(function (s) { var only = ids(u.sheets && u.sheets[s[0]]); if (Object.keys(only).length) accountMoveColumn_(s[0], s[1], toId, fromId, only); });
     var movedBal = ids(u.balancesMoved);
     if (Object.keys(movedBal).length) accountMoveColumn_('Account Opening Balances', 'payment_method_id', toId, fromId, movedBal);
