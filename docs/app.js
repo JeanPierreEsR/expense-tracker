@@ -28945,6 +28945,7 @@ const LINK_ICON_RULES_ = [
   [/^(edit|editar|change|cambiar|method|método|complete|completar)\b/i, "pencil"],
   [/^(reset|restablecer|start|empezar|volver|go back|reload|recargar|reactivate|reactivar|work out|recalcular)/i, "refresh"],
   [/^(skip|omitir)\b/i, "skip"],
+  [/^(choose which loans|elegir qué préstamos)/i, "down"],   // it opens the list of loans; a tick read as "done" (testers 2.68.2)
   [/^(use|usar|apply|aplicar|match|emparejar|choose|elegir|record|registrar|mark|marcar|keep|dejar)\b/i, "check"],
   [/^(split|repartir|people|personas|shared with a group|¿compartido con un grupo|group|liquidación)/i, "users"],
   [/^(client|el cliente)/i, "briefcase"],
