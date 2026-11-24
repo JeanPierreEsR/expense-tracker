@@ -113,12 +113,22 @@ const plinManyOn_ = () => !!((meta && meta.capabilities) || {}).plinMany;
 const plinMoreIds_ = () => String(((meta && meta.settings) || {}).plin_pen_more || "").split(",").filter(Boolean);
 // An account as it reads in a list to pick from: its name, the last 4 digits, and the wallets that ride on it ("BCP soles · Yape"),
 // so a person who pays with Yape or Plin finds it without knowing that the app records the bank account behind it (2026-11-04).
-function pmPickLabel_(pm) {
+// The Balances card's grey line under an account: its bank and the wallets on it (owner, 2026-11-23).
+function balanceRowMeta_(r) {
+  const pm = ((meta && meta.paymentMethods) || []).find((p) => String(p.id) === String(r.id));
+  const text = [r.bank_name || "", ...(pm ? pmWallets_(pm) : [])].filter(Boolean).join(" · ");
+  return text ? `<div class="balance-row-meta">${escapeHtml(text)}</div>` : "";
+}
+// The wallets that ride on this account ("Yape", "Plin"), left out when the name already says it.
+function pmWallets_(pm) {
   const settings = (meta && meta.settings) || {};
   const wallets = [];
   if (String(settings.yape_pen || "") === String(pm.id) || String(settings.yape_usd || "") === String(pm.id)) wallets.push("Yape");
   if (String(settings.plin_pen || "") === String(pm.id) || String(settings.plin_usd || "") === String(pm.id) || plinMoreIds_().includes(String(pm.id))) wallets.push("Plin");
-  const shown = wallets.filter((w) => !String(pm.nickname || "").toLowerCase().includes(w.toLowerCase()));
+  return wallets.filter((w) => !String(pm.nickname || "").toLowerCase().includes(w.toLowerCase()));
+}
+function pmPickLabel_(pm) {
+  const shown = pmWallets_(pm);
   const bank = !String(pm.nickname || "").trim() && meta && (meta.banks || []).find((b) => String(b.id) === String(pm.bank_id));
   const name = String(pm.nickname || "").trim() || (bank ? bank.name : "") || tr("accounts.unnamed");   // never an empty row
   return name + (pm.last_4 ? ` (${pm.last_4})` : "") + (shown.length ? " · " + shown.join(" · ") : "");
@@ -20123,7 +20133,7 @@ function renderAccountsList_() {
     row.className = "recurring-row" + (pmHidden_(pm) ? " inactive" : "") + (accountsEditing_ ? " friends-check-row" : "");
     delKey_(row, "pm:" + pm.id);
     const typeName = pmTypeLabel_(pm.type);
-    const sub = [typeName === pm.nickname ? "" : typeName, bankName(pm.bank_id)].filter(Boolean).join(" · ");
+    const sub = [typeName === pm.nickname ? "" : typeName, bankName(pm.bank_id), ...pmWallets_(pm)].filter(Boolean).join(" · ");   // (Yape / Plin too, owner 2026-11-23)
     const lead = !accountsEditing_ ? ""
       : isCash ? `<span class="friends-check-spacer"></span>`
       : `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${accountsSelected_.has(pm.id) ? " checked" : ""}>`;
@@ -37142,7 +37152,7 @@ async function refreshBalancesInner_() {
     const stmtLine = cs ? cardStmtLines_(cs) : "";
     row.dataset.pm = r.id;
     row.innerHTML = `
-      <div class="balance-row-name">${escapeHtml(r.nickname)}${r.statement_closed ? "" : `<span class="loan-detail-row-chevron">›</span>`}${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${stmtLine}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}${balanceSavingLine_(r.id)}</div>
+      <div class="balance-row-name">${escapeHtml(r.nickname)}${r.statement_closed ? "" : `<span class="loan-detail-row-chevron">›</span>`}${balanceRowMeta_(r)}${stmtLine}${missing.length ? `<div class="balance-row-missing">${escapeHtml(tr("balances.missingRow", { cur: missing.join(", ") }))}</div>` : ""}${balanceSavingLine_(r.id)}</div>
       <div class="balance-row-amount ${main.amount < 0 ? "negative" : ""}">${formatSignedBalance_(main.amount, main.currency)}${otherText ? `<div class="balance-row-meta">${escapeHtml(otherText)}</div>` : ""}</div>
     `;
     if (!r.statement_closed) row.addEventListener("click", () => openBalanceModal(r.id));   // (a statement figure has no movements to show)
@@ -37162,7 +37172,7 @@ async function refreshBalancesInner_() {
       const item = document.createElement("div");
       item.className = "balance-row balance-stmt-item";
       item.dataset.pm = r.id;
-      item.innerHTML = `<div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span>${r.bank_name ? `<div class="balance-row-meta">${escapeHtml(r.bank_name)}</div>` : ""}${cardStmtLines_(r)}${balanceSavingLine_(r.id)}</div>`;
+      item.innerHTML = `<div class="balance-row-name">${escapeHtml(r.nickname)}<span class="loan-detail-row-chevron">›</span>${balanceRowMeta_(r)}${cardStmtLines_(r)}${balanceSavingLine_(r.id)}</div>`;
       item.addEventListener("click", () => openStmtCardBalance_(r.id));
       box.appendChild(item);
     });
