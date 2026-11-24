@@ -381,6 +381,7 @@ function routeActionSwitch_(action, payload) {
     case 'keepEntryCharge': return keepEntryCharge(payload);
     case 'fillChargeFromReview': return fillChargeFromReview(payload);
     case 'applyAccountCurrencySuggestions': return applyAccountCurrencySuggestions(payload);
+    case 'addAccountCurrency': return addAccountCurrency(payload);
     case 'removePaymentMethod': return removePaymentMethod(payload);
     case 'removePaymentMethods': return removePaymentMethods(payload);
     case 'previewAccountMove': return withRowsMemo_(function () { return previewAccountMove(payload); });   // each sheet read once (speed rules)

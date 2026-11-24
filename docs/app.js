@@ -8117,12 +8117,16 @@ async function flushMoneyQueue_() {
       removeMoneyItem_(item.id);
       if (guided_ && guided_.moneyId === item.id) guided_.moneyLanded = { overpaid: (result && result.overpaid) || 0 };
       if (item.action === "recordRepayment") item.overpaid = (result && result.overpaid) || 0;   // the closing toast mentions the extra
-      if (item.action === "recordRepayment" && result && result.overpaid > 0.004) {
+      // "Saving…" stays until the refresh after the save is done too (CLAUDE.md § Saving standard; testers 2.68.2: "Saved" came
+      // ~4 s before the friend's screen caught up). A friend's screen that closes because all is settled says its own toast.
+      const settledBefore = loanDetailAutoClosed_;
+      try { await afterMoneySaved_(item); } catch (e) { /* the screen shows its own load error */ }
+      if (loanDetailAutoClosed_ !== settledBefore && loanDetailAutoClosed_) { /* its "All settled" toast stands */ }
+      else if (item.action === "recordRepayment" && result && result.overpaid > 0.004) {
         showToast_(tr("money.repaidExtra", { cur: result.currency, amount: moneyFmt(result.overpaid) }));
       } else {
         showToast_(tr("common.savedToast"));
       }
-      try { await afterMoneySaved_(item); } catch (e) { /* the screen shows its own load error */ }
     }
   } finally {
     moneyFlushing_ = false;
@@ -9324,14 +9328,38 @@ function updateExchangeChecks_() {
   const errorEl = document.getElementById("exchange-form-error");
   if (same) errorEl.textContent = tr("xch.sameCurrency");
   else if (errorEl.textContent === tr("xch.sameCurrency")) errorEl.textContent = "";
-  const notes = Spotlight.isRunning() ? [] : ["out", "in"].map((side) => {
-    const { pm, list } = exchangeAccountCurrency_(side);
-    const shown = document.getElementById(`exchange-${side}-currency`).value;
-    return list.length && !list.includes(shown) ? tr("xch.accountMismatch", { account: pm.nickname, accountCur: list.join(" / "), cur: shown }) : "";
-  }).filter(Boolean);
+  const misses = exchangeMismatches_();
   const note = document.getElementById("exchange-account-note");
-  note.textContent = notes.join(" ");
-  note.hidden = !notes.length;
+  note.innerHTML = "";
+  // Testers 2.68.2 (Rosa, Mark): the warning used to let a USD amount be saved on a soles-only account. Save now refuses it, and
+  // each warning carries the way out: add that currency to the account (it can hold several) and go on.
+  misses.forEach((m) => {
+    const p = document.createElement("p");
+    p.textContent = tr("xch.accountMismatch", { account: m.pm.nickname, accountCur: m.list.join(" / "), cur: m.cur });
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "add-inline";
+    add.textContent = tr("xch.addCurrency", { cur: m.cur });
+    add.addEventListener("click", () => {
+      m.pm.currencies = m.list.concat([m.cur]).join(",");   // the form reads it at once; the server keeps it
+      updateExchangeChecks_();
+      const err = document.getElementById("exchange-form-error");
+      if (err.textContent === tr("xch.mismatchSave")) err.textContent = "";
+      saveBehindScreen_(() => callApi("addAccountCurrency", { id: m.pm.id, currency: m.cur }), async () => { await loadMeta(); });
+    });
+    if (((meta && meta.capabilities) || {}).accountAddCurrency) { p.appendChild(document.createTextNode(" ")); p.appendChild(add); }
+    note.appendChild(p);
+  });
+  note.hidden = !misses.length;
+}
+// The sides whose account is known to hold other currencies than the one typed (none during a practice).
+function exchangeMismatches_() {
+  if (Spotlight.isRunning()) return [];
+  return ["out", "in"].map((side) => {
+    const { pm, list } = exchangeAccountCurrency_(side);
+    const cur = document.getElementById(`exchange-${side}-currency`).value;
+    return list.length && !list.includes(cur) ? { side, pm, list, cur } : null;
+  }).filter(Boolean);
 }
 // Picking on one side the currency the other side has swaps them, for any pair (owner, 2026-11-06): PEN → USD, first side set to USD, reads USD → PEN.
 let exchangeCurPrev_ = { out: "", in: "" };
@@ -9663,6 +9691,7 @@ document.getElementById("exchange-save-btn").addEventListener("click", async () 
   if (!(out.amount > 0) || !(inn.amount > 0)) { errorEl.textContent = tr("error.validAmount"); return; }
   if (out.currency === inn.currency) { errorEl.textContent = tr("xch.sameCurrency"); return; }
   if (!out.payment_method_id && !inn.payment_method_id) { errorEl.textContent = tr("xch.needAccount"); return; }
+  if (exchangeMismatches_().length && ((meta && meta.capabilities) || {}).accountAddCurrency) { errorEl.textContent = tr("xch.mismatchSave"); return; }
   const ctx = exchangeContext_;
   if (ctx && !(ctx.leg === "out" ? out : inn).payment_method_id) { errorEl.textContent = tr("xch.needOwnSide"); return; }
   const editing = exchangeEditing_;
