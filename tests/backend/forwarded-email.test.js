@@ -157,23 +157,24 @@ test("a sender name that hides the person's own address does not hide 'Forwarded
   assert.equal(rt.run("forwardAddressOf_('eva@example.org')"), "eva@example.org");
 });
 
-// Owner, 2026-11-24: e-mails a friend forwarded to JP (samples) filled his "Bank emails I couldn't read" with her bank's wordings, and
-// her "To:" name could have been learned as his. A stranger's forward is still read, but feeds neither; the person's own forward does.
-test("someone else's forward of an unknown bank e-mail is not logged as unread and its To: name is not learned; the person's own is", () => {
+// Owner, 2026-11-24: a friend's forward of a bank e-mail no rule knows belongs in "Bank emails I couldn't read" (that is how rules get
+// built), but the name it was sent to is the friend's: never learned as the person's own. Their own forward teaches names as before.
+test("someone else's forward of an unknown bank e-mail is logged as unread, but its To: name is not learned", () => {
   const rt = freshApp({ small: true }).rt;
   const k = dayAgo(3);
-  const fwd = (to) => ["---------- Forwarded message ---------", "From: BCP <" + BCP_SENDER + ">",
-    "Date: Sat, " + MONTHS_EN[k.m - 1] + " " + k.d + ", " + k.y + " at 12:44 PM", "Subject: Constancia de algo nuevo 123", "To: " + to, "",
+  const fwd = (to, n) => ["---------- Forwarded message ---------", "From: BCP <" + BCP_SENDER + ">",
+    "Date: Sat, " + MONTHS_EN[k.m - 1] + " " + k.d + ", " + k.y + " at 12:44 PM", "Subject: Constancia de algo nuevo " + n, "To: " + to, "",
     "Un texto que ninguna regla conoce."].join("\n");
-  rt.svc.gmail.addEmail({ from: "Eva <" + OTHER + ">", subject: "Fwd: Constancia de algo nuevo 123", body: fwd("Zoe Prueba Lima <zoe@example.org>") });
-  scan(rt);
   const unread = () => { try { return rt.rows("Unread Emails"); } catch (e) { return []; } };
-  assert.equal(unread().length, 0, "a stranger's forward is not the person's unread bank e-mail");
-  assert.ok(!JSON.stringify(rt.run("getSettingsMap()")).includes("Zoe"), "nor is the name it was sent to learned as theirs");
-  // The same kind of e-mail forwarded by one of the person's own addresses is theirs: logged as before.
-  rt.run("setForwardAddresses({ addresses: ['" + OTHER + "'] })");
-  rt.svc.gmail.addEmail({ from: "Eva <" + OTHER + ">", subject: "Fwd: Constancia de algo nuevo 456", body: fwd("<" + OTHER + ">").replace("123", "456") });
+  const settings = () => JSON.stringify(rt.run("getSettingsMap()"));
+  rt.svc.gmail.addEmail({ from: "Eva <" + OTHER + ">", subject: "Fwd: Constancia de algo nuevo 123", body: fwd("Zoe Prueba Lima <zoe@example.org>", 123) });
   scan(rt);
-  assert.equal(unread().length, 1);
+  assert.equal(unread().length, 1, "the wording no rule knows is listed, whoever forwarded it");
   assert.equal(unread()[0].kind, "no_rule");
+  assert.ok(!settings().includes("Zoe"), "the name it was sent to is the friend's, not learned as the person's");
+  // Forwarded by one of the person's own addresses: their mail, so its name is learned as before.
+  rt.run("setForwardAddresses({ addresses: ['" + OTHER + "'] })");
+  rt.svc.gmail.addEmail({ from: "Eva <" + OTHER + ">", subject: "Fwd: Constancia de algo nuevo 456", body: fwd("Ivo Prueba Sur <" + OTHER + ">", 456) });
+  scan(rt);
+  assert.ok(settings().includes("Ivo"), "their own forward teaches their name");
 });
