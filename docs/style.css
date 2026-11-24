@@ -4381,3 +4381,6 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 
 /* A company copy skips the investment platforms step: only a refusal and the buttons show while the welcome saves (testers 2.68.2). */
 #welcome-platforms[data-company] > :not(#wp-error):not(.welcome-tour-buttons) { display: none; }
+/* The share sheet's sections: a box never shrinks beside a two-line label, and sits at its first line (testers 2.68.2). */
+#share-sections .checkbox-row { align-items: flex-start; }
+#share-sections .checkbox-row input[type="checkbox"] { flex: none; margin-top: 1px; }

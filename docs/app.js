@@ -23412,7 +23412,7 @@ function openShareModal_() {
   shareDoc_ = { start: b.startDate || "", end: b.endDate || "" };
   document.getElementById("share-period").textContent = shareDoc_.start || shareDoc_.end
     ? tr("share.period", { start: shareDoc_.start ? listDate_(shareDoc_.start) : "…", end: shareDoc_.end ? listDate_(shareDoc_.end) : "…" }) : tr("share.allTime");
-  document.getElementById("share-sections").innerHTML = SHARE_ALL_.map((k) => `<label class="checkbox-row"><input type="checkbox" value="${k}"${shareSectionsNow_.includes(k) ? " checked" : ""}> <span>${escapeHtml(tr("share.s." + k))}${k === "owed" ? `<small class="hint">${escapeHtml(tr("share.owedHint"))}</small>` : ""}</span></label>`).join("");
+  document.getElementById("share-sections").innerHTML = SHARE_ALL_.map((k) => `<label class="checkbox-row"><input type="checkbox" value="${k}"${shareSectionsNow_.includes(k) ? " checked" : ""}> <span>${escapeHtml(tr("share.s." + k))}${k === "owed" ? `<small class="hint" style="display:block;margin:2px 0 0">${escapeHtml(tr("share.owedHint"))}</small>` : ""}</span></label>`).join("");   // the hint on its own line (testers 2.68.2: "prestamistasNo va…")
   document.getElementById("share-error").textContent = "";
   document.getElementById("share-pick").hidden = false;
   document.getElementById("share-doc").hidden = true;
