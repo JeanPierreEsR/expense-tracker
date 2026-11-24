@@ -8346,6 +8346,17 @@ function reviewChargeMatchHtml_(entry) {
 }
 
 // "Looks like a loan to Ana again": what the backend's loan_hint says, in words (or "" when there is none / the friend is gone).
+// A repayment a bot kept waiting for its loans to be chosen (owner, 2026-11-23; backend RepayIntent.gs): "Repayment to Ana · choose
+// which loans it pays". Its Confirm opens Mark as repayment on that friend with the loans to choose.
+function reviewRepayIntentOn_(entry) {
+  return !!(entry && entry.repay_intent && entry.repay_intent.friend_id && ((meta && meta.capabilities) || {}).repayIntent);
+}
+function reviewRepayIntentText_(entry) {
+  if (!reviewRepayIntentOn_(entry)) return "";
+  const it = entry.repay_intent;
+  const friend = (meta.friends.find((f) => f.id === it.friend_id) || {}).name || it.friend_name || "";
+  return tr(it.direction === "they_owe_me" ? "review.repayIntentFrom" : "review.repayIntentTo", { friend });
+}
 function reviewLoanHintText_(entry) {
   const h = entry.loan_hint;
   const friend = h && meta.friends.find((f) => f.id === h.friend_id);
@@ -8475,7 +8486,7 @@ const reviewIssueText_ = (entry, reason) => `${reviewShortName_(entry)} (${tr(`r
 document.getElementById("review-confirm-selected-btn").addEventListener("click", () => confirmReviewBulk_(reviewEntries_.filter((e) => reviewSelected_.has(e.id))));
 // "Confirm the suggested ones" at the top of the open list (journeys run, 2026-11-17: piles of 100-500 items, and the Edit → Select all
 // way was never found): every waiting item that already has its category and its account, in one question.
-const reviewReadyForAll_ = (e) => !isPracticeReviewEntry_(e) && !reviewIssue_(e) && !reviewIsRepaymentPart_(e)
+const reviewReadyForAll_ = (e) => !isPracticeReviewEntry_(e) && !reviewIssue_(e) && !reviewIsRepaymentPart_(e) && !reviewRepayIntentOn_(e)
   && (e.type === "transfer" || e.type === "investment" || !!e.payment_method_id);
 function syncReviewReadyBtn_() {
   const btn = document.getElementById("review-confirm-ready-btn");
@@ -8487,11 +8498,17 @@ function syncReviewReadyBtn_() {
 document.getElementById("review-confirm-ready-btn").addEventListener("click", () => confirmReviewBulk_(reviewEntries_.filter(reviewReadyForAll_)));
 async function confirmReviewBulk_(chosen) {
   if (!chosen.length) return;
+  // Repayments a bot kept waiting for their loans (backend RepayIntent.gs): recorded, not confirmed. One with nothing owed any more stays;
+  // those with a real choice are asked about once, below (owner, 2026-11-23).
+  const marked = chosen.filter(reviewRepayIntentOn_);
+  chosen = chosen.filter((e) => !reviewRepayIntentOn_(e));
+  const markedOk = marked.filter((e) => e.repay_intent.owed);
+  const markedNone = marked.filter((e) => !e.repay_intent.owed);
   const ready = chosen.filter((e) => !reviewIssue_(e));
   const notReady = chosen.filter((e) => reviewIssue_(e));
-  const notReadyText = notReady.map((e) => reviewIssueText_(e, reviewIssue_(e))).join(", ");
-  if (!ready.length) { showAppMessage_(tr("reviewBulk.noneReady", { items: notReadyText })); return; }
-  const left = notReady.length ? tr("reviewBulk.leftNote", { items: notReadyText }) : "";
+  const notReadyText = notReady.map((e) => reviewIssueText_(e, reviewIssue_(e))).concat(markedNone.map((e) => reviewIssueText_(e, "repayNothingOwed"))).join(", ");
+  if (!ready.length && !markedOk.length) { showAppMessage_(tr("reviewBulk.noneReady", { items: notReadyText })); return; }
+  const left = notReady.length || markedNone.length ? tr("reviewBulk.leftNote", { items: notReadyText }) : "";
   // Items that look like a Programmed item's month and were not unticked: linked by the same confirm, one per item and month (the server
   // checks again). Only where the server can (`bulkPlanLink`), so an older one is never promised a link.
   const canLink = !!(meta && meta.capabilities && meta.capabilities.bulkPlanLink);
@@ -8505,7 +8522,18 @@ async function confirmReviewBulk_(chosen) {
   }) : [];
   const linkNames = toLink.map((e) => e.plan_match.description || tr("plan.thePlanned"));
   const linkText = toLink.length ? "\n\n" + tr(ready.length === 1 ? "reviewBulk.willLinkThis" : "reviewBulk.willLink", { n: toLink.length, names: linkNames.length > 3 ? linkNames.slice(0, 3).join(", ") + " " + tr("entriesBulk.andMore", { n: linkNames.length - 3 }) : linkNames.join(", ") }) : "";
-  if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: ready.length, list: reviewListText_(ready), left }) + linkText, tr("reviewBulk.confirmN", { n: ready.length }), { plain: true })) return;
+  const askN = ready.length + markedOk.length;
+  if (!await askConfirmApp_(tr("reviewBulk.confirmAsk", { n: askN, list: reviewListText_(ready.concat(markedOk)), left }) + linkText, tr("reviewBulk.confirmN", { n: askN }), { plain: true })) return;
+  // The marked repayments with a real choice of loans: oldest first for all of them, or they stay for later. ✕ stops the whole confirm.
+  let repayGo = markedOk.filter((e) => !e.repay_intent.matters);
+  const repayAsk = markedOk.filter((e) => e.repay_intent.matters);
+  if (repayAsk.length) {
+    const list = repayAsk.map((e) => `${e.repay_intent.friend_name} ${formatAmount(e.amount, e.currency)}`).join(", ");
+    const answer = await askConfirmApp_(tr("reviewBulk.repayAsk", { n: repayAsk.length, list }), tr("repayAsk.oldest"), { plain: true, cancel: tr("reviewBulk.repayLeave"), closeValue: null });
+    if (answer === null) return;
+    if (answer) repayGo = repayGo.concat(repayAsk);
+  }
+  if (!ready.length && !repayGo.length) return;   // only repayments, all left for later
   // Trips are asked, never put in silently (owner, 2026-11-18; Valeria: a trip's total jumped with nothing said). One question per trip the
   // app suggests, before anything is saved: "Add them" / "Leave them out"; the ✕ stops the whole confirm. A trip the item already carries stays.
   const tripOf = new Map();
@@ -8549,15 +8577,16 @@ async function confirmReviewBulk_(chosen) {
     if (tripId) list.forEach((e) => { tripOf.set(e.id, tripId); tripsSet.add(e.id); });
   }
   const linkFor = new Map(toLink.map((e) => [e.id, e.plan_match.recurring_id]));
-  const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (tripOf.get(e.id) || "") : undefined, link_recurring_id: linkFor.get(e.id) || undefined }));
+  const items = ready.map((e) => ({ id: e.id, trip_id: e.type === "expense" ? (tripOf.get(e.id) || "") : undefined, link_recurring_id: linkFor.get(e.id) || undefined }))
+    .concat(repayGo.map((e) => ({ id: e.id, repay: true })));
   ready.forEach((e) => {   // the optional "help me improve" sharing sees a confirm exactly as the card's own Confirm reports it
     if (isPracticeReviewEntry_(e)) return;
     const amount = Math.abs(Number(e.amount));
     betaRecordEvents_(PerfShare.queueEvents(e, { description: e.description || "", amount: e.type === "investment" && Number(e.amount) < 0 ? -amount : amount, category_id: e.category_id }, betaEntryPlace_(e)));
   });
-  const byId = new Map(ready.map((e) => [e.id, e]));
+  const byId = new Map(ready.concat(repayGo).map((e) => [e.id, e]));
   setReviewEditing_(false, false);
-  reviewAfterBulk_(new Set(ready.map((e) => e.id)));
+  reviewAfterBulk_(new Set(ready.concat(repayGo).map((e) => e.id)));
   let result = null;
   saveBehindScreen_(async () => {
     result = await callApi("confirmEntries", { items });
@@ -8575,13 +8604,16 @@ async function confirmReviewBulk_(chosen) {
     // A reply lost and the save sent again (Nico, 2026-11-18): what the first one confirmed comes back "not pending". If it is no longer
     // waiting, it WAS confirmed, so it is said as confirmed, never "Left in Needs review".
     const waitingNow = new Set((reviewEntries_ || []).map((e) => e.id));
-    const already = result.kept.filter((k) => k.reason === "notPending" && !waitingNow.has(k.id)).map((k) => k.id);
+    const repaidNow = new Set(repayGo.map((e) => e.id));
+    const already = result.kept.filter((k) => (k.reason === "notPending" || (k.reason === "missing" && repaidNow.has(k.id))) && !waitingNow.has(k.id)).map((k) => k.id);
     const kept = result.kept.filter((k) => !already.includes(k.id));
-    const done = result.confirmed.concat(already);
+    const repaid = new Map((result.repaid || []).map((r) => [r.id, r]));
+    const done = result.confirmed.concat(already, [...repaid.keys()]);
+    if (repaid.size) refreshLoans().catch(() => {});
     const canUndo = !!(meta && meta.capabilities && meta.capabilities.bulkUndo);
     if (done.length && !kept.length) {
       const text = tr("reviewBulk.doneConfirmed", { n: done.length, names: reviewNames_(done.map((id) => byId.get(id)).filter(Boolean)) });
-      if (canUndo) showUndoToast_(text, () => undoReviewBulk_(done.map((id) => ({ id, trip: tripsSet.has(id), link: linkFor.has(id) }))), "review");
+      if (canUndo) showUndoToast_(text, () => undoReviewBulk_(done.map((id) => (repaid.has(id) ? { id, repaid: repaid.get(id).before } : { id, trip: tripsSet.has(id), link: linkFor.has(id) }))), "review");
       else showToast_(text);
     }
     if (!kept.length) return;
@@ -8599,6 +8631,7 @@ function undoReviewBulk_(items) {
     refreshEntryList().catch(() => {});
     refreshExpectedRecurring().catch(() => {});
     refreshHomeGlance_(true);
+    if (items.some((it) => it.repaid)) refreshLoans().catch(() => {});   // the repayments it took back
     await refreshReviewQueue(undefined, true).catch(() => {});
     if (res && res.kept.length) showAppMessage_(tr("reviewBulk.undoKept", { n: res.kept.length }));
   }, { busy: "reviewBulk.undoing", done: () => (res && res.undone.length ? tr("reviewBulk.undone", { n: res.undone.length }) : "") });
@@ -8768,7 +8801,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     // Short rows (owner, 2026-11-12): an item starts closed (its top, warnings, category and a ✓ that confirms it as it is);
     // a tap opens the full form; the extra actions sit behind "More actions" (open by themselves when the app suspects one).
     const open = reviewExpanded_.has(entry.id) || Spotlight.isRunning();   // a list redrawn during a walkthrough keeps its items open
-    const moreOpen = reviewMoreOpen_.has(entry.id) || !!entry.loan_hint;
+    const moreOpen = reviewMoreOpen_.has(entry.id) || !!entry.loan_hint || reviewRepayIntentOn_(entry);
     item.className = "review-item" + (open ? "" : " review-collapsed") + (moreOpen ? "" : " review-more-closed");
     item.dataset.entryId = entry.id;
 
@@ -8785,7 +8818,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           ${reviewAccountLine_(entry) ? `<div class="review-item-meta review-account-line">${escapeHtml(reviewAccountLine_(entry))}</div>` : ""}
           ${entry.maybe_own ? `<div class="review-maybe-own">${escapeHtml(tr("review.maybeYours"))}</div>` : ""}
           ${reviewForwardedBy_(entry) ? `<div class="review-item-meta review-forwarded">${escapeHtml(reviewForwardedBy_(entry))}</div>` : ""}
-          ${reviewLoanHintText_(entry) ? `<div class="review-loan-hint">${escapeHtml(reviewLoanHintText_(entry))}</div>` : ""}
+          ${reviewRepayIntentText_(entry) ? `<div class="review-loan-hint review-repay-intent">${escapeHtml(reviewRepayIntentText_(entry))}</div>` : reviewLoanHintText_(entry) ? `<div class="review-loan-hint">${escapeHtml(reviewLoanHintText_(entry))}</div>` : ""}
         </div>
         <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−", "": "" }[entryFlowDirection_(entry)])}</div>
       </div>
@@ -8849,7 +8882,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       <div class="review-item-secondary-actions">
         <button type="button" class="add-inline review-full-btn">${tr("review.editFull")}</button>
         ${reviewTagsOn_() ? `<button type="button" class="add-inline review-tags-btn">${escapeHtml(reviewTagsLabel_(entry))}</button>` : ""}
-        ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn${entry.loan_hint && entry.loan_hint.kind === "repayment" ? " review-hint-btn" : ""}">${tr("review.markRepayment")}</button>
+        ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn${(entry.loan_hint && entry.loan_hint.kind === "repayment") || reviewRepayIntentOn_(entry) ? " review-hint-btn" : ""}">${tr("review.markRepayment")}</button>
         <button type="button" class="add-inline review-loan-btn${entry.loan_hint && entry.loan_hint.kind === "loan" ? " review-hint-btn" : ""}">${tr("review.convertLoan")}</button>` : ""}
         ${entry.type === "expense" || entry.type === "income" ? `<button type="button" class="add-inline review-transfer-btn">${tr("review.makeTransfer")}</button>` : ""}
         ${entry.type !== "investment" ? `<button type="button" class="add-inline review-exchange-btn">${tr("review.exchange")}</button>` : ""}
@@ -8943,6 +8976,12 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     });
 
     confirmBtn.addEventListener("click", async () => {
+      // Marked as a repayment waiting for its loans: the person chooses them (or oldest first) in Mark as repayment, or, for a
+      // transfer (that window is for expenses and incomes), in the full form's Transfer → Repayment.
+      if (reviewRepayIntentOn_(entry)) {
+        const go = item.querySelector(".review-repay-btn") || item.querySelector(".review-full-btn");
+        if (go) { go.click(); return; }
+      }
       const categoryEl = item.querySelector(".review-category");
       const categoryId = categoryEl ? categoryEl.value : "";
       const description = item.querySelector(".review-description").value.trim();
@@ -9112,6 +9151,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         const rowAccountEl = item.querySelector(".review-account");
         const rowAccount = rowAccountEl && !String(rowAccountEl.value || "").startsWith("__") ? rowAccountEl.value : "";
         return Object.assign({}, fresh, {
+          repay_intent: entry.repay_intent,   // the list's reading of the mark (friend, whether the choice matters), not the stored text
           payment_method_id: rowAccount && rowAccount !== (entry.payment_method_id || "") ? rowAccount : (fresh.payment_method_id || ""),
           trip_id: rowTripEl ? rowTripEl.value : (fresh.trip_id || ""),
           ...(item.querySelector(".review-business") ? reviewBusinessFields_(item.querySelector(".review-business").value) : {}),
@@ -36906,6 +36946,8 @@ function syncReviewRepayChoose_() {
   if (friendId === reviewRepayKey_) return;   // same person: keep what was ticked
   reviewRepayKey_ = friendId;
   resetChoose_(CHOOSE_REVIEW_, CHOOSE_REVIEW_.loans().length >= 2);
+  // A bot kept it waiting so its loans are chosen: the list opens by itself on that friend.
+  if (reviewRepayIntentOn_(reviewTransferEntry) && friendId === reviewTransferEntry.repay_intent.friend_id && CHOOSE_REVIEW_.loans().length >= 2) chooseOpenOrClose_(CHOOSE_REVIEW_);
 }
 document.getElementById("review-transfer-friend").addEventListener("change", syncReviewRepayChoose_);
 document.getElementById("review-transfer-choose-btn").addEventListener("click", () => chooseOpenOrClose_(CHOOSE_REVIEW_));
@@ -36931,7 +36973,8 @@ function openReviewTransferModal(entry, mode) {
   populateReviewTransferFriendOptions();
   populateReviewTransferPaymentMethodOptions();
   // A place the person turned into a loan / repayment before suggests the same friend (backend/PayeeGuess.gs).
-  const hintedFriend = entry.loan_hint && meta.friends.find((f) => f.id === entry.loan_hint.friend_id);
+  const hintedFriend = (mode === "repay" && reviewRepayIntentOn_(entry) && meta.friends.find((f) => f.id === entry.repay_intent.friend_id)) ||
+    (entry.loan_hint && meta.friends.find((f) => f.id === entry.loan_hint.friend_id));
   // Otherwise a repayment starts on the friend with the biggest debt it can pay off (money that left pays what the owner
   // owes; money that arrived, what a friend owes), in the entry's currency: the first friend in the list, owed nothing,
   // turned the whole payment into an "extra" waiting in Needs review again.
