@@ -29002,7 +29002,7 @@ const LINK_ICON_RULES_ = [
   [/^(reopen|reabrir|reopening|reabriendo)/i, "refresh"],   // its Reopen, and every other "Reopen"
   [/^(starting balance|saldo inicial)/i, "plus"],   // the import's Done screen: gives a new account its starting balance
   [/^(this entry's changes|cambios de este movimiento|see the changes|ver los cambios)$/i, "clock"],
-  [/^(yearly statement|constancia anual|all the yearly statements|todas las constancias)$/i, "file"],   // piece 9
+  [/^(yearly statement|information statement|constancia anual|all the yearly statements|all the information statements|todas las constancias)$/i, "file"],   // piece 9
   [/^(send the (corrected )?package|enviar el paquete)/i, "send"],   // piece 10
   [/^(return the deposit|devolver separación|return this payment|devolver este pago)/i, "undo"],   // piece 11
   [/^(prepare a statement to share|preparar un estado para compartir|prepare the statement|preparar el estado)/i, "file"],   // piece 12
@@ -29012,10 +29012,11 @@ const LINK_ICON_RULES_ = [
   [/^(remove from this project|quitar del proyecto)/i, "trash"],
   [/^(save the files|guardar los archivos|save \d|guardar \d)/i, "download"],
   [/^(share as text|compartir como texto|share as csv|compartir como csv)/i, "send"],   // piece 8: the change log
-  [/^(it's a partner's money|es plata de un socio)$/i, "users"],   // Business 2 piece 7: Needs review's partner buttons
+  [/^(it's a partner's money|es plata de un socio|es dinero de un socio)$/i, "users"],   // Business 2 piece 7: Needs review's partner buttons
   [/^(profit distribution|distribución de utilidades)$/i, "coin"],
   [/^(it's a contribution|es aporte)$/i, "check"],   // the Partners card: decide a "to be decided" one
   [/^(it's a loan|es préstamo)$/i, "swap"],
+  [/^(create units|crear unidades)/i, "plus"],   // a project's Add units sheet (testers 2.68.2)
   [/^(add|agregar|añadir)\b|^\+ /i, "plus"],
   [/^(copy|copiar)\b/i, "copy"],
   [/^(make my link|crear mi enlace)/i, "plus"],
@@ -36354,7 +36355,7 @@ function renderChooseSummary_(ctx) {
   const owedAll = Math.round(loansNow.reduce((n, l) => n + Number(l.remaining || 0), 0) * 100) / 100;
   if (loansNow.length > 1 && paid >= owedAll - 0.004) {
     const extra = Math.round((paid - owedAll) * 100) / 100;
-    const line = [tr("settle.choosePaysAll", { n: loansNow.length })];
+    const line = [tr("settle.paysAllLoans", { n: loansNow.length })];
     if (extra > 0.004) line.push(tr(ctx.dir() === "they_owe_me" ? "settle.chooseExtraIncome" : "settle.chooseExtraExpense", { extra: `${cur} ${moneyFmt(extra)}` }));
     chooseEl_(ctx, "summary").textContent = line.join(" · ");
     return;
