@@ -2670,6 +2670,7 @@ document.getElementById("amount").addEventListener("input", () => {
 function entryRepayTooQuick_() { return false; }   // one tap since 2.69 (owner, 2026-11-24), as on a friend's screen
 
 document.getElementById("transfer-kind").addEventListener("change", () => {
+  document.getElementById("form-error").textContent = "";   // an error about the type just left no longer applies (testers 2.68.2)
   // Undo what a previous non-"between" state hid, then let the normal rules re-apply.
   document.getElementById("paid-by-label").hidden = selectedType === "transfer";
   document.getElementById("paid_by").hidden = selectedType === "transfer";
@@ -20423,6 +20424,7 @@ function openPmModal_(pm) {
   const basicCash = isBasicCashPm_(pm);
   typeSel.disabled = basicCash;
   document.getElementById("pm-cash-hint").hidden = !basicCash;
+  document.getElementById("pm-bank-digits").hidden = basicCash;   // Cash has no bank and no digits (testers 2.68.2)
   // A wallet tied to a bank account must not be added as a wallet: the bank account behind it is the account (owner's rule, 2026-10-18).
   const walletWarn = () => { document.getElementById("pm-wallet-warning").hidden = typeSel.value !== "wallet"; };
   typeSel.onchange = () => { if (!pmModalState.id) pmModalState.currencies = null; walletWarn(); renderPmCurrency_(); renderPmWallets_(); };
@@ -36246,6 +36248,16 @@ function renderChooseSummary_(ctx) {
   });
   // What is left of the payment continues oldest-first over the loans that were not selected: name them, so nothing surprises.
   let rest = Math.round(Math.max(0, paid - assigned) * 100) / 100;
+  // The payment covers everything owed: one short line, not every loan named (testers 2.68.2: 15 loans in one long line).
+  const loansNow = ctx.loans();
+  const owedAll = Math.round(loansNow.reduce((n, l) => n + Number(l.remaining || 0), 0) * 100) / 100;
+  if (loansNow.length > 1 && paid >= owedAll - 0.004) {
+    const extra = Math.round((paid - owedAll) * 100) / 100;
+    const line = [tr("settle.choosePaysAll", { n: loansNow.length })];
+    if (extra > 0.004) line.push(tr(ctx.dir() === "they_owe_me" ? "settle.chooseExtraIncome" : "settle.chooseExtraExpense", { extra: `${cur} ${moneyFmt(extra)}` }));
+    chooseEl_(ctx, "summary").textContent = line.join(" · ");
+    return;
+  }
   const parts = [tr("settle.chooseAssigned", { assigned: `${cur} ${moneyFmt(assigned)}` })];
   if (rest > 0.004) {
     const picked = new Set(assignments.map((a) => a.loan_id));

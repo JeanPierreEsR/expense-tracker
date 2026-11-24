@@ -3083,6 +3083,7 @@
     "settle.chooseLoans": { en: "Choose which loans this pays", es: "Elegir qué préstamos paga" },
     "settle.chooseHint": { en: "Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.", es: "Selecciona los préstamos que paga este pago. Se pagan del más antiguo al más nuevo, hasta que el pago se acabe. Lo que sobre va a los más antiguos de los demás." },
     "settle.chooseRow": { en: "{date} · {what} · {cur} {amount} left", es: "{date} · {what} · quedan {cur} {amount}" },
+    "settle.choosePaysAll": { en: { one: "Pays everything owed (1 loan)", other: "Pays everything owed ({n} loans)" }, es: { one: "Paga todo lo que se debe (1 préstamo)", other: "Paga todo lo que se debe ({n} préstamos)" } },
     "settle.chooseAssigned": { en: "{assigned} assigned", es: "{assigned} asignado" },
     "settle.chooseRestTo": { en: "the rest goes to the other loans, oldest first: {list}", es: "el resto va a los demás préstamos, del más antiguo al más nuevo: {list}" },
     "settle.chooseExtraIncome": { en: "{extra} is more than is owed: it will be saved as extra income", es: "{extra} es más de lo que se debe: se guardará como ingreso extra" },
