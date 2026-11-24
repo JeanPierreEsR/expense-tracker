@@ -378,6 +378,13 @@ function formatEntryForTelegram_(entry, categoryName, autoReason, opts) {
     if (entry.paid_by && entry.paid_by !== 'me') lines.push(tr_('bot.paidBy') + paidByDisplayName_(entry.paid_by));
   }
 
+  // Kept waiting for its loans to be chosen (RepayIntent.gs): what Confirm does, and where to choose them.
+  var repayIt = repayIntentOf_(entry);
+  if (repayIt) {
+    var repayFriend = getAllRows('Friends').find(function (f) { return f.id === repayIt.friend_id; });
+    lines.push(tr_(repayIt.direction === 'they_owe_me' ? 'bot.repayIntentFrom' : 'bot.repayIntentTo', { friend: repayFriend ? repayFriend.name : '?' }));
+  }
+
   if (entry.type === 'expense') {
     var splits = getEntrySplits(entry.id);
     if (splits.length) {
@@ -646,6 +653,16 @@ function handleTelegramCallback_(cb) {
       reply = tr_('bot.alreadyConfirmed');
     } else if (!entry) {
       reply = tr_('bot.entryGone');
+    } else if (repayIntentOf_(entry)) {
+      // Marked as a repayment waiting for its loans (RepayIntent.gs): Confirm records it paying the oldest first, as the card says.
+      try {
+        var rec = withScriptLockOnce_(function () { return recordRepayIntent_(getEntryById_(entryId)); });
+        reply = tr_(rec.incoming ? 'bot.markedRepaymentFrom' : 'bot.markedRepaymentTo', { friend: rec.friend }) +
+          (rec.overpaid > 0.004 ? tr_(rec.incoming ? 'bot.overpaidIn' : 'bot.overpaidOut', { cur: entry.currency, amount: moneyFmt_(rec.overpaid) }) : '');
+      } catch (recErr) {
+        reply = recErr.message;
+        keepButtons = true;
+      }
     } else if (entry.type !== 'investment' && !entry.category_id) {
       // Same rule as the app's Confirm: no category, no confirmation. The
       // buttons stay so the owner can reply "category Stocks" and tap again.
@@ -1028,19 +1045,9 @@ function applyTerminalReviewAction_(entryId, fullText, friendText, friendObj) {
   // only a "to" account = money came in (e.g. a Yape from a friend); only a
   // "from" account = money went out. Both ends set = really between the
   // owner's own accounts.
-  var incoming, accountId;
-  if (entry.type === 'expense' || entry.type === 'income') {
-    incoming = entry.type === 'income';
-    accountId = entry.payment_method_id || '';
-  } else if (entry.type === 'transfer') {
-    var hasFrom = !!entry.payment_method_id, hasTo = !!entry.to_payment_method_id;
-    if (hasFrom && hasTo) return { message: tr_('bot.internalTransfer') };
-    if (!hasFrom && !hasTo) return { message: tr_('bot.transferNoEnds') };
-    incoming = hasTo;
-    accountId = incoming ? entry.to_payment_method_id : entry.payment_method_id;
-  } else {
-    return { message: tr_('bot.onlyExpenseIncome', { type: tr_('bot.type.' + entry.type) }) };
-  }
+  var way = repayMoneyWay_(entry);   // RepayIntent.gs
+  if (way.error) return { message: way.error };
+  var incoming = way.incoming, accountId = way.accountId;
 
   var friend = friendObj || null;
   if (friend) {
@@ -1058,6 +1065,21 @@ function applyTerminalReviewAction_(entryId, fullText, friendText, friendObj) {
   }
 
   var isRepayment = /^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)/i.test(fullText.trim());
+
+  // A real choice of loans (two or more open, the payment does not cover them all): nothing is recorded yet. The entry waits in
+  // Needs review, marked, so the person chooses the loans (owner, 2026-11-23; RepayIntent.gs). A confirmed one goes back to waiting.
+  if (isRepayment) {
+    var repayDir = incoming ? 'they_owe_me' : 'i_owe_them';
+    var choice = repayChoiceInfo_(entry, friend.id, repayDir);
+    if (choice.matters) {
+      try {
+        withScriptLockOnce_(function () { markRepayIntent_(getEntryById_(entry.id), friend.id, repayDir); });
+      } catch (markErr) {
+        return { message: tr_('convert.nothingChanged', { error: markErr.message }) };
+      }
+      return { message: tr_('bot.repayKept', { friend: friend.name, n: choice.count }), entry: getEntryById_(entry.id), categoryName: null };
+    }
+  }
 
   // The same swap the app makes (convertEntryInto_, Loans.gs): it works on a
   // pending OR a confirmed entry, checks everything first, and puts the
