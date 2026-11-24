@@ -158,3 +158,14 @@ test("a Spanish package names built-in categories and Cash in Spanish", () => {
   assert.ok(row.includes("Materiales"), row.join(","));
   if (cash) assert.ok(row.includes("Efectivo"), row.join(","));
 });
+
+test("the movements file ends with SUNAT's receipt code, the base without IGV and the total", () => {
+  const rt = companyCopy();
+  month(rt);
+  const mv = file(rt.api("getAccountantPackage", { month: ym }), "movements");
+  const h = mv[0];
+  const row = mv.find((r) => r.includes("F001-123"));
+  assert.equal(row[h.length - 3], "01", "factura");
+  assert.equal(Number(row[h.length - 1]), 1200);
+  assert.equal(Number(row[h.length - 2]), 1200 - (Number(row[h.indexOf("IGV")]) || 0));
+});

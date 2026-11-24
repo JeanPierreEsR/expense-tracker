@@ -93,6 +93,9 @@ function pkgNature_(e, links, inbound, sunatId) {
   return tr_('pkg.n.transfer');
 }
 
+// SUNAT's code for each receipt type (Tabla 10): factura 01, recibo por honorarios 02, boleta 03; none = 00.
+var PKG_SUNAT_CODES_ = { factura: '01', rh: '02', boleta: '03', none: '00' };
+
 // An account's name in the package's language: the built-in Cash follows it ("Cash" / "Efectivo"), as on the phone (testers 2.68.2).
 function pkgAccountName_(pm) {
   var name = String((pm && pm.nickname) || '');
@@ -134,7 +137,10 @@ function buildAccountantPackage_(month) {
   // 1. Movements
   var mv = [[tr_('pkg.h.payDate'), tr_('pkg.h.issueDate'), tr_('pkg.h.nature'), tr_('pkg.h.description'), tr_('pkg.h.category'),
     tr_('pkg.h.project'), tr_('pkg.h.units'), tr_('pkg.h.amount'), tr_('pkg.h.currency'), tr_('pkg.h.igv'), tr_('pkg.h.account'),
-    tr_('pkg.h.payMethod'), tr_('pkg.h.receiptType'), tr_('pkg.h.receiptNo'), tr_('pkg.h.support'), tr_('pkg.h.fx')]];
+    tr_('pkg.h.payMethod'), tr_('pkg.h.receiptType'), tr_('pkg.h.receiptNo'), tr_('pkg.h.support'), tr_('pkg.h.fx'),
+    // For the purchase and sales books (owner, 2026-11-24, after the testers): SUNAT's receipt code, and the amount split into its base,
+    // IGV and total. Added at the end, so the columns an accountant already uses stay where they were.
+    tr_('pkg.h.receiptCode'), tr_('pkg.h.base'), tr_('pkg.h.total')]];
   var unsupported = [];
   entries.forEach(function (e) {
     var signed = e.type === 'transfer' ? (inbound[e.id] || (e.to_payment_method_id && !e.payment_method_id) ? 1 : -1) * Math.abs(Number(e.amount))
@@ -152,7 +158,10 @@ function buildAccountantPackage_(month) {
       cats[e.category_id] && e.type !== 'transfer' ? categoryLabel_(cats[e.category_id]) : '', projects[e.project_id] ? String(projects[e.project_id].name) : '',
       (tagsByEntry[e.id] || []).join(' / '), signed, String(e.currency || home), Number(e.igv_amount) || 0, account ? pkgAccountName_(account) : '',
       pay ? tr_('pkg.pm.' + pay) : '', e.receipt_type ? tr_('pkg.rt.' + e.receipt_type) : '', String(e.receipt_no || ''),
-      e.type === 'expense' || e.type === 'income' ? pkgYesNo_(support) : '', fx]);
+      e.type === 'expense' || e.type === 'income' ? pkgYesNo_(support) : '', fx,
+      e.receipt_type ? (PKG_SUNAT_CODES_[e.receipt_type] || '') : '',
+      e.type === 'expense' || e.type === 'income' ? round2_(Math.abs(Number(e.amount)) - (Number(e.igv_amount) || 0)) : '',
+      e.type === 'expense' || e.type === 'income' ? round2_(Math.abs(Number(e.amount))) : '']);
   });
   files.push({ kind: 'movements', name: tr_('pkg.file.movements', { month: month }), rows: mv.length - 1, text: pkgCsv_(mv) });
 
