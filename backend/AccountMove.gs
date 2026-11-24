@@ -161,6 +161,7 @@ function previewAccountMove(payload) {
     from: { id: p.fromId, nickname: String(p.from.nickname) }, to: { id: p.toId, nickname: String(p.to.nickname) }, counts: r.counts,
     selfTransfers: r.self.map(function (e) { return { id: String(e.id), date: String(e.date), amount: Number(e.amount), currency: String(e.currency), description: String(e.description || '') }; }),
     closedMonths: r.closedMonths,
+    movedLinks: r.rails.moved.map(railLinkName_).filter(function (n, i, a) { return a.indexOf(n) === i; }),   // "Yape" or "Plin" (Yape soles + dollars = one Yape)
     droppedLinks: r.rails.dropped.map(railLinkName_).filter(function (n, i, a) { return a.indexOf(n) === i; }),
     needsBank: accountMoveNeedsBank_(p.from),
     balanceChoices: r.balanceChoices
