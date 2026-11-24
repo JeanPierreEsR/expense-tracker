@@ -21181,7 +21181,11 @@ function unitsRefresh_() {
     : tr("units.preview", { n: fresh.length, list: fresh.join(", ") }) + (fresh.length < names.length ? " " + tr("units.already", { n: names.length - fresh.length }) : "");
   return fresh;
 }
-function openUnits_() {
+// Opened from a project's "Add units" (testers 2.68.2, Lucía: units could only be made in More → Categories & tags): the units made
+// are added to that project at once.
+let unitsForProject_ = "";
+function openUnits_(e, projectId) {
+  unitsForProject_ = typeof projectId === "string" ? projectId : "";
   document.querySelector('input[name="units-mode"][value="floors"]').checked = true;
   ["units-floor-to", "units-per-floor", "units-seq-count", "units-list"].forEach((id) => { document.getElementById(id).value = ""; });
   document.getElementById("units-floor-from").value = "1";
@@ -21209,7 +21213,13 @@ document.getElementById("units-save").addEventListener("click", () => {
   if (names.length > 300) { err.textContent = tr("units.tooMany"); return; }
   if (!fresh.length) { err.textContent = tr(names.length ? "units.nothingNew" : "units.nothing"); return; }
   document.getElementById("units-modal-backdrop").hidden = true;
-  saveBehindScreen_(() => callApi("addTagsBulk", { names: fresh }), refreshTagsAfterChange_);
+  const projectId = unitsForProject_;
+  unitsForProject_ = "";
+  saveBehindScreen_(async () => {
+    const res = await callApi("addTagsBulk", { names: fresh });
+    const ids = ((res && res.tags) || []).map((t) => t.id);
+    if (projectId && ids.length) await callApi("addProjectUnits", { project_id: projectId, tag_ids: ids });
+  }, async () => { await refreshTagsAfterChange_(); if (projectId) await refreshUnits_(); });
 });
 
 function catCountText_(id) {
@@ -23238,6 +23248,11 @@ document.getElementById("business-units-add").addEventListener("click", () => {
   backdrop.hidden = false;
 });
 document.getElementById("units-add-close").addEventListener("click", () => { document.getElementById("units-add-modal-backdrop").hidden = true; });
+document.getElementById("units-add-create").addEventListener("click", () => {
+  const projectId = unitsData_ && unitsData_.project_id;
+  document.getElementById("units-add-modal-backdrop").hidden = true;
+  openUnits_(null, projectId || "");
+});
 document.getElementById("units-add-all").addEventListener("click", () => { document.querySelectorAll("#units-add-list input").forEach((c) => { c.checked = true; }); });
 document.getElementById("units-add-save").addEventListener("click", () => {
   const ids = [...document.querySelectorAll("#units-add-list input:checked")].map((c) => c.value);
