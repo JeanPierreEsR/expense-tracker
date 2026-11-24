@@ -228,6 +228,8 @@ var BACKEND_STRINGS_ = {
   "err.badRequest": { en: "Something in this request could not be read, so nothing was saved. Try again from the app.", es: "Algo de esta solicitud no se pudo leer, así que no se guardó nada. Inténtalo de nuevo desde la app." },
   "err.tooLong": { en: "A text is too long (more than {n} characters). Nothing was saved.", es: "Un texto es demasiado largo (supera el límite de {n} caracteres). No se guardó nada." },
   "partner.already": { en: "This movement is already a partner's money: change it from the Partners card on the Overview.", es: "Este movimiento ya es dinero de un socio: cámbialo desde la tarjeta Socios del Resumen." },
+  "pkg.futureMonth": { en: "That month has not started yet.", es: "Ese mes todavía no empieza." },
+  "share.badPeriod": { en: "Check the dates: the start must be a real day, not after the end.", es: "Revisa las fechas: el inicio debe ser un día real y no posterior al final." },
   "coOv.sunatOwed": { en: "Withholding to pay (SUNAT)", es: "Retención por pagar (SUNAT)" },
   "err.pmNotFound": { en: "Account not found.", es: "No se encontró la cuenta." },
   "err.tagProtected": { en: "Annual is built in: it can't be renamed or deleted.", es: "Anual viene incluida en la app: no se puede renombrar ni eliminar." },

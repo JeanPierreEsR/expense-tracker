@@ -47,7 +47,7 @@ function receiptFieldsFrom_(src) {
   if (src.receipt_no !== undefined) out.receipt_no = String(src.receipt_no || '').trim().slice(0, 40);
   if (src.receipt_date !== undefined) {
     out.receipt_date = String(src.receipt_date || '');
-    if (out.receipt_date && !/^\d{4}-\d{2}-\d{2}$/.test(out.receipt_date)) throw new Error(tr_('err.dateRequired'));
+    if (out.receipt_date && !validIsoDate_(out.receipt_date)) throw new Error(tr_('err.dateRequired'));   // a real day (2026-13-45 was taken; testers 2.68.2)
   }
   ensureReceiptColumns_();
   return out;
@@ -91,6 +91,13 @@ function pkgNature_(e, links, inbound, sunatId) {
   }
   if (e.exchange === '1' || /^(Currency exchange|Cambio de moneda)/i.test(String(e.description || ''))) return tr_('pkg.n.exchange');
   return tr_('pkg.n.transfer');
+}
+
+// A month that has started (a package for 2099 was sent; testers 2.68.2).
+function pkgMonthOk_(month) {
+  var m = validMonth_(month);
+  if (m > businessToday_().slice(0, 7)) throw new Error(tr_('pkg.futureMonth'));
+  return m;
 }
 
 // SUNAT's code for each receipt type (Tabla 10): factura 01, recibo por honorarios 02, boleta 03; none = 00.
@@ -225,7 +232,7 @@ function requireCompanyPackage_() {
 // The files, for the phone to save (read-only). payload: { month }
 function getAccountantPackage(payload) {
   requireCompanyPackage_();
-  var built = buildAccountantPackage_(validMonth_(payload && payload.month));
+  var built = buildAccountantPackage_(pkgMonthOk_(payload && payload.month));
   return { month: built.month, files: built.files.map(function (f) { return { kind: f.kind, name: f.name + '.csv', rows: f.rows, mime: 'text/csv', text: f.text }; }) };
 }
 
@@ -248,7 +255,7 @@ function packageState_(month) {
  */
 function sendAccountantPackage(payload) {
   requireCompanyPackage_();
-  var month = validMonth_(payload && payload.month);
+  var month = pkgMonthOk_(payload && payload.month);
   var to = String(payload.to || '').trim();
   if (!/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(to)) throw new Error(tr_('export.badEmail'));
   var built = buildAccountantPackage_(month);

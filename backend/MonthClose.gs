@@ -231,7 +231,7 @@ function closeMonth(payload) {
     if (state.closed) return state;   // a repeat
     var appBalances = {};
     accountBalancesAt_(monthLastDay_(month)).forEach(function (b) { appBalances[b.payment_method_id + '|' + b.currency] = b; });
-    var bank = (payload.bank || []).map(function (b) {
+    var bank = (Array.isArray(payload.bank) ? payload.bank : []).map(function (b) {
       var app = appBalances[b.payment_method_id + '|' + b.currency];
       if (!app) return null;
       var typed = b.bank_amount === '' || b.bank_amount == null ? null : Number(b.bank_amount);
