@@ -191,6 +191,15 @@ function saveUnitStage(payload) {
   var stage = String(payload.stage || '');
   if (!UNIT_STAGES_[stage]) throw new Error(tr_('sales.pickStage'));
   ensureSalesColumns_();
+  // The same stage twice (same unit, stage, date and amount) is a repeat, not a second payment due (testers 2.68.2: two
+  // identical "Cuota inicial" rows doubled the project's expected collections). Answered with the one already there.
+  if (!payload.id) {
+    var twin = getAllRows('Expected Payments').find(function (r) {
+      return String(r.unit_tag_id) === String(u.tag_id) && r.stage === stage && String(r.due_date).substring(0, 10) === String(payload.due_date || '').substring(0, 10) &&
+        Math.abs(Number(r.amount) - Number(payload.amount)) < 0.005;
+    });
+    if (twin) return { id: twin.id, repeat: true };
+  }
   var base = { project_id: u.project_id, client_id: u.buyer_id || '', amount: payload.amount, currency: u.currency || homeCurrency_(),
     due_date: payload.due_date, invoice_no: '', note: tr_('sales.stage.' + stage), igv_included: '' };
   var view = payload.id ? updateExpectedPayment(Object.assign({ id: payload.id }, base)) : addExpectedPayment(base);

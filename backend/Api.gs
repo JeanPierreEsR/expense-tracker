@@ -165,6 +165,7 @@ function doPostInner_(e) {
 // The lock makes a repeat that arrives WHILE the first is still running
 // wait for it, then get its result.
 var ONCE_ACTIONS_ = {
+  fillEntryCharge: 1,   // the phone protects it too (tests/backend/once-actions.test.js keeps both lists equal)
   createEntry: 1, recordCurrencyExchange: 1, recordRepayment: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, convertLoanToEntry: 1, convertLoanToRepayment: 1, convertLoanToLoan: 1, convertRepaymentToEntry: 1, convertRepaymentToLoan: 1, convertRepaymentToRepayment: 1,
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1, recordTripSettlement: 1,
   addCompany: 1, addProject: 1, addExpectedPayment: 1, addIgvPayment: 1,   // Business pack (Business.gs): a resend must not create a second one
@@ -175,6 +176,7 @@ var ONCE_ACTIONS_ = {
   // next to the first (the lock below makes it wait, then get the first one's answer).
   applyStatementDecisions: 1, undoStatementBatch: 1,
   applyTidyGroups: 1,   // a resend must not run a second copy next to the first
+  applyAnnualCleanup: 1, finishAnnualCleanup: 1,   // the owner's Annual cleanup (the phone already protected them)
   assignEntryAccounts: 1,   // the same for filling accounts (NoAccount.gs)
   // Everything else that CREATES something (owner, 2026-11-14: a trip saved while the phone was locked was made three times: the
   // answer was lost, and each "try again" made it again). With the phone keeping one id per save across its retries, a repeat
