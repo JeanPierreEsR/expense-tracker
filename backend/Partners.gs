@@ -186,6 +186,32 @@ function recordDistribution(payload) {
   });
 }
 
+// A distribution already recorded, changed from Home (testers 2.69.2: Home opened the plain transfer form). payload: { id, net,
+// withholding, partner_id | partner_name, company_id, project_id }. The entry's amount becomes the net; gross is worked out on read.
+function changeDistribution(payload) {
+  requireCompanyCopy_();
+  return withScriptLockOnce_(function () {
+    var row = distributionRows_().find(function (r) { return r.id === String(payload.id || ''); });
+    if (!row) throw new Error(tr_('partner.gone'));
+    var entry = getEntryById_(row.entry_id);
+    if (!entry) throw new Error(tr_('convert.gone'));
+    var net = Number(payload.net);
+    if (!(isFinite(net) && net > 0)) throw new Error(tr_('err.validAmount'));
+    var withholding = payload.withholding === '' || payload.withholding == null ? 0 : Number(payload.withholding);
+    if (!(isFinite(withholding) && withholding >= 0)) throw new Error(tr_('partner.badWithholding'));
+    var scope = (payload.company_id !== undefined || payload.project_id !== undefined)
+      ? partnerScope_(payload) : { company_id: row.company_id, project_id: row.project_id };
+    var partnerId = payload.partner_id || payload.partner_name ? partnerIdFor_(payload) : row.partner_id;
+    net = round2_(net);
+    if (Math.abs(Math.abs(Number(entry.amount)) - net) > 0.004) setEntryField_(entry.id, 'amount', Number(entry.amount) < 0 ? -net : net);
+    setEntryField_(entry.id, 'description', tr_('partner.descDistribution', { name: friendNameById_(partnerId) }));
+    var fields = { partner_id: partnerId, company_id: scope.company_id, project_id: scope.project_id,
+      withholding: round2_(withholding), gross: round2_(net + withholding) };
+    updateRowFields_('Distributions', row.id, fields);
+    return { distribution: Object.assign({ net: net, currency: entry.currency }, row, fields) };
+  });
+}
+
 // A distribution's gross = what was paid (the entry's amount, as it is NOW) + the withholding. Worked out on every read, never taken
 // from the row's stored `gross`: an amount edited afterwards on Home left the old gross in the cards, the constancia and the
 // accountant's package (testers 2.68.2). The stored value only stands in when the entry is gone.

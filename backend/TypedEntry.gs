@@ -67,6 +67,24 @@ function typedReadByRules_(text) {
 
 var TYPED_INCOME_WORDS_ = /^(?:ingreso|income|cobr[eé]|cobro|recib[ií]|\+)\s*/i;
 var TYPED_PAID_ME_ = /(?:^|\s)(?:paid me|sent me|gave me back|paid me back|me pag[oó]|me yape[oó]|me pline[oó]|me devolvi[oó]|me transfiri[oó]|me deposit[oó]|me envi[oó])(?=\s|$|[,.])/i;
+// The friend a "paid me" line is about, when they owe you in its currency (testers 2.69.2: the card should offer the repayment at
+// once, not leave it for a second step). The words before "paid me" are the name ("Elmer paid me 37", "Elmer Quispe me yapeó 20");
+// else a friend named in full anywhere in the line. null when nobody matches or they owe you nothing.
+function paidMeFriend_(entry) {
+  if (!entry || entry.status !== 'pending' || entry.type !== 'income') return null;
+  var text = String(entry.description || '');
+  var m = TYPED_PAID_ME_.exec(text);
+  if (!m) return null;
+  var before = text.slice(0, m.index).replace(/[\d.,]+/g, ' ').replace(/\s+/g, ' ').trim();
+  var friend = before ? fuzzyFindFriend_(before) : null;
+  if (!friend) {
+    var named = twinFriendsNamed_(text);
+    if (named.length === 1) friend = getAllRows('Friends').find(function (f) { return searchNormalize_(f.name) === named[0]; }) || null;
+  }
+  if (!friend || friend.trip_id) return null;
+  return repayChoiceInfo_(entry, friend.id, 'they_owe_me').owed ? friend : null;
+}
+
 var TYPED_CURRENCY_WORDS_ = { soles: 'PEN', sol: 'PEN', 'dólares': 'USD', dolares: 'USD', 'dólar': 'USD', dolar: 'USD', euros: 'EUR', euro: 'EUR' };
 
 // Pure: a typed line → { type, amount, currency, description } or null. home = the main currency.

@@ -76,6 +76,10 @@ function monthRowTexts_(month) {
   entries.forEach(function (e) {
     out['Entries:' + e.id] = ['id', 'type', 'date', 'amount', 'currency', 'category_id', 'description', 'payment_method_id', 'to_payment_method_id',
       'paid_by', 'status', 'company_id', 'project_id', 'igv_amount'].map(function (k) { return changeText_(e[k]); }).join('|');
+    // The receipt (type, series-number, date, how it was paid) is in the package too: a change to it alone must show (testers
+    // 2.69.2, Carlos). Added only when the row has one, so rows without a receipt keep the code they were closed with.
+    var receipt = RECEIPT_COLUMNS_.map(function (k) { return changeText_(e[k]); });
+    if (receipt.join('')) out['Entries:' + e.id] += '|r:' + receipt.join('|');
   });
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   ['Entry Splits', 'Project Splits', 'Contributions', 'Distributions'].forEach(function (t) {
@@ -125,6 +129,20 @@ function monthHandEdits_(month, closedPrints, changes, textsGiven) {
     out.push({ table: table, row_id: rowId, what: !closedPrints[k] ? 'added' : !now[k] ? 'removed' : 'changed' });
   });
   return out;
+}
+
+// What the close card shows for a hand-edited row (testers 2.69.2: the card said "edited by hand" without saying which row): the
+// entry it belongs to, as "date · description · amount", or '' when the row is gone (a removed row: only its table is known).
+function handRowLabel_(r) {
+  var entryId = r.table === 'Entries' ? r.row_id : '';
+  if (!entryId) {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sub = ss.getSheetByName(r.table) ? getAllRows(r.table).find(function (x, i) { return String(x.id || (x.entry_id + '#' + i)) === r.row_id; }) : null;
+    entryId = sub ? String(sub.entry_id || '') : String(r.row_id).split('#')[0];
+  }
+  var e = entryId ? getEntryById_(entryId) : null;
+  if (!e) return '';
+  return [String(e.date).slice(0, 10), String(e.description || ''), formatAmountText_(Math.abs(Number(e.amount) || 0), e.currency)].filter(Boolean).join(' · ');
 }
 
 // Each account with a starting balance, its balance per currency at the end of `day` (same rule as the Balances card).
@@ -211,7 +229,7 @@ function monthCloseState_(month) {
   }
   var parse = function (s) { try { return s ? JSON.parse(s) : null; } catch (e) { return null; } };
   return {
-    month: month, ended: ended, closed: closed, changed: changed, hand_edited: handRows ? handRows.length > 0 : (changed && !changes.length), hand_rows: (handRows || []).slice(0, 20), changes: changes,
+    month: month, ended: ended, closed: closed, changed: changed, hand_edited: handRows ? handRows.length > 0 : (changed && !changes.length), hand_rows: (handRows || []).slice(0, 20).map(function (r) { return Object.assign({ label: handRowLabel_(r) }, r); }), changes: changes,
     close: row ? { status: row.status, closed_at: row.closed_at, reopened_at: row.reopened_at, figures: parse(row.figures),
       bank_check: parse(row.bank_check) || [], pending_count: Number(row.pending_count) || 0, note: row.note } : null,
     pending_count: monthPendingCount_(month),

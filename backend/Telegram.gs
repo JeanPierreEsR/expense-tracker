@@ -214,6 +214,10 @@ function sendTelegramEntryNotification_(entry, categoryName, autoReason) {
         { text: tr_('bot.discardButton'), callback_data: 'discard:' + entry.id }
       ]]
     };
+    // "Elmer paid me 37" when Elmer owes you: the repayment one tap away (testers 2.69.2). WhatsApp keeps its 3 buttons; there it
+    // is in the Edit list, as before.
+    var payer = paidMeFriend_(entry);
+    if (payer) payload.reply_markup.inline_keyboard.push([{ text: tr_('bot.repayFromButton', { friend: payer.name }), callback_data: 'warf:' + entry.id }]);
   }
   var res = telegramApi_('sendMessage', payload);
 
