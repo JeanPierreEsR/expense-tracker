@@ -27,5 +27,9 @@
       "body": "Te informamos que se ha realizado un consumo con tu Tarjeta CMR.\nMonto pagado S/ 5.00",
       "matches": false
     }
+  ],
+  "falabella-transferencia": [
+    {"subject": "ANA has realizado una transferencia", "body": "Transferencia a terceros\n\nHola, ANA Lopez\nDe acuerdo con tu instrucción la operación se realizo con éxito\nDetalles de la transferencia\n\nOrigen ANA Lopez\nDestinatario PERSONA PRUEBA\nAsunto\nCuenta destino 00200000000000123499\nTipo de moneda Soles\nMonto de transferencia S/1,234.50\nComisión Gratis\nTipo de transferencia Inmediata\nFecha 01/02/2026\nHora 07:45\nNro. de transacción 000000003333\n\nConsejos para evitar fraudes:", "expect": {"type": "expense", "needsReview": true, "amount": 1234.5, "currency": "PEN", "description": "PERSONA PRUEBA", "externalId": "000000003333"}},
+    {"subject": "ANA has realizado una transferencia", "body": "Transferencia entre tus cuentas\nMonto de transferencia S/5.00", "matches": false}
   ]
 }

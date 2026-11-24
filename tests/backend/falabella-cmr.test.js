@@ -88,7 +88,7 @@ test("a CMR card payment becomes a waiting transfer INTO the card, From left for
 test("More → Bank emails lists Banco Falabella with purchases and card payments", () => {
   const { rt } = setup();
   const cov = JSON.parse(rt.run("JSON.stringify(bankCoverage_())"));
-  assert.deepEqual(cov["Banco Falabella"].kinds.map((k) => k.key), ["purchase", "card_payment"]);
+  assert.deepEqual(cov["Banco Falabella"].kinds.map((k) => k.key), ["purchase", "transfer_out", "card_payment"]);   // transfers since pack v9 (2026-11-23)
 });
 
 test("the same e-mail read twice makes one entry (operation number)", () => {
