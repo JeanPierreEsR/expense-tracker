@@ -8561,7 +8561,9 @@ async function confirmReviewBulk_(chosen) {
   let repayGo = markedOk.filter((e) => !e.repay_intent.matters);
   const repayAsk = markedOk.filter((e) => e.repay_intent.matters);
   if (repayAsk.length) {
-    const list = repayAsk.map((e) => `${e.repay_intent.friend_name} ${formatAmount(e.amount, e.currency)}`).join(", ");
+    // In the order they are recorded: oldest first (testers 2.68.2: listed newest first).
+    const list = repayAsk.slice().sort((a, b) => String(a.date).localeCompare(String(b.date)))
+      .map((e) => `${e.repay_intent.friend_name} ${formatAmount(e.amount, e.currency)}`).join(", ");
     const answer = await askConfirmApp_(tr("reviewBulk.repayAsk", { n: repayAsk.length, list }), tr("repayAsk.oldest"), { plain: true, cancel: tr("reviewBulk.repayLeave"), closeValue: null });
     if (answer === null) return;
     if (answer) repayGo = repayGo.concat(repayAsk);
@@ -36342,7 +36344,9 @@ async function askRepayLoansFirst_(ctx) {
         : tr("repayAsk.whole", { what: what(l), date: when(l), cur, amount: moneyFmt(take) }));
       left = Math.round((left - take) * 100) / 100;
     }
-    text = tr("repayAsk.text", { list: parts.join(", ") });
+    // All on one day: "oldest" means nothing, so it says the order they were recorded in (testers 2.68.2, Rosa).
+    const oneDay = loans.every((l) => String(l.date) === String(loans[0].date));
+    text = tr(oneDay ? "repayAsk.textSameDay" : "repayAsk.text", { list: parts.join(", ") });
   }
   const exact = loans.find((l, i) => i > 0 && Math.abs(l.remaining - paid) < 0.005);
   if (exact) text += "\n\n" + tr("repayAsk.exact", { what: what(exact), date: when(exact), cur, amount: moneyFmt(paid) });

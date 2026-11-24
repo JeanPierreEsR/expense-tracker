@@ -3090,6 +3090,7 @@
     "settle.chooseExtraExpense": { en: "{extra} is more than you owe: it will be saved as an extra expense", es: "{extra} es más de lo que debes: se guardará como gasto extra" },
     "settle.chooseOff": { en: "Back to oldest first", es: "Volver a más antiguos primero" },
     "repayAsk.text": { en: "No loans chosen. This pays the oldest ones first: {list}.", es: "No elegiste préstamos. Esto paga primero los más antiguos: {list}." },
+    "repayAsk.textSameDay": { en: "No loans chosen. They are all from the same day, so this pays them in the order you recorded them: {list}.", es: "No elegiste préstamos. Son todos del mismo día, así que esto los paga en el orden en que los registraste: {list}." },
     "repayAsk.netted": { en: "No loans chosen. This first cancels out what you owe each other, then pays the oldest loans first.", es: "No elegiste préstamos. Esto primero compensa lo que tú y esa persona se deben y luego paga primero los préstamos más antiguos." },
     "repayAsk.whole": { en: "{what} ({date}, {cur} {amount})", es: "{what} ({date}, {cur} {amount})" },
     "repayAsk.partOf": { en: "part of {what} ({date}, {cur} {amount} of {total})", es: "parte de {what} ({date}, {cur} {amount} de {total})" },
