@@ -381,10 +381,10 @@ function routeActionSwitch_(action, payload) {
     case 'applyAccountCurrencySuggestions': return applyAccountCurrencySuggestions(payload);
     case 'removePaymentMethod': return removePaymentMethod(payload);
     case 'removePaymentMethods': return removePaymentMethods(payload);
-    case 'previewAccountMove': return previewAccountMove(payload);
-    case 'moveAccountHistory': return moveAccountHistory(payload);
-    case 'undoAccountMove': return undoAccountMove(payload);
-    case 'restoreAccountMove': return restoreAccountMove(payload);
+    case 'previewAccountMove': return withRowsMemo_(function () { return previewAccountMove(payload); });   // each sheet read once (speed rules)
+    case 'moveAccountHistory': return withRowsMemo_(function () { return moveAccountHistory(payload); });   // each sheet read once (speed rules)
+    case 'undoAccountMove': return withRowsMemo_(function () { return undoAccountMove(payload); });   // each sheet read once (speed rules)
+    case 'restoreAccountMove': return withRowsMemo_(function () { return restoreAccountMove(payload); });   // each sheet read once (speed rules)
     case 'listAccountMoves': return listAccountMoves(payload);
     case 'forgetAccountMove': return forgetAccountMove(payload);
     case 'deletePaymentMethod': return deletePaymentMethod(payload);
