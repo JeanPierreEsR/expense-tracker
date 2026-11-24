@@ -134,7 +134,7 @@ function yearStatement_(friendId, ctx) {
     var x = line(String(e.currency));
     x.distributed_net = round2_(x.distributed_net + Number(e.amount));
     x.distributed_withholding = round2_(x.distributed_withholding + (Number(r.withholding) || 0));
-    x.distributed_gross = round2_(x.distributed_gross + (Number(r.gross) || Number(e.amount)));
+    x.distributed_gross = round2_(x.distributed_gross + distributionGross_(r, e));
   });
   var home = homeCurrency_();
   var lines = Object.keys(byCur).sort(function (a, b) { return a === home ? -1 : (b === home ? 1 : (a < b ? -1 : 1)); }).map(function (k) { return byCur[k]; });
