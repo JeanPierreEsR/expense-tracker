@@ -136,14 +136,16 @@ function botChoices_(text, rows, replyTo, asButtons) {
   if (botIsWa_()) return asButtons ? whatsappButtons_(text, rows, replyTo) : whatsappList_(text, tr_('whatsapp.choose'), rows, replyTo);
   var chat = getOwnerTelegramChatId_();
   if (!chat || !getTelegramToken_()) return { ok: false };
-  var payload = {
-    chat_id: chat, text: String(text).slice(0, 4096),
-    reply_markup: { inline_keyboard: rows.map(function (r) {
-      return [{ text: r.description ? r.title + ' · ' + r.description : r.title, callback_data: botCallbackData_(r.id) }];
-    }) }
-  };
+  var payload = { chat_id: chat, text: String(text).slice(0, 4096), reply_markup: botKeyboard_(rows) };
   if (replyTo) { payload.reply_to_message_id = replyTo; payload.allow_sending_without_reply = true; }
   return telegramApi_('sendMessage', payload);
+}
+
+// Telegram's buttons for a list: one per row ("title · description").
+function botKeyboard_(rows) {
+  return { inline_keyboard: rows.map(function (r) {
+    return [{ text: r.description ? r.title + ' · ' + r.description : r.title, callback_data: botCallbackData_(r.id) }];
+  }) };
 }
 
 function botCallbackData_(id) {
@@ -161,7 +163,7 @@ function botResolveCallback_(data) {
 }
 
 // The list actions both bots share (the native ones — confirm, discard, waitpay, ptags, delrep — stay in handleTelegramCallback_).
-var BOT_LIST_ACTIONS_ = /^(?:waedit|wafield|wapage|wapick|wahelp|wamore|waconv|wafp|wacv|wacvx|warl):/;
+var BOT_LIST_ACTIONS_ = /^(?:waedit|wafield|wapage|wapick|wahelp|wamore|waconv|wafp|wacv|wacvx|warl|wart|wars):/;
 
 var WA_TELEGRAM_METHODS_ = { sendMessage: 1, answerCallbackQuery: 1, editMessageReplyMarkup: 1, editMessageText: 1 };
 
@@ -361,6 +363,8 @@ function botListTap_(id, p) {
   if (action === 'wacv') return whatsappConvert_(entryId, parts[2], parts.slice(3).join(':'), p);
   if (action === 'wacvx') return botText_(tr_('whatsapp.someoneElseHow'), p.id);
   if (action === 'warl') return botRepayLoanTap_(entryId, parts.slice(2).join(':'), p);   // RepayIntent.gs
+  if (action === 'wart') return botRepayToggle_(entryId, parts.slice(2).join(':'), p);   // Telegram: check / uncheck a loan
+  if (action === 'wars') return botRepayLoanTap_(entryId, 'checked', p);                 // Telegram: save the checked ones
   botText_(tr_('bot.tooOld'), p.id);
 }
 

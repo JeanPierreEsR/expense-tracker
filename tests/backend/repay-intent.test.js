@@ -232,3 +232,76 @@ test("'repayment Zoe, amount 30' changes the amount first, then records it; a pa
   assert.ok(b.entry(e2.id), "nothing recorded");
   assert.match(b.bodies().join("\n"), /Nothing was marked/);
 });
+
+// ---- Telegram: check several loans in place, then save (owner, 2026-11-24) ----
+const { linkTelegram } = require("./helpers");
+function tgApp() {
+  const { rt } = freshApp({ small: true });
+  const chat = linkTelegram(rt);
+  let mid = 1000, upd = 5000;
+  rt.state.fetchHandler = (url) => (/sendMessage/.test(String(url)) ? { ok: true, result: { message_id: ++mid } } : { ok: true, result: true });
+  const calls = (method) => rt.svc.fetchLog.filter((f) => String(f.url).endsWith("/" + method)).map((f) => JSON.parse(f.options.payload));
+  const say = (text, replyTo) => rt.rawPost(JSON.stringify({ update_id: ++upd, message: Object.assign({ chat: { id: chat }, message_id: ++mid, date: Math.floor(Date.now() / 1000), text }, replyTo ? { reply_to_message: { message_id: replyTo } } : {}) }));
+  const tap = (data, messageId) => rt.rawPost(JSON.stringify({ update_id: ++upd, callback_query: { id: "cb" + upd, data, message: { chat: { id: chat }, message_id: messageId } } }));
+  const a = {
+    rt, calls, say, tap,
+    sentWithButtons: () => calls("sendMessage").filter((m) => m.reply_markup),
+    entry: (id) => rt.rows("Entries").find((e) => e.id === id),
+    newest: () => rt.rows("Entries").filter((e) => e.source === "telegram").pop(),
+    cardIdOf: (entryId) => Number(rt.rows("Telegram Messages").filter((m) => m.entry_id === entryId).pop().message_id)
+  };
+  rt.ctx.__f = { name: "Zoe Test" };
+  a.friend = rt.run("addFriend(__f)");
+  a.loan = (amount, date) => { rt.ctx.__l = { friend_id: a.friend.id, direction: "i_owe_them", amount, currency: "PEN", date }; return rt.run("addLoan(__l)"); };
+  a.settlementsOf = (loanId) => rt.rows("Settlements").filter((s) => s.loan_id === loanId && !s.offset_loan_id);
+  return a;
+}
+const buttonsOf = (markup) => markup.inline_keyboard.map((r) => r[0]);
+
+test("Telegram: the loans are check buttons; checking two and saving pays them oldest first; unchecking takes one back; 'deshacer' undoes it", () => {
+  const a = tgApp();
+  const l1 = a.loan(10, "2026-01-05"), l2 = a.loan(30, "2026-02-05"), l3 = a.loan(30, "2026-03-05");
+  a.say("25 pago, category " + a.rt.rows("Categories").find((c) => c.type === "expense").name);
+  const e = a.newest();
+  a.say("repayment Zoe Test", a.cardIdOf(e.id));
+  assert.equal(a.entry(e.id).status, "pending", "kept waiting: 25 does not cover 70");
+  const list = a.sentWithButtons().pop();
+  assert.match(list.text, /Tap one or more to check them/);
+  let buttons = buttonsOf(list.reply_markup);
+  assert.equal(buttons.length, 5, "Oldest first, three loans, in the app (no Save until something is checked)");
+  assert.ok(buttons[2].text.startsWith("☐ "));
+  const listId = 7777;
+  a.tap(buttons[3].callback_data, listId);   // l3
+  a.tap(buttons[2].callback_data, listId);   // l2
+  a.tap(buttons[3].callback_data, listId);   // l3 again: unchecked
+  a.tap(buttons[3].callback_data, listId);   // and checked again
+  const edits = a.calls("editMessageReplyMarkup").filter((c) => c.message_id === listId);
+  buttons = buttonsOf(edits[edits.length - 1].reply_markup);
+  assert.ok(buttons[2].text.startsWith("☑ ") && buttons[3].text.startsWith("☑ ") && buttons[1].text.startsWith("☐ "));
+  const save = buttons.find((b) => /Save the checked ones \(2\)/.test(b.text));
+  assert.ok(save, "Save shows the count");
+  assert.ok(edits.every((c) => c.reply_markup.inline_keyboard.length), "the list's buttons were never taken away while checking");
+  a.tap(save.callback_data, listId);
+  assert.equal(a.entry(e.id), undefined, "recorded");
+  assert.equal(a.settlementsOf(l2.id).reduce((n, s) => n + Number(s.amount), 0), 25, "the older checked loan takes the payment first");
+  assert.equal(a.settlementsOf(l3.id).length, 0);
+  assert.equal(a.settlementsOf(l1.id).length, 0, "the unchecked oldest loan is not touched");
+  a.say("deshacer");
+  assert.equal(a.settlementsOf(l2.id).length, 0);
+  assert.ok(a.entry(e.id).repay_intent, "waiting again, marked");
+});
+
+test("Telegram: checked loans pay in order until the payment runs out; the rest goes to the oldest others", () => {
+  const a = tgApp();
+  const l1 = a.loan(10, "2026-01-05"), l2 = a.loan(10, "2026-02-05"), l3 = a.loan(50, "2026-03-05");
+  a.say("25 pago, category " + a.rt.rows("Categories").find((c) => c.type === "expense").name);
+  const e = a.newest();
+  a.say("repayment Zoe Test", a.cardIdOf(e.id));
+  const buttons = buttonsOf(a.sentWithButtons().pop().reply_markup);
+  a.tap(buttons[2].callback_data, 8888);   // l2 only: 10 of the 25
+  const edits = a.calls("editMessageReplyMarkup").filter((c) => c.message_id === 8888);
+  a.tap(buttonsOf(edits.pop().reply_markup).find((b) => /Save the checked one$/.test(b.text)).callback_data, 8888);
+  assert.equal(a.settlementsOf(l2.id).reduce((n, s) => n + Number(s.amount), 0), 10);
+  assert.equal(a.settlementsOf(l1.id).reduce((n, s) => n + Number(s.amount), 0), 10, "what is left goes to the oldest other loan");
+  assert.equal(a.settlementsOf(l3.id).reduce((n, s) => n + Number(s.amount), 0), 5);
+});

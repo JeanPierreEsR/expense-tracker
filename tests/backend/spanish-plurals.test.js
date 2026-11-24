@@ -62,6 +62,7 @@ const NEVER_ONE_ = {
   "statementSample.demandMany": "only when more than 1 phone (1 uses statementSample.demandFirst)",
   "bot.repayKept": "only when there are 2 or more open loans (RepayIntent.gs: a real choice)",
   "bot.repayPickLoanMany": "only when there are more than 8 loans (REPAY_LIST_MAX_)",
+  "bot.repayPickLoanManyTg": "only when there are more than 8 loans (REPAY_LIST_MAX_)",
 };
 
 function pluralAgreement(es) {

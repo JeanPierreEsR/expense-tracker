@@ -627,7 +627,8 @@ function handleTelegramCallback_(cb) {
   if (BOT_LIST_ACTIONS_.test(data) && String(cb.message.chat.id) !== WA_CHAT_ID_) {
     var onCard = /^waedit:/.test(data) && !!whatsappCardEntry_(cb.message.message_id);
     botListTap_(data, { id: cb.message.message_id, context_id: cb.message.message_id });
-    if (!onCard) removeCardButtons_(cb.message.chat.id, cb.message.message_id);
+    // Checking a loan changes the list's own buttons in place (RepayIntent.gs): they stay.
+    if (!onCard && !/^wart:/.test(data)) removeCardButtons_(cb.message.chat.id, cb.message.message_id);
     telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
     return;
   }
