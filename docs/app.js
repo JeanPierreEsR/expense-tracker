@@ -9465,10 +9465,13 @@ async function openExchangeLink_(id, side) {
     row.tabIndex = 0;
     row.style.display = "block";
     row.style.cursor = "pointer";
+    row.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); row.click(); } });   // a keyboard or switch user (testers 2.68.2)
     row.innerHTML = `<div class="hint" style="margin:0 0 4px;font-weight:600;">${escapeHtml(tr(c.side === "in" ? "xch.arrived" : "xch.left"))} · ${escapeHtml(listDate_(c.date))}</div>
       <div><b>${formatAmount(c.amount, c.currency)}</b>${pmName(c.account) ? ` · ${escapeHtml(pmName(c.account))}` : ""}</div>
       ${c.taken ? `<div class="hint" style="margin:4px 0 0;">${escapeHtml(tr("xlink.taken"))}</div>` : ""}`;
-    row.addEventListener("click", () => {
+    row.addEventListener("click", async () => {
+      // A rate far from the table's asks first, as "Exchanges to link" would not even suggest it (testers 2.68.2).
+      if (c.far && c.rate && c.table_rate && !await askConfirmApp_(tr("xlink.farAsk", { from: c.from, to: c.to, rate: c.rate.toFixed(c.rate >= 100 ? 2 : 4), table: c.table_rate.toFixed(c.table_rate >= 100 ? 2 : 4) }), tr("xlink.farOk"), { plain: true })) return;
       backdrop.hidden = true;
       if (!document.getElementById("edit-entry-modal-backdrop").hidden && editingEntryId === id) closeEditPopup();
       saveBehindScreen_(async () => {

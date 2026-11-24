@@ -228,9 +228,31 @@ function listExchangeLinkCandidates(payload) {
     return (exchangeDayDiff_(a.date, entry.date) - exchangeDayDiff_(b.date, entry.date)) || String(b.date).localeCompare(String(a.date));
   }).slice(0, 20).map(function (x) {
     var p = String(x.exchange_pair || '');
+    var fit = exchangePairFit_(side === 'out' ? entry : x, side === 'out' ? x : entry);
     return { id: x.id, date: String(x.date), amount: Number(x.amount), currency: x.currency, side: exchangeLegSide_(x),
-      account: x.payment_method_id || x.to_payment_method_id || '', taken: !!(p && pairCount[p] > 1) };
+      account: x.payment_method_id || x.to_payment_method_id || '', taken: !!(p && pairCount[p] > 1),
+      far: fit.far, rate: fit.rate, table_rate: fit.table_rate, from: fit.from, to: fit.to };
   });
+}
+
+// How a money-out side and a money-in side fit the rate table (testers 2.68.2: a hand link of PEN 1,950 and USD 200 went in silently).
+// `far` when both convert and differ by more than 15 % (the "Exchanges to link" rule). The rates are quoted as 1 of the currency with
+// the smaller amount, the way the form says them ("USD 1 = PEN 3.80").
+function exchangePairFit_(out, inn) {
+  var toMain = function (e) {
+    var r = getLatestRateOnOrBefore_(e.currency, String(e.date).substring(0, 7));
+    return r === null || r === undefined ? null : Math.abs(Number(e.amount)) * r;
+  };
+  var a = toMain(out), b = toMain(inn);
+  var oa = Math.abs(Number(out.amount)), ib = Math.abs(Number(inn.amount));
+  var big = oa >= ib ? out : inn, small = oa >= ib ? inn : out;
+  var rate = Math.abs(Number(small.amount)) > 0 ? Math.abs(Number(big.amount)) / Math.abs(Number(small.amount)) : null;
+  var far = a !== null && b !== null && b > 0 && (a / b < 0.85 || a / b > 1.15);
+  var table = null;
+  var rs = getLatestRateOnOrBefore_(small.currency, String(small.date).substring(0, 7)), rb = getLatestRateOnOrBefore_(big.currency, String(big.date).substring(0, 7));
+  if (rs !== null && rs !== undefined && rb !== null && rb !== undefined && rb > 0) table = rs / rb;
+  return { far: !!far, rate: rate === null ? null : Math.round(rate * 10000) / 10000, table_rate: table === null ? null : Math.round(table * 10000) / 10000,
+    from: small.currency, to: big.currency };
 }
 
 // payload: { id, partner_id }. Both get one new link id (and the exchange marker). Returns { out, in }.
@@ -240,6 +262,8 @@ function linkExchangeSides(payload) {
   var sa = exchangeLegSide_(a), sb = exchangeLegSide_(b);
   if (!sa || !sb) throw new Error(tr_('xlink.notSide'));
   if (sa === sb || a.currency === b.currency || a.status !== b.status) throw new Error(tr_('xlink.notPair'));
+  // The candidate list's day limit holds on the server too (testers 2.68.2: a side months away could be linked by a hand request).
+  if (exchangeDayDiff_(a.date, b.date) > EXCHANGE_LINK_DAYS_) throw new Error(tr_('xlink.tooFar', { n: EXCHANGE_LINK_DAYS_ }));
   ensureEntriesExchangeColumn_();
   ensureColumn_('Entries', 'exchange_pair');
   var pairId = Utilities.getUuid();
@@ -253,10 +277,10 @@ function linkExchangeSides(payload) {
 // pairs unlinked sides of the SAME day by itself; sides on different days showed as two rows. This finds those: a confirmed side with
 // no partner, the opposite side in another currency 1 to 3 days away (the window the missing-side report uses), and amounts that
 // fit the rate table within 15 % when a rate is known. One-to-one, closest days first. Never linked without the person: a guess can
-// be wrong. Owner's copy only. A pair the person said "Not these" to is remembered (Settings `exchange_link_refused`), and "Don't ask again" turns it off.
+// be wrong. Every copy (owner's only until 2.69). A pair the person said "Not these" to is remembered (Settings `exchange_link_refused`), and "Don't ask again" turns it off.
 var EXCHANGE_SUGGEST_DAYS_ = 3;
 function exchangeLinkSuggestions_() {
-  if (isFriendCopy_()) return [];   // the owner's own copy only (owner, 2026-11-23): his old exchanges are what it is for; nobody else sees it
+  // Every copy since 2.69 (owner, 2026-11-24, after the testers saw two waiting e-mails a friend could not pair); it was the owner's only.
   var settings = getSettingsMap();
   if (String(settings.exchange_link_off || '') === 'yes') return [];
   var refused = {};

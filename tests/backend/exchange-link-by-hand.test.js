@@ -49,3 +49,16 @@ test("refused: two sides in the same direction or the same currency, or an entry
   assert.throws(() => s.rt.api("linkExchangeSides", { id: s.out.id, partner_id: plain.id }));
   assert.throws(() => s.rt.api("listExchangeLinkCandidates", { id: plain.id }));
 });
+
+// Testers 2.68.2 (Rafael, Mark): the day limit only lived in the list, and a far-off rate linked silently.
+test("linking sides months apart is refused on the server; a candidate says when its rate is far from the table", () => {
+  const s = setup();
+  const penFar = s.rt.api("createEntry", { type: "transfer", paid_by: "me", status: "confirmed", date: "2026-01-02", amount: 50, currency: "PEN", description: "Currency exchange", payment_method_id: s.pen.id });
+  s.rt.run(`updateRowFields_('Entries', '${penFar.id}', { exchange: '1' })`);
+  assert.throws(() => s.rt.api("linkExchangeSides", { id: penFar.id, partner_id: s.far.id }), /days apart/);
+  const c = s.rt.api("listExchangeLinkCandidates", { id: s.out.id })[0];
+  assert.equal(typeof c.far, "boolean");
+  assert.equal(c.from, "USD");
+  assert.equal(c.to, "PEN");
+  assert.equal(c.rate, 3.5);
+});

@@ -475,6 +475,8 @@
     "xsugg.stopAsk": { en: "Stop suggesting exchanges to link? Sides already linked stay linked, and you can still link a side by hand from its edit form.", es: "¿Dejar de sugerir cambios por unir? Los lados ya unidos siguen unidos, y aún puedes unir un lado a mano desde su formulario de edición." },
     "xsugg.none": { en: "Nothing left to link.", es: "No queda nada por unir." },
     "confirmBtn.stopSuggesting": { en: "Stop suggesting", es: "Dejar de sugerir" },
+    "xlink.farAsk": { en: "These two sides would make {from} 1 = {to} {rate}, far from {from} 1 = {to} {table} in the rate table that month. Link them anyway?", es: "Estos dos lados darían {from} 1 = {to} {rate}, lejos de {from} 1 = {to} {table} en la tabla de tipos de cambio de ese mes. ¿Unirlos igual?" },
+    "xlink.farOk": { en: "Link anyway", es: "Unir igual" },
     "xlink.btn": { en: "Link to the other side", es: "Unir con el otro lado" },
     "xlink.title": { en: "Link to the other side", es: "Unir con el otro lado" },
     "xlink.hintOut": { en: "Pick the money that arrived for this exchange (another currency, up to 10 days apart). The two then show as one exchange. What you changed above and did not save is left as it was.", es: "Elige el dinero que llegó por este cambio (otra moneda, hasta 10 días de diferencia). Los dos se verán como un solo cambio. Lo que cambiaste arriba y no guardaste queda como estaba." },
