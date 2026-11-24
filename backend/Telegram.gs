@@ -960,12 +960,13 @@ function handleTelegramMessage_(msg) {
   // combine with other edits the way "category X, amount Y" does.
   // With no name ("repayment") the friend is the group of the trip whose dates cover the entry, when there is
   // exactly one such trip (applyTerminalReviewAction_).
-  var terminalMatch = text.match(/^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)(?:\s+(.+))?$/i) ||
-    text.match(/^(?:(?:convert\s+to|convertir\s+en)\s+)?(?:loan|pr[eé]stamo)(?:\s+(.+))?$/i);
+  // A comma may follow the word ("repayment, paid by Ana"): it is still the command (RepayIntent.gs § the words after "repayment").
+  var terminalMatch = text.match(/^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)(?:[\s,]+(.+))?$/i) ||
+    text.match(/^(?:(?:convert\s+to|convertir\s+en)\s+)?(?:loan|pr[eé]stamo)(?:[\s,]+(.+))?$/i);
   var undoKind = !terminalMatch ? 'edit' : /^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)/i.test(text) ? 'repayment' : 'loan';
   var recording = botActionBegin_(undoKind, mapping.entry_id, [msg.message_id, targetMessageId]);   // for "deshacer" (BotUndo.gs)
   var result = terminalMatch
-    ? applyTerminalReviewAction_(mapping.entry_id, text, terminalMatch[1] || '')
+    ? applyDebtWords_(mapping.entry_id, text, terminalMatch[1] || '')
     : applyEditCommand_(mapping.entry_id, text);
 
   // Threads to the owner's own edit command, which is itself already a
@@ -982,7 +983,9 @@ function handleTelegramMessage_(msg) {
   // A terminal action already removed the entry — nothing left to show a
   // refreshed card for.
   if (result.entry && !result.removed) {
-    sendTelegramEntryNotification_(result.entry, result.categoryName);
+    var freshCard = sendTelegramEntryNotification_(result.entry, result.categoryName);
+    // Kept waiting for its loans (RepayIntent.gs): the loans to tap, under the fresh card.
+    if (result.repayList) botRepayLoanList_(result.entry.id, freshCard && freshCard.ok && freshCard.result ? freshCard.result.message_id : null);
   }
   if (telegramTagAskAfter_ && result.entry && !result.removed) { sendTelegramTagAsk_(msg.chat.id, telegramTagAskAfter_, msg.message_id); sendTelegramPlanAsk_(msg.chat.id, telegramTagAskAfter_, msg.message_id); }
   telegramTagAskAfter_ = '';
@@ -1077,7 +1080,7 @@ function applyTerminalReviewAction_(entryId, fullText, friendText, friendObj) {
       } catch (markErr) {
         return { message: tr_('convert.nothingChanged', { error: markErr.message }) };
       }
-      return { message: tr_('bot.repayKept', { friend: friend.name, n: choice.count }), entry: getEntryById_(entry.id), categoryName: null };
+      return { message: tr_('bot.repayKept', { friend: friend.name, n: choice.count }), entry: getEntryById_(entry.id), categoryName: null, repayList: true };
     }
   }
 
@@ -1402,7 +1405,7 @@ function applyEditCommand_(entryId, text) {
 
   if (!appliedFields.length) {
     noteReplyHintStuck_();
-    return { message: tr_('bot.notRecognized') + '\n\n' + helpText };
+    return { message: tr_('bot.notRecognized') + '\n\n' + helpText, failed: true };
   }
   if (failedSegments.length) noteReplyHintStuck_();
   else noteReplyHintEdit_();
@@ -1425,7 +1428,7 @@ function applyEditCommand_(entryId, text) {
   // Everything applied and nothing to warn about: the refreshed card that
   // follows shows the result, so a separate "Updated X." bubble is noise.
   var quiet = !failedSegments.length && !statusNote && !loanRefusal;
-  return { message: quiet ? '' : messageParts.join(' '), entry: updated, categoryName: categoryName };
+  return { message: quiet ? '' : messageParts.join(' '), entry: updated, categoryName: categoryName, failed: failedSegments.length > 0 };
 }
 
 // Keywords whose value must have a strict shape. Only these are folded back into

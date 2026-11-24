@@ -161,7 +161,7 @@ function botResolveCallback_(data) {
 }
 
 // The list actions both bots share (the native ones — confirm, discard, waitpay, ptags, delrep — stay in handleTelegramCallback_).
-var BOT_LIST_ACTIONS_ = /^(?:waedit|wafield|wapage|wapick|wahelp|wamore|waconv|wafp|wacv|wacvx):/;
+var BOT_LIST_ACTIONS_ = /^(?:waedit|wafield|wapage|wapick|wahelp|wamore|waconv|wafp|wacv|wacvx|warl):/;
 
 var WA_TELEGRAM_METHODS_ = { sendMessage: 1, answerCallbackQuery: 1, editMessageReplyMarkup: 1, editMessageText: 1 };
 
@@ -360,6 +360,7 @@ function botListTap_(id, p) {
   if (action === 'wafp') return whatsappFriendList_(entryId, parts[2], Number(parts[3]) || 0, p.id);
   if (action === 'wacv') return whatsappConvert_(entryId, parts[2], parts.slice(3).join(':'), p);
   if (action === 'wacvx') return botText_(tr_('whatsapp.someoneElseHow'), p.id);
+  if (action === 'warl') return botRepayLoanTap_(entryId, parts.slice(2).join(':'), p);   // RepayIntent.gs
   botText_(tr_('bot.tooOld'), p.id);
 }
 
@@ -657,7 +658,10 @@ function whatsappConvert_(entryId, kind, friendId, p) {
     var res = applyTerminalReviewAction_(entryId, kind === 'r' ? 'repayment' : 'loan', friend.name, friend);
     botText_(res.message, whatsappCardFor_(entryId) || p.id);
     // Kept waiting for its loans to be chosen (RepayIntent.gs): a fresh card, so a confirmed one gets its Confirm again.
-    if (res.entry && !res.removed) sendTelegramEntryNotification_(res.entry, null);
+    if (res.entry && !res.removed) {
+      var card = sendTelegramEntryNotification_(res.entry, null);
+      if (res.repayList) botRepayLoanList_(res.entry.id, card && card.ok && card.result ? card.result.message_id : null);
+    }
   });
 }
 

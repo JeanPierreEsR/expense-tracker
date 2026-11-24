@@ -161,3 +161,74 @@ test("bulk confirm leaves a marked entry that is no longer waiting, and an older
   a.rt.ctx.__p = { items: [{ id: e.id, repay: true }] };
   assert.equal(a.rt.run("confirmEntries(__p)").kept[0].reason, "notPending");
 });
+
+// ---- the loans in the chat, and the words after "repayment" (piece 3) ----
+
+test("after the mark, the chat lists the loans: Oldest first, each loan (exact one said), Several → in the app", () => {
+  const a = waApp();
+  const l1 = a.loan(50, "2026-01-05"), l2 = a.loan(20, "2026-02-05");
+  a.loan(80, "2026-03-05");
+  const e = readyExpense(a);   // 20
+  a.text("repayment Zoe Test", { context_id: a.cardIdOf(e.id) });
+  const rows = a.lastRows();
+  assert.deepEqual(rows.map((r) => r.id), [`warl:${e.id}:oldest`, `warl:${e.id}:${l1.id}`, `warl:${e.id}:${l2.id}`, `warl:${e.id}:` + rows[3].id.split(":").pop(), `warl:${e.id}:app`]);
+  assert.match(rows[2].description, /= this payment/, "the loan of exactly 20 is pointed out");
+  assert.ok(!/= this payment/.test(rows[1].description));
+});
+
+test("tapping a loan pays THAT loan first; 'deshacer' takes it back to waiting, marked", () => {
+  const a = waApp();
+  const l1 = a.loan(50, "2026-01-05"), l2 = a.loan(50, "2026-02-05");
+  const e = readyExpense(a);
+  a.text("repayment Zoe Test", { context_id: a.cardIdOf(e.id) });
+  a.tap(`warl:${e.id}:${l2.id}`);
+  assert.equal(a.entry(e.id), undefined);
+  assert.equal(a.settlementsOf(l2.id).reduce((n, s) => n + Number(s.amount), 0), 20, "the loan tapped");
+  assert.equal(a.settlementsOf(l1.id).length, 0);
+  a.text("deshacer");
+  assert.equal(a.settlementsOf(l2.id).length, 0, "the repayment is gone");
+  assert.ok(a.entry(e.id).repay_intent, "waiting again, still marked");
+});
+
+test("'Oldest first' in the list pays the oldest; 'Several → in the app' changes nothing", () => {
+  const a = waApp();
+  const l1 = a.loan(50, "2026-01-05"); a.loan(50, "2026-02-05");
+  const e = readyExpense(a);
+  a.text("repayment Zoe Test", { context_id: a.cardIdOf(e.id) });
+  a.tap(`warl:${e.id}:app`);
+  assert.ok(a.entry(e.id).repay_intent);
+  assert.match(a.bodies().pop(), /stays in Needs review/);
+  a.tap(`warl:${e.id}:oldest`);
+  assert.equal(a.entry(e.id), undefined);
+  assert.equal(a.settlementsOf(l1.id).length, 1);
+});
+
+test("'repayment, paid by Zoe' (a tester's words) is a repayment, never an edit of the description or of who paid", () => {
+  const a = waApp();
+  const only = a.loan(50, "2026-01-05");
+  const e = readyExpense(a);
+  a.text("repayment, paid by Zoe Test", { context_id: a.cardIdOf(e.id) });
+  assert.equal(a.entry(e.id), undefined, "recorded (one loan: nothing to choose)");
+  assert.equal(a.settlementsOf(only.id).length, 1);
+  const b = waApp();
+  b.loan(50, "2026-01-05");
+  const e2 = readyExpense(b);
+  b.text("repago de Zoe Test", { context_id: b.cardIdOf(e2.id) });
+  assert.equal(b.entry(e2.id), undefined);
+});
+
+test("'repayment Zoe, amount 30' changes the amount first, then records it; a part that cannot be applied stops everything", () => {
+  const a = waApp();
+  const only = a.loan(50, "2026-01-05");
+  const e = readyExpense(a);
+  a.text("repayment Zoe Test, amount 30", { context_id: a.cardIdOf(e.id) });
+  assert.equal(a.entry(e.id), undefined);
+  assert.equal(a.settlementsOf(only.id).reduce((n, s) => n + Number(s.amount), 0), 30);
+
+  const b = waApp();
+  b.loan(50, "2026-01-05");
+  const e2 = readyExpense(b);
+  b.text("repayment Zoe Test, amount lots", { context_id: b.cardIdOf(e2.id) });
+  assert.ok(b.entry(e2.id), "nothing recorded");
+  assert.match(b.bodies().join("\n"), /Nothing was marked/);
+});
