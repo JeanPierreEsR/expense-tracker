@@ -759,6 +759,7 @@ var BACKEND_STRINGS_ = {
 
   // ---- label ----
   "label.unknownFriend": { en: "(unknown friend)", es: "(amigo desconocido)" },
+  "loans.unknownGone": { en: "Those loans already belong to someone in your friends. Refresh Loans.", es: "Esos préstamos ya son de alguien de tus amigos. Actualiza Préstamos." },
   "label.unknownCategory": { en: "(unknown category)", es: "(categoría desconocida)" },
   "label.sharedExpense": { en: "Shared expense", es: "Gasto compartido" },
   "label.loan": { en: "Loan", es: "Préstamo" },

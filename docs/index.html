@@ -823,6 +823,7 @@
       <p class="hint loans-more-practice" id="loans-more-practice" hidden></p>
       <div class="status-msg" id="loans-first-loading" hidden data-i18n="common.loading">Loading…</div>
       <p class="hint loans-unreadable" id="loans-unreadable" hidden></p>
+      <p class="hint loans-unreadable" id="loans-sheetcheck" hidden></p>
       <div class="card" id="loans-owed-card">
         <div class="budgets-header">
           <h2 data-i18n="loans.owesYou">Owes you</h2>
@@ -2299,6 +2300,7 @@
         <button type="button" id="loan-detail-modal-close" class="currency-modal-close">✕</button>
       </div>
       <p class="hint" id="loan-detail-subtitle"></p>
+      <p class="stmt-note warn" id="loan-detail-sheetcheck" hidden></p>
       <div class="loan-detail-actions">
         <span class="info-pair"><button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">Record repayment</button><button type="button" class="info-btn" data-info="repay" data-i18n-aria-label="info.repay.name" aria-label="About Record repayment" aria-expanded="false"></button></span>
         <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">Repayment history</button>
@@ -2322,6 +2324,21 @@
     </div>
   </div>
 
+  <div id="loan-unknown-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="loans.unknownTitle">Choose who this is</span>
+        <button type="button" id="loan-unknown-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="loan-unknown-text"></p>
+        <label for="loan-unknown-friend" data-i18n="loans.unknownPick">Whose loans are these?</label>
+        <select id="loan-unknown-friend"></select>
+        <p class="hint error-text" id="loan-unknown-error" role="alert" hidden></p>
+        <button type="button" class="primary" id="loan-unknown-save" data-i18n="common.save">Save</button>
+      </div>
+    </div>
+  </div>
   <div id="loan-remind-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">

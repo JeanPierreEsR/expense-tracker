@@ -2876,6 +2876,7 @@ function listLoanBalances(payload) {
     result.push({
       friend_id: friendId,
       friend_name: friendMap[friendId] || tr_('label.unknownFriend'),
+      unknown: !friendMap[friendId],   // typed in the Sheet for someone not in Friends: the phone offers "Choose who this is"
       role: roleMap[friendId] || 'friend',
       project_ids: Object.keys(projectsByFriend[friendId] || {}),
       balances: balances,
@@ -2889,10 +2890,50 @@ function listLoanBalances(payload) {
       balances: result,
       unreadable: loans.filter(function (l) { return l.unreadable_amount !== undefined; }).map(function (l) {
         return { friend_name: friendMap[l.friend_id] || tr_('label.unknownFriend'), amount: String(l.unreadable_amount), currency: String(l.unreadable_currency || '') };
-      })
+      }),
+      sheet_check: loanSheetCheck_(loans, settledByLoan, friendMap)
     };
   }
   return result;
+}
+
+// Rows typed in the Sheet that do not add up (testers 2.68.2, Ingrid; owner's choice 2026-11-24: flag them, change nothing):
+// repayments larger than their loan (the extra would vanish) and repayments whose loan does not exist. Read-only.
+function loanSheetCheck_(loans, settledByLoan, friendMap) {
+  var over = {};
+  loans.forEach(function (l) {
+    if (l.unreadable_amount !== undefined) return;
+    var extra = round2_((settledByLoan[l.id] || 0) - Number(l.amount));
+    if (!(extra > 0.004)) return;
+    var k = l.friend_id + '|' + l.currency;
+    var o = over[k] = over[k] || { friend_id: String(l.friend_id), friend_name: friendMap[l.friend_id] || tr_('label.unknownFriend'), currency: String(l.currency), extra: 0 };
+    o.extra = round2_(o.extra + extra);
+  });
+  var ids = {};
+  getAllRows('Loans').forEach(function (l) { ids[String(l.id)] = true; });
+  var orphans = getAllRows('Settlements').filter(function (st) { return !ids[String(st.loan_id)]; }).length;
+  return { over: Object.keys(over).map(function (k) { return over[k]; }), orphan_repayments: orphans };
+}
+
+// A person typed in the Loans sheet who is not in Friends (shown as "(unknown friend)"): their loans go to a friend picked on the
+// phone, or to a new friend with the name typed (owner's choice, 2026-11-24). payload: { friend_id, to_friend_id | new_name }
+function assignUnknownFriend(payload) {
+  var ghost = String((payload && payload.friend_id) || '');
+  var friends = getAllRows('Friends');
+  if (!ghost || friends.some(function (f) { return String(f.id) === ghost; })) throw new Error(tr_('loans.unknownGone'));
+  var target;
+  if (payload.new_name) target = addFriend({ name: String(payload.new_name) });
+  else target = friends.find(function (f) { return String(f.id) === String(payload.to_friend_id || ''); });
+  if (!target) throw new Error(tr_('err.friendNotFound'));
+  var moved = 0;
+  getAllRows('Loans').filter(function (l) { return String(l.friend_id) === ghost; }).forEach(function (l) {
+    updateRowFields_('Loans', l.id, { friend_id: String(target.id) });
+    l.friend_id = String(target.id);
+    syncLoanTransferEntry_(l, String(target.name));
+    moved++;
+  });
+  if (!moved) throw new Error(tr_('loans.unknownGone'));
+  return { friend: target, moved: moved };
 }
 
 // Repayment history for one person (owner's request, 2026-10-27): every loan (paid, open, forgiven) with what was
