@@ -183,6 +183,7 @@ let editingViaPopup = false;
 let splitFriendIds = new Set();
 let repaymentAutoPickedId_ = "";
 let repaymentFriendTouched_ = false;   // the person picked the Repayment / New loan friend by hand (see autoPickRepaymentGroup_)
+let repaymentDirTouched_ = false;   // the person tapped "I paid" / "They paid me" by hand (testers 2.68.2: otherwise it follows who owes whom)
 let splitMode = "equal";
 let customSplitAmounts = {};
 let splitPercents = {};   // "%" mode: friend id -> typed percentage text
@@ -1929,6 +1930,7 @@ function showDetailForm(category) {
   setTimeout(updateChargeBox_, 0);
   tripPickLocked_ = false;   // a fresh form: suggest again
   repaymentFriendTouched_ = false;
+  repaymentDirTouched_ = false;
   autoPickTripForDate_();
   // Safety net: whichever way the form was reached, the labels and the
   // From/To/Paid-by fields always match the entry type being shown.
@@ -2471,7 +2473,8 @@ function autoPickRepaymentGroup_() {
   let group = covering.length === 1 ? meta.friends.find((f) => f.trip_id === covering[0].id) : null;
   // Only a group with something owed is suggested for a repayment (Lucho, 2026-11-18: it started on a trip group that owed nothing);
   // a new loan may still start with it.
-  const groupOwes = (id) => !loansLastBalances_ || loansLastBalances_.some((b) => b.friend_id === id && (b.balances || []).some((x) => Math.abs(Number(x.net) || 0) > 0.004));
+  // Balances not known yet: no group (testers 2.68.2: Marta's form opened on a group that owed nothing); asked again once they arrive.
+  const groupOwes = (id) => !!loansLastBalances_ && loansLastBalances_.some((b) => b.friend_id === id && (b.balances || []).some((x) => Math.abs(Number(x.net) || 0) > 0.004));
   if (group && transferKind_() === "repayment" && !groupOwes(group.id)) group = null;
   if (group && Array.from(sel.options).some((o) => o.value === group.id)) {
     sel.value = group.id;
@@ -2600,6 +2603,7 @@ function syncNothingOwedLine_() {
           populateRepaymentFriendOptions_();
           const sel = document.getElementById("repayment-friend");
           if (sel.options.length && sel.options[0].value !== "__add__") sel.value = sel.options[0].value;
+          autoPickRepaymentGroup_();   // a trip's group that does owe something can be suggested now
           updateAutoTransferDescription_();
         }
         syncNothingOwedLine_();
@@ -2621,6 +2625,10 @@ function syncNothingOwedLine_() {
     // Owed the OTHER way: say so, with a one-tap switch (Lucho, 2026-11-18: "I paid them" for a friend who owed him, and nothing hinted).
     const other = dir === "they_owe_me" ? "i_owe_them" : "they_owe_me";
     const otherAmt = row && row.open ? Number(row.open[other] || 0) : row ? Math.max(0, (other === "they_owe_me" ? row.net : -row.net)) : 0;
+    // A new repayment whose direction nobody chose: it follows who owes whom (testers 2.68.2: Diego saved "I paid" to a friend who
+    // owed him). Only a person's own tap on the tabs keeps the other way, and then the hint below offers the switch.
+    const tabOther = document.querySelector(`#repayment-direction-tabs .type-tab[data-direction="${other}"]`);
+    if (otherAmt > 0.004 && !repaymentDirTouched_ && transferKind_() === "repayment" && tabOther && !Spotlight.isRunning()) { tabOther.click(); return; }
     if (otherAmt > 0.004) {
       line.textContent = tr(other === "they_owe_me" ? "owed.otherTheyOwe" : "owed.otherIOwe", { friend: f ? f.name : "", amount: formatAmount(otherAmt, currency) }) + " ";
       const sw = document.createElement("button");
@@ -2659,14 +2667,7 @@ document.getElementById("amount").addEventListener("input", () => {
   entryRepayFill_ = null;
 });
 // True when this Save tap should only arm the second-tap safeguard.
-function entryRepayTooQuick_() {
-  const g = entryRepayFill_;
-  if (!g || g.armed || practiceRunning_ || !repaymentActive_() || transferKind_() !== "repayment") return false;
-  if (document.getElementById("amount").value !== g.value || Date.now() - g.at > REPAY_QUICK_MS_) return false;
-  g.armed = true;
-  document.getElementById("submit-btn").textContent = tr("settle.tapAgainAll", { amount: formatAmount(parseFloat(g.value), document.getElementById("currency").value.toUpperCase()) });
-  return true;
-}
+function entryRepayTooQuick_() { return false; }   // one tap since 2.69 (owner, 2026-11-24), as on a friend's screen
 
 document.getElementById("transfer-kind").addEventListener("change", () => {
   // Undo what a previous non-"between" state hid, then let the normal rules re-apply.
@@ -2690,7 +2691,8 @@ document.getElementById("transfer-kind").addEventListener("change", () => {
 });
 
 document.querySelectorAll("#repayment-direction-tabs .type-tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
+  tab.addEventListener("click", (ev) => {
+    if (ev.isTrusted) repaymentDirTouched_ = true;
     repaymentDirectionChoice = tab.dataset.direction;
     updateRepaymentUi_();
     syncConversionAmount_();   // a repayment kept as it is shows its own amount; re-recorded, the whole one
@@ -4692,6 +4694,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     editingSplitEntry_ = null; editingProjectParts_ = [];
     resetBusinessPick_();                               // same for the company / project (a company copy's one company)
     repaymentFriendTouched_ = false;
+  repaymentDirTouched_ = false;
     resetSplitState();
     resetRepeat_();
     updateRepeatField_();
@@ -6875,6 +6878,7 @@ async function startEditEntry(entry) {
   // form that was cancelled half-way (it would silently start a loan / repayment conversion).
   document.getElementById("transfer-kind").value = "between";
   repaymentFriendTouched_ = false;
+  repaymentDirTouched_ = false;
   resetEntryRepayChoose_();   // "Choose which loans this pays" (when it becomes a repayment): today's loans, nothing ticked
   editingEntryId = entry.id;
   editingEntryOriginalDate_ = entry.date || null;
@@ -35426,17 +35430,20 @@ let loanModalApplyLoan_ = null;   // the loan being edited, kept for its "Apply 
 // Loans tab list underneath it.
 let loanModalReturnFriend = null;
 
-function populateLoanFriendOptions() {
+function populateLoanFriendOptions(keepId) {
   const select = document.getElementById("loan-friend");
   select.innerHTML = "";
-  if (!plainFriends_().length) {   // nothing to pick yet: the box says what to do (it looked empty; Diego, Rosa, Sol, Wilmer, 2026-11-09)
+  // A bank you have a bank loan with is not a friend to lend to (testers 2.68.2: "🏦 Banco Auto" came first and could be recorded
+  // as owing you); its loan has its own form. Kept when the loan being edited is already theirs.
+  const people = plainFriends_().filter((f) => !f.bank_lender || f.id === keepId);
+  if (!people.length) {   // nothing to pick yet: the box says what to do (it looked empty; Diego, Rosa, Sol, Wilmer, 2026-11-09)
     const hint = document.createElement("option");
     hint.value = "";
     hint.textContent = tr("loanModal.pickOrAddFriend");
     hint.disabled = true;
     select.appendChild(hint);
   }
-  plainFriends_().forEach((f) => {
+  people.forEach((f) => {
     const opt = document.createElement("option");
     opt.value = f.id;
     opt.textContent = friendLabel_(f);
@@ -35786,7 +35793,7 @@ function openLoanModal(loan, returnFriend, opts) {
   document.getElementById("loan-forgive-btn").hidden = !(loan && returnFriend && loan.status !== "forgiven" && loan.remaining > 0.004 && !loan.schedule);
   document.getElementById("loan-form-error").textContent = "";
   document.getElementById("loan-friend-error").hidden = true;
-  populateLoanFriendOptions();
+  populateLoanFriendOptions(loan && loan.friend_id);
   populateLoanPaymentMethodOptions();
   document.getElementById("loan-friend").value = loan ? loan.friend_id : ((opts && opts.friendId) || (meta.friends.length ? meta.friends[0].id : ""));
   setLoanDirection_(loan ? loan.direction : ((opts && opts.direction) || "they_owe_me"));   // the "You owe" card's + starts on "I owe them"
@@ -36108,17 +36115,14 @@ function updateRepaySaveLabel_() {
   if (editingSettlementId) return;
   const btn = document.getElementById("settlement-save-btn");
   const v = parseFloat(document.getElementById("settlement-amount").value);
-  btn.textContent = v > 0 ? tr("settle.recordAmount", { amount: formatAmount(v, repaymentCurrency) }) : tr("settle.save");
+  // The whole debt: the button says so before the tap, and one tap records it (owner, 2026-11-24, after the testers: the old second
+  // "Tap again…" read as if the first tap had failed).
+  const owed = Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0);
+  const all = v > 0 && owed > 0.004 && Math.abs(v - owed) < 0.005;
+  btn.textContent = v > 0 ? tr(all ? "settle.recordSettleAll" : "settle.recordAmount", { amount: formatAmount(v, repaymentCurrency) }) : tr("settle.save");
 }
 // True when this tap should only arm the second-tap safeguard.
-function repayTooQuick_() {
-  const g = repayQuickGuard_;
-  if (editingSettlementId || !g || g.armed || practiceRunning_) return false;
-  if (document.getElementById("settlement-amount").value !== g.value || Date.now() - g.at > REPAY_QUICK_MS_) return false;
-  g.armed = true;
-  document.getElementById("settlement-save-btn").textContent = tr("settle.tapAgainAll", { amount: formatAmount(parseFloat(g.value), repaymentCurrency) });
-  return true;
-}
+function repayTooQuick_() { return false; }   // one tap since 2.69 (owner, 2026-11-24): the button already names the amount and "settle everything"
 
 // Back to "add a new repayment" — the default state the form opens in,
 // and where "Cancel edit" returns it to without closing the whole modal.

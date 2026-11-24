@@ -2018,6 +2018,7 @@
     "history.tapHint": { en: "Tap a repayment to change which loans it paid, or a canceled-out line to undo it.", es: "Toca un repago para cambiar qué préstamos pagó, o una línea compensada para deshacerla." },
     "settle.save": { en: "Save repayment", es: "Guardar repago" },
     "settle.recordAmount": { en: "Record {amount}", es: "Registrar {amount}" },
+    "settle.recordSettleAll": { en: "Record {amount} and settle everything", es: "Registrar {amount} y saldar todo" },
     "settle.tapAgainAll": { en: "Tap again to record all {amount}", es: "Toca otra vez para registrar los {amount}" },
     "settle.delete": { en: "Delete this repayment", es: "Eliminar este repago" },
     "settle.categoryOf": { en: "Category ({type})", es: "Categoría ({type})" },
