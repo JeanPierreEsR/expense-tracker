@@ -30799,7 +30799,10 @@ function offerTransferGuide_(fromTab) {
     const box = document.getElementById("transfer-kind");
     if (!popInView_(box)) return;
     spendRealChance_(feature);
-    popTipShow_({ key: "offer-" + feature, text: tr("rt.offer." + kind), offer: () => startTransferReal_(kind) }, box);
+    // The exchange form's explanation sits right under the type: the bubble points below it instead of covering it (testers 2.68.2).
+    const intro = kind === "exchange" ? document.querySelector('#exchange-modal-backdrop [data-i18n="xch.intro"], [data-i18n="xch.intro"]') : null;
+    const at = intro && popInView_(intro) ? intro : box;
+    popTipShow_({ key: "offer-" + feature, text: tr("rt.offer." + kind), offer: () => startTransferReal_(kind) }, at);
   }, 350);
 }
 document.querySelector('#entry-type-tabs .type-tab[data-type="transfer"]').addEventListener("click", () => offerTransferGuide_(true));
