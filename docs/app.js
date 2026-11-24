@@ -11843,7 +11843,10 @@ function paintOverviewSummary_(data) {
   const loansEl = document.getElementById("summary-loans");
   loansEl.textContent = formatPenSigned_(data.totals.loans || 0);
   loansEl.classList.toggle("pos-green", (data.totals.loans || 0) > 0.004);
-  document.getElementById("summary-net").textContent = formatPenSigned_(data.totals.net);
+  // A company copy's Result is income minus expenses: borrowed money is not a result (owner, 2026-11-24, after the testers: +2,000
+  // showed with no income at all). Loans keep their own line above.
+  const coResult = companyCopyOn_();
+  document.getElementById("summary-net").textContent = formatPenSigned_(coResult ? data.totals.income - data.totals.expense : data.totals.net);
   // The gray line under What's left spells the sum with the SIGNS the blocks actually show: "− Loans" when loans took money out,
   // "+ Investments" when more was taken out of investments than put in. Zero or more reads "+"; Expenses always read "−" (owner, 2026-11-11).
   const sgn = (shown) => (shown < -0.004 ? "−" : "+");
@@ -11854,7 +11857,7 @@ function paintOverviewSummary_(data) {
     [sgn(-data.totals.investment), tr("summary.investments")],
     [sgn(data.totals.loans || 0), tr("summary.loans")]
   ];
-  document.getElementById("summary-net-eq").textContent = eqParts.map(([s, label], i) => (i === 0 ? label : `${s} ${label}`)).join(" ");
+  document.getElementById("summary-net-eq").textContent = (coResult ? eqParts.slice(0, 2) : eqParts).map(([s, label], i) => (i === 0 ? label : `${s} ${label}`)).join(" ");
   markSummaryTappable_();
   if (flowsState_) renderFlowChips_();
   // Investments always read purple and What's left in the normal text colour (owner, 2026-10-27).
@@ -11976,6 +11979,12 @@ function renderCompanyClose_(state) {
     if (state.pending_count) parts.push(`<p class="hint">${escapeHtml(tr("close.pendingN", { n: state.pending_count }))}</p>`);
     parts.push(`<button type="button" class="primary" id="co-close-open">${escapeHtml(tr("close.openBtn"))}</button>`);
   }
+  // December: the year's months still open, each one tap away (owner, 2026-11-24, after Andrés's year-end).
+  const yearOpen = (state.year_open || []).filter((m) => m !== state.month || !state.closed);
+  if (yearOpen.length) {
+    parts.push(`<p class="hint">${escapeHtml(tr("close.yearOpen", { year: state.month.slice(0, 4) }))}</p>`);
+    parts.push(`<div class="close-year-open">${yearOpen.map((m) => `<button type="button" class="add-inline" data-month="${escapeHtml(m)}">${escapeHtml(paceMonthName_(m, true))}</button>`).join("")}</div>`);
+  }
   // Piece 10: the accountant's package of this month.
   const p = state.package || {};
   if (p.sent_at) parts.push(`<p class="hint">${escapeHtml(tr("pkg.sentOn", { to: p.sent_to, date: listDate_(changeLogLocal_(p.sent_at).day) }))}</p>`);
@@ -11983,6 +11992,12 @@ function renderCompanyClose_(state) {
   parts.push(`<button type="button" class="add-inline" id="co-pkg-open">${escapeHtml(tr(p.sent_at && p.changed_since ? "pkg.openCorrected" : "pkg.open"))}</button>`);
   body.innerHTML = parts.join("");
   const on = (id, fn) => { const b = document.getElementById(id); if (b) b.addEventListener("click", fn); };
+  body.querySelectorAll(".close-year-open [data-month]").forEach((b) => b.addEventListener("click", () => {
+    const [y, mo] = b.dataset.month.split("-").map(Number);
+    periodType = "month";
+    periodAnchor = new Date(y, mo - 1, 1);
+    refreshCurrentPeriodScreen();
+  }));
   on("co-pkg-open", () => openPackageModal_(state));
   on("co-close-open", () => openCloseModal_(state));
   on("co-close-see", () => showChangeLog_(state.month));

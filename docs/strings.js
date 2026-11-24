@@ -2947,6 +2947,7 @@
     "close.openBtn": { es: "Cerrar el mes…", en: "Close the month…" },
     "close.closedOn": { es: "Cerrado el {date}.", en: "Closed on {date}." },
     "close.reopenedOn": { es: "Se reabrió el {date}.", en: "Reopened on {date}." },
+    "close.yearOpen": { es: "Meses de {year} que siguen abiertos (toca uno para ir a cerrarlo):", en: "Months of {year} still open (tap one to go and close it):" },
     "close.pendingN": { es: { one: "Queda 1 movimiento de este mes en Por revisar.", other: "Quedan {n} movimientos de este mes en Por revisar." }, en: { one: "1 entry of this month is still in Needs review.", other: "{n} entries of this month are still in Needs review." } },
     "close.pendingWarn": { es: { one: "Nota: 1 movimiento de este mes sigue en Por revisar. Puedes cerrar igual.", other: "Nota: {n} movimientos de este mes siguen en Por revisar. Puedes cerrar igual." }, en: { one: "Note: 1 entry of this month is still in Needs review. You can close anyway.", other: "Note: {n} entries of this month are still in Needs review. You can close anyway." } },
     "close.bankTitle": { es: "Conciliación con el banco", en: "Check against the bank" },

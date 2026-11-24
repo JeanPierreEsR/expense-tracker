@@ -176,6 +176,17 @@ function monthPendingCount_(month) {
   return getAllRows('Entries').filter(function (e) { return e.status === 'pending' && String(e.date).slice(0, 7) === month; }).length;
 }
 
+function monthsOpenInYear_(year) {
+  var closed = {};
+  monthCloseRows_().forEach(function (r) { if (r.status === 'closed') closed[r.month] = true; });
+  var thisMonth = businessToday_().slice(0, 7), out = [];
+  for (var m = 1; m <= 12; m++) {
+    var ym = year + '-' + (m < 10 ? '0' : '') + m;
+    if (ym < thisMonth && !closed[ym]) out.push(ym);
+  }
+  return out;
+}
+
 // The state of one month for the app: { month, ended, close (the row, figures parsed) | null, closed, changed, hand_edited,
 // changes (change-log lines about the month after the close, newest first, at most 50), pending_count, accounts (balances on the
 // last day, for the bank check) }.
@@ -203,6 +214,8 @@ function monthCloseState_(month) {
     close: row ? { status: row.status, closed_at: row.closed_at, reopened_at: row.reopened_at, figures: parse(row.figures),
       bank_check: parse(row.bank_check) || [], pending_count: Number(row.pending_count) || 0, note: row.note } : null,
     pending_count: monthPendingCount_(month),
+    // December: the months of that year that ended and are not closed, so the year can be finished from one card (owner, 2026-11-24).
+    year_open: /-12$/.test(month) ? monthsOpenInYear_(month.slice(0, 4)) : [],
     package: packageState_(month),   // piece 10 (AccountantPackage.gs)
     accounts: ended && !closed ? accountBalancesAt_(monthLastDay_(month)) : []
   };

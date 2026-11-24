@@ -4384,3 +4384,5 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 /* The share sheet's sections: a box never shrinks beside a two-line label, and sits at its first line (testers 2.68.2). */
 #share-sections .checkbox-row { align-items: flex-start; }
 #share-sections .checkbox-row input[type="checkbox"] { flex: none; margin-top: 1px; }
+.close-year-open { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.close-year-open .add-inline, .close-year-open .add-inline + .add-inline { margin: 0; }
