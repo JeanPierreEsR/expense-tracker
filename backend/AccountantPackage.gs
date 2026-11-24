@@ -93,6 +93,13 @@ function pkgNature_(e, links, inbound, sunatId) {
   return tr_('pkg.n.transfer');
 }
 
+// An account's name in the package's language: the built-in Cash follows it ("Cash" / "Efectivo"), as on the phone (testers 2.68.2).
+function pkgAccountName_(pm) {
+  var name = String((pm && pm.nickname) || '');
+  if (pm && (pm.builtin === 'cash' || pm.type === 'cash') && /^(cash|efectivo)$/i.test(name.trim())) return tr_('pm.cashName');
+  return name;
+}
+
 function pkgPayMethod_(e, pmById) {
   var stored = String(e.pay_method || '');
   if (stored) return stored;
@@ -142,8 +149,8 @@ function buildAccountantPackage_(month) {
     var pay = pkgPayMethod_(e, pms);
     var account = pms[e.payment_method_id] || pms[e.to_payment_method_id];
     mv.push([d10_(e.date), String(e.receipt_date || '') || d10_(e.date), pkgNature_(e, links, inbound, sunatId), String(e.description || ''),
-      cats[e.category_id] && e.type !== 'transfer' ? String(cats[e.category_id].name) : '', projects[e.project_id] ? String(projects[e.project_id].name) : '',
-      (tagsByEntry[e.id] || []).join(' / '), signed, String(e.currency || home), Number(e.igv_amount) || 0, account ? String(account.nickname || '') : '',
+      cats[e.category_id] && e.type !== 'transfer' ? categoryLabel_(cats[e.category_id]) : '', projects[e.project_id] ? String(projects[e.project_id].name) : '',
+      (tagsByEntry[e.id] || []).join(' / '), signed, String(e.currency || home), Number(e.igv_amount) || 0, account ? pkgAccountName_(account) : '',
       pay ? tr_('pkg.pm.' + pay) : '', e.receipt_type ? tr_('pkg.rt.' + e.receipt_type) : '', String(e.receipt_no || ''),
       e.type === 'expense' || e.type === 'income' ? pkgYesNo_(support) : '', fx]);
   });
@@ -167,7 +174,7 @@ function buildAccountantPackage_(month) {
   var bal = [[tr_('pkg.h.account'), tr_('pkg.h.currency'), tr_('pkg.h.opening'), tr_('pkg.h.closing'), tr_('pkg.h.bank'), tr_('pkg.h.difference')]];
   accountBalancesAt_(r.end).forEach(function (b) {
     var k = b.payment_method_id + '|' + b.currency, chk = bank[k];
-    bal.push([b.nickname, b.currency, opening[k] || 0, b.amount, chk && chk.bank_amount !== null ? chk.bank_amount : '', chk && chk.difference !== null ? chk.difference : '']);
+    bal.push([pkgAccountName_(pms[b.payment_method_id] || { nickname: b.nickname }), b.currency, opening[k] || 0, b.amount, chk && chk.bank_amount !== null ? chk.bank_amount : '', chk && chk.difference !== null ? chk.difference : '']);
   });
   files.push({ kind: 'balances', name: tr_('pkg.file.balances', { month: month }), rows: bal.length - 1, text: pkgCsv_(bal) });
 

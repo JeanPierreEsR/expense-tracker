@@ -144,3 +144,17 @@ test("a starting balance dated the 1st is that month's opening; opening + moveme
   assert.equal(Number(b1[0][2]), 10000);
   assert.equal(Number(b1[0][2]) - 1200 - 300 + 5000, Number(b1[0][3]));
 });
+
+// Testers 2.68.2 (Carlos): a Spanish package showed the stored English names ("Materials", "Cash").
+test("a Spanish package names built-in categories and Cash in Spanish", () => {
+  const rt = companyCopy();
+  const mat = rt.rows("Categories").find((c) => c.key === "materials");
+  assert.ok(mat, "the construction sector has Materials");
+  const cash = rt.rows("Payment Methods").find((p) => /^(cash|efectivo)$/i.test(String(p.nickname)));
+  rt.api("createEntry", { type: "expense", date: day(6), amount: 80, currency: "PEN", category_id: mat.id, description: "Arena", payment_method_id: (cash || rt.rows("Payment Methods")[0]).id, paid_by: "me" });
+  const res = rt.rawPost(JSON.stringify({ accessCode: "test-access-code", action: "getAccountantPackage", payload: { month: ym }, lang: "es" }));
+  const mv = file(res.data, "movements");
+  const row = mv.find((r) => r.includes("Arena"));
+  assert.ok(row.includes("Materiales"), row.join(","));
+  if (cash) assert.ok(row.includes("Efectivo"), row.join(","));
+});
