@@ -106,7 +106,7 @@ test("reports: category names (and the fallback labels) follow the request's lan
   assert.ok(en.byCategory.some((x) => x.name === "Groceries"));
   // The fallback names (a dangling tag/category reference) come from the dictionary too.
   assert.equal(rt.run("tr_('report.untagged', null, 'es')"), "Sin etiqueta");
-  assert.equal(rt.run("tr_('report.untagged', null, 'en')"), "Untagged");
+  assert.equal(rt.run("tr_('report.untagged', null, 'en')"), "No tag");
   assert.equal(rt.run("tr_('report.uncategorized', null, 'es')"), "Sin categoría");
 });
 

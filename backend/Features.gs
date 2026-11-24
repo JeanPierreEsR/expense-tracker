@@ -108,7 +108,11 @@ function getCapabilities_() {
     clientEntryId: true,
     // addLoan, recordCurrencyExchange, forgiveLoan and the overpayment entries accept the phone's own id (client_id) and answer a repeat with what they already made, so the app can save them in the background; an older backend lacks it and the app then waits for the answer as before.
     clientMoneyId: true,
+    exchangeInDate: true,   // recordCurrencyExchange takes `in_date`: the money that arrived on another day (2026-11-23); an older backend: no such button
+    exchangeLink: true,   // listExchangeLinkCandidates + linkExchangeSides: a side is linked by hand to its other side (2026-11-23)
+    exchangeEdit: true,   // updateCurrencyExchange: one form edits both sides of an exchange (2026-11-23); an older backend: side by side only
     bulkUndo: true,   // unconfirmEntries: the Undo of a "confirm many at once" (2026-11-18)
+    repayIntent: true,   // a repayment kept waiting for its loans (RepayIntent.gs): confirmEntries `repay`, unconfirmEntries `repaid` (2026-11-23)
     bulkPlanLink: true,   // confirmEntries links items to their Programmed item (link_recurring_id), re-checked; an older backend: the phone promises no link
     // This backend can say which bank addresses it reads (listSupportedSenders), so the app can tell a friend "your bank is ready".
     bankReady: true,
@@ -142,6 +146,7 @@ function getCapabilities_() {
     practiceDeleted: true,   // createPracticeDeleted + removePracticeDeleted: the Recently deleted practice is only offered where this exists (and where entriesRestore + entriesBulk do)
     practiceReview: true,  // createPracticePending + removePracticeReview + the practice entries are ignored by learning / follow / guesses: the Needs review practice is only offered where this exists
     repayNothingOwed: true,   // recordRepayment answers ask_if_nothing_owed ({nothing_owed}) and takes opening_loan (a debt from before the app saved with its repayment); an older backend lacks them, so Home's "+" saves as before
+    convertAllocations: true,   // convertEntryToRepayment / convertRepaymentToRepayment take allocations (the loans chosen, as recordRepayment); an older backend pays oldest first, so the phone hides the choice there
     openingLoan: true,   // addLoan understands `opening` (a debt from before the app: no money entry); an older backend would save a normal loan, so the app hides the switch
     incomeWaiting: true,   // an income can be saved as not received yet (IncomeWaiting.gs)
     peopleOneList: true,   // payors and friends are one list; applyPayorMerge answers the one-time question on the owner's copy
@@ -158,6 +163,8 @@ function getCapabilities_() {
     paceRanges: true,       // getSpendingPace({ranges}): the Spending pace card in the Week, Year and Custom views
     budgetsBulkDelete: true,   // deleteBudgets (several at once, Budgets → Edit); an older backend lacks it, so the app hides the Edit button
     bulkShowAgain: true,   // restoreFriends / restorePaymentMethods / showCategories + `deletedRows` in deleteFriends / removePaymentMethods (Undo after a bulk delete or hide, and a bulk "Show again" in Edit mode); an older backend lacks them, so the app shows no Undo and no Show again button
+    accountMove: true,   // previewAccountMove / moveAccountHistory / undoAccountMove + Payment Methods.old_last_4 (AccountMove.gs); an older backend lacks them, so the account window hides "Move its history…"
+    stmtAcctLink: true,   // newAccounts[].matches + createStatementAccounts({accounts:[{id,…}]}): a statement for unknown digits asks "Is this your …?" about the person's accounts with no digits; an older backend sends no matches, so the app only offers a new account
     pmBulkRemove: true,   // removePaymentMethods (several accounts at once, More → Accounts → Edit); an older backend lacks it, so the app hides the Edit button
     annualCleanup: true,   // listAnnualCleanup / applyAnnualCleanup / undoAnnualCleanup / finishAnnualCleanup: the owner's one-time move out of the old "Annual budget" category (AnnualCleanup.gs); the card shows only where this exists AND listAnnualCleanup says available
     annualHints: true,   // getAnnualHints: each category's usual month and this year's count of annual expenses, for the Annual expenses bubbles (2026-11-14); an older backend lacks it, so those two bubbles never show

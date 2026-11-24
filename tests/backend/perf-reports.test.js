@@ -201,3 +201,26 @@ test("the Mac helper key gets counts of app releases in use (newest report per p
   assert.equal(JSON.stringify(res.data).includes("Ana"), false);
   assert.equal(post(rt, { helperKey: "wrong", action: "listPerfAppVersions", payload: {} }).ok, false);
 });
+
+test("the Mac helper key gets each friend phone's release history (short code, first/last day per release, Owner left out)", () => {
+  const { rt } = freshApp({ small: true });
+  rt.svc.props.set("HELPER_KEY", "h".repeat(32));
+  const INSTALL_C = "0f8c1c5e-3333-4a2b-9c3d-cccccccccccc";
+  report(rt, { app: "0.40.0", entries: [entry(1)] });
+  report(rt, { app: "0.46.0", entries: [entry(2)] });
+  report(rt, { install: INSTALL_B, label: "Bea", app: "0.46.0", entries: [entry(1)] });
+  report(rt, { install: INSTALL_C, label: "Owner", app: "0.46.6", entries: [entry(1)] });
+  const res = post(rt, { helperKey: "h".repeat(32), action: "listPerfPhones", payload: {} });
+  assert.equal(res.ok, true);
+  const today = new Date().toISOString().slice(0, 10);
+  const phones = res.data.phones;
+  assert.equal(phones.length, 2, "the Owner phone is left out");
+  const bea = phones.find((p) => p.label === "Bea");
+  assert.deepEqual(bea.releases, [{ app: "0.46.0", first: today, last: today }]);
+  assert.equal(bea.phone, INSTALL_B.slice(0, 8), "only a short code, never the whole install id");
+  assert.equal(JSON.stringify(res.data).includes(INSTALL_B), false);
+  const other = phones.find((p) => p.label !== "Bea");
+  assert.deepEqual(other.releases.map((r) => r.app).sort(), ["0.40.0", "0.46.0"]);
+  assert.equal(post(rt, { helperKey: "wrong", action: "listPerfPhones", payload: {} }).ok, false);
+  assert.equal(post(rt, { action: "listPerfPhones", payload: {} }).ok, false, "not without the helper key");
+});

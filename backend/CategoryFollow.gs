@@ -256,6 +256,12 @@ function updateEntryFromApp_(payload) {
   syncLoanBeforeEntryEdit_(payload.id, payload.fields);   // a loan's money entry and the loan are one: the loan follows (and may refuse)
   var before = payload.fields && payload.fields.category_id !== undefined ? (getEntryById_(payload.id) || {}).category_id : null;
   var wasExchangeLeg = !!exchangeLegSide_(getEntryById_(payload.id));
+  // One side of a currency exchange holds one account (owner, 2026-11-23): an edit that would leave it with both is refused.
+  var xTouched = payload.fields && ['payment_method_id', 'to_payment_method_id', 'exchange', 'type'].some(function (k) { return payload.fields[k] !== undefined; });
+  if (xTouched) {
+    var xAfter = Object.assign({}, getEntryById_(payload.id) || {}, payload.fields);
+    if (isExchangeLegMarked_(xAfter) && xAfter.payment_method_id && xAfter.to_payment_method_id) throw new Error(tr_('err.exchangeLegOneAccount'));
+  }
   var afterIncomeEdit = prepareWaitingIncomeEdit_(payload.id, payload.fields);   // an income not received yet and its debt are one
   var entry = updateEntryFields(payload.id, payload.fields);
   if (afterIncomeEdit) { afterIncomeEdit(); entry = getEntryById_(payload.id); }

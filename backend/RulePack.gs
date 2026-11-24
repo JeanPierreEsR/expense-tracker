@@ -304,6 +304,10 @@ function rulePackCompile_(r) {
       fields.needsReview = !own;   // spelled out for an own-account transfer too (false), exactly like the code rules: the twin check found the difference on the owner's real mail
       var ownTo = own && r.to ? digitsAfter(r.to) : null;
       if (ownTo) { fields.toLast4 = ownTo; fields.toOwnAlways = true; }   // the person's own account: a transfer even when the app lacks it
+      // Interbank only (2026-11-23): no name, only the destination's account number, maybe one of the person's own Interbank accounts.
+      // Same as the code rule, so the twins keep reading alike; the scan decides (emailOwnDestination_).
+      var ownMaybe = !own && r.bank === 'Interbank' ? interbankDestAccountLast4_(body, rulePackEscape_(r.recipient.label)) : null;
+      if (ownMaybe) fields.toIfOwnLast4 = ownMaybe;
     }
     if (r.accountName) fields.accountName = afterLabel_(body, rulePackEscape_(r.accountName.label));
     return fields;

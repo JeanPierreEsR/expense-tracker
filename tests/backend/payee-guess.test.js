@@ -69,9 +69,8 @@ test("a place always filed under one category gets that category, as an expense"
   for (let i = 0; i < 3; i++) history(rt, { type: "expense", category_id: expenseCat.id });
   // An amount no demo Programmed item is near: S/ 300 matched the demo's yearly S/ 330.10 item in the days before its 15 November date,
   // whose category is filled first (the place's habit only fills a category the entry lacks), so this test failed from 10 November.
-  // S/ 57 then met another demo item on 23 November: the demo Programmed items are removed here, so no date can bring one near.
-  rt.run(`var sh = getSheet('Recurring Expenses'); if (sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);`);
-  email(rt, { to: "Broker XYZ", op: "PG-4", amount: "57.00" });
+  // S/ 57 then met another demo item from 23 November: a few soles, far below every demo Programmed item.
+  email(rt, { to: "Broker XYZ", op: "PG-4", amount: "4.37" });
   run(rt);
   const e = pendingOf(rt, "PG-4");
   assert.equal(e.type, "expense");

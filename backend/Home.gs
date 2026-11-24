@@ -125,7 +125,8 @@ function getHomeGlance() {
   }
 
   return { months: months, pace: pace, budget: budget, trips: homeActiveTrips_(today), unreadable: unreadableSheetRows_(), charges: pendingChargesSummary_(),
-    repeat: homeRepeatCandidate_(curKey, prevKey), budgetHint: homeBudgetHint_(prevKey), inboxNew: homeInboxNew_(), monthlyUncat: homeMonthlyUncategorized_(curKey, prevKey) };
+    repeat: homeRepeatCandidate_(curKey, prevKey), budgetHint: homeBudgetHint_(prevKey), inboxNew: homeInboxNew_(), monthlyUncat: homeMonthlyUncategorized_(curKey, prevKey),
+    exchangeLinks: exchangeLinkSuggestionCount_() };
 }
 
 // "Restaurants was your biggest spending last month: set a limit?" — only while the person has no budget at all, once their entries

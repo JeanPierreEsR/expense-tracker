@@ -378,6 +378,13 @@ function formatEntryForTelegram_(entry, categoryName, autoReason, opts) {
     if (entry.paid_by && entry.paid_by !== 'me') lines.push(tr_('bot.paidBy') + paidByDisplayName_(entry.paid_by));
   }
 
+  // Kept waiting for its loans to be chosen (RepayIntent.gs): what Confirm does, and where to choose them.
+  var repayIt = repayIntentOf_(entry);
+  if (repayIt) {
+    var repayFriend = getAllRows('Friends').find(function (f) { return f.id === repayIt.friend_id; });
+    lines.push(tr_(repayIt.direction === 'they_owe_me' ? 'bot.repayIntentFrom' : 'bot.repayIntentTo', { friend: repayFriend ? repayFriend.name : '?' }));
+  }
+
   if (entry.type === 'expense') {
     var splits = getEntrySplits(entry.id);
     if (splits.length) {
@@ -419,7 +426,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason, opts) {
 
   // A bank e-mail someone forwarded (ForwardedEmail.gs): who sent it, unless it is this Gmail or one of the person's other addresses.
   var forwardedBy = entry.status === 'pending' ? forwardShownBy_(entry) : '';
-  if (forwardedBy) lines.push(tr_('bot.forwardedBy', { address: forwardedBy }));
+  if (forwardedBy) lines.push(forwardedBy === FORWARD_UNKNOWN_ ? tr_('bot.forwardedByUnknown') : tr_('bot.forwardedBy', { address: forwardedBy }));
 
   var waitingMatch = waitingMatchForPending_(entry, entry.type === 'income' && entry.status === 'pending' ? listWaitingIncome_() : []);
   if (waitingMatch) {
@@ -620,7 +627,8 @@ function handleTelegramCallback_(cb) {
   if (BOT_LIST_ACTIONS_.test(data) && String(cb.message.chat.id) !== WA_CHAT_ID_) {
     var onCard = /^waedit:/.test(data) && !!whatsappCardEntry_(cb.message.message_id);
     botListTap_(data, { id: cb.message.message_id, context_id: cb.message.message_id });
-    if (!onCard) removeCardButtons_(cb.message.chat.id, cb.message.message_id);
+    // Checking a loan changes the list's own buttons in place (RepayIntent.gs): they stay.
+    if (!onCard && !/^wart:/.test(data)) removeCardButtons_(cb.message.chat.id, cb.message.message_id);
     telegramApi_('answerCallbackQuery', { callback_query_id: cb.id });
     return;
   }
@@ -646,6 +654,16 @@ function handleTelegramCallback_(cb) {
       reply = tr_('bot.alreadyConfirmed');
     } else if (!entry) {
       reply = tr_('bot.entryGone');
+    } else if (repayIntentOf_(entry)) {
+      // Marked as a repayment waiting for its loans (RepayIntent.gs): Confirm records it paying the oldest first, as the card says.
+      try {
+        var rec = withScriptLockOnce_(function () { return recordRepayIntent_(getEntryById_(entryId)); });
+        reply = tr_(rec.incoming ? 'bot.markedRepaymentFrom' : 'bot.markedRepaymentTo', { friend: rec.friend }) +
+          (rec.overpaid > 0.004 ? tr_(rec.incoming ? 'bot.overpaidIn' : 'bot.overpaidOut', { cur: entry.currency, amount: moneyFmt_(rec.overpaid) }) : '');
+      } catch (recErr) {
+        reply = recErr.message;
+        keepButtons = true;
+      }
     } else if (entry.type !== 'investment' && !entry.category_id) {
       // Same rule as the app's Confirm: no category, no confirmation. The
       // buttons stay so the owner can reply "category Stocks" and tap again.
@@ -860,6 +878,11 @@ function handleTelegramMessage_(msg) {
     botUndoMessage_(msg.reply_to_message ? msg.reply_to_message.message_id : String(PropertiesService.getScriptProperties().getProperty('TG_LAST_OUT') || ''), msg.message_id);
     return;
   }
+  if (String(msg.chat.id) !== WA_CHAT_ID_ && botDeleteWord_(text)) {
+    whatsappClearAwaiting_();
+    botDeleteMessage_(msg.reply_to_message ? msg.reply_to_message.message_id : String(PropertiesService.getScriptProperties().getProperty('TG_LAST_OUT') || ''), msg.message_id);
+    return;
+  }
 
   // The same commands as WhatsApp (ayuda / pendientes / nuevo) and the answer to an open "send the new …" question
   // (WhatsAppBot.gs). Only for a real Telegram message, not a reply (WhatsApp's own messages come here as replies or commands).
@@ -938,12 +961,13 @@ function handleTelegramMessage_(msg) {
   // combine with other edits the way "category X, amount Y" does.
   // With no name ("repayment") the friend is the group of the trip whose dates cover the entry, when there is
   // exactly one such trip (applyTerminalReviewAction_).
-  var terminalMatch = text.match(/^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)(?:\s+(.+))?$/i) ||
-    text.match(/^(?:(?:convert\s+to|convertir\s+en)\s+)?(?:loan|pr[eé]stamo)(?:\s+(.+))?$/i);
+  // A comma may follow the word ("repayment, paid by Ana"): it is still the command (RepayIntent.gs § the words after "repayment").
+  var terminalMatch = text.match(/^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)(?:[\s,]+(.+))?$/i) ||
+    text.match(/^(?:(?:convert\s+to|convertir\s+en)\s+)?(?:loan|pr[eé]stamo)(?:[\s,]+(.+))?$/i);
   var undoKind = !terminalMatch ? 'edit' : /^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)/i.test(text) ? 'repayment' : 'loan';
   var recording = botActionBegin_(undoKind, mapping.entry_id, [msg.message_id, targetMessageId]);   // for "deshacer" (BotUndo.gs)
   var result = terminalMatch
-    ? applyTerminalReviewAction_(mapping.entry_id, text, terminalMatch[1] || '')
+    ? applyDebtWords_(mapping.entry_id, text, terminalMatch[1] || '')
     : applyEditCommand_(mapping.entry_id, text);
 
   // Threads to the owner's own edit command, which is itself already a
@@ -960,7 +984,9 @@ function handleTelegramMessage_(msg) {
   // A terminal action already removed the entry — nothing left to show a
   // refreshed card for.
   if (result.entry && !result.removed) {
-    sendTelegramEntryNotification_(result.entry, result.categoryName);
+    var freshCard = sendTelegramEntryNotification_(result.entry, result.categoryName);
+    // Kept waiting for its loans (RepayIntent.gs): the loans to tap, under the fresh card.
+    if (result.repayList) botRepayLoanList_(result.entry.id, freshCard && freshCard.ok && freshCard.result ? freshCard.result.message_id : null);
   }
   if (telegramTagAskAfter_ && result.entry && !result.removed) { sendTelegramTagAsk_(msg.chat.id, telegramTagAskAfter_, msg.message_id); sendTelegramPlanAsk_(msg.chat.id, telegramTagAskAfter_, msg.message_id); }
   telegramTagAskAfter_ = '';
@@ -1023,19 +1049,9 @@ function applyTerminalReviewAction_(entryId, fullText, friendText, friendObj) {
   // only a "to" account = money came in (e.g. a Yape from a friend); only a
   // "from" account = money went out. Both ends set = really between the
   // owner's own accounts.
-  var incoming, accountId;
-  if (entry.type === 'expense' || entry.type === 'income') {
-    incoming = entry.type === 'income';
-    accountId = entry.payment_method_id || '';
-  } else if (entry.type === 'transfer') {
-    var hasFrom = !!entry.payment_method_id, hasTo = !!entry.to_payment_method_id;
-    if (hasFrom && hasTo) return { message: tr_('bot.internalTransfer') };
-    if (!hasFrom && !hasTo) return { message: tr_('bot.transferNoEnds') };
-    incoming = hasTo;
-    accountId = incoming ? entry.to_payment_method_id : entry.payment_method_id;
-  } else {
-    return { message: tr_('bot.onlyExpenseIncome', { type: tr_('bot.type.' + entry.type) }) };
-  }
+  var way = repayMoneyWay_(entry);   // RepayIntent.gs
+  if (way.error) return { message: way.error };
+  var incoming = way.incoming, accountId = way.accountId;
 
   var friend = friendObj || null;
   if (friend) {
@@ -1053,6 +1069,21 @@ function applyTerminalReviewAction_(entryId, fullText, friendText, friendObj) {
   }
 
   var isRepayment = /^(?:(?:mark\s+as|marcar\s+como)\s+)?(?:repayment|repago)/i.test(fullText.trim());
+
+  // A real choice of loans (two or more open, the payment does not cover them all): nothing is recorded yet. The entry waits in
+  // Needs review, marked, so the person chooses the loans (owner, 2026-11-23; RepayIntent.gs). A confirmed one goes back to waiting.
+  if (isRepayment) {
+    var repayDir = incoming ? 'they_owe_me' : 'i_owe_them';
+    var choice = repayChoiceInfo_(entry, friend.id, repayDir);
+    if (choice.matters) {
+      try {
+        withScriptLockOnce_(function () { markRepayIntent_(getEntryById_(entry.id), friend.id, repayDir); });
+      } catch (markErr) {
+        return { message: tr_('convert.nothingChanged', { error: markErr.message }) };
+      }
+      return { message: tr_('bot.repayKept', { friend: friend.name, n: choice.count }), entry: getEntryById_(entry.id), categoryName: null, repayList: true };
+    }
+  }
 
   // The same swap the app makes (convertEntryInto_, Loans.gs): it works on a
   // pending OR a confirmed entry, checks everything first, and puts the
@@ -1375,7 +1406,7 @@ function applyEditCommand_(entryId, text) {
 
   if (!appliedFields.length) {
     noteReplyHintStuck_();
-    return { message: tr_('bot.notRecognized') + '\n\n' + helpText };
+    return { message: tr_('bot.notRecognized') + '\n\n' + helpText, failed: true };
   }
   if (failedSegments.length) noteReplyHintStuck_();
   else noteReplyHintEdit_();
@@ -1398,7 +1429,7 @@ function applyEditCommand_(entryId, text) {
   // Everything applied and nothing to warn about: the refreshed card that
   // follows shows the result, so a separate "Updated X." bubble is noise.
   var quiet = !failedSegments.length && !statusNote && !loanRefusal;
-  return { message: quiet ? '' : messageParts.join(' '), entry: updated, categoryName: categoryName };
+  return { message: quiet ? '' : messageParts.join(' '), entry: updated, categoryName: categoryName, failed: failedSegments.length > 0 };
 }
 
 // Keywords whose value must have a strict shape. Only these are folded back into
@@ -1522,6 +1553,15 @@ function applyOneEditSegment_(sheet, headers, rowIndex, entryId, text) {
     if (xEdit) {
       if (field === 'from') setEntryField_(xEdit.out.id, 'payment_method_id', endPm.id);
       else { ensureEntriesToPaymentMethodColumn_(); setEntryField_(xEdit['in'].id, 'to_payment_method_id', endPm.id); }
+    } else if (isExchangeLegMarked_(entry)) {
+      // One side of an exchange whose other side is not here (owner, 2026-11-23): it holds ONE account. "from" fits only the side the
+      // money left, "to" only the side it arrived in; the other end stays empty (the exchange house). Before, "from <soles account>" on
+      // the dollars side made one USD entry leaving the soles account.
+      var xSide = exchangePairSide_(entry), wantSide = field === 'from' ? 'out' : 'in';
+      if (xSide && xSide !== wantSide) return null;
+      ensureEntriesToPaymentMethodColumn_();
+      setEntryField_(entryId, 'payment_method_id', wantSide === 'out' ? endPm.id : '');
+      setEntryField_(entryId, 'to_payment_method_id', wantSide === 'in' ? endPm.id : '');
     } else if (field === 'from') {
       setCellByRow_(sheet, headers, rowIndex, 'payment_method_id', endPm.id);
     } else {
@@ -1900,6 +1940,7 @@ function getEntryById_(entryId) {
 function setCellByRow_(sheet, headers, rowIndex, fieldName, value) {
   var col = headers.indexOf(fieldName);
   if (col === -1) return;
+  changeNoteCell_(sheet, headers, rowIndex, fieldName, value);   // the change log (ChangeLog.gs, company copies)
   sheet.getRange(rowIndex, col + 1).setValue(safeCellValue_(sheet.getName(), fieldName, value));
   noteCellWrite_(sheet, rowIndex, fieldName);
 }
@@ -1917,6 +1958,11 @@ function deleteEntry_(entryId) {
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, entryId);
   if (rowIndex === -1) return;
+  if (changeLogOn_('Entries')) {   // the change log keeps what was deleted (ChangeLog.gs, company copies)
+    var gone = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0], obj = {};
+    headers.forEach(function (h, i) { obj[h] = gone[i]; });
+    changeNoteDelete_('Entries', obj);
+  }
   deleteSheetRows_(sheet, rowIndex, 1);
   recordEntryDeletions_([entryId]);
   // A no-op for an entry that was never split (the common case, and every

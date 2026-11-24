@@ -189,7 +189,7 @@ function companyDefaultOnConfirm_(entry, personal) {
 // owed = every LENDER (Business 2 piece 3; SUNAT's withholding included) with what the company still owes them, per currency, never
 // converted, by name; owedTotals = the same added per currency. funding = every project still open with the amount "still to finance"
 // the person typed and the day it was true (the app never works it out: owner, plan "Fase 1 en detalle", answer 4: one per project).
-function companyOverview_() {
+function companyOverview_(startDate, endDate) {
   var owed = [], totals = {};
   listLoanBalances({}).forEach(function (f) {
     if (f.role !== 'lender') return;
@@ -208,7 +208,9 @@ function companyOverview_() {
     return { project_id: String(p.id), company_id: String(p.company_id || ''), name: String(p.name || ''), emoji: String(p.emoji || ''),
       amount: has ? Number(p.funding_gap) : null, currency: String(p.funding_currency || home), as_of: has ? String(p.funding_as_of || '') : '' };
   }).sort(function (a, b) { return a.name.localeCompare(b.name); });
-  return { owed: owed, owedTotals: owedTotals, funding: funding };
+  return { owed: owed, owedTotals: owedTotals, funding: funding, partners: companyPartners_(startDate, endDate), partnersPending: pendingContributions_(), sales: companySales_(),   // piece 11 (Sales.gs)
+    share_sections: shareSectionsSaved_(),   // piece 12 (ShareStatement.gs): the sections the share sheet opens with
+    close: wholeMonthOf_(startDate, endDate) ? monthCloseState_(wholeMonthOf_(startDate, endDate)) : null };   // piece 8 (MonthClose.gs)   // piece 7 (Partners.gs)
 }
 
 // "Still to finance" for one project: a figure the person types and updates when they like, with the day it is true. Blank amount clears it.

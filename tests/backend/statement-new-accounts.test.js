@@ -90,3 +90,47 @@ test("bad input is refused: no digits, no bank, an unknown kind", () => {
   assert.throws(() => rt.api("createStatementAccounts", { accounts: [{ last4: "1234", bank: "X", kind: "bogus" }] }));
   assert.equal(pmRows(rt).some((r) => String(r.last_4) === "1234"), false);
 });
+
+// "Is this your …?" (2026-11-23, after a tester's report): an account of the same type with no last 4 digits is offered instead of a new one.
+function addCard(rt, over = {}) {
+  const bank = rt.api("addBank", { name: over.bank || "Interbank" });
+  return rt.api("savePaymentMethod", { nickname: over.nickname || "My made-up card", type: over.type || "credit", bank_id: over.noBank ? "" : bank.id, last_4: over.last_4 || "" });
+}
+
+test("an account of the same bank and type with no digits is offered as a match", () => {
+  const { rt } = freshApp({ entries: 20 });
+  const card = addCard(rt);
+  addCard(rt, { nickname: "Made-up debit", type: "debit" });                 // other type: not offered
+  addCard(rt, { nickname: "Made-up card with digits", last_4: "1111" });    // has digits: not offered
+  const loose = addCard(rt, { nickname: "Card with no bank", noBank: true }); // no bank: offered after
+  rt.api("addBank", { name: "Otherbank" });
+  addCard(rt, { nickname: "Other bank card", bank: "Otherbank" });          // another bank: not offered
+  const a = plan(rt, [stmt()]).summary.newAccounts[0];
+  assert.deepEqual(a.matches.map((m) => m.id), [card.id, loose.id]);
+});
+
+test("Yes gives that account the digits (and the bank when it had none); the statement is then read normally", () => {
+  const { rt } = freshApp({ entries: 20 });
+  const card = addCard(rt, { noBank: true });
+  const res = rt.api("createStatementAccounts", { accounts: [{ last4: "7777", bank: "Interbank", kind: "credit", id: card.id }] });
+  assert.equal(res.created.length, 0);
+  assert.deepEqual(res.linked.map((l) => l.id), [card.id]);
+  const pm = pmRows(rt).find((r) => r.id === card.id);
+  assert.equal(String(pm.last_4), "7777");
+  assert.equal(pm.nickname, "My made-up card", "a typed name is kept");
+  const bank = run(rt, "getAllRows('Banks')").find((b) => b.id === pm.bank_id);
+  assert.equal(bank && bank.name, "Interbank");
+  const p2 = plan(rt, [stmt()]);
+  assert.deepEqual(p2.summary.newAccounts, []);
+  assert.equal(p2.summary.counts.expenses, 2);
+  assert.equal(pmRows(rt).filter((r) => r.type === "credit" && String(r.last_4) === "7777").length, 1, "no second account");
+});
+
+test("an account that already has other digits is refused; the same digits again is a no-op", () => {
+  const { rt } = freshApp({ entries: 20 });
+  const card = addCard(rt, { last_4: "1111" });
+  assert.throws(() => rt.api("createStatementAccounts", { accounts: [{ last4: "7777", bank: "Interbank", kind: "credit", id: card.id }] }), /1111/);
+  const again = rt.api("createStatementAccounts", { accounts: [{ last4: "1111", bank: "Interbank", kind: "credit", id: card.id }] });
+  assert.equal(again.existing.length, 1);
+  assert.equal(again.linked.length, 0);
+});

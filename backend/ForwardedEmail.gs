@@ -60,12 +60,19 @@ function forwardShownBy_(entry) {
 
 // ---- Finding forwards in the scan ----
 
-// The bare address inside "Name <a@b.c>" (lower case), or ''.
+// The bare address inside "Name <a@b.c>" (lower case), or ''. The display name is typed text: a quoted name or a (comment) may itself
+// hold "<someone@else>", so both are dropped first and the LAST <address> is the real one (testers, 2026-11-22: a stranger's forward
+// named '"x<your-gmail>" <stranger@...>' passed as the person's own and lost its "Forwarded by" line).
 function forwardAddressOf_(text) {
-  var s = String(text || '');
-  var m = /<\s*([^<>\s]+@[^<>\s]+)\s*>/.exec(s) || /([^\s<>"'(),;:]+@[^\s<>"'(),;:]+\.[a-z]{2,})/i.exec(s);
+  var s = String(text || '').replace(/"(?:[^"\\]|\\.)*"/g, ' ').replace(/\([^()]*\)/g, ' ');
+  var all = s.match(/<\s*[^<>\s]+@[^<>\s]+\s*>/g);
+  if (all) return all[all.length - 1].replace(/[<>\s]/g, '').toLowerCase();
+  var m = /([^\s<>"'(),;:]+@[^\s<>"'(),;:]+\.[a-z]{2,})/i.exec(s);
   return m ? m[1].toLowerCase() : '';
 }
+
+// Stored as forwarded_by when the forwarder's address cannot be read: the card then says "an unknown sender" instead of nothing.
+var FORWARD_UNKNOWN_ = '?';
 
 // The bank address a piece of text names (one of `senders`), or ''.
 function forwardBankIn_(text, senders) {
@@ -99,6 +106,7 @@ function processForwardedEmails_(days, handled, results, existingExternalIds, ba
 function processForwardedMessage_(message, senders, results, existingExternalIds, banks, paymentMethods, guessCtx) {
   var by = forwardAddressOf_(message.getFrom());
   if (senders.indexOf(by) !== -1) return;   // the bank's own e-mail: the usual scan reads it
+  if (!by) by = FORWARD_UNKNOWN_;
   var originals = [];
   (message.getAttachments({ includeInlineImages: false }) || []).forEach(function (att, i) {
     var name = String(att.getName() || '');

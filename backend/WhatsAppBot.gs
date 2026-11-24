@@ -136,14 +136,16 @@ function botChoices_(text, rows, replyTo, asButtons) {
   if (botIsWa_()) return asButtons ? whatsappButtons_(text, rows, replyTo) : whatsappList_(text, tr_('whatsapp.choose'), rows, replyTo);
   var chat = getOwnerTelegramChatId_();
   if (!chat || !getTelegramToken_()) return { ok: false };
-  var payload = {
-    chat_id: chat, text: String(text).slice(0, 4096),
-    reply_markup: { inline_keyboard: rows.map(function (r) {
-      return [{ text: r.description ? r.title + ' · ' + r.description : r.title, callback_data: botCallbackData_(r.id) }];
-    }) }
-  };
+  var payload = { chat_id: chat, text: String(text).slice(0, 4096), reply_markup: botKeyboard_(rows) };
   if (replyTo) { payload.reply_to_message_id = replyTo; payload.allow_sending_without_reply = true; }
   return telegramApi_('sendMessage', payload);
+}
+
+// Telegram's buttons for a list: one per row ("title · description").
+function botKeyboard_(rows) {
+  return { inline_keyboard: rows.map(function (r) {
+    return [{ text: r.description ? r.title + ' · ' + r.description : r.title, callback_data: botCallbackData_(r.id) }];
+  }) };
 }
 
 function botCallbackData_(id) {
@@ -161,7 +163,7 @@ function botResolveCallback_(data) {
 }
 
 // The list actions both bots share (the native ones — confirm, discard, waitpay, ptags, delrep — stay in handleTelegramCallback_).
-var BOT_LIST_ACTIONS_ = /^(?:waedit|wafield|wapage|wapick|wahelp|wamore|waconv|wafp|wacv|wacvx):/;
+var BOT_LIST_ACTIONS_ = /^(?:waedit|wafield|wapage|wapick|wahelp|wamore|waconv|wafp|wacv|wacvx|warl|wart|wars):/;
 
 var WA_TELEGRAM_METHODS_ = { sendMessage: 1, answerCallbackQuery: 1, editMessageReplyMarkup: 1, editMessageText: 1 };
 
@@ -290,6 +292,7 @@ function botAwaitingText_(text, p) {
 function whatsappTextIn_(text, p) {
   // "deshacer" / "undo" on its own (BotUndo.gs), before an open "send the new …" question could take it as a description.
   if (botUndoWord_(text)) { whatsappClearAwaiting_(); return botUndoMessage_(p.context_id || p.lastOut, p.id); }
+  if (botDeleteWord_(text)) { whatsappClearAwaiting_(); return botDeleteMessage_(p.context_id || p.lastOut, p.id); }
   if (botAwaitingText_(text, p)) return;
   if (botFillerWord_(text)) return botText_(tr_('bot.fillerHint'), p.id);   // "ok", "gracias"…: never a transaction's new text (BotTour.gs)
   if (p.context_id && whatsappCardEntry_(p.context_id)) return whatsappEngineMessage_(p, text, p.context_id);
@@ -359,6 +362,9 @@ function botListTap_(id, p) {
   if (action === 'wafp') return whatsappFriendList_(entryId, parts[2], Number(parts[3]) || 0, p.id);
   if (action === 'wacv') return whatsappConvert_(entryId, parts[2], parts.slice(3).join(':'), p);
   if (action === 'wacvx') return botText_(tr_('whatsapp.someoneElseHow'), p.id);
+  if (action === 'warl') return botRepayLoanTap_(entryId, parts.slice(2).join(':'), p);   // RepayIntent.gs
+  if (action === 'wart') return botRepayToggle_(entryId, parts.slice(2).join(':'), p);   // Telegram: check / uncheck a loan
+  if (action === 'wars') return botRepayLoanTap_(entryId, 'checked', p);                 // Telegram: save the checked ones
   botText_(tr_('bot.tooOld'), p.id);
 }
 
@@ -655,6 +661,11 @@ function whatsappConvert_(entryId, kind, friendId, p) {
   botRecorded_(kind === 'r' ? 'repayment' : 'loan', entryId, [p.id, p.context_id], function () {   // for "deshacer" (BotUndo.gs)
     var res = applyTerminalReviewAction_(entryId, kind === 'r' ? 'repayment' : 'loan', friend.name, friend);
     botText_(res.message, whatsappCardFor_(entryId) || p.id);
+    // Kept waiting for its loans to be chosen (RepayIntent.gs): a fresh card, so a confirmed one gets its Confirm again.
+    if (res.entry && !res.removed) {
+      var card = sendTelegramEntryNotification_(res.entry, null);
+      if (res.repayList) botRepayLoanList_(res.entry.id, card && card.ok && card.result ? card.result.message_id : null);
+    }
   });
 }
 

@@ -49,6 +49,9 @@ function expectedPaidMap_() {
     if (currencyOf[e.expected_payment_id] !== e.currency) return;   // an income later changed to another currency no longer counts
     paid[e.expected_payment_id] = (paid[e.expected_payment_id] || 0) + Number(e.amount);
   });
+  // A unit's stages (Business 2 piece 11, Sales.gs) are paid by the unit's incomes in due-date order, linked or not.
+  var stagePaid = unitStagePaidMap_();
+  Object.keys(stagePaid).forEach(function (id) { paid[id] = stagePaid[id]; });
   return paid;
 }
 

@@ -83,5 +83,5 @@ test("a card for an expense with no payment method shows a ❓ line", () => {
   const e = pending[0];
   rt.run(`updateRowFields_('Entries', ${JSON.stringify(e.id)}, { payment_method_id: '' });`);
   const text = rt.run(`formatEntryForTelegram_(getEntryById_(${JSON.stringify(e.id)}), null)`);
-  assert.match(text, /💳 ❓ not set — reply, for example, "account [^"]+"/);
+  assert.match(text, /💳 ❓ not set — reply, for example, “account [^”]+”/);
 });

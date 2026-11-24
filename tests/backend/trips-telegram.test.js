@@ -62,7 +62,7 @@ test("a card shows the current trip, or — for a pending expense — the trip i
   const e = pending[0];
   const trip = rt.api("addTrip", { name: "Cusco trip", kind: "trip", start_date: e.date, end_date: e.date });
   let text = cardText(rt, e.id);
-  assert.match(text, /Will be linked to: ✈️ Cusco trip when you confirm — reply "trip none" to skip it/);
+  assert.match(text, /Part of ✈️ Cusco trip\? It is linked when you confirm\. If not, reply “trip none”/);
   assert.ok(!rt.rows("Entries").find((x) => x.id === e.id).trip_id, "the card only announces it; nothing is stored yet");
 
   rt.run(`ensureEntriesTripColumn_(); setEntryField_(${JSON.stringify(e.id)}, 'trip_id', '${trip.id}');`);

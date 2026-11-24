@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.44.2"><!-- ship.sh writes the release number here -->
-  <meta name="app-channel" content="stable"><meta name="app-pin" content="5488808400cf6ddebcd50442a0503070812d19f1"><meta name="app-pairs" content="5a86414,e5e75f2,4453202,746cc4d"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
+  <meta name="app-release" content="2.55.0"><!-- ship.sh writes the release number here -->
+  <meta name="app-channel" content="stable"><meta name="app-pin" content="9c1f663ecaa359517b80d620cacefba3fc192ed3"><meta name="app-pairs" content="5488808,5a86414,e5e75f2,4453202,746cc4d"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
   // in stable/ that only `ship.sh --promote` changes. This runs first, before anything else loads.
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-22T01:12:46Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-23T14:16:02Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -124,7 +124,7 @@
       </div>
 
       <div class="card search-results-card" id="search-results-card" hidden>
-        <div class="search-results-head"><button type="button" class="icon-btn" id="search-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button></div>
+        <div class="search-results-head"><h2 data-i18n="search.resultsTitle">Results</h2><button type="button" class="icon-btn" id="search-edit-btn" hidden aria-pressed="false" data-i18n-aria-label="friends.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button></div>
         <div id="search-results"></div>
       </div>
 
@@ -390,6 +390,9 @@
           <div id="business-field" hidden>
             <label for="entry-business" data-i18n="field.business">Company / project</label>
             <select id="entry-business"></select>
+            <!-- Business 2, piece 6 (company copies): one saved expense or income shared between the company's projects. -->
+            <p class="hint" id="entry-psplit-summary" hidden></p>
+            <button type="button" class="add-inline" id="entry-psplit-btn" hidden data-i18n="psplit.button">Split between projects</button>
           </div>
 
           </div>
@@ -553,6 +556,18 @@
         </div>
       </div>
       <button type="button" class="period-pending-line" id="period-pending-line" hidden></button>
+      <!-- A company copy's Overview (Business 2, piece 4): What is owed, Still to finance, then Balances (moved here by applyCompanyOverview_). -->
+      <div class="card ov-period" id="co-owed-card" hidden>
+        <h2 data-i18n="coOv.owedTitle">What is owed</h2>
+        <div id="co-owed-list"></div>
+        <p class="hint" id="co-owed-empty" hidden data-i18n="coOv.owedEmpty">Nothing is owed to any lender.</p>
+      </div>
+      <div class="card ov-period" id="co-funding-card" hidden>
+        <h2 data-i18n="coOv.fundingTitle">Still to finance</h2>
+        <p class="hint" data-i18n="coOv.fundingHint">Per project, the amount you type and update when you like. Tap a project to change it.</p>
+        <div id="co-funding-list"></div>
+        <p class="hint" id="co-funding-empty" hidden data-i18n="coOv.fundingEmpty">No open projects.</p>
+      </div>
 
       <div class="card ov-period">
         <div class="ov-sum-grid">
@@ -1028,6 +1043,7 @@
           <p class="hint" data-i18n="tagsScreen.hint">A tag is an extra label that works across categories. Tap one to rename or delete it.</p>
           <div id="tags-manage-list"></div>
           <button type="button" class="add-inline" id="tags-add-btn" data-i18n="common.addTag">+ Add tag…</button>
+          <button type="button" class="add-inline" id="units-add-btn" hidden data-i18n="units.addButton">Add units</button>
         </div>
         <div class="friends-editbar" id="categories-editbar" hidden>
           <button type="button" class="add-inline" id="categories-selectall-btn" data-i18n="friends.selectAll">Select all</button>
@@ -1122,6 +1138,15 @@
         <p class="hint" id="business-empty-note" hidden data-i18n="business.empty">No company yet. A company can be your own practice or any business you earn from.</p>
         <button type="button" class="primary" id="business-first-btn" hidden data-i18n="business.setupFirst">Set up my first company</button>
         <p class="hint error-text" id="business-error"></p>
+        <!-- The owner's copy only (docs/company-invite.js): an install link that makes the new copy a company copy. -->
+        <div id="business-invite" class="business-invite" hidden>
+          <h3 id="business-invite-title" data-i18n="coInv.title">Invite a company</h3>
+          <p class="hint" data-i18n="coInv.hint">Makes an install link for one person. Their copy opens with your company welcome.</p>
+          <input type="email" id="business-invite-email" autocomplete="off" autocapitalize="none" spellcheck="false" aria-labelledby="business-invite-title" data-i18n-placeholder="coInv.emailPh" placeholder="Their Google account email">
+          <button type="button" class="primary" id="business-invite-copy" data-i18n="coInv.copy">Copy the invitation</button>
+          <p class="hint" id="business-invite-msg" role="status"></p>
+          <textarea id="business-invite-text" readonly rows="6" hidden></textarea>
+        </div>
         <div class="friends-editbar" id="business-editbar" hidden>
           <button type="button" class="add-inline" id="business-selectall-btn" data-i18n="friends.selectAll">Select all</button>
           <button type="button" class="add-inline" id="business-done-btn" data-i18n="friends.done">Done</button>
@@ -1140,7 +1165,7 @@
           </span>
         </div>
         <h2 class="screen-title" style="margin-top:0;" data-i18n="people.title">People</h2>
-        <p class="hint" data-i18n="people.hint">Clients, suppliers and partners. What each one owes you (or you owe them) is kept per project and per currency.</p>
+        <p class="hint" id="people-hint" data-i18n="people.hint">Clients, suppliers and partners. What each one owes you (or you owe them) is kept per project and per currency.</p>
         <div id="people-list"></div>
         <p class="hint" id="people-empty-note" hidden data-i18n="people.empty">No one yet. Add a client, a supplier or a partner.</p>
         <p class="hint error-text" id="people-error"></p>
@@ -1163,6 +1188,20 @@
         <select id="igv-year" class="igv-year-select"></select>
         <div id="igv-body"></div>
         <p class="hint error-text" id="igv-error"></p>
+      </div>
+    </div>
+
+    <div id="screen-business-statement" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="icon-btn back-btn" id="statement-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <button type="button" class="add-inline" id="statement-csv-btn" data-i18n="statement.csv">Download (CSV)</button>
+        </div>
+        <h2 class="screen-title" style="margin-top:0;" id="statement-title"></h2>
+        <p class="hint" id="statement-sub"></p>
+        <select id="statement-period" class="business-period-select"></select>
+        <div id="statement-body"></div>
+        <p class="hint error-text" id="statement-error"></p>
       </div>
     </div>
 
@@ -1357,6 +1396,22 @@
           <button type="button" class="add-inline" id="apple-pay-make-btn" data-i18n="ap.make">Make my link</button>
           <button type="button" class="add-inline" id="apple-pay-copy-btn" hidden data-i18n="ap.copy">Copy my link</button>
           <p class="hint" id="apple-pay-msg" role="status"></p>
+          <div id="apple-pay-quick" hidden>
+            <h3 data-i18n="ap.quickHead">2. Set it up on your iPhone (once, about 2 minutes)</h3>
+            <button type="button" class="primary" id="apple-pay-add-btn" data-i18n="ap.add">Add the shortcut</button>
+            <p class="hint" id="apple-pay-add-msg" role="status"></p>
+            <ol class="bm-steps">
+              <li data-i18n="ap.q1">Tap Add the shortcut, above: it copies your link and opens the Shortcuts app. (If Shortcuts opens without showing the shortcut, come back here and tap the button again.)</li>
+              <li data-i18n="ap.qLink">If you see Set Up Shortcut, tap it. When it asks for your link, paste it and tap Add Shortcut. If nothing happens, tap Skip Setup: your link is kept.</li>
+              <li id="apple-pay-q2"></li>
+              <li data-i18n="ap.q3">At the top it says "Automation is turned off": tap it and switch Automation on. (Older iPhones: in the Automation tab, tap +, choose Wallet or Transaction, tap Run Immediately, then Next, and pick the shortcut.)</li>
+              <li data-i18n="ap.q4">To check it, tap the play button at the bottom right, and Allow notifications if asked: you will see "Test received: your link works." Nothing is added.</li>
+            </ol>
+          </div>
+          <details id="apple-pay-manual-fold" class="bm-more" hidden>
+            <summary data-i18n="ap.manualFold">Build it by hand instead</summary>
+          </details>
+          <div id="apple-pay-manual">
           <h3 data-i18n="ap.stepsHead">2. Set it up on your iPhone (once, about 2 minutes)</h3>
           <ol class="bm-steps">
             <li data-i18n="ap.s1">Open the Shortcuts app, tap Automation at the bottom, then +.</li>
@@ -1367,6 +1422,7 @@
             <li data-i18n="ap.s6">Optional, to see what happened after each payment: add Get Dictionary Value. Tap its word Key and type message (leave Value and Contents of URL as they are). Then search for Show Notification and add it; tap its text, delete it, and tap Dictionary Value above the keyboard.</li>
             <li data-i18n="ap.s7">Tap the back arrow at the top left: the automation saves itself. Check that it shows under Automation with Run Immediately on. Your next Apple Pay payment shows up in Needs review.</li>
           </ol>
+          </div>
           <h3 data-i18n="ap.knowHead">Good to know</h3>
           <ul class="bm-steps">
             <li data-i18n="ap.k1">Only Apple Pay payments are sent, not cards typed on a website, nor Yape or Plin.</li>
@@ -1393,7 +1449,7 @@
             <p class="hint" id="be-empty" hidden data-i18n="notauto.empty">Nothing in the last 90 days — everything arrived by itself.</p>
           </div>
 
-          <div class="bm-reading">
+          <div class="bm-reading be-mail-foot">
             <details class="bm-more">
               <summary data-i18n="bankMail.addrTitle">Do your bank emails arrive at another address?</summary>
 <p class="hint" data-i18n="bankMail.copyLead">This is the address to use in the steps below:</p>
@@ -1407,7 +1463,21 @@
                 <li data-i18n="bankMail.w1">Best, if you can: change the email your bank uses for notifications to the address above. You do it in the bank's app or website, on your phone, bank by bank, and nothing else is needed.</li>
                 <li data-i18n="bankMail.w2">To keep several addresses (recommended for that): Gmail forwarding. In each other Gmail, open Settings, See all settings, Forwarding and POP/IMAP, Add a forwarding address, and enter the address above. Google sends a confirmation code to this account. Then create a filter that forwards your bank's emails automatically. You do it once, on a computer, and it works for as many addresses as you have.</li>
               </ol>
-              <p class="hint" style="font-weight:600;" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
+              <p class="hint" style="font-weight:600;" id="be-w3" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
+              <div id="be-forward" hidden>
+                <h3 data-i18n="bankMail.fwdTitle">Bank emails that already went to another address</h3>
+                <p class="hint" data-i18n="bankMail.fwdLead">Forward them to the address above, as they are. The app reads them like your bank's own emails, with the date of the purchase, and they wait in Needs review.</p>
+                <p class="hint" data-i18n="bankMail.fwdMany">Many at once: in Gmail on a computer, select them, then tap ⋮ and Forward as attachment.</p>
+                <h3 data-i18n="bankMail.fwdMineTitle">My other addresses</h3>
+                <p class="hint" data-i18n="bankMail.fwdMineHint">An email forwarded from an address not listed here shows who sent it in Needs review, so nobody can slip a payment in unnoticed.</p>
+                <div id="be-fwd-list"></div>
+                <p class="hint" id="be-fwd-empty" data-i18n="bankMail.fwdEmpty">None yet.</p>
+                <div class="be-fwd-add">
+                  <input type="email" id="be-fwd-input" autocomplete="email" inputmode="email" data-i18n-placeholder="bankMail.fwdPlaceholder" placeholder="name@example.com" data-i18n-aria-label="bankMail.fwdInputAria" aria-label="Another address of mine">
+                  <button type="button" class="add-inline" id="be-fwd-add-btn" data-i18n="bankMail.fwdAdd">Add</button>
+                </div>
+                <p class="hint" id="be-fwd-msg" role="status"></p>
+              </div>
               <h3 data-i18n="bankMail.otherMailTitle">Do your bank emails arrive at Outlook, iCloud or Yahoo?</h3>
               <p class="hint" data-i18n="bankMail.otherMailIntro">The app can only read a Gmail account. If you have none, create a free one and use it when you set up the app. Then send the bank emails from your other mailbox to the address above:</p>
               <ul class="bm-steps">
@@ -1669,6 +1739,7 @@
 
         <p class="hint"><strong data-i18n="privacy.readsTitle">What your app reads</strong></p>
         <p class="hint" data-i18n="privacy.readsMail">Your bank emails, only if you turned that on. Your app reads them (it can never send, change or delete an email) and turns each payment into an entry that waits for your OK. Those emails stay between your Gmail and your app.</p>
+        <p class="hint" data-i18n="privacy.botCopy">If you use the WhatsApp or Telegram bot, your Google Sheet keeps a copy of what each bot action changed for 30 days, so “undo” can put it back. Deleting an entry for good in Recently deleted, or Delete everything, removes it.</p>
         <p class="hint" data-i18n="privacy.readsFiles">Receipt photos and bank statement PDFs are read on your phone. The file is not uploaded and not kept.</p>
 
         <p class="hint"><strong data-i18n="privacy.agreeTitle">What can reach JP if you agree</strong></p>
@@ -1936,7 +2007,7 @@
         <span id="friend-screen-title" data-i18n="friendPick.choose">Choose a friend</span>
         <button type="button" id="friend-screen-close" class="currency-modal-close">✕</button>
       </div>
-      <input type="text" id="friend-search" data-i18n-placeholder="friendPick.search" placeholder="Search by name…" autocomplete="off">
+      <input type="text" id="friend-search" data-i18n-placeholder="friendPick.search" placeholder="Search by name…" data-i18n-aria-label="friendPick.search" aria-label="Search by name…" autocomplete="off">
       <div class="currency-option-list" id="friend-option-list"></div>
       <button type="button" class="add-inline" id="friend-screen-add" hidden data-i18n="common.addFriend">+ Add friend…</button>
       <button type="button" class="primary" id="friend-screen-done" hidden data-i18n="currency.done">Done</button>
@@ -2208,6 +2279,25 @@
     </div>
   </div>
 
+  <div id="co-funding-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="co-funding-title"></span>
+        <button type="button" id="co-funding-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="co-funding-amount" data-i18n="coOv.fundingAmount">Still to finance</label>
+        <input type="text" inputmode="decimal" id="co-funding-amount" placeholder="0.00">
+        <label for="co-funding-currency" data-i18n="field.currency">Currency</label>
+        <select id="co-funding-currency"></select>
+        <label for="co-funding-date" data-i18n="coOv.fundingAsOf">As of</label>
+        <input type="date" id="co-funding-date">
+        <p class="hint" data-i18n="coOv.fundingClearHint">Leave the amount empty to remove it.</p>
+        <p class="hint error-text" id="co-funding-error"></p>
+        <button type="button" class="primary" id="co-funding-save" data-i18n="common.save">Save</button>
+      </div>
+    </div>
+  </div>
   <div id="bank-loan-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -2216,7 +2306,7 @@
       </div>
       <div class="budget-modal-body">
         <div id="bank-loan-fields">
-          <label for="bank-lender" data-i18n="bank.lender">Bank (who lent it)</label>
+          <label for="bank-lender" id="bank-lender-label" data-i18n="bank.lender">Bank (who lent it)</label>
           <input type="text" id="bank-lender" list="bank-lender-list" data-i18n-placeholder="bank.lenderPlaceholder" placeholder="The bank's name">
           <datalist id="bank-lender-list"></datalist>
           <label for="bank-description" data-i18n="field.description">Description</label>
@@ -2241,6 +2331,10 @@
           <div id="bank-next-number-field" hidden>
             <label for="bank-next-number" data-i18n="bank.openingNextNumber">Number of the next installment (as on the bank's schedule)</label>
             <input type="text" inputmode="numeric" id="bank-next-number" placeholder="1">
+          </div>
+          <div id="bank-business-field" hidden>
+            <label for="bank-business" data-i18n="field.business">Company / project</label>
+            <select id="bank-business"></select>
           </div>
           <div id="bank-account-field">
             <label for="bank-account" data-i18n="bank.account">Account it arrived in</label>
@@ -2379,6 +2473,11 @@
         <input type="text" inputmode="decimal" id="bank-record-fees" placeholder="0.00">
         <label for="bank-record-category" data-i18n="bank.recordCategory">Category of the interest and fees</label>
         <select id="bank-record-category"></select>
+        <div id="bank-record-withholding-field" hidden>
+          <label for="bank-record-withholding" data-i18n="bank.withholding">Withholding (kept to pay SUNAT)</label>
+          <input type="text" inputmode="decimal" id="bank-record-withholding" placeholder="0.00">
+          <p class="hint" id="bank-record-net"></p>
+        </div>
         <p class="hint" id="bank-record-total"></p>
         <p class="hint error-text" id="bank-record-error"></p>
         <button type="button" class="primary" id="bank-record-save" data-i18n="bank.recordSave">Record installment</button>
@@ -2858,6 +2957,30 @@
         <button type="button" class="primary" id="welcome-continue-btn" data-i18n="welcome.next">Next</button>
       </div>
 
+      <!-- A company copy (backend/CompanyCopy.gs) asks these instead of "What fits you?": sector, company name, projects. -->
+      <div id="welcome-company" hidden>
+        <p class="hint" id="wc-step"></p>
+        <h2 data-i18n="co.title">Your company</h2>
+        <p class="hint" data-i18n="co.intro">With these answers the app sets up your company's categories and projects.</p>
+        <h3 data-i18n="co.sectorQ">What does your company do?</h3>
+        <div class="welcome-choices" id="wc-sectors"></div>
+        <p class="hint" data-i18n="co.sectorHint">Each sector comes with its own expense and income categories.</p>
+        <h3 id="wc-name-title" data-i18n="co.nameLabel">Company name</h3>
+        <input type="text" id="wc-name" maxlength="60" autocomplete="off" aria-labelledby="wc-name-title" data-i18n-placeholder="co.namePh" placeholder="For example: Andina Builders">
+        <h3 id="wc-projects-title" data-i18n="co.projectsLabel">Projects (optional)</h3>
+        <p class="hint" data-i18n="co.projectsHint">A project is a building job or any work you want to follow on its own.</p>
+        <div class="welcome-currencies" id="wc-projects"></div>
+        <div class="wp-add">
+          <input type="text" id="wc-project-input" maxlength="60" autocomplete="off" aria-labelledby="wc-projects-title" data-i18n-placeholder="co.projectPh" placeholder="Project name">
+          <button type="button" class="primary" id="wc-project-add" data-i18n="common.add">+ Add</button>
+        </div>
+        <p class="hint error-text" id="wc-error"></p>
+        <div class="welcome-tour-buttons">
+          <button type="button" id="wc-back-btn" data-i18n="tour.back">Back</button>
+          <button type="button" class="primary" id="wc-next-btn" data-i18n="welcome.next">Next</button>
+        </div>
+      </div>
+
       <div id="welcome-fits" hidden>
         <p class="hint" id="wf-step"></p>
         <h2 data-i18n="wf.title">What fits you?</h2>
@@ -3275,7 +3398,7 @@
             <li data-i18n="bankMail.w1">Best, if you can: change the email your bank uses for notifications to the address above. You do it in the bank's app or website, on your phone, bank by bank, and nothing else is needed.</li>
             <li data-i18n="bankMail.w2">To keep several addresses (recommended for that): Gmail forwarding. In each other Gmail, open Settings, See all settings, Forwarding and POP/IMAP, Add a forwarding address, and enter the address above. Google sends a confirmation code to this account. Then create a filter that forwards your bank's emails automatically. You do it once, on a computer, and it works for as many addresses as you have.</li>
           </ol>
-          <p class="hint" style="font-weight:600;" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
+          <p class="hint" style="font-weight:600;" id="bm-w3" data-i18n="bankMail.w3">Careful: forward automatically, with a filter. Emails you forward by hand, one by one, are not read by the app.</p>
           <h3 data-i18n="bankMail.otherMailTitle">Do your bank emails arrive at Outlook, iCloud or Yahoo?</h3>
           <p class="hint" data-i18n="bankMail.otherMailIntro">The app can only read a Gmail account. If you have none, create a free one and use it when you set up the app. Then send the bank emails from your other mailbox to the address above:</p>
           <ul class="bm-steps">
@@ -3587,6 +3710,75 @@
         <p class="hint error-text" id="igv-payment-error"></p>
         <button type="button" class="primary" id="igv-payment-save-btn" data-i18n="business.save">Save</button>
         <button type="button" class="delete-entry-btn" id="igv-payment-delete-btn" hidden data-i18n="igv.paymentDelete">Delete this IGV payment</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="opening-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="opening-modal-title" data-i18n="opening.title">Opening figures</span>
+        <button type="button" id="opening-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="opening.hint">What this was worth up to a date, without IGV.</p>
+
+        <label for="opening-currency" data-i18n="field.currency">Currency</label>
+        <input type="text" id="opening-currency" maxlength="3" autocapitalize="characters">
+
+        <label for="opening-date" data-i18n="opening.asOf">As of</label>
+        <input type="date" id="opening-date">
+
+        <label for="opening-income" data-i18n="statement.line.income">Income received</label>
+        <input type="text" inputmode="decimal" id="opening-income" placeholder="0.00">
+        <label for="opening-igv-collected" data-i18n="statement.line.igv_collected">IGV collected</label>
+        <input type="text" inputmode="decimal" id="opening-igv-collected" placeholder="0.00">
+        <label for="opening-costs" data-i18n="statement.line.costs">Costs paid</label>
+        <input type="text" inputmode="decimal" id="opening-costs" placeholder="0.00">
+        <label for="opening-igv-credit" data-i18n="statement.line.igv_credit">IGV credit</label>
+        <input type="text" inputmode="decimal" id="opening-igv-credit" placeholder="0.00">
+
+        <label for="opening-note"><span data-i18n="xp.note">Note</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="opening-note" maxlength="200">
+
+        <p class="hint" id="opening-impact"></p>
+        <p class="hint error-text" id="opening-error"></p>
+        <button type="button" class="primary" id="opening-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="opening-delete-btn" hidden data-i18n="opening.delete">Delete these opening figures</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="accountant-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="accountant.title">Accountant's figures</span>
+        <button type="button" id="accountant-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="accountant.hint">The figures your accountant gives you as of a date, without IGV.</p>
+
+        <label for="accountant-currency" data-i18n="field.currency">Currency</label>
+        <input type="text" id="accountant-currency" maxlength="3" autocapitalize="characters">
+
+        <label for="accountant-date" data-i18n="opening.asOf">As of</label>
+        <input type="date" id="accountant-date">
+
+        <label for="accountant-income" data-i18n="statement.line.income">Income received</label>
+        <input type="text" inputmode="decimal" id="accountant-income" placeholder="0.00">
+        <label for="accountant-igv-collected" data-i18n="statement.line.igv_collected">IGV collected</label>
+        <input type="text" inputmode="decimal" id="accountant-igv-collected" placeholder="0.00">
+        <label for="accountant-costs" data-i18n="statement.line.costs">Costs paid</label>
+        <input type="text" inputmode="decimal" id="accountant-costs" placeholder="0.00">
+        <label for="accountant-igv-credit" data-i18n="statement.line.igv_credit">IGV credit</label>
+        <input type="text" inputmode="decimal" id="accountant-igv-credit" placeholder="0.00">
+
+        <label for="accountant-note"><span data-i18n="xp.note">Note</span> (<span data-i18n="common.optional">Optional</span>)</label>
+        <input type="text" id="accountant-note" maxlength="200">
+
+        <p class="hint error-text" id="accountant-error"></p>
+        <button type="button" class="primary" id="accountant-save-btn" data-i18n="business.save">Save</button>
+        <button type="button" class="delete-entry-btn" id="accountant-delete-btn" hidden data-i18n="accountant.delete">Delete these figures</button>
       </div>
     </div>
   </div>
@@ -4046,6 +4238,64 @@
   </div>
 
   <!-- One tag: rename or delete (More → Categories & tags). -->
+  <!-- Business 2, piece 5: "Add units" (company copies): many unit tags at once, with the numbering the person picks. -->
+  <div id="psplit-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="psplit.title">Split between projects</span>
+        <button type="button" id="psplit-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="psplit-intro"></p>
+        <div id="psplit-rows"></div>
+        <p class="hint" id="psplit-sum"></p>
+        <p class="hint" data-i18n="psplit.amountHint">If the amount of the entry changes, the split is removed: split it again.</p>
+        <p class="hint error-text" id="psplit-error"></p>
+        <button type="button" class="primary" id="psplit-save" data-i18n="psplit.save">Save the split</button>
+        <button type="button" class="delete-entry-btn" id="psplit-remove" hidden data-i18n="psplit.remove">Remove the split</button>
+      </div>
+    </div>
+  </div>
+  <div id="units-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="units.title">Add units</span>
+        <button type="button" id="units-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="units.intro">Each unit (an apartment, a shop, a parking space) is a tag. Choose how they are numbered; you can add more later with another pattern.</p>
+        <strong data-i18n="units.how">Numbering</strong>
+        <label class="settle-choose-row"><input type="radio" name="units-mode" value="floors" checked><span data-i18n="units.modeFloors">Floor + two-digit number (101, 102… 805)</span></label>
+        <label class="settle-choose-row"><input type="radio" name="units-mode" value="seq"><span data-i18n="units.modeSeq">In order: 1, 2, 3…</span></label>
+        <label class="settle-choose-row"><input type="radio" name="units-mode" value="list"><span data-i18n="units.modeList">A list I type</span></label>
+        <div id="units-floors-box">
+          <label for="units-floor-from" data-i18n="units.floorFrom">From floor</label>
+          <input type="text" inputmode="numeric" id="units-floor-from" value="1">
+          <label for="units-floor-to" data-i18n="units.floorTo">To floor</label>
+          <input type="text" inputmode="numeric" id="units-floor-to" placeholder="8">
+          <label for="units-per-floor" data-i18n="units.perFloor">Units per floor</label>
+          <input type="text" inputmode="numeric" id="units-per-floor" placeholder="5">
+        </div>
+        <div id="units-seq-box" hidden>
+          <label for="units-seq-count" data-i18n="units.seqCount">How many</label>
+          <input type="text" inputmode="numeric" id="units-seq-count" placeholder="20">
+        </div>
+        <div id="units-list-box" hidden>
+          <label for="units-list" data-i18n="units.listLabel">One per line (or separated by commas)</label>
+          <textarea id="units-list" rows="4" data-i18n-placeholder="units.listPh" placeholder="Shop 1, PH-1, Parking 12"></textarea>
+        </div>
+        <label for="units-prefix" data-i18n="units.prefix">Before the number</label>
+        <select id="units-prefix">
+          <option value="Depa">Depa</option>
+          <option value="Dpto">Dpto</option>
+          <option value="" data-i18n="units.prefixNone">Nothing</option>
+        </select>
+        <p class="hint" id="units-preview"></p>
+        <p class="hint error-text" id="units-error"></p>
+        <button type="button" class="primary" id="units-save" data-i18n="units.save">Create the units</button>
+      </div>
+    </div>
+  </div>
   <div id="tag-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -4199,24 +4449,25 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="i18n.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="tour-scenes.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="signin-link.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="country-guess.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="rate-quotes.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="bank-sample.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="perf-share.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="spotlight.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="receipt-parse.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="receipt-fields.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="in-process.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="bill-split.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="loan-reminder.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="app.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="statement-sample.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="statement-table.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="statement-parsers.js?v=2026-11-22T01:12:46Z"></script>
-  <script src="statements.js?v=2026-11-22T01:12:46Z"></script>
+  <script src="strings.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="i18n.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="tour-scenes.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="signin-link.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="country-guess.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="rate-quotes.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="bank-sample.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="perf-share.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="spotlight.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="receipt-parse.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="receipt-fields.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="in-process.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="bill-split.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="loan-reminder.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="company-invite.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="app.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="statement-sample.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="statement-table.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="statement-parsers.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="statements.js?v=2026-11-23T14:16:02Z"></script>
 </body>
 </html>

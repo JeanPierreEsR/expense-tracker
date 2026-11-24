@@ -65,6 +65,9 @@
 
 * { box-sizing: border-box; }
 
+/* Every screen scrolls up and down only (owner, 2026-11-23). "clip", not "hidden": it keeps sticky headers and bars working. */
+html, body { overflow-x: clip; }
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -479,6 +482,7 @@ button.type-tab { font: inherit; font-size: 0.75rem; color: var(--text); width: 
 .ov-sum-tile.tappable:active, .ov-sum-net.tappable:active { transform: scale(0.98); }
 /* The chips on top of that list: one per block, each with its number. */
 .flow-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.flow-chips .cat-tag-note { flex-basis: 100%; margin: 2px 0 0; }
 .flow-chip {
   display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-height: 44px;
   padding: 5px 10px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--card); color: var(--text);
@@ -487,7 +491,7 @@ button.type-tab { font: inherit; font-size: 0.75rem; color: var(--text); width: 
 .flow-chip-label { font-size: 0.75rem; color: var(--muted); }
 .flow-chip-amt { font-size: 0.8125rem; font-weight: 600; white-space: nowrap; }
 .flow-chip.active { border: 2px solid var(--accent); padding: 4px 9px; background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
-.flow-chip.active .flow-chip-label { color: var(--accent); font-weight: 600; }
+.flow-chip.active .flow-chip-label { color: var(--accent-dark); font-weight: 600; }   /* darker blue: 4.5:1 on the tint (Paola) */
 .flow-chip.flow-income .flow-chip-amt { color: var(--income); }
 .flow-chip.flow-expense .flow-chip-amt { color: var(--expense); }
 .flow-chip.flow-investment .flow-chip-amt { color: var(--investment); }
@@ -654,6 +658,10 @@ input[type="date"] {
      border/shadow offset from our own box. */
   -webkit-appearance: none;
   appearance: none;
+  /* iOS sizes a date box by its own text and can draw it wider than the form (owner, 2026-11-23: the new-loan window
+     slid sideways); held to the form's width everywhere, not one form at a time. */
+  display: block;
+  max-width: 100%;
 }
 
 .row {
@@ -1241,6 +1249,9 @@ button.primary.danger {
   /* A sheet whose content is taller than it (the Categories form, with its emoji and colour pickers) scrolls as a
      whole; before this its lower part (Save, Hide, Delete) was cut off and unreachable without a header drag. */
   overflow-y: auto;
+  /* Up and down only (owner, 2026-11-23): a sheet never slides sideways, even when something inside is a few px too wide.
+     A row meant to swipe sideways scrolls inside itself, so it is not affected. */
+  overflow-x: hidden;
   overscroll-behavior: contain;
 }
 
@@ -3241,7 +3252,7 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 
 /* ---- More → Bank emails screen (two views: By bank / By transaction) ---- */
 .be-tabs { display: flex; gap: 0; margin: 14px 0 10px; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
-.be-tab { flex: 1; min-height: 44px; border: 0; background: var(--card); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.be-tab { flex: 1 1 auto; min-height: 44px; padding: 0 8px; border: 0; background: var(--card); color: var(--text); font: inherit; font-size: 0.875rem; font-weight: 600; white-space: nowrap; cursor: pointer; }
 .be-tab + .be-tab { border-left: 1px solid var(--border); }
 .be-tab.active { background: var(--accent); color: var(--white); }
 .be-kinds { list-style: none; margin: 8px 0 0; padding: 0; }
@@ -3638,6 +3649,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #screen-categories.categories-editing .card { padding-bottom: 90px; }
 .cat-bulk-alert { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: var(--r-md); padding: 10px 12px; margin: 8px 0; font-size: 0.875rem; }
 .cat-bulk-block { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.budget-modal-body > .cat-bulk-block:first-child { border-top: 0; padding-top: 0; margin-top: 0; }   /* first block: no line and gap under the title (Mark) */
 .cat-bulk-block select { width: 100%; margin-top: 6px; }
 #screen-business.business-editing .card, #screen-business-people.people-editing .card { padding-bottom: 90px; }
 .business-company-head.friends-check-row { justify-content: flex-start; gap: 12px; }
@@ -3660,7 +3672,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .review-compact-chip { display: inline-block; font-size: 0.75rem; border-radius: var(--r-md); padding: 1px 8px; margin-top: 3px; background: var(--warn-bg); color: var(--warn-text); }
 .review-compact-chip.ok { background: var(--income-bg-soft); color: var(--income); }
 /* Home / search → Edit: a checkbox before each entry, room under the list for the fixed bar */
-.search-results-head { display: flex; justify-content: flex-end; }
+.search-results-head { display: flex; justify-content: space-between; align-items: center; }   /* a title beside the pencil, not an empty band (testers, 2026-11-22) */
+.search-results-head h2 { margin: 0; }
 .search-results-head .icon-btn { margin: 4px 0; }
 #screen-entries.entries-editing .entry-list, #screen-entries.entries-editing .search-results-card { padding-bottom: 90px; }
 #screen-trip-detail.entries-editing #trip-detail-entries-card { padding-bottom: 90px; }
@@ -3688,7 +3701,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
    the add row = the box and its button side by side, lined up (no stacked-button margin inside the row). */
 .be-fwd-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .be-fwd-row .bm-status-addr { min-width: 0; }
-.be-fwd-add { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.be-fwd-add { display: flex; align-items: stretch; gap: 8px; margin-top: 8px; }   /* box and button keep one height at any text size */
 .be-fwd-add input { flex: 1; min-width: 0; }
 .be-fwd-row .add-inline, .be-fwd-add .add-inline, .be-fwd-add .add-inline + .add-inline { margin: 0; flex: none; }
 
@@ -3725,6 +3738,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .home-charges-title { font-weight: 600; }
 .home-charges-chevron { color: var(--muted); font-size: 1.25rem; }
 .home-charges .hint { margin: 2px 0 0; }
+.xsugg-actions { display: flex; align-items: center; gap: 16px; margin-top: 6px; }
+.xsugg-actions .add-inline + .add-inline { margin-top: 0; }
 .home-charges.late .hint { color: var(--warn-text); }
 .charge-line { padding: 12px 0; border-top: 1px solid var(--border); }
 .charge-line-top { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
@@ -4081,6 +4096,7 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .review-item-top { cursor: pointer; }
 .review-quick-cat { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0; border: none; background: none; font: inherit; font-size: 0.875rem; color: var(--muted); text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-quick-cat-missing { color: var(--accent); font-weight: 600; }
+.review-quick-cat-missing { white-space: normal; overflow: visible; line-height: 1.2; }   /* "Choose a category…" wraps instead of being cut (Wilmer 375 px, Paola large text) */
 .review-quick-confirm { flex: none; min-height: 44px; padding: 0 16px; border: none; border-radius: var(--r-pill); background: var(--accent); color: var(--white); font: inherit; font-weight: 600; cursor: pointer; }
 .review-more-closed .review-item-secondary-actions { display: none; }
 .review-item .review-more-actions { display: block; margin-top: 8px; }
@@ -4275,8 +4291,88 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .co-funding-row { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 10px 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 .co-funding-row:last-child { border-bottom: 0; }
 .co-funding-row small { font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+/* Business 2, piece 7: the Partners card and the partner window */
+.co-partner { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.co-partner:last-child { border-bottom: 0; }
+.co-partner-name { font-weight: 600; }
+.co-partner-sub { margin: 0 0 4px; font-size: 0.75rem; color: var(--muted); text-align: right; }
+#co-partners-pending h3 { margin-top: 12px; }
+.co-partner-pending { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.co-partner-pending-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.co-partner-pending-btns .add-inline + .add-inline { margin-top: 0; }
+/* Business 2, piece 11: units and sales */
+.unit-row { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 10px 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.unit-row:last-child { border-bottom: 0; }
+.unit-row > span { display: flex; flex-direction: column; }
+.unit-row small, .unit-payment small, #unit-stages small, #co-next-body small { display: block; font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+.unit-name { font-weight: 600; }
+.unit-sum { font-weight: 600; }
+.unit-stage-new { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.unit-stage-new select, .unit-stage-new .add-inline { grid-column: 1 / -1; }
+.unit-stage-new input { min-width: 0; }
+.unit-payment { border-bottom: 1px solid var(--border); padding: 4px 0; }
+.unit-return-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.unit-return-form input { min-width: 0; }
+.unit-return-form .primary { grid-column: 1 / -1; }
+.unit-share .add-inline, .unit-remove { display: block; }
+.units-add-list { max-height: 50vh; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }   /* up and down only */
+.co-next-overdue { color: var(--warn-text); }
+/* Business 2, piece 9: the yearly constancia, on screen and printed alone */
+.constancia-nav { display: flex; align-items: center; justify-content: space-between; margin: 8px 0; }
+.constancia-doc { border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px; margin: 12px 0; overflow-wrap: anywhere; }
+.constancia-title { margin: 0 0 4px; }
+.constancia-company { font-weight: 600; margin: 0 0 8px; }
+.constancia-warn { color: var(--warn-text); }
+.constancia-cur { margin: 16px 0 4px; }
+.constancia-table { width: 100%; border-collapse: collapse; }
+.constancia-table td { padding: 4px 0; vertical-align: top; }
+.constancia-table td:last-child { text-align: right; white-space: nowrap; padding-left: 8px; font-weight: 600; }
+.constancia-head th { text-align: left; padding: 10px 0 2px; font-size: 0.875rem; color: var(--muted); font-weight: 600; }
+.constancia-notice { margin-top: 16px; font-weight: 600; }
+.constancia-total td { border-top: 1px solid var(--border); padding-top: 8px; font-weight: 600; }
+.constancia-actions .add-inline { display: block; }
+#pkg-file-list .add-inline, #pkg-files { display: block; }
+#constancia-print { display: none; }
+@media print {
+  body.printing-constancia > :not(#constancia-print) { display: none !important; }
+  body.printing-constancia #constancia-print { display: block !important; }
+  body.printing-constancia { background: var(--white); color: var(--text); }
+  #constancia-print .constancia-doc { border: 0; }
+}
+/* Business 2, piece 8: the change log and closing a month */
+.changelog-month { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
+.changelog-month span { font-weight: 600; }
+.changelog-day { margin: 16px 0 4px; }
+.changelog-line { padding: 8px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.changelog-what { font-weight: 600; }
+.close-account { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.close-diff-off { color: var(--warn-text); }
+.close-changed { color: var(--warn-text); font-weight: 600; }
+#co-close-body .add-inline { display: block; }
+.partner-kind { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; font-weight: 400; }
+.partner-kind input { margin-top: 4px; }
+.partner-kind span { display: flex; flex-direction: column; }
+.partner-kind small { font-size: 0.75rem; color: var(--muted); }
 
 /* Split between projects (Business 2, piece 6): one row per project, its amount and its share. */
 .psplit-row { display: grid; grid-template-columns: 1fr 7.5rem 3.5rem; gap: 8px; align-items: center; margin-bottom: 8px; }
 .psplit-row label { margin: 0; }
 .psplit-row .psplit-pct { text-align: right; }
+
+/* Bank emails: the numbered and bulleted instructions read at the size of the hints around them (testers, 2026-11-22: 16 px next to 12 px). */
+.bm-steps { font-size: 0.75rem; color: var(--muted); padding-left: 18px; margin: 8px 0; }
+.bm-steps li + li { margin-top: 4px; }
+
+/* A forwarder's address can be long with nothing to break it at: it wraps inside the card instead of running off (Wilmer, 375 px). */
+.review-forwarded { overflow-wrap: anywhere; }
+
+/* Up and down only (owner, 2026-11-23). A box that scrolls up and down also scrolls sideways unless told not to, so a form a few px
+   too wide (the new-loan window) slid left and right under the finger. Every up-and-down box is locked sideways here; the rows built
+   to swipe sideways (filters, Home cards, months, period chips, tour cards), the statement viewer and the typing boxes are not in
+   this list. tests/screen-fit/check.js stops a ship on a new box that scrolls both ways: add it here, or to its SIDEWAYS list. */
+:is(.budget-modal-body, .edit-entry-modal-body, .drilldown-scroll-area, .currency-option-list, .bill-scroll, .cat-emoji-groups,
+  .app-confirm-text, .welcome-overlay, .tour-slide, .pace-screen-body:not(#stmt-viewer-scroll)) { overflow-x: hidden; }
+
+/* The person whose last debt was just settled, shown in Settled people (owner, 2026-11-24). */
+.balance-row.settled-flash { animation: settled-flash 2.6s ease-out; border-radius: var(--r-sm); }
+@keyframes settled-flash { 0%, 40% { background: var(--accent-bg); } 100% { background: transparent; } }

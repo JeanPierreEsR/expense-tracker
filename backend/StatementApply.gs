@@ -124,7 +124,9 @@ var STMT_ACCT_KEY_PREFIX_ = 'ACCT-';
 // set later from the entry. Resolves to a stand-in whose id is '' so the entries come out account-less.
 var STMT_NO_ACCOUNT_KEY_ = 'NOACCOUNT';
 
-function stmtPmForKey_(pms, key) {
+// src (a replaced card's old digits, AccountMove.gs): { bankName } of a statement being read — only that bank, only 6 months; a
+// record already saved passes none and is found whatever its age.
+function stmtPmForKey_(pms, key, src) {
   if (String(key) === STMT_NO_ACCOUNT_KEY_) return { id: '', nickname: tr_('stmt.noAccountName'), type: 'debit', last_4: '', noAccount: true };
   if (String(key).indexOf(STMT_ACCT_KEY_PREFIX_) === 0) {
     var id = String(key).substring(STMT_ACCT_KEY_PREFIX_.length);
@@ -134,7 +136,7 @@ function stmtPmForKey_(pms, key) {
     return pms.find(function (pm) { return String(pm.nickname).toLowerCase().replace(/[^a-z]/g, '').indexOf('ahorra') === 0; }) || null;
   }
   var k = covKey_(key);
-  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k && !isPracticeAccount_(pm); }) || null;
+  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k && !isPracticeAccount_(pm); }) || pmOldKeyMap_(pms, src || { anyTime: true })[k] || null;
 }
 
 // Capital letter on each word. NOT `\b`: in JavaScript an accented letter is not a "word" letter, so `\b` found a word start inside "práctica" and made it
@@ -165,8 +167,10 @@ function appendRowsBulk_(sheetName, objs) {
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
   if (sheetName === 'Entries') objs.forEach(function (o) { companyDefaultForNewEntry_(o, headers); });   // CompanyCopy.gs
+  objs.forEach(function (o) { pmForwardObject_(sheetName, o); });   // AccountMove.gs
   var rows = objs.map(function (o) { return headers.map(function (h) { return o[h] !== undefined ? (sheetName === 'Entries' ? sheetSafeText_(o[h]) : o[h]) : ''; }); });
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+  objs.forEach(function (o) { changeNoteCreate_(sheetName, o); });   // the change log (ChangeLog.gs, company copies)
 }
 
 /**
@@ -266,7 +270,7 @@ function applyStatementDecisionsCore_(payload) {
   var keys = [], accounts = [];
   stmts.forEach(function (s) {
     keys.push(stmtLineKeys_(s.key, s.lines));
-    accounts.push(stmtIsNewAccount_(s) ? stmtNewAccountStandIn_(s) : stmtPmForKey_(pms, s.key));   // an account the save will create (StatementAccounts.gs)
+    accounts.push(stmtIsNewAccount_(s) ? stmtNewAccountStandIn_(s) : stmtPmForKey_(pms, s.key, { bankName: s.bank || '' }));   // an account the save will create (StatementAccounts.gs)
   });
   var storedRows = null;
   function line(ref) {
@@ -383,6 +387,12 @@ function applyStatementDecisionsCore_(payload) {
         description: tr_('desc.exchangeIn', { cur: xi.l.currency }), payment_method_id: '', to_payment_method_id: requirePm(xi).id,
         status: 'confirmed', external_id: 'stmt-' + xi.key });
       var inId = madeIn ? creations[creations.length - 1].id : '';
+      // One link id on both sides, as the exchange form gives (owner, 2026-11-23): the two lines may be a day apart, and unlinked
+      // they showed as two separate rows on Home (same-day pairing only).
+      if (madeOut && madeIn) {
+        var xPair = Utilities.getUuid();
+        creations.forEach(function (e) { if (e.id === outId || e.id === inId) { e.exchange = '1'; e.exchange_pair = xPair; } });
+      }
       report.created.exchanges = (report.created.exchanges || 0) + 1;
       if (madeOut) report.created.transfers++;
       if (madeIn) report.created.transfers++;
@@ -747,6 +757,7 @@ function applyStatementDecisionsCore_(payload) {
   });
   report.categoriesRenamed = report.categoriesRenamed.filter(function (r) { return changes.some(function (c) { return c.sheet === 'Categories' && c.field === 'name' && c.new_value === r.to; }); });
   report.categoriesCreatedNames = Object.keys(createdCategoryIds).filter(function (ph) { return changes.some(function (c) { return c.sheet === 'Categories' && c.row_id === createdCategoryIds[ph]; }); }).map(function (ph) { return newCategories[ph].name; });
+  if (creations.some(function (e) { return e.exchange_pair; })) { ensureEntriesToPaymentMethodColumn_(); ensureEntriesExchangeColumn_(); ensureColumn_('Entries', 'exchange_pair'); }
   appendRowsBulk_('Entries', creations);
   if (loanOps.length) stmtWriteLoanOps_(loanOps, batchId, now, changes, remember, report);
   if (payload.inboxIds && payload.inboxIds.length) {

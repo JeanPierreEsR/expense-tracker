@@ -21,7 +21,18 @@ var PERF_INSTANCE_WARM_ = false;
 // A Sheet cell not set to text turns 0123 into 123: read as what was meant.
 function pmLast4_(v) { var s = String(v === undefined || v === null ? '' : v).trim(); return /^\d{1,3}$/.test(s) ? ('000' + s).slice(-4) : s; }
 
+// Every request: the change log (ChangeLog.gs, company copies) collects its lines while it runs and writes them once at the end.
 function doPost(e) {
+  changeLogReset_('app');
+  try {
+    return doPostInner_(e);
+  } finally {
+    flushChangeLog_();
+    CHANGE_BATCHING_ = false;
+  }
+}
+
+function doPostInner_(e) {
   var perfStart = Date.now();
   var perfCold = !PERF_INSTANCE_WARM_;
   PERF_INSTANCE_WARM_ = true;
@@ -34,7 +45,7 @@ function doPost(e) {
   var response;
   // Apple Pay capture (ApplePay.gs): the iPhone's shortcut posts to this address with the person's Apple Pay key in the link. That key
   // opens this one door only, so it is answered here, before anything else; a wrong key gets the same refusal as a wrong code.
-  if (e && e.parameter && e.parameter.k !== undefined) return applePayDoor_(e);
+  if (e && e.parameter && e.parameter.k !== undefined) { CHANGE_SOURCE_ = 'applepay'; return applePayDoor_(e); }
   try {
     var body = JSON.parse(e.postData.contents);
     // The app tells us which language the person is using; everything this
@@ -50,6 +61,7 @@ function doPost(e) {
     }
 
     if (body && body.whatsapp !== undefined) {
+      CHANGE_SOURCE_ = 'whatsapp';
       // A WhatsApp message, forwarded by the Cloudflare relay (cloudflare-worker/whatsapp-relay.js) only after it checked Meta's
       // signature and the sender's number. This address is public, so the relay's secret must be in the body (WhatsApp.gs).
       if (!isWhatsAppRelayAuthorized_(body)) {
@@ -68,11 +80,13 @@ function doPost(e) {
       } catch (err) {
         response = { ok: false, error: err.message, reply: tr_('whatsapp.failed') };
       }
+      botAlertsIfDue_();   // BotUndo.gs: alerts after a bot action, outside its lock
       return ContentService.createTextOutput(JSON.stringify(response))
         .setMimeType(ContentService.MimeType.JSON);
     }
 
     if (body && body.update_id !== undefined) {
+      CHANGE_SOURCE_ = 'telegram';
       // The URL of this web app is public, so anyone can POST something that
       // looks like a Telegram update. Once the owner has turned on webhook
       // protection (sheet menu 24), only updates carrying the shared secret —
@@ -90,6 +104,7 @@ function doPost(e) {
       if (!isDuplicateTelegramUpdate_(body.update_id)) {
         try {
           handleTelegramUpdate_(body);
+          botAlertsIfDue_();   // BotUndo.gs: alerts after a bot action, outside its lock
         } catch (err) {
           // Never let one bad update fail the webhook delivery — repeated
           // failures make Telegram back off and eventually stop retrying.
@@ -165,7 +180,9 @@ var ONCE_ACTIONS_ = {
   // answer was lost, and each "try again" made it again). With the phone keeping one id per save across its retries, a repeat
   // gets the first one's answer instead of a second copy.
   addTrip: 1, addBudget: 1, addPaymentMethod: 1, savePaymentMethod: 1, addTag: 1, addBank: 1, addPayor: 1, saveCategory: 1,
-  saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1
+  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, closeMonth: 1, reopenMonth: 1, sendAccountantPackage: 1, addProjectUnits: 1, saveUnitStage: 1, returnUnitDeposit: 1,   // Business 2 piece 7 (Partners.gs)
+  saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1,
+  moveAccountHistory: 1, undoAccountMove: 1, restoreAccountMove: 1   // Accounts: move an account's history (AccountMove.gs); a resend gets the first answer, never a second move
 };
 
 // Speed (2026-11-02): the app can ask a save to bring back the lists it reloads right after (payload._then =
@@ -364,6 +381,12 @@ function routeActionSwitch_(action, payload) {
     case 'applyAccountCurrencySuggestions': return applyAccountCurrencySuggestions(payload);
     case 'removePaymentMethod': return removePaymentMethod(payload);
     case 'removePaymentMethods': return removePaymentMethods(payload);
+    case 'previewAccountMove': return withRowsMemo_(function () { return previewAccountMove(payload); });   // each sheet read once (speed rules)
+    case 'moveAccountHistory': return withRowsMemo_(function () { return moveAccountHistory(payload); });   // each sheet read once (speed rules)
+    case 'undoAccountMove': return withRowsMemo_(function () { return undoAccountMove(payload); });   // each sheet read once (speed rules)
+    case 'restoreAccountMove': return withRowsMemo_(function () { return restoreAccountMove(payload); });   // each sheet read once (speed rules)
+    case 'listAccountMoves': return listAccountMoves(payload);
+    case 'forgetAccountMove': return forgetAccountMove(payload);
     case 'deletePaymentMethod': return deletePaymentMethod(payload);
     case 'setPaymentMethodHidden': return setPaymentMethodHidden(payload);
     case 'restorePaymentMethods': return restorePaymentMethods(payload);
@@ -461,6 +484,7 @@ function routeActionSwitch_(action, payload) {
     case 'listStatementInbox': return listStatementInbox();
     case 'getStatementAttachment': return getStatementAttachment(payload);
     case 'listPerfAppVersions': return listPerfAppVersions_();
+    case 'listPerfPhones': return listPerfPhones_();
     case 'listStatementSamples': return listStatementSamples_(payload);
     case 'rulePackTwinCheck': return rulePackTwinCheck_(payload);
     case 'programmedGuessBacktest': return programmedGuessBacktest_(payload);
@@ -485,6 +509,26 @@ function routeActionSwitch_(action, payload) {
     case 'saveCompanySetup': return saveCompanySetup(payload);
     case 'setProjectFunding': return setProjectFunding(payload);
     case 'saveProjectSplit': return saveProjectSplit(payload);   // a company copy's welcome (CompanyCopy.gs)
+    case 'convertEntryToPartnerMoney': return convertEntryToPartnerMoney(payload);   // Business 2 piece 7: partners (Partners.gs)
+    case 'changePartnerMoney': return changePartnerMoney(payload);
+    case 'recordDistribution': return recordDistribution(payload);
+    case 'listPendingContributions': return listPendingContributions();
+    case 'listChangeLog': return listChangeLog(payload);   // Business 2 piece 8: change log and month close (ChangeLog.gs, MonthClose.gs)
+    case 'getMonthClose': return getMonthClose(payload);
+    case 'closeMonth': return closeMonth(payload);
+    case 'reopenMonth': return reopenMonth(payload);
+    case 'getYearStatement': return getYearStatement(payload);   // Business 2 piece 9: the yearly constancia (Constancia.gs)
+    case 'getYearStatements': return getYearStatements(payload);
+    case 'getAccountantPackage': return getAccountantPackage(payload);
+    case 'listProjectUnits': return listProjectUnits(payload);   // Business 2 piece 11: sales by stage (Sales.gs)
+    case 'addProjectUnits': return addProjectUnits(payload);
+    case 'saveUnit': return saveUnit(payload);
+    case 'removeProjectUnit': return removeProjectUnit(payload);
+    case 'saveUnitStage': return saveUnitStage(payload);
+    case 'returnUnitDeposit': return returnUnitDeposit(payload);
+    case 'buildShareStatement': return buildShareStatement(payload);   // Business 2 piece 12 (ShareStatement.gs)
+    case 'getShareSections': return getShareSections();   // Business 2 piece 10 (AccountantPackage.gs)
+    case 'sendAccountantPackage': return sendAccountantPackage(payload);
     case 'getProfileState': return getProfileState();
     case 'getAnnualHints': return getAnnualHints();
     case 'listStatementGaps': return listStatementGaps();
@@ -615,6 +659,13 @@ function routeActionSwitch_(action, payload) {
     case 'undoEntryAccounts': return undoEntryAccounts(payload);
     case 'getEntry': return getEntryById_(payload.id);
     case 'recordCurrencyExchange': return recordCurrencyExchange(payload);
+    case 'updateCurrencyExchange': return updateCurrencyExchange(payload);
+    case 'listExchangeLinkCandidates': return listExchangeLinkCandidates(payload);
+    case 'linkExchangeSides': return linkExchangeSides(payload);
+    case 'listExchangeLinkSuggestions': return listExchangeLinkSuggestions(payload);
+    case 'linkExchangePairs': return linkExchangePairs(payload);
+    case 'refuseExchangeLinkSuggestion': return refuseExchangeLinkSuggestion(payload);
+    case 'stopExchangeLinkSuggestions': return stopExchangeLinkSuggestions(payload);
     case 'getEntrySplits': return getEntrySplits(payload.entryId);
     case 'saveEntrySplits': return saveEntrySplits(payload.entryId, payload.splits);
     case 'getEntryBill': return getEntryBill(payload);
@@ -689,6 +740,7 @@ function getHeaders(sheet) {
 var DATE_FIELD_FORMATS = {
   date: 'yyyy-MM-dd',
   due_date: 'yyyy-MM-dd',
+  receipt_date: 'yyyy-MM-dd',   // piece 10: a receipt's issue date (text column; a Date read back becomes text again)
   month: 'yyyy-MM',           // Exchange Rates / Recurring Skips: a Sheets Date back to text (numeric months are untouched)
   start_date: 'yyyy-MM-dd',   // Recurring Expenses (a Sheets Date is turned back into text on read)
   end_date: 'yyyy-MM-dd',
@@ -878,6 +930,7 @@ function appendRowObject(sheetName, obj) {
     ensureEntriesUpdatedAtColumn_();
     obj.updated_at = nowStamp_();
   }
+  pmForwardObject_(sheetName, obj);   // a deleted account's id → the account that took its history (AccountMove.gs)
   var sheet = getSheet(sheetName);
   var headers = getHeaders(sheet);
   if (sheetName === 'Entries') companyDefaultForNewEntry_(obj, headers);   // a company copy's one company (CompanyCopy.gs)
@@ -885,6 +938,7 @@ function appendRowObject(sheetName, obj) {
   sheet.appendRow(row);
   if (ROWS_MEMO_) { delete ROWS_MEMO_[sheetName]; delete ROWS_MEMO_['@c:' + sheetName]; }
   noteRowAppended_(sheetName, obj);
+  changeNoteCreate_(sheetName, obj);   // the change log (ChangeLog.gs, company copies)
   if (BOT_ACTION_) botActionNoteRow_(sheetName, obj);   // part of a bot action (BotUndo.gs)
 }
 
@@ -919,6 +973,7 @@ function getMeta() {
     companies: getCompanyRows_(),
     projects: getProjectRows_(),
     expectedPayments: getExpectedRows_(),   // empty (and nothing read) while the pack is off
+    closedMonths: closedMonths_(),   // company copies: months closed (MonthClose.gs); [] elsewhere
     friends: getFriendsWithLastUsed_(),
     payors: getPayorsWithLastIncome_(),
     payorMergeAsk: payorMergeAsk,
@@ -1134,6 +1189,7 @@ function createEntry(payload) {
   } else if (payload.company_id !== undefined || payload.project_id !== undefined) {
     entry.company_id = ''; entry.project_id = '';   // "Personal", chosen: never given a company copy's company (CompanyCopy.gs)
   }
+  Object.assign(entry, receiptFieldsFrom_(payload));   // a company copy's payment method and receipt (AccountantPackage.gs, piece 10)
   // Saved with no category (the person chose not to pick one): fill it from what they decided for the same merchant
   // or description before, else leave it blank for Tidy my history. See CategoryFollow.gs.
   var guessedCategory = '';
@@ -1203,9 +1259,28 @@ function confirmEntries(payload) {
   var items = [], seen = {};
   ((payload && payload.items) || []).forEach(function (it) {
     var id = String((it && it.id) || '');
-    if (id && !seen[id]) { seen[id] = true; items.push({ id: id, trip_id: it.trip_id, link_recurring_id: it.link_recurring_id ? String(it.link_recurring_id) : '' }); }
+    if (id && !seen[id]) { seen[id] = true; items.push({ id: id, trip_id: it.trip_id, link_recurring_id: it.link_recurring_id ? String(it.link_recurring_id) : '', repay: !!(it && it.repay) }); }
   });
-  var out = { confirmed: [], kept: [] };   // (+ linked / link_skipped, only when links were asked for)
+  var out = { confirmed: [], kept: [] };   // (+ linked / link_skipped, only when links were asked for; + repaid)
+  // A repayment kept waiting for its loans (RepayIntent.gs), `repay: true` = the person said "Pay the oldest first": recorded oldest
+  // first, in date order, so two repayments to one friend pay the loans in turn. Each answer carries what the Undo needs.
+  var repayItems = items.filter(function (it) { return it.repay; });
+  items = items.filter(function (it) { return !it.repay; });
+  repayItems.map(function (it) { return { it: it, entry: getEntryById_(it.id) }; })
+    .sort(function (a, b) { return String((a.entry || {}).date) < String((b.entry || {}).date) ? -1 : 1; })
+    .forEach(function (x) {
+      var entry = x.entry, id = x.it.id;
+      if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
+      if (!repayIntentOf_(entry)) { out.kept.push({ id: id, reason: 'notPending' }); return; }
+      if (getEntrySplits(id).length) { out.kept.push({ id: id, reason: 'refused', message: tr_('repayIntent.ownWindow') }); return; }
+      var tags = getAllRows('Entry Tags').filter(function (t) { return t.entry_id === id; }).map(function (t) { return { tag_id: t.tag_id }; });
+      try {
+        var rec = withScriptLockOnce_(function () { return recordRepayIntent_(entry); });
+        (out.repaid = out.repaid || []).push({ id: id, friend: rec.friend, overpaid: rec.overpaid, before: { entry: entry, tags: tags, settlement_id: rec.settlement_id } });
+      } catch (err) {
+        out.kept.push({ id: id, reason: 'refused', message: String(err && err.message || err) });
+      }
+    });
   items.forEach(function (it) {
     var entry = getEntryById_(it.id);
     if (!entry) { out.kept.push({ id: it.id, reason: 'missing' }); return; }
@@ -1245,6 +1320,8 @@ function unconfirmEntries(payload) {
     if (!id || seen[id]) return;
     seen[id] = true;
     try {
+      // A repayment that confirm recorded from a marked entry (RepayIntent.gs): the repayment goes, the waiting entry comes back.
+      if (it.repaid) { withScriptLockOnce_(function () { undoRepayIntent_(it); }); out.undone.push(id); return; }
       var entry = getEntryById_(id);
       if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
       if (entry.status === 'pending') { out.undone.push(id); return; }
@@ -1508,8 +1585,11 @@ function listEntries(payload) {
     entries = entries.filter(function (e) { return entryIdsWithTag[e.id]; });
   }
   if (payload && payload.noTag) {
+    // Only links to tags that still exist count (a link left by a hand edit of the Sheet is "no tag", as on the phone; testers 2026-11-23).
+    var liveTags = {};
+    getAllRows('Tags').forEach(function (t) { liveTags[String(t.id)] = true; });
     var taggedEntryIds = {};
-    getAllRows('Entry Tags').forEach(function (et) { taggedEntryIds[et.entry_id] = true; });
+    getAllRows('Entry Tags').forEach(function (et) { if (liveTags[String(et.tag_id)]) taggedEntryIds[et.entry_id] = true; });
     entries = entries.filter(function (e) { return !taggedEntryIds[e.id]; });
   }
 
@@ -1647,7 +1727,7 @@ function entrySearchText_(e, lk) {
     e.trip_id && lk.tripsById && lk.tripsById[e.trip_id] && lk.tripsById[e.trip_id].name,
     e.company_id && lk.companiesById && lk.companiesById[e.company_id] && lk.companiesById[e.company_id].name,
     e.project_id && lk.projectsById && lk.projectsById[e.project_id] && lk.projectsById[e.project_id].name,
-    lk.transferLinks && lk.transferLinks[e.id] && (lk.transferLinks[e.id].kind + ' ' + lk.transferLinks[e.id].friend)
+    lk.transferLinks && lk.transferLinks[e.id] && (lk.transferLinks[e.id].kind + ' ' + (lk.transferLinks[e.id].friend || lk.transferLinks[e.id].partner || ''))
   ];
   return searchNormalize_(parts.filter(function (x) { return x != null && x !== ''; }).join(' | '));
 }
@@ -1803,12 +1883,14 @@ function listPendingEntries() {
     var splitSugg = projectSplitSuggestions_(entries, all);
     entries.forEach(function (entry) { if (splitSugg[entry.id]) entry.split_match = splitSugg[entry.id]; });
   }
+  attachRepayIntents_(entries);   // a repayment kept waiting for its loans: friend, direction, whether the choice still matters (RepayIntent.gs)
   entries.sort(compareEntriesRecency_);
   return entries;
 }
 
 function updateEntryFields(entryId, fields) {
   fields = businessFieldsForUpdate_(entryId, fields);   // Business pack link cleaned (Business.gs); untouched when it is not involved
+  fields = receiptFieldsForUpdate_(fields);   // a company copy's payment method and receipt (AccountantPackage.gs); dropped elsewhere
   // A payment linked for another month (an early salary for August) whose date is moved 2 or more months away from that month: the month
   // is dropped quietly and it counts for its own month again (owner, 2026-11-18).
   if (fields && fields.date) {

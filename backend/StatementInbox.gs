@@ -272,7 +272,7 @@ function updateRowFields_(sheetName, id, fields) {
   var headers = getHeaders(sheet);
   var idx = findRowIndexById(sheet, headers, id);
   if (idx === -1) return false;
-  Object.keys(fields).forEach(function (f) { sheet.getRange(idx, headers.indexOf(f) + 1).setValue(safeCellValue_(sheetName, f, fields[f])); });
+  Object.keys(fields).forEach(function (f) { changeNoteCell_(sheet, headers, idx, f, fields[f]); sheet.getRange(idx, headers.indexOf(f) + 1).setValue(safeCellValue_(sheetName, f, fields[f])); });
   return true;
 }
 
@@ -291,7 +291,7 @@ function stmtInboxAccounts_(item, pms, banksById) {
 /** Newest processed_at over the statements already processed for these accounts. */
 function stmtLastProcessedFor_(accounts, uploads) {
   var keys = {};
-  accounts.forEach(function (pm) { keys[covKey_(pm.last_4)] = true; });
+  accounts.forEach(function (pm) { keys[covKey_(pm.last_4)] = true; pmOldLast4List_(pm).forEach(function (k) { keys[k] = true; }); });   // (a replaced card's statements count too)
   var last = '';
   uploads.forEach(function (u) { if (keys[covKey_(u.account_key)] && String(u.processed_at) > last) last = String(u.processed_at); });
   return last;
