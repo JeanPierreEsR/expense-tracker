@@ -3400,7 +3400,10 @@ function applyPaidByDefaultSplit_() {
     if (splitFriendIds.size === 1 && splitFriendIds.has(paidByAutoSplit_)) splitFriendIds.delete(paidByAutoSplit_);
     paidByAutoSplit_ = null;
   }
-  const friend = selectedType === "expense" && paidBy !== "me" && meta.friends.some((f) => f.id === paidBy);
+  // A partner, lender, client or supplier paying a bill is the company's debt to them for the whole amount, never a split (testers
+  // 2.68.2, Lucho: an 800 bill paid by a partner booked 400 for the company and 400 owed). Only plain friends turn the split on.
+  const payer = (meta.friends || []).find((f) => f.id === paidBy);
+  const friend = selectedType === "expense" && paidBy !== "me" && !!payer && !isBusinessPerson_(payer);
   if (document.getElementById("split-field").hidden) return;
   const fire = () => toggle.dispatchEvent(new Event("change", { bubbles: true }));
   if (friend) {
