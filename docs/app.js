@@ -23714,8 +23714,13 @@ function expectedDueText_(x) {
   return x.overdue ? `${tr("xp.dueOn", { date })} · ⚠️ ${tr("xp.overdue")}` : tr("xp.dueOn", { date });
 }
 
+// A sale stage is named by its unit and stage; anything else by its invoice number or client (testers 2.68.2).
+function expectedTitle_(x) {
+  if (x.unit_name || x.stage_name) return [x.unit_name, x.stage_name].filter(Boolean).join(" · ");
+  return x.invoice_no || x.client_name || tr("xp.title");
+}
 function expectedRowHtml_(x, isProject) {
-  const sub = [x.invoice_no && x.client_name ? x.client_name : "", isProject ? "" : projectLabel_({ name: x.project_name, emoji: x.project_emoji }), expectedDueText_(x),
+  const sub = [(x.unit_name || x.stage_name || x.invoice_no) && x.client_name ? x.client_name : "", isProject ? "" : projectLabel_({ name: x.project_name, emoji: x.project_emoji }), expectedDueText_(x),
     x.state === "open" && x.paid > 0 ? tr("xp.partReceived", { cur: x.currency, amount: moneyFmt(x.paid) }) : "",
     x.state !== "open" ? tr("xp.state." + x.state) : ""].filter(Boolean).join(" · ");
   const actions = !isProject ? "" : x.state === "open"
@@ -23725,7 +23730,7 @@ function expectedRowHtml_(x, isProject) {
     <div class="xp-row${x.overdue ? " overdue" : ""}" data-id="${escapeHtml(x.id)}" data-project="${escapeHtml(x.project_id)}">
       <div class="recurring-row xp-main">
         <div>
-          <div class="recurring-row-name">${escapeHtml(x.invoice_no || x.client_name || tr("xp.title"))}</div>
+          <div class="recurring-row-name">${escapeHtml(expectedTitle_(x))}</div>
           <div class="recurring-row-sub">${escapeHtml(sub)}</div>
         </div>
         <div class="recurring-row-amount"><div class="primary-amt">${escapeHtml(x.currency)} ${moneyFmt(x.state === "open" ? x.remaining : x.amount)}</div></div>
@@ -23906,8 +23911,8 @@ async function refreshBusinessHomeCard_() {
     ${r.items.map((x) => `
       <div class="recurring-row business-expected-row${x.overdue ? " overdue" : ""}" data-project="${escapeHtml(x.project_id)}">
         <div>
-          <div class="recurring-row-name">${escapeHtml(x.invoice_no || x.client_name || tr("xp.title"))}</div>
-          <div class="recurring-row-sub">${escapeHtml([x.company_name, x.project_name].filter(Boolean).join(" › "))} · ${escapeHtml(expectedDueText_(x))}</div>
+          <div class="recurring-row-name">${escapeHtml(expectedTitle_(x))}</div>
+          <div class="recurring-row-sub">${escapeHtml([x.unit_name || x.stage_name ? x.client_name : "", [x.company_name, x.project_name].filter(Boolean).join(" › ")].filter(Boolean).join(" · "))} · ${escapeHtml(expectedDueText_(x))}</div>
         </div>
         <div class="recurring-row-amount"><div class="primary-amt">${escapeHtml(x.currency)} ${moneyFmt(x.remaining)}</div></div>
       </div>`).join("")}`;
@@ -28989,7 +28994,7 @@ const LINK_ICON_RULES_ = [
   [/^(this entry's changes|cambios de este movimiento|see the changes|ver los cambios)$/i, "clock"],
   [/^(yearly statement|constancia anual|all the yearly statements|todas las constancias)$/i, "file"],   // piece 9
   [/^(send the (corrected )?package|enviar el paquete)/i, "send"],   // piece 10
-  [/^(return the deposit|devolver separación)/i, "undo"],   // piece 11
+  [/^(return the deposit|devolver separación|return this payment|devolver este pago)/i, "undo"],   // piece 11
   [/^(prepare a statement to share|preparar un estado para compartir|prepare the statement|preparar el estado)/i, "file"],   // piece 12
   [/^(change the sections|cambiar las secciones)/i, "pencil"],
   [/^(record the return|registrar la devolución)/i, "check"],

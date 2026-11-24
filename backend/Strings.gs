@@ -359,6 +359,7 @@ var BACKEND_STRINGS_ = {
   "sales.notAnIncome": { en: "Only an income received can be returned.", es: "Solo se puede devolver un ingreso recibido." },
   "sales.tooMuch": { en: "At most {max} can be returned from this payment.", es: "De este pago se puede devolver como máximo {max}." },
   "sales.returnDesc": { en: "Deposit returned: {unit}", es: "Separación devuelta: {unit}" },
+  "sales.status.available": { en: "Available", es: "Disponible" },
   "sales.stage.reservation": { en: "Reservation deposit", es: "Separación" },
   "sales.stage.down_payment": { en: "Down payment", es: "Cuota inicial" },
   "sales.stage.balance": { en: "Balance", es: "Saldo" },

@@ -50,7 +50,10 @@ function taggedIncomes_() {
 
 // The incomes of one unit: its tag, its project, its currency.
 function unitIncomes_(unit, tagged) {
+  var today = businessToday_();
   return (tagged[String(unit.tag_id)] || []).filter(function (e) {
+    // A deposit returned on a later day counts from that day, not before (testers 2.68.2: "collected" dropped at once).
+    if (e.refund_of && String(e.date).slice(0, 10) > today) return false;
     return String(e.project_id || '') === String(unit.project_id) && String(e.currency) === String(unit.currency || homeCurrency_());
   });
 }
@@ -144,7 +147,8 @@ function addProjectUnits(payload) {
   getAllRows('Tags').forEach(function (t) { tags[t.id] = t; });
   var rows = (payload.tag_ids || []).filter(function (id) { return tags[id] && !taken[id]; }).map(function (id) {
     taken[id] = true;
-    return { id: Utilities.getUuid(), tag_id: id, project_id: String(project.id), buyer_id: '', price: '', currency: homeCurrency_(), status: '', note: '' };
+    // A new unit is for sale until said otherwise (testers 2.68.2: "No status" read as missing data).
+    return { id: Utilities.getUuid(), tag_id: id, project_id: String(project.id), buyer_id: '', price: '', currency: homeCurrency_(), status: tr_('sales.status.available'), note: '' };
   });
   if (rows.length) appendRowsBulk_('Units', rows);
   if (ROWS_MEMO_) delete ROWS_MEMO_.Units;

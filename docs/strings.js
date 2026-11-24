@@ -2789,7 +2789,7 @@
     "sales.paymentsTitle": { es: "Abonos recibidos", en: "Payments received" },
     "sales.noPayments": { es: "Ningún abono todavía. Los ingresos con la etiqueta de esta unidad aparecen aquí.", en: "No payment yet. Incomes with this unit's tag show here." },
     "sales.returned": { es: "devuelto", en: "returned" },
-    "sales.return": { es: "Devolver separación…", en: "Return the deposit…" },
+    "sales.return": { es: "Devolver este pago…", en: "Return this payment…" },
     "sales.returnSave": { es: "Registrar la devolución", en: "Record the return" },
     "sales.returnTooMuch": { es: "Se puede devolver como máximo {max}.", en: "At most {max} can be returned." },
     "sales.askReturn": { es: "¿Registrar la devolución de {amount} el {date}? Resta del ingreso de ese mes; el mes en que entró queda igual.", en: "Record a return of {amount} on {date}? It lowers that month's income; the month it came in stays as it was." },
