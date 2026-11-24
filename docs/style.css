@@ -4378,3 +4378,6 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .balance-row.settled-flash { animation: settled-flash 2.6s ease-out; border-radius: var(--r-sm); outline: 2px solid var(--accent); outline-offset: 2px; }   /* not by colour alone (testers 2.68.2) */
 @media (prefers-reduced-motion: reduce) { .balance-row.settled-flash { animation: none; } }
 @keyframes settled-flash { 0%, 40% { background: var(--accent-bg); } 100% { background: transparent; } }
+
+/* A company copy skips the investment platforms step: only a refusal and the buttons show while the welcome saves (testers 2.68.2). */
+#welcome-platforms[data-company] > :not(#wp-error):not(.welcome-tour-buttons) { display: none; }

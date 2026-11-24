@@ -2011,7 +2011,8 @@ function populatePaidByOptions() {
   if (selectedType === "income") {
     label.textContent = tr("field.receivedFrom");
     // With no payers yet, start on an empty choice: "+ Add payer…" must never be the one selected (it was saved as the payer, 2026-11-04).
-    if (!incomePayers_().length) {
+    // A company copy starts empty too: its payers are buyers, and the last one is rarely who paid this time (testers 2.68.2, Lucía).
+    if (!incomePayers_().length || (typeof companyCopyOn_ === "function" && companyCopyOn_())) {
       const none = document.createElement("option");
       none.value = "";
       none.textContent = "—";
@@ -16797,6 +16798,15 @@ async function waNext_() {
   const canLink = welcome_.accounts.some((a) => waSlots_(a.bank, a.kind).length);
   const linked = WA_RAILS.some((k) => welcome_.accounts.some((a) => a.cid === welcome_.links[k]));
   if (canLink && !linked && !await askConfirmApp_(tr("wallets.confirm"), tr("confirmBtn.dontUseWallets"), { plain: true, cancel: tr("confirmBtn.goBackCheck") })) return;
+  // A company copy has no investment platforms step (owner, 2026-11-24, after the testers): the welcome saves from here. The step's
+  // own box only shows a refusal, with Back / Next to try again.
+  if (companyWelcome_()) {
+    waEl_("welcome-platforms").dataset.company = "1";
+    showWelcomeStep_(4);
+    finishWelcome_();
+    return;
+  }
+  delete waEl_("welcome-platforms").dataset.company;
   showWelcomeStep_(4);
 }
 
@@ -16859,7 +16869,7 @@ waEl_("wp-back-btn").addEventListener("click", () => showWelcomeStep_(3));
 // The end of step 4: save the accounts, the platforms, the Business answer, the category picks, then the answers of step 1 (marked "answered" last, so an interrupted save asks again).
 // The welcome counts every screen it shows (design review 2026-11-12: "Step 1 of 4", then an uncounted 5th, the sharing
 // question): 5 while that question is still to come, else 4.
-function welcomeSteps_() { return perfShareState_().asked && !perfIsOwnerCopy_() ? 4 : 5; }
+function welcomeSteps_() { return (perfShareState_().asked && !perfIsOwnerCopy_() ? 4 : 5) - (companyWelcome_() ? 1 : 0); }   // a company copy skips platforms
 // The tour is offered, not started (owner, 2026-11-12): "Want a 1-minute tour?" Show me / Skip. Skipping ends the welcome the
 // way the tour's own end does (a reload when the answers changed the app).
 async function offerTour_(reloadAfter) {
