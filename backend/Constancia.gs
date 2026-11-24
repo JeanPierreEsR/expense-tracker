@@ -84,7 +84,7 @@ function yearStatement_(friendId, ctx) {
   var role = friendRoleOf_(friend);
   var byCur = {};
   var line = function (cur) {
-    return byCur[cur] = byCur[cur] || { currency: cur, contracted: 0, opening: 0, received: 0, returned: 0, forgiven: 0, closing: 0,
+    return byCur[cur] = byCur[cur] || { currency: cur, contracted: 0, opening: 0, received: 0, received_bills: 0, returned: 0, forgiven: 0, closing: 0,
       interest_gross: 0, interest_withholding: 0, interest_net: 0,
       contributed_year: 0, contributed_total: 0, pending_total: 0,
       distributed_gross: 0, distributed_withholding: 0, distributed_net: 0 };
@@ -103,6 +103,8 @@ function yearStatement_(friendId, ctx) {
     x.contracted = round2_(x.contracted + Number(l.amount));
     x.opening = round2_(x.opening + opening);
     if (inYear) x.received = round2_(x.received + Number(l.amount));
+    // Of which: company bills the person paid themselves (a debt made from an expense), not money lent (testers 2.68.2, Elena).
+    if (inYear && l.origin === 'entry') x.received_bills = round2_(x.received_bills + Number(l.amount));
     x.returned = round2_(x.returned + returned);
     x.closing = round2_(x.closing + closing);
     installments.forEach(function (r) {

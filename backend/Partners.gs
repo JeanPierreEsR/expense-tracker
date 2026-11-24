@@ -229,8 +229,8 @@ function companyPartners_(startDate, endDate) {
   if (c.length || d.length) getAllRows('Entries').forEach(function (e) { entries[e.id] = e; });
   var people = {};
   var line = function (pid, cur) {
-    var p = people[pid] = people[pid] || { partner_id: pid, name: String((friends[pid] || {}).name || ''), lines: {} };
-    return p.lines[cur] = p.lines[cur] || { currency: cur, contributed: 0, pending: 0, owed: 0, distributed: 0, gross: 0, withholding: 0 };
+    var p = people[pid] = people[pid] || { partner_id: pid, name: String((friends[pid] || {}).name || '') || tr_('label.unknownFriend'), lines: {} };   // a hand-typed row's unknown partner is named so
+    return p.lines[cur] = p.lines[cur] || { currency: cur, contributed: 0, pending: 0, owed: 0, owed_bills: 0, distributed: 0, gross: 0, withholding: 0 };
   };
   var end = endDate ? String(endDate).slice(0, 10) : '';
   var start = startDate ? String(startDate).slice(0, 10) : '';
@@ -252,15 +252,26 @@ function companyPartners_(startDate, endDate) {
     l.gross = round2_(l.gross + distributionGross_(r, e));
     l.withholding = round2_(l.withholding + (Number(r.withholding) || 0));
   });
-  listLoanBalances({}).forEach(function (f) {
-    if (f.role !== 'partner') return;
-    f.balances.forEach(function (b) { if (b.net < -0.004) line(f.friend_id, b.currency).owed = round2_(-b.net); });
+  // What the company owes each partner, split in two (testers 2.68.2, Lucho): money they lent (`owed`) and company bills they paid
+  // themselves (`owed_bills`, a loan made from an expense). A partner whose debts are all repaid is marked `repaid`, so the card does
+  // not say "nothing recorded".
+  var settled = buildSettlementTotalsByLoan_();
+  var hadLoans = {};
+  getAllRows('Loans').forEach(function (l) {
+    if (friendRoleOf_(friends[l.friend_id] || {}) !== 'partner' || l.direction !== 'i_owe_them') return;
+    hadLoans[l.friend_id] = true;
+    if (l.status === 'forgiven') return;
+    var left = round2_((Number(l.amount) || 0) - (settled[l.id] || 0));
+    if (left <= 0.004) return;
+    var ln = line(l.friend_id, String(l.currency || homeCurrency_()));
+    if (l.origin === 'entry') ln.owed_bills = round2_(ln.owed_bills + left); else ln.owed = round2_(ln.owed + left);
   });
   // A partner with nothing yet still shows (with no lines), so the card can say who the partners are.
   Object.keys(friends).forEach(function (id) { if (friendRoleOf_(friends[id]) === 'partner' && !friends[id].trip_id && !people[id]) people[id] = { partner_id: id, name: String(friends[id].name || ''), lines: {} }; });
   var home = homeCurrency_();
   return Object.keys(people).map(function (id) {
     var p = people[id];
+    if (hadLoans[id]) p.repaid = !Object.keys(p.lines).some(function (k) { return p.lines[k].owed > 0.004 || p.lines[k].owed_bills > 0.004; });
     p.lines = Object.keys(p.lines).sort(function (a, b) { return a === home ? -1 : (b === home ? 1 : (a < b ? -1 : 1)); }).map(function (k) { return p.lines[k]; });
     return p;
   }).sort(function (a, b) { return a.name.localeCompare(b.name); });

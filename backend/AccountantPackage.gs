@@ -147,7 +147,9 @@ function buildAccountantPackage_(month) {
     tr_('pkg.h.payMethod'), tr_('pkg.h.receiptType'), tr_('pkg.h.receiptNo'), tr_('pkg.h.support'), tr_('pkg.h.fx'),
     // For the purchase and sales books (owner, 2026-11-24, after the testers): SUNAT's receipt code, and the amount split into its base,
     // IGV and total. Added at the end, so the columns an accountant already uses stay where they were.
-    tr_('pkg.h.receiptCode'), tr_('pkg.h.base'), tr_('pkg.h.total')]];
+    tr_('pkg.h.receiptCode'), tr_('pkg.h.base'), tr_('pkg.h.total'), tr_('pkg.h.counterparty'), tr_('pkg.h.counterpartyId')]];
+  var peopleById = {};
+  getAllRows('Friends').forEach(function (f) { peopleById[f.id] = f; });
   var unsupported = [];
   entries.forEach(function (e) {
     var signed = e.type === 'transfer' ? (inbound[e.id] || (e.to_payment_method_id && !e.payment_method_id) ? 1 : -1) * Math.abs(Number(e.amount))
@@ -168,7 +170,10 @@ function buildAccountantPackage_(month) {
       e.type === 'expense' || e.type === 'income' ? pkgYesNo_(support) : '', fx,
       e.receipt_type ? (PKG_SUNAT_CODES_[e.receipt_type] || '') : '',
       e.type === 'expense' || e.type === 'income' ? round2_(Math.abs(Number(e.amount)) - (Number(e.igv_amount) || 0)) : '',
-      e.type === 'expense' || e.type === 'income' ? round2_(Math.abs(Number(e.amount))) : '']);
+      e.type === 'expense' || e.type === 'income' ? round2_(Math.abs(Number(e.amount))) : '',
+      // The client an income came from ("Received from"); an expense has no supplier on record yet, so it stays blank.
+      e.type === 'income' && peopleById[e.paid_by] ? String(peopleById[e.paid_by].name || '') : '',
+      e.type === 'income' && peopleById[e.paid_by] ? String(peopleById[e.paid_by].tax_id || '') : '']);
   });
   files.push({ kind: 'movements', name: tr_('pkg.file.movements', { month: month }), rows: mv.length - 1, text: pkgCsv_(mv) });
 
@@ -198,7 +203,8 @@ function buildAccountantPackage_(month) {
   var ctx = constanciaRangeContext_(month, r.start, r.end);
   var led = [[tr_('pkg.h.person'), tr_('pkg.h.role'), tr_('pkg.h.currency'), tr_('pkg.h.opening'), tr_('pkg.h.received'), tr_('pkg.h.interestGross'),
     tr_('pkg.h.interestWithholding'), tr_('pkg.h.interestNet'), tr_('pkg.h.returned'), tr_('pkg.h.closing'), tr_('pkg.h.contributed'),
-    tr_('pkg.h.pending'), tr_('pkg.h.distributedGross'), tr_('pkg.h.distributedWithholding'), tr_('pkg.h.distributedNet')]];
+    tr_('pkg.h.pending'), tr_('pkg.h.distributedGross'), tr_('pkg.h.distributedWithholding'), tr_('pkg.h.distributedNet'),
+    tr_('pkg.h.receivedBills')]];   // added last, so the columns before keep their place
   Object.keys(ctx.friends).forEach(function (id) {
     var f = ctx.friends[id], role = friendRoleOf_(f);
     if ((role !== 'lender' && role !== 'partner') || f.trip_id) return;
@@ -208,7 +214,7 @@ function buildAccountantPackage_(month) {
       var isSunat = String(id) === String(companySunatId_());
       led.push([s.name, tr_(isSunat ? 'pkg.role.sunat' : role === 'partner' ? 'pkg.role.partner' : 'pkg.role.lender'), l.currency, l.opening, l.received, l.interest_gross,
         l.interest_withholding, l.interest_net, l.returned, l.closing, l.contributed_year, l.pending_total, l.distributed_gross,
-        l.distributed_withholding, l.distributed_net]);
+        l.distributed_withholding, l.distributed_net, l.received_bills || 0]);
     });
   });
   files.push({ kind: 'ledger', name: tr_('pkg.file.ledger', { month: month }), rows: led.length - 1, text: pkgCsv_(led) });

@@ -272,6 +272,11 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
     if (pen != null) installmentPenByCategory[x.category_id] = (installmentPenByCategory[x.category_id] || 0) + pen;
   });
 
+  // A company copy's sale stages still to collect are expected income (owner, 2026-11-24, after the testers): each counts in the
+  // month it is due with what is still owed on it; an overdue one counts in the current period. Under the income category of its
+  // stage (Separaciones, Cuotas iniciales, Saldos de venta).
+  var saleStagePenByCategory = saleStagesExpectedByCategory_(bounds, todayStr, categories);
+
   var results = categories.map(function (category) {
     // A category the owner has explicitly marked 'yearly' (period_type
     // column, set when the category itself was created — see CLAUDE.md's
@@ -383,7 +388,8 @@ function computeAllCategoryProjections_(bounds, onlyCategoryId) {
       if (category.type === 'investment') { baseAmountPen = 0; ratePerMonth = 0; levelPerMonth = 0; }
     }
 
-    var installmentPen = category.type === 'expense' ? (installmentPenByCategory[category.id] || 0) : 0;
+    var installmentPen = category.type === 'expense' ? (installmentPenByCategory[category.id] || 0)
+      : category.type === 'income' ? (saleStagePenByCategory[category.id] || 0) : 0;
     recurringAmountPen += installmentPen;
     var calculatedAmountPen = recurringAmountPen + baseAmountPen;
     var overrideKey = category.id + '|' + bounds.periodKey;
@@ -868,4 +874,28 @@ function getProjections(payload) {
     loansProgrammed: loansProgrammed,   // principal of installments still to pay (money going out)
     net: income - expenses - investmentsPutInNet + loans
   };
+}
+
+// category id -> main-currency amount of the open sale stages due in this period (overdue ones in the period that holds today).
+// Company copies only; {} elsewhere.
+var SALE_STAGE_CATEGORY_KEYS_ = { reservation: 'reservation_deposits', down_payment: 'down_payments', balance: 'sale_balances', bank_loan: 'sale_balances' };
+function saleStagesExpectedByCategory_(bounds, todayStr, categories) {
+  var out = {};
+  if (!isCompanyCopy_() || !businessOn_()) return out;
+  var rows = getExpectedRows_().filter(function (x) { return x.unit_tag_id && x.stage; });
+  if (!rows.length) return out;
+  var byKey = {};
+  categories.forEach(function (c) { if (c.type === 'income' && c.key) byKey[c.key] = c.id; });
+  var holdsToday = bounds.startDate <= todayStr && todayStr <= bounds.endDate;
+  expectedViews_(rows, todayStr).forEach(function (v) {
+    if (v.state !== 'open' || !(v.remaining > 0.004)) return;
+    var due = String(v.due_date).slice(0, 10);
+    var inPeriod = due >= bounds.startDate && due <= bounds.endDate;
+    if (!inPeriod && !(holdsToday && due < bounds.startDate)) return;
+    var catId = byKey[SALE_STAGE_CATEGORY_KEYS_[v.stage]];
+    if (!catId) return;
+    var pen = computeAmountPen(v.remaining, v.currency, due < todayStr ? todayStr : due);
+    if (pen != null) out[catId] = (out[catId] || 0) + pen;
+  });
+  return out;
 }

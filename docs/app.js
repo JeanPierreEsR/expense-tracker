@@ -12214,8 +12214,10 @@ function renderCompanyPartners_(company) {
       if (l.contributed) rows.push([tr("coOv.pContributed"), fmt(l.contributed, l.currency)]);
       if (l.pending) rows.push([tr("coOv.pPending"), fmt(l.pending, l.currency)]);
       if (l.owed) rows.push([tr("coOv.pOwed"), fmt(l.owed, l.currency)]);
+      if (l.owed_bills) rows.push([tr("coOv.pOwedBills"), fmt(l.owed_bills, l.currency)]);
       if (l.distributed) rows.push([tr("coOv.pDistributed"), fmt(l.distributed, l.currency), tr("coOv.pGross", { gross: formatAmount(l.gross, l.currency), withholding: formatAmount(l.withholding, l.currency) })]);
     });
+    if (p.repaid) rows.push([`<span class="hint">${escapeHtml(tr("coOv.pRepaid"))}</span>`, ""]);
     if (!rows.length) rows.push([`<span class="hint">${escapeHtml(tr("coOv.pNothing"))}</span>`, ""]);
     return `<div class="co-partner"><div class="co-partner-name">${escapeHtml(p.name)}</div>` +
       rows.map(([k, v, sub]) => `<div class="loans-ov-owed-row"><span>${k.startsWith("<") ? k : escapeHtml(k)}</span><b>${v}</b></div>` +
@@ -23488,11 +23490,12 @@ function shareDocHtml_(s) {
     if (!d.partners.length) html += row(tr("share.nothing"), "");
     d.partners.forEach((p) => {
       html += head(p.name);
-      if (!p.lines.length) html += row(tr("coOv.pNothing"), "");
+      if (!p.lines.length) html += row(tr(p.repaid ? "coOv.pRepaid" : "coOv.pNothing"), "");
       p.lines.forEach((l) => {
         if (l.contributed) html += row(tr("coOv.pContributed"), amt(l.contributed, l.currency));
         if (l.pending) html += row(tr("coOv.pPending"), amt(l.pending, l.currency));
         if (l.owed) html += row(tr("coOv.pOwed"), amt(l.owed, l.currency));
+        if (l.owed_bills) html += row(tr("coOv.pOwedBills"), amt(l.owed_bills, l.currency));
         if (l.distributed) html += row(tr("coOv.pDistributed"), amt(l.distributed, l.currency));
       });
     });
@@ -25021,6 +25024,10 @@ function openPersonModal_(person, friendsMode) {
     sel.appendChild(o);
   });
   sel.value = person ? person.role : "client";
+  // A client's or supplier's RUC / DNI, on a company copy (owner, 2026-11-24: the accountant's package names who paid).
+  const taxBox = document.getElementById("person-taxid-box");
+  taxBox.hidden = personModalFriends_ || !companyCopyOn_();
+  document.getElementById("person-taxid").value = (person && person.tax_id) || "";
   document.getElementById("person-delete-btn").hidden = !person;
   document.getElementById("person-debts-btn").hidden = !(person && person.totals && person.totals.length);
   const backdrop = document.getElementById("person-modal-backdrop");
@@ -25100,13 +25107,16 @@ document.getElementById("person-save-btn").addEventListener("click", () => {
   const phone = withPhone ? readPhoneField_("person-phone") : undefined;
   if (phone && !LoanReminder.phoneOk(phone)) { errorEl.textContent = tr("remind.errPhone"); return; }
   // Closes at once and saves behind the screen; the list is refreshed once the person is on the server.
+  const taxBoxOn = !document.getElementById("person-taxid-box").hidden;
+  const taxId = taxBoxOn ? document.getElementById("person-taxid").value.replace(/[\s.-]/g, "") : undefined;
+  if (taxId && !/^\d{8}$|^\d{11}$/.test(taxId)) { errorEl.textContent = tr("people.badTaxId"); return; }
   const editing = editingPerson_;
   const fromFriends = personModalFriends_;
   closePersonModal_();
   saveBehindScreen_(async () => {
     const friend = editing
-      ? await callApi("updateFriend", fromFriends ? { id: editing.id, name, role: businessOn() ? "friend" : undefined, phone } : { id: editing.id, name, role })
-      : await callApi("addFriend", fromFriends ? { name, phone } : { name, role });
+      ? await callApi("updateFriend", fromFriends ? { id: editing.id, name, role: businessOn() ? "friend" : undefined, phone } : { id: editing.id, name, role, tax_id: taxId })
+      : await callApi("addFriend", fromFriends ? { name, phone } : { name, role, tax_id: taxId });
     rememberPerson_(friend);
     if (fromFriends) { refreshFriendChips_(); populatePaidByOptions(); }   // the pickers show the new name
   }, () => (fromFriends ? refreshFriendsList_() : refreshPeopleList_()));
@@ -33231,7 +33241,23 @@ function renderLoanBalanceList_(listId, emptyNoteId, rows, kind) {
   }
   emptyNote.hidden = true;
 
-  rows.forEach((r) => {
+  // A company copy groups its debts by who the person is: partners, lenders, then everyone else (testers 2.68.2, Lucho: a partner's
+  // loan sat among the lenders). Headings only when there is more than one group.
+  let ordered = rows, groupOf = null;
+  if (companyCopyOn_()) {
+    const g = (r) => (r.role === "partner" ? 0 : r.role === "lender" ? 1 : 2);
+    ordered = rows.slice().sort((a, b) => g(a) - g(b));
+    if (new Set(rows.map(g)).size > 1) groupOf = g;
+  }
+  let lastGroup = -1;
+  ordered.forEach((r) => {
+    if (groupOf && groupOf(r) !== lastGroup) {
+      lastGroup = groupOf(r);
+      const h = document.createElement("h3");
+      h.className = "accounts-group-title";
+      h.textContent = tr(["loans.groupPartners", "loans.groupLenders", "loans.groupOthers"][lastGroup]);
+      list.appendChild(h);
+    }
     const amounts = r.lines.map((l) => `<div>${formatLoanAmount_(l.currency, l.net, kind)}</div>`).join("");
     const row = document.createElement("div");
     row.className = "loan-row";

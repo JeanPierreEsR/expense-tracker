@@ -143,7 +143,19 @@ test("paid by the partner: the debt carries the company even with no project", (
   const loan = rt.rows("Loans").find((l) => l.entry_id === e.id);
   assert.equal(loan.direction, "i_owe_them");
   assert.equal(loan.company_id, company);
-  assert.equal(partnersCard(rt).find((p) => p.name === "Socia Prueba").lines[0].owed, 200);
+  const line = partnersCard(rt).find((p) => p.name === "Socia Prueba").lines[0];
+  assert.equal(line.owed_bills, 200, "a bill the partner paid shows apart from money they lent (testers 2.68.2)");
+  assert.equal(line.owed, 0);
+});
+
+test("a partner repaid in full shows as repaid, not 'nothing recorded'", () => {
+  const rt = companyCopy();
+  const partner = rt.api("addFriend", { name: "Socio Pagado", role: "partner" });
+  rt.run(`updateRowFields_('Friends', '${partner.id}', { role: 'partner' })`);
+  rt.api("addLoan", { friend_id: partner.id, direction: "i_owe_them", amount: 300, currency: "PEN", date: today(), payment_method_id: pm(rt) });
+  rt.api("recordRepayment", { friend_id: partner.id, direction: "i_owe_them", amount: 300, currency: "PEN", date: today(), payment_method_id: pm(rt) });
+  const p = partnersCard(rt).find((x) => x.name === "Socio Pagado");
+  assert.equal(p.repaid, true);
 });
 
 test("not a company copy: refused, and a friend-paid expense's debt carries no company", () => {

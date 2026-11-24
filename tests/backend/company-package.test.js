@@ -166,7 +166,23 @@ test("the movements file ends with SUNAT's receipt code, the base without IGV an
   const mv = file(rt.api("getAccountantPackage", { month: ym }), "movements");
   const h = mv[0];
   const row = mv.find((r) => r.includes("F001-123"));
-  assert.equal(row[h.length - 3], "01", "factura");
-  assert.equal(Number(row[h.length - 1]), 1200);
-  assert.equal(Number(row[h.length - 2]), 1200 - (Number(row[h.indexOf("IGV")]) || 0));
+  const col = (re) => h.findIndex((x) => re.test(x));
+  assert.equal(row[col(/SUNAT/)], "01", "factura");
+  assert.equal(Number(row[col(/^Total$/)]), 1200);
+  assert.equal(Number(row[col(/^Base/)]), 1200 - (Number(row[h.indexOf("IGV")]) || 0));
+});
+
+// Owner, 2026-11-24: a client's RUC / DNI goes into the package next to the income they paid.
+test("a client's RUC goes into the movements file next to their income; a bad number is refused", () => {
+  const rt = companyCopy();
+  month(rt);
+  const client = rt.api("addFriend", { name: "Cliente Prueba", role: "client", tax_id: "20 123-456 789" });
+  assert.equal(rt.rows("Friends").find((f) => f.id === client.id).tax_id, "20123456789");
+  assert.throws(() => rt.api("updateFriend", { id: client.id, name: "Cliente Prueba", role: "client", tax_id: "123" }), /11 digits/);
+  rt.api("createEntry", { type: "income", date: day(12), amount: 700, currency: "PEN", category_id: cat(rt, "income"), description: "Abono cliente",
+    payment_method_id: pm(rt), paid_by: client.id });
+  const mv = file(rt.api("getAccountantPackage", { month: ym }), "movements");
+  const row = mv.find((r) => r.includes("Abono cliente"));
+  assert.equal(row[row.length - 2], "Cliente Prueba");
+  assert.equal(row[row.length - 1], "20123456789");
 });

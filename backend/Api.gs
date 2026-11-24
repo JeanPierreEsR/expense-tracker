@@ -557,7 +557,7 @@ function routeActionSwitch_(action, payload) {
     case 'listPendingContributions': return listPendingContributions();
     case 'listChangeLog': return listChangeLog(payload);   // Business 2 piece 8: change log and month close (ChangeLog.gs, MonthClose.gs)
     case 'getMonthClose': return getMonthClose(payload);
-    case 'closeMonth': return closeMonth(payload);
+    case 'closeMonth': return withRowsMemo_(function () { return closeMonth(payload); });   // each sheet read once (speed pass, 2026-11-24: 49 reads)
     case 'reopenMonth': return reopenMonth(payload);
     case 'getYearStatement': return getYearStatement(payload);   // Business 2 piece 9: the yearly constancia (Constancia.gs)
     case 'getYearStatements': return getYearStatements(payload);
@@ -568,9 +568,9 @@ function routeActionSwitch_(action, payload) {
     case 'removeProjectUnit': return removeProjectUnit(payload);
     case 'saveUnitStage': return saveUnitStage(payload);
     case 'returnUnitDeposit': return returnUnitDeposit(payload);
-    case 'buildShareStatement': return buildShareStatement(payload);   // Business 2 piece 12 (ShareStatement.gs)
+    case 'buildShareStatement': return withRowsMemo_(function () { return buildShareStatement(payload); });   // Business 2 piece 12 (ShareStatement.gs); read-only, each sheet once (speed pass: 63 reads)
     case 'getShareSections': return getShareSections();   // Business 2 piece 10 (AccountantPackage.gs)
-    case 'sendAccountantPackage': return sendAccountantPackage(payload);
+    case 'sendAccountantPackage': return withRowsMemo_(function () { return sendAccountantPackage(payload); });
     case 'getProfileState': return getProfileState();
     case 'getAnnualHints': return getAnnualHints();
     case 'listStatementGaps': return listStatementGaps();
@@ -2230,6 +2230,9 @@ function addFriend(payload) {
   // Business pack: a client / supplier / partner. Ignored while the pack is off, so a personal copy never gets the column.
   var role = businessRoleFromPayload_(payload.role);
   if (role !== 'friend') { ensureBusinessSheets_(); friend.role = role; }
+  // A client's or supplier's RUC / DNI, for the accountant's package (owner, 2026-11-24). Text, never a number.
+  var taxId = role !== 'friend' ? personTaxId_(payload.tax_id) : '';
+  if (taxId) { ensureBusinessColumn_('Friends', 'tax_id', true); friend.tax_id = taxId; }
   appendRowObject('Friends', friend);
   if (phone) { writeFriendPhone_(friend.id, phone); friend.phone = phone; }
   return friend;
