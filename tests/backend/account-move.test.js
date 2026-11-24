@@ -298,3 +298,14 @@ test("the summary names the wallet the account really carries, and none when it 
   rt.run(`setSetting_('plin_pen', '')`);
   assert.deepEqual(rt.api("previewAccountMove", { from: oldCard.id, to: newCard.id }).movedLinks, []);
 });
+
+// Testers 2.68.2 (Ingrid): an "Account Moves" row typed by hand with readable but wrong data gave a raw error on Restore.
+test("a hand-typed move row that is not a whole move is treated as gone, with the plain message", () => {
+  const { freshApp } = require("./helpers");
+  const { rt } = freshApp({ small: true });
+  rt.run("ensureAccountMovesSheet_()");
+  const sheet = rt.sheet("Account Moves");
+  sheet.rows.push(["hand-move", "2026-11-23T11:00:00.000Z", "0", "Typed C", "Typed D", "{}", "{}"]);
+  rt.run("ROWS_MEMO_ = null;");
+  assert.throws(() => rt.api("restoreAccountMove", { move_id: "hand-move" }), (e) => !/Cannot read properties/.test(e.message));
+});
