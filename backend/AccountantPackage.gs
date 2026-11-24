@@ -257,16 +257,23 @@ function sendAccountantPackage(payload) {
   var changesText = '';
   if (corrected) {
     var lines = listChangeLog({ month: month, limit: 200 }).lines.filter(function (l) { return l.at > row.package_sent_at && l.table !== 'Month Closes'; });
+    // Each line starts with the ENTRY's date (the day of the change read as the transaction's date) and names the field in words
+    // (testers 2.68.2, Carlos: "receipt_no"); the change's own day goes at the end.
     changesText = lines.map(function (l) {
-      var what = l.what ? (l.what.description + ' ' + l.what.currency + ' ' + exportMoney_(l.what.amount)) : l.table;
-      return '- ' + l.at.slice(0, 10) + ' ' + what + (l.field ? ': ' + l.field + ' ' + l.before + ' → ' + l.after : ' (' + l.action + ')');
+      var what = l.what ? ((l.what.date ? String(l.what.date).slice(0, 10) + ' ' : '') + l.what.description + ' ' + l.what.currency + ' ' + exportMoney_(l.what.amount)) : l.table;
+      var fieldKey = 'pkg.field.' + l.field;
+      var fieldName = l.field ? (tr_(fieldKey) !== fieldKey ? tr_(fieldKey) : l.field) : '';
+      return '- ' + what + (l.field ? ': ' + fieldName + ' ' + l.before + ' → ' + l.after : ' (' + l.action + ')') + ' · ' + tr_('pkg.changedOn', { day: l.at.slice(0, 10) });
     }).join('\n') || tr_('pkg.handEdited');
   }
+  // A month changed after its close, sent for the first time: said too, so the accountant knows (testers 2.68.2).
+  var closeState = built.closed ? monthCloseState_(month) : null;
+  var changedNote = !corrected && closeState && closeState.changed ? '\n\n' + tr_('pkg.changedAfterClose') : '';
   var company = getCompanyRows_()[0];
   var subject = tr_(corrected ? 'pkg.subjectCorrected' : 'pkg.subject', { company: company ? String(company.name) : '', month: month });
   var body = tr_('pkg.body', { month: month, files: built.files.map(function (f) { return '- ' + f.name + ' (' + f.rows + ')'; }).join('\n') }) +
     (built.closed ? '' : '\n\n' + tr_('pkg.notClosed')) +
-    (corrected ? '\n\n' + tr_('pkg.correctedIntro') + '\n' + changesText : '') + '\n\n' + tr_('const.notice');
+    (corrected ? '\n\n' + tr_('pkg.correctedIntro') + '\n' + changesText : '') + changedNote + '\n\n' + tr_('const.notice');
   var attachments = built.files.map(function (f) { return Utilities.newBlob(f.text, 'text/csv', f.name + '.csv'); });
   var me = '';
   try { me = Session.getEffectiveUser().getEmail(); } catch (err) { me = ''; }

@@ -118,6 +118,7 @@ test("sending: to the accountant with a copy, the address kept; a change after s
   const mail2 = rt.svc.mailLog[rt.svc.mailLog.length - 1];
   assert.match(mail2.subject, /CORREGIDO|CORRECTED/);
   assert.match(mail2.body, /1200 → 1250/);
+  assert.match(mail2.body, new RegExp(`- ${day(5)} Cemento PEN [\\d.,]+: (Amount|Monto) 1200 → 1250 · (changed on|cambiado el) `), "the entry's date first, the field in words (testers 2.68.2)");
   assert.throws(() => rt.api("sendAccountantPackage", { month: ym, to: "not an address" }));
 });
 
