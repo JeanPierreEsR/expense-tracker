@@ -188,6 +188,7 @@ var ONCE_ACTIONS_ = {
   addTrip: 1, addBudget: 1, addPaymentMethod: 1, savePaymentMethod: 1, addTag: 1, addBank: 1, addPayor: 1, saveCategory: 1,
   convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, closeMonth: 1, reopenMonth: 1, sendAccountantPackage: 1, addProjectUnits: 1, saveUnitStage: 1, returnUnitDeposit: 1,   // Business 2 piece 7 (Partners.gs)
   saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1,
+  recordRefund: 1, applyRefundMatch: 1,   // Refunds.gs: a resend must not record the same money back twice
   moveAccountHistory: 1, undoAccountMove: 1, restoreAccountMove: 1   // Accounts: move an account's history (AccountMove.gs); a resend gets the first answer, never a second move
 };
 
@@ -231,9 +232,9 @@ function applePayDoor_(e) {
 var MONEY_PAYLOAD_ACTIONS_ = { recordRepayment: 1, addLoan: 1, updateLoan: 1, forgiveLoan: 1, recordCurrencyExchange: 1, updateCurrencyExchange: 1,
   createEntry: 1, saveEntryAll: 1, updateEntry: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, recordDistribution: 1, convertEntryToPartnerMoney: 1,
   saveBankLoan: 1, recordInstallment: 1, recordEarlyPayment: 1, returnUnitDeposit: 1, saveUnitStage: 1, saveUnit: 1, addFriend: 1, addPaymentMethod: 1,
-  savePaymentMethod: 1, addCompany: 1, updateCompany: 1, addProject: 1, saveCompanySetup: 1 };
+  savePaymentMethod: 1, addCompany: 1, updateCompany: 1, addProject: 1, saveCompanySetup: 1, recordRefund: 1 };
 var MAX_AMOUNT_ = 1e12, MAX_TEXT_ = 2000;
-var MONEY_PM_CHECK_ = { recordRepayment: 1, addLoan: 1, recordCurrencyExchange: 1, forgiveLoan: 1, recordInstallment: 1, recordEarlyPayment: 1 };
+var MONEY_PM_CHECK_ = { recordRefund: 1, recordRepayment: 1, addLoan: 1, recordCurrencyExchange: 1, forgiveLoan: 1, recordInstallment: 1, recordEarlyPayment: 1 };
 function checkMoneyPayload_(action, payload) {
   if (!MONEY_PAYLOAD_ACTIONS_[action] || !payload || typeof payload !== 'object') return;
   var pmIds = null;
@@ -568,6 +569,9 @@ function routeActionSwitch_(action, payload) {
     case 'removeProjectUnit': return removeProjectUnit(payload);
     case 'saveUnitStage': return saveUnitStage(payload);
     case 'returnUnitDeposit': return returnUnitDeposit(payload);
+    case 'recordRefund': return recordRefund(payload);   // Refunds.gs
+    case 'cancelExpectedRefund': return cancelExpectedRefund(payload);
+    case 'applyRefundMatch': return applyRefundMatch(payload);
     case 'buildShareStatement': return buildShareStatement(payload);   // Business 2 piece 12 (ShareStatement.gs)
     case 'getShareSections': return getShareSections();   // Business 2 piece 10 (AccountantPackage.gs)
     case 'sendAccountantPackage': return sendAccountantPackage(payload);
@@ -672,7 +676,10 @@ function routeActionSwitch_(action, payload) {
     case 'removePracticeExchange': return removePracticeExchange(payload);
     case 'removePracticeData': return removePracticeData(payload);
     case 'removePracticeLoans': return removePracticeLoans(payload);
-    case 'discardEntry': refuseRepaymentPartDiscard_(payload.id); return discardEntryWithRepayments_(payload.id, payload.repayments);
+    case 'discardEntry':
+      refuseRepaymentPartDiscard_(payload.id);
+      REFUND_RELEASE_MODE_ = payload.refunds === 'delete' ? 'delete' : '';   // a purchase's refunds go too, when the person said so (Refunds.gs)
+      try { return discardEntryWithRepayments_(payload.id, payload.repayments); } finally { REFUND_RELEASE_MODE_ = ''; }
     case 'confirmEntries': return confirmEntries(payload);
     case 'previewEntriesDelete': return withRowsMemo_(function () { return previewEntriesDelete(payload); });
     case 'deleteEntries': return withRowsMemo_(function () { return deleteEntries(payload); });
@@ -1684,7 +1691,10 @@ function listEntries(payload) {
   // A company's entry split between projects carries its parts (ProjectSplits.gs, Business 2 piece 6).
   var projSplitsList = businessOn_() ? projectSplitsByEntry_() : {};
   var projByIdList = Object.keys(projSplitsList).length ? projectsById_() : {};
+  // What came back on each purchase (Refunds.gs): the edit window's "Refunded … of …" line and the Refund window's limits.
+  var refundParts = entries.some(function (e) { return e.type === 'expense'; }) ? refundPartsByPurchase_() : {};
   entries.forEach(function (entry) {
+    if (refundParts[entry.id]) { entry.refund_parts = refundParts[entry.id]; entry.refunded = sumParts_(refundParts[entry.id]); }
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
     if (transferLinks[entry.id]) entry.link = transferLinks[entry.id];
     var ownShare = entry.type === 'expense'
@@ -1907,6 +1917,7 @@ function listPendingEntries() {
   // so the Needs review row can send Discard to the repayment's screen instead of deleting it on its own.
   var transferLinks = entries.length ? buildTransferLinkMap_() : {};
   var waitingIncome = entries.some(function (e) { return e.type === 'income'; }) ? listWaitingIncome_() : [];
+  var expectedRefunds = entries.length ? listExpectedRefunds_() : [];   // "Is this the refund you were waiting for?" (Refunds.gs)
   var payeeHist = entries.length ? buildPayeeHistory_() : null;   // PayeeGuess.gs
   // Its tags (the card's "Tags" button and Edit mode's "Tag" can add them before it is confirmed; the full form opens with them).
   var tagsByEntry = entries.length ? tagIdsByEntry_() : {};
@@ -1932,6 +1943,8 @@ function listPendingEntries() {
     if (loanHint) entry.loan_hint = loanHint;
     var chargeMatch = chargeMatchForReview_(entry, chargePending);   // "Is this the charge of …?" (Charges.gs; only charge-pending entries can match)
     if (chargeMatch) entry.charge_match = chargeMatch;
+    var refundMatch = refundMatchForPending_(entry, expectedRefunds);
+    if (refundMatch) entry.refund_match = refundMatch;
     var waitingMatch = waitingMatchForPending_(entry, waitingIncome);   // "Is this the payment you were waiting for?" (IncomeWaiting.gs)
     if (waitingMatch) entry.waiting_match = waitingMatch;
     // "This is my Salary for August": the Programmed item this waiting payment most likely pays (RecurringExpenses.gs planMatchFor_).

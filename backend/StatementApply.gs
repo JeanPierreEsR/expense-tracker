@@ -343,6 +343,8 @@ function applyStatementDecisionsCore_(payload) {
     report.changed++;
   }
   function requirePm(L) { if (!L.pm) throw new Error(tr_('sa.noAccount', { key: L.s.key })); return L.pm; }
+  var refundTargets = {};   // purchases refunds are linked to, with what is still refundable on them (Refunds.gs)
+  var refundExpectedDone = [];   // purchases whose refund on its way arrived in this upload
   function newEntry(o) {
     if (existingExternal[o.external_id]) { report.skippedExisting++; return false; }
     existingExternal[o.external_id] = true;
@@ -520,10 +522,30 @@ function applyStatementDecisionsCore_(payload) {
         recurring_expense_id: isRev ? '' : planLinkFor(a), recurring_month: isRev ? '' : planMonthFor(a, hx.l.date),
         amount: isRev ? -hx.l.amount : Math.abs(hx.l.amount),
         description: isRev ? tr_('desc.reversal', { text: stmtCleanDescription_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) }) : stmtCleanDescription_(hx.l.description),
-        status: 'confirmed', external_id: 'stmt-' + hx.key, merchant: stmtMerchantKey_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')) });
+        status: 'confirmed', external_id: 'stmt-' + hx.key, merchant: stmtMerchantKey_(String(hx.l.description).replace(/^\s*REV\.?\s*/i, '')),
+        refund_of: revFor && stmtRefundTarget_(a.entryId, hx.l, refundTargets) ? String(a.entryId) : '' });
+      if (madeH && revFor) { var revT = stmtRefundTarget_(a.entryId, hx.l, refundTargets); if (revT) revT.left = Math.round((revT.left - hx.l.amount) * 100) / 100; }
       if (madeH) { if (isRev) report.created.reversals++; else { report.created.purchases++; countLineCategory(hxCat); } }
       if (madeH && !(revFor ? (revFor[col.category_id] || '') : hxCat.id)) report.uncategorized++;
       remember(hx, 'added', madeH ? creations[creations.length - 1].id : '');
+    } else if (a.type === 'add_history_refund' && a.refundOf && stmtRefundTarget_(a.refundOf, line(a).l, refundTargets)) {
+      // The refund of a purchase in the app (one on its way, or a charge from another month): linked to it, by the owner's month
+      // rule (Refunds.gs): the purchase's own month = a minus expense in its category, later = Refunds income.
+      var rfp = line(a); useLine(rfp);
+      var target = stmtRefundTarget_(a.refundOf, rfp.l, refundTargets);
+      var sameMonthRf = String(rfp.l.date).substring(0, 7) === String(target.date).substring(0, 7);
+      var rfpCat = sameMonthRf ? (target.category_id || '') : (catByName['income:Refunds'] || (dryRun ? 'refunds-to-be-created' : refundsCategory_().id));
+      if (!sameMonthRf) catByName['income:Refunds'] = rfpCat;
+      var madeRp = newEntry({ type: sameMonthRf ? 'expense' : 'income', date: rfp.l.date, amount: sameMonthRf ? -rfp.l.amount : rfp.l.amount, currency: rfp.l.currency,
+        category_id: rfpCat, description: tr_('refund.desc', { what: String(target.description || '') || stmtCleanDescription_(rfp.l.description) }),
+        payment_method_id: requirePm(rfp).id, status: 'confirmed', external_id: 'stmt-' + rfp.key, refund_of: target.id,
+        merchant: stmtMerchantKey_(String(rfp.l.description).replace(/^\s*REV\.?\s*/i, '')) });
+      if (madeRp) {
+        target.left = Math.round((target.left - rfp.l.amount) * 100) / 100;
+        if (sameMonthRf) report.created.reversals++; else report.created.income++;
+        if (Number(target.refund_expected) > 0) refundExpectedDone.push(target);
+      }
+      remember(rfp, 'added', madeRp ? creations[creations.length - 1].id : '');
     } else if (a.type === 'add_history_refund') {
       // A refund that does not cancel a charge of its own month: income in the category "Refunds" (the line-by-line comparison's rule).
       var rfd = line(a); useLine(rfd);
@@ -758,7 +780,15 @@ function applyStatementDecisionsCore_(payload) {
   report.categoriesRenamed = report.categoriesRenamed.filter(function (r) { return changes.some(function (c) { return c.sheet === 'Categories' && c.field === 'name' && c.new_value === r.to; }); });
   report.categoriesCreatedNames = Object.keys(createdCategoryIds).filter(function (ph) { return changes.some(function (c) { return c.sheet === 'Categories' && c.row_id === createdCategoryIds[ph]; }); }).map(function (ph) { return newCategories[ph].name; });
   if (creations.some(function (e) { return e.exchange_pair; })) { ensureEntriesToPaymentMethodColumn_(); ensureEntriesExchangeColumn_(); ensureColumn_('Entries', 'exchange_pair'); }
+  if (creations.some(function (e) { return e.refund_of; })) ensureRefundColumns_();
   appendRowsBulk_('Entries', creations);
+  // A refund on its way that arrived: its note goes (Undo puts it back).
+  refundExpectedDone.forEach(function (t) {
+    if (dryRun) return;
+    updateRowFields_('Entries', t.id, { refund_expected: '', refund_expected_by: '' });
+    changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: t.id, field: 'refund_expected', old_value: String(t.refund_expected), new_value: '', created_at: now });
+    if (t.refund_expected_by) changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: t.id, field: 'refund_expected_by', old_value: String(t.refund_expected_by), new_value: '', created_at: now });
+  });
   if (loanOps.length) stmtWriteLoanOps_(loanOps, batchId, now, changes, remember, report);
   if (payload.inboxIds && payload.inboxIds.length) {
     // Read = saved (owner, 2026-11-11). Each one is recorded so Undo puts it back as waiting in the Inbox.
@@ -1298,6 +1328,20 @@ function ensureBankFeesCategory_() {
     color: CATEGORY_COLOR_PALETTE[getAllRows('Categories').length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: 'bank_fees' };
   appendRowObject('Categories', row);
   return row;
+}
+
+// A purchase a statement's refund line can be linked to (Refunds.gs): a confirmed expense with at least this much still refundable.
+function stmtRefundTarget_(id, l, targets) {
+  if (!id) return null;
+  if (targets[id] === undefined) {
+    var p = getEntryById_(id);
+    if (!p || p.type !== 'expense' || p.status !== 'confirmed' || String(p.refund_of || '')) { targets[id] = null; return null; }
+    var parts = refundedParts_(p.id, getAllRows('Entries'), getAllRows('Loans'));
+    p.left = Math.round((Number(p.amount) - sumParts_(parts)) * 100) / 100;
+    targets[id] = p;
+  }
+  var t = targets[id];
+  return t && Math.abs(l.amount) <= t.left + 0.004 && String(l.date) >= String(t.date).substring(0, 10) ? t : null;
 }
 
 /** The income category "Refunds" (money coming back for a purchase); created on first use. */

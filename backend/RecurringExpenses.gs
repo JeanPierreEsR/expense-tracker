@@ -1890,6 +1890,15 @@ function listExpectedRecurringItems() {
     });
   });
 
+  // Refunds on the way (Refunds.gs): money in that is not counted yet, one group per currency, by expected date.
+  listExpectedRefunds_().forEach(function (x) {
+    var key = 'refund|' + x.currency;
+    if (!groupsByKey[key]) groupsByKey[key] = { type: 'income', refund: true, currency: x.currency, total: 0, items: [] };
+    groupsByKey[key].total += x.amount;
+    groupsByKey[key].items.push({ id: x.entry_id, refund: true, entry_id: x.entry_id, description: x.description, category_name: x.category_name,
+      category_icon: x.category_icon, amount: x.amount, expected_date: x.expected_by, sort_date: x.expected_by, overdue: !!x.expected_by && x.expected_by < todayStr });
+  });
+
   var groups = Object.keys(groupsByKey).map(function (key) {
     var group = groupsByKey[key];
     if (group.currency !== homeCurrency_()) {
@@ -1910,6 +1919,7 @@ function listExpectedRecurringItems() {
   groups.sort(function (a, b) {
     if (a.type !== b.type) return a.type === 'income' ? -1 : 1;
     if (!!a.pending !== !!b.pending) return a.pending ? -1 : 1;   // pending income, then programmed income, then the rest
+    if (!!a.refund !== !!b.refund) return a.refund ? 1 : -1;   // refunds on the way after the programmed income
     if (a.currency === homeCurrency_()) return -1;
     if (b.currency === homeCurrency_()) return 1;
     return a.currency < b.currency ? -1 : 1;

@@ -795,6 +795,20 @@ var BACKEND_STRINGS_ = {
   "xch.editGone": { en: "This exchange has changed since it was opened. Open it again.", es: "Este cambio de moneda se modificó desde que lo abriste. Ábrelo otra vez." },
   "xch.editBothAccounts": { en: "Both sides need one of your accounts. To keep only one side, delete this exchange and save it again.", es: "Los dos lados necesitan una de tus cuentas. Para dejar un solo lado, elimina este cambio y guárdalo otra vez." },
   "desc.reversal": { en: "Refund: {text}", es: "Reembolso: {text}" },
+  // Refunds on a purchase (Refunds.gs)
+  "refund.desc": { en: "Refund: {what}", es: "Reembolso: {what}" },
+  "refund.notAPurchase": { en: "Only a saved expense can get a refund.", es: "Solo un gasto guardado puede tener un reembolso." },
+  "refund.tooMuch": { en: "At most {cur} {max} can still come back on this purchase.", es: "De esta compra todavía pueden volver como máximo {cur} {max}." },
+  "refund.beforePurchase": { en: "The money can't come back before the day of the purchase.", es: "El dinero no puede volver antes del día de la compra." },
+  "refund.backToPayerOnly": { en: "Only the friend who paid the purchase can get the money back on their card.", es: "Solo el amigo que pagó la compra puede recibir el dinero en su tarjeta." },
+  "refund.needsAccount": { en: "Choose the account the money came back to.", es: "Elige la cuenta a la que volvió el dinero." },
+  "refund.notOnPurchase": { en: "That person is not part of this purchase.", es: "Esa persona no es parte de esta compra." },
+  "refund.partTooMuch": { en: "{name} can get back at most {cur} {max}.", es: "A {name} le pueden volver como máximo {cur} {max}." },
+  "refund.partsDontAdd": { en: "The parts must add up to {cur} {amount}.", es: "Las partes deben sumar {cur} {amount}." },
+  "refund.you": { en: "You", es: "Tú" },
+  "refund.typeLocked": { en: "A refund can't become another type. Delete it and record it again.", es: "Un reembolso no puede cambiar de tipo. Elimínalo y regístralo de nuevo." },
+  "refund.belowRefunded": { en: "This purchase already had {cur} {amount} refunded: the amount can't be lower.", es: "A esta compra ya le reembolsaron {cur} {amount}: el monto no puede ser menor." },
+  "refund.noLongerMatches": { en: "That refund is no longer on its way. Confirm this item as usual.", es: "Ese reembolso ya no está en camino. Confirma este movimiento como siempre." },
 
   // ---- report ----
   "report.uncategorized": { en: "Uncategorized", es: "Sin categoría" },

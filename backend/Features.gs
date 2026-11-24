@@ -129,6 +129,7 @@ function getCapabilities_() {
     pmRemove: true,   // removePaymentMethod (one Delete: unused = deleted, with history = hidden) + the built-in Cash account (settings.cash_account_id); an older backend keeps Delete + Hide
     thenReads: true,   // a save may carry payload._then (reads to answer in the same reply, runThenReads_ in Api.gs); an older backend never gets it
     entryRepeat: true,
+    refunds: true,   // Refunds.gs: recordRefund / cancelExpectedRefund / applyRefundMatch, refund_of on entries; an older backend shows no Refund… button
     reviewTags: true,   // listPendingEntries carries each waiting entry's tagIds; Needs review's "Tags" button and Edit mode's "Tag (n)" save tags on waiting entries
     programPending: true,   // addRecurringExpense takes `pending_entry_id`: a waiting (Needs review) entry given a future date in the full form becomes that Programmed item, in the same call
     programSplits: true,   // addRecurringExpense takes `splits` (and saves them in the same call): a future-dated SHARED expense becomes a Programmed item; an older backend keeps it a normal entry

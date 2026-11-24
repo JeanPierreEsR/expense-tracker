@@ -24,6 +24,7 @@ function saveEntrySplits(entryId, splits) {
   var entry = getEntryById_(entryId);
   if (!entry) throw new Error(tr_('err.entryNotFound'));
   if (incomeIsWaiting_(entry)) return { splits: [] };   // its only debt is the "not received yet" one (IncomeWaiting.gs), never rebuilt from splits
+  if (String(entry.refund_of || '')) return { splits: [] };   // a refund is never split; its only debt (money back on a friend's card) is kept as made (Refunds.gs)
 
   // A loan that already has a repayment against it can't be deleted (that
   // would silently lose the repayment), so it is reused in place below
@@ -2372,6 +2373,8 @@ function releaseEntryRepaidLoans(payload) {
 // entries), so the person can delete both together and never leave half an exchange (owner, 2026-11-02).
 function getEntryRepaymentLinks(payload) {
   var out = getEntryRepaymentLinksBase_(payload);
+  var refundsOf = out ? purchaseRefundSummary_(payload.id) : null;   // a purchase with refunds: Delete asks what happens to them (Refunds.gs)
+  if (refundsOf) out.purchaseRefunds = refundsOf;
   if (out && !out.loan && !out.repayment && !out.repaymentExtra && !out.forgiveness) {
     var entry = getEntryById_(payload.id);
     var partner = entry ? exchangeLegPartner_(entry) : null;
