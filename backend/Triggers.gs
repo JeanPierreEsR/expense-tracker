@@ -102,7 +102,9 @@ function scanEmailsGuarded_(source) {
   var props = PropertiesService.getScriptProperties();
   var gap = source === 'app' ? EMAIL_SCAN_APP_GAP_MS_ : EMAIL_SCAN_TIMER_GAP_MS_;
   var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  // Someone saving at this very moment holds the lock: skip this round quietly (the next check is at most 15 minutes away),
+  // never an error. A raw "lock timeout" used to reach the person as a scary Telegram warning (2026-11-24).
+  if (!lock.tryLock(10000)) return { ran: false, reason: 'busy' };
   try {
     var now = Date.now();
     var running = Number(props.getProperty(EMAIL_SCAN_RUNNING_KEY_) || 0);
@@ -157,14 +159,49 @@ function checkEmailsNow() {
 function runAutomationStep_(name, failures, fn) {
   var t0 = Date.now();
   try {
-    return fn();
+    var out = fn();
+    clearAutomationBusy_(name);
+    return out;
   } catch (e) {
     console.error('automation step "' + name + '": ' + e);
-    failures.push(name + ': ' + (e && e.message ? e.message : e));
+    if (e && e.busy) noteAutomationBusy_(name, failures);   // the app was busy saving: a skip, not a failure
+    else failures.push(name + ': ' + (e && e.message ? e.message : e));
     return null;
   } finally {
     if (AUTOMATION_RUN_) AUTOMATION_RUN_.steps[name] = Date.now() - t0;
   }
+}
+
+// Takes the script-wide lock, or throws an error marked `busy` (in plain words) when someone else held it the whole time.
+// The 15-minute run treats such an error as "skip this round", not as a failure (runAutomationStep_).
+function waitLockOrBusy_(lock, ms) {
+  if (lock.tryLock(ms)) return;
+  var err = new Error(tr_('notice.busy'));
+  err.busy = true;
+  throw err;
+}
+
+// A step skipped because the app was busy is said nothing about, unless it keeps happening: after
+// AUTOMATION_BUSY_ALERT_RUNS_ skips in a row (about an hour), it is reported in plain words. Any run of the step that is not
+// skipped starts the count again.
+var AUTOMATION_BUSY_KEY_ = 'AUTOMATION_BUSY_STREAK';
+var AUTOMATION_BUSY_ALERT_RUNS_ = 4;
+function noteAutomationBusy_(name, failures) {
+  var props = PropertiesService.getScriptProperties();
+  var streak = {};
+  try { streak = JSON.parse(props.getProperty(AUTOMATION_BUSY_KEY_) || '{}'); } catch (e) { streak = {}; }
+  streak[name] = (streak[name] || 0) + 1;
+  props.setProperty(AUTOMATION_BUSY_KEY_, JSON.stringify(streak));
+  if (streak[name] >= AUTOMATION_BUSY_ALERT_RUNS_) failures.push(tr_('notice.busyLong', { step: name }));
+}
+function clearAutomationBusy_(name) {
+  var props = PropertiesService.getScriptProperties();
+  var raw = props.getProperty(AUTOMATION_BUSY_KEY_);
+  if (!raw || raw.indexOf('"' + name + '"') === -1) return;
+  var streak = {};
+  try { streak = JSON.parse(raw); } catch (e) { streak = {}; }
+  delete streak[name];
+  props.setProperty(AUTOMATION_BUSY_KEY_, JSON.stringify(streak));
 }
 
 // Tells the owner on Telegram, at most once every 6 hours so a problem
@@ -175,8 +212,10 @@ function alertAutomationFailures_(failures) {
   if (Date.now() - last < 6 * 3600 * 1000) return;
   props.setProperty('LAST_AUTOMATION_ALERT', String(Date.now()));
   var lastOk = props.getProperty('LAST_AUTOMATION_OK');
+  var lastDate = lastOk ? new Date(lastOk) : null;
+  var last = lastDate && !isNaN(lastDate.getTime()) ? Utilities.formatDate(lastDate, personTz_(), 'yyyy-MM-dd HH:mm') : tr_('notice.unknown');
   try {
-    sendTelegramText_(tr_('notice.autoProblem', { list: failures.join('\n• '), last: lastOk || tr_('notice.unknown') }));
+    sendTelegramText_(tr_('notice.autoProblem', { list: failures.join('\n• '), last: last }));
   } catch (e) { console.error('automation alert failed: ' + e); }
 }
 
