@@ -4372,3 +4372,7 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
    this list. tests/screen-fit/check.js stops a ship on a new box that scrolls both ways: add it here, or to its SIDEWAYS list. */
 :is(.budget-modal-body, .edit-entry-modal-body, .drilldown-scroll-area, .currency-option-list, .bill-scroll, .cat-emoji-groups,
   .app-confirm-text, .welcome-overlay, .tour-slide, .pace-screen-body:not(#stmt-viewer-scroll)) { overflow-x: hidden; }
+
+/* The person whose last debt was just settled, shown in Settled people (owner, 2026-11-24). */
+.balance-row.settled-flash { animation: settled-flash 2.6s ease-out; border-radius: var(--r-sm); }
+@keyframes settled-flash { 0%, 40% { background: var(--accent-bg); } 100% { background: transparent; } }

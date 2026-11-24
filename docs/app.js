@@ -8067,7 +8067,10 @@ async function afterMoneySaved_(item) {
     if (waitingIncomeShown_) refreshExpectedRecurring().catch(() => {});   // a repayment may have covered an income waiting
     await refreshLoans();
     const detailOpen = !document.getElementById("loan-detail-modal-backdrop").hidden;
-    if (detailOpen && ctx.friendId && loanDetailScope_.friendId === ctx.friendId) await openLoanDetail(ctx.friendId, ctx.friendName);
+    if (detailOpen && ctx.friendId && loanDetailScope_.friendId === ctx.friendId) {
+      await openLoanDetail(ctx.friendId, ctx.friendName);
+      if (["forgiveLoan", "recordRepayment"].includes(item.action)) closeLoanDetailIfSettled_(ctx.friendId, ctx.friendName, item.overpaid);
+    }
     if (ctx.convert) await refreshEntryList();
     if (item.action === "recordRepayment") refreshReviewQueue().catch(() => {});
   } else {
@@ -8107,6 +8110,7 @@ async function flushMoneyQueue_() {
       }
       removeMoneyItem_(item.id);
       if (guided_ && guided_.moneyId === item.id) guided_.moneyLanded = { overpaid: (result && result.overpaid) || 0 };
+      if (item.action === "recordRepayment") item.overpaid = (result && result.overpaid) || 0;   // the closing toast mentions the extra
       if (item.action === "recordRepayment" && result && result.overpaid > 0.004) {
         showToast_(tr("money.repaidExtra", { cur: result.currency, amount: moneyFmt(result.overpaid) }));
       } else {
@@ -31363,10 +31367,15 @@ function settleGuideSteps_(ctx) {
   const only = (cond, step) => { const before = step.before; step.available = cond; step.before = async () => (cond() ? (before ? before() : true) : false); return step; };
   let done = null;   // what was sent: { name, cur, owed, paid, theyOwe }
   guided_.watchMoney = "recordRepayment";
-  ctx.capture = () => { done = { name: repaymentFriendName, cur: repaymentCurrency, owed: Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0), paid: amountNow(), theyOwe: theyOwe() }; };
+  ctx.capture = () => { loanDetailAutoClosed_ = null; done = { id: repaymentFriendId, name: repaymentFriendName, cur: repaymentCurrency, owed: Math.abs(repaymentNetByCurrency[repaymentCurrency] || 0), paid: amountNow(), theyOwe: theyOwe() }; };
   const landed = () => !!(guided_ && guided_.moneyLanded);
+  // Nothing left owed either way: the friend's screen closed by itself (closeLoanDetailIfSettled_), so the ending shows where they went.
+  const closed = () => !!(done && loanDetailAutoClosed_ && loanDetailAutoClosed_.friendId === done.id);
+  const settledRow = () => (closed() && !el("screen-loans").hidden && !el("loans-settled-list").hidden
+    ? document.querySelector(`#loans-settled-list .balance-row[data-friend-id="${CSS.escape(done.id)}"]`) : null);
   const doneText = () => {
     if (!done) return tr("rt.repay.done");
+    if (closed()) return tr(done.paid > done.owed + 0.004 ? "rt.settle.doneClosedOver" : "rt.settle.doneClosed", { name: done.name, cur: done.cur, extra: moneyFmt(done.paid - done.owed) });
     const left = Math.max(0, done.owed - done.paid), p = { name: done.name, cur: done.cur, left: moneyFmt(left), extra: moneyFmt(done.paid - done.owed) };
     if (done.paid > done.owed + 0.004) return tr("rt.settle.doneOver", p);
     if (left < 0.005) return tr(done.theyOwe ? "rt.settle.doneAllTheyOwe" : "rt.settle.doneAllIOwe", p);
@@ -31391,7 +31400,7 @@ function settleGuideSteps_(ctx) {
     { field: "account", target: "#settlement-payment-method", text: () => tr(theyOwe() ? "rt.settle.accIn" : "rt.settle.accOut"), visit: "#settlement-payment-method", button: realNext_ },
     only(() => realShown_("settlement-choose"), { target: "#settlement-choose", text: () => tr("rt.repay.choose"), button: realNext_ }),
     save
-  ].concat(realWhereSteps_(() => (landed() && !el("loan-detail-modal-backdrop").hidden ? el("loan-detail-subtitle") : null), doneText,
+  ].concat(realWhereSteps_(() => (!landed() ? null : closed() ? settledRow() : !el("loan-detail-modal-backdrop").hidden ? el("loan-detail-subtitle") : null), doneText,
     { unsaved: ctx.unsaved, otherwise: () => (landed() ? doneText() : tr("rt.settle.waiting")) }));
 }
 document.addEventListener("click", (e) => {
@@ -33069,6 +33078,8 @@ function renderLoanBalanceList_(listId, emptyNoteId, rows, kind) {
 // `undefined` keeps the scope the sheet already had for this person (every internal re-open after a repayment or an edit);
 // the Loans tab passes "" to mean "all of this person's debts".
 let loanDetailScope_ = { friendId: null, projectId: "" };
+let loanDetailOwes_ = false;          // the friend's screen, as last drawn, shows something owed either way
+let loanDetailAutoClosed_ = null;     // { friendId, name, overpaid }: the screen closed itself after the last debt was settled
 
 // ---- The yearly "constancia informativa" (Business 2, piece 9; company copies) ----
 // One lender's or partner's year, per currency (never added up): the loan's balance on 1 January, received, returned, forgiven, the
@@ -33305,6 +33316,7 @@ async function openLoanDetail(friendId, friendName, projectId) {
   // The person's total is the screen's headline (design review 2026-11-12: it was small grey text under big debt rows):
   // a small label, then each currency's amount large. Its text reads the same as before (the repayment history reuses it).
   const sub = document.getElementById("loan-detail-subtitle");
+  loanDetailOwes_ = netParts.length > 0;
   if (netParts.length) {
     let infoPlaced = false;   // the ⓘ (what is owed) sits beside the first amount only, centred on it
     const side = (sign, key) => {
@@ -34242,9 +34254,10 @@ async function renderSettledPeople_(call) {
     people = [];
   }
   card.hidden = people.length === 0;
+  const wasOpen = !list.hidden && people.length > 0;   // a refresh keeps the list as the person left it
   list.innerHTML = "";
-  list.hidden = true;
-  toggle.textContent = tr("loans.settledPeople", { n: people.length });
+  list.hidden = !wasOpen;
+  toggle.textContent = tr(wasOpen ? "loans.hideSettledPeople" : "loans.settledPeople", { n: people.length });
   renderLoanMovesCard_(loansHasPeople_ || people.length > 0);
   toggle.onclick = () => {
     list.hidden = !list.hidden;
@@ -34253,10 +34266,34 @@ async function renderSettledPeople_(call) {
   people.forEach((f) => {
     const row = document.createElement("div");
     row.className = "balance-row";
+    row.dataset.friendId = f.friend_id;
     row.innerHTML = `<div class="balance-row-name">${escapeHtml(f.friend_name)}<span class="loan-detail-row-chevron">›</span></div>`;
     row.addEventListener("click", () => openLoanDetail(f.friend_id, f.friend_name));
     list.appendChild(row);
   });
+  revealSettledPerson_();
+}
+
+// Right after someone's last debt was settled and their screen closed itself (closeLoanDetailIfSettled_), the Settled people
+// list opens and shows them, briefly highlighted (owner, 2026-11-24). Waits for the list to include them (its refresh may land
+// later); gives up after 15 s. Only on the Loans tab; at any other time the list keeps its usual closed start.
+let settledReveal_ = null;   // { friendId, until }
+function settledRevealRow_() {
+  return settledReveal_ ? document.querySelector(`#loans-settled-list .balance-row[data-friend-id="${CSS.escape(settledReveal_.friendId)}"]`) : null;
+}
+function revealSettledPerson_() {
+  if (!settledReveal_) return;
+  if (Date.now() > settledReveal_.until) { settledReveal_ = null; return; }
+  const row = settledRevealRow_();
+  if (!row || document.getElementById("screen-loans").hidden) return;
+  settledReveal_ = null;
+  const list = document.getElementById("loans-settled-list");
+  if (list.hidden) document.getElementById("loans-settled-toggle").click();
+  row.scrollIntoView({ block: "center", behavior: "smooth" });
+  row.classList.remove("settled-flash");
+  void row.offsetWidth;   // restart the highlight
+  row.classList.add("settled-flash");
+  setTimeout(() => row.classList.remove("settled-flash"), 2600);
 }
 
 // "All loans and repayments" (owner, 2026-11-11): the last card of the Loans tab, below the settled people. Closed until tapped;
@@ -35294,6 +35331,23 @@ document.getElementById("loan-remind-copy").addEventListener("click", async () =
     rememberLoanRemind_(phone && !LoanReminder.phoneOk(phone) ? null : phone);   // a wrong number is not kept; the language still is
   } catch (err) { /* not allowed: the text is still there to select by hand */ }
 });
+
+// Forgiving or repaying the last debt with someone (owner, 2026-11-24): with nothing owed either way their screen has nothing left
+// to do, so it closes by itself and a toast says so; the person is then under "Settled people" on the Loans tab. Not during a
+// practice tutorial (its steps go on on that screen); a real tutorial gets the Loans tab so its last step can show where they went.
+// Call it right after the screen was drawn again with the server's answer. True when it closed.
+function closeLoanDetailIfSettled_(friendId, friendName, overpaid) {
+  if (document.getElementById("loan-detail-modal-backdrop").hidden || loanDetailScope_.friendId !== friendId || loanDetailOwes_) return false;
+  if (Spotlight.isRunning() && !guided_) return false;
+  closeLoanDetail();
+  loanDetailAutoClosed_ = { friendId, name: friendName, overpaid: overpaid > 0.004 ? overpaid : 0 };
+  if (guided_ && Spotlight.isRunning() && document.getElementById("screen-loans").hidden) showScreen("loans");
+  settledReveal_ = { friendId, until: Date.now() + 15000 };
+  revealSettledPerson_();
+  if (guided_ && Spotlight.isRunning()) return true;   // the tutorial's last step says it, pointing at where they went
+  showToast_(overpaid > 0.004 ? tr("loanDetail.closedSettledExtra", { name: friendName }) : tr("loanDetail.closedSettled", { name: friendName }), false, 5000);
+  return true;
+}
 
 function closeLoanDetail() {
   document.getElementById("loan-detail-modal-backdrop").hidden = true;
@@ -36588,6 +36642,7 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
     refreshEntriesInBackground_();
     await refreshLoans();
     await openLoanDetail(friendId, friendName);
+    if (!(result.overpaid > 0.004)) closeLoanDetailIfSettled_(friendId, friendName);   // an extra asks its category on this screen first
 
     if (result.overpaid > 0.004) {
       // Mirror images: they overpaying YOU is your income; YOU overpaying
@@ -36861,7 +36916,7 @@ document.getElementById("forgive-save-btn").addEventListener("click", async () =
     const returnFriend = forgiveReturnFriend;
     closeForgiveModal();
     await refreshLoans();
-    if (returnFriend) await openLoanDetail(returnFriend.id, returnFriend.name);
+    if (returnFriend) { await openLoanDetail(returnFriend.id, returnFriend.name); closeLoanDetailIfSettled_(returnFriend.id, returnFriend.name); }
     if (convert) await refreshEntryList();
   } catch (err) {
     errorEl.textContent = err.message;
