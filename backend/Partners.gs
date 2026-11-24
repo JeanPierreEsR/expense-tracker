@@ -81,9 +81,10 @@ function partnerMoneyEntry_(payload, wantIn) {
   if (!entry) throw new Error(tr_('convert.gone'));
   var ok = wantIn ? (entry.type === 'income' || entry.type === 'transfer') : (entry.type === 'expense' || entry.type === 'transfer');
   if (!ok) throw new Error(tr_(wantIn ? 'partner.onlyIn' : 'partner.onlyOut'));
-  if (entry.type === 'transfer' && buildTransferLinkMap_()[entry.id]) throw new Error(tr_('convert.alreadyMovement'));
+  // Already a partner's money: said as such (testers 2.68.2, Nico: it said "a loan's money movement: change it from Loans").
   if (entry.type === 'transfer' && (contributionRows_().some(function (r) { return r.entry_id === entry.id; }) ||
-      distributionRows_().some(function (r) { return r.entry_id === entry.id; }))) throw new Error(tr_('convert.alreadyMovement'));
+      distributionRows_().some(function (r) { return r.entry_id === entry.id; }))) throw new Error(tr_('partner.already'));
+  if (entry.type === 'transfer' && buildTransferLinkMap_()[entry.id]) throw new Error(tr_('convert.alreadyMovement'));
   if (entry.type === 'transfer' && entry.to_payment_method_id && entry.payment_method_id) throw new Error(tr_('partner.betweenAccounts'));
   if (repaymentPartInfo_(entry.id)) throw new Error(tr_('typeChange.isRepaymentExtra'));
   return entry;

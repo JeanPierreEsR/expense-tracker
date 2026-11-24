@@ -168,3 +168,10 @@ test("a distribution's amount edited afterwards: gross follows (new net + withho
   const year = rt.api("getYearStatement", { friend_id: out.distribution.partner_id, year: Number(today().slice(0, 4)) });
   assert.equal(JSON.stringify(year).includes("1585.55"), true, "the constancia uses the new gross");
 });
+
+test("a second partner conversion of the same movement says it is already a partner's money (testers 2.68.2)", () => {
+  const rt = companyCopy();
+  const e = waiting(rt, "expense", 500);
+  rt.api("recordDistribution", { entry_id: e.id, partner_name: "Socio Prueba", withholding: 0 });
+  assert.throws(() => rt.api("recordDistribution", { entry_id: e.id, partner_name: "Socio Prueba", withholding: 0 }), /already a partner's money/);
+});
