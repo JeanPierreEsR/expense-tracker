@@ -30776,6 +30776,9 @@ function startTransferReal_(kind) {
   steps.push(only(is("between"), { target: "#payment-method-field", text: () => tr("spot.g.accFrom"), visit: "#payment_method", button: next }));
   steps.push(only(is("between"), { target: "#to-payment-method-field", text: () => tr("rt.transfer.to"), visit: "#to_payment_method", button: next }));
   steps.push(only(() => debt() && !entryOpeningOn_(), { target: "#payment-method-field", text: () => tr(is("loan")() ? "rt.loan.account" : "rt.transfer.account"), visit: "#payment_method", button: next }));
+  // Which loans it pays (owner's plan, 2026-11-24): only where the list is offered (two or more open loans in that direction and currency).
+  steps.push(only(() => is("repayment")() && realShown_("entry-repay-choose"), { target: "#entry-repay-choose", text: () => tr("rt.repay.choose"), button: next }));
+  const tickOpen = () => is("repayment")() && !el("entry-repay-choose").hidden && !el("entry-repay-choose-panel").hidden && !(entryRepayAllocations_() || []).length;
   // Currency exchange
   if (isNew("date")) steps.push(only(is("exchange"), { field: "date", target: "#exchange-date", text: () => tr("rt.exchange.date"), visit: "#exchange-date", button: next, before: async () => shownNow("exchange-date") }));
   steps.push(only(is("exchange"), { target: "#exchange-out-account", text: () => tr("spot.x.s4"), visit: "#exchange-out-account", button: next, before: async () => exchangeFormIsInline_() }));
@@ -30788,8 +30791,8 @@ function startTransferReal_(kind) {
     text: () => { const e = xError(); return e ? tr("spot.x.s10err", { error: e }) : tr("spot.x.s10"); },
     before: async () => { chosen = kindNow(); submitted = true; el("exchange-form-error").textContent = ""; return true; }, until: () => !newEntrySheetOpen_ }));
   // Save, and what it did
-  steps.push(only(is("between", "repayment", "loan"), { key: "save", target: () => realSaveTarget_("submit-btn", "form-error"),
-    text: () => { const err = lastError(); return err ? tr("spot.g.saveErr", { error: err }) : tr("spot.g.save"); },
+  steps.push(only(is("between", "repayment", "loan"), { key: "save", target: () => repayTickTarget_("entry-repay-choose", tickOpen, realSaveTarget_("submit-btn", "form-error")),
+    text: () => { const err = lastError(); return err ? tr("spot.g.saveErr", { error: err }) : tickOpen() ? tr("rt.repay.tick", { label: el("submit-btn").textContent.trim() }) : tr("spot.g.save"); },
     before: async () => { chosen = kindNow(); el("form-error").textContent = ""; return true; },
     until: () => !!(guided_ && guided_.savedId) || !newEntrySheetOpen_ }));
   let friend = "";
@@ -30846,7 +30849,12 @@ function startConvDebt_(mode) {
   // Always shown: what the bank e-mail filled in (the account above all) is checked here, not skipped (owner's walk, 2026-11-09).
   const arrived = !!reviewTransferEntry && reviewEntryArrived_(reviewTransferEntry);
   steps.push({ target: () => [el("review-transfer-amount"), el("review-transfer-date"), el("review-transfer-payment-method"), el("review-transfer-description-field")], text: () => tr(arrived ? "rt.conv.checkIn" : "rt.conv.checkOut"), button: next });
-  steps.push({ key: "save", target: () => realSaveTarget_("review-transfer-save-btn", "review-transfer-form-error"), text: () => { const e = err(); return e ? tr("spot.g.saveErr", { error: e }) : tr("rt.conv.save"); }, until: () => back.hidden });
+  // Which loans it pays (owner's plan, 2026-11-24): only where the list is offered. A repayment a bot kept waiting opens with it open.
+  if (mode === "repay") steps.push({ target: "#review-transfer-choose", text: () => tr("rt.repay.choose"), button: next,
+    available: () => realShown_("review-transfer-choose"), before: async () => realShown_("review-transfer-choose") });
+  const tickOpen = () => mode === "repay" && !el("review-transfer-choose").hidden && !el("review-transfer-choose-panel").hidden && !chooseAssignments_(CHOOSE_REVIEW_).length;
+  steps.push({ key: "save", target: () => repayTickTarget_("review-transfer-choose", tickOpen, realSaveTarget_("review-transfer-save-btn", "review-transfer-form-error")),
+    text: () => { const e = err(); return e ? tr("spot.g.saveErr", { error: e }) : tickOpen() ? tr("rt.repay.tick", { label: el("review-transfer-save-btn").textContent.trim() }) : tr("rt.conv.save"); }, until: () => back.hidden });
   // Only once the server has answered: more than was owed comes back as an extra, money received with no debt on record is refused.
   let friend = "";
   const endText = () => tr(convDebtOutcome_ === "refused" ? "rt.conv.refused" : convDebtOutcome_ === "over" ? "rt.conv.repayOver" : mode === "repay" ? "rt.conv.repayDone" : "rt.loan.done");
@@ -31159,6 +31167,11 @@ function realCurrencyStep_(chipsId, warnId) {
 }
 const realNext_ = () => tr("spot.g.next");
 // A refused Save lights up the whole form: the fix may be in a field the guide already passed, and a dimmed one cannot be reached (owner's walks, 2026-11-09).
+// A repayment's Save step in a real tutorial (owner's plan, 2026-11-24): while the loans list is open with nothing ticked (the person
+// opened it, or answered "Choose the loans" to Save's question), the list is lit up with Save and the step says to tick them.
+function repayTickTarget_(chooseId, openEmpty, saveTarget) {
+  return openEmpty() ? [document.getElementById(chooseId)].concat(saveTarget) : saveTarget;
+}
 function realSaveTarget_(saveId, errId) {
   const b = document.getElementById(saveId), e = document.getElementById(errId);
   if ((e.textContent || "").trim()) { const form = b.closest(".currency-modal") || b.closest("#entry-card"); if (form) return form; }
@@ -31356,10 +31369,12 @@ function settleGuideSteps_(ctx) {
     if (left < 0.005) return tr(done.theyOwe ? "rt.settle.doneAllTheyOwe" : "rt.settle.doneAllIOwe", p);
     return tr(done.theyOwe ? "rt.settle.donePartTheyOwe" : "rt.settle.donePartIOwe", p);
   };
-  const save = { key: "save", target: () => realSaveTarget_("settlement-save-btn", "settlement-form-error"),
+  const tickOpen = () => !el("settlement-choose").hidden && !el("settlement-choose-panel").hidden && !settlementAssignments_().length;
+  const save = { key: "save", target: () => repayTickTarget_("settlement-choose", tickOpen, realSaveTarget_("settlement-save-btn", "settlement-form-error")),
     text: () => {
       const e = (el("settlement-form-error").textContent || "").trim();
       if (e) return tr("spot.g.saveErr", { error: e });
+      if (tickOpen()) return tr("rt.repay.tick", { label: el("settlement-save-btn").textContent.trim() });
       return repayQuickGuard_ && repayQuickGuard_.armed ? tr("rt.settle.saveAgain") : tr("rt.settle.save", { label: el("settlement-save-btn").textContent.trim() });
     },
     before: async () => { ctx.capture(); return true; }, until: () => !ctx.open() };
@@ -31371,7 +31386,7 @@ function settleGuideSteps_(ctx) {
     only(() => realShown_("settlement-overpay-note"), { target: () => [el("settlement-amount"), el("settlement-overpay-note")], text: () => tr("rt.settle.over"), button: realNext_ }),
     only(() => !fieldsKnown_().includes("date"), { field: "date", target: "#settlement-date", text: () => tr("rt.settle.date"), visit: "#settlement-date", button: realNext_ }),
     { field: "account", target: "#settlement-payment-method", text: () => tr(theyOwe() ? "rt.settle.accIn" : "rt.settle.accOut"), visit: "#settlement-payment-method", button: realNext_ },
-    only(() => realShown_("settlement-choose"), { target: "#settlement-choose", text: () => tr("rt.settle.choose"), button: realNext_ }),
+    only(() => realShown_("settlement-choose"), { target: "#settlement-choose", text: () => tr("rt.repay.choose"), button: realNext_ }),
     save
   ].concat(realWhereSteps_(() => (landed() && !el("loan-detail-modal-backdrop").hidden ? el("loan-detail-subtitle") : null), doneText,
     { unsaved: ctx.unsaved, otherwise: () => (landed() ? doneText() : tr("rt.settle.waiting")) }));
@@ -36165,10 +36180,10 @@ function chooseOpenOrClose_(ctx) {
 // Saving a repayment with no loans chosen, where the choice matters (owner, 2026-11-23): two or more open loans and a payment that
 // does not cover them all. The question names what "oldest first" would pay (and a loan that is exactly the payment, the case where
 // oldest first is most often wrong). Not asked when the panel was opened and closed again ("Back to oldest first" chosen on
-// purpose), nor while a walkthrough runs (its Save steps do not know this question yet: the tutorials get their own step later).
-// true = save oldest first; false = the panel is opened, nothing saved; null = ✕, nothing saved.
+// purpose), nor during a practice (its made-up repayment has one loan). A real tutorial meets it like anyone: its Save step then lights
+// the list too (repayTickTarget_). true = save oldest first; false = the panel is opened, nothing saved; null = ✕, nothing saved.
 async function askRepayLoansFirst_(ctx) {
-  if (chooseEl_(ctx).hidden || ctx.looked || Spotlight.isRunning()) return true;
+  if (chooseEl_(ctx).hidden || ctx.looked || (Spotlight.isRunning() && !guided_)) return true;
   if (!chooseEl_(ctx, "panel").hidden && chooseAssignments_(ctx).length) return true;
   const loans = ctx.loans(), paid = ctx.amount(), cur = ctx.cur(), dir = ctx.dir();
   if (loans.length < 2 || paid <= 0.004 || paid >= loans.reduce((n, l) => n + l.remaining, 0) - 0.004) return true;
