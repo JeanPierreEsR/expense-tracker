@@ -121,6 +121,7 @@ function scanEmailsGuarded_(source) {
     var results = processEmails();
     // Once per copy, after a new pack rule arrived: its older e-mails, read now (MailCatchup.gs). Never breaks the scan.
     try { runMailCatchups_(results); } catch (catchupErr) { console.error('runMailCatchups_: ' + catchupErr); }
+    try { sendUnreadNotices_(); } catch (noticeErr) { console.error('sendUnreadNotices_: ' + noticeErr); }   // UnreadNotice.gs
     props.setProperty(EMAIL_SCAN_LAST_KEY_, String(Date.now()));
     recordEmailScanDone_(results);   // EmailHealth.gs: what the app shows as "last checked" and warns from
     return { ran: true, results: results };

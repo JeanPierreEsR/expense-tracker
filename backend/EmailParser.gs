@@ -1068,14 +1068,14 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   var read = readEmailWithRules_(sender, subject, body);
   var rule = read.rule;
 
-  if (!rule) logUnreadEmail_(sender, subject, 'no_rule', dateStr);   // ManualGaps.gs; a rule with skip:true is a deliberate ignore, not logged
+  if (!rule) logUnreadEmail_(sender, subject, 'no_rule', dateStr, message);   // ManualGaps.gs; a rule with skip:true is a deliberate ignore, not logged
   if (!rule || rule.skip) { results.skipped++; return; }
   if (ONLY_PACK_IDS_ && ONLY_PACK_IDS_.indexOf(rule.packId) === -1) { results.skipped++; return; }
 
   if (rule.exchange) {
     // An exchange house's confirmation: up to two legs, matched against what a bank e-mail already made (CurrencyExchange.gs).
     if (processExchangeEmail_(rule, message, sender, dateStr, createdAt, results, existingExternalIds) === -1) {
-      logUnreadEmail_(sender, subject, 'unreadable', dateStr);
+      logUnreadEmail_(sender, subject, 'unreadable', dateStr, message);
       results.skipped++;
       results.unparsed++;
       results.unparsedSubjects.push(String(subject || '').slice(0, 60));
@@ -1085,7 +1085,7 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
 
   var fields = read.fields;
   if (!fields) {
-    logUnreadEmail_(sender, subject, 'unreadable', dateStr);
+    logUnreadEmail_(sender, subject, 'unreadable', dateStr, message);
     // The rule matched but the amount/details couldn't be read — most
     // likely the bank changed its wording. Counted separately so the
     // owner is told (see runAutomation) instead of it vanishing.
