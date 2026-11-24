@@ -437,7 +437,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason, opts) {
   var twins = entry.status === 'pending' ? findSameDayTwins_(entry, getAllRows('Entries')) : [];
   if (twins.length) {
     lines.push('');
-    lines.push(tr_('bot.duplicate', { list: twins.map(function (t) {
+    lines.push(tr_(twins.every(function (t) { return t.near; }) ? 'bot.duplicateNear' : 'bot.duplicate', { list: twins.map(function (t) {
       return tr_('bot.duplicateItem', { name: t.description || tr_('bot.anEntry'), status: (t.status === 'pending' || t.status === 'confirmed') ? tr_('bot.status.' + t.status) : t.status });
     }).join(', ') }));
   }

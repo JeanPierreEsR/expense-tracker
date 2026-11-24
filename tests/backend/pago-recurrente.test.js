@@ -196,3 +196,23 @@ test("two e-mail entries a day apart with different names are NOT flagged (e-mai
 });
 
 test("the date of today is used by the helpers (sanity)", () => { assert.match(today(), /^\d{4}-\d{2}-\d{2}$/); });
+
+// Testers 2.68.2 (Lucho, Ingrid): two different friends' money was flagged as the same; and the warning said "same merchant".
+test("a wide match says 'near'; two different friends' money is never flagged", () => {
+  const { rt, data } = setup();
+  const cat = data.cats.find((c) => c.type === "expense");
+  rt.ctx.__f = { name: "Dora Paz" }; rt.run("addFriend(__f)");
+  rt.ctx.__f = { name: "Beto Quispe" }; rt.run("addFriend(__f)");
+  rt.api("createEntry", { type: "expense", date: today(), amount: 20.9, currency: "PEN", category_id: cat.id, description: "music app", paid_by: "me", payment_method_id: data.pms[0].id });
+  rt.api("createEntry", { type: "expense", date: today(), amount: 37, currency: "PEN", category_id: cat.id, description: "Pago a Beto Quispe", paid_by: "me", payment_method_id: data.pms[0].id });
+  rt.svc.gmail.addEmail({ from: SENDER, subject: SUBJECT, body: body("STREAMING PRUEBA", "S/. 20.90") });
+  rt.svc.gmail.addEmail({ from: SENDER, subject: SUBJECT, body: body("YAPE DORA PAZ", "S/. 37.00") });
+  run(rt);
+  const rows = rt.api("listPendingEntries");
+  const near = rows.find((e) => e.description === "STREAMING PRUEBA");
+  assert.equal(near.twins.length, 1);
+  assert.equal(near.twins[0].near, true);
+  const dora = rows.find((e) => /DORA PAZ/i.test(e.description));
+  assert.ok(dora, "the Yape e-mail is waiting");
+  assert.deepEqual(dora.twins, [], "Dora's money is not Beto's");
+});

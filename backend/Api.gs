@@ -1821,8 +1821,16 @@ function twinGroupKey_(e) {
   return e.currency + '|' + Math.abs(Number(e.amount)).toFixed(2);
 }
 
+// The friends a text names (lower case, by whole name), for the twin check below (Friends is read once per request: getAllRows).
+function twinFriendsNamed_(text) {
+  var t = ' ' + searchNormalize_(text) + ' ';
+  return getAllRows('Friends').map(function (f) { return searchNormalize_(f.name); })
+    .filter(function (n) { return n && n.length >= 3 && t.indexOf(' ' + n + ' ') >= 0; });
+}
+
 function findSameDayTwins_(entry, allEntries) {
   var who = entryTwinWho_(entry);
+  var mine = null;   // the friends this entry names, worked out only when a wide match needs it
   var amount = Math.abs(Number(entry.amount)).toFixed(2);
   // Wider for an entry read from a bank e-mail (2026-11-05, the double-count map): the same money already recorded by HAND, from a
   // photo or from a statement/import usually carries another name and often another day (a subscription typed in, a statement
@@ -1834,10 +1842,20 @@ function findSameDayTwins_(entry, allEntries) {
   return allEntries.filter(function (o) {
     if (o.id === entry.id || o.currency !== entry.currency || Math.abs(Number(o.amount)).toFixed(2) !== amount) return false;
     if (who && o.date === entry.date && entryTwinWho_(o) === who) return true;
-    return fromEmail && o.source !== 'email' && (o.status === 'confirmed' || o.status === 'pending') &&
-      Math.abs(daysBetweenDates_(String(o.date).substring(0, 10), String(entry.date).substring(0, 10))) <= 1;
+    if (!(fromEmail && o.source !== 'email' && (o.status === 'confirmed' || o.status === 'pending') &&
+      Math.abs(daysBetweenDates_(String(o.date).substring(0, 10), String(entry.date).substring(0, 10))) <= 1)) return false;
+    // Two different people's money is never the same money (testers 2.68.2: "Yape from Dora" was flagged against "Repayment from
+    // Beto"): when both texts name friends and none in common, no warning.
+    if (mine === null) mine = twinFriendsNamed_(String(entry.description || '') + ' ' + String(entry.merchant || ''));
+    if (mine.length) {
+      var theirs = twinFriendsNamed_(o.description);
+      if (theirs.length && !theirs.some(function (n) { return mine.indexOf(n) >= 0; })) return false;
+    }
+    return true;
   }).map(function (o) {
-    return { id: o.id, status: o.status, description: o.description || '' };
+    // `near`: matched by the wide e-mail rule (another name, or another day), so the warning does not claim "same merchant".
+    var near = !(who && o.date === entry.date && entryTwinWho_(o) === who);
+    return { id: o.id, status: o.status, description: o.description || '', near: near };
   });
 }
 

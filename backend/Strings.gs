@@ -839,6 +839,7 @@ var BACKEND_STRINGS_ = {
   "bot.splitLabel": { en: "🔀 Split: ", es: "🔀 Repartición: " },
   "bot.you": { en: "you", es: "tú" },
   "bot.labelsLabel": { en: "🏷️ Tags: ", es: "🏷️ Etiquetas: " },
+  "bot.duplicateNear": { en: "⚠️ Possible duplicate — same amount, a day apart or less, as {list}, already recorded another way. Discard if it is the same money; confirm if it is a different payment.", es: "⚠️ Posible duplicado: mismo monto, con un día o menos de diferencia, que {list}, ya registrado de otra forma. Descarta si es el mismo dinero; confirma si es otro pago." },
   "bot.duplicate": { en: "⚠️ Possible duplicate — same day, amount and merchant as {list}. Discard if it is a copy; confirm if it is a real repeat.", es: "⚠️ Posible duplicado: mismo día, monto y comercio que {list}. Descarta si es una copia; confirma si es una repetición real." },
   "bot.duplicateItem": { en: "\"{name}\" ({status})", es: "\"{name}\" ({status})" },
   "bot.anEntry": { en: "an entry", es: "un movimiento" },

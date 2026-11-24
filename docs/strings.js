@@ -399,6 +399,7 @@
     "review.pickPlatform": { en: "Pick the platform…", es: "Elige la plataforma…" },
     "review.noDescription": { en: "(no description)", es: "(sin descripción)" },
     "review.dupWarning": { en: "⚠️ Possible duplicate — same day, amount and merchant as {list}. Discard if it's a copy; confirm if it's a real repeat.", es: "⚠️ Posible duplicado: mismo día, monto y comercio que {list}. Descarta si es una copia; confirma si es una repetición real." },
+    "review.dupWarningNear": { en: "⚠️ Possible duplicate — same amount, a day apart or less, as {list}, already recorded another way. Discard if it's the same money; confirm if it's a different payment.", es: "⚠️ Posible duplicado: mismo monto, con un día o menos de diferencia, que {list}, ya registrado de otra forma. Descarta si es el mismo dinero; confirma si es otro pago." },
     "review.dupItem": { en: "\"{name}\" ({status})", es: "\"{name}\" ({status})" },
     "review.dupAnEntry": { en: "an entry", es: "un movimiento" },
     "review.pickCategory": { en: "Pick a category…", es: "Elige una categoría…" },
