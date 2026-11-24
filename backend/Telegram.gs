@@ -622,6 +622,7 @@ function handleTelegramCallback_(cb) {
     return;
   }
   cb.data = data;
+  if (/^unr(?:show|send|no):/.test(data)) { unreadTap_(cb); return; }   // a new unreadable bank e-mail: show / send to JP (UnreadNotice.gs)
   // The shared lists (Edit, its pick lists, Repayment / Loan, "Show more"): the same code as WhatsApp's. Once a list is used,
   // its buttons go away (owner, 2026-11-16); Edit tapped on a transaction's own message keeps that message's buttons.
   if (BOT_LIST_ACTIONS_.test(data) && String(cb.message.chat.id) !== WA_CHAT_ID_) {

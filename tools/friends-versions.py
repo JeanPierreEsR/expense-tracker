@@ -14,6 +14,8 @@ names for each phone and every release seen, so trimmed report rows do not lose 
 Usage:
   tools/friends-versions.py                       refresh from the backend, rewrite the section, print the table
   tools/friends-versions.py --name CODE NAME      say whose phone CODE is (e.g. --name 1a2b3c4d Ana), then refresh
+  tools/friends-versions.py --retire CODE... [--why TEXT]   stop listing these phones (the owner's test phones, an uninstalled copy);
+                                                  logged under the table; a phone that reports again after that day comes back
   tools/friends-versions.py --offline             no backend call: rebuild the section from FRIEND_PHONES.json
   tools/friends-versions.py --from-json FILE      use FILE ({"phones": [...]}, the backend's answer) instead of the backend (tests)
   --root DIR                                      the private folder (default: found by walking up to "Friends and their versions.md")
@@ -88,8 +90,11 @@ def rows(store, promo, today):
     to_pin = {rel: pin for _, rel, pin in promo}
     newest = promo[-1][1] if promo else None
     names = store.get("names", {})
+    retired = store.get("retired", {})
     out = []
     for code, p in store.get("phones", {}).items():
+        if code in retired and (p["lastSeen"] or "") <= retired[code]["on"]:
+            continue   # retired and not heard from since
         rels = sorted(p["releases"].items(), key=lambda kv: (kv[1]["last"], kv[1]["first"]))
         if not rels:
             continue
@@ -111,7 +116,19 @@ def rows(store, promo, today):
     return out
 
 
-def section(table, today):
+def retired_lines(store):
+    phones = store.get("phones", {})
+    out = []
+    for code, r in sorted(store.get("retired", {}).items(), key=lambda kv: kv[1]["on"]):
+        p = phones.get(code, {})
+        back = (p.get("lastSeen") or "") > r["on"]
+        out.append("- `%s` (shares as \"%s\"): not tracked since %s%s%s" % (
+            code, p.get("label") or "?", r["on"], " — " + r["why"] if r.get("why") else "",
+            "; ⚠️ it reported again on %s, so it is listed above" % p["lastSeen"] if back else ""))
+    return out
+
+
+def section(table, today, store=None):
     lines = [START, "",
              "_Written by `tools/friends-versions.py` on %s from the app-speed reports. A phone that does not share app speed does not appear; "
              "an update shows the first day the phone opened the app on it. Name a phone with `--name CODE NAME`._" % today.isoformat(), "",
@@ -124,6 +141,9 @@ def section(table, today):
         lines.append("| %s | `%s` | %s (%s) | %s | %s | %s | %s |" % (who, r["code"], r["release"], r["pin"], since, r["before"] or "—", r["lastSeen"], status))
     if not table:
         lines.append("| (no friend phone has shared app speed yet) | | | | | | |")
+    gone = retired_lines(store or {})
+    if gone:
+        lines += ["", "Not tracked any more (`--retire`; a new install is a new phone and shows up again):"] + gone
     lines += ["", END]
     return "\n".join(lines)
 
@@ -158,6 +178,20 @@ def main(argv):
             sys.exit("No single phone starts with %s (known: %s)" % (code, ", ".join(sorted(store.get("phones", {}))) or "none yet"))
         store.setdefault("names", {})[known[0]] = name
         print("Phone %s is %s." % (known[0], name))
+    if "--retire" in args:
+        i = args.index("--retire")
+        codes = []
+        for a in args[i + 1:]:
+            if a.startswith("--"):
+                break
+            codes.append(a)
+        why = opt("--why") or ""
+        for c in codes:
+            known = [k for k in store.get("phones", {}) if k.startswith(c)]
+            if len(known) != 1:
+                sys.exit("No single phone starts with %s" % c)
+            store.setdefault("retired", {})[known[0]] = {"on": datetime.date.today().isoformat(), "why": why}
+            print("Phone %s is no longer tracked." % known[0])
     code_ = 0
     if "--offline" not in args:
         try:
@@ -173,7 +207,7 @@ def main(argv):
         f.write("\n")
     today = datetime.date.fromisoformat(os.environ.get("FRIENDS_VERSIONS_TODAY") or datetime.date.today().isoformat())
     table = rows(store, promoted(os.path.join(root, "FRIENDS_VERSIONS.md")), today)
-    text = section(table, today)
+    text = section(table, today, store)
     write_section(os.path.join(root, FRIENDS_MD), text)
     print(text.replace(START, "").replace(END, "").strip())
     sys.exit(code_)

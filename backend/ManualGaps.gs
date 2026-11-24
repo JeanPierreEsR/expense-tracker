@@ -240,7 +240,7 @@ function unreadIsNotPayment_(sender, subject) {
   return statement || mailed || UNREAD_NOT_PAYMENTS_.some(function (n) { return n.sender === from && n.subject.test(subj); });
 }
 
-function logUnreadEmail_(sender, subject, kind, dateStr) {
+function logUnreadEmail_(sender, subject, kind, dateStr, message) {
   if (!UNREAD_LOGGING_) return;
   if (unreadIsNotPayment_(sender, subject)) return;
   try {
@@ -252,6 +252,7 @@ function logUnreadEmail_(sender, subject, kind, dateStr) {
       updateRowFields_('Unread Emails', id, { count: Number(row.count || 0) + 1, last_seen: dateStr });
     } else {
       appendRowObject('Unread Emails', { id: id, sender: String(sender).toLowerCase(), subject: shape, kind: kind, count: 1, first_seen: dateStr, last_seen: dateStr });
+      unreadNoteNew_(String(sender).toLowerCase(), shape, kind, message);   // a wording never seen before: the bot says so (UnreadNotice.gs)
     }
   } catch (err) {
     console.error('logUnreadEmail_: ' + err);   // a logging problem must never stop the email run

@@ -155,7 +155,7 @@ function reportBankSample_(p) {
   var label = perfLabel_(p.label) || '(no name)';
   var language = p.language === 'es' ? 'es' : 'en';
   var app = /^[0-9A-Za-z:.\-]{1,30}$/.test(String(p.app || '')) ? String(p.app) : '';
-  var how = p.how === 'pasted' ? 'pasted' : 'picked';
+  var how = p.how === 'pasted' || p.how === 'bot' ? p.how : 'picked';   // 'bot': sent from a friend's bot (UnreadNotice.gs)
   // Which kind of e-mail the person was asked for (guided sending). Kept in the existing "how" column ("picked:purchase")
   // so the tab's columns do not change; anything outside the three kinds is simply not recorded.
   var kind = BANK_SAMPLE_KINDS_.indexOf(p.kind) >= 0 ? p.kind : '';

@@ -58,6 +58,14 @@ function forwardShownBy_(entry) {
   return by;
 }
 
+// A message forwarded by someone who is not the person (not this Gmail, not one of their other addresses, or an unreadable sender): a friend
+// sending a sample, say (owner, 2026-11-24). It is still read (option A: it waits in Needs review with "Forwarded by"), and a bank
+// wording no rule knows still goes into "Bank emails I couldn't read" (owner: that is how he learns which rules to build), but its
+// "To:" name is the friend's, never learned as the person's.
+function forwardIsForeign_(message) {
+  return !!(message && message.forwardedBy) && forwardShownBy_({ forwarded_by: message.forwardedBy }) !== '';
+}
+
 // ---- Finding forwards in the scan ----
 
 // The bare address inside "Name <a@b.c>" (lower case), or ''. The display name is typed text: a quoted name or a (comment) may itself

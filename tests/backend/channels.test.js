@@ -409,6 +409,11 @@ test("tools/friends-versions.py keeps each friend phone's release history and wr
   const kept = JSON.parse(fs.readFileSync(path.join(dir, "FRIEND_PHONES.json"), "utf8"));
   assert.deepEqual(Object.keys(kept.phones.aaaa1111.releases).sort(), ["2.44.2", "2.55.0"]);
   assert.equal(kept.names.aaaa1111, "Ana Lo");
+  // A test phone retired by the owner leaves the table, is logged under it, and comes back only if it reports after that day.
+  run("--offline", "--retire", "cccc", "--why", "my spare account");
+  let again = run("--offline");
+  assert.doesNotMatch(again, /\| unnamed[^\n]*cccc3333/);
+  assert.match(again, /`cccc3333`.*not tracked since .* my spare account/);
 });
 
 test("a normal ship refuses a branch that changes a kept stable-<pin>/ copy", () => {

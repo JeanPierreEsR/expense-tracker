@@ -339,7 +339,7 @@ function whatsappTap_(id, p) {
   var parts = id.split(':');
   var action = parts[0], entryId = parts[1] || '';
   whatsappClearAwaiting_();   // any tap cancels an open "send the new …" question (a field tap asks again)
-  if (/^(?:confirm|discard|waitpay|ptags|ptagsno|plink|plinkno|delrep)$/.test(action)) {
+  if (/^(?:confirm|discard|waitpay|ptags|ptagsno|plink|plinkno|delrep|unrshow|unrsend|unrno)$/.test(action)) {
     var cardId = p.context_id || whatsappCardFor_(entryId);
     return handleTelegramCallback_({ id: 'whatsapp', data: id, message: { chat: { id: WA_CHAT_ID_ }, message_id: cardId } });
   }
