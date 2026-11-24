@@ -174,6 +174,7 @@ var ONCE_ACTIONS_ = {
   recordOverpaymentIncome: 1, recordOverpaymentExpense: 1, recordTripSettlement: 1,
   addCompany: 1, addProject: 1, addExpectedPayment: 1, addIgvPayment: 1,   // Business pack (Business.gs): a resend must not create a second one
   addLoan: 1, addFriend: 1, addRecurringExpense: 1,
+  assignUnknownFriend: 1,   // may create a friend (testers 2.68.2, C22)
   saveEntryAll: 1,   // may create an entry (the lock also keeps a resend from running next to the first)
   exportData: 1,   // a resend must not email the same files twice
   // The two long statement writes: the app waits at most 150 s for them, but a resend that does arrive must not run a second copy
@@ -344,6 +345,7 @@ function routeActionSwitch_(action, payload) {
     case 'previewMainCurrencyChange': return previewMainCurrencyChange(payload);
     case 'changeMainCurrency': return changeMainCurrency(payload);
     case 'addFriend': return addFriend(payload);
+    case 'assignUnknownFriend': return assignUnknownFriend(payload);
     case 'listPayors': return listPayors();
     case 'addPayor': return addPayor(payload);
     case 'applyPayorMerge': return applyPayorMerge(payload);
@@ -558,7 +560,7 @@ function routeActionSwitch_(action, payload) {
     case 'listPendingContributions': return listPendingContributions();
     case 'listChangeLog': return listChangeLog(payload);   // Business 2 piece 8: change log and month close (ChangeLog.gs, MonthClose.gs)
     case 'getMonthClose': return getMonthClose(payload);
-    case 'closeMonth': return closeMonth(payload);
+    case 'closeMonth': return withRowsMemo_(function () { return closeMonth(payload); });   // each sheet read once (speed pass, 2026-11-24: 49 reads)
     case 'reopenMonth': return reopenMonth(payload);
     case 'getYearStatement': return getYearStatement(payload);   // Business 2 piece 9: the yearly constancia (Constancia.gs)
     case 'getYearStatements': return getYearStatements(payload);
@@ -572,9 +574,9 @@ function routeActionSwitch_(action, payload) {
     case 'recordRefund': return recordRefund(payload);   // Refunds.gs
     case 'cancelExpectedRefund': return cancelExpectedRefund(payload);
     case 'applyRefundMatch': return applyRefundMatch(payload);
-    case 'buildShareStatement': return buildShareStatement(payload);   // Business 2 piece 12 (ShareStatement.gs)
+    case 'buildShareStatement': return withRowsMemo_(function () { return buildShareStatement(payload); });   // Business 2 piece 12 (ShareStatement.gs); read-only, each sheet once (speed pass: 63 reads)
     case 'getShareSections': return getShareSections();   // Business 2 piece 10 (AccountantPackage.gs)
-    case 'sendAccountantPackage': return sendAccountantPackage(payload);
+    case 'sendAccountantPackage': return withRowsMemo_(function () { return sendAccountantPackage(payload); });
     case 'getProfileState': return getProfileState();
     case 'getAnnualHints': return getAnnualHints();
     case 'listStatementGaps': return listStatementGaps();
@@ -2243,6 +2245,9 @@ function addFriend(payload) {
   // Business pack: a client / supplier / partner. Ignored while the pack is off, so a personal copy never gets the column.
   var role = businessRoleFromPayload_(payload.role);
   if (role !== 'friend') { ensureBusinessSheets_(); friend.role = role; }
+  // A client's or supplier's RUC / DNI, for the accountant's package (owner, 2026-11-24). Text, never a number.
+  var taxId = role !== 'friend' ? personTaxId_(payload.tax_id) : '';
+  if (taxId) { ensureBusinessColumn_('Friends', 'tax_id', true); friend.tax_id = taxId; }
   appendRowObject('Friends', friend);
   if (phone) { writeFriendPhone_(friend.id, phone); friend.phone = phone; }
   return friend;

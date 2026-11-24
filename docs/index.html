@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.69.0"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="2.69.2"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-24T19:52:44Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-24T22:45:11Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -835,6 +835,7 @@
       <p class="hint loans-more-practice" id="loans-more-practice" hidden></p>
       <div class="status-msg" id="loans-first-loading" hidden data-i18n="common.loading">Loading…</div>
       <p class="hint loans-unreadable" id="loans-unreadable" hidden></p>
+      <p class="hint loans-unreadable" id="loans-sheetcheck" hidden></p>
       <div class="card" id="loans-owed-card">
         <div class="budgets-header">
           <h2 data-i18n="loans.owesYou">Owes you</h2>
@@ -2311,6 +2312,7 @@
         <button type="button" id="loan-detail-modal-close" class="currency-modal-close">✕</button>
       </div>
       <p class="hint" id="loan-detail-subtitle"></p>
+      <p class="stmt-note warn" id="loan-detail-sheetcheck" hidden></p>
       <div class="loan-detail-actions">
         <span class="info-pair"><button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">Record repayment</button><button type="button" class="info-btn" data-info="repay" data-i18n-aria-label="info.repay.name" aria-label="About Record repayment" aria-expanded="false"></button></span>
         <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">Repayment history</button>
@@ -2334,6 +2336,21 @@
     </div>
   </div>
 
+  <div id="loan-unknown-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="loans.unknownTitle">Choose who this is</span>
+        <button type="button" id="loan-unknown-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="loan-unknown-text"></p>
+        <label for="loan-unknown-friend" data-i18n="loans.unknownPick">Whose loans are these?</label>
+        <select id="loan-unknown-friend"></select>
+        <p class="hint error-text" id="loan-unknown-error" role="alert" hidden></p>
+        <button type="button" class="primary" id="loan-unknown-save" data-i18n="common.save">Save</button>
+      </div>
+    </div>
+  </div>
   <div id="loan-remind-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -4197,6 +4214,12 @@
         <label for="person-role" id="person-role-label" data-i18n="people.role">Role</label>
         <select id="person-role"></select>
 
+        <div id="person-taxid-box" hidden>
+          <label for="person-taxid" data-i18n="people.taxId">RUC or DNI (optional)</label>
+          <input type="text" id="person-taxid" inputmode="numeric" maxlength="14" autocomplete="off">
+          <p class="hint" data-i18n="people.taxIdHint">Goes into the accountant's package next to their income.</p>
+        </div>
+
         <p class="hint error-text" id="person-form-error"></p>
         <button type="button" class="primary" id="person-save-btn" data-i18n="business.save">Save</button>
         <button type="button" class="add-inline" id="person-debts-btn" hidden data-i18n="people.debts">See debts</button>
@@ -4865,25 +4888,25 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="i18n.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="tour-scenes.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="signin-link.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="country-guess.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="rate-quotes.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="bank-sample.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="perf-share.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="spotlight.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="receipt-parse.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="receipt-fields.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="in-process.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="bill-split.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="loan-reminder.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="company-invite.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="app.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="statement-sample.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="statement-table.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="statement-parsers.js?v=2026-11-24T19:52:44Z"></script>
-  <script src="statements.js?v=2026-11-24T19:52:44Z"></script>
+  <script src="strings.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="i18n.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="tour-scenes.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="signin-link.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="country-guess.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="rate-quotes.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="bank-sample.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="perf-share.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="spotlight.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="receipt-parse.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="receipt-fields.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="in-process.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="bill-split.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="loan-reminder.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="company-invite.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="app.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="statement-sample.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="statement-table.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="statement-parsers.js?v=2026-11-24T22:45:11Z"></script>
+  <script src="statements.js?v=2026-11-24T22:45:11Z"></script>
 </body>
 </html>

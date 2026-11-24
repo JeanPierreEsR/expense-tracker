@@ -114,3 +114,18 @@ test("the same stage saved twice (same unit, stage, date, amount) is one row", (
   rt.api("saveUnitStage", { unit_id: u101.id, stage: "down_payment", amount: 20000, due_date: `${mon(2)}-20` });
   assert.equal(rt.rows("Expected Payments").length, before + 1, "a different stage payment is still added");
 });
+
+// Owner, 2026-11-24 (testers 2.68.2, Lucía): sale stages still to collect show in Projections as expected income.
+test("open sale stages count in Projections in their due month, under their stage's income category", () => {
+  const rt = companyCopy();
+  const { u101 } = building(rt);   // down payment 50,000 due this month, balance 240,000 next month, reservation overdue
+  const catOf = (key) => rt.rows("Categories").find((c) => c.key === key);
+  const row = (anchorDate, key) => rt.api("listCategoryProjections", { displayPeriodType: "month", anchorDate }).categories.find((c) => c.category_id === catOf(key).id);
+  const thisMonth = row(`${mon(0)}-15`, "down_payments");
+  assert.ok(Math.abs(thisMonth.programmedRemainingPen - 50000) < 0.01, "the down payment due this month");
+  const overdue = row(`${mon(0)}-15`, "reservation_deposits");
+  assert.ok(Math.abs(overdue.programmedRemainingPen - 10000) < 0.01, "an overdue stage counts in the current month");
+  const next = row(`${mon(1)}-15`, "sale_balances");
+  assert.ok(Math.abs(next.programmedRemainingPen - 240000) < 0.01, "the balance next month");
+  assert.ok(u101);
+});

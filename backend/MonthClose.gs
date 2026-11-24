@@ -95,8 +95,8 @@ function shortDigest_(text, len) {
 }
 
 // The month as one short code (unchanged since piece 8, so fingerprints kept by earlier closes still match).
-function monthFingerprint_(month) {
-  var texts = monthRowTexts_(month);
+function monthFingerprint_(month, textsGiven) {
+  var texts = textsGiven || monthRowTexts_(month);
   var parts = Object.keys(texts).map(function (k) { return texts[k]; });
   parts.sort();
   return shortDigest_(parts.join('\n'), 32);
@@ -104,15 +104,15 @@ function monthFingerprint_(month) {
 
 // One short code per row (testers 2.68.2): kept at the close, so a later check can tell WHICH rows changed, and a row changed
 // with no change-log line of its own is a hand edit even when the app also changed other rows.
-function monthRowPrints_(month) {
-  var texts = monthRowTexts_(month), out = {};
+function monthRowPrints_(month, textsGiven) {
+  var texts = textsGiven || monthRowTexts_(month), out = {};
   Object.keys(texts).forEach(function (k) { out[k] = shortDigest_(texts[k], 10); });
   return out;
 }
 
 // Rows that changed, appeared or disappeared since the close and that no change-log line (after the close) explains.
-function monthHandEdits_(month, closedPrints, changes) {
-  var now = monthRowPrints_(month), explained = {};
+function monthHandEdits_(month, closedPrints, changes, textsGiven) {
+  var now = monthRowPrints_(month, textsGiven), explained = {};
   (changes || []).forEach(function (l) { if (l.row_id) explained[String(l.row_id)] = true; });
   var out = [];
   var keys = {};
@@ -197,7 +197,8 @@ function monthCloseState_(month) {
   var closed = !!row && row.status === 'closed';
   var changed = false, changes = [], handRows = null;
   if (closed) {
-    changed = monthFingerprint_(month) !== row.fingerprint;
+    var texts = monthRowTexts_(month);   // read once: the fingerprint and the per-row prints come from the same texts (speed pass)
+    changed = monthFingerprint_(month, texts) !== row.fingerprint;
     if (changed) {
       var allChanges = listChangeLog({ month: month, limit: 1000 }).lines.filter(function (l) { return l.at > row.closed_at && l.table !== 'Month Closes'; });
       changes = allChanges.slice(0, 50);
@@ -205,7 +206,7 @@ function monthCloseState_(month) {
       try { prints = row.row_prints ? JSON.parse(row.row_prints) : null; } catch (e) { prints = null; }
       // A close made with per-row prints: every row changed without a log line of its own is a hand edit, whatever else changed.
       // An older close (no prints): as before, a hand edit only when nothing in the log explains the change.
-      if (prints) handRows = monthHandEdits_(month, prints, allChanges);
+      if (prints) handRows = monthHandEdits_(month, prints, allChanges, texts);
     }
   }
   var parse = function (s) { try { return s ? JSON.parse(s) : null; } catch (e) { return null; } };
@@ -254,8 +255,9 @@ function closeMonth(payload) {
     }).filter(Boolean);
     var sheet = ensureMonthClosesSheet_();
     ensureColumn_('Month Closes', 'row_prints');   // a sheet made before 2.69 has no such column
-    var fields = { status: 'closed', closed_at: nowStamp_(), reopened_at: '', fingerprint: monthFingerprint_(month),
-      row_prints: JSON.stringify(monthRowPrints_(month)),
+    var closeTexts = monthRowTexts_(month);
+    var fields = { status: 'closed', closed_at: nowStamp_(), reopened_at: '', fingerprint: monthFingerprint_(month, closeTexts),
+      row_prints: JSON.stringify(monthRowPrints_(month, closeTexts)),
       figures: JSON.stringify(monthFigures_(month)), bank_check: JSON.stringify(bank), pending_count: String(state.pending_count),
       note: String(payload.note || '').slice(0, 500) };
     var existing = monthCloseRows_().filter(function (r) { return r.month === month; })[0];

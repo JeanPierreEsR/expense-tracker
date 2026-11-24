@@ -1052,6 +1052,7 @@ function dupWarningKey_(twins) { return twins.length && twins.every((t) => t.nea
 const ONCE_ACTIONS = new Set([
   "fillEntryCharge", "createEntry", "saveEntryAll", "recordCurrencyExchange", "recordRepayment", "convertEntryToRepayment", "convertEntryToLoan", "convertLoanToEntry", "convertLoanToRepayment", "convertLoanToLoan", "convertRepaymentToEntry", "convertRepaymentToLoan", "convertRepaymentToRepayment",
   "recordOverpaymentIncome", "recordOverpaymentExpense", "recordTripSettlement", "addLoan", "addFriend", "addRecurringExpense",
+  "assignUnknownFriend",   // may create a friend (testers 2.68.2, C22)
   "addCompany", "addProject", "addExpectedPayment",   // Business pack: a resend must not create a second one
   "exportData",
   "applyStatementDecisions", "undoStatementBatch",   // long statement writes: a resend must not run a second copy beside the first
@@ -12536,8 +12537,10 @@ function renderCompanyPartners_(company) {
       if (l.contributed) rows.push([tr("coOv.pContributed"), fmt(l.contributed, l.currency)]);
       if (l.pending) rows.push([tr("coOv.pPending"), fmt(l.pending, l.currency)]);
       if (l.owed) rows.push([tr("coOv.pOwed"), fmt(l.owed, l.currency)]);
+      if (l.owed_bills) rows.push([tr("coOv.pOwedBills"), fmt(l.owed_bills, l.currency)]);
       if (l.distributed) rows.push([tr("coOv.pDistributed"), fmt(l.distributed, l.currency), tr("coOv.pGross", { gross: formatAmount(l.gross, l.currency), withholding: formatAmount(l.withholding, l.currency) })]);
     });
+    if (p.repaid) rows.push([`<span class="hint">${escapeHtml(tr("coOv.pRepaid"))}</span>`, ""]);
     if (!rows.length) rows.push([`<span class="hint">${escapeHtml(tr("coOv.pNothing"))}</span>`, ""]);
     return `<div class="co-partner"><div class="co-partner-name">${escapeHtml(p.name)}</div>` +
       rows.map(([k, v, sub]) => `<div class="loans-ov-owed-row"><span>${k.startsWith("<") ? k : escapeHtml(k)}</span><b>${v}</b></div>` +
@@ -23810,11 +23813,12 @@ function shareDocHtml_(s) {
     if (!d.partners.length) html += row(tr("share.nothing"), "");
     d.partners.forEach((p) => {
       html += head(p.name);
-      if (!p.lines.length) html += row(tr("coOv.pNothing"), "");
+      if (!p.lines.length) html += row(tr(p.repaid ? "coOv.pRepaid" : "coOv.pNothing"), "");
       p.lines.forEach((l) => {
         if (l.contributed) html += row(tr("coOv.pContributed"), amt(l.contributed, l.currency));
         if (l.pending) html += row(tr("coOv.pPending"), amt(l.pending, l.currency));
         if (l.owed) html += row(tr("coOv.pOwed"), amt(l.owed, l.currency));
+        if (l.owed_bills) html += row(tr("coOv.pOwedBills"), amt(l.owed_bills, l.currency));
         if (l.distributed) html += row(tr("coOv.pDistributed"), amt(l.distributed, l.currency));
       });
     });
@@ -25343,6 +25347,10 @@ function openPersonModal_(person, friendsMode) {
     sel.appendChild(o);
   });
   sel.value = person ? person.role : "client";
+  // A client's or supplier's RUC / DNI, on a company copy (owner, 2026-11-24: the accountant's package names who paid).
+  const taxBox = document.getElementById("person-taxid-box");
+  taxBox.hidden = personModalFriends_ || !companyCopyOn_();
+  document.getElementById("person-taxid").value = (person && person.tax_id) || "";
   document.getElementById("person-delete-btn").hidden = !person;
   document.getElementById("person-debts-btn").hidden = !(person && person.totals && person.totals.length);
   const backdrop = document.getElementById("person-modal-backdrop");
@@ -25422,13 +25430,16 @@ document.getElementById("person-save-btn").addEventListener("click", () => {
   const phone = withPhone ? readPhoneField_("person-phone") : undefined;
   if (phone && !LoanReminder.phoneOk(phone)) { errorEl.textContent = tr("remind.errPhone"); return; }
   // Closes at once and saves behind the screen; the list is refreshed once the person is on the server.
+  const taxBoxOn = !document.getElementById("person-taxid-box").hidden;
+  const taxId = taxBoxOn ? document.getElementById("person-taxid").value.replace(/[\s.-]/g, "") : undefined;
+  if (taxId && !/^\d{8}$|^\d{11}$/.test(taxId)) { errorEl.textContent = tr("people.badTaxId"); return; }
   const editing = editingPerson_;
   const fromFriends = personModalFriends_;
   closePersonModal_();
   saveBehindScreen_(async () => {
     const friend = editing
-      ? await callApi("updateFriend", fromFriends ? { id: editing.id, name, role: businessOn() ? "friend" : undefined, phone } : { id: editing.id, name, role })
-      : await callApi("addFriend", fromFriends ? { name, phone } : { name, role });
+      ? await callApi("updateFriend", fromFriends ? { id: editing.id, name, role: businessOn() ? "friend" : undefined, phone } : { id: editing.id, name, role, tax_id: taxId })
+      : await callApi("addFriend", fromFriends ? { name, phone } : { name, role, tax_id: taxId });
     rememberPerson_(friend);
     if (fromFriends) { refreshFriendChips_(); populatePaidByOptions(); }   // the pickers show the new name
   }, () => (fromFriends ? refreshFriendsList_() : refreshPeopleList_()));
@@ -33495,6 +33506,7 @@ async function refreshLoans() {
   }
   if (seq !== loansRefreshSeq_) return;
   const unreadable = (balances && balances.unreadable) || [];   // (an older backend answers with the plain list)
+  const sheetCheck = (balances && balances.sheet_check) || { over: [], orphan_repayments: 0 };
   if (balances && balances.balances) balances = balances.balances;
   loansLoadedOnce_ = true;
   setLoadFailed_("loans", null);
@@ -33509,7 +33521,7 @@ async function refreshLoans() {
     .map((b) => {
       const lines = b.balances.filter((l) => sign * l.net > 0);
       const penSize = lines.reduce((sum, l) => sum + (l.net_pen == null ? 0 : Math.abs(l.net_pen)), 0);
-      return { friend_id: b.friend_id, friend_name: b.friend_name, has_overdue: b.has_overdue, project_ids: b.project_ids || [], lines, penSize };
+      return { friend_id: b.friend_id, friend_name: b.friend_name, role: b.role, unknown: !!b.unknown, has_overdue: b.has_overdue, project_ids: b.project_ids || [], lines, penSize };
     })
     .filter((row) => row.lines.length)
     .sort((x, y) => y.penSize - x.penSize);
@@ -33527,6 +33539,13 @@ async function refreshLoans() {
   const warn = document.getElementById("loans-unreadable");
   warn.hidden = !unreadable.length;
   warn.textContent = unreadable.length ? tr("loans.unreadable", { list: unreadable.map((u) => `${u.friend_name} ("${u.amount} ${u.currency}")`.replace(" \")", "\")")).join(", ") }) : "";
+  // Rows typed in the Sheet that do not add up (testers 2.68.2, Ingrid; owner 2026-11-24): flagged, nothing changed.
+  const checkBox = document.getElementById("loans-sheetcheck");
+  const checkLines = [];
+  if ((sheetCheck.over || []).length) checkLines.push(tr("loans.sheetOver", { list: sheetCheck.over.map((o) => `${o.friend_name} ${formatAmount(o.extra, o.currency)}`).join(", ") }));
+  if (sheetCheck.orphan_repayments) checkLines.push(tr("loans.sheetOrphan", { n: sheetCheck.orphan_repayments }));
+  checkBox.hidden = !checkLines.length;
+  checkBox.innerHTML = checkLines.map((t) => `<span class="loans-sheetcheck-line">${escapeHtml(t)}</span>`).join("<br>");
   if (firstLoad) { await renderSettledPeople_(settledCall).catch(() => {}); endFirstLoad(); }
   else renderSettledPeople_(settledCall);
   offerLoansTip_();   // only now that everything has arrived (loading standard)
@@ -33571,21 +33590,97 @@ function renderLoanBalanceList_(listId, emptyNoteId, rows, kind) {
   }
   emptyNote.hidden = true;
 
-  rows.forEach((r) => {
+  // A company copy groups its debts by who the person is: partners, lenders, then everyone else (testers 2.68.2, Lucho: a partner's
+  // loan sat among the lenders). Headings only when there is more than one group.
+  let ordered = rows, groupOf = null;
+  if (companyCopyOn_()) {
+    const g = (r) => (r.role === "partner" ? 0 : r.role === "lender" ? 1 : 2);
+    ordered = rows.slice().sort((a, b) => g(a) - g(b));
+    if (new Set(rows.map(g)).size > 1) groupOf = g;
+  }
+  let lastGroup = -1;
+  ordered.forEach((r) => {
+    if (groupOf && groupOf(r) !== lastGroup) {
+      lastGroup = groupOf(r);
+      const h = document.createElement("h3");
+      h.className = "accounts-group-title";
+      h.textContent = tr(["loans.groupPartners", "loans.groupLenders", "loans.groupOthers"][lastGroup]);
+      list.appendChild(h);
+    }
     const amounts = r.lines.map((l) => `<div>${formatLoanAmount_(l.currency, l.net, kind)}</div>`).join("");
     const row = document.createElement("div");
     row.className = "loan-row";
     // Business pack: which projects this person's debts belong to (only while the pack is on).
     const projectNames = businessOn() ? (r.project_ids || []).map((id) => ((meta.projects || []).find((p) => p.id === id) || {}).name).filter(Boolean) : [];
     row.innerHTML = `
-      <span class="loan-row-name">${r.has_overdue ? `<span role="img" aria-label="${escapeHtml(tr("loans.overdueAria"))}">⚠️</span> ` : ""}${escapeHtml(r.friend_name)}${projectNames.length ? `<span class="loan-row-projects">${escapeHtml(projectNames.join(" · "))}</span>` : ""}</span>
+      <span class="loan-row-name">${r.has_overdue ? `<span role="img" aria-label="${escapeHtml(tr("loans.overdueAria"))}">⚠️</span> ` : ""}${escapeHtml(r.friend_name)}${projectNames.length ? `<span class="loan-row-projects">${escapeHtml(projectNames.join(" · "))}</span>` : ""}${r.unknown ? `<span class="loan-row-projects loan-row-unknown">${escapeHtml(tr("loans.unknownHint"))}</span>` : ""}</span>
       <span class="loan-row-amount ${kind}">${amounts}</span>
     `;
     row.dataset.friendId = r.friend_id;
-    row.addEventListener("click", () => openLoanDetail(r.friend_id, r.friend_name, ""));   // "" = every debt of this person
+    // Someone typed in the Sheet who is not in Friends: their screen could not be used, so the row asks who they are (C22).
+    row.addEventListener("click", () => (r.unknown ? openUnknownFriend_(r, kind) : openLoanDetail(r.friend_id, r.friend_name, "")));   // "" = every debt of this person
     list.appendChild(row);
   });
 }
+
+// "Choose who this is" (testers 2.68.2, Ingrid; owner 2026-11-24): loans typed in the Sheet for someone not in Friends go to a
+// friend picked here, or to a new one. Saved behind the screen (saving standard).
+let unknownFriendCtx_ = null;
+function openUnknownFriend_(r, kind) {
+  unknownFriendCtx_ = { friendId: r.friend_id };
+  const amounts = r.lines.map((l) => formatAmount(Math.abs(l.net), l.currency, kind === "owed-to-me" ? "+" : "−")).join(", ");
+  document.getElementById("loan-unknown-text").textContent = tr("loans.unknownText", { amounts });
+  const sel = document.getElementById("loan-unknown-friend");
+  sel.innerHTML = "";
+  const first = document.createElement("option");
+  first.value = ""; first.textContent = tr("review.pickFriend"); first.disabled = true; first.selected = true;
+  sel.appendChild(first);
+  plainFriends_().filter((f) => !f.bank_lender).forEach((f) => {
+    const opt = document.createElement("option");
+    opt.value = f.id; opt.textContent = friendLabel_(f);
+    sel.appendChild(opt);
+  });
+  const addOpt = document.createElement("option");
+  addOpt.value = "__add__"; addOpt.textContent = tr("common.addFriend");
+  sel.appendChild(addOpt);
+  personShortList_(sel);
+  document.getElementById("loan-unknown-error").hidden = true;
+  const backdrop = document.getElementById("loan-unknown-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+document.getElementById("loan-unknown-close").addEventListener("click", () => {
+  document.getElementById("loan-unknown-modal-backdrop").hidden = true;
+  unknownFriendCtx_ = null;
+});
+document.getElementById("loan-unknown-friend").addEventListener("change", async (e) => {
+  document.getElementById("loan-unknown-error").hidden = true;
+  if (e.target.value !== "__add__") return;
+  const name = await askName_(tr("prompt.friendName"));
+  if (name && name.trim()) {
+    const opt = document.createElement("option");
+    opt.value = "__new__"; opt.textContent = name.trim(); opt.dataset.newName = name.trim();
+    e.target.insertBefore(opt, e.target.querySelector('option[value="__add__"]'));
+    e.target.value = "__new__";
+  } else e.target.value = "";
+});
+document.getElementById("loan-unknown-save").addEventListener("click", () => {
+  const ctx = unknownFriendCtx_;
+  const sel = document.getElementById("loan-unknown-friend");
+  const err = document.getElementById("loan-unknown-error");
+  if (!ctx) return;
+  if (!sel.value || sel.value === "__add__") { err.textContent = tr("loans.unknownPickFirst"); err.hidden = false; return; }
+  const opt = sel.options[sel.selectedIndex];
+  const payload = sel.value === "__new__" ? { friend_id: ctx.friendId, new_name: opt.dataset.newName } : { friend_id: ctx.friendId, to_friend_id: sel.value };
+  const name = opt.textContent;
+  document.getElementById("loan-unknown-modal-backdrop").hidden = true;
+  unknownFriendCtx_ = null;
+  saveBehindScreen_(() => callApi("assignUnknownFriend", payload), async () => {
+    try { await loadMeta(); } catch (e) { /* Loans still refreshes */ }
+    refreshFriendChips_();
+    await refreshLoans().catch(() => {});
+  }, { done: () => tr("loans.unknownDone", { name }) });
+});
 
 // Business pack: opened from a project screen (projectId set) it shows, and repays, only that project's debts with the person.
 // `undefined` keeps the scope the sheet already had for this person (every internal re-open after a repayment or an edit);
@@ -33814,6 +33909,12 @@ async function openLoanDetail(friendId, friendName, projectId) {
   document.getElementById("loan-detail-title").textContent = scopeProject ? `${friendName} · ${scopeProject.name}` : friendName;
 
   const outstanding = loans.filter((l) => l.status !== "forgiven" && l.remaining > 0.004);
+  // Repayments typed in the Sheet beyond a loan's amount (testers 2.68.2, Ingrid; owner 2026-11-24): said here, nothing changed.
+  const overBy = {};
+  loans.filter((l) => l.status !== "forgiven" && l.remaining < -0.004).forEach((l) => { overBy[l.currency] = (overBy[l.currency] || 0) - l.remaining; });
+  const overBox = document.getElementById("loan-detail-sheetcheck");
+  overBox.hidden = !Object.keys(overBy).length;
+  overBox.textContent = overBox.hidden ? "" : tr("loanDetail.sheetOver", { amount: Object.keys(overBy).map((cur) => formatAmount(overBy[cur], cur)).join(" + ") });
   const netByCurrency = {};
   outstanding.forEach((l) => {
     if (!netByCurrency[l.currency]) netByCurrency[l.currency] = 0;
