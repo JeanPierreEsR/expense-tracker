@@ -25,7 +25,7 @@
   --accent-soft: #4a7bd0;
   --accent-bg: #eef5ff;
   --accent-border: #9ec5ff;
-  --danger: #d64545;
+  --danger: #c93c3c;   /* 5.0:1 on white (testers 2.68.2: #d64545 was 4.4:1, under the 4.5 needed for small text) */
   --danger-dark: #a3261c;
   --expense-bg: #fde8e6;
   --income-dark: #1e6b32;
@@ -3480,9 +3480,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .xp-closed summary { cursor: pointer; color: var(--muted); font-size: 0.875rem; padding: 6px 0; }
 .business-expected-card .business-expected-row { cursor: pointer; }
 .business-expected-card .business-expected-row.overdue .recurring-row-sub { color: var(--warn-text); }
-.settle-choose-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 0.875rem; }
+.settle-choose-row { display: flex; align-items: center; gap: 8px; margin: 2px 0; min-height: 44px; font-size: 0.875rem; }   /* a whole row to tap (testers 2.68.2: 26 px) */
 .settle-choose-row span { flex: 1; }
-.settle-choose-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 20px; height: 20px; min-height: 0; flex: none; }
+.settle-choose-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 24px; height: 24px; min-height: 0; flex: none; }
 .settle-choose-row span { min-width: 0; }
 .bank-early-effect { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8125rem; }
 .bank-early-effect:empty { display: none; }
@@ -3916,7 +3916,8 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
    still pushed Confirm and Cancel under the sheet's edge). */
 #app-confirm-backdrop .budget-modal-body { display: flex; flex-direction: column; }
 #app-confirm-backdrop .budget-modal-body > * { flex-shrink: 0; }
-#app-confirm-backdrop .budget-modal-body > #app-confirm-text { flex: 0 1 auto; min-height: 3em; overflow-y: auto; }
+#app-confirm-backdrop .budget-modal-body { overflow-y: auto; }
+#app-confirm-backdrop .budget-modal-body > #app-confirm-text { flex: none; }   /* the whole window scrolls, the text is never cut (testers 2.68.2: clipped at large text sizes) */
 #app-confirm-backdrop .budget-modal-body > [hidden] { display: none; }
 /* More answers than yes / no (which trip, when two cover a day): stacked under the first, same look. */
 #app-confirm-choices .primary { display: block; width: 100%; margin-top: 8px; }
@@ -4374,5 +4375,6 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
   .app-confirm-text, .welcome-overlay, .tour-slide, .pace-screen-body:not(#stmt-viewer-scroll)) { overflow-x: hidden; }
 
 /* The person whose last debt was just settled, shown in Settled people (owner, 2026-11-24). */
-.balance-row.settled-flash { animation: settled-flash 2.6s ease-out; border-radius: var(--r-sm); }
+.balance-row.settled-flash { animation: settled-flash 2.6s ease-out; border-radius: var(--r-sm); outline: 2px solid var(--accent); outline-offset: 2px; }   /* not by colour alone (testers 2.68.2) */
+@media (prefers-reduced-motion: reduce) { .balance-row.settled-flash { animation: none; } }
 @keyframes settled-flash { 0%, 40% { background: var(--accent-bg); } 100% { background: transparent; } }

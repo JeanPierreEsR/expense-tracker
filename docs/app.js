@@ -10422,8 +10422,9 @@ async function openExchangeSuggest_() {
       row.className = "link-candidate-row";
       row.style.display = "block";
       row.innerHTML = sideLine("xch.left", p.out) + `<div style="height:6px"></div>` + sideLine("xch.arrived", p.in)
-        + `<div class="xsugg-actions"><button type="button" class="add-inline" data-act="link">${escapeHtml(tr("xsugg.link"))}</button>`
-        + `<button type="button" class="add-inline" data-act="no">${escapeHtml(tr("xsugg.notThese"))}</button></div>`;
+        // Each button names its pair for a screen reader (testers 2.68.2: "Link", "Not these" heard N times with nothing to tell them apart).
+        + `<div class="xsugg-actions"><button type="button" class="add-inline" data-act="link" aria-label="${escapeHtml(tr("xsugg.linkAria", { out: formatAmount(p.out.amount, p.out.currency), in: formatAmount(p.in.amount, p.in.currency) }))}">${escapeHtml(tr("xsugg.link"))}</button>`
+        + `<button type="button" class="add-inline" data-act="no" aria-label="${escapeHtml(tr("xsugg.notTheseAria", { out: formatAmount(p.out.amount, p.out.currency), in: formatAmount(p.in.amount, p.in.currency) }))}">${escapeHtml(tr("xsugg.notThese"))}</button></div>`;
       row.querySelector('[data-act="link"]').addEventListener("click", () => {
         left = left.filter((x) => x !== p);
         draw();
@@ -20700,9 +20701,11 @@ function moveBalanceHtml_(p) {
   return (p.balanceChoices || []).map((ch) => {
     const amt = (n) => card ? formatAmount(Math.abs(n), ch.currency) : formatAmount(Math.abs(n), ch.currency, n < 0 ? "−" : "");
     const keep = moveKeep_.has(ch.currency);
-    const btn = (k, on, label) => `<button type="button" class="stmt-choice ${on ? "on" : ""}" data-movebal="${escapeHtml(ch.currency)}" data-keep="${k}" style="text-align:left;white-space:normal">${on ? "✓ " : ""}${escapeHtml(label)}</button>`;
-    return `<div class="move-bal" style="margin:12px 0 4px"><p style="margin:0 0 6px;font-weight:600">${escapeHtml(tr(card ? "move.bal.titleOwe" : "move.bal.titleHave", { name: p.to.nickname }))}</p>
-      <div class="stmt-choices" style="padding-left:0;flex-direction:column;align-items:stretch">
+    // A choice of two: a screen reader hears which one is picked (role radio + aria-checked); the ✓ is only for the eye (testers 2.68.2).
+    const btn = (k, on, label) => `<button type="button" role="radio" aria-checked="${on ? "true" : "false"}" class="stmt-choice ${on ? "on" : ""}" data-movebal="${escapeHtml(ch.currency)}" data-keep="${k}" style="text-align:left;white-space:normal">${on ? `<span aria-hidden="true">✓ </span>` : ""}${escapeHtml(label)}</button>`;
+    const titleId = "move-bal-title-" + escapeHtml(ch.currency);
+    return `<div class="move-bal" style="margin:12px 0 4px"><p id="${titleId}" style="margin:0 0 6px;font-weight:600">${escapeHtml(tr(card ? "move.bal.titleOwe" : "move.bal.titleHave", { name: p.to.nickname }))}</p>
+      <div class="stmt-choices" role="radiogroup" aria-labelledby="${titleId}" style="padding-left:0;flex-direction:column;align-items:stretch">
         ${btn(0, !keep, tr(card ? "move.bal.addCard" : "move.bal.addBank", { amount: amt(ch.add) }))}
         ${btn(1, keep, tr(card ? "move.bal.keepCard" : "move.bal.keepBank", { amount: amt(ch.keep), name: p.to.nickname, old: p.from.nickname }))}
       </div>
@@ -33707,6 +33710,10 @@ function showAppMessage_(text) {
   return askConfirmApp_(String(text == null ? "" : text), tr("common.gotIt"), { plain: true, noCancel: true });
 }
 
+// Escape closes the question as its ✕ does (a keyboard user; testers 2.68.2).
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !document.getElementById("app-confirm-backdrop").hidden) document.getElementById("app-confirm-close").click();
+});
 function askConfirmApp_(text, okLabel, opts) {
   opts = opts || {};
   if (appConfirmOpen_.has(text)) return Promise.resolve(false);
@@ -34153,6 +34160,7 @@ function openReassignRepayment_(r) {
     text.textContent = tr("reassign.rowLeft", { date: I18n.fmtDateMedium(new Date(c.date + "T00:00:00")), what: c.description, cur: r.currency, amount: moneyFmt(c.room) });
     const assignedEl = document.createElement("span");
     assignedEl.className = "settle-choose-assigned";
+    assignedEl.setAttribute("aria-hidden", "true");   // the summary line says it (aria-live); here it repeated the row's own amount (testers 2.68.2)
     row.appendChild(input);
     row.appendChild(text);
     row.appendChild(assignedEl);
@@ -34203,6 +34211,7 @@ async function openApplyUnapplied_(l, friend) {
     text.textContent = tr("reassign.rowLeft", { date: I18n.fmtDateMedium(new Date(c.date + "T00:00:00")), what: c.description, cur: l.currency, amount: moneyFmt(c.room) });
     const assignedEl = document.createElement("span");
     assignedEl.className = "settle-choose-assigned";
+    assignedEl.setAttribute("aria-hidden", "true");   // the summary line says it (aria-live); here it repeated the row's own amount (testers 2.68.2)
     row.appendChild(input);
     row.appendChild(text);
     row.appendChild(assignedEl);
@@ -34342,10 +34351,14 @@ function revealSettledPerson_() {
   settledReveal_ = null;
   const list = document.getElementById("loans-settled-list");
   if (list.hidden) document.getElementById("loans-settled-toggle").click();
-  row.scrollIntoView({ block: "center", behavior: "smooth" });
+  const still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  row.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
   row.classList.remove("settled-flash");
   void row.offsetWidth;   // restart the highlight
   row.classList.add("settled-flash");
+  // A screen reader is taken to the person too (testers 2.68.2: the highlight was colour only).
+  if (!row.hasAttribute("tabindex")) row.setAttribute("tabindex", "-1");
+  try { row.focus({ preventScroll: true }); } catch (e) { /* older phone */ }
   setTimeout(() => row.classList.remove("settled-flash"), 2600);
 }
 
@@ -36274,6 +36287,7 @@ function chooseOpenOrClose_(ctx) {
     input.addEventListener("change", () => renderChooseSummary_(ctx));
     const assignedEl = document.createElement("span");
     assignedEl.className = "settle-choose-assigned";
+    assignedEl.setAttribute("aria-hidden", "true");   // the summary line says it (aria-live); here it repeated the row's own amount (testers 2.68.2)
     row.appendChild(input);
     row.appendChild(text);
     row.appendChild(assignedEl);

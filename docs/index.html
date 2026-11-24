@@ -195,7 +195,7 @@
                 <div id="entry-repay-choose-panel" hidden>
                   <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
                   <div id="entry-repay-choose-list"></div>
-                  <p class="hint" id="entry-repay-choose-summary"></p>
+                  <p class="hint" id="entry-repay-choose-summary" aria-live="polite"></p>
                 </div>
               </div>
               <div id="repayment-overpay-block">
@@ -2948,17 +2948,17 @@
         </div>
 
         <label data-i18n="xch.left">Money that left</label>
-        <select id="exchange-out-account"></select>
+        <select id="exchange-out-account" data-i18n-aria-label="xch.aria.outAccount" aria-label="Account the money left"></select>
         <div class="exchange-amount-row">
-          <input type="text" inputmode="decimal" id="exchange-out-amount" placeholder="0.00">
-          <select id="exchange-out-currency"></select>
+          <input type="text" inputmode="decimal" id="exchange-out-amount" placeholder="0.00" data-i18n-aria-label="xch.aria.outAmount" aria-label="Amount that left">
+          <select id="exchange-out-currency" data-i18n-aria-label="xch.aria.outCurrency" aria-label="Currency that left"></select>
         </div>
 
         <label data-i18n="xch.arrived">Money that arrived</label>
-        <select id="exchange-in-account"></select>
+        <select id="exchange-in-account" data-i18n-aria-label="xch.aria.inAccount" aria-label="Account the money arrived in"></select>
         <div class="exchange-amount-row">
-          <input type="text" inputmode="decimal" id="exchange-in-amount" placeholder="0.00">
-          <select id="exchange-in-currency"></select>
+          <input type="text" inputmode="decimal" id="exchange-in-amount" placeholder="0.00" data-i18n-aria-label="xch.aria.inAmount" aria-label="Amount that arrived">
+          <select id="exchange-in-currency" data-i18n-aria-label="xch.aria.inCurrency" aria-label="Currency that arrived"></select>
         </div>
         <p class="hint" id="exchange-rate-line" hidden></p>
 
@@ -2966,7 +2966,7 @@
         <input type="text" id="exchange-house" data-i18n-placeholder="common.optional" placeholder="Optional">
 
         <p class="stmt-note warn" id="exchange-account-note" hidden></p>
-        <p class="hint error-text" id="exchange-form-error"></p>
+        <p class="hint error-text" id="exchange-form-error" role="alert"></p>
         <button type="button" class="primary" id="exchange-save-btn" data-i18n="xch.save">Save exchange</button>
         <div id="exchange-edit-extras" hidden>
           <button type="button" class="add-inline" id="exchange-sides-btn" data-i18n="xch.editSides">Edit each side on its own</button>
@@ -3098,7 +3098,7 @@
   <!-- A budget change that could count from this period on or for all its periods (owner, 2026-11-08); an app window, not the
        iPhone's own dialog (that one speaks the phone's language: "Annuler"). -->
   <div id="app-confirm-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
-    <div class="currency-modal">
+    <div class="currency-modal" role="dialog" aria-modal="true" aria-describedby="app-confirm-text">
       <div class="currency-modal-header">
         <span></span>
         <button type="button" id="app-confirm-close" class="currency-modal-close">✕</button>
@@ -3188,7 +3188,7 @@
             <div id="settlement-choose-panel" hidden>
               <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
               <div id="settlement-choose-list"></div>
-              <p class="hint" id="settlement-choose-summary"></p>
+              <p class="hint" id="settlement-choose-summary" aria-live="polite"></p>
             </div>
           </div>
 
@@ -3826,7 +3826,7 @@
           <div id="review-transfer-choose-panel" hidden>
             <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
             <div id="review-transfer-choose-list"></div>
-            <p class="hint" id="review-transfer-choose-summary"></p>
+            <p class="hint" id="review-transfer-choose-summary" aria-live="polite"></p>
           </div>
         </div>
 
@@ -4515,8 +4515,8 @@
       <p id="move-from-line"></p>
       <label for="move-to" data-i18n="move.to">Move it to</label>
       <select id="move-to"></select>
-      <div id="move-summary"></div>
-      <p class="hint error-text" id="move-form-error"></p>
+      <div id="move-summary" aria-live="polite"></div>
+      <p class="hint error-text" id="move-form-error" role="alert"></p>
       <button type="button" class="delete-entry-btn" id="move-save-btn" hidden></button>
     </div>
   </div>
