@@ -197,8 +197,12 @@ function companyOverview_(startDate, endDate) {
   var past = endDate && String(endDate).slice(0, 10) < businessToday_() ? String(endDate).slice(0, 10) : '';
   var asOf = past ? owedAsOf_(past) : null;
   var sunatId = companySunatId_();
+  var known = {};
+  getAllRows('Friends').forEach(function (x) { known[x.id] = true; });
   listLoanBalances({}).forEach(function (f) {
-    if (f.role !== 'lender' && f.role !== 'partner') return;
+    // A debt typed by hand in the Sheet for a person who does not exist still shows here, as "(unknown person)", so this card and
+    // the loan totals agree (testers 2.68.2, Ingrid: 999 counted in the totals and nowhere else).
+    if (f.role !== 'lender' && f.role !== 'partner' && known[f.friend_id]) return;
     var nets = asOf ? (asOf[f.friend_id] || {}) : null;
     var lines = (nets ? Object.keys(nets).map(function (c) { return { currency: c, net: nets[c] }; }) : f.balances)
       .filter(function (b) { return b.net < -0.004; })
