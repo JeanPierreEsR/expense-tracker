@@ -290,3 +290,11 @@ test("\"already included\": the new card keeps its starting balance as it is", (
   rt.api("moveAccountHistory", { from: a.id, to: b.id, keep_balances: ["PEN"] });
   assert.equal(bal(b.id), -230);
 });
+
+test("the summary names the wallet the account really carries, and none when it has none", () => {
+  const { rt, oldCard, newCard } = setup();
+  rt.run(`setSetting_('yape_pen', ''); setSetting_('plin_pen', ${JSON.stringify(oldCard.id)})`);
+  assert.deepEqual(rt.api("previewAccountMove", { from: oldCard.id, to: newCard.id }).movedLinks, ["Plin"]);
+  rt.run(`setSetting_('plin_pen', '')`);
+  assert.deepEqual(rt.api("previewAccountMove", { from: oldCard.id, to: newCard.id }).movedLinks, []);
+});

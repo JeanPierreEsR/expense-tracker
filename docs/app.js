@@ -20702,7 +20702,10 @@ document.getElementById("move-to").addEventListener("change", async (e) => {
     const c = p.counts, lines = [];
     const add = (n, key) => { if (n) lines.push(tr(key, { n })); };
     add(c.entries, "move.n.entries"); add(c.loans, "move.n.loans"); add(c.repayments, "move.n.repayments"); add(c.statements, "move.n.statements");
-    add(c.balances, "move.n.balances"); add(c.links, "move.n.links");
+    add(c.balances, "move.n.balances");
+    // The wallet this account really carries (owner, 2026-11-24): "Its Plin link" / "Its Yape link"; nothing when it has none.
+    const wallets = p.movedLinks || [];
+    if (wallets.length) lines.push(tr("move.n.link", { wallet: wallets.join(" / ") }));
     const from = meta.paymentMethods.find((x) => x.id === moveFromId_) || {}, to = meta.paymentMethods.find((x) => x.id === toId) || {};
     // Company copies: a move that would change a closed month is refused (reopen it first): said here, and no button.
     if ((p.closedMonths || []).length) {
