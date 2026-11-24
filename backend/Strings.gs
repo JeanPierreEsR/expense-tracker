@@ -1028,7 +1028,9 @@ var BACKEND_STRINGS_ = {
 
   // ---- notice ----
   "notice.statement": { en: "📄 New {bank} statement (received {date}). It waits in More → My data → Bank statements → Inbox until you open it.", es: "📄 Nuevo estado de cuenta de {bank} (recibido el {date}). Espera en Más → Mis datos → Estados de cuenta → Bandeja de entrada hasta que lo abras." },
-  "notice.autoProblem": { en: "⚠️ Automatic scan problem:\n• {list}\nLast fully clean run: {last}", es: "⚠️ Problema en el escaneo automático:\n• {list}\nÚltima ejecución sin problemas: {last}" },
+  "notice.autoProblem": { en: "⚠️ The automatic check (every 15 minutes) ran into a problem:\n• {list}\nNothing was lost: it tries again on its own. Last check with no problems: {last}", es: "⚠️ La revisión automática (cada 15 minutos) tuvo un problema:\n• {list}\nNo se perdió nada: vuelve a intentarlo sola. Última revisión sin problemas: {last}" },
+  "notice.busy": { en: "The app was busy with another change. Try again in a moment.", es: "La app estaba ocupada con otro cambio. Inténtalo de nuevo en un momento." },
+  "notice.busyLong": { en: "{step}: skipped for about an hour because the app stayed busy with other changes", es: "{step}: se saltó durante casi una hora porque la app siguió ocupada con otros cambios" },
   "notice.unknown": { en: "unknown", es: "desconocida" }
 };
 // END GENERATED

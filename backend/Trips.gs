@@ -669,7 +669,7 @@ function tripDisplayName_(t) {
 
 function checkTripBudgets() {
   var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  waitLockOrBusy_(lock, 30000);   // busy: the 15-minute run skips it quietly (Triggers.gs)
   try {
     return checkTripBudgetsLocked_();
   } finally {
