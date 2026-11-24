@@ -3319,7 +3319,7 @@
     const askFull = askText + (fixes ? " " + tr("hist.confirmStartFix", { n: fixes }) : "");
     const dueProblem = applyDueTyped_();   // a pay-by date typed on or before the close: said here, nothing saved
     if (dueProblem) { status.innerHTML = `<p class="stmt-verdict warn">${escapeHtml(dueProblem)}</p>`; return; }
-    if (!practiceNoConfirm_(practiceIOwns_(usable.map((u) => u.group || u.file))) && !await askConfirmApp_(askFull + "\n\n" + tr("stmt.confirmUndoable"), tr("confirmBtn.yes"), { plain: true })) return;   // (the practice's own file asks nothing while the walkthrough runs)
+    if (!practiceNoConfirm_(practiceIOwns_(usable.map((u) => u.group || u.file))) && !await askConfirmApp_(askFull + "\n\n" + tr("stmt.confirmUndoable"), tr("confirmBtn.addToHistory"), { plain: true })) return;   // (the practice's own file asks nothing while the walkthrough runs)
     btn.insertAdjacentHTML("afterend", loadingHtml(tr("hist.saving")));   // right where the person tapped, not in a box further down
     btn.hidden = true;
     status.innerHTML = "";
