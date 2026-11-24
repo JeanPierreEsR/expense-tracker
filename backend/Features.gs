@@ -112,6 +112,7 @@ function getCapabilities_() {
     exchangeLink: true,   // listExchangeLinkCandidates + linkExchangeSides: a side is linked by hand to its other side (2026-11-23)
     exchangeEdit: true,   // updateCurrencyExchange: one form edits both sides of an exchange (2026-11-23); an older backend: side by side only
     bulkUndo: true,   // unconfirmEntries: the Undo of a "confirm many at once" (2026-11-18)
+    repayIntent: true,   // a repayment kept waiting for its loans (RepayIntent.gs): confirmEntries `repay`, unconfirmEntries `repaid` (2026-11-23)
     bulkPlanLink: true,   // confirmEntries links items to their Programmed item (link_recurring_id), re-checked; an older backend: the phone promises no link
     // This backend can say which bank addresses it reads (listSupportedSenders), so the app can tell a friend "your bank is ready".
     bankReady: true,

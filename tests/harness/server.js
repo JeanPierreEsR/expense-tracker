@@ -258,7 +258,7 @@ http.createServer((req, res) => {
     return;
   }
   // An entry waiting in Needs review, as if a bank e-mail had brought it (the app's own saves are always confirmed):
-  // {description, amount, currency?, category? (name or id), date? (YYYY-MM-DD, default today), type? (default expense)}.
+  // {description, amount, currency?, category? (name or id), date? (YYYY-MM-DD, default today), type? (default expense), repay_friend?}.
   if (req.method === "POST" && url === "/__pending") {
     let body = "";
     req.on("data", (c) => (body += c));
@@ -271,6 +271,12 @@ http.createServer((req, res) => {
         amount: Number(f.amount || 10), currency: f.currency || "PEN", category_id: cat ? cat.id : "", description: f.description || "Test pending",
         paid_by: "me", payment_method_id: pm ? pm.id : "", status: "pending", source: "email" };
       rt.run(`appendRowObject('Entries', ${JSON.stringify(row)});`);
+      // {repay_friend: name or id, repay_direction?}: kept waiting as a repayment whose loans are to be chosen, as a bot leaves it
+      // (backend RepayIntent.gs).
+      if (f.repay_friend) {
+        const fr = rt.rows("Friends").find((x) => x.id === f.repay_friend || x.name === f.repay_friend);
+        if (fr) rt.run(`ensureEntriesRepayIntentColumn_(); setEntryField_(${JSON.stringify(row.id)}, 'repay_intent', ${JSON.stringify(JSON.stringify({ friend_id: fr.id, direction: f.repay_direction || (row.type === "income" ? "they_owe_me" : "i_owe_them") }))});`);
+      }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(row));
     });

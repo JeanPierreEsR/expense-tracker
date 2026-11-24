@@ -831,6 +831,7 @@ function confirmEntryWithLearning_(entryId, opts) {
   // A company copy: an expense or income confirmed with no company gets its one company (CompanyCopy.gs). Every Confirm comes
   // through here (one, several, Telegram), so no source escapes.
   companyDefaultOnConfirm_(entry, opts && opts.personal);
+  clearRepayIntent_(entry);   // confirmed as what it is: no longer a repayment waiting for its loans (RepayIntent.gs)
   setEntryField_(entryId, 'status', 'confirmed');
 }
 

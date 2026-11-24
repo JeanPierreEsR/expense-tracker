@@ -656,6 +656,8 @@ function whatsappConvert_(entryId, kind, friendId, p) {
   botRecorded_(kind === 'r' ? 'repayment' : 'loan', entryId, [p.id, p.context_id], function () {   // for "deshacer" (BotUndo.gs)
     var res = applyTerminalReviewAction_(entryId, kind === 'r' ? 'repayment' : 'loan', friend.name, friend);
     botText_(res.message, whatsappCardFor_(entryId) || p.id);
+    // Kept waiting for its loans to be chosen (RepayIntent.gs): a fresh card, so a confirmed one gets its Confirm again.
+    if (res.entry && !res.removed) sendTelegramEntryNotification_(res.entry, null);
   });
 }
 

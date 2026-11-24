@@ -60,6 +60,7 @@ const NEVER_ONE_ = {
   "charges.telegramOne": "the days are the reminder wait (45)",
   "bankSample.demandMany": "only when more than 1 phone (1 uses bankSample.demandFirst)",
   "statementSample.demandMany": "only when more than 1 phone (1 uses statementSample.demandFirst)",
+  "bot.repayKept": "only when there are 2 or more open loans (RepayIntent.gs: a real choice)",
 };
 
 function pluralAgreement(es) {

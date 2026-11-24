@@ -1258,9 +1258,28 @@ function confirmEntries(payload) {
   var items = [], seen = {};
   ((payload && payload.items) || []).forEach(function (it) {
     var id = String((it && it.id) || '');
-    if (id && !seen[id]) { seen[id] = true; items.push({ id: id, trip_id: it.trip_id, link_recurring_id: it.link_recurring_id ? String(it.link_recurring_id) : '' }); }
+    if (id && !seen[id]) { seen[id] = true; items.push({ id: id, trip_id: it.trip_id, link_recurring_id: it.link_recurring_id ? String(it.link_recurring_id) : '', repay: !!(it && it.repay) }); }
   });
-  var out = { confirmed: [], kept: [] };   // (+ linked / link_skipped, only when links were asked for)
+  var out = { confirmed: [], kept: [] };   // (+ linked / link_skipped, only when links were asked for; + repaid)
+  // A repayment kept waiting for its loans (RepayIntent.gs), `repay: true` = the person said "Pay the oldest first": recorded oldest
+  // first, in date order, so two repayments to one friend pay the loans in turn. Each answer carries what the Undo needs.
+  var repayItems = items.filter(function (it) { return it.repay; });
+  items = items.filter(function (it) { return !it.repay; });
+  repayItems.map(function (it) { return { it: it, entry: getEntryById_(it.id) }; })
+    .sort(function (a, b) { return String((a.entry || {}).date) < String((b.entry || {}).date) ? -1 : 1; })
+    .forEach(function (x) {
+      var entry = x.entry, id = x.it.id;
+      if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
+      if (!repayIntentOf_(entry)) { out.kept.push({ id: id, reason: 'notPending' }); return; }
+      if (getEntrySplits(id).length) { out.kept.push({ id: id, reason: 'refused', message: tr_('repayIntent.ownWindow') }); return; }
+      var tags = getAllRows('Entry Tags').filter(function (t) { return t.entry_id === id; }).map(function (t) { return { tag_id: t.tag_id }; });
+      try {
+        var rec = withScriptLockOnce_(function () { return recordRepayIntent_(entry); });
+        (out.repaid = out.repaid || []).push({ id: id, friend: rec.friend, overpaid: rec.overpaid, before: { entry: entry, tags: tags, settlement_id: rec.settlement_id } });
+      } catch (err) {
+        out.kept.push({ id: id, reason: 'refused', message: String(err && err.message || err) });
+      }
+    });
   items.forEach(function (it) {
     var entry = getEntryById_(it.id);
     if (!entry) { out.kept.push({ id: it.id, reason: 'missing' }); return; }
@@ -1300,6 +1319,8 @@ function unconfirmEntries(payload) {
     if (!id || seen[id]) return;
     seen[id] = true;
     try {
+      // A repayment that confirm recorded from a marked entry (RepayIntent.gs): the repayment goes, the waiting entry comes back.
+      if (it.repaid) { withScriptLockOnce_(function () { undoRepayIntent_(it); }); out.undone.push(id); return; }
       var entry = getEntryById_(id);
       if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
       if (entry.status === 'pending') { out.undone.push(id); return; }
@@ -1861,6 +1882,7 @@ function listPendingEntries() {
     var splitSugg = projectSplitSuggestions_(entries, all);
     entries.forEach(function (entry) { if (splitSugg[entry.id]) entry.split_match = splitSugg[entry.id]; });
   }
+  attachRepayIntents_(entries);   // a repayment kept waiting for its loans: friend, direction, whether the choice still matters (RepayIntent.gs)
   entries.sort(compareEntriesRecency_);
   return entries;
 }
