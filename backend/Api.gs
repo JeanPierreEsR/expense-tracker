@@ -142,11 +142,15 @@ function doPostInner_(e) {
       var payload = body.payload || {};
       var thenReads = payload._then;   // reads the app wants back with this save (see runThenReads_)
       if (thenReads) delete payload._then;
+      checkMoneyPayload_(body.action, payload);   // amounts, currencies, dates, accounts, lengths (testers 2.68.2)
       response = { ok: true, data: routeActionOnce_(body.action, payload) };
       if (thenReads) response.then = runThenReads_(thenReads);
     }
   } catch (err) {
-    response = { ok: false, error: err.message, code: err.code || undefined };
+    // A request the code could not even read (a list sent as text, a missing part) gets a plain message, never a JavaScript one
+    // (testers 2.68.2: "(payload.bank || []).map is not a function"). Nothing was saved: the action stopped before writing.
+    var plain = err && (err.name === 'TypeError' || err.name === 'RangeError' || err.name === 'ReferenceError');
+    response = { ok: false, error: plain ? tr_('err.badRequest') : err.message, code: err.code || undefined };
   }
   response.serverMs = Date.now() - perfStart;
   response.coldInstance = perfCold;
@@ -220,6 +224,40 @@ function applePayDoor_(e) {
   // The shortcut shows `message` as a notification (one key: Shortcuts reads a nested one awkwardly).
   reply.message = reply.ok ? reply.data.message : reply.error;
   return ContentService.createTextOutput(JSON.stringify(reply)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// Checks every money save makes before anything is written (testers 2.68.2, Rafael: a hand-made request saved a made-up account,
+// an amount of 1e308, the currency "ZZZ", the date 2026-13-45, and names of 100,000 characters). The phone never sends these.
+var MONEY_PAYLOAD_ACTIONS_ = { recordRepayment: 1, addLoan: 1, updateLoan: 1, forgiveLoan: 1, recordCurrencyExchange: 1, updateCurrencyExchange: 1,
+  createEntry: 1, saveEntryAll: 1, updateEntry: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, recordDistribution: 1, convertEntryToPartnerMoney: 1,
+  saveBankLoan: 1, recordInstallment: 1, recordEarlyPayment: 1, returnUnitDeposit: 1, saveUnitStage: 1, saveUnit: 1, addFriend: 1, addPaymentMethod: 1,
+  savePaymentMethod: 1, addCompany: 1, updateCompany: 1, addProject: 1, saveCompanySetup: 1 };
+var MAX_AMOUNT_ = 1e12, MAX_TEXT_ = 2000;
+var MONEY_PM_CHECK_ = { recordRepayment: 1, addLoan: 1, recordCurrencyExchange: 1, forgiveLoan: 1, recordInstallment: 1, recordEarlyPayment: 1 };
+function checkMoneyPayload_(action, payload) {
+  if (!MONEY_PAYLOAD_ACTIONS_[action] || !payload || typeof payload !== 'object') return;
+  var pmIds = null;
+  var walk = function (o, depth) {
+    if (!o || typeof o !== 'object' || depth > 3) return;
+    Object.keys(o).forEach(function (k) {
+      var v = o[k];
+      if (v && typeof v === 'object') { walk(v, depth + 1); return; }
+      if (typeof v === 'string' && v.length > MAX_TEXT_ && k !== '_requestId') throw new Error(tr_('err.tooLong', { n: MAX_TEXT_ }));
+      if ((k === 'amount' || k === 'withholding' || k === 'price' || k === 'gross') && v !== '' && v != null) {
+        var n = Number(v);
+        if (!isFinite(n) || Math.abs(n) > MAX_AMOUNT_) throw new Error(tr_('err.validAmount'));
+      }
+      if (k === 'currency' && v && KNOWN_CURRENCY_CODES_.indexOf(String(v).toUpperCase()) === -1) throw new Error(tr_('err.validCurrency'));
+      if (/(^|_)date$/.test(k) && v && /^\d{4}-\d{2}-\d{2}/.test(String(v)) && !validIsoDate_(String(v).slice(0, 10))) throw new Error(tr_('err.dateRequired'));
+      // Accounts only where money is newly recorded: an edit may still carry the id of an account deleted since (that entry shows
+      // with no account, and saving it must keep working).
+      if (MONEY_PM_CHECK_[action] && (k === 'payment_method_id' || k === 'to_payment_method_id') && v && v !== '__pick__') {
+        if (!pmIds) { pmIds = {}; getAllRows('Payment Methods').forEach(function (p) { pmIds[String(p.id)] = true; }); }
+        if (!pmIds[String(v)]) throw new Error(tr_('err.pmNotFound'));
+      }
+    });
+  };
+  walk(payload, 0);
 }
 
 function routeActionOnce_(action, payload) {

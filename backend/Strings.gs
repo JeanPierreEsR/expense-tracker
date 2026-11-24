@@ -225,6 +225,8 @@ var BACKEND_STRINGS_ = {
   "err.catNotFound": { en: "Category not found.", es: "No se encontró la categoría." },
   "err.catProtected": { en: "This built-in category can't be edited, hidden or deleted.", es: "Esta categoría viene incluida en la app y no se puede editar, ocultar ni eliminar." },
   "err.catInUse": { en: { one: "This category can't be deleted: {n} entry uses it. Hide it instead — it disappears from the lists you choose from, but past entries keep its name.", other: "This category can't be deleted: {n} entries use it. Hide it instead — it disappears from the lists you choose from, but past entries keep its name." }, es: { one: "No se puede eliminar esta categoría: {n} movimiento la usa. Mejor ocúltala: desaparece de las listas pero los movimientos anteriores conservan su nombre.", other: "No se puede eliminar esta categoría: {n} movimientos la usan. Mejor ocúltala: desaparece de las listas pero los movimientos anteriores conservan su nombre." } },
+  "err.badRequest": { en: "Something in this request could not be read, so nothing was saved. Try again from the app.", es: "Algo de esta solicitud no se pudo leer, así que no se guardó nada. Inténtalo de nuevo desde la app." },
+  "err.tooLong": { en: "A text is too long (more than {n} characters). Nothing was saved.", es: "Un texto es demasiado largo (supera el límite de {n} caracteres). No se guardó nada." },
   "err.pmNotFound": { en: "Account not found.", es: "No se encontró la cuenta." },
   "err.tagProtected": { en: "Annual is built in: it can't be renamed or deleted.", es: "Anual viene incluida en la app: no se puede renombrar ni eliminar." },
   "err.tagName": { en: "Give the tag a name.", es: "Ponle un nombre a la etiqueta." },
