@@ -179,6 +179,8 @@
   .wiz-bar i { display:block; height:100%; width:0; background:var(--accent); border-radius:3px; transition:width .5s ease; }
   #wizDone { margin:4px 0 0; font-size:15px; color:var(--ok); }
   #wizDone:empty { display:none; }
+  #companyNote { margin:8px 0 0; font-size:15px; font-weight:600; }
+  #companyNote.ok { color:var(--ok); } #companyNote.bad { color:var(--bad); }
   #wizFlash { margin:10px 0 0; font-size:22px; font-weight:700; color:var(--ok); }
   .step p.line { font-size:16px; margin:10px 0; }
   .step p.line .linkbtn { font-size:16px; }
@@ -210,6 +212,7 @@
     <div class="wiz-bar"><i id="wizBar"></i></div>
     <p id="wizDone"></p>
     <p id="wizFlash" hidden data-t="wizFlash"></p>
+    <p id="companyNote" hidden></p>
   </div>
 
   <div class="topstatus idle" id="topStatus" role="status" aria-live="polite">
@@ -476,6 +479,8 @@ const T = {
     wizD3: 'App made',
     wizD4: 'Allowed',
     extrasLink: 'Turn on optional extras ›',
+    coInviteOk: '✓ Company invitation for {e}: this will be the company’s app.',
+    coInviteWrong: 'This company invitation was made for another Google account, so this would be a personal app. Tap “Change account” at the top and choose the account the invitation was made for.',
     privateBody: '<p style="color:inherit">This is the surest way to set up without problems. Many phones are signed in to several Google accounts, and Google’s approval screen gets confused by that. A Private tab starts with no accounts, so you sign in with only the one you choose.</p><ol><li>Tap <b>Copy this page’s address</b> below.</li><li>In Safari tap the tabs icon (two squares), then <b>Private</b>, then the <b>+</b>.</li><li>Paste the address in the bar and open it. This page appears again: carry on from there.</li></ol><p style="color:inherit" class="small">Already in a Private tab? Then you are all set: go on with the steps below.</p>',
     accountTip: '<b>Which Google account?</b> The Gmail that <b>receives your bank emails</b>.',
     accountTipMore: '<b>Which Google account?</b> Sign in with the Gmail account that <b>receives your bank emails</b>. Your app reads your bank transactions from that account, so use that one. If your banks write to several addresses, you can forward them all to this one later (in the app: More → Bank emails). No Gmail, because your bank writes to Outlook, iCloud or Yahoo? Create a free Gmail and forward to it; the app explains how.',
@@ -690,6 +695,8 @@ const T = {
     wizD3: 'App creada',
     wizD4: 'Permitido',
     extrasLink: 'Activar extras opcionales ›',
+    coInviteOk: '✓ Invitación de empresa para {e}: esta será la app de la empresa.',
+    coInviteWrong: 'Esta invitación de empresa se hizo para otra cuenta de Google, así que esta sería una app personal. Toca “Cambiar de cuenta” arriba y elige la cuenta para la que se hizo la invitación.',
     privateBody: '<p style="color:inherit">Es la forma más segura de configurar sin problemas. Muchos celulares tienen varias cuentas de Google con sesión iniciada, y la pantalla de aprobación de Google se confunde con eso. Una pestaña privada empieza sin cuentas, así que inicias sesión solo con la que elijas.</p><ol><li>Toca <b>Copiar la dirección de esta página</b> aquí abajo.</li><li>En Safari toca el ícono de pestañas (dos cuadrados), luego <b>Privada</b> y luego el <b>+</b>.</li><li>Pega la dirección en la barra y ábrela. Esta página aparece otra vez: sigue desde ahí.</li></ol><p style="color:inherit" class="small">¿Ya estás en una pestaña privada? Entonces todo listo: sigue con los pasos de abajo.</p>',
     accountTip: '<b>¿Con qué cuenta de Google?</b> El Gmail que <b>recibe los correos de tu banco</b>.',
     accountTipMore: '<b>¿Con qué cuenta de Google?</b> Inicia sesión con la cuenta de Gmail que <b>recibe los correos de tu banco</b>. Tu app lee tus movimientos del banco desde esa cuenta, así que usa esa. Si tus bancos escriben a varias direcciones, después puedes reenviarlos todos a esta (en la app: Más → Correos del banco). ¿No tienes Gmail porque tu banco escribe a Outlook, iCloud o Yahoo? Crea un Gmail gratis y reenvía a él; la app te explica cómo.',
@@ -2015,7 +2022,22 @@ function wizApply(step) {
   $('wizBar').style.width = Math.round(n / WIZ_ORDER.length * 100) + '%';
   $('wizDone').textContent = [T.wizD1, T.wizD2, T.wizD3, T.wizD4].slice(0, n - 1).map((x) => '✓ ' + x).join(' · ');
   $('wizBack').hidden = busy || !((step === 'choices') || (step === 'setup' && !state.spreadsheetId && !apiRetryTimer) || (step === 'extras' && !state.pending));
+  renderCompanyNote_(step);
   $('extrasLinkRow').hidden = !(state.permissionDone && EXTRA_NAMES.some((x) => !(state.stages || []).includes(x)));
+}
+// Before the app is made, a company invitation says plainly whether it fits the signed-in account (it used to be only in the log).
+let coNoteFor = null;
+async function renderCompanyNote_(step) {
+  const note = $('companyNote');
+  const before = !state.webAppUrl && step !== 'welcome';
+  if (!WANT_COMPANY || !before || !state.account) { note.hidden = true; return; }
+  if (coNoteFor !== state.account) {
+    coNoteFor = state.account;
+    const ok = await CompanyInvite.matches(WANT_COMPANY, state.account);
+    note.className = ok ? 'ok' : 'bad';
+    note.textContent = ok ? T.coInviteOk.replace('{e}', state.account) : T.coInviteWrong;
+  }
+  note.hidden = false;
 }
 function renderWizard() {
   if (!WIZ || wizTimer) return;
@@ -2081,7 +2103,9 @@ $('btnInstall').addEventListener('click', () => { betaSend('tapped'); run('s1', 
 // Two buttons copy the page address for a Private tab: the one in the card at the top (shown to everyone) and the one in the
 // "can't open the file" card (shown after a failed trip to Google).
 ['btnCopyPrivate', 'btnCopyPage'].forEach((id) => $(id).addEventListener('click', async () => {
-  const address = location.origin + location.pathname;
+  // A company invitation travels with the address: a Private tab has none of this tab's memory (owner's spare-account install,
+  // 2026-11-25, came out as a personal app).
+  const address = location.origin + location.pathname + (WANT_COMPANY ? '#company=' + WANT_COMPANY : '');
   try { await navigator.clipboard.writeText(address); log('Page address copied.'); $(id).textContent = T.copiedBtn; }
   catch (e) { log('Could not copy automatically.', 'bad'); try { window.prompt(T.copyManual, address); } catch (e2) {} }
 }));
