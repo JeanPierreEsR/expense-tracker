@@ -16907,6 +16907,7 @@ function showWelcomeStep_(step) {
   welcomeEl_("welcome-company").hidden = step !== 2 || !company;
   welcomeEl_("welcome-accounts").hidden = step !== 3;
   welcomeEl_("welcome-platforms").hidden = step !== 4;
+  welcomeEl_("welcome-saving").hidden = true;
   welcomeEl_("welcome-overlay").scrollTop = 0;
   if (step === 3) { welcome_.bankOpen = null; welcome_.form = null; renderWelcomeAccounts_(); }
   else if (step === 4) renderWelcomePlatforms_();
@@ -17443,6 +17444,7 @@ function welcomeSteps_() { return (perfShareState_().asked && !perfIsOwnerCopy_(
 async function offerTour_(reloadAfter) {
   const yes = await askConfirmApp_(tr("welcome.tourAsk"), tr("welcome.tourYes"), { plain: true, cancel: tr("welcome.tourSkip") });
   if (yes) { openTour_(reloadAfter); return; }
+  welcomeEl_("welcome-saving").hidden = true;
   welcomeEl_("welcome-overlay").hidden = true;
   if (reloadAfter) window.location.reload();
 }
@@ -17469,6 +17471,11 @@ async function finishWelcome_() {
     toTourPreview();   // the Bank emails sheet is a "Getting started" step on Home now, not a sheet after the welcome
     return;
   }
+  // While the answers are saved, the screen shows only "Setting up your app…" with a spinner, no buttons (owner, 2026-11-25: a
+  // blank page with Back and a pale "Saving…" looked broken). A failure brings the step back with its error and buttons.
+  ["welcome-questions", "welcome-fits", "welcome-company", "welcome-accounts", "welcome-platforms"].forEach((id) => { welcomeEl_(id).hidden = true; });
+  welcomeEl_("welcome-saving").hidden = false;
+  welcomeEl_("welcome-overlay").scrollTop = 0;
   try {
     if (welcome_.accounts.length) {
       await callApi("saveOnboardingAccounts", { batch: welcome_.batch, lang: welcome_.lang, links: welcome_.links,
@@ -17487,6 +17494,7 @@ async function finishWelcome_() {
     }
     await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, homeCurrency: welcome_.home, currencies: welcome_.currencies });
   } catch (err) {
+    showWelcomeStep_(4);
     errEl.textContent = tr("wa.error");
     btn.disabled = false; btn.textContent = tr("welcome.next");
     return;
@@ -17546,6 +17554,7 @@ function openTour_(reloadAfter, part) {
   welcomeEl_("welcome-overlay").classList.add("tour-mode");
   welcomeEl_("welcome-questions").hidden = true;
   welcomeEl_("welcome-tour").hidden = false;
+  welcomeEl_("welcome-saving").hidden = true;
   renderTour_();
 }
 function buildTourSlide_(key, n, total) {

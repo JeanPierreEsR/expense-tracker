@@ -4263,6 +4263,7 @@
     "welcome.mainHint": { en: "Totals and reports are shown in it. You can change it any time in More → Currencies.", es: "Los totales y reportes se muestran en ella. Puedes cambiarla cuando quieras en Más → Monedas." },
     "welcome.continue": { en: "Continue", es: "Continuar" },
     "welcome.saving": { en: "Saving…", es: "Guardando…" },
+    "welcome.savingAll": { en: "Setting up your app…", es: "Preparando tu app…" },
     "welcome.error": { en: "Could not save. Check your connection and try again.", es: "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo." },
     "tour.exampleTag": { en: "Example", es: "Ejemplo" },
     "tour.step": { en: "{n} of {total}", es: "{n} de {total}" },

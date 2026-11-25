@@ -4442,3 +4442,10 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
    (owner, 2026-11-25: the arrows sat in the circles' corners and the month had no outline). */
 .ts-device .period-nav-btn { display: inline-flex; align-items: center; justify-content: center; flex: none; }
 .ts-device .ts-period-label { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0 16px; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--white); white-space: nowrap; }
+
+/* The welcome's last save: only a spinner and one line, no buttons (owner, 2026-11-25). */
+.welcome-saving { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 60vh; text-align: center; color: var(--muted); font-size: 1.125rem; }
+.welcome-saving[hidden] { display: none; }
+.welcome-spinner { width: 36px; height: 36px; border-radius: 50%; border: 4px solid var(--border); border-top-color: var(--accent); animation: welcome-spin .9s linear infinite; }
+@keyframes welcome-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .welcome-spinner { animation-duration: 3s; } }
