@@ -508,11 +508,9 @@ function whatsappField_(entryId, field, replyTo) {
   whatsappPickList_(entryId, field, 0, replyTo);
 }
 
-// "Send the new …", with a date example in the person's own date order (the engine reads dates that way, parseTypedDate_).
+// "Send the new …"; the date's example is in the person's own date order ({exDate}, typedDateExample_).
 function whatsappAskText_(field) {
-  var order = userDateOrder_();
-  var example = order === 'mdy' ? '11/15/2026' : order === 'ymd' ? '2026/11/15' : '15/11/2026';
-  return tr_('whatsapp.ask.' + field, field === 'date' ? { example: example } : null);
+  return tr_('whatsapp.ask.' + field);
 }
 
 function whatsappAwaitingRaw_() {

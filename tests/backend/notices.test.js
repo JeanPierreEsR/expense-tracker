@@ -106,7 +106,8 @@ test("an overdue loan becomes a notice once", () => {
   rt.run("checkOverdueLoans()");
   const mine = notices(rt).filter((n) => n.kind === "loan");
   assert.ok(mine.length >= 1);
-  assert.ok(mine.some((n) => n.text.includes(friend.name) && n.text.includes("2020-02-01")));
+  assert.ok(mine.some((n) => n.text.includes(friend.name) && n.text.includes(rt.run("botDate_('2020-02-01')"))));
+  assert.ok(!mine.some((n) => n.text.includes("2020-02-01")), "no year-month-day code");
   const count = rt.rows("Notices").length;
   rt.run("checkOverdueLoans()");
   assert.equal(rt.rows("Notices").length, count, "logged, so not repeated");

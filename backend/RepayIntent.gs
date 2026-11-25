@@ -116,7 +116,7 @@ function recordRepayIntent_(entry, loanIds) {
   getAllRows('Loans').forEach(function (l) { loansById[l.id] = l; });
   var paid = made.map(function (s) {
     var l = loansById[s.loan_id] || {};
-    return tr_('bot.repayPaidItem', { loan: (l.description || tr_('bot.repayLoanWord')) + ' (' + botShortDate_(l.date) + ')', amount: formatAmountText_(Number(s.amount), entry.currency) });
+    return tr_('bot.repayPaidItem', { loan: (l.description || tr_('bot.repayLoanWord')) + ' (' + botDate_(l.date) + ')', amount: formatAmountText_(Number(s.amount), entry.currency) });
   });
   return { friend: friend.name, incoming: way.incoming, overpaid: result.overpaid || 0, settlement_id: made.length ? made[0].id : '', paid: paid };
 }
@@ -154,14 +154,6 @@ function undoRepayIntent_(item) {
 // Sent under the card of an entry the bot kept waiting: "Oldest first", one row per loan (oldest first, at most 8: a WhatsApp list
 // holds 10 rows), "Several → in the app". A loan whose remaining amount is exactly the payment says so.
 var REPAY_LIST_MAX_ = 8;
-// "2024-03-11" → "11 Mar 2024" / "11 mar 2024", the way the app writes a date (testers 2.68.2: the list showed the raw code).
-function botShortDate_(iso) {
-  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
-  if (!m) return String(iso || '');
-  var name = (tr_('bot.monthNames').split(',')[Number(m[2]) - 1] || '').slice(0, 3);
-  if (currentLang_() === 'en') name = name.charAt(0).toUpperCase() + name.slice(1);
-  return Number(m[3]) + ' ' + name + ' ' + m[1];
-}
 // The rows of that list. Telegram (owner, 2026-11-24: "build Telegram"): a loan's button checks or unchecks it in place (☐ / ☑,
 // `wart`), and "Save the checked ones (n)" (`wars`) records them; its buttons can change, a WhatsApp message cannot.
 function repayListRows_(entry, it, loans, checked) {
@@ -169,7 +161,7 @@ function repayListRows_(entry, it, loans, checked) {
   var rows = [{ id: 'warl:' + entry.id + ':oldest', title: tr_('bot.repayOldestRow'), description: tr_('bot.repayOldestDesc') }];
   loans.slice(0, REPAY_LIST_MAX_).forEach(function (l) {
     var exact = Math.abs(l.remaining - Number(entry.amount)) < 0.005;
-    var title = botShortDate_(l.date) + ' · ' + (l.description || tr_('bot.repayLoanWord'));
+    var title = botDate_(l.date) + ' · ' + (l.description || tr_('bot.repayLoanWord'));
     rows.push({ id: (tg ? 'wart:' : 'warl:') + entry.id + ':' + l.id, title: tg ? (checked.indexOf(l.id) !== -1 ? '☑ ' : '☐ ') + title : title,
       description: tr_(exact ? 'bot.repayLoanLeftExact' : 'bot.repayLoanLeft', { amount: formatAmountText_(l.remaining, entry.currency) }) });
   });

@@ -174,7 +174,7 @@ test("after the mark, the chat lists the loans: Oldest first, each loan (exact o
   assert.deepEqual(rows.map((r) => r.id), [`warl:${e.id}:oldest`, `warl:${e.id}:${l1.id}`, `warl:${e.id}:${l2.id}`, `warl:${e.id}:` + rows[3].id.split(":").pop(), `warl:${e.id}:app`]);
   assert.match(rows[2].description, /same as this payment/, "the loan of exactly 20 is pointed out");
   assert.ok(!/same as this payment/.test(rows[1].description));
-  assert.match(rows[1].title, /^\d{1,2} [A-Z][a-z]{2} \d{4} · /, "a date as the app writes it");
+  assert.match(rows[1].title, /^[A-Z][a-z]{2} \d{1,2}, \d{4} · /, "a date as the app writes it (an English copy: month first)");
 });
 
 test("tapping a loan pays THAT loan first; 'deshacer' takes it back to waiting, marked", () => {
@@ -186,7 +186,7 @@ test("tapping a loan pays THAT loan first; 'deshacer' takes it back to waiting, 
   assert.equal(a.entry(e.id), undefined);
   assert.equal(a.settlementsOf(l2.id).reduce((n, s) => n + Number(s.amount), 0), 20, "the loan tapped");
   assert.equal(a.settlementsOf(l1.id).length, 0);
-  assert.match(a.bodies().join("\n"), /Marked as a repayment to Zoe Test\. Paid: .*\(5 Feb 2026\) PEN 20\.00\./, "says which loan it paid");
+  assert.match(a.bodies().join("\n"), /Marked as a repayment to Zoe Test\. Paid: .*\(Feb 5, 2026\) PEN 20\.00\./, "says which loan it paid");
   const before = a.bodies().length;
   a.text("deshacer");
   assert.equal(a.settlementsOf(l2.id).length, 0, "the repayment is gone");

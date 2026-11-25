@@ -11,6 +11,7 @@
  *   exCur / exCur2   the main currency; another one for "currency …" (USD, or EUR when the main one is USD)
  *   exLunch, exLunchWith, exIncome, exSalary   typed-example words in the copy's language
  *   exPhoto          the receipt-photo sentence, only where photos can be read
+ *   exDate           a date to type, in the person's own order (typedDateExample_): never imposed year first
  * Names come from the Sheet once per run (and the script cache for 10 minutes); the words around them from Strings.gs.
  */
 var BOT_EXAMPLES_RUN_ = null;
@@ -81,6 +82,7 @@ function botExamples_(lang) {
     exLunchWith: w('botEx.lunchWith'),
     exIncome: w('botEx.income'),
     exSalary: w('botEx.salary'),
-    exPhoto: whatsappPhotoReaderReady_() ? w('botEx.photo') : ''
+    exPhoto: whatsappPhotoReaderReady_() ? w('botEx.photo') : '',
+    exDate: typedDateExample_()
   };
 }
