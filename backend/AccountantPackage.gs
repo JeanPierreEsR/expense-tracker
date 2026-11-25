@@ -279,8 +279,10 @@ function sendAccountantPackage(payload) {
       return '- ' + what + (l.field ? ': ' + fieldName + ' ' + l.before + ' → ' + l.after : ' (' + l.action + ')') + ' · ' + tr_('pkg.changedOn', { day: l.at.slice(0, 10) });
     }).join('\n') || tr_('pkg.handEdited');
   }
-  // A month changed after its close, sent for the first time: said too, so the accountant knows (testers 2.68.2).
   var closeState = built.closed ? monthCloseState_(month) : null;
+  // App changes AND rows edited by hand: the hand edits are said too (testers 2.69.2, Carlos: only the app's lines were listed).
+  if (corrected && changesText !== tr_('pkg.handEdited') && closeState && closeState.hand_edited) changesText += '\n' + tr_('pkg.handEdited');
+  // A month changed after its close, sent for the first time: said too, so the accountant knows (testers 2.68.2).
   var changedNote = !corrected && closeState && closeState.changed ? '\n\n' + tr_('pkg.changedAfterClose') : '';
   var company = getCompanyRows_()[0];
   var subject = tr_(corrected ? 'pkg.subjectCorrected' : 'pkg.subject', { company: company ? String(company.name) : '', month: month });

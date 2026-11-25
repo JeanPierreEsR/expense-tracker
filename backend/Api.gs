@@ -187,7 +187,7 @@ var ONCE_ACTIONS_ = {
   // answer was lost, and each "try again" made it again). With the phone keeping one id per save across its retries, a repeat
   // gets the first one's answer instead of a second copy.
   addTrip: 1, addBudget: 1, addPaymentMethod: 1, savePaymentMethod: 1, addTag: 1, addBank: 1, addPayor: 1, saveCategory: 1,
-  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, closeMonth: 1, reopenMonth: 1, sendAccountantPackage: 1, addProjectUnits: 1, saveUnitStage: 1, returnUnitDeposit: 1,   // Business 2 piece 7 (Partners.gs)
+  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, changeDistribution: 1, closeMonth: 1, reopenMonth: 1, sendAccountantPackage: 1, addProjectUnits: 1, saveUnitStage: 1, returnUnitDeposit: 1,   // Business 2 piece 7 (Partners.gs)
   saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1,
   recordRefund: 1, applyRefundMatch: 1,   // Refunds.gs: a resend must not record the same money back twice
   moveAccountHistory: 1, undoAccountMove: 1, restoreAccountMove: 1   // Accounts: move an account's history (AccountMove.gs); a resend gets the first answer, never a second move
@@ -231,7 +231,7 @@ function applePayDoor_(e) {
 // Checks every money save makes before anything is written (testers 2.68.2, Rafael: a hand-made request saved a made-up account,
 // an amount of 1e308, the currency "ZZZ", the date 2026-13-45, and names of 100,000 characters). The phone never sends these.
 var MONEY_PAYLOAD_ACTIONS_ = { recordRepayment: 1, addLoan: 1, updateLoan: 1, forgiveLoan: 1, recordCurrencyExchange: 1, updateCurrencyExchange: 1,
-  createEntry: 1, saveEntryAll: 1, updateEntry: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, recordDistribution: 1, convertEntryToPartnerMoney: 1,
+  createEntry: 1, saveEntryAll: 1, updateEntry: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, recordDistribution: 1, changeDistribution: 1, convertEntryToPartnerMoney: 1,
   saveBankLoan: 1, recordInstallment: 1, recordEarlyPayment: 1, returnUnitDeposit: 1, saveUnitStage: 1, saveUnit: 1, addFriend: 1, addPaymentMethod: 1,
   savePaymentMethod: 1, addCompany: 1, updateCompany: 1, addProject: 1, saveCompanySetup: 1, recordRefund: 1 };
 var MAX_AMOUNT_ = 1e12, MAX_TEXT_ = 2000;
@@ -245,7 +245,7 @@ function checkMoneyPayload_(action, payload) {
       var v = o[k];
       if (v && typeof v === 'object') { walk(v, depth + 1); return; }
       if (typeof v === 'string' && v.length > MAX_TEXT_ && k !== '_requestId') throw new Error(tr_('err.tooLong', { n: MAX_TEXT_ }));
-      if ((k === 'amount' || k === 'withholding' || k === 'price' || k === 'gross') && v !== '' && v != null) {
+      if ((k === 'amount' || k === 'withholding' || k === 'price' || k === 'gross' || k === 'net') && v !== '' && v != null) {
         var n = Number(v);
         if (!isFinite(n) || Math.abs(n) > MAX_AMOUNT_) throw new Error(tr_('err.validAmount'));
       }
@@ -557,6 +557,7 @@ function routeActionSwitch_(action, payload) {
     case 'convertEntryToPartnerMoney': return convertEntryToPartnerMoney(payload);   // Business 2 piece 7: partners (Partners.gs)
     case 'changePartnerMoney': return changePartnerMoney(payload);
     case 'recordDistribution': return recordDistribution(payload);
+    case 'changeDistribution': return changeDistribution(payload);
     case 'listPendingContributions': return listPendingContributions();
     case 'listChangeLog': return listChangeLog(payload);   // Business 2 piece 8: change log and month close (ChangeLog.gs, MonthClose.gs)
     case 'getMonthClose': return getMonthClose(payload);
@@ -1898,6 +1899,18 @@ function twinFriendsNamed_(text) {
   return getAllRows('Friends').map(function (f) { return searchNormalize_(f.name); })
     .filter(function (n) { return n && n.length >= 3 && t.indexOf(' ' + n + ' ') >= 0; });
 }
+// The friends an entry is about: named in its text, plus the friend a waiting repayment is already tied to (testers 2.69.2,
+// Valeria: "Waiting repay Ana" names no one in full, so it was flagged against another friend's repayment).
+function twinFriendsOf_(entry) {
+  var names = twinFriendsNamed_(String(entry.description || '') + ' ' + String(entry.merchant || ''));
+  var it = repayIntentOf_(entry);
+  if (it && it.friend_id) {
+    var f = getAllRows('Friends').find(function (x) { return String(x.id) === String(it.friend_id); });
+    var n = f && searchNormalize_(f.name);
+    if (n && names.indexOf(n) < 0) names.push(n);
+  }
+  return names;
+}
 
 function findSameDayTwins_(entry, allEntries) {
   var who = entryTwinWho_(entry);
@@ -1917,9 +1930,9 @@ function findSameDayTwins_(entry, allEntries) {
       Math.abs(daysBetweenDates_(String(o.date).substring(0, 10), String(entry.date).substring(0, 10))) <= 1)) return false;
     // Two different people's money is never the same money (testers 2.68.2: "Yape from Dora" was flagged against "Repayment from
     // Beto"): when both texts name friends and none in common, no warning.
-    if (mine === null) mine = twinFriendsNamed_(String(entry.description || '') + ' ' + String(entry.merchant || ''));
+    if (mine === null) mine = twinFriendsOf_(entry);
     if (mine.length) {
-      var theirs = twinFriendsNamed_(o.description);
+      var theirs = twinFriendsOf_(o);
       if (theirs.length && !theirs.some(function (n) { return mine.indexOf(n) >= 0; })) return false;
     }
     return true;

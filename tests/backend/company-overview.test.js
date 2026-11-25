@@ -96,7 +96,8 @@ test("What is owed lists partners' loans too, and a period that ended shows the 
   const now = summary(rt).company.owed;
   assert.ok(now.some((p) => p.name === "Socio Uno" && p.lines[0].amount === 700), "the partner's loan is listed");
   // Yesterday's period: the loans made today were not owed yet.
-  const y = new Date(); y.setDate(y.getDate() - 1);
+  // From the app's own today (Lima), not UTC: after 7 pm in Lima the UTC date is already tomorrow (failed a ship at 19:51).
+  const y = new Date(today() + "T12:00:00Z"); y.setUTCDate(y.getUTCDate() - 1);
   const yd = y.toISOString().slice(0, 10);
   const past = rt.api("getPeriodSummary", { startDate: yd, endDate: yd }).company.owed;
   assert.deepEqual(past, [], "nothing was owed yesterday");
