@@ -1,6 +1,6 @@
 // Interbank "Constancia de pago" that pays the person's OWN credit card (owner, 2026-11-17): a transfer from the account under
 // "Cuenta cargo" to the card under "Tarjeta de crédito", not a bill payment. A bill payment ("Empresa") stays an expense, a card that is
-// not one of the person's accounts stays an expense for review, and a payment made with a debit card leaves From blank.
+// not one of the person's accounts stays an expense for review, and a payment made with a debit card comes from the person's one Interbank account in its currency (else blank).
 // Made-up e-mails and digits; the parsing rules are the real ones (code and rule pack).
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -64,17 +64,65 @@ test("a bill payment (Empresa) is still an expense, even when paid with the card
   assert.ok(!e.to_payment_method_id);
 });
 
-test("paid with a debit card ('Tarjeta de cargo'): a transfer to the card, From left blank", () => {
+// Paid with a debit card the e-mail names no account: From = the person's ONE Interbank account in the payment's currency (owner, 2026-11-25:
+// "a USD account should be matched by default if the payment was in USD"); none or several in that currency = blank, never a guess.
+const debitCardPayment = (rt, op, cardLast4, amount) => rt.svc.gmail.addEmail({ from: SENDER, subject: "Constancia de pago", body: ["Constancia de pago",
+  "Código de operación", op, "Fecha y hora", "05 Ago 2026", "11:00 AM", "Tarjeta de cargo", "Débito Visa", "455000******7777",
+  "Tarjeta de crédito pagada", "Interbank Visa Infinite", "Soles", "400000******" + cardLast4, "Moneda y monto", amount].join("\n") });
+const setCurrencies = (rt, pm, list) => rt.api("savePaymentMethod", Object.assign({}, pm, { currencies: list }));
+
+test("paid with a debit card ('Tarjeta de cargo'): From = the Interbank account in the payment's currency", () => {
   const { rt } = freshApp({ entries: 50 });
   const card = accounts(rt).find((pm) => pm.type === "credit");
-  rt.svc.gmail.addEmail({ from: SENDER, subject: "Constancia de pago", body: ["Constancia de pago", "Código de operación", "0900004",
-    "Fecha y hora", "05 Ago 2026", "11:00 AM", "Tarjeta de cargo", "Débito Visa", "455000******7777",
-    "Tarjeta de crédito pagada", "Interbank Visa Infinite", "Soles", "400000******" + card.last_4, "Moneda y monto", "US$ 987.00"].join("\n") });
+  const soles = accounts(rt).find((pm) => pm.nickname === "Daily debit"), dollars = accounts(rt).find((pm) => pm.nickname === "Backup debit");
+  setCurrencies(rt, soles, ["PEN"]);
+  setCurrencies(rt, dollars, ["USD"]);
+  debitCardPayment(rt, "0900004", card.last_4, "US$ 987.00");
+  debitCardPayment(rt, "0900014", card.last_4, "S/ 250.00");
   run(rt);
-  const e = byOp(rt, "0900004");
-  assert.equal(e.type, "transfer");
-  assert.equal(e.to_payment_method_id, card.id);
-  assert.equal(e.payment_method_id, "", "the debit card's account is not guessed");
+  const usd = byOp(rt, "0900004"), pen = byOp(rt, "0900014");
+  assert.equal(usd.type, "transfer");
+  assert.equal(usd.to_payment_method_id, card.id);
+  assert.equal(usd.payment_method_id, dollars.id, "a payment in dollars left the dollar account");
+  assert.equal(pen.payment_method_id, soles.id, "a payment in soles left the soles account");
+});
+
+test("paid with a debit card: no account, or two, in that currency = From left blank", () => {
+  const { rt } = freshApp({ entries: 50 });
+  const card = accounts(rt).find((pm) => pm.type === "credit");
+  debitCardPayment(rt, "0900024", card.last_4, "US$ 40.00");   // the accounts' currencies are not known
+  run(rt);
+  assert.equal(byOp(rt, "0900024").payment_method_id, "", "no account known to hold dollars");
+  accounts(rt).filter((pm) => pm.type === "debit").forEach((pm) => setCurrencies(rt, pm, ["USD"]));
+  debitCardPayment(rt, "0900034", card.last_4, "US$ 41.00");
+  run(rt);
+  assert.equal(byOp(rt, "0900034").payment_method_id, "", "two dollar accounts: not guessed");
+  assert.equal(byOp(rt, "0900034").to_payment_method_id, card.id);
+});
+
+test("the twin reads a debit-card payment like the code rule (the 2026-11-25 twin-check difference)", () => {
+  const { rt } = freshApp({ entries: 50 });
+  const pack = JSON.parse(fs.readFileSync(path.join(__dirname, "../../docs/rules/email-rules.json"), "utf8"));
+  const twin = pack.rules.find((r) => r.id === "interbank-pago-tarjeta");
+  assert.equal(twin.fromByCurrency, true);
+  const body = ["Constancia de pago", "Código de operación", "0900044", "Tarjeta de cargo", "Débito Visa", "455000******7777",
+    "Tarjeta de crédito pagada", "Interbank Visa Infinite", "Soles", "400000******5678", "Moneda y monto", "US$ 10.00"].join("\n");
+  const diff = JSON.parse(JSON.stringify(rt.run(`(function () {
+    var code = EMAIL_RULES.filter(function (r) { return r.label === 'Pago de tarjeta (Constancia)'; })[0], t = rulePackCompile_(${JSON.stringify(twin)});
+    return { fields: rulePackDiffFields_(code.extract('Constancia de pago', ${JSON.stringify(body)}), t.extract('Constancia de pago', ${JSON.stringify(body)})),
+      attr: [code.fromByCurrency, t.fromByCurrency] }; })()`)));
+  assert.deepEqual(diff.fields, []);
+  assert.deepEqual(diff.attr, [true, true]);
+});
+
+test("an older backend that does not know fromByCurrency skips only that twin; the other rules still load", () => {
+  const { rt } = freshApp({ entries: 50 });
+  const pack = fs.readFileSync(path.join(__dirname, "../../docs/rules/email-rules.json"), "utf8");
+  const older = pack.replace(/"fromByCurrency": true, /g, '"fromByCurrencyNewer": true, ');
+  const v = JSON.parse(JSON.stringify(rt.run(`rulePackValidate_(${JSON.stringify(older)}, { strict: false })`)));
+  assert.ok(v.ok, JSON.stringify(v.errors));
+  assert.ok(!v.pack.rules.find((r) => r.id === "interbank-pago-tarjeta"));
+  assert.ok(v.pack.rules.find((r) => r.id === "diners-consumo"));
 });
 
 test("the rule pack's twin reads the same card payment the same way", () => {

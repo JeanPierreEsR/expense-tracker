@@ -27,7 +27,7 @@ var RULE_PACK_MAX_CHARS_ = 40000;       // a Settings cell holds 50,000
 var RULE_PACK_MAX_RULES_ = 150;
 var RULE_PACK_MAX_TEXT_ = 120;
 var RULE_PACK_TYPES_ = ['expense', 'income', 'transfer', 'transferIfOwn'];
-var RULE_PACK_RULE_KEYS_ = ['id', 'bank', 'sender', 'label', 'skip', 'cardIsDestination', 'accountByCurrency', 'first', 'replaces', 'type', 'subjectHas', 'subjectHasAny',
+var RULE_PACK_RULE_KEYS_ = ['id', 'bank', 'sender', 'label', 'skip', 'cardIsDestination', 'accountByCurrency', 'fromByCurrency', 'first', 'replaces', 'type', 'subjectHas', 'subjectHasAny',
   'subjectEndsWith', 'subjectIs', 'bodyHas', 'bodyHasAny', 'amount', 'merchant', 'recipient', 'description', 'last4', 'to', 'externalId', 'accountName'];
 var RULE_PACK_ADDRESS_ = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
@@ -70,7 +70,7 @@ function rulePackCheckRule_(r, where, errors, strict) {
   if (rulePackText_(r.sender, where + '.sender', errors, { address: true }) && !RULE_PACK_ADDRESS_.test(String(r.sender))) errors.push(where + '.sender: not an e-mail address in lower case');
   if (r.replaces !== undefined) rulePackText_(r.replaces, where + '.replaces', errors);
   if (r.subjectIs !== undefined) rulePackText_(r.subjectIs, where + '.subjectIs', errors);
-  ['skip', 'cardIsDestination', 'first', 'accountByCurrency'].forEach(function (k) { if (r[k] !== undefined && typeof r[k] !== 'boolean') errors.push(where + '.' + k + ': true or false'); });
+  ['skip', 'cardIsDestination', 'first', 'accountByCurrency', 'fromByCurrency'].forEach(function (k) { if (r[k] !== undefined && typeof r[k] !== 'boolean') errors.push(where + '.' + k + ': true or false'); });
   ['subjectHas', 'subjectHasAny', 'bodyHas', 'bodyHasAny'].forEach(function (k) { if (r[k] !== undefined) rulePackWords_(r[k], where + '.' + k, errors); });
   if (r.subjectEndsWith !== undefined) rulePackText_(r.subjectEndsWith, where + '.subjectEndsWith', errors);
   // A rule in front of the code rules with no words to match would take EVERY e-mail from its sender, including the kinds other rules read.
@@ -241,6 +241,8 @@ function rulePackCompile_(r) {
   // `accountByCurrency: true` = when the e-mail names no account, the money left the account called "<Bank> soles" / "<Bank> dolares" (what the
   // welcome questions name a bank's accounts, and what BCP_ACCOUNTS spells out for BCP). Not a map: a public file never names a person's accounts.
   if (r.accountByCurrency === true) rule.accountByCurrency = { PEN: r.bank + ' soles', USD: r.bank + ' dolares' };
+  // `fromByCurrency: true` = an e-mail that names no account: the person's one account at the bank holding the payment's currency (2026-11-25).
+  if (r.fromByCurrency === true) rule.fromByCurrency = true;
   if (r.skip === true) rule.skip = true;
   if (r.cardIsDestination === true) rule.cardIsDestination = true;
   rule.match = function (subject, body) {
@@ -382,7 +384,7 @@ function rulePackTwinCheck_(p) {
       var row = { id: twin.packId, replaces: twin.replaces, codeRuleFound: !!code, emails: 0, both: 0, identical: 0, different: 0, onlyCode: 0, onlyTwin: 0, fieldsDiffering: {}, ruleAttributesDiffering: [], examples: [] };
       if (code) {
         // What the rule says about the entry besides the fields it reads (which bank, which account when the e-mail names none, a card-bill payment...)
-        ['bank', 'cardIsDestination', 'skip', 'rail', 'exchange', 'accountByCurrency'].forEach(function (k) {
+        ['bank', 'cardIsDestination', 'skip', 'rail', 'exchange', 'accountByCurrency', 'fromByCurrency'].forEach(function (k) {
           var x = code[k] === undefined ? null : code[k], y = twin[k] === undefined ? null : twin[k];
           if (JSON.stringify(x) !== JSON.stringify(y)) row.ruleAttributesDiffering.push(k);
         });
