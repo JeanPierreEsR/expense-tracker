@@ -188,6 +188,9 @@ function stmtRefundDecision_(sts, st, si, li, l, usedCharges) {
   // 1) a charge that is already an entry
   var existing = ((l.reversal && l.reversal.candidates) || []).filter(function (c) { return String(c.entry.date).substring(0, 7) === month; })[0];
   if (existing) return { offset: true, entryId: existing.entry.id };
+  // A charge already in the app from another month: still counted as Refunds income, now linked to it (Refunds.gs)
+  var earlier = ((l.reversal && l.reversal.candidates) || [])[0];
+  if (earlier) return { offset: false, entryId: earlier.entry.id };
   // 2) a charge in these statements
   var best = null;
   var lo = covAddDays_(l.date, -45);
@@ -219,6 +222,17 @@ function stmtChoicesFor_(si, li, l, platforms) {
   };
 }
 
+// The refund on its way that this money-in line is: on the purchase's own account, same currency and amount, not before the purchase.
+function stmtExpectedRefundFor_(expected, st, l) {
+  for (var i = 0; i < expected.length; i++) {
+    var x = expected[i];
+    if (x.used || x.payment_method_id !== st.account.id || x.currency !== l.currency || Math.abs(x.amount - l.amount) >= 0.005 || String(l.date) < x.date) continue;
+    x.used = true;
+    return x;
+  }
+  return null;
+}
+
 function stmtHistoryPlan_(analysis, platforms) {
   var sts = analysis.statements || [];
   var actions = [];
@@ -229,6 +243,7 @@ function stmtHistoryPlan_(analysis, platforms) {
   var recharges = [];   // card lines in another currency than a purchase recorded in the app (StatementMatch.gs)
   var discounts = [];   // card lines that charged LESS than a purchase recorded in the app (StatementMatch.gs)
   var usedCharges = {};   // a charge is reversed by one refund only
+  var expectedRefunds = listExpectedRefunds_();   // refunds on their way (Refunds.gs): a line of that money on that card is that refund
   var leftOut = { handled: 0, waiting: 0, possible: 0, noAccount: 0, fromPeople: 0 };
   function setAside(si, li, st, l, reason) {
     // Money arriving on a credit card that looks like a payment is the card being paid — never income, so no "count as
@@ -353,6 +368,12 @@ function stmtHistoryPlan_(analysis, platforms) {
       if (!(Math.abs(l.amount) > 0)) return;
       if (l.date && (first === null || l.date < first)) first = l.date;
       if (l.date && (last === null || l.date > last)) last = l.date;
+      var expected = l.amount > 0 && !personLine ? stmtExpectedRefundFor_(expectedRefunds, st, l) : null;
+      if (expected) {
+        actions.push({ type: 'add_history_refund', stmt: si, line: li, refundOf: expected.entry_id });
+        if (String(l.date).substring(0, 7) === expected.date.substring(0, 7)) counts.refunds++; else counts.refundIncome++;
+        return;
+      }
       if (l.amount > 0) {
         if (l.reversal) {
           // The owner's refund rule (the line-by-line comparison's): a refund in the SAME month as the charge it reverses cancels
@@ -362,7 +383,7 @@ function stmtHistoryPlan_(analysis, platforms) {
             actions.push(rf.entryId ? { type: 'add_history_reversal', stmt: si, line: li, entryId: rf.entryId } : { type: 'add_history_reversal', stmt: si, line: li });
             counts.refunds++;
           } else {
-            actions.push({ type: 'add_history_refund', stmt: si, line: li });
+            actions.push(rf.entryId ? { type: 'add_history_refund', stmt: si, line: li, refundOf: rf.entryId } : { type: 'add_history_refund', stmt: si, line: li });
             counts.refundIncome++;
           }
         }

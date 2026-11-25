@@ -221,6 +221,30 @@ function matchStatements_(statements, entries, opts) {
         guess: res[p.li].guess
       };
     });
+
+    // One bank line for a refund saved in pieces (Refunds.gs: the person's part + each friend's part, same purchase, day and account):
+    // the line is their sum, so none of it is added again.
+    var groups = {};
+    entries.forEach(function (e) {
+      var of = String(e.refund_of || '');
+      if (!of || used[stmtUsedKey_(e, st.pmId)] || e.payment_method_id !== st.pmId) return;
+      var k = of + '|' + String(e.date).substring(0, 10);
+      var g = groups[k] = groups[k] || { ids: [], total: 0, day: stmtDayNumber_(e.date), first: e };
+      g.ids.push(e);
+      g.total += e.type === 'transfer' ? Number(e.amount) : (e.type === 'expense' ? -Number(e.amount) : Number(e.amount));
+    });
+    Object.keys(groups).forEach(function (k) {
+      var g = groups[k];
+      if (g.ids.length < 2) return;
+      for (var li = 0; li < st.lines.length; li++) {
+        var l = st.lines[li];
+        if (l.stored || res[li].status === 'matched' || !(l.amount > 0) || l.currency !== g.first.currency) continue;
+        if (Math.abs(g.total - l.amount) >= 0.005 || Math.abs(stmtDayNumber_(l.date) - g.day) > windowDays) continue;
+        g.ids.forEach(function (e) { used[stmtUsedKey_(e, st.pmId)] = true; });
+        res[li] = { status: 'matched', entryId: g.first.id, dayDiff: Math.abs(stmtDayNumber_(l.date) - g.day), entryHadNoAccount: false, guess: res[li].guess };
+        break;
+      }
+    });
   });
 
   // A purchase the person recorded only in what was paid (ARS on a USD card; Charges.gs) and this statement's line in another

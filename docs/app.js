@@ -219,6 +219,8 @@ let confirmingPendingId = null;
 let businessAutoPick_ = false;   // true while the form's company was put there by companyDefaultPick_, not by the person
 // The date the entry had when its edit form was opened: a save that leaves it alone does not send it (withoutUnchangedDate_).
 let editingEntryOriginalDate_ = null;
+let editingRefundEntry_ = null;   // the saved entry open in the form, for its refund line (Refunds)
+let refundOfPick_ = null;   // "+" form, income in Refunds: the purchase it gave money back for
 // Set while the new-entry sheet was opened from a programmed item's Mark as paid: the saved entry is linked to it.
 let payingRecurringId_ = null;
 
@@ -1063,7 +1065,8 @@ const ONCE_ACTIONS = new Set([
   // Testers 2.68.2: these were protected on the server only, so a "Try again" made a second sale stage. Kept equal to the server's
   // ONCE_ACTIONS_ by tests/backend/once-actions.test.js.
   "addIgvPayment", "assignEntryAccounts", "closeMonth", "reopenMonth", "sendAccountantPackage", "addProjectUnits", "saveUnitStage", "returnUnitDeposit",
-  "moveAccountHistory", "undoAccountMove", "restoreAccountMove"
+  "moveAccountHistory", "undoAccountMove", "restoreAccountMove",
+  "recordRefund", "applyRefundMatch"   // Refunds: a resend must not record the same money back twice
 ]);
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
 // Google lets a script run about 6 minutes, so these stay well inside that. Long requests are resent at most once.
@@ -1929,6 +1932,7 @@ function showDetailForm(category) {
   document.getElementById("entry-form").hidden = false;
   toggleSplitFieldVisibility();
   setTimeout(updateChargeBox_, 0);
+  updateRefundOfField_();   // "+" form, income in Refunds: Which purchase?
   tripPickLocked_ = false;   // a fresh form: suggest again
   repaymentFriendTouched_ = false;
   repaymentDirTouched_ = false;
@@ -3986,6 +3990,7 @@ async function reopenRefusedConfirm_(id, action, reason) {
 document.getElementById("entry-form").addEventListener("submit", async (e) => {
   if (document.getElementById("entry-card").classList.contains("entry-loading")) { e.preventDefault(); return; }
   e.preventDefault();
+  if (await saveRefundFromEntryForm_()) return;   // "+" Income in Refunds with "Which purchase?" chosen: saved as that purchase's refund
   if (entryRepayTooQuick_()) return;   // a repayment amount the form filled in, saved too quickly to have been read
   if (!(await closedMonthOk_([editingEntryId ? editingEntryOriginalDate_ : "", document.getElementById("date").value]))) return;   // piece 8
   const submitBtn = document.getElementById("submit-btn");
@@ -4865,7 +4870,7 @@ function exchangeLegSide_(entry) {
 // I receive or a repayment I get back is in.
 function entryFlowDirection_(entry) {
   if (entry.type === "income") return Number(entry.amount) < 0 ? "out" : "in";   // a returned deposit (piece 11) is a negative income
-  if (entry.type === "expense") return "out";
+  if (entry.type === "expense") return Number(entry.amount) < 0 ? "in" : "out";   // a refund in its purchase's month is a minus expense: money back
   if (entry.type === "investment") return Number(entry.amount) < 0 ? "in" : "out";   // a withdrawal is stored negative
   if (entry.type === "transfer" && entry.link && entry.link.friend) {
     const paidThem = entry.link.direction === "i_owe_them";
@@ -4876,6 +4881,15 @@ function entryFlowDirection_(entry) {
 }
 
 function renderEntryAmountHtml(entry) {
+  // Choice C (owner, 2026-11-24): a refund of the purchase's own month is shown in the purchase, "PEN 180.00 · before refund PEN 300.00".
+  if (Number(entry.refund_folded) > 0) {
+    const f = Number(entry.refund_folded), fp = Number(entry.refund_folded_pen || 0);
+    const less = (v, by) => (v == null ? v : refundR2_(Number(v) - by));
+    const net = Object.assign({}, entry, { refund_folded: 0, amount: less(entry.amount, f), amount_pen: less(entry.amount_pen, fp),
+      own_share: less(entry.own_share, f), own_share_pen: less(entry.own_share_pen, fp), own_share_usd: undefined });
+    const before = entry.own_share != null ? Number(entry.own_share) : Number(entry.amount);
+    return `${renderEntryAmountHtml(net)}<span class="original-amt">${escapeHtml(tr("refund.beforeRefund", { amount: formatAmount(before, entry.currency) }))}</span>`;
+  }
   const html = renderEntryAmountPlainHtml_(entry);
   if (String(entry.charge_pending || "") === "1") return html.replace(/<span class="primary-amt">/, `<span class="primary-amt">≈ `);
   if (Number(entry.paid_amount) > 0 && entry.paid_currency) return `${html}<span class="original-amt charge-paid-line">${escapeHtml(tr("charge.paid", { amount: formatAmount(entry.paid_amount, entry.paid_currency) }))}</span>`;
@@ -4884,7 +4898,7 @@ function renderEntryAmountHtml(entry) {
 function renderEntryAmountPlainHtml_(entry) {
   const dir = entryFlowDirection_(entry);
   // A withdrawal is stored negative: show its size, the sign comes from the direction.
-  const shown = (entry.type === "investment" || entry.type === "income") && Number(entry.amount) < 0
+  const shown = (entry.type === "investment" || entry.type === "income" || entry.type === "expense") && Number(entry.amount) < 0
     ? (() => {
         const abs = (v) => (v == null ? v : Math.abs(Number(v)));
         return Object.assign({}, entry, {
@@ -5151,6 +5165,7 @@ function buildEntryRow_(entry) {
     ${entryDescShown_(entry) ? `<div class="entry-desc">${escapeHtml(entryDescShown_(entry))}</div>` : ""}
     <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
     ${entry.income_waiting === "1" ? `<div class="entry-desc">${escapeHtml(tr("income.waitingBadge"))}</div>` : ""}
+    ${refundRowNote_(entry)}
     ${statusLine}
   `;
 
@@ -5474,7 +5489,7 @@ function renderEntryListFromCache_() {
     sameDay.forEach((e) => {
       const pen = e.own_share_pen != null ? Number(e.own_share_pen) : (e.amount_pen != null ? Number(e.amount_pen) : null);
       if (pen == null) return;
-      if (e.type === "expense") net -= pen;
+      if (e.type === "expense") net -= pen - Number(e.refund_folded_pen || 0);   // a refund shown in its purchase (choice C)
       else if (e.type === "income") net += pen;
     });
     const total = Math.abs(net) < 0.005 ? "" : `${net < 0 ? "−" : "+"}${formatPen(Math.abs(net))}`;
@@ -6855,6 +6870,8 @@ function setRepeatFreq_(freq, quiet) {
   document.getElementById("repeat-custom").hidden = freq !== "custom";
 }
 function updateRepeatField_() {
+  updateRefundField_();
+  updateRefundOfField_();
   const field = document.getElementById("repeat-field");
   const can = !!(meta && meta.capabilities && meta.capabilities.entryRepeat);
   const typeOk = selectedType === "expense" || selectedType === "income";
@@ -6886,6 +6903,410 @@ document.getElementById("repeat-open-btn").addEventListener("click", () => {
 document.getElementById("repeat-remove-btn").addEventListener("click", () => { resetRepeat_(); updateRepeatField_(); });
 document.querySelectorAll("#repeat-tabs .type-tab").forEach((tab) => tab.addEventListener("click", () => setRepeatFreq_(tab.dataset.frequency)));
 
+// ---- Refunds on a purchase (owner's plan 2026-11-24; backend/Refunds.gs) ----
+// A refund is recorded FROM its purchase ("Refund…" under the amount). The server decides what it is by the day the money came back:
+// the purchase's month = a minus expense in its category, a later month = Refunds income. A shared purchase's refund is divided like
+// it; a friend's part only changes what the two owe each other. "Not received yet" is only a note on the purchase.
+function refundsOn_() { return !!(meta && meta.capabilities && meta.capabilities.refunds); }
+const refundR2_ = (n) => Math.round(n * 100) / 100;
+// What each person paid for of the purchase (the server's purchaseShares_).
+function refundShares_(e) {
+  const splits = Array.isArray(e.splits) ? e.splits : [];
+  const total = Number(e.amount), splitTotal = splits.reduce((n, sp) => n + Number(sp.amount), 0);
+  const shares = { me: refundR2_(total - splitTotal) };
+  if (!e.paid_by || e.paid_by === "me") splits.forEach((sp) => { shares[sp.friend_id] = refundR2_((shares[sp.friend_id] || 0) + Number(sp.amount)); });
+  else if (refundR2_(total - shares.me) > 0.004) shares[e.paid_by] = refundR2_(total - shares.me);
+  return shares;
+}
+function refundLeftByPerson_(e) {
+  const shares = refundShares_(e), done = e.refund_parts || {}, left = {};
+  Object.keys(shares).forEach((k) => { left[k] = Math.max(0, refundR2_(shares[k] - (done[k] || 0))); });
+  return left;
+}
+function refundDefaultParts_(amount, left) {
+  const keys = Object.keys(left).filter((k) => left[k] > 0.004);
+  const tot = keys.reduce((n, k) => n + left[k], 0);
+  const parts = {};
+  let given = 0;
+  if (!(tot > 0) || !(amount > 0)) return parts;
+  keys.forEach((k, i) => {
+    const v = i === keys.length - 1 ? refundR2_(amount - given) : refundR2_(amount * left[k] / tot);
+    parts[k] = Math.max(0, Math.min(v, left[k]));
+    given = refundR2_(given + parts[k]);
+  });
+  return parts;
+}
+function refundPersonName_(k) { return k === "me" ? tr("refund.you") : (((meta && meta.friends) || []).find((f) => f.id === k) || {}).name || "?"; }
+function isRefundsCategory_(id) {
+  const c = id && findCategory(id);
+  return !!c && c.type === "income" && (c.key === "refunds" || c.name === "Refunds" || c.name === "Reembolsos");
+}
+const exportMoneyText_ = (n) => (Math.round(n * 100) / 100).toFixed(2);
+function refundPurchaseLabel_(e) {
+  return [e.description || (findCategory(e.category_id) || {}).name || "", listDate_(e.date), formatAmount(Number(e.amount), e.currency)].filter(Boolean).join(" · ");
+}
+const refundAmountOf_ = (id) => { const v = parseFloat(sanitizeAmountInputValue(String(document.getElementById(id).value || "").trim())); return isFinite(v) ? refundR2_(v) : 0; };
+
+// Home rows: a purchase says what came back or is on its way; a refund's own row reads as money in (entryFlowDirection_).
+function refundRowNote_(entry) {
+  if (entry.type !== "expense" || entry.refund_of) return "";
+  const bits = [];
+  const notShownHere = refundR2_(Number(entry.refunded || 0) - Number(entry.refund_folded || 0));   // (what the amount already shows is not said twice)
+  if (notShownHere > 0.004) bits.push(tr("refund.rowRefunded", { amount: formatAmount(notShownHere, entry.currency) }));
+  if (Number(entry.refund_expected) > 0) bits.push(tr("refund.rowOnTheWay", { amount: formatAmount(Number(entry.refund_expected), entry.currency) }));
+  return bits.length ? `<div class="entry-desc">${escapeHtml(bits.join(" · "))}</div>` : "";
+}
+
+// The edit window, under the amount: a purchase's "Refunded … of …" / "Refund on the way" line and its Refund… button; a refund's own line.
+function updateRefundField_() {
+  const field = document.getElementById("refund-field");
+  const line = document.getElementById("refund-line"), btn = document.getElementById("refund-open-btn");
+  const e = editingRefundEntry_;
+  if (!refundsOn_() || !e || editingEntryId !== e.id || confirmingPendingId) { field.hidden = true; return; }
+  document.getElementById("refund-list-btn").hidden = true;
+  if (e.refund_of) {
+    field.hidden = false; btn.hidden = true; line.hidden = false;
+    line.textContent = tr("refund.isRefundLine");
+    return;
+  }
+  if (e.type !== "expense" || selectedType !== "expense" || e.status === "pending" || !(Number(e.amount) > 0)) { field.hidden = true; return; }
+  const refunded = Number(e.refunded || 0), left = refundR2_(Number(e.amount) - refunded), expected = Number(e.refund_expected || 0);
+  const bits = [];
+  if (refunded > 0.004) bits.push(tr("refund.refundedOf", { amount: formatAmount(refunded, e.currency), total: formatAmount(Number(e.amount), e.currency) }));
+  if (expected > 0) bits.push(e.refund_expected_by ? tr("refund.onTheWayBy", { amount: formatAmount(expected, e.currency), date: listDate_(String(e.refund_expected_by).slice(0, 10)) }) : tr("refund.onTheWay", { amount: formatAmount(expected, e.currency) }));
+  line.hidden = !bits.length;
+  line.textContent = bits.join(" · ");
+  btn.hidden = left <= 0.004;
+  document.getElementById("refund-list-btn").hidden = !(refunded > 0.004);
+  field.hidden = line.hidden && btn.hidden;
+}
+document.getElementById("refund-open-btn").addEventListener("click", () => { if (editingRefundEntry_) openRefundSheet_(editingRefundEntry_); });
+// "See the refunds": a same-month refund has no row of its own on Home (choice C), so it is reached from its purchase. A tap opens it.
+document.getElementById("refund-list-btn").addEventListener("click", async () => {
+  const p = editingRefundEntry_;
+  if (!p) return;
+  const back = document.getElementById("refund-list-backdrop"), list = document.getElementById("refund-list-rows");
+  list.innerHTML = loadingHtml_();
+  bringModalToFront_(back);
+  back.hidden = false;
+  let rows;
+  try { rows = await callApi("listEntries", { refundOf: p.id }); }
+  catch (err) { list.innerHTML = `<p class="hint error-text">${escapeHtml(err.message)}</p>`; return; }
+  if (back.hidden) return;
+  list.innerHTML = "";
+  (rows || []).forEach((r) => {
+    const row = buildEntryRow_(r).cloneNode(true);
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    row.addEventListener("click", () => {
+      back.hidden = true;
+      closePurchaseWindow_(p.id);
+      openEditPopup(r);
+    });
+    list.appendChild(row);
+  });
+  if (!list.children.length) list.innerHTML = `<p class="hint">${escapeHtml(tr("refund.listNone"))}</p>`;
+});
+document.getElementById("refund-list-close").addEventListener("click", () => { document.getElementById("refund-list-backdrop").hidden = true; });
+
+// "+" form: an income in Refunds may say which purchase it was (then it is saved as that purchase's refund).
+function updateRefundOfField_() {
+  const field = document.getElementById("refund-of-field");
+  const cat = selectedCategoryId || document.getElementById("category").value;
+  const show = refundsOn_() && !editingEntryId && !confirmingPendingId && !payingRecurringId_ && selectedType === "income" && isRefundsCategory_(cat);
+  field.hidden = !show;
+  if (!show && refundOfPick_) setRefundOfPick_(null);
+}
+function setRefundOfPick_(e) {
+  refundOfPick_ = e;
+  const line = document.getElementById("refund-of-line");
+  line.hidden = !e;
+  line.textContent = e ? tr("refund.ofLine", { what: refundPurchaseLabel_(e) }) : "";
+  document.getElementById("refund-of-btn").textContent = tr(e ? "refund.pickOther" : "refund.pickPurchase");
+}
+let refundPickRows_ = [];
+document.getElementById("refund-of-btn").addEventListener("click", async () => {
+  const back = document.getElementById("refund-pick-backdrop"), list = document.getElementById("refund-pick-list");
+  document.getElementById("refund-pick-search").value = "";
+  list.innerHTML = loadingHtml_();
+  bringModalToFront_(back);
+  back.hidden = false;
+  const cur = document.getElementById("currency").value;
+  const since = new Date(); since.setDate(since.getDate() - 90);
+  const sinceIso = `${since.getFullYear()}-${String(since.getMonth() + 1).padStart(2, "0")}-${String(since.getDate()).padStart(2, "0")}`;
+  let rows;
+  try { rows = await callApi("listEntries", { type: "expense", startDate: sinceIso, endDate: todayLocalISO() }); }
+  catch (err) { list.innerHTML = `<p class="hint error-text">${escapeHtml(err.message)}</p>`; return; }
+  if (back.hidden) return;
+  refundPickRows_ = (rows || []).filter((e) => e.currency === cur && !e.refund_of && Number(e.amount) > 0 && Number(e.amount) - Number(e.refunded || 0) > 0.004);
+  renderRefundPick_();
+});
+function renderRefundPick_() {
+  const list = document.getElementById("refund-pick-list");
+  const q = String(document.getElementById("refund-pick-search").value || "").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const rows = refundPickRows_.filter((e) => !q || refundPurchaseLabel_(e).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").includes(q));
+  if (!rows.length) { list.innerHTML = `<p class="hint">${escapeHtml(tr(refundPickRows_.length ? "refund.pickNoMatch" : "refund.pickNone"))}</p>`; return; }
+  // Each purchase exactly as Home draws it (share, total, who it was split with, tags, what was refunded); a tap picks it.
+  list.innerHTML = "";
+  rows.slice(0, 100).forEach((e) => {
+    const row = buildEntryRow_(e).cloneNode(true);   // (the copy drops Home's own tap, which opens the entry)
+    row.classList.add("refund-pick-row");
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    row.addEventListener("click", () => {
+      setRefundOfPick_(e);
+      document.getElementById("refund-pick-backdrop").hidden = true;
+    });
+    list.appendChild(row);
+  });
+}
+document.getElementById("refund-pick-search").addEventListener("input", renderRefundPick_);
+document.getElementById("refund-pick-close").addEventListener("click", () => { document.getElementById("refund-pick-backdrop").hidden = true; });
+
+// The "+" form's Save when a purchase was chosen: the typed income becomes that purchase's refund (same rule as the Refund window).
+async function saveRefundFromEntryForm_() {
+  const p = refundOfPick_;
+  if (!p || editingEntryId || selectedType !== "income" || document.getElementById("refund-of-field").hidden) return false;
+  const errorEl = document.getElementById("form-error");
+  errorEl.textContent = "";
+  const amount = refundAmountOf_("amount"), date = document.getElementById("date").value, pm = document.getElementById("payment_method").value;
+  const left = refundR2_(Number(p.amount) - Number(p.refunded || 0));
+  if (!(amount > 0)) { errorEl.textContent = tr("error.validAmount"); return true; }
+  if (amount > left + 0.004) { errorEl.textContent = tr("refund.tooMuchPhone", { max: formatAmount(left, p.currency) }); return true; }
+  if (!date) { errorEl.textContent = tr("refund.dateNeeded"); return true; }
+  if (date < String(p.date).slice(0, 10)) { errorEl.textContent = tr("refund.beforePurchasePhone"); return true; }
+  if (!pm || pm.startsWith("__")) { errorEl.textContent = tr("refund.pickAccount"); return true; }
+  const payload = { entry_id: p.id, amount, date, payment_method_id: pm };
+  setRefundOfPick_(null);
+  resetEntryFormFields_();
+  if (newEntrySheetOpen_) closeNewEntrySheet_();
+  clearEntryDraft_();
+  // A shared purchase: the Refund window opens filled in, so how it is divided is seen before anything is saved.
+  if (Object.keys(refundShares_(p)).length > 1) {
+    openRefundSheet_(p, { amount });
+    const to = document.getElementById("refund-to");
+    if ([...to.options].some((o) => o.value === pm)) to.value = pm;
+    document.getElementById("refund-date").value = date;
+    updateRefundSheet_();
+    return true;
+  }
+  saveBehindScreen_(() => callApi("recordRefund", payload), refreshAfterRefund_, { done: "refund.saved" });
+  return true;
+}
+
+// The Refund window. `opts.received`: opened from Home's "Mark as received" (the amount on its way is filled in).
+let refundCtx_ = null;
+function openRefundSheet_(entry, opts) {
+  opts = opts || {};
+  const left = refundR2_(Number(entry.amount) - Number(entry.refunded || 0));
+  refundCtx_ = { entry, left: refundLeftByPerson_(entry), max: left, when: "received", mode: "like" };
+  document.getElementById("refund-fields").hidden = false;
+  document.getElementById("refund-purchase").textContent = refundPurchaseLabel_(entry);
+  const expected = Number(entry.refund_expected || 0);
+  document.getElementById("refund-amount").value = String(opts.amount || (expected > 0 ? Math.min(expected, left) : left));
+  const to = document.getElementById("refund-to");
+  const accounts = ((meta && meta.paymentMethods) || []).filter((pm) => pm.type !== "investment" && !pmHidden_(pm));
+  to.innerHTML = accounts.map((pm) => `<option value="${escapeHtml(pm.id)}">${escapeHtml(pmPickLabel_(pm))}</option>`).join("") +
+    (entry.paid_by && entry.paid_by !== "me" ? `<option value="friend:${escapeHtml(entry.paid_by)}">${escapeHtml(tr("refund.friendsCard", { name: refundPersonName_(entry.paid_by) }))}</option>` : "");
+  if (entry.payment_method_id && accounts.some((pm) => pm.id === entry.payment_method_id)) to.value = entry.payment_method_id;
+  document.getElementById("refund-date").value = todayLocalISO();
+  document.getElementById("refund-expected-by").value = entry.refund_expected_by ? String(entry.refund_expected_by).slice(0, 10) : "";
+  document.getElementById("refund-wont-come").hidden = !(expected > 0) || !!opts.received;
+  document.getElementById("refund-divided").hidden = Object.keys(refundShares_(entry)).length < 2;
+  document.getElementById("refund-split-rows").innerHTML = "";
+  document.querySelectorAll("#refund-split-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "like"));
+  document.getElementById("refund-error").textContent = "";
+  // A refund already on its way opens on it, to change or remove it; "Already received" records the money when it comes.
+  setRefundWhen_(expected > 0 && !opts.received ? "waiting" : "received");
+  const back = document.getElementById("refund-backdrop");
+  bringModalToFront_(back);
+  back.hidden = false;
+}
+// From Home: the purchase is fetched first; the window shows Loading… meanwhile (loading standard).
+async function openRefundForId_(id, opts) {
+  const back = document.getElementById("refund-backdrop");
+  document.getElementById("refund-fields").hidden = true;
+  document.getElementById("refund-purchase").innerHTML = loadingHtml_();
+  bringModalToFront_(back);
+  back.hidden = false;
+  let entry;
+  try { entry = ((await callApi("listEntries", { entryIds: [id] })) || [])[0]; }
+  catch (err) { document.getElementById("refund-purchase").textContent = err.message; return; }
+  if (back.hidden) return;
+  if (!entry) { document.getElementById("refund-purchase").textContent = tr("refund.purchaseGone"); return; }
+  openRefundSheet_(entry, opts);
+}
+function setRefundWhen_(when) {
+  if (refundCtx_) refundCtx_.when = when;
+  document.querySelectorAll("#refund-when-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.when === when));
+  document.getElementById("refund-received-fields").hidden = when !== "received";
+  document.getElementById("refund-waiting-fields").hidden = when !== "waiting";
+  updateRefundSheet_();
+}
+// Divided like an expense's split (owner, 2026-11-24): "As bought" (the purchase's proportions), Equal, % and Custom, with the same
+// rows and rules as the "+" form — in % and Custom a box the person typed is fixed and every EMPTY box shares the rest equally, shown
+// live as its grey placeholder. Nothing is capped while typing: a part over someone's limit is said under the rows; Save refuses it.
+function refundSplitKeys_() { return Object.keys(refundCtx_.left).sort((a, b) => (a === "me" ? -1 : b === "me" ? 1 : 0)); }
+function refundBoxValue_(k) { const el = document.getElementById("refund-part-" + k); return el ? String(el.value || "").trim() : ""; }
+function refundEqualParts_(amount, keys) {
+  const cents = Math.round(amount * 100), each = Math.floor(cents / keys.length), parts = {};
+  keys.forEach((k) => { parts[k] = each / 100; });
+  parts[keys[0]] = refundR2_((cents - each * (keys.length - 1)) / 100);   // the leftover cent stays with "me" (listed first)
+  return parts;
+}
+// { parts, error }: what each person gets in the chosen mode.
+function refundSplitNow_(amount) {
+  const c = refundCtx_, keys = refundSplitKeys_();
+  if (c.mode === "equal") return { parts: refundEqualParts_(amount, keys) };
+  if (c.mode === "percent") {
+    const pcts = {};
+    keys.forEach((k) => { pcts[k] = refundBoxValue_(k); });
+    const p = computePercentShares(amount, keys.filter((k) => k !== "me"), pcts);
+    keys.forEach((k) => { const el = document.getElementById("refund-part-" + k); if (el) el.placeholder = p.openKeys.includes(k) && !p.over ? String(Math.round(p.pcts[k] * 100) / 100) : "0"; });
+    return { parts: p.amounts && Object.assign({ me: p.ownerShare }, p.amounts), error: p.over ? "split.errPercentOver" : p.notFull ? "split.errPercentNot100" : "" };
+  }
+  if (c.mode === "custom") {
+    const filled = keys.filter((k) => refundBoxValue_(k) !== "" && !isNaN(parseFloat(refundBoxValue_(k))));
+    const open = keys.filter((k) => !filled.includes(k));
+    const parts = {};
+    let fixed = 0;
+    filled.forEach((k) => { parts[k] = refundAmountOf_("refund-part-" + k); fixed += parts[k]; });
+    const rest = refundR2_(amount - fixed);
+    if (open.length && rest >= 0) Object.assign(parts, refundEqualParts_(rest, open));
+    open.forEach((k) => { const el = document.getElementById("refund-part-" + k); if (el) el.placeholder = rest >= 0 ? moneyFmt(parts[k] || 0) : "0.00"; });
+    filled.forEach((k) => { const el = document.getElementById("refund-part-" + k); if (el) el.placeholder = "0.00"; });
+    return { parts, error: rest < -0.004 ? "split.errorOver" : !open.length && Math.abs(rest) > 0.004 ? "refund.partsDontAdd" : "" };
+  }
+  return { parts: refundDefaultParts_(amount, c.left) };
+}
+function refundPartsNow_(amount) { return refundSplitNow_(amount).parts || {}; }
+function setRefundSplitMode_(mode) {
+  const c = refundCtx_;
+  if (!c) return;
+  c.mode = mode;
+  document.querySelectorAll("#refund-split-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === mode));
+  const rows = document.getElementById("refund-split-rows");
+  rows.innerHTML = "";
+  if (mode === "percent" || mode === "custom") {
+    refundSplitKeys_().forEach((k) => {
+      const row = document.createElement("div");
+      row.className = "split-row";
+      const name = document.createElement("span");
+      name.className = "split-row-name";
+      name.textContent = (k === "me" ? tr("common.me") : refundPersonName_(k)) + (mode === "percent" ? " (%)" : "");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.inputMode = "decimal";
+      input.id = "refund-part-" + k;
+      if (mode === "percent") input.dataset.amountKind = "rate";
+      input.addEventListener("input", updateRefundSheet_);
+      row.appendChild(name);
+      row.appendChild(input);
+      rows.appendChild(row);
+    });
+  }
+  updateRefundSheet_();
+}
+document.querySelectorAll("#refund-split-tabs .type-tab").forEach((t) => t.addEventListener("click", () => setRefundSplitMode_(t.dataset.mode)));
+function updateRefundSheet_() {
+  const c = refundCtx_;
+  if (!c) return;
+  const e = c.entry, cur = e.currency;
+  const amount = refundAmountOf_("refund-amount");
+  const split = refundSplitNow_(amount);
+  const parts = split.parts || {};
+  document.getElementById("refund-divided-line").textContent = split.error ? "" : refundSplitKeys_()
+    .map((k) => tr("refund.partLine", { name: refundPersonName_(k), amount: formatAmount(parts[k] || 0, cur) })).join(" · ");
+  const over = Object.keys(parts).find((k) => parts[k] > c.left[k] + 0.004);
+  document.getElementById("refund-error").textContent = split.error ? tr(split.error, { amount: exportMoneyText_(amount), cur })
+    : over ? tr("refund.partTooMuchPhone", { name: refundPersonName_(over), max: formatAmount(c.left[over], cur) }) : "";
+  const out = document.getElementById("refund-outcome");
+  if (c.when === "waiting") { out.textContent = tr("refund.outcomeWaiting"); return; }
+  const toVal = document.getElementById("refund-to").value || "";
+  const toFriend = toVal.startsWith("friend:") ? toVal.slice(7) : "";
+  const date = document.getElementById("refund-date").value || todayLocalISO();
+  const pMonth = String(e.date).slice(0, 7), rMonth = date.slice(0, 7);
+  const mine = parts.me || 0;
+  const bits = [];
+  if (mine > 0) {
+    bits.push(pMonth === rMonth
+      ? tr("refund.outcomeSame", { amount: formatAmount(mine, cur), month: paceMonthName_(pMonth, true), category: (findCategory(e.category_id) || {}).name || tr("entry.uncategorized") })
+      : tr("refund.outcomeLater", { amount: formatAmount(mine, cur), month: paceMonthName_(rMonth, true), purchaseMonth: paceMonthName_(pMonth) }));
+  }
+  Object.keys(parts).forEach((k) => {
+    if (k === "me" || !(parts[k] > 0) || k === toFriend) return;
+    bits.push(tr("refund.outcomeFriendPart", { name: refundPersonName_(k), amount: formatAmount(parts[k], cur) }));
+  });
+  if (toFriend && mine > 0) bits.push(tr("refund.outcomeFriendHolds", { name: refundPersonName_(toFriend), amount: formatAmount(mine, cur) }));
+  out.textContent = bits.join(" ");
+}
+document.querySelectorAll("#refund-when-tabs .type-tab").forEach((t) => t.addEventListener("click", () => setRefundWhen_(t.dataset.when)));
+["refund-amount", "refund-date", "refund-to"].forEach((id) => document.getElementById(id).addEventListener(id === "refund-to" ? "change" : "input", updateRefundSheet_));
+// The purchase's own window, still open behind the Refund window, closes with the save (owner, 2026-11-24), as after a delete.
+function closePurchaseWindow_(id) {
+  if (!editingRefundEntry_ || editingRefundEntry_.id !== id || editingEntryId !== id) return;
+  const wasPopup = editingViaPopup;
+  exitEditMode();
+  if (wasPopup) { resetEntryFormFields_(); closeEditPopup(); }
+  else resetToFreshEntryScreen_();
+}
+function closeRefundSheet_() { document.getElementById("refund-backdrop").hidden = true; refundCtx_ = null; }
+document.getElementById("refund-close").addEventListener("click", closeRefundSheet_);
+function refreshAfterRefund_() {
+  return Promise.all([refreshEntryList().catch(() => {}), refreshExpectedRecurring(), refreshLoans().catch(() => {})]).then(() => refreshHomeGlance_(true));
+}
+document.getElementById("refund-save").addEventListener("click", () => {
+  const c = refundCtx_;
+  if (!c) return;
+  const e = c.entry, cur = e.currency, err = document.getElementById("refund-error");
+  err.textContent = "";
+  const amount = refundAmountOf_("refund-amount");
+  if (!(amount > 0)) { err.textContent = tr("error.validAmount"); return; }
+  if (amount > c.max + 0.004) { err.textContent = tr("refund.tooMuchPhone", { max: formatAmount(c.max, cur) }); return; }
+  const payload = { entry_id: e.id, amount };
+  if (c.when === "waiting") {
+    payload.waiting = true;
+    payload.expected_by = document.getElementById("refund-expected-by").value || "";
+  } else {
+    const date = document.getElementById("refund-date").value;
+    if (!date) { err.textContent = tr("refund.dateNeeded"); return; }
+    if (date < String(e.date).slice(0, 10)) { err.textContent = tr("refund.beforePurchasePhone"); return; }
+    payload.date = date;
+    const toVal = document.getElementById("refund-to").value || "";
+    if (toVal.startsWith("friend:")) payload.back_to = toVal.slice(7);
+    else if (!toVal) { err.textContent = tr("refund.pickAccount"); return; }
+    else payload.payment_method_id = toVal;
+    // Money back to another account than the one that paid: asked once, so a wrong pick is caught (owner, 2026-11-24).
+    if (payload.payment_method_id && e.payment_method_id && payload.payment_method_id !== e.payment_method_id && !c.otherAccountOk) {
+      const pmName = (id) => { const pm = ((meta && meta.paymentMethods) || []).find((x) => x.id === id); return pm ? pmPickLabel_(pm) : "?"; };
+      askConfirmApp_(tr("refund.otherAccountAsk", { paid: pmName(e.payment_method_id), to: pmName(payload.payment_method_id) }), tr("refund.otherAccountYes", { to: pmName(payload.payment_method_id) }), { plain: true })
+        .then((yes) => { if (yes && refundCtx_ === c) { c.otherAccountOk = true; document.getElementById("refund-save").click(); } });
+      return;
+    }
+    if (c.mode !== "like" && !document.getElementById("refund-divided").hidden) {
+      const split = refundSplitNow_(amount);
+      if (split.error) { err.textContent = tr(split.error, { amount: exportMoneyText_(amount), cur }); return; }
+      const parts = split.parts || {};
+      const sum = refundR2_(Object.keys(parts).reduce((n, k) => n + (parts[k] || 0), 0));
+      if (Math.abs(sum - amount) > 0.004) { err.textContent = tr("refund.partsDontAddPhone", { amount: formatAmount(amount, cur) }); return; }
+      const over = Object.keys(parts).find((k) => parts[k] > c.left[k] + 0.004);
+      if (over) { err.textContent = tr("refund.partTooMuchPhone", { name: refundPersonName_(over), max: formatAmount(c.left[over], cur) }); return; }
+      payload.parts = parts;
+    }
+  }
+  closeRefundSheet_();
+  closePurchaseWindow_(e.id);
+  saveBehindScreen_(() => callApi("recordRefund", payload), refreshAfterRefund_, { done: payload.waiting ? "refund.savedWaiting" : "refund.saved" });
+});
+document.getElementById("refund-wont-come").addEventListener("click", async () => {
+  const c = refundCtx_;
+  if (!c || !await askConfirmApp_(tr("refund.wontComeAsk"), tr("refund.wontComeYes"))) return;
+  const id = c.entry.id;
+  closeRefundSheet_();
+  closePurchaseWindow_(id);
+  saveBehindScreen_(() => callApi("cancelExpectedRefund", { entry_id: id }), refreshAfterRefund_);
+});
+
 // ---- Editing a previously confirmed entry ----
 
 let editingEntrySummary_ = "";
@@ -6914,6 +7335,7 @@ async function startEditEntry(entry) {
   editingEntryWasSplittable = entry.type === "expense";
   editingEntryOriginalType = entry.type;
   editingEntryRecurringId_ = entry.recurring_expense_id || "";
+  editingRefundEntry_ = entry;   // its "Refunded … of …" line and Refund… button (Refunds)
   resetRepeat_();
   // A cash loan's own money movement: switching it to Expense / Income converts the loan (convertLoanToEntry).
   editingLoanMovement_ = entry.type === "transfer" && !!entry.link && entry.link.kind === "loan" ? (entry.link.direction || "they_owe_me") : "";
@@ -6979,7 +7401,8 @@ async function startEditEntry(entry) {
 
   const entryIsWithdrawal = entry.type === "investment" && Number(entry.amount) < 0;
   setInvestmentDirection(entryIsWithdrawal ? "withdrawal" : "deposit");
-  document.getElementById("amount").value = entryIsWithdrawal ? Math.abs(Number(entry.amount)) : entry.amount;
+  // A refund is typed without a minus: a refund in its purchase's month is stored minus again by the server (Refunds.gs).
+  document.getElementById("amount").value = entryIsWithdrawal || entry.refund_of ? Math.abs(Number(entry.amount)) : entry.amount;
   document.getElementById("date").value = entry.date;
   document.getElementById("description").value = entry.description || "";
   // A loan's / repayment's own entry whose description is still the automatic one stays "automatic" until the person types
@@ -7102,6 +7525,8 @@ function exitEditMode() {
   editingEntryWasSplittable = false;
   editingEntryOriginalType = null;
   editingEntryRecurringId_ = "";
+  editingRefundEntry_ = null;
+  updateRefundField_();   // a new entry never shows Refund…
   resetRepeat_();
   editingLoanMovement_ = "";
   editingLoanFriendId_ = "";
@@ -7212,6 +7637,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed, s
   let confirmText = tr("confirm.deleteEntry", { what: summary || tr("confirm.thisEntry") });
   let repaymentsChoice;   // set when the expense's loans were repaid: the choice sheet then replaces the OK / Cancel box
   let exchangePartner = null;   // the other side of a currency exchange, when this entry is one side
+  let refundsChoice = "";   // a purchase with refunds: "delete" (with it) or "keep" (as Refunds income)
   if (["transfer", "expense", "income"].includes(originalType)) {
     const pre = entryLinksPrefetch_;
     const links = (pre && pre.id === id && Date.now() - pre.at < 120000 && await pre.p) || await callApi("getEntryRepaymentLinks", { id });
@@ -7228,6 +7654,13 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed, s
     if (links.refunds && links.refunds.length) {
       repaymentsChoice = await askRepaymentChoice_("repayChoice.expenseTitle", links.refunds);
       if (!repaymentsChoice) return false;
+    }
+    // A purchase with refunds (Refunds.gs): delete them too, or keep them as Refunds income. This question replaces the plain one.
+    if (links.purchaseRefunds) {
+      const ans = await askConfirmApp_(tr("refund.deleteAsk", { what: summary || tr("confirm.thisEntry"), amount: formatAmount(links.purchaseRefunds.amount, links.purchaseRefunds.currency) }),
+        tr("confirmBtn.deleteBoth"), { choices: [{ label: tr("refund.keepRefund"), value: "keep" }] });
+      if (!ans) return false;
+      refundsChoice = ans === "keep" ? "keep" : "delete";
     }
     // A repayment is ONE total (money movement + extra entry), so neither entry is deleted on its own here: the person is
     // taken to the repayment's own screen (as for a change of amount), where "Delete this repayment" removes both together.
@@ -7251,7 +7684,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed, s
       confirmText = tr(r.direction === "they_owe_me" ? "delete.repaymentFrom" : "delete.repaymentTo", { friend: r.friend, cur: r.currency, total: moneyFmt(r.total) });
     }
   }
-  if (!repaymentsChoice && !await askConfirmApp_(confirmText, tr("confirmBtn.delete"))) return false;
+  if (!repaymentsChoice && !refundsChoice && !await askConfirmApp_(confirmText, tr("confirmBtn.delete"))) return false;
   // One side of a currency exchange: the other side is a separate entry. Offer to delete it too, so half an exchange
   // (and a balance that is off) is never left behind (owner, 2026-11-02). OK = both, Cancel = only this one.
   let partner = null;
@@ -7259,7 +7692,7 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed, s
     if (await askConfirmApp_(tr("delete.exchangeBoth", { amount: formatAmount(exchangePartner.amount, exchangePartner.currency), date: listDate_(exchangePartner.date) }), tr("confirmBtn.deleteBoth"), { cancel: tr("confirmBtn.onlyThisOne") })) partner = exchangePartner;
   }
   if (onConfirmed) onConfirmed();
-  await callApi("discardEntry", { id, repayments: repaymentsChoice });
+  await callApi("discardEntry", refundsChoice === "delete" ? { id, repayments: repaymentsChoice, refunds: "delete" } : { id, repayments: repaymentsChoice });
   if (partner) {
     try { await callApi("discardEntry", { id: partner.id }); }
     catch (err) { showAppMessage_(tr("delete.exchangeBothFailed", { error: err.message })); }
@@ -8883,6 +9316,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−", "": "" }[entryFlowDirection_(entry)])}</div>
       </div>
       ${entry.charge_match ? reviewChargeMatchHtml_(entry) : ""}
+      ${entry.refund_match ? `<div class="review-charge-match"><div>${escapeHtml(tr("refund.matchAsk", { what: entry.refund_match.description || entry.refund_match.category_name, amount: formatAmount(entry.refund_match.amount, entry.refund_match.currency) }))}</div><button type="button" class="stmt-choice review-refund-btn">${escapeHtml(tr("refund.matchYes"))}</button></div>` : ""}
       ${entry.waiting_match ? `<div class="review-charge-match"><div>${escapeHtml(tr("income.matchAsk", { name: entry.waiting_match.friend_name, amount: formatAmount(entry.waiting_match.remaining, entry.waiting_match.currency) }))}</div><button type="button" class="stmt-choice review-waiting-btn">${escapeHtml(tr("income.matchYes"))}</button></div>` : ""}
       ${/^(Overpayment (from|to) |Pago de más (de|a) )/.test(entry.description || "") ? `<p class="hint review-overpay-note">${escapeHtml(tr("review.overpayNote"))}</p>` : ""}
       ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr(dupWarningKey_(entry.twins || []), { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}<button type="button" class="review-dup-discard">${escapeHtml(tr("review.discardCopy"))}</button></div>` : ""}
@@ -9024,6 +9458,13 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       item.remove();
       saveBehindScreen_(() => callApi("fillChargeFromReview", { pendingId: entry.id, entryId: entry.charge_match.entryId }),
         () => { refreshReviewQueue(); refreshHomeGlance_(true); refreshEntryList(); });
+    });
+
+    const refundBtn = item.querySelector(".review-refund-btn");
+    if (refundBtn) refundBtn.addEventListener("click", () => {
+      item.remove();
+      saveBehindScreen_(() => callApi("applyRefundMatch", { pending_id: entry.id, entry_id: entry.refund_match.entry_id }),
+        () => { refreshReviewQueue(); refreshHomeGlance_(true); refreshEntryList(); refreshExpectedRecurring(); refreshLoans().catch(() => {}); });
     });
 
     const waitingBtn = item.querySelector(".review-waiting-btn");
@@ -27404,6 +27845,21 @@ async function refreshExpectedRecurring(prefetchedGroups) {
     // Each item and its two buttons sit together in one bordered box, so it's
     // obvious which item a button belongs to.
     detail.innerHTML = g.items.map((item) => {
+      if (item.refund) {   // a refund on its way (Refunds.gs): Mark as received opens the Refund window, filled in
+        const rfAmt = `${item.overdue ? "⚠️ " : ""}${escapeHtml(g.currency)} ${moneyFmt(item.amount)}`;
+        const rfDate = item.expected_date ? " · " + tr("refund.expectedOn", { date: listDate_(item.expected_date) }) : "";
+        const rfLabel = [item.category_name ? `${item.category_icon ? item.category_icon + " " : ""}${item.category_name}` : "", item.description].filter(Boolean).join(" — ");
+        return `
+      <div class="expected-recurring-entry${item.overdue ? " overdue" : ""}">
+        <div class="expected-recurring-item">
+          <span class="expected-recurring-item-label">${escapeHtml(rfLabel)}${escapeHtml(rfDate)}</span>
+          <span class="expected-recurring-item-amount">${sensitiveHtml_(rfAmt)}</span>
+        </div>
+        <div class="expected-recurring-actions">
+          <button type="button" data-act="refund" data-id="${item.id}"><span class="ico">${lineIcon_("check")}</span>${tr("refund.markReceived")}</button>
+        </div>
+      </div>`.replace('<div class="expected-recurring-entry', `<div data-refund-id="${escapeHtml(item.entry_id)}" role="button" tabindex="0" class="expected-recurring-editable expected-recurring-entry`);
+      }
       if (item.waiting) {
         // The date goes with the name: next to the amount it squeezed the name into a narrow column.
         const waitAmt = `${item.overdue ? "⚠️ " : ""}${escapeHtml(g.currency)} ${moneyFmt(item.amount)}`;
@@ -27438,7 +27894,8 @@ async function refreshExpectedRecurring(prefetchedGroups) {
       const item = g.items.find((i) => i.id === btn.dataset.id);
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        if (item.waiting) {
+        if (item.refund) openRefundForId_(item.entry_id, { received: true, amount: item.amount });
+        else if (item.waiting) {
           repaymentTargetLoan_ = { loan_id: item.loan_id, remaining: item.amount };
           openRepaymentModal(item.friend_id, item.friend_name, { [g.currency]: item.amount }, "", [], []);
         } else if (btn.dataset.act === "skip") skipRecurringThisMonth_(item);
@@ -27446,15 +27903,16 @@ async function refreshExpectedRecurring(prefetchedGroups) {
       });
     });
 
-    // A tap on the item's box (not its buttons) opens the Programmed item to edit it (owner, 2026-11-13).
+    // A tap on the item's box (not its buttons) opens the Programmed item to edit it (owner, 2026-11-13); a refund on its way opens
+    // the Refund window on it, to change its amount or date (owner, 2026-11-24).
     detail.querySelectorAll(".expected-recurring-editable").forEach((box) => {
-      box.addEventListener("click", () => openRecurringById_(box.dataset.id, box));
+      box.addEventListener("click", () => box.dataset.refundId ? openRefundForId_(box.dataset.refundId) : openRecurringById_(box.dataset.id, box));
     });
 
     const summary = document.createElement("div");
     summary.className = "expected-recurring-summary";
     summary.innerHTML = `
-      <span class="expected-recurring-summary-label">${tr(g.pending ? "expected.countPending" : "expected.count", { n: g.items.length, kind: tr(g.pending ? "summary.pendingIncome" : isIncome ? "summary.income" : g.type === "investment" ? "summary.investments" : "summary.expenses") + (g.currency !== homeCur() ? " " + g.currency : "") })}</span>
+      <span class="expected-recurring-summary-label">${g.refund ? escapeHtml(tr("refund.groupCount", { n: g.items.length }) + (g.currency !== homeCur() ? " " + g.currency : "")) : tr(g.pending ? "expected.countPending" : "expected.count", { n: g.items.length, kind: tr(g.pending ? "summary.pendingIncome" : isIncome ? "summary.income" : g.type === "investment" ? "summary.investments" : "summary.expenses") + (g.currency !== homeCur() ? " " + g.currency : "") })}</span>
       <span class="expected-recurring-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(amountHtml) : amountHtml}</span>
     `;
     summary.addEventListener("click", () => { detail.hidden = !detail.hidden; });
@@ -29072,6 +29530,9 @@ const LINK_ICON_RULES_ = [
   [/^(yearly statement|information statement|constancia anual|all the yearly statements|all the information statements|todas las constancias)$/i, "file"],   // piece 9
   [/^(send the (corrected )?package|enviar el paquete)/i, "send"],   // piece 10
   [/^(return the deposit|devolver separación|return this payment|devolver este pago)/i, "undo"],   // piece 11
+  [/^(refund…|reembolso…)$/i, "undo"],   // Refunds: money back on a purchase
+  [/^(see the refunds|ver los reembolsos)$/i, "search"],
+  [/^(it won't come|no va a llegar)$/i, "trash"],
   [/^(prepare a statement to share|preparar un estado para compartir|prepare the statement|preparar el estado)/i, "file"],   // piece 12
   [/^(change the sections|cambiar las secciones)/i, "pencil"],
   [/^(record the return|registrar la devolución)/i, "check"],

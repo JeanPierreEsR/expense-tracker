@@ -263,8 +263,10 @@ function updateEntryFromApp_(payload) {
     if (isExchangeLegMarked_(xAfter) && xAfter.payment_method_id && xAfter.to_payment_method_id) throw new Error(tr_('err.exchangeLegOneAccount'));
   }
   var afterIncomeEdit = prepareWaitingIncomeEdit_(payload.id, payload.fields);   // an income not received yet and its debt are one
+  var afterRefundEdit = refundEditGuard_(payload.id, payload.fields);   // a refund stays within its purchase; a purchase never below its refunds (Refunds.gs)
   var entry = updateEntryFields(payload.id, payload.fields);
   if (afterIncomeEdit) { afterIncomeEdit(); entry = getEntryById_(payload.id); }
+  if (afterRefundEdit) { afterRefundEdit(); entry = getEntryById_(payload.id); }
   // No longer an exchange leg once it is another type: drop the marker so nothing treats it as one.
   if (wasExchangeLeg && entry && entry.type !== 'transfer' && entry.exchange) {
     updateRowFields_('Entries', payload.id, { exchange: '' });

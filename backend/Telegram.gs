@@ -1970,6 +1970,13 @@ function deleteEntry_(entryId) {
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, entryId);
   if (rowIndex === -1) return;
+  // A purchase with refunds (Refunds.gs): they are kept as plain Refunds income, or removed with it when the person chose so.
+  var typeCol = headers.indexOf('type');
+  if (headers.indexOf('refund_of') !== -1 && typeCol !== -1 && sheet.getRange(rowIndex, typeCol + 1).getValue() === 'expense') {
+    releaseRefundsOf_(entryId, REFUND_RELEASE_MODE_);
+    rowIndex = findRowIndexById(sheet, headers, entryId);   // (a refund deleted with it may have moved its row)
+    if (rowIndex === -1) return;
+  }
   if (changeLogOn_('Entries')) {   // the change log keeps what was deleted (ChangeLog.gs, company copies)
     var gone = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0], obj = {};
     headers.forEach(function (h, i) { obj[h] = gone[i]; });

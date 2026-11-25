@@ -4105,7 +4105,7 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 
 /* One split control: "By items" is the fourth choice; the old separate link stays in the page, hidden (design review). */
 #split-field > #bill-open-btn { display: none; }
-#split-mode-tabs { grid-template-columns: repeat(4, 1fr); }
+#split-mode-tabs, #refund-split-tabs { grid-template-columns: repeat(4, 1fr); }
 
 /* Line icons (option C): the tab bar and More rows. The active tab's icon is drawn in the app blue, a little bolder. */
 .nav-btn .nav-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
@@ -4386,3 +4386,10 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 #share-sections .checkbox-row input[type="checkbox"] { flex: none; margin-top: 1px; }
 .close-year-open { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .close-year-open .add-inline, .close-year-open .add-inline + .add-inline { margin: 0; }
+
+/* Refund window (owner, 2026-11-24): the tabs and Save keep the same gap from what is above them as the other fields. */
+#refund-when-tabs { margin-top: 12px; }
+#refund-save { margin-top: 16px; }
+#refund-wont-come { margin-top: 8px; }
+/* "Which purchase?": Home's own rows, tappable. */
+#refund-pick-list .entry { cursor: pointer; }

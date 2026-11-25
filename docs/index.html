@@ -235,6 +235,19 @@
 
           <label for="amount" id="amount-label" data-i18n="field.amount">Amount</label>
           <input type="text" inputmode="decimal" id="amount" placeholder="0.00" required>
+          <!-- Refunds (owner's plan 2026-11-24): under the amount, a saved expense's "Refunded … of …" line and its Refund… button;
+               a refund's own line names its purchase. -->
+          <div id="refund-field" hidden>
+            <p class="hint" id="refund-line" hidden></p>
+            <button type="button" class="add-inline" id="refund-open-btn" data-i18n="refund.button">Refund…</button>
+            <button type="button" class="add-inline" id="refund-list-btn" hidden data-i18n="refund.seeRefunds">See the refunds</button>
+          </div>
+          <!-- "+" form, Income in Refunds: which purchase it gave money back for (optional). -->
+          <div id="refund-of-field" hidden>
+            <label data-i18n="refund.whichPurchase">Which purchase? (optional)</label>
+            <button type="button" class="add-inline" id="refund-of-btn" data-i18n="refund.pickPurchase">Choose the purchase…</button>
+            <p class="hint" id="refund-of-line" hidden></p>
+          </div>
 
           <label for="date" id="entry-date-label" data-i18n="field.date">Date</label>
           <input type="date" id="date" required>
@@ -4002,6 +4015,78 @@
         <p class="hint error-text" id="trip-form-error"></p>
         <button type="button" class="primary" id="trip-save-btn" data-i18n="trips.save">Save</button>
         <button type="button" class="delete-entry-btn" id="trip-delete-btn" hidden data-i18n="trips.delete">Delete this trip or event</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Refund on a purchase (Refunds.gs): money back now, or a refund approved and on its way. -->
+  <div id="refund-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="refund.title">Refund</span>
+        <button type="button" id="refund-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body" id="refund-body">
+        <p class="hint" id="refund-purchase"></p>
+        <div id="refund-fields">
+        <label for="refund-amount" data-i18n="refund.amount">How much came back</label>
+        <input type="text" inputmode="decimal" id="refund-amount" placeholder="0.00">
+        <div class="type-tabs budget-period-tabs" id="refund-when-tabs">
+          <div class="type-tab active" data-when="received" data-i18n="refund.received">Already received</div>
+          <div class="type-tab" data-when="waiting" data-i18n="refund.notYet">Not received yet</div>
+        </div>
+        <div id="refund-received-fields">
+          <label for="refund-to" data-i18n="refund.cameBackTo">Came back to</label>
+          <select id="refund-to"></select>
+          <label for="refund-date" data-i18n="field.date">Date</label>
+          <input type="date" id="refund-date">
+          <!-- Divided like an expense's split (owner, 2026-11-24): the same mode buttons, name + box rows and summary line. -->
+          <div id="refund-divided" hidden>
+            <label data-i18n="refund.divided">Divided</label>
+            <div class="type-tabs budget-period-tabs" id="refund-split-tabs">
+              <button type="button" class="type-tab active" data-mode="like" data-i18n="refund.splitLike">As bought</button>
+              <button type="button" class="type-tab" data-mode="equal" data-i18n="split.equal">Equal</button>
+              <button type="button" class="type-tab" data-mode="percent" data-i18n="split.percent">%</button>
+              <button type="button" class="type-tab" data-mode="custom" data-i18n="split.custom">Custom</button>
+            </div>
+            <div id="refund-split-rows"></div>
+            <p class="hint" id="refund-divided-line"></p>
+          </div>
+        </div>
+        <div id="refund-waiting-fields" hidden>
+          <label for="refund-expected-by" data-i18n="refund.expectedBy">Expected by (optional)</label>
+          <input type="date" id="refund-expected-by">
+        </div>
+        <p class="hint" id="refund-outcome"></p>
+        <p class="hint error-text" id="refund-error"></p>
+        <button type="button" class="primary" id="refund-save" data-i18n="common.save">Save</button>
+        <button type="button" class="add-inline" id="refund-wont-come" hidden data-i18n="refund.wontCome">It won't come</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- The refunds of one purchase (choice C: a same-month refund has no row of its own on Home). -->
+  <div id="refund-list-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="refund.listTitle">Refunds of this purchase</span>
+        <button type="button" id="refund-list-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body"><div id="refund-list-rows"></div></div>
+    </div>
+  </div>
+
+  <!-- "Which purchase?": the person's expenses of the last 90 days in that currency, newest first, with a search. -->
+  <div id="refund-pick-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="refund.pickTitle">Which purchase?</span>
+        <button type="button" id="refund-pick-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <input type="search" id="refund-pick-search" data-i18n-placeholder="refund.pickSearch" placeholder="Search">
+        <div id="refund-pick-list"></div>
       </div>
     </div>
   </div>
