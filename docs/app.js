@@ -6932,6 +6932,7 @@ function isRefundsCategory_(id) {
   const c = id && findCategory(id);
   return !!c && c.type === "income" && (c.key === "refunds" || c.name === "Refunds" || c.name === "Reembolsos");
 }
+const exportMoneyText_ = (n) => (Math.round(n * 100) / 100).toFixed(2);
 function refundPurchaseLabel_(e) {
   return [e.description || (findCategory(e.category_id) || {}).name || "", listDate_(e.date), formatAmount(Number(e.amount), e.currency)].filter(Boolean).join(" · ");
 }
@@ -7059,7 +7060,7 @@ let refundCtx_ = null;
 function openRefundSheet_(entry, opts) {
   opts = opts || {};
   const left = refundR2_(Number(entry.amount) - Number(entry.refunded || 0));
-  refundCtx_ = { entry, left: refundLeftByPerson_(entry), max: left, when: "received", partsOpen: false };
+  refundCtx_ = { entry, left: refundLeftByPerson_(entry), max: left, when: "received", mode: "like" };
   document.getElementById("refund-fields").hidden = false;
   document.getElementById("refund-purchase").textContent = refundPurchaseLabel_(entry);
   const expected = Number(entry.refund_expected || 0);
@@ -7073,8 +7074,8 @@ function openRefundSheet_(entry, opts) {
   document.getElementById("refund-expected-by").value = entry.refund_expected_by ? String(entry.refund_expected_by).slice(0, 10) : "";
   document.getElementById("refund-wont-come").hidden = !(expected > 0) || !!opts.received;
   document.getElementById("refund-divided").hidden = Object.keys(refundShares_(entry)).length < 2;
-  document.getElementById("refund-divided-boxes").hidden = true;
-  document.getElementById("refund-divided-change").hidden = false;
+  document.getElementById("refund-split-rows").innerHTML = "";
+  document.querySelectorAll("#refund-split-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === "like"));
   document.getElementById("refund-error").textContent = "";
   // A refund already on its way opens on it, to change or remove it; "Already received" records the money when it comes.
   setRefundWhen_(expected > 0 && !opts.received ? "waiting" : "received");
@@ -7103,46 +7104,83 @@ function setRefundWhen_(when) {
   document.getElementById("refund-waiting-fields").hidden = when !== "waiting";
   updateRefundSheet_();
 }
-// Like an expense's Custom split (owner, 2026-11-24): a box the person typed in is fixed; every EMPTY box shares what is left, in the
-// purchase's proportions, shown live as its grey placeholder. Nothing is capped while typing: a part over someone's limit is said
-// under the boxes, and Save refuses it.
-function refundOpenShares_(amount) {
-  const c = refundCtx_;
-  const keys = Object.keys(c.left);
-  const typed = (k) => String(document.getElementById("refund-part-" + k).value || "").trim() !== "";
-  const open = keys.filter((k) => !typed(k));
-  const fixed = keys.filter(typed).reduce((n, k) => n + refundAmountOf_("refund-part-" + k), 0);
-  const rest = Math.max(0, refundR2_(amount - fixed));
-  const weights = open.map((k) => c.left[k] > 0.004 ? c.left[k] : 0);
-  const totalW = weights.reduce((n, w) => n + w, 0);
-  const out = {};
-  let given = 0;
-  open.forEach((k, i) => {
-    const v = i === open.length - 1 ? refundR2_(rest - given) : refundR2_(totalW > 0 ? rest * weights[i] / totalW : rest / open.length);
-    out[k] = v;
-    given = refundR2_(given + v);
-  });
-  keys.filter(typed).forEach((k) => { out[k] = refundAmountOf_("refund-part-" + k); });
-  return { parts: out, open };
-}
-// The parts as they stand: the boxes once "Change" was tapped, else like the purchase.
-function refundPartsNow_(amount) {
-  const c = refundCtx_;
-  if (!c.partsOpen) return refundDefaultParts_(amount, c.left);
-  const { parts, open } = refundOpenShares_(amount);
-  open.forEach((k) => { document.getElementById("refund-part-" + k).placeholder = String(parts[k].toFixed(2)); });
+// Divided like an expense's split (owner, 2026-11-24): "As bought" (the purchase's proportions), Equal, % and Custom, with the same
+// rows and rules as the "+" form — in % and Custom a box the person typed is fixed and every EMPTY box shares the rest equally, shown
+// live as its grey placeholder. Nothing is capped while typing: a part over someone's limit is said under the rows; Save refuses it.
+function refundSplitKeys_() { return Object.keys(refundCtx_.left).sort((a, b) => (a === "me" ? -1 : b === "me" ? 1 : 0)); }
+function refundBoxValue_(k) { const el = document.getElementById("refund-part-" + k); return el ? String(el.value || "").trim() : ""; }
+function refundEqualParts_(amount, keys) {
+  const cents = Math.round(amount * 100), each = Math.floor(cents / keys.length), parts = {};
+  keys.forEach((k) => { parts[k] = each / 100; });
+  parts[keys[0]] = refundR2_((cents - each * (keys.length - 1)) / 100);   // the leftover cent stays with "me" (listed first)
   return parts;
 }
+// { parts, error }: what each person gets in the chosen mode.
+function refundSplitNow_(amount) {
+  const c = refundCtx_, keys = refundSplitKeys_();
+  if (c.mode === "equal") return { parts: refundEqualParts_(amount, keys) };
+  if (c.mode === "percent") {
+    const pcts = {};
+    keys.forEach((k) => { pcts[k] = refundBoxValue_(k); });
+    const p = computePercentShares(amount, keys.filter((k) => k !== "me"), pcts);
+    keys.forEach((k) => { const el = document.getElementById("refund-part-" + k); if (el) el.placeholder = p.openKeys.includes(k) && !p.over ? String(Math.round(p.pcts[k] * 100) / 100) : "0"; });
+    return { parts: p.amounts && Object.assign({ me: p.ownerShare }, p.amounts), error: p.over ? "split.errPercentOver" : p.notFull ? "split.errPercentNot100" : "" };
+  }
+  if (c.mode === "custom") {
+    const filled = keys.filter((k) => refundBoxValue_(k) !== "" && !isNaN(parseFloat(refundBoxValue_(k))));
+    const open = keys.filter((k) => !filled.includes(k));
+    const parts = {};
+    let fixed = 0;
+    filled.forEach((k) => { parts[k] = refundAmountOf_("refund-part-" + k); fixed += parts[k]; });
+    const rest = refundR2_(amount - fixed);
+    if (open.length && rest >= 0) Object.assign(parts, refundEqualParts_(rest, open));
+    open.forEach((k) => { const el = document.getElementById("refund-part-" + k); if (el) el.placeholder = rest >= 0 ? moneyFmt(parts[k] || 0) : "0.00"; });
+    filled.forEach((k) => { const el = document.getElementById("refund-part-" + k); if (el) el.placeholder = "0.00"; });
+    return { parts, error: rest < -0.004 ? "split.errorOver" : !open.length && Math.abs(rest) > 0.004 ? "refund.partsDontAdd" : "" };
+  }
+  return { parts: refundDefaultParts_(amount, c.left) };
+}
+function refundPartsNow_(amount) { return refundSplitNow_(amount).parts || {}; }
+function setRefundSplitMode_(mode) {
+  const c = refundCtx_;
+  if (!c) return;
+  c.mode = mode;
+  document.querySelectorAll("#refund-split-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === mode));
+  const rows = document.getElementById("refund-split-rows");
+  rows.innerHTML = "";
+  if (mode === "percent" || mode === "custom") {
+    refundSplitKeys_().forEach((k) => {
+      const row = document.createElement("div");
+      row.className = "split-row";
+      const name = document.createElement("span");
+      name.className = "split-row-name";
+      name.textContent = (k === "me" ? tr("common.me") : refundPersonName_(k)) + (mode === "percent" ? " (%)" : "");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.inputMode = "decimal";
+      input.id = "refund-part-" + k;
+      if (mode === "percent") input.dataset.amountKind = "rate";
+      input.addEventListener("input", updateRefundSheet_);
+      row.appendChild(name);
+      row.appendChild(input);
+      rows.appendChild(row);
+    });
+  }
+  updateRefundSheet_();
+}
+document.querySelectorAll("#refund-split-tabs .type-tab").forEach((t) => t.addEventListener("click", () => setRefundSplitMode_(t.dataset.mode)));
 function updateRefundSheet_() {
   const c = refundCtx_;
   if (!c) return;
   const e = c.entry, cur = e.currency;
   const amount = refundAmountOf_("refund-amount");
-  const parts = refundPartsNow_(amount);
-  document.getElementById("refund-divided-line").textContent = Object.keys(c.left)
+  const split = refundSplitNow_(amount);
+  const parts = split.parts || {};
+  document.getElementById("refund-divided-line").textContent = split.error ? "" : refundSplitKeys_()
     .map((k) => tr("refund.partLine", { name: refundPersonName_(k), amount: formatAmount(parts[k] || 0, cur) })).join(" · ");
-  const over = c.partsOpen ? Object.keys(parts).find((k) => parts[k] > c.left[k] + 0.004) : null;
-  document.getElementById("refund-error").textContent = over ? tr("refund.partTooMuchPhone", { name: refundPersonName_(over), max: formatAmount(c.left[over], cur) }) : "";
+  const over = Object.keys(parts).find((k) => parts[k] > c.left[k] + 0.004);
+  document.getElementById("refund-error").textContent = split.error ? tr(split.error, { amount: exportMoneyText_(amount), cur })
+    : over ? tr("refund.partTooMuchPhone", { name: refundPersonName_(over), max: formatAmount(c.left[over], cur) }) : "";
   const out = document.getElementById("refund-outcome");
   if (c.when === "waiting") { out.textContent = tr("refund.outcomeWaiting"); return; }
   const toVal = document.getElementById("refund-to").value || "";
@@ -7165,20 +7203,6 @@ function updateRefundSheet_() {
 }
 document.querySelectorAll("#refund-when-tabs .type-tab").forEach((t) => t.addEventListener("click", () => setRefundWhen_(t.dataset.when)));
 ["refund-amount", "refund-date", "refund-to"].forEach((id) => document.getElementById(id).addEventListener(id === "refund-to" ? "change" : "input", updateRefundSheet_));
-document.getElementById("refund-divided-change").addEventListener("click", () => {
-  const c = refundCtx_;
-  if (!c) return;
-  const parts = refundDefaultParts_(refundAmountOf_("refund-amount"), c.left);
-  const box = document.getElementById("refund-divided-boxes");
-  box.innerHTML = Object.keys(c.left).map((k) => `
-    <label for="refund-part-${escapeHtml(k)}">${escapeHtml(tr("refund.partBox", { name: refundPersonName_(k), max: formatAmount(c.left[k], c.entry.currency) }))}</label>
-    <input type="text" inputmode="decimal" id="refund-part-${escapeHtml(k)}" value="" placeholder="${(parts[k] || 0).toFixed(2)}">`).join("");
-  box.querySelectorAll("input").forEach((i) => i.addEventListener("input", updateRefundSheet_));
-  c.partsOpen = true;
-  box.hidden = false;
-  document.getElementById("refund-divided-change").hidden = true;
-  updateRefundSheet_();
-});
 // The purchase's own window, still open behind the Refund window, closes with the save (owner, 2026-11-24), as after a delete.
 function closePurchaseWindow_(id) {
   if (!editingRefundEntry_ || editingRefundEntry_.id !== id || editingEntryId !== id) return;
@@ -7220,8 +7244,10 @@ document.getElementById("refund-save").addEventListener("click", () => {
         .then((yes) => { if (yes && refundCtx_ === c) { c.otherAccountOk = true; document.getElementById("refund-save").click(); } });
       return;
     }
-    if (c.partsOpen) {
-      const parts = refundPartsNow_(amount);
+    if (c.mode !== "like" && !document.getElementById("refund-divided").hidden) {
+      const split = refundSplitNow_(amount);
+      if (split.error) { err.textContent = tr(split.error, { amount: exportMoneyText_(amount), cur }); return; }
+      const parts = split.parts || {};
       const sum = refundR2_(Object.keys(parts).reduce((n, k) => n + (parts[k] || 0), 0));
       if (Math.abs(sum - amount) > 0.004) { err.textContent = tr("refund.partsDontAddPhone", { amount: formatAmount(amount, cur) }); return; }
       const over = Object.keys(parts).find((k) => parts[k] > c.left[k] + 0.004);

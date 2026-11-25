@@ -4105,7 +4105,7 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 
 /* One split control: "By items" is the fourth choice; the old separate link stays in the page, hidden (design review). */
 #split-field > #bill-open-btn { display: none; }
-#split-mode-tabs { grid-template-columns: repeat(4, 1fr); }
+#split-mode-tabs, #refund-split-tabs { grid-template-columns: repeat(4, 1fr); }
 
 /* Line icons (option C): the tab bar and More rows. The active tab's icon is drawn in the app blue, a little bolder. */
 .nav-btn .nav-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }

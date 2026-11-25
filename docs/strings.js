@@ -2333,6 +2333,8 @@
     "refund.friendsCard": { en: "{name}'s card (they paid)", es: "La tarjeta de {name} (pagó la compra)" },
     "refund.expectedBy": { en: "Expected by (optional)", es: "Fecha esperada (opcional)" },
     "refund.divided": { en: "Divided", es: "Repartido" },
+    "refund.splitLike": { en: "As bought", es: "Como la compra" },
+    "refund.partsDontAdd": { en: "The parts must add up to {cur} {amount}.", es: "Las partes deben sumar {cur} {amount}." },
     "refund.partLine": { en: "{name} {amount}", es: "{name} {amount}" },
     "refund.partBox": { en: "{name} (up to {max})", es: "{name} (hasta {max})" },
     "refund.you": { en: "You", es: "Tú" },

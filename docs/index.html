@@ -4035,11 +4035,17 @@
           <select id="refund-to"></select>
           <label for="refund-date" data-i18n="field.date">Date</label>
           <input type="date" id="refund-date">
+          <!-- Divided like an expense's split (owner, 2026-11-24): the same mode buttons, name + box rows and summary line. -->
           <div id="refund-divided" hidden>
             <label data-i18n="refund.divided">Divided</label>
+            <div class="type-tabs budget-period-tabs" id="refund-split-tabs">
+              <button type="button" class="type-tab active" data-mode="like" data-i18n="refund.splitLike">As bought</button>
+              <button type="button" class="type-tab" data-mode="equal" data-i18n="split.equal">Equal</button>
+              <button type="button" class="type-tab" data-mode="percent" data-i18n="split.percent">%</button>
+              <button type="button" class="type-tab" data-mode="custom" data-i18n="split.custom">Custom</button>
+            </div>
+            <div id="refund-split-rows"></div>
             <p class="hint" id="refund-divided-line"></p>
-            <button type="button" class="add-inline" id="refund-divided-change" data-i18n="common.change">Change</button>
-            <div id="refund-divided-boxes" hidden></div>
           </div>
         </div>
         <div id="refund-waiting-fields" hidden>
