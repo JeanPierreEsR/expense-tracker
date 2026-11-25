@@ -25,7 +25,7 @@
       "subjectIs": "constancia de pago", "bodyHas": ["Empresa"], "type": "expense", "amount": { "label": "Moneda y monto" }, "merchant": { "label": "Empresa" },
       "last4": { "label": "Cuenta cargo", "kind": "account" }, "externalId": { "label": "Código de operación" } },
 
-    { "id": "interbank-pago-tarjeta", "replaces": "Pago de tarjeta (Constancia)", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe", "label": "Pago de tarjeta (Constancia) (pack)",
+    { "id": "interbank-pago-tarjeta", "fromByCurrency": true, "replaces": "Pago de tarjeta (Constancia)", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe", "label": "Pago de tarjeta (Constancia) (pack)",
       "subjectIs": "constancia de pago", "bodyHas": ["Tarjeta de crédito"], "type": "transfer", "amount": { "label": "Moneda y monto" }, "description": { "text": "Pago tarjeta Interbank" },
       "last4": { "label": "Cuenta cargo", "kind": "account" }, "to": { "label": "Tarjeta de crédito", "kind": "account" }, "externalId": { "label": "Código de operación" } },
 

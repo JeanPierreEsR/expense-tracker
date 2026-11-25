@@ -550,6 +550,8 @@ var EMAIL_RULES = [
   {
     bank: 'Interbank', sender: 'servicioalcliente@netinterbank.com.pe',
     label: 'Pago de tarjeta (Constancia)',
+    // Paid with a debit card, the e-mail names no account: the person's one Interbank account in the payment's currency (owner, 2026-11-25).
+    fromByCurrency: true,
     match: function (subject, body) {
       return /^constancia de pago$/i.test(subject.trim()) && /tarjeta de cr[eé]dito/i.test(body || '') && !/\bempresa\b/i.test(body || '');
     },
@@ -566,7 +568,6 @@ var EMAIL_RULES = [
         toLast4: toLast4,
         externalId: afterLabel_(body, 'Código de operación')
       };
-      if (byDebitCard) fields.cardUnknown = true;   // a debit card paid: never guess the account
       return fields;
     }
   },
@@ -1264,6 +1265,15 @@ function emailOwnDestination_(rule, fields, banks, paymentMethods, fromAccount) 
   return hits.length === 1 ? hits[0] : null;
 }
 
+// `fromByCurrency` rules (Interbank card payment made with a debit card): the e-mail names no account, so the money left the person's ONE
+// account at that bank (not a card, not an investment) that holds the payment's currency; none or several = blank (owner, 2026-11-25).
+function emailAccountByCurrency_(currency, bankPms) {
+  var hits = bankPms.filter(function (pm) {
+    return pm.type !== 'credit' && pm.type !== 'investment' && applePayAccountCurrencies_(pm).indexOf(String(currency || '').toUpperCase()) >= 0;
+  });
+  return hits.length === 1 ? hits[0] : null;
+}
+
 // Which of the person's accounts a read e-mail names (also used for a bank notice forwarded on WhatsApp, WhatsApp.gs); null when not known.
 function emailAccountFor_(rule, fields, banks, paymentMethods) {
   var bank = banks.find(function (b) { return b.name === rule.bank; });
@@ -1274,11 +1284,12 @@ function emailAccountFor_(rule, fields, banks, paymentMethods) {
       ? (pms.find(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); })
         // a replaced card's old digits find the account that took its history, wherever it is now — only for this bank's e-mails (AccountMove.gs)
         || (function () { var o = pmsWithOldLast4_(paymentMethods, fields.last4, { bankId: bank.id }); return o.length === 1 ? o[0] : null; })())
-      : ((!rule.accountByCurrency && pms.length === 1) ? pms[0] : null);
+      : (rule.fromByCurrency ? emailAccountByCurrency_(fields.currency, pms)
+        : ((!rule.accountByCurrency && pms.length === 1) ? pms[0] : null));
     // The e-mail names digits but none of the bank's accounts has them: when the person never filled in ANY digits for this bank (they are
     // optional in the welcome questions) the digits cannot disprove anything, so "the bank's only account" still applies, as it did before
     // the masked digits of BCP / Diners / Interbank card payments were read (2026-10-28). Digits that were filled in and do not match: blank.
-    if (!paymentMethod && fields.last4 && !rule.accountByCurrency && pms.length === 1 && !String(pms[0].last_4 || '').trim()) paymentMethod = pms[0];
+    if (!paymentMethod && fields.last4 && !rule.accountByCurrency && !rule.fromByCurrency && pms.length === 1 && !String(pms[0].last_4 || '').trim()) paymentMethod = pms[0];
   }
   // A rule with no bank (EBANX) still names the card by its last four digits: use them when exactly one account has them.
   if (!paymentMethod && !rule.bank && fields.last4) {
