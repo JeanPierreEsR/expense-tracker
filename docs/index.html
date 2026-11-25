@@ -73,12 +73,18 @@
       <h2 data-i18n="link.installTitle">Add this app to your Home Screen</h2>
       <ol class="install-steps">
         <li id="install-step-copy" data-i18n="link.stepCopy">Tap “Copy my sign-in” below.</li>
-        <li data-i18n="link.stepShare">Tap the Share button (a square with an arrow pointing up) at the bottom of Safari, then Add to Home Screen, then Add.</li>
+        <li class="a2-new" id="a2-s-menu"><span data-i18n="link.stepMenu">Tap the button with three lines, to the left of the address bar at the bottom of Safari.</span> <span class="hint a2-note" data-i18n="link.bottomBar">If you already see the Share button (a square with an arrow) at the bottom of Safari, tap it and skip the next step.</span></li>
+        <li class="a2-new" id="a2-s-share" data-i18n="link.stepShareNew">Tap Share (a square with an arrow pointing up).</li>
+        <li class="a2-new" id="a2-s-more" data-i18n="link.stepMore">Tap View more (an arrow pointing down).</li>
+        <li class="a2-new" id="a2-s-add" data-i18n="link.stepAdd">Tap Add to Home Screen (a square with a +), leave Open as Web App on, then tap Add.</li>
+        <li class="a2-old" id="a2-s-old" data-i18n="link.stepShare">Tap the Share button (a square with an arrow pointing up) at the bottom of Safari, then Add to Home Screen, then Add.</li>
         <li data-i18n="link.stepOpen">Open the new icon on your Home Screen and tap “Paste my sign-in”. If your phone asks, tap Allow Paste.</li>
       </ol>
-      <p class="install-last" data-i18n="link.lastStep">This is the last step. Once you paste your sign-in in the new icon, you are ready to start using the app.</p>
       <button type="button" class="primary" id="install-copy-btn" data-i18n="link.copyBtn">Copy my sign-in</button>
       <p class="hint" id="install-note"></p>
+      <div id="a2hs-anim" class="a2-anim" role="img" data-i18n-aria-label="link.animLabel"></div>
+      <p class="hint a2-cap" data-i18n="link.animHint">Tap the drawing for the next picture. Your iPhone shows these words in its own language.</p>
+      <p class="install-last" data-i18n="link.lastStep">This is the last step. Once you paste your sign-in in the new icon, you are ready to start using the app.</p>
       <p><a href="#" id="use-safari-link" data-i18n="link.useSafari">I only want to use it in Safari</a></p>
     </div>
     <div id="link-block">

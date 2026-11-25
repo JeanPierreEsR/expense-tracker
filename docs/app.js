@@ -1606,6 +1606,10 @@ function showSetupScreen(message) {
     document.getElementById("install-step-copy").hidden = !waiting;
     document.getElementById("install-copy-btn").hidden = !waiting;
     document.getElementById("install-note").textContent = waiting ? "" : tr("link.noHandoff");
+    const fresh = safariNewMenu_();
+    document.querySelectorAll("#install-block .a2-new").forEach((li) => { li.hidden = !fresh; });
+    document.querySelectorAll("#install-block .a2-old").forEach((li) => { li.hidden = fresh; });
+    startA2hsAnim_(fresh);
   }
   document.getElementById("link-intro").textContent = tr(isStandaloneApp_() ? "link.introInstalled" : "link.introBrowser");
   document.getElementById("setup-error").textContent = message || "";
@@ -1616,12 +1620,70 @@ document.getElementById("install-copy-btn").addEventListener("click", async () =
   try {
     await navigator.clipboard.writeText(localStorage.getItem("etSigninHandoff") || "");
     note.style.color = "";
-    note.textContent = tr("link.copied");
+    note.textContent = tr(safariNewMenu_() ? "link.copiedNew" : "link.copied");
   } catch (err) {
     note.style.color = "var(--danger)";
     note.textContent = tr("link.copyBlocked");
   }
 });
+
+// Safari 26 on an iPhone hides Share behind the three-line button next to the address bar (owner's own install,
+// 2026-11-25: Share was not at the bottom where the steps said). Safari names its own version in the user agent; the one gap is
+// someone who put the old bottom bar back in Settings, which a page cannot see: step 2 tells them to skip ahead.
+function safariNewMenu_() {
+  const ua = navigator.userAgent || "";
+  const v = ua.match(/Version\/(\d+)/);
+  return /iPhone|iPod/.test(ua) && !!v && Number(v[1]) >= 26;
+}
+
+// A drawing of the iPhone screens, one per step, with the button to tap ringed. Tap it for the next picture; it also moves
+// on by itself every few seconds (not with reduced motion). The words are the app's; the phone shows its own language.
+let a2hsTimer_ = null;
+function startA2hsAnim_(fresh) {
+  const box = document.getElementById("a2hs-anim");
+  clearInterval(a2hsTimer_);
+  const I = {
+    share: '<svg viewBox="0 0 24 24" class="a2-ic"><path d="M12 3v12M7 8l5-5 5 5M5 11v9h14v-9"/></svg>',
+    lines: '<svg viewBox="0 0 24 24" class="a2-ic"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
+    down: '<svg viewBox="0 0 24 24" class="a2-ic"><path d="M6 9l6 6 6-6"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" class="a2-ic"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/></svg>',
+    copy: '<svg viewBox="0 0 24 24" class="a2-ic"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V4h12"/></svg>',
+    book: '<svg viewBox="0 0 24 24" class="a2-ic"><path d="M7 4h10v16l-5-4-5 4z"/></svg>',
+    tabs: '<svg viewBox="0 0 24 24" class="a2-ic"><rect x="4" y="8" width="12" height="12" rx="2"/><path d="M8 4h12v12"/></svg>',
+    back: '<svg viewBox="0 0 24 24" class="a2-ic"><path d="M15 5l-7 7 7 7"/></svg>',
+  };
+  const page = '<div class="a2-page"><i></i><i></i><i class="s"></i><i></i><i class="s"></i></div>';
+  const bar = (hl) => '<div class="a2-bar"><span class="a2-round">' + I.back + '</span><span class="a2-addr"><span class="' + (hl ? "a2-hl" : "") + '">' + I.lines + '</span><span class="a2-url">github.io</span></span><span class="a2-round">' + I.tabs + '</span></div>';
+  const oldBar = '<div class="a2-bar"><span>' + I.back + '</span><span class="a2-hl">' + I.share + '</span><span>' + I.book + '</span><span>' + I.tabs + '</span></div>';
+  const row = (icon, key, hl) => '<div class="a2-row' + (hl ? " a2-hl" : "") + '">' + icon + "<span>" + tr(key) + "</span></div>";
+  const head = '<div class="a2-head"><span class="a2-appicon"></span><b>Expense Tracker</b></div>';
+  const actions = (hl) => '<div class="a2-acts">' + [[I.copy, "link.d.copy"], [I.book, "link.d.bookmark"], [I.book, "link.d.reading"], [I.down, "link.d.viewMore"]].map(([ic, k], i) => '<span class="a2-act"><span class="a2-circle' + (hl && i === 3 ? " a2-hl" : "") + '">' + ic + "</span>" + tr(k) + "</span>").join("") + "</div>";
+  // Only Safari 26 has the "Open as Web App" switch (on by itself; the owner left it on).
+  const addSheet = '<div class="a2-sheet a2-full"><div class="a2-addtop"><span>' + tr("link.d.cancel") + '</span><span class="a2-addbtn a2-hl">' + tr("link.d.add") + "</span></div>" + head + (fresh ? '<div class="a2-row a2-switch"><span>' + tr("link.d.webApp") + '</span><span class="a2-sw"></span></div>' : "") + "</div>";
+  const frames = fresh ? [
+    ["a2-s-menu", page + bar(true)],
+    ["a2-s-share", page + '<div class="a2-menu">' + row(I.share, "link.d.share", true) + row(I.copy, "link.d.copy") + '<i></i><i class="s"></i></div>' + bar(false)],
+    ["a2-s-more", page + '<div class="a2-sheet">' + head + '<div class="a2-apps"><i></i><i></i><i></i><i></i></div>' + actions(true) + "</div>"],
+    ["a2-s-add", page + '<div class="a2-sheet a2-full">' + head + actions(false) + row(I.book, "link.d.favorites") + row(I.copy, "link.d.find") + row(I.plus, "link.d.addHome", true) + "</div>"],
+    ["a2-s-add", page + addSheet],
+  ] : [
+    ["a2-s-old", page + oldBar],
+    ["a2-s-old", page + '<div class="a2-sheet">' + head + row(I.copy, "link.d.copy") + row(I.book, "link.d.bookmark") + row(I.plus, "link.d.addHome", true) + "</div>"],
+    ["a2-s-old", page + addSheet],
+  ];
+  // The number on each picture is the step's number in the list as shown (the Copy step is hidden when nothing waits to be copied).
+  const shown = [...document.querySelectorAll("#install-block .install-steps li")].filter((li) => !li.hidden);
+  box.innerHTML = frames.map(([li, html]) => '<div class="a2-frame"><span class="a2-num">' + (shown.indexOf(document.getElementById(li)) + 1) + "</span>" + html + "</div>").join("");
+  let at = 0;
+  const show = () => { [...box.children].forEach((f, i) => f.classList.toggle("on", i === at)); };
+  show();
+  box.onclick = () => { at = (at + 1) % frames.length; show(); };
+  const still = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!still) a2hsTimer_ = setInterval(() => {
+    if (!box.offsetParent) { clearInterval(a2hsTimer_); return; }
+    at = (at + 1) % frames.length; show();
+  }, 2600);
+}
 
 document.getElementById("use-safari-link").addEventListener("click", (e) => {
   e.preventDefault();
