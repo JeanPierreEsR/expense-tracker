@@ -839,6 +839,12 @@ const WANT_COMPANY = (() => {
     return fromLink || localStorage.getItem('setupCompanyCode') || '';
   } catch (e) { return CompanyInvite.fromAddress(location); }
 })();
+// The invitation link pasted into a tab that already shows this page only changes the part after "#": the page does not reload
+// by itself, so it would go on without the invitation (owner, 2026-11-25: the copied address came out without it). Reload once.
+window.addEventListener('hashchange', () => {
+  const fresh = CompanyInvite.fromAddress(location);
+  if (fresh && fresh !== WANT_COMPANY) location.reload();
+});
 // An update asks Google for nothing new and touches nothing the install cards cover, so none of them belong on screen here —
 // same trick as "removing" above (owner, 2026-10-24: the update page looked identical to a fresh install and confused people).
 if (WANT_UPDATE) { document.body.classList.add('updating'); document.querySelector('h1').setAttribute('data-t', 'updPageTitle'); }
@@ -2105,7 +2111,9 @@ $('btnInstall').addEventListener('click', () => { betaSend('tapped'); run('s1', 
 ['btnCopyPrivate', 'btnCopyPage'].forEach((id) => $(id).addEventListener('click', async () => {
   // A company invitation travels with the address: a Private tab has none of this tab's memory (owner's spare-account install,
   // 2026-11-25, came out as a personal app).
-  const address = location.origin + location.pathname + (WANT_COMPANY ? '#company=' + WANT_COMPANY : '');
+  let co = WANT_COMPANY;
+  try { co = CompanyInvite.fromAddress(location) || co || localStorage.getItem('setupCompanyCode') || ''; } catch (e) {}
+  const address = location.origin + location.pathname + (co ? '#company=' + co : '');
   try { await navigator.clipboard.writeText(address); log('Page address copied.'); $(id).textContent = T.copiedBtn; }
   catch (e) { log('Could not copy automatically.', 'bad'); try { window.prompt(T.copyManual, address); } catch (e2) {} }
 }));
