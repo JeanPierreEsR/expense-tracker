@@ -178,3 +178,44 @@ test("someone else's forward of an unknown bank e-mail is logged as unread, but 
   scan(rt);
   assert.ok(settings().includes("Ivo"), "their own forward teaches their name");
 });
+
+// Owner, 2026-11-25: a forwarded THREAD (Gmail's "Forward all" on a conversation) quotes several e-mails one after another; each bank
+// e-mail in it is its own entry, dated on its own day, and a message in the thread that is not the bank's is skipped.
+function quoted({ from, amount, op, daysAgo, body }) {
+  const k = dayAgo(daysAgo);
+  return ["---------- Forwarded message ---------", "From: " + from,
+    "Date: Sat, " + MONTHS_EN[k.m - 1] + " " + k.d + ", " + k.y + " at 12:44 PM", "Subject: " + SUBJECT, "To: <" + OTHER + ">", "",
+    body || bankBody(amount, op), ""].join("\n");
+}
+
+test("a forwarded thread: every bank e-mail in it is read, each on its own day; a reply in between is skipped", () => {
+  const { friend: rt } = copies();
+  const bank = "BCP <" + BCP_SENDER + ">";
+  const body = ["Te reenvío todo el hilo.", "",
+    quoted({ from: bank, amount: "11.10", op: "990061", daysAgo: 30 }),
+    quoted({ from: "Eva <" + OTHER + ">", daysAgo: 25, body: "¿Esto es tuyo? Total del consumo: S/ 999.00" }),
+    quoted({ from: bank, amount: "22.20", op: "990062", daysAgo: 20 }),
+    quoted({ from: bank, amount: "33.30", op: "990063", daysAgo: 10 })].join("\n");
+  rt.svc.gmail.addEmail({ from: "Eva <" + OTHER + ">", subject: "Fwd: " + SUBJECT, body });
+  const before = rt.rows("Entries").length;
+  scan(rt);
+  for (const [op, amount, daysAgo] of [["990061", 11.1, 30], ["990062", 22.2, 20], ["990063", 33.3, 10]]) {
+    const made = byOp(rt, op);
+    assert.equal(made.length, 1, op);
+    assert.equal(Number(made[0].amount), amount, op + ": its own amount, not the next e-mail's");
+    assert.equal(made[0].date, dayAgo(daysAgo).iso, op + ": its own day");
+    assert.equal(made[0].status, "pending");
+  }
+  assert.equal(rt.rows("Entries").length, before + 3, "nothing from Eva's reply");
+  scan(rt);
+  assert.equal(rt.rows("Entries").length, before + 3, "read once");
+});
+
+test("a bank e-mail's own 'De: / Para:' lines do not cut it short", () => {
+  const { owner: rt } = copies();
+  const lines = ["Te reenvío esto.", "", "---------- Forwarded message ---------", "From: BCP <" + BCP_SENDER + ">",
+    "Date: Sat, Mar 21, 2026 at 12:44 PM", "Subject: Constancia", "", "De: Ana Lo*", "Para: Ivo Su*", "Monto: S/ 10.00", "Número de operación: 1"];
+  const all = rt.run("forwardUnwrapAll_(" + JSON.stringify(lines.join("\n")) + ", ['" + BCP_SENDER.toLowerCase() + "'])");
+  assert.equal(all.length, 1);
+  assert.match(all[0].body, /^De: Ana Lo\nPara: Ivo Su\nMonto: S\/ 10\.00\nNúmero de operación: 1$/);
+});
