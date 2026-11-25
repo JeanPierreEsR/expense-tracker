@@ -614,7 +614,7 @@
       // the period: ‹ month › and Week / Month / Year / All time / Custom
       const per = h("div", "card", null, p.scroll);
       const sel = h("div", "period-selector", null, per);
-      h("span", "period-nav-btn", "‹", sel); h("div", "tappable", ctx.period || "", sel); h("span", "period-nav-btn", "›", sel);
+      h("span", "period-nav-btn", "‹", sel); h("div", "tappable ts-period-label", ctx.period || "", sel); h("span", "period-nav-btn", "›", sel);
       const pc = h("div", "period-type-chips", null, per);
       ["week", "month", "year", "alltime", "custom"].forEach((k) => h("span", "period-type-chip" + (k === "month" ? " active" : ""), tr("period." + k), pc));
       // the totals and the Result
@@ -624,7 +624,7 @@
         const t = h("div", "ov-sum-tile " + cls, null, grid);
         h("span", "ov-sum-sign", sign, t); h("span", "summary-label", tr(k), t); h("span", "summary-value " + cls, v, t);
       });
-      h("div", "ov-sum-eq", "=", sum);
+      h("div", "ov-sum-eq", null, sum);   // the "=" is drawn by the stylesheet (two bars), as in the real screen
       const net = h("div", "ov-sum-net", null, sum);
       h("span", "ov-sum-net-label", tr("summary.net"), net);
       h("span", "ov-sum-net-value", "+" + money(1080), net);
