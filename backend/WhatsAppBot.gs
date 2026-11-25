@@ -163,7 +163,7 @@ function botResolveCallback_(data) {
 }
 
 // The list actions both bots share (the native ones — confirm, discard, waitpay, ptags, delrep — stay in handleTelegramCallback_).
-var BOT_LIST_ACTIONS_ = /^(?:waedit|wafield|wapage|wapick|wahelp|wamore|waconv|wafp|wacv|wacvx|warl|wart|wars):/;
+var BOT_LIST_ACTIONS_ = /^(?:waedit|wafield|wapage|wapick|wahelp|wamore|waconv|wafp|wacv|wacvx|warl|wart|wars|warf):/;
 
 var WA_TELEGRAM_METHODS_ = { sendMessage: 1, answerCallbackQuery: 1, editMessageReplyMarkup: 1, editMessageText: 1 };
 
@@ -362,6 +362,10 @@ function botListTap_(id, p) {
   if (action === 'wafp') return whatsappFriendList_(entryId, parts[2], Number(parts[3]) || 0, p.id);
   if (action === 'wacv') return whatsappConvert_(entryId, parts[2], parts.slice(3).join(':'), p);
   if (action === 'wacvx') return botText_(tr_('whatsapp.someoneElseHow'), p.id);
+  if (action === 'warf') {   // the card's "Repayment from X" (Telegram.gs): the friend is found again, as the card did
+    var payer = paidMeFriend_(getEntryById_(entryId));
+    return payer ? whatsappConvert_(entryId, 'r', payer.id, p) : botText_(tr_('whatsapp.optionGone'), p.id);
+  }
   if (action === 'warl') return botRepayLoanTap_(entryId, parts.slice(2).join(':'), p);   // RepayIntent.gs
   if (action === 'wart') return botRepayToggle_(entryId, parts.slice(2).join(':'), p);   // Telegram: check / uncheck a loan
   if (action === 'wars') return botRepayLoanTap_(entryId, 'checked', p);                 // Telegram: save the checked ones

@@ -2586,6 +2586,10 @@
           <p class="hint" data-i18n="partner.neverIncome">None of the three is income.</p>
         </div>
         <div id="partner-out-box">
+          <div id="partner-net-box" hidden>
+            <label for="partner-net" data-i18n="partner.netPaid">Net paid</label>
+            <input type="text" inputmode="decimal" id="partner-net" placeholder="0.00">
+          </div>
           <label for="partner-withholding" data-i18n="partner.withholding">Withholding (what you typed for SUNAT)</label>
           <input type="text" inputmode="decimal" id="partner-withholding" placeholder="0.00">
           <p class="hint" id="partner-gross-line"></p>

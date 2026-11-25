@@ -1059,7 +1059,7 @@ const ONCE_ACTIONS = new Set([
   // Everything else that creates something (owner, 2026-11-14: a trip saved while the phone was locked was made three times)
   "addTrip", "addBudget", "addPaymentMethod", "savePaymentMethod", "addTag", "addBank", "addPayor", "saveCategory",
   "saveBankLoan", "recordEarlyPayment", "recordInstallment", "recordRecurringPayment", "recordRepaymentEntry", "createStatementAccounts",
-  "convertEntryToPartnerMoney", "changePartnerMoney", "recordDistribution",   // Business 2 piece 7: a partner's money
+  "convertEntryToPartnerMoney", "changePartnerMoney", "recordDistribution", "changeDistribution",   // Business 2 piece 7: a partner's money
   // Testers 2.68.2: these were protected on the server only, so a "Try again" made a second sale stage. Kept equal to the server's
   // ONCE_ACTIONS_ by tests/backend/once-actions.test.js.
   "addIgvPayment", "assignEntryAccounts", "closeMonth", "reopenMonth", "sendAccountantPackage", "addProjectUnits", "saveUnitStage", "returnUnitDeposit",
@@ -7318,6 +7318,8 @@ document.getElementById("delete-entry-btn").addEventListener("click", async () =
 
 function openEditPopup(entry) {
   if (entrySheetBusyBehind_()) return;
+  // A profit distribution opens its own window (partner, net, withholding), not the plain transfer form (testers 2.69.2).
+  if (companyCopyOn_() && entry.status === "confirmed" && entry.link && entry.link.kind === "distribution" && entry.link.id) { openDistributionEdit_(entry); return; }
   entrySheetSeq_++;
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
   document.getElementById("edit-entry-modal-title").textContent = tr("entry.editTitle");
@@ -11971,6 +11973,12 @@ function renderCompanyClose_(state) {
       // A hand edit is said even when the app also changed things (testers 2.68.2: one app edit used to hide it).
       const said = [state.changes.length ? tr("close.changedN", { n: state.changes.length }) : "", state.hand_edited ? tr("close.handEdited") : ""].filter(Boolean).join(" ");
       parts.push(`<p class="close-changed">${escapeHtml(tr("close.changed"))} ${escapeHtml(said)}</p>`);
+      // Which rows were changed by hand (testers 2.69.2, Ingrid and Carlos): one line each, at most 20.
+      const hand = state.hand_rows || [];
+      if (hand.length) {
+        const line = (r) => r.label ? tr("close.handRow." + r.what, { row: r.label }) : tr("close.handRowGone", { table: r.table });
+        parts.push(`<ul class="hint close-hand-rows">${hand.map((r) => `<li>${escapeHtml(line(r))}</li>`).join("")}</ul>`);
+      }
       if (state.changes.length) parts.push(`<button type="button" class="add-inline" id="co-close-see">${escapeHtml(tr("close.seeChanges"))}</button>`);
     }
     parts.push(`<button type="button" class="add-inline" id="co-close-reopen">${escapeHtml(tr("close.reopen"))}</button>`);
@@ -12253,8 +12261,27 @@ function partnerPeople_() {
   return (meta.friends || []).filter((f) => f.role === "partner" && !isGroupFriend_(f) && !isHiddenFriend_(f))
     .sort((a, b) => a.name.localeCompare(b.name, locale, { sensitivity: "base" }));
 }
+// Editing a distribution already recorded (opened from Home): the same window, with its partner, net and withholding filled in.
+function openDistributionEdit_(entry) {
+  openPartnerModal_(entry, "out");
+  const link = entry.link;
+  partnerCtx_.edit = link;
+  document.getElementById("partner-title").textContent = tr("partner.editOut");
+  const sel = document.getElementById("partner-pick");
+  if (![...sel.options].some((o) => o.value === link.partner_id)) {   // a partner no longer in the list (renamed role): still shown
+    const o = document.createElement("option"); o.value = link.partner_id; o.textContent = link.partner || tr("partner.unknownPerson");
+    sel.insertBefore(o, sel.querySelector('option[value="__new__"]'));
+  }
+  sel.value = link.partner_id;
+  document.getElementById("partner-new-name").hidden = true;
+  document.getElementById("partner-net-box").hidden = false;
+  document.getElementById("partner-net").value = Math.abs(Number(entry.amount)).toFixed(2);
+  document.getElementById("partner-withholding").value = Number(link.withholding) ? Number(link.withholding).toFixed(2) : "";
+  updatePartnerGross_();
+}
 function openPartnerModal_(entry, mode) {
   partnerCtx_ = { entry, mode };
+  document.getElementById("partner-net-box").hidden = true;
   document.getElementById("partner-title").textContent = tr(mode === "in" ? "partner.reviewIn" : "partner.reviewOut");
   const acct = (meta.paymentMethods || []).find((p) => p.id === entry.payment_method_id);
   document.getElementById("partner-context").textContent = [formatAmount(Math.abs(Number(entry.amount)), entry.currency), listDate_(entry.date), acct ? acct.nickname : ""].filter(Boolean).join(" · ");
@@ -12288,10 +12315,16 @@ function openPartnerModal_(entry, mode) {
 function updatePartnerGross_() {
   if (!partnerCtx_ || partnerCtx_.mode !== "out") return;
   const e = partnerCtx_.entry;
-  const net = Math.abs(Number(e.amount));
+  const typedNet = partnerCtx_.edit ? parseFloat(String(document.getElementById("partner-net").value).replace(/,/g, "")) : NaN;
+  const net = typedNet >= 0 ? typedNet : Math.abs(Number(e.amount));
   const w = parseFloat(String(document.getElementById("partner-withholding").value).replace(/,/g, "")) || 0;
   document.getElementById("partner-gross-line").textContent = tr("partner.grossLine", { gross: formatAmount(net + Math.max(0, w), e.currency), net: formatAmount(net, e.currency) });
 }
+document.getElementById("partner-net").addEventListener("input", (ev) => {
+  const clean = sanitizeAmountInputValue(ev.target.value);
+  if (clean !== ev.target.value) ev.target.value = clean;
+  updatePartnerGross_();
+});
 document.getElementById("partner-withholding").addEventListener("input", (ev) => {
   const clean = sanitizeAmountInputValue(ev.target.value);
   if (clean !== ev.target.value) ev.target.value = clean;
@@ -12304,7 +12337,7 @@ document.getElementById("partner-pick").addEventListener("change", (ev) => {
 });
 document.getElementById("partner-close").addEventListener("click", () => { document.getElementById("partner-modal-backdrop").hidden = true; });
 document.getElementById("partner-save").addEventListener("click", () => {
-  const { entry, mode } = partnerCtx_ || {};
+  const { entry, mode, edit } = partnerCtx_ || {};
   if (!entry) return;
   const err = document.getElementById("partner-error");
   const pick = document.getElementById("partner-pick").value;
@@ -12325,9 +12358,15 @@ document.getElementById("partner-save").addEventListener("click", () => {
     if (!(w >= 0)) { err.textContent = tr("partner.badWithholding"); return; }
     action = "recordDistribution";
     body = Object.assign({ entry_id: entry.id, withholding: w }, who, biz);
+    if (edit) {
+      const net = parseFloat(String(document.getElementById("partner-net").value).replace(/,/g, ""));
+      if (!(net > 0)) { err.textContent = tr("error.validAmount"); return; }
+      action = "changeDistribution";
+      body = Object.assign({ id: edit.id, net, withholding: w }, who, biz);
+    }
   }
   document.getElementById("partner-modal-backdrop").hidden = true;
-  dropReviewCard_(entry.id);
+  if (!edit) dropReviewCard_(entry.id);
   saveBehindScreen_(() => callApi(action, body), () => {
     refreshReviewQueue().catch(() => {});
     refreshHomeGlance_(true);
@@ -16900,7 +16939,7 @@ async function offerTour_(reloadAfter) {
 }
 function openWelcomeShare_(then) {
   const step = document.getElementById("perf-share-step");
-  step.textContent = tr("welcome.step", { n: 5, total: 5 });
+  step.textContent = tr("welcome.step", { n: welcomeSteps_(), total: welcomeSteps_() });   // the last step (4 of 4 on a company copy: no platforms)
   step.hidden = false;
   openPerfShareModal_(() => { step.hidden = true; then(); });
 }
@@ -34346,11 +34385,24 @@ function openReassignRepayment_(r) {
 
   // Amount, date and account of the repayment itself can be changed here too.
   document.getElementById("reassign-fields").hidden = false;
-  populateSettlementPaymentMethodOptions();
+  // Every account, not a copy of the repayment form's box: that box holds only the five used most recently, so a repayment on
+  // another account showed "None" and Save erased it (testers 2.69.2, Julia). Its own account is always there, hidden or not.
   const pmSel = document.getElementById("reassign-pm");
-  pmSel.innerHTML = document.getElementById("settlement-payment-method").innerHTML;
-  { const none = document.createElement("option"); none.value = ""; none.textContent = tr("form.noneAccount"); pmSel.prepend(none); }   // fixing a recorded repayment can still clear its account
-  pmSel.value = r.payment_method_id || "";
+  pmSel.innerHTML = "";
+  { const none = document.createElement("option"); none.value = ""; none.textContent = tr("form.noneAccount"); pmSel.appendChild(none); }   // fixing a recorded repayment can still clear its account
+  const ownPm = String(r.payment_method_id || "");
+  meta.paymentMethods.filter((pm) => (pm.type !== "investment" && !pmHidden_(pm)) || String(pm.id) === ownPm).forEach((pm) => {
+    const opt = document.createElement("option");
+    opt.value = pm.id; opt.textContent = pmPickLabel_(pm);
+    pmSel.appendChild(opt);
+  });
+  if (ownPm && ![...pmSel.options].some((o) => o.value === ownPm)) {   // an account no longer on the phone: kept as it is
+    const opt = document.createElement("option");
+    opt.value = ownPm; opt.textContent = tr("stmt.unknownAccount", { key: ownPm.slice(0, 6) });
+    pmSel.appendChild(opt);
+  }
+  selectValue_.set.call(pmSel, ownPm);
+  accountShortList_(pmSel);   // the five used most recently (its own account included), then More…
   document.getElementById("reassign-record").hidden = !(r.id && !r.is_offset && !r.has_transfer_entry);
   document.getElementById("reassign-amount").value = (r.applied + (r.gap ? r.gap.amount : 0)).toFixed(2);   // the total that arrived
   document.getElementById("reassign-date").value = r.date;
