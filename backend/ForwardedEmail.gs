@@ -124,8 +124,12 @@ function processForwardedMessage_(message, senders, results, existingExternalIds
     if (original) { original.suffix = '#a' + i; originals.push(original); }
   });
   if (!originals.length) {
-    var inline = forwardUnwrapMessage_(message, senders);
-    if (inline) { inline.suffix = '#f'; originals.push(inline); }
+    // A forwarded thread ("Forward all") quotes several e-mails one after another: each bank e-mail in it is its own entry. The first
+    // keeps the suffix a single forward always had, so a forward read before this change is not read again.
+    forwardUnwrapMessage_(message, senders).forEach(function (inline, i) {
+      inline.suffix = i ? '#f' + (i + 1) : '#f';
+      originals.push(inline);
+    });
   }
   originals.forEach(function (o) {
     processOneMessage_(forwardedMessage_(message, o, by), o.sender, results, existingExternalIds, banks, paymentMethods, guessCtx);
@@ -153,7 +157,8 @@ function forwardedMessage_(outer, o, by) {
 // ---- An inline forward ----
 
 // Its text as the rules are used to reading it: the HTML turned into text the way the app reads an HTML-only bank e-mail, else the
-// plain text. Returns { sender, subject, date, to, body } or null.
+// plain text. Returns a list of { sender, subject, date, to, body }, one per bank e-mail quoted in it (a forwarded thread has several),
+// possibly empty.
 function forwardUnwrapMessage_(message, senders) {
   var html = '';
   try { html = String(message.getBody() || ''); } catch (err) { html = ''; }
@@ -161,10 +166,10 @@ function forwardUnwrapMessage_(message, senders) {
   if (/<[a-z][^>]*>/i.test(html)) texts.push(gmailHtmlToText_(html));
   try { texts.push(String(message.getPlainBody() || '')); } catch (err) { /* no plain part */ }
   for (var i = 0; i < texts.length; i++) {
-    var found = forwardUnwrapText_(texts[i], senders);
-    if (found) return found;
+    var found = forwardUnwrapAll_(texts[i], senders);
+    if (found.length) return found;
   }
-  return null;
+  return [];
 }
 
 var FORWARD_LABELS_ = {
@@ -173,33 +178,73 @@ var FORWARD_LABELS_ = {
   subject: /^(subject|asunto)$/,
   to: /^(to|para|a)$/
 };
+// At most this many e-mails are read from one forwarded thread.
+var FORWARD_THREAD_MAX_ = 50;
 
-// The quoted header block: a "From:"/"De:" line naming a bank address, the header lines after it, then the original's text.
-function forwardUnwrapText_(text, senders) {
+function forwardHeaderLine_(line) {
+  var m = /^([A-Za-zÀ-ÿ ]{1,12}):\s*(.*)$/.exec(line);
+  if (!m) return null;
+  var key = m[1].trim().toLowerCase();
+  for (var k in FORWARD_LABELS_) if (FORWARD_LABELS_[k].test(key)) return { key: k, value: m[2] };
+  return null;
+}
+
+// Where one quoted e-mail ends and the next begins: a separator line ("Forwarded message", "Mensaje original", "On … wrote:"), or a
+// "From:"/"De:" line whose next header lines (blank lines skipped, up to 3) include a Date/Sent or Subject line, whoever it names. A bank
+// e-mail's own "De: … / Para: …" lines (a transfer's two names) have neither, so they never cut its text.
+function forwardStartsMessage_(lines, i) {
+  var line = lines[i];
+  if (/^-{2,}.*(forwarded message|mensaje reenviado|original message|mensaje original)/i.test(line)) return true;
+  if (/^(begin forwarded message|inicio del mensaje reenviado)/i.test(line)) return true;
+  if (/^(on|el) .{6,}(wrote|escribió):$/i.test(line)) return true;
+  var h = forwardHeaderLine_(line);
+  if (!h || h.key !== 'from') return false;
+  for (var j = i + 1, n = 0; j < lines.length && n < 3; j++) {
+    if (!lines[j]) continue;
+    var next = forwardHeaderLine_(lines[j]);
+    if (!next || next.key === 'from') return false;
+    if (next.key === 'date' || next.key === 'subject') return true;
+    n++;
+  }
+  return false;
+}
+
+// Every quoted header block: a "From:"/"De:" line naming a bank address, the header lines after it, then the original's text, which
+// ends where the next quoted e-mail begins (a forwarded thread) or at the end.
+function forwardUnwrapAll_(text, senders) {
   var lines = String(text || '').replace(/\r\n?/g, '\n').split('\n').map(function (l) {
     return l.replace(/^\s*(>\s*)+/, '').replace(/\*/g, '').trim();
   });
-  for (var i = 0; i < lines.length; i++) {
-    var m = /^([A-Za-zÀ-ÿ ]{1,12}):\s*(.*)$/.exec(lines[i]);
-    if (!m || !FORWARD_LABELS_.from.test(m[1].trim().toLowerCase())) continue;
-    var sender = forwardBankIn_(m[2], senders);
+  var found = [];
+  for (var i = 0; i < lines.length && found.length < FORWARD_THREAD_MAX_; i++) {
+    var m = forwardHeaderLine_(lines[i]);
+    if (!m || m.key !== 'from') continue;
+    var sender = forwardBankIn_(m.value, senders);
     if (!sender) continue;
-    var head = { from: m[2] };
+    var head = { from: m.value };
     var j = i + 1;
     // Header lines follow (up to 8). A blank line ends them; Gmail's HTML sometimes leaves one right after "From:".
     for (var n = 0; j < lines.length && n < 8; n++) {
       if (!lines[j]) { if (head.subject || head.date) break; j++; continue; }
       var h = /^([A-Za-zÀ-ÿ ]{1,12}):\s*(.*)$/.exec(lines[j]);
       if (!h) break;
-      var key = h[1].trim().toLowerCase();
-      Object.keys(FORWARD_LABELS_).forEach(function (k) { if (!head[k] && FORWARD_LABELS_[k].test(key)) head[k] = h[2]; });
+      var hk = forwardHeaderLine_(lines[j]);
+      if (hk && hk.key === 'from') break;
+      if (hk && !head[hk.key]) head[hk.key] = hk.value;
       j++;
     }
-    var body = lines.slice(j).join('\n').trim();
-    if (!body) return null;
-    return { sender: sender, subject: String(head.subject || ''), date: forwardParseDate_(head.date || ''), to: head.to || '', body: body };
+    var stop = j;
+    while (stop < lines.length && !forwardStartsMessage_(lines, stop)) stop++;
+    var body = lines.slice(j, stop).join('\n').trim();
+    if (body) found.push({ sender: sender, subject: String(head.subject || ''), date: forwardParseDate_(head.date || ''), to: head.to || '', body: body });
+    i = stop - 1;
   }
-  return null;
+  return found;
+}
+
+// The first quoted bank e-mail only (or null).
+function forwardUnwrapText_(text, senders) {
+  return forwardUnwrapAll_(text, senders)[0] || null;
 }
 
 // ---- A forwarded date ----
