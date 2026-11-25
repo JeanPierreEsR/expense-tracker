@@ -113,7 +113,7 @@ var BACKEND_STRINGS_ = {
   "whatsapp.pickNone": { en: "There is nothing to choose here. Reply to the entry's message instead.", es: "No hay nada que elegir aqu\u00ed. Responde al mensaje del movimiento en su lugar." },
   "whatsapp.ask.amount": { en: "Send the new amount (for example 30.50).", es: "Env\u00eda el nuevo monto (por ejemplo 30.50)." },
   "whatsapp.ask.description": { en: "Send the new description.", es: "Env\u00eda la nueva descripci\u00f3n." },
-  "whatsapp.ask.date": { en: "Send the date with its year (for example {example} or 2026-11-15).", es: "Env\u00eda la fecha con su a\u00f1o (por ejemplo {example} o 2026-11-15)." },
+  "whatsapp.ask.date": { en: "Send the date with its year (for example {exDate}).", es: "Env\u00eda la fecha con su a\u00f1o (por ejemplo {exDate})." },
   "whatsapp.nothingWaiting": { en: "Nothing is waiting for review.", es: "No hay nada por revisar." },
   "whatsapp.moreWaiting": { en: { one: "1 more is waiting.", other: "{n} more are waiting." }, es: { one: "Queda 1 m\u00e1s por revisar.", other: "Quedan {n} m\u00e1s por revisar." } },
   "whatsapp.showMore": { en: "Show more", es: "Ver m\u00e1s" },
@@ -122,7 +122,7 @@ var BACKEND_STRINGS_ = {
   "forward.badAddress": { en: "\"{address}\" is not an email address.", es: "\"{address}\" no es una direcci\u00f3n de correo." },
   "forward.tooMany": { en: { one: "At most 1 address.", other: "At most {n} addresses." }, es: { one: "Como m\u00e1ximo 1 direcci\u00f3n.", other: "Como m\u00e1ximo {n} direcciones." } },
   "whatsapp.catchUp": { en: { one: "1 transaction came in while I couldn't write to you:", other: "{n} transactions came in while I couldn't write to you:" }, es: { one: "Lleg\u00f3 1 movimiento mientras no pod\u00eda escribirte:", other: "Llegaron {n} movimientos mientras no pod\u00eda escribirte:" } },
-  "whatsapp.newHow": { en: "Write it in one line, for example \"25 {exLunch}\", \"{exLunchWith} {exFriend} 40\", \"{exCur} 12.50 taxi\" or \"{exIncome} 1500 {exSalary}\". Add other fields after commas with their word, for example \"25 {exLunch}, account {exAcc}, category {exCat}, date 2026-11-14\". You can also paste the message your bank or payment app sends when you pay (its email or text message), copied as it is.", es: "Escríbelo en una línea, por ejemplo \"25 {exLunch}\", \"{exLunchWith} {exFriend} 40\", \"{exCur} 12.50 taxi\" o \"{exIncome} 1500 {exSalary}\". Agrega otros campos después de comas con su palabra, por ejemplo \"25 {exLunch}, cuenta {exAcc}, categoría {exCat}, fecha 2026-11-14\". También puedes pegar el mensaje que te manda tu banco o tu app de pagos cuando pagas (su correo o SMS), copiado tal cual." },
+  "whatsapp.newHow": { en: "Write it in one line, for example \"25 {exLunch}\", \"{exLunchWith} {exFriend} 40\", \"{exCur} 12.50 taxi\" or \"{exIncome} 1500 {exSalary}\". Add other fields after commas with their word, for example \"25 {exLunch}, account {exAcc}, category {exCat}, date {exDate}\". You can also paste the message your bank or payment app sends when you pay (its email or text message), copied as it is.", es: "Escríbelo en una línea, por ejemplo \"25 {exLunch}\", \"{exLunchWith} {exFriend} 40\", \"{exCur} 12.50 taxi\" o \"{exIncome} 1500 {exSalary}\". Agrega otros campos después de comas con su palabra, por ejemplo \"25 {exLunch}, cuenta {exAcc}, categoría {exCat}, fecha {exDate}\". También puedes pegar el mensaje que te manda tu banco o tu app de pagos cuando pagas (su correo o SMS), copiado tal cual." },
   // The bot's tour (BotTour.gs; plan "Bot tutorial - WhatsApp and Telegram", 2026-11-20). One message per step, the same on both bots.
   // ---- The bot's examples (BotExamples.gs): the words around the person's own names ----
   "botEx.account": { en: "(account)", es: "(cuenta)" },
@@ -1052,7 +1052,7 @@ var BACKEND_STRINGS_ = {
   "help.t.amount": { en: "amount — \"amount 90\"", es: "monto — \"monto 90\"" },
   "help.descTaxi": { en: "description — \"description Taxi\" (or just type \"Taxi\")", es: "descripción — \"descripción Taxi\" (o escribe solo \"Taxi\")" },
   "help.currency": { en: "currency — \"currency {exCur2}\"", es: "moneda — \"moneda {exCur2}\"" },
-  "help.date": { en: "date — \"date 2026-09-12\"", es: "fecha — \"fecha 2026-09-12\"" },
+  "help.date": { en: "date — \"date {exDate}\"", es: "fecha — \"fecha {exDate}\"" },
   "help.t.category": { en: "category — \"category {exCat}\"", es: "categoría — \"categoría {exCat}\"" },
   "help.label": { en: "tag — \"tag {exTag}\" (or \"tag none\")", es: "etiqueta — \"etiqueta {exTag}\" (o \"etiqueta ninguna\")" },
   "help.t.type": { en: "type — \"type expense\", \"type income\" or \"type investment\" (this wasn't actually a transfer)", es: "tipo — \"tipo gasto\", \"tipo ingreso\" o \"tipo inversión\" (esto en realidad no era una transferencia)" },

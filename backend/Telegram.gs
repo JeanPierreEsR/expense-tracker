@@ -328,7 +328,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason, opts) {
   if (xPair) {
     var xLines = ['🔁 ' + (xPair.out.description || xPair['in'].description || tr_('bot.noDescription')) + (entry.status === 'confirmed' ? tr_('bot.confirmedTag') : ''),
       xPair.out.currency + ' ' + moneyFmt_(xPair.out.amount) + ' → ' + xPair['in'].currency + ' ' + moneyFmt_(xPair['in'].amount),
-      entry.date === Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd') ? tr_('bot.today') : entry.date,
+      entry.date === Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd') ? tr_('bot.today') : botDate_(entry.date),
       tr_('bot.exchangeLeftFrom') + paymentMethodDisplayName_(xPair.out.payment_method_id, tr_('bot.notSetFrom')),
       tr_('bot.exchangeArrivedIn') + paymentMethodDisplayName_(xPair['in'].to_payment_method_id, tr_('bot.notSetTo'))];
     if (opts && opts.hint === false) return xLines.join('\n');
@@ -349,7 +349,7 @@ function formatEntryForTelegram_(entry, categoryName, autoReason, opts) {
     lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || tr_('bot.needsCategory')) +
       (autoReason === true ? tr_('bot.autoTagShort') : autoReason ? tr_('bot.autoTag', { reason: autoReason }) : ''));
   }
-  var dateText = entry.date === Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd') ? tr_('bot.today') : entry.date;
+  var dateText = entry.date === Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd') ? tr_('bot.today') : botDate_(entry.date);
   var accountText = '💳 ' + paymentMethodDisplayName_(entry.payment_method_id, tr_('bot.notSetPaymentMethod'));
   if (entry.type === 'transfer' || entry.type === 'investment') lines.push(dateText);
   if (entry.type === 'transfer') {
@@ -546,7 +546,7 @@ function sendTelegramLoanOverdueAlert_(loan, friendName) {
 
 function loanOverdueAlertText_(loan, friendName) {
   return tr_(loan.direction === 'they_owe_me' ? 'bot.overdueTheyOwe' : 'bot.overdueIOwe', {
-    friend: friendName, cur: loan.currency, amount: moneyFmt_(loan.remaining), date: loan.due_date,
+    friend: friendName, cur: loan.currency, amount: moneyFmt_(loan.remaining), date: botDate_(loan.due_date),
     description: loan.description ? ' ' + loan.description : '' });
 }
 
@@ -1466,6 +1466,24 @@ function userDateOrder_() {
   try { saved = String(getSettingsMap().date_format || '').toLowerCase(); } catch (err) { /* sheet unreadable */ }
   if (saved === 'ymd' || saved === 'dmy' || saved === 'mdy') return saved;
   return currentLang_() === 'es' ? 'dmy' : 'mdy';
+}
+
+// A date the bots write, in the person's order (More → My profile → How I type dates) with the month as a word, the way the app
+// writes it (docs/i18n.js joinDate): "25 Nov 2026" / "Nov 25, 2026" / "2026 Nov 25" (owner, 2026-11-25: never year-month-day codes).
+function botDate_(value) {
+  var iso = value instanceof Date ? Utilities.formatDate(value, sheetDateTz_(), 'yyyy-MM-dd') : String(value || '');
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return iso;
+  var mon = (tr_('bot.monthNames').split(',')[Number(m[2]) - 1] || '').slice(0, 3);
+  var day = Number(m[3]), order = userDateOrder_();
+  if (order === 'ymd') return m[1] + ' ' + mon + ' ' + day;
+  if (order === 'mdy') return mon + ' ' + day + ', ' + m[1];
+  return day + ' ' + mon + ' ' + m[1];
+}
+// A date to TYPE, as an example in the person's order (parseTypedDate_ reads it back).
+function typedDateExample_() {
+  var order = userDateOrder_();
+  return order === 'mdy' ? '11/15/2026' : order === 'ymd' ? '2026/11/15' : '15/11/2026';
 }
 
 // A typed date as 'YYYY-MM-DD', or '' when it is not a real calendar day. Year
