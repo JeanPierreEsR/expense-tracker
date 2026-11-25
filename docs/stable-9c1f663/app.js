@@ -194,6 +194,7 @@ let editingInvestmentLeft_ = null;   // the investment being edited: true = a de
 let editingForgiveness_ = null;   // the entry being edited is what a forgiveness booked: {amount, currency}, else null (its amount is locked)
 let editingExchangeLeg_ = "";   // the entry being edited is one side of a currency exchange: "out" (money left) / "in" (money arrived), else ""
 let editingRepaymentExtra_ = null;   // the entry being edited is a repayment's extra (income/expense) part: {friend, friend_id, transfer_entry_id, total}, else null
+let entryLinksPrefetch_ = null;   // { id, at, p }: the open entry's getEntryRepaymentLinks, asked when its form opened (startEditEntry)
 let editingRepayment_ = null;    // the entry being edited is a repayment's money entry: {direction (of the debts it paid), friend, total, currency}, else null
 // Set only while confirming a pending (review-queue) entry through the
 // full entry-card popup — see openConfirmPendingPopup, Phase 5.7's
@@ -202,6 +203,7 @@ let editingRepayment_ = null;    // the entry being edited is a repayment's mone
 // submit handler checks this FIRST so a pending confirmation never falls
 // through to the normal "update an existing entry" path.
 let confirmingPendingId = null;
+let businessAutoPick_ = false;   // true while the form's company was put there by companyDefaultPick_, not by the person
 // The date the entry had when its edit form was opened: a save that leaves it alone does not send it (withoutUnchangedDate_).
 let editingEntryOriginalDate_ = null;
 // Set while the new-entry sheet was opened from a programmed item's Mark as paid: the saved entry is linked to it.
@@ -440,6 +442,7 @@ function selectCurrency(code, target, byPerson) {
   if (resolvedTarget === "budget") {
     refreshBudgetRateWarning_(null);
   } else if (resolvedTarget === "entry") {
+    prefetchEntryFormRate_();
     renderSplitSummary();
     if (typeof syncNothingOwedLine_ === "function") syncNothingOwedLine_();   // "Ana owes you nothing in USD" follows the currency
     if (typeof syncEntryRepayChoose_ === "function") syncEntryRepayChoose_();   // and so do the loans offered in "Choose which loans this pays"
@@ -607,7 +610,7 @@ function currencyPickOn_(el) {
   });
   wrap.appendChild(btn);
 }
-["bank-currency", "exchange-out-currency", "exchange-in-currency", "welcome-main-select", "igv-payment-currency", "expected-currency"]
+["bank-currency", "exchange-out-currency", "exchange-in-currency", "welcome-main-select", "igv-payment-currency", "expected-currency", "opening-currency", "accountant-currency"]
   .forEach((id) => currencyPickOn_(document.getElementById(id)));
 
 // One rule for every pop-up sheet (owner, 2026-11-04): it closes with its ✕, and a tap on the dimmed area outside it does the same
@@ -1686,9 +1689,11 @@ function refreshTelegramFields_() {
   ["budget-alert-fields", "trip-alert-fields"].forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = false; });
 }
 
+let metaReadAt_ = 0;   // when loadMeta last read the server itself (not the saved startup copy); see renderPullUpdateHint_
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", { tz: phoneTz_() });
   syncPairWithBackend_();
+  if (!meta.fromCache_) { metaReadAt_ = Date.now(); renderPullUpdateHint_(); }   // the server was really read: a "pull down after updating" bar is done
   (meta.categories || []).forEach(cleanCategoryLook_);
   refreshTelegramFields_();
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
@@ -1740,12 +1745,16 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
 // follows the language), with "Other" last. A built-in carries key "other";
 // before the categories cleanup has run, the name is the test.
 function isOtherCategory_(c) { return c.key === "other" || (!c.key && c.name === "Other"); }
+// One sorter per language (speed, 2026-11-21: localeCompare with options built a new one for every comparison; Needs review sorts
+// the categories once per waiting entry). Same order as localeCompare(…, locale, { sensitivity: "base" }).
+const CATEGORY_COLLATORS_ = {};
 function sortedCategories_(list) {
   const locale = I18n.getLang() === "es" ? "es" : "en";
+  const coll = CATEGORY_COLLATORS_[locale] || (CATEGORY_COLLATORS_[locale] = new Intl.Collator(locale, { sensitivity: "base" }));
   return list.slice().sort((a, b) => {
     const aLast = isOtherCategory_(a), bLast = isOtherCategory_(b);
     if (aLast !== bLast) return aLast ? 1 : -1;
-    return String(a.name).localeCompare(String(b.name), locale, { sensitivity: "base" });
+    return coll.compare(String(a.name), String(b.name));
   });
 }
 
@@ -3336,14 +3345,35 @@ document.getElementById("payment_method").addEventListener("change", async (e) =
   }
 });
 
+// The new tag shows at once, ticked, while the server makes it (testers, 2026-11-22: it appeared 1-2.5 s later with no sign, so a
+// skimmer tapped it off again). The entry's Save waits for it (pendingTagAdd_), so a stand-in id is never saved.
+let pendingTagAdd_ = null;
 document.getElementById("add-tag-btn").addEventListener("click", async () => {
   const name = await askName_(tr("prompt.tagName"));
-  if (name && name.trim()) {
-    const tag = await callApi("addTag", { name: name.trim() });
-    if (!meta.tags.some((t) => t.id === tag.id)) meta.tags.push(tag);   // a tag of that name already there is reused
-    selectedTagIds.add(tag.id);
-    populateTags();
-  }
+  if (!(name && name.trim())) return;
+  const clean = name.trim();
+  const same = (meta.tags || []).find((t) => String(t.name).trim().toLowerCase() === clean.toLowerCase());
+  if (same) { selectedTagIds.add(same.id); populateTags(); return; }   // already there (or being made): just tick it
+  const temp = { id: "tmp-tag-" + Date.now(), name: clean };
+  meta.tags.push(temp);
+  selectedTagIds.add(temp.id);
+  populateTags();
+  const work = (async () => {
+    try {
+      const tag = await callApi("addTag", { name: clean });
+      meta.tags = meta.tags.filter((t) => t.id !== temp.id);
+      if (!meta.tags.some((t) => t.id === tag.id)) meta.tags.push(tag);
+      const wasTicked = selectedTagIds.delete(temp.id);
+      if (wasTicked) selectedTagIds.add(tag.id);
+    } catch (err) {
+      meta.tags = meta.tags.filter((t) => t.id !== temp.id);
+      selectedTagIds.delete(temp.id);
+      showToast_(tr("common.notSaved", { error: err.message }));
+    } finally {
+      populateTags();
+    }
+  })();
+  pendingTagAdd_ = (pendingTagAdd_ || Promise.resolve()).then(() => work);
 });
 
 // ---- Amount input: always use a decimal point ----
@@ -3494,6 +3524,28 @@ document.getElementById("amount").addEventListener("input", (e) => {
 
 const knownRateMonths_ = new Set();
 
+// Speed (2026-11-21): the month's rate is asked as soon as the entry's currency or date is picked (or an entry in another currency
+// is opened), so Save does not wait for it. A missing rate is asked again at Save (it may have been added meanwhile).
+// "USD|2026-11" -> when the early check found NO rate: Save then opens the rate window at once instead of asking the server again
+// (Nico, testers 2026-11-21: a USD Save waited ~2.5 s with no "Saving…" for that second answer). Trusted for 2 minutes.
+const rateMissingAt_ = new Map();
+const rateMonthPrefetch_ = new Map();   // "USD|2026-11" -> promise of getExchangeRate (null on failure)
+function prefetchEntryRate_(currency, dateStr) {
+  currency = String(currency || "").toUpperCase();
+  dateStr = String(dateStr || "");
+  if (!currency || currency === homeCur() || !/^\d{4}-\d{2}/.test(dateStr)) return;
+  const key = currency + "|" + dateStr.slice(0, 7);
+  if (knownRateMonths_.has(key) || rateMonthPrefetch_.has(key)) return;
+  const p = callApi("getExchangeRate", { currency, month: dateStr.slice(0, 7) })
+    .then((r) => { if (r) knownRateMonths_.add(key); else { rateMonthPrefetch_.delete(key); rateMissingAt_.set(key, Date.now()); } return r; })
+    .catch(() => { rateMonthPrefetch_.delete(key); return null; });
+  rateMonthPrefetch_.set(key, p);
+}
+function prefetchEntryFormRate_() {
+  prefetchEntryRate_(document.getElementById("currency").value, document.getElementById("date").value);
+}
+document.getElementById("date").addEventListener("change", prefetchEntryFormRate_);
+
 async function ensureExchangeRate(currency, dateStr) {
   if (currency === homeCur()) return;
   const month = dateStr.slice(0, 7);
@@ -3502,7 +3554,10 @@ async function ensureExchangeRate(currency, dateStr) {
   // foreign-currency edit used to wait on this round trip every time.
   const key = currency + "|" + month;
   if (knownRateMonths_.has(key)) return;
-  const existing = await callApi("getExchangeRate", { currency, month });
+  const pre = rateMonthPrefetch_.get(key);
+  const missing = !pre && Date.now() - (rateMissingAt_.get(key) || 0) < 120000;
+  const existing = (pre && await pre) || (missing ? null : await callApi("getExchangeRate", { currency, month }));
+  rateMissingAt_.delete(key);
   if (existing) { knownRateMonths_.add(key); return; }
 
   const rate = await openRateModal(currency, month, /* required */ true);
@@ -3753,6 +3808,7 @@ document.getElementById("rate-save-btn").addEventListener("click", async () => {
   showToast_(tr("common.savingToast"));
   try {
     const saved = await callApi("setExchangeRate", usd ? { currency, month, per_usd: rate } : { currency, month, rate });
+    rateMissingAt_.clear();   // a month that had no rate may have one now
     resolve(usd ? saved.rate : rate);   // the opener always gets "1 <currency> = rate <main>"
     refreshHomeGlance_(true);   // foreign amounts are worth something else in the main currency now
     refreshEntryList().catch(() => {});
@@ -3918,7 +3974,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const splits = validateSplitIfEnabled();
     const groupSize = splitGroupSizeToSave_(splits);
     const charge = chargeForSave_(amount, currency, splits, selectedType, paidByForCharge_());
-    const tagIds = Array.from(selectedTagIds);
+    if (pendingTagAdd_) await pendingTagAdd_;   // a tag still being made gets its real id first
+    const tagIds = Array.from(selectedTagIds).filter((id) => !String(id).startsWith("tmp-tag-"));
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
     if (tripNudgeHolds_(tripId, currency)) throw new Error("");   // held once: the trip field and its bubble are on screen now
     // Shared with friends inside a trip that has a group (owner, 2026-11-07): when the friends' shares are kept in another app, the group is
@@ -3934,9 +3991,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       asIsCounts[tripId] = (asIsCounts[tripId] || 0) + 1;
       try { localStorage.setItem("tripGroupAsIs", JSON.stringify(asIsCounts)); } catch (err) { /* only a convenience */ }
     }
-    const businessLink = businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
-    if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
     const waitingOn = incomeWaitingOn_();
+    // A company copy's company, put there by the form itself (not by the person), steps aside where a company cannot go yet:
+    // a future date (a Programmed item) or an income not received yet. The person's own pick is still refused below.
+    const autoAside = businessAutoPick_ && (waitingOn || (!editingEntryId && !confirmingPendingId && date > todayLocalISO()));
+    const businessLink = autoAside ? { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "" } : businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
+    if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
     if (waitingOn && !paidBy) throw new Error(tr("income.waitingNeedsPerson"));
     if (waitingOn && (businessLink.project_id || businessLink.company_id)) throw new Error(tr("income.waitingNoBusiness"));
     const waitingFields = selectedType === "income" && !document.getElementById("income-waiting-field").hidden ? { income_waiting: waitingOn, due_date: waitingOn ? document.getElementById("income-waiting-due").value : "" } : {};
@@ -4544,7 +4604,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     selectedTagIds.clear();
     populateTags();
     document.getElementById("entry-trip").value = "";   // each expense picks its own trip, so a forgotten one never sticks
-    setBusinessPick_("");                               // same for the company / project
+    editingSplitEntry_ = null; editingProjectParts_ = [];
+    resetBusinessPick_();                               // same for the company / project (a company copy's one company)
     repaymentFriendTouched_ = false;
     resetSplitState();
     resetRepeat_();
@@ -5858,6 +5919,8 @@ document.getElementById("entries-delete-selected-btn").addEventListener("click",
 const emptySearchFilters_ = () => ({ types: [], period: "", from: "", to: "", cats: [], accts: [], min: "", max: "", friends: [], tags: [], trips: [] });
 let searchFilters_ = emptySearchFilters_();
 const SEARCH_FILTER_LISTS_ = ["types", "cats", "accts", "friends", "tags", "trips"];
+// The Tags filter's "No tag" choice (owner, 2026-11-21): entries with no tag at all, so "Transport + No tag" can sit next to "Transport + Work".
+const SEARCH_NO_TAG_ = "__notag__";
 function searchFiltersOn_() {
   const f = searchFilters_;
   return SEARCH_FILTER_LISTS_.some((k) => f[k].length) || !!searchPeriodRange_() || f.min !== "" || f.max !== "";
@@ -5894,13 +5957,14 @@ function searchFilterTest_() {
   const range = searchPeriodRange_();
   const min = f.min === "" ? null : Number(f.min);
   const max = f.max === "" ? null : Number(f.max);
+  const liveTags = new Set((meta.tags || []).map((t) => t.id));   // a link to a deleted tag counts as no tag
   return (e) => {
     if (f.types.length && !f.types.includes(e.type)) return false;
     if (range && ((range[0] && e.date < range[0]) || (range[1] && e.date > range[1]))) return false;
     if (cats.size && !cats.has(e.category_id)) return false;
     if (accts.size && !accts.has(e.payment_method_id) && !accts.has(e.to_payment_method_id)) return false;
     if (friendIds.size && !friendIds.has(e.paid_by) && !(e.link && friendNames.has(e.link.friend))) return false;
-    if (f.tags.length && !(e.tagIds || []).some((id) => f.tags.includes(id))) return false;
+    if (f.tags.length && !(e.tagIds || []).some((id) => f.tags.includes(id)) && !(f.tags.includes(SEARCH_NO_TAG_) && !(e.tagIds || []).some((id) => liveTags.has(id)))) return false;
     if (f.trips.length && !f.trips.includes(e.trip_id)) return false;
     if (min != null || max != null) {
       const v = searchRowMain_(e);
@@ -5981,7 +6045,8 @@ function searchFilterSummary_(key) {
     return f.min !== "" && f.max !== "" ? `${cur} ${moneyFmt(f.min)} – ${moneyFmt(f.max)}`
       : f.min !== "" ? tr("search.f.atLeast", { amount: `${cur} ${moneyFmt(f.min)}` }) : tr("search.f.atMost", { amount: `${cur} ${moneyFmt(f.max)}` });
   }
-  const all = key === "cats" ? meta.categories : key === "accts" ? meta.paymentMethods : key === "friends" ? meta.friends : key === "tags" ? (meta.tags || []) : (meta.trips || []);
+  const all = key === "cats" ? meta.categories : key === "accts" ? meta.paymentMethods : key === "friends" ? meta.friends
+    : key === "tags" ? [{ id: SEARCH_NO_TAG_, name: tr("search.f.noTag") }].concat(meta.tags || []) : (meta.trips || []);
   const names = f[key].map((id) => { const x = all.find((y) => y.id === id); return x ? searchFilterItemLabel_(key, x) : ""; }).filter(Boolean);
   return !names.length ? "" : names.length > 1 ? tr("search.f.andMore", { first: names[0], n: names.length - 1 }) : names[0];
 }
@@ -6158,7 +6223,9 @@ function openSearchPick_(key, title) {
   const groups = searchFilterGroups_(key).map((g) => {
     const items = key === "cats" ? sortedCategories_(g.items) : key === "trips" ? g.items.slice().sort(tripOrder)
       : g.items.slice().sort((x, y) => byName_({ label: searchFilterItemLabel_(key, x) }, { label: searchFilterItemLabel_(key, y) }));
-    return { heading: g.heading, items: items.map((x) => ({ id: x.id, label: searchFilterItemLabel_(key, x) })) };
+    const rows = items.map((x) => ({ id: x.id, label: searchFilterItemLabel_(key, x) }));
+    // "No tag" leads the tags, ahead of the names.
+    return { heading: g.heading, items: key === "tags" ? [{ id: SEARCH_NO_TAG_, label: tr("search.f.noTag") }].concat(rows) : rows };
   });
   openFriendScreen_({
     title, groups, ordered: true, many: true, pickedFirst: true, filterKey: key,
@@ -6281,7 +6348,13 @@ function setupEntrySearch_() {
       renderSearchResults_();
     }
   });
-  setTimeout(() => { syncSearchIndex_().then(renderSearchResults_).catch(() => {}); }, 2500);
+  // Not while the app is still opening (speed sweep 2026-11-21: the first full copy, ~7,000 rows, shared the server with the start-up
+  // bundle): it waits until nothing else is on its way, at most 20 s more. Typing in the search box asks at once, as before.
+  setTimeout(async () => {
+    const until = Date.now() + 20000;
+    while (perfInflight_ > 0 && !searchIndexPromise && Date.now() < until) await sleep(300);
+    syncSearchIndex_().then(renderSearchResults_).catch(() => {});
+  }, 2500);
 }
 
 // ---- Unsaved new-entry draft ----
@@ -6682,10 +6755,17 @@ async function startEditEntry(entry) {
   if (editingRepayment_) repaymentDirectionChoice = editingRepayment_.direction === "they_owe_me" ? "they_owe_me" : "i_owe_them";
   // Its extra (income / expense) entry, if it has one, comes from the server in the background: the amount shown when the
   // repayment is converted is the whole thing. Saving waits for it (see the top of the save handler).
+  // The month's exchange rate of a foreign-currency entry is asked now, so Save does not wait for it (prefetchEntryRate_).
+  prefetchEntryRate_(entry.currency, entry.date);
+  if (entry.paid_currency) prefetchEntryRate_(entry.paid_currency, entry.date);   // charged in another currency
+  // What Delete must ask about (a repayment, a repaid split, a forgiving, an exchange's other side) is fetched now, in the
+  // background, so tapping Delete asks at once instead of "Checking…" for a trip to the server (speed, 2026-11-21).
+  entryLinksPrefetch_ = ["transfer", "expense", "income"].includes(entry.type) && entry.id
+    ? { id: entry.id, at: Date.now(), p: callApi("getEntryRepaymentLinks", { id: entry.id }).catch(() => null) } : null;
   if (editingRepayment_) {
     const rp = editingRepayment_;
-    rp.extraPromise = callApi("getEntryRepaymentLinks", { id: entry.id })
-      .then((l) => { if (editingRepayment_ === rp) { rp.extra = (l.repayment && l.repayment.extra) || null; syncConversionAmount_(); } })
+    rp.extraPromise = entryLinksPrefetch_.p
+      .then((l) => { if (l && editingRepayment_ === rp) { rp.extra = (l.repayment && l.repayment.extra) || null; syncConversionAmount_(); } })
       .catch(() => {});
     // The people's debts per currency, for the "owes you nothing in USD" line of a currency change (noDebtsInCurrencyText_), when
     // the Loans tab was not opened yet. In the background; the question never waits for it.
@@ -6800,7 +6880,12 @@ async function startEditEntry(entry) {
   entryTagIds.forEach((id) => selectedTagIds.add(id));
   populateTags();
   setTripPick_(entry.trip_id);
-  setBusinessPick_(businessPickValue_(entry));
+  // A saved entry can be split between projects (Business 2, piece 6): what it has now, and what the split must add up to.
+  editingSplitEntry_ = entry && entry.id ? { id: entry.id, amount: Number(entry.amount), currency: entry.currency, company_id: entry.company_id || "" } : null;
+  editingProjectParts_ = (entry && entry.project_parts) || [];
+  // Confirming a waiting item that has no company yet, on a company copy: the form shows the company Confirm would give it.
+  if (confirmingPendingId && !businessPickValue_(entry)) resetBusinessPick_();
+  else setBusinessPick_(businessPickValue_(entry));
   if (entry.expected_payment_id) setExpectedPick_(entry.expected_payment_id);
   setIgvState_(Number(entry.igv_amount) > 0, entry.igv_amount, true);   // the stored figure is kept exactly until the person changes it
 
@@ -6842,7 +6927,8 @@ function exitEditMode() {
   selectedTagIds.clear();
   populateTags();
   document.getElementById("entry-trip").value = "";
-  setBusinessPick_("");
+  editingSplitEntry_ = null; editingProjectParts_ = [];   // a new entry is split only once saved (piece 6)
+  resetBusinessPick_();
   resetSplitState();
 }
 
@@ -6930,7 +7016,8 @@ async function confirmAndDiscardEntry_(id, originalType, summary, onConfirmed, s
   let repaymentsChoice;   // set when the expense's loans were repaid: the choice sheet then replaces the OK / Cancel box
   let exchangePartner = null;   // the other side of a currency exchange, when this entry is one side
   if (["transfer", "expense", "income"].includes(originalType)) {
-    const links = await callApi("getEntryRepaymentLinks", { id });
+    const pre = entryLinksPrefetch_;
+    const links = (pre && pre.id === id && Date.now() - pre.at < 120000 && await pre.p) || await callApi("getEntryRepaymentLinks", { id });
     if (stillHere && !stillHere()) return false;   // the person left this entry while the server answered: no question out of nowhere
     exchangePartner = links.exchangePartner || null;
     if (links.forgiveness) {
@@ -7189,14 +7276,33 @@ function setQueuedReviewActions_(actions) {
 // extra: { splits, tagIds } for a confirmation made through the full form (null/absent = nothing to send for them).
 function queueReviewAction_(id, action, fields, extra) {
   const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
-  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null, repeat: extra && extra.repeat ? extra.repeat : null });
+  actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null, repeat: extra && extra.repeat ? extra.repeat : null,
+    split: extra && extra.split ? extra.split : null });   // split: a project split's percentages (Business 2, piece 6)
   setQueuedReviewActions_(actions);
+  syncReviewTwins_(id, action === "discard" ? null : "confirmed");
   // The item has left Needs review for the person: Overview / Budgets / Projections' "N wait" line drops it at once, not only after
   // Home's list is fetched again (journeys run, 2026-11-17: the old count stayed for 6 people). A failed save refetches the list.
   reviewEntries_ = reviewEntries_.filter((e) => e.id !== id);
   updatePeriodPendingLine_();
   syncReviewReadyBtn_();
   if (homeGlance_) renderHomeGlance_();   // and Home's month card says one fewer waits
+}
+
+// A waiting item that leaves Needs review also leaves its copies' "Possible duplicate" warning (Valeria, testers 2026-11-21: after
+// "Discard this copy" the last copy still called itself a copy of a discarded one). Discarded: it is dropped from their list, and a
+// copy left with none loses its warning; confirmed: it stays listed, now as confirmed (it really is a copy of a confirmed entry).
+function syncReviewTwins_(id, newStatus) {
+  const list = document.getElementById("review-list");
+  reviewEntries_.forEach((e) => {
+    if (!(e.twins || []).some((t) => t.id === id)) return;
+    e.twins = newStatus ? e.twins.map((t) => (t.id === id ? { ...t, status: newStatus } : t)) : e.twins.filter((t) => t.id !== id);
+    const warn = list && list.querySelector(`.review-item[data-entry-id="${CSS.escape(String(e.id))}"] .review-dup-warning`);
+    if (!warn) return;
+    if (!e.twins.length) { warn.remove(); return; }
+    const btn = warn.querySelector(".review-dup-discard");
+    warn.innerHTML = tr("review.dupWarning", { list: e.twins.map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") });
+    if (btn) warn.appendChild(btn);
+  });
 }
 
 function unqueueReviewAction_(id) {
@@ -7206,15 +7312,17 @@ function unqueueReviewAction_(id) {
 async function applyReviewAction_(a) {
   if (a.action === "confirm" && entrySaveOne_()) {
     // One trip: the row's changes, the confirm, its split and tags (backend saveEntryAll, kind "confirm").
-    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined, link_recurring_id: a.planId || undefined, repeat: a.repeat || undefined },
+    const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined, link_recurring_id: a.planId || undefined, repeat: a.repeat || undefined,
+      project_split: a.split || undefined },
       [["listEntries", { limit: entriesShown + 1 }]]));
     unqueueReviewAction_(a.id);
+    if (res && res.split_failed) appMessage_(tr("psplit.failedOnConfirm", { why: res.split_failed }));
     if (res && res.tag_ask) askProgrammedTags_([res.tag_ask]);
     return res && res.follow ? res.follow : null;
   }
   if (a.action === "confirm") {
     await callApi("updateEntry", { id: a.id, fields: a.fields });
-    const res = await callApi("confirmEntry", { id: a.id });
+    const res = await callApi("confirmEntry", { id: a.id, personal: !!(a.fields && a.fields.company_id === "" && a.fields.project_id === "") });
     if (a.splits) await callApi("saveEntrySplits", { entryId: a.id, splits: a.splits });
     if (a.tagIds) await callApi("saveEntryTags", { entryId: a.id, tagIds: a.tagIds });
     unqueueReviewAction_(a.id);
@@ -7522,6 +7630,9 @@ async function flushEntryEdit_(id) {
   const mySend = Date.now() + Math.random();
   entryEditFlushing_.add(id);
   entryEditFlushStarted_.set(id, mySend);
+  // With no connection at all the phone says so at once, not only once the call has given up (Nico, testers 2026-11-21: "Saving…"
+  // was not even shown for the seconds before that).
+  if (navigator.onLine === false && !Spotlight.isRunning()) noteSaveWaiting_();
   try {
     // Loops so that if this entry's queued edit gets REPLACED by a newer
     // one while this attempt is still sending — the one case where that
@@ -7602,6 +7713,7 @@ async function flushEntryEdit_(id) {
         const sharedExpense = edit.fields && (edit.fields.type === "expense" || edit.fields.type === undefined)
           && ((edit.kind === "create" ? (edit.splits && edit.splits.length) : edit.splits !== null) || (edit.fields.paid_by && edit.fields.paid_by !== "me"));
         if (edit.loan || (sharedExpense && !document.getElementById("screen-loans").hidden)) refreshLoans().catch(() => {});
+        refreshTabsAhead_();   // an edit changes Overview's and Budgets' figures too
         if (edit.kind === "create") {
           // The real row (PEN value, guessed category…) replaces the typed one a moment later.
           refreshEntryList().catch(() => {});
@@ -7642,10 +7754,14 @@ function retryWaitingSaves_() {
   if (!(meta && meta.categories)) return;
   const edits = getQueuedEdits_().filter((e) => e.waitingNet);
   const money = getMoneyQueue_().some((q) => q.status === "saving");
-  if (!edits.length && !money) { saveWaitingSaid_ = false; return; }
+  // A Needs review Confirm / Discard that could not be sent goes too (Diego, 2026-11-23: after a long time offline it waited for the
+  // next app open, though the message says it saves by itself when the connection is back).
+  const review = getQueuedReviewActions_().length > 0;
+  if (!edits.length && !money && !review) { saveWaitingSaid_ = false; return; }
   if (navigator.onLine === false) { noteSaveWaiting_(); return; }
   edits.forEach((e) => flushEntryEdit_(e.id));
   flushMoneyQueue_();
+  if (review) refreshReviewQueue().then(() => { refreshEntryList(); refreshHomeGlance_(true); }).catch(() => { if (!saveRetryTimer_) saveRetryTimer_ = setTimeout(() => { saveRetryTimer_ = null; retryWaitingSaves_(); }, 30000); });
 }
 window.addEventListener("online", retryWaitingSaves_);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) retryWaitingSaves_(); });
@@ -7974,6 +8090,17 @@ function reviewHasAccountBox_(entry) {
 
 // The account a waiting expense, income or investment deposit was registered with, shown on its card as a plain line (not changeable
 // there). Transfers and investment withdrawals already show their accounts in their own boxes; no account = the "Pick the account" box.
+// Who forwarded a waiting bank e-mail (backend ForwardedEmail.gs, owner 2026-11-22): forwards from any address are read, so the item says
+// who sent it, unless it is this Gmail or one of the person's other addresses (More → Bank emails). "" = nothing to show.
+function reviewForwardedBy_(entry) {
+  const by = String((entry && entry.forwarded_by) || "").toLowerCase();
+  if (!by) return "";
+  const info = (meta && meta.emailInfo) || {};
+  if (by === "?") return tr("review.forwardedByUnknown");
+  if (by === String(info.address || "").toLowerCase() || (info.forwardFrom || []).includes(by)) return "";
+  return tr("review.forwardedBy", { address: by });
+}
+
 function reviewAccountLine_(entry) {
   if (!entry.payment_method_id) return "";
   if (!(entry.type === "expense" || entry.type === "income" || (entry.type === "investment" && Number(entry.amount) > 0))) return "";
@@ -8165,7 +8292,15 @@ function reviewAfterBulk_(handledIds) {
 }
 // Cards whose "This is my Salary for August" the person unticked: confirm-many leaves them unlinked too (owner's plan, 2026-11-18).
 const reviewPlanOff_ = new Set();
+// Cards whose "As last month: …" project split the person unticked (Business 2, piece 6).
+const reviewSplitOff_ = new Set();
 document.getElementById("review-list").addEventListener("change", (e) => {
+  const s = e.target.closest && e.target.closest(".review-split-check");
+  if (s) {
+    const it = s.closest(".review-item"), sid = it && it.dataset.entryId;
+    if (sid) { if (s.checked) reviewSplitOff_.delete(sid); else reviewSplitOff_.add(sid); }
+    return;
+  }
   const c = e.target.closest && e.target.closest(".review-plan-check");
   if (!c) return;
   const item = c.closest(".review-item"), id = item && item.dataset.entryId;
@@ -8443,6 +8578,11 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   }
   card.hidden = false;
   if (homeTipsReady_ && !document.getElementById("screen-entries").hidden) offerReviewTip_();   // the first entry to wait may arrive long after opening
+  // Never redraw under the person's fingers (owner, 2026-11-21: a tag saved behind the screen came back, redrew the list and wiped the
+  // description and amount being typed). While a box of the list is in use the redraw waits until the person leaves the list's boxes;
+  // and what was changed on a card (not yet confirmed) is carried into the new one. Not during a walkthrough, which waits for the redraw.
+  if (!Spotlight.isRunning() && reviewBoxInUse_(list)) { reviewRedrawLater_(list, source, skipFlush); return; }
+  const rowEdits = reviewRowEdits_(list);
   list.innerHTML = "";
 
   // A waiting currency exchange is ONE item for both sides (owner, 2026-11-20); Edit mode keeps one tick row per side.
@@ -8451,7 +8591,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
   entries.forEach((entry) => {
     if (reviewEditing_) { list.appendChild(compactReviewRow_(entry)); return; }   // Edit mode: a tick row instead of the whole card
     if (xPairs.skip.has(entry.id)) return;
-    if (xPairs.byOut.has(entry.id)) { list.appendChild(exchangeReviewItem_(xPairs.byOut.get(entry.id), list)); return; }
+    if (xPairs.byOut.has(entry.id)) { const xItem = exchangeReviewItem_(xPairs.byOut.get(entry.id), list); reviewPutBackRowEdits_(xItem, rowEdits.get(entry.id)); list.appendChild(xItem); return; }
     const item = document.createElement("div");
     // Short rows (owner, 2026-11-12): an item starts closed (its top, warnings, category and a ✓ that confirms it as it is);
     // a tap opens the full form; the extra actions sit behind "More actions" (open by themselves when the app suspects one).
@@ -8471,6 +8611,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           <div class="review-item-meta">${listDate_(entry.date)} · ${escapeHtml((TYPE_LABELS[entry.type] || entry.type).toLowerCase())}</div>
           ${reviewAccountLine_(entry) ? `<div class="review-item-meta review-account-line">${escapeHtml(reviewAccountLine_(entry))}</div>` : ""}
           ${entry.maybe_own ? `<div class="review-maybe-own">${escapeHtml(tr("review.maybeYours"))}</div>` : ""}
+          ${reviewForwardedBy_(entry) ? `<div class="review-item-meta review-forwarded">${escapeHtml(reviewForwardedBy_(entry))}</div>` : ""}
           ${reviewLoanHintText_(entry) ? `<div class="review-loan-hint">${escapeHtml(reviewLoanHintText_(entry))}</div>` : ""}
         </div>
         <div class="review-item-amount${entryFlowDirection_(entry) === "in" ? " review-amt-in" : ""}">${formatAmount(entry.type === "investment" ? Math.abs(entry.amount) : entry.amount, entry.currency, { in: "+", out: "−", "": "" }[entryFlowDirection_(entry)])}</div>
@@ -8478,9 +8619,10 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       ${entry.charge_match ? reviewChargeMatchHtml_(entry) : ""}
       ${entry.waiting_match ? `<div class="review-charge-match"><div>${escapeHtml(tr("income.matchAsk", { name: entry.waiting_match.friend_name, amount: formatAmount(entry.waiting_match.remaining, entry.waiting_match.currency) }))}</div><button type="button" class="stmt-choice review-waiting-btn">${escapeHtml(tr("income.matchYes"))}</button></div>` : ""}
       ${/^(Overpayment (from|to) |Pago de más (de|a) )/.test(entry.description || "") ? `<p class="hint review-overpay-note">${escapeHtml(tr("review.overpayNote"))}</p>` : ""}
-      ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}</div>` : ""}
+      ${(entry.twins || []).length ? `<div class="review-dup-warning">${tr("review.dupWarning", { list: (entry.twins || []).map((t) => tr("review.dupItem", { name: escapeHtml(t.description || tr("review.dupAnEntry")), status: escapeHtml(statusLabel_(t.status)) })).join(", ") })}<button type="button" class="review-dup-discard">${escapeHtml(tr("review.discardCopy"))}</button></div>` : ""}
       <div class="review-quick">
         <button type="button" class="review-quick-cat${entry.type !== "investment" && !entry.category_id ? " review-quick-cat-missing" : ""}">${escapeHtml(entry.type === "investment" ? (TYPE_LABELS.investment || "") : (entry.category_id ? categoryName(entry.category_id) : tr("review.pickCategory")))}</button>
+        <button type="button" class="review-quick-discard" aria-label="${escapeHtml(tr("review.discard"))}" title="${escapeHtml(tr("review.discard"))}">${lineIcon_("trash")}</button>
         <button type="button" class="review-quick-confirm">${tr("review.confirm")}</button>
       </div>
       <div class="review-item-fields">
@@ -8502,6 +8644,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         ${entry.type === "expense" && reviewTripFits_(entry) ? `
         <label class="review-transfer-label">${tr("field.trip")}</label>
         <select class="review-trip">${reviewTripOptions_(entry.trip_id || entry.suggested_trip_id || "")}</select>` : ""}
+        ${reviewBusinessFits_(entry) ? `
+        <label class="review-transfer-label">${escapeHtml(tr("field.business"))}</label>
+        <select class="review-business"></select>` : ""}
         ${entry.type === "transfer" ? `
         <label class="review-transfer-label">${tr("review.fromLabel")}</label>
         <select class="review-from">${reviewTransferSideOptions_(entry.payment_method_id)}</select>
@@ -8514,6 +8659,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <label class="review-transfer-label">${tr("review.receivedAtLabel")}</label>
         <select class="review-land">${transferAccountOptions_(entry.payment_method_id, tr("review.pickAccount"))}</select>` : ""}` : ""}
       </div>
+      ${entry.split_match && companyCopyOn_() ? `<label class="review-plan-match review-split-match"><input type="checkbox" class="review-split-check"${reviewSplitOff_.has(entry.id) ? "" : " checked"}> ${escapeHtml(tr("psplit.line", { parts: entry.split_match.parts.map((p) => `${p.name} ${moneyFmt(p.pct).replace(/[.,]00$/, "")} %`).join(", ") }))}</label>` : ""}
       ${entry.plan_match ? `<label class="review-plan-match"><input type="checkbox" class="review-plan-check"${reviewPlanOff_.has(entry.id) ? "" : " checked"}> ${escapeHtml(tr("plan.line", { name: entry.plan_match.description || tr("plan.thePlanned"), month: paceMonthName_(entry.plan_match.month, true) }))}</label>` : ""}
       <div class="review-item-actions">
         <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
@@ -8555,6 +8701,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
     };
     // The top is the item's open/close button for a screen reader or a keyboard (Paola, 2026-11-18: the card was a plain block, never
     // reached by Tab, and nothing said it opens). It holds no buttons of its own, so nothing is nested.
+    fillReviewBusiness_(item, entry);   // the company / project box, on a company copy (its options are built, not templated)
     const top = item.querySelector(".review-item-top");
     top.setAttribute("role", "button");
     top.tabIndex = 0;
@@ -8587,6 +8734,11 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       reviewExpanded_.add(entry.id);
       confirmBtn.click();
     });
+    // Discard without opening the card (owner, 2026-11-21): the short row's trash button, and the duplicate warning's own
+    // "Discard this copy". Both press the card's Discard, so its question and its repayment guard still apply.
+    item.querySelector(".review-quick-discard").addEventListener("click", () => discardBtn.click());
+    const dupDiscard = item.querySelector(".review-dup-discard");
+    if (dupDiscard) dupDiscard.addEventListener("click", () => discardBtn.click());
     const moreBtn = item.querySelector(".review-more-actions");
     if (moreBtn) moreBtn.addEventListener("click", () => {
       const nowOpen = item.classList.toggle("review-more-closed") === false;
@@ -8661,6 +8813,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       // whose dates match (or "None"). Always sent, so choosing "None" clears a suggestion.
       const tripEl = item.querySelector(".review-trip");
       if (tripEl) fields.trip_id = tripEl.value;
+      // A company copy's company / project picked on the card (piece 2): sent only when the card has the box.
+      const bizEl = item.querySelector(".review-business");
+      if (bizEl) Object.assign(fields, reviewBusinessFields_(bizEl.value));
       // The account the money left (expense) or arrived in (income): changed here when the e-mail did not name it, or named the wrong one.
       const accountEl = item.querySelector(".review-account");
       // No account picked while there are accounts to pick: ask once (journeys run, 2026-11-17: items confirmed with no account count in
@@ -8675,14 +8830,22 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (!isPracticeReviewEntry_(entry)) betaRecordEvents_(PerfShare.queueEvents(entry, fields, betaEntryPlace_(entry)));   // (the practice's entries are not counted)
       // "This is my Salary for August", left ticked: the confirm links it to that Programmed item (owner's plan, 2026-11-17).
       const planCheck = item.querySelector(".review-plan-check");
-      queueReviewAction_(entry.id, "confirm", fields, planCheck && planCheck.checked && entry.plan_match ? { planId: entry.plan_match.recurring_id } : null);
+      // "As last month: …" left ticked (and the card still on the company, no single project picked): the split comes with the confirm.
+      const splitCheck = item.querySelector(".review-split-check");
+      const bizBox = item.querySelector(".review-business");
+      const split = splitCheck && splitCheck.checked && entry.split_match && (!bizBox || bizBox.value.startsWith("c:")) ? entry.split_match.parts : null;
+      const extra = Object.assign({}, planCheck && planCheck.checked && entry.plan_match ? { planId: entry.plan_match.recurring_id } : {}, split ? { split } : {});
+      queueReviewAction_(entry.id, "confirm", fields, Object.keys(extra).length ? extra : null);
+      if (navigator.onLine === false) noteSaveWaiting_();   // said at once, and retried by itself when the connection is back
       holdTaps_();
       item.remove();
       document.getElementById("review-count").textContent = list.children.length;
       if (list.children.length === 0) document.getElementById("review-queue-card").hidden = true;
 
       try {
-        const followed = await applyReviewAction_({ id: entry.id, action: "confirm", fields });
+        // The SAME action that was queued (owner, 2026-11-22: a copy without `planId` left "This is my Salary for August" unlinked since
+        // 2.28.0; the project split was lost the same way): its link to the Programmed item and its split go with it.
+        const followed = await applyReviewAction_(Object.assign({ id: entry.id, action: "confirm", fields }, extra));
         refreshEntryList();
         refreshExpectedRecurring();
         refreshHomeGlance_(true);   // a confirmed entry now counts in the totals at the top of Home
@@ -8691,6 +8854,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       } catch (err) {
         // Stays queued — the next refreshReviewQueue (including on the
         // next app open) retries it automatically, no action needed here.
+        // With no connection the person is told so (testers, 2026-11-22: the card just vanished).
+        if (navigator.onLine === false || /fetch|network|load failed|timed? ?out/i.test(String((err && err.message) || ""))) noteSaveWaiting_();
         practiceNActionFailed_(entry.id, err);   // (a practice entry that could not be confirmed stops the practice)
       }
     });
@@ -8765,6 +8930,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         return Object.assign({}, fresh, {
           payment_method_id: rowAccount && rowAccount !== (entry.payment_method_id || "") ? rowAccount : (fresh.payment_method_id || ""),
           trip_id: rowTripEl ? rowTripEl.value : (fresh.trip_id || ""),
+          ...(item.querySelector(".review-business") ? reviewBusinessFields_(item.querySelector(".review-business").value) : {}),
           category_id: rowCategory && rowCategory !== (entry.category_id || "") ? rowCategory : (fresh.category_id || rowCategory),
           description: rowDescription !== (entry.description || "") ? rowDescription : (fresh.description || ""),
           amount: amountEdited ? amt : fresh.amount,
@@ -8812,8 +8978,57 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         openExchangeModal_({ entry: e, leg: e.type === "income" || (e.type === "transfer" && e.to_payment_method_id && !e.payment_method_id) ? "in" : "out" })));
     }
 
+    reviewPutBackRowEdits_(item, rowEdits.get(entry.id));
     list.appendChild(item);
   });
+}
+
+// What the person changed on a Needs review card and has not confirmed yet survives a redraw of the list (see refreshReviewQueue).
+const REVIEW_ROW_BOXES_ = [".review-category", ".review-description", ".review-amount", ".review-account", ".review-trip", ".review-business", ".review-from", ".review-to", ".review-platform", ".review-land", ".review-x-out", ".review-x-in"];
+function reviewBoxInUse_(list) {
+  const a = document.activeElement;
+  return !!(a && list.contains(a) && a.matches("input[type=text], input:not([type]), select, textarea") && a.closest(".review-item"));
+}
+let reviewRedrawWaiting_ = null;
+function reviewRedrawLater_(list, source, skipFlush) {
+  reviewRedrawWaiting_ = { source, skipFlush };   // only the latest list is drawn
+  if (reviewRedrawLater_.armed) return;
+  reviewRedrawLater_.armed = true;
+  const check = () => setTimeout(() => {
+    if (reviewBoxInUse_(list)) return;   // moved to another box of the list: wait for that one too
+    list.removeEventListener("focusout", check);
+    reviewRedrawLater_.armed = false;
+    const w = reviewRedrawWaiting_;
+    reviewRedrawWaiting_ = null;
+    if (w) refreshReviewQueue(w.source, true).catch(() => {});
+  }, 0);
+  list.addEventListener("focusout", check);
+}
+function reviewRowEdits_(list) {
+  const edits = new Map();
+  list.querySelectorAll(".review-item[data-entry-id]").forEach((item) => {
+    const changed = {};
+    REVIEW_ROW_BOXES_.forEach((sel) => {
+      const box = item.querySelector(sel);
+      if (box && box.dataset.touched) changed[sel] = box.value;
+    });
+    if (Object.keys(changed).length) edits.set(item.dataset.entryId, changed);
+  });
+  return edits;
+}
+function reviewPutBackRowEdits_(item, changed) {
+  REVIEW_ROW_BOXES_.forEach((sel) => {
+    const box = item.querySelector(sel);
+    if (!box) return;
+    const mark = () => { box.dataset.touched = "1"; };
+    box.addEventListener("input", mark);
+    box.addEventListener("change", mark);
+    if (!changed || !(sel in changed)) return;
+    if (box.tagName === "SELECT" && ![...box.options].some((o) => o.value === changed[sel])) return;   // that choice is gone (an account deleted)
+    box.value = changed[sel];
+    mark();
+  });
+  if (changed && item.classList.contains("review-collapsed")) { item.classList.remove("review-collapsed"); reviewExpanded_.add(item.dataset.entryId); }
 }
 
 // ---- Currency exchange pop-up (backend/CurrencyExchange.gs) ----
@@ -9188,6 +9403,8 @@ function openNewEntrySheet_() {
     document.getElementById("form-error").textContent = "";
     if (ICON_PICKER_TYPES.includes(selectedType)) showCategoryPicker();
   }
+  // A company copy: the company is already chosen (the app may have reset the form before its companies were known).
+  if (!document.getElementById("entry-business").value && companyDefaultPick_()) resetBusinessPick_();
   restoreEntryDraft_();   // a half-typed entry comes back (does nothing when there is none)
   // Always opens at its top (owner, 2026-11-13): the trip chip, the type tabs and the banner show first, also when an
   // entry closed with ✕ comes back filled in. Again on the next frame, after the form has drawn its fields.
@@ -9376,6 +9593,24 @@ function afterNewEntrySaved_() {
   refreshHomeGlance_(true);
   // A trip's screen open behind (its Edit mode, or an entry edited from it) shows the change.
   if (!document.getElementById("screen-trip-detail").hidden && tripDetailId_) refreshTripDetail_().catch(() => {});
+  refreshTabsAhead_();
+}
+
+// Overview and Budgets, when seen before and not on screen, are refreshed quietly once a save has landed, so their figures are
+// already right when their tab is tapped (Andrés, testers 2026-11-21: Overview showed the old total for ~4.5 s after the tap;
+// owner approved 2026-11-21). One call each, 1.5 s after the last save of a burst; a tab on screen refreshes by itself.
+let tabsAheadTimer_ = null;
+function refreshTabsAhead_() {
+  clearTimeout(tabsAheadTimer_);
+  tabsAheadTimer_ = setTimeout(() => {
+    tabsAheadTimer_ = null;
+    if (Spotlight.isRunning()) return;
+    if (document.getElementById("screen-overview").hidden && overviewShownKey_) refreshOverview().catch(() => {});
+    if (document.getElementById("screen-budgets").hidden && budgetsLoadedKey_) {
+      Object.keys(budgetsCache_).forEach((k) => delete budgetsCache_[k]);   // no remembered period may come back with old figures
+      refreshBudgets().catch(() => {});
+    }
+  }, 1500);
 }
 
 // The "+" shows only on Home ("entries") and Overview, and only while the bottom bar does.
@@ -9924,6 +10159,7 @@ function showScreen(name) {
   });
   if (name === "entries") {
     refreshHomeGlance_(false);   // skipped when fetched less than a minute ago
+    if (meta && (meta.payorMergeAsk || []).length && !payorMergeOpen_) setTimeout(maybeAskPayorMerge_, 1500);   // it waits for Home
     if (homeTipsReady_) { offerReviewTip_(); watchHomeTips_(); }
 
   }
@@ -9953,7 +10189,7 @@ function showScreen(name) {
     loansLoad_ = refreshLoans();
   }
   if (name === "more") {
-    applyBusinessVisibility_();
+    applyBusinessVisibility_({ noCard: true });   // the "clients owe you" card is on Home: a More tap need not reload it (speed sweep 2026-11-21)
     popTipVisit_("more"); watchBringBackTip_();
   }
 }
@@ -10047,7 +10283,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["feedback-privacy", "recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
+const MORE_SUBSCREENS = ["feedback-privacy", "recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-statement", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
 // ---- The tab bar: the person chooses its tabs (owner, 2026-11-15; More → My profile → My tabs, specs/home-tab.md § My tabs) ----
 // Home is always there (its place can change); More is always there and always last; up to 6 tabs in all. A main screen taken out of the bar
 // is a row at the top of More; Trips, Programmed items and My data, put in the bar, leave More and their screens lose the Back to More.
@@ -10513,7 +10749,8 @@ function renderMonthsBars_() {
   const shown = periodType === "month" ? `${periodAnchor.getFullYear()}-${String(periodAnchor.getMonth() + 1).padStart(2, "0")}` : null;
   box.innerHTML = months.map((x) => {
     const [y, mo] = x.month.split("-").map(Number);
-    return `<button type="button" class="home-bar-col${x.month === shown ? " on" : ""}" data-month="${x.month}">
+    // A spoken name with the figures, like Home's bars (Paola, 2026-11-22: VoiceOver read only "Dic 23").
+    return `<button type="button" class="home-bar-col${x.month === shown ? " on" : ""}" data-month="${x.month}" aria-label="${escapeHtml(tr("home.barAria", { month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), true), income: homeWhole_(x.income), expenses: homeWhole_(x.expense) }))}">
       <span class="home-bar-pair"><span class="home-bar income" style="height:${h(x.income)}px"></span><span class="home-bar expense" style="height:${h(x.expense)}px"></span></span>
       <span>${escapeHtml(I18n.monthShort(mo - 1, true))} ${String(y).slice(2)}</span></button>`;
   }).join("");
@@ -10648,6 +10885,9 @@ function renderPaceBig_() {
     const r = hist && paceResolve_(hist, view);
     const nowTotal = r && r.cur && r.cur.cum.length ? r.cur.cum[r.cur.cum.length - 1] : 0;
     card.hidden = !r || !r.cur || (!nowTotal && !(r.ref && r.ref.expense > 0));
+    // Nothing earlier to compare with (a new copy's first month): no "Against earlier months / last year" choice over an empty
+    // comparison (testers, 2026-11-22). In year mode the switch stays, so the person can go back to earlier months.
+    if (!view && !yearMode) document.getElementById("pace-ref-switch").hidden = !(r && r.ref && r.ref.expense > 0);
     if (!card.hidden) drawPace_({ label: document.getElementById("pace-ref-label"), svg: document.getElementById("pace-svg"), lines: document.getElementById("pace-lines") }, r, view);
   };
   if (!paceCatIds_(view)) { draw(monthsHist_); return; }
@@ -11050,8 +11290,83 @@ function paintOverviewSummary_(data) {
   else renderPaceBig_();   // Week / Year / Custom: their own day-by-day ranges (All time: no card)
   renderInvestmentsPeriod_(data.investmentsByPlatform || []);
   renderLoansPeriod_(data.loans || { people: [], totals: [] }, data.owed);
+  renderCompanyOverview_(data.company);
   fitOverviewSummary_();
 }
+
+// ---- A company copy's Overview (Business 2, piece 4) ----
+// Under the period picker: What is owed (each lender, per currency, and the total), Still to finance (per project, typed by the person
+// with its date), then the Balances card as it is; under them the period's totals and entries. Spending pace, Investments, Month by
+// month, the annual views, the friends' Loans card and the "Showing" picker are hidden (CSS `.company-ov`): here everything is the company.
+// The data comes with the period's figures (getPeriodSummary `company`), so the cards are drawn with them, never half.
+function applyCompanyOverview_() {
+  const on = companyCopyOn_();
+  const screen = document.getElementById("screen-overview");
+  screen.classList.toggle("company-ov", on);
+  const balances = document.getElementById("balances-card");
+  if (!balancesHome_) { balancesHome_ = document.createComment("balances-card home"); balances.parentNode.insertBefore(balancesHome_, balances); }
+  if (on) document.getElementById("co-funding-card").after(balances);
+  else balancesHome_.after(balances);
+  if (!on) ["co-owed-card", "co-funding-card"].forEach((id) => { document.getElementById(id).hidden = true; });
+}
+let balancesHome_ = null;   // where the Balances card sits on every other copy
+
+function renderCompanyOverview_(company) {
+  const show = companyCopyOn_() && !!company;
+  document.getElementById("co-owed-card").hidden = !show;
+  document.getElementById("co-funding-card").hidden = !show;
+  if (!show) return;
+  const amounts = (lines) => lines.map((l) => `<span>${escapeHtml(formatAmount(l.amount, l.currency))}</span>`).join("");
+  const owedBox = document.getElementById("co-owed-list");
+  owedBox.innerHTML = company.owed.map((p) => `<div class="loans-ov-owed-row"><span>${escapeHtml(p.name)}</span><b>${amounts(p.lines)}</b></div>`).join("") +
+    (company.owed.length > 1 ? `<div class="loans-ov-owed-row co-ov-total"><span>${escapeHtml(tr("coOv.owedTotal"))}</span><b>${amounts(company.owedTotals)}</b></div>` : "");
+  document.getElementById("co-owed-empty").hidden = company.owed.length > 0;
+  const fundBox = document.getElementById("co-funding-list");
+  fundBox.innerHTML = "";
+  company.funding.forEach((f) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "loans-ov-owed-row co-funding-row";
+    row.dataset.projectId = f.project_id;
+    const value = f.amount === null ? `<span class="hint">${escapeHtml(tr("coOv.fundingNone"))}</span>`
+      : `<span>${escapeHtml(formatAmount(f.amount, f.currency))}</span><small>${escapeHtml(tr("coOv.fundingAsOfShort", { date: listDate_(f.as_of) }))}</small>`;
+    row.innerHTML = `<span>${escapeHtml((f.emoji ? f.emoji + " " : "") + f.name)}</span><b>${value}</b>`;
+    row.addEventListener("click", () => openCompanyFunding_(f));
+    fundBox.appendChild(row);
+  });
+  document.getElementById("co-funding-empty").hidden = company.funding.length > 0;
+}
+
+// "Still to finance" for one project: amount, currency and the day it is true (today by default). Saves behind the screen.
+let companyFundingCtx_ = null;
+function openCompanyFunding_(f) {
+  companyFundingCtx_ = f;
+  document.getElementById("co-funding-title").textContent = `${f.emoji ? f.emoji + " " : ""}${f.name}`;
+  document.getElementById("co-funding-amount").value = f.amount === null ? "" : String(f.amount);
+  const curSel = document.getElementById("co-funding-currency");
+  curSel.innerHTML = "";
+  [...new Set([f.currency || homeCur(), homeCur(), ...getRecentCurrencies()])].slice(0, 5).forEach((code) => { const o = document.createElement("option"); o.value = code; o.textContent = `${findCurrency(code).flag} ${code}`; curSel.appendChild(o); });
+  curSel.value = f.currency || homeCur();
+  document.getElementById("co-funding-date").value = todayLocalISO();
+  document.getElementById("co-funding-error").textContent = "";
+  const backdrop = document.getElementById("co-funding-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+document.getElementById("co-funding-close").addEventListener("click", () => { document.getElementById("co-funding-modal-backdrop").hidden = true; });
+document.getElementById("co-funding-save").addEventListener("click", () => {
+  const f = companyFundingCtx_;
+  const raw = document.getElementById("co-funding-amount").value.trim();
+  const parsed = parseFloat(raw.replace(/,/g, ""));
+  const amount = raw === "" ? "" : (Number.isFinite(parsed) ? parsed : NaN);
+  const asOf = document.getElementById("co-funding-date").value;
+  const err = document.getElementById("co-funding-error");
+  if (amount !== "" && !(amount >= 0)) { err.textContent = tr("error.validAmount"); return; }
+  if (amount !== "" && !asOf) { err.textContent = tr("error.dateRequired"); return; }
+  document.getElementById("co-funding-modal-backdrop").hidden = true;
+  saveBehindScreen_(() => callApi("setProjectFunding", { project_id: f.project_id, amount, currency: document.getElementById("co-funding-currency").value, as_of: asOf }),
+    () => refreshOverview());
+});
 
 async function refreshOverviewInner_() {
   renderPeriodSelector();
@@ -11073,6 +11388,9 @@ async function refreshOverviewInner_() {
     screen.classList.add("overview-stale");
   }
 
+  // The period's entry list is asked at the same time as its figures (speed sweep 2026-11-21: it waited for them); drawn after them.
+  const entriesCall = overviewEntriesCall_(bounds);
+  entriesCall.catch(() => {});   // (a failure is shown by loadOverviewEntries_; unused if the figures fail or the period changes)
   let data;
   try {
     // A neighbour still being fetched in the background (preloadOverviewNeighbour_) is waited for, never asked twice.
@@ -11093,7 +11411,7 @@ async function refreshOverviewInner_() {
   setLoadFailed_("overview", null);
   overviewShownKey_ = key;
   paintOverviewSummary_(data);
-  loadOverviewEntries_(bounds).then(() => { if (token === overviewReqToken_) preloadOverviewNeighbour_(); });
+  loadOverviewEntries_(bounds, entriesCall).then(() => { if (token === overviewReqToken_) preloadOverviewNeighbour_(); });
 }
 
 // Overview's summary is ready before the tab is tapped (owner, 2026-11-11): (1) the last figures shown for each period are kept on this
@@ -11154,13 +11472,15 @@ function preloadOverviewNeighbour_() {
 // types), newest first, shown 50 at a time.
 const OVERVIEW_ENTRIES_PAGE = 20;   // was 50: a shorter Overview (owner, 2026-11-07); "Load more" adds 20 at a time
 let overviewEntriesToken_ = 0;
-function loadOverviewEntries_(bounds) { return trackOverviewLoad_(loadOverviewEntriesInner_(bounds)); }
-async function loadOverviewEntriesInner_(bounds) {
+function overviewEntriesCall_(bounds) { return callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() }); }
+// `early`: the same listEntries, already asked (refreshOverviewInner_ asks it with the figures; it waited for them before).
+function loadOverviewEntries_(bounds, early) { return trackOverviewLoad_(loadOverviewEntriesInner_(bounds, early)); }
+async function loadOverviewEntriesInner_(bounds, early) {
   const list = document.getElementById("overview-entries-list");
   const token = ++overviewEntriesToken_;
   list.innerHTML = loadingHtml_();
   try {
-    const entries = await callApi("listEntries", { startDate: bounds.startDate, endDate: bounds.endDate, scope: overviewScopeParam_() });
+    const entries = await (early || overviewEntriesCall_(bounds));
     if (token !== overviewEntriesToken_) return;
     let shown = 0;
     const draw = () => {
@@ -11497,7 +11817,7 @@ let drilldownBudget = null;
 let drilldownProjection = null;
 let drilldownProjectionDetail = null;
 
-async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
+async function openDrilldownWithPayload_(payload, titleText, subtitleText, render) {
   const backdrop = document.getElementById("drilldown-modal-backdrop");
   const title = document.getElementById("drilldown-title");
   const subtitle = document.getElementById("drilldown-subtitle");
@@ -11521,7 +11841,7 @@ async function openDrilldownWithPayload_(payload, titleText, subtitleText) {
   try {
     const entries = await callApi("listEntries", payload);
     if (currentDrilldown !== thisDrilldown) return;
-    renderDrilldownEntries(entries);
+    (render || renderDrilldownEntries)(entries);
   } catch (err) {
     if (currentDrilldown !== thisDrilldown) return;
     list.innerHTML = `<div class="status-msg">${escapeHtml(tr("drill.loadFailed", { error: err.message }))}</div>`;
@@ -11558,9 +11878,57 @@ async function openBreakdownDrilldown(kind, item) {
   await openDrilldownWithPayload_(
     payload,
     `${item.icon ? item.icon + " " : ""}${item.name}`,
-    `${bounds.label} · ${kind === "platform" ? TYPE_LABELS.investment : TYPE_LABELS[overviewType]}`
+    `${bounds.label} · ${kind === "platform" ? TYPE_LABELS.investment : TYPE_LABELS[overviewType]}`,
+    kind === "category" ? (entries) => renderCatTagSplit_(entries, "cat:" + (item.id || "") + ":" + (item.annualView || "")) : null
   );
 }
+
+// ---- A category split by tag (owner, 2026-11-21) ----
+// An Overview category's list gets chips on top: All, one per tag, and No tag, each with its total (my share, in the main currency,
+// as Overview counts it: an entry with two tags is in both). A chip shows only that part of the list, from the entries already on
+// the phone (no server call). No chips when nothing in the list has a tag. The chip picked is kept while the same list reloads.
+let catTagSplit_ = null;   // { key, filter, entries } while a category's list is open
+function renderCatTagSplit_(entries, key) {
+  const box = document.getElementById("drilldown-chips");
+  const tagById = new Map((meta.tags || []).map((t) => [t.id, t]));
+  // Only tags that still exist, each once: a link to a deleted tag (a hand edit of the Sheet) counts as no tag, and the same link
+  // twice counts once (testers, 2026-11-22).
+  const known = (e) => [...new Set((e.tagIds || []).filter((id) => tagById.has(id)))];
+  const sums = new Map();
+  let all = 0, none = 0, several = false;
+  entries.forEach((e) => {
+    const v = searchRowMain_(e);
+    if (v == null) return;
+    all += v;
+    const ids = known(e);
+    if (!ids.length) none += v;
+    if (ids.length > 1) several = true;
+    ids.forEach((id) => sums.set(id, (sums.get(id) || 0) + v));
+  });
+  if (!sums.size) { catTagSplit_ = null; box.hidden = true; renderDrilldownEntries(entries); return; }
+  const prev = catTagSplit_ && catTagSplit_.key === key ? catTagSplit_.filter : "all";
+  const chips = [{ id: "all", label: tr("catTag.all"), sum: all }]
+    .concat([...sums.keys()].sort((a, b) => sums.get(b) - sums.get(a)).map((id) => ({ id, label: tagById.get(id).name, sum: sums.get(id) })))
+    .concat(entries.some((e) => !known(e).length) ? [{ id: SEARCH_NO_TAG_, label: tr("search.f.noTag"), sum: none }] : []);
+  const filter = chips.some((c) => c.id === prev) ? prev : "all";
+  catTagSplit_ = { key, filter, entries };
+  const sign = overviewType === "income" ? 1 : -1;
+  box.innerHTML = chips.map((c) => `<button type="button" class="flow-chip flow-${overviewType === "income" ? "income" : "expense"}${c.id === filter ? " active" : ""}" data-tagsplit="${escapeHtml(c.id)}" aria-pressed="${c.id === filter}">` +
+    `<span class="flow-chip-label">${escapeHtml(c.label)}</span><span class="flow-chip-amt">${escapeHtml(formatPenSigned_(sign * c.sum))}</span></button>`).join("") +
+    // With two tags on one entry the chips add up to more than the total: say why (testers, 2026-11-22).
+    (several ? `<p class="hint cat-tag-note">${escapeHtml(tr("catTag.several"))}</p>` : "");
+  box.hidden = false;
+  renderDrilldownEntries(filter === "all" ? entries
+    : filter === SEARCH_NO_TAG_ ? entries.filter((e) => !known(e).length)
+    : entries.filter((e) => known(e).includes(filter)));
+}
+document.getElementById("drilldown-chips").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-tagsplit]");
+  if (!chip || !catTagSplit_ || chip.dataset.tagsplit === catTagSplit_.filter) return;
+  catTagSplit_.filter = chip.dataset.tagsplit;
+  document.getElementById("drilldown-scroll-area").scrollTop = 0;
+  renderCatTagSplit_(catTagSplit_.entries, catTagSplit_.key);
+});
 
 // ---- Overview summary blocks: the list behind each number (owner, 2026-11-11) ----
 // Tapping any block (Income, Expenses, Investments, Loans) or What's left opens ONE screen: the drill-down sheet with five chips
@@ -12104,6 +12472,7 @@ function renderEntriesInto_(list, entries, emptyKey) {
 function closeDrilldown() {
   document.getElementById("drilldown-modal-backdrop").hidden = true;
   flowsState_ = null;
+  catTagSplit_ = null;
   document.getElementById("drilldown-chips").hidden = true;
   document.getElementById("drilldown-menu").hidden = true;
   collapseDrilldownExpand_();
@@ -13491,7 +13860,9 @@ async function init() {
       // section re-renders.
       setBundleCheckStatuses_("checking");
     }
-    const pendingPromise = timedStep("init:pendingCheck", () => callApi("listPendingEntries", {}))
+    // Only a screen drawn from the saved copy needs this quick check: with nothing saved the bundle below carries the same list
+    // (speed sweep 2026-11-21: a first open asked twice and waited for both).
+    const pendingPromise = !paintedFromCache ? Promise.resolve() : timedStep("init:pendingCheck", () => callApi("listPendingEntries", {}))
       .then((fresh) => {
         latestPending = fresh;
         pendingCheckSucceeded = true;
@@ -13635,6 +14006,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && bu
 window.addEventListener("online", () => { if (bundleCheckFailed_()) scheduleBundleRetry_(1000); });
 
 // ---- Pull to refresh ----
+let pullRefreshNow_ = async () => {};   // the same refresh without a pull (set below): the "back from updating" bar and sheet use it
 // PWAs in standalone mode lose Safari's native pull-to-refresh, so this
 // gives it back: drag down from the very top of the page to re-fetch data.
 (function setupPullToRefresh() {
@@ -13673,11 +14045,16 @@ window.addEventListener("online", () => { if (bundleCheckFailed_()) scheduleBund
     pulling = false;
 
     if (!wasReady) { reset(); return; }
+    await refreshNow();
+  }
 
+  async function refreshNow() {
+    if (refreshing) return;
     refreshing = true;
     indicator.classList.add("refreshing");
     indicator.style.transform = "translateY(0)";
     try {
+      updateChecked_ = false;   // the update check runs again on what the server says now (it was skipped once done, so "Update available" stayed after updating)
       await loadMeta();
       await refreshEntryList();
       await refreshReviewQueue();
@@ -13703,6 +14080,7 @@ window.addEventListener("online", () => { if (bundleCheckFailed_()) scheduleBund
     refreshing = false;
   }
 
+  pullRefreshNow_ = refreshNow;
   reset();
   document.addEventListener("touchstart", onTouchStart, { passive: true });
   document.addEventListener("touchmove", onTouchMove, { passive: true });
@@ -14006,7 +14384,7 @@ function updateBarClosed_() {
 // Stacks the fixed bars at the top (all are position:fixed): the new-screens bar, the server-update bar, the failed-save bar.
 function stackTopBanners_() {
   let top = 0;
-  ["update-banner", "backend-update-banner", "save-failed-banner"].forEach((id) => {
+  ["update-banner", "backend-update-banner", "save-failed-banner", "pull-update-hint"].forEach((id) => {
     const el = document.getElementById(id);
     if (!el || el.hidden) return;
     el.style.top = top + "px";
@@ -14031,6 +14409,7 @@ function setUpdateAvailable_(on) {
   if (moreTab) { if (on) moreTab.setAttribute("aria-label", tr("nav.moreUpdate")); else moreTab.removeAttribute("aria-label"); }
   backendBehind_ = !!on;
   renderBackendUpdateBanner_();
+  renderPullUpdateHint_();
 }
 document.getElementById("backend-update-open").addEventListener("click", () => openUpdateModal_());
 document.getElementById("backend-update-close").addEventListener("click", () => {
@@ -14104,7 +14483,8 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) { up
 // ---- Rule pack: new banks without an update (specs/review-telegram-email.md § Rule pack) ----
 // Simple bank e-mail rules live in a public data file. The PHONE reads it (like pin.json: friends get the copy `./ship.sh --promote` put in setup/,
 // the owner's own copy the live one) and hands it to the person's own backend, which checks it and keeps it. No outside-connection permission is
-// needed. Only sent when the file's version differs from the one the backend holds; a file the backend refused is not re-sent for 6 hours.
+// needed. Only sent when the file's version differs from the one the backend holds; a file the backend refused is not re-sent to that same
+// backend for 6 hours (an updated backend gets it at once).
 // Nothing here ever bothers the person: the rules written in the backend keep working whatever happens.
 const RULE_PACK_TRIED_KEY = "etRulePackTried";
 let rulePackSyncing_ = false, rulePackSyncedAt_ = 0;
@@ -14125,12 +14505,15 @@ async function syncRulePack_() {
     if (have && have.version === version) return;
     let tried = null;
     try { tried = JSON.parse(localStorage.getItem(RULE_PACK_TRIED_KEY)); } catch (e) { /* no memory of an earlier try */ }
-    if (tried && tried.version === version && Date.now() - tried.at < 6 * 3600 * 1000) return;
+    // A refusal is remembered for THIS backend only: after "Update my app" the new backend is offered the list at once (2026-11-21: Lucia's
+    // old backend refused it, she updated, and the phone still waited 6 hours while a purchase went unread).
+    const ref = String(caps.backendRef || "");
+    if (tried && tried.version === version && String(tried.ref || "") === ref && Date.now() - tried.at < 6 * 3600 * 1000) return;
     try {
       const done = await callApi("setRulePack", { text });
       meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { rulePack: { version: done.version, count: done.count, at: new Date().toISOString(), error: "" } });
     } catch (err) {
-      try { localStorage.setItem(RULE_PACK_TRIED_KEY, JSON.stringify({ version, at: Date.now() })); } catch (e) { /* ignore */ }
+      try { localStorage.setItem(RULE_PACK_TRIED_KEY, JSON.stringify({ version, ref, at: Date.now() })); } catch (e) { /* ignore */ }
     }
   } catch (e) { /* offline or a hiccup: tried again at the next open */ } finally { rulePackSyncing_ = false; }
 }
@@ -14163,13 +14546,70 @@ function openUpdateModal_() {
   const backdrop = document.getElementById("update-modal-backdrop");
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+  renderPullUpdateHint_();
 }
+// Back from updating (owner, 2026-11-21): the update happens in Safari, and the app kept in the background comes back still holding what it
+// read from the server before (the "Update available" row included), so it looks as if the update did nothing. Opening or copying the update
+// link is remembered on the phone; when the app comes back to the front, a bar at the top says to pull down, until the app reads the server
+// again (a pull, or a fresh start) after that tap. Forgotten after a day.
+const UPDATE_OPENED_KEY = "etUpdateOpened";
+// { at: the tap, away: the last time the app went to the background after it }. Only a trip away counts (Safari that did not open leaves
+// the person in the app: nothing to say). Each trip within an hour of the tap counts again while the server still looks behind (someone who
+// came back halfway, pulled, and went back to finish). Done once a server read after the trip says the server is up to date; a day at most.
+function readUpdateOpened_() {
+  try { const r = JSON.parse(localStorage.getItem(UPDATE_OPENED_KEY) || "null"); return r && r.at && Date.now() - r.at < 24 * 3600 * 1000 ? r : null; }
+  catch (e) { return null; }
+}
+function writeUpdateOpened_(r) {
+  try { if (r) localStorage.setItem(UPDATE_OPENED_KEY, JSON.stringify(r)); else localStorage.removeItem(UPDATE_OPENED_KEY); } catch (e) { /* no storage: no bar */ }
+}
+function noteUpdateOpened_() { writeUpdateOpened_({ at: Date.now() }); }
+function noteUpdateTripAway_() {
+  const r = readUpdateOpened_();
+  if (!r || Date.now() - r.at > 3600 * 1000 || (r.away && !backendBehind_)) return;
+  r.away = Date.now();
+  writeUpdateOpened_(r);
+}
+function pullUpdateDue_() {
+  const r = readUpdateOpened_();
+  if (!r) { writeUpdateOpened_(null); return false; }
+  if (!r.away) return false;
+  if (metaReadAt_ > r.away) {   // read since: the bar is done; the record too once that read says the server is up to date
+    if (!backendBehind_) writeUpdateOpened_(null);
+    return false;
+  }
+  return !!metaReadAt_;   // (nothing read yet this open: a fresh start is reading the server right now)
+}
+function renderPullUpdateHint_() {
+  const el = document.getElementById("pull-update-hint");
+  if (!el) return;
+  const due = pullUpdateDue_();
+  const sheetOpen = !document.getElementById("update-modal-backdrop").hidden;
+  const show = due && !sheetOpen && !document.hidden;
+  if (show && el.hidden) el.textContent = tr("banner.pullAfterUpdate");   // re-set so a screen reader announces it
+  el.hidden = !show;
+  document.getElementById("update-back-box").hidden = !due;   // the update sheet, still open when the person comes back, says it too
+  stackTopBanners_();
+}
+async function loadAfterUpdate_() {
+  document.getElementById("update-modal-backdrop").hidden = true;
+  document.getElementById("pull-update-hint").hidden = true;
+  stackTopBanners_();
+  window.scrollTo(0, 0);
+  await pullRefreshNow_();
+  renderPullUpdateHint_();   // a refresh that failed (no connection) brings the bar back
+}
+document.addEventListener("visibilitychange", () => { if (document.hidden) noteUpdateTripAway_(); else renderPullUpdateHint_(); });
+document.getElementById("pull-update-hint").addEventListener("click", loadAfterUpdate_);
+document.getElementById("update-back-btn").addEventListener("click", loadAfterUpdate_);
 document.getElementById("more-update-btn").addEventListener("click", openUpdateModal_);
-document.getElementById("update-close-btn").addEventListener("click", () => { document.getElementById("update-modal-backdrop").hidden = true; offerReviewTip_(); });   // (a tutorial waits while this window is open)
+document.getElementById("update-close-btn").addEventListener("click", () => { document.getElementById("update-modal-backdrop").hidden = true; renderPullUpdateHint_(); offerReviewTip_(); });   // (a tutorial waits while this window is open)
 document.getElementById("update-open-btn").addEventListener("click", () => {
+  noteUpdateOpened_();
   openInSafari_(updatePageUrl_(), () => { document.getElementById("update-stuck").hidden = false; });
 });
 document.getElementById("update-copy-btn").addEventListener("click", async () => {
+  noteUpdateOpened_();
   try { await navigator.clipboard.writeText(updatePageUrl_()); document.getElementById("update-copied").hidden = false; }
   catch (e) { window.prompt(tr("update.copyManual"), updatePageUrl_()); }
 });
@@ -14699,10 +15139,12 @@ function startWelcome_(preview) {
     accounts: [], customBanks: [], links: {}, batch: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()), bankOpen: null, form: null,
     business: false,   // the optional Business pack question (on the "What fits you?" screen, only where the pack is offered; off unless chosen)
     fits: [],          // the "What fits you?" answers (category packs)
-    ownName: "" };     // the optional full name typed on the accounts screen (confirmed at once when saved)
+    ownName: "",       // the optional full name typed on the accounts screen (confirmed at once when saved)
+    company: { sector: "", name: "", projects: [] } };   // a company copy's step 2 (sector, name, projects), instead of "What fits you?"
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-questions").hidden = false;
   welcomeEl_("welcome-fits").hidden = true;
+  welcomeEl_("welcome-company").hidden = true;
   welcomeEl_("welcome-accounts").hidden = true;
   welcomeEl_("welcome-platforms").hidden = true;
   welcomeEl_("welcome-tour").hidden = true;
@@ -14901,16 +15343,75 @@ function waDisplayNames_() {
 const waBanksOfList_ = (list) => list.slice().sort((x, y) => x.name.localeCompare(y.name, I18n.getLang()));
 
 function showWelcomeStep_(step) {
+  const company = companyWelcome_();
   welcomeEl_("welcome-questions").hidden = step !== 1;
-  welcomeEl_("welcome-fits").hidden = step !== 2;
+  welcomeEl_("welcome-fits").hidden = step !== 2 || company;
+  welcomeEl_("welcome-company").hidden = step !== 2 || !company;
   welcomeEl_("welcome-accounts").hidden = step !== 3;
   welcomeEl_("welcome-platforms").hidden = step !== 4;
   welcomeEl_("welcome-overlay").scrollTop = 0;
   if (step === 3) { welcome_.bankOpen = null; welcome_.form = null; renderWelcomeAccounts_(); }
   else if (step === 4) renderWelcomePlatforms_();
+  else if (step === 2 && company) renderWelcomeCompany_();
   else if (step === 2) renderWelcomeFits_();
   else renderWelcomeQuestions_();
 }
+
+// ---- Welcome step 2 on a COMPANY copy (backend/CompanyCopy.gs; Business 2, piece 1): the sector, the company's name, its projects ----
+// It replaces "What fits you?" (the personal questions are skipped). Nothing is saved until the end of the welcome, in ONE call
+// (saveCompanySetup): the company with its sector, its projects and the sector's categories. The sectors mirror SECTOR_ORDER_.
+const COMPANY_SECTORS_ = ["construction", "other"];
+const companyWelcome_ = () => !!(meta && meta.capabilities && meta.capabilities.companyCopy);
+function renderWelcomeCompany_() {
+  const root = welcomeEl_("welcome-company");
+  const co = welcome_.company;
+  I18n.applyStatic(root);
+  welcomeEl_("wc-step").textContent = tr("welcome.step", { n: 2, total: welcomeSteps_() });
+  const sectors = welcomeEl_("wc-sectors");
+  sectors.innerHTML = "";
+  COMPANY_SECTORS_.forEach((id) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "welcome-choice" + (co.sector === id ? " active" : "");
+    b.setAttribute("aria-pressed", String(co.sector === id));
+    b.textContent = tr("sector." + id);
+    b.addEventListener("click", () => { co.sector = id; welcomeEl_("wc-error").textContent = ""; renderWelcomeCompany_(); });
+    sectors.appendChild(b);
+  });
+  const name = welcomeEl_("wc-name");
+  if (document.activeElement !== name) name.value = co.name;
+  const list = welcomeEl_("wc-projects");
+  list.innerHTML = "";
+  co.projects.forEach((p) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "welcome-choice active";
+    b.textContent = `${p} ✕`;
+    b.setAttribute("aria-label", tr("co.projectRemove", { name: p }));
+    b.addEventListener("click", () => { co.projects = co.projects.filter((x) => x !== p); renderWelcomeCompany_(); });
+    list.appendChild(b);
+  });
+  list.hidden = !co.projects.length;
+}
+function addWelcomeProject_() {
+  const input = welcomeEl_("wc-project-input");
+  const name = input.value.trim().slice(0, 60);
+  if (!name) return;
+  if (!welcome_.company.projects.some((p) => p.toLowerCase() === name.toLowerCase())) welcome_.company.projects.push(name);
+  input.value = "";
+  renderWelcomeCompany_();
+}
+welcomeEl_("wc-name").addEventListener("input", (e) => { welcome_.company.name = e.target.value; welcomeEl_("wc-error").textContent = ""; });
+welcomeEl_("wc-project-add").addEventListener("click", addWelcomeProject_);
+welcomeEl_("wc-project-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addWelcomeProject_(); } });
+welcomeEl_("wc-back-btn").addEventListener("click", () => showWelcomeStep_(1));
+welcomeEl_("wc-next-btn").addEventListener("click", () => {
+  const co = welcome_.company;
+  addWelcomeProject_();   // a project typed but not added yet still counts
+  const err = !co.sector ? "co.errSector" : !co.name.trim() ? "co.errName" : "";
+  if (err) { welcomeEl_("wc-error").textContent = tr(err); return; }
+  showWelcomeStep_(3);
+});
 
 // ---- Welcome step 2: "What fits you?" (optional) ----
 // Two groups of picks, "My responsibilities" and "My lifestyle"; each pick adds exactly one category (backend/Profile.gs applyProfile, called when the
@@ -15408,11 +15909,13 @@ async function finishWelcome_() {
     }
     if (welcome_.platforms.length) await callApi("saveOnboardingPlatforms", { batch: welcome_.platformsBatch, names: welcome_.platforms });
     if (welcome_.ownName && meta && meta.capabilities && meta.capabilities.ownName) await callApi("saveOwnerNames", { names: [welcome_.ownName] });   // a typed name is confirmed at once
-    if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
+    // A company copy: the company, its projects and the sector's categories in one call (it also turns the pack on).
+    if (companyWelcome_()) await callApi("saveCompanySetup", { sector: welcome_.company.sector, name: welcome_.company.name.trim(), projects: welcome_.company.projects });
+    else if (welcome_.business) await callApi("setBusinessFeatures", { on: true });   // before the "answered" mark, so an interrupted save asks again
     // The category packs. An older backend lacks the action (the app only asks one that says it has it), and a failure here never blocks the
     // welcome: the same packs can be added later from More → My profile → What fits me.
     const occ = welcome_.occ && welcome_.occ.list.length && meta && meta.capabilities && meta.capabilities.occupation ? welcome_.occ : null;
-    if ((welcome_.fits.length || occ) && meta && meta.capabilities && meta.capabilities.profile) {
+    if (!companyWelcome_() && (welcome_.fits.length || occ) && meta && meta.capabilities && meta.capabilities.profile) {
       try { await callApi("applyProfile", Object.assign({ answers: occ ? fitsAnswersWithOcc_(welcome_.fits, occ) : welcome_.fits }, occ ? { occupation: occ } : {})); } catch (e) { /* see above */ }
     }
     await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, homeCurrency: welcome_.home, currencies: welcome_.currencies });
@@ -15434,7 +15937,7 @@ async function finishWelcome_() {
   welcomeEl_("welcome-accounts").hidden = true;
   welcomeEl_("welcome-platforms").hidden = true;
   // The new accounts, platforms and categories must show up in the app right away (entry form, Accounts & cards): reload on the way out.
-  const reloadAfter = welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName || !!(welcome_.occ && welcome_.occ.list.length);
+  const reloadAfter = companyWelcome_() || welcome_.lang !== welcome_.appLang || welcome_.accounts.length > 0 || welcome_.platforms.length > 0 || welcome_.business || welcome_.fits.length > 0 || !!welcome_.ownName || !!(welcome_.occ && welcome_.occ.list.length);
   const toTour = () => {
     if (perfShareState_().asked) offerTour_(reloadAfter);
     else openWelcomeShare_(() => offerTour_(reloadAfter));   // the last welcome question (step 5 of 5): share app speed with the owner
@@ -16098,6 +16601,22 @@ function startWaReal_() {
 // The iPhone's Shortcuts app sends each Apple Pay payment to this copy's address with the person's own key in the link (?k=…); the
 // payment waits in Needs review. The tab makes / copies / replaces that link and shows the steps to add the automation.
 let applePaySetup_ = null;
+// The ready-made shortcut friends add from iCloud (owner, 2026-11-21). It holds no key: a setup question asks for the person's own link
+// when it is added. On the owner's iPhone "Add Shortcut" then does nothing, but "Skip Setup" adds it AND keeps the pasted link, so the
+// step names both.
+const APPLE_PAY_SHORTCUT_URL_ = "https://www.icloud.com/shortcuts/73f300c75c6e46b2a56bc13ecb50786b";
+const APPLE_PAY_SHORTCUT_NAME_ = "Expense Tracker - Apple Pay";
+function applePayShortcutUrl_() { return /^https:\/\/www\.icloud\.com\/shortcuts\/[0-9a-f]{32}$/.test(APPLE_PAY_SHORTCUT_URL_) ? APPLE_PAY_SHORTCUT_URL_ : ""; }
+// With the shared shortcut, the hand-made steps fold away under "Build it by hand instead"; without it they stay open as before.
+function drawApplePayQuick_() {
+  const url = applePayShortcutUrl_(), manual = document.getElementById("apple-pay-manual"), fold = document.getElementById("apple-pay-manual-fold");
+  document.getElementById("apple-pay-quick").hidden = !url;
+  fold.hidden = !url;
+  if (url && manual.parentElement !== fold) fold.appendChild(manual);
+  if (!url && manual.parentElement === fold) fold.after(manual);
+  if (!url) return;
+  document.getElementById("apple-pay-q2").textContent = tr("ap.q2", { name: APPLE_PAY_SHORTCUT_NAME_ });
+}
 function applePayLink_() {
   const url = getApiUrl() || OWNER_API_URL;
   return applePaySetup_ && applePaySetup_.key && url ? `${url}?k=${encodeURIComponent(applePaySetup_.key)}` : "";
@@ -16107,6 +16626,7 @@ function drawApplePay_() {
   document.getElementById("apple-pay-make-btn").hidden = has;
   document.getElementById("apple-pay-copy-btn").hidden = !has;
   document.getElementById("apple-pay-replace-btn").disabled = !has;
+  drawApplePayQuick_();
   const st = applePaySetup_ || {};
   document.getElementById("apple-pay-status").textContent = st.lastAt
     ? tr("ap.last", { when: I18n.fmtDateTime(new Date(st.lastAt)), n: Number(st.count || 0) })
@@ -16147,8 +16667,22 @@ document.getElementById("apple-pay-copy-btn").addEventListener("click", async ()
   const msg = document.getElementById("apple-pay-msg");
   const link = applePayLink_();
   if (!link) { msg.textContent = tr("ap.noAddress"); return; }
-  try { await navigator.clipboard.writeText(link); msg.textContent = tr("ap.copied"); }
+  try { await navigator.clipboard.writeText(link); msg.textContent = tr(applePayShortcutUrl_() ? "ap.addCopied" : "ap.copied"); }
   catch (e) { msg.textContent = tr("ap.copyFailed"); }
+});
+// "Add the shortcut" copies the person's own link (for the question the shortcut asks when it is added) and opens the iCloud page in a
+// window over the app, which hands straight over to the Shortcuts app. Both start inside the tap: iOS refuses either one later.
+// Tried on the owner's phone on 2026-11-22 and dropped: shortcuts://import-shortcut takes only a shortcut FILE ("The file isn't in
+// the correct format"); real Safari (openInSafari_) stops on the iCloud page and needs one more tap on "Get Shortcut".
+document.getElementById("apple-pay-add-btn").addEventListener("click", () => {
+  const msg = document.getElementById("apple-pay-add-msg");
+  const link = applePayLink_(), url = applePayShortcutUrl_();
+  if (!url) return;
+  if (!link) { msg.textContent = tr(applePaySetup_ && applePaySetup_.key ? "ap.noAddress" : "ap.addFirst"); return; }
+  msg.textContent = tr("ap.addCopied");
+  try { navigator.clipboard.writeText(link).catch(() => { msg.textContent = tr("ap.addNoCopy"); }); }
+  catch (err) { msg.textContent = tr("ap.addNoCopy"); }
+  window.open(url, "_blank", "noopener");
 });
 document.getElementById("my-profile-back-btn").addEventListener("click", () => showScreen("more"));
 // How I type dates: the highlighted choice is the order the app really uses now (the language's own until one is chosen).
@@ -16391,12 +16925,12 @@ ownerNamesEl_("owner-names-list").addEventListener("click", (e) => {
 (function setupLanguagePicker() {
   const select = document.getElementById("language-select");
   select.value = I18n.getLang();
-  select.addEventListener("change", async () => {
+  select.addEventListener("change", () => {
     const lang = I18n.saveLang(select.value);
-    // Also saved in the Sheet so the bot, alerts and e-mails speak the same
-    // language; don't make the person wait long if the server is slow to wake.
-    try { await Promise.race([callApi("setLanguage", { lang }), sleep(3000)]); } catch (err) { /* saved on the next app open */ }
-    window.location.reload();
+    // Also saved in the Sheet so the bot, alerts and e-mails speak the same language. Not waited for (speed sweep 2026-11-21: up to
+    // 3 s): if it does not get through before the reload, the app sends it again as it opens (syncLanguageSetting_).
+    callApi("setLanguage", { lang }).catch(() => {});
+    setTimeout(() => window.location.reload(), 150);
   });
 })();
 
@@ -16472,6 +17006,7 @@ function openBankMailModal_(opts) {
   I18n.applyStatic(backdrop);
   bmEl_("bm-address").textContent = info.address || tr("bankMail.noAddress");
   bmEl_("bm-address2").textContent = info.address || tr("bankMail.noAddress");   // again inside "another address?", next to its Copy button
+  bmEl_("bm-w3").hidden = !!(meta && meta.capabilities && meta.capabilities.forwardedEmails);   // forwards by hand ARE read there (ForwardedEmail.gs)
   bmEl_("bm-copy-btn").hidden = !info.address;
   bmEl_("bm-msg").textContent = "";
   const reading = !!(meta && meta.capabilities && meta.capabilities.bankEmails);
@@ -17220,6 +17755,7 @@ async function showTidyScreen() {
     btn.classList.toggle("active", btn.dataset.screen === "more");
   });
   tidySkipped_.clear();
+  tidyPicked_.clear();
   const list = document.getElementById("tidy-list");
   list.innerHTML = loadingHtml_();
   document.getElementById("noacct-card").hidden = true;
@@ -17256,6 +17792,9 @@ function tidyAmountHtml_(e) {
   const dir = entryFlowDirection_(e);
   return `<span class="tidy-amt${dir === "in" ? " tidy-amt-in" : ""}">${formatAmount(Math.abs(Number(e.amount)), e.currency, dir === "in" ? "+" : dir === "out" ? "−" : "")}</span>`;
 }
+// The category picked on a group and not applied yet (group key -> category id): a redraw (another group applied, skipped or undone)
+// keeps it instead of going back to the suggestion (owner, 2026-11-21: same as Needs review, a save behind the screen must not undo picks).
+const tidyPicked_ = new Map();
 function renderTidy_() {
   const data = tidyData_;
   const groups = tidyGroups_.filter((g) => !tidySkipped_.has(g.key));
@@ -17288,7 +17827,7 @@ function renderTidy_() {
       <div class="hint tidy-group-meta">${escapeHtml(tr("tidy.count", { n: g.count }))} · ${escapeHtml(dates)}
         ${sug ? `<br>${escapeHtml(tr(sug.similar ? "tidy.suggestedSimilar" : "tidy.suggested", { category: sug.categoryName, n: sug.n, total: sug.total }))}` : ""}</div>
       <div class="tidy-group-row">
-        <select class="tidy-select">${tidyCategoryOptions_(sug ? sug.categoryId : "")}</select>
+        <select class="tidy-select">${tidyCategoryOptions_(tidyPicked_.has(g.key) ? tidyPicked_.get(g.key) : sug ? sug.categoryId : "")}</select>
         <button type="button" class="add-inline tidy-apply">${escapeHtml(tr("tidy.apply"))}</button>
         <button type="button" class="add-inline tidy-lines">${escapeHtml(tr("tidy.showLines"))}</button>
         <button type="button" class="add-inline tidy-skip">${escapeHtml(tr("tidy.skip"))}</button>
@@ -17305,9 +17844,12 @@ let noAcctLastSave_ = null;   // { ok, count } of the last Save (the real tutori
 const noAcctPicked_ = new Map();   // entry id -> account id picked on the screen (not saved yet)
 const noAcctOpen_ = new Set();   // months opened on the screen ('YYYY-MM'); every month starts closed
 
-async function loadNoAccount_() {
+// keepPicks: the accounts picked on entries still listed stay picked (a Save or Undo running behind the screen must not undo what was picked
+// meanwhile; owner, 2026-11-21). Opening the screen starts clean.
+async function loadNoAccount_(keepPicks) {
   noAcctData_ = await callApi("listNoAccountEntries", {});
-  noAcctPicked_.clear();
+  const listed = new Set(((noAcctData_ && noAcctData_.entries) || []).map((e) => e.id));
+  [...noAcctPicked_.keys()].forEach((id) => { if (!keepPicks || !listed.has(id)) noAcctPicked_.delete(id); });
   renderNoAccount_();
 }
 
@@ -17397,19 +17939,20 @@ document.getElementById("noacct-save").addEventListener("click", async (ev) => {
   let saved = null;
   try {
     const res = await callApi("assignEntryAccounts", { items });
+    items.forEach((it) => { if (noAcctPicked_.get(it.id) === it.payment_method_id) noAcctPicked_.delete(it.id); });   // saved (a later change to it stays)
     saved = { ok: true, count: res.count || 0 };
     if (!res.count) showToast_(tr("noacct.nothing"));
     else {
       showUndoToast_(tr("noacct.saved", { n: res.count }), async () => {
         await callApi("undoEntryAccounts", { changes: res.changes });
         showToast_(tr("noacct.undone"));
-        await loadNoAccount_();
+        await loadNoAccount_(true);
         refreshEntryList().catch(() => {});
       });
       refreshEntryList().catch(() => {});
       refreshHomeGlance_(true);
     }
-    await loadNoAccount_();
+    await loadNoAccount_(true);
     noAcctLastSave_ = saved;   // only once the card shows what is left (the tutorial's last step depends on it; owner's walk 2026-11-12)
   } catch (err) {
     noAcctLastSave_ = saved || { ok: false, count: 0 };
@@ -17623,6 +18166,7 @@ document.getElementById("annualcu-finish-btn").addEventListener("click", async (
 // Fills the groups, then offers Undo; the list is reloaded so what is left (and any new suggestion) shows.
 async function applyTidy_(items, buttons) {
   buttons.forEach((b) => { b.disabled = true; });
+  items.forEach((it) => tidyPicked_.delete(it.key));   // filed: what is left of it comes back with its own suggestion
   showToast_(tr("common.savingToast"));
   try {
     const res = await callApi("applyTidyGroups", { items });
@@ -17663,6 +18207,10 @@ document.getElementById("tidy-list").addEventListener("click", (ev) => {
     if (!categoryId) { showFieldError_(row.querySelector(".tidy-select"), tr("review.pickCategoryFirst"), row.querySelector(".tidy-group-row")); return; }
     applyTidy_([{ key, categoryId }], [ev.target.closest(".tidy-apply")]);
   }
+});
+document.getElementById("tidy-list").addEventListener("change", (ev) => {
+  const sel = ev.target.closest(".tidy-select"), row = sel && sel.closest(".tidy-group[data-key]");
+  if (row) tidyPicked_.set(row.dataset.key, sel.value);
 });
 document.getElementById("tidy-apply-all-btn").addEventListener("click", (ev) => {
   const items = tidyGroups_.filter((g) => g.suggestion && !tidySkipped_.has(g.key)).map((g) => ({ key: g.key, categoryId: g.suggestion.categoryId }));
@@ -17916,6 +18464,7 @@ function renderBankEmails_() {
   beEl_("be-copy-btn").hidden = !info.address;
   beEl_("be-msg").textContent = "";
   beEl_("be-teach").hidden = perfIsOwnerCopy_();   // the owner writes the e-mail rules himself
+  renderBeForward_();
   const applePay = !!(meta && meta.capabilities && meta.capabilities.applePay);
   beEl_("be-tabs").hidden = !reading && !applePay;
   beEl_("be-tab-bank").hidden = !reading;   // no e-mail reading: only "By transaction" (and Apple Pay where offered)
@@ -17925,11 +18474,60 @@ function renderBankEmails_() {
   setBeView_((be_.view === "bank" && !reading) || (be_.view === "ap" && !applePay) ? "tx" : be_.view);
 }
 
+// Bank e-mails already sent to another address: forward them here (backend ForwardedEmail.gs, 2026-11-22). Only where the backend reads
+// forwards; there the old "e-mails forwarded by hand are not read" warning goes. The person's other addresses: their forwards are not
+// marked "Forwarded by" in Needs review.
+function renderBeForward_() {
+  const on = !!(meta && meta.capabilities && meta.capabilities.forwardedEmails);
+  beEl_("be-forward").hidden = !on;
+  beEl_("be-w3").hidden = on;
+  if (!on) return;
+  const list = ((meta && meta.emailInfo) || {}).forwardFrom || [];
+  const box = beEl_("be-fwd-list");
+  box.innerHTML = "";
+  list.forEach((addr) => {
+    const row = document.createElement("div");
+    row.className = "be-fwd-row";
+    row.innerHTML = `<span class="bm-status-addr">${escapeHtml(addr)}</span><button type="button" class="add-inline be-fwd-remove">${escapeHtml(tr("bankMail.fwdRemove"))}</button>`;
+    row.querySelector("button").setAttribute("aria-label", tr("bankMail.fwdRemoveAria", { address: addr }));
+    row.querySelector("button").addEventListener("click", () => saveBeForward_(list.filter((a) => a !== addr)));
+    box.appendChild(row);
+  });
+  beEl_("be-fwd-empty").hidden = list.length > 0;
+}
+
+function saveBeForward_(addresses) {
+  if (meta) meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { forwardFrom: addresses });
+  renderBeForward_();   // shows the change at once; the server's answer replaces it
+  saveBehindScreen_(async () => {
+    const res = await callApi("setForwardAddresses", { addresses });
+    if (meta) meta.emailInfo = Object.assign({}, meta.emailInfo || {}, { forwardFrom: res.addresses || [] });
+  }, () => { if (!beEl_("screen-bank-emails").hidden) renderBeForward_(); });
+}
+
+beEl_("be-fwd-add-btn").addEventListener("click", () => {
+  const input = beEl_("be-fwd-input");
+  const addr = String(input.value || "").trim().toLowerCase();
+  const msg = beEl_("be-fwd-msg");
+  msg.textContent = "";
+  msg.classList.remove("error-text");
+  // A refusal looks like one: red with the failed icon (design system), not a grey hint (testers, 2026-11-22).
+  if (!/^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[a-z]{2,}$/i.test(addr)) { msg.textContent = "❌ " + tr("bankMail.fwdBad"); msg.classList.add("error-text"); input.focus(); return; }
+  const list = ((meta && meta.emailInfo) || {}).forwardFrom || [];
+  input.value = "";
+  if (list.includes(addr)) return;
+  saveBeForward_(list.concat([addr]));
+});
+
+// Enter in the address box presses Add (testers, 2026-11-22).
+beEl_("be-fwd-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); beEl_("be-fwd-add-btn").click(); } });
+
 function setBeView_(view) {
   be_.view = view;
   beEl_("be-view-bank").hidden = view !== "bank";
   beEl_("be-view-tx").hidden = view !== "tx";
   beEl_("be-view-ap").hidden = view !== "ap";
+  beEl_("be-body").dataset.view = view;   // the bank-email fold at the bottom is not about Apple Pay (owner, 2026-11-22)
   if (view === "ap") loadApplePay_();
   [["bank", "be-tab-bank"], ["tx", "be-tab-tx"], ["ap", "be-tab-ap"]].forEach(([v, id]) => {
     beEl_(id).classList.toggle("active", v === view);
@@ -18102,6 +18700,7 @@ function beWhySave_(kind, reason, note) {
   const data = be_.data || {};
   const before = Object.assign({}, data.reasons || {});
   data.reasons = Object.assign({}, before, { [kind]: { reason, note: note || "" } });
+  be_.whySaving = kind;   // its own box shows what was saved, not a draft
   renderBeTx_(data);
   callApi("saveGapReason", { kind, reason, note: note || "" }).then((res) => {
     if (res && res.reasons) { data.reasons = res.reasons; renderBeTx_(data); }
@@ -18201,6 +18800,16 @@ function renderBeTx_(data) {
   if (!share.hidden) share.textContent = tr("notauto.share", { manual: data.manualShare.manual, total: data.manualShare.total });
   const owner = !!data.owner;
   const grouped = kinds.some((k) => k.need);
+  // Words being typed under "Other" for one kind survive a redraw caused by an answer on another (owner, 2026-11-21).
+  const drafts = new Map(), focused = document.activeElement;
+  let caret = null;
+  beEl_("be-groups").querySelectorAll("textarea[data-why-note]").forEach((t) => {
+    const key = t.dataset.whyNote;
+    if (key === be_.whySaving || t.closest(".be-why-other").hidden) return;
+    drafts.set(key, t.value);
+    if (t === focused) caret = { key, start: t.selectionStart, end: t.selectionEnd };
+  });
+  be_.whySaving = null;
   beEl_("be-groups").innerHTML = !grouped
     ? kinds.map((k) => beKindHtml_(k, owner)).join("")
     : BE_NEEDS_.map((need) => {
@@ -18208,6 +18817,12 @@ function renderBeTx_(data) {
       if (!list.length) return "";
       return `<div class="be-group be-${need}"><h3>${escapeHtml(tr("be.need." + need))}</h3><p class="hint">${escapeHtml(tr("be.need." + need + ".sub"))}</p>${list.map((k) => beKindHtml_(k, owner)).join("")}</div>`;
     }).join("");
+  beEl_("be-groups").querySelectorAll("textarea[data-why-note]").forEach((t) => {
+    if (!drafts.has(t.dataset.whyNote)) return;
+    t.value = drafts.get(t.dataset.whyNote);
+    t.closest(".be-why-other").hidden = false;
+    if (caret && caret.key === t.dataset.whyNote) { t.focus({ preventScroll: true }); t.setSelectionRange(caret.start, caret.end); }
+  });
 }
 
 // "Send this to JP": the same pop-up as More → Teach the app my bank's emails, with this bank's address already filled in.
@@ -18478,7 +19093,7 @@ function renderRatesUsdOffer_(rates) {
     callApi("convertRatesToUsd", {}).then(() => {
       meta.settings.rate_base = "USD";
       meta.settings.rate_form = "per_base";
-      knownRateMonths_.clear();
+      knownRateMonths_.clear(); rateMonthPrefetch_.clear(); rateMissingAt_.clear();
       refreshExchangeRates();
     }).catch(() => { ratesUsdQuiet_ = false; });   // tried again the next time Currencies opens
     return;
@@ -18536,7 +19151,7 @@ document.getElementById("rates-usd-apply").addEventListener("click", () => {
     await callApi("convertRatesToUsd", {});
     meta.settings.rate_base = "USD";
     meta.settings.rate_form = "per_base";
-    knownRateMonths_.clear();
+    knownRateMonths_.clear(); rateMonthPrefetch_.clear(); rateMissingAt_.clear();
   }, async () => {
     refreshExchangeRates();
     refreshHomeGlance_(true);   // amounts in a third currency now go through the dollar
@@ -19072,13 +19687,16 @@ document.getElementById("pm-hide-btn").addEventListener("click", async () => {
   errorEl.textContent = "";
   const pm = meta.paymentMethods.find((p) => p.id === pmModalState.id);
   if (!pm) return;
-  try {
-    const res = await callApi("setPaymentMethodHidden", { id: pm.id, hidden: !pmHidden_(pm) });
-    pm.hidden = res.hidden;
-    refreshAccountPickers_();
-    closePmModal_();
-    renderAccountsList_();
-  } catch (err) { errorEl.textContent = err.message; }
+  // Behind the screen (saving standard; speed sweep 2026-11-21): the list changes at once and goes back if the server refuses.
+  const was = pm.hidden, hide = !pmHidden_(pm);
+  pm.hidden = hide ? "yes" : "";
+  refreshAccountPickers_();
+  closePmModal_();
+  renderAccountsList_();
+  saveBehindScreen_(async () => {
+    try { pm.hidden = (await callApi("setPaymentMethodHidden", { id: pm.id, hidden: hide })).hidden; }
+    catch (err) { pm.hidden = was; throw err; }
+  }, () => { refreshAccountPickers_(); renderAccountsList_(); });
 });
 
 document.getElementById("pm-delete-btn").addEventListener("click", async () => {
@@ -19355,6 +19973,68 @@ document.getElementById("tags-add-btn").addEventListener("click", async () => {
   if (!name) return;
   if (tagNameTakenApp_(name)) { appMessage_(tr("tagsScreen.exists", { name })); return; }
   saveBehindScreen_(() => callApi("addTag", { name }), refreshTagsAfterChange_);
+});
+
+// ---- "Add units" (Business 2, piece 5; company copies only) ----
+// Each unit is an ordinary tag; the bots read them in a short message ("ingreso 30000 separación depa 3 Pérez", CompanyBot.gs).
+function unitsMode_() { return (document.querySelector('input[name="units-mode"]:checked') || {}).value || "floors"; }
+function unitsNames_() {
+  const n = (id) => Math.floor(Number(String(document.getElementById(id).value || "").trim()));
+  const prefix = document.getElementById("units-prefix").value;
+  const withPrefix = (x) => (prefix ? `${prefix} ${x}` : String(x));
+  const mode = unitsMode_();
+  if (mode === "list") {
+    return document.getElementById("units-list").value.split(/[\n,]+/).map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean).map(withPrefix);
+  }
+  if (mode === "seq") { const c = n("units-seq-count"); return c > 0 ? Array.from({ length: Math.min(c, 300) }, (_, i) => withPrefix(i + 1)) : []; }
+  const from = n("units-floor-from"), to = n("units-floor-to"), per = n("units-per-floor");
+  if (!(from >= 0 && to >= from && per > 0 && per <= 99)) return [];
+  const out = [];
+  for (let f = from; f <= to && out.length <= 300; f++) for (let u = 1; u <= per; u++) out.push(withPrefix(f * 100 + u));
+  return out;
+}
+function unitsRefresh_() {
+  const mode = unitsMode_();
+  document.getElementById("units-floors-box").hidden = mode !== "floors";
+  document.getElementById("units-seq-box").hidden = mode !== "seq";
+  document.getElementById("units-list-box").hidden = mode !== "list";
+  const names = unitsNames_();
+  const taken = new Set((meta.tags || []).map((t) => String(t.name).trim().toLowerCase()));
+  const fresh = names.filter((x, i) => names.indexOf(x) === i && !taken.has(x.toLowerCase()));
+  // The whole list, before anything is created (owner's plan: check it first).
+  document.getElementById("units-preview").textContent = !names.length ? "" : names.length > 300 ? tr("units.tooMany")
+    : tr("units.preview", { n: fresh.length, list: fresh.join(", ") }) + (fresh.length < names.length ? " " + tr("units.already", { n: names.length - fresh.length }) : "");
+  return fresh;
+}
+function openUnits_() {
+  document.querySelector('input[name="units-mode"][value="floors"]').checked = true;
+  ["units-floor-to", "units-per-floor", "units-seq-count", "units-list"].forEach((id) => { document.getElementById(id).value = ""; });
+  document.getElementById("units-floor-from").value = "1";
+  document.getElementById("units-prefix").value = "Depa";
+  document.getElementById("units-error").textContent = "";
+  unitsRefresh_();
+  const backdrop = document.getElementById("units-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+document.getElementById("units-add-btn").addEventListener("click", openUnits_);
+document.getElementById("units-close").addEventListener("click", () => { document.getElementById("units-modal-backdrop").hidden = true; });
+document.querySelectorAll('input[name="units-mode"]').forEach((r) => r.addEventListener("change", () => {
+  if (unitsMode_() === "list") document.getElementById("units-prefix").value = "";   // a typed list carries its own names ("Shop 1")
+  unitsRefresh_();
+}));
+["units-floor-from", "units-floor-to", "units-per-floor", "units-seq-count", "units-list", "units-prefix"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", unitsRefresh_);
+  document.getElementById(id).addEventListener("change", unitsRefresh_);
+});
+document.getElementById("units-save").addEventListener("click", () => {
+  const names = unitsNames_();
+  const fresh = unitsRefresh_();
+  const err = document.getElementById("units-error");
+  if (names.length > 300) { err.textContent = tr("units.tooMany"); return; }
+  if (!fresh.length) { err.textContent = tr(names.length ? "units.nothingNew" : "units.nothing"); return; }
+  document.getElementById("units-modal-backdrop").hidden = true;
+  saveBehindScreen_(() => callApi("addTagsBulk", { names: fresh }), refreshTagsAfterChange_);
 });
 
 function catCountText_(id) {
@@ -19753,11 +20433,15 @@ document.getElementById("cat-hide-btn").addEventListener("click", async () => {
   errorEl.textContent = "";
   const cat = meta.categories.find((c) => c.id === catModalState.id);
   if (!cat) return;
-  try {
-    await callApi("setCategoryHidden", { id: cat.id, hidden: !catHidden_(cat) });
-    closeCatModal_();
-    await refreshCategoriesAfterChange_();
-  } catch (err) { errorEl.textContent = err.message; }
+  // Behind the screen (saving standard; speed sweep 2026-11-21): the list changes at once, a refusal puts it back with a message.
+  const was = cat.hidden, hidden = !catHidden_(cat);
+  cat.hidden = hidden ? "yes" : "";
+  closeCatModal_();
+  renderCategoriesList_();
+  saveBehindScreen_(async () => {
+    try { await callApi("setCategoryHidden", { id: cat.id, hidden }); }
+    catch (err) { cat.hidden = was; throw err; }
+  }, refreshCategoriesAfterChange_);
 });
 
 // Where a deleted category's records can move: any other category of the same type.
@@ -20444,15 +21128,11 @@ function renderTripUnlinked_(d) {
         <div class="recurring-row-sub">${escapeHtml(listDate_(u.entry.date))} · ${escapeHtml(formatAmount(u.entry.amount, u.entry.currency))}</div>
       </div>
       <button type="button" class="add-inline">${escapeHtml(tr("trips.addToTrip"))}</button>`;
-    row.querySelector("button").addEventListener("click", async (ev) => {
+    row.querySelector("button").addEventListener("click", (ev) => {
+      // Behind the screen (speed sweep 2026-11-21): the row goes at once; the trip's redraw brings it back if the server refused.
       ev.target.disabled = true;
-      try {
-        await callApi("updateEntry", { id: u.entry.id, fields: { trip_id: d.trip.id } });
-        await refreshTripDetail_();
-      } catch (err) {
-        document.getElementById("trip-detail-error").textContent = tr("trips.loadFailed", { error: err.message });
-        ev.target.disabled = false;
-      }
+      row.hidden = true;
+      saveBehindScreen_(() => callApi("updateEntry", { id: u.entry.id, fields: { trip_id: d.trip.id } }), refreshTripDetail_);
     });
     box.appendChild(row);
   });
@@ -20477,13 +21157,8 @@ function renderTripEstimates_(d) {
       ev.stopPropagation();
       if (!await askConfirmApp_(tr("trips.confirmCovered", { what: describeForConfirm_(e.description || e.category_name, formatAmount(e.amount, e.currency)) }), tr("confirmBtn.yes"), { plain: true })) return;
       ev.target.disabled = true;
-      try {
-        await callApi("deleteRecurringExpense", { id: e.id });
-        await refreshTripDetail_();
-      } catch (err) {
-        document.getElementById("trip-detail-error").textContent = tr("trips.loadFailed", { error: err.message });
-        ev.target.disabled = false;
-      }
+      row.hidden = true;   // behind the screen (speed sweep 2026-11-21); the trip's redraw brings it back if the server refused
+      saveBehindScreen_(() => callApi("deleteRecurringExpense", { id: e.id }), refreshTripDetail_, { busy: "common.deletingToast" });
     });
     row.addEventListener("click", async () => {
       try {
@@ -20772,19 +21447,17 @@ async function loadTripFinder_(lookBack, preFound) {
     };
     rows.forEach((r) => r.input.addEventListener("change", refreshLabel));
     refreshLabel();
-    addBtn.addEventListener("click", async () => {
+    addBtn.addEventListener("click", () => {
+      // Behind the screen (saving standard; speed sweep 2026-11-21): the list closes at once, the trip's totals follow.
       addBtn.disabled = true;
-      try {
-        const ticked = rows.filter((r) => r.input.checked).map((r) => r.e.id);
-        await callApi("linkEntriesToTrip", { id, entryIds: ticked });
-        box.hidden = true;
+      const ticked = rows.filter((r) => r.input.checked).map((r) => r.e.id);
+      box.hidden = true;
+      let linked = false;
+      saveBehindScreen_(async () => { await callApi("linkEntriesToTrip", { id, entryIds: ticked }); linked = true; }, async () => {
         await refreshTripDetail_();
         // Only now: the practice's closing step lights up these totals, and must not show the old ones while they reload.
-        if (practiceT_ && (practiceT_.pastIds || []).some((pid) => ticked.includes(pid))) { practiceT_.linked = true; practiceTSave_(); }
-      } catch (err) {
-        document.getElementById("trip-detail-error").textContent = tr("trips.loadFailed", { error: err.message });
-        addBtn.disabled = false;
-      }
+        if (linked && practiceT_ && (practiceT_.pastIds || []).some((pid) => ticked.includes(pid))) { practiceT_.linked = true; practiceTSave_(); }
+      });
     });
     box.appendChild(addBtn);
   } catch (err) {
@@ -20925,7 +21598,7 @@ function businessOffered() {
   return c.businessOffered !== undefined ? !!c.businessOffered : !!(c.business || c.perfLog);
 }
 
-function applyBusinessVisibility_() {
+function applyBusinessVisibility_(opts) {
   // More → Friends: only when this backend can edit friends (an older one lacks it). Checked here so it also follows every fresh load of the settings.
   document.getElementById("more-friends-btn").hidden = !((meta && meta.capabilities) || {}).friendsEdit;
   document.getElementById("more-deleted-btn").hidden = !((meta && meta.capabilities) || {}).entriesRestore;
@@ -20938,11 +21611,24 @@ function applyBusinessVisibility_() {
   });
   document.getElementById("be-tab-ap").hidden = !applePay;
   document.querySelector("#screen-bank-emails .info-btn, .info-btn[data-info^=\"bankViews\"]").dataset.info = applePay ? "bankViewsAp" : "bankViews";   // its card names the Apple Pay view too
+  // A company copy (Business 2, piece 3): the "bank loan" is a loan from a LENDER to the company, so its words say so.
+  [["add-bank-loan-btn", "bank.addButton"], ["bank-lender-label", "bank.lender"]].forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    el.setAttribute("data-i18n", bankWordKey_(key));
+    el.textContent = tr(bankWordKey_(key));
+  });
+  applyCompanyOverview_();   // a company copy's Overview: its own cards and order (Business 2, piece 4)
+  document.getElementById("units-add-btn").hidden = !companyCopyOn_();   // "Add units" (Business 2, piece 5)
+  const peopleHint = document.getElementById("people-hint");
+  peopleHint.setAttribute("data-i18n", companyCopyOn_() ? "people.hintCo" : "people.hint");
+  peopleHint.textContent = tr(peopleHint.getAttribute("data-i18n"));
+  document.getElementById("bank-lender").setAttribute("data-i18n-placeholder", bankWordKey_("bank.lenderPlaceholder"));
+  document.getElementById("bank-lender").placeholder = tr(bankWordKey_("bank.lenderPlaceholder"));
   const on = businessOn();
   document.getElementById("more-business-features-btn").hidden = !businessOffered();
   document.getElementById("more-business-btn").hidden = !on;
   document.getElementById("more-business-features-state").textContent = tr(on ? "business.state.on" : "business.state.off");
-  refreshBusinessHomeCard_();
+  if (!(opts && opts.noCard)) refreshBusinessHomeCard_();
 }
 
 // Shows one of the screens reached from the More list and keeps "More" highlighted in the bar.
@@ -21019,6 +21705,7 @@ function fillBusinessPeriodSelects_() {
 function refreshBusinessPeriodScreens_() {
   if (!document.getElementById("screen-business").hidden) refreshBusinessList_();
   if (!document.getElementById("screen-business-detail").hidden) refreshBusinessDetail_();
+  if (!document.getElementById("screen-business-statement").hidden) refreshStatement_();
 }
 
 document.querySelectorAll(".business-period-select").forEach((sel) => sel.addEventListener("change", () => {
@@ -21114,8 +21801,32 @@ let businessList_ = [];
 async function showBusinessScreen() {
   showMoreSub_("business");
   fillBusinessPeriodSelects_();
+  document.getElementById("business-invite").hidden = !perfIsOwnerCopy_();   // the owner's copy only
   await refreshBusinessList_();
 }
+
+// ---- Invite a company (owner's copy; Business 2, piece 1): the person's Google e-mail → a ready message with an install link that
+// carries its code (docs/company-invite.js). The install page builds a company copy only for that Google account. Nothing is stored.
+document.getElementById("business-invite-email").addEventListener("input", () => {
+  document.getElementById("business-invite-msg").textContent = "";
+  document.getElementById("business-invite-text").hidden = true;
+});
+document.getElementById("business-invite-copy").addEventListener("click", async () => {
+  const email = CompanyInvite.normEmail(document.getElementById("business-invite-email").value);
+  const msg = document.getElementById("business-invite-msg");
+  const box = document.getElementById("business-invite-text");
+  box.hidden = true;
+  if (!CompanyInvite.looksLikeEmail(email)) { msg.textContent = tr("coInv.badEmail"); return; }
+  let text;
+  try {
+    const code = await CompanyInvite.code(email);
+    text = tr("coInv.message", { link: `${siteUrl_("setup/")}#company=${code}`, email });
+  } catch (err) { msg.textContent = tr("coInv.failed"); return; }
+  box.value = text;
+  box.hidden = false;
+  try { await navigator.clipboard.writeText(text); msg.textContent = tr("coInv.copied"); }
+  catch (err) { msg.textContent = tr("coInv.copyByHand"); box.focus(); box.select(); }
+});
 
 async function refreshBusinessList_() {
   const errorEl = document.getElementById("business-error");
@@ -21408,6 +22119,8 @@ function renderBusinessDetail_(d) {
     ${currencies.length ? businessCurrencyCardsHtml_(currencies) : `<p class="hint">${escapeHtml(tr("business.nothingYet"))}</p>`}
     ${businessApproxHtml_(d)}
     ${currencies.some((c) => c.igv) ? `<p class="hint" style="margin-top:2px;">${escapeHtml(tr("igv.netNote"))}</p>` : ""}
+    ${d.openings && d.openings.length ? `<p class="hint" style="margin-top:2px;">${escapeHtml(tr("statement.detailNote", { dates: [...new Set(d.openings.map((o) => I18n.fmtDateMedium(new Date(o.as_of + "T00:00:00"))))].join(", ") }))}</p>` : ""}
+    <button type="button" class="add-inline" id="business-detail-statement-btn">${escapeHtml(tr(isProject ? "statement.openProject" : "statement.openCompany"))}</button>
     ${isProject ? businessOwedHtml_(d.debts || []) : ""}
     ${businessExpectedHtml_(d.expected || [], isProject)}
     ${chips}
@@ -21426,6 +22139,7 @@ function renderBusinessDetail_(d) {
   wireBusinessExpected_(d, isProject);
   const igvBtn = document.getElementById("business-detail-igv-btn");
   if (igvBtn) igvBtn.addEventListener("click", () => showIgvScreen_(d.company.id));
+  document.getElementById("business-detail-statement-btn").addEventListener("click", () => showStatementScreen_(businessDetail_.kind, businessDetail_.id));
   const statusBtn = document.getElementById("business-detail-status-btn");
   if (statusBtn) statusBtn.addEventListener("click", async () => {
     const closing = d.project.status !== "closed";
@@ -21640,13 +22354,15 @@ document.getElementById("expected-delete-btn").addEventListener("click", async (
 
 // Home: a card of its own under "Programmed this month" — what clients still owe, due this month or overdue. Never mixed into
 // the personal figures, and only there while the pack is on and something is expected.
+let businessCardCall_ = null;   // one listExpectedPayments at a time: a second refresh while one is on its way shares it (speed sweep 2026-11-21)
 async function refreshBusinessHomeCard_() {
   const card = document.getElementById("business-expected-card");
   if (!card) return;
   if (!businessOn()) { card.hidden = true; return; }
   let r;
   try {
-    r = await callApi("listExpectedPayments", { scope: "home", today: todayLocalISO() });
+    const call = businessCardCall_ || (businessCardCall_ = callApi("listExpectedPayments", { scope: "home", today: todayLocalISO() }).finally(() => { businessCardCall_ = null; }));
+    r = await call;
   } catch (err) {
     return;   // keep what is there; the next refresh tries again
   }
@@ -21825,7 +22541,8 @@ function renderIgvScreen_() {
     ${totals || `<p class="hint">${escapeHtml(tr("igv.nothingYet"))}</p>`}
     ${months ? `<h3 class="accounts-group-title">${escapeHtml(tr("igv.byMonth"))}</h3>${months}` : ""}
     ${payments ? `<h3 class="accounts-group-title">${escapeHtml(tr("igv.payments"))}</h3>${payments}` : ""}
-    <p class="hint">${escapeHtml(tr("igv.note"))}</p>`;
+    <p class="hint">${escapeHtml(tr("igv.note"))}</p>
+    ${d.hasOpenings ? `<p class="hint">${escapeHtml(tr("igv.openingNote"))}</p>` : ""}`;
   document.querySelectorAll("#igv-body .igv-payment-row").forEach((row) => row.addEventListener("click", () => {
     openIgvPaymentModal_(d.payments.find((p) => p.id === row.dataset.id) || null);
   }));
@@ -21890,6 +22607,358 @@ document.getElementById("igv-payment-delete-btn").addEventListener("click", asyn
   } catch (err) {
     document.getElementById("igv-payment-error").textContent = err.message;
   }
+});
+
+// ---- The project / company STATEMENT (step 4): Opening · Movements · Closing per currency, "right now", compare with the accountant ----
+
+let statementTarget_ = null;   // { kind: "project" | "company", id }
+let statementData_ = null;
+let editingOpening_ = null;    // { opening | null }
+let editingAccountant_ = null; // { figures | null }
+const STATEMENT_LINES = ["income", "igv_collected", "costs", "igv_credit", "result"];
+
+async function showStatementScreen_(kind, id) {
+  statementTarget_ = { kind, id };
+  statementData_ = null;
+  showMoreSub_("business-statement");
+  fillBusinessPeriodSelects_();
+  const known = kind === "project" ? (meta.projects || []).find((p) => p.id === id) : (meta.companies || []).find((c) => c.id === id);
+  document.getElementById("statement-title").textContent = tr(kind === "project" ? "statement.titleProject" : "statement.titleCompany");
+  document.getElementById("statement-sub").textContent = known ? (kind === "project" ? projectLabel_(known) : companyLabel_(known)) : "";
+  document.getElementById("statement-body").innerHTML = loadingHtml_();
+  document.getElementById("statement-csv-btn").disabled = true;
+  await refreshStatement_();
+}
+
+async function refreshStatement_() {
+  const target = statementTarget_;
+  if (!target) return;
+  const errorEl = document.getElementById("statement-error");
+  errorEl.textContent = "";
+  try {
+    await waitForEntryEditsToSave_();
+    const b = businessBounds_();
+    const data = await callApi(target.kind === "project" ? "getProjectStatement" : "getCompanyStatement", { id: target.id, startDate: b.startDate || "", endDate: b.endDate || "", today: todayLocalISO() });
+    if (!statementTarget_ || statementTarget_.id !== target.id) return;   // moved on while loading
+    statementData_ = data;
+    renderStatement_();
+  } catch (err) {
+    document.getElementById("statement-body").innerHTML = "";
+    errorEl.textContent = tr("statement.loadFailed", { error: err.message });
+  }
+}
+
+function statementFigureHtml_(n, line) {
+  const cls = line === "result" ? (n < -0.004 ? "business-neg" : (n > 0.004 ? "business-pos" : "")) : "";
+  return `<span class="${cls}">${moneyFmt(n)}</span>`;
+}
+
+function statementBlockHtml_(b) {
+  const rows = STATEMENT_LINES.map((line) => `
+    <div class="statement-row${line === "result" ? " result" : ""}">
+      <span class="statement-label">${escapeHtml(tr("statement.line." + line))}</span>
+      ${["opening", "movements", "closing"].map((col) => `<span class="statement-num">${statementFigureHtml_(b[col][line], line)}</span>`).join("")}
+    </div>`).join("");
+  return `
+    <div class="business-cur-card">
+      <div class="business-cur-head">${escapeHtml(b.currency)}</div>
+      <div class="statement-row statement-head">
+        <span class="statement-label"></span>
+        <span class="statement-num">${escapeHtml(tr("statement.colOpening"))}</span>
+        <span class="statement-num">${escapeHtml(tr("statement.colMovements"))}</span>
+        <span class="statement-num">${escapeHtml(tr("statement.colClosing"))}</span>
+      </div>
+      ${rows}
+    </div>`;
+}
+
+function statementRightNowHtml_(d) {
+  const people = d.rightNow.people.flatMap((p) => p.balances.map((bal) => {
+    const amount = businessAmount_(bal.currency, Math.abs(bal.net));
+    return `<div class="recurring-row trip-static-row"><div class="recurring-row-name">${escapeHtml(tr(bal.net > 0 ? "statement.owesYou" : "statement.youOwe", { name: p.name, amount }))}</div></div>`;
+  })).join("");
+  const expected = d.rightNow.expected.items.map((x) => `
+    <div class="recurring-row trip-static-row">
+      <div>
+        <div class="recurring-row-name">${escapeHtml(x.invoice_no || x.client_name || tr("xp.title"))}</div>
+        <div class="recurring-row-sub">${escapeHtml(expectedDueText_(x))}</div>
+      </div>
+      <div class="recurring-row-amount">${escapeHtml(businessAmount_(x.currency, x.remaining))}</div>
+    </div>`).join("");
+  return `
+    <h3 class="accounts-group-title">${escapeHtml(tr("statement.rightNow"))}</h3>
+    <p class="hint" style="margin-top:0;">${escapeHtml(tr(d.kind === "project" ? "statement.rightNowHint" : "statement.rightNowCompanyHint"))}</p>
+    ${people}
+    ${expected ? `<div class="statement-sub-title">${escapeHtml(tr("statement.expectedTitle"))}</div>${expected}` : ""}
+    ${!people && !expected ? `<p class="hint">${escapeHtml(tr("statement.nothingNow"))}</p>` : ""}`;
+}
+
+function statementOpeningsHtml_(d) {
+  const rows = d.openings.map((o) => `
+    <div class="recurring-row statement-opening-row" data-id="${escapeHtml(o.id)}">
+      <div>
+        <div class="recurring-row-name">${escapeHtml(tr(d.kind === "company" && !o.project_id ? "statement.openingRowCompanyLevel" : "statement.openingRow", { currency: o.currency, date: I18n.fmtDateMedium(new Date(o.as_of + "T00:00:00")) }))}</div>
+        <div class="recurring-row-sub">${escapeHtml([o.project_name || "", o.note || ""].filter(Boolean).join(" · "))}</div>
+      </div>
+    </div>`).join("");
+  return `
+    <h3 class="accounts-group-title">${escapeHtml(tr("statement.openingTitle"))}</h3>
+    <p class="hint" style="margin-top:0;">${escapeHtml(tr("statement.openingHint"))}</p>
+    ${rows}
+    <button type="button" class="add-inline" id="statement-add-opening-btn">${escapeHtml(tr("statement.addOpening"))}</button>`;
+}
+
+function statementCompareHtml_(d) {
+  const sets = d.accountant.map((a) => {
+    const head = `<div class="statement-compare-head">${escapeHtml(tr("statement.compareAsOf", { date: I18n.fmtDateMedium(new Date(a.as_of + "T00:00:00")), currency: a.currency }))}</div>`;
+    if (a.status === "beforeOpening") {
+      return `<div class="business-cur-card statement-compare" data-id="${escapeHtml(a.id)}">${head}<p class="hint">${escapeHtml(tr("statement.beforeOpening"))}</p></div>`;
+    }
+    const rows = STATEMENT_LINES.map((line) => {
+      const diff = a.diff[line];
+      const cls = Math.abs(diff) < 0.005 ? "business-pos" : "business-neg";
+      return `
+        <div class="statement-row${line === "result" ? " result" : ""}">
+          <span class="statement-label">${escapeHtml(tr("statement.line." + line))}</span>
+          <span class="statement-num">${moneyFmt(a.app[line])}</span>
+          <span class="statement-num">${moneyFmt(a.accountant[line])}</span>
+          <span class="statement-num"><span class="${cls}">${Math.abs(diff) < 0.005 ? "✓" : moneyFmt(diff)}</span></span>
+        </div>`;
+    }).join("");
+    return `
+      <div class="business-cur-card statement-compare" data-id="${escapeHtml(a.id)}">
+        ${head}
+        <div class="statement-row statement-head">
+          <span class="statement-label"></span>
+          <span class="statement-num">${escapeHtml(tr("statement.appAt"))}</span>
+          <span class="statement-num">${escapeHtml(tr("statement.accountantAt"))}</span>
+          <span class="statement-num">${escapeHtml(tr("statement.differs"))}</span>
+        </div>
+        ${rows}
+        ${a.status === "match" ? `<div class="statement-match">${escapeHtml(tr("statement.match"))}</div>` : ""}
+      </div>`;
+  }).join("");
+  return `
+    <h3 class="accounts-group-title">${escapeHtml(tr("statement.compareTitle"))}</h3>
+    <p class="hint" style="margin-top:0;">${escapeHtml(tr("statement.compareHint"))}</p>
+    ${sets}
+    <button type="button" class="add-inline" id="statement-add-compare-btn">${escapeHtml(tr("statement.addCompare"))}</button>`;
+}
+
+function renderStatement_() {
+  const d = statementData_;
+  document.getElementById("statement-csv-btn").disabled = false;
+  const blocks = d.currencies.map(statementBlockHtml_).join("");
+  document.getElementById("statement-body").innerHTML = `
+    ${blocks || `<p class="hint">${escapeHtml(tr("statement.nothing"))}</p>`}
+    <p class="hint" style="margin-top:2px;">${escapeHtml(tr("statement.withoutIgv"))}</p>
+    ${d.coveredEntries ? `<p class="hint">${escapeHtml(tr("statement.coveredNote", { n: d.coveredEntries }))}</p>` : ""}
+    ${statementRightNowHtml_(d)}
+    ${statementOpeningsHtml_(d)}
+    ${statementCompareHtml_(d)}`;
+  document.querySelectorAll("#statement-body .statement-opening-row").forEach((row) => row.addEventListener("click", () => {
+    openOpeningModal_(d.openings.find((o) => o.id === row.dataset.id) || null);
+  }));
+  document.getElementById("statement-add-opening-btn").addEventListener("click", () => openOpeningModal_(null));
+  document.querySelectorAll("#statement-body .statement-compare").forEach((card) => card.addEventListener("click", () => {
+    openAccountantModal_(d.accountant.find((a) => a.id === card.dataset.id) || null);
+  }));
+  document.getElementById("statement-add-compare-btn").addEventListener("click", () => openAccountantModal_(null));
+}
+
+document.getElementById("statement-back-btn").addEventListener("click", () => {
+  const t = statementTarget_;
+  statementTarget_ = null;
+  if (t) showBusinessDetail_(t.kind, t.id); else showBusinessScreen();
+});
+
+// The file is built by the server (so it is tested and follows the app's language); here it only goes to the share sheet / a download.
+document.getElementById("statement-csv-btn").addEventListener("click", async () => {
+  const f = statementData_ && statementData_.csv;
+  if (!f) return;
+  const errorEl = document.getElementById("statement-error");
+  errorEl.textContent = "";
+  const file = new File([f.text], f.name, { type: f.mime });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file] });
+      return;
+    }
+  } catch (err) {
+    if (err && err.name === "AbortError") return;   // closed the share sheet: not an error
+  }
+  try {
+    const url = URL.createObjectURL(file);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = f.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (err) {
+    errorEl.textContent = tr("statement.csvFailed", { error: err.message });
+  }
+});
+
+// Both pop-ups (opening figures, accountant's figures) share the same four amount fields.
+const STATEMENT_FIELD_IDS = { income: "income", igv_collected: "igv-collected", costs: "costs", igv_credit: "igv-credit" };
+
+function wireStatementAmountInputs_(prefix) {
+  Object.values(STATEMENT_FIELD_IDS).forEach((suffix) => {
+    document.getElementById(`${prefix}-${suffix}`).addEventListener("input", (e) => {
+      const sanitized = sanitizeAmountInputValue(e.target.value);
+      if (sanitized !== e.target.value) e.target.value = sanitized;
+    });
+  });
+}
+
+function fillStatementFields_(prefix, figures) {
+  Object.keys(STATEMENT_FIELD_IDS).forEach((k) => {
+    document.getElementById(`${prefix}-${STATEMENT_FIELD_IDS[k]}`).value = figures && Number(figures[k]) ? String(figures[k]) : "";
+  });
+}
+
+function readStatementFields_(prefix) {
+  const out = {};
+  Object.keys(STATEMENT_FIELD_IDS).forEach((k) => { out[k] = document.getElementById(`${prefix}-${STATEMENT_FIELD_IDS[k]}`).value.trim(); });
+  return out;
+}
+
+// What a person typed refers to the project (or, on a company statement, to the company's own level).
+function statementScopePayload_() {
+  const t = statementTarget_;
+  return t.kind === "project" ? { project_id: t.id } : { company_id: t.id };
+}
+
+// The rules the server checks on opening and accountant figures that the phone can foresee, so they show in the open form.
+function statementFieldsProblem_(f, isOpening) {
+  if (!/^[A-Z]{3}$/.test(f.currency)) return tr("statement.errCurrency");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.as_of)) return tr("statement.errDate");
+  if (isOpening && f.as_of > todayLocalISO()) return tr("statement.errFuture");
+  if (Object.keys(STATEMENT_FIELD_IDS).some((k) => f[k] !== "" && !(Number(f[k]) >= 0))) return tr("statement.errFigure");
+  return "";
+}
+
+// -- Opening figures --
+
+let openingImpactTimer_ = null;
+
+function openOpeningModal_(opening) {
+  editingOpening_ = { opening };
+  document.getElementById("opening-modal-title").textContent = tr("opening.title");
+  document.getElementById("opening-error").textContent = "";
+  document.getElementById("opening-currency").value = opening ? opening.currency : homeCur();
+  document.getElementById("opening-currency").disabled = !!opening;   // one opening per currency: to change the currency, add a new one
+  document.getElementById("opening-date").value = opening ? opening.as_of : "";
+  document.getElementById("opening-date").max = todayLocalISO();
+  fillStatementFields_("opening", opening);
+  document.getElementById("opening-note").value = opening ? opening.note : "";
+  document.getElementById("opening-delete-btn").hidden = !opening;
+  document.getElementById("opening-impact").textContent = "";
+  const backdrop = document.getElementById("opening-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  refreshOpeningImpact_();
+}
+
+function closeOpeningModal_() {
+  document.getElementById("opening-modal-backdrop").hidden = true;
+  editingOpening_ = null;
+}
+
+// "N entries dated on or before this date will stop counting here" — shown before saving, so nothing changes by surprise.
+function refreshOpeningImpact_() {
+  clearTimeout(openingImpactTimer_);
+  openingImpactTimer_ = setTimeout(async () => {
+    if (!editingOpening_ || !statementTarget_) return;
+    const el = document.getElementById("opening-impact");
+    const asOf = document.getElementById("opening-date").value;
+    if (!asOf) { el.textContent = ""; return; }
+    try {
+      const res = await callApi("getOpeningImpact", Object.assign(statementScopePayload_(), { currency: document.getElementById("opening-currency").value.trim().toUpperCase(), as_of: asOf }));
+      if (!editingOpening_ || document.getElementById("opening-date").value !== asOf) return;
+      el.textContent = res.ignored ? tr("opening.impact", { n: res.ignored }) : tr("opening.impactNone");
+    } catch (err) {
+      el.textContent = "";
+    }
+  }, 250);
+}
+
+document.getElementById("opening-modal-close").addEventListener("click", closeOpeningModal_);
+document.getElementById("opening-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "opening-modal-backdrop") closeOpeningModal_();
+});
+wireStatementAmountInputs_("opening");
+document.getElementById("opening-date").addEventListener("change", refreshOpeningImpact_);
+document.getElementById("opening-currency").addEventListener("input", refreshOpeningImpact_);
+document.getElementById("opening-save-btn").addEventListener("click", () => {
+  if (!editingOpening_ || !statementTarget_) return;
+  const errorEl = document.getElementById("opening-error");
+  errorEl.textContent = "";
+  const fields = Object.assign(readStatementFields_("opening"), statementScopePayload_(), {
+    currency: document.getElementById("opening-currency").value.trim().toUpperCase(),
+    as_of: document.getElementById("opening-date").value,
+    note: document.getElementById("opening-note").value.trim()
+  });
+  const problem = statementFieldsProblem_(fields, true);   // (what the server would refuse shows in the open form)
+  if (problem) { errorEl.textContent = problem; return; }
+  closeOpeningModal_();
+  saveBehindScreen_(() => callApi("saveBusinessOpening", fields), refreshStatement_);   // saving standard: the sheet closes, the save runs behind it
+});
+document.getElementById("opening-delete-btn").addEventListener("click", async () => {
+  if (!editingOpening_ || !editingOpening_.opening || !await askConfirmApp_(tr("opening.confirmDelete"), tr("confirmBtn.delete"))) return;
+  const id = editingOpening_.opening.id;
+  closeOpeningModal_();
+  saveBehindScreen_(() => callApi("deleteBusinessOpening", { id }), refreshStatement_, { busy: "common.deletingToast" });
+});
+
+// -- The accountant's figures --
+
+function openAccountantModal_(figures) {
+  editingAccountant_ = { figures };
+  document.getElementById("accountant-error").textContent = "";
+  document.getElementById("accountant-currency").value = figures ? figures.currency : homeCur();
+  document.getElementById("accountant-currency").disabled = !!figures;
+  document.getElementById("accountant-date").value = figures ? figures.as_of : todayLocalISO();
+  document.getElementById("accountant-date").disabled = !!figures;   // one set per currency and date: another date is another set
+  fillStatementFields_("accountant", figures ? figures.accountant : null);
+  document.getElementById("accountant-note").value = figures ? figures.note : "";
+  document.getElementById("accountant-delete-btn").hidden = !figures;
+  const backdrop = document.getElementById("accountant-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+
+function closeAccountantModal_() {
+  document.getElementById("accountant-modal-backdrop").hidden = true;
+  editingAccountant_ = null;
+}
+
+document.getElementById("accountant-modal-close").addEventListener("click", closeAccountantModal_);
+document.getElementById("accountant-modal-backdrop").addEventListener("click", (e) => {
+  if (e.target.id === "accountant-modal-backdrop") closeAccountantModal_();
+});
+wireStatementAmountInputs_("accountant");
+document.getElementById("accountant-save-btn").addEventListener("click", () => {
+  if (!editingAccountant_ || !statementTarget_) return;
+  const errorEl = document.getElementById("accountant-error");
+  errorEl.textContent = "";
+  const fields = Object.assign(readStatementFields_("accountant"), statementScopePayload_(), {
+    currency: document.getElementById("accountant-currency").value.trim().toUpperCase(),
+    as_of: document.getElementById("accountant-date").value,
+    note: document.getElementById("accountant-note").value.trim()
+  });
+  const problem = statementFieldsProblem_(fields, false);   // (what the server would refuse shows in the open form)
+  if (problem) { errorEl.textContent = problem; return; }
+  closeAccountantModal_();
+  saveBehindScreen_(() => callApi("saveAccountantFigures", fields), refreshStatement_);   // saving standard: the sheet closes, the save runs behind it
+});
+document.getElementById("accountant-delete-btn").addEventListener("click", async () => {
+  if (!editingAccountant_ || !editingAccountant_.figures || !await askConfirmApp_(tr("accountant.confirmDelete"), tr("confirmBtn.delete"))) return;
+  const id = editingAccountant_.figures.id;
+  closeAccountantModal_();
+  saveBehindScreen_(() => callApi("deleteAccountantFigures", { id }), refreshStatement_, { busy: "common.deletingToast" });
 });
 
 // ---- Project pop-up ----
@@ -22049,7 +23118,7 @@ function renderPeopleList_(people) {
   if (peopleEditing_ && !people.length) setPeopleEditing_(false, false);
   const stillThere = new Set(people.map((p) => p.id));
   peopleSelected_ = new Set([...peopleSelected_].filter((id) => stillThere.has(id)));
-  ["client", "supplier", "partner"].forEach((role) => {
+  ["client", "supplier", "partner", "lender"].forEach((role) => {   // lender: Business 2, piece 3 (a company copy's lenders)
     const group = people.filter((p) => p.role === role);
     if (!group.length) return;
     const head = document.createElement("h3");
@@ -22379,7 +23448,8 @@ function openPersonModal_(person, friendsMode) {
   setPhoneField_("person-phone", (person && person.phone) || "");
   const sel = document.getElementById("person-role");
   sel.innerHTML = "";
-  ["client", "supplier", "partner", "friend"].forEach((role) => {
+  // "Lender" is offered on a company copy (Business 2, piece 3), and kept for someone who already is one.
+  ["client", "supplier", "partner", ...(companyCopyOn_() || (person && person.role === "lender") ? ["lender"] : []), "friend"].forEach((role) => {
     const o = document.createElement("option");
     o.value = role;
     o.textContent = tr(`people.role.${role}`);
@@ -22510,6 +23580,7 @@ document.getElementById("person-delete-btn").addEventListener("click", async () 
 let overviewScope_ = "all";
 
 function overviewScopeParam_() {
+  if (companyCopyOn_()) return undefined;   // a company copy: everything is the company, no "Showing" picker (Business 2, piece 4)
   return businessOn() && overviewScope_ !== "all" ? overviewScope_ : undefined;
 }
 
@@ -22567,6 +23638,25 @@ function businessLastUsed_() {
   return last;
 }
 
+// Needs review's company / project box (Business 2 plan, piece 2): only on a company copy, for an expense or income that can
+// belong to a company (an income not received yet cannot). It starts on what the item carries, else on the company Confirm gives.
+function reviewBusinessFits_(entry) {
+  return !!(meta && meta.capabilities && meta.capabilities.companyCopy) && businessOn() && (meta.companies || []).length > 0 &&
+    (entry.type === "expense" || entry.type === "income") && !String(entry.income_waiting || "");
+}
+function fillReviewBusiness_(item, entry) {
+  const sel = item.querySelector(".review-business");
+  if (sel) fillBusinessOptions_(sel, businessPickValue_(entry) || companyDefaultPick_());
+}
+// "" = personal, "c:<id>" = the company, "p:<id>" = a project (its company comes with it). Both keys always, so "Personal" is a choice.
+function reviewBusinessFields_(value) {
+  if (value.startsWith("p:")) {
+    const project = (meta.projects || []).find((p) => p.id === value.slice(2));
+    return { project_id: value.slice(2), company_id: project ? project.company_id : "" };
+  }
+  return { project_id: "", company_id: value.startsWith("c:") ? value.slice(2) : "" };
+}
+
 // Fills the picker and keeps `keep` chosen (a closed project stays listed only while it is the one chosen).
 function fillBusinessOptions_(sel, keep) {
   sel.innerHTML = "";
@@ -22603,8 +23693,9 @@ function populateBusinessOptions_() {
   populateOverviewScope_(!document.getElementById("screen-overview").hidden);
   const canLink = businessOn() && (meta.companies || []).length > 0 &&
     (selectedType === "expense" || selectedType === "income" || (selectedType === "transfer" && repaymentActive_()));
-  fillBusinessOptions_(sel, canLink ? sel.value : "");
+  fillBusinessOptions_(sel, canLink ? (sel.value || (businessAutoPick_ ? companyDefaultPick_() : "")) : "");
   document.getElementById("business-field").hidden = !canLink;
+  syncProjectSplitButton_();
   syncClientButton_();
   syncExpectedField_();
   syncIgvField_();
@@ -22834,7 +23925,99 @@ document.getElementById("split-client-select").addEventListener("change", async 
 });
 document.getElementById("entry-business").addEventListener("change", syncClientButton_);
 
+// A company copy with ONE company (Business 2 plan, piece 2): every new expense or income starts on it, as the server would give
+// it anyway ("c:<id>"); "" anywhere else, so the owner's and friends' copies never change.
+function companyDefaultPick_() {
+  const companies = meta && meta.companies || [];
+  return meta && meta.capabilities && meta.capabilities.companyCopy && businessOn() && companies.length === 1 ? "c:" + companies[0].id : "";
+}
+function resetBusinessPick_() {
+  const value = companyDefaultPick_();
+  setBusinessPick_(value);
+  businessAutoPick_ = !!value;
+}
+document.getElementById("entry-business").addEventListener("change", () => { businessAutoPick_ = false; });
+
+// ---- Split between projects (Business 2, piece 6; company copies only) ----
+// A SAVED expense or income on the company (no single project) can be shared between the company's projects, an amount each; the
+// parts must add up to the amount. Saved at once (behind the screen), apart from the form's own Save.
+let editingProjectParts_ = [];   // the entry's parts, as listed by the server
+let editingSplitEntry_ = null;   // { id, amount, currency, company_id } of the entry being edited
+function syncProjectSplitButton_() {
+  const btn = document.getElementById("entry-psplit-btn"), sum = document.getElementById("entry-psplit-summary");
+  if (!btn) return;
+  const e = editingSplitEntry_;
+  const value = document.getElementById("entry-business").value;
+  const company = e && (value.startsWith("c:") ? value.slice(2) : "");
+  const projects = company ? (meta.projects || []).filter((p) => p.company_id === company && p.status !== "closed") : [];
+  const show = companyCopyOn_() && !!e && (selectedType === "expense" || selectedType === "income") && projects.length >= 2;
+  btn.hidden = !show;
+  const parts = show ? editingProjectParts_ : [];
+  sum.hidden = !parts.length;
+  sum.textContent = parts.length ? tr("psplit.summary", { list: parts.map((p) => `${((meta.projects || []).find((x) => x.id === p.project_id) || {}).name || "—"} ${formatAmount(p.amount, e.currency)}`).join(" · ") }) : "";
+  btn.textContent = tr(parts.length ? "psplit.change" : "psplit.button");
+}
+document.getElementById("entry-business").addEventListener("change", syncProjectSplitButton_);
+
+let psplitCtx_ = null;
+function openProjectSplit_() {
+  const e = editingSplitEntry_;
+  const company = document.getElementById("entry-business").value.slice(2);
+  const projects = (meta.projects || []).filter((p) => p.company_id === company && p.status !== "closed").sort((a, b) => a.name.localeCompare(b.name));
+  psplitCtx_ = { entry: e, company, projects };
+  document.getElementById("psplit-intro").textContent = tr("psplit.intro", { total: formatAmount(Number(e.amount), e.currency) });
+  const box = document.getElementById("psplit-rows");
+  box.innerHTML = "";
+  projects.forEach((p) => {
+    const have = editingProjectParts_.find((x) => x.project_id === p.id);
+    const row = document.createElement("div");
+    row.className = "psplit-row";
+    row.innerHTML = `<label for="psplit-${p.id}">${escapeHtml(projectLabel_(p))}</label><input type="text" inputmode="decimal" id="psplit-${p.id}" data-project-id="${p.id}" placeholder="0.00" value="${have ? have.amount : ""}"><span class="hint psplit-pct"></span>`;
+    box.appendChild(row);
+  });
+  box.querySelectorAll("input").forEach((i) => i.addEventListener("input", psplitSum_));
+  document.getElementById("psplit-remove").hidden = !editingProjectParts_.length;
+  document.getElementById("psplit-error").textContent = "";
+  psplitSum_();
+  const backdrop = document.getElementById("psplit-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function psplitParts_() {
+  return [...document.querySelectorAll("#psplit-rows input")].map((i) => ({ project_id: i.dataset.projectId, amount: Math.round((parseFloat(String(i.value).replace(/,/g, "")) || 0) * 100) / 100 })).filter((p) => p.amount > 0);
+}
+function psplitSum_() {
+  const e = psplitCtx_.entry, total = Number(e.amount);
+  const parts = psplitParts_();
+  const sum = Math.round(parts.reduce((n, p) => n + p.amount, 0) * 100) / 100;
+  document.querySelectorAll("#psplit-rows .psplit-row").forEach((row) => {
+    const v = parseFloat(String(row.querySelector("input").value).replace(/,/g, "")) || 0;
+    row.querySelector(".psplit-pct").textContent = v > 0 && total > 0 ? `${Math.round(v * 1000 / total) / 10} %` : "";
+  });
+  const left = Math.round((total - sum) * 100) / 100;
+  document.getElementById("psplit-sum").textContent = tr(Math.abs(left) < 0.005 ? "psplit.sumOk" : left > 0 ? "psplit.sumShort" : "psplit.sumOver", { sum: formatAmount(sum, e.currency), total: formatAmount(total, e.currency), left: formatAmount(Math.abs(left), e.currency) });
+  return { parts, left };
+}
+document.getElementById("entry-psplit-btn").addEventListener("click", openProjectSplit_);
+document.getElementById("psplit-close").addEventListener("click", () => { document.getElementById("psplit-modal-backdrop").hidden = true; });
+function psplitSave_(parts) {
+  const e = psplitCtx_.entry;
+  document.getElementById("psplit-modal-backdrop").hidden = true;
+  editingProjectParts_ = parts;
+  syncProjectSplitButton_();
+  saveBehindScreen_(() => callApi("saveProjectSplit", { entry_id: e.id, parts }), () => { refreshEntriesInBackground_(); refreshOverview().catch(() => {}); });
+}
+document.getElementById("psplit-save").addEventListener("click", () => {
+  const { parts, left } = psplitSum_();
+  const err = document.getElementById("psplit-error");
+  if (parts.length < 2) { err.textContent = tr("psplit.errTwo"); return; }
+  if (Math.abs(left) >= 0.005) { err.textContent = tr("psplit.errSum"); return; }
+  psplitSave_(parts);
+});
+document.getElementById("psplit-remove").addEventListener("click", () => psplitSave_([]));
+
 function setBusinessPick_(value) {
+  businessAutoPick_ = false;
   const sel = document.getElementById("entry-business");
   if (!sel) return;
   value = value || "";
@@ -22850,6 +24033,7 @@ function setBusinessPick_(value) {
   expectedPick_ = ""; expectedPickTouched_ = false;   // callers that carry a link set it again with setExpectedPick_
   syncExpectedField_();
   setIgvState_(false);                                // ... and IGV with setIgvState_
+  syncProjectSplitButton_();                          // "Split between projects" follows the pick (Business 2, piece 6)
 }
 
 // What the form sends: nothing at all while the pack is off (so a hidden label is never touched), else all the keys.
@@ -22870,7 +24054,9 @@ function businessPillHtml_(entry) {
   const project = entry.project_id ? (meta.projects || []).find((p) => p.id === entry.project_id) : null;
   const company = (meta.companies || []).find((c) => c.id === (entry.company_id || (project && project.company_id)));
   if (!company && !project) return "";
-  const text = project ? [company ? companyLabel_(company) : "", project.name].filter(Boolean).join(" › ") : companyLabel_(company);
+  const parts = entry.project_parts || [];   // split between projects (Business 2, piece 6)
+  const text = project ? [company ? companyLabel_(company) : "", project.name].filter(Boolean).join(" › ")
+    : parts.length ? `${companyLabel_(company)} › ${tr("psplit.pill", { n: parts.length })}` : companyLabel_(company);
   // An income that settles an expected payment also carries its invoice number.
   const expected = entry.expected_payment_id ? (meta.expectedPayments || []).find((x) => x.id === entry.expected_payment_id) : null;
   const invoice = expected && expected.invoice_no ? `<span class="entry-tag entry-business">${escapeHtml(tr("xp.pill", { no: expected.invoice_no }))}</span>` : "";
@@ -23682,19 +24868,18 @@ function renderRecurringSkips_(re) {
     const row = document.createElement("div");
     row.className = "skipped-month-row";
     row.innerHTML = `<span>${MONTH_NAMES_SHORT[mm - 1]} ${y}</span><button type="button" class="add-inline">${tr("recModal.undoSkip")}</button>`;
-    row.querySelector("button").addEventListener("click", async () => {
-      try {
-        await callApi("unskipRecurringOccurrence", { id: re.id, month: m });
-        re.skipped_months = re.skipped_months.filter((x) => x !== m);
-        renderRecurringSkips_(re);
-        refreshRecurringExpenses();
-        refreshExpectedRecurring();
-      } catch (err) {
-        // Shown as an alert too — the line under the form is below the fold in
-        // this tall modal, so a failed undo looked like "it just didn't save".
-        document.getElementById("recurring-form-error").textContent = err.message;
-        showAppMessage_(tr("recModal.undoSkipFailed", { error: err.message }));
-      }
+    row.querySelector("button").addEventListener("click", () => {
+      // The month leaves the list at once; it comes back if the server refuses (speed sweep 2026-11-21).
+      re.skipped_months = re.skipped_months.filter((x) => x !== m);
+      renderRecurringSkips_(re);
+      saveBehindScreen_(async () => {
+        try { await callApi("unskipRecurringOccurrence", { id: re.id, month: m }); }
+        catch (err) {
+          if (!re.skipped_months.includes(m)) re.skipped_months = re.skipped_months.concat([m]).sort();
+          renderRecurringSkips_(re);
+          throw err;
+        }
+      }, () => { refreshRecurringExpenses(); refreshExpectedRecurring(); });
     });
     list.appendChild(row);
   });
@@ -24299,7 +25484,8 @@ let pausedAskRetries_ = 0;
 // Payors and friends become one list (once per copy; friends' copies too since 1.76.1): payers who share a name with a friend are shown with
 // what each side holds (incomes, debts) and a two-way choice whose result is spelled out under it before Done. Shown only once Home has
 // finished loading, so it never lands on top of something half-drawn or in the middle of a tap.
-let payorMergeOpen_ = false, payorMergeRetries_ = 0;
+let payorMergeOpen_ = false, payorMergeRetries_ = 0, payorMergeTouchAt_ = 0;
+document.addEventListener("pointerdown", () => { payorMergeTouchAt_ = Date.now(); }, { capture: true, passive: true });
 function payorMergeHomeBusy_() {
   return [...document.querySelectorAll("#screen-entries .stmt-loading")].some((el) => el.offsetParent);
 }
@@ -24314,8 +25500,11 @@ function payorMergeFriendLine_(owed) {
 function maybeAskPayorMerge_() {
   const pairs = (meta && meta.payorMergeAsk) || [];
   if (!pairs.length || payorMergeOpen_ || meta.fromCache_) return;
-  if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning() || payorMergeHomeBusy_()) {
-    if (payorMergeRetries_++ < 40) setTimeout(maybeAskPayorMerge_, payorMergeHomeBusy_() ? 1000 : 4000);
+  // Only on Home, and not within 2 s of a touch (Andrés, testers 2026-11-21: it covered whatever screen he was on ~15 s after
+  // opening). Away from Home it waits; coming back to Home asks again (showScreen).
+  const away = document.getElementById("screen-entries").hidden, touched = Date.now() - payorMergeTouchAt_ < 2000;
+  if (away || touched || !document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])") || Spotlight.isRunning() || payorMergeHomeBusy_()) {
+    if (!away && payorMergeRetries_++ < 40) setTimeout(maybeAskPayorMerge_, payorMergeHomeBusy_() || touched ? 1000 : 4000);
     return;
   }
   payorMergeOpen_ = true;
@@ -24658,13 +25847,12 @@ async function openRecurringById_(id, box) {
 async function skipRecurringThisMonth_(item) {
   const label = item.description || item.category_name;
   if (!await askConfirmApp_(tr("expected.confirmSkip", { label }), tr("confirmBtn.yes"), { plain: true })) return;
-  try {
-    await callApi("skipRecurringOccurrence", { id: item.id, month: todayLocalISO().slice(0, 7) });
+  // Behind the screen (saving standard; speed sweep 2026-11-21): "Saving…" at once, the list follows when the server is done.
+  const month = todayLocalISO().slice(0, 7);
+  saveBehindScreen_(() => callApi("skipRecurringOccurrence", { id: item.id, month }), async () => {
     await refreshExpectedRecurring();
     refreshRecurringExpenses();
-  } catch (err) {
-    showAppMessage_(tr("expected.skipFailed", { error: err.message }));
-  }
+  });
 }
 
 // "Record the payment…": opens the new-entry sheet filled in from the programmed item — its category, whole bill,
@@ -25880,8 +27068,8 @@ document.getElementById("projection-override-reset-btn").addEventListener("click
   if (!projectionOverrideState) return;
   const { categoryId, periodKey } = projectionOverrideState;
   closeProjectionOverrideModal_();
-  await callApi("deleteProjectionOverride", { categoryId, periodKey });
-  refreshProjectionAfterOverrideChange_();
+  // Saving standard (speed sweep 2026-11-21): it closed first but said nothing, and a refusal was lost without a word.
+  saveBehindScreen_(() => callApi("deleteProjectionOverride", { categoryId, periodKey }), async () => { refreshProjectionAfterOverrideChange_(); });
 });
 
 (function setupUpdateCheck() {
@@ -26235,6 +27423,9 @@ const LINK_ICON_RULES_ = [
   [/^(add up|sumar|fill the rows|llenar las filas)/i, "calc"],
   [/^(add screenshots|agregar capturas)/i, "camera"],
   [/^\d+ (emails?|correos?)\b/i, "mail"],
+  [/^(close project|cerrar proyecto|closing project|cerrando proyecto)/i, "lock"],   // a project's Close (owner, 2026-11-21: the button had no icon)
+  [/^(reopen|reabrir|reopening|reabriendo)/i, "refresh"],   // its Reopen, and every other "Reopen"
+  [/^(starting balance|saldo inicial)/i, "plus"],   // the import's Done screen: gives a new account its starting balance
   [/^(add|agregar|añadir)\b|^\+ /i, "plus"],
   [/^(copy|copiar)\b/i, "copy"],
   [/^(make my link|crear mi enlace)/i, "plus"],
@@ -26246,6 +27437,7 @@ const LINK_ICON_RULES_ = [
   [/^(hide|ocultar)\b/i, "eyeOff"],
   [/^(open my google|abrir las apps)/i, "external"],
   [/^(read|leer|volver a leer)\b.*(photo|foto|receipt|comprobante)/i, "camera"],
+  [/^(download|descargar)\b/i, "download"],   // a project statement's "Download (CSV)"
   [/^(read|leer)\b/i, "file"],
   [/^(find|buscar|look|check now|revisar ahora|also look)/i, "search"],
   [/^(currency exchange|cambio de moneda)/i, "exchange"],   // money changing currency (owner, 2026-11-19: the swap arrows read as a transfer)
@@ -26253,7 +27445,7 @@ const LINK_ICON_RULES_ = [
   [/^(switch direction|cambiar el sentido|repeat|repetir|convert|convertir|make it a transfer|pasar a transferencia)/i, "swap"],
   [/^(more actions|más acciones|more…|más…)$|^(more actions|más acciones)/i, "dots"],
   [/^(load more|cargar más)/i, "down"],
-  [/^(edit|editar|change|cambiar|method|método)\b/i, "pencil"],
+  [/^(edit|editar|change|cambiar|method|método|complete|completar)\b/i, "pencil"],
   [/^(reset|restablecer|start|empezar|volver|go back|reload|recargar|reactivate|reactivar|work out|recalcular)/i, "refresh"],
   [/^(skip|omitir)\b/i, "skip"],
   [/^(use|usar|apply|aplicar|match|emparejar|choose|elegir|record|registrar|mark|marcar|keep|dejar)\b/i, "check"],
@@ -26275,6 +27467,16 @@ function linkIconFor_(text) {
   const rule = LINK_ICON_RULES_.find(([re]) => re.test(t));
   return rule ? rule[1] : null;
 }
+// The button's words without its hidden parts. Speed (2026-11-21): innerText made the phone lay out the whole page for each of the
+// ~1,500 link buttons at start-up (about 6 s of a slow phone, twice); this reads the same words without any layout.
+function linkVisibleText_(el) {
+  let out = "";
+  el.childNodes.forEach((n) => {
+    if (n.nodeType === 3) out += n.nodeValue;
+    else if (n.nodeType === 1 && !n.hidden && !n.classList.contains("hidden") && !n.classList.contains("link-ico")) out += n.tagName === "BR" ? " " : linkVisibleText_(n);
+  });
+  return out;
+}
 function linkIconize_(btn) {
   if (!btn || btn.dataset.noIcon != null || btn.closest(".friends-editbar, .ts-stage")) return;
   const old = btn.querySelector(":scope > .link-ico");
@@ -26283,7 +27485,7 @@ function linkIconize_(btn) {
   const first = [...btn.childNodes].find((n) => n !== old && (n.nodeType !== 3 || n.nodeValue.trim()));
   const plus = !!(first && first.nodeType === 3 && /^\s*\+\s/.test(first.nodeValue));
   if (plus) first.nodeValue = first.nodeValue.replace(/^\s*\+\s+/, "");
-  const name = plus ? "plus" : linkIconFor_(btn.innerText || btn.textContent);
+  const name = plus ? "plus" : linkIconFor_(linkVisibleText_(btn));
   if (old && old.dataset.name === name) return;
   if (old) old.remove();
   if (!name) return;
@@ -27126,8 +28328,9 @@ function watchOverviewTotalsTip_() {
     key: "ovTotals", place: "overview", level: "basic",
     steps: [
       // (journeys run, 2026-11-17: each part only for someone it is about; light users waited 45-75 days for the first part at 5 entries)
-      { target: () => (popEntriesKnown_() >= 1 ? screen.querySelector(".ov-sum-tile.expense") : null), text: tr("pop.ov.flows") },
-      { target: () => screen.querySelector(".ov-sum-tile.loans"), text: tr("pop.ov.invLoans"), when: ovHasInvOrLoans_ },
+      // Pointed at the whole summary card (tiles and Result), so the bubble sits under it and covers none of what it talks about (Sol, 2026-11-22/23).
+      { target: () => (popEntriesKnown_() >= 1 && screen.querySelector(".ov-sum-tile.expense") ? screen.querySelector(".ov-sum-grid").closest(".card") : null), text: tr("pop.ov.flows") },
+      { target: () => (screen.querySelector(".ov-sum-tile.loans") ? screen.querySelector(".ov-sum-grid").closest(".card") : null), text: tr("pop.ov.invLoans"), when: ovHasInvOrLoans_ },
       { target: () => pending(), text: tr("pop.ov.pendingHere"), when: () => !!pending() }
     ],
     stillWanted: () => !screen.hidden,
@@ -30306,6 +31509,8 @@ async function refreshLoans() {
   if (firstLoad) { screen.classList.add("first-loading"); firstLoading.hidden = false; }
   const endFirstLoad = () => { screen.classList.remove("first-loading"); firstLoading.hidden = true; };
   let balances;
+  // The settled people are asked at the same time (speed sweep 2026-11-21: they waited for the balances), drawn after them.
+  const settledCall = callApi("listSettledLoanFriends", loansScopePayload_()).catch(() => []);
   try {
     balances = await callApi("listLoanBalances", { ...loansScopePayload_(), withUnreadable: true });
   } catch (err) {
@@ -30346,8 +31551,8 @@ async function refreshLoans() {
   const warn = document.getElementById("loans-unreadable");
   warn.hidden = !unreadable.length;
   warn.textContent = unreadable.length ? tr("loans.unreadable", { list: unreadable.map((u) => `${u.friend_name} ("${u.amount} ${u.currency}")`.replace(" \")", "\")")).join(", ") }) : "";
-  if (firstLoad) { await renderSettledPeople_().catch(() => {}); endFirstLoad(); }
-  else renderSettledPeople_();
+  if (firstLoad) { await renderSettledPeople_(settledCall).catch(() => {}); endFirstLoad(); }
+  else renderSettledPeople_(settledCall);
   offerLoansTip_();   // only now that everything has arrived (loading standard)
 }
 
@@ -31391,13 +32596,13 @@ document.getElementById("history-modal-backdrop").addEventListener("click", (e) 
 });
 
 // People with loan history but nothing owing: a collapsed list at the bottom of the Loans tab, so their history can still be opened.
-async function renderSettledPeople_() {
+async function renderSettledPeople_(call) {
   const card = document.getElementById("loans-settled-card");
   const toggle = document.getElementById("loans-settled-toggle");
   const list = document.getElementById("loans-settled-list");
   let people = [];
   try {
-    people = await callApi("listSettledLoanFriends", loansScopePayload_());
+    people = (await (call || callApi("listSettledLoanFriends", loansScopePayload_()))) || [];
   } catch (err) {
     people = [];
   }
@@ -31755,12 +32960,21 @@ autoBeforeApp_("bank-date", "bank-opening", () => !document.getElementById("bank
 document.querySelectorAll('input[name="bank-opening-how"]').forEach((r) => r.addEventListener("change", bankApplyOpening_));
 document.getElementById("bank-next-number").addEventListener("input", () => bankDraft_ && bankRenderRows_());
 
+// A company copy (Business 2, piece 3): a "bank loan" there is a loan from a lender to the company.
+function companyCopyOn_() { return !!(meta && meta.capabilities && meta.capabilities.companyCopy) && businessOn(); }
+const BANK_CO_KEYS_ = ["bank.addButton", "bank.formTitle", "bank.lender", "bank.lenderPlaceholder", "bank.save"];
+function bankWordKey_(key) { return companyCopyOn_() && BANK_CO_KEYS_.includes(key) ? key.replace(/^bank\./, "bank.co.") : key; }
+
 function openBankLoanForm_() {
   bankDraft_ = { mode: "new", rows: [], currency: homeCur() };
-  document.getElementById("bank-loan-title").textContent = tr("bank.formTitle");
+  document.getElementById("bank-loan-title").textContent = tr(bankWordKey_("bank.formTitle"));
   document.getElementById("bank-loan-fields").hidden = false;
   document.getElementById("bank-gen-box").hidden = false;
-  document.getElementById("bank-save").textContent = tr("bank.save");
+  document.getElementById("bank-save").textContent = tr(bankWordKey_("bank.save"));
+  // The company and, optionally, a project the loan belongs to (company copies only; starts on the company).
+  const bizField = document.getElementById("bank-business-field");
+  bizField.hidden = !(companyCopyOn_() && (meta.companies || []).length);
+  if (!bizField.hidden) fillBusinessOptions_(document.getElementById("bank-business"), companyDefaultPick_() || "c:" + meta.companies[0].id);
   ["bank-lender", "bank-description", "bank-amount", "bank-gen-count", "bank-gen-payment", "bank-gen-rate", "bank-gen-fee"].forEach((id) => { document.getElementById(id).value = ""; });
   document.getElementById("bank-date").value = todayLocalISO();
   document.getElementById("bank-gen-first").value = bankAddMonths_(todayLocalISO(), 1);
@@ -31934,7 +33148,9 @@ document.getElementById("bank-save").addEventListener("click", () => {
     currency: document.getElementById("bank-currency").value,
     date: document.getElementById("bank-date").value,
     payment_method_id: document.getElementById("bank-account").value,
-    installments: rows
+    installments: rows,
+    // a company copy: the person is a lender, the loan belongs to the company / project picked (Business 2, piece 3)
+    ...(document.getElementById("bank-business-field").hidden ? {} : Object.assign({ lender: true }, reviewBusinessFields_(document.getElementById("bank-business").value)))
   } : null;
   if (newLoan && bankOpening_()) {
     // From before the app: only the installments still to pay, what they still owe, no account, and the bank's numbering.
@@ -31999,7 +33215,9 @@ async function openBankSchedule_(loanId, friend) {
     tr("bank.remainingPrincipal", { amount: m(sched.remaining_principal) }),
     next ? tr("bank.nextDue", { date: listDate_(next.due_date), amount: m(next.total) }) : "",
     // a loan from before the app that starts at installment 7: say where 1–6 went
-    sched.loan.opening && firstNo > 1 && firstNo !== Infinity ? tr(firstNo === 2 ? "bank.openingEarlierOne" : "bank.openingEarlier", { to: firstNo - 1 }) : ""
+    sched.loan.opening && firstNo > 1 && firstNo !== Infinity ? tr(firstNo === 2 ? "bank.openingEarlierOne" : "bank.openingEarlier", { to: firstNo - 1 }) : "",
+    // a company's loan: what was kept for SUNAT on the installments paid this month (Business 2, piece 3)
+    sched.loan.company_id && companyCopyOn_() ? tr("bank.withheldMonth", { amount: m(sched.withheld_month || 0) }) : ""
   ].filter(Boolean).join(" · ");
   const list = document.getElementById("bank-schedule-list");
   list.innerHTML = "";
@@ -32191,8 +33409,12 @@ function bankCountOf_(sched) { return sched.installments.reduce((n, r) => Math.m
 let bankRecordCtx_ = null;
 function bankRecordTotal_() {
   const cur = bankRecordCtx_.sched.loan.currency;
-  const t = bankNum_(document.getElementById("bank-record-principal").value) + bankNum_(document.getElementById("bank-record-interest").value) + bankNum_(document.getElementById("bank-record-fees").value);
+  const principal = bankNum_(document.getElementById("bank-record-principal").value), interest = bankNum_(document.getElementById("bank-record-interest").value);
+  const held = document.getElementById("bank-record-withholding-field").hidden ? 0 : bankNum_(document.getElementById("bank-record-withholding").value);
+  const t = principal + interest + bankNum_(document.getElementById("bank-record-fees").value) - held;
   document.getElementById("bank-record-total").textContent = tr("bank.recordTotal", { amount: `${cur} ${moneyFmt(t)}` });
+  // A lender's loan: what reaches the lender (the gross interest minus what is kept for SUNAT), shown, never typed.
+  document.getElementById("bank-record-net").textContent = held > 0 ? tr("bank.netToLender", { amount: `${cur} ${moneyFmt(principal + interest - held)}`, held: `${cur} ${moneyFmt(held)}` }) : "";
 }
 
 function openBankRecord_(inst, sched) {
@@ -32209,6 +33431,12 @@ function openBankRecord_(inst, sched) {
   later.textContent = tr("bank.recordLater");
   document.getElementById("bank-record-category").prepend(later);
   document.getElementById("bank-record-category").value = "";
+  // A company's loan (Business 2, piece 3): its interest goes to "Loan interest" when that category exists, and a withholding box shows.
+  const coLoan = !!sched.loan.company_id && companyCopyOn_();
+  document.getElementById("bank-record-withholding-field").hidden = !coLoan;
+  document.getElementById("bank-record-withholding").value = "";
+  const interestCat = coLoan ? (meta.categories || []).find((c) => c.type === "expense" && c.key === "loan_interest" && c.hidden !== "yes") : null;
+  if (interestCat && [...document.getElementById("bank-record-category").options].some((o) => o.value === interestCat.id)) document.getElementById("bank-record-category").value = interestCat.id;
   document.getElementById("bank-record-error").textContent = "";
   bankRecordTotal_();
   const backdrop = document.getElementById("bank-record-modal-backdrop");
@@ -32216,7 +33444,7 @@ function openBankRecord_(inst, sched) {
   backdrop.hidden = false;
 }
 
-["bank-record-principal", "bank-record-interest", "bank-record-fees"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankRecordCtx_ && bankRecordTotal_()));
+["bank-record-principal", "bank-record-interest", "bank-record-fees", "bank-record-withholding"].forEach((id) => document.getElementById(id).addEventListener("input", () => bankRecordCtx_ && bankRecordTotal_()));
 document.getElementById("bank-record-close").addEventListener("click", () => { document.getElementById("bank-record-modal-backdrop").hidden = true; });
 document.getElementById("bank-record-cancel").addEventListener("click", () => { document.getElementById("bank-record-modal-backdrop").hidden = true; });
 document.getElementById("bank-record-save").addEventListener("click", () => {
@@ -32229,8 +33457,11 @@ document.getElementById("bank-record-save").addEventListener("click", () => {
     principal: bankNum_(document.getElementById("bank-record-principal").value),
     interest: bankNum_(document.getElementById("bank-record-interest").value),
     fees: bankNum_(document.getElementById("bank-record-fees").value),
-    category_id: document.getElementById("bank-record-category").value
+    category_id: document.getElementById("bank-record-category").value,
+    ...(document.getElementById("bank-record-withholding-field").hidden ? {} : { withholding: bankNum_(document.getElementById("bank-record-withholding").value) })
   };
+  // checked here, while the window is open: the withholding is part of the interest
+  if (payload.withholding > 0 && payload.withholding - payload.interest > 0.004) { document.getElementById("bank-record-error").textContent = tr("bank.withholdingTooBig"); return; }
   const friend = bankScheduleCtx_ ? bankScheduleCtx_.friend : { id: ctx.sched.loan.friend_id, name: ctx.sched.loan.friend_name };
   document.getElementById("bank-record-modal-backdrop").hidden = true;
   bankLoanDetailUpdating_(friend);
@@ -32739,6 +33970,15 @@ function chargeDoneRefresh_() {
 }
 function renderChargesList_() {
   const box = document.getElementById("charges-list");
+  // What was typed on the other lines survives the redraw a saved line causes (owner, 2026-11-21: same as Needs review).
+  const typed = new Map(), focused = document.activeElement;
+  let caret = null;
+  box.querySelectorAll(".charge-line[data-id]").forEach((l) => {
+    const input = l.querySelector(".charge-line-input"), cur = l.querySelector(".charge-line-cur");
+    if (!input.dataset.touched && !cur.dataset.touched) return;
+    typed.set(l.dataset.id, { amount: input.value, cur: cur.dataset.touched ? cur.value : null });
+    if (focused === input) caret = { id: l.dataset.id, start: input.selectionStart, end: input.selectionEnd };
+  });
   box.innerHTML = "";
   if (!chargesList_.length) { box.innerHTML = `<p class="hint">${escapeHtml(tr("charges.none"))}</p>`; return; }
   chargesList_.forEach((c) => {
@@ -32746,6 +33986,7 @@ function renderChargesList_() {
     const list = accountCurrencyList_(pm);
     const line = document.createElement("div");
     line.className = "charge-line";
+    line.dataset.id = c.id;
     const name = c.description || (findCategory(c.category_id) ? categoryName(c.category_id) : tr("confirm.thisEntry"));
     line.innerHTML = `
       <div class="charge-line-top"><span class="charge-line-name">${c.old ? "⏰ " : ""}${escapeHtml(name)}</span><span class="charge-line-amount">${escapeHtml(formatAmount(c.amount, c.currency))}</span></div>
@@ -32759,8 +34000,15 @@ function renderChargesList_() {
     currencyPickOn_(curSel);
     const rateEl = line.querySelector(".charge-rate");
     const showRate = () => { const t = chargeRateText_(c.amount, c.currency, line.querySelector(".charge-line-input").value, curSel.value); rateEl.textContent = t; rateEl.hidden = !t; };
-    line.querySelector(".charge-line-input").addEventListener("input", showRate);
-    curSel.addEventListener("change", showRate);
+    const amtInput = line.querySelector(".charge-line-input");
+    amtInput.addEventListener("input", () => { amtInput.dataset.touched = "1"; showRate(); });
+    curSel.addEventListener("change", () => { curSel.dataset.touched = "1"; showRate(); });
+    const was = typed.get(String(c.id));
+    if (was) {
+      amtInput.value = was.amount; amtInput.dataset.touched = "1";
+      if (was.cur && [...curSel.options].some((o) => o.value === was.cur)) { curSel.value = was.cur; curSel.dataset.touched = "1"; }
+      showRate();
+    }
     const drop = () => { chargesList_ = chargesList_.filter((x) => x.id !== c.id); };
     line.querySelector(".charge-save").addEventListener("click", async () => {
       const amount = parseFloat(line.querySelector(".charge-line-input").value);
@@ -32783,6 +34031,7 @@ function renderChargesList_() {
       if (done) chargeDoneRefresh_();
     });
     box.appendChild(line);
+    if (caret && caret.id === String(c.id)) { amtInput.focus({ preventScroll: true }); amtInput.setSelectionRange(caret.start, caret.end); }
   });
 }
 document.getElementById("home-charges").addEventListener("click", openChargesModal_);
@@ -33619,10 +34868,14 @@ document.getElementById("settlement-delete-btn").addEventListener("click", async
   // Closes first, finishes in the background (same as the save button).
   const settlementId = editingSettlementId;
   closeSettlementModal();
+  const busy = tr("common.deletingToast");
+  showToast_(busy, true);   // (speed sweep 2026-11-21: nothing said it was still working)
   try {
     await callApi("deleteSettlement", { id: settlementId });   // the whole repayment goes; a failure is undone and announced just below
     await refreshAfterSettlementChange_();
+    hideToast_(busy);
   } catch (err) {
+    hideToast_(busy);
     showAppMessage_(tr("settle.saveFailed", { error: err.message }));
     refreshAfterSettlementChange_().catch(() => {});
   }
@@ -34161,6 +35414,10 @@ async function refreshBalancesInner_() {
   balancesCache = rows;
   list.innerHTML = "";
   emptyNote.hidden = rows.length > 0;
+  // A person who already has accounts (an import made some, say) is told THEY need a starting balance, not to add an account
+  // (Elena, testers 2026-11-21: "No balances yet" right after an import made three).
+  const hasAccounts = ((meta && meta.paymentMethods) || []).some((pm) => pm.type !== "cash" && pm.type !== "investment" && !pmHidden_(pm));
+  emptyNote.textContent = tr(hasAccounts ? "balances.emptyHasAccounts" : "balances.empty");
   // An account moving in a currency with no starting balance of its own (owner, 2026-11-11): said above the list, which starts closed.
   const missingN = rows.filter((r) => !r.statement_closed && balanceMissingCurrencies_(r).length).length;
   const missingNote = document.getElementById("balances-missing");
@@ -34258,6 +35515,23 @@ function formatSignedBalance_(amount, currency) {
 // `pmId` set → that account's detail; null → "+ Add balance" (pick any
 // account that isn't tracked yet).
 let balanceOpenSeq_ = 0;   // which opening of the balance sheet is on screen (a late check from an older one is dropped: Nico, Tomás 2026-11-11)
+// A starting balance for one account, whether or not it has a balance yet (the import's Done screen, testers 2026-11-21): an account
+// with no balance row opens the "add" window with that account already picked.
+async function openStartBalanceFor_(pmId) {
+  if (!balancesCache) { try { balancesCache = await callApi("listPaymentMethodBalances", {}); } catch (e) { balancesCache = []; } }
+  if (balancesCache.some((b) => b.id === pmId)) return openBalanceModal(pmId);
+  await openBalanceModal();
+  const picker = document.getElementById("balance-account-picker");
+  if (![...picker.options].some((o) => o.value === pmId)) {   // beyond the short list's five: put it in, chosen
+    const pm = ((meta && meta.paymentMethods) || []).find((p) => p.id === pmId);
+    if (!pm) return;
+    const opt = document.createElement("option");
+    opt.value = pm.id; opt.textContent = pmPickLabel_(pm);
+    picker.insertBefore(opt, picker.firstChild);
+  }
+  picker.value = pmId;
+  if (picker.onchange) picker.onchange();
+}
 async function openBalanceModal(pmId) {
   balanceOpenSeq_++;
   balanceModalPmId = pmId;

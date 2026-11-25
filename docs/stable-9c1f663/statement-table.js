@@ -489,8 +489,9 @@
   }
 
   // "S/." (the sol's older abbreviation, still common in hand-made spreadsheets: "S/.1,500.00") — its dot is part of the mark, not
-  // a decimal point (a tester's own file, 2026-11-20: every amount came out a thousand times too small).
-  function dropMarkDot(s) { return String(s).replace(/(S\/)\s*\.(?=\s*\d)/ig, '$1 '); }
+  // a decimal point (a tester's own file, 2026-11-20: every amount came out a thousand times too small). A sign or bracket may sit
+  // between the mark and the number ("S/. -1,234.50", "S/. (1,234.50)"; Mark, testers 2026-11-21: such lines were left out).
+  function dropMarkDot(s) { return String(s).replace(/(S\/)\s*\.(?=\s*[-−–(]?\s*\d)/ig, '$1 '); }
 
   // '.' or ',' — which one marks the decimals in this column's text.
   function detectDecimal(values) {
@@ -505,13 +506,30 @@
     });
     return comma > dot ? ',' : '.';
   }
+  // True when the column's text settles the decimal mark: some amounts show it (1,234.56 or 12,50) and none says the other way; or every
+  // amount is a real number (a spreadsheet cell), where there is no mark to read. Import shows the choice as "from the file" then.
+  function decimalClear(values) {
+    var comma = 0, dot = 0, text = 0;
+    values.forEach(function (v) {
+      if (v === '' || v === null || v === undefined) return;
+      if (typeof v === 'number') return;
+      text++;
+      var s = dropMarkDot(v).replace(/[^\d.,]/g, '');
+      var lastC = s.lastIndexOf(','), lastD = s.lastIndexOf('.');
+      if (lastC >= 0 && lastD >= 0) { if (lastC > lastD) comma++; else dot++; }
+      else if (lastC >= 0 && /,\d{1,2}$/.test(s)) comma++;
+      else if (lastD >= 0 && /\.\d{1,2}$/.test(s)) dot++;
+    });
+    return text === 0 || (comma > 0) !== (dot > 0);
+  }
 
   // The number in a cell, or NaN. Handles "S/ 1,234.50", "S/.1,234.50", "1.234,50", "(12.50)", "12.50-", "−5", "USD 10".
   function parseAmount(value, decimal) {
     if (typeof value === 'number') return value;
     var s = dropMarkDot(value === undefined || value === null ? '' : value).trim();
     if (!s) return NaN;
-    var negative = /^\(.*\)$/.test(s) || /^[-−–]/.test(s.replace(/^[^\d(\-−–.,]+/, '')) || /[-−–]\s*$/.test(s);
+    var bare = s.replace(/^[^\d(\-−–.,]+/, '');   // without a leading currency mark ("S/ (1,234.50)" is negative too)
+    var negative = /^\(.*\)$/.test(s) || /^\(.*\)$/.test(bare) || /^[-−–]/.test(bare) || /[-−–]\s*$/.test(s);
     var digits = s.replace(/[^\d.,]/g, '');
     if (!/\d/.test(digits)) return NaN;
     if (decimal === ',') digits = digits.replace(/\./g, '').replace(/,/g, '.');
@@ -661,6 +679,10 @@
     m.dateProved = !!m.dateOrder && columnValues(rows, first, m.date).some(function (v) { var p = dateParts(v); return p && p.order === '?' && p.a !== p.b; });
     var numberCols = [m.amount, m.out, m.in].filter(function (i) { return i >= 0; });
     m.decimal = detectDecimal([].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })));
+    m.decimalClear = decimalClear([].concat.apply([], numberCols.map(function (i) { return columnValues(rows, first, i); })));
+    // The dates leave no doubt: the order was proved (a 31/01), or they are written year first (2025-12-30, what a spreadsheet's date cells give).
+    m.dateClear = !!m.dateOrder && (m.dateProved || columnValues(rows, first, m.date).filter(function (v) { return String(v || '').trim(); })
+      .every(function (v) { return /^\d{4}-\d{2}-\d{2}/.test(String(v).trim()); }));
     // Amounts written with a dollar sign ("$18.40", "US$ 5") and no currency column: the screen offers the dollar as the file's currency
     // (Mark, 2026-11-18: a YNAB export came in as soles). 'US$' | '$' | ''.
     m.currencySign = '';

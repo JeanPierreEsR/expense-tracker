@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.55.0"><!-- ship.sh writes the release number here -->
-  <meta name="app-channel" content="stable"><meta name="app-pin" content="9c1f663ecaa359517b80d620cacefba3fc192ed3"><meta name="app-pairs" content="5488808,5a86414,e5e75f2,4453202,746cc4d"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
+  <meta name="app-release" content="2.69.3"><!-- ship.sh writes the release number here -->
+  <meta name="app-channel" content="stable"><meta name="app-pin" content="c01566235ad130f6d038fdb926f84d7e185b61b7"><meta name="app-pairs" content="9c1f663,5488808,e5e75f2,4453202"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
   // in stable/ that only `ship.sh --promote` changes. This runs first, before anything else loads.
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-23T14:16:02Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-25T00:55:48Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -179,6 +179,7 @@
               <option value="exchange" data-i18n="transfer.kind.exchange">Currency exchange</option>
             </select>
             <p class="hint" id="exchange-leg-hint" hidden></p>
+            <button type="button" class="add-inline" id="exchange-link-btn" data-i18n="xlink.btn" hidden>Link to the other side</button>
             <div id="repayment-detail" hidden>
               <div class="type-tabs budget-period-tabs" id="repayment-direction-tabs">
                 <button type="button" class="type-tab active" data-direction="i_owe_them" data-i18n="transfer.iPaid">I paid them</button>
@@ -194,7 +195,7 @@
                 <div id="entry-repay-choose-panel" hidden>
                   <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
                   <div id="entry-repay-choose-list"></div>
-                  <p class="hint" id="entry-repay-choose-summary"></p>
+                  <p class="hint" id="entry-repay-choose-summary" aria-live="polite"></p>
                 </div>
               </div>
               <div id="repayment-overpay-block">
@@ -413,6 +414,33 @@
             </div>
           </div>
 
+          <!-- Business 2, piece 10 (company copies): how it was paid and its receipt, for the accountant's package. -->
+          <div id="voucher-field" hidden>
+            <label for="voucher-pay" data-i18n="voucher.pay">How it was paid</label>
+            <select id="voucher-pay">
+              <option value="" data-i18n="voucher.pay.none">—</option>
+              <option value="transfer" data-i18n="voucher.pay.transfer">Transfer</option>
+              <option value="cash" data-i18n="voucher.pay.cash">Cash</option>
+              <option value="wallet" data-i18n="voucher.pay.wallet">Yape / Plin</option>
+              <option value="cheque" data-i18n="voucher.pay.cheque">Cheque</option>
+            </select>
+            <label for="voucher-type" data-i18n="voucher.type">Receipt</label>
+            <select id="voucher-type">
+              <option value="" data-i18n="voucher.pay.none">—</option>
+              <option value="factura" data-i18n="voucher.type.factura">Factura</option>
+              <option value="boleta" data-i18n="voucher.type.boleta">Boleta</option>
+              <option value="rh" data-i18n="voucher.type.rh">Recibo por honorarios</option>
+              <option value="none" data-i18n="voucher.type.none">None</option>
+            </select>
+            <div id="voucher-detail" hidden>
+              <label for="voucher-no" data-i18n="voucher.no">Series-number</label>
+              <input type="text" id="voucher-no" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="F001-123">
+              <label for="voucher-date" data-i18n="voucher.date">Issue date (if not the same day)</label>
+              <input type="date" id="voucher-date">
+            </div>
+            <p class="hint" data-i18n="voucher.hint">For the accountant's package. Left empty, the package guesses how it was paid when it can.</p>
+          </div>
+
           </div>
 
           <!-- Save is always in reach (design review 2026-11-12): this bar stays at the bottom of the sheet while it scrolls,
@@ -423,6 +451,7 @@
           </div>
           <button type="button" class="cancel-edit-btn" id="cancel-new-entry-btn" hidden data-i18n="entry.cancelNew">Cancel entry</button>
           <button type="button" class="cancel-edit-btn" id="cancel-edit-btn-2" hidden data-i18n="entry.cancelEdit">Cancel edit</button>
+          <button type="button" class="add-inline" id="entry-history-btn" hidden data-i18n="changelog.entryBtn">This entry's changes</button>
           <button type="button" class="delete-entry-btn" id="delete-entry-btn" hidden data-i18n="entry.delete">Delete this entry</button>
         </form>
       </div>
@@ -430,6 +459,7 @@
 
       <div class="card home-unreadable" id="home-unreadable" hidden></div>
       <button type="button" class="card home-charges" id="home-charges" hidden></button>
+      <button type="button" class="card home-charges" id="home-xlinks" hidden></button>
       <div class="home-glance" id="home-glance" hidden>
         <div class="home-glance-track" id="home-glance-track"></div>
         <div class="home-glance-dots" id="home-glance-dots" hidden></div>
@@ -567,6 +597,31 @@
         <p class="hint" data-i18n="coOv.fundingHint">Per project, the amount you type and update when you like. Tap a project to change it.</p>
         <div id="co-funding-list"></div>
         <p class="hint" id="co-funding-empty" hidden data-i18n="coOv.fundingEmpty">No open projects.</p>
+      </div>
+      <!-- Business 2, piece 7: each partner's money (contributions, to be decided, loans, distributions in the period). -->
+      <div class="card ov-period" id="co-partners-card" hidden>
+        <h2 data-i18n="coOv.partnersTitle">Partners</h2>
+        <div id="co-partners-list"></div>
+        <p class="hint" id="co-partners-empty" hidden data-i18n="coOv.partnersEmpty">No partners yet. In Needs review, "It's a partner's money" adds one.</p>
+        <div id="co-partners-pending"></div>
+      </div>
+      <!-- Business 2, piece 8: closing the month shown (only when the period is one whole month that has ended). -->
+      <!-- Business 2, piece 11: sales (units by status, price / collected / still to collect) and the next collections. -->
+      <div class="card ov-period" id="co-sales-card" hidden>
+        <h2 data-i18n="sales.cardTitle">Sales</h2>
+        <div id="co-sales-body"></div>
+      </div>
+      <div class="card ov-period" id="co-next-card" hidden>
+        <h2 data-i18n="sales.nextTitle">Next collections</h2>
+        <div id="co-next-body"></div>
+      </div>
+      <!-- Business 2, piece 12: a statement to share, with the sections chosen. -->
+      <div class="card ov-period" id="co-share-card" hidden>
+        <button type="button" class="add-inline" id="co-share-btn" data-i18n="share.open">Prepare a statement to share…</button>
+      </div>
+      <div class="card ov-period" id="co-close-card" hidden>
+        <h2 id="co-close-title"></h2>
+        <div id="co-close-body"></div>
       </div>
 
       <div class="card ov-period">
@@ -768,6 +823,7 @@
       <p class="hint loans-more-practice" id="loans-more-practice" hidden></p>
       <div class="status-msg" id="loans-first-loading" hidden data-i18n="common.loading">Loading…</div>
       <p class="hint loans-unreadable" id="loans-unreadable" hidden></p>
+      <p class="hint loans-unreadable" id="loans-sheetcheck" hidden></p>
       <div class="card" id="loans-owed-card">
         <div class="budgets-header">
           <h2 data-i18n="loans.owesYou">Owes you</h2>
@@ -802,6 +858,7 @@
 
       <div class="card" id="loans-settled-card" hidden>
         <button type="button" class="add-inline loan-detail-paid-toggle" id="loans-settled-toggle"></button>
+        <h3 id="loans-settled-title" hidden></h3>
         <div id="loans-settled-list" hidden></div>
       </div>
 
@@ -841,6 +898,10 @@
           </button>
           <button type="button" class="more-list-item" id="more-business-btn" hidden>
             <span class="row-icon" data-icon="briefcase" aria-hidden="true"></span><span data-i18n="more.business">Companies &amp; projects</span>
+            <span class="more-list-chevron">›</span>
+          </button>
+          <button type="button" class="more-list-item" id="more-changelog-btn" hidden>
+            <span class="row-icon" data-icon="clock" aria-hidden="true"></span><span data-i18n="changelog.title">Change log</span>
             <span class="more-list-chevron">›</span>
           </button>
       </div>
@@ -1131,6 +1192,7 @@
           </span>
         </div>
         <button type="button" class="add-inline" id="business-people-btn" data-i18n="business.people">People</button>
+        <button type="button" class="add-inline" id="business-constancias-btn" hidden data-i18n="const.all">All the yearly statements</button>
         <h2 class="screen-title" style="margin-top:0;" data-i18n="business.title">Companies &amp; projects</h2>
         <p class="hint" data-i18n="business.hint">Group your business income and costs by company and project. Each currency is always kept apart.</p>
         <select id="business-period" class="business-period-select"></select>
@@ -1209,13 +1271,22 @@
       <div class="card">
         <div class="budgets-header">
           <button type="button" class="icon-btn back-btn" id="business-detail-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
-          <button type="button" class="add-inline" id="business-detail-edit-btn" data-i18n="business.edit">Edit</button>
+          <button type="button" class="icon-btn" id="business-detail-edit-btn" data-i18n-aria-label="business.edit" aria-label="Edit"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>
         </div>
         <h2 class="screen-title" style="margin-top:0;" id="business-detail-title"></h2>
         <p class="hint" id="business-detail-sub"></p>
         <select id="business-detail-period" class="business-period-select"></select>
         <div id="business-detail-body"></div>
         <p class="hint error-text" id="business-detail-error"></p>
+      </div>
+      <!-- Business 2, piece 11 (company copies): the project's units, their buyer, price, status and stages. -->
+      <div class="card" id="business-units-card" hidden>
+        <div class="budgets-header">
+          <h3 style="margin:0;" data-i18n="sales.units">Units</h3>
+          <button type="button" class="icon-btn" id="business-units-add" data-i18n-aria-label="sales.addUnitsAria" aria-label="Add units"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+        </div>
+        <div id="business-units-list"></div>
+        <p class="hint" id="business-units-empty" hidden data-i18n="sales.unitsEmpty">No units yet. Tap + to add the units (tags) this project sells.</p>
       </div>
       <div class="card" id="business-detail-entries-card" hidden>
         <h3 style="margin-top:0;" data-i18n="business.entries">Entries</h3>
@@ -1298,6 +1369,25 @@
         <h2 style="margin-top:0;" data-i18n="perf.tipsTitle">Tips: did they help?</h2>
         <p class="hint" data-i18n="perf.tipsHint">Each tip this phone showed, the day it showed, and whether its feature was used afterwards.</p>
         <div id="perf-tips"></div>
+      </div>
+    </div>
+
+    <!-- Business 2, piece 8: the change log (company copies). -->
+    <div id="screen-change-log" class="screen" hidden>
+      <div class="card">
+        <div class="budgets-header">
+          <button type="button" class="icon-btn back-btn" id="changelog-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+        </div>
+        <h2 class="screen-title" style="margin-top:0;" id="changelog-heading" data-i18n="changelog.title">Change log</h2>
+        <p class="hint" data-i18n="changelog.hint">What was created, changed or deleted, when and from where. Only the app writes it; whoever has access to the Google Sheet can still edit it by hand, and closing a month notices that.</p>
+        <div class="changelog-month" id="changelog-month-nav">
+          <button type="button" class="icon-btn" id="changelog-prev" data-i18n-aria-label="changelog.prev" aria-label="Previous month"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <span id="changelog-month-label"></span>
+          <button type="button" class="icon-btn" id="changelog-next" data-i18n-aria-label="changelog.next" aria-label="Next month"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+        </div>
+        <div id="changelog-list"></div>
+        <p class="hint" id="changelog-empty" hidden data-i18n="changelog.empty">Nothing was changed in this month.</p>
+        <p class="hint error-text" id="changelog-error"></p>
       </div>
     </div>
 
@@ -1739,6 +1829,7 @@
 
         <p class="hint"><strong data-i18n="privacy.readsTitle">What your app reads</strong></p>
         <p class="hint" data-i18n="privacy.readsMail">Your bank emails, only if you turned that on. Your app reads them (it can never send, change or delete an email) and turns each payment into an entry that waits for your OK. Those emails stay between your Gmail and your app.</p>
+        <p class="hint" data-i18n="privacy.deletedCopy">Entries you delete several at a time, and an account's old name, digits and history after you move it to another account, stay in your Google Sheet for 30 days in Recently deleted, so you can bring them back. Deleting them for good there, or Delete everything, removes them.</p>
         <p class="hint" data-i18n="privacy.botCopy">If you use the WhatsApp or Telegram bot, your Google Sheet keeps a copy of what each bot action changed for 30 days, so “undo” can put it back. Deleting an entry for good in Recently deleted, or Delete everything, removes it.</p>
         <p class="hint" data-i18n="privacy.readsFiles">Receipt photos and bank statement PDFs are read on your phone. The file is not uploaded and not kept.</p>
 
@@ -1800,6 +1891,8 @@
           </button>
           <div id="statement-coverage-list" hidden></div>
         </div>
+
+        <div class="card stmt-bank-only" id="stmt-digits-card" hidden></div>
 
         <div class="card" id="stmt-upload-card">
           <h2 style="margin-top:0;" class="stmt-bank-only" data-i18n="stmt.s1.title">Upload your statements</h2>
@@ -2207,10 +2300,12 @@
         <button type="button" id="loan-detail-modal-close" class="currency-modal-close">✕</button>
       </div>
       <p class="hint" id="loan-detail-subtitle"></p>
+      <p class="stmt-note warn" id="loan-detail-sheetcheck" hidden></p>
       <div class="loan-detail-actions">
         <span class="info-pair"><button type="button" class="add-inline" id="record-repayment-btn" hidden data-i18n="loan.recordRepayment">Record repayment</button><button type="button" class="info-btn" data-info="repay" data-i18n-aria-label="info.repay.name" aria-label="About Record repayment" aria-expanded="false"></button></span>
         <button type="button" class="add-inline" id="loan-history-btn" data-i18n="history.button">Repayment history</button>
         <button type="button" class="add-inline" id="loan-remind-btn" hidden data-i18n="remind.button">Remind on WhatsApp</button>
+        <button type="button" class="add-inline" id="loan-constancia-btn" hidden data-i18n="const.button">Yearly statement</button>
       </div>
       <div class="loan-opening-offer" id="loan-detail-opening" hidden>
         <p class="hint" data-i18n="loanDetail.openingHint">Was there a debt with them from before you started using the app? Add it here, then record its repayment as usual.</p>
@@ -2229,6 +2324,21 @@
     </div>
   </div>
 
+  <div id="loan-unknown-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="loans.unknownTitle">Choose who this is</span>
+        <button type="button" id="loan-unknown-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="loan-unknown-text"></p>
+        <label for="loan-unknown-friend" data-i18n="loans.unknownPick">Whose loans are these?</label>
+        <select id="loan-unknown-friend"></select>
+        <p class="hint error-text" id="loan-unknown-error" role="alert" hidden></p>
+        <button type="button" class="primary" id="loan-unknown-save" data-i18n="common.save">Save</button>
+      </div>
+    </div>
+  </div>
   <div id="loan-remind-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
     <div class="currency-modal">
       <div class="currency-modal-header">
@@ -2295,6 +2405,200 @@
         <p class="hint" data-i18n="coOv.fundingClearHint">Leave the amount empty to remove it.</p>
         <p class="hint error-text" id="co-funding-error"></p>
         <button type="button" class="primary" id="co-funding-save" data-i18n="common.save">Save</button>
+      </div>
+    </div>
+  </div>
+  <!-- Business 2, piece 9: the yearly "constancia informativa" of a lender or partner (one, or all of them one by one). -->
+  <div id="constancia-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="const.title">Information statement</span>
+        <button type="button" id="constancia-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <label for="constancia-year" data-i18n="const.year">Year</label>
+        <select id="constancia-year"></select>
+        <div class="constancia-nav" id="constancia-nav" hidden>
+          <button type="button" class="icon-btn" id="constancia-prev" data-i18n-aria-label="const.prev" aria-label="Previous person"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <span id="constancia-pos"></span>
+          <button type="button" class="icon-btn" id="constancia-next" data-i18n-aria-label="const.next" aria-label="Next person"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg></button>
+        </div>
+        <div id="constancia-doc" class="constancia-doc"></div>
+        <div class="constancia-actions" id="constancia-actions" hidden>
+          <button type="button" class="primary" id="constancia-pdf" data-i18n="const.pdf">Save or send as PDF</button>
+          <button type="button" class="add-inline" id="constancia-text" data-i18n="const.shareText">Share as text</button>
+          <button type="button" class="add-inline" id="constancia-csv" data-i18n="const.shareCsv">Share as CSV (Excel)</button>
+          <p class="hint" data-i18n="const.pdfHint">"Save or send as PDF" opens the iPhone's print screen: share from there, or pinch the preview open to get the PDF.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="constancia-print" aria-hidden="true"></div>
+  <!-- Business 2, piece 8: closing a month (the app-vs-bank check first). -->
+  <div id="close-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="close-title"></span>
+        <button type="button" id="close-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <h3 data-i18n="close.bankTitle">App against the bank</h3>
+        <p class="hint" id="close-bank-hint"></p>
+        <div id="close-accounts"></div>
+        <p class="hint" id="close-no-accounts" hidden data-i18n="close.noAccounts">No account has a starting balance, so there is nothing to compare with the bank.</p>
+        <p class="hint close-pending" id="close-pending" hidden></p>
+        <label for="close-note" data-i18n="close.note">Note (optional)</label>
+        <input type="text" id="close-note" data-i18n-placeholder="close.notePh" placeholder="e.g. the difference is a fee still to record">
+        <p class="hint" data-i18n="close.keeps">Closing keeps this month's figures. If anything in it changes later, the app will say so.</p>
+        <p class="hint error-text" id="close-error"></p>
+        <button type="button" class="primary" id="close-save" data-i18n="close.save">Close the month</button>
+      </div>
+    </div>
+  </div>
+  <!-- Business 2, piece 12: the statement to share (sections, then the document; PDF or text like the yearly statement). -->
+  <div id="share-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="share.title">Statement to share</span>
+        <button type="button" id="share-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="share-period"></p>
+        <div id="share-pick">
+          <p class="hint" data-i18n="share.pickHint">Choose what goes in. Next time it opens with the same choice.</p>
+          <div id="share-sections"></div>
+          <p class="hint error-text" id="share-error"></p>
+          <button type="button" class="primary" id="share-build" data-i18n="share.build">Prepare the statement</button>
+        </div>
+        <div id="share-doc" class="constancia-doc" hidden></div>
+        <div class="constancia-actions" id="share-actions" hidden>
+          <button type="button" class="primary" id="share-pdf" data-i18n="const.pdf">Save or send as PDF</button>
+          <button type="button" class="add-inline" id="share-text" data-i18n="const.shareText">Share as text</button>
+          <button type="button" class="add-inline" id="share-again" data-i18n="share.again">Change the sections</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Business 2, piece 11: add units to a project, and one unit's card. -->
+  <div id="units-add-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="sales.addUnits">Add units</span>
+        <button type="button" id="units-add-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="sales.addUnitsHint">Choose the tags that are units of this project. To create units, use More → Categories &amp; tags → Add units.</p>
+        <button type="button" class="add-inline" id="units-add-all" data-i18n="friends.selectAll">Select all</button>
+        <div id="units-add-list" class="units-add-list"></div>
+        <p class="hint" id="units-add-none" hidden data-i18n="sales.noFreeTags">There is no unit left to add: create them here.</p>
+        <button type="button" class="add-inline" id="units-add-create" data-i18n="sales.createUnits">Create units…</button>
+        <button type="button" class="primary" id="units-add-save" data-i18n="sales.addUnitsSave">Add to the project</button>
+      </div>
+    </div>
+  </div>
+  <div id="unit-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="unit-title"></span>
+        <button type="button" id="unit-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="unit-sum" id="unit-sum"></p>
+        <label for="unit-buyer" data-i18n="sales.buyer">Buyer</label>
+        <select id="unit-buyer"></select>
+        <input type="text" id="unit-buyer-new" hidden data-i18n-placeholder="sales.buyerNamePh" placeholder="Buyer's name">
+        <label for="unit-price" data-i18n="sales.price">Price</label>
+        <input type="text" inputmode="decimal" id="unit-price" placeholder="0.00">
+        <label for="unit-currency" data-i18n="field.currency">Currency</label>
+        <select id="unit-currency"></select>
+        <label for="unit-status" data-i18n="sales.status">Status</label>
+        <input type="text" id="unit-status" list="unit-status-list" autocomplete="off">
+        <datalist id="unit-status-list"></datalist>
+        <label for="unit-note" data-i18n="sales.note">Note</label>
+        <input type="text" id="unit-note" data-i18n-placeholder="common.optional" placeholder="Optional">
+        <p class="hint error-text" id="unit-error"></p>
+        <button type="button" class="primary" id="unit-save" data-i18n="common.save">Save</button>
+        <h3 data-i18n="sales.stagesTitle">Expected collections by stage</h3>
+        <div id="unit-stages"></div>
+        <div class="unit-stage-new">
+          <select id="unit-stage-kind"></select>
+          <input type="text" inputmode="decimal" id="unit-stage-amount" placeholder="0.00" data-i18n-aria-label="field.amount" aria-label="Amount">
+          <input type="date" id="unit-stage-date" data-i18n-aria-label="sales.dueDate" aria-label="Due date">
+          <button type="button" class="add-inline" id="unit-stage-add" data-i18n="sales.addStage">+ Add expected collection</button>
+        </div>
+        <h3 data-i18n="sales.paymentsTitle">Payments received</h3>
+        <div id="unit-payments"></div>
+        <div class="unit-share" id="unit-share" hidden>
+          <button type="button" class="add-inline" id="unit-share-text" data-i18n="sales.shareText">Share the payments as text</button>
+          <button type="button" class="add-inline" id="unit-share-csv" data-i18n="sales.shareCsv">Share the payments as CSV (Excel)</button>
+        </div>
+        <button type="button" class="add-inline unit-remove" id="unit-remove" data-i18n="sales.remove">Remove from this project</button>
+      </div>
+    </div>
+  </div>
+  <!-- Business 2, piece 10: the accountant's monthly package (send by email, or save the files). -->
+  <div id="pkg-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="pkg-title"></span>
+        <button type="button" id="pkg-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" data-i18n="pkg.hint">Four files that open in Excel: movements, account balances, lenders and partners, and what is pending.</p>
+        <p class="hint" id="pkg-corrected" hidden data-i18n="pkg.correctedHint">The month changed after the last package was sent: this one goes as a corrected package that says what changed.</p>
+        <label for="pkg-email" data-i18n="pkg.email">Accountant's email</label>
+        <input type="email" id="pkg-email" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="contador@ejemplo.com">
+        <label class="checkbox-row"><input type="checkbox" id="pkg-cc" checked> <span data-i18n="pkg.ccMe">Send me a copy</span></label>
+        <p class="hint error-text" id="pkg-error"></p>
+        <button type="button" class="primary" id="pkg-send" data-i18n="pkg.send">Send the package</button>
+        <button type="button" class="add-inline" id="pkg-files" data-i18n="pkg.saveFiles">Save the files</button>
+        <div id="pkg-file-list"></div>
+      </div>
+    </div>
+  </div>
+  <!-- One entry's history (Business 2, piece 8), from the entry form. -->
+  <div id="entry-log-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="changelog.entryTitle">This entry's changes</span>
+        <button type="button" id="entry-log-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body"><div id="entry-log-list"></div></div>
+    </div>
+  </div>
+  <!-- Business 2, piece 7: "It's a partner's money" / "Profit distribution" on a Needs review item (company copies). -->
+  <div id="partner-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="partner-title"></span>
+        <button type="button" id="partner-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="hint" id="partner-context"></p>
+        <label for="partner-pick" data-i18n="partner.who">Partner</label>
+        <select id="partner-pick"></select>
+        <input type="text" id="partner-new-name" data-i18n-placeholder="partner.newNamePh" placeholder="Partner's name" hidden>
+        <div id="partner-kind-box">
+          <label data-i18n="partner.whatIsIt">What is it?</label>
+          <label class="partner-kind"><input type="radio" name="partner-kind" value="contribution"> <span><b data-i18n="partner.kind.contribution">Capital contribution</b><small data-i18n="partner.kind.contributionHint">It adds to the company's capital.</small></span></label>
+          <label class="partner-kind"><input type="radio" name="partner-kind" value="loan"> <span><b data-i18n="partner.kind.loan">Loan from the partner</b><small data-i18n="partner.kind.loanHint">The company owes it back to them.</small></span></label>
+          <label class="partner-kind"><input type="radio" name="partner-kind" value="pending"> <span><b data-i18n="partner.kind.pending">To be decided with the accountant</b><small data-i18n="partner.kind.pendingHint">It stays apart until you decide; you can change it later.</small></span></label>
+          <p class="hint" data-i18n="partner.neverIncome">None of the three is income.</p>
+        </div>
+        <div id="partner-out-box">
+          <div id="partner-net-box" hidden>
+            <label for="partner-net" data-i18n="partner.netPaid">Net paid</label>
+            <input type="text" inputmode="decimal" id="partner-net" placeholder="0.00">
+          </div>
+          <label for="partner-withholding" data-i18n="partner.withholding">Withholding (what you typed for SUNAT)</label>
+          <input type="text" inputmode="decimal" id="partner-withholding" placeholder="0.00">
+          <p class="hint" id="partner-gross-line"></p>
+          <p class="hint" data-i18n="partner.notExpense">A profit distribution is not an expense. The app never works out profits.</p>
+        </div>
+        <label for="partner-business" data-i18n="field.business">Company / project</label>
+        <select id="partner-business"></select>
+        <p class="hint error-text" id="partner-error"></p>
+        <button type="button" class="primary" id="partner-save" data-i18n="common.save">Save</button>
       </div>
     </div>
   </div>
@@ -2655,23 +2959,33 @@
       <div class="budget-modal-body" id="exchange-modal-body">
        <div id="exchange-form">
         <p class="hint" id="exchange-context" hidden></p>
+        <div id="exchange-other-pending" hidden>
+          <label for="exchange-other-pending-sel" data-i18n="xch.otherPendingLabel">The other side is also waiting in Needs review?</label>
+          <select id="exchange-other-pending-sel"></select>
+        </div>
         <p class="hint" data-i18n="xch.intro">Changed money from one currency to another, in either direction? It is saved as two transfers, one per currency. It is not spending or income.</p>
 
         <label for="exchange-date" data-i18n="field.date">Date</label>
         <input type="date" id="exchange-date">
+        <button type="button" class="add-inline" id="exchange-in-date-btn" data-i18n="xch.arrivedOtherDay" hidden>The money arrived another day</button>
+        <div id="exchange-in-date-field" hidden>
+          <label for="exchange-in-date" data-i18n="xch.arrivedOn">Arrived on</label>
+          <input type="date" id="exchange-in-date">
+          <button type="button" class="add-inline" id="exchange-in-date-same" data-i18n="xch.arrivedSameDay">Same day</button>
+        </div>
 
         <label data-i18n="xch.left">Money that left</label>
-        <select id="exchange-out-account"></select>
+        <select id="exchange-out-account" data-i18n-aria-label="xch.aria.outAccount" aria-label="Account the money left"></select>
         <div class="exchange-amount-row">
-          <input type="text" inputmode="decimal" id="exchange-out-amount" placeholder="0.00">
-          <select id="exchange-out-currency"></select>
+          <input type="text" inputmode="decimal" id="exchange-out-amount" placeholder="0.00" data-i18n-aria-label="xch.aria.outAmount" aria-label="Amount that left">
+          <select id="exchange-out-currency" data-i18n-aria-label="xch.aria.outCurrency" aria-label="Currency that left"></select>
         </div>
 
         <label data-i18n="xch.arrived">Money that arrived</label>
-        <select id="exchange-in-account"></select>
+        <select id="exchange-in-account" data-i18n-aria-label="xch.aria.inAccount" aria-label="Account the money arrived in"></select>
         <div class="exchange-amount-row">
-          <input type="text" inputmode="decimal" id="exchange-in-amount" placeholder="0.00">
-          <select id="exchange-in-currency"></select>
+          <input type="text" inputmode="decimal" id="exchange-in-amount" placeholder="0.00" data-i18n-aria-label="xch.aria.inAmount" aria-label="Amount that arrived">
+          <select id="exchange-in-currency" data-i18n-aria-label="xch.aria.inCurrency" aria-label="Currency that arrived"></select>
         </div>
         <p class="hint" id="exchange-rate-line" hidden></p>
 
@@ -2679,8 +2993,12 @@
         <input type="text" id="exchange-house" data-i18n-placeholder="common.optional" placeholder="Optional">
 
         <p class="stmt-note warn" id="exchange-account-note" hidden></p>
-        <p class="hint error-text" id="exchange-form-error"></p>
+        <p class="hint error-text" id="exchange-form-error" role="alert"></p>
         <button type="button" class="primary" id="exchange-save-btn" data-i18n="xch.save">Save exchange</button>
+        <div id="exchange-edit-extras" hidden>
+          <button type="button" class="add-inline" id="exchange-sides-btn" data-i18n="xch.editSides">Edit each side on its own</button>
+          <button type="button" class="delete-entry-btn" id="exchange-delete-btn" data-i18n="xch.pairDelete">Delete this exchange</button>
+        </div>
        </div>
       </div>
     </div>
@@ -2695,10 +3013,32 @@
       </div>
       <div class="budget-modal-body">
         <p class="hint" id="xpair-summary"></p>
-        <p class="hint" data-i18n="xch.pairHint">One exchange, saved as two sides (one per currency) so each account's balance moves. Edit a side, or delete the whole exchange.</p>
+        <p class="hint" data-i18n="xch.pairHint">One exchange, saved as two sides (one per currency) so each account's balance moves. Edit one side alone to change what it is, or if these two are not the same exchange.</p>
         <div id="xpair-sides"></div>
         <button type="button" class="delete-entry-btn" id="xpair-delete-btn" data-i18n="xch.pairDelete">Delete this exchange</button>
       </div>
+    </div>
+  </div>
+
+  <!-- "Exchanges to link": sides saved apart, suggested in pairs (openExchangeSuggest_ in app.js). -->
+  <div id="xsugg-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="xsugg.titlePlain">Exchanges to link</span>
+        <button type="button" id="xsugg-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body" id="xsugg-body"></div>
+    </div>
+  </div>
+
+  <!-- Linking one side of an exchange to its other side by hand (openExchangeLink_ in app.js). -->
+  <div id="xlink-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="xlink.title">Link to the other side</span>
+        <button type="button" id="xlink-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body" id="xlink-body"></div>
     </div>
   </div>
 
@@ -2742,8 +3082,8 @@
         <p class="hint" id="loan-opening-hint" hidden data-i18n="loanModal.openingHint">Only the debt is saved: no money entry and no change to any account. Record its repayment later as usual — that is when the money moves.</p>
 
         <div id="loan-due-wrap">
-        <label for="loan-due-date" data-i18n="loanModal.dueDate">Due date</label>
-        <input type="date" id="loan-due-date">
+        <label for="loanm-due-date" data-i18n="loanModal.dueDate">Due date</label>
+        <input type="date" id="loanm-due-date">
         <p class="hint" id="loan-due-hint" data-i18n="loanModal.dueHint">Optional — set this to get an overdue reminder if it's still unpaid past this date.</p>
         </div>
 
@@ -2785,7 +3125,7 @@
   <!-- A budget change that could count from this period on or for all its periods (owner, 2026-11-08); an app window, not the
        iPhone's own dialog (that one speaks the phone's language: "Annuler"). -->
   <div id="app-confirm-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
-    <div class="currency-modal">
+    <div class="currency-modal" role="dialog" aria-modal="true" aria-describedby="app-confirm-text">
       <div class="currency-modal-header">
         <span></span>
         <button type="button" id="app-confirm-close" class="currency-modal-close">✕</button>
@@ -2875,7 +3215,7 @@
             <div id="settlement-choose-panel" hidden>
               <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
               <div id="settlement-choose-list"></div>
-              <p class="hint" id="settlement-choose-summary"></p>
+              <p class="hint" id="settlement-choose-summary" aria-live="polite"></p>
             </div>
           </div>
 
@@ -2886,7 +3226,7 @@
         </div>
 
         <div id="settlement-overpay-section" hidden>
-          <p class="hint" id="settlement-overpay-note"></p>
+          <p class="hint" id="settlement-overpay-section-note"></p>
           <label for="settlement-overpay-category" id="settlement-overpay-category-label" data-i18n="field.category">Category</label>
           <select id="settlement-overpay-category"></select>
           <p class="hint error-text" id="settlement-overpay-error"></p>
@@ -3025,7 +3365,7 @@
             <p class="hint" data-i18n="wa.nameHint">Optional. Type it as your bank prints it. It helps the app tell your own transfers apart from payments to other people. You can add or change it later in More → My names.</p>
             <input type="text" id="wa-name" autocomplete="name" autocapitalize="words" data-i18n-placeholder="wa.namePlaceholder" placeholder="First and last names">
           </div>
-          <p class="hint error-text" id="wa-error"></p>
+          <p class="hint error-text" id="wa-welcome-error"></p>
           <div class="welcome-tour-buttons">
             <button type="button" id="wa-back-btn" data-i18n="tour.back">Back</button>
             <button type="button" class="primary" id="wa-next-btn" data-i18n="welcome.next">Next</button>
@@ -3507,6 +3847,15 @@
 
         <label for="review-transfer-amount" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="review-transfer-amount" placeholder="0.00">
+        <!-- "Choose which loans this pays" when a Needs review item becomes a repayment (owner, 2026-11-23), like Home's "+". -->
+        <div id="review-transfer-choose" hidden>
+          <button type="button" class="add-inline" id="review-transfer-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
+          <div id="review-transfer-choose-panel" hidden>
+            <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
+            <div id="review-transfer-choose-list"></div>
+            <p class="hint" id="review-transfer-choose-summary" aria-live="polite"></p>
+          </div>
+        </div>
 
         <label for="review-transfer-date" data-i18n="field.date">Date</label>
         <input type="date" id="review-transfer-date">
@@ -3801,6 +4150,12 @@
 
         <label for="person-role" id="person-role-label" data-i18n="people.role">Role</label>
         <select id="person-role"></select>
+
+        <div id="person-taxid-box" hidden>
+          <label for="person-taxid" data-i18n="people.taxId">RUC or DNI (optional)</label>
+          <input type="text" id="person-taxid" inputmode="numeric" maxlength="14" autocomplete="off">
+          <p class="hint" data-i18n="people.taxIdHint">Goes into the accountant's package next to their income.</p>
+        </div>
 
         <p class="hint error-text" id="person-form-error"></p>
         <button type="button" class="primary" id="person-save-btn" data-i18n="business.save">Save</button>
@@ -4146,11 +4501,13 @@
       </div>
       <p class="hint" id="pm-wallet-warning" hidden style="font-weight:600;" data-i18n="accounts.walletWarning">Only for wallets that stand on their own, like Starbucks or other loyalty programs. If a wallet is tied to a bank account, don't add the wallet: add that bank account instead.</p>
 
+      <div id="pm-bank-digits">
       <label for="pm-bank" data-i18n="accounts.bank">Bank</label>
       <select id="pm-bank"></select>
 
       <label for="pm-last4" data-i18n="accounts.last4">Last 4 digits</label>
       <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" id="pm-last4" data-i18n-placeholder="common.optional" placeholder="Optional">
+      </div>
 
       <p class="hint" data-i18n="accounts.last4Hint">Only the last 4 digits of the card or account number — never the full number.</p>
 
@@ -4176,7 +4533,26 @@
         <p class="hint" id="pm-manage-hint" data-i18n="accounts.deleteHint">Delete removes an account nothing uses. One with past entries is hidden instead: its history stays, and it leaves every list you pick from.</p>
         <button type="button" class="cancel-edit-btn" id="pm-hide-btn" data-i18n="accounts.hide">Hide</button>
         <button type="button" class="delete-entry-btn" id="pm-delete-btn" data-i18n="accounts.delete">Delete</button>
+        <div id="pm-move-box" hidden>
+          <p class="hint" data-i18n="move.hint">Replaced this card with a new one? Move all its history to the new account, and this one is deleted.</p>
+          <button type="button" class="cancel-edit-btn" id="pm-move-btn" data-i18n="move.button">Move its history to another account…</button>
+        </div>
       </div>
+    </div>
+  </div>
+
+  <div id="move-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="move.title">Move history</span>
+        <button type="button" id="move-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <p id="move-from-line"></p>
+      <label for="move-to" data-i18n="move.to">Move it to</label>
+      <select id="move-to"></select>
+      <div id="move-summary" aria-live="polite"></div>
+      <p class="hint error-text" id="move-form-error" role="alert"></p>
+      <button type="button" class="delete-entry-btn" id="move-save-btn" hidden></button>
     </div>
   </div>
 
@@ -4449,25 +4825,25 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="i18n.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="tour-scenes.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="signin-link.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="country-guess.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="rate-quotes.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="bank-sample.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="perf-share.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="spotlight.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="receipt-parse.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="receipt-fields.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="in-process.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="bill-split.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="loan-reminder.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="company-invite.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="app.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="statement-sample.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="statement-table.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="statement-parsers.js?v=2026-11-23T14:16:02Z"></script>
-  <script src="statements.js?v=2026-11-23T14:16:02Z"></script>
+  <script src="strings.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="i18n.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="tour-scenes.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="signin-link.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="country-guess.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="rate-quotes.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="bank-sample.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="perf-share.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="spotlight.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="receipt-parse.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="receipt-fields.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="in-process.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="bill-split.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="loan-reminder.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="company-invite.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="app.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="statement-sample.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="statement-table.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="statement-parsers.js?v=2026-11-25T00:55:48Z"></script>
+  <script src="statements.js?v=2026-11-25T00:55:48Z"></script>
 </body>
 </html>

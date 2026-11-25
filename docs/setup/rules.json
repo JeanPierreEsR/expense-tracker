@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "rules": [
     { "id": "bcp-consumo-debito", "replaces": "Consumo tarjeta de débito", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Consumo tarjeta de débito (pack)",
       "accountByCurrency": true, "subjectHas": ["realizaste un consumo", "debito"], "type": "expense", "amount": { "label": "Total del consumo" },
@@ -68,7 +68,22 @@
 
     { "id": "falabella-pago-tarjeta", "bank": "Banco Falabella", "sender": "notificaciones@pe.notificaciones.bancofalabella.com", "label": "Pago de tarjeta CMR (pack)",
       "cardIsDestination": true, "subjectHas": ["aviso de pago de tarjeta de credito"], "type": "transfer", "amount": { "label": "Monto pagado" },
-      "description": { "text": "Pago tarjeta CMR" }, "last4": { "label": "N° de tarjeta", "kind": "masked" } }
+      "description": { "text": "Pago tarjeta CMR" }, "last4": { "label": "N° de tarjeta", "kind": "masked" } },
+
+    { "id": "bcp-pago-tarjeta-propia", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Pago de tarjeta propia (pack)",
+      "accountByCurrency": true, "subjectHas": ["constancia de pago de tarjeta de credito propia"], "type": "transfer", "amount": { "label": "Monto pagado" },
+      "description": { "text": "Pago tarjeta BCP" }, "last4": { "label": "Desde", "kind": "masked" }, "to": { "label": "Pagado a", "kind": "masked" },
+      "externalId": { "label": "Número de operación" } },
+
+    { "id": "bcp-entre-mis-cuentas", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Transferencia entre mis cuentas (pack)",
+      "accountByCurrency": true, "subjectHas": ["constancia de transferencia entre mis cuentas"], "type": "transfer", "amount": { "label": "Monto transferido" },
+      "description": { "text": "Transferencia entre mis cuentas" }, "last4": { "label": "Desde", "kind": "masked" }, "to": { "label": "Enviado a", "kind": "masked" },
+      "externalId": { "label": "Número de operación" } },
+
+    { "id": "falabella-transferencia", "bank": "Banco Falabella", "sender": "notificaciones@pe.notificaciones.bancofalabella.com", "label": "Transferencia a terceros (pack)",
+      "accountByCurrency": true, "subjectHas": ["has realizado una transferencia"], "bodyHas": ["transferencia a terceros"], "type": "transferIfOwn",
+      "amount": { "label": "Monto de transferencia" }, "recipient": { "label": "Destinatario" }, "to": { "label": "Cuenta destino", "kind": "cci" },
+      "externalId": { "label": "Nro. de transacción" } }
   ],
   "pairs": [
     { "id": "didi", "sender": "didi@pe.didiglobal.com", "merchantHas": ["didi"] },

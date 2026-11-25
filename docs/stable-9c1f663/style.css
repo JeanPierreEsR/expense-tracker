@@ -137,6 +137,13 @@ button.update-banner {
   background: var(--expense);
 }
 
+/* Back from the update page (Safari): the app still holds what it read before, until the person pulls down. */
+button.pull-update-hint {
+  background: var(--card);
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+}
+
 .pull-refresh-indicator {
   position: fixed;
   top: 0;
@@ -472,6 +479,7 @@ button.type-tab { font: inherit; font-size: 0.75rem; color: var(--text); width: 
 .ov-sum-tile.tappable:active, .ov-sum-net.tappable:active { transform: scale(0.98); }
 /* The chips on top of that list: one per block, each with its number. */
 .flow-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.flow-chips .cat-tag-note { flex-basis: 100%; margin: 2px 0 0; }
 .flow-chip {
   display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-height: 44px;
   padding: 5px 10px; border-radius: var(--r-md); border: 1px solid var(--border); background: var(--card); color: var(--text);
@@ -480,7 +488,7 @@ button.type-tab { font: inherit; font-size: 0.75rem; color: var(--text); width: 
 .flow-chip-label { font-size: 0.75rem; color: var(--muted); }
 .flow-chip-amt { font-size: 0.8125rem; font-weight: 600; white-space: nowrap; }
 .flow-chip.active { border: 2px solid var(--accent); padding: 4px 9px; background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
-.flow-chip.active .flow-chip-label { color: var(--accent); font-weight: 600; }
+.flow-chip.active .flow-chip-label { color: var(--accent-dark); font-weight: 600; }   /* darker blue: 4.5:1 on the tint (Paola) */
 .flow-chip.flow-income .flow-chip-amt { color: var(--income); }
 .flow-chip.flow-expense .flow-chip-amt { color: var(--expense); }
 .flow-chip.flow-investment .flow-chip-amt { color: var(--investment); }
@@ -1442,6 +1450,7 @@ body.sheet-open {
 .review-field-label { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
 .review-item-fields .review-transfer-label,
 .review-item-fields .review-trip,
+.review-item-fields .review-business,
 .review-item-fields .review-from,
 .review-item-fields .review-to,
 .review-item-fields .review-x-out,
@@ -2516,7 +2525,8 @@ body.income-revealed .sens-mask { display: none; }
   padding: 12px;
   margin-top: 12px;
 }
-.stmt-result-remove { display: block; margin: 10px 0 0 auto; padding: 8px 4px; background: none; border: 0; color: var(--muted); font-size: 0.875rem; text-decoration: underline; }
+/* A quiet link, but a full 44 px to tap (Tomás, 2026-11-21: it was 32 px). */
+.stmt-result-remove { display: block; min-height: 44px; margin: 4px 0 0 auto; padding: 8px 4px; background: none; border: 0; color: var(--muted); font-size: 0.875rem; text-decoration: underline; }
 .stmt-result-name { font-weight: 600; font-size: 0.875rem; overflow-wrap: anywhere; margin-bottom: 6px; }
 .stmt-verdict { margin: 4px 0 8px; font-weight: 600; font-size: 0.875rem; }
 .stmt-verdict.good { color: var(--income-dark); }
@@ -2525,6 +2535,17 @@ body.income-revealed .sens-mask { display: none; }
 .stmt-note { margin: 4px 0; font-size: 0.8125rem; }
 .stmt-note.warn { color: var(--warn-text); }
 .stmt-note.ok { color: var(--income-dark); }
+/* Import's mapping card (owner, 2026-11-21): three sections (columns, accounts, categories), each file category and each account name a
+   shaded block of its own so its text, choices and notes read as one group. */
+.tm-sec { margin: 0 0 16px; }
+.tm-cat-row, .tm-value { background: var(--surface); border-radius: var(--r-md); padding: 10px 12px; margin: 0 0 12px; }
+.tm-newacct { margin: 8px 0 0; padding-left: 10px; border-left: 2px solid var(--border-strong); }
+.tm-cat-lines { margin-top: 6px; }
+.tm-cat-lines summary { color: var(--accent); cursor: pointer; font-size: 0.875rem; }
+.tm-loan-group { background: var(--card); border-radius: var(--r-md); padding: 8px 10px; margin: 6px 0; }
+.tm-loan-line { padding: 6px 0; border-top: 1px solid var(--border); }
+.tm-loan-line:first-of-type { border-top: 0; }
+.tm-loan-line select { margin-top: 4px; }
 .stmt-note.info { color: var(--muted); }
 .stmt-kv { display: flex; justify-content: space-between; gap: 10px; font-size: 0.875rem; padding: 3px 0; }
 .stmt-kv span:first-child { color: var(--muted); }
@@ -2541,7 +2562,8 @@ body.income-revealed .sens-mask { display: none; }
   border-bottom: 1px solid var(--border);
 }
 .stmt-line-date { color: var(--muted); white-space: nowrap; }
-.stmt-line-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Up to two lines before "…" (Tomás, 2026-11-21: "Prestamo …" hid who the loan was for). */
+.stmt-line-desc { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
 .stmt-line-amt.in { color: var(--income); }
 
 .stmt-group { border-top: 1px solid var(--border); padding: 8px 0; }
@@ -2940,6 +2962,8 @@ html:has(#welcome-overlay:not([hidden])) :is(body > header, #app, #bottom-nav, #
 .wp-add input { flex: 1; min-width: 0; }
 .wp-add .primary { width: auto; margin: 0; padding: 0 18px; min-height: 44px; border-radius: var(--r-md); }
 .wp-add input { margin: 0; }
+/* Welcome on a company copy: the projects added so far sit above their box */
+#wc-projects { margin-bottom: 12px; }
 
 
 /* Welcome tour as a swipeable row of cards (no Next button). Each card scrolls up and down on its own; the bottom bar is fixed. */
@@ -3213,11 +3237,12 @@ body.update-ready .nav-btn[data-screen="more"]::after { content: ""; position: a
 .bm-status.wait { color: var(--warn-text); font-weight: 600; }
 .bm-bank .hint { margin: 6px 0 0; }
 .bm-more { margin: 10px 0; }
+#be-body[data-view="ap"] .be-mail-foot { display: none; }
 .bm-more > summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
 
 /* ---- More → Bank emails screen (two views: By bank / By transaction) ---- */
 .be-tabs { display: flex; gap: 0; margin: 14px 0 10px; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
-.be-tab { flex: 1; min-height: 44px; border: 0; background: var(--card); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+.be-tab { flex: 1 1 auto; min-height: 44px; padding: 0 8px; border: 0; background: var(--card); color: var(--text); font: inherit; font-size: 0.875rem; font-weight: 600; white-space: nowrap; cursor: pointer; }
 .be-tab + .be-tab { border-left: 1px solid var(--border); }
 .be-tab.active { background: var(--accent); color: var(--white); }
 .be-kinds { list-style: none; margin: 8px 0 0; padding: 0; }
@@ -3391,6 +3416,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 
 /* ---- Business pack (specs/business.md) ---- */
 .business-period-select, .igv-year-select { width: 100%; margin: 6px 0 10px; }
+/* Invite a company (owner's copy): set apart from the list above it */
+.business-invite { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--border); }
+.business-invite textarea { width: 100%; box-sizing: border-box; font: inherit; }
 .business-cur-igv { font-size: 0.8125rem; color: var(--muted); padding-top: 2px; }
 .igv-month-head { font-weight: 700; margin: 10px 0 2px; }
 .igv-line { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 0.875rem; }
@@ -3400,6 +3428,18 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .business-cur-head { font-weight: 700; font-size: 0.875rem; color: var(--muted); margin-bottom: 4px; }
 .business-cur-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 1rem; }
 .business-cur-row.margin { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; font-weight: 700; }
+/* Step 4: the statement's table (label + three number columns) and the accountant comparison */
+.statement-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 1fr); gap: 4px; padding: 3px 0; font-size: 0.8125rem; align-items: baseline; }
+.statement-row.statement-head { font-size: 0.6875rem; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.statement-row.result { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 6px; font-weight: 700; }
+.statement-head .statement-num { overflow-wrap: normal; font-size: 0.875em; }   /* "Movimientos" must not break in two */
+.statement-label { overflow-wrap: anywhere; }
+.statement-num { text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.statement-sub-title { font-weight: 600; margin: 10px 0 2px; }
+.statement-compare { cursor: pointer; }
+.statement-compare-head { font-weight: 600; margin-bottom: 4px; }
+.statement-match { color: var(--income); font-size: 0.875rem; padding-top: 4px; }
+.statement-opening-row { cursor: pointer; }
 .business-neg { color: var(--expense); }
 .business-pos { color: var(--income); }
 .business-company-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 18px 0 4px; }
@@ -3599,6 +3639,7 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 #screen-categories.categories-editing .card { padding-bottom: 90px; }
 .cat-bulk-alert { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: var(--r-md); padding: 10px 12px; margin: 8px 0; font-size: 0.875rem; }
 .cat-bulk-block { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.budget-modal-body > .cat-bulk-block:first-child { border-top: 0; padding-top: 0; margin-top: 0; }   /* first block: no line and gap under the title (Mark) */
 .cat-bulk-block select { width: 100%; margin-top: 6px; }
 #screen-business.business-editing .card, #screen-business-people.people-editing .card { padding-bottom: 90px; }
 .business-company-head.friends-check-row { justify-content: flex-start; gap: 12px; }
@@ -3621,7 +3662,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .review-compact-chip { display: inline-block; font-size: 0.75rem; border-radius: var(--r-md); padding: 1px 8px; margin-top: 3px; background: var(--warn-bg); color: var(--warn-text); }
 .review-compact-chip.ok { background: var(--income-bg-soft); color: var(--income); }
 /* Home / search → Edit: a checkbox before each entry, room under the list for the fixed bar */
-.search-results-head { display: flex; justify-content: flex-end; }
+.search-results-head { display: flex; justify-content: space-between; align-items: center; }   /* a title beside the pencil, not an empty band (testers, 2026-11-22) */
+.search-results-head h2 { margin: 0; }
 .search-results-head .icon-btn { margin: 4px 0; }
 #screen-entries.entries-editing .entry-list, #screen-entries.entries-editing .search-results-card { padding-bottom: 90px; }
 #screen-trip-detail.entries-editing #trip-detail-entries-card { padding-bottom: 90px; }
@@ -3645,6 +3687,13 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .bm-status { border: 1px solid var(--border, var(--border-warm)); border-radius: var(--r-md); padding: 10px 12px; margin: 4px 0 14px; }
 .bm-status .hint:first-child { margin-top: 0; }
 .bm-status-addr { font-weight: 700; overflow-wrap: anywhere;   /* words stay whole; only a long address breaks (break-all split the fallback sentence mid-word) */ margin: 4px 0; }
+/* More → Bank emails → the person's other addresses (forwarded bank e-mails, 2026-11-22): one row per address, Remove on its right;
+   the add row = the box and its button side by side, lined up (no stacked-button margin inside the row). */
+.be-fwd-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.be-fwd-row .bm-status-addr { min-width: 0; }
+.be-fwd-add { display: flex; align-items: stretch; gap: 8px; margin-top: 8px; }   /* box and button keep one height at any text size */
+.be-fwd-add input { flex: 1; min-width: 0; }
+.be-fwd-row .add-inline, .be-fwd-add .add-inline, .be-fwd-add .add-inline + .add-inline { margin: 0; flex: none; }
 
 /* Extra features: one on/off switch per extra (2026-11-04). A checkbox drawn as an iPhone-style switch. */
 .extras-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 600; margin-top: 12px; cursor: pointer; }
@@ -3883,6 +3932,9 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
 
 /* Two messages at once: the plain one sits above the one with Undo, never on top of it. */
 body.fab-room .app-toast { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
+/* A message never covers a question: it steps aside while the app's question window is open, and shows again after if still due
+   (Tomás, testers 2026-11-21: "Quedaron como estaban…" sat over the discard question). */
+body:has(#app-confirm-backdrop:not([hidden])) #app-toast { visibility: hidden; }
 body:has(#app-undo-toast:not([hidden])) #app-toast { bottom: calc(146px + env(safe-area-inset-bottom, 0px)); }
 body.fab-room:has(#app-undo-toast:not([hidden])) #app-toast { bottom: calc(216px + env(safe-area-inset-bottom, 0px)); }
 /* WhatsApp number: country on the left, number on the right, one row. */
@@ -4032,6 +4084,7 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .review-item-top { cursor: pointer; }
 .review-quick-cat { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0; border: none; background: none; font: inherit; font-size: 0.875rem; color: var(--muted); text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-quick-cat-missing { color: var(--accent); font-weight: 600; }
+.review-quick-cat-missing { white-space: normal; overflow: visible; line-height: 1.2; }   /* "Choose a category…" wraps instead of being cut (Wilmer 375 px, Paola large text) */
 .review-quick-confirm { flex: none; min-height: 44px; padding: 0 16px; border: none; border-radius: var(--r-pill); background: var(--accent); color: var(--white); font: inherit; font-weight: 600; cursor: pointer; }
 .review-more-closed .review-item-secondary-actions { display: none; }
 .review-item .review-more-actions { display: block; margin-top: 8px; }
@@ -4192,6 +4245,13 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 #wa-code { white-space: pre-wrap; word-break: break-all; }
 /* Needs review: "This is my Salary for August" (2026-11-17), ticked when the match is clear; Confirm answers it. */
 .review-plan-match { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; font-size: 0.875rem; }
+/* Its tick box is a real tick box (owner, 2026-11-21: the global box style drew it as a wide empty text box). */
+.review-plan-match input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 22px; height: 22px; min-height: 0; padding: 0; margin: 0; flex: none; }
+/* Discard from the short row and from the duplicate warning (owner, 2026-11-21). */
+.review-quick-discard { flex: none; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--card); color: var(--muted); cursor: pointer; }
+.review-quick-discard svg { width: 20px; height: 20px; }
+.review-quick-cat { margin-right: auto; }
+.review-dup-discard { display: block; min-height: 44px; margin-top: 6px; padding: 0 16px; border: 1px solid currentColor; border-radius: var(--r-pill); background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
 
 /* Needs review's "Confirm the N that are ready": starts on the same left edge as the line above it and reads as an action
    (Tomás, 2026-11-18: 8px further in, and as plain as a link). */
@@ -4207,3 +4267,27 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 /* WhatsApp invitation code (owner, 2026-11-19): big and spaced so it reads out easily */
 .wa-invite-code { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.08em; margin: 4px 0 8px; user-select: all; }
 #wa-invite { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+/* A company copy's Overview (Business 2, piece 4): what it does not need is hidden; its two cards reuse the owed-row look. */
+#screen-overview.company-ov #overview-scope-row,
+#screen-overview.company-ov #pace-card,
+#screen-overview.company-ov #investments-card,
+#screen-overview.company-ov #months-card,
+#screen-overview.company-ov #ov-annual-views,
+#screen-overview.company-ov #loans-ov-card { display: none; }
+.co-ov-total { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 8px; }
+.co-funding-row { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 10px 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.co-funding-row:last-child { border-bottom: 0; }
+.co-funding-row small { font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+
+/* Split between projects (Business 2, piece 6): one row per project, its amount and its share. */
+.psplit-row { display: grid; grid-template-columns: 1fr 7.5rem 3.5rem; gap: 8px; align-items: center; margin-bottom: 8px; }
+.psplit-row label { margin: 0; }
+.psplit-row .psplit-pct { text-align: right; }
+
+/* Bank emails: the numbered and bulleted instructions read at the size of the hints around them (testers, 2026-11-22: 16 px next to 12 px). */
+.bm-steps { font-size: 0.75rem; color: var(--muted); padding-left: 18px; margin: 8px 0; }
+.bm-steps li + li { margin-top: 4px; }
+
+/* A forwarder's address can be long with nothing to break it at: it wraps inside the card instead of running off (Wilmer, 375 px). */
+.review-forwarded { overflow-wrap: anywhere; }

@@ -25,7 +25,7 @@
   --accent-soft: #4a7bd0;
   --accent-bg: #eef5ff;
   --accent-border: #9ec5ff;
-  --danger: #d64545;
+  --danger: #c93c3c;   /* 5.0:1 on white (testers 2.68.2: #d64545 was 4.4:1, under the 4.5 needed for small text) */
   --danger-dark: #a3261c;
   --expense-bg: #fde8e6;
   --income-dark: #1e6b32;
@@ -64,6 +64,9 @@
 }
 
 * { box-sizing: border-box; }
+
+/* Every screen scrolls up and down only (owner, 2026-11-23). "clip", not "hidden": it keeps sticky headers and bars working. */
+html, body { overflow-x: clip; }
 
 body {
   margin: 0;
@@ -655,6 +658,10 @@ input[type="date"] {
      border/shadow offset from our own box. */
   -webkit-appearance: none;
   appearance: none;
+  /* iOS sizes a date box by its own text and can draw it wider than the form (owner, 2026-11-23: the new-loan window
+     slid sideways); held to the form's width everywhere, not one form at a time. */
+  display: block;
+  max-width: 100%;
 }
 
 .row {
@@ -1242,6 +1249,9 @@ button.primary.danger {
   /* A sheet whose content is taller than it (the Categories form, with its emoji and colour pickers) scrolls as a
      whole; before this its lower part (Save, Hide, Delete) was cut off and unreachable without a header drag. */
   overflow-y: auto;
+  /* Up and down only (owner, 2026-11-23): a sheet never slides sideways, even when something inside is a few px too wide.
+     A row meant to swipe sideways scrolls inside itself, so it is not affected. */
+  overflow-x: hidden;
   overscroll-behavior: contain;
 }
 
@@ -3470,9 +3480,9 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .xp-closed summary { cursor: pointer; color: var(--muted); font-size: 0.875rem; padding: 6px 0; }
 .business-expected-card .business-expected-row { cursor: pointer; }
 .business-expected-card .business-expected-row.overdue .recurring-row-sub { color: var(--warn-text); }
-.settle-choose-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 0.875rem; }
+.settle-choose-row { display: flex; align-items: center; gap: 8px; margin: 2px 0; min-height: 44px; font-size: 0.875rem; }   /* a whole row to tap (testers 2.68.2: 26 px) */
 .settle-choose-row span { flex: 1; }
-.settle-choose-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 20px; height: 20px; min-height: 0; flex: none; }
+.settle-choose-row input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; accent-color: var(--accent); width: 24px; height: 24px; min-height: 0; flex: none; }
 .settle-choose-row span { min-width: 0; }
 .bank-early-effect { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8125rem; }
 .bank-early-effect:empty { display: none; }
@@ -3728,6 +3738,8 @@ button.primary + button, button.primary + a.add-inline, .add-inline + .add-inlin
 .home-charges-title { font-weight: 600; }
 .home-charges-chevron { color: var(--muted); font-size: 1.25rem; }
 .home-charges .hint { margin: 2px 0 0; }
+.xsugg-actions { display: flex; align-items: center; gap: 16px; margin-top: 6px; }
+.xsugg-actions .add-inline + .add-inline { margin-top: 0; }
 .home-charges.late .hint { color: var(--warn-text); }
 .charge-line { padding: 12px 0; border-top: 1px solid var(--border); }
 .charge-line-top { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; }
@@ -3904,7 +3916,8 @@ input[type="radio"] { -webkit-appearance: radio; appearance: auto; width: 20px; 
    still pushed Confirm and Cancel under the sheet's edge). */
 #app-confirm-backdrop .budget-modal-body { display: flex; flex-direction: column; }
 #app-confirm-backdrop .budget-modal-body > * { flex-shrink: 0; }
-#app-confirm-backdrop .budget-modal-body > #app-confirm-text { flex: 0 1 auto; min-height: 3em; overflow-y: auto; }
+#app-confirm-backdrop .budget-modal-body { overflow-y: auto; }
+#app-confirm-backdrop .budget-modal-body > #app-confirm-text { flex: none; }   /* the whole window scrolls, the text is never cut (testers 2.68.2: clipped at large text sizes) */
 #app-confirm-backdrop .budget-modal-body > [hidden] { display: none; }
 /* More answers than yes / no (which trip, when two cover a day): stacked under the first, same look. */
 #app-confirm-choices .primary { display: block; width: 100%; margin-top: 8px; }
@@ -4279,6 +4292,68 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .co-funding-row { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 10px 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 .co-funding-row:last-child { border-bottom: 0; }
 .co-funding-row small { font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+/* Business 2, piece 7: the Partners card and the partner window */
+.co-partner { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.co-partner:last-child { border-bottom: 0; }
+.co-partner-name { font-weight: 600; }
+.co-partner-sub { margin: 0 0 4px; font-size: 0.75rem; color: var(--muted); text-align: right; }
+#co-partners-pending h3 { margin-top: 12px; }
+.co-partner-pending { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.co-partner-pending-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.co-partner-pending-btns .add-inline + .add-inline { margin-top: 0; }
+/* Business 2, piece 11: units and sales */
+.unit-row { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 10px 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.unit-row:last-child { border-bottom: 0; }
+.unit-row > span { display: flex; flex-direction: column; }
+.unit-row small, .unit-payment small, #unit-stages small, #co-next-body small { display: block; font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+.unit-name { font-weight: 600; }
+.unit-sum { font-weight: 600; }
+.unit-stage-new { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.unit-stage-new select, .unit-stage-new .add-inline { grid-column: 1 / -1; }
+.unit-stage-new input { min-width: 0; }
+.unit-payment { border-bottom: 1px solid var(--border); padding: 4px 0; }
+.unit-return-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+.unit-return-form input { min-width: 0; }
+.unit-return-form .primary { grid-column: 1 / -1; }
+.unit-share .add-inline, .unit-remove { display: block; }
+.units-add-list { max-height: 50vh; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }   /* up and down only */
+.co-next-overdue { color: var(--warn-text); }
+/* Business 2, piece 9: the yearly constancia, on screen and printed alone */
+.constancia-nav { display: flex; align-items: center; justify-content: space-between; margin: 8px 0; }
+.constancia-doc { border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px; margin: 12px 0; overflow-wrap: anywhere; }
+.constancia-title { margin: 0 0 4px; }
+.constancia-company { font-weight: 600; margin: 0 0 8px; }
+.constancia-warn { color: var(--warn-text); }
+.constancia-cur { margin: 16px 0 4px; }
+.constancia-table { width: 100%; border-collapse: collapse; }
+.constancia-table td { padding: 4px 0; vertical-align: top; }
+.constancia-table td:last-child { text-align: right; white-space: nowrap; padding-left: 8px; font-weight: 600; }
+.constancia-head th { text-align: left; padding: 10px 0 2px; font-size: 0.875rem; color: var(--muted); font-weight: 600; }
+.constancia-notice { margin-top: 16px; font-weight: 600; }
+.constancia-total td { border-top: 1px solid var(--border); padding-top: 8px; font-weight: 600; }
+.constancia-actions .add-inline { display: block; }
+#pkg-file-list .add-inline, #pkg-files { display: block; }
+#constancia-print { display: none; }
+@media print {
+  body.printing-constancia > :not(#constancia-print) { display: none !important; }
+  body.printing-constancia #constancia-print { display: block !important; }
+  body.printing-constancia { background: var(--white); color: var(--text); }
+  #constancia-print .constancia-doc { border: 0; }
+}
+/* Business 2, piece 8: the change log and closing a month */
+.changelog-month { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
+.changelog-month span { font-weight: 600; }
+.changelog-day { margin: 16px 0 4px; }
+.changelog-line { padding: 8px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.changelog-what { font-weight: 600; }
+.close-account { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.close-diff-off { color: var(--warn-text); }
+.close-changed { color: var(--warn-text); font-weight: 600; }
+#co-close-body .add-inline { display: block; }
+.partner-kind { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; font-weight: 400; }
+.partner-kind input { margin-top: 4px; }
+.partner-kind span { display: flex; flex-direction: column; }
+.partner-kind small { font-size: 0.75rem; color: var(--muted); }
 
 /* Split between projects (Business 2, piece 6): one row per project, its amount and its share. */
 .psplit-row { display: grid; grid-template-columns: 1fr 7.5rem 3.5rem; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -4291,3 +4366,23 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 
 /* A forwarder's address can be long with nothing to break it at: it wraps inside the card instead of running off (Wilmer, 375 px). */
 .review-forwarded { overflow-wrap: anywhere; }
+
+/* Up and down only (owner, 2026-11-23). A box that scrolls up and down also scrolls sideways unless told not to, so a form a few px
+   too wide (the new-loan window) slid left and right under the finger. Every up-and-down box is locked sideways here; the rows built
+   to swipe sideways (filters, Home cards, months, period chips, tour cards), the statement viewer and the typing boxes are not in
+   this list. tests/screen-fit/check.js stops a ship on a new box that scrolls both ways: add it here, or to its SIDEWAYS list. */
+:is(.budget-modal-body, .edit-entry-modal-body, .drilldown-scroll-area, .currency-option-list, .bill-scroll, .cat-emoji-groups,
+  .app-confirm-text, .welcome-overlay, .tour-slide, .pace-screen-body:not(#stmt-viewer-scroll)) { overflow-x: hidden; }
+
+/* The person whose last debt was just settled, shown in Settled people (owner, 2026-11-24). */
+.balance-row.settled-flash { animation: settled-flash 2.6s ease-out; border-radius: var(--r-sm); outline: 2px solid var(--accent); outline-offset: 2px; }   /* not by colour alone (testers 2.68.2) */
+@media (prefers-reduced-motion: reduce) { .balance-row.settled-flash { animation: none; } }
+@keyframes settled-flash { 0%, 40% { background: var(--accent-bg); } 100% { background: transparent; } }
+
+/* A company copy skips the investment platforms step: only a refusal and the buttons show while the welcome saves (testers 2.68.2). */
+#welcome-platforms[data-company] > :not(#wp-error):not(.welcome-tour-buttons) { display: none; }
+/* The share sheet's sections: a box never shrinks beside a two-line label, and sits at its first line (testers 2.68.2). */
+#share-sections .checkbox-row { align-items: flex-start; }
+#share-sections .checkbox-row input[type="checkbox"] { flex: none; margin-top: 1px; }
+.close-year-open { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.close-year-open .add-inline, .close-year-open .add-inline + .add-inline { margin: 0; }
