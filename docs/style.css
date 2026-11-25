@@ -4386,3 +4386,15 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 #share-sections .checkbox-row input[type="checkbox"] { flex: none; margin-top: 1px; }
 .close-year-open { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .close-year-open .add-inline, .close-year-open .add-inline + .add-inline { margin: 0; }
+
+/* Refund window (owner, 2026-11-24): the tabs and Save keep the same gap from what is above them as the other fields. */
+#refund-when-tabs { margin-top: 12px; }
+#refund-save { margin-top: 16px; }
+#refund-wont-come { margin-top: 8px; }
+/* "Which purchase?": each purchase as Home shows it. */
+.refund-pick-row { display: block; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--border); padding: 10px 0; color: inherit; font: inherit; }
+.refund-pick-main { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.refund-pick-name { font-weight: 600; min-width: 0; }
+.refund-pick-desc { display: block; font-weight: 400; color: var(--muted); }
+.refund-pick-amt { font-weight: 600; white-space: nowrap; }
+.refund-pick-sub { display: block; color: var(--muted); font-size: 0.875rem; margin-top: 2px; }

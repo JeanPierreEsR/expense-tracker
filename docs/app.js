@@ -4870,7 +4870,7 @@ function exchangeLegSide_(entry) {
 // I receive or a repayment I get back is in.
 function entryFlowDirection_(entry) {
   if (entry.type === "income") return Number(entry.amount) < 0 ? "out" : "in";   // a returned deposit (piece 11) is a negative income
-  if (entry.type === "expense") return "out";
+  if (entry.type === "expense") return Number(entry.amount) < 0 ? "in" : "out";   // a refund in its purchase's month is a minus expense: money back
   if (entry.type === "investment") return Number(entry.amount) < 0 ? "in" : "out";   // a withdrawal is stored negative
   if (entry.type === "transfer" && entry.link && entry.link.friend) {
     const paidThem = entry.link.direction === "i_owe_them";
@@ -4889,7 +4889,7 @@ function renderEntryAmountHtml(entry) {
 function renderEntryAmountPlainHtml_(entry) {
   const dir = entryFlowDirection_(entry);
   // A withdrawal is stored negative: show its size, the sign comes from the direction.
-  const shown = (entry.type === "investment" || entry.type === "income") && Number(entry.amount) < 0
+  const shown = (entry.type === "investment" || entry.type === "income" || entry.type === "expense") && Number(entry.amount) < 0
     ? (() => {
         const abs = (v) => (v == null ? v : Math.abs(Number(v)));
         return Object.assign({}, entry, {
@@ -5156,6 +5156,7 @@ function buildEntryRow_(entry) {
     ${entryDescShown_(entry) ? `<div class="entry-desc">${escapeHtml(entryDescShown_(entry))}</div>` : ""}
     <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
     ${entry.income_waiting === "1" ? `<div class="entry-desc">${escapeHtml(tr("income.waitingBadge"))}</div>` : ""}
+    ${refundRowNote_(entry)}
     ${statusLine}
   `;
 
@@ -6936,6 +6937,15 @@ function refundPurchaseLabel_(e) {
 }
 const refundAmountOf_ = (id) => { const v = parseFloat(sanitizeAmountInputValue(String(document.getElementById(id).value || "").trim())); return isFinite(v) ? refundR2_(v) : 0; };
 
+// Home rows: a purchase says what came back or is on its way; a refund's own row reads as money in (entryFlowDirection_).
+function refundRowNote_(entry) {
+  if (entry.type !== "expense" || entry.refund_of) return "";
+  const bits = [];
+  if (Number(entry.refunded) > 0.004) bits.push(tr("refund.rowRefunded", { amount: formatAmount(Number(entry.refunded), entry.currency) }));
+  if (Number(entry.refund_expected) > 0) bits.push(tr("refund.rowOnTheWay", { amount: formatAmount(Number(entry.refund_expected), entry.currency) }));
+  return bits.length ? `<div class="entry-desc">${escapeHtml(bits.join(" · "))}</div>` : "";
+}
+
 // The edit window, under the amount: a purchase's "Refunded … of …" / "Refund on the way" line and its Refund… button; a refund's own line.
 function updateRefundField_() {
   const field = document.getElementById("refund-field");
@@ -6996,7 +7006,16 @@ function renderRefundPick_() {
   const q = String(document.getElementById("refund-pick-search").value || "").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
   const rows = refundPickRows_.filter((e) => !q || refundPurchaseLabel_(e).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").includes(q));
   if (!rows.length) { list.innerHTML = `<p class="hint">${escapeHtml(tr(refundPickRows_.length ? "refund.pickNoMatch" : "refund.pickNone"))}</p>`; return; }
-  list.innerHTML = rows.slice(0, 100).map((e) => `<button type="button" class="settle-choose-row refund-pick-row" data-id="${escapeHtml(e.id)}">${escapeHtml(refundPurchaseLabel_(e))}</button>`).join("");
+  // Each purchase as Home shows it: category and description, the amount, then the date, account and anything already refunded.
+  list.innerHTML = rows.slice(0, 100).map((e) => {
+    const cat = findCategory(e.category_id) || {};
+    const pm = ((meta && meta.paymentMethods) || []).find((x) => x.id === e.payment_method_id);
+    const sub = [listDate_(e.date), pm ? pmPickLabel_(pm) : "", Number(e.refunded) > 0 ? tr("refund.refundedSoFar", { amount: formatAmount(Number(e.refunded), e.currency) }) : ""].filter(Boolean).join(" · ");
+    return `<button type="button" class="refund-pick-row" data-id="${escapeHtml(e.id)}">
+      <span class="refund-pick-main"><span class="refund-pick-name">${escapeHtml(((cat.icon ? cat.icon + " " : "") + (cat.name || tr("entry.uncategorized"))))}${e.description ? `<span class="refund-pick-desc">${escapeHtml(e.description)}</span>` : ""}</span>
+      <span class="refund-pick-amt">${escapeHtml(formatAmount(Number(e.amount), e.currency))}</span></span>
+      <span class="refund-pick-sub">${escapeHtml(sub)}</span></button>`;
+  }).join("");
   list.querySelectorAll(".refund-pick-row").forEach((b) => b.addEventListener("click", () => {
     setRefundOfPick_(refundPickRows_.find((e) => e.id === b.dataset.id) || null);
     document.getElementById("refund-pick-backdrop").hidden = true;
@@ -7058,7 +7077,8 @@ function openRefundSheet_(entry, opts) {
   document.getElementById("refund-divided-boxes").hidden = true;
   document.getElementById("refund-divided-change").hidden = false;
   document.getElementById("refund-error").textContent = "";
-  setRefundWhen_("received");
+  // A refund already on its way opens on it, to change or remove it; "Already received" records the money when it comes.
+  setRefundWhen_(expected > 0 && !opts.received ? "waiting" : "received");
   const back = document.getElementById("refund-backdrop");
   bringModalToFront_(back);
   back.hidden = false;
@@ -7084,10 +7104,23 @@ function setRefundWhen_(when) {
   document.getElementById("refund-waiting-fields").hidden = when !== "waiting";
   updateRefundSheet_();
 }
+// The boxes the person has not typed in share what the typed ones leave, like the purchase (owner, 2026-11-24).
+function refundRebalance_(amount) {
+  const c = refundCtx_;
+  const keys = Object.keys(c.left);
+  const free = keys.filter((k) => !c.touched.has(k));
+  if (!free.length) return;
+  const typed = keys.filter((k) => c.touched.has(k)).reduce((n, k) => n + refundAmountOf_("refund-part-" + k), 0);
+  const leftFree = {};
+  free.forEach((k) => { leftFree[k] = c.left[k]; });
+  const share = refundDefaultParts_(Math.max(0, refundR2_(amount - typed)), leftFree);
+  free.forEach((k) => { document.getElementById("refund-part-" + k).value = String(share[k] || 0); });
+}
 // The parts as they stand: the boxes once "Change" was tapped, else like the purchase.
 function refundPartsNow_(amount) {
   const c = refundCtx_;
   if (!c.partsOpen) return refundDefaultParts_(amount, c.left);
+  refundRebalance_(amount);
   const parts = {};
   Object.keys(c.left).forEach((k) => { parts[k] = refundAmountOf_("refund-part-" + k); });
   return parts;
@@ -7130,7 +7163,8 @@ document.getElementById("refund-divided-change").addEventListener("click", () =>
   box.innerHTML = Object.keys(c.left).map((k) => `
     <label for="refund-part-${escapeHtml(k)}">${escapeHtml(tr("refund.partBox", { name: refundPersonName_(k), max: formatAmount(c.left[k], c.entry.currency) }))}</label>
     <input type="text" inputmode="decimal" id="refund-part-${escapeHtml(k)}" value="${parts[k] || 0}">`).join("");
-  box.querySelectorAll("input").forEach((i) => i.addEventListener("input", updateRefundSheet_));
+  c.touched = new Set();
+  box.querySelectorAll("input").forEach((i) => i.addEventListener("input", () => { c.touched.add(i.id.slice("refund-part-".length)); updateRefundSheet_(); }));
   c.partsOpen = true;
   box.hidden = false;
   document.getElementById("refund-divided-change").hidden = true;
@@ -7162,6 +7196,13 @@ document.getElementById("refund-save").addEventListener("click", () => {
     if (toVal.startsWith("friend:")) payload.back_to = toVal.slice(7);
     else if (!toVal) { err.textContent = tr("refund.pickAccount"); return; }
     else payload.payment_method_id = toVal;
+    // Money back to another account than the one that paid: asked once, so a wrong pick is caught (owner, 2026-11-24).
+    if (payload.payment_method_id && e.payment_method_id && payload.payment_method_id !== e.payment_method_id && !c.otherAccountOk) {
+      const pmName = (id) => { const pm = ((meta && meta.paymentMethods) || []).find((x) => x.id === id); return pm ? pmPickLabel_(pm) : "?"; };
+      askConfirmApp_(tr("refund.otherAccountAsk", { paid: pmName(e.payment_method_id), to: pmName(payload.payment_method_id) }), tr("refund.otherAccountYes", { to: pmName(payload.payment_method_id) }), { plain: true })
+        .then((yes) => { if (yes && refundCtx_ === c) { c.otherAccountOk = true; document.getElementById("refund-save").click(); } });
+      return;
+    }
     if (c.partsOpen) {
       const parts = refundPartsNow_(amount);
       const sum = refundR2_(Object.keys(parts).reduce((n, k) => n + (parts[k] || 0), 0));
@@ -27700,7 +27741,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
         <div class="expected-recurring-actions">
           <button type="button" data-act="refund" data-id="${item.id}"><span class="ico">${lineIcon_("check")}</span>${tr("refund.markReceived")}</button>
         </div>
-      </div>`;
+      </div>`.replace('<div class="expected-recurring-entry', `<div data-refund-id="${escapeHtml(item.entry_id)}" role="button" tabindex="0" class="expected-recurring-editable expected-recurring-entry`);
       }
       if (item.waiting) {
         // The date goes with the name: next to the amount it squeezed the name into a narrow column.
@@ -27745,9 +27786,10 @@ async function refreshExpectedRecurring(prefetchedGroups) {
       });
     });
 
-    // A tap on the item's box (not its buttons) opens the Programmed item to edit it (owner, 2026-11-13).
+    // A tap on the item's box (not its buttons) opens the Programmed item to edit it (owner, 2026-11-13); a refund on its way opens
+    // the Refund window on it, to change its amount or date (owner, 2026-11-24).
     detail.querySelectorAll(".expected-recurring-editable").forEach((box) => {
-      box.addEventListener("click", () => openRecurringById_(box.dataset.id, box));
+      box.addEventListener("click", () => box.dataset.refundId ? openRefundForId_(box.dataset.refundId) : openRecurringById_(box.dataset.id, box));
     });
 
     const summary = document.createElement("div");

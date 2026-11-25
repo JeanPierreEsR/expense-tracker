@@ -118,6 +118,7 @@ test("on its way: nothing counts; Home lists it; Mark as received clears it; a N
   const groups = t.rt.api("listExpectedRecurringItems").groups.filter((g) => g.refund);
   assert.equal(groups.length, 1);
   assert.equal(groups[0].items[0].entry_id, p.id);
+  assert.equal(groups[0].items[0].expected_date, "2031-03-30");
   // a bank e-mail of that money waits in Needs review: it is asked about, and "yes" records the refund
   t.rt.run(`appendRowObject('Entries', { id: 'pend-refund', type: 'income', date: '2031-03-25', amount: 80, currency: 'PEN', category_id: '', status: 'pending', payment_method_id: '${t.pm}', description: 'Store', source: 'email', paid_by: '' });`);
   const pend = { id: "pend-refund" };

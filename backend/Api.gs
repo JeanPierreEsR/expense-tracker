@@ -791,6 +791,7 @@ function getHeaders(sheet) {
 var DATE_FIELD_FORMATS = {
   date: 'yyyy-MM-dd',
   due_date: 'yyyy-MM-dd',
+  refund_expected_by: 'yyyy-MM-dd',   // a refund on its way (Refunds.gs): read back as text like any date
   receipt_date: 'yyyy-MM-dd',   // piece 10: a receipt's issue date (text column; a Date read back becomes text again)
   month: 'yyyy-MM',           // Exchange Rates / Recurring Skips: a Sheets Date back to text (numeric months are untouched)
   start_date: 'yyyy-MM-dd',   // Recurring Expenses (a Sheets Date is turned back into text on read)
