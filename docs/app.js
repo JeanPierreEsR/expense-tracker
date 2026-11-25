@@ -4881,6 +4881,15 @@ function entryFlowDirection_(entry) {
 }
 
 function renderEntryAmountHtml(entry) {
+  // Choice C (owner, 2026-11-24): a refund of the purchase's own month is shown in the purchase, "PEN 180.00 · before refund PEN 300.00".
+  if (Number(entry.refund_folded) > 0) {
+    const f = Number(entry.refund_folded), fp = Number(entry.refund_folded_pen || 0);
+    const less = (v, by) => (v == null ? v : refundR2_(Number(v) - by));
+    const net = Object.assign({}, entry, { refund_folded: 0, amount: less(entry.amount, f), amount_pen: less(entry.amount_pen, fp),
+      own_share: less(entry.own_share, f), own_share_pen: less(entry.own_share_pen, fp), own_share_usd: undefined });
+    const before = entry.own_share != null ? Number(entry.own_share) : Number(entry.amount);
+    return `${renderEntryAmountHtml(net)}<span class="original-amt">${escapeHtml(tr("refund.beforeRefund", { amount: formatAmount(before, entry.currency) }))}</span>`;
+  }
   const html = renderEntryAmountPlainHtml_(entry);
   if (String(entry.charge_pending || "") === "1") return html.replace(/<span class="primary-amt">/, `<span class="primary-amt">≈ `);
   if (Number(entry.paid_amount) > 0 && entry.paid_currency) return `${html}<span class="original-amt charge-paid-line">${escapeHtml(tr("charge.paid", { amount: formatAmount(entry.paid_amount, entry.paid_currency) }))}</span>`;
@@ -5480,7 +5489,7 @@ function renderEntryListFromCache_() {
     sameDay.forEach((e) => {
       const pen = e.own_share_pen != null ? Number(e.own_share_pen) : (e.amount_pen != null ? Number(e.amount_pen) : null);
       if (pen == null) return;
-      if (e.type === "expense") net -= pen;
+      if (e.type === "expense") net -= pen - Number(e.refund_folded_pen || 0);   // a refund shown in its purchase (choice C)
       else if (e.type === "income") net += pen;
     });
     const total = Math.abs(net) < 0.005 ? "" : `${net < 0 ? "−" : "+"}${formatPen(Math.abs(net))}`;
@@ -6942,7 +6951,8 @@ const refundAmountOf_ = (id) => { const v = parseFloat(sanitizeAmountInputValue(
 function refundRowNote_(entry) {
   if (entry.type !== "expense" || entry.refund_of) return "";
   const bits = [];
-  if (Number(entry.refunded) > 0.004) bits.push(tr("refund.rowRefunded", { amount: formatAmount(Number(entry.refunded), entry.currency) }));
+  const notShownHere = refundR2_(Number(entry.refunded || 0) - Number(entry.refund_folded || 0));   // (what the amount already shows is not said twice)
+  if (notShownHere > 0.004) bits.push(tr("refund.rowRefunded", { amount: formatAmount(notShownHere, entry.currency) }));
   if (Number(entry.refund_expected) > 0) bits.push(tr("refund.rowOnTheWay", { amount: formatAmount(Number(entry.refund_expected), entry.currency) }));
   return bits.length ? `<div class="entry-desc">${escapeHtml(bits.join(" · "))}</div>` : "";
 }
@@ -6953,6 +6963,7 @@ function updateRefundField_() {
   const line = document.getElementById("refund-line"), btn = document.getElementById("refund-open-btn");
   const e = editingRefundEntry_;
   if (!refundsOn_() || !e || editingEntryId !== e.id || confirmingPendingId) { field.hidden = true; return; }
+  document.getElementById("refund-list-btn").hidden = true;
   if (e.refund_of) {
     field.hidden = false; btn.hidden = true; line.hidden = false;
     line.textContent = tr("refund.isRefundLine");
@@ -6966,9 +6977,37 @@ function updateRefundField_() {
   line.hidden = !bits.length;
   line.textContent = bits.join(" · ");
   btn.hidden = left <= 0.004;
+  document.getElementById("refund-list-btn").hidden = !(refunded > 0.004);
   field.hidden = line.hidden && btn.hidden;
 }
 document.getElementById("refund-open-btn").addEventListener("click", () => { if (editingRefundEntry_) openRefundSheet_(editingRefundEntry_); });
+// "See the refunds": a same-month refund has no row of its own on Home (choice C), so it is reached from its purchase. A tap opens it.
+document.getElementById("refund-list-btn").addEventListener("click", async () => {
+  const p = editingRefundEntry_;
+  if (!p) return;
+  const back = document.getElementById("refund-list-backdrop"), list = document.getElementById("refund-list-rows");
+  list.innerHTML = loadingHtml_();
+  bringModalToFront_(back);
+  back.hidden = false;
+  let rows;
+  try { rows = await callApi("listEntries", { refundOf: p.id }); }
+  catch (err) { list.innerHTML = `<p class="hint error-text">${escapeHtml(err.message)}</p>`; return; }
+  if (back.hidden) return;
+  list.innerHTML = "";
+  (rows || []).forEach((r) => {
+    const row = buildEntryRow_(r).cloneNode(true);
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    row.addEventListener("click", () => {
+      back.hidden = true;
+      closePurchaseWindow_(p.id);
+      openEditPopup(r);
+    });
+    list.appendChild(row);
+  });
+  if (!list.children.length) list.innerHTML = `<p class="hint">${escapeHtml(tr("refund.listNone"))}</p>`;
+});
+document.getElementById("refund-list-close").addEventListener("click", () => { document.getElementById("refund-list-backdrop").hidden = true; });
 
 // "+" form: an income in Refunds may say which purchase it was (then it is saved as that purchase's refund).
 function updateRefundOfField_() {
@@ -29453,6 +29492,7 @@ const LINK_ICON_RULES_ = [
   [/^(send the (corrected )?package|enviar el paquete)/i, "send"],   // piece 10
   [/^(return the deposit|devolver separación|return this payment|devolver este pago)/i, "undo"],   // piece 11
   [/^(refund…|reembolso…)$/i, "undo"],   // Refunds: money back on a purchase
+  [/^(see the refunds|ver los reembolsos)$/i, "search"],
   [/^(it won't come|no va a llegar)$/i, "trash"],
   [/^(prepare a statement to share|preparar un estado para compartir|prepare the statement|preparar el estado)/i, "file"],   // piece 12
   [/^(change the sections|cambiar las secciones)/i, "pencil"],

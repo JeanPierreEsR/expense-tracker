@@ -240,6 +240,7 @@
           <div id="refund-field" hidden>
             <p class="hint" id="refund-line" hidden></p>
             <button type="button" class="add-inline" id="refund-open-btn" data-i18n="refund.button">Refund…</button>
+            <button type="button" class="add-inline" id="refund-list-btn" hidden data-i18n="refund.seeRefunds">See the refunds</button>
           </div>
           <!-- "+" form, Income in Refunds: which purchase it gave money back for (optional). -->
           <div id="refund-of-field" hidden>
@@ -4058,6 +4059,17 @@
         <button type="button" class="add-inline" id="refund-wont-come" hidden data-i18n="refund.wontCome">It won't come</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- The refunds of one purchase (choice C: a same-month refund has no row of its own on Home). -->
+  <div id="refund-list-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="refund.listTitle">Refunds of this purchase</span>
+        <button type="button" id="refund-list-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <div class="budget-modal-body"><div id="refund-list-rows"></div></div>
     </div>
   </div>
 

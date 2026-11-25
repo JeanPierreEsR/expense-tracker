@@ -205,3 +205,16 @@ test("statement: a REV line for a charge already in the app is linked to it", ()
   assert.ok(r, "linked");
   assert.equal(Number(r.amount), -55);
 });
+
+test("choice C: a same-month refund is shown as its purchase in a list, and on its own on the account's screen", () => {
+  const t = setup();
+  const p = t.purchase();
+  const r = t.rt.api("recordRefund", { entry_id: p.id, amount: 120, date: "2031-03-20", payment_method_id: t.pm }).entry;
+  const month = t.rt.api("listEntries", { startDate: "2031-03-01", endDate: "2031-03-31" });
+  assert.ok(!month.some((e) => e.id === r.id), "folded");
+  assert.equal(month.find((e) => e.id === p.id).refund_folded, 120);
+  assert.ok(t.rt.api("listEntries", { paymentMethodId: t.pm, startDate: "2031-03-01", endDate: "2031-03-31" }).some((e) => e.id === r.id), "the account shows it");
+  assert.deepEqual(t.rt.api("listEntries", { refundOf: p.id }).map((e) => e.id), [r.id]);
+  // its purchase not in the list (another week): the refund shows on its own
+  assert.ok(t.rt.api("listEntries", { startDate: "2031-03-15", endDate: "2031-03-31" }).some((e) => e.id === r.id));
+});

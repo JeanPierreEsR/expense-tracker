@@ -1629,6 +1629,8 @@ function listEntries(payload) {
   if (payload && payload.importBatchId) {
     entries = entries.filter(function (e) { return e.import_batch_id === payload.importBatchId; });
   }
+  // The refunds of one purchase (Refunds.gs): its edit window's "See the refunds".
+  if (payload && payload.refundOf) entries = entries.filter(function (e) { return String(e.refund_of || '') === String(payload.refundOf); });
   if (payload && payload.tagId) {
     var entryIdsWithTag = {};
     getAllRows('Entry Tags').forEach(function (et) {
@@ -1657,7 +1659,7 @@ function listEntries(payload) {
   // slice — never cap it, even without a date range (e.g. "All-time").
   var hasFilter = payload && (payload.startDate || payload.endDate ||
     payload.categoryId !== undefined || (payload.categoryIds && payload.categoryIds.length) ||
-    payload.tagId || payload.noTag || payload.noAccount || (payload.entryIds && payload.entryIds.length) || payload.toPaymentMethodId !== undefined || payload.tripId || payload.projectId || payload.companyId || (payload.scope && payload.scope !== 'all') || payload.paymentMethodId || payload.importBatchId);
+    payload.tagId || payload.noTag || payload.noAccount || (payload.entryIds && payload.entryIds.length) || payload.toPaymentMethodId !== undefined || payload.tripId || payload.projectId || payload.companyId || (payload.scope && payload.scope !== 'all') || payload.paymentMethodId || payload.importBatchId || payload.refundOf);
   var limit = (payload && payload.limit) || (hasFilter ? null : DEFAULT_ENTRY_LIMIT);
   // `offset` (Entries tab's "Load more"): skip that many of the newest rows
   // first, so the next page can be fetched without re-sending earlier ones.
@@ -1716,7 +1718,23 @@ function listEntries(payload) {
     if (usdShare != null) entry.own_share_usd = usdShare;   // third currency: the share in dollars, under the main amount (RatesUsd.gs)
     if (projSplitsList[entry.id]) { var pp = projectPartsOfEntry_(entry, projSplitsList, projByIdList); if (pp.length) entry.project_parts = pp; }   // piece 6
   });
-  return entries;
+  return foldSameMonthRefunds_(entries, payload);
+}
+
+// Owner's choice C (2026-11-24): a refund in its purchase's own month is shown AS that purchase ("PEN 180.00, before refund PEN 300.00"),
+// not as a row of its own, whenever both are in the same list; it stays its own entry (balances, statements). Lists about money on an
+// account, one upload, chosen entries or a purchase's refunds show every row as it is.
+function foldSameMonthRefunds_(entries, payload) {
+  if (payload && (payload.paymentMethodId || payload.importBatchId || (payload.entryIds && payload.entryIds.length) || payload.refundOf || payload.noFold)) return entries;
+  var byId = {};
+  entries.forEach(function (e) { byId[e.id] = e; });
+  return entries.filter(function (e) {
+    var p = e.refund_of && e.type === 'expense' && Number(e.amount) < 0 ? byId[e.refund_of] : null;
+    if (!p) return true;
+    p.refund_folded = round2_((p.refund_folded || 0) - Number(e.amount));
+    if (e.amount_pen != null) p.refund_folded_pen = round2_((p.refund_folded_pen || 0) - Number(e.amount_pen));
+    return false;
+  });
 }
 
 // Lowercase and accent-free, so "cafe" finds "Café" and "YAPE" finds "yape".
