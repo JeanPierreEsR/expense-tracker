@@ -17,7 +17,8 @@
   (and "your Google Sheet" for the spreadsheet).
 -->
 <style>
-  :root { --bg:#fafaf8; --fg:#1c1c1c; --muted:#3f3f3f; --card:#fff; --line:#d9d9d4; --ok:#14684a; --bad:#b3261e; --accent:#1f5fbf; --note:#eaf1fc; }
+  /* The app's own colours (docs/style.css), so this page looks like the app it sets up (owner, 2026-11-25: it looked like a hacker page). */
+  :root { --bg:#f5f5f7; --fg:#1d1d1f; --muted:#55555a; --card:#fff; --line:#e5e5ea; --ok:#1e7d46; --bad:#c93c3c; --accent:#0071e3; --note:#eef5ff; }
   @media (prefers-color-scheme: dark) { :root { --bg:#151515; --fg:#f1f1f1; --muted:#c4c4c4; --card:#1f1f1f; --line:#3a3a3a; --ok:#4cc38a; --bad:#ff8a80; --accent:#8db3ff; --note:#1d2533; } }
   body { margin:0; background:var(--bg); color:var(--fg); font:18px/1.5 -apple-system, Helvetica, sans-serif; }
   main { max-width:560px; margin:0 auto; padding:16px; }
@@ -59,8 +60,8 @@
   .opt { display:flex; gap:12px; align-items:flex-start; margin:12px 0; font-size:17px; color:var(--muted); }
   .opt input { width:26px; height:26px; flex:none; margin-top:2px; }
   /* general status, always visible at the top */
-  .topstatus { position:sticky; top:0; z-index:10; background:var(--card); border:2px solid var(--line); border-radius:14px; padding:12px 14px; margin:10px 0; box-shadow:0 2px 8px rgba(0,0,0,.12); }
-  .topstatus .tsHead { display:flex; justify-content:space-between; font-size:14px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); }
+  .topstatus { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin:10px 0; }
+  .topstatus .tsHead { display:flex; justify-content:space-between; font-size:14px; font-weight:600; color:var(--muted); }
   .topstatus #tsText { font-size:19px; font-weight:700; margin:4px 0 8px; }
   .topstatus .bar { height:12px; background:var(--line); border-radius:6px; overflow:hidden; }
   .topstatus #tsBar { height:100%; width:0; background:var(--accent); border-radius:6px; transition:width .5s ease; }
@@ -88,7 +89,6 @@
   #tracker li.now .dot { color:var(--accent); }
   #tracker li.done { color:var(--ok); }
   #tracker li.done .dot { color:var(--ok); animation:pop .35s ease; }
-  .step.complete { border-color:var(--ok); }
   .step.complete > h3::before { content:"✓ "; color:var(--ok); }
   #sheetNote { margin-top:12px; padding:10px 12px; border:1px dashed var(--line); border-radius:10px; background:transparent; color:var(--muted); font-size:15px; }
   #sheetNote b { display:block; font-size:14px; text-transform:uppercase; letter-spacing:.03em; margin-bottom:2px; }
@@ -164,6 +164,32 @@
   .msc .hl { outline:3px solid #f9ab00; outline-offset:2px; border-radius:4px; }
   @keyframes tap { 50% { transform:scale(.7); } }
   @media (prefers-reduced-motion: reduce) { .msc, .msc .sc, .mock .finger, .msc .sw, .msc .sw::after { transition:none; } .mock .finger.press { animation:none; } }
+  /* ---- one step per screen (owner, 2026-11-25) ---- */
+  .wiz-off, [hidden] { display:none !important; }
+  body.wiz h1 { font-size:16px; font-weight:600; color:var(--muted); margin:4px 0 6px; }
+  body.wiz .step { border:0; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  body.wiz .step h3 { font-size:23px; margin-bottom:10px; }
+  body.wiz .callout { background:var(--card); color:var(--fg); box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  body.wiz #tsStep { display:none; }
+  body.wiz .topstatus.idle, body.wiz .topstatus.ok { display:none; }
+  #wizHead { margin:6px 0 4px; }
+  .wiz-top { display:flex; justify-content:space-between; align-items:baseline; font-size:15px; font-weight:600; color:var(--muted); }
+  .wiz-top .linkbtn { font-size:15px; text-decoration:none; }
+  .wiz-bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin:6px 0; }
+  .wiz-bar i { display:block; height:100%; width:0; background:var(--accent); border-radius:3px; transition:width .5s ease; }
+  #wizDone { margin:4px 0 0; font-size:15px; color:var(--ok); }
+  #wizDone:empty { display:none; }
+  #wizFlash { margin:10px 0 0; font-size:22px; font-weight:700; color:var(--ok); }
+  .step p.line { font-size:16px; margin:10px 0; }
+  .step p.line .linkbtn { font-size:16px; }
+  p.links { text-align:center; margin:14px 0 4px; }
+  p.links .linkbtn { font-size:16px; }
+  #wizNextRow { margin:14px 0; }
+  body.wiz details.helpbox, details.helpbox { background:transparent; border:0; box-shadow:none; padding:4px 0; text-align:center; }
+  details.helpbox summary { font-size:15px; font-weight:600; color:var(--muted); list-style:none; }
+  details.helpbox summary::-webkit-details-marker { display:none; }
+  details.helpbox[open] { text-align:left; }
+  @media (prefers-reduced-motion: reduce) { .wiz-bar i { transition:none; } }
   body.removing main >:not(#removeCard):not(#topStatus):not(#helpBox):not(#acctBar):not(.langrow):not(h1):not(#moreOverlay) { display:none !important; }
   body.updating main >:not(#updateCard):not(#topStatus):not(#helpBox):not(#acctBar):not(.langrow):not(h1):not(#moreOverlay) { display:none !important; }
 </style>
@@ -179,6 +205,13 @@
   <p class="small acctbar" id="acctBar"><span id="acct"></span><button class="linkbtn" id="btnChangeAcct" type="button" hidden data-t="changeAcct"></button></p>
   <p class="banner" id="inAppWarn" hidden data-t="inAppWarn"></p>
 
+  <div id="wizHead" hidden>
+    <div class="wiz-top"><span id="wizCount"></span><button class="linkbtn" id="wizBack" type="button" hidden data-t="wizBack"></button></div>
+    <div class="wiz-bar"><i id="wizBar"></i></div>
+    <p id="wizDone"></p>
+    <p id="wizFlash" hidden data-t="wizFlash"></p>
+  </div>
+
   <div class="topstatus idle" id="topStatus" role="status" aria-live="polite">
     <div class="tsHead"><span id="tsStep"></span><span id="tsTime"></span></div>
     <div id="tsText"></div>
@@ -187,13 +220,13 @@
     <button class="secondary" id="btnCancel" data-keep hidden data-t="cancelBtn"></button>
   </div>
 
-  <div class="callout" id="privateTip">
-    <h3 data-t="privateTitle"></h3>
-    <div><span data-t="privateShort"></span> <button class="linkbtn" data-more="privateBody"></button></div>
-    <button id="btnCopyPrivate" data-t="copyPageBtn"></button>
+  <div class="step" id="welcomeCard">
+    <h3 data-t="welcomeTitle"></h3>
+    <p data-t="welcomeBody"></p>
+    <p class="line" id="privateTip"><b data-t="privateTitle"></b>. <span data-t="privateShort"></span> <button class="linkbtn" data-more="privateBody"></button> · <button class="linkbtn" id="btnCopyPrivate" data-t="copyPageBtn"></button></p>
+    <p class="line"><span data-t="accountTip"></span> <button class="linkbtn" data-more="accountTipMore"></button></p>
+    <button id="wizStart" data-t="wizStart"></button>
   </div>
-
-  <div class="callout"><span data-t="accountTip"></span> <button class="linkbtn" data-more="accountTipMore"></button></div>
 
   <div class="step" id="signinCard" hidden>
     <h3 id="signinTitle" data-t="signinTitle"></h3>
@@ -234,12 +267,6 @@
     <button id="btnUpdate" data-t="updBtn"></button>
   </div>
 
-  <div class="callout" id="openHelp" hidden>
-    <h3 data-t="openHelpTitle"></h3>
-    <div data-t="openHelpBody"></div>
-    <button id="btnCopyPage" data-t="copyPageBtn"></button>
-  </div>
-
   <div class="step" id="choices">
     <h3 data-t="choicesTitle"></h3>
     <p id="choicesIntroP"><span data-t="choicesIntro"></span> <button class="linkbtn" data-more="choicesIntroMore"></button></p>
@@ -271,6 +298,8 @@
     </details>
   </div>
 
+  <div id="wizNextRow"><button id="wizNext" data-t="wizContinue"></button></div>
+
   <div class="step" id="card1">
     <h3 data-t="createTitle"></h3>
     <div class="anim" id="anim-signin" data-anim="signin"></div>
@@ -293,15 +322,22 @@
     <button class="secondary" id="btnContinue" data-t="retryBtn" hidden></button>
   </div>
 
+  <div class="callout" id="openHelp" hidden>
+    <h3 data-t="openHelpTitle"></h3>
+    <div data-t="openHelpBody"></div>
+    <button id="btnCopyPage" data-t="copyPageBtn"></button>
+  </div>
+
   <div class="step" id="readyCard" hidden>
     <h3 data-t="readyTitle"></h3>
     <div data-t="readyBody"></div>
-    <button id="btnCopySignin" data-t="copySigninBtn"></button>
-    <p class="small" id="signinMsg"></p>
     <a class="bigbtn" id="openApp" href="../" data-t="readyBtn"></a>
+    <p class="links"><button class="linkbtn" id="btnCopySignin" data-t="copySigninBtn"></button></p>
+    <p class="small" id="signinMsg"></p>
+    <p class="links" id="extrasLinkRow" hidden><button class="linkbtn" id="wizExtras" type="button" data-t="extrasLink"></button></p>
   </div>
 
-  <details class="step" id="helpBox">
+  <details class="step helpbox" id="helpBox">
     <summary data-t="helpSummary"></summary>
     <p data-t="helpBody"></p>
     <button class="secondary" id="btnCopy" data-t="copyLogBtn"></button>
@@ -428,6 +464,18 @@ const T = {
     stepAllow: 'Step 2 of 2',
     stepOptional: 'Optional step',
     privateTitle: 'Tip: use a Private tab',
+    welcomeTitle: 'Let’s set up your app',
+    welcomeBody: 'It takes about 3 minutes. This page makes your private Google Sheet and your app, and shows you what to tap on Google’s screens.',
+    wizStart: 'Start',
+    wizContinue: 'Continue',
+    wizBack: '‹ Back',
+    wizStepOf: 'Step {n} of {total}',
+    wizFlash: '✓ Done',
+    wizD1: 'Google account',
+    wizD2: 'Your choices',
+    wizD3: 'App made',
+    wizD4: 'Allowed',
+    extrasLink: 'Turn on optional extras ›',
     privateBody: '<p style="color:inherit">This is the surest way to set up without problems. Many phones are signed in to several Google accounts, and Google’s approval screen gets confused by that. A Private tab starts with no accounts, so you sign in with only the one you choose.</p><ol><li>Tap <b>Copy this page’s address</b> below.</li><li>In Safari tap the tabs icon (two squares), then <b>Private</b>, then the <b>+</b>.</li><li>Paste the address in the bar and open it. This page appears again: carry on from there.</li></ol><p style="color:inherit" class="small">Already in a Private tab? Then you are all set: go on with the steps below.</p>',
     accountTip: '<b>Which Google account?</b> The Gmail that <b>receives your bank emails</b>.',
     accountTipMore: '<b>Which Google account?</b> Sign in with the Gmail account that <b>receives your bank emails</b>. Your app reads your bank transactions from that account, so use that one. If your banks write to several addresses, you can forward them all to this one later (in the app: More → Bank emails). No Gmail, because your bank writes to Outlook, iCloud or Yahoo? Create a free Gmail and forward to it; the app explains how.',
@@ -465,7 +513,7 @@ const T = {
     sharePlaceholder: 'e.g. Ana',
     shareWhatSummary: 'Exactly what is sent',
     shareWhat: '<ul><li>Once the app is set up, the small counts described above (speed; which action failed, with a short code; what you did with each bank email, never its content; how many times you open each screen; which tips the app showed and whether they were then used), through the app itself.</li><li>While you set up, the name of each step you reach: you tapped the button, Google’s setting was needed, your sheet was created, your app was created, you were sent to Google, you came back, the help card was shown, you allowed it, your app is ready, or a step did not finish (which part).</li><li>How many seconds after you tapped the button.</li><li>Your phone type (for example iPhone), a random number for this phone (it only tells me two reports come from the same phone), and the first name above if you wrote one.</li></ul><p>Nothing is sent until you tap “Set up my app”. Never sent: your Google account or email, your access code, or anything about your spending.</p>',
-    createTitle: '1. Set up my app',
+    createTitle: 'Set up my app',
     createAskMore: '<b>Google will ask you to allow “Expense Tracker Installer” (this page) to:</b><ul><li>create the Google Sheet where your expenses are saved;</li><li>set up your app in your own Google account.</li></ul><p>On Google’s screen, check <b>Select all</b> (if Google is in Spanish: <b>Seleccionar todo</b>), then tap <b>Continue</b> (if Google is in Spanish: <b>Continuar</b>).</p><p>Google may then say “<b>Google hasn’t verified this app</b>” (if Google is in Spanish: <b>Google no ha verificado esta aplicación</b>). That is normal for a small app. Tap the <b>small word Continue / Continuar</b> on the left. <b>Do not tap the big blue button</b> (“Back to safety” (in Spanish: “Volver a un sitio seguro”)): it takes you out.</p><p>After that it takes about a minute. You will see the progress at the top of this page.</p>',
     createBtn: 'Set up my app',
     createdBtn: '✓ Done',
@@ -481,7 +529,7 @@ const T = {
     readySignin: 'First, choose your Google account (the box below).',
     created: '✓ Your app is set up.',
     createdDone: '✓ Your app is set up.',
-    approveTitle: '2. Allow your app to use its sheet',
+    approveTitle: 'Allow your app to use its sheet',
     approveAskMore: '<b>Next, Google will show a screen asking you to allow your app to:</b><ul><li>use <b>only its own Google Sheet</b> — nothing else in your Drive, and no email.</li></ul><p>You will be taken there automatically. Google first shows a warning page (“Google hasn’t verified this app”). Tap the small link <b>Advanced</b> (if Google is in Spanish: <b>Configuración avanzada</b>), then the small link <b>Go to Expense Tracker (unsafe)</b> (if Google is in Spanish: <b>Ir a Expense Tracker (no seguro)</b>). The big blue button is NOT the right one. (Google lists you as the “developer” because the app lives in your own account.)</p><p>On the next screen check <b>Select all</b> (<b>Seleccionar todo</b>), scroll down to the end and tap <b>Continue</b> (<b>Continuar</b>). Then, on the “Allowed” page, tap the green <b>Continue</b> button. This page continues automatically.</p><p>If Google says it <b>can’t open the file</b> instead, come back to this page: the fix appears right here.</p>',
     retryBtn: 'Try again',
     stepUpdate: 'Update',
@@ -510,8 +558,8 @@ const T = {
     p_updCode: 'Sending the new version to your account…',
     p_updVersion: 'Saving the new version…',
     approved: '✓ Allowed. Your app is ready (access code and saving checked).',
-    readyTitle: 'Your app is ready — how to open it',
-    readyBody: '<p>Your app is ready. Tap <b>Open my app</b>: it opens in Safari and shows you the last two steps (add it to your Home Screen, then paste your access code once).</p>',
+    readyTitle: '✓ Your app is ready',
+    readyBody: '<p>Tap <b>Open my app</b>: it opens in Safari and shows you the last two steps (add it to your Home Screen, then paste your access code once).</p>',
     copySigninBtn: 'Copy my access code again (only if the app asks)',
     signinCopied: '✓ Copied. Now tap “Open my app”.',
     noSigninYet: 'This phone doesn’t have your access code yet. Tap “Sign in again on this phone” at the top first.',
@@ -630,6 +678,18 @@ const T = {
     stepAllow: 'Paso 2 de 2',
     stepOptional: 'Paso opcional',
     privateTitle: 'Consejo: usa una pestaña privada',
+    welcomeTitle: 'Vamos a preparar tu app',
+    welcomeBody: 'Toma unos 3 minutos. Esta página crea tu archivo privado de Google Sheets y tu app, y te muestra qué tocar en las pantallas de Google.',
+    wizStart: 'Empezar',
+    wizContinue: 'Continuar',
+    wizBack: '‹ Atrás',
+    wizStepOf: 'Paso {n} de {total}',
+    wizFlash: '✓ Listo',
+    wizD1: 'Cuenta de Google',
+    wizD2: 'Tus elecciones',
+    wizD3: 'App creada',
+    wizD4: 'Permitido',
+    extrasLink: 'Activar extras opcionales ›',
     privateBody: '<p style="color:inherit">Es la forma más segura de configurar sin problemas. Muchos celulares tienen varias cuentas de Google con sesión iniciada, y la pantalla de aprobación de Google se confunde con eso. Una pestaña privada empieza sin cuentas, así que inicias sesión solo con la que elijas.</p><ol><li>Toca <b>Copiar la dirección de esta página</b> aquí abajo.</li><li>En Safari toca el ícono de pestañas (dos cuadrados), luego <b>Privada</b> y luego el <b>+</b>.</li><li>Pega la dirección en la barra y ábrela. Esta página aparece otra vez: sigue desde ahí.</li></ol><p style="color:inherit" class="small">¿Ya estás en una pestaña privada? Entonces todo listo: sigue con los pasos de abajo.</p>',
     accountTip: '<b>¿Con qué cuenta de Google?</b> El Gmail que <b>recibe los correos de tu banco</b>.',
     accountTipMore: '<b>¿Con qué cuenta de Google?</b> Inicia sesión con la cuenta de Gmail que <b>recibe los correos de tu banco</b>. Tu app lee tus movimientos del banco desde esa cuenta, así que usa esa. Si tus bancos escriben a varias direcciones, después puedes reenviarlos todos a esta (en la app: Más → Correos del banco). ¿No tienes Gmail porque tu banco escribe a Outlook, iCloud o Yahoo? Crea un Gmail gratis y reenvía a él; la app te explica cómo.',
@@ -665,7 +725,7 @@ const T = {
     sharePlaceholder: 'p. ej. Ana',
     shareWhatSummary: 'Exactamente qué se envía',
     shareWhat: '<ul><li>Cuando la app ya está configurada, los conteos pequeños descritos arriba (velocidad; qué acción falló, con un código corto; qué hiciste con cada correo del banco, nunca su contenido; cuántas veces abres cada pantalla; qué consejos mostró la app y si después se usaron), a través de la app misma.</li><li>Mientras la configuras, el nombre de cada paso al que llegas: tocaste el botón, hizo falta el ajuste de Google, se creó tu archivo, se creó tu app, te enviamos a Google, volviste, se mostró la tarjeta de ayuda, lo permitiste, tu app quedó lista, o un paso no terminó (cuál).</li><li>Cuántos segundos pasaron desde que tocaste el botón.</li><li>El tipo de celular (por ejemplo iPhone), un número al azar de este celular (solo me dice que dos envíos vienen del mismo celular) y el nombre de arriba, si lo escribiste.</li></ul><p>No se envía nada hasta que toques “Configurar mi app”. Nunca se envía: tu cuenta de Google ni tu correo, tu código de acceso, ni nada sobre tus gastos.</p>',
-    createTitle: '1. Configurar mi app',
+    createTitle: 'Configurar mi app',
     createAskMore: '<b>Google te pedirá permitir que “Expense Tracker Installer” (esta página):</b><ul><li>cree el archivo de Google Sheets donde se guardan tus gastos;</li><li>prepare tu app en tu propia cuenta de Google.</li></ul><p>En la pantalla de Google, marca <b>Seleccionar todo</b> (si Google está en inglés: <b>Select all</b>) y toca <b>Continuar</b> (si Google está en inglés: <b>Continue</b>).</p><p>Luego Google puede decir “<b>Google no ha verificado esta aplicación</b>” (si Google está en inglés: <b>Google hasn’t verified this app</b>). Es normal en una app pequeña. Toca la <b>palabra pequeña Continuar / Continue</b> a la izquierda. <b>No toques el botón azul grande</b> (“Volver a un sitio seguro” (en inglés: “Back to safety”)): te saca de aquí.</p><p>Después tarda como un minuto. Verás el avance arriba en esta página.</p>',
     createBtn: 'Configurar mi app',
     createdBtn: '✓ Listo',
@@ -681,7 +741,7 @@ const T = {
     readySignin: 'Primero, elige tu cuenta de Google (el recuadro de abajo).',
     created: '✓ Tu app está configurada.',
     createdDone: '✓ Tu app está configurada.',
-    approveTitle: '2. Permite que tu app use su archivo',
+    approveTitle: 'Permite que tu app use su archivo',
     approveAskMore: '<b>Ahora Google mostrará una pantalla pidiéndote permitir que tu app:</b><ul><li>use <b>solo su propio archivo de Google Sheets</b> — nada más de tu Drive y nada de correo.</li></ul><p>Te llevamos ahí automáticamente. Google muestra primero una página de advertencia (“Google no ha verificado esta aplicación”). Toca el enlace pequeño <b>Configuración avanzada</b> (si Google está en inglés: <b>Advanced</b>) y luego el enlace pequeño <b>Ir a Expense Tracker (no seguro)</b> (si Google está en inglés: <b>Go to Expense Tracker (unsafe)</b>). El botón azul grande NO es el correcto. (Google te nombra a ti como “desarrollador” porque la app vive en tu propia cuenta.)</p><p>En la pantalla siguiente marca <b>Seleccionar todo</b> (<b>Select all</b>), baja hasta el final y toca <b>Continuar</b> (<b>Continue</b>). Luego, en la página “Permitido”, toca el botón verde <b>Continuar</b>. Esta página continúa sola.</p><p>Si Google dice que <b>no puede abrir el archivo</b>, vuelve a esta página: aquí aparece la solución.</p>',
     retryBtn: 'Intentar de nuevo',
     stepUpdate: 'Actualizar',
@@ -710,8 +770,8 @@ const T = {
     p_updCode: 'Enviando la nueva versión a tu cuenta…',
     p_updVersion: 'Guardando la nueva versión…',
     approved: '✓ Permitido. Tu app está lista (código de acceso y guardado comprobados).',
-    readyTitle: 'Tu app está lista — cómo abrirla',
-    readyBody: '<p>Tu app está lista. Toca <b>Abrir mi app</b>: se abre en Safari y te muestra los dos últimos pasos (agregarla a tu pantalla de inicio y pegar tu código de acceso una sola vez).</p>',
+    readyTitle: '✓ Tu app está lista',
+    readyBody: '<p>Toca <b>Abrir mi app</b>: se abre en Safari y te muestra los dos últimos pasos (agregarla a tu pantalla de inicio y pegar tu código de acceso una sola vez).</p>',
     copySigninBtn: 'Copiar mi código de acceso otra vez (solo si la app lo pide)',
     signinCopied: '✓ Copiado. Ahora toca “Abrir mi app”.',
     noSigninYet: 'Este celular aún no tiene tu código de acceso. Toca primero “Iniciar sesión otra vez en este celular”, arriba.',
@@ -1916,7 +1976,72 @@ function render(failed) {
     else setTop('idle', '', (!WANT_UPDATE && !WANT_REMOVE && !state.spreadsheetId && !state.account) ? T.readySignin : T.ready, 0);
   }
   if (!busy && approvalTarget()) watchForApproval();
+  renderWizard();
 }
+
+// ---------- one step per screen (owner, 2026-11-25) ----------
+// A fresh setup shows ONE step at a time with one blue button, and goes to the next step by itself when a step is done
+// (the old page showed about 12 boxes at once and nothing said where to look next). The cards and their logic are the
+// same as before: this only decides which of them are on screen. An update or a removal keeps its own single card.
+const WIZ = !(WANT_UPDATE || WANT_REMOVE);
+const WIZ_CARDS = ['welcomeCard', 'signinCard', 'overview', 'tracker', 'choices', 'switchCard', 'shareCard', 'wizNextRow', 'card1', 'card2', 'openHelp', 'readyCard', 'updateCard', 'removeCard'];
+const WIZ_ORDER = ['welcome', 'choices', 'setup', 'allow', 'done'];
+let wizPos = 'welcome', wizExtrasOpen = false, wizShown = '', wizTimer = null;
+function needSignin_() { return !(WANT_UPDATE || WANT_REMOVE || state.spreadsheetId || state.account); }
+function wizStep() {
+  if (state.pending || (wizExtrasOpen && state.permissionDone)) return 'extras';
+  if (state.permissionDone) return 'done';
+  if (state.webAppUrl) return 'allow';
+  if (state.spreadsheetId || apiRetryTimer || busy) return 'setup';
+  if (needSignin_()) return 'welcome';
+  return wizPos;
+}
+function wizCards(step) {
+  if (step === 'welcome') return ['welcomeCard'];
+  if (step === 'choices') return ['choices', 'shareCard', 'wizNextRow'];
+  if (step === 'setup') return apiRetryTimer ? ['switchCard'] : ['card1'];
+  if (step === 'allow') return ['card2', 'openHelp'];
+  if (step === 'extras') return ['choices'];
+  return state.accessCode ? ['readyCard'] : ['card1'];   // done; a phone that lost its access code gets "Sign in again" first
+}
+function wizApply(step) {
+  document.body.classList.add('wiz');
+  $('wizHead').hidden = false;
+  const on = wizCards(step);
+  WIZ_CARDS.forEach((id) => $(id).classList.toggle('wiz-off', !on.includes(id)));
+  $('acctBar').classList.toggle('wiz-off', step === 'welcome' && !state.account);   // nothing to say about the account before choosing it
+  const n = WIZ_ORDER.indexOf(step === 'extras' ? 'done' : step) + 1;
+  $('wizCount').textContent = T.wizStepOf.replace('{n}', n).replace('{total}', WIZ_ORDER.length);
+  $('wizBar').style.width = Math.round(n / WIZ_ORDER.length * 100) + '%';
+  $('wizDone').textContent = [T.wizD1, T.wizD2, T.wizD3, T.wizD4].slice(0, n - 1).map((x) => '✓ ' + x).join(' · ');
+  $('wizBack').hidden = busy || !((step === 'choices') || (step === 'setup' && !state.spreadsheetId && !apiRetryTimer) || (step === 'extras' && !state.pending));
+  $('extrasLinkRow').hidden = !(state.permissionDone && EXTRA_NAMES.some((x) => !(state.stages || []).includes(x)));
+}
+function renderWizard() {
+  if (!WIZ || wizTimer) return;
+  const step = wizStep();
+  if (step === wizShown) { wizApply(step); return; }
+  // A step finished while the person watched: a short "Done", then the next screen.
+  if (wizShown && WIZ_ORDER.indexOf(step) > WIZ_ORDER.indexOf(wizShown)) {
+    $('wizFlash').hidden = false;
+    wizTimer = setTimeout(() => { wizTimer = null; $('wizFlash').hidden = true; wizShown = ''; renderWizard(); }, 1000);
+    return;
+  }
+  wizShown = step;
+  wizApply(step);
+  window.scrollTo(0, 0);
+}
+function wizGo(pos) { wizPos = pos; wizShown = wizStep(); wizApply(wizShown); window.scrollTo(0, 0); }
+$('wizStart').addEventListener('click', async () => {
+  if (needSignin_()) { await signInFirst(); if (needSignin_()) return; }
+  wizGo('choices');
+});
+$('wizNext').addEventListener('click', () => wizGo('setup'));
+$('wizExtras').addEventListener('click', () => { wizExtrasOpen = true; wizGo(wizPos); });
+$('wizBack').addEventListener('click', () => {
+  if (wizStep() === 'extras') { wizExtrasOpen = false; wizGo(wizPos); }
+  else wizGo(wizStep() === 'setup' ? 'choices' : 'welcome');
+});
 let busy = false;
 async function run(boxId, fn, btnId, step) {
   if (busy) return;

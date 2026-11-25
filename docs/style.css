@@ -4393,3 +4393,47 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 #refund-wont-come { margin-top: 8px; }
 /* "Which purchase?": Home's own rows, tappable. */
 #refund-pick-list .entry { cursor: pointer; }
+
+/* Add to Home Screen: a drawing of the iPhone screens, one per step (owner, 2026-11-25). Tap for the next picture. */
+.a2-note { display: block; margin-top: 4px; }
+.a2-anim { position: relative; width: 100%; max-width: 280px; height: 300px; margin: 18px auto 6px; border: 6px solid var(--text); border-radius: var(--r-xl); background: var(--surface); overflow: hidden; cursor: pointer; text-align: left; user-select: none; -webkit-user-select: none; }
+.a2-frame { position: absolute; inset: 0; opacity: 0; transition: opacity .3s; }
+.a2-frame.on { opacity: 1; }
+.a2-num { position: absolute; top: 8px; left: 8px; z-index: 3; width: 26px; height: 26px; line-height: 26px; text-align: center; border-radius: 50%; background: var(--accent); color: var(--white); font-weight: 700; font-size: 0.875rem; }
+.a2-page { padding: 44px 16px 0; }
+.a2-page i, .a2-menu i { display: block; height: 9px; margin: 10px 0; border-radius: var(--r-xs); background: var(--border); width: 85%; }
+.a2-page i.s, .a2-menu i.s { width: 55%; }
+.a2-ic { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.a2-bar { position: absolute; left: 8px; right: 8px; bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 6px; color: var(--text); }
+.a2-round { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: var(--card); }
+.a2-addr { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--r-pill); background: var(--muted); color: var(--white); font-size: 0.8125rem; }
+.a2-addr .a2-url { overflow: hidden; white-space: nowrap; }
+.a2-hl { outline: 3px solid var(--warn); outline-offset: 2px; border-radius: var(--r-sm); }
+.a2-menu { position: absolute; left: 34px; right: 34px; bottom: 58px; padding: 6px 12px; border-radius: var(--r-lg); background: var(--card); box-shadow: 0 4px 16px rgba(0, 0, 0, .18); }
+.a2-row { display: flex; align-items: center; gap: 10px; padding: 8px 6px; font-size: 0.875rem; color: var(--text); }
+.a2-sheet { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 12px 14px; border-radius: var(--r-xl) var(--r-xl) 0 0; background: var(--card); box-shadow: 0 -4px 16px rgba(0, 0, 0, .14); }
+.a2-sheet.a2-full { top: 30px; }
+.a2-head { display: flex; align-items: center; gap: 10px; padding: 4px 4px 10px; font-size: 0.875rem; color: var(--text); }
+.a2-appicon { width: 30px; height: 30px; border-radius: var(--r-sm); background: var(--accent-bg); border: 1px solid var(--border); flex: none; }
+.a2-apps { display: flex; justify-content: space-around; padding: 6px 0 10px; border-top: 1px solid var(--border); }
+.a2-apps i { width: 36px; height: 36px; border-radius: var(--r-md); background: var(--border); }
+.a2-acts { display: flex; justify-content: space-between; gap: 4px; padding-top: 8px; border-top: 1px solid var(--border); }
+.a2-act { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 0.6875rem; color: var(--text); text-align: center; line-height: 1.2; }
+.a2-circle { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: var(--surface); }
+.a2-addtop { display: flex; justify-content: space-between; padding: 0 4px 12px; font-size: 0.875rem; color: var(--accent); }
+.a2-addbtn { font-weight: 700; padding: 0 6px; }
+.a2-switch { justify-content: space-between; border-top: 1px solid var(--border); }
+.a2-sw { position: relative; width: 40px; height: 24px; border-radius: var(--r-pill); background: var(--switch-on); flex: none; }
+.a2-sw::after { content: ""; position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--white); }
+.a2-cap { margin: 4px 0 14px; }
+@media (prefers-reduced-motion: reduce) { .a2-frame { transition: none; } }
+.a2-add26 { background: var(--surface); padding: 10px 0 14px; }
+.a2-add26 .a2-addtop { align-items: center; gap: 6px; padding: 0 10px 10px; color: var(--text); font-size: 0.8125rem; }
+.a2-add26 .a2-addtop b { flex: 1; text-align: center; white-space: nowrap; overflow: hidden; }
+.a2-x { width: 28px; height: 28px; border: 1px solid var(--border); font-size: 0.875rem; }
+.a2-addpill { padding: 5px 12px; border-radius: var(--r-pill); background: var(--accent); color: var(--white); font-weight: 700; }
+.a2-addname { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--card); }
+.a2-addname > span:last-child { display: flex; flex-direction: column; min-width: 0; font-size: 0.875rem; color: var(--text); }
+.a2-addname i { font-style: normal; color: var(--muted); font-size: 0.75rem; white-space: nowrap; overflow: hidden; }
+.a2-letter { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; flex: none; border-radius: var(--r-md); background: var(--transfer); color: var(--white); font-size: 1.25rem; font-weight: 600; }
+.a2-add26 .a2-switch { margin-top: 12px; padding: 10px 12px; background: var(--card); border-top: 0; }
