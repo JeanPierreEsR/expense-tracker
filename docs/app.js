@@ -1658,8 +1658,14 @@ function startA2hsAnim_(fresh) {
   const row = (icon, key, hl) => '<div class="a2-row' + (hl ? " a2-hl" : "") + '">' + icon + "<span>" + tr(key) + "</span></div>";
   const head = '<div class="a2-head"><span class="a2-appicon"></span><b>Expense Tracker</b></div>';
   const actions = (hl) => '<div class="a2-acts">' + [[I.copy, "link.d.copy"], [I.book, "link.d.bookmark"], [I.book, "link.d.reading"], [I.down, "link.d.viewMore"]].map(([ic, k], i) => '<span class="a2-act"><span class="a2-circle' + (hl && i === 3 ? " a2-hl" : "") + '">' + ic + "</span>" + tr(k) + "</span>").join("") + "</div>";
-  // Only Safari 26 has the "Open as Web App" switch (on by itself; the owner left it on).
-  const addSheet = '<div class="a2-sheet a2-full"><div class="a2-addtop"><span>' + tr("link.d.cancel") + '</span><span class="a2-addbtn a2-hl">' + tr("link.d.add") + "</span></div>" + head + (fresh ? '<div class="a2-row a2-switch"><span>' + tr("link.d.webApp") + '</span><span class="a2-sw"></span></div>' : "") + "</div>";
+  // The last screen, as Safari 26 shows it (owner's screenshot, 2026-11-25): round ✕, the title, a blue "Add" pill; the icon is a grey
+  // letter (the app has no icon of its own) next to "Expenses" and the address; "Open as Web App" is on by itself and stays on.
+  // Older Safari has Cancel / Add as plain words and no switch.
+  const addSheet = fresh
+    ? '<div class="a2-sheet a2-full a2-add26"><div class="a2-addtop"><span class="a2-round a2-x">✕</span><b>' + tr("link.d.addHome") + '</b><span class="a2-addpill a2-hl">' + tr("link.d.add") + '</span></div>'
+      + '<div class="a2-addname"><span class="a2-letter">E</span><span><b>Expenses</b><i>https://…github.io/…</i></span></div>'
+      + '<div class="a2-row a2-switch"><span>' + tr("link.d.webApp") + '</span><span class="a2-sw"></span></div></div>'
+    : '<div class="a2-sheet a2-full"><div class="a2-addtop"><span>' + tr("link.d.cancel") + '</span><span class="a2-addbtn a2-hl">' + tr("link.d.add") + "</span></div>" + head + "</div>";
   const frames = fresh ? [
     ["a2-s-menu", page + bar(true)],
     ["a2-s-share", page + '<div class="a2-menu">' + row(I.share, "link.d.share", true) + row(I.copy, "link.d.copy") + '<i></i><i class="s"></i></div>' + bar(false)],

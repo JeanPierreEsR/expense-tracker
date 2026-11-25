@@ -4427,3 +4427,13 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .a2-sw::after { content: ""; position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--white); }
 .a2-cap { margin: 4px 0 14px; }
 @media (prefers-reduced-motion: reduce) { .a2-frame { transition: none; } }
+.a2-add26 { background: var(--surface); padding: 10px 0 14px; }
+.a2-add26 .a2-addtop { align-items: center; gap: 6px; padding: 0 10px 10px; color: var(--text); font-size: 0.8125rem; }
+.a2-add26 .a2-addtop b { flex: 1; text-align: center; white-space: nowrap; overflow: hidden; }
+.a2-x { width: 28px; height: 28px; border: 1px solid var(--border); font-size: 0.875rem; }
+.a2-addpill { padding: 5px 12px; border-radius: var(--r-pill); background: var(--accent); color: var(--white); font-weight: 700; }
+.a2-addname { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--card); }
+.a2-addname > span:last-child { display: flex; flex-direction: column; min-width: 0; font-size: 0.875rem; color: var(--text); }
+.a2-addname i { font-style: normal; color: var(--muted); font-size: 0.75rem; white-space: nowrap; overflow: hidden; }
+.a2-letter { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; flex: none; border-radius: var(--r-md); background: var(--transfer); color: var(--white); font-size: 1.25rem; font-weight: 600; }
+.a2-add26 .a2-switch { margin-top: 12px; padding: 10px 12px; background: var(--card); border-top: 0; }
