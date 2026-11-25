@@ -2376,7 +2376,6 @@
     "refund.otherAccountYes": { en: "Yes, to {to}", es: "Sí, a {to}" },
     "refund.rowRefunded": { en: "↩️ Refunded {amount}", es: "↩️ Reembolsado {amount}" },
     "refund.rowOnTheWay": { en: "⏳ Refund on the way: {amount}", es: "⏳ Reembolso en camino: {amount}" },
-    "refund.refundedSoFar": { en: "refunded {amount}", es: "reembolsado {amount}" },
     "income.forgiveReduces": { en: ". Your income goes down by this amount; no expense is recorded.", es: ". Tu ingreso baja en este monto; no se registra un gasto." },
     "payorMerge.title": { en: "Your people are now one list", es: "Tus personas ahora son una sola lista" },
     "payorMerge.intro": { en: "Until now the app kept two lists: people who pay you income (“payers”) and friends you share expenses or loans with. From now on there is one list, in More → Friends.", es: "Hasta ahora la app tenía dos listas: las personas que te pagan un ingreso (“pagadores”) y los amigos con quienes compartes gastos o préstamos. Desde ahora hay una sola lista, en Más → Amigos." },
