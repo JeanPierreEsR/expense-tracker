@@ -1216,6 +1216,7 @@ var CATEGORY_TRANSLATIONS_ = {
   savings: { en: 'Savings', es: 'Ahorros' },
   loan: { en: 'Loan', es: 'Préstamo' },
   // A company copy's sector packs (CompanyCopy.gs). Contributions and loans are never categories.
+  land: { en: 'Land', es: 'Terreno' },
   materials: { en: 'Materials', es: 'Materiales' },
   labor: { en: 'Labor', es: 'Mano de obra' },
   design_permits: { en: 'Design & permits', es: 'Diseño y licencias' },

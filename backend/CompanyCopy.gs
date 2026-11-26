@@ -25,8 +25,8 @@ var COMPANY_COPY_PROPERTY_ = 'COMPANY_COPY';
 var SECTOR_ORDER_ = ['construction', 'other'];
 var SECTOR_PACKS_ = {
   construction: {
-    expense: [['Materials', '🧱'], ['Labor', '👷'], ['Design & permits', '📐'], ['Notary & registries', '📜'],
-      ['Loan interest', '💸'], ['Bank fees', '🧾'], ['Other', '📦']],
+    expense: [['Land', '🏞️'], ['Materials', '🧱'], ['Labor', '👷'], ['Design & permits', '📐'], ['Notary & registries', '📜'],
+      ['Loan interest', '💸'], ['Bank fees', '🧾'], ['Other', '📦']],   // Land: the plot bought for a project is its cost (owner, 2026-11-26)
     income: [['Reservation deposits', '🔖'], ['Down payments', '🏷️'], ['Sale balances', '🔑'], ['Other', '📦']]
   },
   other: {
@@ -101,6 +101,20 @@ function saveCompanySetup(payload) {
   if (ROWS_MEMO_) { delete ROWS_MEMO_['Companies']; delete ROWS_MEMO_['Projects']; }
   bumpStructureVersion_();
   return { company: company, projects: projects, sector: sector, added: cats.added, hidden: cats.hidden };
+}
+
+// Heal (Heals.gs): a construction company copy made before "Land" joined its pack gets it once. Only when no category of that name
+// exists at all (one the person hid stays hidden); nothing else is touched.
+function addLandCategoryToConstruction_() {
+  if (!isCompanyCopy_()) return;
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies')) return;
+  if (!getAllRows('Companies').some(function (c) { return String(c.sector || '') === 'construction'; })) return;
+  var cats = getAllRows('Categories');
+  var key = categoryKeyFromName_('Land');
+  if (cats.some(function (c) { return c.type === 'expense' && (String(c.key || '') === key || String(c.name || '').trim().toLowerCase() === 'land'); })) return;
+  appendRowObject('Categories', { id: Utilities.getUuid(), name: 'Land', type: 'expense', icon: '🏞️',
+    color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: key, hidden: '' });
+  bumpStructureVersion_();
 }
 
 // Adds the sector's categories (a hidden one with the same name is shown again) and hides the personal starters nobody used.

@@ -2805,7 +2805,8 @@ document.getElementById("amount").addEventListener("input", () => {
 // True when this Save tap should only arm the second-tap safeguard.
 function entryRepayTooQuick_() { return false; }   // one tap since 2.69 (owner, 2026-11-24), as on a friend's screen
 
-document.getElementById("transfer-kind").addEventListener("change", () => {
+document.getElementById("transfer-kind").addEventListener("change", (ev) => {
+  if (ev.target.value === "lender_loan") { openLenderLoanFromEntry_(); return; }
   document.getElementById("form-error").textContent = "";   // an error about the type just left no longer applies (testers 2.68.2)
   // Undo what a previous non-"between" state hid, then let the normal rules re-apply.
   document.getElementById("paid-by-label").hidden = selectedType === "transfer";
@@ -13004,6 +13005,47 @@ function syncPartnerKindOptions_(kindSelect) {
     if (PARTNER_ENTRY_KINDS_.includes(kindSelect.value)) kindSelect.value = "between";
     partnerEntryOptions_.forEach((o) => o.remove());
   }
+  syncLenderLoanOption_(kindSelect, want);
+}
+// A company's loans say how they differ (owner, 2026-11-26): "Loan without installments" (the plain loan, to or from a contact) and
+// "Loan with installments (bank or lender)", which closes the "+" and opens the lender's form (Loans tab) with what was typed.
+let lenderLoanOption_ = null;
+function syncLenderLoanOption_(kindSelect, want) {
+  const loanOpt = kindSelect.querySelector('option[value="loan"]');
+  if (loanOpt) {
+    const key = companyCopyOn_() ? "transfer.kind.loanNoSchedule" : "transfer.kind.loan";
+    if (loanOpt.getAttribute("data-i18n") !== key) { loanOpt.setAttribute("data-i18n", key); loanOpt.textContent = tr(key); }
+  }
+  if (!lenderLoanOption_) {
+    lenderLoanOption_ = document.createElement("option");
+    lenderLoanOption_.value = "lender_loan";
+    lenderLoanOption_.setAttribute("data-i18n", "transfer.kind.lenderLoan");
+    lenderLoanOption_.textContent = tr("transfer.kind.lenderLoan");
+  }
+  const has = !!kindSelect.querySelector('option[value="lender_loan"]');
+  if (want && !has && loanOpt) kindSelect.insertBefore(lenderLoanOption_, loanOpt.nextSibling);
+  else if (!want && has) { if (kindSelect.value === "lender_loan") kindSelect.value = "between"; lenderLoanOption_.remove(); }
+}
+// Chosen in the "+": what was typed goes over to the lender's form, the "+" closes (nothing of it is kept as a draft).
+function openLenderLoanFromEntry_() {
+  const amount = document.getElementById("amount").value.trim();
+  const currency = document.getElementById("currency").value.toUpperCase();
+  const date = document.getElementById("date").value;
+  const account = document.getElementById("payment_method").value;
+  const description = document.getElementById("description").value.trim();
+  document.getElementById("transfer-kind").value = "between";
+  resetEntryFormFields_();
+  updateRepaymentUi_();
+  if (newEntrySheetOpen_) closeNewEntrySheet_();
+  openBankLoanForm_();
+  if (amount) document.getElementById("bank-amount").value = amount;
+  if (description) document.getElementById("bank-description").value = description;
+  if (date) document.getElementById("bank-date").value = date;
+  const curSel = document.getElementById("bank-currency");
+  if (currency && ![...curSel.options].some((o) => o.value === currency)) { const o = document.createElement("option"); o.value = currency; o.textContent = `${findCurrency(currency).flag} ${currency}`; curSel.appendChild(o); }
+  if (currency) curSel.value = currency;
+  const accSel = document.getElementById("bank-account");
+  if (account && [...accSel.options].some((o) => o.value === account)) accSel.value = account;
 }
 // The partner list: those already partners, then "+ New partner…". Two or more: nobody is chosen for the person (as in Needs review).
 function fillEntryPartnerOptions_() {

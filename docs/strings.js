@@ -349,6 +349,8 @@
     "transfer.kind.exchange": { en: "Currency exchange", es: "Cambio de moneda" },
     // A partner's money from the "+" (company copies, owner 2026-11-26)
     "transfer.kind.partnerIn": { en: "Money from a partner", es: "Dinero de un socio" },
+    "transfer.kind.loanNoSchedule": { en: "Loan without installments", es: "Préstamo sin cuotas" },
+    "transfer.kind.lenderLoan": { en: "Loan with installments (bank or lender)", es: "Préstamo con cuotas (banco o prestamista)" },
     "transfer.kind.distribution": { en: "Profit distribution", es: "Distribución de utilidades" },
     "transfer.iPaid": { en: "I paid them", es: "Le pagué" },
     "transfer.theyPaid": { en: "They paid me", es: "Me pagó" },
@@ -1963,7 +1965,7 @@
     "bank.addButton": { en: "🏦 Bank loan", es: "🏦 Préstamo bancario" },
     "bank.formTitle": { en: "Bank loan", es: "Préstamo bancario" },
     // A company copy (Business 2, piece 3): a loan from a lender to the company, with the same form and schedule as a bank's.
-    "bank.co.addButton": { es: "Préstamo de un prestamista", en: "Loan from a lender" },
+    "bank.co.addButton": { es: "Préstamo con cuotas", en: "Loan with installments" },   // owner 2026-11-26: the same name as in the "+"
     "bank.co.formTitle": { es: "Préstamo", en: "Loan" },
     "bank.co.lender": { es: "Prestamista (quién prestó)", en: "Lender (who lent it)" },
     "bank.co.lenderPlaceholder": { es: "Nombre del prestamista o del banco", en: "The lender's or the bank's name" },

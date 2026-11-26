@@ -77,7 +77,7 @@ test("the welcome's company step: the company with its sector, its projects and 
   assert.equal(out.projects.length, 2);
 
   const exp = visible(rt, "expense"), inc = visible(rt, "income");
-  for (const n of ["Materials", "Labor", "Design & permits", "Notary & registries", "Loan interest", "Bank fees", "Other"]) assert.ok(exp.includes(n), n);
+  for (const n of ["Land", "Materials", "Labor", "Design & permits", "Notary & registries", "Loan interest", "Bank fees", "Other"]) assert.ok(exp.includes(n), n);
   for (const n of ["Reservation deposits", "Down payments", "Sale balances", "Other"]) assert.ok(inc.includes(n), n);
   for (const n of ["Groceries", "Restaurants", "Home", "Transport", "Travel"]) assert.ok(!exp.includes(n), `${n} is hidden`);
   for (const n of ["Salary", "Business", "Gifts"]) assert.ok(!inc.includes(n), `${n} is hidden`);
@@ -96,7 +96,7 @@ test("Spanish names of the construction categories", () => {
   rt.api("saveCompanySetup", { sector: "construction", name: "Acme" });
   const meta = post(rt, "getMeta", {}, "es");
   const names = (meta.data || meta).categories.filter((c) => c.hidden !== "yes").map((c) => c.name);
-  for (const n of ["Materiales", "Mano de obra", "Diseño y licencias", "Notaría y registros", "Intereses de préstamos", "Comisiones bancarias", "Otros",
+  for (const n of ["Terreno", "Materiales", "Mano de obra", "Diseño y licencias", "Notaría y registros", "Intereses de préstamos", "Comisiones bancarias", "Otros",
     "Separaciones", "Cuotas iniciales", "Saldos de venta"]) assert.ok(names.includes(n), n);
 });
 
@@ -198,4 +198,20 @@ test("the install page fills the mark from the invitation and loads the shared r
   assert.match(html, /<script src="company-invite\.js\?v=[^"]+"><\/script>\s*<script src="app\.js/);
   const app = fs.readFileSync(path.join(__dirname, "../../docs/app.js"), "utf8");
   assert.match(app, /getElementById\("business-invite"\)\.hidden = !perfIsOwnerCopy_\(\)/);
+});
+
+test("a construction company copy made before Land joined the pack gets it once (heal); a hidden one stays hidden", () => {
+  const rt = friendCopy("setting");
+  rt.api("saveCompanySetup", { sector: "construction", name: "Acme" });
+  rt.run("(function () { var cats = getAllRows('Categories'); var land = cats.find(function (c) { return c.name === 'Land'; }); deleteRowsWhere_('Categories', function (c) { return c.id === land.id; }); })()");
+  rt.run("ROWS_MEMO_ = null; addLandCategoryToConstruction_(); ROWS_MEMO_ = null; addLandCategoryToConstruction_();");
+  assert.equal(rt.rows("Categories").filter((c) => c.name === "Land" && c.type === "expense").length, 1);
+  rt.run("(function () { var sheet = getSheet('Categories'), h = getHeaders(sheet); var land = getAllRows('Categories').find(function (c) { return c.name === 'Land'; }); setCellByRow_(sheet, h, findRowIndexById(sheet, h, land.id), 'hidden', 'yes'); })()");
+  rt.run("ROWS_MEMO_ = null; addLandCategoryToConstruction_();");
+  assert.equal(rt.rows("Categories").filter((c) => c.name === "Land").length, 1);
+  assert.equal(rt.rows("Categories").find((c) => c.name === "Land").hidden, "yes");
+  const other = friendCopy("setting");
+  other.api("saveCompanySetup", { sector: "other", name: "Tienda" });
+  other.run("addLandCategoryToConstruction_()");
+  assert.ok(!other.rows("Categories").some((c) => c.name === "Land"), "only construction companies");
 });
