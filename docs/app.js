@@ -16907,6 +16907,7 @@ function showWelcomeStep_(step) {
   welcomeEl_("welcome-company").hidden = step !== 2 || !company;
   welcomeEl_("welcome-accounts").hidden = step !== 3;
   welcomeEl_("welcome-platforms").hidden = step !== 4;
+  welcomeEl_("welcome-saving").hidden = true;
   welcomeEl_("welcome-overlay").scrollTop = 0;
   if (step === 3) { welcome_.bankOpen = null; welcome_.form = null; renderWelcomeAccounts_(); }
   else if (step === 4) renderWelcomePlatforms_();
@@ -17443,6 +17444,7 @@ function welcomeSteps_() { return (perfShareState_().asked && !perfIsOwnerCopy_(
 async function offerTour_(reloadAfter) {
   const yes = await askConfirmApp_(tr("welcome.tourAsk"), tr("welcome.tourYes"), { plain: true, cancel: tr("welcome.tourSkip") });
   if (yes) { openTour_(reloadAfter); return; }
+  welcomeEl_("welcome-saving").hidden = true;
   welcomeEl_("welcome-overlay").hidden = true;
   if (reloadAfter) window.location.reload();
 }
@@ -17469,6 +17471,11 @@ async function finishWelcome_() {
     toTourPreview();   // the Bank emails sheet is a "Getting started" step on Home now, not a sheet after the welcome
     return;
   }
+  // While the answers are saved, the screen shows only "Setting up your app…" with a spinner, no buttons (owner, 2026-11-25: a
+  // blank page with Back and a pale "Saving…" looked broken). A failure brings the step back with its error and buttons.
+  ["welcome-questions", "welcome-fits", "welcome-company", "welcome-accounts", "welcome-platforms"].forEach((id) => { welcomeEl_(id).hidden = true; });
+  welcomeEl_("welcome-saving").hidden = false;
+  welcomeEl_("welcome-overlay").scrollTop = 0;
   try {
     if (welcome_.accounts.length) {
       await callApi("saveOnboardingAccounts", { batch: welcome_.batch, lang: welcome_.lang, links: welcome_.links,
@@ -17487,6 +17494,7 @@ async function finishWelcome_() {
     }
     await callApi("saveOnboarding", { language: welcome_.lang, dateOrder: welcome_.order, homeCurrency: welcome_.home, currencies: welcome_.currencies });
   } catch (err) {
+    showWelcomeStep_(4);
     errEl.textContent = tr("wa.error");
     btn.disabled = false; btn.textContent = tr("welcome.next");
     return;
@@ -17541,11 +17549,15 @@ function tourCards_(part) {
 // the dots stay fixed at the bottom (tap one to jump; press and hold them and slide your finger along them to scrub through the cards),
 // the last card has the Done button, and only the card on screen plays its animation.
 function openTour_(reloadAfter, part) {
+  // The tour's pictures copy the app's own screens. A language changed in the welcome is applied by the reload after the tour, so
+  // the screens still speak the old one: re-word them first (owner, 2026-11-25: a Spanish tour showed the More rows in English).
+  if (welcome_ && welcome_.lang !== welcome_.appLang) { I18n.applyStatic(); try { applyBusinessVisibility_(); } catch (e) { /* the More rows keep their words */ } }
   tour_ = { i: 0, part: part === "pro" ? "pro" : "basic", cards: tourCards_(part), reloadAfter: !!reloadAfter, slides: [], holding: false };
   welcomeEl_("welcome-overlay").hidden = false;
   welcomeEl_("welcome-overlay").classList.add("tour-mode");
   welcomeEl_("welcome-questions").hidden = true;
   welcomeEl_("welcome-tour").hidden = false;
+  welcomeEl_("welcome-saving").hidden = true;
   renderTour_();
 }
 function buildTourSlide_(key, n, total) {
@@ -17560,11 +17572,18 @@ function buildTourSlide_(key, n, total) {
   const stage = add("div", "ts-stage");
   stage.hidden = true; stage.setAttribute("role", "img"); stage.setAttribute("aria-hidden", "true");
   if (n === total - 1) {
-    const done = add("button", "primary tour-done-btn", tr(tour_.part === "pro" ? "tour.doneShort" : "tour.done"));
+    // The last card's buttons stay pinned to the bottom of the screen, so "Start using the app" shows as soon as the card opens
+    // (owner, 2026-11-25: it sat below the picture, cut off at the bottom).
+    const end = add("div", "tour-end");
+    const done = document.createElement("button");
+    done.className = "primary tour-done-btn"; done.textContent = tr(tour_.part === "pro" ? "tour.doneShort" : "tour.done");
+    end.appendChild(done);
     done.type = "button";
     done.addEventListener("click", closeTour_);
     if (tour_.part !== "pro") {   // the basics end with a way into the advanced features
-      const pro = add("button", "tour-pro-btn", tr("tour.openPro"));
+      const pro = document.createElement("button");
+      pro.className = "tour-pro-btn"; pro.textContent = tr("tour.openPro");
+      end.appendChild(pro);
       pro.type = "button";
       pro.addEventListener("click", () => openTourPart_("pro"));
     }
