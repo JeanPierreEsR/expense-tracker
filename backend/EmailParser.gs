@@ -29,9 +29,11 @@ function isOwnAccount_(name) {
   return isOwnFullName_(name);
 }
 
+// One decimal counts too: Diners prints "Monto: $ 85.5" for US$ 85.50, and the old two-decimals-or-none pattern read it as 85 (found
+// on the owner's real e-mail, 2026-11-26).
 function extractAmount_(text) {
   if (!text) return null;
-  var m = text.match(/(S\/\.?|US\$|\$)\s*([\d,]+\.\d{2}|[\d,]+)/);
+  var m = text.match(/(S\/\.?|US\$|\$)\s*([\d,]+(?:\.\d{1,2})?)/);
   if (!m) return null;
   var isUsd = m[1].indexOf('$') !== -1;
   return {
@@ -357,7 +359,7 @@ var EMAIL_RULES = [
     label: 'Recibo de Apple',
     match: function (subject) { return /recibo de apple|receipt from apple/i.test(subject); },
     extract: function (subject, body) {
-      var totalMatch = body.match(/[\u2022*Xx]{2,}\s*\d{4}\s*\n+\s*((?:S\/\.?|US\$|\$)\s*[\d,]+(?:\.\d{2})?)/);
+      var totalMatch = body.match(/[\u2022*Xx]{2,}\s*\d{4}\s*\n+\s*((?:S\/\.?|US\$|\$)\s*[\d,]+(?:\.\d{1,2})?)/);
       var amt = extractAmount_(totalMatch ? totalMatch[1] : null);
       if (!amt) return null;
       // Item name = the line right after the Apple-account email line.
@@ -519,7 +521,12 @@ var EMAIL_RULES = [
     match: function (subject, body) {
       return /realizaste un consumo/i.test(subject) && /Comercio\s*:?\s*\*?\s*\r?\n?\s*Diners Club\s*(?:[\r\n]|Monto)/i.test(body);
     },
-    skip: true
+    skip: true,
+    // Still never an entry, but it is the only e-mail that says which account paid the Diners bill (DinersPaidFrom.gs, 2026-11-26).
+    dinersPaidFrom: function (subject, body) {
+      var amt = extractAmount_(afterLabel_(body, 'Monto') || body);
+      return amt ? { amount: amt.amount, currency: amt.currency, last4: lastFourAfter_(body, 'Tarjeta') } : null;
+    }
   },
   {
     bank: 'Interbank', sender: 'servicioalcliente@netinterbank.com.pe',
@@ -1070,6 +1077,10 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   var rule = read.rule;
 
   if (!rule) logUnreadEmail_(sender, subject, 'no_rule', dateStr, message);   // ManualGaps.gs; a rule with skip:true is a deliberate ignore, not logged
+  if (rule && rule.skip && rule.dinersPaidFrom && UNREAD_LOGGING_) {
+    try { dinersPaidFromBankEmail_(rule, rule.dinersPaidFrom(subject, body), createdAt, banks, paymentMethods); }
+    catch (err) { console.error('dinersPaidFromBankEmail_: ' + err); }
+  }
   if (!rule || rule.skip) { results.skipped++; return; }
   if (ONLY_PACK_IDS_ && ONLY_PACK_IDS_.indexOf(rule.packId) === -1) { results.skipped++; return; }
 
@@ -1227,6 +1238,11 @@ function processOneMessage_(message, sender, results, existingExternalIds, banks
   if (rule.cardIsDestination && paymentMethod) {
     entry.to_payment_method_id = paymentMethod.id;
     entry.payment_method_id = '';
+  }
+  // A Diners bill payment: the paying bank's own e-mail for it may already have come and said which account paid (DinersPaidFrom.gs).
+  if (rule.cardIsDestination && rule.bank === 'Diners' && !entry.payment_method_id) {
+    var dinersFrom = takeDinersPaidFrom_(fields, createdAt, paymentMethods);
+    if (dinersFrom) entry.payment_method_id = dinersFrom.id;
   }
 
   if (fields.exchangeLeg) { ensureEntriesExchangeColumn_(); entry.exchange = '1'; }

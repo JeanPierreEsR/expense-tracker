@@ -2055,6 +2055,7 @@ function showDetailForm(category) {
   togglePaymentMethodVisibilityBase_();
   document.getElementById("paid-by-label").hidden = selectedType === "transfer";
   document.getElementById("paid_by").hidden = selectedType === "transfer";
+  syncRefundPayer_();
   updateRepaymentUi_();
 
   const amountInput = document.getElementById("amount");
@@ -2097,7 +2098,10 @@ function incomeHasBusinessLink_() {
 function syncIncomeWaitingField_() {
   const field = document.getElementById("income-waiting-field");
   const box = document.getElementById("income-waiting-toggle");
-  const allowed = selectedType === "income" && !!(meta && meta.capabilities && meta.capabilities.incomeWaiting) && !confirmingPendingId && editingIncomeWaiting_ !== "paid" && !incomeHasBusinessLink_();
+  // In Refunds it means "a refund on its way" (a note on the purchase, saveRefundFromEntryForm_), so only on a new one, where the purchase
+  // is chosen; a saved refund never becomes an income someone owes (owner, 2026-11-26).
+  const refundNo = refundIncomeNow_() && !editingIncomeWaiting_ && (!!editingEntryId || !refundsOn_() || !!payingRecurringId_);
+  const allowed = selectedType === "income" && !!(meta && meta.capabilities && meta.capabilities.incomeWaiting) && !confirmingPendingId && editingIncomeWaiting_ !== "paid" && !incomeHasBusinessLink_() && !refundNo;
   field.hidden = !allowed;
   if (!allowed) box.checked = false;
   document.getElementById("income-waiting-details").hidden = !box.checked;
@@ -2455,6 +2459,7 @@ function togglePaymentMethodVisibilityBase_() {
   document.getElementById("paid-by-label").hidden = isTransfer;
   document.getElementById("paid_by").hidden = isTransfer;
   if (isTransfer) document.getElementById("paid_by").value = "me";
+  syncRefundPayer_();
   document.getElementById("investment-direction-field").hidden = !isInvestment;
   populateToPaymentMethodOptions();
 
@@ -4145,7 +4150,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const categoryId = isRepayment ? "" : getCategoryId();
     const description = document.getElementById("description").value.trim();
     const paidByRaw = document.getElementById("paid_by").value;
-    const paidBy = paidByRaw === "__add_payor__" || paidByRaw === "__add__" ? "" : paidByRaw;
+    const paidBy = paidByRaw === "__add_payor__" || paidByRaw === "__add__" || (selectedType === "income" && !editingEntryId && refundHidesPayer_()) ? "" : paidByRaw;
     let paymentMethodId = document.getElementById("payment_method").value;
     // Same condition togglePaymentMethodVisibility() uses to show the
     // field — income always carries a payment method (which account
@@ -4173,6 +4178,9 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     const contractError = contractPayError_(amount);   // a construction contract's valuation must add up (Contracts.gs)
     if (contractError) throw new Error(contractError);
+    // A purchase can't go below what already came back (the server refuses too; checked here so the window stays open, owner 2026-11-26).
+    const backAlready = editingRefundEntry_ && editingRefundEntry_.id === editingEntryId && !editingRefundEntry_.refund_of && selectedType === "expense" ? Number(editingRefundEntry_.refunded || 0) : 0;
+    if (backAlready > 0.004 && amount < backAlready - 0.004) throw new Error(tr("refund.belowRefundedPhone", { amount: formatAmount(backAlready, editingRefundEntry_.currency) }));
     const isInvestmentEntry = selectedType === "investment";
     // The select (not a tile) is showing for income/expense = the category was left open on purpose.
     const categoryMayBeBlank = ICON_PICKER_TYPES.includes(selectedType) && !document.getElementById("category-select-field").hidden;
@@ -4215,6 +4223,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     const autoAside = businessAutoPick_ && (waitingOn || (!editingEntryId && !confirmingPendingId && date > todayLocalISO()));
     const businessLink = autoAside ? { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "" } : businessLinkFields_();   // {} unless the Business pack is on and this is an expense or income
     if (Number(businessLink.igv_amount) >= amount) throw new Error(tr("business.errIgv"));
+    if (waitingOn && refundHidesPayer_()) throw new Error(tr("refund.waitingPickPurchase"));   // a refund on its way waits on its purchase
     if (waitingOn && !paidBy) throw new Error(tr("income.waitingNeedsPerson"));
     if (waitingOn && (businessLink.project_id || businessLink.company_id)) throw new Error(tr("income.waitingNoBusiness"));
     const waitingFields = selectedType === "income" && !document.getElementById("income-waiting-field").hidden ? { income_waiting: waitingOn, due_date: waitingOn ? document.getElementById("income-waiting-due").value : "" } : {};
@@ -7134,6 +7143,37 @@ function updateRefundOfField_() {
   const show = refundsOn_() && !editingEntryId && !confirmingPendingId && !payingRecurringId_ && selectedType === "income" && isRefundsCategory_(cat);
   field.hidden = !show;
   if (!show && refundOfPick_) setRefundOfPick_(null);
+  // Picking or leaving Refunds changes whether "Not received yet" and the payer apply.
+  syncIncomeWaitingField_();
+  if (selectedType === "income") document.getElementById("payment-method-field").hidden = incomeWaitingOn_() || editingIncomeWaiting_ === "paid";
+  syncRefundPayer_();
+}
+// An income in the category Refunds (an old one already waiting on a person keeps its person: it is a debt).
+function refundIncomeNow_() {
+  const cat = selectedCategoryId || document.getElementById("category").value;
+  return selectedType === "income" && isRefundsCategory_(cat);
+}
+// A refund has no payer (owner, 2026-11-26): the money comes back from the shop or the bank. "Received from" is hidden on an income in
+// Refunds, and "Paid by" on a saved refund (a same-month one is a minus expense: a friend there would hide its account). Hidden, not
+// cleared: leaving Refunds brings the pick back, and a saved refund keeps whatever it had.
+function refundHidesPayer_() {
+  const e = editingRefundEntry_;
+  if (e && e.refund_of && editingEntryId === e.id && !repaymentActive_()) return selectedType !== "transfer";
+  return refundIncomeNow_() && !editingIncomeWaiting_;
+}
+function syncRefundPayer_() {
+  const select = document.getElementById("paid_by"), label = document.getElementById("paid-by-label");
+  if (refundHidesPayer_()) {
+    select.dataset.refundHidden = "1";
+    label.hidden = true; select.hidden = true;
+    document.getElementById("paid-by-info").hidden = true;
+    document.getElementById("paid-by-friend-hint").hidden = true;
+  } else if (select.dataset.refundHidden) {
+    delete select.dataset.refundHidden;
+    if (selectedType === "transfer" || repaymentActive_()) return;   // their own rules keep it hidden
+    label.hidden = false; select.hidden = false;
+    document.getElementById("paid-by-info").hidden = selectedType === "income";
+  }
 }
 function setRefundOfPick_(e) {
   refundOfPick_ = e;
@@ -7191,6 +7231,16 @@ async function saveRefundFromEntryForm_() {
   const left = refundR2_(Number(p.amount) - Number(p.refunded || 0));
   if (!(amount > 0)) { errorEl.textContent = tr("error.validAmount"); return true; }
   if (amount > left + 0.004) { errorEl.textContent = tr("refund.tooMuchPhone", { max: formatAmount(left, p.currency) }); return true; }
+  if (incomeWaitingOn_()) {
+    // Not received yet: the same note the Refund window's "Not received yet" leaves on the purchase ("Refunds on the way" on Home).
+    const payload = { entry_id: p.id, amount, waiting: true, expected_by: document.getElementById("income-waiting-due").value || "" };
+    setRefundOfPick_(null);
+    resetEntryFormFields_();
+    if (newEntrySheetOpen_) closeNewEntrySheet_();
+    clearEntryDraft_();
+    saveBehindScreen_(() => callApi("recordRefund", payload), refreshAfterRefund_, { done: "refund.savedWaiting" });
+    return true;
+  }
   if (!date) { errorEl.textContent = tr("refund.dateNeeded"); return true; }
   if (date < String(p.date).slice(0, 10)) { errorEl.textContent = tr("refund.beforePurchasePhone"); return true; }
   if (!pm || pm.startsWith("__")) { errorEl.textContent = tr("refund.pickAccount"); return true; }
