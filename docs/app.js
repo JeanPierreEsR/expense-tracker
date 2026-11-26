@@ -11389,7 +11389,7 @@ function refreshCurrentPeriodScreen() {
 // scroll position. Restoring just un-hides the screen, with no refresh, so
 // anything half-done on it (a statement being reviewed, an unsent export
 // choice) is still there.
-const MORE_SUBSCREENS = ["change-log", "feedback-privacy", "recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-statement", "business-features", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
+const MORE_SUBSCREENS = ["change-log", "feedback-privacy", "recurring", "accounts", "categories", "friends", "trips", "trip-detail", "business", "business-detail", "business-igv", "business-statement", "business-people", "exchange-rates", "perf", "export", "statements", "bank-emails", "tidy", "my-data", "my-profile", "deleted-entries"];
 // ---- The tab bar: the person chooses its tabs (owner, 2026-11-15; More → My profile → My tabs, specs/home-tab.md § My tabs) ----
 // Home is always there (its place can change); More is always there and always last; up to 6 tabs in all. A main screen taken out of the bar
 // is a row at the top of More; Trips, Programmed items and My data, put in the bar, leave More and their screens lose the Back to More.
@@ -17954,6 +17954,8 @@ async function showMyProfileScreen() {
   ownerNamesEl_("owner-names-input").value = "";
   fitsSel_ = String((meta && meta.settings && meta.settings.profile) || "").split(",").filter((a) => FITS_ANSWERS_.includes(a));
   fitsEl_("fits-msg").textContent = "";
+  document.getElementById("bf-error").textContent = "";
+  document.getElementById("bf-toggle").checked = businessOn();
   ownerNamesOpenRow_(false);
   fitsOpen_(false);   // closed every time the screen opens: it is for a one-off choice, and it is long
   datesOpenRow_(false);   // closed too, like the two rows above it (owner, 2026-11-12)
@@ -23407,11 +23409,12 @@ function applyBusinessVisibility_(opts) {
   document.getElementById("bank-lender").setAttribute("data-i18n-placeholder", bankWordKey_("bank.lenderPlaceholder"));
   document.getElementById("bank-lender").placeholder = tr(bankWordKey_("bank.lenderPlaceholder"));
   const on = businessOn();
-  document.getElementById("more-business-features-btn").hidden = !businessOffered();
+  // The switch lives in My profile → What fits me (owner, 2026-11-25); a company copy has the pack always on, so no switch there.
+  document.getElementById("bf-block").hidden = !businessOffered() || !!(meta && meta.capabilities && meta.capabilities.companyCopy);
+  document.getElementById("bf-toggle").checked = on;
   document.getElementById("more-business-btn").hidden = !on;
   document.getElementById("more-changelog-btn").hidden = !companyCopyOn_();   // piece 8: the change log
   document.getElementById("business-constancias-btn").hidden = !companyCopyOn_();   // piece 9: every yearly statement
-  document.getElementById("more-business-features-state").textContent = tr(on ? "business.state.on" : "business.state.off");
   if (!(opts && opts.noCard)) refreshBusinessHomeCard_();
 }
 
@@ -23422,13 +23425,7 @@ function showMoreSub_(name) {
   window.scrollTo(0, 0);
 }
 
-// ---- The switch (More → Business features) ----
-
-function showBusinessFeaturesScreen_() {
-  showMoreSub_("business-features");
-  document.getElementById("bf-toggle").checked = businessOn();
-  document.getElementById("bf-error").textContent = "";
-}
+// ---- The switch (More → My profile → What fits me) ----
 
 document.getElementById("bf-toggle").addEventListener("change", async (e) => {
   const box = e.target;
@@ -23452,8 +23449,6 @@ document.getElementById("bf-toggle").addEventListener("change", async (e) => {
     box.disabled = false;
   }
 });
-document.getElementById("more-business-features-btn").addEventListener("click", showBusinessFeaturesScreen_);
-document.getElementById("bf-back-btn").addEventListener("click", () => showScreen("more"));
 
 // ---- Period (shared by the list and the detail screen; in memory only) ----
 

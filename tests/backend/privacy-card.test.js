@@ -34,9 +34,8 @@ test("Feedback & privacy: one row (friends' copies only) opens one screen whose 
   assert.ok(app.match(/const MORE_SUBSCREENS = \[([^\]]*)\]/)[1].includes('"feedback-privacy"'));
 });
 
-test("the one row replaces the old ones inside the friends-only part of More, before Business features", () => {
+test("the one row replaces the old ones inside the friends-only part of More", () => {
   assert.ok(html.indexOf('id="more-perf-btn"') < html.indexOf('id="more-feedback-privacy-btn"'));
-  assert.ok(html.indexOf('id="more-feedback-privacy-btn"') < html.indexOf('id="more-business-features-btn"'));
   assert.ok(html.indexOf('id="more-feedback-privacy-btn"') < html.indexOf('id="more-signout-btn"'));
 });
 

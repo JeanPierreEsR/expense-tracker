@@ -3,7 +3,7 @@
  * See specs/business.md.
  *
  * OPT-IN, OFF BY DEFAULT (owner's rule): everything here is switched on by the Settings row
- * `business_features` = 'yes' (More → Business features, or the welcome question). While it is off nothing in this
+ * `business_features` = 'yes' (More → My profile → What fits me, or the welcome question). While it is off nothing in this
  * file reads or writes a sheet, `getMeta` carries no companies/projects, every action answers with a plain sentence,
  * and the link fields in a payload are ignored. Turning it off later deletes nothing.
  *
@@ -53,11 +53,11 @@ function businessOffered_() {
   return String(getSettingsMap().business_offered || '') === 'yes' || isCompanyCopy_();   // a company copy (CompanyCopy.gs) is always offered
 }
 
-// A company copy has the pack ON from the start, until the person turns it off (business_features = 'no').
+// A company copy has the pack ALWAYS on (owner, 2026-11-25), whatever business_features says.
 function businessOn_() {
   if (!businessOffered_()) return false;
-  var v = String(getSettingsMap().business_features || '');
-  return v === 'yes' || (v === '' && isCompanyCopy_());
+  if (isCompanyCopy_()) return true;
+  return String(getSettingsMap().business_features || '') === 'yes';
 }
 
 // Business actions answer with a plain sentence while the pack is off (like requireFeature_).
@@ -116,13 +116,19 @@ function igvRate_() {
   return isFinite(n) && n > 0 && n < 100 ? n : 18;
 }
 
-// The switch itself (More → Business features, welcome question). Turning it off keeps every row.
+// The switch itself (More → My profile → What fits me, welcome question). Turning it off keeps every row.
+// A company copy cannot turn it off (owner, 2026-11-25): everything there is the company.
 function setBusinessFeatures(payload) {
   var on = !!payload && (payload.on === true || payload.on === 'yes');
   if (on && !businessOffered_()) {   // switching OFF is always allowed; switching ON is refused where the pack is not offered yet
     var notOffered = new Error(tr_('business.notOffered'));
     notOffered.code = 'feature_off';
     throw notOffered;
+  }
+  if (!on && isCompanyCopy_()) {
+    var alwaysOn = new Error(tr_('business.alwaysOnCompany'));
+    alwaysOn.code = 'feature_off';
+    throw alwaysOn;
   }
   setSetting_('business_features', on ? 'yes' : 'no');
   if (on) ensureBusinessSheets_();
