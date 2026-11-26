@@ -1080,7 +1080,7 @@ const ONCE_ACTIONS = new Set([
   // Everything else that creates something (owner, 2026-11-14: a trip saved while the phone was locked was made three times)
   "addTrip", "addBudget", "addPaymentMethod", "savePaymentMethod", "addTag", "addBank", "addPayor", "saveCategory",
   "saveBankLoan", "recordEarlyPayment", "recordInstallment", "recordRecurringPayment", "recordRepaymentEntry", "createStatementAccounts",
-  "convertEntryToPartnerMoney", "changePartnerMoney", "recordDistribution", "changeDistribution", "addPartnerMoney",   // Business 2 piece 7: a partner's money
+  "convertEntryToPartnerMoney", "changePartnerMoney", "recordDistribution", "changeDistribution", "addPartnerMoney", "saveContract", "deleteContract",   // Business 2 piece 7: a partner's money
   // Testers 2.68.2: these were protected on the server only, so a "Try again" made a second sale stage. Kept equal to the server's
   // ONCE_ACTIONS_ by tests/backend/once-actions.test.js.
   "addIgvPayment", "assignEntryAccounts", "closeMonth", "reopenMonth", "sendAccountantPackage", "addProjectUnits", "saveUnitStage", "returnUnitDeposit",
@@ -4171,6 +4171,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
 
     if (!date) throw new Error(tr("error.dateRequired"));
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
+    const contractError = contractPayError_(amount);   // a construction contract's valuation must add up (Contracts.gs)
+    if (contractError) throw new Error(contractError);
     const isInvestmentEntry = selectedType === "investment";
     // The select (not a tile) is showing for income/expense = the category was left open on purpose.
     const categoryMayBeBlank = ICON_PICKER_TYPES.includes(selectedType) && !document.getElementById("category-select-field").hidden;
@@ -7619,6 +7621,7 @@ async function startEditEntry(entry) {
   if (entry.expected_payment_id) setExpectedPick_(entry.expected_payment_id);
   setIgvState_(Number(entry.igv_amount) > 0, entry.igv_amount, true);   // the stored figure is kept exactly until the person changes it
   setDetractionState_(entry);
+  setContractPayState_(entry);
   setVoucherState_(entry);   // piece 10: how it was paid and its receipt
 
   document.getElementById("edit-mode-banner").hidden = false;
@@ -24576,6 +24579,7 @@ async function showBusinessDetail_(kind, id) {
   document.getElementById("business-detail-body").innerHTML = loadingHtml_();
   document.getElementById("business-detail-entries-card").hidden = true;
   document.getElementById("business-units-card").hidden = true;
+  document.getElementById("business-contracts-card").hidden = true;
   await refreshBusinessDetail_();
 }
 
@@ -24589,11 +24593,12 @@ async function refreshBusinessDetail_() {
     const b = businessBounds_();
     const range = { startDate: b.startDate, endDate: b.endDate };
     const unitsWanted = target.kind === "project" && companyCopyOn_();   // piece 11: a company copy's project has units
-    const [detail, entries, debts, units] = await Promise.all([
+    const [detail, entries, debts, units, contracts] = await Promise.all([
       callApi(target.kind === "project" ? "getProjectDetail" : "getCompanyDetail", Object.assign({ id: target.id }, range)),
       callApi("listEntries", Object.assign(target.kind === "project" ? { projectId: target.id } : { companyId: target.id }, range)),
       target.kind === "project" ? callApi("getProjectDebts", { project_id: target.id }) : Promise.resolve([]),
-      unitsWanted ? callApi("listProjectUnits", { project_id: target.id }) : Promise.resolve(null)
+      unitsWanted ? callApi("listProjectUnits", { project_id: target.id }) : Promise.resolve(null),
+      unitsWanted ? callApi("listProjectContracts", { project_id: target.id }).catch(() => null) : Promise.resolve(null)
     ]);
     if (!businessDetail_ || businessDetail_.id !== target.id) return;   // moved on while loading
     detail.debts = debts || [];
@@ -24601,6 +24606,7 @@ async function refreshBusinessDetail_() {
     businessDetailData_ = detail;
     renderBusinessDetail_(detail);
     renderProjectUnits_(target.id, units);
+    renderProjectContracts_(target.id, contracts);
     const shown = applyQueuedEditOverlay_(entries);
     document.getElementById("business-detail-entries-card").hidden = false;
     renderEntriesInto_(document.getElementById("business-detail-entries"), shown, "business.noEntries");
@@ -26268,6 +26274,7 @@ function populateBusinessOptions_() {
   syncExpectedField_();
   syncIgvField_();
   syncDetractionField_();   // a company's income: "With detracción" (Detractions.gs)
+  syncContractPayField_();   // a company's expense on a project with contracts: "Contract payment" (Contracts.gs)
   syncVoucherField_();   // piece 10: how it was paid and its receipt
   syncReceiptField_();
 }
@@ -26392,6 +26399,238 @@ function igvAutoFill_() {
   if (igvTouched_) return;
   const amount = parseFloat(document.getElementById("amount").value);
   document.getElementById("igv-amount").value = amount > 0 ? igvFromGross_(amount).toFixed(2) : "";
+}
+
+// ---- Construction contracts (company copies; backend/Contracts.gs, owner 2026-11-26) ----
+// A project's Contracts card: each subcontractor's contract, what was paid of it, the advance still to take back and the guarantee still
+// to give back. Its payments are ordinary expenses of the project, linked in the "+" form ("Contract payment").
+let contractsData_ = null;    // { project_id, contracts }
+let contractOpen_ = null;     // the contract being edited, or { project_id } for a new one
+function contractMoney_(n, cur) { return formatAmount(Number(n) || 0, cur); }
+function renderProjectContracts_(projectId, data) {
+  const card = document.getElementById("business-contracts-card");
+  contractsData_ = data ? { project_id: projectId, contracts: data.contracts || [] } : null;
+  card.hidden = !data;
+  if (!data) return;
+  rememberContracts_(projectId, contractsData_.contracts);
+  const list = document.getElementById("business-contracts-list");
+  list.innerHTML = "";
+  contractsData_.contracts.forEach((c) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "loans-ov-owed-row unit-row";
+    const name = [c.supplier, c.description].filter(Boolean).join(" · ");
+    const left = c.advance_left > 0.004 || c.retention_left > 0.004
+      ? `<small>${escapeHtml(tr("contract.rowLeft", { adv: contractMoney_(c.advance_left, c.currency), ret: contractMoney_(c.retention_left, c.currency) }))}</small>` : "";
+    row.innerHTML = `<span><span class="unit-name">${escapeHtml(name)}</span>${left}</span>
+      <b>${escapeHtml(contractMoney_(c.paid, c.currency))}<small>${escapeHtml(tr("sales.ofPrice", { price: contractMoney_(c.amount, c.currency) }))}</small></b>`;
+    row.addEventListener("click", () => openContract_(c));
+    list.appendChild(row);
+  });
+  document.getElementById("business-contracts-empty").hidden = contractsData_.contracts.length > 0;
+}
+// The phone's copy of the contracts (the "+" form reads it): this project's list replaces what it had.
+function rememberContracts_(projectId, list) {
+  if (!meta) return;
+  meta.contracts = (meta.contracts || []).filter((c) => c.project_id !== projectId).concat(list || []);
+}
+function contractSuppliers_() {
+  return (meta.friends || []).filter((f) => f.role === "supplier" && !isGroupFriend_(f) && !isHiddenFriend_(f))
+    .sort((a, b) => a.name.localeCompare(b.name, I18n.getLang() === "es" ? "es" : "en", { sensitivity: "base" }));
+}
+function openContract_(c) {
+  contractOpen_ = c && c.id ? c : { project_id: contractsData_ ? contractsData_.project_id : "" };
+  const editing = !!(c && c.id);
+  document.getElementById("contract-title").textContent = tr(editing ? "contract.editTitle" : "contract.addTitle");
+  const sel = document.getElementById("contract-supplier");
+  const people = contractSuppliers_();
+  sel.innerHTML = `<option value="">${escapeHtml(tr("contract.pickSupplier"))}</option>` +
+    people.map((f) => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`).join("") +
+    (editing && c.supplier_id && !people.some((f) => f.id === c.supplier_id) ? `<option value="${escapeHtml(c.supplier_id)}">${escapeHtml(c.supplier || tr("partner.unknownPerson"))}</option>` : "") +
+    `<option value="__new__">${escapeHtml(tr("contract.newSupplier"))}</option>`;
+  sel.value = editing ? c.supplier_id : people.length ? "" : "__new__";
+  const nameBox = document.getElementById("contract-supplier-new");
+  nameBox.value = "";
+  nameBox.hidden = sel.value !== "__new__";
+  document.getElementById("contract-description").value = editing ? c.description : "";
+  document.getElementById("contract-amount").value = editing ? String(c.amount) : "";
+  const cur = document.getElementById("contract-currency");
+  cur.innerHTML = [...new Set([editing ? c.currency : homeCur(), homeCur(), ...getRecentCurrencies()])].slice(0, 5).map((x) => `<option value="${x}">${findCurrency(x).flag} ${x}</option>`).join("");
+  cur.value = editing ? c.currency : homeCur();
+  document.getElementById("contract-advance").value = editing ? String(c.advance_pct || 0) : "";
+  document.getElementById("contract-retention").value = editing ? String(c.retention_pct || 0) : "";
+  document.getElementById("contract-error").textContent = "";
+  const sum = document.getElementById("contract-sum");
+  sum.hidden = !editing;
+  if (editing) sum.textContent = tr("contract.sum", { valued: contractMoney_(c.valued, c.currency), paid: contractMoney_(c.paid, c.currency), left: contractMoney_(c.to_pay, c.currency) });
+  const pays = editing ? (c.payments || []) : [];
+  document.getElementById("contract-payments-box").hidden = !pays.length;
+  document.getElementById("contract-payments").innerHTML = pays.map((p) => `<p class="hint">${escapeHtml(tr("contract.payRow", { date: listDate_(p.date), kind: tr("contract.kind." + p.kind), amount: contractMoney_(p.amount, c.currency) }))}</p>`).join("");
+  document.getElementById("contract-delete").hidden = !editing || pays.length > 0;
+  const backdrop = document.getElementById("contract-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+document.getElementById("business-contracts-add").addEventListener("click", () => openContract_(null));
+document.getElementById("contract-close").addEventListener("click", () => { document.getElementById("contract-modal-backdrop").hidden = true; });
+document.getElementById("contract-supplier").addEventListener("change", (e) => {
+  const box = document.getElementById("contract-supplier-new");
+  box.hidden = e.target.value !== "__new__";
+  if (!box.hidden) box.focus();
+});
+["contract-amount", "contract-advance", "contract-retention", "contract-val-gross", "contract-val-amort", "contract-val-held"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", (e) => { const v = sanitizeAmountInputValue(e.target.value); if (v !== e.target.value) e.target.value = v; });
+});
+document.getElementById("contract-save").addEventListener("click", () => {
+  const err = document.getElementById("contract-error");
+  err.textContent = "";
+  const pick = document.getElementById("contract-supplier").value;
+  const newName = document.getElementById("contract-supplier-new").value.trim();
+  if (!pick || (pick === "__new__" && !newName)) { err.textContent = tr("contract.errSupplier"); return; }
+  const amount = parseFloat(document.getElementById("contract-amount").value.replace(/,/g, ""));
+  if (!(amount > 0)) { err.textContent = tr("error.validAmount"); return; }
+  const pct = (id) => { const raw = document.getElementById(id).value.trim(); return raw === "" ? 0 : parseFloat(raw.replace(/,/g, ".")); };
+  const adv = pct("contract-advance"), ret = pct("contract-retention");
+  if (!(adv >= 0 && adv < 100) || !(ret >= 0 && ret < 100)) { err.textContent = tr("contract.errPct"); return; }
+  const c = contractOpen_ || {};
+  const body = Object.assign({ project_id: c.project_id, description: document.getElementById("contract-description").value.trim(), amount,
+    currency: document.getElementById("contract-currency").value, advance_pct: adv, retention_pct: ret },
+  pick === "__new__" ? { supplier_name: newName } : { supplier_id: pick }, c.id ? { id: c.id } : {});
+  document.getElementById("contract-modal-backdrop").hidden = true;
+  saveBehindScreen_(() => callApi("saveContract", body), () => {
+    if (body.supplier_name) loadMeta().catch(() => {});   // a new subcontractor joins the people list
+    return refreshBusinessDetail_().catch(() => {});
+  });
+});
+document.getElementById("contract-delete").addEventListener("click", async () => {
+  const c = contractOpen_;
+  if (!c || !c.id) return;
+  if (!await askConfirmApp_(tr("contract.askDelete"), tr("confirmBtn.delete"))) return;
+  document.getElementById("contract-modal-backdrop").hidden = true;
+  saveBehindScreen_(() => callApi("deleteContract", { id: c.id }), () => refreshBusinessDetail_().catch(() => {}));
+});
+
+// "Contract payment" in the "+" form: an expense on a project that has contracts. A valuation fills the amount with its net
+// (valued − advance taken back − guarantee kept), proposing the advance share (up to what is still to take back) and the guarantee %.
+let contractPayLink_ = null;   // an entry being edited: its link { contract_id, kind, gross, advance_amortized, retention_held }, or null
+let contractPayFresh_ = "";    // the project whose contracts were last asked for (asked again for every new form)
+let contractPartsTouched_ = false;   // the person typed the advance taken back or the guarantee kept themselves
+function contractsOfPick_() {
+  const project = businessProjectOfPick_();
+  return project ? (meta.contracts || []).filter((c) => c.project_id === project.id) : [];
+}
+function syncContractPayField_() {
+  const field = document.getElementById("contract-pay-field");
+  if (!field || !meta) return;
+  const project = businessProjectOfPick_();
+  const list = contractsOfPick_();
+  const show = companyCopyOn_() && selectedType === "expense" && !!project && list.length > 0;
+  field.hidden = !show;
+  if (project && companyCopyOn_() && selectedType === "expense" && contractPayFresh_ !== project.id) {   // the figures may have moved since the app opened
+    contractPayFresh_ = project.id;
+    callApi("listProjectContracts", { project_id: project.id }).then((r) => {
+      rememberContracts_(project.id, r.contracts);
+      if (!list.length && r.contracts.length) syncContractPayField_();
+      if (contractPayKind_() === "valuation" && !contractPartsTouched_ && contractNum_("contract-val-gross")) onContractGross_();   // the fresh figures change the proposal
+      renderContractPayHint_();
+    }).catch(() => {});
+  }
+  if (!show) return;
+  const sel = document.getElementById("contract-pay-pick");
+  const keep = sel.value || (contractPayLink_ && contractPayLink_.contract_id) || "";
+  sel.innerHTML = `<option value="">${escapeHtml(tr("contract.payNone"))}</option>` +
+    list.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml([c.supplier, c.description].filter(Boolean).join(" · "))}</option>`).join("");
+  sel.value = list.some((c) => c.id === keep) ? keep : "";
+  document.getElementById("contract-pay-detail").hidden = !sel.value;
+  document.getElementById("contract-val-box").hidden = contractPayKind_() !== "valuation";
+  renderContractPayHint_();
+}
+function contractPayKind_() { const r = document.querySelector('input[name="contract-pay-kind"]:checked'); return r ? r.value : ""; }
+function contractPicked_() { return (meta.contracts || []).find((c) => c.id === document.getElementById("contract-pay-pick").value) || null; }
+const contractNum_ = (id) => parseFloat(String(document.getElementById(id).value).replace(/,/g, "")) || 0;
+function renderContractPayHint_() {
+  const hint = document.getElementById("contract-pay-hint");
+  const c = contractPicked_();
+  if (!hint || !c) return;
+  const kind = contractPayKind_();
+  if (kind === "valuation") hint.textContent = tr("contract.netLine", { net: contractMoney_(Math.max(0, contractNum_("contract-val-gross") - contractNum_("contract-val-amort") - contractNum_("contract-val-held")), c.currency) });
+  else if (kind === "advance") hint.textContent = tr("contract.advanceLine", { due: contractMoney_(c.amount * c.advance_pct / 100, c.currency), paid: contractMoney_(c.advance_paid, c.currency) });
+  else if (kind === "retention_return") hint.textContent = tr("contract.returnLine", { left: contractMoney_(c.retention_left, c.currency) });
+  else hint.textContent = "";
+}
+// What the boxes propose (the amount box is only filled while empty or still holding a proposal).
+let contractAmountProposed_ = "";
+function proposeContractAmount_(n) {
+  const box = document.getElementById("amount");
+  if (box.value.trim() && box.value !== contractAmountProposed_) return;
+  box.value = n > 0 ? n.toFixed(2) : "";
+  contractAmountProposed_ = box.value;
+  box.dispatchEvent(new Event("input"));
+  contractAmountProposed_ = box.value;
+}
+function onContractKindChange_() {
+  const c = contractPicked_();
+  const kind = contractPayKind_();
+  document.getElementById("contract-val-box").hidden = kind !== "valuation";
+  if (c && kind === "advance") proposeContractAmount_(Math.max(0, Math.round((c.amount * c.advance_pct / 100 - c.advance_paid) * 100) / 100));
+  if (c && kind === "retention_return") proposeContractAmount_(c.retention_left);
+  if (c && kind === "valuation") onContractGross_();
+  renderContractPayHint_();
+}
+function onContractGross_() {
+  const c = contractPicked_();
+  if (!c) return;
+  const gross = contractNum_("contract-val-gross");
+  const r2 = (n) => Math.round(n * 100) / 100;
+  document.getElementById("contract-val-amort").value = gross ? r2(Math.min(gross * c.advance_pct / 100, Math.max(0, c.advance_left))).toFixed(2) : "";
+  document.getElementById("contract-val-held").value = gross ? r2(gross * c.retention_pct / 100).toFixed(2) : "";
+  onContractParts_();
+}
+function onContractParts_() {
+  const net = Math.round((contractNum_("contract-val-gross") - contractNum_("contract-val-amort") - contractNum_("contract-val-held")) * 100) / 100;
+  proposeContractAmount_(Math.max(0, net));
+  renderContractPayHint_();
+}
+document.getElementById("contract-pay-pick").addEventListener("change", () => { document.getElementById("contract-pay-detail").hidden = !document.getElementById("contract-pay-pick").value; onContractKindChange_(); });
+document.querySelectorAll('input[name="contract-pay-kind"]').forEach((r) => r.addEventListener("change", onContractKindChange_));
+document.getElementById("contract-val-gross").addEventListener("input", () => { contractPartsTouched_ = false; onContractGross_(); });
+document.getElementById("contract-val-amort").addEventListener("input", () => { contractPartsTouched_ = true; onContractParts_(); });
+document.getElementById("contract-val-held").addEventListener("input", () => { contractPartsTouched_ = true; onContractParts_(); });
+function setContractPayState_(entry) {
+  contractAmountProposed_ = "";
+  contractPayFresh_ = "";
+  contractPartsTouched_ = false;
+  let link = null;
+  if (entry && entry.id) (meta.contracts || []).forEach((c) => (c.payments || []).forEach((p) => { if (p.entry_id === entry.id) link = Object.assign({ contract_id: c.id }, p); }));
+  contractPayLink_ = link;
+  document.getElementById("contract-pay-pick").value = "";
+  document.querySelectorAll('input[name="contract-pay-kind"]').forEach((r) => { r.checked = !!link && r.value === link.kind; });
+  ["contract-val-gross", "contract-val-amort", "contract-val-held"].forEach((id) => { document.getElementById(id).value = ""; });
+  if (link && link.kind === "valuation") {
+    document.getElementById("contract-val-gross").value = Number(link.gross).toFixed(2);
+    document.getElementById("contract-val-amort").value = Number(link.advance_amortized).toFixed(2);
+    document.getElementById("contract-val-held").value = Number(link.retention_held).toFixed(2);
+  }
+  syncContractPayField_();
+}
+// What the form sends: the link, null (taken off an expense that had one), or nothing at all.
+function contractPayFieldToSend_() {
+  if (!companyCopyOn_() || selectedType !== "expense") return {};
+  const field = document.getElementById("contract-pay-field");
+  const id = field.hidden ? "" : document.getElementById("contract-pay-pick").value;
+  if (!id) return contractPayLink_ ? { contract_payment: null } : {};
+  const kind = contractPayKind_();
+  const out = { contract_id: id, kind };
+  if (kind === "valuation") Object.assign(out, { gross: contractNum_("contract-val-gross"), advance_amortized: contractNum_("contract-val-amort"), retention_held: contractNum_("contract-val-held") });
+  return { contract_payment: out };
+}
+// Checked before the form closes (the server checks the same).
+function contractPayError_(amount) {
+  const sent = contractPayFieldToSend_().contract_payment;
+  if (!sent) return "";
+  if (!sent.kind) return tr("contract.errKind");
+  if (sent.kind === "valuation" && Math.abs(Math.round((sent.gross - sent.advance_amortized - sent.retention_held) * 100) / 100 - amount) > 0.01) return tr("contract.errNet");
+  return "";
 }
 
 // ---- Detracción (company copies; backend/Detractions.gs, owner 2026-11-26) ----
@@ -26528,6 +26767,7 @@ document.getElementById("amount").addEventListener("input", () => {
   renderIgvHint_();
 });
 document.getElementById("entry-business").addEventListener("change", syncIgvField_);
+document.getElementById("entry-business").addEventListener("change", () => { contractPayLink_ = null; syncContractPayField_(); });
 
 // The project a Repayment / New loan on the Entries tab belongs to ("" = none); only a project counts there, never a company alone.
 function businessPickProjectId_() {
@@ -26720,6 +26960,7 @@ function setBusinessPick_(value) {
   syncExpectedField_();
   setIgvState_(false);                                // ... and IGV with setIgvState_
   setDetractionState_(null);                          // ... and the detracción (a new income: its default)
+  setContractPayState_(null);                         // ... and a contract payment
   setVoucherState_(null);                             // ... and how it was paid / its receipt (piece 10)
   syncProjectSplitButton_();                          // "Split between projects" follows the pick (Business 2, piece 6)
 }
@@ -26730,10 +26971,10 @@ function businessLinkFields_() {
   const value = document.getElementById("entry-business").value;
   if (value.startsWith("p:")) {
     const project = (meta.projects || []).find((p) => p.id === value.slice(2));
-    return { project_id: value.slice(2), company_id: project ? project.company_id : "", expected_payment_id: selectedType === "income" ? expectedPick_ : "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_(), ...detractionFieldToSend_() };
+    return { project_id: value.slice(2), company_id: project ? project.company_id : "", expected_payment_id: selectedType === "income" ? expectedPick_ : "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_(), ...detractionFieldToSend_(), ...contractPayFieldToSend_() };
   }
-  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2), expected_payment_id: "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_(), ...detractionFieldToSend_() };
-  return { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "", ...voucherFieldsToSend_(), ...detractionFieldToSend_() };
+  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2), expected_payment_id: "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_(), ...detractionFieldToSend_(), ...contractPayFieldToSend_() };
+  return { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "", ...voucherFieldsToSend_(), ...detractionFieldToSend_(), ...contractPayFieldToSend_() };
 }
 
 // The label on an entry row: "🏢 Studio Alfa › Casa Lima", or just the company. Skipped while the pack is off.

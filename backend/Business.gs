@@ -34,7 +34,11 @@ var BUSINESS_TABLES_ = {
   'Contributions': ['id', 'entry_id', 'partner_id', 'company_id', 'project_id', 'kind', 'note'],
   'Distributions': ['id', 'entry_id', 'partner_id', 'company_id', 'project_id', 'gross', 'withholding', 'note'],
   // Business 2 piece 11 (Sales.gs, company copies): a tag a project takes as one of its units, with its buyer, price and free status.
-  'Units': ['id', 'tag_id', 'project_id', 'buyer_id', 'price', 'currency', 'status', 'note']
+  'Units': ['id', 'tag_id', 'project_id', 'buyer_id', 'price', 'currency', 'status', 'note'],
+  // Construction contracts (Contracts.gs, company copies, 2026-11-26): a project's contract with a subcontractor, and its payments (each an
+  // expense, linked with its kind; a valuation keeps its gross, the advance it took back and the guarantee kept).
+  'Contracts': ['id', 'project_id', 'company_id', 'supplier_id', 'description', 'amount', 'currency', 'advance_pct', 'retention_pct', 'note'],
+  'Contract Payments': ['id', 'contract_id', 'entry_id', 'kind', 'gross', 'advance_amortized', 'retention_held']
 };
 
 var PROJECT_STATUSES_ = { active: true, closed: true };

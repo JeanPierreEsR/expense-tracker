@@ -225,6 +225,19 @@ function companyOverview_(startDate, endDate) {
     lines.forEach(function (l) { totals[l.currency] = round2_((totals[l.currency] || 0) + l.amount); });
     owed.push({ friend_id: f.friend_id, name: f.friend_id === sunatId ? tr_('coOv.sunatOwed') : f.friend_name, role: f.role, lines: lines });
   });
+  // Guarantee funds kept from subcontractors are their money (Contracts.gs, owner's plan 2026-11-26): what is still to give back, now.
+  var held = {};
+  contractsForApp_().forEach(function (c) {
+    if (!(c.retention_left > 0.004)) return;
+    var k = c.supplier_id;
+    held[k] = held[k] || { friend_id: k, name: tr_('contract.owedName', { name: c.supplier || tr_('label.unknownFriend') }), role: 'supplier', lines: {} };
+    held[k].lines[c.currency] = round2_((held[k].lines[c.currency] || 0) + c.retention_left);
+  });
+  Object.keys(held).forEach(function (k) {
+    var lines = Object.keys(held[k].lines).map(function (cur) { return { currency: cur, amount: held[k].lines[cur] }; });
+    lines.forEach(function (l) { totals[l.currency] = round2_((totals[l.currency] || 0) + l.amount); });
+    owed.push({ friend_id: k, name: held[k].name, role: 'supplier', lines: lines });
+  });
   owed.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
   var home = homeCurrency_();
   var owedTotals = Object.keys(totals).sort(function (a, b) { return a === home ? -1 : (b === home ? 1 : (a < b ? -1 : 1)); })
