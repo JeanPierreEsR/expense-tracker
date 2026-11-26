@@ -164,7 +164,8 @@ function previewAccountMove(payload) {
     movedLinks: r.rails.moved.map(railLinkName_).filter(function (n, i, a) { return a.indexOf(n) === i; }),   // "Yape" or "Plin" (Yape soles + dollars = one Yape)
     droppedLinks: r.rails.dropped.map(railLinkName_).filter(function (n, i, a) { return a.indexOf(n) === i; }),
     needsBank: accountMoveNeedsBank_(p.from),
-    balanceChoices: r.balanceChoices
+    balanceChoices: r.balanceChoices,
+    merge: accountMergePreview_(p)   // "Join them into one account with both numbers" (AccountNumbers.gs); null = not offered
   };
 }
 
@@ -281,7 +282,7 @@ function pmsWithOldLast4_(pms, digits, src) {
 function pmsWithLast4_(pms, digits, src) {
   var k = covKey_(digits);
   if (!/^\d{4}$/.test(k)) return [];
-  var now = pms.filter(function (pm) { return covKey_(pm.last_4) === k; });
+  var now = pms.filter(function (pm) { return pmHasLast4_(pm, k); });   // any of the account's own numbers (AccountNumbers.gs)
   if (now.length) return now;
   return pmsWithOldLast4_(pms, k, src);
 }
@@ -362,6 +363,8 @@ function moveAccountHistory(payload) {
       var b = getAllRows('Banks').find(function (x) { return String(x.id) === String(payload.old_bank_id); });
       if (b) oldBank = String(b.id);
     }
+    var mergePlan = payload.merge ? accountMergePlan_(p.from, p.to) : null;   // joining two accounts into one (AccountNumbers.gs)
+    if (payload.merge && !mergePlan) throw new Error(tr_('err.mergeNot'));
     var undo = { from: Object.assign({}, p.from), toId: toId, entries: {}, sheets: {}, balancesMoved: [], balancesDropped: [],
       rails: { moved: r.rails.moved, dropped: r.rails.dropped }, settingsBefore: {}, addedDigits: [], forwardsBefore: {} };
     // 1. Transfers between the two: deleted first (safety copy in "Recently deleted"), so they are not moved onto a card-to-itself.
@@ -426,7 +429,8 @@ function moveAccountHistory(payload) {
       undo.addedDigits.push(it);
     };
     pmOldLast4Items_(p.from).forEach(add);   // a chain of moves: each keeps its own bank and date
-    add({ digits: covKey_(p.from.last_4), bank: oldBank, date: today });
+    // A join keeps the old numbers as the account's OWN (no bank limit, no 6 months): they are written in step 7b.
+    if (!mergePlan) pmLast4List_(p.from).forEach(function (d) { add({ digits: d, bank: oldBank, date: today }); });
     var value = pmOldLast4Value_(items);
     if (value !== String(p.to.old_last_4 || '')) setPmOldLast4_(toId, value);
     // 6. Saves that still carry the old id go to the new account (other phones, waiting saves, a bot's Undo); a chain follows.
@@ -435,10 +439,13 @@ function moveAccountHistory(payload) {
     setPmForward_(fromId, toId);
     // 7. The old account goes (its leftover starting balances with it), and the move is kept 30 days for Restore.
     deletePaymentMethod({ id: fromId });
+    // 7b. A join: the new account takes the old one's currency and number (and, when asked, a name — the old one's is free now).
+    if (mergePlan) undo.merge = accountMergeApply_(toId, mergePlan, payload.merge_name, fromId);
     var moveId = Utilities.getUuid();
     saveAccountMove_(moveId, String(p.from.nickname), String(p.to.nickname), r.counts, undo);
     bumpStructureVersion_();
-    return { counts: r.counts, from: { id: fromId, nickname: String(p.from.nickname) }, to: { id: toId, nickname: String(p.to.nickname) }, move_id: moveId };
+    var toName = undo.merge ? undo.merge.after.nickname : String(p.to.nickname);
+    return { counts: r.counts, from: { id: fromId, nickname: String(p.from.nickname) }, to: { id: toId, nickname: toName }, move_id: moveId, merged: !!undo.merge };
   });
 }
 
@@ -528,6 +535,8 @@ function restoreAccountMove(payload) {
     // 1. No more forwarding to the new account for these ids (before anything is written back with the old id).
     setPmForward_(fromId, '');
     Object.keys(u.forwardsBefore || {}).forEach(function (k) { setPmForward_(k, u.forwardsBefore[k]); });
+    // 1b. A join: the new account gives back the old one's currency, number and name first (the old one comes back with them next).
+    if (u.merge) accountMergeUndo_(toId, u.merge);
     // 2. The old account comes back as it was (same id, digits as text).
     if (!getAllRows('Payment Methods').some(function (pm) { return String(pm.id) === fromId; })) {
       var row = Object.assign({}, u.from);

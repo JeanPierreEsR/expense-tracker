@@ -167,6 +167,7 @@ function getCapabilities_() {
     accountAddCurrency: true,
     exchangeOtherPending: true,   // listExchangeOtherPending + recordCurrencyExchange other_pending_id: both sides from Needs review (testers 2.68.2)   // addAccountCurrency: the exchange form's "Add USD to this account" (testers 2.68.2); older backends: no button
     accountMove: true,   // previewAccountMove / moveAccountHistory / undoAccountMove + Payment Methods.old_last_4 (AccountMove.gs); an older backend lacks them, so the account window hides "Move its history…"
+    accountNumbers: true,   // Payment Methods.last_4_more: a bank account in two currencies holds each one's last 4 digits; moveAccountHistory takes `merge` (AccountNumbers.gs)
     stmtAcctLink: true,   // newAccounts[].matches + createStatementAccounts({accounts:[{id,…}]}): a statement for unknown digits asks "Is this your …?" about the person's accounts with no digits; an older backend sends no matches, so the app only offers a new account
     pmBulkRemove: true,   // removePaymentMethods (several accounts at once, More → Accounts → Edit); an older backend lacks it, so the app hides the Edit button
     annualCleanup: true,   // listAnnualCleanup / applyAnnualCleanup / undoAnnualCleanup / finishAnnualCleanup: the owner's one-time move out of the old "Annual budget" category (AnnualCleanup.gs); the card shows only where this exists AND listAnnualCleanup says available

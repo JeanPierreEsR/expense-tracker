@@ -184,10 +184,10 @@ function listStatementCoverage() {
   var banksById = rowsById_(getAllRows('Banks'));
   var accounts = {};
   getAllRows('Payment Methods').forEach(function (pm) {
-    var key = covKey_(pm.last_4);
-    if (!key || (pm.type !== 'credit' && pm.type !== 'debit') || isPracticeAccount_(pm)) return;
+    if ((pm.type !== 'credit' && pm.type !== 'debit') || isPracticeAccount_(pm)) return;
     var bank = banksById[pm.bank_id] ? banksById[pm.bank_id].name : '';
-    accounts[key] = { key: key, label: pm.nickname + ' …' + key, lag: covLagDays_(pm, bank) };
+    // One row per number: an account in soles and dollars gets one statement per number from its bank (AccountNumbers.gs).
+    pmLast4List_(pm).forEach(function (key) { accounts[key] = { key: key, label: pm.nickname + ' …' + key, lag: covLagDays_(pm, bank) }; });
   });
   var replaced = pmOldKeyMap_(getAllRows('Payment Methods'), { all: true });   // a card replaced by another (AccountMove.gs) has no statements to wait for
   uploads.forEach(function (u) {
@@ -245,8 +245,7 @@ function getStatementMonthMatrix() {
   });
   var pmByKey = {};
   getAllRows('Payment Methods').forEach(function (pm) {
-    var k = covKey_(pm.last_4);
-    if (k) pmByKey[k] = pm;
+    pmLast4List_(pm).forEach(function (k) { pmByKey[k] = pm; });
   });
   var accounts = {}, first = '', last = '';
   uploads.forEach(function (u) {
@@ -289,7 +288,7 @@ function adminSeedStatementUploads(payload) {
   var existing = {};
   getAllRows('Statement Uploads').forEach(function (u) { existing[covKey_(u.account_key) + '|' + u.period_end] = true; });
   var pmByLast4 = {};
-  getAllRows('Payment Methods').forEach(function (pm) { if (covKey_(pm.last_4)) pmByLast4[covKey_(pm.last_4)] = pm.id; });
+  getAllRows('Payment Methods').forEach(function (pm) { pmLast4List_(pm).forEach(function (k) { pmByLast4[k] = pm.id; }); });
   var created = 0, skipped = 0;
   (payload.rows || []).forEach(function (r) {
     if (existing[covKey_(r.account_key) + '|' + r.period_end]) { skipped++; return; }
@@ -348,7 +347,7 @@ function analyzeStatements(payload) {
   var savingsReturn = Object.keys(catsById).map(function (k) { return catsById[k]; })
     .find(function (c) { return c.type === 'income' && c.name === 'Savings return'; }) || null;
   var pmByKey = {};
-  pms.forEach(function (pm) { var k = covKey_(pm.last_4); if (k && !isPracticeAccount_(pm)) pmByKey[k] = pm; });
+  pms.forEach(function (pm) { if (!isPracticeAccount_(pm)) pmLast4List_(pm).forEach(function (k) { pmByKey[k] = pm; }); });   // every number of the account (AccountNumbers.gs)
   // A replaced card's old digits find the account that took its history (AccountMove.gs): only for a statement of that card's bank, 6 months.
   stmts.forEach(function (s) {
     var k = covKey_(s.key);
@@ -364,9 +363,7 @@ function analyzeStatements(payload) {
     // and nothing pairs with it as a transfer); the apply step writes '' (see stmtPmForKey_).
     if (String(key) === STMT_NO_ACCOUNT_KEY_) return { id: 'unknown:' + STMT_NO_ACCOUNT_KEY_, nickname: tr_('stmt.noAccountName'), type: 'debit', last_4: '', noAccount: true };
     if (String(key).indexOf(STMT_ACCT_KEY_PREFIX_) === 0) return stmtPmForKey_(pms, key);
-    if (String(key).indexOf('AHORRA-') === 0) {
-      return pms.find(function (pm) { return String(pm.nickname).toLowerCase().replace(/[^a-z]/g, '').indexOf('ahorra') === 0; }) || null;
-    }
+    if (String(key).indexOf('AHORRA-') === 0) return stmtAhorraAccount_(pms, key);   // by the statement's currency (AccountNumbers.gs)
     return pmByKey[covKey_(key)] || null;
   }
 

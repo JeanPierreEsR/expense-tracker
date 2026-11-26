@@ -36,7 +36,7 @@ function stmtNewAccountCurrency_(st) {
 function stmtDigitlessMatches_(pms, type, bank) {
   var bankId = bank ? String(bank.id) : '';
   var free = pms.filter(function (pm) {
-    return String(pm.type) === type && !cleanLast4_(pm.last_4) && String(pm.hidden || '') !== 'yes' && !isPracticeAccount_(pm);
+    return String(pm.type) === type && pmHasNoDigits_(pm) && String(pm.hidden || '') !== 'yes' && !isPracticeAccount_(pm);
   });
   var same = bankId ? free.filter(function (pm) { return String(pm.bank_id || '') === bankId; }) : [];
   var none = free.filter(function (pm) { return !String(pm.bank_id || ''); });
@@ -97,7 +97,7 @@ function createStatementAccounts(payload) {
     if (!isAccountKind_(kind)) throw new Error(tr_('err.pmType'));
     var bankName = String(a.bank || '').trim().slice(0, 60);
     if (!bankName) throw new Error(tr_('err.pmBank'));
-    var already = pms.find(function (pm) { return covKey_(pm.last_4) === covKey_(last4) && !isPracticeAccount_(pm); }) || created.filter(function (c) { return c.last_4 === last4; })[0];
+    var already = pms.find(function (pm) { return pmHasLast4_(pm, last4) && !isPracticeAccount_(pm); }) || created.filter(function (c) { return c.last_4 === last4; })[0];
     if (already) { existing.push({ id: already.id, nickname: already.nickname, last_4: last4 }); return; }
     var bank = getAllRows('Banks').find(function (b) { return plainNickname_(b.name) === plainNickname_(bankName); }) || addBank({ name: bankName });
     var nickname = uniqueAccountName_(autoAccountAlias_(bankShortName_(bank.name), kind, last4, true, lang), last4, taken);
@@ -117,7 +117,7 @@ function stmtLinkDigits_(a, last4, pms, existing, linked) {
   var id = String(a.id);
   var pm = pms.find(function (p) { return String(p.id) === id; });
   if (!pm) throw new Error(tr_('err.pmNotFound'));
-  var other = pms.find(function (p) { return String(p.id) !== id && covKey_(p.last_4) === covKey_(last4) && !isPracticeAccount_(p); });
+  var other = pms.find(function (p) { return String(p.id) !== id && pmHasLast4_(p, last4) && !isPracticeAccount_(p); });
   if (other) { existing.push({ id: String(other.id), nickname: String(other.nickname), last_4: last4 }); return; }
   var had = cleanLast4_(pm.last_4);
   if (had === last4) { existing.push({ id: id, nickname: String(pm.nickname), last_4: last4 }); return; }
@@ -202,7 +202,7 @@ function stmtMakeFileAccounts_(news) {
       pm = same;   // the same name saved twice, or another phone made it meanwhile: never a second account
     } else {
       // Digits another account already has would send this file's lines to that account: the new one is made without them.
-      var last4 = n.last4 && !pms.some(function (p) { return covKey_(p.last_4) === covKey_(n.last4); }) ? n.last4 : '';
+      var last4 = n.last4 && !pms.some(function (p) { return pmHasLast4_(p, n.last4); }) ? n.last4 : '';
       var bankId = n.bankId && getAllRows('Banks').some(function (b) { return String(b.id) === n.bankId; }) ? n.bankId : '';
       if (!bankId && n.bankName) bankId = (getAllRows('Banks').find(function (b) { return plainNickname_(b.name) === plainNickname_(n.bankName); }) || addBank({ name: n.bankName })).id;
       var payload = { nickname: n.name, type: n.type, bank_id: bankId, last_4: last4 };
@@ -310,7 +310,7 @@ function applyStatementDecisions(payload) {
   if (rows.length) { ensureStatementChangesSheet_(); appendRowsBulk_('Statement Changes', rows); }
   // `incomplete`: a bank account or card with no bank or no last 4 digits yet — the saved message offers to complete it (owner, 2026-11-21).
   report.accountsCreated = made.created.concat(made.shown).map(function (pm) {
-    var card = pm.type === 'debit' || pm.type === 'credit', noBank = card && !pm.bank_id, noDigits = card && !String(pm.last_4 || '').trim();
+    var card = pm.type === 'debit' || pm.type === 'credit', noBank = card && !pm.bank_id, noDigits = card && pmHasNoDigits_(pm);
     // noBank / noDigits: the message names only what is missing (Mark, testers 2026-11-21: the bank had been picked).
     return { id: pm.id, nickname: pm.nickname, incomplete: noBank || noDigits, noBank: noBank, noDigits: noDigits };
   });

@@ -2405,6 +2405,7 @@ function savePaymentMethod(payload) {
   if (PAYMENT_METHOD_TYPES_.indexOf(type) === -1) throw new Error(tr_('err.pmType'));
   var last4 = String(payload.last_4 == null ? '' : payload.last_4).trim();
   if (last4 && !/^\d{4}$/.test(last4)) throw new Error(tr_('err.pmLast4'));
+  pmCheckMoreLast4_(payload.last_4_more);   // the other currencies' digits, checked before anything is written (AccountNumbers.gs)
   var bankId = String(payload.bank_id || '').trim();
   if (bankId && !getAllRows('Banks').some(function (b) { return String(b.id) === bankId; })) {
     throw new Error(tr_('err.pmBank'));
@@ -2446,6 +2447,8 @@ function savePaymentMethod(payload) {
       setPaymentMethodLast4_(sheet, headers, findRowIndexById(sheet, headers, pm.id), last4);
     }
     pm.last_4 = last4;
+    var moreNew = pmSaveMoreLast4_(pm.id, payload, pm, last4);   // the other currencies' digits (AccountNumbers.gs)
+    if (moreNew !== null) pm.last_4_more = moreNew;
     return pm;
   }
   var rowIndex = findRowIndexById(sheet, headers, id);
@@ -2486,7 +2489,10 @@ function savePaymentMethod(payload) {
   setCellByRow_(sheet, headers, rowIndex, 'bank_id', bankId);
   setPaymentMethodLast4_(sheet, headers, rowIndex, last4);
   if (ROWS_MEMO_) delete ROWS_MEMO_['Payment Methods'];
-  return { id: id, nickname: nickname, type: type, bank_id: bankId, last_4: last4, alias_kind: kind || String(before.alias_kind || ''), currencies: currencies };
+  var out = { id: id, nickname: nickname, type: type, bank_id: bankId, last_4: last4, alias_kind: kind || String(before.alias_kind || ''), currencies: currencies };
+  var more = pmSaveMoreLast4_(id, payload, Object.assign({}, before, out), last4);   // the other currencies' digits (AccountNumbers.gs)
+  out.last_4_more = more !== null ? more : String(before[PM_MORE_LAST4_COLUMN_] || '');
+  return out;
 }
 
 // The alias_kind a save asks for, or '' when it says nothing about the currency (an older phone) or the type has none (cash, wallet,

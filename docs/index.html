@@ -4591,8 +4591,9 @@
       <label for="pm-bank" data-i18n="accounts.bank">Bank</label>
       <select id="pm-bank"></select>
 
-      <label for="pm-last4" data-i18n="accounts.last4">Last 4 digits</label>
+      <label for="pm-last4" id="pm-last4-label" data-i18n="accounts.last4">Last 4 digits</label>
       <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" id="pm-last4" data-i18n-placeholder="common.optional" placeholder="Optional">
+      <div id="pm-more-last4" hidden></div>
       </div>
 
       <p class="hint" data-i18n="accounts.last4Hint">Only the last 4 digits of the card or account number — never the full number.</p>
@@ -4620,7 +4621,7 @@
         <button type="button" class="cancel-edit-btn" id="pm-hide-btn" data-i18n="accounts.hide">Hide</button>
         <button type="button" class="delete-entry-btn" id="pm-delete-btn" data-i18n="accounts.delete">Delete</button>
         <div id="pm-move-box" hidden>
-          <p class="hint" data-i18n="move.hint">Replaced this card with a new one? Move all its history to the new account, and this one is deleted.</p>
+          <p class="hint" data-i18n="move.hint">Replaced this card with a new one, or have the same account in two currencies? Move all its history to the other account, and this one is deleted.</p>
           <button type="button" class="cancel-edit-btn" id="pm-move-btn" data-i18n="move.button">Move its history to another account…</button>
         </div>
       </div>
