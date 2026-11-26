@@ -187,3 +187,99 @@ test("a second partner conversion of the same movement says it is already a part
   rt.api("recordDistribution", { entry_id: e.id, partner_name: "Socio Prueba", withholding: 0 });
   assert.throws(() => rt.api("recordDistribution", { entry_id: e.id, partner_name: "Socio Prueba", withholding: 0 }), /already a partner's money/);
 });
+
+// ---- From the "+" (owner, 2026-11-26): addPartnerMoney makes the money movement and its row in one call ----
+const uuid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const plus = (rt, extra) => rt.api("addPartnerMoney", Object.assign({ direction: "in", amount: 12000, currency: "PEN", date: today(),
+  payment_method_id: pm(rt), partner_name: "Socio Prueba" }, extra));
+
+test("from the +: a contribution raises the account, is not income, and shows in the Partners card", () => {
+  const rt = companyCopy();
+  const account = pm(rt);
+  const before = balanceOf(rt, account), t0 = totals(rt);
+  const out = plus(rt, { kind: "contribution", client_id: uuid(1) });
+  assert.equal(out.kind, "contribution");
+  assert.equal(out.entry_id, uuid(1));
+  const entry = rt.rows("Entries").find((x) => x.id === uuid(1));
+  assert.equal(entry.type, "transfer");
+  assert.equal(entry.status, "confirmed");
+  assert.match(entry.description, /Socio Prueba/);
+  assert.equal(balanceOf(rt, account), before + 12000);
+  assert.equal(totals(rt).income, t0.income);
+  assert.equal(rt.rows("Contributions")[0].entry_id, uuid(1));
+  assert.equal(rt.rows("Contributions")[0].company_id, rt.rows("Companies")[0].id);
+  assert.equal(partnersCard(rt).find((p) => p.name === "Socio Prueba").lines[0].contributed, 12000);
+});
+
+test("from the +: the same client_id again makes nothing new", () => {
+  const rt = companyCopy();
+  plus(rt, { kind: "pending", client_id: uuid(2) });
+  const again = plus(rt, { kind: "pending", client_id: uuid(2) });
+  assert.equal(again.repeat, true);
+  assert.equal(rt.rows("Entries").filter((x) => x.id === uuid(2)).length, 1);
+  assert.equal(rt.rows("Contributions").length, 1);
+  plus(rt, { kind: "loan", client_id: uuid(3) });
+  assert.equal(plus(rt, { kind: "loan", client_id: uuid(3) }).repeat, true);
+  assert.equal(rt.rows("Loans").filter((l) => l.id === uuid(3)).length, 1);
+});
+
+test("from the +: to be decided, later a loan, keeps one money movement", () => {
+  const rt = companyCopy();
+  const account = pm(rt);
+  const before = balanceOf(rt, account);
+  plus(rt, { kind: "pending", client_id: uuid(4) });
+  const row = rt.rows("Contributions")[0];
+  rt.api("changePartnerMoney", { id: row.id, kind: "loan" });
+  const loan = rt.rows("Loans").find((l) => l.transfer_entry_id === uuid(4));
+  assert.equal(loan.direction, "i_owe_them");
+  assert.equal(balanceOf(rt, account), before + 12000);
+});
+
+test("from the +: a partner's loan is an ordinary loan on the company, with its own money movement", () => {
+  const rt = companyCopy();
+  const account = pm(rt);
+  const before = balanceOf(rt, account);
+  const out = plus(rt, { kind: "loan", client_id: uuid(5) });
+  assert.equal(out.kind, "loan");
+  const loan = rt.rows("Loans").find((l) => l.id === uuid(5));
+  assert.equal(loan.direction, "i_owe_them");
+  assert.equal(loan.company_id, rt.rows("Companies")[0].id);
+  assert.ok(loan.transfer_entry_id);
+  assert.equal(rt.rows("Contributions").length, 0);
+  assert.equal(balanceOf(rt, account), before + 12000);
+});
+
+test("from the +: a profit distribution lowers the account by the net, is no expense, gross = net + withholding", () => {
+  const rt = companyCopy();
+  const account = pm(rt);
+  const before = balanceOf(rt, account), t0 = totals(rt);
+  const out = plus(rt, { direction: "out", amount: 8000, withholding: 400, client_id: uuid(6) });
+  assert.equal(out.kind, "distribution");
+  assert.equal(balanceOf(rt, account), before - 8000);
+  assert.equal(totals(rt).expense, t0.expense);
+  const row = rt.rows("Distributions")[0];
+  assert.equal(Number(row.gross), 8400);
+  assert.equal(Number(row.withholding), 400);
+  const line = partnersCard(rt).find((p) => p.name === "Socio Prueba").lines[0];
+  assert.equal(line.distributed, 8000);
+  assert.equal(line.withholding, 400);
+});
+
+test("from the +: refused without a kind, with a bad withholding, or outside a company copy", () => {
+  const rt = companyCopy();
+  assert.throws(() => plus(rt, { kind: "" }), /qué es este dinero|what this money is/i);
+  assert.throws(() => plus(rt, { direction: "out", withholding: -1 }), /retención|withholding/i);
+  assert.equal(rt.rows("Contributions").length + rt.rows("Distributions").length, 0);
+  const { rt: plain } = freshApp({ small: true });
+  assert.throws(() => plain.api("addPartnerMoney", { direction: "in", kind: "contribution", amount: 10, currency: "PEN", date: today(), partner_name: "X" }));
+});
+
+test("Edit partner's money: the amount changes with the type, partner and company", () => {
+  const rt = companyCopy();
+  plus(rt, { kind: "contribution", client_id: uuid(7) });
+  const row = rt.rows("Contributions")[0];
+  rt.api("changePartnerMoney", { id: row.id, kind: "pending", amount: 15000 });
+  assert.equal(Number(rt.rows("Entries").find((x) => x.id === uuid(7)).amount), 15000);
+  assert.equal(rt.rows("Contributions")[0].kind, "pending");
+  assert.throws(() => rt.api("changePartnerMoney", { id: row.id, amount: 0 }));
+});

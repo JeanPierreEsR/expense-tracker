@@ -1079,7 +1079,7 @@ const ONCE_ACTIONS = new Set([
   // Everything else that creates something (owner, 2026-11-14: a trip saved while the phone was locked was made three times)
   "addTrip", "addBudget", "addPaymentMethod", "savePaymentMethod", "addTag", "addBank", "addPayor", "saveCategory",
   "saveBankLoan", "recordEarlyPayment", "recordInstallment", "recordRecurringPayment", "recordRepaymentEntry", "createStatementAccounts",
-  "convertEntryToPartnerMoney", "changePartnerMoney", "recordDistribution", "changeDistribution",   // Business 2 piece 7: a partner's money
+  "convertEntryToPartnerMoney", "changePartnerMoney", "recordDistribution", "changeDistribution", "addPartnerMoney",   // Business 2 piece 7: a partner's money
   // Testers 2.68.2: these were protected on the server only, so a "Try again" made a second sale stage. Kept equal to the server's
   // ONCE_ACTIONS_ by tests/backend/once-actions.test.js.
   "addIgvPayment", "assignEntryAccounts", "closeMonth", "reopenMonth", "sendAccountantPackage", "addProjectUnits", "saveUnitStage", "returnUnitDeposit",

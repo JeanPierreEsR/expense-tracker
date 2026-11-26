@@ -144,6 +144,11 @@ function changePartnerMoney(payload) {
       ? partnerScope_(payload) : { company_id: row.company_id, project_id: row.project_id };
     var partnerId = payload.partner_id || payload.partner_name ? partnerIdFor_(payload) : row.partner_id;
     var name = friendNameById_(partnerId);
+    if (payload.amount !== undefined && payload.amount !== '') {   // the "Edit partner's money" window (owner, 2026-11-26) also changes the amount
+      var amount = round2_(Number(payload.amount));
+      if (!(isFinite(amount) && amount >= 0.01 && amount <= MAX_AMOUNT_)) throw new Error(tr_('err.validAmount'));
+      if (Math.abs(Math.abs(Number(entry.amount)) - amount) > 0.004) { setEntryField_(entry.id, 'amount', amount); entry.amount = amount; }
+    }
     if (kind === 'loan') {
       // The entry already is the transfer into the account: the loan takes it as its own (createLoan_ with transfer_entry_id).
       deleteRowsWhere_('Contributions', function (r) { return r.id === row.id; });
@@ -209,6 +214,61 @@ function changeDistribution(payload) {
       withholding: round2_(withholding), gross: round2_(net + withholding) };
     updateRowFields_('Distributions', row.id, fields);
     return { distribution: Object.assign({ net: net, currency: entry.currency }, row, fields) };
+  });
+}
+
+/**
+ * A partner's money recorded straight from the "+" (owner, 2026-11-26: a contribution in cash, or one typed by hand, never reached
+ * Needs review). ONE call makes the money movement and its row. payload: { client_id, direction: 'in' | 'out', kind: 'contribution' |
+ * 'pending' | 'loan' (in only), amount, currency, date, payment_method_id, description?, partner_id | partner_name, company_id,
+ * project_id, withholding (out only) }. The entry (or, for a loan, the loan) takes the client_id as its id, so a repeat of a save that
+ * already landed answers { repeat: true } and never makes a second one.
+ */
+function addPartnerMoney(payload) {
+  requireCompanyCopy_();
+  checkMoneyFields_(payload);
+  return withScriptLockOnce_(function () {
+    var out = payload.direction === 'out';
+    var kind = out ? 'distribution' : String(payload.kind || '');
+    if (!out && kind !== 'loan' && !PARTNER_KINDS_[kind]) throw new Error(tr_('partner.pickKind'));
+    var withholding = 0;
+    if (out) {
+      withholding = payload.withholding === '' || payload.withholding == null ? 0 : Number(payload.withholding);
+      if (!(isFinite(withholding) && withholding >= 0)) throw new Error(tr_('partner.badWithholding'));
+    }
+    var clientId = clientSaveId_(payload);
+    if (clientId && (getEntryById_(clientId) || getAllRows('Loans').some(function (l) { return l.id === clientId; }))) {
+      return { repeat: true, kind: kind };
+    }
+    var amount = round2_(Math.abs(Number(payload.amount)));
+    var currency = String(payload.currency || homeCurrency_()).toUpperCase();
+    var date = String(payload.date).slice(0, 10);
+    var pm = String(payload.payment_method_id || '');
+    var scope = partnerScope_(payload);
+    var partnerId = partnerIdFor_(payload);
+    var name = friendNameById_(partnerId);
+    var typed = String(payload.description || '').trim();
+    if (kind === 'loan') {
+      var loan = createLoan_({
+        id: clientId || undefined, friend_id: partnerId, direction: 'i_owe_them', origin: 'cash', amount: amount, currency: currency,
+        date: date, due_date: '', payment_method_id: pm, description: typed || tr_('desc.loanFrom', { name: name }),
+        project_id: scope.project_id, company_id: scope.company_id
+      });
+      return { kind: 'loan', partner_id: partnerId, loan: loan };
+    }
+    var descKey = out ? 'partner.descDistribution' : kind === 'pending' ? 'partner.descPending' : 'partner.descContribution';
+    var entry = createTransferEntry_({ id: clientId || undefined, date: date, amount: amount, currency: currency, payment_method_id: pm,
+      description: typed || tr_(descKey, { name: name }) });
+    ensureBusinessSheets_();
+    if (out) {
+      var drow = { id: Utilities.getUuid(), entry_id: entry.id, partner_id: partnerId, company_id: scope.company_id, project_id: scope.project_id,
+        gross: round2_(amount + withholding), withholding: round2_(withholding), note: '' };
+      appendRowObject('Distributions', drow);
+      return { kind: kind, partner_id: partnerId, entry_id: entry.id, distribution: Object.assign({ net: amount, currency: currency }, drow) };
+    }
+    var row = { id: Utilities.getUuid(), entry_id: entry.id, partner_id: partnerId, company_id: scope.company_id, project_id: scope.project_id, kind: kind, note: '' };
+    appendRowObject('Contributions', row);
+    return { kind: kind, partner_id: partnerId, entry_id: entry.id, contribution: row };
   });
 }
 
