@@ -1490,8 +1490,9 @@ body.sheet-open {
   font-weight: 600;
 }
 
+/* Discard on the left, a blue Confirm on the right (owner, 2026-11-26). */
 .review-confirm-btn {
-  background: var(--income);
+  background: var(--accent);
   color: white;
 }
 
