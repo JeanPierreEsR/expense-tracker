@@ -2825,7 +2825,7 @@
     "coOv.fundingAsOfShort": { es: "al {date}", en: "as of {date}" },
     // Business 2, piece 7: partners (company copies only)
     "coOv.partnersTitle": { es: "Socios", en: "Partners" },
-    "coOv.partnersEmpty": { es: "Todavía no hay socios. En Por revisar, “Es dinero de un socio” agrega uno.", en: "No partners yet. In Needs review, “It's a partner's money” adds one." },
+    "coOv.partnersEmpty": { es: "Todavía no hay socios. Agrega uno con + → Transferencia → “Dinero de un socio”, o en Por revisar.", en: "No partners yet. Add one with + → Transfer → “Money from a partner”, or in Needs review." },
     "coOv.pContributed": { es: "Aportado (capital)", en: "Contributed (capital)" },
     "coOv.pPending": { es: "Por definir con el contador", en: "To be decided with the accountant" },
     "coOv.pOwed": { es: "Se le debe por préstamos", en: "Owed to them on loans" },
