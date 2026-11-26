@@ -1008,6 +1008,24 @@ function findRowIndexById(sheet, headers, id) {
 
 // ---- Meta (everything the form's dropdowns need, in one call) ----
 
+// Built-in rows (the Annual tag, the Cash account, a friend's "Investment returns" category) are made the first time getMeta finds
+// them missing. A brand-new copy's first calls arrive together, and two of them used to both find one missing and both add it (two
+// "Annual" tags, owner 2026-11-26). The make step runs here: under the script lock, with the remembered rows of these sheets dropped,
+// so `fn` looks again at what is really in the Sheet before adding. A lock not had in 20 s still runs `fn` (never break the open).
+function underCreateLock_(sheetNames, fn) {
+  var lock = LockService.getScriptLock(), owns = false;
+  try {
+    if (!lock.hasLock()) owns = lock.tryLock(20000);
+    if (ROWS_MEMO_) {
+      sheetNames.forEach(function (name) { delete ROWS_MEMO_[name]; delete ROWS_MEMO_['@h:' + name]; delete ROWS_MEMO_['@c:' + name]; });
+      delete ROWS_MEMO_['@v:STRUCTURE_VERSION'];
+    }
+    return fn();
+  } finally {
+    if (owns) { try { lock.releaseLock(); } catch (e) { /* already released */ } }
+  }
+}
+
 function getMeta() {
   runHealsOnce_();   // one-time repairs of a copy installed before a fix existed (Heals.gs); friends' copies only
   ensureInvestmentPlatforms_();
@@ -2343,6 +2361,12 @@ function ensureCashAccount_() {
   var pms = getAllRows('Payment Methods');
   var cid = cashAccountId_();
   if (cid && pms.some(function (p) { return String(p.id) === cid; })) return;
+  underCreateLock_(['Payment Methods', 'Settings'], ensureCashAccountLocked_);
+}
+function ensureCashAccountLocked_() {
+  var pms = getAllRows('Payment Methods');
+  var cid = cashAccountId_();
+  if (cid && pms.some(function (p) { return String(p.id) === cid; })) return;   // another call made it while this one waited
   var existing = pms.find(function (p) { return p.type === 'cash' && String(p.hidden || '') !== 'yes'; }) ||
     pms.find(function (p) { return p.type === 'cash'; });
   if (existing) {

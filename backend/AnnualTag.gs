@@ -14,10 +14,20 @@
 
 var ANNUAL_TAG_ID = 'system-annual';
 
-// Creates the tag the first time it is needed (getMeta calls this).
+// Creates the tag the first time it is needed (getMeta calls this). Exactly one row: a brand-new copy's first calls used to arrive
+// together, both find it missing and both add it (two "Annual" chips, owner 2026-11-26), so the make step runs under the lock and
+// looks again first (underCreateLock_), and a copy that already has two keeps only the top one (same id, so no entry changes).
 function ensureAnnualTag_() {
-  var has = getAllRowsCached_('Tags').some(function (t) { return t.id === ANNUAL_TAG_ID; });
-  if (!has) appendRowObject('Tags', { id: ANNUAL_TAG_ID, name: 'Annual', color: '#E8C9A0' });
+  var count = function (rows) { return rows.filter(function (t) { return t.id === ANNUAL_TAG_ID; }).length; };
+  if (count(getAllRowsCached_('Tags')) === 1) return;
+  underCreateLock_(['Tags'], function () {
+    var n = count(getAllRows('Tags'));
+    if (!n) appendRowObject('Tags', { id: ANNUAL_TAG_ID, name: 'Annual', color: '#E8C9A0' });
+    else if (n > 1) {
+      var extra = n - 1;   // deleteRowsWhere_ walks from the bottom: the extras go, the top row stays
+      deleteRowsWhere_('Tags', function (t) { return t.id === ANNUAL_TAG_ID && extra-- > 0; });
+    }
+  });
 }
 
 // "annual"/"anual" typed as a new tag's name means the built-in one.

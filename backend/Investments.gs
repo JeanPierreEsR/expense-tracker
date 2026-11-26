@@ -121,8 +121,11 @@ function ensureInvestmentPlatforms_() {
   // A friend's copy starts with NO platforms (owner, 2026-10-20): the welcome step lets them add their own, and deleting the
   // last one must not bring the owner's four back. Only the "Investment returns" income category is kept for them.
   if (isFriendCopy_()) {
-    var cats = getAllRowsCached_('Categories');
-    if (!hasInvestmentReturnsCategory_(cats)) createInvestmentReturnsCategory_(cats);
+    if (hasInvestmentReturnsCategory_(getAllRowsCached_('Categories'))) return;
+    underCreateLock_(['Categories'], function () {
+      var cats = getAllRows('Categories');   // looked at again: another call may have made it meanwhile
+      if (!hasInvestmentReturnsCategory_(cats)) createInvestmentReturnsCategory_(cats);
+    });
     return;
   }
   var any = getAllRows('Payment Methods').some(function (pm) { return pm.type === 'investment'; });

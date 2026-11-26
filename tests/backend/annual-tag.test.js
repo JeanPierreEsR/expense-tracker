@@ -168,3 +168,38 @@ test("a monthly budget says what the Annual tag left out; the entries list can s
   assert.equal(row.amount_pen, 580);
   assert.equal(row.annual_pen, 500);
 });
+
+// A brand-new copy's first calls arrive together (owner, 2026-11-26: two "Annual" chips on a new copy). Made-up data only.
+const annualRows = (rt) => Number(rt.run("getAllRows('Tags').filter(function (t) { return t.id === ANNUAL_TAG_ID; }).length"));
+
+test("a call that remembered no Annual tag while another call added it does not add a second one", () => {
+  const { rt } = freshApp({ small: true });
+  rt.run("deleteRowsWhere_('Tags', function (t) { return t.id === ANNUAL_TAG_ID; })");
+  rt.run(`withRowsMemo_(function () {
+    getAllRowsCached_('Tags');   // this call looked: none yet
+    var sh = sheetRaw_('Tags'), h = getHeaders(sh);   // meanwhile the other call adds it, behind this one's back
+    sh.appendRow(h.map(function (k) { return k === 'id' ? ANNUAL_TAG_ID : k === 'name' ? 'Annual' : ''; }));
+    ensureAnnualTag_();
+  })`);
+  assert.equal(annualRows(rt), 1);
+});
+
+test("a copy that already holds the Annual tag twice keeps one, and its tagged entries stay tagged", () => {
+  const rt = setup();
+  rt.run("ensureAnnualTag_()");
+  rt.run("var sh = sheetRaw_('Tags'), h = getHeaders(sh); sh.appendRow(h.map(function (k) { return k === 'id' ? ANNUAL_TAG_ID : k === 'name' ? 'Annual' : ''; }))");
+  addEntry(rt, "dup-annual-1", today(), 300, true);
+  assert.equal(annualRows(rt), 2);
+  const meta = rt.api("getMeta", {});
+  assert.equal(meta.tags.filter((t) => t.id === "system-annual").length, 1);
+  assert.equal(annualRows(rt), 1);
+  assert.equal(Number(rt.run("annualEntryIdSet_()['dup-annual-1'] ? 1 : 0")), 1);
+});
+
+test("an Annual tag that is missing is still made once", () => {
+  const { rt } = freshApp({ small: true });
+  rt.run("deleteRowsWhere_('Tags', function (t) { return t.id === ANNUAL_TAG_ID; })");
+  rt.api("getMeta", {});
+  rt.api("getMeta", {});
+  assert.equal(annualRows(rt), 1);
+});

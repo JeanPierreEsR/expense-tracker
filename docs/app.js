@@ -1811,6 +1811,8 @@ let metaReadAt_ = 0;   // when loadMeta last read the server itself (not the sav
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", { tz: phoneTz_() });
   syncPairWithBackend_();
+  // A tag row the server holds twice (a new copy's first calls once both added "Annual", 2026-11-26) shows once.
+  if (Array.isArray(meta.tags)) { const seen = new Set(); meta.tags = meta.tags.filter((t) => !seen.has(t.id) && seen.add(t.id)); }
   if (!meta.fromCache_) { metaReadAt_ = Date.now(); renderPullUpdateHint_(); }   // the server was really read: a "pull down after updating" bar is done
   (meta.categories || []).forEach(cleanCategoryLook_);
   refreshTelegramFields_();
