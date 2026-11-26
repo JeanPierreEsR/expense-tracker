@@ -147,6 +147,37 @@ function stmtClassifyLine_(line) {
   return line.amount > 0 ? 'income' : 'expense';
 }
 
+// Is entry `e` this statement line saved the wrong way round (owner, 2026-11-26)? 'type' (an expense that is an income, or the other
+// way), 'swap' (a transfer between the person's own accounts whose From and To are the wrong way round) or ''. Same currency, the amount
+// to the cent, the entry's effect on this account the opposite of the line's. Only confirmed entries a person saved (never one a
+// statement made, a charge still to fill in, one a friend paid, a loan's or a repayment's money, a currency exchange). On a card, money
+// back next to an expense is a refund, never this.
+function stmtFlipKind_(e, st, l, loanTransferIds) {
+  if (e.status !== 'confirmed' || e.currency !== l.currency || Math.abs(Number(e.amount) - Math.abs(l.amount)) >= 0.005) return '';
+  if (stmtFromStatement_(e) || String(e.charge_pending || '') === '1' || e.paid_currency) return '';
+  var pmId = st.pmId, from = e.payment_method_id || '', to = e.to_payment_method_id || '', lineIn = l.amount > 0;
+  if (e.type === 'expense' || e.type === 'income') {
+    if (to || (from && from !== pmId)) return '';
+    if (e.type === 'expense' && e.paid_by && e.paid_by !== 'me') return '';
+    if (e.type === 'expense' && st.card && lineIn) return '';
+    return (e.type === 'income') !== lineIn ? 'type' : '';
+  }
+  if (e.type !== 'transfer' || (loanTransferIds || {})[e.id] || e.exchange_pair || String(e.exchange || '') === '1') return '';
+  if (to === pmId) return lineIn ? '' : 'swap';             // the app has money coming IN here, the bank shows it leaving
+  if (from === pmId && to) return lineIn ? 'swap' : '';     // the app has it leaving, the bank shows it arriving
+  return '';                                                // From = this account, To open: either direction already matches
+}
+
+// Why changing this entry's type is left to the person, by hand (owner's plan, 2026-11-26): '' when nothing stops it. 'shared': split with
+// a friend; 'repayment': part of a repayment; 'linked': tied to a trip, a Programmed item, a company or project, a refund, an income not
+// received yet. A transfer has none of these.
+var STMT_FLIP_LINK_FIELDS_ = ['trip_id', 'recurring_expense_id', 'company_id', 'project_id', 'refund_of', 'income_waiting', 'expected_payment_id'];
+function stmtFlipLock_(e, lockedIds) {
+  if (e.type === 'transfer') return '';
+  if (lockedIds[e.id]) return lockedIds[e.id];
+  return STMT_FLIP_LINK_FIELDS_.some(function (f) { return e[f] !== undefined && e[f] !== null && String(e[f]) !== ''; }) ? 'linked' : '';
+}
+
 // Created by a statement upload (its external_id is 'stmt-' + the line's key).
 function stmtFromStatement_(e) { return String(e.external_id || '').indexOf('stmt-') === 0; }
 
@@ -421,6 +452,46 @@ function matchStatements_(statements, entries, opts) {
           }
         });
       }
+    });
+  });
+
+  // Saved the wrong way round (owner, 2026-11-26): an income in the app with the same amount as money that LEFT this account (or an
+  // expense that matches money that came IN, or a transfer between the person's own accounts saved in the wrong direction). Only lines
+  // nothing else explained, never one with a "possibly this entry"; the same currency, the amount to the cent, the usual window. CLEAR
+  // (ticked by default, owner's decision 1) when the line has exactly one such entry, that entry fits no other line of the account, it
+  // is not linked to anything a change of type would break, and a distinctive shop word is shared (a transfer: a shared word, or a line
+  // worded as a transfer). On a card, money back next to an expense is a refund (its own group), never a flip.
+  // Only for a phone that shows them (opts.flips, sent as `flips` with the plan): an older one would save the turn-around unseen.
+  var lockedIds = opts.lockedIds || {};
+  if (opts.flips) statements.forEach(function (st) {
+    if (String(st.pmId).indexOf('unknown:') === 0) return;
+    var windowDays = STMT_WINDOW_DAYS[st.kind] || 3;
+    var cands = {}, perEntry = {};
+    st.lines.forEach(function (l, li) {
+      var r = perLine[st.key][li];
+      if (r.status !== 'unregistered' || r.possibleEntry || r.guess === 'fee' || l.handled || l.stored || l.appLine || !(Math.abs(l.amount) > 0)) return;
+      var ld = stmtDayNumber_(l.date), lw = stmtDistinctWords_(l.description), list = [];
+      near(ld, windowDays).forEach(function (ei) {
+        var e = entries[ei];
+        var kind = stmtFlipKind_(e, st, l, loanTransferIds);
+        if (!kind || used[stmtUsedKey_(e, st.pmId)]) return;
+        var dd = Math.abs(index.days[ei] - ld);
+        if (dd > windowDays) return;
+        var ew = stmtDistinctWords_(e.description + ' ' + (e.merchant || ''));
+        var word = lw.some(function (w) { return ew.indexOf(w) !== -1; });
+        list.push({ entryId: e.id, dd: dd, kind: kind, word: word, locked: stmtFlipLock_(e, lockedIds),
+          worded: kind === 'swap' && stmtLooksLikeTransfer_(l.description) });
+        perEntry[e.id] = (perEntry[e.id] || 0) + 1;
+      });
+      if (list.length) cands[li] = list.sort(function (a, b) { return (a.dd - b.dd) || (b.word - a.word); });
+    });
+    Object.keys(cands).forEach(function (li) {
+      var list = cands[li], best = list[0];
+      var clear = list.length === 1 && perEntry[best.entryId] === 1 && !best.locked && (best.word || best.worded);
+      if (clear) used[stmtUsedKey_(entries.find(function (e) { return e.id === best.entryId; }), st.pmId)] = true;
+      perLine[st.key][li] = { status: 'flipped', flip: { entryId: clear ? best.entryId : '', clear: clear,
+        options: list.map(function (c) { return { entryId: c.entryId, dd: c.dd, kind: c.kind, locked: c.locked || '' }; }) },
+        guess: st.lines[li].amount < 0 ? 'expense' : 'income' };
     });
   });
 

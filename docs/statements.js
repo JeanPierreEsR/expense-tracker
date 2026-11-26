@@ -2100,8 +2100,11 @@
     });
     root.querySelector(".tm-use").addEventListener("click", async () => {
       const m = currentMapping();
-      const { lines } = usableLines(StatementTable.applyMapping(rows, m).lines);
+      const mapped = StatementTable.applyMapping(rows, m);
+      const { lines } = usableLines(mapped.lines);
       if (!lines.length) return;
+      // Lines whose amount could not be read: a missing line may then be the reader's, so the save never asks "not charged?" for this file.
+      const unclear = (mapped.skipped || []).filter((x) => x.reason === "amountUnclear").length;
       // A chosen rename changes the name of entries already recorded: said once more, in a pop-up, before going on (owner, 2026-11-04).
       const renames = nameConflicts().filter((c) => c.renamed);
       if (renames.length && !practiceNoConfirm_(true) && !await askConfirmApp_(tr("table.conflictConfirm", { list: renames.map((c) => tr("table.conflictLine", { mine: c.info.name, to: String(state.catNames[c.it.key] || "").trim(), n: c.info.entries })).join("\n") }), tr("confirmBtn.renameThem"), { plain: true })) return;
@@ -2127,7 +2130,7 @@
         const accountKey = a ? tableAccountKey(a) : newAccount ? `NEW-${body.dataset.slot || "x"}-${newIdx++}` : NO_ACCOUNT_KEY;
         results.push({ name: byAccount.size > 1 ? `${file.name} · ${a ? a.nickname : newAccount ? newAccount.name : tr("imp.noAccountOption")}` : file.name,
           result: { kind: "csv", ok: true, verified: false, accountKey, newAccount: newAccount || undefined, rail: !newAccount && a ? railOfAccountLines(accLines) : undefined, account: { last4: /^\d{4}$/.test(accountKey) ? accountKey : "" }, holder: "",
-            period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [], source: state.m.source === "app" ? "app" : "", categoryMap: plainChoices(state.catChoice), categoryNames: namesToSend(), catDest: destsToSend() } });
+            period: { start: dates[0], end: dates[dates.length - 1] }, balances: {}, lines: accLines, warnings: [], unclear: unclear || undefined, source: state.m.source === "app" ? "app" : "", categoryMap: plainChoices(state.catChoice), categoryNames: namesToSend(), catDest: destsToSend() } });
       });
       // A "move" to an account this import creates goes to that statement's stand-in (backend: new:<key>, swapped for the real one on save).
       const keyOfNew = {};
@@ -2209,6 +2212,7 @@
       balances: result.balances,
       due: result.due || "",   // a card's pay-by date read from the file: when missing, the preview asks for it (due_asks)
       verified: !!(result.ok && result.verified !== false),
+      unclear: result.unclear || undefined,   // a spreadsheet's lines whose amount could not be read: no "not charged?" for it
       lines: result.lines.map((l) => ({ date: l.date, description: l.description, amount: l.amount, currency: l.currency, section: l.section, category: l.category, transfer: l.transfer }))
     }));
   }
@@ -2257,7 +2261,7 @@
     const nLines = forPlan.reduce((n, st) => n + ((st && st.lines) || []).length, 0);
     out.innerHTML = loadingHtml(nLines >= 200 ? tr("hist.planningN", { n: nLines }) : tr("hist.planning")) + `<p class="hint">${escapeHtml(tr("hist.keepOpen"))}</p>`;
     try {
-      historyPlan = await callApi("planStatementHistory", { statements: forPlan, startBank: true });
+      historyPlan = await callApi("planStatementHistory", { statements: forPlan, startBank: true, flips: true, notCharged: true });
       // Lines whose file category the person already sent to a place in the app (Loans, another account…) are not offered again as income.
       // Another app's export: every line already went through its category ("Goes into"), so these two lists would ask it again (owner, 2026-11-21).
       const fromApp = (x) => !!(usable[x.stmt] && usable[x.stmt].result && usable[x.stmt].result.source === "app");
@@ -2271,6 +2275,8 @@
       historyPlan.noAcctOff = new Set();      // lineKey of a no-account pair the person said is a different entry (added as new instead)
       historyPlan.rechargeChoice = new Map(); // index into summary.recharges -> the entry id that takes the card's charge, or "add"; absent = the plan's own
       historyPlan.discountChoice = new Map(); // index into summary.discounts -> the entry id that takes the bank's amount, or "add"; absent = the plan's own
+      historyPlan.flipChoice = new Map();     // index into summary.flips -> the entry id turned the right way round, or "add"; absent = the plan's own
+      historyPlan.ncChoice = new Map();       // index into summary.notCharged -> "remove" | "keep" | "move" (no account yet) | "move:<account id>"; absent = nothing
       historyPlan.chargeChoice = new Map(); // index into summary.charges -> the entry id it fills, or "add" (a new purchase); absent = the plan's own
       historyPlan.chosen = new Map();      // index into summary.aside -> "cash" (spending/income) or "transfer", what the person counted after all
       historyPlan.exchanges = [];          // lines linked as a currency exchange: { out: {stmt, line}, in: {stmt, line} }
@@ -2450,12 +2456,39 @@
         changed = true;
       }
     });
+    // An entry saved the wrong way round that the person turned around by hand (owner, 2026-11-26): the line is that entry, so it leaves
+    // "not in the app", and the fix moves the balance by twice the line (once when the entry had no account yet).
+    let flipped = { ...(c.flipped || { net: 0, lines: 0 }) };
+    (s.flips || []).forEach((d, k) => {
+      const pick = d.clear ? "" : flipOf(k);
+      if (!pick || pick === "add") return;
+      const o = (d.options || []).find((x) => x.id === pick);
+      if (!o || !takeLine(d)) return;
+      const times = o.account && o.account === c.account || o.to_account && o.to_account === c.account ? 2 : 1;
+      flipped = { net: round(flipped.net + times * d.amount), lines: flipped.lines + 1 };
+      unexplained = round(unexplained - (times - 1) * d.amount);
+      changed = true;
+    });
+    // An entry the bank never charged that the person removes or moves to another account (owner, 2026-11-26, Part B): the app's balance
+    // here no longer has it, so that much is explained.
+    let ncFixed = { net: 0, lines: 0 };
+    const ncGone = new Set();
+    (s.notCharged || []).forEach((n, k) => {
+      const pick = ncOf_(k);
+      if (pick !== "remove" && !pick.startsWith("move:")) return;
+      ncGone.add(String(n.id));
+      if (n.stmt !== c.stmt || n.currency !== c.currency || !n.counted) return;
+      ncFixed = { net: round(ncFixed.net - n.effect), lines: ncFixed.lines + 1 };
+      unexplained = round(unexplained + n.effect);
+      changed = true;
+    });
     // A purchase the person paired with a line is no longer "in the app but not on this statement" (nor "probably on the next
     // statement"): the server could only leave out the pairs it ticked itself (owner, 2026-11-14: Amazon, fixed to USD, stayed listed and
     // "Still unexplained after it" took it off a second time).
     const paired = new Set();
     const pick_ = (list, of) => (list || []).forEach((d, k) => { const id = d.clear ? "" : of(k); if (id && id !== "add") paired.add(String(id)); });
-    pick_(s.discounts, discountOf); pick_(s.recharges, rechargeOf); pick_(s.charges, chargeOf);
+    pick_(s.discounts, discountOf); pick_(s.recharges, rechargeOf); pick_(s.charges, chargeOf); pick_(s.flips, flipOf);
+    ncGone.forEach((id) => paired.add(id));
     let appOnly = c.appOnly, late = c.late;
     if (paired.size && appOnly && appOnly.items && appOnly.items.some((it) => paired.has(String(it.id)))) {
       const gone = appOnly.items.filter((it) => paired.has(String(it.id)));
@@ -2470,7 +2503,7 @@
       unexplained = round(unexplained + back);
       changed = true;
     }
-    return changed ? { ...c, notInApp: notIn, discounted: disc, otherCurrency: other, startShift: shift, unexplained, appOnly, late } : c;
+    return changed ? { ...c, notInApp: notIn, discounted: disc, otherCurrency: other, startShift: shift, flipped, ncFixed, unexplained, appOnly, late } : c;
   }
   // Lines an action adds to the app (an entry, a transfer, an exchange, a Needs review item); "ignore" and "wait" add nothing.
   function coveredLines(actions) {
@@ -2567,6 +2600,20 @@
         chargeActions.push({ type: "use_bank_charge", stmt: d.stmt, line: d.line, entryId: pick, ...(o && o.wrong ? { wrong: true } : {}) });
       }
     });
+    // An entry saved the wrong way round: it is turned around, or the line is a new entry after all.
+    (p.summary.flips || []).forEach((d, k) => {
+      chargeKeys[lineKey(d)] = true;
+      const pick = flipOf(k);
+      if (pick === "add") chargeActions.push({ type: d.amount < 0 ? "add_history_expense" : "add_history_income", stmt: d.stmt, line: d.line });
+      else if (pick) chargeActions.push({ type: "fix_entry_type", stmt: d.stmt, line: d.line, entryId: pick });
+    });
+    // An entry no line shows: removed, moved to another account, or kept (never asked again). Nothing until the person picks.
+    (p.summary.notCharged || []).forEach((n, k) => {
+      const pick = ncOf_(k);
+      if (pick === "remove") chargeActions.push({ type: "remove_not_charged", stmt: n.stmt, entryId: n.id });
+      else if (pick === "keep") chargeActions.push({ type: "keep_not_charged", stmt: n.stmt, entryId: n.id });
+      else if (pick.startsWith("move:")) chargeActions.push({ type: "move_not_charged", stmt: n.stmt, entryId: n.id, pmId: pick.slice(5) });
+    });
     // A card charge lower than a purchase in the app (a discount): the purchase takes the bank's amount, or the line is a new purchase.
     (p.summary.discounts || []).forEach((d, k) => {
       chargeKeys[lineKey(d)] = true;
@@ -2660,6 +2707,72 @@
       <p class="hint">${escapeHtml(tr("hist.rech.hint"))}${items.some(({ d }) => (d.options || []).some((o) => o.wrong)) ? " " + escapeHtml(tr("hist.rech.wrongHint")) : ""}</p>${rows}</details>`;
   }
 
+  const ncOf_ = (k) => (historyPlan && historyPlan.ncChoice && historyPlan.ncChoice.get(k)) || "";
+  const ncDone_ = (k) => { const v = ncOf_(k); return v === "remove" || v === "keep" || v.startsWith("move:"); };
+  // The accounts an entry the bank never charged may have been paid from: the person's own, not this one, never a platform.
+  function ncAccountOptions_(n, current) {
+    const list = ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).filter((pm) => pm.type !== "investment" && String(pm.id) !== String(n.accountId) && !(typeof pmHidden_ === "function" && pmHidden_(pm)));
+    return `<option value="">${escapeHtml(tr("hist.nc.pickAccount"))}</option>` + list.map((pm) => `<option value="${escapeHtml(pm.id)}"${ACCT_ATTR_}${String(pm.id) === current ? " selected" : ""}>${escapeHtml(pm.nickname)}</option>`).join("");
+  }
+  const ACCT_ATTR_ = ' data-acct="1"';   // the account box is shortened to the five used most recently, then More… (app.js)
+
+  // ---- "Not on this statement": entries on this account inside the statement's period that no line shows (owner's plan, Part B) ----
+  function notChargedHtml() {
+    const p = historyPlan, all = p.summary.notCharged || [];
+    if (!all.length) return "";
+    const id = "statement-history-notcharged";
+    const todo = all.filter((n, k) => !ncDone_(k)).length;
+    const rows = all.map((n, k) => {
+      const pick = ncOf_(k), moving = pick === "move" || pick.startsWith("move:");
+      const why = n.reason ? `<p class="stmt-note warn" style="margin:6px 0 0">${escapeHtml(tr("hist.nc.why." + n.reason))}</p>` : "";
+      const shared = n.shared ? `<p class="hint">${escapeHtml(tr("hist.nc.shared"))}</p>` : "";
+      const picker = moving ? `<select class="stmt-nc-account" data-ncpm="${k}" style="margin-top:6px">${ncAccountOptions_(n, pick.startsWith("move:") ? pick.slice(5) : "")}</select>` : "";
+      const body = `${why}<div class="stmt-choices" style="padding-left:0">${modeButton(`data-nc="${k}" data-pick="remove"`, pick === "remove", tr("hist.nc.remove"))}${modeButton(`data-nc="${k}" data-pick="move"`, moving, tr("hist.nc.move"))}${modeButton(`data-nc="${k}" data-pick="keep"`, pick === "keep", tr("hist.nc.keep"))}</div>${picker}${pick === "remove" ? shared : ""}`;
+      return { n, html: lineRow({ date: n.date, description: n.description || tr("type." + n.type), amount: n.effect, currency: n.currency }, `${escapeHtml(n.account)}${body}`) };
+    });
+    // Strongest first (the server's order: a bank e-mail or Apple Pay, a possible double), then oldest first.
+    return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.nc.title"))} <span class="stmt-count">${all.length}</span>${toDecideBadge_(todo)}</summary>
+      <p class="hint">${escapeHtml(tr("hist.nc.hint"))}</p>${rows.map((r) => r.html).join("")}</details>`;
+  }
+
+  function flipOf(k) {
+    const d = historyPlan.summary.flips[k];
+    return historyPlan.flipChoice.has(k) ? historyPlan.flipChoice.get(k) : (d.clear ? d.entryId : "");
+  }
+  // A row's entry can only be turned around here when nothing stops it (StatementMatch.gs, stmtFlipLock_): else it is fixed by hand on Home.
+  const flipFree_ = (d) => (d.options || []).some((o) => !o.locked);
+
+  // ---- "Saved the wrong way round?": a line that IS an entry going the other way (an income that is an expense, a transfer the wrong way) ----
+  function flipsHtml(part) {
+    const p = historyPlan, all = p.summary.flips || [];
+    const items = all.map((d, k) => ({ d, k })).filter(({ d }) => (part === "ready") === isReady_(d)).sort((x, y) => byDate_(x.d, y.d));
+    if (!items.length) return "";
+    const id = "statement-history-flips-" + part;
+    const todo = items.filter(({ d, k }) => !flipOf(k) && flipFree_(d)).length;
+    const rows = items.map(({ d, k }) => {
+      const pick = flipOf(k);
+      const bank = tr(d.amount < 0 ? "hist.flip.bankOut" : "hist.flip.bankIn", { amount: fmtMoney(d.currency, Math.abs(d.amount)), date: fmtDate(d.date, true) });
+      const option = (o) => `${tr("type." + o.type)} · ${o.description || ""} · ${fmtMoney(o.currency, o.amount)} · ${fmtDate(o.date, true)}`;
+      const fixLabel = (o) => tr(o.kind === "swap" ? "hist.flip.swap" : o.type === "income" ? "hist.flip.toExpense" : "hist.flip.toIncome");
+      const lockNote = (o) => `<p class="stmt-note warn" style="margin:6px 0 0">${escapeHtml(tr("hist.flip.locked." + o.locked))}</p>`;
+      let body;
+      if (d.options.length === 1) {
+        const o = d.options[0];
+        body = `<div>${escapeHtml(tr("hist.flip.recorded", { entry: option(o) }))}</div><div class="hint">${escapeHtml(bank)}</div>`
+          + (o.locked ? lockNote(o) : "")
+          + `<div class="stmt-choices" style="padding-left:0">${o.locked ? "" : modeButton(`data-flip="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, fixLabel(o))}${modeButton(`data-flip="${k}" data-pick="add"`, pick === "add", tr("hist.flip.not"))}</div>`;
+      } else {
+        body = `<div>${escapeHtml(tr("hist.flip.pick"))}</div><div class="hint">${escapeHtml(bank)}</div>` + d.options.map((o) => `<div class="stmt-charge-option"><div>${escapeHtml(option(o))}</div>
+          ${o.locked ? lockNote(o) : `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-flip="${k}" data-pick="${escapeHtml(o.id)}"`, pick === o.id, fixLabel(o))}</div>`}</div>`).join("")
+          + `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-flip="${k}" data-pick="add"`, pick === "add", tr("hist.flip.not"))}</div>`;
+      }
+      const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
+      return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}${unpicked}`);
+    }).join("");
+    return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.flip.title"))} <span class="stmt-count">${items.length}</span>${toDecideBadge_(todo)}</summary>
+      <p class="hint">${escapeHtml(tr("hist.flip.hint"))}</p>${rows}</details>`;
+  }
+
   function discountOf(k) {
     const d = historyPlan.summary.discounts[k];
     return historyPlan.discountChoice.has(k) ? historyPlan.discountChoice.get(k) : (d.clear ? d.entryId : "");
@@ -2729,7 +2842,7 @@
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
-    const c = { loans: 0, charges: 0, discounts: 0, recharges: 0, currencyFixed: 0, accountsFilled: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
+    const c = { loans: 0, charges: 0, discounts: 0, flips: 0, ncRemoved: 0, ncMoved: 0, ncKept: 0, recharges: 0, currencyFixed: 0, accountsFilled: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
         const l = usable[a.stmt].result.lines[a.line];
@@ -2750,6 +2863,10 @@
       else if (a.type === "set_balance") c.balances++;
       else if (a.type === "fill_charge") c.charges++;
       else if (a.type === "use_bank_amount") c.discounts++;
+      else if (a.type === "fix_entry_type") c.flips++;
+      else if (a.type === "remove_not_charged") c.ncRemoved++;
+      else if (a.type === "move_not_charged") c.ncMoved++;
+      else if (a.type === "keep_not_charged") c.ncKept++;
       else if (a.type === "use_bank_charge") { c.recharges++; if (a.wrong) c.currencyFixed++; }
       else if (a.type === "assign_account") c.accountsFilled++;
       else if (["link", "complete_transfer"].includes(a.type)) c.linked++;
@@ -2979,7 +3096,8 @@
     const more = a.n > a.items.length ? `<p class="hint">${escapeHtml(tr("stmt.balAppOnlyMore", { n: a.n - a.items.length }))}</p>` : "";
     const left = Math.round((c.unexplained + a.net) * 100) / 100;
     const end = Math.abs(left) < 0.005 ? tr("stmt.balAppOnlyAll", { n: a.n }) : tr("stmt.balAppOnlyLeft", { n: a.n, amount: signed(c.currency, left) });
-    return `<p class="hint"><b>${escapeHtml(tr("stmt.balAppOnlyTitle", { n: a.n }))}</b></p>${rows}${more}<p class="hint">${escapeHtml(end)} ${escapeHtml(tr("stmt.balAppOnlyHint"))}</p>`;
+    const toGroup = ((historyPlan && historyPlan.summary.notCharged) || []).some((n) => n.stmt === c.stmt) ? " " + tr("stmt.balAppOnlyToGroup") : "";
+    return `<p class="hint"><b>${escapeHtml(tr("stmt.balAppOnlyTitle", { n: a.n }))}</b></p>${rows}${more}<p class="hint">${escapeHtml(end)} ${escapeHtml(tr("stmt.balAppOnlyHint") + toGroup)}</p>`;
   }
 
   // The first statement after a starting balance checks it (owner's plan, 2026-11-11, step 3, option 4b): when what is left unexplained
@@ -3021,6 +3139,8 @@
         if (c.pending.lines) parts.push(tr("stmt.balPending", { amount: signed(c.currency, c.pending.net), n: c.pending.lines }));
         if (c.discounted && c.discounted.lines) parts.push(tr("stmt.balDiscounted", { amount: signed(c.currency, c.discounted.net), n: c.discounted.lines }));
         if (c.noAccount && c.noAccount.lines) parts.push(tr("stmt.balNoAccount", { amount: signed(c.currency, c.noAccount.net), n: c.noAccount.lines }));
+        if (c.flipped && c.flipped.lines) parts.push(tr("stmt.balFlipped", { amount: signed(c.currency, c.flipped.net), n: c.flipped.lines }));
+        if (c.ncFixed && c.ncFixed.lines) parts.push(tr("stmt.balNotCharged", { amount: signed(c.currency, c.ncFixed.net), n: c.ncFixed.lines }));
         if (c.otherCurrency && c.otherCurrency.lines) parts.push(tr("stmt.balOtherCurrency", { amount: signed(c.currency, c.otherCurrency.net), n: c.otherCurrency.lines }));
         if (c.late && c.late.lines) parts.push(tr("stmt.balLate", { amount: signed(c.currency, c.late.net), n: c.late.lines }));
         if (c.startShift && c.startShift.lines) parts.push(tr("stmt.balStartShift", { amount: signed(c.currency, c.startShift.net), n: c.startShift.lines }));
@@ -3190,7 +3310,7 @@
   // The account a statement belongs to, as the plan names it (any of its lines the plan lists carries it).
   function stmtAccountName_(stmt) {
     const sm = historyPlan.summary;
-    const hit = [sm.candidates, sm.recharges, sm.discounts, sm.charges, sm.aside, sm.noAccount].flat().find((x) => x && x.stmt === stmt && x.account);
+    const hit = [sm.candidates, sm.recharges, sm.discounts, sm.flips, sm.charges, sm.aside, sm.noAccount].flat().find((x) => x && x.stmt === stmt && x.account);
     return hit ? hit.account : "";
   }
   function newLinesHtml_() {
@@ -3238,6 +3358,10 @@
     if (c.recharges - c.currencyFixed) lines.push(tr("hist.sum.recharges", { n: c.recharges - c.currencyFixed }));
     if (c.currencyFixed) lines.push(tr("hist.sum.currencyFixed", { n: c.currencyFixed }));
     if (c.discounts) lines.push(tr("hist.sum.discounts", { n: c.discounts }));
+    if (c.flips) lines.push(tr("hist.sum.flips", { n: c.flips }));
+    if (c.ncRemoved) lines.push(tr("hist.sum.ncRemoved", { n: c.ncRemoved }));
+    if (c.ncMoved) lines.push(tr("hist.sum.ncMoved", { n: c.ncMoved }));
+    if (c.ncKept) lines.push(tr("hist.sum.ncKept", { n: c.ncKept }));
     if (c.linked) lines.push(tr("hist.sum.linked", { n: c.linked }));
     if (c.left) lines.push(tr("hist.sum.left", { n: c.left }));
     if (c.balances) lines.push(tr("hist.sum.balances", { n: c.balances }));
@@ -3251,8 +3375,8 @@
     if (left.noAccount && stillUnknown.length) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: stillUnknown.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
     const pre = newAccountsHtml(proposals) + addedAccountsHtml();
-    const readyHtml = noAccountHtml() + chargesHtml("ready") + rechargesHtml("ready") + discountsHtml("ready");
-    const decideHtml = discountsHtml("decide") + chargesHtml("decide") + rechargesHtml("decide") + peopleHtml() + incomeHtml()
+    const readyHtml = noAccountHtml() + chargesHtml("ready") + rechargesHtml("ready") + discountsHtml("ready") + flipsHtml("ready");
+    const decideHtml = flipsHtml("decide") + notChargedHtml() + discountsHtml("decide") + chargesHtml("decide") + rechargesHtml("decide") + peopleHtml() + incomeHtml()
       + (StatementTable.canLinkExchange(summary.candidates) && (screenMode !== "import" || (summary.exchangeSuggestions || []).length || historyPlan.exchanges.length) ? exchangeHtml() : "") + asideHtml();
     // (another app's file: the exchange fold only when the app found a pair; a closed fold with nothing in it read as an empty
     // heading, Elena 2026-11-21. A bank statement keeps it for linking two lines by hand.)
@@ -3260,11 +3384,11 @@
       + (readyHtml ? `<h3 class="stmt-section-title">${escapeHtml(tr("hist.sec.ready"))}</h3>${readyHtml}` : "")
       + (decideHtml ? `<h3 class="stmt-section-title">${escapeHtml(tr("hist.sec.decide"))}</h3>${decideHtml}` : "")
       + (() => { const b = balancesHtml(); return b && (readyHtml || decideHtml) ? `<h3 class="stmt-section-title">${escapeHtml(tr("hist.sec.balances"))}</h3>${b}` : b; })();
-    if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(summary.charges || []).length && !(summary.discounts || []).length && !(summary.recharges || []).length && !(historyPlan.checks || []).length) {
+    if (!actions.length && !(summary.aside || []).length && !(summary.peopleOut || []).length && !(summary.charges || []).length && !(summary.discounts || []).length && !(summary.recharges || []).length && !(summary.flips || []).length && !(summary.notCharged || []).length && !(historyPlan.checks || []).length) {
       out.innerHTML = pre + (proposals.length ? "" : `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>`) + noteHtml;
       return;
     }
-    if (!c.entries && !c.charges && !c.discounts && !c.recharges) {
+    if (!c.entries && !c.charges && !c.discounts && !c.recharges && !c.flips && !c.ncRemoved && !c.ncMoved) {
       // Nothing to add. Lines waiting for their other statement can still be remembered so they pair up later, and balances set.
       out.innerHTML = pre + `<p class="stmt-verdict warn">${escapeHtml(tr("hist.nothing"))}</p>${lines.length ? `<ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map(sumLi_).join("")}</ul>` : ""}${noteHtml}
         ${historyActions().length ? `${dueAskHtml_()}<button type="button" class="${c.balances ? "primary" : "stmt-choice"}" id="statement-history-save">${escapeHtml(tr(c.balances ? "hist.saveBalances" : "hist.remember"))}</button>` : ""}`;
@@ -3273,9 +3397,10 @@
     const range = summary.from && summary.to ? `<p class="hint">${escapeHtml(summary.from === summary.to ? tr("hist.rangeOne", { date: fmtDate(summary.from, true) })
       : tr("hist.range", { from: fmtDate(summary.from, true), to: fmtDate(summary.to, true) }))}</p>` : "";
     // Three counters first (owner, 2026-11-11): new entries · entries you have that change · choices still open.
-    const nUpdated = c.accountsFilled + c.charges + c.recharges + c.discounts;
+    const nUpdated = c.accountsFilled + c.charges + c.recharges + c.discounts + c.flips + c.ncRemoved + c.ncMoved;
     const nDecide = (summary.charges || []).filter((x, k) => !chargeOf(k)).length + (summary.recharges || []).filter((x, k) => !rechargeOf(k)).length
-      + (summary.discounts || []).filter((x, k) => !discountOf(k)).length;
+      + (summary.discounts || []).filter((x, k) => !discountOf(k)).length + (summary.flips || []).filter((x, k) => !flipOf(k) && flipFree_(x)).length
+      + (summary.notCharged || []).filter((x, k) => !ncDone_(k)).length;
     const counters = `<p class="stmt-counters">${[
       `<span>➕ ${escapeHtml(tr("hist.cnt.new", { n: c.entries }))}</span>`,
       `<span>✏️ ${escapeHtml(tr("hist.cnt.updated", { n: nUpdated }))}</span>`,
@@ -3299,7 +3424,7 @@
     if (!historyPlan || !historyActions().length) return;
     const btn = $("statement-history-save");
     const status = $("statement-review-status");
-    const hc = historyCounts(), adding = hc.entries, updating = hc.charges + hc.discounts + hc.recharges + hc.accountsFilled;
+    const hc = historyCounts(), adding = hc.entries, updating = hc.charges + hc.discounts + hc.recharges + hc.accountsFilled + hc.flips + hc.ncMoved;
     // Purchases already in the app that take the card's figure are a change too: never say "nothing is added" about them alone.
     // Both when a statement adds AND corrects purchases already in the app (Carlos, 2026-11-10: only the added ones were named).
     // Another app's export brings its categories, and after saving the app names any left without one (hist.savedCategoriesMissed),
@@ -3309,8 +3434,10 @@
     const waiting = (hc.pending || 0) + (hc.pendingInvestments || 0), confirming = adding - waiting;
     const addText = (confirming > 0 ? tr(screenMode === "import" ? "hist.confirmImport" : "hist.confirm", { n: confirming }) : "")
       + (waiting > 0 ? (confirming > 0 ? " " : "") + tr("hist.confirmWaiting", { n: waiting }) : "");
-    const askText = adding ? addText + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
-      : updating ? tr("hist.confirmUpdate", { n: updating }) : tr("hist.confirmKeep");
+    // Entries the bank never charged that the person removes (Part B) are said apart: removing is not "updating".
+    const askText = (adding ? addText + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
+      : updating ? tr("hist.confirmUpdate", { n: updating }) : hc.ncRemoved ? "" : tr("hist.confirmKeep"))
+      + (hc.ncRemoved ? (adding || updating ? " " : "") + tr("hist.confirmRemoveNc", { n: hc.ncRemoved }) : "");
     // A starting balance this save corrects (owner's plan, step 3): said too, since it moves every balance after it.
     const coveredNow = coveredLines(historyActions(false));
     // (an accepted correction made only of "already charged" purchases leaves the number as typed: not counted as a correction)
@@ -3354,6 +3481,9 @@
       const outcome = (loanFails.length ? `<p class="stmt-note warn">${escapeHtml(tr("hist.loanFailed", { n: loanFails.length }))}<br>${loanFails.map(escapeHtml).join("<br>")}</p>` : "") + (waiting ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedPending", { n: waiting }))}</p><div class="stmt-choices" style="padding-left:0"><button type="button" class="stmt-choice stmt-goreview-btn">${escapeHtml(tr("added.goReview"))}</button></div>` : "")
         + (res.chargesFilled ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.charges", { n: res.chargesFilled }))}</p>` : "")
         + (res.discounts ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.discounts", { n: res.discounts }))}</p>` : "")
+        + (res.flips ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.flips", { n: res.flips }))}</p>` : "")
+        + (res.notChargedRemoved ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.ncRemoved", { n: res.notChargedRemoved }))}</p>` : "")
+        + (res.notChargedMoved ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.ncMoved", { n: res.notChargedMoved }))}</p>` : "")
         + (res.recharges ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.recharges", { n: res.recharges }))}</p>` : "")
         + (notAdded ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedNotAdded", { n: notAdded }))}</p>` : "")
         + (res.categoriesGuessed ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedGuessed", { n: res.categoriesGuessed }))}</p>` : "")
@@ -3661,6 +3791,20 @@
       renderHistoryPlan();
       return;
     }
+    const nc = e.target.closest("[data-nc]");
+    if (nc) {
+      const k = Number(nc.dataset.nc), cur = ncOf_(k), want = nc.dataset.pick;
+      const same = want === "move" ? cur === "move" || cur.startsWith("move:") : cur === want;
+      if (same) historyPlan.ncChoice.delete(k); else historyPlan.ncChoice.set(k, want);
+      renderHistoryPlan();
+      return;
+    }
+    const flip = e.target.closest("[data-flip]");
+    if (flip) {
+      historyPlan.flipChoice.set(Number(flip.dataset.flip), flipOf(Number(flip.dataset.flip)) === flip.dataset.pick ? "" : flip.dataset.pick);
+      renderHistoryPlan();
+      return;
+    }
     const disc = e.target.closest("[data-disc]");
     if (disc) {
       historyPlan.discountChoice.set(Number(disc.dataset.disc), discountOf(Number(disc.dataset.disc)) === disc.dataset.pick ? "" : disc.dataset.pick);
@@ -3733,6 +3877,14 @@
     renderHistoryPlan();
   });
   $("statement-history").addEventListener("change", (e) => {
+    if (historyPlan && e.target.dataset && e.target.dataset.ncpm !== undefined) {
+      // (the box's own "More…" opens the accounts screen and sets the value; an empty value keeps "Paid from another account" open)
+      const k = Number(e.target.dataset.ncpm), v = e.target.value;
+      if (!v || v.startsWith("__")) return;
+      historyPlan.ncChoice.set(k, "move:" + v);
+      renderHistoryPlan();
+      return;
+    }
     if (!historyPlan || !e.target.classList || !e.target.classList.contains("stmt-platform")) return;
     const aside = historyPlan.summary.aside || [];
     if (e.target.dataset.pidx !== undefined) historyPlan.platform.set(Number(e.target.dataset.pidx), e.target.value);

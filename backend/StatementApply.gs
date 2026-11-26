@@ -45,6 +45,11 @@
  *                    (wrong: recorded in the wrong currency, same digits: it keeps nothing as paid)
  *   use_bank_amount  { stmt, line, entryId }  the card charged LESS than this purchase (a discount): it takes the line's amount
  *                    (Charges.gs fillEntryCharge); Undo puts it back to pending
+ *   fix_entry_type   { stmt, line, entryId }  the line is this entry saved the wrong way round: an expense becomes an income (or the
+ *                    reverse, category guessed from the place, else none), a transfer swaps From and To (owner, 2026-11-26)
+ *   remove_not_charged / move_not_charged { stmt, entryId, pmId? } / keep_not_charged { stmt, entryId }   an entry on this statement's
+ *                    account that no line shows (StatementBalance.gs, stmtNotCharged_): removed (safety copy in Recently deleted, Undo restores),
+ *                    moved to another account, or kept (remembered as 'kept' in Statement Lines, never asked again)
  *   assign_account   { stmt, line, entryId }  entry has no account yet
  *   link             { stmt, line, entryId }  remember a matched line (no change)
  *   ignore / wait    { stmt, line }
@@ -292,7 +297,7 @@ function applyStatementDecisionsCore_(payload) {
   var lastRow = sheet.getLastRow();
   var values = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues() : [];
   var col = {};
-  ['id', 'type', 'category_id', 'status', 'payment_method_id', 'to_payment_method_id', 'merchant', 'external_id', 'description', 'amount', 'currency', 'date'].forEach(function (h) { col[h] = headers.indexOf(h); });
+  ['id', 'type', 'category_id', 'status', 'payment_method_id', 'to_payment_method_id', 'merchant', 'external_id', 'description', 'amount', 'currency', 'date', 'paid_by'].forEach(function (h) { col[h] = headers.indexOf(h); });
   var rowById = {};
   values.forEach(function (r, i) { rowById[String(r[col.id])] = i; });
   var existingExternal = {};
@@ -312,12 +317,26 @@ function applyStatementDecisionsCore_(payload) {
   var keepStart = {};
   actions.forEach(function (a) { if (a.type === 'start_not_yet') (a.bank_ids || []).forEach(function (id) { keepStart[String(id)] = true; }); });
   actions.forEach(function (a) {
-    if (!(a.type === 'match' || a.type === 'assign_account' || a.type === 'link' || a.type === 'use_bank_amount' || a.type === 'complete_transfer') || !a.entryId || a.stored) return;
+    if (!(a.type === 'match' || a.type === 'assign_account' || a.type === 'link' || a.type === 'use_bank_amount' || a.type === 'complete_transfer' || a.type === 'fix_entry_type') || !a.entryId || a.stored) return;
     var s = stmts[a.stmt];
     var end = s && s.period ? s.period.end : '';
     if (end) (coverBySave[String(a.entryId)] = coverBySave[String(a.entryId)] || {})[end] = true;
   });
   var colChanged = {};   // field -> true, so only touched columns are rewritten
+  var flipsDone = {};    // entries fix_entry_type already turned around in this save
+  var notChargedDone = {}, notChargedRemove = [];   // Part B's answers, one per entry; the entries to remove (after every column write)
+  var flipGuardsMemo = null;
+  // What a change of type must not break (the same reading as analyzeStatements'): loans' and repayments' money, shared entries.
+  function flipGuards() {
+    if (flipGuardsMemo) return flipGuardsMemo;
+    var lt = {}, locked = {};
+    ['Loans', 'Settlements'].forEach(function (t) { getAllRows(t).forEach(function (r) { if (r.transfer_entry_id) lt[r.transfer_entry_id] = true; }); });
+    getAllRows('Entry Splits').forEach(function (r) { if (r.entry_id) locked[r.entry_id] = 'shared'; });
+    getAllRows('Loans').forEach(function (r) { if (r.origin === 'entry' && r.entry_id) locked[r.entry_id] = 'shared'; });
+    getAllRows('Settlements').forEach(function (r) { if (r.gap_entry_id) locked[r.gap_entry_id] = 'repayment'; });
+    flipGuardsMemo = { loanTransfers: lt, locked: locked };
+    return flipGuardsMemo;
+  }
 
   function useLine(L) {
     var k = L.stmt + ':' + L.idx;
@@ -659,6 +678,62 @@ function applyStatementDecisionsCore_(payload) {
       if (entD && stmtInsideStart_(entD, ownD) && !keepStart[String(a.entryId)]) startOps.push({ pm: pmD, currency: du.l.currency, shift: Math.round((recordedAmt - charged) * 100) / 100, entryId: String(a.entryId) });
       report.discounts = (report.discounts || 0) + 1;
       remember(du, 'matched', a.entryId);
+    } else if (a.type === 'fix_entry_type') {
+      // Saved the wrong way round (owner, 2026-11-26): the line IS this entry, with the money going the other way. An expense becomes an
+      // income (or the reverse), its category the one the person uses for that place, else none (it then waits in Tidy my history); a
+      // transfer swaps From and To. Judged again here, as the matcher would: the phone's pairing is never trusted.
+      var fx = line(a); useLine(fx);
+      var fi = rowById[String(a.entryId)];
+      if (fi === undefined) throw new Error(tr_('sa.entryNotFound', { id: a.entryId }));
+      var fe = getEntryById_(String(a.entryId)), pmF = requirePm(fx);
+      if (pmF.noAccount || !fe) throw new Error(tr_('sa.flipMismatch'));
+      var fkind = stmtFlipKind_(fe, { pmId: pmF.id, card: pmF.type === 'credit' }, fx.l, flipGuards().loanTransfers);
+      if (!fkind || stmtFlipLock_(fe, flipGuards().locked)) throw new Error(tr_('sa.flipMismatch'));
+      if (!flipsDone[String(a.entryId)]) {   // a transfer's two statements in one save: turned around once
+        flipsDone[String(a.entryId)] = true;
+        if (fkind === 'swap') {
+          var wasFrom = values[fi][col.payment_method_id], wasTo = values[fi][col.to_payment_method_id];
+          setCell(a.entryId, 'payment_method_id', wasTo || '');
+          setCell(a.entryId, 'to_payment_method_id', wasFrom || '');
+        } else {
+          var newType = fe.type === 'income' ? 'expense' : 'income';
+          var gcat = guessLineCategory(fx.l.description);
+          setCell(a.entryId, 'type', newType);
+          setCell(a.entryId, 'category_id', gcat && catsById[gcat] && catsById[gcat].type === newType ? gcat : '');
+          setCell(a.entryId, 'paid_by', newType === 'expense' ? 'me' : '');
+          if (!values[fi][col.payment_method_id]) setCell(a.entryId, 'payment_method_id', pmF.id);
+        }
+        if (!values[fi][col.merchant] && stmtMerchantKey_(fx.l.description)) setCell(a.entryId, 'merchant', stmtMerchantKey_(fx.l.description));
+        report.flips = (report.flips || 0) + 1;
+      }
+      remember(fx, 'matched', a.entryId);
+    } else if (a.type === 'remove_not_charged' || a.type === 'move_not_charged' || a.type === 'keep_not_charged') {
+      // An entry on this statement's account that no line shows (owner's plan, 2026-11-26, Part B): the person said the bank never charged
+      // it (removed, with its safety copy in Recently deleted), that it was paid from another account (moved), or to keep it (remembered,
+      // never asked again). Judged again here.
+      var ns = stmts[a.stmt], npm = ns ? accounts[a.stmt] : null;
+      var ne = getEntryById_(String(a.entryId || ''));
+      if (!ns || !npm || npm.noAccount) throw new Error(tr_('sa.unknownLine'));
+      if (!ne) throw new Error(tr_('sa.entryNotFound', { id: a.entryId }));
+      if ((ne.type !== 'expense' && ne.type !== 'income') || ne.status !== 'confirmed' || ne.payment_method_id !== npm.id) throw new Error(tr_('sa.notChargedMismatch'));
+      if (notChargedDone[ne.id]) throw new Error(tr_('sa.twoActions'));
+      notChargedDone[ne.id] = true;
+      if (a.type === 'keep_not_charged') {
+        outcomes.push({ id: Utilities.getUuid(), line_key: 'kept-' + ne.id, account_key: covKey_(ns.key), period_end: (ns.period || {}).end || '',
+          date: String(ne.date || '').slice(0, 10), description: String(ne.description || ''), amount: Number(ne.amount), currency: ne.currency || homeCurrency_(),
+          outcome: 'kept', entry_id: ne.id, batch_id: batchId, created_at: now });
+        report.notChargedKept = (report.notChargedKept || 0) + 1;
+      } else if (entryBulkVerdict_(ne)) {
+        throw new Error(tr_('sa.notChargedLinked'));
+      } else if (a.type === 'move_not_charged') {
+        var to = pmsById[String(a.pmId || '')];
+        if (!to || to.id === npm.id || to.type === 'investment' || isPracticeAccount_(to)) throw new Error(tr_('sa.notChargedMismatch'));
+        setCell(ne.id, 'payment_method_id', to.id);
+        report.notChargedMoved = (report.notChargedMoved || 0) + 1;
+      } else {
+        notChargedRemove.push(ne.id);
+        report.notChargedRemoved = (report.notChargedRemoved || 0) + 1;
+      }
     } else if (a.type === 'complete_transfer') {
       var c = line(a); useLine(c);
       var j = rowById[String(a.entryId)];
@@ -929,6 +1004,18 @@ function applyStatementDecisionsCore_(payload) {
     });
   }
 
+  // Entries the bank never charged (Part B): removed LAST of the entry writes (a deleted row would shift the column writes above), through
+  // Home's bulk delete, so each has its safety copy in Recently deleted; Undo restores it from there.
+  if (notChargedRemove.length) {
+    if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Entry Splits']; delete ROWS_MEMO_['Loans']; }
+    var gone = deleteEntries({ ids: notChargedRemove });
+    (gone.deleted || []).forEach(function (id) {
+      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: id, field: '__removed__', old_value: '', new_value: String(gone.batch_id || ''), created_at: now });
+    });
+    report.notChargedRemoved = (gone.deleted || []).length;
+    if ((gone.kept || []).length) report.warnings.push(tr_('sa.notChargedLinked'));
+  }
+
   // Remember the lines. A line decided before is replaced, not duplicated.
   var newKeys = {};
   outcomes.forEach(function (o) { newKeys[o.line_key] = true; });
@@ -1033,6 +1120,15 @@ function undoStatementBatch(payload) {
     esheet.getRange(2, ci + 1, evalues.length, 1).setValues(sheetSafeRows_(evalues.map(function (r) { return [r[ci]]; })));
   });
   if (Object.keys(touched).length) bumpStructureVersion_();   // bulk column write — phones reload fully
+  // Entries this upload removed as never charged (Part B): back from their safety copy.
+  var removedByBatch = {};
+  changes.filter(function (c) { return c.sheet === 'Entries' && c.field === '__removed__' && c.new_value; }).forEach(function (c) {
+    (removedByBatch[c.new_value] = removedByBatch[c.new_value] || []).push(c.row_id);
+  });
+  Object.keys(removedByBatch).forEach(function (b) {
+    var back = restoreDeletedEntries({ batch_id: b, ids: removedByBatch[b] });
+    res.restoredEntries = (res.restoredEntries || 0) + (back.restored || []).length;
+  });
   // A charge this upload filled in is pending again: a shared expense's split goes back to what was paid (its debts already are).
   var chargeMarks = changes.filter(function (c) { return c.sheet === 'Entries' && c.field === '__charge_fill__'; });
   if (chargeMarks.length) {
