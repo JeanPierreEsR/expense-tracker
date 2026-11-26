@@ -1,0 +1,8 @@
+{
+  "yape-enviado": [
+    {"subject": "Por tu seguridad, te notificaremos por cada yapeo que realices", "body": "¡Hola, Eva Ram*!\n¡Acabas de yapear exitosamente!\nMonto de yapeo*\nS/ 25.00\nYapero Eva Ram*\nFecha y Hora de la operación 12 septiembre 2026 - 01:57 p. m.\nNombre del Beneficiario Ana Lo*\nNº de operación 1234", "expect": {"type": "expense", "needsReview": true, "amount": 25, "currency": "PEN", "description": "Yape a Ana Lo", "externalId": "1234"}}
+  ],
+  "yape-enviado-dolares": [
+    {"subject": "Por tu seguridad, te notificaremos por cada yapeo que realices", "body": "¡Hola, Eva Ram*!\nYapeaste $10.11 a Rosa Lo*. Has hecho un yapeo con 'Yape dólares'.\nNº de operación 5678", "expect": {"type": "expense", "needsReview": true, "amount": 10.11, "currency": "USD", "description": "Yape a Rosa Lo", "externalId": "5678"}}
+  ]
+}

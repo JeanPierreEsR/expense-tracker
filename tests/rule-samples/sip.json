@@ -14,5 +14,8 @@
   "sip-transferencia-otro-banco": [
     { "subject": "Operación realizada", "body": "Transferencia a otro banco\nMonto S/ 60.00\nDestino Persona Prueba\nNro. de Operación 333444",
       "expect": { "type": "expense", "needsReview": true, "amount": 60, "currency": "PEN", "description": "Persona Prueba", "externalId": "333444" } }
+  ],
+  "sip-enviar-a-celular": [
+    {"subject": "Realizaste una operación", "body": "Hola Eva\nPor tu seguridad, te enviamos\nlos datos de tu operación.\nOperación realizada: Enviar a celular\nMonto\nS/ 12.00\nEnviado a\nAna Prueba Lopez\n*** ***111\nDestino\nYape\nFecha y Hora\n13/09/2026 - 10:35\nComisión\nGratis\nNro. de Operación\n1234", "expect": {"type": "expense", "needsReview": true, "amount": 12, "currency": "PEN", "description": "Envío a celular: Ana Prueba Lopez", "externalId": "1234"}}
   ]
 }
