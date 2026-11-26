@@ -2682,12 +2682,14 @@ body.income-revealed .sens-mask { display: none; }
 .search-results-card .entry-updating { opacity: 0.45; pointer-events: none; }
 .search-show-more { width: 100%; margin-top: 8px; }
 
-/* "Possible duplicate" note on a review-queue row (see findSameDayTwins_ in Api.gs). */
+/* "Possible duplicate" note on a review-queue row (see findSameDayTwins_ in Api.gs). White with an amber stripe: a pale
+   orange fill looked like the queue's own background showing through the card (owner, 2026-11-26). */
 .review-dup-warning {
   margin: 8px 0;
-  padding: 8px 10px;
+  padding: 8px 10px 8px 12px;
+  border-left: 4px solid var(--warn);
   border-radius: var(--r-sm);
-  background: var(--warn-bg);
+  background: var(--card);
   color: var(--warn-text);
   font-size: 0.875rem;
 }
