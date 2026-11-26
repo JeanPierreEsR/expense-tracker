@@ -519,6 +519,7 @@ function restoreAccountMove(payload) {
   return withScriptLockOnce_(function () {
     var rec = accountMoveRecord_(payload && payload.move_id);
     if (!rec) throw new Error(tr_('err.moveUndoGone'));
+    if (rec.undo.kind === 'split') return restoreAccountSplit_(rec);   // a separation (AccountNumbers.gs)
     var u = rec.undo;
     var fromId = String(u.from.id), toId = String(u.toId);
     var ids = function (list) { var o = {}; (list || []).forEach(function (id) { o[String(id)] = true; }); return o; };

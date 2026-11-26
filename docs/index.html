@@ -4624,7 +4624,28 @@
           <p class="hint" data-i18n="move.hint">Replaced this card with a new one, or have the same account in two currencies? Move all its history to the other account, and this one is deleted.</p>
           <button type="button" class="cancel-edit-btn" id="pm-move-btn" data-i18n="move.button">Move its history to another account…</button>
         </div>
+        <div id="pm-split-box" hidden>
+          <p class="hint" data-i18n="split.hint">In two currencies? Separate one of them into its own account, with its number and everything recorded in it.</p>
+          <button type="button" class="cancel-edit-btn" id="pm-split-btn" data-i18n="split.button">Separate into two accounts…</button>
+        </div>
       </div>
+    </div>
+  </div>
+
+  <div id="pmsplit-modal-backdrop" class="currency-modal-backdrop rate-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span data-i18n="split.title">Separate account</span>
+        <button type="button" id="pmsplit-modal-close" class="currency-modal-close">✕</button>
+      </div>
+      <p id="pmsplit-from-line"></p>
+      <label for="pmsplit-cur" data-i18n="split.cur">Currency for the new account</label>
+      <select id="pmsplit-cur"></select>
+      <label for="pmsplit-name" data-i18n="split.name">Name of the new account</label>
+      <input type="text" id="pmsplit-name" maxlength="60">
+      <div id="pmsplit-summary" aria-live="polite"></div>
+      <p class="hint error-text" id="pmsplit-form-error" role="alert"></p>
+      <button type="button" class="primary" id="pmsplit-save-btn" data-i18n="split.go" hidden>Separate</button>
     </div>
   </div>
 

@@ -130,14 +130,30 @@ function pmSaveMoreLast4_(id, payload, row, mainDigits) {
 function accountMergePlan_(from, to) {
   if (String(from.type) !== 'debit' || String(to.type) !== 'debit') return null;
   if (!String(from.bank_id || '') || String(from.bank_id) !== String(to.bank_id || '')) return null;
-  var fromCur = applePayAccountCurrencies_(from), toCur = applePayAccountCurrencies_(to);
+  var fromCur = pmCurrenciesOrGuess_(from), toCur = pmCurrenciesOrGuess_(to);
   if (!fromCur.length || !toCur.length || fromCur.some(function (c) { return toCur.indexOf(c) !== -1; })) return null;
   var currencies = toCur.concat(fromCur);
-  var digits = Object.assign({}, pmDigitsByCurrency_(from), pmDigitsByCurrency_(to));
-  delete digits[''];
+  // An account with no currency on record: its main digits belong to the currency guessed for it.
+  var byCur = function (pm, list) { var d = pmDigitsByCurrency_(pm); if (d[''] && list.length === 1 && !d[list[0]]) d[list[0]] = d['']; delete d['']; return d; };
+  var digits = Object.assign({}, byCur(from, fromCur), byCur(to, toCur));
   var main = pmMainDigitsCurrency_(currencies);
   var more = currencies.filter(function (c) { return c !== main && digits[c]; }).map(function (c) { return { currency: c, digits: digits[c] }; });
   return { currencies: currencies, last_4: digits[main] || '', last_4_more: pmMoreLast4Value_(more), digits: digits };
+}
+
+// The currencies of an account, or — for an account made before currencies were kept (the owner's own, 2026-11-26: his "BCP soles" and
+// "BCP dolares" were never offered the join) — the one its name states ("soles", "dólares"), else the one most of its entries are in.
+function pmCurrenciesOrGuess_(pm) {
+  var known = applePayAccountCurrencies_(pm);
+  if (known.length || !accountCurrencyUnknown_(pm)) return known;
+  var named = accountNameCurrency_(pm.nickname);
+  if (named) return [named];
+  var list = [];
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status === 'confirmed' && e.currency && (String(e.payment_method_id) === String(pm.id) || String(e.to_payment_method_id) === String(pm.id))) list.push(String(e.currency));
+  });
+  var fromEntries = accountEntriesCurrencies_(list);
+  return fromEntries.length === 1 ? fromEntries : [];
 }
 
 // The new account becomes the joined one (after the old one was deleted, so it may take the old one's name). Answers what Undo needs.
@@ -202,4 +218,177 @@ function accountMergePreview_(p) {
 function pmCheckMoreLast4_(raw) {
   if (!Array.isArray(raw)) return;
   raw.forEach(function (it) { var d = String((it && it.digits) || '').trim(); if (d && !/^\d{4}$/.test(d)) throw new Error(tr_('err.pmLast4')); });
+}
+
+// ---- Separating one account into two (owner, 2026-11-26: "build also separating two accounts, if I have only one with two account
+// numbers") — the reverse of a join. One currency of a bank account in several currencies leaves for a NEW account of the same bank,
+// with that currency's number and everything recorded in it: entries in that currency (either end of a transfer), loans in it and their
+// repayments, its starting balance, its statements (the ones with its number, an AhorraMás one of that currency, or a spreadsheet whose
+// closing balance is only in it) and their differences, and the wallet link of that currency (Yape in dollars…). The account keeps the
+// rest. Kept 30 days in Recently deleted like a move (Account Moves, kind 'split'); Restore sends everything on the new account back.
+
+function accountSplitPair_(payload) {
+  var id = String((payload && payload.id) || ''), cur = String((payload && payload.currency) || '').trim().toUpperCase();
+  var pm = getAllRows('Payment Methods').find(function (p) { return String(p.id) === id; });
+  if (!pm || isPracticeAccount_(pm)) throw new Error(tr_('err.pmNotFound'));
+  var list = applePayAccountCurrencies_(pm);
+  if (String(pm.type) !== 'debit' || list.length < 2 || list.indexOf(cur) === -1) throw new Error(tr_('err.splitNot'));
+  return { pm: pm, id: id, currency: cur, rest: list.filter(function (c) { return c !== cur; }), digits: pmDigitsByCurrency_(pm)[cur] || '' };
+}
+
+// What leaves with the currency: { Entries: { payment_method_id: [ids], to_payment_method_id: [ids] }, Loans, Settlements,
+// 'Account Opening Balances', 'Statement Uploads', 'Statement Gaps': [ids] } plus the rows (for the closed-month check).
+function accountSplitRows_(p) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), home = homeCurrency_(), cur = p.currency;
+  var curOf = function (r) { return String(r.currency || home).toUpperCase(); };
+  var out = { entries: { payment_method_id: [], to_payment_method_id: [] }, sheets: {}, touched: { Entries: [], Loans: [], Settlements: [] } };
+  getAllRows('Entries').forEach(function (e) {
+    if (curOf(e) !== cur) return;
+    var hit = false;
+    if (String(e.payment_method_id || '') === p.id) { out.entries.payment_method_id.push(String(e.id)); hit = true; }
+    if (String(e.to_payment_method_id || '') === p.id) { out.entries.to_payment_method_id.push(String(e.id)); hit = true; }
+    if (hit) out.touched.Entries.push(e);
+  });
+  var loanCur = {};
+  if (ss.getSheetByName('Loans')) {
+    var loans = getAllRows('Loans');
+    loans.forEach(function (l) { loanCur[String(l.id)] = curOf(l); });
+    out.touched.Loans = loans.filter(function (l) { return String(l.payment_method_id || '') === p.id && curOf(l) === cur; });
+  }
+  out.sheets.Loans = out.touched.Loans.map(function (r) { return String(r.id); });
+  if (ss.getSheetByName('Settlements')) {
+    out.touched.Settlements = getAllRows('Settlements').filter(function (s) { return String(s.payment_method_id || '') === p.id && loanCur[String(s.loan_id)] === cur; });
+  }
+  out.sheets.Settlements = out.touched.Settlements.map(function (r) { return String(r.id); });
+  ensureAccountOpeningBalancesSheet_();
+  out.sheets['Account Opening Balances'] = getAllRows('Account Opening Balances').filter(function (b) {
+    return String(b.payment_method_id) === p.id && String(b.currency).toUpperCase() === cur;
+  }).map(function (r) { return String(r.id); });
+  var keys = {};
+  if (p.digits) keys[covKey_(p.digits)] = true;
+  keys['AHORRA-' + cur] = true;
+  var uploadIn = function (u) {
+    if (keys[covKey_(u.account_key)] || keys[String(u.account_key)]) return true;
+    var bal = {};
+    try { bal = JSON.parse(String(u.closing_json || '{}')) || {}; } catch (e) { bal = {}; }
+    var curs = Object.keys(bal);
+    return String(u.account_key).indexOf(STMT_ACCT_KEY_PREFIX_) === 0 && curs.length === 1 && curs[0] === cur;
+  };
+  out.sheets['Statement Uploads'] = ss.getSheetByName('Statement Uploads') ? getAllRows('Statement Uploads').filter(function (u) {
+    return String(u.payment_method_id || '') === p.id && uploadIn(u);
+  }).map(function (r) { return String(r.id); }) : [];
+  out.sheets['Statement Gaps'] = ss.getSheetByName('Statement Gaps') ? getAllRows('Statement Gaps').filter(function (g) {
+    return String(g.payment_method_id || '') === p.id && String(g.currency || '').toUpperCase() === cur;
+  }).map(function (r) { return String(r.id); }) : [];
+  return out;
+}
+
+// The wallet links of that currency on the account (yape_usd for dollars, yape_pen / plin_pen for soles).
+function accountSplitLinks_(p, settings) {
+  var suffix = '_' + p.currency.toLowerCase();
+  var keys = RAIL_LINK_KEYS_.filter(function (k) { return k.slice(-suffix.length) === suffix && String(settings[k] || '') === p.id; });
+  if (p.currency === 'PEN' && plinMoreIds_(settings).indexOf(p.id) !== -1) keys.push(PLIN_MORE_KEY_);
+  return keys;
+}
+
+function previewAccountSplit(payload) {
+  var p = accountSplitPair_(payload);
+  var r = accountSplitRows_(p);
+  var links = accountSplitLinks_(p, getSettingsMap());
+  var ids = {};
+  r.entries.payment_method_id.concat(r.entries.to_payment_method_id).forEach(function (id) { ids[id] = true; });
+  return {
+    id: p.id, nickname: String(p.pm.nickname), currency: p.currency, rest: p.rest, digits: p.digits,
+    counts: { entries: Object.keys(ids).length, loans: r.sheets.Loans.length, repayments: r.sheets.Settlements.length,
+      statements: r.sheets['Statement Uploads'].length, balances: r.sheets['Account Opening Balances'].length },
+    links: links.map(railLinkName_).filter(function (n, i, a) { return a.indexOf(n) === i; }),
+    closedMonths: accountMoveClosedHit_(r.touched)
+  };
+}
+
+function splitAccount(payload) {
+  return withScriptLockOnce_(function () {
+    var p = accountSplitPair_(payload);
+    var name = String((payload && payload.name) || '').trim().slice(0, 60);
+    if (!name) throw new Error(tr_('err.enterName'));
+    var r = accountSplitRows_(p);
+    var closed = accountMoveClosedHit_(r.touched);
+    if (closed.length) throw new Error(tr_('err.moveClosed', { months: closed.join(', ') }));
+    // 1. The new account: same bank, the one currency, its number (savePaymentMethod checks the name).
+    var made = savePaymentMethod({ nickname: name, type: 'debit', bank_id: String(p.pm.bank_id || ''), last_4: p.digits, currencies: [p.currency] });
+    var newId = String(made.id);
+    // 2. The account keeps the other currencies and numbers (its main number may change with them).
+    var digits = pmDigitsByCurrency_(p.pm);
+    delete digits[''];
+    var main = pmMainDigitsCurrency_(p.rest);
+    var before = { currencies: String(p.pm.currencies || ''), last_4: covKey_(p.pm.last_4), last_4_more: String(p.pm[PM_MORE_LAST4_COLUMN_] || ''),
+      nickname: String(p.pm.nickname), alias_auto: String(p.pm.alias_auto || '') };
+    var after = { currencies: accountCurrenciesValue_(p.rest), last_4: digits[main] || '', nickname: before.nickname, alias_auto: before.alias_auto,
+      last_4_more: pmMoreLast4Value_(p.rest.filter(function (c) { return c !== main && digits[c]; }).map(function (c) { return { currency: c, digits: digits[c] }; })) };
+    ensurePaymentMethodCurrenciesColumn_();
+    pmWriteMergeFields_(p.id, after);
+    // 3. What was recorded in that currency.
+    var undo = { kind: 'split', from: Object.assign({}, p.pm), toId: newId, before: before, after: after, entries: {}, sheets: {}, settingsBefore: {}, settingsAfter: {} };
+    ['payment_method_id', 'to_payment_method_id'].forEach(function (f) {
+      var only = {};
+      r.entries[f].forEach(function (id) { only[id] = true; });
+      undo.entries[f] = r.entries[f].length ? accountMoveEntriesField_(f, p.id, newId, only) : [];
+    });
+    [['Loans', 'payment_method_id'], ['Settlements', 'payment_method_id'], ['Account Opening Balances', 'payment_method_id'],
+      ['Statement Uploads', 'payment_method_id'], ['Statement Gaps', 'payment_method_id']].forEach(function (s) {
+      var only = {};
+      (r.sheets[s[0]] || []).forEach(function (id) { only[id] = true; });
+      undo.sheets[s[0]] = Object.keys(only).length ? accountMoveColumn_(s[0], s[1], p.id, newId, only) : [];
+    });
+    // 4. The wallet links of that currency follow it.
+    var settings = getSettingsMap();
+    var links = accountSplitLinks_(p, settings);
+    RAIL_LINK_KEYS_.concat([PLIN_MORE_KEY_]).forEach(function (k) { undo.settingsBefore[k] = String(settings[k] || ''); });
+    links.forEach(function (k) {
+      if (k === PLIN_MORE_KEY_) setSetting_(k, plinMoreIds_(settings).map(function (id) { return id === p.id ? newId : id; }).join(','));
+      else setSetting_(k, newId);
+    });
+    var now = getSettingsMap();
+    RAIL_LINK_KEYS_.concat([PLIN_MORE_KEY_]).forEach(function (k) { undo.settingsAfter[k] = String(now[k] || ''); });
+    var ids = {};
+    undo.entries.payment_method_id.concat(undo.entries.to_payment_method_id).forEach(function (id) { ids[id] = true; });
+    var counts = { split: true, currency: p.currency, entries: Object.keys(ids).length, loans: undo.sheets.Loans.length, repayments: undo.sheets.Settlements.length,
+      statements: undo.sheets['Statement Uploads'].length, balances: undo.sheets['Account Opening Balances'].length, links: links.length };
+    var moveId = Utilities.getUuid();
+    saveAccountMove_(moveId, String(p.pm.nickname), name, counts, undo);
+    bumpStructureVersion_();
+    return { move_id: moveId, from: { id: p.id, nickname: String(p.pm.nickname) }, to: { id: newId, nickname: String(made.nickname) }, counts: counts };
+  });
+}
+
+// Restore of a separation: everything on the new account goes back (what was added to it since too: nothing is left on an account
+// about to go), the account gets its currencies and numbers back, and the new account is deleted; later saves that still carry its id
+// land on the original (pm_forward).
+function restoreAccountSplit_(rec) {
+  var u = rec.undo, oldId = String(u.from.id), newId = String(u.toId);
+  var pms = getAllRows('Payment Methods');
+  if (!pms.some(function (pm) { return String(pm.id) === oldId; })) throw new Error(tr_('err.moveUndoGone'));
+  var touched = { Entries: getAllRows('Entries').filter(function (e) { return String(e.payment_method_id || '') === newId || String(e.to_payment_method_id || '') === newId; }), Loans: [], Settlements: [] };
+  ['Loans', 'Settlements'].forEach(function (t) { if (SpreadsheetApp.getActiveSpreadsheet().getSheetByName(t)) touched[t] = getAllRows(t).filter(function (row) { return String(row.payment_method_id || '') === newId; }); });
+  var closed = accountMoveClosedHit_(touched);
+  if (closed.length) throw new Error(tr_('err.moveClosed', { months: closed.join(', ') }));
+  var backIds = {};
+  ['payment_method_id', 'to_payment_method_id'].forEach(function (f) { accountMoveEntriesField_(f, newId, oldId).forEach(function (id) { backIds[id] = true; }); });
+  ['Loans', 'Settlements', 'Account Opening Balances', 'Statement Uploads', 'Statement Gaps'].forEach(function (t) { accountMoveColumn_(t, 'payment_method_id', newId, oldId); });
+  var now = getSettingsMap();
+  RAIL_LINK_KEYS_.forEach(function (k) { if (String(now[k] || '') === newId) setSetting_(k, oldId); });
+  var more = plinMoreIds_(now);
+  if (more.indexOf(newId) !== -1) setSetting_(PLIN_MORE_KEY_, more.map(function (id) { return id === newId ? oldId : id; }).filter(function (id, i, a) { return a.indexOf(id) === i; }).join(','));
+  // The account's currencies and numbers: those it had, plus any added since (a later rename stays).
+  var cur = pms.find(function (pm) { return String(pm.id) === oldId; });
+  var back = Object.assign({}, u.before, { nickname: String(cur.nickname), alias_auto: String(cur.alias_auto || u.before.alias_auto || '') });
+  var nowList = applePayAccountCurrencies_(cur), beforeList = String(u.before.currencies || '').split(',').filter(Boolean);
+  nowList.forEach(function (c) { if (beforeList.indexOf(c) === -1) beforeList.push(c); });
+  back.currencies = accountCurrenciesValue_(beforeList);
+  pmWriteMergeFields_(oldId, back);
+  if (getAllRows('Payment Methods').some(function (pm) { return String(pm.id) === newId; })) deletePaymentMethod({ id: newId });
+  setPmForward_(newId, oldId);
+  deleteRowsWhere_('Account Moves', function (r) { return String(r.id) === rec.id; });
+  bumpStructureVersion_();
+  return { restored: true, entriesBack: Object.keys(backIds).length, from_name: rec.from_name, to_name: rec.to_name, split: true };
 }

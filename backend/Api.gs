@@ -190,7 +190,7 @@ var ONCE_ACTIONS_ = {
   convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, changeDistribution: 1, closeMonth: 1, reopenMonth: 1, sendAccountantPackage: 1, addProjectUnits: 1, saveUnitStage: 1, returnUnitDeposit: 1,   // Business 2 piece 7 (Partners.gs)
   saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1,
   recordRefund: 1, applyRefundMatch: 1,   // Refunds.gs: a resend must not record the same money back twice
-  moveAccountHistory: 1, undoAccountMove: 1, restoreAccountMove: 1   // Accounts: move an account's history (AccountMove.gs); a resend gets the first answer, never a second move
+  moveAccountHistory: 1, undoAccountMove: 1, restoreAccountMove: 1, splitAccount: 1   // Accounts: move an account's history (AccountMove.gs); a resend gets the first answer, never a second move
 };
 
 // Speed (2026-11-02): the app can ask a save to bring back the lists it reloads right after (payload._then =
@@ -428,6 +428,8 @@ function routeActionSwitch_(action, payload) {
     case 'removePaymentMethods': return removePaymentMethods(payload);
     case 'previewAccountMove': return withRowsMemo_(function () { return previewAccountMove(payload); });   // each sheet read once (speed rules)
     case 'moveAccountHistory': return withRowsMemo_(function () { return moveAccountHistory(payload); });   // each sheet read once (speed rules)
+    case 'previewAccountSplit': return withRowsMemo_(function () { return previewAccountSplit(payload); });   // each sheet read once (speed rules)
+    case 'splitAccount': return withRowsMemo_(function () { return splitAccount(payload); });   // each sheet read once (speed rules)
     case 'undoAccountMove': return withRowsMemo_(function () { return undoAccountMove(payload); });   // each sheet read once (speed rules)
     case 'restoreAccountMove': return withRowsMemo_(function () { return restoreAccountMove(payload); });   // each sheet read once (speed rules)
     case 'listAccountMoves': return listAccountMoves(payload);
