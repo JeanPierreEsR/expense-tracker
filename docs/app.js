@@ -9391,8 +9391,8 @@ function exchangeReviewItem_(x, list) {
       <select class="review-x-in">${reviewTransferSideOptions_(x.in.to_payment_method_id || "")}</select>
     </div>
     <div class="review-item-actions">
-      <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
       <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
+      <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
     </div>`;
   const outside = (v) => (v === REVIEW_OUTSIDE_ ? "" : v);
   const done = () => {
@@ -9544,8 +9544,8 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       ${entry.split_match && companyCopyOn_() ? `<label class="review-plan-match review-split-match"><input type="checkbox" class="review-split-check"${reviewSplitOff_.has(entry.id) ? "" : " checked"}> ${escapeHtml(tr("psplit.line", { parts: entry.split_match.parts.map((p) => `${p.name} ${moneyFmt(p.pct).replace(/[.,]00$/, "")} %`).join(", ") }))}</label>` : ""}
       ${entry.plan_match ? `<label class="review-plan-match"><input type="checkbox" class="review-plan-check"${reviewPlanOff_.has(entry.id) ? "" : " checked"}> ${escapeHtml(tr("plan.line", { name: entry.plan_match.description || tr("plan.thePlanned"), month: paceMonthName_(entry.plan_match.month, true) }))}</label>` : ""}
       <div class="review-item-actions">
-        <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
         <button type="button" class="review-discard-btn">${tr("review.discard")}</button>
+        <button type="button" class="review-confirm-btn">${tr("review.confirm")}</button>
       </div>
       ${entry.type === "expense" || entry.type === "income" || entry.type === "transfer" || entry.type === "investment" ? `
       <button type="button" class="add-inline review-more-actions" aria-expanded="${moreOpen}">${tr("review.moreActions")}</button>
