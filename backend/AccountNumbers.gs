@@ -130,14 +130,30 @@ function pmSaveMoreLast4_(id, payload, row, mainDigits) {
 function accountMergePlan_(from, to) {
   if (String(from.type) !== 'debit' || String(to.type) !== 'debit') return null;
   if (!String(from.bank_id || '') || String(from.bank_id) !== String(to.bank_id || '')) return null;
-  var fromCur = applePayAccountCurrencies_(from), toCur = applePayAccountCurrencies_(to);
+  var fromCur = pmCurrenciesOrGuess_(from), toCur = pmCurrenciesOrGuess_(to);
   if (!fromCur.length || !toCur.length || fromCur.some(function (c) { return toCur.indexOf(c) !== -1; })) return null;
   var currencies = toCur.concat(fromCur);
-  var digits = Object.assign({}, pmDigitsByCurrency_(from), pmDigitsByCurrency_(to));
-  delete digits[''];
+  // An account with no currency on record: its main digits belong to the currency guessed for it.
+  var byCur = function (pm, list) { var d = pmDigitsByCurrency_(pm); if (d[''] && list.length === 1 && !d[list[0]]) d[list[0]] = d['']; delete d['']; return d; };
+  var digits = Object.assign({}, byCur(from, fromCur), byCur(to, toCur));
   var main = pmMainDigitsCurrency_(currencies);
   var more = currencies.filter(function (c) { return c !== main && digits[c]; }).map(function (c) { return { currency: c, digits: digits[c] }; });
   return { currencies: currencies, last_4: digits[main] || '', last_4_more: pmMoreLast4Value_(more), digits: digits };
+}
+
+// The currencies of an account, or — for an account made before currencies were kept (the owner's own, 2026-11-26: his "BCP soles" and
+// "BCP dolares" were never offered the join) — the one its name states ("soles", "dólares"), else the one most of its entries are in.
+function pmCurrenciesOrGuess_(pm) {
+  var known = applePayAccountCurrencies_(pm);
+  if (known.length || !accountCurrencyUnknown_(pm)) return known;
+  var named = accountNameCurrency_(pm.nickname);
+  if (named) return [named];
+  var list = [];
+  getAllRows('Entries').forEach(function (e) {
+    if (e.status === 'confirmed' && e.currency && (String(e.payment_method_id) === String(pm.id) || String(e.to_payment_method_id) === String(pm.id))) list.push(String(e.currency));
+  });
+  var fromEntries = accountEntriesCurrencies_(list);
+  return fromEntries.length === 1 ? fromEntries : [];
 }
 
 // The new account becomes the joined one (after the old one was deleted, so it may take the old one's name). Answers what Undo needs.

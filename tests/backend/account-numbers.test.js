@@ -273,3 +273,29 @@ test("separate the MAIN currency: the dollars number becomes the account's main 
   assert.equal(String(old.currencies), "USD");
   assert.equal(run(rt, "getSettingsMap()").yape_pen, res.to.id);
 });
+
+test("join is offered for older accounts with no currency on record: from their names, else from their entries", () => {
+  const { rt } = freshApp({ small: true });
+  const b = bcp(rt);
+  // Made before currencies were kept: no currencies, no kind (the owner's own "BCP soles" / "BCP dolares").
+  const soles = rt.api("savePaymentMethod", { nickname: "BCP made-up soles", type: "debit", bank_id: b.id, last_4: "1111" });
+  const old = rt.api("savePaymentMethod", { nickname: "BCP made-up old", type: "debit", bank_id: b.id, last_4: "2222" });
+  const ex = rows(rt, "Entries").filter((e) => e.type === "expense" && e.status === "confirmed").slice(0, 6);
+  ex.forEach((e) => rt.run(`ensureColumn_('Entries', 'currency'); setEntryField_(${JSON.stringify(e.id)}, 'payment_method_id', ${JSON.stringify(old.id)}); setEntryField_(${JSON.stringify(e.id)}, 'currency', 'USD');`));
+  const p = rt.api("previewAccountMove", { from: old.id, to: soles.id });
+  assert.ok(p.merge, "offered");
+  assert.deepEqual(p.merge.numbers, [{ currency: "PEN", digits: "1111" }, { currency: "USD", digits: "2222" }]);
+  rt.api("moveAccountHistory", { from: old.id, to: soles.id, merge: true, merge_name: "BCP made-up soles" });
+  const pm = pmById(rt, soles.id);
+  assert.equal(String(pm.currencies), "PEN,USD");
+  assert.equal(String(pm.last_4), "1111");
+  assert.equal(String(pm.last_4_more), "USD:2222", "the old number is kept for good");
+});
+
+test("join is not offered when neither the name nor the entries say the currency", () => {
+  const { rt } = freshApp({ small: true });
+  const b = bcp(rt);
+  const a = rt.api("savePaymentMethod", { nickname: "BCP made-up one", type: "debit", bank_id: b.id, last_4: "1111" });
+  const c = rt.api("savePaymentMethod", { nickname: "BCP made-up two", type: "debit", bank_id: b.id, last_4: "2222" });
+  assert.equal(rt.api("previewAccountMove", { from: c.id, to: a.id }).merge, null);
+});
