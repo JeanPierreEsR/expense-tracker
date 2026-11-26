@@ -208,6 +208,7 @@ var BACKEND_STRINGS_ = {
   "err.enterName": { en: "Enter a name.", es: "Ingresa un nombre." },
   "err.pmType": { en: "Pick a valid type.", es: "Elige un tipo válido." },
   "err.moveSame": { en: "Choose a different account to move the history to.", es: "Elige otra cuenta a la cual pasar el historial." },
+  "err.splitNot": { en: "Only a bank account with two or more currencies can be separated, and the currency must be one of its own.", es: "Solo se puede separar una cuenta bancaria con dos o más monedas, y la moneda debe ser una de las suyas." },
   "err.mergeNot": { en: "These two accounts can't be joined into one: both must be bank accounts of the same bank, in different currencies.", es: "Estas dos cuentas no se pueden juntar en una: las dos deben ser cuentas del mismo banco, en monedas distintas." },
   "err.moveKind": { en: "Pick an account of the same kind: a card's history goes to a card, a bank account's to a bank account.", es: "Elige una cuenta del mismo tipo: el historial de una tarjeta va a una tarjeta, el de una cuenta bancaria a una cuenta bancaria." },
   "err.moveClosed": { en: "This would change closed months ({months}). Reopen them first, then move the history.", es: "Esto cambiaría meses cerrados ({months}). Reábrelos primero y luego pasa el historial." },

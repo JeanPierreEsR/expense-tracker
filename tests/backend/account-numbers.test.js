@@ -180,3 +180,96 @@ test("AhorraMás: one account called AhorraMás takes both currencies", () => {
   assert.equal(run(rt, "stmtPmForKey_(getAllRows('Payment Methods'), 'AHORRA-USD').id"), one.id);
   assert.equal(run(rt, "stmtPmForKey_(getAllRows('Payment Methods'), 'AHORRA-PEN').id"), one.id);
 });
+
+// ---- Separating one account into two (the reverse of a join) ----
+function oneYapeWithHistory(rt) {
+  const pm = yapeAccount(rt);   // PEN 1234 + USD 0567
+  const ex = rows(rt, "Entries").filter((e) => e.type === "expense").slice(0, 4);
+  rt.run(`ensureColumn_('Entries', 'currency');
+    setEntryField_(${JSON.stringify(ex[0].id)}, 'payment_method_id', ${JSON.stringify(pm.id)}); setEntryField_(${JSON.stringify(ex[0].id)}, 'currency', 'USD');
+    setEntryField_(${JSON.stringify(ex[1].id)}, 'payment_method_id', ${JSON.stringify(pm.id)}); setEntryField_(${JSON.stringify(ex[1].id)}, 'currency', 'USD');
+    setEntryField_(${JSON.stringify(ex[2].id)}, 'payment_method_id', ${JSON.stringify(pm.id)}); setEntryField_(${JSON.stringify(ex[2].id)}, 'currency', 'PEN');
+    ensureEntriesToPaymentMethodColumn_();
+    appendRowObject('Entries', { id: 'xch-in', type: 'transfer', date: '2026-01-11', amount: 30, currency: 'USD', payment_method_id: '', to_payment_method_id: ${JSON.stringify(pm.id)}, status: 'confirmed', source: 'manual', description: 'Made-up exchange leg' });
+    ensureAccountOpeningBalancesSheet_();
+    appendRowObject('Account Opening Balances', { id: 'ob-pen', payment_method_id: ${JSON.stringify(pm.id)}, currency: 'PEN', amount: 100, date: '2025-12-31' });
+    appendRowObject('Account Opening Balances', { id: 'ob-usd', payment_method_id: ${JSON.stringify(pm.id)}, currency: 'USD', amount: 10, date: '2025-12-31' });
+    setSetting_('yape_pen', ${JSON.stringify(pm.id)}); setSetting_('yape_usd', ${JSON.stringify(pm.id)});`);
+  return { pm, ex };
+}
+
+test("separate: the preview counts what leaves with the currency, without changing anything", () => {
+  const { rt } = freshApp({ small: true });
+  const { pm } = oneYapeWithHistory(rt);
+  const p = rt.api("previewAccountSplit", { id: pm.id, currency: "USD" });
+  assert.equal(p.counts.entries, 3, "two dollar expenses + the dollar exchange leg");
+  assert.equal(p.counts.balances, 1);
+  assert.deepEqual(p.links, ["Yape"]);
+  assert.equal(p.digits, "0567");
+  assert.deepEqual(p.rest, ["PEN"]);
+  assert.equal(String(pmById(rt, pm.id).last_4_more), "USD:0567", "nothing changed yet");
+});
+
+test("separate: a new account takes the currency, its number, its history, its starting balance and Yape in dollars", () => {
+  const { rt } = freshApp({ small: true });
+  const { pm, ex } = oneYapeWithHistory(rt);
+  const res = rt.api("splitAccount", { id: pm.id, currency: "USD", name: "My Yape dollars" });
+  const nu = pmById(rt, res.to.id);
+  assert.equal(nu.nickname, "My Yape dollars");
+  assert.equal(nu.bank_id, pm.bank_id);
+  assert.equal(String(nu.last_4), "0567");
+  assert.equal(String(nu.currencies), "USD");
+  const old = pmById(rt, pm.id);
+  assert.equal(String(old.currencies), "PEN");
+  assert.equal(String(old.last_4), "1234");
+  assert.equal(String(old.last_4_more || ""), "");
+  const entries = rows(rt, "Entries");
+  assert.equal(entries.find((e) => e.id === ex[0].id).payment_method_id, nu.id);
+  assert.equal(entries.find((e) => e.id === ex[1].id).payment_method_id, nu.id);
+  assert.equal(entries.find((e) => e.id === ex[2].id).payment_method_id, pm.id, "soles stay");
+  assert.equal(entries.find((e) => e.id === "xch-in").to_payment_method_id, nu.id);
+  const ob = rows(rt, "Account Opening Balances");
+  assert.equal(ob.find((r) => r.id === "ob-usd").payment_method_id, nu.id);
+  assert.equal(ob.find((r) => r.id === "ob-pen").payment_method_id, pm.id);
+  const s = run(rt, "getSettingsMap()");
+  assert.equal(s.yape_usd, nu.id);
+  assert.equal(s.yape_pen, pm.id);
+  assert.equal(run(rt, "stmtPmForKey_(getAllRows('Payment Methods'), '0567').id"), nu.id);
+  assert.equal(run(rt, "listAccountMoves()").moves[0].counts.split, true, "kept in Recently deleted");
+});
+
+test("separate: Restore puts everything back on one account and deletes the new one", () => {
+  const { rt } = freshApp({ small: true });
+  const { pm, ex } = oneYapeWithHistory(rt);
+  const res = rt.api("splitAccount", { id: pm.id, currency: "USD", name: "My Yape dollars" });
+  rt.api("restoreAccountMove", { move_id: res.move_id });
+  assert.equal(pmById(rt, res.to.id), undefined);
+  const old = pmById(rt, pm.id);
+  assert.equal(String(old.currencies), "PEN,USD");
+  assert.equal(String(old.last_4_more), "USD:0567");
+  assert.equal(rows(rt, "Entries").find((e) => e.id === ex[0].id).payment_method_id, pm.id);
+  assert.equal(run(rt, "getSettingsMap()").yape_usd, pm.id);
+  assert.equal(run(rt, "listAccountMoves()").moves.length, 0);
+});
+
+test("separate: refused for a one-currency account, a card, a currency it does not have, an empty or taken name", () => {
+  const { rt } = freshApp({ small: true });
+  const { pm } = oneYapeWithHistory(rt);
+  const one = rt.api("savePaymentMethod", { nickname: "One made-up", type: "debit", bank_id: bcp(rt).id, currencies: ["PEN"] });
+  assert.throws(() => rt.api("splitAccount", { id: one.id, currency: "PEN", name: "x" }), /separa/);
+  assert.throws(() => rt.api("splitAccount", { id: pm.id, currency: "EUR", name: "x" }), /separa/);
+  assert.throws(() => rt.api("splitAccount", { id: pm.id, currency: "USD", name: "" }));
+  assert.throws(() => rt.api("splitAccount", { id: pm.id, currency: "USD", name: "Main debit" }), /name|nombre/);
+  assert.equal(String(pmById(rt, pm.id).last_4_more), "USD:0567", "a refused separation changes nothing");
+});
+
+test("separate the MAIN currency: the dollars number becomes the account's main one", () => {
+  const { rt } = freshApp({ small: true });
+  const { pm } = oneYapeWithHistory(rt);
+  const res = rt.api("splitAccount", { id: pm.id, currency: "PEN", name: "My Yape soles" });
+  assert.equal(String(pmById(rt, res.to.id).last_4), "1234");
+  const old = pmById(rt, pm.id);
+  assert.equal(String(old.last_4), "0567");
+  assert.equal(String(old.currencies), "USD");
+  assert.equal(run(rt, "getSettingsMap()").yape_pen, res.to.id);
+});

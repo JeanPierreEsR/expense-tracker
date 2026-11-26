@@ -1083,7 +1083,7 @@ const ONCE_ACTIONS = new Set([
   // Testers 2.68.2: these were protected on the server only, so a "Try again" made a second sale stage. Kept equal to the server's
   // ONCE_ACTIONS_ by tests/backend/once-actions.test.js.
   "addIgvPayment", "assignEntryAccounts", "closeMonth", "reopenMonth", "sendAccountantPackage", "addProjectUnits", "saveUnitStage", "returnUnitDeposit",
-  "moveAccountHistory", "undoAccountMove", "restoreAccountMove",
+  "moveAccountHistory", "undoAccountMove", "restoreAccountMove", "splitAccount",
   "recordRefund", "applyRefundMatch"   // Refunds: a resend must not record the same money back twice
 ]);
 // How long the app waits for ONE attempt of a request that is legitimately long (many statements). Everything else keeps 25 s.
@@ -19213,9 +19213,9 @@ async function refreshDeletedScreen_() {
 function deletedMoveBox_(m, when) {
   const box = document.createElement("div");
   box.className = "deleted-batch";
-  const n = Number((m.counts || {}).entries) || 0;
-  box.innerHTML = `<div class="deleted-batch-title">${escapeHtml(tr("move.recordTitle", { when: when(m.moved_at) }))}</div>
-    <div class="hint deleted-batch-sub">${escapeHtml(tr("move.recordSub", { from: m.from_name, to: m.to_name, n }))}</div>
+  const n = Number((m.counts || {}).entries) || 0, split = !!(m.counts || {}).split;   // a separation (splitAccount) waits here too
+  box.innerHTML = `<div class="deleted-batch-title">${escapeHtml(tr(split ? "split.recordTitle" : "move.recordTitle", { when: when(m.moved_at) }))}</div>
+    <div class="hint deleted-batch-sub">${escapeHtml(split ? tr("split.recordSub", { from: m.from_name, to: m.to_name, currency: m.counts.currency || "" }) : tr("move.recordSub", { from: m.from_name, to: m.to_name, n }))}</div>
     <div class="deleted-batch-actions"><button type="button" class="primary deleted-all">${escapeHtml(tr("move.restore"))}</button><button type="button" class="add-inline deleted-forget">${escapeHtml(tr("deleted.forget"))}</button></div>`;
   const after = async () => {
     try { await loadMeta(); } catch (e) { /* the lists below still refresh */ }
@@ -19228,10 +19228,10 @@ function deletedMoveBox_(m, when) {
   };
   box.querySelector(".deleted-all").addEventListener("click", () => {
     box.remove();
-    saveBehindScreen_(() => callApi("restoreAccountMove", { move_id: m.id }), after, { busy: "deleted.restoring", done: () => tr("move.restored", { name: m.from_name }) });
+    saveBehindScreen_(() => callApi("restoreAccountMove", { move_id: m.id }), after, { busy: "deleted.restoring", done: () => tr(split ? "split.restored" : "move.restored", { name: m.from_name }) });
   });
   box.querySelector(".deleted-forget").addEventListener("click", async () => {
-    if (!await askConfirmApp_(tr("move.confirmForget", { from: m.from_name, to: m.to_name }), tr("confirmBtn.delete"))) return;
+    if (!await askConfirmApp_(tr(split ? "split.confirmForget" : "move.confirmForget", { from: m.from_name, to: m.to_name }), tr("confirmBtn.delete"))) return;
     box.remove();
     saveBehindScreen_(() => callApi("forgetAccountMove", { move_id: m.id }), () => refreshDeletedScreen_().catch(() => {}), { busy: "common.deletingToast" });
   });
@@ -21130,6 +21130,7 @@ function openPmModal_(pm) {
     hideBtn.textContent = tr(pmHidden_(pm) ? "accounts.show" : "accounts.hide");
     document.getElementById("pm-manage-hint").textContent = tr(one ? "accounts.deleteHint" : "accounts.hideHint");
     document.getElementById("pm-move-box").hidden = !accountMoveOn_() || !moveTargets_(pm.id).length || pm.type === "investment";
+    document.getElementById("pm-split-box").hidden = !splitCurrencies_(pm).length;
   }
   const backdrop = document.getElementById("pm-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -21587,6 +21588,95 @@ document.getElementById("move-save-btn").addEventListener("click", () => {
     showUndoToast_(tr(res.merged ? "move.doneMerge" : "move.done", { from: from ? from.nickname : "", to: res.to && res.to.nickname ? res.to.nickname : (to ? to.nickname : "") }), async () => {
       await callApi("undoAccountMove", { move_id: res.move_id });
       showToast_(tr("move.undone"));
+      await refresh();
+    }, "move");
+  });
+});
+
+// ---- Separate one account into two (owner, 2026-11-26; the reverse of a join; backend/AccountNumbers.gs splitAccount) ----
+// A bank account in two or more currencies: the currency picked leaves for a new account of the same bank, with its number and everything
+// recorded in it. Opens at once with "Loading…" for the summary (loading standard); closes at once and saves behind the screen, then Undo.
+function splitCurrencies_(pm) {
+  if (!pm || pm.type !== "debit" || !((meta && meta.capabilities) || {}).accountSplit) return [];
+  const list = accountCurrencyList_(pm);
+  return list.length >= 2 ? list : [];
+}
+let splitFromId_ = null, splitReq_ = 0;
+function openSplitModal_(id) {
+  const pm = meta.paymentMethods.find((p) => p.id === id);
+  const list = splitCurrencies_(pm);
+  if (!list.length) return;
+  splitFromId_ = id;
+  document.getElementById("pmsplit-from-line").textContent = tr("split.from", { name: pm.nickname });
+  const sel = document.getElementById("pmsplit-cur");
+  sel.innerHTML = list.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(`${findCurrency(c).flag} ${c} — ${tr("currency." + c)}`)}</option>`).join("");
+  sel.value = list.find((c) => c !== pmMainDigitsCur_(list)) || list[0];   // the other currency, not the main one, by default
+  document.getElementById("pmsplit-form-error").textContent = "";
+  const backdrop = document.getElementById("pmsplit-modal-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+  splitCurChanged_();
+}
+function closeSplitModal_() { document.getElementById("pmsplit-modal-backdrop").hidden = true; splitFromId_ = null; splitReq_++; }
+document.getElementById("pmsplit-modal-close").addEventListener("click", closeSplitModal_);
+document.getElementById("pm-split-btn").addEventListener("click", () => {
+  if (!pmModalState || !pmModalState.id) return;
+  const id = pmModalState.id;
+  closePmModal_();
+  openSplitModal_(id);
+});
+async function splitCurChanged_() {
+  const id = splitFromId_, cur = document.getElementById("pmsplit-cur").value;
+  const pm = meta.paymentMethods.find((p) => p.id === id);
+  if (!pm) return;
+  document.getElementById("pmsplit-name").value = `${pm.nickname} ${cur}`;
+  const box = document.getElementById("pmsplit-summary"), btn = document.getElementById("pmsplit-save-btn");
+  btn.hidden = true;
+  const req = ++splitReq_;
+  box.innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+  try {
+    const p = await callApi("previewAccountSplit", { id, currency: cur });
+    if (req !== splitReq_) return;
+    if ((p.closedMonths || []).length) { box.innerHTML = `<p class="stmt-note warn">${escapeHtml(tr("move.closed", { months: p.closedMonths.join(", ") }))}</p>`; return; }
+    const c = p.counts, lines = [];
+    const add = (n, key) => { if (n) lines.push(tr(key, { n })); };
+    add(c.entries, "move.n.entries"); add(c.loans, "move.n.loans"); add(c.repayments, "move.n.repayments"); add(c.statements, "move.n.statements"); add(c.balances, "move.n.balances");
+    if ((p.links || []).length) lines.push(tr("move.n.link", { wallet: p.links.join(" / ") }));
+    box.innerHTML = `<p style="margin:10px 0 4px">${escapeHtml(tr(lines.length ? "split.willMove" : "split.nothing"))}</p>`
+      + (lines.length ? `<ul style="list-style:disc;margin:4px 0;padding-left:20px">${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : "")
+      + (p.digits ? `<p class="hint">${escapeHtml(tr("split.digits", { digits: p.digits }))}</p>` : "")
+      + `<p class="hint">${escapeHtml(tr("split.keeps", { name: p.nickname, currencies: p.rest.join(" + ") }))}</p>`;
+    btn.hidden = false;
+  } catch (err) {
+    if (req !== splitReq_) return;
+    box.innerHTML = `<p class="hint error-text">${escapeHtml(err.message || String(err))}</p>`;
+  }
+}
+document.getElementById("pmsplit-cur").addEventListener("change", splitCurChanged_);
+document.getElementById("pmsplit-save-btn").addEventListener("click", () => {
+  const id = splitFromId_, cur = document.getElementById("pmsplit-cur").value, name = document.getElementById("pmsplit-name").value.trim();
+  const errorEl = document.getElementById("pmsplit-form-error");
+  if (!id) return;
+  if (!name) { errorEl.textContent = tr("accounts.errName"); return; }
+  if (meta.paymentMethods.some((pm) => String(pm.nickname).trim().toLowerCase() === name.toLowerCase())) { errorEl.textContent = tr("move.mergeNameTaken"); return; }
+  if (name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() === "plin") { errorEl.textContent = tr("wallets.plinNotAccount"); return; }
+  const from = meta.paymentMethods.find((p) => p.id === id);
+  closeSplitModal_();
+  const refresh = async () => {
+    try { await loadMeta(); } catch (e) { /* the lists below still refresh */ }
+    refreshAccountPickers_();
+    renderAccountsList_();
+    refreshEntryList().catch(() => {});
+    refreshHomeGlance_(true);
+    refreshTabsAhead_();
+  };
+  let res = null;
+  saveBehindScreen_(async () => { res = await callApi("splitAccount", { id, currency: cur, name }); }, async () => {
+    await refresh();
+    if (!res) return;
+    showUndoToast_(tr("split.done", { from: from ? from.nickname : "", to: res.to.nickname }), async () => {
+      await callApi("restoreAccountMove", { move_id: res.move_id });
+      showToast_(tr("split.undone"));
       await refresh();
     }, "move");
   });
