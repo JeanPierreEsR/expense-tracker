@@ -179,6 +179,7 @@
     "common.less": { en: "Less", es: "Menos" },
     "common.me": { en: "Me", es: "Yo" },
     "common.addPayor": { en: "+ Add payer…", es: "+ Agregar pagador…" },
+    "form.pickPayer": { en: "Pick a payer…", es: "Elige un pagador…" },
     "common.noPaymentMethods": { en: "No accounts or cards yet", es: "Aún no hay cuentas ni tarjetas" },
     "common.addPaymentMethod": { en: "+ Add account or card…", es: "+ Agregar cuenta o tarjeta…" },
     "common.total": { en: "Total", es: "Total" },
