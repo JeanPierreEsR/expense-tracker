@@ -52,6 +52,7 @@ var BACKEND_STRINGS_ = {
   // Business 2, piece 6 (ProjectSplits.gs): one entry shared between a company's projects.
   "psplit.onlyMoney": { en: "Only an expense or an income can be split between projects.", es: "Solo un gasto o un ingreso se puede repartir entre proyectos." },
   "psplit.noFriends": { en: "This one is shared with friends: it can't also be split between projects.", es: "Este movimiento est\u00e1 compartido con amigos: no se puede repartir tambi\u00e9n entre proyectos." },
+  "psplit.noFriends.co": { en: "This one is split with contacts: it can't also be split between projects.", es: "Este movimiento est\u00e1 repartido con contactos: no se puede repartir tambi\u00e9n entre proyectos." },
   "psplit.oneCompany": { en: "All the projects must belong to the same company.", es: "Todos los proyectos tienen que ser de la misma empresa." },
   "psplit.twoProjects": { en: "Pick at least two projects with an amount.", es: "Elige al menos dos proyectos con un monto." },
   "psplit.mustAdd": { en: "The parts add up to {sum}; they must add up to {total}.", es: "Las partes suman {sum}; tienen que sumar {total}." },
@@ -107,6 +108,7 @@ var BACKEND_STRINGS_ = {
   "whatsapp.pickFriend": { en: "{kind} \u2014 who with?", es: "{kind}: \u00bfcon qui\u00e9n?" },
   "whatsapp.someoneElse": { en: "Someone else", es: "Otra persona" },
   "whatsapp.someoneElseHow": { en: "Reply to the transaction's message with \"repayment\" or \"loan\" and the friend's name as it is in the app (for example \"repayment {exFriend}\"). To add a new friend, use the app (More → Friends).", es: "Responde al mensaje del movimiento con \"repago\" o \"préstamo\" y el nombre del amigo como está en la app (por ejemplo \"repago {exFriend}\"). Para agregar un amigo nuevo, usa la app (Más → Amigos)." },
+  "whatsapp.someoneElseHow.co": { en: "Reply to the transaction's message with \"repayment\" or \"loan\" and the contact's name as it is in the app (for example \"repayment {exFriend}\"). To add a new contact, use the app (More → Contacts).", es: "Responde al mensaje del movimiento con \"repago\" o \"préstamo\" y el nombre del contacto como está en la app (por ejemplo \"repago {exFriend}\"). Para agregar un contacto nuevo, usa la app (Más → Contactos)." },
   "whatsapp.owesYou": { en: "owes you {amount}", es: "te debe {amount}" },
   "whatsapp.youOwe": { en: "you owe {amount}", es: "le debes {amount}" },
   "whatsapp.tripGroup": { en: "this trip's group", es: "el grupo de este viaje" },
@@ -147,6 +149,7 @@ var BACKEND_STRINGS_ = {
   "botTour.testConfirmed": { en: "Saved. If you don't want this test, delete it in the app.", es: "Guardado. Si no quieres esta prueba, bórrala en la app." },
   "botTour.step4": { en: "Write \"pending\" to see everything that is waiting for you.", es: "Escribe \"pendientes\" para ver todo lo que espera tu revisión." },
   "botTour.step5": { en: "That's it! Tips: you can paste the message your bank or payment app sends when you pay (its email or text message), copied as it is; {reply}; money a friend paid you back, or you paid them: reply \"repayment {exFriend}\" (with several loans I ask which one it pays); and \"help\" shows everything I can do. Write \"tutorial\" to see this tour again.", es: "¡Listo! Consejos: puedes pegar el mensaje que te manda tu banco o tu app de pagos cuando pagas (su correo o SMS), copiado tal cual; {reply}; dinero que un amigo te devolvió, o que tú le devolviste: responde \"repago {exFriend}\" (si hay varios préstamos, te pregunto cuál paga); y \"ayuda\" muestra todo lo que puedo hacer. Escribe \"tutorial\" para ver este recorrido otra vez." },
+  "botTour.step5.co": { en: "That's it! Tips: you can paste the message your bank or payment app sends when you pay (its email or text message), copied as it is; {reply}; money a contact paid you back, or you paid them: reply \"repayment {exFriend}\" (with several loans I ask which one it pays); and \"help\" shows everything I can do. Write \"tutorial\" to see this tour again.", es: "¡Listo! Consejos: puedes pegar el mensaje que te manda tu banco o tu app de pagos cuando pagas (su correo o SMS), copiado tal cual; {reply}; dinero que un contacto te devolvió, o que tú le devolviste: responde \"repago {exFriend}\" (si hay varios préstamos, te pregunto cuál paga); y \"ayuda\" muestra todo lo que puedo hacer. Escribe \"tutorial\" para ver este recorrido otra vez." },
   "botTour.replyShort": { en: "the \"Reply to edit\" line under a transaction lists the words you can use", es: "la línea \"Responde para editar\" bajo un movimiento lista las palabras que puedes usar" },
   "botTour.replyFull": { en: "you can also change a transaction by replying to its message in words, several at once with commas, like \"description {exLunchWith} {exFriend}, amount 30\" (the \"Reply to edit\" line under it lists the words)", es: "también puedes cambiar un movimiento respondiendo a su mensaje con palabras, varias a la vez con comas, como \"descripción {exLunchWith} {exFriend}, monto 30\" (la línea \"Responde para editar\" debajo lista las palabras)" },
   "botTour.stepWords": { en: "You can also change a transaction by replying to its message in words. Hold this message, tap Reply, and change two things at once, separated by a comma, for example:\n\"description {exLunchWith} {exFriend}, amount 30\"\nIt works on everything that arrives here, your bank emails too, even after confirming.", es: "También puedes cambiar un movimiento respondiendo a su mensaje con palabras. Mantén presionado este mensaje, toca Responder y cambia dos cosas a la vez, separadas por una coma, por ejemplo:\n\"descripción {exLunchWith} {exFriend}, monto 30\"\nFunciona con todo lo que llega aquí, también los correos de tu banco, incluso después de confirmar." },
@@ -163,6 +166,7 @@ var BACKEND_STRINGS_ = {
   "whatsapp.nudgeWaiting": { en: { one: "1 transaction is waiting for review. Reply anything to keep transaction messages coming here: WhatsApp only lets me write to you within 24 hours of your last message.", other: "{n} transactions are waiting for review. Reply anything to keep transaction messages coming here: WhatsApp only lets me write to you within 24 hours of your last message." }, es: { one: "Hay 1 movimiento por revisar. Responde cualquier cosa para que los mensajes de movimientos sigan llegando aqu\u00ed: WhatsApp solo me deja escribirte dentro de las 24 horas de tu \u00faltimo mensaje.", other: "Hay {n} movimientos por revisar. Responde cualquier cosa para que los mensajes de movimientos sigan llegando aqu\u00ed: WhatsApp solo me deja escribirte dentro de las 24 horas de tu \u00faltimo mensaje." } },
   "applepay.check": { en: "{shop} (check the amount and currency: {raw})", es: "{shop} (revisa el monto y la moneda: {raw})" },
   "err.pickFriend": { en: "Pick a friend.", es: "Elige un amigo." },
+  "err.pickFriend.co": { en: "Pick a contact.", es: "Elige un contacto." },
   "err.invalidDirection": { en: "Invalid direction.", es: "Dirección no válida." },
   "err.validDate": { en: "Enter a valid date.", es: "Ingresa una fecha válida." },
   "err.validCurrency": { en: "Pick a valid currency.", es: "Elige una moneda válida." },
@@ -175,6 +179,7 @@ var BACKEND_STRINGS_ = {
   "err.entryNotFound": { en: "Entry not found", es: "No se encontró el movimiento" },
   "err.exchangeLegOneAccount": { en: "One side of a currency exchange has only one account: where this money left from, or where it arrived. Its other side is a separate entry.", es: "Un lado de un cambio de moneda tiene una sola cuenta: de dónde salió este dinero o a dónde llegó. Su otro lado es un movimiento aparte." },
   "err.cannotUnconfirm": { en: "This one can't go back to Needs review (it is split with friends or was not brought in automatically).", es: "Este no puede volver a Por revisar (está repartido con amigos o no llegó automáticamente)." },
+  "err.cannotUnconfirm.co": { en: "This one can't go back to Needs review (it is split with contacts or was not brought in automatically).", es: "Este no puede volver a Por revisar (está repartido con contactos o no llegó automáticamente)." },
   "review.alreadyHandled": { en: "This entry was already confirmed, changed or removed elsewhere — refreshing the list.", es: "Este movimiento ya se confirmó, cambió o eliminó en otro lugar: se está actualizando la lista." },
   "err.loanNotFound": { en: "Loan not found", es: "No se encontró el préstamo" },
   "err.repaymentNotFound": { en: "Repayment not found", es: "No se encontró el repago" },
@@ -187,6 +192,7 @@ var BACKEND_STRINGS_ = {
   "income.waitingNoTypeChange": { en: "This income is still linked to what the person owes you. Delete it and record it again to change its type.", es: "Este ingreso sigue ligado a lo que esa persona te debe. Elimínalo y regístralo de nuevo para cambiar su tipo." },
   "payor.separateSuffix": { en: " (payer)", es: " (pagador)" },
   "err.friendNotFound": { en: "Friend not found", es: "No se encontró al amigo" },
+  "err.friendNotFound.co": { en: "Contact not found", es: "No se encontró al contacto" },
   "err.remindLang": { en: "That language isn't available for reminders.", es: "Ese idioma no está disponible para los recordatorios." },
   "err.remindTemplateLong": { en: "The template is too long (at most {max} characters).", es: "La plantilla es demasiado larga (como máximo {max} caracteres)." },
   "err.remindTemplateNoDebt": { en: "Keep [List] or [Amount] in the template, so the message says what is owed.", es: "Deja [Lista] o [Monto] en la plantilla, para que el mensaje diga lo que se debe." },
@@ -201,6 +207,7 @@ var BACKEND_STRINGS_ = {
   "err.recurringNotFound": { en: "Recurring item not found", es: "No se encontró el movimiento programado" },
   "err.pendingAlreadyHandled": { en: "This entry is no longer waiting in Needs review (it was confirmed, changed or removed elsewhere). Nothing was saved.", es: "Este movimiento ya no está esperando en Por revisar (se confirmó, cambió o eliminó en otro lugar). No se guardó nada." },
   "err.splitOverTotal": { en: "The friends' shares add up to more than the total.", es: "Las partes de los amigos suman más que el total." },
+  "err.splitOverTotal.co": { en: "The contacts' shares add up to more than the total.", es: "Las partes de los contactos suman más que el total." },
   "err.recurringItemNotFound": { en: "Recurring item not found", es: "No se encontró el movimiento programado" },
   "err.currencyCode": { en: "Currency must be a 3-letter code.", es: "La moneda debe ser un código de 3 letras." },
   "err.monthFormat": { en: "Month must look like 2026-09.", es: "El mes debe verse así: 2026-09." },
@@ -272,9 +279,11 @@ var BACKEND_STRINGS_ = {
   "business.errProjectMove": { en: "A project that already has entries can't move to another company.", es: "Un proyecto que ya tiene movimientos no se puede pasar a otra empresa." },
   "business.errBudget": { en: "A budget must be a number greater than 0, with a 3-letter currency.", es: "Un presupuesto debe ser un número mayor que 0, con una moneda de 3 letras." },
   "friends.errHiddenName": { en: "A friend with that name is hidden. Show them again from “Hidden friends” on the Friends screen.", es: "Hay un amigo oculto con ese nombre. Puedes volver a mostrar a esa persona desde “Amigos ocultos” en la pantalla Amigos." },
+  "friends.errHiddenName.co": { en: "A contact with that name is hidden. Show them again from “Hidden contacts” on the Contacts screen.", es: "Hay un contacto oculto con ese nombre. Puedes volver a mostrar a esa persona desde “Contactos ocultos” en la pantalla Contactos." },
   "business.errPersonExists": { en: "You already have a person with that name.", es: "Ya tienes una persona con ese nombre." },
   "business.errPersonClient": { en: "This person is the client of a project or an expected payment. Change that client first.", es: "Esta persona es el cliente de un proyecto o de un pago esperado. Cambia ese cliente primero." },
   "business.errPersonInUse": { en: "This person still has debts, shared expenses, entries or programmed items. Settle or move them first.", es: "Esta persona todavía tiene deudas, gastos compartidos, movimientos o movimientos programados. Salda o muévelos primero." },
+  "business.errPersonInUse.co": { en: "This person still has debts, split expenses, entries or programmed items. Settle or move them first.", es: "Esta persona todavía tiene deudas, gastos repartidos, movimientos o movimientos programados. Salda o muévelos primero." },
   "business.errPersonGroup": { en: "A trip's group can't be changed here.", es: "El grupo de un viaje no se puede cambiar aquí." },
   "business.expectedNotFound": { en: "Expected payment not found", es: "No se encontró el pago esperado" },
   "business.errIgv": { en: "The IGV must be less than the amount.", es: "El IGV debe ser menor que el monto." },
@@ -329,8 +338,11 @@ var BACKEND_STRINGS_ = {
 
   // ---- loan ----
   "loan.missingFriend": { en: "Missing friend.", es: "Falta el amigo." },
+  "loan.missingFriend.co": { en: "Missing contact.", es: "Falta el contacto." },
   "loan.fromSharedEdit": { en: "This loan came from a shared expense — edit that entry instead.", es: "Este préstamo viene de un gasto compartido: edita ese movimiento." },
+  "loan.fromSharedEdit.co": { en: "This loan came from a split expense — edit that entry instead.", es: "Este préstamo viene de un gasto repartido: edita ese movimiento." },
   "loan.repaymentLocked": { en: "This loan already has a repayment recorded — to change its friend, direction or currency, first move its repayments to another loan or delete them.", es: "Este préstamo ya tiene un repago registrado: para cambiar su amigo, dirección o moneda, primero mueve sus repagos a otro préstamo o elimínalos." },
+  "loan.repaymentLocked.co": { en: "This loan already has a repayment recorded — to change its contact, direction or currency, first move its repayments to another loan or delete them.", es: "Este préstamo ya tiene un repago registrado: para cambiar su contacto, dirección o moneda, primero mueve sus repagos a otro préstamo o elimínalos." },
   "loan.unappliedDescIn": { en: "Paid earlier, no loan: {what} (deleted). {friend} had paid {cur} {amount}", es: "Pagado antes, sin préstamo: {what} (eliminado). {friend} había pagado {cur} {amount}" },
   "loan.unappliedDescOut": { en: "Paid earlier, no loan: {what} (deleted). You had paid {friend} {cur} {amount}", es: "Pagado antes, sin préstamo: {what} (eliminado). Le habías pagado {cur} {amount} a {friend}" },
   "repay.chosenLoanNotOpen": { en: "That loan has nothing left to repay (or is not in this direction).", es: "Ese préstamo ya no tiene nada por repagar (o no es en este sentido)." },
@@ -495,6 +507,7 @@ var BACKEND_STRINGS_ = {
   "repay.applyNoRoom": { en: "The selected loans have nothing left to repay.", es: "Los préstamos seleccionados no tienen nada por repagar." },
   "repay.reassignNoRoom": { en: "The open loans can't take that whole repayment. Select more loans.", es: "Los préstamos abiertos no pueden recibir todo ese repago. Selecciona más préstamos." },
   "loan.fromSharedDelete": { en: "This loan came from a shared expense — delete that entry instead.", es: "Este préstamo viene de un gasto compartido: elimina ese movimiento." },
+  "loan.fromSharedDelete.co": { en: "This loan came from a split expense — delete that entry instead.", es: "Este préstamo viene de un gasto repartido: elimina ese movimiento." },
   "loan.noDeleteWithRepayment": { en: "This loan has a repayment recorded against it and can't be deleted.", es: "Este préstamo tiene un repago registrado y no se puede eliminar." },
   "loan.entryIsMovement": { en: "This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.", es: "Este movimiento es el movimiento de dinero de un préstamo: elimina o edita ese préstamo desde la pestaña Préstamos." },
   "loan.splitTooLarge": { en: "The split ({split}) is larger than the expense ({amount}).", es: "La repartición ({split}) es mayor que el gasto ({amount})." },
@@ -505,6 +518,7 @@ var BACKEND_STRINGS_ = {
   "convert.pickExtraCategory": { en: "Pick a category for any extra amount.", es: "Elige una categoría para cualquier extra." },
   "convert.alreadyMovement": { en: "This transfer is already the money movement of a loan or repayment — change it from the Loans tab instead.", es: "Esta transferencia ya es el movimiento de dinero de un préstamo o repago: cámbiala desde la pestaña Préstamos." },
   "convert.debtHasRepayments": { en: "Friends have already repaid part of the debts this expense created — choose whether to keep those repayments or cancel them (do this from the app's edit screen).", es: "Tus amigos ya repagaron parte de las deudas que creó este gasto: elige si conservas esos repagos o los cancelas (hazlo desde la pantalla de edición de la app)." },
+  "convert.debtHasRepayments.co": { en: "Contacts have already repaid part of the debts this expense created — choose whether to keep those repayments or cancel them (do this from the app's edit screen).", es: "Tus contactos ya repagaron parte de las deudas que creó este gasto: elige si conservas esos repagos o los cancelas (hazlo desde la pantalla de edición de la app)." },
   "convert.onlyLoan": { en: "Only an expense, an income, an investment or a transfer can be turned into a loan.", es: "Solo un gasto, un ingreso, una inversión o una transferencia se puede convertir en un préstamo." },
   "convert.onlyRepayment": { en: "Only an expense, an income, an investment or a transfer can be turned into a repayment.", es: "Solo un gasto, un ingreso, una inversión o una transferencia se puede convertir en un repago." },
   "convert.depositIsLent": { en: "An investment deposit is money that left, so it can only become a loan you gave.", es: "Un depósito de inversión es dinero que salió, así que solo puede pasar a un préstamo que diste." },
@@ -535,6 +549,7 @@ var BACKEND_STRINGS_ = {
   "typeChange.exchangeOut": { en: "This is the money-out side of a currency exchange. It can become an expense or an investment deposit; for anything else, delete it and enter it again.", es: "Este es el lado de salida de un cambio de moneda. Puede pasar a gasto o a depósito de inversión; para otra cosa, elimínalo y vuelve a ingresarlo." },
   "typeChange.exchangeIn": { en: "This is the money-in side of a currency exchange. It can become an income or an investment withdrawal; for anything else, delete it and enter it again.", es: "Este es el lado de entrada de un cambio de moneda. Puede pasar a ingreso o a retiro de inversión; para otra cosa, elimínalo y vuelve a ingresarlo." },
   "typeChange.pickRepayments": { en: "Friends have already repaid part of the debts this expense made — choose whether to keep those repayments or cancel them before changing its type.", es: "Tus amigos ya repagaron parte de las deudas que creó este gasto: elige si conservas esos repagos o los cancelas antes de cambiarle el tipo." },
+  "typeChange.pickRepayments.co": { en: "Contacts have already repaid part of the debts this expense made — choose whether to keep those repayments or cancel them before changing its type.", es: "Tus contactos ya repagaron parte de las deudas que creó este gasto: elige si conservas esos repagos o los cancelas antes de cambiarle el tipo." },
   "convert.pickRepayments": { en: "This loan already has repayments — choose whether to keep them or cancel them.", es: "Este préstamo ya tiene repagos: elige si los conservas o los cancelas." },
   "convert.nothingChanged": { en: "Nothing was changed — {error}", es: "No se cambió nada: {error}" },
 
@@ -658,10 +673,12 @@ var BACKEND_STRINGS_ = {
   "charges.telegramOne": { en: "💳 {account}: one purchase has waited {days} days for its charge. Your statement may already show it. Fill it in on Home.", es: "💳 {account}: una compra lleva {days} días esperando su cargo. Puede que tu estado de cuenta ya lo muestre. Complétalo en Inicio." },
   "charges.telegram": { en: "💳 {account}: {n} purchases have waited {days} days for their charge. Your statement may already show them. Fill them in on Home.", es: "💳 {account}: {n} compras llevan {days} días esperando su cargo. Puede que tu estado de cuenta ya los muestre. Complétalos en Inicio." },
   "export.h.splitWith": { en: "Shared with", es: "Compartido con" },
+  "export.h.splitWith.co": { en: "Split with", es: "Repartido con" },
   "export.h.method": { en: "Account or card", es: "Cuenta o tarjeta" },
   "export.h.toAccount": { en: "To account", es: "Hacia la cuenta" },
   "export.h.paidBy": { en: "Paid by", es: "Pagado por" },
   "export.h.friend": { en: "Linked friend", es: "Amigo vinculado" },
+  "export.h.friend.co": { en: "Linked contact", es: "Contacto vinculado" },
   "export.h.linkedAs": { en: "Linked as", es: "Vinculado como" },
   "export.h.tags": { en: "Tags", es: "Etiquetas" },
   "export.h.trip": { en: "Trip / event", es: "Viaje / evento" },
@@ -762,11 +779,15 @@ var BACKEND_STRINGS_ = {
 
   // ---- label ----
   "label.unknownFriend": { en: "(unknown friend)", es: "(amigo desconocido)" },
+  "label.unknownFriend.co": { en: "(unknown contact)", es: "(contacto desconocido)" },
   "loans.unknownGone": { en: "Those loans already belong to someone in your friends. Refresh Loans.", es: "Esos préstamos ya son de alguien de tus amigos. Actualiza Préstamos." },
+  "loans.unknownGone.co": { en: "Those loans already belong to someone in your contacts. Refresh Loans.", es: "Esos préstamos ya son de alguien de tus contactos. Actualiza Préstamos." },
   "label.unknownCategory": { en: "(unknown category)", es: "(categoría desconocida)" },
   "label.sharedExpense": { en: "Shared expense", es: "Gasto compartido" },
+  "label.sharedExpense.co": { en: "Split expense", es: "Gasto repartido" },
   "label.loan": { en: "Loan", es: "Préstamo" },
   "label.friendFallback": { en: "a friend", es: "un amigo" },
+  "label.friendFallback.co": { en: "a contact", es: "un contacto" },
 
   // ---- desc ----
   "ownerNames.badName": { en: "\"{name}\" does not look like a full name — write at least two words, letters only.", es: "\"{name}\" no parece un nombre completo — escribe al menos dos palabras, solo letras." },
@@ -809,6 +830,7 @@ var BACKEND_STRINGS_ = {
   "refund.tooMuch": { en: "At most {cur} {max} can still come back on this purchase.", es: "De esta compra todavía pueden volver como máximo {cur} {max}." },
   "refund.beforePurchase": { en: "The money can't come back before the day of the purchase.", es: "El dinero no puede volver antes del día de la compra." },
   "refund.backToPayerOnly": { en: "Only the friend who paid the purchase can get the money back on their card.", es: "Solo el amigo que pagó la compra puede recibir el dinero en su tarjeta." },
+  "refund.backToPayerOnly.co": { en: "Only the contact who paid the purchase can get the money back on their card.", es: "Solo el contacto que pagó la compra puede recibir el dinero en su tarjeta." },
   "refund.needsAccount": { en: "Choose the account the money came back to.", es: "Elige la cuenta a la que volvió el dinero." },
   "refund.notOnPurchase": { en: "That person is not part of this purchase.", es: "Esa persona no es parte de esta compra." },
   "refund.partTooMuch": { en: "{name} can get back at most {cur} {max}.", es: "A {name} le pueden volver como máximo {cur} {max}." },
@@ -824,6 +846,7 @@ var BACKEND_STRINGS_ = {
   "report.noAccount": { en: "No account", es: "Sin cuenta" },
   "report.notRepaidYet": { en: "Not repaid yet", es: "Aún sin repagar" },
   "report.friendCovered": { en: "A friend covered it", es: "Lo cubrió un amigo" },
+  "report.friendCovered.co": { en: "A contact covered it", es: "Lo cubrió un contacto" },
   "report.paidWithOwed": { en: "Paid with what they owed me", es: "Pagado con lo que me debían" },
   "report.notReceivedYet": { en: "Not received yet", es: "Aún no recibido" },
   "report.receivedAsOwed": { en: "Canceled out against what I owed them", es: "Compensado con lo que yo le debía" },
@@ -993,11 +1016,13 @@ var BACKEND_STRINGS_ = {
   "bot.tooOld": { en: "Couldn't find that entry — it may be too old.", es: "No se encontró ese movimiento: puede que sea muy antiguo." },
   "bot.entryNotFound": { en: "Entry not found — it may have already been confirmed or discarded.", es: "No se encontró el movimiento: puede que ya se haya confirmado o descartado." },
   "bot.internalTransfer": { en: "This transfer has one of your own accounts on both ends, so repayment/loan doesn't apply. If it was really with a friend, first clear one end (\"from none\" or \"to none\").", es: "Esta transferencia tiene una cuenta tuya en ambos extremos, así que no aplica repago/préstamo. Si en realidad fue con un amigo, primero quita un extremo (\"desde ninguna\" o \"hacia ninguna\")." },
+  "bot.internalTransfer.co": { en: "This transfer has one of your own accounts on both ends, so repayment/loan doesn't apply. If it was really with a contact, first clear one end (\"from none\" or \"to none\").", es: "Esta transferencia tiene una cuenta tuya en ambos extremos, así que no aplica repago/préstamo. Si en realidad fue con un contacto, primero quita un extremo (\"desde ninguna\" o \"hacia ninguna\")." },
   "bot.transferNoEnds": { en: "This transfer has no account on either end, so I can't tell which way the money went. Set one first (\"from {exFrom}\" or \"to {exTo}\").", es: "Esta transferencia no tiene cuenta en ningún extremo, así que no sé hacia dónde fue el dinero. Primero define una (\"desde {exFrom}\" o \"hacia {exTo}\")." },
   "bot.onlyExpenseIncome": { en: "Repayment/loan only works on an expense, an income or a transfer — this one is an {type}.", es: "Repago/préstamo solo funciona con un gasto, un ingreso o una transferencia; este movimiento es de tipo {type}." },
   "bot.needFriend": { en: "Say who: “repayment {exFriend}” or “loan {exFriend}”. (Without a name it only works on the dates of a trip: then it means that trip's group.)", es: "Indica quién: “repago {exFriend}” o “préstamo {exFriend}”. (Sin nombre solo funciona en las fechas de un viaje: entonces se refiere al grupo de ese viaje.)" },
   "bot.repayFromButton": { en: "💰 Repayment from {friend}", es: "💰 Repago de {friend}" },
   "bot.unknownFriend": { en: "Didn't recognize the friend \"{name}\". Check the name and reply again, or add them as a new friend in the app (More → Friends).", es: "No reconocí al amigo \"{name}\". Revisa el nombre y responde de nuevo, o agrégalo como amigo nuevo en la app (Más → Amigos)." },
+  "bot.unknownFriend.co": { en: "Didn't recognize the contact \"{name}\". Check the name and reply again, or add them as a new contact in the app (More → Contacts).", es: "No reconocí al contacto \"{name}\". Revisa el nombre y responde de nuevo, o agrégalo como contacto nuevo en la app (Más → Contactos)." },
   "bot.markedRepaymentFrom": { en: "✅ Marked as a repayment from {friend}.", es: "✅ Marcado como repago de {friend}." },
   "bot.repayWrongWay": { en: "{friend} owes you, and this is money you paid, so it can't be a repayment to them. Nothing changed. If {friend} paid you, reply “type income” first, then “repayment {friend}”.", es: "{friend} te debe, y este es dinero que pagaste, así que no puede ser un repago a esa persona. No cambió nada. Si {friend} te pagó, responde primero “tipo ingreso” y luego “repago {friend}”." },
   "bot.markedRepaymentTo": { en: "✅ Marked as a repayment to {friend}.", es: "✅ Marcado como repago a {friend}." },
@@ -1005,6 +1030,7 @@ var BACKEND_STRINGS_ = {
   "bot.repayIntentFrom": { en: "↩️ Repayment from {friend}: choose below the loans it pays, or Confirm to pay the oldest first.", es: "↩️ Repago de {friend}: elige abajo los préstamos que paga, o Confirmar para pagar primero los más antiguos." },
   "bot.repayIntentTo": { en: "↩️ Repayment to {friend}: choose below the loans it pays, or Confirm to pay the oldest first.", es: "↩️ Repago a {friend}: elige abajo los préstamos que paga, o Confirmar para pagar primero los más antiguos." },
   "repayIntent.ownWindow": { en: "it is shared with friends: record it from its own “Mark as repayment” window", es: "está compartido con amigos: regístralo desde su propia ventana “Marcar como repago”" },
+  "repayIntent.ownWindow.co": { en: "it is split with contacts: record it from its own “Mark as repayment” window", es: "está repartido con contactos: regístralo desde su propia ventana “Marcar como repago”" },
   "bot.repayPickLoan": { en: "Which of {friend}'s loans does it pay? Tap one: it is paid first, and anything left goes to the other loans, oldest first.", es: "¿Qué préstamo de {friend} paga? Toca uno: se paga primero, y lo que sobre va a los demás préstamos, del más antiguo al más nuevo." },
   "bot.repayPickLoanMany": { en: "Which of {friend}'s loans does it pay? Here are the {n} oldest. Tap one: it is paid first, and anything left goes to the other loans, oldest first. For another one, use the app.", es: "¿Qué préstamo de {friend} paga? Aquí están los {n} más antiguos. Toca uno: se paga primero, y lo que sobre va a los demás préstamos, del más antiguo al más nuevo. Para otro, usa la app." },
   "bot.repayPickLoanTg": { en: "Which of {friend}'s loans does it pay? Tap one or more to check them, then “Save the checked ones”. They are paid oldest first; anything left goes to the other loans, oldest first.", es: "¿Qué préstamos de {friend} paga? Toca uno o varios para marcarlos y luego “Guardar los marcados”. Se pagan del más antiguo al más nuevo; lo que sobre va a los demás préstamos, del más antiguo al más nuevo." },
@@ -1078,6 +1104,7 @@ var BACKEND_STRINGS_ = {
   "help.o.combine": { en: "Combine several with commas: \"category {exCat}, amount 48, description Uber\".", es: "Combina varios con comas: \"categoría {exCat}, monto 48, descripción Uber\"." },
   "help.o.names": { en: "Names must match a whole word or the start of one — if a name fits more than one (e.g. two people named Ray), type more of it.", es: "Los nombres deben coincidir con una palabra completa o con el inicio de una; si un nombre encaja con más de uno (p. ej. dos personas llamadas Ray), escribe más de él." },
   "help.transfer.intro": { en: "Or if this was really money with a friend, not between your accounts:", es: "O si en realidad fue dinero con un amigo, no entre tus cuentas:" },
+  "help.transfer.intro.co": { en: "Or if this was really money with a contact, not between your accounts:", es: "O si en realidad fue dinero con un contacto, no entre tus cuentas:" },
   "help.transfer.repayment": { en: "repayment — \"repayment {exFriend}\" (only a \"to\" account: {exFriend} paying you back; only a \"from\" account: you paying {exFriend}); with more: \"repayment {exFriend}, amount 20\". With several loans I ask which one it pays", es: "repago — \"repago {exFriend}\" (solo cuenta \"hacia\": {exFriend} te paga lo que debía; solo cuenta \"desde\": tú le pagas a {exFriend}); con más: \"repago {exFriend}, monto 20\". Si hay varios préstamos, te pregunto cuál paga" },
   "help.transfer.loan": { en: "loan — \"loan {exFriend}\" (only a \"to\" account: {exFriend} lent you this; only a \"from\" account: you lent it to them)", es: "préstamo — \"préstamo {exFriend}\" (solo cuenta \"hacia\": {exFriend} te prestó esto; solo cuenta \"desde\": tú se lo prestaste)" },
   "help.expense.intro": { en: "Or instead of confirming as an expense:", es: "O en vez de confirmarlo como gasto:" },
@@ -1085,7 +1112,9 @@ var BACKEND_STRINGS_ = {
   "help.expense.loan": { en: "loan — \"loan {exFriend}\" (you lending them this)", es: "préstamo — \"préstamo {exFriend}\" (tú prestándole esto)" },
   "help.income.intro": { en: "Or instead of confirming as income:", es: "O en vez de confirmarlo como ingreso:" },
   "help.income.repayment": { en: "repayment — \"repayment {exFriend}\" (this is a friend paying you back what they owed); with more: \"repayment {exFriend}, amount 20\". With several loans I ask which one it pays", es: "repago — \"repago {exFriend}\" (un amigo te paga lo que te debía); con más: \"repago {exFriend}, monto 20\". Si hay varios préstamos, te pregunto cuál paga" },
+  "help.income.repayment.co": { en: "repayment — \"repayment {exFriend}\" (this is a contact paying you back what they owed); with more: \"repayment {exFriend}, amount 20\". With several loans I ask which one it pays", es: "repago — \"repago {exFriend}\" (un contacto te paga lo que te debía); con más: \"repago {exFriend}, monto 20\". Si hay varios préstamos, te pregunto cuál paga" },
   "help.income.loan": { en: "loan — \"loan {exFriend}\" (a friend lent you this — you now owe them)", es: "préstamo — \"préstamo {exFriend}\" (un amigo te prestó esto: ahora le debes)" },
+  "help.income.loan.co": { en: "loan — \"loan {exFriend}\" (a contact lent you this — you now owe them)", es: "préstamo — \"préstamo {exFriend}\" (un contacto te prestó esto: ahora le debes)" },
   "help.bothLanguages": { en: "Commands also work in Spanish (\"categoría\", \"monto\"…).", es: "Los comandos en inglés también funcionan (\"category\", \"amount\"…)." },
 
   // ---- photo ----
@@ -1216,9 +1245,14 @@ function currentLang_() {
 
 // tr_('area.name', { n: 3 }) — a text with { one, other } forms picks "one"
 // when params.n is exactly 1. A missing text shows its key (and is logged).
+function companyWording_() {
+  try { return typeof isCompanyCopy_ === 'function' && isCompanyCopy_(); } catch (e) { return false; }
+}
 function tr_(key, params, langOverride) {
   var lang = langOverride || currentLang_();
   var entry = BACKEND_STRINGS_[key];
+  // A company copy's own wording (owner, 2026-11-26): "<key>.co" stands in where it exists (contacts, not friends).
+  if (BACKEND_STRINGS_[key + '.co'] && companyWording_()) entry = BACKEND_STRINGS_[key + '.co'];
   var value = entry ? (entry[lang] !== undefined ? entry[lang] : entry.en) : undefined;
   if (value === undefined) {
     Logger.log('Missing server text: ' + key);

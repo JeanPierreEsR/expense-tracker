@@ -98,7 +98,7 @@ test("not on the owner's copy: no suggestion; a split with friends is refused", 
   const friend = co.api("addFriend", { name: "Amiga Prueba" });
   const e = pay(co, 100, "2026-10-05");
   co.api("saveEntrySplits", { entryId: e.id, splits: [{ friend_id: friend.id, amount: 50 }] });
-  assert.throws(() => co.api("saveProjectSplit", { entry_id: e.id, parts: [{ project_id: p.a, amount: 60 }, { project_id: p.b, amount: 40 }] }), /friends|amigos/i);
+  assert.throws(() => co.api("saveProjectSplit", { entry_id: e.id, parts: [{ project_id: p.a, amount: 60 }, { project_id: p.b, amount: 40 }] }), /friends|amigos|contacts|contactos/i);
 });
 
 test("the phone: the split button and sheet, the card's 'as last month' line; app.js loads", () => {

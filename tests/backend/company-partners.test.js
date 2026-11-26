@@ -283,3 +283,21 @@ test("Edit partner's money: the amount changes with the type, partner and compan
   assert.equal(rt.rows("Contributions")[0].kind, "pending");
   assert.throws(() => rt.api("changePartnerMoney", { id: row.id, amount: 0 }));
 });
+
+test("a company copy speaks of contacts, not friends (texts with a '.co' form); other copies keep 'friend'", () => {
+  const rt = companyCopy();
+  assert.match(rt.run("tr_('err.pickFriend')"), /contact/i);
+  assert.match(rt.run("tr_('label.sharedExpense', null, 'es')"), /repartido/);
+  const { rt: plain } = freshApp({ small: true });
+  assert.match(plain.run("tr_('err.pickFriend')"), /friend|amigo/i);
+  // every '.co' text has both languages and the same {placeholders} as the text it stands in for
+  const S = require("../../docs/strings.js");
+  const holes = (t) => (JSON.stringify(t).match(/\{\w+\}/g) || []).sort().join(",");
+  Object.keys(S).filter((k) => k.endsWith(".co")).forEach((k) => {
+    const base = S[k.slice(0, -3)];
+    assert.ok(base, k + " stands in for a text that exists");
+    assert.ok(S[k].en && S[k].es, k + " has both languages");
+    assert.equal(holes(S[k].es), holes(base.es), k + " keeps the placeholders");
+    assert.equal(holes(S[k].en), holes(base.en), k + " keeps the placeholders");
+  });
+});

@@ -1826,6 +1826,21 @@ function refreshTelegramFields_() {
 }
 
 let metaReadAt_ = 0;   // when loadMeta last read the server itself (not the saved startup copy); see renderPullUpdateHint_
+// A company copy speaks of contacts, not friends (owner, 2026-11-26): strings.js holds "<key>.co" for every text that says
+// "friend"; I18n.tr uses it while the variant is "co". The fixed texts of index.html that have one are written again here (only
+// those: the others may have been changed by the code since the page loaded).
+function syncTextVariant_() {
+  const want = companyCopyOn_() ? "co" : "";
+  if (I18n.getVariant() === want) return;
+  const was = I18n.getVariant();
+  I18n.setVariant(want);
+  const affected = (key) => (window.STRINGS[key + ".co"] !== undefined) && (want === "co" || was === "co");
+  document.querySelectorAll("[data-i18n]").forEach((el) => { const k = el.getAttribute("data-i18n"); if (affected(k)) el.textContent = tr(k); });
+  ["placeholder", "title", "aria-label"].forEach((attr) => {
+    document.querySelectorAll(`[data-i18n-${attr}]`).forEach((el) => { const k = el.getAttribute(`data-i18n-${attr}`); if (affected(k)) el.setAttribute(attr, tr(k)); });
+  });
+}
+
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", { tz: phoneTz_() });
   syncPairWithBackend_();
@@ -1837,6 +1852,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
   // The order dates are written in (More → My profile → How I type dates); nothing chosen = the language decides, as before.
   if (meta.settings) I18n.setDateOrder(String(meta.settings.date_format || "").toLowerCase());
+  syncTextVariant_();   // a company copy's own words ("contact", "Split with others")
   syncNavFromMeta_();   // the tabs this person chose (More → My profile → My tabs), on every phone
   // A friend's copy remembers the quick currency buttons they chose (Settings favorite_currencies) on a new phone too.
   try {
