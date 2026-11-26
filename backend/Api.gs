@@ -1302,12 +1302,17 @@ function createEntry(payload) {
   // it sends wins (the owner may have un-ticked it); a caller that sends no
   // tag list at all gets the default here.
   if (!payload.tag_ids) autoTagTravelEntry_(entry);
+  if (payload.detraction_amount !== undefined && payload.detraction_amount !== '') {   // a company's income with a detracción (Detractions.gs)
+    applyDetractionFromSave_(id, payload.detraction_amount);
+    entry = getEntryById_(id) || entry;
+  }
 
   return entry;
 }
 
 function confirmEntryFromApp_(payload) {
   confirmEntryWithLearning_(payload.id, { personal: !!payload.personal });
+  syncDetraction_(payload.id);   // a waiting income given a detracción gets its Banco de la Nación transfer once confirmed
   // Confirming gives the entry its category for good: the blank look-alikes (imports waiting in Tidy my history) follow, with Undo.
   var followed = null;
   try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }

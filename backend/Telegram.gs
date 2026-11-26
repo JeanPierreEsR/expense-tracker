@@ -2000,8 +2000,14 @@ function deleteEntry_(entryId) {
     headers.forEach(function (h, i) { obj[h] = gone[i]; });
     changeNoteDelete_('Entries', obj);
   }
+  var goneRow = null;
+  if (headers.indexOf('detraction_of') !== -1) {   // an income and its Banco de la Nación transfer go together (Detractions.gs)
+    var vals = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
+    goneRow = { id: entryId, detraction_of: vals[headers.indexOf('detraction_of')] };
+  }
   deleteSheetRows_(sheet, rowIndex, 1);
   recordEntryDeletions_([entryId]);
+  if (goneRow) detractionAfterDelete_([goneRow]);
   // A no-op for an entry that was never split (the common case, and every
   // pending/review-queue entry today, since Phase 5's split UI is only on
   // confirmed entries) — see deleteEntrySplitsAndLoansForEntry_ in

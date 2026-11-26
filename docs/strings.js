@@ -349,6 +349,14 @@
     "transfer.kind.exchange": { en: "Currency exchange", es: "Cambio de moneda" },
     // A partner's money from the "+" (company copies, owner 2026-11-26)
     "transfer.kind.partnerIn": { en: "Money from a partner", es: "Dinero de un socio" },
+    // Detracción (company copies, 2026-11-26)
+    "detr.toggle": { en: "With detracción", es: "Con detracción" },
+    "detr.rate": { en: "Detracción (%)", es: "Detracción (%)" },
+    "detr.hint": { en: "Reaches the bank: {bank} · to the Banco de la Nación: {bn}. The amount is the whole invoice.", es: "Llega al banco: {bank} · al Banco de la Nación: {bn}. El monto es la factura completa." },
+    "detr.grossedUp": { en: "The amount is now the invoice, {total}: {net} reached the bank and {bn} went to the Banco de la Nación.", es: "El monto ahora es la factura, {total}: al banco llegaron {net} y {bn} fueron al Banco de la Nación." },
+    "detr.companyRate": { en: "Usual detracción (%)", es: "Detracción habitual (%)" },
+    "detr.companyHint": { en: "The share clients deposit in the Banco de la Nación. Each collection can change it.", es: "La parte que los clientes depositan en el Banco de la Nación. Se puede cambiar en cada cobro." },
+    "detr.badRate": { en: "Type a percentage between 0 and 100.", es: "Escribe un porcentaje entre 0 y 100." },
     "transfer.kind.loanNoSchedule": { en: "Loan without installments", es: "Préstamo sin cuotas" },
     "transfer.kind.lenderLoan": { en: "Loan with installments (bank or lender)", es: "Préstamo con cuotas (banco o prestamista)" },
     "transfer.kind.distribution": { en: "Profit distribution", es: "Distribución de utilidades" },

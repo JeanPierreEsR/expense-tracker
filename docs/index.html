@@ -452,6 +452,19 @@
             </div>
           </div>
 
+          <!-- Detracción (company copies, an income in soles; backend/Detractions.gs). -->
+          <div id="detraction-field" hidden>
+            <label class="checkbox-row">
+              <input type="checkbox" id="detraction-toggle">
+              <span data-i18n="detr.toggle">With detracción</span>
+            </label>
+            <div id="detraction-detail" hidden>
+              <label for="detraction-rate" data-i18n="detr.rate">Detracción (%)</label>
+              <input type="text" inputmode="decimal" id="detraction-rate" placeholder="4">
+              <p class="hint" id="detraction-hint"></p>
+            </div>
+          </div>
+
           <!-- Business 2, piece 10 (company copies): how it was paid and its receipt, for the accountant's package. -->
           <div id="voucher-field" hidden>
             <label for="voucher-pay" data-i18n="voucher.pay">How it was paid</label>
@@ -4134,6 +4147,12 @@
 
         <label for="company-tax-id"><span data-i18n="igv.taxId">Tax ID (RUC)</span> (<span data-i18n="common.optional">Optional</span>)</label>
         <input type="text" id="company-tax-id" maxlength="30" inputmode="numeric" autocomplete="off">
+
+        <div id="company-detr-field" hidden>
+          <label for="company-detr-rate" data-i18n="detr.companyRate">Usual detracción (%)</label>
+          <input type="text" id="company-detr-rate" inputmode="decimal" placeholder="4" autocomplete="off">
+          <p class="hint" data-i18n="detr.companyHint">The share clients deposit in the Banco de la Nación. Each collection can change it.</p>
+        </div>
 
         <p class="hint error-text" id="company-form-error"></p>
         <button type="button" class="primary" id="company-save-btn" data-i18n="business.save">Save</button>

@@ -81,6 +81,7 @@ function deleteEntries(payload) {
   var shared = entrySharedFriendsMap_(del);
   var gone = {};
   del.forEach(function (id) { gone[id] = true; });
+  var goneRows = detractionColumnsExist_() ? del.map(function (id) { var e = getEntryById_(id) || {}; return { id: id, detraction_of: e.detraction_of || '' }; }) : [];
   withWriteBatch_(function () {
     deleteRowsWhere_('Entries', function (row) { return gone[String(row.id)] === true; });
     recordEntryDeletions_(del);
@@ -88,6 +89,7 @@ function deleteEntries(payload) {
     deleteRowsWhere_('Entry Tags', function (row) { return gone[String(row.entry_id)] === true; });
     if (entryBillsSheetExists_()) deleteRowsWhere_('Entry Bills', function (row) { return gone[String(row.entry_id)] === true; });
   });
+  detractionAfterDelete_(goneRows);   // incomes take their Banco de la Nación transfers with them (Detractions.gs)
   out.deleted = del;
   return out;
 }
@@ -285,6 +287,7 @@ function restoreDeletedEntries(payload) {
   out.restored.forEach(function (id) { back[id] = true; });
   if (Object.keys(back).length) deleteRowsWhere_('Entry Deletions', function (r) { return back[String(r.entry_id)] === true; });
   deleteRowsWhere_('Deleted Entries', function (r) { return doneKeys[String(r.batch_id) + '|' + String(r.entry_id)] === true; });
+  if (detractionColumnsExist_()) out.restored.forEach(function (id) { syncDetraction_(id); });   // an income back: its Banco de la Nación transfer too
   return out;
 }
 

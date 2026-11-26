@@ -271,6 +271,12 @@ function cleanCompanyInput_(p, ownId) {
   // Step 3B. A key left out of the payload leaves the stored value alone (older phones never send them).
   if (p.igv_enabled !== undefined) out.igv_enabled = (p.igv_enabled === true || p.igv_enabled === 'yes') ? 'yes' : '';
   if (p.tax_id !== undefined) out.tax_id = String(p.tax_id || '').trim().replace(/\s+/g, ' ').substring(0, 30);
+  if (p.detraction_rate !== undefined && p.detraction_rate !== '') {   // a company copy's usual detracción % (Detractions.gs)
+    var rate = Number(p.detraction_rate);
+    if (!isFinite(rate) || rate <= 0 || rate >= 100) throw new Error(tr_('detr.badRate'));
+    ensureBusinessColumn_('Companies', 'detraction_rate', false);
+    out.detraction_rate = round2_(rate);
+  }
   return out;
 }
 
@@ -322,11 +328,11 @@ function addCompany(payload) {
 function updateCompany(payload) {
   requireBusiness_();
   ensureBusinessSheets_();
+  var clean = cleanCompanyInput_(payload, payload.id);   // first: it may add a column (detraction_rate)
   var sheet = getSheet('Companies');
   var headers = getHeaders(sheet);
   var rowIndex = findRowIndexById(sheet, headers, payload.id);
   if (rowIndex === -1) throw new Error(tr_('business.companyNotFound'));
-  var clean = cleanCompanyInput_(payload, payload.id);
   withWriteBatch_(function () {
     Object.keys(clean).forEach(function (key) { setCellByRow_(sheet, headers, rowIndex, key, clean[key]); });
   });
@@ -743,7 +749,7 @@ function listCompaniesAndProjects(payload) {
     var mine = rows.filter(function (r) { return String(r.entry.company_id || '') === String(c.id); });
     var t = businessTotals_(mine, null, openingsInPeriod_(openings.filter(function (o) { return o.company_id === String(c.id); }), payload.startDate, payload.endDate));
     return {
-      id: c.id, name: c.name, emoji: c.emoji, igv_enabled: String(c.igv_enabled || ''), tax_id: String(c.tax_id || ''),
+      id: c.id, name: c.name, emoji: c.emoji, igv_enabled: String(c.igv_enabled || ''), tax_id: String(c.tax_id || ''), detraction_rate: String(c.detraction_rate || ''),
       currencies: t.currencies, approx: t.approx, entryCount: t.entryCount,
       projects: projects.filter(function (p) { return String(p.company_id) === String(c.id); }).map(function (p) {
         var pr = mine.filter(function (r) { return String(r.entry.project_id || '') === String(p.id); });

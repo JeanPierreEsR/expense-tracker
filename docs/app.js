@@ -482,6 +482,7 @@ function selectCurrency(code, target, byPerson) {
     // An expected payment is in one currency: a new currency means a new list to choose from.
     expectedPick_ = ""; expectedPickTouched_ = false;
     syncExpectedField_();
+    if (typeof syncDetractionField_ === "function") syncDetractionField_();   // soles only
   } else if (resolvedTarget === "trip") {
     refreshTripRateWarning_(true);   // a newly chosen trip currency with no rate on file asks for one
   }
@@ -2044,6 +2045,7 @@ function showDetailForm(category) {
   toggleSplitFieldVisibility();
   setTimeout(updateChargeBox_, 0);
   updateRefundOfField_();   // "+" form, income in Refunds: Which purchase?
+  syncDetractionField_();   // a sale of a unit has no detracción by default
   tripPickLocked_ = false;   // a fresh form: suggest again
   repaymentFriendTouched_ = false;
   repaymentDirTouched_ = false;
@@ -7616,6 +7618,7 @@ async function startEditEntry(entry) {
   else setBusinessPick_(businessPickValue_(entry));
   if (entry.expected_payment_id) setExpectedPick_(entry.expected_payment_id);
   setIgvState_(Number(entry.igv_amount) > 0, entry.igv_amount, true);   // the stored figure is kept exactly until the person changes it
+  setDetractionState_(entry);
   setVoucherState_(entry);   // piece 10: how it was paid and its receipt
 
   document.getElementById("edit-mode-banner").hidden = false;
@@ -23937,7 +23940,7 @@ function businessAmount_(cur, n) { return `${escapeHtml(cur)} ${moneyFmt(n)}`; }
 
 // Keeps the app's lists in step with what the server just said (the entry form's picker reads them).
 function rememberBusinessLists_(companies) {
-  meta.companies = companies.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji, igv_enabled: c.igv_enabled || "", tax_id: c.tax_id || "" }));
+  meta.companies = companies.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji, igv_enabled: c.igv_enabled || "", tax_id: c.tax_id || "", detraction_rate: c.detraction_rate || "" }));
   meta.projects = [];
   companies.forEach((c) => c.projects.forEach((p) => meta.projects.push({ id: p.id, company_id: c.id, name: p.name, emoji: p.emoji, status: p.status })));
   populateBusinessOptions_();
@@ -24942,6 +24945,8 @@ function openCompanyModal_(company) {
   const full = company ? ((meta.companies || []).find((c) => c.id === company.id) || company) : null;   // the phone's copy carries the IGV fields
   document.getElementById("company-igv").checked = !!full && full.igv_enabled === "yes";
   document.getElementById("company-tax-id").value = full ? String(full.tax_id || "") : "";
+  document.getElementById("company-detr-field").hidden = !companyCopyOn_();   // a company copy's usual detracción %
+  document.getElementById("company-detr-rate").value = full && Number(full.detraction_rate) > 0 ? String(full.detraction_rate) : "";
   document.getElementById("company-delete-btn").hidden = !company;
   const backdrop = document.getElementById("company-modal-backdrop");
   bringModalToFront_(backdrop);
@@ -24976,6 +24981,11 @@ document.getElementById("company-save-btn").addEventListener("click", async () =
       name: document.getElementById("company-name").value.trim(), emoji: document.getElementById("company-emoji").value.trim(),
       igv_enabled: document.getElementById("company-igv").checked, tax_id: document.getElementById("company-tax-id").value.trim()
     };
+    if (companyCopyOn_()) {
+      const rateRaw = document.getElementById("company-detr-rate").value.trim().replace(",", ".");
+      if (rateRaw && !(Number(rateRaw) > 0 && Number(rateRaw) < 100)) { errorEl.textContent = tr("detr.badRate"); return; }
+      if (rateRaw) fields.detraction_rate = Number(rateRaw);
+    }
     const companyId = editingCompanyId_;
     closeCompanyModal_();
     saveBehindScreen_(
@@ -26257,6 +26267,7 @@ function populateBusinessOptions_() {
   syncClientButton_();
   syncExpectedField_();
   syncIgvField_();
+  syncDetractionField_();   // a company's income: "With detracción" (Detractions.gs)
   syncVoucherField_();   // piece 10: how it was paid and its receipt
   syncReceiptField_();
 }
@@ -26382,6 +26393,97 @@ function igvAutoFill_() {
   const amount = parseFloat(document.getElementById("amount").value);
   document.getElementById("igv-amount").value = amount > 0 ? igvFromGross_(amount).toFixed(2) : "";
 }
+
+// ---- Detracción (company copies; backend/Detractions.gs, owner 2026-11-26) ----
+// A company's income in soles: "With detracción", ticked by default (not on the sale of a unit, nor on an item that came from the bank).
+// The amount is the whole invoice; the line under it says what reaches the bank and what goes to the Banco de la Nación (whole soles,
+// as SUNAT rounds). Confirming an item from the bank: its amount is what ARRIVED, so ticking the box raises it to the invoice once.
+const DETR_SALE_KEYS_ = ["reservation_deposits", "down_payments", "sale_balances"];
+let detrTouched_ = false;   // the person ticked or unticked it
+let detrStored_ = null;     // an entry being edited: its stored detracción (0 = none); null = a new income (the default applies)
+let detrNetBefore_ = null;  // an item from the bank, raised to the invoice: what arrived
+function detrRateFor_(company) { const r = Number(company && company.detraction_rate); return r > 0 && r < 100 ? r : 4; }
+function detrRate_() { const r = parseFloat(String(document.getElementById("detraction-rate").value).replace(/,/g, ".")); return r > 0 && r < 100 ? r : 0; }
+function detrAmountOf_(total) { const r = detrRate_(); return r ? Math.round(total * r / 100) : 0; }
+function detrFromBank_() {
+  const w = lastConfirmPendingEntry_;
+  return !!confirmingPendingId && !!w && w.id === confirmingPendingId && ["email", "shortcut", "statement", "house"].includes(w.source);
+}
+function syncDetractionField_() {
+  const field = document.getElementById("detraction-field");
+  if (!field || !meta) return;
+  const company = businessCompanyOfPick_();
+  const toggle = document.getElementById("detraction-toggle");
+  const show = companyCopyOn_() && selectedType === "income" && !!company && document.getElementById("currency").value.toUpperCase() === "PEN" && !incomeWaitingOn_();
+  field.hidden = !show;
+  if (!show) { if (toggle.checked) detrUngross_(); toggle.checked = false; return; }
+  const rateBox = document.getElementById("detraction-rate");
+  if (!rateBox.value) rateBox.value = String(detrRateFor_(company));
+  if (!detrTouched_ && detrStored_ === null) {
+    const cat = (meta.categories || []).find((c) => c.id === getCategoryId());
+    toggle.checked = !(cat && DETR_SALE_KEYS_.includes(String(cat.key || "")));
+  }
+  document.getElementById("detraction-detail").hidden = !toggle.checked;
+  renderDetractionHint_();
+}
+function renderDetractionHint_() {
+  const hint = document.getElementById("detraction-hint");
+  if (!hint || document.getElementById("detraction-field").hidden || !document.getElementById("detraction-toggle").checked) return;
+  const total = parseFloat(String(document.getElementById("amount").value).replace(/,/g, "")) || 0;
+  const d = detrAmountOf_(total);
+  hint.textContent = detrNetBefore_ !== null
+    ? tr("detr.grossedUp", { total: formatAmount(total, "PEN"), net: formatAmount(detrNetBefore_, "PEN"), bn: formatAmount(d, "PEN") })
+    : tr("detr.hint", { bank: formatAmount(Math.max(0, total - d), "PEN"), bn: formatAmount(d, "PEN") });
+}
+// From the bank: what arrived is the net; the invoice is net + the part kept (net × r / (100 − r), whole soles).
+function detrGrossUp_() {
+  const box = document.getElementById("amount");
+  const net = detrNetBefore_ !== null ? detrNetBefore_ : parseFloat(String(box.value).replace(/,/g, "")) || 0;
+  const r = detrRate_();
+  if (!(net > 0) || !r) return;
+  detrNetBefore_ = net;
+  box.value = (net + Math.round(net * r / (100 - r))).toFixed(2);
+  if (typeof igvAutoFill_ === "function" && document.getElementById("igv-toggle").checked) { igvAutoFill_(); renderIgvHint_(); }
+}
+function detrUngross_() {
+  if (detrNetBefore_ === null) return;
+  document.getElementById("amount").value = detrNetBefore_.toFixed(2);
+  detrNetBefore_ = null;
+}
+function setDetractionState_(entry) {
+  detrTouched_ = false;
+  detrNetBefore_ = null;
+  detrStored_ = entry ? (Number(entry.detraction_amount) > 0 ? Number(entry.detraction_amount) : 0) : null;
+  const toggle = document.getElementById("detraction-toggle");
+  toggle.checked = !!detrStored_;
+  const company = businessCompanyOfPick_();
+  const amount = entry ? Math.abs(Number(entry.amount)) : 0;
+  document.getElementById("detraction-rate").value = detrStored_ && amount ? String(Math.round(detrStored_ / amount * 10000) / 100) : String(detrRateFor_(company));
+  syncDetractionField_();
+}
+// A company copy's income always sends it ("" takes it off on an edit); everything else never touches it.
+function detractionFieldToSend_() { return companyCopyOn_() && selectedType === "income" ? { detraction_amount: detractionValueToSend_() } : {}; }
+// What the form sends: the part kept in whole soles, or "" (none, or taken off).
+function detractionValueToSend_() {
+  if (document.getElementById("detraction-field").hidden || !document.getElementById("detraction-toggle").checked) return "";
+  const total = parseFloat(String(document.getElementById("amount").value).replace(/,/g, "")) || 0;
+  if (detrStored_ && !detrTouched_ && Math.abs(Math.round(detrStored_ / total * 10000) / 100 - detrRate_()) < 0.005) return detrStored_;   // unchanged: exactly as stored
+  const d = detrAmountOf_(total);
+  return d > 0 ? d : "";
+}
+document.getElementById("detraction-toggle").addEventListener("change", (e) => {
+  detrTouched_ = true;
+  if (detrFromBank_()) { if (e.target.checked) detrGrossUp_(); else detrUngross_(); }
+  syncDetractionField_();
+});
+document.getElementById("detraction-rate").addEventListener("input", (e) => {
+  const clean = e.target.value.replace(/[^0-9.,]/g, "");
+  if (clean !== e.target.value) e.target.value = clean;
+  detrTouched_ = true;
+  if (detrNetBefore_ !== null) detrGrossUp_();
+  renderDetractionHint_();
+});
+document.getElementById("amount").addEventListener("input", () => { if (detrNetBefore_ !== null) detrNetBefore_ = null; renderDetractionHint_(); });
 
 function syncIgvField_() {
   const field = document.getElementById("igv-field");
@@ -26617,6 +26719,7 @@ function setBusinessPick_(value) {
   expectedPick_ = ""; expectedPickTouched_ = false;   // callers that carry a link set it again with setExpectedPick_
   syncExpectedField_();
   setIgvState_(false);                                // ... and IGV with setIgvState_
+  setDetractionState_(null);                          // ... and the detracción (a new income: its default)
   setVoucherState_(null);                             // ... and how it was paid / its receipt (piece 10)
   syncProjectSplitButton_();                          // "Split between projects" follows the pick (Business 2, piece 6)
 }
@@ -26627,10 +26730,10 @@ function businessLinkFields_() {
   const value = document.getElementById("entry-business").value;
   if (value.startsWith("p:")) {
     const project = (meta.projects || []).find((p) => p.id === value.slice(2));
-    return { project_id: value.slice(2), company_id: project ? project.company_id : "", expected_payment_id: selectedType === "income" ? expectedPick_ : "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_() };
+    return { project_id: value.slice(2), company_id: project ? project.company_id : "", expected_payment_id: selectedType === "income" ? expectedPick_ : "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_(), ...detractionFieldToSend_() };
   }
-  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2), expected_payment_id: "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_() };
-  return { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "", ...voucherFieldsToSend_() };
+  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2), expected_payment_id: "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_(), ...detractionFieldToSend_() };
+  return { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "", ...voucherFieldsToSend_(), ...detractionFieldToSend_() };
 }
 
 // The label on an entry row: "🏢 Studio Alfa › Casa Lima", or just the company. Skipped while the pack is off.
