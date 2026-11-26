@@ -322,7 +322,8 @@ test("a transfer to MY OWN account: every transferIfOwn twin reads it exactly li
   const samples = loadSamples();
   const own = v.pack.rules.filter((r) => r.replaces && r.type === "transferIfOwn");
   assert.ok(own.length >= 3, "BCP third-party transfer, Interbank transfer, SIP transfer to another bank");
-  rt.run("var __own = isOwnAccount_; isOwnAccount_ = function () { return true; }");
+  // BCP "a otros bancos" reads the person's name with a surname initial (isOwnNameWithInitial_; its twin says `initialOk`): stubbed too.
+  rt.run("var __own = isOwnAccount_, __ownI = isOwnNameWithInitial_; isOwnAccount_ = function () { return true; }; isOwnNameWithInitial_ = function () { return true; }");
   try {
     for (const twin of own) {
       for (const s of (samples[twin.id] || []).filter((x) => x.matches !== false)) {
@@ -337,7 +338,7 @@ test("a transfer to MY OWN account: every transferIfOwn twin reads it exactly li
       }
     }
   } finally {
-    rt.run("isOwnAccount_ = __own");
+    rt.run("isOwnAccount_ = __own; isOwnNameWithInitial_ = __ownI");
   }
 });
 
