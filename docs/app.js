@@ -1079,7 +1079,7 @@ const ONCE_ACTIONS = new Set([
   // Everything else that creates something (owner, 2026-11-14: a trip saved while the phone was locked was made three times)
   "addTrip", "addBudget", "addPaymentMethod", "savePaymentMethod", "addTag", "addBank", "addPayor", "saveCategory",
   "saveBankLoan", "recordEarlyPayment", "recordInstallment", "recordRecurringPayment", "recordRepaymentEntry", "createStatementAccounts",
-  "convertEntryToPartnerMoney", "changePartnerMoney", "recordDistribution", "changeDistribution",   // Business 2 piece 7: a partner's money
+  "convertEntryToPartnerMoney", "changePartnerMoney", "recordDistribution", "changeDistribution", "addPartnerMoney",   // Business 2 piece 7: a partner's money
   // Testers 2.68.2: these were protected on the server only, so a "Try again" made a second sale stage. Kept equal to the server's
   // ONCE_ACTIONS_ by tests/backend/once-actions.test.js.
   "addIgvPayment", "assignEntryAccounts", "closeMonth", "reopenMonth", "sendAccountantPackage", "addProjectUnits", "saveUnitStage", "returnUnitDeposit",
@@ -1826,6 +1826,28 @@ function refreshTelegramFields_() {
 }
 
 let metaReadAt_ = 0;   // when loadMeta last read the server itself (not the saved startup copy); see renderPullUpdateHint_
+// A company copy speaks of contacts, not friends (owner, 2026-11-26): strings.js holds "<key>.co" for every text that says
+// "friend"; I18n.tr uses it while the variant is "co". The fixed texts of index.html that have one are written again here (only
+// those: the others may have been changed by the code since the page loaded).
+function syncTextVariant_() {
+  const want = companyCopyOn_() ? "co" : "";
+  // A company copy has no investments (owner, 2026-11-26): the type tab, the Overview block and card, the search chip and the
+  // platform account type go away (style.css § co-no-invest; the server refuses a new one too). Nothing is deleted.
+  document.body.classList.toggle("co-no-invest", want === "co");
+  if (want === "co" && selectedType === "investment" && !editingEntryId && !confirmingPendingId) {
+    const tab = document.querySelector('#entry-type-tabs .type-tab[data-type="expense"]');
+    if (tab) tab.click();
+  }
+  if (I18n.getVariant() === want) return;
+  const was = I18n.getVariant();
+  I18n.setVariant(want);
+  const affected = (key) => (window.STRINGS[key + ".co"] !== undefined) && (want === "co" || was === "co");
+  document.querySelectorAll("[data-i18n]").forEach((el) => { const k = el.getAttribute("data-i18n"); if (affected(k)) el.textContent = tr(k); });
+  ["placeholder", "title", "aria-label"].forEach((attr) => {
+    document.querySelectorAll(`[data-i18n-${attr}]`).forEach((el) => { const k = el.getAttribute(`data-i18n-${attr}`); if (affected(k)) el.setAttribute(attr, tr(k)); });
+  });
+}
+
 async function loadMeta(prefetchedMeta, skipFormPopulate) {
   meta = prefetchedMeta || await callApi("getMeta", { tz: phoneTz_() });
   syncPairWithBackend_();
@@ -1837,6 +1859,7 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   if (typeof refreshExtrasRow_ === "function") refreshExtrasRow_();
   // The order dates are written in (More → My profile → How I type dates); nothing chosen = the language decides, as before.
   if (meta.settings) I18n.setDateOrder(String(meta.settings.date_format || "").toLowerCase());
+  syncTextVariant_();   // a company copy's own words ("contact", "Split with others")
   syncNavFromMeta_();   // the tabs this person chose (More → My profile → My tabs), on every phone
   // A friend's copy remembers the quick currency buttons they chose (Settings favorite_currencies) on a new phone too.
   try {
@@ -2609,9 +2632,12 @@ function updateRepaymentUi_() {
   syncExchangeKindOption_(kindSelect);
   syncUnloanKindOption_(kindSelect);
   syncExchangeLegKindOptions_(kindSelect);
+  syncPartnerKindOptions_(kindSelect);
   const kind = transferKind_();
   syncExchangeInline_();
   applyExchangeLegLayout_(kind);
+  syncPartnerEntryBlock_();
+  if (partnerEntryKind_()) { document.getElementById("repayment-detail").hidden = true; syncEntryOpening_(false); return; }
   const plain = kind === "between" || kind === "exchange" || kind === "unloan" || kind === "xleg" || kind === "unexchange";
   document.getElementById("repayment-detail").hidden = plain;
   if (plain) { syncEntryOpening_(false); return; }
@@ -4079,6 +4105,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
   if (await saveRefundFromEntryForm_()) return;   // "+" Income in Refunds with "Which purchase?" chosen: saved as that purchase's refund
   if (entryRepayTooQuick_()) return;   // a repayment amount the form filled in, saved too quickly to have been read
   if (!(await closedMonthOk_([editingEntryId ? editingEntryOriginalDate_ : "", document.getElementById("date").value]))) return;   // piece 8
+  if (partnerEntryKind_()) { savePartnerFromEntryForm_(); return; }   // a partner's money from the "+": its own save (below)
   const submitBtn = document.getElementById("submit-btn");
   const errorEl = document.getElementById("form-error");
   errorEl.textContent = "";
@@ -6447,7 +6474,7 @@ function renderSearchFilterBody_(k) {
       field({ labelKey: "search.f.max", labelVars: { cur: homeCur() }, type: "number", key: "max", decimal: true }));
     return;
   }
-  const values = k.ui === "chips" ? ["expense", "income", "transfer", "investment"] : SEARCH_PERIODS_;
+  const values = k.ui === "chips" ? ["expense", "income", "transfer", "investment"].filter((v) => v !== "investment" || !companyCopyOn_()) : SEARCH_PERIODS_;
   const isOn = (v) => (k.ui === "chips" ? f.types.includes(v) : f.period === v);
   let custom = null;
   const rows = [];
@@ -7839,6 +7866,7 @@ function openEditPopup(entry) {
   if (entrySheetBusyBehind_()) return;
   // A profit distribution opens its own window (partner, net, withholding), not the plain transfer form (testers 2.69.2).
   if (companyCopyOn_() && entry.status === "confirmed" && entry.link && entry.link.kind === "distribution" && entry.link.id) { openDistributionEdit_(entry); return; }
+  if (companyCopyOn_() && entry.status === "confirmed" && entry.link && (entry.link.kind === "contribution" || entry.link.kind === "pending") && entry.link.id) { openContributionEdit_(entry); return; }   // owner, 2026-11-26
   entrySheetSeq_++;
   document.getElementById("edit-entry-modal-body").appendChild(document.getElementById("entry-card"));
   document.getElementById("edit-entry-modal-title").textContent = tr("entry.editTitle");
@@ -8636,6 +8664,11 @@ async function afterMoneySaved_(item) {
     await refreshEntryList();
     refreshReviewQueue().catch(() => {});
     refreshBalances().catch(() => {});
+    if (ctx.partner) {   // a partner's money from the "+": the Partners card, a loan's Loans tab, a new partner in the lists
+      refreshOverview().catch(() => {});
+      if (ctx.loan) refreshLoans().catch(() => {});
+      if (ctx.newPartner) loadMeta().catch(() => {});
+    }
   }
 }
 
@@ -10807,7 +10840,7 @@ function homeMainCard_(g) {
     <div class="home-four">
       <div class="home-four-box"><span><i class="home-key" style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><b class="income">${signed(m.income)}</b></div>
       <div class="home-four-box"><span><i class="home-key" style="background:var(--expense)"></i>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${signed(-m.expense)}</b></div>
-      <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${signed(-m.investment)}</b></div>
+      <div class="home-four-box home-four-invest"><span>${escapeHtml(tr("summary.investments"))}</span><b>${signed(-m.investment)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.loans"))}</span><b class="${(m.loans || 0) > 0.5 ? "income" : ""}">${signed(m.loans || 0)}</b></div>
     </div>`;
 
@@ -12804,11 +12837,43 @@ function openDistributionEdit_(entry) {
   document.getElementById("partner-net-box").hidden = false;
   document.getElementById("partner-net").value = Math.abs(Number(entry.amount)).toFixed(2);
   document.getElementById("partner-withholding").value = Number(link.withholding) ? Number(link.withholding).toFixed(2) : "";
+  partnerEditBusiness_(link);
   updatePartnerGross_();
+}
+// The row's own company / project (the entry carries none: a partner's money keeps them on its row).
+function partnerEditBusiness_(link) {
+  const want = link.project_id ? "p:" + link.project_id : link.company_id ? "c:" + link.company_id : "";
+  const sel = document.getElementById("partner-business");
+  if (want && [...sel.options].some((o) => o.value === want)) sel.value = want;
+}
+// A contribution or a "to be decided" one tapped on Home (owner, 2026-11-26: it opened the plain transfer form, where neither the
+// partner nor what it is could change): the same window, with its partner, amount, kind and company filled in. changePartnerMoney.
+function openContributionEdit_(entry) {
+  openPartnerModal_(entry, "in");
+  const link = entry.link;
+  partnerCtx_.edit = link;
+  document.getElementById("partner-title").textContent = tr("partner.editIn");
+  const sel = document.getElementById("partner-pick");
+  if (![...sel.options].some((o) => o.value === link.partner_id)) {
+    const o = document.createElement("option"); o.value = link.partner_id; o.textContent = link.partner || tr("partner.unknownPerson");
+    sel.insertBefore(o, sel.querySelector('option[value="__new__"]'));
+  }
+  sel.value = link.partner_id;
+  document.getElementById("partner-new-name").hidden = true;
+  document.getElementById("partner-out-box").hidden = false;   // only for its amount box
+  document.getElementById("partner-net-box").hidden = false;
+  document.getElementById("partner-out-rest").hidden = true;
+  document.getElementById("partner-net-label").textContent = tr("field.amount");
+  document.getElementById("partner-net").value = Math.abs(Number(entry.amount)).toFixed(2);
+  const radio = document.querySelector(`input[name="partner-kind"][value="${link.kind === "pending" ? "pending" : "contribution"}"]`);
+  if (radio) radio.checked = true;
+  partnerEditBusiness_(link);
 }
 function openPartnerModal_(entry, mode) {
   partnerCtx_ = { entry, mode };
   document.getElementById("partner-net-box").hidden = true;
+  document.getElementById("partner-out-rest").hidden = false;
+  document.getElementById("partner-net-label").textContent = tr("partner.netPaid");
   document.getElementById("partner-title").textContent = tr(mode === "in" ? "partner.reviewIn" : "partner.reviewOut");
   const acct = (meta.paymentMethods || []).find((p) => p.id === entry.payment_method_id);
   document.getElementById("partner-context").textContent = [formatAmount(Math.abs(Number(entry.amount)), entry.currency), listDate_(entry.date), acct ? acct.nickname : ""].filter(Boolean).join(" · ");
@@ -12879,6 +12944,12 @@ document.getElementById("partner-save").addEventListener("click", () => {
     if (!kindEl) { err.textContent = tr("partner.pickKind"); return; }
     action = "convertEntryToPartnerMoney";
     body = Object.assign({ entry_id: entry.id, kind: kindEl.value }, who, biz);
+    if (edit) {
+      const amount = parseFloat(String(document.getElementById("partner-net").value).replace(/,/g, ""));
+      if (!(amount > 0)) { err.textContent = tr("error.validAmount"); return; }
+      action = "changePartnerMoney";
+      body = Object.assign({ id: edit.id, kind: kindEl.value, amount }, who, biz);
+    }
   } else {
     const raw = document.getElementById("partner-withholding").value.trim();
     const w = raw === "" ? 0 : parseFloat(raw.replace(/,/g, ""));
@@ -12903,6 +12974,130 @@ document.getElementById("partner-save").addEventListener("click", () => {
     if (body.kind === "loan") refreshLoans().catch(() => {});
   });
 });
+
+// ---- A partner's money from the "+" (owner, 2026-11-26; company copies, new entries only) ----
+// Transfer → "Money from a partner" (a contribution, a loan from the partner, or to be decided) and "Profit distribution": the same
+// choices as Needs review's window, for money that never reached Needs review (cash, or typed by hand). One server call
+// (addPartnerMoney) through the money queue, so a lost reply never makes a second one.
+const PARTNER_ENTRY_KINDS_ = ["partner_in", "distribution"];
+function partnerEntryKind_() {
+  const k = transferKind_();
+  return PARTNER_ENTRY_KINDS_.includes(k) ? k : "";
+}
+let partnerEntryOptions_ = null;
+function syncPartnerKindOptions_(kindSelect) {
+  const want = companyCopyOn_() && !!((meta && meta.capabilities) || {}).partnerFromEntry && entryFormIsNewEntry_() && moneyBackground_();
+  if (!partnerEntryOptions_) {
+    partnerEntryOptions_ = [["partner_in", "transfer.kind.partnerIn"], ["distribution", "transfer.kind.distribution"]].map(([value, key]) => {
+      const o = document.createElement("option");
+      o.value = value;
+      o.setAttribute("data-i18n", key);
+      o.textContent = tr(key);
+      return o;
+    });
+  }
+  const has = !!kindSelect.querySelector('option[value="partner_in"]');
+  if (want && !has) {
+    const after = kindSelect.querySelector('option[value="loan"]');
+    partnerEntryOptions_.slice().reverse().forEach((o) => kindSelect.insertBefore(o, after ? after.nextSibling : null));
+  } else if (!want && has) {
+    if (PARTNER_ENTRY_KINDS_.includes(kindSelect.value)) kindSelect.value = "between";
+    partnerEntryOptions_.forEach((o) => o.remove());
+  }
+}
+// The partner list: those already partners, then "+ New partner…". Two or more: nobody is chosen for the person (as in Needs review).
+function fillEntryPartnerOptions_() {
+  const sel = document.getElementById("entry-partner");
+  const keep = sel.value;
+  sel.innerHTML = "";
+  const people = partnerPeople_();
+  if (people.length !== 1) { const o = document.createElement("option"); o.value = ""; o.textContent = tr("partner.pickWho"); sel.appendChild(o); }
+  people.forEach((f) => { const o = document.createElement("option"); o.value = f.id; o.textContent = f.name; sel.appendChild(o); });
+  const add = document.createElement("option");
+  add.value = "__new__";
+  add.textContent = tr("partner.newOption");
+  sel.appendChild(add);
+  sel.value = keep && [...sel.options].some((o) => o.value === keep) ? keep : people.length === 1 ? people[0].id : people.length ? "" : "__new__";
+  document.getElementById("entry-partner-new").hidden = sel.value !== "__new__";
+}
+function syncPartnerEntryBlock_() {
+  const kind = partnerEntryKind_();
+  const block = document.getElementById("entry-partner-block");
+  const wasHidden = block.hidden;
+  block.hidden = !kind;
+  document.getElementById("tags-field").hidden = !!kind;   // a partner's money keeps no tags (the server would not save them)
+  if (!kind) return;
+  if (wasHidden) {
+    fillEntryPartnerOptions_();
+    document.querySelectorAll('input[name="entry-partner-kind"]').forEach((r) => { r.checked = false; });
+    document.getElementById("entry-partner-withholding").value = "";
+  }
+  document.getElementById("entry-partner-kind-box").hidden = kind !== "partner_in";
+  document.getElementById("entry-partner-out-box").hidden = kind !== "distribution";
+  // One account: where the money arrived, or where it left from. No "Paid by", no "To".
+  document.getElementById("paid-by-label").hidden = true;
+  document.getElementById("paid_by").hidden = true;
+  document.getElementById("to-payment-method-field").hidden = true;
+  document.getElementById("payment-method-field").hidden = false;
+  document.getElementById("payment-method-label").textContent = tr(kind === "distribution" ? "field.paidFromAccount" : "field.receivedIntoAccount");
+  updateEntryPartnerGross_();
+}
+function updateEntryPartnerGross_() {
+  if (partnerEntryKind_() !== "distribution") return;
+  const net = parseFloat(String(document.getElementById("amount").value).replace(/,/g, "")) || 0;
+  const w = parseFloat(String(document.getElementById("entry-partner-withholding").value).replace(/,/g, "")) || 0;
+  const cur = document.getElementById("currency").value.toUpperCase();
+  document.getElementById("entry-partner-gross-line").textContent = tr("partner.grossLine", { gross: formatAmount(net + Math.max(0, w), cur), net: formatAmount(net, cur) });
+}
+document.getElementById("entry-partner-withholding").addEventListener("input", (ev) => {
+  const clean = sanitizeAmountInputValue(ev.target.value);
+  if (clean !== ev.target.value) ev.target.value = clean;
+  updateEntryPartnerGross_();
+});
+document.getElementById("amount").addEventListener("input", updateEntryPartnerGross_);
+document.getElementById("entry-partner").addEventListener("change", (ev) => {
+  const box = document.getElementById("entry-partner-new");
+  box.hidden = ev.target.value !== "__new__";
+  if (!box.hidden) box.focus();
+});
+// Checked on the phone first (the sheet stays open with the reason), then the sheet closes and the money queue saves it.
+function savePartnerFromEntryForm_() {
+  const errorEl = document.getElementById("form-error");
+  errorEl.textContent = "";
+  const kind = partnerEntryKind_();
+  const amount = parseFloat(String(document.getElementById("amount").value).replace(/,/g, ""));
+  const currency = document.getElementById("currency").value.toUpperCase();
+  const date = document.getElementById("date").value;
+  const account = document.getElementById("payment_method").value;
+  const pick = document.getElementById("entry-partner").value;
+  const newName = document.getElementById("entry-partner-new").value.trim();
+  const fail = (key) => { errorEl.textContent = tr(key); };
+  if (!date) return fail("error.dateRequired");
+  if (!(amount > 0)) return fail("error.validAmount");
+  if (!account || account === "__add__") return fail("error.pickAccount");
+  if (!pick || (pick === "__new__" && !newName)) return fail("partner.pickPartner");
+  const bizVal = document.getElementById("entry-business").value;
+  const body = Object.assign({ direction: kind === "distribution" ? "out" : "in", amount, currency, date, payment_method_id: account,
+    description: document.getElementById("description").value.trim() },
+  pick === "__new__" ? { partner_name: newName } : { partner_id: pick }, bizVal ? reviewBusinessFields_(bizVal) : {});
+  if (kind === "partner_in") {
+    const kindEl = document.querySelector('input[name="entry-partner-kind"]:checked');
+    if (!kindEl) return fail("partner.pickKind");
+    body.kind = kindEl.value;
+  } else {
+    const raw = document.getElementById("entry-partner-withholding").value.trim();
+    const w = raw === "" ? 0 : parseFloat(raw.replace(/,/g, ""));
+    if (!(w >= 0)) return fail("partner.badWithholding");
+    body.withholding = w;
+  }
+  const who = pick === "__new__" ? newName : ((meta.friends || []).find((f) => f.id === pick) || {}).name || "";
+  const label = `${tr(kind === "distribution" ? "transfer.kind.distribution" : "transfer.kind.partnerIn")} · ${who} ${currency} ${moneyFmt(amount)}`;
+  resetEntryFormFields_();
+  document.getElementById("transfer-kind").value = "between";
+  updateRepaymentUi_();
+  if (newEntrySheetOpen_) closeNewEntrySheet_();
+  queueMoneyAction_("addPartnerMoney", body, label, { partner: true, newPartner: !!body.partner_name, loan: body.kind === "loan" });
+}
 
 // "Still to finance" for one project: amount, currency and the day it is true (today by default). Saves behind the screen.
 let companyFundingCtx_ = null;
@@ -13522,7 +13717,7 @@ function renderFlowChips_() {
   const box = document.getElementById("drilldown-chips");
   if (!flowsState_) { box.hidden = true; return; }
   box.hidden = false;
-  box.innerHTML = FLOW_FILTERS_.map((f) => `<button type="button" class="flow-chip flow-${f}${f === flowsState_.filter ? " active" : ""}" data-flow="${f}" aria-pressed="${f === flowsState_.filter}">` +
+  box.innerHTML = FLOW_FILTERS_.filter((f) => f !== "investment" || !companyCopyOn_()).map((f) => `<button type="button" class="flow-chip flow-${f}${f === flowsState_.filter ? " active" : ""}" data-flow="${f}" aria-pressed="${f === flowsState_.filter}">` +
     `<span class="flow-chip-label">${escapeHtml(f === "all" ? tr("flows.all") : flowLabel_(f))}</span><span class="flow-chip-amt">${escapeHtml(flowChipAmount_(f))}</span></button>`).join("");
   document.getElementById("drilldown-title").textContent = flowLabel_(flowsState_.filter);
 }
@@ -17556,7 +17751,7 @@ let tour_ = null;
 function tourCards_(part) {
   if (part === "pro") {
     const caps = (meta && meta.capabilities) || {};
-    const cards = ["invest", "friends", "bill", "programmed", "trips", "projections"];
+    const cards = ["invest", "friends", "bill", "programmed", "trips", "projections"].filter((c) => c !== "invest" || !companyCopyOn_());
     if (caps.bankEmails) cards.push("bank");
     cards.push("mydata");   // one card for the whole My data hub (bank statements included)
     return cards;
@@ -21090,7 +21285,7 @@ function openPmModal_(pm) {
   const typeSel = document.getElementById("pm-type");
   typeSel.innerHTML = "";
   // "Investment platform" is offered to everyone (a copy that skipped the welcome step has no other way to add a platform).
-  const types = [...PM_TYPES_, ...(pm && pm.type === "transfer" ? ["transfer"] : []), "investment"];
+  const types = [...PM_TYPES_, ...(pm && pm.type === "transfer" ? ["transfer"] : []), ...(!companyCopyOn_() || (pm && pm.type === "investment") ? ["investment"] : [])];   // none on a company copy
   types.forEach((t) => {
     const o = document.createElement("option");
     o.value = t;
@@ -26009,8 +26204,12 @@ function populateBusinessOptions_() {
   if (!sel) return;
   populateOverviewScope_(!document.getElementById("screen-overview").hidden);
   const canLink = businessOn() && (meta.companies || []).length > 0 &&
-    (selectedType === "expense" || selectedType === "income" || (selectedType === "transfer" && repaymentActive_()));
-  fillBusinessOptions_(sel, canLink ? (sel.value || (businessAutoPick_ ? companyDefaultPick_() : "")) : "");
+    (selectedType === "expense" || selectedType === "income" || (selectedType === "transfer" && (repaymentActive_() || !!partnerEntryKind_())));
+  fillBusinessOptions_(sel, canLink ? (sel.value || (businessAutoPick_ || partnerEntryKind_() ? companyDefaultPick_() : "")) : "");
+  if (canLink && partnerEntryKind_()) {   // a partner's money is the company's, never "Personal"
+    [...sel.options].forEach((o) => { if (!o.value) o.remove(); });
+    if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+  }
   document.getElementById("business-field").hidden = !canLink;
   syncProjectSplitButton_();
   syncClientButton_();
@@ -32913,6 +33112,7 @@ function practiceISaveFailed_() {
 }
 
 function offerInvestmentsTip_() {
+  if (companyCopyOn_()) return;   // no investments on a company copy
   if (!((meta && meta.capabilities) || {}).practiceInvestments) return;   // an older backend could not clean the practice platform up
   if (!tipSeen_("accounts")) return;   // one practice at a time on this screen: the Accounts one is offered first
   // The practice's deposit leaves from one of the person's own accounts: with none (only platforms, or all hidden) there is nothing to practise with.

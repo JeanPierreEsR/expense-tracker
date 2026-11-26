@@ -187,7 +187,7 @@ var ONCE_ACTIONS_ = {
   // answer was lost, and each "try again" made it again). With the phone keeping one id per save across its retries, a repeat
   // gets the first one's answer instead of a second copy.
   addTrip: 1, addBudget: 1, addPaymentMethod: 1, savePaymentMethod: 1, addTag: 1, addBank: 1, addPayor: 1, saveCategory: 1,
-  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, changeDistribution: 1, closeMonth: 1, reopenMonth: 1, sendAccountantPackage: 1, addProjectUnits: 1, saveUnitStage: 1, returnUnitDeposit: 1,   // Business 2 piece 7 (Partners.gs)
+  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, changeDistribution: 1, addPartnerMoney: 1, closeMonth: 1, reopenMonth: 1, sendAccountantPackage: 1, addProjectUnits: 1, saveUnitStage: 1, returnUnitDeposit: 1,   // Business 2 piece 7 (Partners.gs)
   saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1,
   recordRefund: 1, applyRefundMatch: 1,   // Refunds.gs: a resend must not record the same money back twice
   moveAccountHistory: 1, undoAccountMove: 1, restoreAccountMove: 1, splitAccount: 1   // Accounts: move an account's history (AccountMove.gs); a resend gets the first answer, never a second move
@@ -231,11 +231,11 @@ function applePayDoor_(e) {
 // Checks every money save makes before anything is written (testers 2.68.2, Rafael: a hand-made request saved a made-up account,
 // an amount of 1e308, the currency "ZZZ", the date 2026-13-45, and names of 100,000 characters). The phone never sends these.
 var MONEY_PAYLOAD_ACTIONS_ = { recordRepayment: 1, addLoan: 1, updateLoan: 1, forgiveLoan: 1, recordCurrencyExchange: 1, updateCurrencyExchange: 1,
-  createEntry: 1, saveEntryAll: 1, updateEntry: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, recordDistribution: 1, changeDistribution: 1, convertEntryToPartnerMoney: 1,
+  createEntry: 1, saveEntryAll: 1, updateEntry: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, recordDistribution: 1, changeDistribution: 1, convertEntryToPartnerMoney: 1, addPartnerMoney: 1,
   saveBankLoan: 1, recordInstallment: 1, recordEarlyPayment: 1, returnUnitDeposit: 1, saveUnitStage: 1, saveUnit: 1, addFriend: 1, addPaymentMethod: 1,
   savePaymentMethod: 1, addCompany: 1, updateCompany: 1, addProject: 1, saveCompanySetup: 1, recordRefund: 1 };
 var MAX_AMOUNT_ = 1e12, MAX_TEXT_ = 2000;
-var MONEY_PM_CHECK_ = { recordRefund: 1, recordRepayment: 1, addLoan: 1, recordCurrencyExchange: 1, forgiveLoan: 1, recordInstallment: 1, recordEarlyPayment: 1 };
+var MONEY_PM_CHECK_ = { addPartnerMoney: 1, recordRefund: 1, recordRepayment: 1, addLoan: 1, recordCurrencyExchange: 1, forgiveLoan: 1, recordInstallment: 1, recordEarlyPayment: 1 };
 function checkMoneyPayload_(action, payload) {
   if (!MONEY_PAYLOAD_ACTIONS_[action] || !payload || typeof payload !== 'object') return;
   var pmIds = null;
@@ -560,6 +560,7 @@ function routeActionSwitch_(action, payload) {
     case 'changePartnerMoney': return changePartnerMoney(payload);
     case 'recordDistribution': return recordDistribution(payload);
     case 'changeDistribution': return changeDistribution(payload);
+    case 'addPartnerMoney': return addPartnerMoney(payload);   // the same, straight from the "+" (owner, 2026-11-26)
     case 'listPendingContributions': return listPendingContributions();
     case 'listChangeLog': return listChangeLog(payload);   // Business 2 piece 8: change log and month close (ChangeLog.gs, MonthClose.gs)
     case 'getMonthClose': return getMonthClose(payload);
@@ -1203,7 +1204,13 @@ function getSettingsMap() {
 
 // ---- Entries ----
 
+// A company copy has no investments (owner, 2026-11-26): money put aside is a transfer to the company's own account.
+function refuseCompanyInvestment_(type) {
+  if (String(type || '') === 'investment' && isCompanyCopy_()) throw new Error(tr_('invest.notInCompany'));
+}
+
 function createEntry(payload) {
+  refuseCompanyInvestment_(payload.type);
   // A save the phone sends from its background queue carries its own id (client_id), so sending it again — after a lost
   // reply, or when the app was closed mid-save — never makes a second entry: the same id answers with the entry it made.
   var clientId = String(payload.client_id || '');
@@ -2321,6 +2328,7 @@ function addTag(payload) {
 }
 
 function addPaymentMethod(payload) {
+  refuseCompanyInvestment_(payload.type);
   // Idempotent by nickname — the "+ Add payment method…" flow re-prompts
   // every time (e.g. tapping it again for "Cash" instead of picking the
   // one already in the list), and previously created a brand-new row each
@@ -2405,6 +2413,7 @@ function savePaymentMethod(payload) {
   if (!nickname) throw new Error(tr_('err.enterName'));
   var type = String(payload.type || '').trim().toLowerCase();
   if (PAYMENT_METHOD_TYPES_.indexOf(type) === -1) throw new Error(tr_('err.pmType'));
+  if (type === 'investment' && !(payload.id && (getAllRows('Payment Methods').find(function (p) { return p.id === payload.id; }) || {}).type === 'investment')) refuseCompanyInvestment_(type);
   var last4 = String(payload.last_4 == null ? '' : payload.last_4).trim();
   if (last4 && !/^\d{4}$/.test(last4)) throw new Error(tr_('err.pmLast4'));
   pmCheckMoreLast4_(payload.last_4_more);   // the other currencies' digits, checked before anything is written (AccountNumbers.gs)

@@ -88,7 +88,8 @@ function check(dict, label) {
     if (typeof es !== "string") continue;             // already { one, other } (or English only)
     const hits = pluralAgreement(es);
     if (!hits.length) continue;
-    const singular = [key + "One", key.replace(/Many$/, "One"), key.replace(/Many$/, "")].filter((k) => k !== key);
+    const base = key.replace(/\.co$/, ""), co = key === base ? "" : ".co";   // a company copy's own wording ("<key>.co") pairs like its text
+    const singular = [base + "One" + co, base.replace(/Many$/, "One") + co, base.replace(/Many$/, "") + co].filter((k) => k !== key);
     if (singular.some((k) => dict[k])) continue;
     if (NEVER_ONE_[key]) continue;
     bad.push(`${label} ${key}: ${hits.join(", ")} — "${es.slice(0, 70).replace(/\n/g, " ")}"`);

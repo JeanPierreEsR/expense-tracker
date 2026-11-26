@@ -77,8 +77,16 @@
   // tr("area.name", { n: 3, name: "Ana" }). A text with {one, other} forms
   // picks "one" when params.n is exactly 1. A missing text shows its key
   // (and logs once) rather than a blank, so a gap is visible, never silent.
+  // A copy's own wording (owner, 2026-11-26): on a company copy, "key.co" stands in for "key" wherever it exists ("Split with
+  // others" for "Split with friends", "contact" for "friend"). Set by the app once it knows the copy (setVariant("co")).
+  let variant = "";
+  function setVariant(v) { variant = v || ""; }
+  function getVariant() { return variant; }
+  function hasVariant(key) { return !!(variant && strings()[key + "." + variant]); }
+
   function tr(key, params) {
-    const entry = strings()[key];
+    const all = strings();
+    const entry = (variant && all[key + "." + variant]) || all[key];
     let value = entry && (entry[lang] !== undefined ? entry[lang] : entry.en);
     if (value === undefined) {
       if (typeof console !== "undefined") console.warn("Missing text:", key);
@@ -155,7 +163,7 @@
   const api = {
     SUPPORTED, DEFAULT_LANG, MONTHS,
     DATE_ORDERS, fmtDateAs, setDateOrder, getDateOrder, effectiveDateOrder,
-    tr, setLang, getLang, loadStoredLang, saveLang, hasChosenLang, applyStatic,
+    tr, setLang, getLang, loadStoredLang, saveLang, hasChosenLang, applyStatic, setVariant, getVariant, hasVariant,
     fmtMonthYear, fmtDateMedium, fmtMonthDay, fmtDateTime, monthShort
   };
   if (typeof module !== "undefined" && module.exports) {

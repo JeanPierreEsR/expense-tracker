@@ -238,6 +238,7 @@ function categoryFollowAfterEdit_(entryId) {
 // updateEntry as the app calls it: same write, plus the "other entries followed" answer when the category changed.
 function updateEntryFromApp_(payload) {
   // A plain edit must never change the type of an entry other records hang on (see entryTypeChangeBlock_).
+  if (payload.fields && payload.fields.type === 'investment' && (getEntryById_(payload.id) || {}).type !== 'investment') refuseCompanyInvestment_('investment');
   if (payload.fields && payload.fields.type !== undefined) {
     var blocked = entryTypeChangeBlock_(payload.id, payload.fields.type);
     if (blocked) throw new Error(blocked);

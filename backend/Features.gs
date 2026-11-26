@@ -207,6 +207,7 @@ function getCapabilities_() {
     businessOffered: businessOffered_(),
     // A company copy (CompanyCopy.gs): its welcome asks the sector, the company and its projects instead of "What fits you?".
     companyCopy: isCompanyCopy_(),
+    partnerFromEntry: true,   // addPartnerMoney: a partner's money and profit distributions from the "+" (Partners.gs)
     // The app shows its welcome questions once, on a copy the installer made, until they are answered (Onboarding.gs).
     onboarding: isFriendCopy_() && String(getSettingsMap().onboarded || '') !== 'yes'
   };

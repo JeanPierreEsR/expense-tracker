@@ -184,6 +184,25 @@
               <option value="loan" data-i18n="transfer.kind.loan">New loan</option>
               <option value="exchange" data-i18n="transfer.kind.exchange">Currency exchange</option>
             </select>
+            <!-- A partner's money from the "+" (company copies, new entries; owner, 2026-11-26). The options are added by syncPartnerKindOptions_. -->
+            <div id="entry-partner-block" hidden>
+              <label for="entry-partner" data-i18n="partner.who">Partner</label>
+              <select id="entry-partner"></select>
+              <input type="text" id="entry-partner-new" data-i18n-placeholder="partner.newNamePh" placeholder="Partner's name" maxlength="120" hidden>
+              <div id="entry-partner-kind-box">
+                <label data-i18n="partner.whatIsIt">What is it?</label>
+                <label class="partner-kind"><input type="radio" name="entry-partner-kind" value="contribution"> <span><b data-i18n="partner.kind.contribution">Capital contribution</b><small data-i18n="partner.kind.contributionHint">It adds to the company's capital.</small></span></label>
+                <label class="partner-kind"><input type="radio" name="entry-partner-kind" value="loan"> <span><b data-i18n="partner.kind.loan">Loan from the partner</b><small data-i18n="partner.kind.loanHint">The company owes it back to them.</small></span></label>
+                <label class="partner-kind"><input type="radio" name="entry-partner-kind" value="pending"> <span><b data-i18n="partner.kind.pending">To be decided with the accountant</b><small data-i18n="partner.kind.pendingHint">It stays apart until you decide; you can change it later.</small></span></label>
+                <p class="hint" data-i18n="partner.neverIncome">None of the three is income.</p>
+              </div>
+              <div id="entry-partner-out-box">
+                <label for="entry-partner-withholding" data-i18n="partner.withholding">Withholding (what you typed for SUNAT)</label>
+                <input type="text" inputmode="decimal" id="entry-partner-withholding" placeholder="0.00">
+                <p class="hint" id="entry-partner-gross-line"></p>
+                <p class="hint" data-i18n="partner.notExpense">A profit distribution is not an expense. The app never works out profits.</p>
+              </div>
+            </div>
             <p class="hint" id="exchange-leg-hint" hidden></p>
             <button type="button" class="add-inline" id="exchange-link-btn" data-i18n="xlink.btn" hidden>Link to the other side</button>
             <div id="repayment-detail" hidden>
@@ -2596,13 +2615,15 @@
         </div>
         <div id="partner-out-box">
           <div id="partner-net-box" hidden>
-            <label for="partner-net" data-i18n="partner.netPaid">Net paid</label>
+            <label for="partner-net" id="partner-net-label">Net paid</label>
             <input type="text" inputmode="decimal" id="partner-net" placeholder="0.00">
           </div>
-          <label for="partner-withholding" data-i18n="partner.withholding">Withholding (what you typed for SUNAT)</label>
-          <input type="text" inputmode="decimal" id="partner-withholding" placeholder="0.00">
-          <p class="hint" id="partner-gross-line"></p>
-          <p class="hint" data-i18n="partner.notExpense">A profit distribution is not an expense. The app never works out profits.</p>
+          <div id="partner-out-rest">
+            <label for="partner-withholding" data-i18n="partner.withholding">Withholding (what you typed for SUNAT)</label>
+            <input type="text" inputmode="decimal" id="partner-withholding" placeholder="0.00">
+            <p class="hint" id="partner-gross-line"></p>
+            <p class="hint" data-i18n="partner.notExpense">A profit distribution is not an expense. The app never works out profits.</p>
+          </div>
         </div>
         <label for="partner-business" data-i18n="field.business">Company / project</label>
         <select id="partner-business"></select>
