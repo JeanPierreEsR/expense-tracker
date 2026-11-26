@@ -2103,15 +2103,12 @@ function populatePaidByOptions() {
 
   if (selectedType === "income") {
     label.textContent = tr("field.receivedFrom");
-    // With no payers yet, start on an empty choice: "+ Add payer…" must never be the one selected (it was saved as the payer, 2026-11-04).
-    // A company copy starts empty too: its payers are buyers, and the last one is rarely who paid this time (testers 2.68.2, Lucía).
-    // A refund often has no payer worth naming (a shop, a bank), so Refunds always offers the empty choice too (owner, 2026-11-26).
-    if (!incomePayers_().length || (typeof companyCopyOn_ === "function" && companyCopyOn_()) || isRefundsCategory_(selectedCategoryId || document.getElementById("category").value)) {
-      const none = document.createElement("option");
-      none.value = "";
-      none.textContent = "—";
-      select.appendChild(none);
-    }
+    // Every income starts on an empty "Pick a payer…" choice, never on the last payer (owner, 2026-11-26: it filled in the wrong person);
+    // the person picks one, or leaves it empty (a refund from a shop, a bank). "+ Add payer…" is never the one selected (2026-11-04).
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = tr("form.pickPayer");
+    select.appendChild(none);
     incomePayers_().forEach((p) => {
       const opt = document.createElement("option");
       opt.value = p.id;
@@ -3470,7 +3467,7 @@ document.getElementById("paid_by").addEventListener("change", async (e) => {
     }
   } else if (e.target.value === "__add_payor__") {
     const name = await askName_(tr("prompt.payorName"));
-    e.target.value = meta.payors.length ? meta.payors[0].id : "";
+    e.target.value = "";   // back to "Pick a payer…", never someone the person did not choose
     if (name && name.trim()) {
       const payor = await callApi("addPayor", { name: name.trim() });
       const known = meta.payors.find((p) => p.id === payor.id);
@@ -7105,24 +7102,6 @@ function updateRefundOfField_() {
   const show = refundsOn_() && !editingEntryId && !confirmingPendingId && !payingRecurringId_ && selectedType === "income" && isRefundsCategory_(cat);
   field.hidden = !show;
   if (!show && refundOfPick_) setRefundOfPick_(null);
-  refundPayerBlank_(cat);
-}
-// A new income moved into Refunds starts with no payer ("—"); a payer picked afterwards stays.
-let refundPayerBlanked_ = false;
-function refundPayerBlank_(cat) {
-  const on = selectedType === "income" && !editingEntryId && !confirmingPendingId && !payingRecurringId_ && isRefundsCategory_(cat);
-  if (!on) { refundPayerBlanked_ = false; return; }
-  if (refundPayerBlanked_) return;
-  refundPayerBlanked_ = true;
-  const sel = document.getElementById("paid_by");
-  if (!sel) return;
-  if (![...sel.options].some((o) => o.value === "")) {
-    const none = document.createElement("option");
-    none.value = "";
-    none.textContent = "—";
-    sel.insertBefore(none, sel.firstChild);
-  }
-  sel.value = "";
 }
 function setRefundOfPick_(e) {
   refundOfPick_ = e;
@@ -7521,7 +7500,7 @@ async function startEditEntry(entry) {
   }
   selectCurrency(entry.currency, "entry");
 
-  document.getElementById("paid_by").value = entry.paid_by;
+  document.getElementById("paid_by").value = entry.type === "income" && entry.paid_by === "me" ? "" : entry.paid_by;   // an income saved with no payer
   setIncomeWaitingForm_(entry);
   presetDebtKind_(entry);   // a repayment / loan opens as one (its person, its direction), not as "Between my accounts"
   togglePaymentMethodVisibility();
@@ -10415,7 +10394,7 @@ function moreDetailsSummary_() {
   const shown = (id) => { const e = el(id); return !!e && !e.hidden && !(e.closest("[hidden]") && e.closest("[hidden]") !== el("more-details-body")); };
   const opt = (id) => { const sel = el(id); return sel && sel.selectedOptions && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent.trim() : ""; };
   const parts = [];
-  if (shown("paid_by") && el("paid_by").value && opt("paid_by")) parts.push(opt("paid_by"));   // "—" (no payer) says nothing
+  if (shown("paid_by") && el("paid_by").value && opt("paid_by")) parts.push(opt("paid_by"));   // "Pick a payer…" (no payer) says nothing
   if (shown("split-field") && el("split-toggle").checked) parts.push(splitFriendIds.size ? tr("entry.moreSplit", { n: splitFriendIds.size }) : tr("entry.moreSplitNone"));   // never "split with 0" (Diego)
   if (shown("trip-field") && el("entry-trip").value) parts.push(opt("entry-trip"));
   if (selectedTagIds.size) parts.push(tr("entry.moreTags", { n: selectedTagIds.size }));
