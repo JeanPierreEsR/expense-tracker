@@ -2408,6 +2408,8 @@
     "refund.pickNone": { en: "No purchases in this currency in the last 90 days.", es: "No hay compras en esta moneda en los últimos 90 días." },
     "refund.pickNoMatch": { en: "No purchase matches that search.", es: "Ninguna compra coincide con esa búsqueda." },
     "refund.purchaseGone": { en: "This purchase is no longer in the app.", es: "Esta compra ya no está en la app." },
+    "refund.belowRefundedPhone": { en: "This purchase already had {amount} refunded: the amount can't be lower.", es: "A esta compra ya le reembolsaron {amount}: el monto no puede ser menor." },
+    "refund.waitingPickPurchase": { en: "Choose which purchase this refund is for: Home then shows it under Refunds on the way.", es: "Elige de qué compra es este reembolso: así Inicio lo muestra en Reembolsos en camino." },
     "refund.tooMuchPhone": { en: "At most {max} can still come back on this purchase.", es: "De esta compra todavía pueden volver como máximo {max}." },
     "refund.partTooMuchPhone": { en: "{name} can get back at most {max}.", es: "A {name} le pueden volver como máximo {max}." },
     "refund.partsDontAddPhone": { en: "The parts must add up to {amount}.", es: "Las partes deben sumar {amount}." },
