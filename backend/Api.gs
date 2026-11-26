@@ -187,7 +187,7 @@ var ONCE_ACTIONS_ = {
   // answer was lost, and each "try again" made it again). With the phone keeping one id per save across its retries, a repeat
   // gets the first one's answer instead of a second copy.
   addTrip: 1, addBudget: 1, addPaymentMethod: 1, savePaymentMethod: 1, addTag: 1, addBank: 1, addPayor: 1, saveCategory: 1,
-  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, changeDistribution: 1, addPartnerMoney: 1, closeMonth: 1, reopenMonth: 1, sendAccountantPackage: 1, addProjectUnits: 1, saveUnitStage: 1, returnUnitDeposit: 1,   // Business 2 piece 7 (Partners.gs)
+  convertEntryToPartnerMoney: 1, changePartnerMoney: 1, recordDistribution: 1, changeDistribution: 1, addPartnerMoney: 1, saveContract: 1, deleteContract: 1, closeMonth: 1, reopenMonth: 1, sendAccountantPackage: 1, addProjectUnits: 1, saveUnitStage: 1, returnUnitDeposit: 1,   // Business 2 piece 7 (Partners.gs)
   saveBankLoan: 1, recordEarlyPayment: 1, recordInstallment: 1, recordRecurringPayment: 1, recordRepaymentEntry: 1, createStatementAccounts: 1,
   recordRefund: 1, applyRefundMatch: 1,   // Refunds.gs: a resend must not record the same money back twice
   moveAccountHistory: 1, undoAccountMove: 1, restoreAccountMove: 1, splitAccount: 1   // Accounts: move an account's history (AccountMove.gs); a resend gets the first answer, never a second move
@@ -231,7 +231,7 @@ function applePayDoor_(e) {
 // Checks every money save makes before anything is written (testers 2.68.2, Rafael: a hand-made request saved a made-up account,
 // an amount of 1e308, the currency "ZZZ", the date 2026-13-45, and names of 100,000 characters). The phone never sends these.
 var MONEY_PAYLOAD_ACTIONS_ = { recordRepayment: 1, addLoan: 1, updateLoan: 1, forgiveLoan: 1, recordCurrencyExchange: 1, updateCurrencyExchange: 1,
-  createEntry: 1, saveEntryAll: 1, updateEntry: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, recordDistribution: 1, changeDistribution: 1, convertEntryToPartnerMoney: 1, addPartnerMoney: 1,
+  createEntry: 1, saveEntryAll: 1, updateEntry: 1, convertEntryToRepayment: 1, convertEntryToLoan: 1, recordDistribution: 1, changeDistribution: 1, convertEntryToPartnerMoney: 1, addPartnerMoney: 1, saveContract: 1,
   saveBankLoan: 1, recordInstallment: 1, recordEarlyPayment: 1, returnUnitDeposit: 1, saveUnitStage: 1, saveUnit: 1, addFriend: 1, addPaymentMethod: 1,
   savePaymentMethod: 1, addCompany: 1, updateCompany: 1, addProject: 1, saveCompanySetup: 1, recordRefund: 1 };
 var MAX_AMOUNT_ = 1e12, MAX_TEXT_ = 2000;
@@ -560,7 +560,10 @@ function routeActionSwitch_(action, payload) {
     case 'changePartnerMoney': return changePartnerMoney(payload);
     case 'recordDistribution': return recordDistribution(payload);
     case 'changeDistribution': return changeDistribution(payload);
-    case 'addPartnerMoney': return addPartnerMoney(payload);   // the same, straight from the "+" (owner, 2026-11-26)
+    case 'addPartnerMoney': return addPartnerMoney(payload);
+    case 'saveContract': return saveContract(payload);   // construction contracts (Contracts.gs)
+    case 'deleteContract': return deleteContract(payload);
+    case 'listProjectContracts': return listProjectContracts(payload);   // the same, straight from the "+" (owner, 2026-11-26)
     case 'listPendingContributions': return listPendingContributions();
     case 'listChangeLog': return listChangeLog(payload);   // Business 2 piece 8: change log and month close (ChangeLog.gs, MonthClose.gs)
     case 'getMonthClose': return getMonthClose(payload);
@@ -1047,7 +1050,8 @@ function getMeta() {
     companies: getCompanyRows_(),
     projects: getProjectRows_(),
     expectedPayments: getExpectedRows_(),   // empty (and nothing read) while the pack is off
-    closedMonths: closedMonths_(),   // company copies: months closed (MonthClose.gs); [] elsewhere
+    closedMonths: closedMonths_(),
+    contracts: contractsForApp_(),   // company copies' construction contracts with their figures (Contracts.gs); [] elsewhere   // company copies: months closed (MonthClose.gs); [] elsewhere
     friends: getFriendsWithLastUsed_(),
     payors: getPayorsWithLastIncome_(),
     payorMergeAsk: payorMergeAsk,
@@ -1302,12 +1306,18 @@ function createEntry(payload) {
   // it sends wins (the owner may have un-ticked it); a caller that sends no
   // tag list at all gets the default here.
   if (!payload.tag_ids) autoTagTravelEntry_(entry);
+  if (payload.contract_payment) applyContractPaymentFromSave_(id, payload.contract_payment);   // a construction contract's payment (Contracts.gs)
+  if (payload.detraction_amount !== undefined && payload.detraction_amount !== '') {   // a company's income with a detracción (Detractions.gs)
+    applyDetractionFromSave_(id, payload.detraction_amount);
+    entry = getEntryById_(id) || entry;
+  }
 
   return entry;
 }
 
 function confirmEntryFromApp_(payload) {
   confirmEntryWithLearning_(payload.id, { personal: !!payload.personal });
+  syncDetraction_(payload.id);   // a waiting income given a detracción gets its Banco de la Nación transfer once confirmed
   // Confirming gives the entry its category for good: the blank look-alikes (imports waiting in Tidy my history) follow, with Undo.
   var followed = null;
   try { followed = categoryFollowAfterEdit_(payload.id); } catch (err) { followed = null; }

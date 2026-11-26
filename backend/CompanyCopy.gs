@@ -25,8 +25,8 @@ var COMPANY_COPY_PROPERTY_ = 'COMPANY_COPY';
 var SECTOR_ORDER_ = ['construction', 'other'];
 var SECTOR_PACKS_ = {
   construction: {
-    expense: [['Materials', '🧱'], ['Labor', '👷'], ['Design & permits', '📐'], ['Notary & registries', '📜'],
-      ['Loan interest', '💸'], ['Bank fees', '🧾'], ['Other', '📦']],
+    expense: [['Land', '🏞️'], ['Materials', '🧱'], ['Labor', '👷'], ['Design & permits', '📐'], ['Notary & registries', '📜'],
+      ['Loan interest', '💸'], ['Bank fees', '🧾'], ['Other', '📦']],   // Land: the plot bought for a project is its cost (owner, 2026-11-26)
     income: [['Reservation deposits', '🔖'], ['Down payments', '🏷️'], ['Sale balances', '🔑'], ['Other', '📦']]
   },
   other: {
@@ -101,6 +101,20 @@ function saveCompanySetup(payload) {
   if (ROWS_MEMO_) { delete ROWS_MEMO_['Companies']; delete ROWS_MEMO_['Projects']; }
   bumpStructureVersion_();
   return { company: company, projects: projects, sector: sector, added: cats.added, hidden: cats.hidden };
+}
+
+// Heal (Heals.gs): a construction company copy made before "Land" joined its pack gets it once. Only when no category of that name
+// exists at all (one the person hid stays hidden); nothing else is touched.
+function addLandCategoryToConstruction_() {
+  if (!isCompanyCopy_()) return;
+  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Companies')) return;
+  if (!getAllRows('Companies').some(function (c) { return String(c.sector || '') === 'construction'; })) return;
+  var cats = getAllRows('Categories');
+  var key = categoryKeyFromName_('Land');
+  if (cats.some(function (c) { return c.type === 'expense' && (String(c.key || '') === key || String(c.name || '').trim().toLowerCase() === 'land'); })) return;
+  appendRowObject('Categories', { id: Utilities.getUuid(), name: 'Land', type: 'expense', icon: '🏞️',
+    color: CATEGORY_COLOR_PALETTE[cats.length % CATEGORY_COLOR_PALETTE.length], parent_id: '', key: key, hidden: '' });
+  bumpStructureVersion_();
 }
 
 // Adds the sector's categories (a hidden one with the same name is shown again) and hides the personal starters nobody used.
@@ -210,6 +224,19 @@ function companyOverview_(startDate, endDate) {
     if (!lines.length) return;
     lines.forEach(function (l) { totals[l.currency] = round2_((totals[l.currency] || 0) + l.amount); });
     owed.push({ friend_id: f.friend_id, name: f.friend_id === sunatId ? tr_('coOv.sunatOwed') : f.friend_name, role: f.role, lines: lines });
+  });
+  // Guarantee funds kept from subcontractors are their money (Contracts.gs, owner's plan 2026-11-26): what is still to give back, now.
+  var held = {};
+  contractsForApp_().forEach(function (c) {
+    if (!(c.retention_left > 0.004)) return;
+    var k = c.supplier_id;
+    held[k] = held[k] || { friend_id: k, name: tr_('contract.owedName', { name: c.supplier || tr_('label.unknownFriend') }), role: 'supplier', lines: {} };
+    held[k].lines[c.currency] = round2_((held[k].lines[c.currency] || 0) + c.retention_left);
+  });
+  Object.keys(held).forEach(function (k) {
+    var lines = Object.keys(held[k].lines).map(function (cur) { return { currency: cur, amount: held[k].lines[cur] }; });
+    lines.forEach(function (l) { totals[l.currency] = round2_((totals[l.currency] || 0) + l.amount); });
+    owed.push({ friend_id: k, name: held[k].name, role: 'supplier', lines: lines });
   });
   owed.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
   var home = homeCurrency_();

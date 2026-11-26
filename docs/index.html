@@ -452,6 +452,41 @@
             </div>
           </div>
 
+          <!-- A construction contract's payment (company copies, an expense on a project with contracts; backend/Contracts.gs). -->
+          <div id="contract-pay-field" hidden>
+            <label for="contract-pay-pick" data-i18n="contract.payField">Contract payment</label>
+            <select id="contract-pay-pick"></select>
+            <div id="contract-pay-detail" hidden>
+              <div class="contract-pay-kinds">
+                <label class="checkbox-row"><input type="radio" name="contract-pay-kind" value="advance"> <span data-i18n="contract.kind.advance">Advance</span></label>
+                <label class="checkbox-row"><input type="radio" name="contract-pay-kind" value="valuation"> <span data-i18n="contract.kind.valuation">Valuation</span></label>
+                <label class="checkbox-row"><input type="radio" name="contract-pay-kind" value="retention_return"> <span data-i18n="contract.kind.retention_return">Guarantee given back</span></label>
+              </div>
+              <div id="contract-val-box" hidden>
+                <label for="contract-val-gross" data-i18n="contract.valGross">Amount valued</label>
+                <input type="text" inputmode="decimal" id="contract-val-gross" placeholder="0.00">
+                <label for="contract-val-amort" data-i18n="contract.valAmort">Advance taken back</label>
+                <input type="text" inputmode="decimal" id="contract-val-amort" placeholder="0.00">
+                <label for="contract-val-held" data-i18n="contract.valHeld">Guarantee kept</label>
+                <input type="text" inputmode="decimal" id="contract-val-held" placeholder="0.00">
+              </div>
+              <p class="hint" id="contract-pay-hint"></p>
+            </div>
+          </div>
+
+          <!-- Detracción (company copies, an income in soles; backend/Detractions.gs). -->
+          <div id="detraction-field" hidden>
+            <label class="checkbox-row">
+              <input type="checkbox" id="detraction-toggle">
+              <span data-i18n="detr.toggle">With detracción</span>
+            </label>
+            <div id="detraction-detail" hidden>
+              <label for="detraction-rate" data-i18n="detr.rate">Detracción (%)</label>
+              <input type="text" inputmode="decimal" id="detraction-rate" placeholder="4">
+              <p class="hint" id="detraction-hint"></p>
+            </div>
+          </div>
+
           <!-- Business 2, piece 10 (company copies): how it was paid and its receipt, for the accountant's package. -->
           <div id="voucher-field" hidden>
             <label for="voucher-pay" data-i18n="voucher.pay">How it was paid</label>
@@ -1305,6 +1340,14 @@
         </div>
         <div id="business-units-list"></div>
         <p class="hint" id="business-units-empty" hidden data-i18n="sales.unitsEmpty">No units yet. Tap + to add the units (tags) this project sells.</p>
+      </div>
+      <div class="card" id="business-contracts-card" hidden>
+        <div class="budgets-header">
+          <h3 style="margin:0;" data-i18n="contract.title">Contracts</h3>
+          <button type="button" class="icon-btn" id="business-contracts-add" data-i18n-aria-label="contract.addAria" aria-label="Add a contract"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+        </div>
+        <div id="business-contracts-list"></div>
+        <p class="hint" id="business-contracts-empty" hidden data-i18n="contract.empty">No contracts yet. Tap + to add a subcontractor's contract, with its advance and guarantee fund.</p>
       </div>
       <div class="card" id="business-detail-entries-card" hidden>
         <h3 style="margin-top:0;" data-i18n="business.entries">Entries</h3>
@@ -2561,6 +2604,39 @@
           <button type="button" class="add-inline" id="unit-share-csv" data-i18n="sales.shareCsv">Share the payments as CSV (Excel)</button>
         </div>
         <button type="button" class="add-inline unit-remove" id="unit-remove" data-i18n="sales.remove">Remove from this project</button>
+      </div>
+    </div>
+  </div>
+  <!-- Construction contracts (company copies; backend/Contracts.gs). -->
+  <div id="contract-modal-backdrop" class="currency-modal-backdrop budget-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="contract-title"></span>
+        <button type="button" id="contract-close" class="currency-modal-close">✕</button>
+      </div>
+      <div class="budget-modal-body">
+        <p class="unit-sum" id="contract-sum" hidden></p>
+        <label for="contract-supplier" data-i18n="contract.supplier">Subcontractor</label>
+        <select id="contract-supplier"></select>
+        <input type="text" id="contract-supplier-new" hidden maxlength="120" data-i18n-placeholder="contract.supplierNamePh" placeholder="Subcontractor's name">
+        <label for="contract-description" data-i18n="field.description">Description</label>
+        <input type="text" id="contract-description" maxlength="200" data-i18n-placeholder="contract.descriptionPh" placeholder="e.g. Formwork, plumbing">
+        <label for="contract-amount" data-i18n="contract.amount">Contract amount</label>
+        <input type="text" inputmode="decimal" id="contract-amount" placeholder="0.00">
+        <label for="contract-currency" data-i18n="field.currency">Currency</label>
+        <select id="contract-currency"></select>
+        <label for="contract-advance" data-i18n="contract.advancePct">Advance (%)</label>
+        <input type="text" inputmode="decimal" id="contract-advance" placeholder="0">
+        <label for="contract-retention" data-i18n="contract.retentionPct">Guarantee fund (%)</label>
+        <input type="text" inputmode="decimal" id="contract-retention" placeholder="0">
+        <p class="hint" data-i18n="contract.hint">Each payment is an expense of the project: the advance the day it is paid, each valuation for the net paid, the guarantee when it is given back.</p>
+        <p class="hint error-text" id="contract-error"></p>
+        <button type="button" class="primary" id="contract-save" data-i18n="common.save">Save</button>
+        <div id="contract-payments-box" hidden>
+          <h3 data-i18n="contract.paymentsTitle">Payments</h3>
+          <div id="contract-payments"></div>
+        </div>
+        <button type="button" class="add-inline unit-remove" id="contract-delete" hidden data-i18n="contract.delete">Delete this contract</button>
       </div>
     </div>
   </div>
@@ -4134,6 +4210,12 @@
 
         <label for="company-tax-id"><span data-i18n="igv.taxId">Tax ID (RUC)</span> (<span data-i18n="common.optional">Optional</span>)</label>
         <input type="text" id="company-tax-id" maxlength="30" inputmode="numeric" autocomplete="off">
+
+        <div id="company-detr-field" hidden>
+          <label for="company-detr-rate" data-i18n="detr.companyRate">Usual detracción (%)</label>
+          <input type="text" id="company-detr-rate" inputmode="decimal" placeholder="4" autocomplete="off">
+          <p class="hint" data-i18n="detr.companyHint">The share clients deposit in the Banco de la Nación. Each collection can change it.</p>
+        </div>
 
         <p class="hint error-text" id="company-form-error"></p>
         <button type="button" class="primary" id="company-save-btn" data-i18n="business.save">Save</button>

@@ -274,6 +274,10 @@ function updateEntryFromApp_(payload) {
     entry = getEntryById_(payload.id);
   }
   syncRepaymentAfterEntryEdit_(payload.id, payload.fields);
+  // A company's income and its Banco de la Nación transfer stay one (Detractions.gs): what the form sent, else the stored part follows.
+  applyDetractionFromSave_(payload.id, payload.fields ? payload.fields.detraction_amount : undefined);
+  if (payload.fields && payload.fields.contract_payment !== undefined) applyContractPaymentFromSave_(payload.id, payload.fields.contract_payment);   // Contracts.gs
+  if (payload.fields && payload.fields.detraction_amount !== undefined) entry = getEntryById_(payload.id) || entry;
   if (before !== null && entry && entry.category_id && entry.category_id !== before) {
     var follow = categoryFollowAfterEdit_(payload.id);
     if (follow) return Object.assign({}, entry, { follow: follow });

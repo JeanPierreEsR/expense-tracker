@@ -45,7 +45,9 @@ var HEALS_ = [
   { id: 'unlink-cross-currency-extras', owner: true, run: function () { unlinkCrossCurrencyGapEntries_(); } },
   // The owner's budgets alert at 75%, 100% and 125% only (owner, 2026-11-16: "change all of my past and future budgets"). DELIBERATE EXCEPTION to
   // "a heal never rewrites data" (owner's request): only the alert percentages of his budgets change; amounts, history and alerts already sent stay.
-  { id: 'owner-budget-alerts-75-100-125', ownerOnly: true, run: function () { setAllBudgetThresholds_(OWNER_BUDGET_THRESHOLDS_); } }
+  { id: 'owner-budget-alerts-75-100-125', ownerOnly: true, run: function () { setAllBudgetThresholds_(OWNER_BUDGET_THRESHOLDS_); } },
+  // A construction company copy gets the "Land" category its pack now has (owner, 2026-11-26). Adds one category; nothing else changes.
+  { id: 'company-land-category', run: function () { addLandCategoryToConstruction_(); } }
 ];
 
 function healMailboxAddressFromToLine_() {

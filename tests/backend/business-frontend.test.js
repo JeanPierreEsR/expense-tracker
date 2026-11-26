@@ -193,7 +193,7 @@ test("step 3B: the IGV switch is hidden in the page itself, its state is declare
   assert.match(app, /setIgvState_\(Number\(entry\.igv_amount\) > 0, entry\.igv_amount, true\);/);
   assert.match(app, /igvOn: !!x\.igv_included/);
   // the company list the phone keeps must not drop the IGV fields (the entry form reads them)
-  assert.match(app, /meta\.companies = companies\.map\(\(c\) => \(\{ id: c\.id, name: c\.name, emoji: c\.emoji, igv_enabled: c\.igv_enabled \|\| "", tax_id: c\.tax_id \|\| "" \}\)\);/);
+  assert.match(app, /meta\.companies = companies\.map\(\(c\) => \(\{ id: c\.id, name: c\.name, emoji: c\.emoji, igv_enabled: c\.igv_enabled \|\| "", tax_id: c\.tax_id \|\| ""(, detraction_rate: c\.detraction_rate \|\| "")? \}\)\);/);
 });
 
 test("step 3B: every igv.* text the app uses exists in English and Spanish", () => {
