@@ -294,10 +294,10 @@ function partnerLinkMap_() {
   var names = {};
   getAllRows('Friends').forEach(function (f) { names[f.id] = f.name; });
   var map = {};
-  c.forEach(function (r) { map[r.entry_id] = { kind: r.kind === 'pending' ? 'pending' : 'contribution', partner: names[r.partner_id] || '', partner_id: r.partner_id, id: r.id }; });
+  c.forEach(function (r) { map[r.entry_id] = { kind: r.kind === 'pending' ? 'pending' : 'contribution', partner: names[r.partner_id] || '', partner_id: r.partner_id, id: r.id, company_id: r.company_id || '', project_id: r.project_id || '' }; });
   var byId = {};
   if (d.length) getAllRows('Entries').forEach(function (e) { byId[e.id] = e; });
-  d.forEach(function (r) { map[r.entry_id] = { kind: 'distribution', partner: names[r.partner_id] || '', partner_id: r.partner_id, id: r.id, gross: distributionGross_(r, byId[r.entry_id]), withholding: Number(r.withholding) || 0 }; });
+  d.forEach(function (r) { map[r.entry_id] = { kind: 'distribution', partner: names[r.partner_id] || '', partner_id: r.partner_id, id: r.id, gross: distributionGross_(r, byId[r.entry_id]), withholding: Number(r.withholding) || 0, company_id: r.company_id || '', project_id: r.project_id || '' }; });
   return map;
 }
 

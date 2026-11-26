@@ -333,6 +333,9 @@
     "xleg.transferWord": { en: "Transfer", es: "Transferencia" },
     "xleg.askPartner": { en: "The other side of this exchange ({amount}, {date}) stays as it is. Open it right after saving this one, in case it was also a mistake?", es: "El otro lado de este cambio de moneda ({amount}, {date}) se queda como está. ¿Abrirlo justo después de guardar este, por si también fue un error?" },
     "transfer.kind.exchange": { en: "Currency exchange", es: "Cambio de moneda" },
+    // A partner's money from the "+" (company copies, owner 2026-11-26)
+    "transfer.kind.partnerIn": { en: "Money from a partner", es: "Dinero de un socio" },
+    "transfer.kind.distribution": { en: "Profit distribution", es: "Distribución de utilidades" },
     "transfer.iPaid": { en: "I paid them", es: "Le pagué" },
     "transfer.theyPaid": { en: "They paid me", es: "Me pagó" },
     "transfer.overpayCategory": { en: "Category if you paid extra", es: "Categoría si pagaste de más" },
@@ -3057,6 +3060,7 @@
     "partner.reviewIn": { es: "Es dinero de un socio", en: "It's a partner's money" },
     "partner.unknownPerson": { es: "(amigo desconocido)", en: "(unknown friend)" },
     "partner.editOut": { es: "Editar distribución de utilidades", en: "Edit profit distribution" },
+    "partner.editIn": { es: "Editar dinero del socio", en: "Edit partner's money" },
     "partner.netPaid": { es: "Neto pagado", en: "Net paid" },
     "partner.reviewOut": { es: "Distribución de utilidades", en: "Profit distribution" },
     "partner.who": { es: "Socio", en: "Partner" },
