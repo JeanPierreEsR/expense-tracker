@@ -299,3 +299,12 @@ test("join is not offered when neither the name nor the entries say the currency
   const c = rt.api("savePaymentMethod", { nickname: "BCP made-up two", type: "debit", bank_id: b.id, last_4: "2222" });
   assert.equal(rt.api("previewAccountMove", { from: c.id, to: a.id }).merge, null);
 });
+
+test("the old Plin-in-dollars link can be cleared, never set", () => {
+  const { rt } = freshApp({ small: true });
+  const pm = rows(rt, "Payment Methods").find((p) => p.nickname === "Daily debit");
+  rt.run(`setSetting_('plin_usd', ${JSON.stringify(pm.id)})`);
+  assert.throws(() => rt.api("saveRailLinks", { plin_usd: pm.id }));
+  rt.api("saveRailLinks", { plin_usd: "" });
+  assert.equal(String(run(rt, "getSettingsMap()").plin_usd || ""), "");
+});

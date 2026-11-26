@@ -373,6 +373,12 @@ function saveRailLinks(payload) {
     }
     setSetting_(key, id);
   });
+  // The old Plin-in-dollars link (no longer offered, Plin is soles only) can only be cleared: the account window sends '' to remove it
+  // from an account that still shows "Plin" because of it (owner, 2026-11-26: "IBK dolares · Plin" with no box to untick).
+  if (payload.plin_usd !== undefined) {
+    if (String(payload.plin_usd || '').trim()) throw new Error(tr_('err.railPlin'));
+    setSetting_('plin_usd', '');
+  }
   if (payload[PLIN_MORE_KEY_] !== undefined) {
     var more = [];
     String(payload[PLIN_MORE_KEY_] || '').split(',').forEach(function (raw) {

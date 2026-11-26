@@ -21323,6 +21323,7 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       if (slots.includes(k) && state.wallets.includes(k)) { if (String(settings[k] || "") !== String(saved.id)) links[k] = saved.id; }
       else if (String(settings[k] || "") === String(saved.id)) links[k] = "";
     });
+    if (String(settings.plin_usd || "") === id) links.plin_usd = "";   // the old Plin-in-dollars link: never offered, cleared on save
     if (Object.keys(links).length) { await callApi("saveRailLinks", links); Object.assign(settings, links); }
     if (dueNow) await callApi("setCardStatementDue", { id: saved.id, due: dueNow });
     // Rebuild the entry form's pickers without losing what's already chosen there (once their list is closed: see whenPickersClosed_).
