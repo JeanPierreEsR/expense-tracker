@@ -1410,13 +1410,17 @@ body.sheet-open {
 .fold-head:has(> .review-toggle[aria-expanded="true"]) .review-toggle-chev { transform: rotate(90deg); }
 .review-queue.review-closed .budgets-header { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
 
+/* Each waiting item is its own white card on the yellow queue, so neighbours never blend (owner, 2026-11-26). */
 .review-item {
-  border-bottom: 1px solid var(--border);
-  padding: 14px 0;
+  background: var(--card);
+  border: 1px solid var(--border-warm);
+  border-radius: var(--r-md);
+  padding: 14px;
+  margin-bottom: 10px;
 }
 
 .review-item:last-child {
-  border-bottom: none;
+  margin-bottom: 0;
 }
 
 .review-item-top {
