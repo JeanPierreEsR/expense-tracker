@@ -6,5 +6,8 @@
   "diners-pago-tarjeta": [
     { "subject": "Comprobante de pago", "body": "Monto S/ 300.00\nTarjeta ****4321\nOperación: 100200",
       "expect": { "type": "transfer", "amount": 300, "currency": "PEN", "description": "Pago tarjeta Diners", "last4": "4321", "externalId": "100200" } }
+  ],
+  "crecer-seguro-tarjetas": [
+    {"subject": "CRECER SEGUROS te ha enviado un nuevo documento electrónico", "body": "Estimado cliente,\nle ha enviado un Comprobante de Pago Electrónico\nTipo de Comprobante BOLETA\nNúmero B001-0001\nProducto ProteccionDeTarjetas\nFecha de emisión 28/09/2026\nMonto Total S/. 9.90", "expect": {"type": "expense", "amount": 9.9, "currency": "PEN", "merchant": "Crecer Seguros", "description": "Crecer Seguros - Proteccion De Tarjetas", "defaultCategory": "Credit card", "defaultCategoryAlt": "Insurance", "externalId": "B001-0001"}}
   ]
 }

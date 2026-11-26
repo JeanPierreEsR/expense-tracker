@@ -25,5 +25,9 @@
     { "subject": "Ana, se ha realizado un pago recurrente a tu Tarjeta Interbank Visa Prueba", "body": "Ana, se ha realizado un pago recurrente a tu Tarjeta Interbank Visa Prueba\n\nConoce el detalle:\nTarjeta: ****1234\nComercio: CURSO PRUEBA\nMonto: $ 64.15\nFecha: 01/02/2026\nHora: 09:15 AM\n\nSi no reconoces esta operación llámanos.",
       "expect": { "type": "expense", "amount": 64.15, "currency": "USD", "merchant": "CURSO PRUEBA", "last4": "1234" } },
     { "subject": "Ana, realizaste un consumo con tu Tarjeta Interbank Visa Prueba", "body": "Ana, se ha realizado un pago recurrente a tu Tarjeta Interbank Visa Prueba\n\nConoce el detalle:\nTarjeta: ****1234\nComercio: TIENDA PRUEBA\nMonto: S/. 5.00\nFecha: 01/02/2026\nHora: 09:15 AM\n\nSi no reconoces esta operación llámanos.", "matches": false }
+  ],
+  "interbank-pago-plin": [
+    {"subject": "Constancia de Pago Plin TC", "body": "Constancia de Pago Plin\n12 Nov 2026 08:18 AM\nCódigo de operación: 00999901\nTarjeta cargo: Tarjeta infinite 400000******1111\nDetalle de pago: Pago único\nDestinatario: ANA PRUEBA\nDestino: PLIN\nMoneda y monto: S/ 15.15", "expect": {"type": "expense", "needsReview": true, "amount": 15.15, "description": "Plin a ANA PRUEBA", "last4": "1111", "externalId": "00999901"}},
+    {"subject": "Constancia de Pago Plin", "body": "Moneda y monto: S/ 30.00\nDestinatario: LUIS PRUEBA\nCuenta cargo\nCuenta Simple\nSoles\n000 0000002222\nCódigo de operación: 00999902", "expect": {"type": "expense", "amount": 30, "description": "Plin a LUIS PRUEBA", "last4": "2222"}}
   ]
 }

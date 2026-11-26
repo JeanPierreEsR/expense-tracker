@@ -28,7 +28,11 @@ var RULE_PACK_MAX_RULES_ = 150;
 var RULE_PACK_MAX_TEXT_ = 120;
 var RULE_PACK_TYPES_ = ['expense', 'income', 'transfer', 'transferIfOwn'];
 var RULE_PACK_RULE_KEYS_ = ['id', 'bank', 'sender', 'label', 'skip', 'cardIsDestination', 'accountByCurrency', 'fromByCurrency', 'first', 'replaces', 'type', 'subjectHas', 'subjectHasAny',
-  'subjectEndsWith', 'subjectIs', 'bodyHas', 'bodyHasAny', 'amount', 'merchant', 'recipient', 'description', 'last4', 'to', 'externalId', 'accountName'];
+  'subjectEndsWith', 'subjectIs', 'bodyHas', 'bodyHasAny', 'amount', 'merchant', 'recipient', 'description', 'last4', 'to', 'externalId', 'accountName',
+  // 2026-11-26 (twins of Plin, Yape, SIP "Enviar a celular", BCP "a otros bancos", Crecer Seguros): new keys ONLY, never a new meaning for an old
+  // one, so an older backend skips just the rules that use them (rulePackNewerOnly_) and keeps the rest of the file.
+  'rail', 'review', 'category', 'accountsOfBank'];
+var RULE_PACK_RAILS_ = ['yape', 'plin'];
 var RULE_PACK_ADDRESS_ = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
 function rulePackEscape_(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -70,9 +74,22 @@ function rulePackCheckRule_(r, where, errors, strict) {
   if (rulePackText_(r.sender, where + '.sender', errors, { address: true }) && !RULE_PACK_ADDRESS_.test(String(r.sender))) errors.push(where + '.sender: not an e-mail address in lower case');
   if (r.replaces !== undefined) rulePackText_(r.replaces, where + '.replaces', errors);
   if (r.subjectIs !== undefined) rulePackText_(r.subjectIs, where + '.subjectIs', errors);
-  ['skip', 'cardIsDestination', 'first', 'accountByCurrency', 'fromByCurrency'].forEach(function (k) { if (r[k] !== undefined && typeof r[k] !== 'boolean') errors.push(where + '.' + k + ': true or false'); });
+  ['skip', 'cardIsDestination', 'first', 'accountByCurrency', 'fromByCurrency', 'review'].forEach(function (k) { if (r[k] !== undefined && typeof r[k] !== 'boolean') errors.push(where + '.' + k + ': true or false'); });
   ['subjectHas', 'subjectHasAny', 'bodyHas', 'bodyHasAny'].forEach(function (k) { if (r[k] !== undefined) rulePackWords_(r[k], where + '.' + k, errors); });
   if (r.subjectEndsWith !== undefined) rulePackText_(r.subjectEndsWith, where + '.subjectEndsWith', errors);
+  // `rail` (2026-11-26): the money moved by Yape / Plin, so when the e-mail names no account it is the one the person linked to that rail.
+  if (r.rail !== undefined && RULE_PACK_RAILS_.indexOf(r.rail) === -1) errors.push(where + '.rail: ' + RULE_PACK_RAILS_.join(' or '));
+  // `accountsOfBank` (2026-11-26): like `accountByCurrency`, but the "<Bank> soles" / "<Bank> dolares" accounts of ANOTHER bank (Yape's money is BCP's).
+  if (r.accountsOfBank !== undefined) rulePackText_(r.accountsOfBank, where + '.accountsOfBank', errors);
+  // `category` (2026-11-26): a fixed category, by its name, else a second name, else the usual guess (Crecer Seguros -> "Credit card").
+  if (r.category !== undefined) {
+    if (!r.category || typeof r.category !== 'object' || Array.isArray(r.category)) errors.push(where + '.category: needs {name}');
+    else {
+      Object.keys(r.category).forEach(function (k) { if (k !== 'name' && k !== 'orName') errors.push(where + '.category: unknown field ' + k); });
+      rulePackText_(r.category.name, where + '.category.name', errors);
+      if (r.category.orName !== undefined) rulePackText_(r.category.orName, where + '.category.orName', errors);
+    }
+  }
   // A rule in front of the code rules with no words to match would take EVERY e-mail from its sender, including the kinds other rules read.
   if (r.first === true && !(r.subjectHas || r.subjectHasAny || r.subjectEndsWith || r.subjectIs || r.bodyHas || r.bodyHasAny)) errors.push(where + '.first: needs words to match');
   if (r.skip === true) return;   // an ignore rule needs only its match words
@@ -82,8 +99,9 @@ function rulePackCheckRule_(r, where, errors, strict) {
   if (r.amount !== undefined) {
     if (!r.amount || typeof r.amount !== 'object') errors.push(where + '.amount: needs {label} or {from}');
     else {
-      Object.keys(r.amount).forEach(function (k) { if (k !== 'label' && k !== 'from') errors.push(where + '.amount: unknown field ' + k); });
+      Object.keys(r.amount).forEach(function (k) { if (k !== 'label' && k !== 'from' && k !== 'orLabel') errors.push(where + '.amount: unknown field ' + k); });
       if (r.amount.label !== undefined) rulePackText_(r.amount.label, where + '.amount.label', errors);
+      if (r.amount.orLabel !== undefined) rulePackText_(r.amount.orLabel, where + '.amount.orLabel', errors);   // 2026-11-26: a second line to read it from
       if (r.amount.from !== undefined && ['body', 'subject'].indexOf(r.amount.from) === -1) errors.push(where + '.amount.from: body or subject');
     }
   }
@@ -91,15 +109,33 @@ function rulePackCheckRule_(r, where, errors, strict) {
     var m = r.merchant;
     if (!m || typeof m !== 'object') errors.push(where + '.merchant: needs {label} or {between}');
     else {
-      Object.keys(m).forEach(function (k) { if (k !== 'label' && k !== 'between') errors.push(where + '.merchant: unknown field ' + k); });
+      Object.keys(m).forEach(function (k) { if (k !== 'label' && k !== 'between' && k !== 'text') errors.push(where + '.merchant: unknown field ' + k); });
       if (m.label !== undefined) rulePackText_(m.label, where + '.merchant.label', errors);
+      if (m.text !== undefined) rulePackText_(m.text, where + '.merchant.text', errors);   // 2026-11-26: always the same shop
       if (m.between !== undefined) {
         if (!Array.isArray(m.between) || m.between.length !== 2) errors.push(where + '.merchant.between: [start, end]');
         else m.between.forEach(function (w, i) { rulePackText_(w, where + '.merchant.between[' + i + ']', errors); });
       }
     }
   }
-  if (r.recipient !== undefined) rulePackLabel_(r.recipient, where + '.recipient', errors);
+  // The recipient (2026-11-26) may also say `initialOk` (the person's own name is printed with only the initial of the last surname, BCP's
+  // "Eva Ramos T.") and `between` + `skipWords` (a name inside a sentence: Yape dollars' "Yapeaste $5.00 a Ana Lo*. Has hecho..."). It keeps
+  // its `label` even then (between wins), so an older backend sees only fields it does not know and skips just that rule.
+  if (r.recipient !== undefined) {
+    var rc = r.recipient;
+    if (!rc || typeof rc !== 'object' || Array.isArray(rc)) errors.push(where + '.recipient: needs {label}');
+    else {
+      Object.keys(rc).forEach(function (k) { if (['label', 'orLabel', 'initialOk', 'between', 'skipWords'].indexOf(k) === -1) errors.push(where + '.recipient: unknown field ' + k); });
+      rulePackText_(rc.label, where + '.recipient.label', errors);
+      if (rc.orLabel !== undefined) rulePackText_(rc.orLabel, where + '.recipient.orLabel', errors);
+      if (rc.initialOk !== undefined && typeof rc.initialOk !== 'boolean') errors.push(where + '.recipient.initialOk: true or false');
+      if (rc.between !== undefined) {
+        if (!Array.isArray(rc.between) || rc.between.length !== 2) errors.push(where + '.recipient.between: [start, end]');
+        else rc.between.forEach(function (w, i) { rulePackText_(w, where + '.recipient.between[' + i + ']', errors); });
+      }
+      if (rc.skipWords !== undefined && !(rc.skipWords === Math.floor(rc.skipWords) && rc.skipWords >= 0 && rc.skipWords <= 5)) errors.push(where + '.recipient.skipWords: 0 to 5');
+    }
+  }
   if (r.externalId !== undefined) rulePackLabel_(r.externalId, where + '.externalId', errors);
   // `accountName` (2026-11-20): the label of the line that names the account the money left by its product name, no digits (SIP's
   // "Origen"); the scan picks the person's account whose name is in it.
@@ -108,7 +144,12 @@ function rulePackCheckRule_(r, where, errors, strict) {
     var d = r.description;
     if (!d || typeof d !== 'object') errors.push(where + '.description: needs {labels}');
     else {
-      Object.keys(d).forEach(function (k) { if (k !== 'labels' && k !== 'prefix' && k !== 'text') errors.push(where + '.description: unknown field ' + k); });
+      // 2026-11-26: `ownText` (the description when the money went to the person's own account), `orText` (when nothing could be read),
+      // `spaceWords` ("ProteccionDeTarjetas" -> "Proteccion De Tarjetas"); `text` + `labels` = "<text> - <what the labels read>".
+      Object.keys(d).forEach(function (k) { if (['labels', 'prefix', 'text', 'ownText', 'orText', 'spaceWords'].indexOf(k) === -1) errors.push(where + '.description: unknown field ' + k); });
+      if (d.ownText !== undefined) rulePackText_(d.ownText, where + '.description.ownText', errors);
+      if (d.orText !== undefined) rulePackText_(d.orText, where + '.description.orText', errors);
+      if (d.spaceWords !== undefined && typeof d.spaceWords !== 'boolean') errors.push(where + '.description.spaceWords: true or false');
       if (d.labels !== undefined) rulePackWords_(d.labels, where + '.description.labels', errors, 3);
       if (d.prefix !== undefined) rulePackText_(d.prefix, where + '.description.prefix', errors);
       if (d.text !== undefined) rulePackText_(d.text, where + '.description.text', errors);
@@ -241,6 +282,8 @@ function rulePackCompile_(r) {
   // `accountByCurrency: true` = when the e-mail names no account, the money left the account called "<Bank> soles" / "<Bank> dolares" (what the
   // welcome questions name a bank's accounts, and what BCP_ACCOUNTS spells out for BCP). Not a map: a public file never names a person's accounts.
   if (r.accountByCurrency === true) rule.accountByCurrency = { PEN: r.bank + ' soles', USD: r.bank + ' dolares' };
+  if (r.accountsOfBank) rule.accountByCurrency = { PEN: r.accountsOfBank + ' soles', USD: r.accountsOfBank + ' dolares' };   // Yape: BCP_ACCOUNTS
+  if (r.rail) rule.rail = r.rail;
   // `fromByCurrency: true` = an e-mail that names no account: the person's one account at the bank holding the payment's currency (2026-11-25).
   if (r.fromByCurrency === true) rule.fromByCurrency = true;
   if (r.skip === true) rule.skip = true;
@@ -258,7 +301,8 @@ function rulePackCompile_(r) {
   if (r.skip === true) { rule.extract = function () { return null; }; return rule; }
   rule.extract = function (subject, body) {
     var amountText = r.amount && r.amount.from === 'subject' ? subject
-      : (r.amount && r.amount.label ? (afterLabel_(body, rulePackEscape_(r.amount.label)) || body) : body);
+      : (r.amount && r.amount.label ? (afterLabel_(body, rulePackEscape_(r.amount.label))
+        || (r.amount.orLabel ? afterLabel_(body, rulePackEscape_(r.amount.orLabel)) : null) || body) : body);
     var amt = extractAmount_(amountText);
     if (!amt) return null;
     var merchant = null;
@@ -266,18 +310,29 @@ function rulePackCompile_(r) {
     else if (r.merchant && r.merchant.between) {
       var mm = body.match(new RegExp(rulePackEscape_(r.merchant.between[0]) + '\\s*([^\\n]+?)\\s*' + rulePackEscape_(r.merchant.between[1]), 'i'));
       merchant = mm ? mm[1].trim() : null;
-    }
+    } else if (r.merchant && r.merchant.text) merchant = r.merchant.text;
     // `orLabel` (2026-11-20): a second wording of the same line, for a bank that sends two layouts (Interbank).
     var labelled = function (spec) {
       return afterLabel_(body, rulePackEscape_(spec.label)) || (spec.orLabel ? afterLabel_(body, rulePackEscape_(spec.orLabel)) : null);
     };
-    var recipient = r.recipient ? labelled(r.recipient) : null;
+    // `between` (2026-11-26): a name inside a sentence, after `skipWords` words (the amount and "a" in "Yapeaste $5.00 a Ana Lo*. Has hecho").
+    var inSentence = function (spec) {
+      var mm = body.match(new RegExp(rulePackEscape_(spec.between[0]) + '\\s+([^\\n]+?)\\s*' + rulePackEscape_(spec.between[1]), 'i'));
+      if (!mm) return null;
+      var words = mm[1].trim().split(/\s+/).slice(spec.skipWords || 0).join(' ').replace(/\.$/, '');
+      return words ? cleanText_(words) : null;
+    };
+    var recipient = r.recipient ? (r.recipient.between ? inSentence(r.recipient) : labelled(r.recipient)) : null;
+    var d = r.description || {};
     var description = null;
-    if (r.description && r.description.labels) {
-      description = r.description.labels.map(function (l) { return afterLabel_(body, rulePackEscape_(l)); }).filter(Boolean).join(' - ') || null;
-    } else if (r.description && r.description.text) description = r.description.text;
+    if (d.labels) {
+      description = d.labels.map(function (l) { return afterLabel_(body, rulePackEscape_(l)); }).filter(Boolean).join(' - ') || null;
+      if (description && d.spaceWords) description = description.replace(/([a-z])([A-Z])/g, '$1 $2');
+      if (d.text) description = description ? d.text + ' - ' + description : d.text;   // "Crecer Seguros - Proteccion De Tarjetas"
+    } else if (d.text) description = d.text;
     else description = merchant || recipient;
-    if (description && r.description && r.description.prefix) description = r.description.prefix + description;
+    if (description && d.prefix) description = d.prefix + description;
+    if (!description && d.orText) description = d.orText;
     var digitsAfter = function (spec) {
       var first = digitsAfterLabel(spec, spec.label);
       return first || (spec.orLabel ? digitsAfterLabel(spec, spec.orLabel) : null);
@@ -300,15 +355,20 @@ function rulePackCompile_(r) {
       externalId: r.externalId ? afterLabel_(body, rulePackEscape_(r.externalId.label)) : null };
     if (toLast4) fields.toLast4 = toLast4;
     if (r.merchant) fields.merchant = merchant;   // like the code rules: a transfer names no merchant
+    if (r.review === true && r.type !== 'transferIfOwn') fields.needsReview = true;   // always waits in Needs review (Yape), like the code rules say it
+    if (r.category) { fields.defaultCategory = r.category.name; if (r.category.orName) fields.defaultCategoryAlt = r.category.orName; }
     if (r.type === 'transferIfOwn') {
-      var own = isOwnAccount_(recipient);
+      // `initialOk`: BCP prints the person's own name with only the last surname's initial ("Eva Ramos T."), as its code rule reads it.
+      var own = r.recipient.initialOk ? (!!recipient && isOwnNameWithInitial_(recipient)) : isOwnAccount_(recipient);
+      if (own && d.ownText) fields.description = d.ownText;   // "Plin (propio)" 
       fields.type = own ? 'transfer' : 'expense';
       fields.needsReview = !own;   // spelled out for an own-account transfer too (false), exactly like the code rules: the twin check found the difference on the owner's real mail
       var ownTo = own && r.to ? digitsAfter(r.to) : null;
       if (ownTo) { fields.toLast4 = ownTo; fields.toOwnAlways = true; }   // the person's own account: a transfer even when the app lacks it
       // Interbank only (2026-11-23): no name, only the destination's account number, maybe one of the person's own Interbank accounts.
       // Same as the code rule, so the twins keep reading alike; the scan decides (emailOwnDestination_).
-      var ownMaybe = !own && r.bank === 'Interbank' ? interbankDestAccountLast4_(body, rulePackEscape_(r.recipient.label)) : null;
+      // Only for a rule that names a destination account (the Plin twin has none, and its code rule never looks).
+      var ownMaybe = !own && r.to && r.bank === 'Interbank' ? interbankDestAccountLast4_(body, rulePackEscape_(r.recipient.label)) : null;
       if (ownMaybe) fields.toIfOwnLast4 = ownMaybe;
     }
     if (r.accountName) fields.accountName = afterLabel_(body, rulePackEscape_(r.accountName.label));
