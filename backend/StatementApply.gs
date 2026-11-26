@@ -132,11 +132,9 @@ function stmtPmForKey_(pms, key, src) {
     var id = String(key).substring(STMT_ACCT_KEY_PREFIX_.length);
     return pms.find(function (pm) { return String(pm.id) === id; }) || null;
   }
-  if (String(key).indexOf('AHORRA-') === 0) {
-    return pms.find(function (pm) { return String(pm.nickname).toLowerCase().replace(/[^a-z]/g, '').indexOf('ahorra') === 0; }) || null;
-  }
+  if (String(key).indexOf('AHORRA-') === 0) return stmtAhorraAccount_(pms, key);   // by the statement's currency (AccountNumbers.gs)
   var k = covKey_(key);
-  return pms.find(function (pm) { return covKey_(pm.last_4) === k && k && !isPracticeAccount_(pm); }) || pmOldKeyMap_(pms, src || { anyTime: true })[k] || null;
+  return pms.find(function (pm) { return k && pmHasLast4_(pm, k) && !isPracticeAccount_(pm); }) || pmOldKeyMap_(pms, src || { anyTime: true })[k] || null;
 }
 
 // Capital letter on each word. NOT `\b`: in JavaScript an accented letter is not a "word" letter, so `\b` found a word start inside "práctica" and made it

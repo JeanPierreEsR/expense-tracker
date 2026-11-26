@@ -127,11 +127,29 @@ function pmWallets_(pm) {
   if (String(settings.plin_pen || "") === String(pm.id) || String(settings.plin_usd || "") === String(pm.id) || plinMoreIds_().includes(String(pm.id))) wallets.push("Plin");
   return wallets.filter((w) => !String(pm.nickname || "").toLowerCase().includes(w.toLowerCase()));
 }
+// An account's numbers (backend/AccountNumbers.gs, owner 2026-11-26): its main last 4 digits, then the other currencies' ("USD:0567" in
+// last_4_more) — a bank account in soles and dollars has one number per currency. ["1234", "0567"].
+function pmMoreLast4_(pm) {
+  return String((pm && pm.last_4_more) || "").split(",").map((part) => {
+    const [cur, d] = part.trim().split(":");
+    return { currency: String(cur || "").trim().toUpperCase(), digits: String(d || "").trim() };
+  }).filter((it) => /^[A-Z]{3}$/.test(it.currency) && /^\d{4}$/.test(it.digits));
+}
+function pmLast4All_(pm) {
+  const main = String((pm && pm.last_4) || "").trim();
+  return [...new Set([...(/^\d{1,4}$/.test(main) ? [main.padStart(4, "0")] : []), ...pmMoreLast4_(pm).map((it) => it.digits)])];
+}
+const pmHasLast4_ = (pm, digits) => pmLast4All_(pm).includes(String(digits || "").padStart(4, "0"));
+// " (1234 · 0567)" after an account's name, "" when it has no digits.
+const pmDigitsSuffix_ = (pm) => { const all = pmLast4All_(pm); return all.length ? ` (${all.join(" · ")})` : ""; };
+// The currency the main digits belong to: the person's main currency when the account has it, else its first one (the server's rule).
+const pmMainDigitsCur_ = (list) => (list || []).includes(homeCur()) ? homeCur() : ((list || [])[0] || "");
+
 function pmPickLabel_(pm) {
   const shown = pmWallets_(pm);
   const bank = !String(pm.nickname || "").trim() && meta && (meta.banks || []).find((b) => String(b.id) === String(pm.bank_id));
   const name = String(pm.nickname || "").trim() || (bank ? bank.name : "") || tr("accounts.unnamed");   // never an empty row
-  return name + (pm.last_4 ? ` (${pm.last_4})` : "") + (shown.length ? " · " + shown.join(" · ") : "");
+  return name + pmDigitsSuffix_(pm) + (shown.length ? " · " + shown.join(" · ") : "");
 }
 
 // Asks for one name in the app's own small window (owner, 2026-11-04: the phone's plain "prompt" box looked out of place). Resolves
@@ -8830,7 +8848,7 @@ function reviewAccountLine_(entry) {
   if (!entry.payment_method_id) return "";
   if (!(entry.type === "expense" || entry.type === "income" || (entry.type === "investment" && Number(entry.amount) > 0))) return "";
   const pm = meta.paymentMethods.find((m) => m.id === entry.payment_method_id);
-  return pm ? pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : "") : "";
+  return pm ? pm.nickname + pmDigitsSuffix_(pm) : "";
 }
 
 // A transfer's side on a Needs review card: "Pick the account…" (not answered yet), "Outside my accounts" (on purpose), then the accounts.
@@ -8840,7 +8858,7 @@ function reviewTransferSideOptions_(selectedId) {
 }
 function transferAccountOptions_(selectedId, blankLabel) {
   const opts = meta.paymentMethods.filter((pm) => !pmHidden_(pm) || pm.id === selectedId).map((pm) =>
-    `<option value="${pm.id}"${ACCT_OPT_} ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`
+    `<option value="${pm.id}"${ACCT_OPT_} ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + pmDigitsSuffix_(pm))}</option>`
   );
   return `<option value="">${blankLabel}</option>` + opts.join("");
 }
@@ -9840,7 +9858,7 @@ var exchangeEditing_ = null;
 function exchangeAccountOptions_(selectedId, noOutside) {
   const own = meta.paymentMethods.filter((pm) => pm.type !== "investment" && (!pmHidden_(pm) || pm.id === selectedId));
   return `<option value="__pick__">${escapeHtml(tr("xch.pickAccount"))}</option>` +
-    own.map((pm) => `<option value="${pm.id}"${ACCT_OPT_} ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("") +
+    own.map((pm) => `<option value="${pm.id}"${ACCT_OPT_} ${pm.id === selectedId ? "selected" : ""}>${escapeHtml(pm.nickname + pmDigitsSuffix_(pm))}</option>`).join("") +
     (noOutside ? "" : `<option value="">${escapeHtml(tr("xch.outside"))}</option>`);
 }
 
@@ -20831,7 +20849,7 @@ async function refreshAccountSuggestions_() {
     // Bank and last digits under the name (owner, 2026-11-18): a name alone ("Main debit") does not say which account it is.
     const pm = (meta.paymentMethods || []).find((x) => String(x.id) === String(a.id)) || {};
     const bank = (meta.banks || []).find((b) => b.id === pm.bank_id);
-    const which = [bank ? bank.name : "", pm.last_4 ? tr("accounts.digits", { last4: pm.last_4 }) : ""].filter(Boolean).join(" · ");
+    const which = [bank ? bank.name : "", ...pmLast4All_(pm).map((d) => tr("accounts.digits", { last4: d }))].filter(Boolean).join(" · ");
     row.innerHTML = `<div class="acur-name">${escapeHtml(a.nickname)}</div>${which ? `<div class="acur-bank">${escapeHtml(which)}</div>` : ""}<div class="hint">${escapeHtml(why)}</div><div class="acur-ticks"></div>`;
     const codes = [...new Set([...a.proposed, ...Object.keys(a.counts), homeCur(), "USD"])];
     codes.forEach((c) => {
@@ -20902,7 +20920,7 @@ function renderAccountsList_() {
         <div class="recurring-row-name">${escapeHtml(pm.nickname || tr("common.noName"))}</div>
         <div class="recurring-row-sub">${escapeHtml(sub)}</div>
       </div>
-      <div class="recurring-row-amount">${pm.last_4 ? escapeHtml(tr("accounts.digits", { last4: pm.last_4 })) : ""}</div>
+      <div class="recurring-row-amount">${escapeHtml(pmLast4All_(pm).map((d) => tr("accounts.digits", { last4: d })).join(" · "))}</div>
     `;
     row.addEventListener("click", () => {
       if (!accountsEditing_) { openPmModal_(pm); return; }   // Edit mode: a tap ticks instead of opening
@@ -21091,11 +21109,14 @@ function openPmModal_(pm) {
   document.getElementById("pm-bank-digits").hidden = basicCash;   // Cash has no bank and no digits (testers 2.68.2)
   // A wallet tied to a bank account must not be added as a wallet: the bank account behind it is the account (owner's rule, 2026-10-18).
   const walletWarn = () => { document.getElementById("pm-wallet-warning").hidden = typeSel.value !== "wallet"; };
-  typeSel.onchange = () => { if (!pmModalState.id) pmModalState.currencies = null; walletWarn(); renderPmCurrency_(); renderPmWallets_(); };
+  typeSel.onchange = () => { if (!pmModalState.id) pmModalState.currencies = null; walletWarn(); renderPmCurrency_(); renderPmWallets_(); renderPmMoreDigits_(); };
   walletWarn();
   renderPmCurrency_();
   document.getElementById("pm-nickname").value = pm ? pm.nickname : "";
   document.getElementById("pm-last4").value = pm ? pm.last_4 || "" : "";
+  pmModalState.more = {};   // the other currencies' digits, by currency (kept while the currency list changes)
+  pmMoreLast4_(pm).forEach((it) => { pmModalState.more[it.currency] = it.digits; });
+  renderPmMoreDigits_();
   fillPmBankOptions_(pmModalState.lastBank);
   renderPmWallets_();
   document.getElementById("pm-form-error").textContent = "";
@@ -21133,7 +21154,7 @@ function renderPmCurrency_() {
     label.removeAttribute("for");
     if (!pmModalState.currencies) pmModalState.currencies = type === "credit" ? cardDefaultCurrencies_(homeCur()) : [homeCur()];
     const codes = [...new Set([homeCur(), ...getRecentCurrencies(), ...CURRENCIES.map((c) => c.code)])];
-    renderCurrencyChecks_(document.getElementById("pm-cur-checks"), codes, pmModalState.currencies, (list) => { pmModalState.currencies = list; renderPmWallets_(); });
+    renderCurrencyChecks_(document.getElementById("pm-cur-checks"), codes, pmModalState.currencies, (list) => { pmModalState.currencies = list; renderPmWallets_(); renderPmMoreDigits_(); });
     return;
   }
   sel.innerHTML = "";
@@ -21143,6 +21164,33 @@ function renderPmCurrency_() {
   const was = pmModalState.cur || "";
   sel.value = type === "credit" ? (/^credit_/.test(pmModalState.kind || "") ? was : "") : (was || homeCur());
 }
+// A bank account in several currencies has one number per currency (owner, 2026-11-26: a BCP account called "Yape", in soles and
+// dollars): the main box holds the main currency's digits (pmMainDigitsCur_), one more box per other currency. Only where the backend
+// stores them (capability accountNumbers). Answers the currencies that get a box of their own ([] = one plain box).
+function pmMoreDigitsCurrencies_() {
+  if (!pmModalState || !((meta && meta.capabilities) || {}).accountNumbers || !accountListOn_()) return [];
+  if (document.getElementById("pm-type").value !== "debit" || document.getElementById("pm-cur-box").hidden) return [];
+  const list = pmModalState.currencies || [];
+  if (list.length < 2) return [];
+  const main = pmMainDigitsCur_(list);
+  return list.filter((c) => c !== main);
+}
+function renderPmMoreDigits_() {
+  if (!pmModalState) return;
+  const box = document.getElementById("pm-more-last4"), label = document.getElementById("pm-last4-label");
+  const others = pmMoreDigitsCurrencies_();
+  box.hidden = !others.length;
+  label.textContent = others.length ? tr("accounts.last4Cur", { currency: pmMainDigitsCur_(pmModalState.currencies) }) : tr("accounts.last4");
+  box.innerHTML = others.map((c) => `<label for="pm-last4-${c}">${escapeHtml(tr("accounts.last4Cur", { currency: c }))}</label>
+    <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" id="pm-last4-${c}" data-cur="${c}" class="pm-last4-more" placeholder="${escapeHtml(tr("common.optional"))}" value="${escapeHtml(pmModalState.more[c] || "")}">`).join("")
+    + (others.length ? `<p class="hint">${escapeHtml(tr("accounts.last4MoreHint"))}</p>` : "");
+}
+document.getElementById("pm-more-last4").addEventListener("input", (e) => {
+  if (!pmModalState || !e.target.classList.contains("pm-last4-more")) return;
+  const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+  if (digits !== e.target.value) e.target.value = digits;
+  pmModalState.more[e.target.dataset.cur] = digits;
+});
 function pmKindNow_() {
   const type = document.getElementById("pm-type").value;
   if (accountListOn_()) {   // (only chooses the wallet boxes now: several or none offer what the account's type allows)
@@ -21218,6 +21266,11 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   const last4 = document.getElementById("pm-last4").value.trim();
   if (!nickname) { errorEl.textContent = tr("accounts.errName"); return; }
   if (last4 && !/^\d{4}$/.test(last4)) { errorEl.textContent = tr("accounts.errLast4"); return; }
+  // The other currencies' numbers (sent only where the backend keeps them; [] clears them, e.g. an account back to one currency).
+  const moreCurs = pmMoreDigitsCurrencies_();
+  const moreLast4 = moreCurs.map((c) => ({ currency: c, digits: String(pmModalState.more[c] || "").trim() })).filter((it) => it.digits);
+  if (moreLast4.some((it) => !/^\d{4}$/.test(it.digits))) { errorEl.textContent = tr("accounts.errLast4"); return; }
+  const moreField = ((meta && meta.capabilities) || {}).accountNumbers ? { last_4_more: moreLast4 } : {};
   const dueTyped = dueBlockValue_("pm");   // the last statement's pay-by date, typed at the end of the form (owner, 2026-11-18)
   if (dueTyped === null) { errorEl.textContent = tr("accounts.dueTooEarly"); return; }
   const dueNow = dueTyped && dueTyped !== document.getElementById("pm-due-input").dataset.saved ? dueTyped : "";   // only a changed one is saved
@@ -21226,12 +21279,18 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
   const before = pmModalState.id && meta.paymentMethods.find((p) => p.id === pmModalState.id);
   const renamed = !before || plain(before.nickname) !== plain(nickname);
   if (renamed && plain(nickname) === "plin") { errorEl.textContent = tr("wallets.plinNotAccount"); return; }
-  if (renamed && plain(nickname) === "yape" && !await askConfirmApp_(tr("wallets.yapeAlone"), tr("confirmBtn.yes"), { plain: true })) return;
+  // A BCP debit account CALLED Yape is the usual way to say it (owner, 2026-11-26): no question, and its free Yape boxes are ticked.
+  const yapeOnBcp = plain(nickname) === "yape" && document.getElementById("pm-type").value === "debit" && isBcp_(pmBankName_());
+  if (renamed && plain(nickname) === "yape" && !yapeOnBcp && !await askConfirmApp_(tr("wallets.yapeAlone"), tr("confirmBtn.yes"), { plain: true })) return;
   // Closes at once and saves behind the screen (a refusal, such as a repeated name, comes back as an alert).
   const state = { id: pmModalState.id, wallets: pmModalState.wallets, selectIn: pmModalState.selectIn || "" };
   const type = document.getElementById("pm-type").value;
   const bankId = document.getElementById("pm-bank").value === "__add__" ? "" : document.getElementById("pm-bank").value;
   const slotsNow = pmWalletSlots_();
+  if (renamed && yapeOnBcp) {
+    const linksNow = (meta && meta.settings) || {};
+    slotsNow.filter((k) => k.indexOf("yape") === 0 && !state.wallets.includes(k) && !String(linksNow[k] || "")).forEach((k) => state.wallets.push(k));
+  }
   const curField = document.getElementById("pm-cur-box").hidden ? {} : accountListOn_() ? { currencies: pmModalState.currencies || [] } : { currency: document.getElementById("pm-currency").value };
   closePmModal_();
   if (dueNow) markBalanceSaving_(state.id);   // its Balances row says "Saving…" until the new pay-by line arrives
@@ -21242,7 +21301,8 @@ document.getElementById("pm-save-btn").addEventListener("click", async () => {
       type,
       bank_id: bankId,
       last_4: last4,
-      ...curField
+      ...curField,
+      ...moreField
     });
     const i = meta.paymentMethods.findIndex((p) => p.id === saved.id);
     if (i >= 0) meta.paymentMethods[i] = { ...meta.paymentMethods[i], ...saved };
@@ -21447,11 +21507,14 @@ document.getElementById("move-to").addEventListener("change", async (e) => {
       + ((p.balanceChoices || []).length ? `<div id="move-bal-box">${moveBalanceHtml_(p)}</div>` : c.balancesDropped ? `<p class="hint">${escapeHtml(tr("move.balancesKept", { n: c.balancesDropped, name: p.to.nickname }))}</p>` : "")
       + (c.selfTransfers ? `<p class="hint">${escapeHtml(tr("move.selfTransfers", { n: c.selfTransfers }))}</p>` : "")
       + ((p.droppedLinks || []).length ? `<p class="stmt-note warn">${escapeHtml(tr("move.linksDropped", { wallets: p.droppedLinks.join(" / "), name: p.to.nickname }))}</p>` : "")
+      + moveMergeHtml_(p)
+      + `<div id="move-nomerge"${p.merge ? " hidden" : ""}>`
       + (extra.length ? `<p class="stmt-note warn">${escapeHtml(tr("move.currencyWarn", { currencies: extra.join(", "), name: p.to.nickname }))}</p>` : "")
       + (digits && bank ? `<p class="hint">${escapeHtml(tr("move.digits", { name: p.to.nickname, digits, bank: bank.name }))}</p>` : "")
+      + `</div>`
       + bankAsk
       + `<p class="hint">${escapeHtml(tr("move.deleted", { name: p.from.nickname }))}</p>`;
-    btn.textContent = tr("move.go", { name: p.from.nickname });
+    btn.textContent = tr(p.merge ? "move.goMerge" : "move.go", { name: p.from.nickname });
     btn.hidden = false;
   } catch (err) {
     if (req !== moveReq_) return;
@@ -21464,7 +21527,26 @@ document.getElementById("move-summary").addEventListener("click", (e) => {
   if (b.dataset.keep === "1") moveKeep_.add(b.dataset.movebal); else moveKeep_.delete(b.dataset.movebal);
   document.getElementById("move-bal-box").innerHTML = moveBalanceHtml_(movePreview_);
 });
+// Joining two accounts (owner, 2026-11-26: "BCP soles" + "BCP dólares" → one "Yape" with both numbers): offered by the server only for two
+// bank accounts of the same bank in different currencies (backend/AccountNumbers.gs); ticked by default, with a name box.
+function moveMergeHtml_(p) {
+  if (!p.merge) return "";
+  const numbers = (p.merge.numbers || []).map((n) => `${tr("accounts.digits", { last4: n.digits })} (${n.currency})`).join(" · ");
+  return `<label class="checkbox-row" style="margin-top:10px"><input type="checkbox" id="move-merge" checked><span>${escapeHtml(tr("move.merge"))}</span></label>
+    <div id="move-merge-box">
+      <p class="hint">${escapeHtml(tr("move.mergeHint", { name: p.to.nickname, currencies: p.merge.currencies.join(" + "), numbers }))}</p>
+      <label for="move-merge-name">${escapeHtml(tr("move.mergeName"))}</label>
+      <input type="text" id="move-merge-name" maxlength="60" value="${escapeHtml(p.to.nickname)}">
+    </div>`;
+}
 document.getElementById("move-summary").addEventListener("change", (e) => {
+  if (e.target.id === "move-merge") {
+    const on = e.target.checked;
+    document.getElementById("move-merge-box").hidden = !on;
+    document.getElementById("move-nomerge").hidden = on;
+    document.getElementById("move-save-btn").textContent = tr(on ? "move.goMerge" : "move.go", { name: movePreview_ ? movePreview_.from.nickname : "" });
+    return;
+  }
   if (e.target.id !== "move-old-bank") return;
   const digits = String(((meta.paymentMethods.find((x) => x.id === moveFromId_) || {}).last_4) || "").trim();
   const bank = (meta.banks || []).find((b) => String(b.id) === e.target.value);
@@ -21474,6 +21556,12 @@ document.getElementById("move-save-btn").addEventListener("click", () => {
   const fromId = moveFromId_, toId = document.getElementById("move-to").value;
   if (!fromId || !toId) return;
   const oldBankSel = document.getElementById("move-old-bank"), oldBankId = oldBankSel ? oldBankSel.value : "";
+  const mergeBox = document.getElementById("move-merge"), merge = !!(mergeBox && mergeBox.checked);
+  const mergeName = merge ? document.getElementById("move-merge-name").value.trim() : "";
+  if (merge && !mergeName) { document.getElementById("move-form-error").textContent = tr("accounts.errName"); return; }
+  if (merge && meta.paymentMethods.some((pm) => pm.id !== fromId && pm.id !== toId && String(pm.nickname).trim().toLowerCase() === mergeName.toLowerCase())) {
+    document.getElementById("move-form-error").textContent = tr("move.mergeNameTaken"); return;
+  }
   const keepBalances = [...moveKeep_];
   const from = meta.paymentMethods.find((p) => p.id === fromId), to = meta.paymentMethods.find((p) => p.id === toId);
   closeMoveModal_();
@@ -21488,7 +21576,7 @@ document.getElementById("move-save-btn").addEventListener("click", () => {
   };
   let res = null;
   saveBehindScreen_(async () => {
-    try { res = await callApi("moveAccountHistory", { from: fromId, to: toId, old_bank_id: oldBankId || undefined, keep_balances: keepBalances }); }
+    try { res = await callApi("moveAccountHistory", { from: fromId, to: toId, old_bank_id: oldBankId || undefined, keep_balances: keepBalances, ...(merge ? { merge: true, merge_name: mergeName } : {}) }); }
     catch (err) { unmarkDeleting_("pm:" + fromId); throw err; }
     unmarkDeleting_("pm:" + fromId);
   }, async () => {
@@ -21496,7 +21584,7 @@ document.getElementById("move-save-btn").addEventListener("click", () => {
     if (!res) return;
     // The same Restore as More → My data → Recently deleted, where the move waits 30 days. Shown once the refresh is done (testers
     // 2.68.2: it sat inside the "Saving…" toast), and gone when the person changes tab (kind "move", see showScreen).
-    showUndoToast_(tr("move.done", { from: from ? from.nickname : "", to: to ? to.nickname : "" }), async () => {
+    showUndoToast_(tr(res.merged ? "move.doneMerge" : "move.done", { from: from ? from.nickname : "", to: res.to && res.to.nickname ? res.to.nickname : (to ? to.nickname : "") }), async () => {
       await callApi("undoAccountMove", { move_id: res.move_id });
       showToast_(tr("move.undone"));
       await refresh();
@@ -22807,7 +22895,7 @@ function renderTripGroupForm_(form, d) {
     <label>${escapeHtml(tr("trips.groupDate"))}</label>
     <input type="date" id="trip-group-date" value="${escapeHtml(todayLocalISO())}">
     <label>${escapeHtml(tr("trips.groupAccount"))}</label>
-    <select id="trip-group-account">${methods.map((pm) => `<option value="${escapeHtml(pm.id)}"${ACCT_OPT_}>${escapeHtml(pm.nickname + (pm.last_4 ? ` (${pm.last_4})` : ""))}</option>`).join("")}</select>
+    <select id="trip-group-account">${methods.map((pm) => `<option value="${escapeHtml(pm.id)}"${ACCT_OPT_}>${escapeHtml(pm.nickname + pmDigitsSuffix_(pm))}</option>`).join("")}</select>
     <div id="trip-group-cat-block">
       <label>${escapeHtml(tr("trips.groupCategory"))}</label>
       <select id="trip-group-category"></select>

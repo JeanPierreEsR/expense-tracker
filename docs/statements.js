@@ -241,7 +241,7 @@
   // digits, so without them the statement looks like a NEW account. Step 1 names them, each with a button to its own window.
   function digitlessAccounts() {
     return ((typeof meta !== "undefined" && meta && meta.paymentMethods) || []).filter((pm) => (pm.type === "debit" || pm.type === "credit")
-      && !/^\d{4}$/.test(String(pm.last_4 || "").trim()) && !pmHidden_(pm) && !/^(Practice account|Cuenta de práctica)$/i.test(String(pm.nickname || "").trim()));
+      && !pmLast4All_(pm).length && !pmHidden_(pm) && !/^(Practice account|Cuenta de práctica)$/i.test(String(pm.nickname || "").trim()));
   }
   function renderDigitsNudge() {
     const card = $("stmt-digits-card");
@@ -1206,7 +1206,7 @@
     if (!state.accountId) {
       const fileDigits = (file.name.match(/\d{4}/g) || []);
       const banks = accounts.filter((a) => a.type !== "cash");   // Cash is offered, never picked by itself (a file without accounts stays with none)
-      const hit = banks.find((a) => fileDigits.includes(String(a.last_4 || "").padStart(4, "0"))) || (banks.length === 1 ? banks[0] : null);
+      const hit = banks.find((a) => pmLast4All_(a).some((d) => fileDigits.includes(d))) || (banks.length === 1 ? banks[0] : null);   // any of its numbers
       if (hit) state.accountId = hit.id;
     }
 
@@ -1219,7 +1219,7 @@
     const sel = (cls, label, inner) => `<label>${escapeHtml(label)}</label><select class="tm-${cls}">${inner}</select>`;
     const currencyOptions = (selected) => CURRENCIES.map((c) => `<option value="${c.code}"${c.code === selected ? " selected" : ""}>${c.code}</option>`).join("");
     const accountOptions = (selectedId, extra, after, list) => `<option value="">${escapeHtml(tr(noneOk ? "imp.noAccountOption" : "table.pickAccount"))}</option>` + (extra || "") +
-      (list || accounts).map((a) => `<option value="${escapeHtml(a.id)}"${a.id === selectedId ? " selected" : ""}>${escapeHtml(a.nickname + (a.last_4 ? ` (${a.last_4})` : ""))}</option>`).join("") + (after || "");
+      (list || accounts).map((a) => `<option value="${escapeHtml(a.id)}"${a.id === selectedId ? " selected" : ""}>${escapeHtml(a.nickname + pmDigitsSuffix_(a))}</option>`).join("") + (after || "");
     // A file's account can be one the save creates (backend capability importNewAccounts; see "accounts the file names" below).
     const newOk = !!(((typeof meta !== "undefined" && meta && meta.capabilities) || {}).importNewAccounts);
     const singleNewOption = newOk ? `<option value="new:*">${escapeHtml(tr("imp.newAcctSingle"))}</option>` : "";
@@ -1388,7 +1388,7 @@
       // "Interbank 1408" in another app's export: the account whose last 4 digits are in the name, when only one has them (journeys run,
       // 2026-11-17: all 712 lines of a Money Manager file were saved with no account).
       const digits = String(value).match(/\d{4}/g) || [];
-      const byDigits = accounts.filter((a) => a.last_4 && digits.includes(String(a.last_4).padStart(4, "0")));
+      const byDigits = accounts.filter((a) => pmLast4All_(a).some((d) => digits.includes(d)));   // any of the account's numbers (soles and dollars)
       return byDigits.length === 1 ? byDigits[0].id : "";
     }
     function renderValues() {

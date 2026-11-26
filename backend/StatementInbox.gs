@@ -291,7 +291,7 @@ function stmtInboxAccounts_(item, pms, banksById) {
 /** Newest processed_at over the statements already processed for these accounts. */
 function stmtLastProcessedFor_(accounts, uploads) {
   var keys = {};
-  accounts.forEach(function (pm) { keys[covKey_(pm.last_4)] = true; pmOldLast4List_(pm).forEach(function (k) { keys[k] = true; }); });   // (a replaced card's statements count too)
+  accounts.forEach(function (pm) { pmLast4List_(pm).forEach(function (k) { keys[k] = true; }); pmOldLast4List_(pm).forEach(function (k) { keys[k] = true; }); });   // (a replaced card's statements count too)
   var last = '';
   uploads.forEach(function (u) { if (keys[covKey_(u.account_key)] && String(u.processed_at) > last) last = String(u.processed_at); });
   return last;
@@ -394,7 +394,7 @@ function stmtInboxWaitingByAccount_(pms, banksById, uploads) {
     var accts = stmtInboxAccounts_(r, pms, banksById);
     var last = stmtLastProcessedFor_(accts, uploads);
     if (last && String(r.received) <= last) return; // probably already processed
-    accts.forEach(function (pm) { var k = covKey_(pm.last_4); if (k) waiting[k] = (waiting[k] || 0) + 1; });
+    accts.forEach(function (pm) { pmLast4List_(pm).forEach(function (k) { waiting[k] = (waiting[k] || 0) + 1; }); });
   });
   return waiting;
 }

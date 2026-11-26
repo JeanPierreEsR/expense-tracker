@@ -1260,7 +1260,7 @@ function emailOwnDestination_(rule, fields, banks, paymentMethods, fromAccount) 
   var bank = banks.find(function (b) { return b.name === rule.bank; });
   if (!bank) return null;
   var ownKind = paymentMethods.filter(function (pm) { return pm.type !== 'credit' && pm.type !== 'investment' && (!fromAccount || pm.id !== fromAccount.id); });
-  var hits = ownKind.filter(function (pm) { return pm.bank_id === bank.id && pmLast4_(pm.last_4) === pmLast4_(fields.toIfOwnLast4); });
+  var hits = ownKind.filter(function (pm) { return pm.bank_id === bank.id && pmHasLast4_(pm, fields.toIfOwnLast4); });   // (any of its numbers: AccountNumbers.gs)
   if (!hits.length) hits = pmsWithOldLast4_(ownKind, fields.toIfOwnLast4, { bankId: bank.id });   // a replaced account's old digits (AccountMove.gs)
   return hits.length === 1 ? hits[0] : null;
 }
@@ -1281,7 +1281,7 @@ function emailAccountFor_(rule, fields, banks, paymentMethods) {
   if (bank && !fields.cardUnknown) {
     var pms = paymentMethods.filter(function (pm) { return pm.bank_id === bank.id; });
     paymentMethod = fields.last4
-      ? (pms.find(function (pm) { return pmLast4_(pm.last_4) === pmLast4_(fields.last4); })
+      ? (pms.find(function (pm) { return pmHasLast4_(pm, fields.last4); })   // (an account in two currencies has two numbers: AccountNumbers.gs)
         // a replaced card's old digits find the account that took its history, wherever it is now — only for this bank's e-mails (AccountMove.gs)
         || (function () { var o = pmsWithOldLast4_(paymentMethods, fields.last4, { bankId: bank.id }); return o.length === 1 ? o[0] : null; })())
       : (rule.fromByCurrency ? emailAccountByCurrency_(fields.currency, pms)
@@ -1289,7 +1289,7 @@ function emailAccountFor_(rule, fields, banks, paymentMethods) {
     // The e-mail names digits but none of the bank's accounts has them: when the person never filled in ANY digits for this bank (they are
     // optional in the welcome questions) the digits cannot disprove anything, so "the bank's only account" still applies, as it did before
     // the masked digits of BCP / Diners / Interbank card payments were read (2026-10-28). Digits that were filled in and do not match: blank.
-    if (!paymentMethod && fields.last4 && !rule.accountByCurrency && !rule.fromByCurrency && pms.length === 1 && !String(pms[0].last_4 || '').trim()) paymentMethod = pms[0];
+    if (!paymentMethod && fields.last4 && !rule.accountByCurrency && !rule.fromByCurrency && pms.length === 1 && pmHasNoDigits_(pms[0])) paymentMethod = pms[0];
   }
   // A rule with no bank (EBANX) still names the card by its last four digits: use them when exactly one account has them.
   if (!paymentMethod && !rule.bank && fields.last4) {
