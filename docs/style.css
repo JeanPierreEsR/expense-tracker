@@ -2747,6 +2747,7 @@ html:has(#welcome-overlay:not([hidden])) :is(body > header, #app, #bottom-nav, #
 .fits-toggle { width: 100%; }
 #fits-body { padding-top: 6px; }
 #fits-body h3 { margin: 14px 0 8px; }
+.fits-business { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 .welcome-currencies { display: flex; flex-wrap: wrap; gap: 8px; }
 .welcome-currencies .welcome-choice { padding: 10px 14px; min-height: 44px; }
 .welcome-body { font-size: 1.125em; line-height: 1.5; min-height: 6em; }

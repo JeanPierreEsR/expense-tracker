@@ -77,9 +77,9 @@ test("opening it to everyone is one constant, and nothing else changes", () => {
 test("on the phone the two doors are closed in the page itself and opened only by the server's say-so", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "index.html"), "utf8");
   const app = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "app.js"), "utf8");
-  assert.match(html, /id="more-business-features-btn" hidden/);
+  assert.match(html, /<div id="bf-block" class="fits-business" hidden>/);
   assert.match(html, /<div id="wb-block" hidden>/);
-  assert.match(app, /document\.getElementById\("more-business-features-btn"\)\.hidden = !businessOffered\(\);/);
+  assert.match(app, /document\.getElementById\("bf-block"\)\.hidden = !businessOffered\(\) \|\| !!\(meta && meta\.capabilities && meta\.capabilities\.companyCopy\);/);
   assert.match(app, /waEl_\("wb-block"\)\.hidden = !businessOffered\(\);/);
   assert.match(app, /if \(!businessOffered\(\)\) welcome_\.business = false;/);
   // start-up data saved before this existed has no such key: it must not open the door on a new person's copy

@@ -10,9 +10,9 @@ const app = read("docs", "app.js");
 const html = read("docs", "index.html");
 const api = read("backend", "Api.gs");
 
-test("the three business screens are remembered by the More tab (tab memory)", () => {
+test("the two business screens are remembered by the More tab (tab memory)", () => {
   const line = app.match(/const MORE_SUBSCREENS = \[([^\]]*)\]/)[1];
-  for (const name of ["business", "business-detail", "business-features"]) {
+  for (const name of ["business", "business-detail"]) {
     assert.ok(line.includes(`"${name}"`), name + " is in MORE_SUBSCREENS");
     assert.ok(html.includes(`id="screen-${name}"`), name + " exists in index.html");
   }

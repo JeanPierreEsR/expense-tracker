@@ -53,12 +53,16 @@ test("a company copy built with the property carries the Settings row from the s
   assert.equal(plain.rows("Settings").find((r) => r.key === "company_copy"), undefined);
 });
 
-test("turning the pack off on a company copy is kept (it is on only while nobody chose)", () => {
+test("a company copy has the pack always on: it cannot be turned off, and an old 'no' in Settings is ignored", () => {
   const rt = friendCopy("setting");
-  rt.api("setBusinessFeatures", { on: false });
-  assert.equal(rt.api("getMeta", {}).capabilities.business, false);
-  rt.api("setBusinessFeatures", { on: true });
   assert.equal(rt.api("getMeta", {}).capabilities.business, true);
+  assert.throws(() => rt.api("setBusinessFeatures", { on: false }), /always on|siempre están activadas/);
+  assert.equal(rt.api("getMeta", {}).capabilities.business, true);
+  rt.run("setSetting_('business_features', 'no')");   // a copy that had turned it off before this rule
+  assert.equal(rt.api("getMeta", {}).capabilities.business, true);
+  // the phone shows no switch there (My profile → What fits me)
+  const app = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "app.js"), "utf8");
+  assert.match(app, /"bf-block"\)\.hidden = !businessOffered\(\) \|\| !!\(meta && meta\.capabilities && meta\.capabilities\.companyCopy\)/);
 });
 
 test("the welcome's company step: the company with its sector, its projects and the construction categories, in one call", () => {

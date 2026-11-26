@@ -967,10 +967,6 @@
             <span class="row-icon" data-icon="message" aria-hidden="true"></span><span data-i18n="more.feedbackPrivacy">Feedback &amp; privacy</span>
             <span class="more-list-chevron">›</span>
           </button>
-          <button type="button" class="more-list-item" id="more-business-features-btn" hidden>
-            <span class="row-icon" data-icon="toggle" aria-hidden="true"></span><span><span data-i18n="more.businessFeatures">Business features</span> <span class="original-amt" id="more-business-features-state"></span></span>
-            <span class="more-list-chevron">›</span>
-          </button>
           <button type="button" class="more-list-item" id="more-preview-welcome-btn" hidden>
             <span class="row-icon" data-icon="eye" aria-hidden="true"></span><span data-i18n="more.previewWelcome">Preview the welcome flow</span>
             <span class="more-list-chevron">›</span>
@@ -1183,22 +1179,6 @@
     <div hidden>
       <input type="date" id="business-custom-start">
       <input type="date" id="business-custom-end">
-    </div>
-
-    <div id="screen-business-features" class="screen" hidden>
-      <div class="card">
-        <div class="budgets-header">
-          <button type="button" class="icon-btn back-btn" id="bf-back-btn" data-i18n-aria-label="common.backAria" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
-        </div>
-        <h2 class="screen-title" style="margin-top:0;" data-i18n="bf.title">Business features</h2>
-        <p class="hint" data-i18n="bf.hint">Optional. They add companies and projects to the app, so you can see the income, the costs and the margin of each one, in each currency. The rest of the app stays exactly as it is.</p>
-        <label class="checkbox-row">
-          <input type="checkbox" id="bf-toggle">
-          <span data-i18n="bf.toggle">Use business features</span>
-        </label>
-        <p class="hint" data-i18n="bf.offNote">If you turn them off, they are hidden but nothing is deleted. Turn them on again and everything comes back.</p>
-        <p class="hint error-text" id="bf-error"></p>
-      </div>
     </div>
 
     <div id="screen-business" class="screen" hidden>
@@ -1717,6 +1697,16 @@
               <div id="fits-chips"></div>
               <p class="hint" id="fits-msg" role="status"></p>
               <button type="button" class="primary" id="fits-add-btn" data-i18n="fits.add">Save my choices</button>
+              <!-- The Business pack's switch (it had its own row in More until 2026-11-25). Never on a company copy: there it is always on. -->
+              <div id="bf-block" class="fits-business" hidden>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="bf-toggle">
+                  <span data-i18n="bf.toggle">I also use the app for a business or projects</span>
+                </label>
+                <p class="hint" data-i18n="bf.hint">Optional. Adds companies and projects to the app, so you can see the income, the costs and the margin of each one, in each currency. The rest of the app stays exactly as it is.</p>
+                <p class="hint" data-i18n="bf.offNote">If you uncheck it, the business part is hidden but nothing is deleted. Check it again and everything comes back.</p>
+                <p class="hint error-text" id="bf-error"></p>
+              </div>
             </div>
           </div>
 
